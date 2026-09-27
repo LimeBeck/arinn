@@ -1,54 +1,59 @@
-# Phase 0 — результаты эксперимента
+# Phase 0 report
 
-Дата: 2026-09-27. Текущая машина использована с разрешения пользователя как технически эквивалентная HTPC. Реализован и проверен вертикальный срез; **полный gate пока не закрыт**. [Запуск и воспроизведение](phase-0-runbook.md).
+Date: 2026-09-27. The development machine was used, with the project owner's permission, as technically equivalent to the HTPC. A vertical slice was implemented and verified; gate status is in the [gate matrix](phase-0-gate.md). [Build and run](phase-0-runbook.md).
 
-## Окружение
+## Environment
 
-KDE/Wayland, KWin 6.7.5, Qt 6.11.2, Rust 1.98.1, systemd 261.3. Intel Iris Xe (Tiger Lake GT2), kernel driver i915, Mesa 26.2.3, KWin OpenGL/EGL compositor. Версия Plasma Shell отдельно не подтверждалась.
+KDE/Wayland, KWin 6.7.5, Qt 6.11.2, Rust 1.98.1, systemd 261.3. Intel Iris Xe (Tiger Lake GT2), i915 kernel driver, Mesa 26.2.3, KWin OpenGL/EGL compositor. The Plasma Shell version was not confirmed separately.
 
-| Output | Физический режим | Scale | Логическая геометрия |
+| Output | Physical mode | Scale | Logical geometry |
 | --- | --- | --- | --- |
 | DP-1 | 1920×1080, ~75 Hz | 1 | 0,0 — 1920×1080 |
 | eDP-1 | 2880×1800, 90 Hz | 1.75 | 1920,140 — 1646×1029 |
 
-Конфигурация дисплеев не менялась. Shell выбирает QScreen по имени output, KWin обеспечивает placement/activation. В тестах fullscreen устанавливается тестовому окну через KWin; это подтверждает compositor fullscreen, но не эксклюзивный renderer mode/direct scanout.
+The display configuration was not changed. The shell selects the `QScreen` by output name; KWin handles placement and activation. Tests set fullscreen on the test window through KWin; this confirms compositor fullscreen, not exclusive renderer mode or direct scanout.
 
-Целевой HTPC, по последующему уточнению пользователя, будет иметь **один экран**. Двухэкранный прогон — проверка на машине разработки. Физически одноэкранную конфигурацию в этом прогоне не создавали; при развёртывании достаточно повторить smoke test на единственном экране.
+The target HTPC has **one screen** ([ADR-0031](../adr/0031-single-screen-target.md)). The two-screen run is a development-machine check; a single-screen smoke test is repeated at deployment.
 
-## Подтверждённые результаты
+## Confirmed results
 
-| Проверка | Результат / evidence |
+| Check | Result / evidence |
 | --- | --- |
-| Typed Rust → D-Bus → Qt/QML | Реальный snapshot прочитан Qt Test; standalone demo в отдельном процессе. Private-bus suite PASS. |
-| Async actions | 7-секундный provider даёт Timeout после 5 s; status отвечает без ожидания действия. Left/Right focus в QML меняется в пределах 500 ms во время операции. Это функциональный лимит теста, не FPS/input latency benchmark. |
-| Chrome, DP-1 | 20/20 Home → повтор Home → Back, тот же UUID и output. Fullscreen; Chrome запущен с `--ozone-platform=wayland`, отдельным profile и локальной fixture-страницей. [JSON](evidence/chrome-DP-1.json). |
-| Chrome, eDP-1 | 20/20, fullscreen и scale 1.75. [JSON](evidence/chrome-eDP-1.json). |
-| Steam, DP-1 | 20/20, окно клиента, не fullscreen. [JSON](evidence/steam-DP-1.json). Режим Wayland/XWayland этого окна отдельно не измерен. |
-| Terraria, DP-1 и eDP-1 | По 20/20 циклов, compositor fullscreen, SDL Wayland (подтверждён логом). [DP-1](evidence/terraria-DP-1.json), [eDP-1](evidence/terraria-eDP-1.json). Проверка игрового окна/меню, без прохождения игрового мира. |
-| Crash provider | SIGKILL demo → unavailable → systemd restart → новая generation; PID daemon и shell не изменились. [JSON](evidence/live-failures.json). |
-| Удалённая Activity | Закрытие отдельного Chrome fixture при открытом Home очищает return target; Back не активирует постороннее окно. [JSON](evidence/live-failures.json). |
-| Validation/recovery | Неверный token, чужой platform caller, неизвестный item, stale generation отвергнуты. После restart daemon demo регистрируется заново. Private-bus suite PASS. |
-| Сборка | cargo build/test, clippy `-D warnings`, fmt check, CMake/Ninja, интеграционный Qt suite и JS regression remap/closed-window прошли. |
+| Typed Rust → D-Bus → Qt/QML | A real snapshot read by Qt Test; standalone demo in a separate process. Private-bus suite PASS. |
+| Async actions | A 7-second provider gives `Timeout` after 5 s; status answers without waiting for the action. Left/Right focus in QML changes within 500 ms during the operation. This is a functional test limit, not an FPS or input-latency benchmark. |
+| Chrome, DP-1 | 20/20 Home → repeated Home → Back, same UUID and output. Fullscreen; Chrome with `--ozone-platform=wayland`, a separate profile and a local fixture page. [JSON](evidence/chrome-DP-1.json) |
+| Chrome, eDP-1 | 20/20, fullscreen and scale 1.75. [JSON](evidence/chrome-eDP-1.json) |
+| Steam, DP-1 | 20/20, client window, not fullscreen. [JSON](evidence/steam-DP-1.json). Wayland/XWayland mode of this window not measured. |
+| Terraria, DP-1 and eDP-1 | 20/20 each, compositor fullscreen, SDL Wayland (confirmed by log). [DP-1](evidence/terraria-DP-1.json), [eDP-1](evidence/terraria-eDP-1.json). Game window/menu only, no gameplay. |
+| Provider crash | SIGKILL demo → unavailable → systemd restart → new generation; daemon and shell PIDs unchanged. [JSON](evidence/live-failures.json) |
+| Removed Activity | Closing a separate Chrome fixture while Home is open clears the return target; Back activates no other window. [JSON](evidence/live-failures.json) |
+| Validation/recovery | Wrong token, foreign platform caller, unknown item and stale generation rejected. After a daemon restart the demo registers again. Private-bus suite PASS. |
+| Daemon crash recovery | The KWin bridge tracks the D-Bus owner, retries its long-poll, drops stale replies and republishes the saved Activity context. SIGKILL checked with Home hidden and open, without reloading the adapter. [JSON](evidence/daemon-recovery.json) |
+| Activity background | Real window → `WindowThumbnail` → near/far → PNG → separate Qt renderer. [Experiment](background-experiment.md) |
+| Session guard | The shell hides on lock/sleep and re-checks after wake; private-bus tests with fake ScreenSaver/login1 services. [Session lifecycle](session-lifecycle.md) |
+| Build | cargo build/test, clippy `-D warnings`, fmt check, CMake/Ninja, the Qt integration suite and the JS remap/closed-window regression passed. |
 
-Home вызывался через `KGlobalAccel.invokeShortcut` зарегистрированного Meta+F12, а не физической кнопкой. Возврат проверялся по KWin window UUID и output. Это не проверка сохранения DOM/input в произвольной вкладке и не тест Chrome extension. Массивы cycle_ms включают три команды, polling и запуск CLI-процессов; их нельзя сопоставлять с бюджетом input-to-photon.
+Home was triggered through `KGlobalAccel.invokeShortcut` of the registered Meta+F12, not a physical key. Return was checked by KWin window UUID and output. This does not check DOM/input preservation in an arbitrary tab and is not a Chrome extension test. The `cycle_ms` arrays include three commands, polling and CLI process startup and cannot be compared with an input-to-photon budget.
 
-Пользователь уточнил, что пульт выдаёт стандартные клавиши (Esc, Backspace и т. д.). Его отдельная интеграция не требуется; физический пульт не является блокером Phase 0. Qt Test дополнительно проверяет открытие навигации через Backspace и закрытие через Esc.
+The remote emits standard keys (Esc, Backspace, …); no dedicated integration is needed and the physical remote does not block Phase 0 ([ADR-0030](../adr/0030-phase0-machine-and-standard-input.md)). Qt Test also checks opening navigation with Backspace and closing it with Esc.
 
-## Оставшаяся работа
+## Carried over
 
-- Terraria повторно проверена на обоих экранах. Первоначальный запуск был закрыт пользователем до проверки; это не свидетельство ошибки запуска. Следующая попытка выявила временное исчезновение fullscreen-окна при потере focus: цель возврата очищалась. Исправление хранит detached UUID и восстанавливает только ту же KWin identity при remap; после него прошли 40 циклов. Возврат к окну с новым UUID через production Activity matching ещё не реализован.
-- Реальное окно → WindowThumbnail → near/far → PNG → отдельный Qt renderer проверено. [Graphics experiment](background-experiment.md) содержит кадры и timings. Автоматический capture lifecycle для Home и его performance остаются открытыми: PNG export около 0.3 s, mixed-DPI требует ограничения физического размера. Полный визуальный контракт ещё не принят.
-- SessionGuard скрывает shell при lock/sleep и перепроверяет состояние после wake; private-bus tests прошли. Units связаны с graphical-session.target. Реальные lock/suspend/logout отложены пользователем; [подробности и готовый тест](session-lifecycle.md). Unplug/mirror outputs и изменение display layout при открытом Home ещё не проверены.
-- Восстановление KWin bridge после daemon crash реализовано: QTimer отслеживает D-Bus owner, повторяет потерянный long-poll, отбрасывает старые ответы и повторно публикует сохранённый Activity context. Проверено SIGKILL при скрытом и открытом Home без reload adapter; [evidence](evidence/daemon-recovery.json). Перезапуск самого compositor и выход из сессии остаются отдельными сценариями.
-- Spike содержит один provider, без manifest discovery, SDK, persistence, autostart и capability routing. Временные interfaces `Spike1` не объявлены стабильными. Error names, subscriptions, operation cancellation, backpressure и полный transport size limit ещё требуют production реализации.
-- UI — две карточки и навигационный placeholder. Design system, modal focus scopes, browser/media/download providers и требования AC-01–AC-19 не объявлены выполненными.
+| Item | Target |
+| --- | --- |
+| Returning to a window with a new UUID through production Activity matching (the spike keeps a detached UUID and restores only the same KWin identity after remap; 40 cycles passed after the fix) | Phase 2 |
+| Automatic capture lifecycle for Home and its performance: PNG export ~0.3 s, mixed DPI needs a physical size limit | Phase 5 |
+| Real lock/suspend/logout, inhibitors and wake (deferred by the project owner) | Phase 5, AC-19 |
+| Unplug/mirror outputs and display layout changes while Home is open; compositor restart | Backlog (not MVP, [ADR-0031](../adr/0031-single-screen-target.md)) |
+| Production core: manifest discovery, SDK, persistence, autostart, capability routing, error names, subscriptions, cancellation, backpressure, transport size limit. `Spike1` interfaces are not stable. | Phase 1 |
+| UI: two cards and a navigation placeholder; design system and modal focus scopes not implemented | Phase 5 |
 
-## Очистка
+## Clean-up
 
-После тестов выгружен временный KWin script и остановлены созданные `arinn-phase0-*` units. Проверка очистки: пустой list-units и isScriptLoaded=false. Настройки Steam/Proton и игровые сохранения для исправления запуска не редактировались; Terraria запускалась с отдельным savedirectory в /tmp.
+After the tests the temporary KWin script was unloaded and the `arinn-phase0-*` units were stopped (empty `list-units`, `isScriptLoaded=false`). Steam/Proton settings and game saves were not edited; Terraria ran with a separate save directory in `/tmp`.
 
-## Технические выводы
+## Technical conclusions
 
-KWin script подходит для первичного Home/Return с двумя дисплеями; [API KWin](https://develop.kde.org/docs/plasma/kwin/api/) предоставляет window/output tracking и activation. Прямая связка async QtDBus и zbus работает. Для возвращаемых структур zbus потребовался одноэлементный tuple, иначе wire body не совпадал с introspection и Qt decoding. Исправление закреплено интеграционным тестом и [фактическим XML](../plugin-api/phase0.xml).
+A KWin script is suitable for the initial Home/Return with two displays; the [KWin API](https://develop.kde.org/docs/plasma/kwin/api/) provides window/output tracking and activation. Async QtDBus with zbus works directly. Returned structs needed a one-element tuple in zbus, otherwise the wire body did not match the introspection and Qt decoding; the fix is covered by an integration test and the [actual XML](../plugin-api/phase0.xml).
 
-Можно развивать production core/SDK и provider lifecycle. Значительный визуальный UI следует отложить до закрытия оставшихся platform/effects gates, чтобы не строить его на неподтверждённом compositor path.
+Production core, SDK and provider lifecycle can proceed (Phase 1).

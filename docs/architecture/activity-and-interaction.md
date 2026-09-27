@@ -1,45 +1,41 @@
-# Activity, interaction state и согласование дизайна
+# Activity and interaction state
 
-Статус: технические правила приняты по ADR-0022; ответы P-01–P-08 зафиксированы в product-decisions.md. Дата: 2026-09-27.
+Part of [ADR-0022](../adr/0022-state-and-interaction-baseline.md), 2026-09-27. Product answers P-01–P-08 are in [specification §4–§6](../specifications/arinn-specification.md).
 
-## Activity и Continue
+## Activity and Continue
 
-Activity descriptor: opaque `id`, `owner EntityRef`, `generation`, `kind` (application/browser/media/content), `title`, `artwork_ref`, `status` (active/paused/resumable/unavailable), `available_actions`, optional `parent_ref`, `related_refs`, `platform_window_token`, `last_interaction_at`. Core не анализирует URL/title для связывания сущностей.
+Activity descriptor: opaque `id`, `owner EntityRef`, `generation`, `kind` (application, browser, media, content), `title`, `artwork_ref`, `status` (active, paused, resumable, unavailable), `available_actions`, optional `parent_ref`, `related_refs`, `platform_window_token`, `last_interaction_at`. The core never analyses URLs or titles to link entities.
 
-Provider владеет внешней сущностью; daemon строит агрегированную Activity из descriptors. Desktop даёт fallback application activity, browser — tab activity, media — playback. Только явная связь IDs/validated platform window token позволяет объединить их в одну группу. Нельзя склеивать два окна по одинаковому title или две media sessions по названию фильма. Если связь неизвестна, лучше сохранить отдельные сущности, чем возобновить неверную.
+A provider owns the external entity; the daemon builds the aggregated Activity from descriptors. The desktop provider gives a fallback application activity, the browser a tab activity, media a playback activity. Only an explicit ID link or a validated platform window token merges them into one group. Two windows are never merged because their titles match, nor two media sessions because of the film name. If the link is unknown, separate entities are better than resuming the wrong one.
 
-Foreground Activity определяется platform window плюс активная entity provider внутри него; display precedence внутри доказанной группы: явный content playback → browser tab → generic application. Media controls добавляются к карточке через related media ref. Начальная UI projection: одна foreground/последняя running Activity + до четырёх resumable content entries, как в дизайне. Ограничение карточек не ограничивает registry. Остальные окна/вкладки доступны через Applications/Browser.
+The foreground Activity is the platform window plus the active provider entity inside it. Display precedence within a proven group: explicit content playback → browser tab → generic application. Media controls attach to the card through a related media ref. Initial UI projection: one foreground or last running Activity plus up to four resumable content entries, as in the design. The card limit does not limit the registry. Other windows and tabs are reachable through Applications or Browser.
 
-Arinn хранит порядок своих recent launch targets, но provider хранит media progress/watched и library state. Правило дизайна «90 s до конца» исполняет provider, если выбранная media integration поддерживает такую policy; оно не помечает произвольное browser video просмотренным. Поведение выбранной библиотеки описано в [media MVP](media-mvp.md).
+Arinn stores the order of its recent launch targets; providers store media progress, watched state and library state. The design rule "finished 90 s before the end" is applied by the provider if the media integration supports such a policy; it never marks arbitrary browser video as watched. See [media MVP](media-mvp.md).
 
-Activity исчезла, пока открыт Home: удалить live карточку и перевести focus на ближайший доступный item в той же строке, затем Favorites, затем nav. Return в исчезнувшую entity возвращает Unavailable и оставляет Home. Без Activity Home не пытается активировать desktop случайным способом.
+If the Activity disappears while Home is open: remove the live card and move focus to the nearest available item in the same row, then Favorites, then navigation. Returning to a vanished entity returns `Unavailable` and keeps Home open. Without an Activity, Home never tries to activate the desktop in some random way.
 
-## Локальный UI и pending operations
+## Local UI and pending operations
 
-Focus scopes, input modes, per-screen focus memory, OSD visibility и timeline preview принадлежат shell. Provider state никогда не является условием перехода focus. После удаления item focus выбирается по ближайшему прежнему индексу; при закрытии modal/sheet возвращается к opener, а если он исчез — к ближайшему доступному focusable в родительском scope.
+Focus scopes, input modes, per-screen focus memory, OSD visibility and timeline preview belong to the shell. Provider state is never a precondition for a focus change. After an item is removed, focus goes to the nearest previous index; closing a modal or sheet returns focus to its opener, or, if the opener is gone, to the nearest available focusable in the parent scope.
 
-Launch 1100 ms — длительность визуального цикла, а не гарантированное завершение. Если operation ещё pending, продолжать спокойный loading state; если target Activity уже доступна, переходить к ней. Ошибка немедленно открывает error state. Startup 1.9 s не удерживает UI от degraded Home при недоступном backend. Никаких фиктивных success по таймеру.
+The 1100 ms launch animation is a visual cycle, not guaranteed completion. If the operation is still pending, a calm loading state continues; if the target Activity is already available, the UI switches to it. An error opens the error state immediately. The 1.9 s startup animation never holds back a degraded Home when the backend is unavailable. No fake success after a timer.
 
-При скрытом player OSD: Left/Right выполняет ±10 s только при поддержке seek и открывает OSD на timeline; OK/Up/Down только открывают OSD. При видимом timeline OK = playPause. Back сначала скрывает OSD; следующий Back покидает playback view в managed mpv session со stop/save resume и возвратом на исходный Home/Detail, не завершает произвольное внешнее приложение. Global Home остаётся platform action.
+With the player OSD hidden, Left/Right seek ±10 s only if seek is supported and open the OSD on the timeline; OK/Up/Down only open the OSD. With the timeline visible, OK is playPause. Back first hides the OSD; the next Back leaves the playback view of a managed mpv session with stop and resume save, and returns to the Home or Detail it came from. It never terminates an arbitrary external application. Global Home stays a platform action. (Input routing while the OSD is hidden is open: [OQ-01](../specifications/arinn-specification.md#21-open-questions).)
 
-H/M/P/A/O — development shortcuts прототипа, не обязательные global keys. Production mapping использует semantic Home/Back/Menu/Select/media actions и настраивается под устройство. Буква H в браузере не перехватывается глобально. Первый D-pad input переключает pointer mode; hover suppression 500 ms после scroll сохраняется.
+H/M/P/A/O are prototype development shortcuts, not required global keys. The production mapping uses semantic Home/Back/Menu/Select/media actions and is configurable per device. The letter H is never grabbed globally in the browser. The first D-pad input switches from pointer mode; hover suppression of 500 ms after scrolling stays.
 
-Уточнение пользователя: G60S Pro отправляет стандартные клавиатурные/мышиные события, включая Backspace и Esc. Специальный драйвер, SDK и отдельный протокол пульта не нужны. В shell Esc и Backspace означают Back; стрелки — navigation, Enter — Select. В редактируемом текстовом поле Backspace удаляет символ и не запускает Back; Esc закрывает верхний scope. Вне shell локальные клавиши принадлежат активному приложению. Global Home остаётся отдельным настраиваемым shortcut (в spike Meta+F12); глобальный перехват Esc/Backspace запрещён. Проверка стандартной клавиатурой достаточна для input gate Phase 0; физический пульт — дополнительный smoke test удобства при развёртывании.
+Remote input ([ADR-0030](../adr/0030-phase0-machine-and-standard-input.md)): the G60S Pro emits standard keyboard and mouse events, including Backspace and Esc; no special driver, SDK or protocol is needed. Inside the shell Esc and Backspace mean Back, arrows navigate, Enter selects. In an editable text field Backspace deletes a character and does not trigger Back; Esc closes the topmost scope. Outside the shell local keys belong to the active application. Global Home is a separate configurable shortcut (Meta+F12 in the spike); global interception of Esc or Backspace is forbidden. Keyboard testing is enough for the Phase 0 input gate; the physical remote is an extra usability smoke test at deployment.
 
-## Settings, system actions и диагностика
+## Settings, system actions and diagnostics
 
-UI preferences (light background, show New, language, input mapping) принадлежат daemon config. Настройки provider имеют typed schema: id/title/description/type/current_value/constraints/enabled; types boolean, enum, string, integer, path reference. Произвольные QML widgets или raw RPC не передаются. Реализация schema и wire interface предшествует экрану provider settings, не Phase 0.
+UI preferences (light background, show New, language, input mapping) belong to the daemon config. Provider settings have a typed schema: id, title, description, type, current_value, constraints, enabled; types boolean, enum, string, integer, path reference. No arbitrary QML widgets or raw RPC are passed. The schema and wire interface come before the provider settings screen, not in Phase 0.
 
-Core settings UI отображает только зарегистрированные возможности; отсутствующая playback/download/network функция не имитирует успех. System volume/network/power выполняются PlatformService. Running app names для confirm берутся из live registry, не из hardcoded Kinopoisk. Кнопка подтверждения не пропускает системные inhibit/permission errors.
+The core settings UI shows only registered capabilities; a missing playback, download or network function never pretends to succeed. System volume, network and power are executed by PlatformService. Running application names for the power confirmation come from the live registry, not a hard-coded "Kinopoisk". The confirm button never hides system inhibitor or permission errors.
 
-## Что закрыто без дополнительных вопросов
+## Resolved design questions
 
-- Три равноправные точки входа в дизайне не меняют явно заданный browser-first порядок разработки.
-- New — generic projection LibraryProvider, не product-specific local-file branch. Provider может не поставлять New; пустая секция скрыта.
-- JS state прототипа не становится backend shell.
-- Provider errors, timeouts, OSD и focus после обновления списков имеют явные правила выше.
-- Idle ambient никогда автоматически не останавливает приложения. Автовход подавляется при играющем media и foreground external Activity; явный ambient доступен пользователю. «Сон» означает OS suspend по явному ответу пользователя; ambient — отдельная функция.
-
-## Ответы пользователя
-
-Все P-01–P-08 получены и зафиксированы в [уточнениях MVP](product-decisions.md). Back возвращает в Activity, media — folders/library + внешний player, Transmission входит в MVP, Sleep — suspend, целевой HTPC с одним экраном и G60S Pro со стандартным keyboard/mouse mapping. Зависимые media/API решения описаны в [media MVP](media-mvp.md) и [API review](../plugin-api/mvp-extensions.md).
+- The three equal entry modes of the design do not change the browser-first development order.
+- New is a generic projection of LibraryProvider, not a product-specific local-file branch. A provider may not supply New; an empty section is hidden (API gap: [OQ-05](../specifications/arinn-specification.md#21-open-questions)).
+- Prototype JavaScript state never becomes a shell backend.
+- Provider errors, timeouts, the OSD and focus after list updates follow the rules above.
+- Idle ambient never stops applications automatically. Automatic ambient is suppressed while an external Activity is in the foreground **or** media is playing; explicit ambient is always available. "Sleep" is OS suspend (P-04); ambient is a separate feature.

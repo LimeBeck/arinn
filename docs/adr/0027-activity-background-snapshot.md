@@ -1,25 +1,32 @@
-# ADR-0027: compositor-снимок Activity для отдельного Qt shell
+# ADR-0027: Compositor snapshot of the Activity for a separate Qt shell
 
-- Статус: Accepted — путь для первой реализации; прототип не равен готовой интеграции Home.
-- Дата: 2026-09-27.
-- Основание: разрешённый пользователем Phase 0 и runtime experiment на KDE/Wayland.
+- **Status:** Accepted — first implementation path; the prototype is not a finished Home integration
+- **Date:** 2026-09-27
+- **Deciders:** delegated technical choice, based on the Phase 0 runtime experiment
+- **Amends / Supersedes:** amends [ADR-0009](0009-kde-wayland-platform.md), [ADR-0019](0019-design-handoff-contract.md)
+- **Amended by / Superseded by:** —
+- **Specification:** [§12.3](../specifications/arinn-specification.md)
 
-## Контекст
+## Context
 
-Handoff §Activity допускает live compositor texture **или снимок последнего кадра** реального внешнего окна. Требования near/far задают масштаб, размытие и затемнение. Shell остаётся отдельным Qt-процессом; переносить весь UI в compositor не требуется.
+The design handoff allows a live compositor texture **or a last-frame snapshot** of the real external window. Near/far require scale, blur and dimming. The shell stays a separate Qt process; moving the UI into the compositor is not required.
 
-## Решение
+## Decision
 
-Первый production path — последний кадр выбранной Activity: доверенный KWin platform component получает WindowThumbnail конкретного window identity, экспортирует ограниченный кадр, daemon сообщает готовность shell. Shell читает только подготовленный кадр и выполняет near/far визуализацию локально. Один и тот же `ActivityBackground.qml` работает с compositor source item и с экспортированным изображением.
+The first production path is the last frame of the selected Activity: a trusted KWin platform component takes a `WindowThumbnail` of the specific window identity and exports a bounded frame; the daemon tells the shell it is ready. The shell reads only the prepared frame and renders near/far locally. The same `ActivityBackground.qml` works with a compositor source item and with an exported image.
 
-Снимок привязан к generation + Activity + запросу Home. При Return, смене Activity, lock/sleep, потере provider/daemon или отмене запроса он становится невалидным. Устаревший ответ не может заменить текущий фон. Кадр хранится только в приватном runtime directory и удаляется по завершении использования; screenshot paths не принимаются от произвольных providers. Повторный Home не запускает захват заново. UI не ждёт PNG перед локальным focus.
+The snapshot is bound to generation + Activity + Home request. Return, Activity change, lock/sleep, provider or daemon loss, or cancellation invalidates it. A stale reply cannot replace the current background. The frame lives only in a private runtime directory and is deleted after use; screenshot paths are never accepted from providers. Repeated Home does not capture again. The UI never waits for the image before local focus.
 
-Эти lifecycle-правила — требования к следующей production реализации. В текущем коде захват запускается **только операторским тестом**, автоматического capture при Home пока нет.
+These lifecycle rules are requirements for the production implementation. Currently capture runs **only from an operator test**; Home does not capture automatically yet.
 
-## Проверка и ограничения
+## Consequences
 
-[Runtime experiment](../architecture/background-experiment.md) подтвердил живой источник реального Chrome-окна, near/far shaders и чтение экспортированного кадра отдельным Qt-процессом. Прямая передача GPU texture между процессами не проверена. PNG export порядка 0.3 s не подходит для непрерывного video path; нужны уменьшение разрешения/асинхронная доставка и измерения перед включением в Home.
+Continuous live texture sharing is deferred to a separate performance/lifecycle review. The full visual contract (transitions, app tint, TV readability) is checked when the UI is implemented.
 
-Попытка ScreenShot2 с desktop permission была отклонена KWin как NoAuthorized, причина не установлена. Permission checks не отключались; временный entry удалён. Проверенный WindowThumbnail доступен внутри разрешённого доверенного KWin script. Product/provider code не получает произвольного доступа к compositor.
+## Alternatives considered
 
-Непрерывный live texture path откладывается до отдельного performance/lifecycle review. Полный визуальный контракт (переходы, app tint, TV readability) проверяется при реализации UI.
+KWin ScreenShot2 with a desktop permission returned `NoAuthorized`; the cause was not found and permission checks were not disabled. Moving the whole UI into KWin was not needed.
+
+## Verification
+
+The [runtime experiment](../architecture/background-experiment.md) confirmed a live source from a real Chrome window, near/far shaders and reading the exported frame in a separate Qt process. PNG export takes about 0.3 s; frame size limits, asynchronous delivery and measurements are required before enabling it in Home.

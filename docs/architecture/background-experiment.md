@@ -1,36 +1,36 @@
-# Activity background — runtime experiment
+# Activity background: runtime experiment
 
-2026-09-27, KWin 6.7.5 / Qt 6.11.2 / Mesa Intel Iris Xe. Проверена feasibility графического пути; автоматическая интеграция в Home ещё не выполнена. Решение: [ADR-0027](../adr/0027-activity-background-snapshot.md).
+2026-09-27, KWin 6.7.5 / Qt 6.11.2 / Mesa, Intel Iris Xe. Feasibility of the graphics path was verified; automatic integration into Home is not done yet. Decision: [ADR-0027](../adr/0027-activity-background-snapshot.md).
 
-## Что проверено
+## What was checked
 
-Операторский `kwin_background.py` создаёт временный KWin QML script. Он выбирает ровно foreground window UUID, проверенный перед запуском, и создаёт невидимое, не принимающее focus окно с WindowThumbnail. Получает кадры raw, near, far и raw-later. После завершения script выгружается. В тесте используется только отдельное Chrome fixture-окно с локальной HTML-страницей и счётчиком времени.
+The operator script `kwin_background.py` creates a temporary KWin QML script. It selects exactly the foreground window UUID verified before the run and creates an invisible, non-focusable window with `WindowThumbnail`. It captures raw, near, far and raw-later frames, then unloads the script. Only a separate Chrome fixture window with a local HTML page and a time counter was used.
 
-`ActivityBackground.qml` применяет scale .95/.90, Qt MultiEffect blur с максимумом 36 и near factor 8/36, opacity .6/.32 на чёрном фоне и scrim .3/.6. Это техническая реализация параметров handoff; точное совпадение blur-kernel и color management с HTML-референсом ещё не утверждается.
+`ActivityBackground.qml` applies scale .95/.90, Qt MultiEffect blur with maximum 36 and near factor 8/36, opacity .6/.32 over black and scrim .3/.6. This implements the handoff parameters technically; an exact match of the blur kernel and colour management with the HTML reference is not claimed yet.
 
-`background_preview.py` читает raw PNG в **отдельном Qt-процессе** и повторно рисует тот же компонент. Следовательно, внешний shell может использовать last-frame path без переноса пользовательского UI внутрь KWin. Пиксели raw и raw-later отличаются в области счётчика; источник не был фиктивной статической картинкой. Изображения проверены визуально.
+`background_preview.py` reads the raw PNG in a **separate Qt process** and renders the same component. So an external shell can use the last-frame path without moving user UI into KWin. The raw and raw-later pixels differ in the counter area, so the source was not a static fake image. The images were checked visually.
 
-- [Near](evidence/background-near.png).
-- [Far](evidence/background-far.png).
-- [Тот же snapshot в отдельном Qt renderer](evidence/background-external.png).
+- [Near](evidence/background-near.png)
+- [Far](evidence/background-far.png)
+- [The same snapshot in a separate Qt renderer](evidence/background-external.png)
 
-## Измерения и границы
+## Measurements and limits
 
-На смешанном DPI окружении запрос логического 1920×1080 давал физический PNG 3360×1890 в KWin context с DPR 1.75. Это выявленное ограничение прототипа: привязка к output не гарантирует нужный размер offscreen export. Четыре последовательных grab/save занимали порядка 257–367 ms каждое, включая GPU readback и PNG encoding. Последний прогон: raw 296 ms, near 367 ms, far 260 ms, raw-later 264 ms. Это не input latency и не GPU frame-time benchmark.
+In the mixed-DPI environment a logical 1920×1080 request produced a physical 3360×1890 PNG in a KWin context with DPR 1.75: binding to an output does not guarantee the offscreen export size. Four consecutive grab/save calls took about 257–367 ms each, including GPU readback and PNG encoding. Last run: raw 296 ms, near 367 ms, far 260 ms, raw-later 264 ms. This is neither input latency nor a GPU frame-time benchmark.
 
-Перед подключением capture к Home нужно ограничить физический размер кадра, исключить работу PNG encoding из критического пути compositor, задать deadline/fallback и измерить frame-time/память на целевом TV. Live texture sharing между процессами и DRM/protected content не проверены. Эксперимент не содержит полного capture lifecycle при lock/return/restart — он запускается явно оператором на disposable Activity.
+Before capture is connected to Home: limit the physical frame size, take PNG encoding off the compositor's critical path, define a deadline and fallback, and measure frame time and memory on the target TV. Live texture sharing between processes and DRM/protected content were not checked. The experiment has no full capture lifecycle for lock/return/restart; it is run explicitly by an operator on a disposable Activity.
 
-ScreenShot2 API был исследован отдельно: даже с временно объявленным desktop permission возвращал `NoAuthorized`. Защита KWin не отключалась, временная permission-запись удалена. Этот путь не объявлен рабочим.
+The ScreenShot2 API returned `NoAuthorized` even with a temporarily declared desktop permission. KWin protection was not disabled and the temporary permission entry was removed. This path is not declared working.
 
-## Воспроизведение
+## Reproduction
 
-Нужны запущенный Phase 0, foreground disposable Activity, QtQuick.Effects, qml6. Команды выполняются из корня репозитория:
+Requires a running Phase 0, a disposable foreground Activity, QtQuick.Effects and `qml6`. From the repository root:
 
 ```sh
 python tests/integration/kwin_background.py
 python tests/integration/background_preview.py
 ```
 
-Кадры находятся в `.phase0/background-probe/` (приватная папка, игнорируется Git). Тест не отправляет их в сеть. В evidence репозитория включены только изображения созданной для эксперимента HTML-страницы, без пользовательских окон. Не запускать этот операторский тест во время lock/suspend; production session guard ещё не связан с capture pipeline.
+Frames are stored in `.phase0/background-probe/` (private, ignored by Git) and never sent anywhere. Repository evidence contains only images of the experiment's own HTML page, no user windows. Do not run this operator test during lock or suspend; the session guard is not connected to the capture pipeline yet.
 
-Источники API: [KWin QML effects](https://develop.kde.org/docs/plasma/kwineffect/), [WindowThumbnail implementation](https://invent.kde.org/plasma/kwin/-/blob/Plasma/6.7/src/scripting/windowthumbnailitem.cpp), [QML Workspace windows](https://invent.kde.org/plasma/kwin/-/blob/Plasma/6.7/src/scripting/workspace_wrapper.h).
+API sources: [KWin QML effects](https://develop.kde.org/docs/plasma/kwineffect/), [WindowThumbnail implementation](https://invent.kde.org/plasma/kwin/-/blob/Plasma/6.7/src/scripting/windowthumbnailitem.cpp), [QML workspace windows](https://invent.kde.org/plasma/kwin/-/blob/Plasma/6.7/src/scripting/workspace_wrapper.h).

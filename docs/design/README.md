@@ -1,25 +1,29 @@
-# Дизайн Arinn
+# Arinn design
 
-Актуальный handoff предоставлен пользователем из `/home/lime/Downloads/design_handoff_arinn (1)/design_handoff_arinn/` и скопирован в `handoff/` без изменения содержимого файлов, включая скрытый файл с логотипами. Предыдущий комплект сохранён в [архиве](archive/2026-09-27-before-brand/README.md). Дата включения в репозиторий: 2026-09-27. Номер версии всему handoff не присваивался; «v2» — часть имени файла дизайн-системы.
+The current design handoff was delivered by the project owner and copied to [`handoff/`](handoff/README.md) without changes, including the hidden logo file. The previous package is kept in the [archive](archive/2026-09-27-before-brand/README.md). Added to the repository on 2026-09-27. The handoff has no version number; "v2" is part of the design system file name.
 
-## Исходные материалы
+## Source materials (historical, not edited)
 
-- [Бренд Arinn](brand/README.md): Brand Guide v0.1 и референс вариантов логотипа, предоставленные 2026-09-27; отличия от исходного handoff описаны рядом с материалами.
-- [SVG знака A1 Classic](handoff/assets/arinn-mark.svg) и [исходный лист логотипов](handoff/assets/logo-direction-A.png).
-- [Design handoff](handoff/README.md): спецификация внешнего вида, поведения, токены и integration points.
-- [Интерактивный прототип](handoff/design/arinn.dc.html).
-- [Все экраны](<handoff/design/arinn Screens.dc.html>).
+- [Arinn brand](brand/README.md): Brand Guide v0.1 (in Russian) and the logo direction sheet, delivered 2026-09-27.
+- [A1 Classic mark SVG](handoff/assets/arinn-mark.svg) and the [logo source sheet](handoff/assets/logo-direction-A.png).
+- [Design handoff](handoff/README.md): look, behaviour, tokens and integration points.
+- [Interactive prototype](handoff/design/arinn.dc.html).
+- [All screens](<handoff/design/arinn Screens.dc.html>).
 - [Design System v2](<handoff/design/arinn Design System v2.dc.html>).
-- [Исследование направлений](<handoff/design/arinn Directions.dc.html>).
-- [22 скриншота состояний](handoff/screenshots/).
-- [Логотипы в image slots](handoff/design/.image-slots.state.json); support.js и image-slot.js сохранены рядом с HTML.
+- [Direction study](<handoff/design/arinn Directions.dc.html>).
+- [22 screenshots of screen states](handoff/screenshots/).
+- [Logos in image slots](handoff/design/.image-slots.state.json); `support.js` and `image-slot.js` are kept next to the HTML.
 
-Для просмотра прототипа открыть `handoff/design/arinn.dc.html` в браузере и кликнуть по нему для keyboard focus, как описано в handoff. HTML служит design reference и не является production shell. Внешние font/runtime dependencies могут требовать сеть; offline-работа всего прототипа здесь не подтверждена.
+To view the prototype, open `handoff/design/arinn.dc.html` in a browser and click it once to give it keyboard focus. The HTML is a design reference, not the production shell. External font and runtime dependencies may need network access; offline use is not confirmed.
 
-Handoff объявляет цвета, типографику, размеры, радиусы, focus и motion timings финальными. Artwork остаётся placeholder; рекомендации по production assets сохранены в исходнике.
+The handoff declares colours, typography, sizes, radii, focus and motion timings final. Artwork is placeholder.
 
-## Связь с разработкой
+## Relation to development
 
-[Developer Specification v0.3](../specifications/developer-specification-v0.3.md) задаёт архитектуру и MVP. [ADR-0019](../adr/0019-design-handoff-contract.md) связывает визуальную спецификацию с Qt/QML presentation layer. [Карта согласования](integration-review.md) содержит историю расхождений, принятые решения и оставшиеся runtime gates.
+The [specification](../specifications/arinn-specification.md) defines architecture and MVP; [ADR-0019](../adr/0019-design-handoff-contract.md) links the visual contract to the Qt/QML presentation layer. The [integration review](integration-review.md) records conflicts between the handoff and the specification, their resolutions and remaining runtime gates.
 
-Исходные design files не редактируются при обсуждении решений. Изменения требований должны быть явно оформлены, а не спрятаны в копии прототипа.
+Source design files are never edited to record decisions. Requirement changes are made explicitly in the specification and ADRs, not hidden in a copy of the prototype.
+
+## Licensing
+
+Design materials are licensed CC-BY-SA-4.0 ([ADR-0029](../adr/0029-licensing.md)). Third-party service logos in the prototype (`.image-slots.state.json`) and in screenshots are trademarks of their owners and are **not** licensed by this project; production builds must use properly licensed originals.

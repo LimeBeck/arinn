@@ -1,32 +1,30 @@
-# ADR-0020: D-Bus, идентификаторы и надёжность Plugin API
+# ADR-0020: D-Bus transport, identifiers and Plugin API reliability
 
-- Статус: Принято для реализации (Accepted).
-- Дата: 2026-09-27.
-- Основание: пользователь поручил самостоятельно закрыть технические решения; это решение исполнителя в пределах делегированной задачи, не утверждение о состоявшемся отдельном ревью пользователя.
-- Уточняет: ADR-0002, ADR-0004, ADR-0005, ADR-0006, ADR-0007, ADR-0015, ADR-0016, ADR-0018; исходные ADR сохраняют историю и ссылку на это уточнение.
+- **Status:** Accepted
+- **Date:** 2026-09-27
+- **Deciders:** delegated technical choice (the project owner asked the implementer to close technical decisions)
+- **Amends / Supersedes:** amends [ADR-0002](0002-component-boundaries.md), [ADR-0004](0004-capability-contracts.md), [ADR-0005](0005-ipc-versioning.md), [ADR-0006](0006-snapshots-subscriptions.md), [ADR-0007](0007-async-errors.md), [ADR-0015](0015-security-boundary.md), [ADR-0016](0016-cli-diagnostics.md), [ADR-0018](0018-demo-testing-gates.md)
+- **Amended by / Superseded by:** —
+- **Specification:** [§8.6, §9, §11, §14, §17](../specifications/arinn-specification.md)
 
-## Контекст
+## Context
 
-Для начала skeleton требуются конкретные transport, routing, revision и operation semantics. Пользователь поручил самостоятельно выбрать технические детали.
+The skeleton needs a concrete transport, routing, revision and operation semantics.
 
-## Решение
+## Decision
 
-Принять session D-Bus на обеих IPC-границах, QtDBus/zbus, typed core fields, EntityRef и generation/revision, asynchronous operation objects, bounded payload и явную timeout/error model. Подробные правила и defaults зафиксированы в технической основе; они обязательны для skeleton.
+Arinn uses the session D-Bus on both IPC boundaries (shell/CLI ↔ daemon and daemon ↔ plugins), QtDBus in the shell and zbus in Rust. Core fields are typed. Entities are addressed by `EntityRef` with generation/revision. Commands are asynchronous operation objects. Payloads are bounded and timeouts and errors follow an explicit model (adding `Cancelled` to the error set).
 
-Подробный контракт: [спецификация](../architecture/implementation-baseline.md). См. также [техническую основу](../architecture/implementation-baseline.md) и [Phase 0 gate](../architecture/phase-0-gate.md).
+The detailed rules and defaults in the [implementation baseline](../architecture/implementation-baseline.md) are part of this decision and are mandatory for the skeleton.
 
-## Последствия
+## Consequences
 
-Один transport сокращает число IPC stacks; versioned typed interfaces сохраняют языковую независимость. Полные wire-схемы browser/media/library/settings будут добавляться перед соответствующим provider; это implementation deliverable, а не вопрос предпочтения пользователя.
+One transport means one IPC stack; versioned typed interfaces keep plugins language-independent. Full wire schemas for browser, media, library and settings are added before each provider as an implementation deliverable.
 
-## Альтернативы
+## Alternatives considered
 
-JSON-RPC поверх Unix socket потребовал бы отдельного framing/subscription/lifetime слоя. Не выбран для общего API; JSON остаётся требованием Chrome Native Messaging.
+JSON-RPC over a Unix socket would need its own framing, subscription and lifetime layer; not chosen for the general API. JSON remains required by Chrome Native Messaging.
 
-## Оставшаяся работа и проверка
+## Verification
 
-Ответы P-01–P-05 получены и зафиксированы в ADR-0023; они не меняют transport. Contract tests должны проверить reconnect/races/timeout; готовая runtime реализация пока отсутствует.
-
-Принятие технического выбора не означает прохождение тестов, готовность wire API всех capabilities или принятие противоречащих друг другу продуктовых требований.
-
-[Реестр ADR](README.md)
+Contract tests check reconnect, races and timeouts. Accepting this choice does not mean the tests pass or that every capability's wire API is ready.

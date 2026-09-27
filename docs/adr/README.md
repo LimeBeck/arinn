@@ -1,49 +1,51 @@
-# Архитектурные решения Arinn
+# Architecture Decision Records
 
-Основание — [Developer Specification v0.3](../specifications/developer-specification-v0.3.md), Draft / Architecture Review Candidate. Исходник сохранён без изменений. ADR группируют архитектурные решения по темам, а не заменяют все 61 раздел отдельными решениями.
+Architecture Decision Records (ADRs) explain **why** Arinn is built the way it is. The current requirements themselves live in the [specification](../specifications/arinn-specification.md); ADRs are the history of decisions behind it.
 
-ADR-0001–0019 сохраняют исходное предложение v0.3 (Proposed). **ADR-0020–0027 приняты для реализации (Accepted)**: технические решения выбраны по поручению пользователя, продуктовые уточнения — по его явным ответам. Принятые уточнения имеют приоритет в затронутых пунктах; ни один статус не означает завершённую разработку или пройденный hardware gate. Формулировки «предпочтительно», «желательно», примеры API и незакрытые вопросы исходного ТЗ не превращаются в утверждённые детали реализации.
+## Rules
 
-Разделы «Последствия», «Альтернативы и ограничения», «Открытые вопросы» и «Проверка решения» содержат пояснения для ревью; они не свидетельствуют об уже проведённых экспериментах или обсуждениях альтернатив. Дополнительные вопросы явно отделены от решения. При расхождении с пересказом следует свериться с исходным ТЗ и оформить уточнение.
+The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 
-## Реестр
+- **Statuses:** Proposed → Accepted, or Rejected. Later an accepted ADR may become Deprecated or Superseded.
+- **Immutability:** after acceptance only typo fixes and the header field *Amended by / Superseded by* may change. To change a decision, write a new ADR that amends or supersedes the old one, and link both ways.
+- **Same pull request:** accepting an ADR updates the [specification](../specifications/arinn-specification.md) and, if phases change, the [roadmap](../../ROADMAP.md).
+- **What needs an ADR:** component boundaries, the Plugin API and capabilities, IPC and persistence formats, platform mechanisms, security posture, licensing and project process.
+- **Numbering:** the next free four-digit number; file name `NNNN-short-slug.md`; start from the [template](template.md).
+- **Acceptance never means verification passed.** Verification status is tracked in the roadmap.
 
-| ADR | Тема | Разделы ТЗ | Статус |
+## Register
+
+| ADR | Title | Status | Amended / superseded by |
 | --- | --- | --- | --- |
-| [ADR-0001](0001-product-scope.md) | Arinn как оркестратор общего домашнего HTPC | 1, 2, 3, 13, 49, 50, 51, 56, 61 | Proposed |
-| [ADR-0002](0002-component-boundaries.md) | Qt/QML shell, Rust daemon и публичный D-Bus API | 14, 15, 16, 41, 52, 56, 57, 59 | Proposed |
-| [ADR-0003](0003-external-plugin-processes.md) | Изоляция интеграций во внешних процессах | 2, 17, 44, 54, 59, 60 | Proposed |
-| [ADR-0004](0004-capability-contracts.md) | Пять capabilities и представление без plugin UI | 2, 18, 19, 20, 21, 22, 23, 24, 29, 45, 59, 60 | Proposed |
-| [ADR-0005](0005-ipc-versioning.md) | Типизированный и версионируемый Plugin API | 14, 19, 20, 21, 22, 23, 24, 29, 30, 31, 44 | Proposed |
-| [ADR-0006](0006-snapshots-subscriptions.md) | Состояние через snapshots, revisions и subscriptions | 16, 25, 26, 38, 53, 54 | Proposed |
-| [ADR-0007](0007-async-errors.md) | Асинхронные команды и нормализованные ошибки | 27, 28, 44, 54, 55 | Proposed |
-| [ADR-0008](0008-discovery-lifecycle.md) | XDG discovery и lifecycle через systemd user services | 30, 31, 32, 33, 40, 42, 56, 58, 60 | Proposed |
-| [ADR-0009](0009-kde-wayland-platform.md) | PlatformService и обязательный KDE/Wayland spike | 6, 7, 34, 35, 36, 56, 57, 59 | Proposed |
-| [ADR-0010](0010-activity-home.md) | Activity и единая модель Continue/Home overlay | 2, 4, 5, 6, 7, 37, 48, 51, 59, 61 | Proposed |
-| [ADR-0011](0011-chrome-integration.md) | Chrome/Chromium через MV3 extension и Native Messaging | 1, 5, 8, 9, 21, 50, 56, 57, 59 | Proposed |
-| [ADR-0012](0012-desktop-steam-esde.md) | Desktop provider и отдельные входы Steam/ES-DE | 10, 11, 20, 50, 51, 57, 59 | Proposed |
-| [ADR-0013](0013-mpris-media.md) | MediaProvider на основе MPRIS | 7, 12, 22, 50, 57, 58 | Proposed |
-| [ADR-0014](0014-state-persistence.md) | Provider-owned state и минимальное persistence Arinn | 3, 38, 39, 40 | Proposed |
-| [ADR-0015](0015-security-boundary.md) | Доверенные локальные plugins с валидацией IPC | 9, 15, 17, 27, 43, 44, 45, 49 | Proposed |
-| [ADR-0016](0016-cli-diagnostics.md) | Общий API для CLI, diagnostics и structured logs | 28, 30, 41, 42, 43, 54 | Proposed |
-| [ADR-0017](0017-navigation-design-boundary.md) | Локальная D-pad navigation и отдельная дизайн-спецификация | 2, 4, 5, 15, 45, 46, 47, 48, 53, 55, 58 | Proposed |
-| [ADR-0018](0018-demo-testing-gates.md) | Demo provider, общий contract suite и архитектурные gates | 35, 50, 53, 54, 55, 57, 58, 59, 60 | Proposed |
-| [ADR-0019](0019-design-handoff-contract.md) | Дизайн-handoff как отдельный контракт представления | Design handoff + developer §15, 46–48, 55 | Proposed |
-| [ADR-0020](0020-dbus-contract-baseline.md) | D-Bus, идентификаторы и надёжность Plugin API | Уточнения 2026-09-27 | Accepted |
-| [ADR-0021](0021-plugin-runtime-ownership.md) | Transient systemd services и отдельный Chrome native bridge | Уточнения 2026-09-27 | Accepted |
-| [ADR-0022](0022-state-and-interaction-baseline.md) | Владение Activity, persistence и interaction state | Уточнения 2026-09-27 | Accepted |
-| [ADR-0023](0023-mvp-product-clarifications.md) | Back, системный сон и целевой HTPC | Уточнения 2026-09-27 | Accepted |
-| [ADR-0024](0024-local-library-mpv.md) | Локальная библиотека и внешний mpv с rich media API | Уточнения 2026-09-27 | Accepted |
-| [ADR-0025](0025-downloads-mvp.md) | DownloadProvider и Transmission в MVP | Уточнения 2026-09-27 | Accepted |
-| [ADR-0026](0026-multiple-monitors.md) | Home на экране активной Activity | Два монитора, 2026-09-27 | Accepted |
-| [ADR-0027](0027-activity-background-snapshot.md) | Last-frame Activity background и граница compositor/shell | Phase 0 experiment, 2026-09-27 | Accepted |
-
-## Ревью и последующие изменения
-
-Решение получает Accepted после явного архитектурного review либо самостоятельного технического выбора в пределах поручения пользователя; дата и основание фиксируются в ADR. Отклонённое решение получает Rejected; заменённое — Superseded со ссылкой на новый ADR. Это предложенный порядок ведения документации, а не утверждение о состоявшемся принятии.
-
-Новые решения получают следующий свободный номер. Изменения архитектурной границы и Plugin API оформляются явно; конкретные wire schemas и SDK documentation появятся отдельно после API review.
-
-[Карта покрытия ТЗ, приёмки и открытых вопросов](../architecture/review-map.md). Полученный [дизайн-handoff](../design/README.md) сохранён отдельно; его связь с архитектурой описана в ADR-0017 и ADR-0019, а [расхождения и их решения](../design/integration-review.md) имеют явный текущий статус.
-
-Начинать реализацию следует с [технической основы](../architecture/implementation-baseline.md), [уточнённого MVP](../architecture/product-decisions.md) и [Phase 0 gate](../architecture/phase-0-gate.md).
+| [0001](0001-product-scope.md) | Arinn as an orchestrator for a shared household HTPC | Accepted | 0023, 0024, 0025 |
+| [0002](0002-component-boundaries.md) | Qt/QML shell, Rust daemon and a public D-Bus API | Accepted | 0020, 0021 |
+| [0003](0003-external-plugin-processes.md) | Integrations run in external processes | Accepted | 0021 |
+| [0004](0004-capability-contracts.md) | Capability contracts and no plugin-supplied UI | Accepted | 0020, 0025 |
+| [0005](0005-ipc-versioning.md) | A typed, versioned Plugin API | Accepted | 0020 |
+| [0006](0006-snapshots-subscriptions.md) | State through snapshots, revisions and subscriptions | Accepted | 0020 |
+| [0007](0007-async-errors.md) | Asynchronous commands and normalized errors | Accepted | 0020 |
+| [0008](0008-discovery-lifecycle.md) | XDG discovery and lifecycle through systemd user services | Accepted | 0021 |
+| [0009](0009-kde-wayland-platform.md) | PlatformService and a mandatory KDE/Wayland spike | Accepted | 0026, 0027, 0032 |
+| [0010](0010-activity-home.md) | Activity and one Continue/Home overlay model | Accepted | 0022, 0023 |
+| [0011](0011-chrome-integration.md) | Chrome/Chromium through an MV3 extension and Native Messaging | Accepted | 0021 |
+| [0012](0012-desktop-steam-esde.md) | Desktop provider and dedicated Steam/ES-DE entry points | Accepted | 0021 |
+| [0013](0013-mpris-media.md) | MediaProvider based on MPRIS | Accepted | 0021, 0024 |
+| [0014](0014-state-persistence.md) | Provider-owned state and minimal Arinn persistence | Accepted | 0022 |
+| [0015](0015-security-boundary.md) | Trusted local plugins with IPC validation | Accepted | 0020, 0021 |
+| [0016](0016-cli-diagnostics.md) | One API for CLI, diagnostics and structured logs | Accepted | 0020 |
+| [0017](0017-navigation-design-boundary.md) | Local D-pad navigation and a separate design specification | Accepted | 0022, 0023, 0030 |
+| [0018](0018-demo-testing-gates.md) | Demo provider, shared contract suite and architecture gates | Accepted | 0020, 0023 |
+| [0019](0019-design-handoff-contract.md) | The design handoff as a separate presentation contract | Accepted | 0022, 0023, 0027 |
+| [0020](0020-dbus-contract-baseline.md) | D-Bus transport, identifiers and Plugin API reliability | Accepted | — |
+| [0021](0021-plugin-runtime-ownership.md) | Transient systemd services and a separate Chrome native bridge | Accepted | — |
+| [0022](0022-state-and-interaction-baseline.md) | Activity ownership, persistence and interaction state | Accepted | — |
+| [0023](0023-mvp-product-clarifications.md) | Back, system sleep and the target HTPC | Accepted | 0030 |
+| [0024](0024-local-library-mpv.md) | Local library and external mpv with a rich media API | Accepted | — |
+| [0025](0025-downloads-mvp.md) | DownloadProvider and Transmission in the MVP | Accepted | — |
+| [0026](0026-multiple-monitors.md) | Home on the screen of the active Activity | Accepted | 0031 |
+| [0027](0027-activity-background-snapshot.md) | Compositor snapshot of the Activity for a separate Qt shell | Accepted | — |
+| [0028](0028-documentation-governance.md) | Documentation governance, living specification and English docs | Accepted | — |
+| [0029](0029-licensing.md) | GPL-3.0-or-later core, permissive protocol, contributor license agreement | Accepted | — |
+| [0030](0030-phase0-machine-and-standard-input.md) | Phase 0 on the development machine and the remote as standard keyboard input | Accepted | — |
+| [0031](0031-single-screen-target.md) | The target HTPC has one screen | Accepted | — |
+| [0032](0032-kwin-script-platform-adapter.md) | A packaged KWin script as the first KDE platform adapter | Accepted | — |

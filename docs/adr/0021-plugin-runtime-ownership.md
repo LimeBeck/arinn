@@ -1,32 +1,30 @@
-# ADR-0021: Transient systemd services и отдельный Chrome native bridge
+# ADR-0021: Transient systemd services and a separate Chrome native bridge
 
-- Статус: Принято для реализации (Accepted).
-- Дата: 2026-09-27.
-- Основание: пользователь поручил самостоятельно закрыть технические решения; это решение исполнителя в пределах делегированной задачи, не утверждение о состоявшемся отдельном ревью пользователя.
-- Уточняет: ADR-0003, ADR-0008, ADR-0011, ADR-0012; исходные ADR сохраняют историю и ссылку на это уточнение.
+- **Status:** Accepted
+- **Date:** 2026-09-27
+- **Deciders:** delegated technical choice
+- **Amends / Supersedes:** amends [ADR-0003](0003-external-plugin-processes.md), [ADR-0008](0008-discovery-lifecycle.md), [ADR-0011](0011-chrome-integration.md), [ADR-0012](0012-desktop-steam-esde.md), [ADR-0013](0013-mpris-media.md), [ADR-0015](0015-security-boundary.md)
+- **Amended by / Superseded by:** —
+- **Specification:** [§7.1, §9.9, §9.10](../specifications/arinn-specification.md)
 
-## Контекст
+## Context
 
-Native Messaging host запускается Chrome, тогда как обычный plugin должен обслуживаться systemd. Discovery и restart нуждаются в детерминированных правилах.
+Chrome starts its Native Messaging host itself, while a regular plugin must be supervised by systemd. Discovery and restart need deterministic rules.
 
-## Решение
+## Decision
 
-Принять TOML manifests и XDG priority, explicit reload, transient user services с bounded restart, отдельные runtime/backend statuses. Chrome host является adapter process браузера и подключается к systemd-supervised Chrome provider, не конкурируя с ним за lifecycle.
+Manifests are TOML with XDG precedence and explicit reload. Providers run as transient systemd user services with bounded restart. Runtime status and backend status are separate. The Chrome native host is a browser adapter process that connects to the systemd-supervised Chrome provider instead of competing with it for lifecycle.
 
-Подробный контракт: [спецификация](../architecture/plugin-runtime.md). См. также [техническую основу](../architecture/implementation-baseline.md) и [Phase 0 gate](../architecture/phase-0-gate.md).
+The detailed contract is the [plugin runtime](../architecture/plugin-runtime.md) document, which is part of this decision.
 
-## Последствия
+## Consequences
 
-Plugin install не требует отдельного handwritten unit для каждой интеграции. Crash/reload не должен закрывать пользовательские приложения; cgroup separation проверяется интеграционно.
+Installing a plugin needs no hand-written unit per integration. A crash or reload must not close user applications; cgroup separation is checked by integration tests.
 
-## Альтернативы
+## Alternatives considered
 
-Не использовать daemon как второй supervisor и не запускать один и тот же Native Messaging host одновременно Chrome и systemd.
+The daemon does not become a second supervisor, and the same Native Messaging host is never started by both Chrome and systemd.
 
-## Оставшаяся работа и проверка
+## Verification
 
-Runtime сценарии systemd/Chrome предстоит реализовать и проверить. Продуктовых подтверждений по lifecycle не требуется.
-
-Принятие технического выбора не означает прохождение тестов, готовность wire API всех capabilities или принятие противоречащих друг другу продуктовых требований.
-
-[Реестр ADR](README.md)
+systemd and Chrome runtime scenarios in integration tests.

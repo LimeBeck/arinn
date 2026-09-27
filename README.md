@@ -1,15 +1,186 @@
-# Arinn
+<p align="center">
+  <img src="docs/design/handoff/assets/arinn-mark.svg" alt="Arinn" width="96">
+</p>
 
-TV-first оболочка для Linux HTPC: оркестрация внешних приложений и активностей через capability-based plugin API. Первый target — KDE Plasma 6 / Wayland.
+<h1 align="center">Arinn</h1>
 
-Репозиторий содержит исходные ТЗ и принятые уточнения для начала разработки:
+<p align="center">
+  A TV-first shell for a Linux home theatre PC.<br>
+  Browser, streaming services, local media, Steam and emulators — one calm interface on your TV.
+</p>
 
-- [Исходное ТЗ — Developer Specification v0.3](docs/specifications/developer-specification-v0.3.md).
-- [Дизайн-handoff: спецификация, дизайн-система, прототипы и 22 скриншота](docs/design/README.md).
-- [Реестр 27 ADR](docs/adr/README.md).
-- [Техническая основа](docs/architecture/implementation-baseline.md), [актуальный MVP](docs/architecture/product-decisions.md) и [план Phase 0](docs/architecture/phase-0-gate.md).
-- [Карта ревью: покрытие, этапы, приёмка и открытые вопросы](docs/architecture/review-map.md).
+<p align="center">
+  <a href="https://github.com/LimeBeck/arinn/actions/workflows/ci.yml"><img src="https://github.com/LimeBeck/arinn/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue" alt="License: GPL-3.0-or-later"></a>
+  <img src="https://img.shields.io/badge/status-pre--alpha-orange" alt="Status: pre-alpha">
+  <img src="https://img.shields.io/badge/platform-KDE%20Plasma%206%20%2F%20Wayland-1d99f3" alt="Platform: KDE Plasma 6 on Wayland">
+</p>
 
-Исходное ТЗ — Draft / Architecture Review Candidate. ADR-0001–0019 сохраняют исходное предложение; ADR-0020–0027 — Accepted, с приоритетом в уточнённых пунктах. Дизайн-handoff сохранён отдельно; [расхождения с developer ТЗ](docs/design/integration-review.md) снабжены решениями и статусами проверок.
+<p align="center"><a href="README.ru.md">Русская версия</a></p>
 
-Реализован Phase 0: Rust daemon/demo/CLI, Qt Quick shell и KWin-адаптер с выбором монитора активной Activity. [Сборка и запуск](docs/architecture/phase-0-runbook.md), [результаты и ограничения](docs/architecture/phase-0-report.md). Это архитектурный прототип; stable Plugin API и финальный UI ещё не реализованы.
+---
+
+> [!WARNING]
+> **Arinn is pre-alpha.** Only the architecture spike (Phase 0) exists: a technical prototype that proves the design on KDE Plasma 6 / Wayland. It is not yet usable as an everyday HTPC shell. See the [roadmap](ROADMAP.md).
+
+## What is Arinn?
+
+Arinn (Old Norse for *hearth*) turns a Linux computer behind the TV into something that feels like a TV: you pick up the remote and ask *"what do we want to do now?"* instead of *"which app do I start?"*.
+
+Arinn does **not** replace your browser, player or game launcher. It orchestrates the applications you already have and stays on top of them:
+
+- **Home over everything.** Press Home in Chrome, Steam or a game and Arinn appears over it; press Back and you are exactly where you were.
+- **One Continue row** for the film you did not finish, the browser tab you were watching and the running game.
+- **Streaming services as tiles** — Kinopoisk, IVI or YouTube open directly, not through bookmarks.
+- **Steam and EmulationStation** as first-class entry points.
+- **Local library** of films and series from local or mounted network folders, played in mpv with Arinn's on-screen controls, audio and subtitle selection and resume.
+- **Downloads** from Transmission, with finished films appearing in the library.
+- **Made for a remote:** everything works with arrows, OK and Back from three metres away; an air mouse works too.
+- **Shared household:** no accounts, no profiles, no login.
+
+Every integration is a separate plugin process talking to a small core over D-Bus, so new services can be added without touching Arinn itself.
+
+## Status
+
+| Phase | Goal | Status |
+| --- | --- | --- |
+| 0 | Architecture spike on KDE/Wayland | ✅ Done |
+| 1 | Production core, protocol and plugin SDK | ⏭ Next |
+| 2–4 | Applications, browser, media | Planned |
+| 5 | MVP: downloads, full UI, packaging | Planned |
+
+What works today: the Rust daemon, a demo plugin, the CLI and a minimal Qt shell; global Home over Chrome, Steam and fullscreen games with focus return (verified 20/20 cycles on two monitors); recovery after plugin and daemon crashes. There is no finished UI, no browser, media or download integration and no installable package yet. Details: [ROADMAP.md](ROADMAP.md) and the [Phase 0 report](docs/architecture/phase-0-report.md).
+
+## Requirements
+
+Target system:
+
+- Arch Linux or EndeavourOS (other distributions should work but are not tested);
+- KDE Plasma 6 on **Wayland** (KWin 6);
+- a systemd user session;
+- a TV with a remote, keyboard or air mouse that sends standard keys.
+
+Building from source:
+
+- Rust (edition 2024) with `cargo`;
+- CMake ≥ 3.24, Ninja and a C++20 compiler;
+- Qt 6 ≥ 6.6: Quick, Quick Controls, DBus, Test;
+- Python 3, `qdbus6`; Node.js for the adapter tests.
+
+On Arch/EndeavourOS:
+
+```sh
+sudo pacman -S --needed rust cmake ninja qt6-base qt6-declarative python nodejs
+```
+
+## Try the prototype
+
+There are no packages yet. To build and run the Phase 0 prototype in your own Plasma session:
+
+```sh
+git clone https://github.com/LimeBeck/arinn.git
+cd arinn
+cargo build --locked
+cmake -S . -B build -G Ninja
+cmake --build build
+
+python scripts/phase0-session.py start   # start daemon, demo plugin, shell and KWin adapter
+python scripts/phase0-session.py stop    # stop everything and unload the adapter
+```
+
+The prototype runs as temporary systemd user units and a session-only KWin script; nothing is installed permanently. Full details and test commands: [Phase 0 runbook](docs/architecture/phase-0-runbook.md).
+
+## Controls
+
+| Key | Action |
+| --- | --- |
+| Meta+F12 | Global Home: show Arinn over the current application (configurable) |
+| Arrows | Move focus |
+| Enter | Select |
+| Esc / Backspace | Back: close Home and return to the application; without one, open navigation |
+
+Remote controls such as the G60S Pro air mouse send these same keys; no driver is needed.
+
+## For contributors
+
+### Architecture at a glance
+
+```text
+arinn-shell (Qt 6/QML) ──D-Bus──▶ arinnd (Rust) ──D-Bus──▶ plugins (separate processes)
+                                     │                     demo · desktop · chrome · mpris
+                                     ▼                     library · mpv · transmission …
+                           KDE platform adapter (KWin)
+```
+
+- The **shell** only draws the UI and handles focus locally; it never talks to other applications.
+- The **daemon** knows *capabilities* (application, browser, media, library, action, download), never product names.
+- **Plugins** implement capabilities in separate processes supervised by systemd, so a crashing integration never takes Arinn down.
+- The **platform layer** isolates KDE/Wayland specifics: global shortcut, overlay, window activation.
+
+Read more in the [specification](docs/specifications/arinn-specification.md) and the [architecture decisions](docs/adr/README.md).
+
+### Repository layout
+
+| Path | Content |
+| --- | --- |
+| `apps/arinn-shell/` | Qt/QML shell |
+| `crates/arinnd/` | Daemon |
+| `crates/arinn-protocol/` | Shared protocol types (`MIT OR Apache-2.0`) |
+| `plugins/` | Arinn's own plugins |
+| `platform/kde/` | KWin script adapter |
+| `tools/arinnctl/` | Command-line client |
+| `tests/` | Integration, UI and operator tests |
+| `scripts/` | Development scripts |
+| `docs/` | Specification, ADRs, architecture, plugin API, design |
+
+### Build and test
+
+```sh
+cargo fmt --all --check
+cargo clippy --locked --all-targets -- -D warnings
+cargo test --locked
+cmake --build build && dbus-run-session -- python tests/integration/phase0.py
+node --test tests/integration/kwin_adapter.test.cjs
+python scripts/check-docs.py
+```
+
+The full list of required checks, commit conventions and the Definition of Done are in [CONTRIBUTING.md](CONTRIBUTING.md). AI coding agents also follow [AGENTS.md](AGENTS.md).
+
+### Writing a plugin
+
+A plugin is any executable that connects to the session bus, registers with `arinnd` and implements one or more capabilities. It is described by a TOML manifest in `~/.local/share/arinn/plugins/`:
+
+```toml
+id = "example"
+name = "Example Integration"
+version = "0.1.0"
+api_version = 1
+executable = "/usr/lib/arinn/plugins/arinn-plugin-example"
+capabilities = ["application"]
+```
+
+Plugins supply data and actions, never UI. The Plugin API v1 is **not stable yet**; the protocol crate and the future SDK are licensed `MIT OR Apache-2.0`, so your plugin may use any license. See the [Plugin API](docs/plugin-api/README.md) and [plugin runtime](docs/architecture/plugin-runtime.md).
+
+### Documentation map
+
+| Document | Purpose |
+| --- | --- |
+| [Specification](docs/specifications/arinn-specification.md) | Current requirements — the source of truth |
+| [Roadmap](ROADMAP.md) | Phases, exit criteria, status |
+| [ADRs](docs/adr/README.md) | Why decisions were made |
+| [Architecture](docs/README.md) | Technical contracts, Phase 0 evidence |
+| [Design](docs/design/README.md) | Design handoff, design system, brand |
+| [Changelog](CHANGELOG.md) | Notable changes |
+
+## Contributing
+
+Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md), follow the [Code of Conduct](CODE_OF_CONDUCT.md) and sign the [Contributor License Agreement](CLA.md) on your first pull request. Report security issues privately as described in [SECURITY.md](SECURITY.md).
+
+## License
+
+- Arinn is licensed under the [GNU General Public License v3.0 or later](LICENSE).
+- `crates/arinn-protocol`, the plugin SDK and the D-Bus interface definitions are licensed under [MIT](LICENSES/MIT.txt) or [Apache-2.0](LICENSES/Apache-2.0.txt), at your option.
+- Documentation and design materials are licensed under [CC-BY-SA-4.0](LICENSES/CC-BY-SA-4.0.txt).
+- Qt is used under the LGPL-3.0. Third-party logos shown in design materials belong to their owners and are not covered by these licenses.
+
+Each file states its license with an SPDX header or in [REUSE.toml](REUSE.toml). See [ADR-0029](docs/adr/0029-licensing.md) for the reasoning.

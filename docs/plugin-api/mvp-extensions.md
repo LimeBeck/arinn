@@ -1,59 +1,59 @@
-# API review: медиа и загрузки для уточнённого MVP
+# API review: media and downloads for the extended MVP
 
-Дата: 2026-09-27. Статус: принято на уровне модели/семантики по ADR-0024/0025. Это отдельное расширение исходного v0.3, а не утверждение, что DownloadProvider там уже был. API ещё не опубликован как stable v1; до реализации provider schema фиксируется в versioned D-Bus XML и contract fixtures.
+Date: 2026-09-27. Accepted at the level of model and semantics by [ADR-0024](../adr/0024-local-library-mpv.md) and [ADR-0025](../adr/0025-downloads-mvp.md). This extends specification v0.3; DownloadProvider was not part of it. The API is not yet published as stable v1; before a provider is implemented its schema is fixed in versioned D-Bus XML and contract fixtures.
 
-## Общие правила
+## General rules
 
-Транспорт и operation model — [implementation baseline](../architecture/implementation-baseline.md). Ниже notation языка спецификации, не готовые Rust/QML signatures. Все mutating методы принимают request_id и expected generation, возвращают Operation; IDs opaque. Optional values в wire schema имеют explicit has-value flag, не магические пустые словари. Списки snapshot paginated и привязаны к generation/revision.
+Transport and operation model: [implementation baseline](../architecture/implementation-baseline.md). The notation below is specification language, not ready Rust or QML signatures. All mutating methods take a `request_id` and the expected generation and return an Operation; IDs are opaque. Optional values in the wire schema have an explicit has-value flag, not magic empty dictionaries. Snapshot lists are paginated and bound to generation/revision.
 
-Extension interfaces доступны через introspection и registered feature flags, а core routing не зависит от продукта. Неизвестная feature не делает base capability несовместимой. Неизвестная top-level capability в старом daemon вызывает Unsupported при registration, поэтому DownloadProvider поставляется с поддерживающим его daemon.
+Extension interfaces are discoverable through introspection and registered feature flags; core routing never depends on the product. An unknown feature never makes the base capability incompatible. An unknown top-level capability in an older daemon causes `Unsupported` at registration, so DownloadProvider ships with a daemon that supports it.
 
-## Rich media без обязательств для MPRIS
+## Rich media without obligations for MPRIS
 
-| Interface | Typed data | Методы / семантика |
+| Interface | Typed data | Methods / semantics |
 | --- | --- | --- |
-| MediaOpen1 | MediaSource: content EntityRef, URI, start_position_us, preferred audio/subtitle language; URI доступен только provider, не логируется | Open(source): создаёт managed session, result — session EntityRef. Источник должен быть разрешён library provider; UI не передаёт raw arbitrary command/URL. |
-| MediaTracks1 | Track: id, kind audio/subtitle, language, label, codec, channels, selected, external | ListTracks(session); SelectTrack(session, kind, track_id); DisableSubtitles(session). Выбор audio требует реального ID; subtitle off — отдельное действие. |
-| MediaTimeline1 | Chapter: id, start_us, title; BufferedRange: start_us/end_us; Thumbnail: asset_ref, timestamp_us | GetTimeline(session); RequestThumbnail(session, position_us). Неподдерживаемый thumbnail возвращает Unsupported; base seek работает независимо. |
-| LibraryResume1 | Resume: content_id, position_us, duration_us, completed, observed_at | Получение resumable entries; SetProgress от связанной media session через daemon; RestartFromBeginning по явному действию. Изменение watched не является shell-local boolean. |
-| LibraryImport1 | ImportCandidate: source EntityRef, mapped local file reference, completion identity | ImportCompleted: асинхронная сверка completed файлов в configured roots; результат — Library EntityRefs. Повтор безопасен и не дублирует записи. |
+| `MediaOpen1` | MediaSource: content EntityRef, URI, start_position_us, preferred audio/subtitle language; the URI is visible only to the provider and never logged | `Open(source)`: creates a managed session, result is a session EntityRef. The source must be resolved by a library provider; the UI never passes a raw arbitrary command or URL. |
+| `MediaTracks1` | Track: id, kind audio/subtitle, language, label, codec, channels, selected, external | `ListTracks(session)`; `SelectTrack(session, kind, track_id)`; `DisableSubtitles(session)`. Selecting audio needs a real ID; subtitles off is a separate action. |
+| `MediaTimeline1` | Chapter: id, start_us, title; BufferedRange: start_us/end_us; Thumbnail: asset_ref, timestamp_us | `GetTimeline(session)`; `RequestThumbnail(session, position_us)`. An unsupported thumbnail returns `Unsupported`; base seek works independently. |
+| `LibraryResume1` | Resume: content_id, position_us, duration_us, completed, observed_at | Resumable entries; `SetProgress` from the linked media session through the daemon; `RestartFromBeginning` on explicit action. Watched state is never a shell-local boolean. |
+| `LibraryImport1` | ImportCandidate: source EntityRef, mapped local file reference, completion identity | `ImportCompleted`: asynchronous reconciliation of completed files in configured roots; result is Library EntityRefs. Repeating is safe and never duplicates entries. |
 
-Эти интерфейсы применимы к mpv, другим players и library backends; они не содержат mpv property names. Raw player IPC остаётся в plugin.
+These interfaces apply to mpv, other players and other library backends; they contain no mpv property names. Raw player IPC stays in the plugin.
 
 ## DownloadProvider v1
 
-Новая шестая base capability: `download`. Она описывает download job, а не torrent protocol. Интерфейс `org.arinn.DownloadProvider1` предоставляет GetSnapshot, GetJob, Pause, Resume, StartNow, Retry; methods для удаления файлов и произвольного Transmission RPC отсутствуют.
+A new sixth base capability, `download`. It describes a download job, not a torrent protocol. The interface `org.arinn.DownloadProvider1` offers `GetSnapshot`, `GetJob`, `Pause`, `Resume`, `StartNow` and `Retry`; there are no methods for deleting files or for arbitrary Transmission RPC.
 
-| Поле DownloadJob | Тип и семантика |
+| DownloadJob field | Type and semantics |
 | --- | --- |
-| id | Opaque string, namespace provider |
+| id | Opaque string, provider namespace |
 | title | UTF-8 display title |
 | state | queued, downloading, paused, verifying, completed, error |
-| completed_bytes / total_bytes | uint64; total имеет has-value, если ещё неизвестен |
+| completed_bytes / total_bytes | uint64; total has a has-value flag while unknown |
 | rate_bytes_per_second | uint64 |
-| eta_seconds | int64; -1 неизвестно |
-| progress | double 0..1 с has-value; UI не показывает фиктивный процент при неизвестном размере |
-| available_actions | enum set pause/resume/start_now/retry |
-| error_code / error_message | нормализованный code и безопасный текст |
-| outputs | Список typed completed output refs, а не сырые произвольные paths в QML |
-| library_refs / import_state | Связанные Library EntityRefs; pending/imported/unavailable/unsupported, независимо от download state |
+| eta_seconds | int64; −1 unknown |
+| progress | double 0..1 with has-value; the UI never shows a fake percentage for an unknown size |
+| available_actions | enum set: pause, resume, start_now, retry |
+| error_code / error_message | normalized code and safe text |
+| outputs | list of typed completed output refs, never raw arbitrary paths in QML |
+| library_refs / import_state | linked Library EntityRefs; pending, imported, unavailable or unsupported, independent of the download state |
 
-Pause прекращает transfer, Resume продолжает с сохранением queue policy, StartNow явно обходит очередь для выбранного job. Retry не создаёт новый job: повторяет допустимое восстановление существующего; неподдерживаемая операция = Unsupported. Recheck filesystem/verify — provider-specific часть Retry, а не гарантированное повторное скачивание всех данных.
+Pause stops the transfer; Resume continues and keeps the queue policy; StartNow explicitly bypasses the queue for the selected job. Retry never creates a new job: it repeats an allowed recovery of the existing one; an unsupported operation is `Unsupported`. Filesystem recheck/verify is a provider-specific part of Retry, not a guaranteed full re-download.
 
-Completed означает, что данные загружены и проверены backend; продолжающийся torrent seeding не делает файл незавершённым. «Добавлено в медиатеку» показывается только после LibraryImport success. Для non-media download — «Готово», без кнопки «Смотреть». Для медиа кнопка активна после получения Library EntityRef и открывает Detail.
+Completed means the data is downloaded and verified by the backend; ongoing seeding does not make the file incomplete. "Added to library" is shown only after `LibraryImport` succeeds. A non-media download shows "Done" without a "Watch" button. For media the button becomes active after a Library EntityRef exists and opens Detail.
 
-UI соответствует design handoff: pause/resume/start now/retry, progress/status, service unavailable, completion toast. Дополнительное backend verifying состояние показывается как «Проверка…», без выдуманного ETA. Peers/seeds/ratio/trackers в общий API и default UI не входят.
+The UI follows the design handoff: pause/resume/start now/retry, progress and status, service unavailable, completion toast. The extra backend state verifying is shown as "Checking…" without an invented ETA. Peers, seeds, ratio and trackers are not part of the general API or the default UI.
 
-MVP управляет уже добавленными заданиями Transmission. Форма добавления magnet/.torrent не показана в handoff и не является условием usable интеграции: задания можно добавлять штатным Transmission UI. Будущее AddSource требует typed source/validation и отдельного UI, а не передачи произвольного RPC через ActionProvider.
+The MVP manages jobs already added to Transmission. A form for adding magnets or .torrent files is not in the handoff and is not required for a usable integration: jobs can be added with the regular Transmission UI. A future `AddSource` needs a typed source, validation and its own UI, never arbitrary RPC through ActionProvider.
 
 ## Generic completion → library
 
-Provider публикует transition в completed со стабильным completion identity. Daemon маршрутизирует событие выбранному LibraryImport1 provider. Download provider знает backend paths, library — configured roots; связь remote path → local mount задаётся явной конфигурацией. Отсутствие mapping означает import unavailable, а не сканирование произвольного пути.
+A provider publishes the transition to completed with a stable completion identity. The daemon routes the event to the selected `LibraryImport1` provider. The download provider knows backend paths; the library knows configured roots; the mapping of a remote path to a local mount is explicit configuration. Without a mapping, import is unavailable; arbitrary paths are never scanned.
 
-Library provider сверяет файлы, создаёт/обновляет свои записи и возвращает refs. Completion ledger хранится в library provider и ключуется `(download provider, stable job ID, output identity)`; reconnect/replay не создаёт дубли New и toast. Browser downloads или другой download manager могут использовать тот же поток.
+The library provider reconciles files, creates or updates its entries and returns refs. The completion ledger is stored in the library provider, keyed by `(download provider, stable job ID, output identity)`; reconnect or replay never creates duplicate New entries or toasts. Browser downloads or other download managers can use the same flow.
 
-## Обоснование и границы review
+## Rationale and scope of the review
 
-Generic ActionProvider не подходит для структурированного списка jobs, revisions, статусов и доступности действий; product-specific Transmission API в core нарушил бы Rule 1. Поэтому выделяется DownloadProvider. LibraryImport1 отделяет завершение загрузки от индексирования контента и работает с любым download backend.
+A generic ActionProvider cannot express a structured list of jobs with revisions, states and available actions; a product-specific Transmission API in the core would violate R-01. Hence a separate DownloadProvider. `LibraryImport1` separates download completion from content indexing and works with any download backend.
 
-Выбранные типы, state machine и ownership закрывают архитектурный вопрос расширения. Точные D-Bus XML, serializers, SDK и executable contract suite — обязательные результаты реализации, не выполненные проверки. Лимиты transport и ошибки берутся из ADR-0020.
+The chosen types, state machine and ownership close the architectural question of the extension. Exact D-Bus XML, serializers, the SDK and an executable contract suite are implementation deliverables, not completed checks. Transport limits and errors come from ADR-0020.

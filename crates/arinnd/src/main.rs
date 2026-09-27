@@ -333,12 +333,12 @@ impl Daemon {
 }
 impl Daemon {
     async fn queue(&self, command: &str) -> zbus::fdo::Result<()> {
-        if !self
+        if self
             .model
             .lock()
             .await
             .platform_seen
-            .is_some_and(|t| t.elapsed() < Duration::from_secs(30))
+            .is_none_or(|t| t.elapsed() >= Duration::from_secs(30))
         {
             return Err(zbus::fdo::Error::Failed("Unavailable: KWin adapter".into()));
         }

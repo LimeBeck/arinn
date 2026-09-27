@@ -45,4 +45,4 @@ Stop возвращает Activity, если она ещё доступна, в�
 
 `tests/integration/kwin_focus.py RESOURCE_CLASS --fullscreen --output OUTPUT_NAME` — вспомогательная команда для явно выбранного тестового окна. Она меняет fullscreen/placement только этого окна, поэтому применять её следует к отдельному fixture, а не рабочему окну пользователя.
 
-При перезапуске daemon shell и provider переподключаются, но экспериментальный KWin long-poll нужно перезагрузить: `stop`, затем `start`. Production recovery остаётся отдельной задачей.
+При перезапуске daemon shell/provider и KWin bridge переподключаются автоматически. Для проверки на выбранной disposable Activity: `python tests/integration/kwin_recovery.py`. Тест намеренно убивает только transient `arinn-phase0-daemon` и проверяет сохранение Home/Return.

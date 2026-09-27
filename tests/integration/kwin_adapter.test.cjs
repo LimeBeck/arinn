@@ -18,22 +18,27 @@ function fixture() {
     const activity = window('original-id', 'game');
     const home = window('shell-id', 'org.arinn.Shell');
     let windows = [activity, home];
-    let shortcut, takeCommand, report;
+    let shortcut, takeCommand, report, tick;
+    let owner = ":1.10"; const polls = [];
     const workspace = { activeWindow: activity, activeScreen: output, screens: [output],
         windowList: () => windows, windowAdded: signal(), windowRemoved: signal(),
         windowActivated: signal(), sendClientToScreen: (w, o) => { w.output = o; } };
     const context = vm.createContext({ workspace,
+        QTimer: class { constructor() { this.timeout = { connect: fn => { tick = fn; } }; } start() {} },
         registerShortcut: (_id, _label, _keys, fn) => { shortcut = fn; },
         callDBus: (_service, _path, _interface, method, ...args) => {
             if (method === 'GetActive') args[0](false);
-            if (method === 'TakeCommand') takeCommand = args[0];
+            if (method === 'NameHasOwner') args[1](!!owner);
+            if (method === 'GetNameOwner') args[1](owner);
+            if (method === 'TakeCommand') { takeCommand = args[0]; polls.push(takeCommand); }
             if (method === 'ReportHome') {
                 report = args.slice(0, 3);
                 if (typeof args[3] === 'function') args[3]();
             }
         } });
     vm.runInContext(fs.readFileSync(path.join(__dirname, '../../platform/kde/phase0.js'), 'utf8'), context);
-    return { activity, home, workspace, window,
+    return { activity, home, workspace, window, polls,
+        reconnect(value) { owner = value; tick(); },
         show: () => shortcut(), back: () => takeCommand('return'), report: () => report,
         remove(w) { windows = windows.filter(x => x !== w); workspace.windowRemoved.emit(w); },
         add(w) { windows.push(w); workspace.windowAdded.emit(w); } };
@@ -61,4 +66,21 @@ test('another window of the same application never replaces a closed target', ()
     f.back();
     assert.deepEqual(f.report(), [true, '', 'second-screen']);
     assert.equal(f.workspace.activeWindow, f.home);
+});
+
+
+test('daemon owner change restores Home context and ignores late old commands', () => {
+    const f = fixture();
+    f.show();
+    const oldPoll = f.polls[0];
+    f.reconnect(""); // vanished owner; real KWin sends no error callback
+    f.reconnect(":1.20");
+    assert.deepEqual(f.report(), [true, 'original-id', 'second-screen']);
+    const count = f.polls.length;
+    oldPoll('return');
+    assert.equal(f.report()[0], true);
+    assert.equal(f.polls.length, count);
+    f.back();
+    assert.equal(f.workspace.activeWindow, f.activity);
+    assert.equal(f.report()[0], false);
 });

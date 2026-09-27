@@ -5,7 +5,15 @@ let target = "";
 let detachedTarget = "";
 let homeVisible = false;
 let homeOutput = "";
-let stopped = false;
+let daemonOwner = "";
+let pollSerial = 0;
+let pollStarted = 0;
+let ownerProbe = 0;
+let probeStarted = 0;
+const watchdog = new QTimer();
+watchdog.interval = 1000;
+watchdog.timeout.connect(checkDaemon);
+watchdog.start();
 function rpc(method, ...args) { callDBus(service, path, service, method, ...args); }
 function id(w) { return w ? w.internalId.toString() : ""; }
 function isShell(w) { return w && (w.desktopFileName === "org.arinn.Shell" || w.resourceClass === "org.arinn.Shell"); }
@@ -46,13 +54,46 @@ function returnToActivity() {
     detachedTarget = "";
 }
 function poll() {
-    if (stopped) return;
+    if (!daemonOwner) return;
+    const serial = ++pollSerial;
+    pollStarted = Date.now();
     rpc("TakeCommand", command => {
-        // D-Bus error returns undefined: stop, reload adapter after daemon restart.
-        if (typeof command !== "string") { stopped = true; return; }
+        if (serial !== pollSerial) return; // reply from an obsolete owner/request
+        pollStarted = 0;
         if (command === "home") showHome();
         else if (command === "return") returnToActivity();
         poll();
+    });
+}
+function checkDaemon() {
+    // KWin drops error callbacks entirely. A timer must recover both failed
+    // calls and requests that never receive a callback; no tight retry loop.
+    if (probeStarted && Date.now() - probeStarted < 5000) return;
+    const probe = ++ownerProbe;
+    probeStarted = Date.now();
+    callDBus("org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus", "NameHasOwner", service, exists => {
+        if (probe !== ownerProbe) return;
+        if (!exists) {
+            probeStarted = 0;
+            daemonOwner = "";
+            ++pollSerial;
+            pollStarted = 0;
+            return;
+        }
+        callDBus("org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus", "GetNameOwner", service, owner => {
+            if (probe !== ownerProbe) return;
+            probeStarted = 0;
+            if (owner !== daemonOwner) {
+                daemonOwner = owner;
+                ++pollSerial;
+                // KWin retains the Activity context across daemon restarts.
+                rpc("ReportHome", homeVisible, target, homeOutput);
+                report(workspace.activeWindow);
+                poll();
+            } else if (!pollStarted || Date.now() - pollStarted > 26000) {
+                poll();
+            }
+        });
     });
 }
 registerShortcut("ArinnPhase0Home", "Arinn Phase 0: Home", "Meta+F12", showHome);
@@ -74,5 +115,4 @@ workspace.windowActivated.connect(report);
 workspace.windowRemoved.connect(w => {
     if (id(w) === target) { detachedTarget = target; target = ""; if (homeVisible) rpc("ReportHome", true, "", homeOutput); }
 });
-report(workspace.activeWindow);
-poll();
+checkDaemon();

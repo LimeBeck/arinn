@@ -1,0 +1,62 @@
+name: Package
+
+# Reusable: builds the Arch Linux package from the checked-out commit and
+# verifies it by installing it into a clean system (ADR-0033).
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build Arch package
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - name: Install build dependencies
+        run: |
+          pacman -Syu --noconfirm --needed base-devel git rust cmake ninja \
+            qt6-base qt6-declarative python dbus
+          useradd --create-home builder
+      - uses: actions/checkout@v4
+      - name: Create source tarball
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          version="$(python scripts/release.py version)"
+          mkdir -p pkg
+          git archive --format=tar.gz --prefix="arinn-${version}/" -o "pkg/arinn-${version}.tar.gz" HEAD
+          cp packaging/arch/PKGBUILD pkg/
+          chown -R builder pkg
+      - name: makepkg (build, check, package)
+        run: su builder -c 'cd pkg && makepkg --noconfirm --cleanbuild'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: arinn-arch-package
+          path: |
+            pkg/*.pkg.tar.zst
+            pkg/*.tar.gz
+          if-no-files-found: error
+
+  smoke:
+    name: Install and smoke-test package
+    needs: build
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: arinn-arch-package
+          path: pkg
+      - name: Install package into a clean system
+        run: |
+          pacman -Syu --noconfirm --needed python dbus
+          pacman -U --noconfirm pkg/*.pkg.tar.zst
+      - name: Smoke test
+        run: dbus-run-session -- python tests/package/smoke.py
+      - name: Uninstall cleanly
+        run: |
+          pacman -R --noconfirm arinn
+          test ! -e /usr/bin/arinnd

@@ -11,7 +11,8 @@ All notable changes to this project are documented here. The format follows [Kee
 - ADR-0028 (documentation governance), ADR-0029 (licensing), ADR-0030 and ADR-0031 (clarifications previously edited into ADR-0023 and ADR-0026), ADR-0032 (KWin script adapter), and an ADR template.
 - Licensing: `GPL-3.0-or-later` for the core, `MIT OR Apache-2.0` for `arinn-protocol` and interface XML, `CC-BY-SA-4.0` for documentation; SPDX headers, `REUSE.toml`, `LICENSES/`, `deny.toml`.
 - Contributor documentation: README (English and Russian), CONTRIBUTING, CLA, AGENTS/CLAUDE, SECURITY, Code of Conduct, issue and pull request templates.
-- CI: Rust build, tests and lints; Qt build and private-bus integration suite; KWin adapter tests; REUSE, cargo-deny and documentation checks; CLA check.
+- CI/CD (ADR-0033): Rust build, tests and lints; Qt build and private-bus integration suite on Arch Linux; KWin adapter tests; REUSE, cargo-deny, documentation and version checks; Arch package build with a clean-install smoke test; nightly runs against the latest Arch packages; tag-gated releases to GitHub Releases; CLA check; Dependabot.
+- Arch Linux `PKGBUILD`, package smoke test and `scripts/release.py`.
 
 ### Changed
 

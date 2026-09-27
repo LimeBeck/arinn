@@ -75,7 +75,7 @@ sudo pacman -S --needed rust cmake ninja qt6-base qt6-declarative python nodejs
 
 ## Try the prototype
 
-There are no packages yet. To build and run the Phase 0 prototype in your own Plasma session:
+There is no stable release yet. Pre-release Arch packages of the prototype will appear on the [Releases](https://github.com/LimeBeck/arinn/releases) page; they contain the binaries but no autostart. To build and run the Phase 0 prototype in your own Plasma session from source:
 
 ```sh
 git clone https://github.com/LimeBeck/arinn.git
@@ -130,7 +130,8 @@ Read more in the [specification](docs/specifications/arinn-specification.md) and
 | `platform/kde/` | KWin script adapter |
 | `tools/arinnctl/` | Command-line client |
 | `tests/` | Integration, UI and operator tests |
-| `scripts/` | Development scripts |
+| `scripts/` | Development and release scripts |
+| `packaging/arch/` | Arch Linux package recipe |
 | `docs/` | Specification, ADRs, architecture, plugin API, design |
 
 ### Build and test
@@ -144,7 +145,7 @@ node --test tests/integration/kwin_adapter.test.cjs
 python scripts/check-docs.py
 ```
 
-The full list of required checks, commit conventions and the Definition of Done are in [CONTRIBUTING.md](CONTRIBUTING.md). AI coding agents also follow [AGENTS.md](AGENTS.md).
+Every pull request and a nightly job run the full pipeline, including building the Arch package, installing it into a clean system and smoke-testing it; releases are published only after the whole pipeline passes on the tagged commit ([ADR-0033](docs/adr/0033-ci-cd-and-releases.md)). The full list of required checks, commit conventions, the release process and the Definition of Done are in [CONTRIBUTING.md](CONTRIBUTING.md). AI coding agents also follow [AGENTS.md](AGENTS.md).
 
 ### Writing a plugin
 

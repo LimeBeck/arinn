@@ -4,7 +4,7 @@
 - **Date:** 2026-09-27 (proposed); accepted 2026-09-27 by [ADR-0028](0028-documentation-governance.md)
 - **Deciders:** project owner (Developer Specification v0.3)
 - **Amends / Supersedes:** —
-- **Amended by / Superseded by:** [ADR-0020](0020-dbus-contract-baseline.md) (test harness, fixtures, performance budgets), [ADR-0023](0023-mvp-product-clarifications.md) (phases and AC-15–AC-19)
+- **Amended by / Superseded by:** [ADR-0020](0020-dbus-contract-baseline.md) (test harness, fixtures, performance budgets), [ADR-0023](0023-mvp-product-clarifications.md) (phases and AC-15–AC-19), [ADR-0033](0033-ci-cd-and-releases.md) (CI/CD and releases)
 - **Specification:** [§17, §19, ROADMAP](../specifications/arinn-specification.md)
 
 ## Context

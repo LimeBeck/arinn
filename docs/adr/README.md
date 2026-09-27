@@ -34,7 +34,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0015](0015-security-boundary.md) | Trusted local plugins with IPC validation | Accepted | 0020, 0021 |
 | [0016](0016-cli-diagnostics.md) | One API for CLI, diagnostics and structured logs | Accepted | 0020 |
 | [0017](0017-navigation-design-boundary.md) | Local D-pad navigation and a separate design specification | Accepted | 0022, 0023, 0030 |
-| [0018](0018-demo-testing-gates.md) | Demo provider, shared contract suite and architecture gates | Accepted | 0020, 0023 |
+| [0018](0018-demo-testing-gates.md) | Demo provider, shared contract suite and architecture gates | Accepted | 0020, 0023, 0033 |
 | [0019](0019-design-handoff-contract.md) | The design handoff as a separate presentation contract | Accepted | 0022, 0023, 0027 |
 | [0020](0020-dbus-contract-baseline.md) | D-Bus transport, identifiers and Plugin API reliability | Accepted | — |
 | [0021](0021-plugin-runtime-ownership.md) | Transient systemd services and a separate Chrome native bridge | Accepted | — |
@@ -49,3 +49,4 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0030](0030-phase0-machine-and-standard-input.md) | Phase 0 on the development machine and the remote as standard keyboard input | Accepted | — |
 | [0031](0031-single-screen-target.md) | The target HTPC has one screen | Accepted | — |
 | [0032](0032-kwin-script-platform-adapter.md) | A packaged KWin script as the first KDE platform adapter | Accepted | — |
+| [0033](0033-ci-cd-and-releases.md) | CI/CD pipeline and release policy | Accepted | — |

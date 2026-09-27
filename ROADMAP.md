@@ -55,7 +55,7 @@ Scope:
 - `arinnctl`: `status`, `providers`, `capabilities`, `activities`, `diagnostics`, `provider restart`, `providers reload`, `--json`, exit codes.
 - Shell receives all data only through the daemon.
 - `config.toml` and `state.sqlite3` with migrations; structured JSON logging.
-- CI: build, tests, lint, license and documentation checks.
+- CI/CD per [ADR-0033](docs/adr/0033-ci-cd-and-releases.md) is in place (pipeline, nightly, package install test, gated releases); Phase 1 extends the test suites it runs.
 
 | Exit criterion | Evidence |
 | --- | --- |
@@ -66,6 +66,7 @@ Scope:
 | G-1.5 Versioned introspection XML for the application capability and the daemon API | `docs/plugin-api/` |
 | AC-11 Dynamic provider: install/remove a manifest and reload without core changes | Integration test |
 | AC-12 No product-specific conditions in the shell | Code review, CI grep check |
+| G-1.6 Branch protection on `master` requires all CI checks and the CLA; the first `v0.1.0` pre-release is published through the release pipeline | GitHub settings, release page |
 
 ## Phase 2 — Applications
 

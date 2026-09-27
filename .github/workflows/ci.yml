@@ -5,13 +5,18 @@ on:
     branches: [master]
   pull_request:
   workflow_dispatch:
+  workflow_call:
+  # Nightly run against the latest Arch Linux, Qt and Rust to catch
+  # regressions from rolling dependencies before users update.
+  schedule:
+    - cron: "17 3 * * *"
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -70,3 +75,8 @@ jobs:
         with:
           python-version: "3.12"
       - run: python scripts/check-docs.py
+      - run: python scripts/release.py check
+
+  package:
+    name: Package
+    uses: ./.github/workflows/package.yml

@@ -31,11 +31,27 @@ cargo test --locked
 cmake --build build && dbus-run-session -- python tests/integration/phase0.py
 node --test tests/integration/kwin_adapter.test.cjs
 python scripts/check-docs.py
+python scripts/release.py check
 reuse lint
 cargo deny check licenses
 ```
 
+To test packaging locally on Arch: `git archive --prefix=arinn-$(python scripts/release.py version)/ -o packaging/arch/arinn-$(python scripts/release.py version).tar.gz HEAD && (cd packaging/arch && makepkg -f)`, then install the package and run `dbus-run-session -- python tests/package/smoke.py`.
+
 **Operator tests** (`tests/integration/kwin_*.py`, `scripts/phase0-session.py`) drive a real desktop session: they load KWin scripts, kill daemons or lock the screen. They never run in CI. Run them only on a disposable session and only when the change touches the platform layer; attach the result (evidence JSON or a short log) to the pull request.
+
+## Continuous integration
+
+Every pull request runs the full pipeline described in [ADR-0033](docs/adr/0033-ci-cd-and-releases.md): Rust, the Qt build and integration suite on Arch Linux, licensing, documentation, and an Arch package that is built, installed into a clean system and smoke-tested. The same pipeline runs nightly on `master` against the latest Arch packages. A pull request is merged only when every check is green; a failing nightly is fixed before anything else is released.
+
+## Releases
+
+Only the maintainer releases. To release version `X.Y.Z`:
+
+1. In a pull request, set `version` in the root `Cargo.toml` and `pkgver` in `packaging/arch/PKGBUILD` to `X.Y.Z`, and move the *Unreleased* entries of `CHANGELOG.md` into a `## [X.Y.Z] - YYYY-MM-DD` section. Run `python scripts/release.py check vX.Y.Z`.
+2. If the release touches the platform layer, input or session behaviour, run the relevant operator tests on a real KDE session and attach the evidence to that pull request.
+3. Merge, make sure the latest nightly is green, then tag the merge commit: `git tag -s vX.Y.Z -m "Arinn X.Y.Z" && git push origin vX.Y.Z`.
+4. The release workflow reruns the full CI on the tag and publishes the GitHub Release with the Arch package, source tarball and checksums. `0.x` versions are marked as pre-releases.
 
 ## Branches and commits
 
@@ -112,7 +128,7 @@ A change is done when:
 
 - [ ] it implements what the issue or roadmap item asks, and nothing unrelated;
 - [ ] all required checks pass locally and in CI;
-- [ ] tests cover the new behaviour or the fixed bug;
+- [ ] tests cover the new behaviour; a bug fix has a regression test that fails without the fix;
 - [ ] the specification, ADRs, roadmap, technical documents and `CHANGELOG.md` are updated as the table above requires;
 - [ ] new files have SPDX headers;
 - [ ] the CLA is signed.

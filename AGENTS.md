@@ -19,6 +19,9 @@ This file is for AI coding agents (Codex, Claude Code and others). Everything in
 | `tools/arinnctl` | CLI |
 | `apps/arinn-shell` | Qt 6 / QML shell with a C++ QtDBus layer |
 | `platform/kde` | KWin script adapter |
+| `tests/package` | Smoke test of the installed Arch package |
+| `packaging/arch` | Arch Linux PKGBUILD |
+| `.github/workflows` | CI, package, release and CLA pipelines ([ADR-0033](docs/adr/0033-ci-cd-and-releases.md)) |
 | `tests/integration` | Private-bus suite (`phase0.py`), JS adapter tests, operator tests (`kwin_*.py`) |
 | `docs/` | Specification, ADRs, architecture, plugin API, design |
 
@@ -33,6 +36,7 @@ cmake -S . -B build -G Ninja && cmake --build build
 dbus-run-session -- python tests/integration/phase0.py
 node --test tests/integration/kwin_adapter.test.cjs
 python scripts/check-docs.py
+python scripts/release.py check
 reuse lint
 cargo deny check licenses
 ```
@@ -47,6 +51,8 @@ cargo deny check licenses
 - **Keep the architecture rules R-01–R-10:** no product names in core routing or QML business logic, no direct calls from the shell to third-party applications, no plugin-supplied UI, platform code only in the platform layer.
 - **Keep documentation in sync in the same change:** specification, ADRs, roadmap, technical documents and `CHANGELOG.md` as the table in CONTRIBUTING.md requires.
 - **English** for code, comments, commits, pull requests and documentation. Answer the user in the language they write in.
+- **Never create release tags or publish releases**; only the maintainer releases (CONTRIBUTING.md, *Releases*).
+- **Every bug fix needs a regression test** that fails without the fix.
 - **SPDX header** on every new file (`GPL-3.0-or-later`; `MIT OR Apache-2.0` in the protocol crate, SDK and interface XML).
 - **Secrets and privacy:** never log or commit URLs, tab titles, tokens, credentials or personal paths; never commit `.phase0/`, `build/` or `target/`.
 

@@ -549,13 +549,23 @@ Failure behaviour: if the Chrome plugin crashes, Home keeps working, Steam still
 
 Performance budgets: [§6.5](#65-performance-principles). Contribution workflow and required local checks: [CONTRIBUTING.md](../../CONTRIBUTING.md).
 
+### 17.1. Continuous integration and delivery
+
+([ADR-0033](../adr/0033-ci-cd-and-releases.md))
+
+- Every pull request and every push to `master` MUST pass the full pipeline: Rust lints and tests, the Qt build and private-bus integration suite on current Arch Linux, KWin adapter tests, licensing checks, documentation and version checks, and an Arch package build that is installed into a clean system, smoke-tested and uninstalled.
+- The same pipeline runs nightly against the latest Arch Linux, Qt and Rust. A red nightly blocks releases.
+- `master` is protected: changes land only through pull requests with green CI and a signed CLA.
+- Releases are cut from `master` by a `vX.Y.Z` tag that matches the workspace version and a `CHANGELOG.md` section. The release pipeline reruns the full CI on the tagged commit and publishes only if it passes. `0.x` versions are pre-releases.
+- Every bug fix includes a regression test. Changes to the platform layer, input or session behaviour also need operator tests on a real KDE session before release, because hosted CI cannot run a compositor.
+
 ---
 
 ## 18. Packaging, distribution and licensing
 
 - The first official target is Arch Linux / EndeavourOS with KDE Plasma 6 on Wayland; the architecture does not depend on pacman.
 - `arinnd` runs as a user service bound to the graphical session; the shell starts from the session autostart after Plasma login; no duplicate instances. After login Arinn starts automatically and shows Home (AC-01).
-- Packaging installs binaries, plugin manifests, the KWin script, the Chrome extension and the Native Messaging manifest.
+- Packaging installs binaries, plugin manifests, the KWin script, the Chrome extension and the Native Messaging manifest. The Arch package recipe is `packaging/arch/PKGBUILD`; every CI run builds, installs and smoke-tests it ([§17.1](#171-continuous-integration-and-delivery)). Releases are published on GitHub Releases; an AUR package follows in Phase 5.
 - Licensing ([ADR-0029](../adr/0029-licensing.md)): core, shell, CLI, platform adapter and Arinn's plugins are `GPL-3.0-or-later`; `arinn-protocol`, the plugin SDK and interface XML are `MIT OR Apache-2.0` so third-party plugins may use any license; documentation is `CC-BY-SA-4.0`. Contributions require the [Contributor License Agreement](../../CLA.md). Third-party logos in design materials are not licensed.
 
 Repository layout (may evolve; the separation shell / core / protocol / plugins / platform MUST stay):
@@ -569,7 +579,7 @@ plugins/<name>/          Arinn's own plugins
 platform/kde/            KDE platform adapter (KWin script)
 tools/arinnctl/          CLI
 chrome-extension/        Chrome extension and native host (planned)
-packaging/               distribution packaging (planned)
+packaging/               distribution packaging (Arch PKGBUILD)
 docs/                    specification, ADRs, architecture, plugin API, design
 tests/                   contract, integration and UI tests
 ```
@@ -661,6 +671,7 @@ Each question needs a decision by the project owner. The recommendation is the p
 | CLI | `provider restart` desirable | `provider restart` and `providers reload` required; exit codes | ADR-0020 |
 | Acceptance | AC-01–AC-14 | AC-01–AC-19 | ADR-0023 |
 | Licensing | — | GPL-3.0-or-later core, permissive protocol, CLA | ADR-0029 |
+| CI/CD | — | Full pipeline on every change and nightly; package install tests; gated releases | ADR-0033 |
 | Development phases | §57 | Moved to the [roadmap](../../ROADMAP.md) | ADR-0028 |
 | Repository layout | `crates/arinn-platform` | `platform/kde` for the KWin adapter | Phase 0 |
 

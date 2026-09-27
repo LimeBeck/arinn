@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+
+# SPDX-FileCopyrightText: 2026 Arinn contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Explicitly start/stop the temporary live KWin experiment; no autostart installation."""
 import os,secrets,subprocess,sys,time
 from pathlib import Path

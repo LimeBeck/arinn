@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Arinn contributors
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 use arinn_protocol::{PATH, ProviderProxy, SERVICE, Snapshot, Status};
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::sync::{Mutex, mpsc};

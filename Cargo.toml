@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Arinn contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 [workspace]
 members = ["crates/arinn-protocol", "crates/arinnd", "plugins/demo", "tools/arinnctl"]
 resolver = "2"
@@ -5,6 +9,7 @@ resolver = "2"
 [workspace.package]
 version = "0.0.1"
 edition = "2024"
+repository = "https://github.com/LimeBeck/arinn"
 
 [workspace.dependencies]
 anyhow = "1"

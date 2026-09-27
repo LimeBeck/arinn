@@ -1,41 +1,32 @@
-# ADR-0006: Состояние через snapshots, revisions и subscriptions
+# ADR-0006: State through snapshots, revisions and subscriptions
 
-- Статус: Предложено (Proposed), требуется архитектурное ревью.
-- Дата оформления: 2026-09-27.
-- Основание: [Developer Specification v0.3](../specifications/developer-specification-v0.3.md), разделы 16, 25, 26, 38, 53, 54.
+- **Status:** Accepted
+- **Date:** 2026-09-27 (proposed); accepted 2026-09-27 by [ADR-0028](0028-documentation-governance.md)
+- **Deciders:** project owner (Developer Specification v0.3)
+- **Amends / Supersedes:** —
+- **Amended by / Superseded by:** [ADR-0020](0020-dbus-contract-baseline.md) (generation/revision scope, subscribe/read ordering)
+- **Specification:** [§9.3, §9.4](../specifications/arinn-specification.md)
 
-> Обновление 2026-09-27: Generation/revision и subscribe/read race закрыты [ADR-0020](0020-dbus-contract-baseline.md). Этот ADR сохраняет формулировку исходного v0.3; при расхождении действуют принятые уточнения ADR-0020–0025.
+## Context
 
-## Контекст
+Reconnects and restarts of the shell or plugins must not require replaying a long stream of imperative events. The provider remains the source of integration state.
 
-Reconnect и перезапуски shell/plugin не должны требовать восстановления состояния по длинной последовательности imperative events. Источником состояния интеграции остаётся provider.
+## Decision
 
-## Предлагаемое решение
+State is transferred as snapshot + revision. When state changes, the provider publishes a new revision.
 
-Использовать snapshot + revision как предпочтительную модель передачи состояния. При изменении provider публикует новую revision.
+The API supports subscriptions: `StateChanged(providerId, revision)`, `ProviderAvailable(providerId)`, `ProviderUnavailable(providerId)`, `ActivityChanged(...)`. After `StateChanged` a consumer may fetch the snapshot; events do not carry the full state.
 
-API поддерживает subscriptions: StateChanged(providerId, revision), ProviderAvailable(providerId), ProviderUnavailable(providerId), ActivityChanged(...). После StateChanged consumer может запросить snapshot; весь state не обязан находиться в событии.
+The daemon aggregates provider state. When the daemon is temporarily unavailable, the shell shows a degraded state and reconnects.
 
-Daemon агрегирует provider state. Shell после временной недоступности daemon отображает degraded state и пытается reconnect.
+## Consequences
 
-## Последствия
+Full snapshots make resynchronization simple. Subscription/read ordering, snapshot size and stale replies need precise rules (defined in ADR-0020).
 
-Полный snapshot упрощает resynchronization. Требуется согласовать порядок подписки и чтения, размер snapshots и защиту от устаревших ответов; эти детали исходник не определяет.
+## Alternatives considered
 
-## Альтернативы и ограничения
+Many mutable imperative events as the synchronization basis are rejected. A delta protocol is not part of this decision.
 
-Большое количество mutable imperative events не является предпочтительной основой синхронизации. Delta-протокол исходным ТЗ не утверждён.
+## Verification
 
-## Разрешение вопросов
-
-Generation/revision и subscribe/read race закрыты [ADR-0020](0020-dbus-contract-baseline.md).
-
-### Вопросы исходного ревью (история)
-
-Область revision: provider, capability или snapshot? Как revision ведёт себя после restart и нужна ли generation/session identity? Как исключить гонку subscribe/read и обработать пропущенные события?
-
-## Проверка решения
-
-Contract tests проверяют рост revision и reconnect после restart; integration tests — disappear/reappear и восстановление shell. Точный invariant для restart зависит от ответа на открытые вопросы.
-
-[Реестр ADR](README.md) · [Карта ревью](../architecture/review-map.md)
+Contract tests check revision growth and reconnect after restart; integration tests check disappear/reappear and shell recovery.

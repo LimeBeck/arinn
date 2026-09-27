@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+
+# SPDX-FileCopyrightText: 2026 Arinn contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Live test: current foreground external window -> global Home -> Return, 20 times.
 Requires running phase0-session. Does not choose or launch the external application.
 """

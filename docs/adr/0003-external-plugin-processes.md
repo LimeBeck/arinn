@@ -1,39 +1,30 @@
-# ADR-0003: Изоляция интеграций во внешних процессах
+# ADR-0003: Integrations run in external processes
 
-- Статус: Предложено (Proposed), требуется архитектурное ревью.
-- Дата оформления: 2026-09-27.
-- Основание: [Developer Specification v0.3](../specifications/developer-specification-v0.3.md), разделы 2, 17, 44, 54, 59, 60.
+- **Status:** Accepted
+- **Date:** 2026-09-27 (proposed); accepted 2026-09-27 by [ADR-0028](0028-documentation-governance.md)
+- **Deciders:** project owner (Developer Specification v0.3)
+- **Amends / Supersedes:** —
+- **Amended by / Superseded by:** [ADR-0021](0021-plugin-runtime-ownership.md) (lifecycle and failure states)
+- **Specification:** [§8.4, §9.10](../specifications/arinn-specification.md)
 
-> Обновление 2026-09-27: Lifecycle и failure state разграничены в [ADR-0021](0021-plugin-runtime-ownership.md). Этот ADR сохраняет формулировку исходного v0.3; при расхождении действуют принятые уточнения ADR-0020–0025.
+## Context
 
-## Контекст
+Integrations have independent dependencies and can crash. Their updates and implementation languages must not be tied to the daemon's Rust ABI.
 
-Интеграции имеют независимые зависимости и могут падать. Их обновление и выбор языка не должны связываться с Rust ABI daemon.
+## Decision
 
-## Предлагаемое решение
+Every plugin is a separate OS process. Integration code is never loaded into `arinnd` as `.so` or other native libraries. Communication uses the stable IPC boundary of the Plugin API.
 
-Каждый plugin является отдельным OS process. Не загружать .so/native libraries интеграций внутрь arinnd. Общение идёт через стабильную IPC boundary Plugin API.
+A plugin crash does not bring down the shell, the daemon or other plugins. When the Chrome provider crashes, Home, Steam launching and media control keep working, and the Browser section becomes unavailable.
 
-Падение plugin не приводит к падению shell, daemon или других plugins. При падении Chrome provider Home, запуск Steam и media control продолжают работать, а Browser section становится unavailable.
+## Consequences
 
-## Последствия
+Crash isolation, independent dependencies, updates and languages. Handshake, diagnostics, reconnect and supervision become necessary. Process isolation is not a sandbox for untrusted code.
 
-Обеспечиваются crash isolation, независимые зависимости, обновления и языки реализации. Возникает необходимость handshake, диагностики, reconnect и supervision. Process isolation не означает sandbox для недоверенного кода.
+## Alternatives considered
 
-## Альтернативы и ограничения
+In-process native plugins are explicitly forbidden by the source specification. A hostile-plugin sandbox is not an MVP promise.
 
-In-process native plugins прямо запрещены исходным ТЗ. Hostile-plugin sandbox не является обещанием MVP.
+## Verification
 
-## Разрешение вопросов
-
-Lifecycle и failure state разграничены в [ADR-0021](0021-plugin-runtime-ownership.md).
-
-### Вопросы исходного ревью (история)
-
-Как различать аварийное завершение, административную остановку и временную недоступность в lifecycle-состояниях? Политику restart уточнить в ADR-0008.
-
-## Проверка решения
-
-AC-10: принудительно завершить Chrome plugin и проверить остальные компоненты. Integration tests покрывают crash/restart и disappear/reappear.
-
-[Реестр ADR](README.md) · [Карта ревью](../architecture/review-map.md)
+AC-10: kill the Chrome plugin and check the remaining components. Integration tests cover crash/restart and disappear/reappear.

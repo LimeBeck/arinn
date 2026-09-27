@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Arinn contributors
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 #include "sessionguard.h"
 #include <QDBusMessage>
 #include <QDBusPendingCallWatcher>

@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+
+# SPDX-FileCopyrightText: 2026 Arinn contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Render a selected disposable window through KWin thumbnail + near/far shaders.
 Explicit operator test; writes only into ignored .phase0, never exports to network.
 """

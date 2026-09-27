@@ -1,45 +1,34 @@
-# ADR-0002: Qt/QML shell, Rust daemon и публичный D-Bus API
+# ADR-0002: Qt/QML shell, Rust daemon and a public D-Bus API
 
-- Статус: Предложено (Proposed), требуется архитектурное ревью.
-- Дата оформления: 2026-09-27.
-- Основание: [Developer Specification v0.3](../specifications/developer-specification-v0.3.md), разделы 14, 15, 16, 41, 52, 56, 57, 59.
+- **Status:** Accepted
+- **Date:** 2026-09-27 (proposed); accepted 2026-09-27 by [ADR-0028](0028-documentation-governance.md)
+- **Deciders:** project owner (Developer Specification v0.3)
+- **Amends / Supersedes:** —
+- **Amended by / Superseded by:** [ADR-0020](0020-dbus-contract-baseline.md) (bindings, bus names, API defaults), [ADR-0021](0021-plugin-runtime-ownership.md) (units and autostart)
+- **Specification:** [§8, §14.3, §18](../specifications/arinn-specification.md)
 
-> Обновление 2026-09-27: Bindings/names/API defaults и autostart выбраны в [ADR-0020](0020-dbus-contract-baseline.md), [ADR-0021](0021-plugin-runtime-ownership.md). Этот ADR сохраняет формулировку исходного v0.3; при расхождении действуют принятые уточнения ADR-0020–0025.
+## Context
 
-## Контекст
+Presentation, system orchestration and external integrations must evolve independently. Product-specific logic in QML or in the daemon defeats extension through providers.
 
-Presentation, системная оркестрация и внешние интеграции должны развиваться независимо. Product-specific логика в QML или daemon нарушает цель расширения через providers.
+## Decision
 
-## Предлагаемое решение
+`arinn-shell` uses Qt 6/QML. Rust is the language of `arinnd`. The shell owns rendering, navigation, focus, animations, overlays, screens, the design system and interaction state. All integration commands and data go through `arinnd` over D-Bus.
 
-Использовать Qt 6/QML для arinn-shell; Rust — предпочтительный язык arinnd. Shell отвечает за rendering, navigation, focus, animations, overlays, screens, design system и interaction state. Все команды и данные интеграций проходят через arinnd по D-Bus.
+The daemon holds the plugin and capability registries, lifecycle orchestration, state aggregation, command routing, subscriptions, snapshots and revisions, error normalization, the platform abstraction, configuration and a small amount of own persistent state. Anything that can live in a provider lives in a provider.
 
-Daemon содержит Plugin/Capability Registry, lifecycle orchestration, state aggregation, routing, subscriptions, snapshots/revisions, нормализацию ошибок, platform abstraction, configuration и небольшое собственное persistence. Функциональность, которую можно вынести в provider, реализуется в provider.
+`arinnctl` uses the same public daemon API as the shell. The shell never launches applications itself, never reads `.desktop` files, never talks to MPRIS and never runs shell commands.
 
-arinnctl использует тот же публичный daemon API, что и shell. Shell не запускает приложения самостоятельно, не читает .desktop, не обращается к MPRIS и не выполняет shell commands.
+The separation shell / core / protocol / plugins / platform is kept. Directory names may change without breaking that separation. Packaging ships `arinnd`, `arinn-shell`, `arinnctl` and `arinn-plugin-*`, and installs the Chrome Native Messaging manifest.
 
-Сохранить границы shell/core/protocol/plugins/platform. Предложенная структура: apps/arinn-shell; crates/{arinnd,arinn-protocol,arinn-plugin-sdk,arinn-platform}; plugins/{demo,desktop,chrome,mpris}; tools/arinnctl; chrome-extension; packaging; docs/{architecture,plugin-api,adr}; tests/{contract,integration}. Это план размещения, а не уже существующие компоненты.
+## Consequences
 
-Packaging поставляет arinnd, arinn-shell, arinnctl и arinn-plugin-*; Native Messaging manifest устанавливается packaging layer.
+UI and CLI share one source of state and errors. IPC becomes a mandatory boundary that needs its own contract.
 
-## Последствия
+## Alternatives considered
 
-UI и CLI имеют единый источник состояния и ошибок. IPC становится обязательной границей и требует отдельного контракта. Имена директорий можно уточнить, не нарушая разделение ответственности.
+Direct control of third-party applications from the shell is excluded.
 
-## Альтернативы и ограничения
+## Verification
 
-Прямое управление сторонними приложениями из shell исключено. ТЗ задаёт D-Bus для shell ↔ daemon, но не выбирает транспорт daemon ↔ plugin (ADR-0005).
-
-## Разрешение вопросов
-
-Bindings/names/API defaults и autostart выбраны в [ADR-0020](0020-dbus-contract-baseline.md), [ADR-0021](0021-plugin-runtime-ownership.md).
-
-### Вопросы исходного ревью (история)
-
-Какие D-Bus bus name, object paths, interfaces и binding libraries использовать? Как оформить autostart после входа в HTPC session?
-
-## Проверка решения
-
-Phase 0 проверяет Qt/QML, Rust и D-Bus; Phase 1 — получение shell всех данных через daemon. AC-01, AC-12 и Rule 3 проверяются отдельно.
-
-[Реестр ADR](README.md) · [Карта ревью](../architecture/review-map.md)
+Phase 0 checks Qt/QML, Rust and D-Bus. Phase 1 checks that the shell receives all data through the daemon. AC-01, AC-12 and R-03 are checked separately.

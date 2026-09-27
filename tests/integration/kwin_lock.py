@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+
+# SPDX-FileCopyrightText: 2026 Arinn contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Operator-approved live lock/unlock check. Requires manual user unlock."""
 import json
 import subprocess

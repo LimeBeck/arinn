@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Arinn contributors
+//
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 //! Experimental Phase 0 contract, deliberately separate from stable Plugin API v1.
 use serde::{Deserialize, Serialize};
 use zbus::zvariant::Type;

@@ -1,0 +1,11 @@
+Third-party logos and trademarks
+
+Files annotated with this license identifier contain logos, icons or other
+marks that belong to third parties (for example streaming services, Steam and
+EmulationStation). They are included only as design references for the Arinn
+interface prototype.
+
+These marks are NOT licensed under any of the licenses used by the Arinn
+project. All rights remain with their respective owners. Do not reuse them
+outside of this repository; production builds must use properly licensed
+originals or omit them.

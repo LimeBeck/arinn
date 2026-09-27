@@ -1,7 +1,13 @@
+# SPDX-FileCopyrightText: 2026 Arinn contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 [package]
 name = "arinnd"
 version.workspace = true
 edition.workspace = true
+license = "GPL-3.0-or-later"
+repository.workspace = true
 
 [dependencies]
 anyhow.workspace = true

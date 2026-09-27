@@ -1,41 +1,32 @@
-# ADR-0013: MediaProvider на основе MPRIS
+# ADR-0013: MediaProvider based on MPRIS
 
-- Статус: Предложено (Proposed), требуется архитектурное ревью.
-- Дата оформления: 2026-09-27.
-- Основание: [Developer Specification v0.3](../specifications/developer-specification-v0.3.md), разделы 7, 12, 22, 50, 57, 58.
+- **Status:** Accepted
+- **Date:** 2026-09-27 (proposed); accepted 2026-09-27 by [ADR-0028](0028-documentation-governance.md)
+- **Deciders:** project owner (Developer Specification v0.3)
+- **Amends / Supersedes:** —
+- **Amended by / Superseded by:** [ADR-0021](0021-plugin-runtime-ownership.md) (session priority, units, position anchors), [ADR-0024](0024-local-library-mpv.md) (rich playback through mpv)
+- **Specification:** [§7.3](../specifications/arinn-specification.md)
 
-> Обновление 2026-09-27: Session priority/units/anchors заданы [runtime baseline](../architecture/plugin-runtime.md); rich playback выбран в [ADR-0024](0024-local-library-mpv.md). Этот ADR сохраняет формулировку исходного v0.3; при расхождении действуют принятые уточнения ADR-0020–0025.
+## Context
 
-## Контекст
+Arinn needs one media UI over existing players and browsers, without an own media engine.
 
-Arinn нужен единый media UI поверх существующих плееров и браузеров. Собственный media engine не требуется.
+## Decision
 
-## Предлагаемое решение
+On Linux the MVP discovers media sessions through `arinn-plugin-mpris`. The shell reads data and sends commands only through `arinnd` and MediaProvider.
 
-Для Linux MVP обнаруживать media sessions через arinn-plugin-mpris. Shell получает данные и отправляет команды только через arinnd и MediaProvider.
+A session has id, title, subtitle/artist, artwork, state, duration, position and capabilities (available actions). Operations: listSessions, getSession, play, pause, playPause, seek, next, previous, stop.
 
-Session содержит id, title, subtitle/artist, artwork, state, duration, position и capabilities/available actions. Операции: listSessions, getSession, play, pause, playPause, seek, next, previous, stop.
+The global media UI shows the current session and its available actions; MPRIS specifics stay in the plugin.
 
-Global media UI отображает текущую session и доступные действия; конкретная реализация MPRIS остаётся в plugin.
+## Consequences
 
-## Последствия
+Several external media applications are controlled from one UI. Supported actions depend on session capabilities; Activity aggregation must account for media and browser sources.
 
-Контроль нескольких внешних media-приложений доступен в одном UI. Реальная поддержка действий зависит от session capabilities; Activity aggregation должна учитывать media и browser источники.
+## Alternatives considered
 
-## Альтернативы и ограничения
+Direct MPRIS access from the shell and an own media engine are excluded.
 
-Прямой MPRIS доступ из shell и собственный media engine исключены. Выбор локального player/library source этим ADR не сделан.
+## Verification
 
-## Разрешение вопросов
-
-Session priority/units/anchors заданы [runtime baseline](../architecture/plugin-runtime.md); rich playback выбран в [ADR-0024](0024-local-library-mpv.md).
-
-### Вопросы исходного ревью (история)
-
-Приоритет active session при нескольких players, единицы position/duration/seek, частота обновления progress, transport artwork и связь с Activity.
-
-## Проверка решения
-
-AC-09. Phase 4: current media, artwork, play/pause, seek, next/previous. Проверить session disappearance и Unsupported для недоступных операций после согласования контракта.
-
-[Реестр ADR](README.md) · [Карта ревью](../architecture/review-map.md)
+AC-09. Phase 4: current media, artwork, play/pause, seek, next/previous; session disappearance; Unsupported for unavailable operations.

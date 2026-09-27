@@ -1,4 +1,5 @@
 #include "backend.h"
+#include "sessionguard.h"
 #include <QDBusConnection>
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
@@ -13,10 +14,14 @@ int main(int argc, char **argv) {
   if (!bus.registerService("org.arinn.SpikeShell1"))
     return 2;
   Backend backend;
+  SessionGuard sessionGuard;
   bus.registerObject("/org/arinn/Shell1", &backend,
+                     QDBusConnection::ExportAllProperties);
+  bus.registerObject("/org/arinn/Session1", &sessionGuard,
                      QDBusConnection::ExportAllProperties);
   QQmlApplicationEngine engine;
   engine.rootContext()->setContextProperty("backend", &backend);
+  engine.rootContext()->setContextProperty("sessionGuard", &sessionGuard);
   engine.load(QUrl("qrc:/Main.qml"));
   if (engine.rootObjects().isEmpty())
     return 1;

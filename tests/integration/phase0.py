@@ -55,7 +55,7 @@ with tempfile.TemporaryDirectory(prefix='arinn-contract-') as folder:
         daemon.terminate();daemon.wait();daemon=start('arinnd')
         wait(lambda:status()['provider_available'])
         assert status()['epoch']!=old_epoch and status()['generation']!=old_gen
-        print('PASS: typed snapshot/action; invalid ID/token/platform caller; plugin crash isolation/restart; stale generation; timeout without blocking status; daemon restart and provider re-registration')
+        print('PASS: session lock/sleep/wake/owner recovery; typed snapshot/action; invalid ID/token/platform caller; plugin crash isolation/restart; stale generation; timeout without blocking status; daemon restart and provider re-registration')
     finally:
         for p in reversed(processes):
             if p.poll() is None:p.terminate()

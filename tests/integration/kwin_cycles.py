@@ -20,7 +20,7 @@ latencies=[]
 for i in range(20):
     t=time.monotonic()
     run('qdbus6','org.kde.kglobalaccel','/component/kwin','org.kde.kglobalaccel.Component.invokeShortcut','ArinnPhase0Home')
-    state=wait(lambda s:s['home_visible'] and s['active_class'] in ('org.arinn.Shell','arinn-shell'))
+    state=wait(lambda s:s['home_visible'] and s['active_class'] in ('org.arinn.Shell','arinn-shell') and s['active_output']==s['home_output']==initial['active_output'])
     assert state['return_window']==target,state
     assert state['active_output']==initial['active_output']==state['home_output'],state
     run(str(ROOT/'target/debug/arinnctl'),'home') # repeat must preserve target

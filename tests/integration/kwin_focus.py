@@ -15,3 +15,13 @@ try:
     call('org.kde.KWin',f'/Scripting/Script{i}','org.kde.kwin.Script.run')
     time.sleep(.2)
 finally:call('org.kde.KWin','/Scripting','org.kde.kwin.Scripting.unloadScript',name)
+
+# Confirm the requested fixture is actually foreground; never silently test an
+# unrelated user window when the fixture is absent or activation lost a race.
+end=time.monotonic()+3
+while time.monotonic()<end:
+    state=json.loads(subprocess.check_output([str(ROOT/'target/debug/arinnctl'),'status'],text=True))
+    if state['active_class']==klass and (not output or state['active_output']==output) and (not full or state['active_fullscreen']):
+        break
+    time.sleep(.05)
+else:raise AssertionError('Requested fixture did not become active')

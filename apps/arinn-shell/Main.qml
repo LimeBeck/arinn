@@ -6,7 +6,7 @@ Window {
     id: root
     width: 1280
     height: 720
-    visibility: backend.homeVisible ? Window.FullScreen : Window.Hidden
+    visibility: backend.homeVisible && !sessionGuard.blocked ? Window.FullScreen : Window.Hidden
     color: "#e6131416"
     title: "Arinn · Phase 0"
     flags: Qt.Window | Qt.FramelessWindowHint

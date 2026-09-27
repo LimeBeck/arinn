@@ -23,7 +23,7 @@ def start():
     token=RUN/'token';token.write_text(secrets.token_hex(32));token.chmod(0o600)
     def unit(name,binary,*env):
         run('systemd-run','--user','--collect',f'--unit={name}',
-            '--property=Type=exec','--property=Restart=on-failure','--property=RestartSec=2s',
+            '--property=Type=exec','--property=PartOf=graphical-session.target','--property=After=graphical-session.target','--property=Restart=on-failure','--property=RestartSec=2s',
             '--property=StartLimitIntervalSec=60s','--property=StartLimitBurst=5',
             f'--setenv=ARINN_SPIKE_TOKEN_FILE={token}',*env,str(ROOT/binary))
     try:

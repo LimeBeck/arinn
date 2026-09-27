@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Arinn contributors
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // Deterministic regression for SDL remap vs. genuinely closed Activity.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');

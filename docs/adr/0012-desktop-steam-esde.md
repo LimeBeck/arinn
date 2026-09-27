@@ -1,41 +1,32 @@
-# ADR-0012: Desktop provider и отдельные входы Steam/ES-DE
+# ADR-0012: Desktop provider and dedicated Steam/ES-DE entry points
 
-- Статус: Предложено (Proposed), требуется архитектурное ревью.
-- Дата оформления: 2026-09-27.
-- Основание: [Developer Specification v0.3](../specifications/developer-specification-v0.3.md), разделы 10, 11, 20, 50, 51, 57, 59.
+- **Status:** Accepted
+- **Date:** 2026-09-27 (proposed); accepted 2026-09-27 by [ADR-0028](0028-documentation-governance.md)
+- **Deciders:** project owner (Developer Specification v0.3)
+- **Amends / Supersedes:** —
+- **Amended by / Superseded by:** [ADR-0021](0021-plugin-runtime-ownership.md) — discovery, launch scopes, instances and graceful terminate ([plugin runtime](../architecture/plugin-runtime.md))
+- **Specification:** [§7.2](../specifications/arinn-specification.md)
 
-> Обновление 2026-09-27: Discovery/launch/instances/graceful terminate определены [runtime baseline](../architecture/plugin-runtime.md). Этот ADR сохраняет формулировку исходного v0.3; при расхождении действуют принятые уточнения ADR-0020–0025.
+## Context
 
-## Контекст
+Ordinary Linux applications must be usable without changes to Arinn. Launching Steam and ES-DE is enough for the MVP; own game libraries are not needed.
 
-Обычные Linux-приложения должны подключаться без изменений Arinn. Для MVP запуска Steam/ES-DE достаточно без собственной реализации библиотек игр.
+## Decision
 
-## Предлагаемое решение
+`arinn-plugin-desktop` implements ApplicationProvider: discover/list/get, launch, activate, terminate and running state. `.desktop` entries are the source; the core never scans them.
 
-Реализовать arinn-plugin-desktop с ApplicationProvider: discover/list/get, launch, activate, terminate и running state. Источником могут быть .desktop entries; core их не сканирует.
+Steam and EmulationStation have dedicated Home tiles and launch through the generic ApplicationProvider. Game libraries, artwork, recent games, continue playing and metadata wait for dedicated providers.
 
-Steam и EmulationStation имеют отдельные Home tiles и запускаются через generic ApplicationProvider. Расширенные game library, artwork, recent games, continue playing и metadata откладываются до отдельных providers.
+Window activation goes through the platform boundary (ADR-0009); an `activate` operation in a capability does not allow plugins to manage Wayland windows themselves.
 
-Window activation проходит через platform boundary (ADR-0009); наличие activate в capability не разрешает распределять Wayland window management по plugins.
+## Consequences
 
-## Последствия
+A working game entry point exists before rich integrations. Application identity must be linked to running instances and platform activation without product-specific core logic.
 
-Рабочий игровой entry point доступен до богатых интеграций. Требуется связать application identity с running instances и platform activation без product-specific core logic.
+## Alternatives considered
 
-## Альтернативы и ограничения
+An own Steam library client is not needed for the MVP. Scanning `.desktop` files in the daemon and launching directly from QML are excluded.
 
-Собственный Steam library client не нужен в MVP. Сканирование .desktop в daemon и прямой запуск из QML исключены.
+## Verification
 
-## Разрешение вопросов
-
-Discovery/launch/instances/graceful terminate определены [runtime baseline](../architecture/plugin-runtime.md).
-
-### Вопросы исходного ревью (история)
-
-Правила discovery .desktop, безопасная обработка Exec/options, multiple instances, сопоставление running state и semantics terminate. ТЗ не выбирает сигналы завершения или механизм отслеживания процессов.
-
-## Проверка решения
-
-AC-07/AC-08. Phase 2: Applications → Chrome/Steam/ES-DE → Home overlay → Back → то же приложение; core не содержит конкретных интеграций.
-
-[Реестр ADR](README.md) · [Карта ревью](../architecture/review-map.md)
+AC-07, AC-08. Phase 2: Applications → Chrome/Steam/ES-DE → Home overlay → Back → the same application; the core contains no specific integrations.

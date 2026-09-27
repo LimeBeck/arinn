@@ -1,41 +1,32 @@
-# ADR-0014: Provider-owned state и минимальное persistence Arinn
+# ADR-0014: Provider-owned state and minimal Arinn persistence
 
-- Статус: Предложено (Proposed), требуется архитектурное ревью.
-- Дата оформления: 2026-09-27.
-- Основание: [Developer Specification v0.3](../specifications/developer-specification-v0.3.md), разделы 3, 38, 39, 40.
+- **Status:** Accepted
+- **Date:** 2026-09-27 (proposed); accepted 2026-09-27 by [ADR-0028](0028-documentation-governance.md)
+- **Deciders:** project owner (Developer Specification v0.3)
+- **Amends / Supersedes:** —
+- **Amended by / Superseded by:** [ADR-0022](0022-state-and-interaction-baseline.md) — TOML config, SQLite state, retention and cache rules ([implementation baseline](../architecture/implementation-baseline.md))
+- **Specification:** [§11](../specifications/arinn-specification.md)
 
-> Обновление 2026-09-27: TOML/SQLite/migrations/retention/cache/favorites закрыты [технической основой](../architecture/implementation-baseline.md) и [ADR-0022](0022-state-and-interaction-baseline.md). Этот ADR сохраняет формулировку исходного v0.3; при расхождении действуют принятые уточнения ADR-0020–0025.
+## Context
 
-## Контекст
+Copying the databases of the browser, Steam or a media service creates competing sources of truth. Arinn stores only its own settings and data.
 
-Дублирование баз браузера, Steam или медиасервиса создаёт конкурирующие источники истины. Arinn должен хранить только собственные настройки и данные.
+## Decision
 
-## Предлагаемое решение
+Each provider owns its integration state: Chrome tabs, MPRIS playback, desktop applications. The core aggregates that state and does not copy foreign databases.
 
-Provider владеет состоянием интеграции: Chrome tabs, MPRIS playback, desktop applications. Core агрегирует это состояние, не копируя чужие базы в собственную БД.
+Arinn persists favorites, the Home layout, UI preferences, provider configuration and, if needed, recent Arinn activities. Chrome history, the Steam library database and media databases are not copied when a provider can supply them.
 
-Persistence Arinn включает favorites, Home layout, UI preferences, provider configuration и recent Arinn activities при необходимости. Chrome history, Steam library database и media database не копируются, если их может предоставить provider.
+XDG config, data, state and cache are separate: `~/.config/arinn/`, `~/.local/share/arinn/`, `~/.local/state/arinn/`, `~/.cache/arinn/` by default. Manifests and plugin data are kept apart from config and state.
 
-Разделять XDG config, data, state и cache. Примеры default paths: ~/.config/arinn/, ~/.local/share/arinn/, ~/.local/state/arinn/, ~/.cache/arinn/. Manifest/data размещаются отдельно от config и runtime/persistent state.
+## Consequences
 
-## Последствия
+Stored data stays small and owned by Arinn. Recovering external state depends on the provider; a missing provider is shown as unavailable, never as current data from a duplicate database.
 
-Хранимые данные остаются небольшими и принадлежат Arinn. Восстановление внешнего состояния зависит от provider; отсутствие provider должно отражаться как unavailable, а не как актуальные данные из дублирующей базы.
+## Alternatives considered
 
-## Альтернативы и ограничения
+Own copies of Chrome history or the Steam library are rejected as a persistence basis.
 
-Собственная копия Chrome history/Steam library не является основой persistence. SQLite, JSON и другие форматы хранения в ТЗ не выбраны.
+## Verification
 
-## Разрешение вопросов
-
-TOML/SQLite/migrations/retention/cache/favorites закрыты [технической основой](../architecture/implementation-baseline.md) и [ADR-0022](0022-state-and-interaction-baseline.md).
-
-### Вопросы исходного ревью (история)
-
-Формат хранения, migrations, атомарность записи, retention recent activities, cache invalidation и ссылки favorites на удалённые providers. Какие данные требуют persistence между сессиями?
-
-## Проверка решения
-
-Проверить сохранение собственных настроек после restart, получение provider state заново и раздельные XDG paths. AC-13: данные общего домашнего пространства не разделяются профилями Arinn.
-
-[Реестр ADR](README.md) · [Карта ревью](../architecture/review-map.md)
+Own settings survive a restart, provider state is re-read, XDG paths are separate. AC-13: shared household data is not split by profiles.

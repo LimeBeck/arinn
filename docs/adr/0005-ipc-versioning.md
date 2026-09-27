@@ -1,41 +1,32 @@
-# ADR-0005: Типизированный и версионируемый Plugin API
+# ADR-0005: A typed, versioned Plugin API
 
-- Статус: Предложено (Proposed), требуется архитектурное ревью.
-- Дата оформления: 2026-09-27.
-- Основание: [Developer Specification v0.3](../specifications/developer-specification-v0.3.md), разделы 14, 19, 20, 21, 22, 23, 24, 29, 30, 31, 44.
+- **Status:** Accepted
+- **Date:** 2026-09-27 (proposed); accepted 2026-09-27 by [ADR-0028](0028-documentation-governance.md)
+- **Deciders:** project owner (Developer Specification v0.3)
+- **Amends / Supersedes:** —
+- **Amended by / Superseded by:** [ADR-0020](0020-dbus-contract-baseline.md) — selects session D-Bus for the daemon ↔ plugin transport and fixes limits
+- **Specification:** [§9.7, §9.8](../specifications/arinn-specification.md)
 
-> Обновление 2026-09-27: Transport, versioning, limits и operation semantics выбраны в [ADR-0020](0020-dbus-contract-baseline.md). Wire schemas — следующий результат разработки, не вопрос пользователя. Этот ADR сохраняет формулировку исходного v0.3; при расхождении действуют принятые уточнения ADR-0020–0025.
+## Context
 
-## Контекст
+External processes of different versions and languages need an explicit contract. Extensible metadata must not destroy the typing of core fields.
 
-Внешним процессам разных версий и языков нужен явный контракт. Расширяемость metadata не должна уничтожать типизацию основных полей.
+## Decision
 
-## Предлагаемое решение
+The Plugin API version is 1. The manifest declares `api_version`; an incompatible plugin never becomes a working provider, and the reason is shown in diagnostics.
 
-Целевая версия Plugin API — 1. Manifest указывает api_version; несовместимый plugin не становится рабочим provider, а причина доступна в diagnostics.
+Core fields and operations stay typed. Optional metadata has an extension mechanism; on D-Bus an `a{sv}` map is acceptable, but the API as a whole never becomes an untyped dictionary.
 
-Основные поля и операции остаются typed. Optional metadata имеет механизм расширения; при использовании D-Bus допустим a{sv}, но весь API не превращается в untyped dictionary.
+D-Bus is fixed for shell ↔ daemon. The daemon ↔ plugin transport was left open by the source specification and is chosen separately before the wire contract is frozen (resolved by ADR-0020).
 
-D-Bus закреплён ТЗ для shell ↔ daemon. Транспорт daemon ↔ plugin в исходнике не определён; его предстоит выбрать отдельно до фиксации wire contract. Примеры методов в ТЗ концептуальны.
+## Consequences
 
-## Последствия
+Versions and types allow compatibility checks before a capability is exposed. Until the wire contract exists, compatibility of implementations written from method lists alone cannot be promised.
 
-Версия и типы позволяют проверять совместимость до предоставления capability. До определения wire contract нельзя обещать совместимость реализаций, созданных только по спискам методов.
+## Alternatives considered
 
-## Альтернативы и ограничения
+An untyped dictionary as the whole API is excluded.
 
-Untyped dictionary как весь API исключён. Упоминание a{sv} не является решением использовать D-Bus для Plugin API; варианты транспорта требуют отдельного review.
+## Verification
 
-## Разрешение вопросов
-
-Transport, versioning, limits и operation semantics выбраны в [ADR-0020](0020-dbus-contract-baseline.md). Wire schemas — следующий результат разработки, не вопрос пользователя.
-
-### Вопросы исходного ревью (история)
-
-Транспорт и IPC endpoint, handshake schema, сериализация, method signatures, правила optional fields/unknown fields, совместимость minor-изменений и согласование версий. Числовые лимиты сообщений также не заданы.
-
-## Проверка решения
-
-Проверить отказ регистрации несовместимой версии с диагностикой, валидацию typed fields и работу optional metadata после определения контракта.
-
-[Реестр ADR](README.md) · [Карта ревью](../architecture/review-map.md)
+An incompatible version is refused with a diagnostic; typed fields are validated; optional metadata works once the contract is defined.

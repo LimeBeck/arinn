@@ -1,50 +1,39 @@
-# ADR-0018: Demo provider, общий contract suite и архитектурные gates
+# ADR-0018: Demo provider, shared contract suite and architecture gates
 
-- Статус: Предложено (Proposed), требуется архитектурное ревью.
-- Дата оформления: 2026-09-27.
-- Основание: [Developer Specification v0.3](../specifications/developer-specification-v0.3.md), разделы 35, 50, 53, 54, 55, 57, 58, 59, 60.
+- **Status:** Accepted
+- **Date:** 2026-09-27 (proposed); accepted 2026-09-27 by [ADR-0028](0028-documentation-governance.md)
+- **Deciders:** project owner (Developer Specification v0.3)
+- **Amends / Supersedes:** —
+- **Amended by / Superseded by:** [ADR-0020](0020-dbus-contract-baseline.md) (test harness, fixtures, performance budgets), [ADR-0023](0023-mvp-product-clarifications.md) (phases and AC-15–AC-19), [ADR-0033](0033-ci-cd-and-releases.md) (CI/CD and releases)
+- **Specification:** [§17, §19, ROADMAP](../specifications/arinn-specification.md)
 
-> Обновление 2026-09-27: Test harness/fixtures и начальные performance budgets выбраны в [технической основе](../architecture/implementation-baseline.md). Runtime проверки остаются работой разработки. Этот ADR сохраняет формулировку исходного v0.3; при расхождении действуют принятые уточнения ADR-0020–0025.
+## Context
 
-## Контекст
+UI work must not require Chrome, Steam or MPRIS to be present. The Plugin API and fault tolerance must be tested the same way for every provider.
 
-UI должен развиваться без обязательного наличия Chrome/Steam/MPRIS. Plugin API и отказоустойчивость нужно проверять одинаково для разных providers.
+## Decision
 
-## Предлагаемое решение
+`arinn-plugin-demo` is mandatory: UI development without external applications, contract tests, bug reproduction and Plugin API documentation.
 
-arinn-plugin-demo обязателен: разработка UI без внешних приложений, contract tests, воспроизведение ошибок и документация Plugin API.
-
-Минимальные уровни проверки:
+Minimum test levels:
 
 - Unit: daemon, state aggregation, parsing, routing, plugin SDK.
-- Общий plugin contract suite для любого provider: registration, valid IDs, рост snapshot revision, NotFound для unknown ID, reconnect после restart; применимые проверки учитывают объявленные capabilities.
-- Integration: shell/core, core/plugin, crash/restart и disappear/reappear.
-- UI: D-pad navigation и focus graph.
+- One plugin contract suite for every provider: registration, valid IDs, snapshot revision growth, NotFound for unknown IDs, reconnect after restart; checks follow the declared capabilities.
+- Integration: shell/core, core/plugin, crash/restart, disappear/reappear.
+- UI: D-pad navigation and focus graph.
 
-Failure scenarios: crash Chrome не ломает Home/Steam/media; недоступный daemon не роняет shell, который показывает degraded state и reconnect; медленный provider приводит к timeout/error без блокировки UI.
+Failure scenarios: a Chrome crash does not break Home, Steam or media; an unavailable daemon does not crash the shell, which shows a degraded state and reconnects; a slow provider ends in timeout/error without blocking the UI.
 
-Сохранить Phase 0–6 исходника: architecture spike → core skeleton → desktop applications → Chrome → media → product MVP → rich integrations. KDE/Wayland spike — gate перед значительной разработкой UI.
+Development follows phases (see [ROADMAP](../../ROADMAP.md)); the KDE/Wayland spike gates significant UI work. MVP acceptance covers all acceptance criteria and architecture review covers rules R-01–R-10.
 
-Приёмка MVP включает все AC-01–AC-14, а архитектурный review — Rules 1–10 и подключение нового provider без правок shell/core при достаточных capabilities.
+## Consequences
 
-## Последствия
+Behaviour is reproducible without live integrations; provider compatibility is checked by one suite. The demo does not replace real KDE/Wayland, browser and TV checks.
 
-Поведение можно воспроизводить без live-интеграций, а совместимость providers проверяется единым набором. Demo не заменяет реальную проверку KDE/Wayland, браузера и телевизора.
+## Alternatives considered
 
-## Альтернативы и ограничения
+Happy-path-only or live-application-only testing is insufficient.
 
-Только happy-path или только live-приложения недостаточны по ТЗ. Оформление ADR само по себе не подтверждает прохождение spike или acceptance criteria.
+## Verification
 
-## Разрешение вопросов
-
-Test harness/fixtures и начальные performance budgets выбраны в [технической основе](../architecture/implementation-baseline.md). Runtime проверки остаются работой разработки.
-
-### Вопросы исходного ревью (история)
-
-Test harness, fixtures demo, capability-specific contracts, окружение интеграционных/UI tests и измеримые performance budgets. Численные latency/FPS требования в исходнике отсутствуют.
-
-## Проверка решения
-
-Порядок работ и привязка AC/Rules находятся в карте ревью. Эти проверки планируются для разработки; текущий пакет содержит только документацию, без утверждения о пройденной продуктовой приёмке.
-
-[Реестр ADR](README.md) · [Карта ревью](../architecture/review-map.md)
+Phase exit criteria in [ROADMAP](../../ROADMAP.md). Accepting this ADR does not mean any gate has passed.

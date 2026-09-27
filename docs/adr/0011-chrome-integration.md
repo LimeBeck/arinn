@@ -1,43 +1,34 @@
-# ADR-0011: Chrome/Chromium через MV3 extension и Native Messaging
+# ADR-0011: Chrome/Chromium through an MV3 extension and Native Messaging
 
-- Статус: Предложено (Proposed), требуется архитектурное ревью.
-- Дата оформления: 2026-09-27.
-- Основание: [Developer Specification v0.3](../specifications/developer-specification-v0.3.md), разделы 1, 5, 8, 9, 21, 50, 56, 57, 59.
+- **Status:** Accepted
+- **Date:** 2026-09-27 (proposed); accepted 2026-09-27 by [ADR-0028](0028-documentation-governance.md)
+- **Deciders:** project owner (Developer Specification v0.3)
+- **Amends / Supersedes:** —
+- **Amended by / Superseded by:** [ADR-0021](0021-plugin-runtime-ownership.md) — separate native bridge process and reconnect rules
+- **Specification:** [§7.1](../specifications/arinn-specification.md)
 
-> Обновление 2026-09-27: Два процесса Chrome bridge/provider и reconnect определены [ADR-0021](0021-plugin-runtime-ownership.md). Этот ADR сохраняет формулировку исходного v0.3; при расхождении действуют принятые уточнения ADR-0020–0025.
+## Context
 
-## Контекст
+The browser workflow is the main daily MVP scenario. Tabs must be manageable without building a browser engine into the shell.
 
-Browser workflow — основной ежедневный сценарий MVP. Управление вкладками необходимо без создания browser engine внутри shell.
+## Decision
 
-## Предлагаемое решение
+Arinn uses a regular Chrome/Chromium. Chain: Chrome Extension API → Arinn Chrome Extension (Manifest V3) → Native Messaging → `arinn-plugin-chrome` → Plugin API → `arinnd` → shell.
 
-Использовать обычный Chrome/Chromium. Предлагаемая цепочка: Chrome Extension API → Arinn Chrome Extension (Manifest V3) → Native Messaging → arinn-plugin-chrome → Plugin API → arinnd → shell.
+The extension requests the minimum permissions. The integration works with windows, tabs, URL, title, favicon and active state. Version 1 needs no page scraping, DOM automation, arbitrary JavaScript or content analysis.
 
-Extension запрашивает минимально необходимые permissions. Интеграция работает с windows, tabs, URL, title, favicon и active state, без необходимости scraping, DOM automation, произвольного JavaScript и анализа содержимого страниц в v1.
+The MVP can launch Chrome, open a URL, list windows and tabs, find the active tab, switch/create/close tabs, show title, URL and favicon, and return to an existing browser activity. A tab may carry id, windowId, title, url, favicon, active and audible; IDs are opaque.
 
-MVP позволяет запустить Chrome, открыть URL, получить окна/вкладки и активную вкладку, переключить/создать/закрыть вкладку, показать title/URL/favicon при наличии и вернуться в существующую browser activity. Tab может содержать id, windowId, title, url, favicon, active, audible; IDs opaque.
+Online services are separate Home tiles that open a URL. BrowserProvider owns browser-level entities; ApplicationProvider owns launching the application. Packaging installs the Native Messaging manifest.
 
-Онлайн-сервисы представлены отдельными плитками Home с открытием URL. BrowserProvider отвечает за browser-level сущности, ApplicationProvider — за запуск приложения. Native Messaging manifest устанавливает packaging.
+## Consequences
 
-## Последствия
+Browser integration reuses the existing browser. The extension and the native host have their own lifecycles that must be reconciled with daemon supervision (ADR-0021).
 
-Arinn получает browser integration через существующий браузер. Extension и native host имеют отдельные lifecycle, которые требуется согласовать с daemon supervision и reconnect.
+## Alternatives considered
 
-## Альтернативы и ограничения
+An own WebView/browser engine is excluded. CDP and DOM automation are not selected.
 
-Собственный WebView/browser engine исключён. CDP и DOM automation не выбраны архитектурой v0.3.
+## Verification
 
-## Разрешение вопросов
-
-Два процесса Chrome bridge/provider и reconnect определены [ADR-0021](0021-plugin-runtime-ownership.md).
-
-### Вопросы исходного ревью (история)
-
-Кто запускает Native Messaging host и как он связан с контролируемым systemd plugin process? Поведение при закрытом браузере, нескольких browser instances/profiles, disconnect extension; разрешения extension и schema сообщений.
-
-## Проверка решения
-
-AC-03, AC-04, AC-05, AC-06. Проверить tab operations, direct online-service tiles и восстановление browser activity. Phase 3 должен дать usable ежедневный browser workflow.
-
-[Реестр ADR](README.md) · [Карта ревью](../architecture/review-map.md)
+AC-03, AC-04, AC-05, AC-06: tab operations, online-service tiles and returning to the browser activity. Phase 3 must deliver a usable daily browser workflow.

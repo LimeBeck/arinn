@@ -1,29 +1,28 @@
-# ADR-0024: Локальная библиотека и внешний mpv с rich media API
+# ADR-0024: Local library and external mpv with a rich media API
 
-- Статус: Принято для реализации (Accepted).
-- Дата: 2026-09-27.
-- Основание: явные ответы пользователя по продуктовым вопросам; техническая реализация выбрана по делегированному поручению.
+- **Status:** Accepted
+- **Date:** 2026-09-27
+- **Deciders:** project owner (scenario, P-02); components by delegated choice
+- **Amends / Supersedes:** amends [ADR-0001](0001-product-scope.md), [ADR-0013](0013-mpris-media.md)
+- **Amended by / Superseded by:** —
+- **Specification:** [§7.4](../specifications/arinn-specification.md)
 
-## Контекст
+## Context
 
-Пользователь выбрал каталог локальных/смонтированных папок, metadata, внешний player, audio/subtitle selection.
+The project owner chose a catalogue of local and mounted network folders, metadata, an external player and audio/subtitle selection.
 
-## Решение
+## Decision
 
-Реализовать LibraryProvider для папок и mpv MediaProvider через private JSON IPC; QML OSD остаётся в shell. Resume принадлежит library provider, transient playback — media provider. Rich typed interfaces оформлены отдельным API review.
+A LibraryProvider for folders and an mpv MediaProvider over a private JSON IPC socket; the QML OSD stays in the shell. Resume is owned by the library provider; transient playback by the media provider. Rich typed interfaces are defined by a separate [API review](../plugin-api/mvp-extensions.md). The detailed design is [media MVP](../architecture/media-mvp.md).
 
-[Подробная спецификация](../architecture/media-mvp.md) · [Отдельный review расширений API](../plugin-api/mvp-extensions.md).
+## Consequences
 
-## Последствия
+MPRIS remains the base integration for other players and does not have to implement tracks or thumbnails. An integration gate for the OSD and input over the video window is added.
 
-MPRIS остаётся базовой интеграцией других плееров, но не обязан реализовывать tracks/thumbnails. Добавляется integration gate для OSD/input поверх video window.
+## Alternatives considered
 
-## Альтернативы
+Jellyfin as a mandatory server, and MPRIS transport controls only, do not satisfy the chosen scenario. No own media engine.
 
-Jellyfin как обязательный сервер и только MPRIS transport controls не удовлетворяют выбранному сценарию. Собственный media engine не вводится.
+## Verification
 
-## Проверка и оставшаяся работа
-
-Проверить новые AC-15–AC-19 из [уточнений MVP](../architecture/product-decisions.md) по применимости. Конкретные wire schemas и runtime integration tests входят в разработку. Compositor/input/media acceptance на целевом HTPC ещё не выполнялась; не считать её закрытой принятием ADR.
-
-[Реестр ADR](README.md)
+AC-15, AC-16. Wire schemas and runtime integration tests are part of development.

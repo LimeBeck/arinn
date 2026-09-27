@@ -1,0 +1,44 @@
+name: Bug report
+description: Something in Arinn does not work as specified
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. For security issues do **not** use this form — see SECURITY.md.
+        You may write in English or Russian.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Start Arinn with …
+        2. Press …
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Arinn version or commit
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Distribution, KDE Plasma / KWin and Qt versions, GPU, number of screens, input device.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and diagnostics
+      description: Output of `arinnctl diagnostics` and relevant `journalctl --user` lines. Remove private URLs and titles.
+      render: text

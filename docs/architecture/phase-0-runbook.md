@@ -1,12 +1,12 @@
-# Запуск Phase 0
+# Phase 0 runbook
 
-Экспериментальный вертикальный срез: Rust daemon, отдельный demo provider, Qt Quick shell, CLI и временный KWin script. Интерфейс `org.arinn.Spike1` не является стабильным Plugin API v1. UI проверяет IPC/focus, а не соответствие design handoff.
+An experimental vertical slice: Rust daemon, a separate demo provider, a Qt Quick shell, a CLI and a temporary KWin script. The `org.arinn.Spike1` interface is **not** the stable Plugin API v1. The UI checks IPC and focus, not the design handoff.
 
-## Сборка
+## Build
 
-Нужны Rust с edition 2024, CMake ≥3.24, Ninja, C++20, Qt6 Quick/Quick Controls/DBus/Test ≥6.6, Python 3, Node.js (для regression test адаптера), dbus-run-session. Для живой проверки — KDE Plasma 6 Wayland, systemd user session и qdbus6. Фактически проверенные версии находятся в [отчёте](phase-0-report.md).
+Requirements: Rust with edition 2024, CMake ≥ 3.24, Ninja, C++20, Qt 6 Quick/Quick Controls/DBus/Test ≥ 6.6, Python 3, Node.js (adapter regression test), `dbus-run-session`. For the live session: KDE Plasma 6 on Wayland, a systemd user session and `qdbus6`. Verified versions are in the [report](phase-0-report.md).
 
-Из корня репозитория:
+From the repository root:
 
 ```sh
 cargo build --locked
@@ -19,9 +19,9 @@ node --test tests/integration/kwin_adapter.test.cjs
 dbus-run-session -- python tests/integration/phase0.py
 ```
 
-Private-bus suite запускает Qt Test автоматически, с offscreen/software rendering. Он проверяет реальное чтение typed snapshot QtDBus и локальный focus во время медленного действия. Живой рабочий стол не используется этим suite.
+The private-bus suite runs Qt Test automatically with offscreen/software rendering. It checks reading a real typed snapshot through QtDBus and local focus during a slow action. It does not touch the live desktop.
 
-## Живая сессия
+## Live session
 
 ```sh
 python scripts/phase0-session.py start
@@ -29,20 +29,22 @@ target/debug/arinnctl status
 target/debug/arinnctl snapshot
 ```
 
-Meta+F12 открывает Home на мониторе foreground Activity; Esc или Backspace возвращают туда же. Без Activity Back открывает прототип навигации. Стрелки и Enter работают локально в QML. CLI также предоставляет `home`, `back`, `activate`.
+Meta+F12 opens Home on the monitor of the foreground Activity; Esc or Backspace returns there. Without an Activity, Back opens the navigation prototype. Arrows and Enter work locally in QML. The CLI also provides `home`, `back` and `activate`.
 
-Запускаются три transient user units: `arinn-phase0-daemon`, `arinn-phase0-demo`, `arinn-phase0-shell`, с ограниченным restart-on-failure. В `.phase0/` хранится token (0600), папка — 0700. KWin script загружается только на эту сессию; постоянный autostart не устанавливается.
+Three transient user units are started — `arinn-phase0-daemon`, `arinn-phase0-demo` and `arinn-phase0-shell` — with bounded restart-on-failure, `PartOf=` and `After=graphical-session.target`. `.phase0/` (mode 0700) holds the token (0600). The KWin script is loaded only for this session; no permanent autostart is installed.
 
 ```sh
 python scripts/phase0-session.py stop
 ```
 
-Stop возвращает Activity, если она ещё доступна, выгружает script и останавливает три службы. Никаких изменений layout/scale мониторов не требуется. KDE может сохранить неактивную запись временного shortcut после выгрузки script.
+Stop returns to the Activity if it still exists, unloads the script and stops the three units. No monitor layout or scale changes are needed. KDE may keep an inactive entry for the temporary shortcut after unloading.
 
-## Проверка Activity оператором
+## Operator checks
 
-Открыть тестовое приложение, затем запустить `python tests/integration/kwin_cycles.py`. Скрипт выполняет 20 циклов через KGlobalAccel и проверяет UUID возвращённого окна и output. Во время проверки не переключать/закрывать окна. Это не тест физической клавиатуры или G60S Pro и не измерение input-to-photon latency.
+Open a test application, then run `python tests/integration/kwin_cycles.py`. It runs 20 cycles through KGlobalAccel and checks the UUID and output of the returned window. Do not switch or close windows during the check. This is not a test of a physical keyboard or the G60S Pro, and not an input-to-photon measurement.
 
-`tests/integration/kwin_focus.py RESOURCE_CLASS --fullscreen --output OUTPUT_NAME` — вспомогательная команда для явно выбранного тестового окна. Она меняет fullscreen/placement только этого окна, поэтому применять её следует к отдельному fixture, а не рабочему окну пользователя.
+`tests/integration/kwin_focus.py RESOURCE_CLASS --fullscreen --output OUTPUT_NAME` is a helper for an explicitly chosen test window. It changes fullscreen and placement of that window only, so use it on a disposable fixture, not a real working window.
 
-При перезапуске daemon shell/provider и KWin bridge переподключаются автоматически. Для проверки на выбранной disposable Activity: `python tests/integration/kwin_recovery.py`. Тест намеренно убивает только transient `arinn-phase0-daemon` и проверяет сохранение Home/Return.
+When the daemon restarts, the shell, provider and KWin bridge reconnect automatically. To check on a disposable Activity: `python tests/integration/kwin_recovery.py`. It deliberately kills only the transient `arinn-phase0-daemon` and checks that Home/Return survive.
+
+Further operator tests: [Activity background](background-experiment.md) (`kwin_background.py`, `background_preview.py`) and [lock/unlock](session-lifecycle.md) (`kwin_lock.py` — **locks the real screen**).

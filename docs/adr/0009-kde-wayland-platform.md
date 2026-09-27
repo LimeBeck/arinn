@@ -1,43 +1,34 @@
-# ADR-0009: PlatformService и обязательный KDE/Wayland spike
+# ADR-0009: PlatformService and a mandatory KDE/Wayland spike
 
-- Статус: Предложено (Proposed), требуется архитектурное ревью.
-- Дата оформления: 2026-09-27.
-- Основание: [Developer Specification v0.3](../specifications/developer-specification-v0.3.md), разделы 6, 7, 34, 35, 36, 56, 57, 59.
+- **Status:** Accepted
+- **Date:** 2026-09-27 (proposed); accepted 2026-09-27 by [ADR-0028](0028-documentation-governance.md)
+- **Deciders:** project owner (Developer Specification v0.3)
+- **Amends / Supersedes:** —
+- **Amended by / Superseded by:** [ADR-0026](0026-multiple-monitors.md) (output selection), [ADR-0027](0027-activity-background-snapshot.md) (Activity background), [ADR-0032](0032-kwin-script-platform-adapter.md) (KWin script adapter)
+- **Specification:** [§8.5, §12](../specifications/arinn-specification.md)
 
-> Обновление 2026-09-27: Путь KWin adapter выбран; runtime gate остаётся непроверенным. См. [план Phase 0](../architecture/phase-0-gate.md) и [целевой HTPC](../architecture/product-decisions.md). Этот ADR сохраняет формулировку исходного v0.3; при расхождении действуют принятые уточнения ADR-0020–0025.
+## Context
 
-## Контекст
+Wayland restricts control of foreign windows and focus stealing; global shortcuts and overlays depend on the compositor. The core UX is impossible without a reliable Home over an external Activity.
 
-Wayland ограничивает управление чужими окнами и focus stealing; global shortcuts и overlay зависят от compositor. Основной UX невозможен без надёжного Home поверх внешней Activity.
+## Decision
 
-## Предлагаемое решение
+Platform-specific code lives behind `PlatformService`; the first implementation is `KdePlatformService` for KDE Plasma 6 on Wayland. The boundary covers global shortcuts, application activation, overlay/window integration, session state and system actions. Plugins do not share control of foreign windows among themselves.
 
-Изолировать platform-specific код за PlatformService; первая реализация — KdePlatformService для KDE Plasma 6/Wayland. Граница включает global shortcuts, application activation, overlay/window integration, session state и system actions. Plugins не распределяют между собой управление чужими окнами.
+The platform layer registers a Home shortcut that works while Chrome, Steam, a game or ES-DE has focus. The shell never relies on receiving ordinary key events while unfocused.
 
-Platform layer регистрирует Home shortcut, работающий при focus в Chrome, Steam, игре и ES-DE. Shell не рассчитывает получить обычный keyboard event без focus.
+Before significant UI work, an architecture gate is run: global Home, Arinn over Chrome, focus returned to Chrome, and the same cycle for Steam and a game. Phase 0 also checks Qt/QML, the Rust daemon, D-Bus and an external plugin process.
 
-До значительной разработки UI выполнить архитектурный gate: global Home, Arinn поверх Chrome, возврат focus в Chrome и тот же цикл со Steam/игрой. Phase 0 также проверяет Qt/QML, Rust daemon, D-Bus и внешний plugin process.
+A system overlay provides Home, Back, Play/Pause, volume, mute, the power menu and Settings. Actions are executed by the platform layer or the matching provider. CEC is optional; future TV/webOS integrations are plugins.
 
-System overlay объединяет Home, Back, Play/Pause, volume, mute, power menu и Settings; исполнение идёт через platform layer или соответствующий provider. CEC необязателен, будущие TV/webOS интеграции остаются plugins.
+## Consequences
 
-## Последствия
+Compositor integration is validated early. A failed spike forces a mechanism change before UI work. A second platform implementation is possible without spreading KDE code across the daemon.
 
-Необходимость compositor integration проверяется рано. Успешный spike подтверждает основной workflow; провал требует пересмотра механизма до развития UI. Вторая platform implementation возможна без распределения KDE-кода по daemon.
+## Alternatives considered
 
-## Альтернативы и ограничения
+The source specification did not choose KWin APIs, scripts, protocols or layer-shell; ADR-0032 records the chosen path.
 
-Конкретные KWin APIs, scripts, protocols или layer-shell в ТЗ не выбраны. Нельзя считать механизм overlay подтверждённым только на основании схемы.
+## Verification
 
-## Разрешение вопросов
-
-Путь KWin adapter выбран; runtime gate остаётся непроверенным. См. [план Phase 0](../architecture/phase-0-gate.md) и [целевой HTPC](../architecture/product-decisions.md).
-
-### Вопросы исходного ревью (история)
-
-Механизм shortcut/overlay/activation, требуемые permissions и поведение fullscreen игр. Как provider запрашивает platform activation через daemon и как восстанавливать прежнее окно при его закрытии?
-
-## Проверка решения
-
-Записать окружение, выбранный механизм и результаты Phase 0. AC-05/AC-06 плюс аналогичный цикл для Steam/игры. Проверка считается выполненной только после реального integration spike.
-
-[Реестр ADR](README.md) · [Карта ревью](../architecture/review-map.md)
+Record the environment, mechanism and Phase 0 results. AC-05/AC-06 plus the same cycle for Steam and a game. The check counts only after a real integration spike ([Phase 0 report](../architecture/phase-0-report.md)).

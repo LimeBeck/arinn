@@ -1,19 +1,30 @@
-# ADR-0026: Home на экране активной Activity
+# ADR-0026: Home on the screen of the active Activity
 
-Статус: **Accepted**. Дата: 2026-09-27.
+- **Status:** Accepted
+- **Date:** 2026-09-27
+- **Deciders:** project owner (two monitors on the development machine, P-06); technical rule by delegated choice
+- **Amends / Supersedes:** amends [ADR-0009](0009-kde-wayland-platform.md)
+- **Amended by / Superseded by:** [ADR-0031](0031-single-screen-target.md) — the target HTPC has one screen
+- **Specification:** [§12.2](../specifications/arinn-specification.md)
 
-## Контекст
+## Context
 
-Пользователь подтвердил два монитора и разрешил техническую проверку на текущей машине, эквивалентной целевому HTPC. Экраны имеют разный масштаб. Привязка Home к primary screen разрывает контекст Activity.
+The development machine has two monitors with different scales. Binding Home to the primary screen breaks the Activity context.
 
-Последующее уточнение: **целевой HTPC имеет один экран**. Два монитора — конфигурация машины разработки, а не обязательное оборудование продукта. Одноэкранный сценарий не требует настройки выбора output; описанное ниже правило автоматически выбирает единственный экран.
+## Decision
 
-## Решение
+When Home opens, the platform remembers the Activity window and its output. The single shell window is shown fullscreen on that output; with no Activity the active KWin screen is used. Repeated Home keeps the original window/output pair. Return activates the same window without moving it. Arinn never changes the user's resolution, scale, primary screen or layout.
 
-При открытии Home platform запоминает окно Activity и его output. Единственное окно shell показывается fullscreen на этом output; без Activity используется активный экран KWin. Повтор Home сохраняет исходную пару окно/экран. Return активирует то же окно, не перемещая его. Не менять разрешение, масштаб, primary screen и расположение экранов пользователя.
+KWin handles foreground and placement; Qt picks the matching `QScreen` before showing the shell. The shell receives the output name from the daemon. If the Activity disappears, Home stays available and Back opens navigation.
 
-KWin управляет foreground и window placement; Qt выбирает соответствующий QScreen перед показом shell. Shell получает имя output от daemon, не обращается к приложениям напрямую. При исчезновении Activity Home остаётся доступным, Back открывает навигацию.
+## Consequences
 
-## Последствия и проверка
+The spike checks both screens separately, including fractional scale.
 
-Технический spike проверяет оба экрана отдельно, включая fractional scale. [Результаты Phase 0](../architecture/phase-0-report.md). Горячее отключение монитора, mirrored outputs и перенос Activity пользователем во время открытого Home требуют дополнительных тестов; поведение unplug не объявляется реализованным. G60S Pro использует стандартные keyboard/mouse events; физический smoke test дополнительный и не блокирует Phase 0 (P-07).
+## Alternatives considered
+
+Always showing Home on the primary screen was rejected.
+
+## Verification
+
+[Phase 0 report](../architecture/phase-0-report.md). Hot-unplug, mirrored outputs and moving the Activity while Home is open need further tests.

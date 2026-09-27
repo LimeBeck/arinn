@@ -1,35 +1,37 @@
-# Медиа MVP: папки, библиотека и внешний mpv
+# Media MVP: folders, library and external mpv
 
-Статус: принято для реализации по ADR-0024. Сценарий явно выбран пользователем; компоненты и технические defaults выбраны исполнителем.
+Part of [ADR-0024](../adr/0024-local-library-mpv.md). The scenario was chosen by the project owner (P-02); components and technical defaults are a delegated choice.
 
 ## Providers
 
-`arinn-plugin-library` реализует LibraryProvider, сканирует configured roots локальной файловой системы, включая уже смонтированные сетевые папки. Собственного SMB/NFS клиента, mount management или Jellyfin server для MVP не требуется. Scan асинхронный: initial scan, explicit rescan, filesystem hints и периодическая сверка каждые 10 min при autoscan. Сетевой I/O ограничен worker pool и deadlines; не блокирует core.
+`arinn-plugin-library` implements LibraryProvider and scans configured roots on the local filesystem, including already mounted network folders. No own SMB/NFS client, mount management or Jellyfin server is needed for the MVP. Scanning is asynchronous: initial scan, explicit rescan, filesystem hints and a periodic check every 10 minutes when autoscan is on. Network I/O is bounded by a worker pool and deadlines and never blocks the core.
 
-Library metadata/resume DB — собственное состояние provider, не core. Stable item UUID сохраняется в его SQLite; совпадение inode/size/mtime помогает распознать rename только внутри доступного root, не является глобальным ID. Недоступный mount делает root unavailable; не помечать все фильмы удалёнными. Symlinks за пределами configured roots не обходятся автоматически. «Убрать из медиатеки» скрывает запись, не удаляет файл.
+The library metadata and resume database is the provider's own state, not the core's. A stable item UUID is stored in its SQLite database; matching inode/size/mtime helps detect renames only inside an available root and is not a global ID. An unavailable mount makes the root unavailable; films are never marked deleted because of it. Symlinks outside configured roots are not followed automatically. "Remove from library" hides the entry and never deletes the file.
 
-Метаданные MVP: title/year/season/episode из filename и sidecar NFO, duration/track info через ffprobe, local poster/fanart рядом с видео. При отсутствии данных — название файла, generic artwork и неизвестные поля, без выдуманного сюжета или года. XML NFO разбирается без external entities/network DTD. Онлайн-enrichment не является обязательной зависимостью usable MVP; может добавляться provider-конфигурацией позднее. Такой fallback позволяет начать с любых папок, не требуя от пользователя API key.
+MVP metadata: title, year, season and episode from the file name and sidecar NFO; duration and track info from ffprobe; local poster and fanart next to the video. When data is missing: the file name, generic artwork and unknown fields — never an invented plot or year. NFO XML is parsed without external entities or network DTDs. Online enrichment is not required for a usable MVP and may be added later through provider configuration. This fallback works with any folder and needs no API key.
 
-`arinn-plugin-mpv` реализует MediaProvider и дополнительные typed playback interfaces. Сам mpv — отдельный player process с обычным video window. Команды и события идут через private Unix JSON IPC socket в XDG_RUNTIME_DIR (directory 0700, без публичного /tmp endpoint). Shell не обращается к сокету напрямую и не встраивает собственный media engine. mpv предоставляет JSON IPC и track-list; выбор внешнего player опирается на эти возможности. [mpv manual](https://mpv.io/manual/stable/).
+`arinn-plugin-mpv` implements MediaProvider plus additional typed playback interfaces. mpv is a separate player process with a regular video window. Commands and events go through a private Unix JSON IPC socket in `XDG_RUNTIME_DIR` (directory 0700, no public `/tmp` endpoint). The shell never touches the socket and embeds no media engine. mpv offers JSON IPC and a track list, which is why it was chosen ([mpv manual](https://mpv.io/manual/stable/)).
 
-## Shell OSD и платформа
+## Shell OSD and platform
 
-Video рисует mpv, OSD/track sheets рисует Arinn через platform overlay. Важно проверить два режима: OSD hidden — video window получает input adapter и посылает semantic events через plugin/daemon; OSD visible — shell получает focus. Не дублировать seek между mpv bindings и shell. В поставляемой конфигурации mpv отключить конфликтующие default bindings и OSC, определив Arinn actions. Никаких глобальных обычных букв для управления другими приложениями.
+mpv draws the video; Arinn draws the OSD and track sheets through the platform overlay. Two modes must be verified: OSD hidden — the video window receives input through an adapter that sends semantic events through the plugin and daemon; OSD visible — the shell has focus. Seek must not be duplicated between mpv bindings and the shell. The shipped mpv configuration disables conflicting default bindings and the OSC and defines Arinn actions. No global plain-letter keys control other applications.
 
-Это дополнительный integration gate перед media UI: overlay над видео без потери playback, корректный input, audio/subtitle sheets и Home/Return. Возможность плеера выбирать track подтверждается API, работоспособность QML overlay на целевом HTPC ещё не подтверждена.
+The hidden-OSD input path conflicts with the local-focus principle ([specification §6.5](../specifications/arinn-specification.md)) and is tracked as [OQ-01](../specifications/arinn-specification.md#21-open-questions).
 
-## Контракт и владение resume
+This is an extra integration gate before the media UI: an overlay over video without losing playback, correct input, audio/subtitle sheets and Home/Return. Track selection is confirmed by the mpv API; the QML overlay on the target HTPC is not yet confirmed.
 
-MediaProvider base остаётся совместимым с MPRIS. Rich features доступны отдельными typed interfaces/feature flags `MediaTracks1`, `MediaTimeline1`, `MediaOpen1`, описанными в API дополнении. MPRIS provider не обязан объявлять их. В UI отсутствующая возможность скрывается/disabled, а не превращается в no-op.
+## Contract and resume ownership
 
-Library launch возвращает content EntityRef и вызывает выбранный MediaOpen provider через daemon routing. Media session сообщает тот же content ref. Library provider получает progress updates через daemon subscription и пишет resume каждые 5 s, на pause/seek/end/stop. Только library — persistent source of truth; mpv watch-later не создаёт второй конкурирующий resume store для управляемых Arinn сессий.
+The MediaProvider base stays MPRIS-compatible. Rich features are separate typed interfaces with feature flags `MediaTracks1`, `MediaTimeline1` and `MediaOpen1` ([API review](../plugin-api/mvp-extensions.md)). The MPRIS provider does not have to declare them. A missing feature is hidden or disabled in the UI, never a no-op.
 
-Resume >0 отображается как «Продолжить». Правило 90 s из дизайна применяется к обычным фильмам/эпизодам с duration >180 s; для короткого/неизвестного duration завершение только по подтверждённому EOF. При manual seek в конец watched не ставится без playback/EOF confirmation. Следующий episode переводится на position 0 только при однозначном порядке season/episode. Auto-next — отдельная настройка. Missing file/mount не стирает resume.
+Library launch returns a content `EntityRef` and calls the selected `MediaOpen1` provider through daemon routing. The media session reports the same content ref. The library provider receives progress through a daemon subscription and writes resume every 5 s and on pause, seek, end and stop. Only the library is the persistent source of truth; mpv watch-later never becomes a second resume store for Arinn-managed sessions.
 
-Chapters и buffered ranges отображаются только при наличии данных. Thumbnail seek preview — отдельный асинхронный extractor/cache в provider (например, ffmpeg), ограниченный по частоте и отменяемый; он не перематывает основной mpv для получения картинки. Пока thumbnail не готов, timeline и время остаются рабочими. Skip intro доступен только при реальных chapter/segment metadata; не вводится собственный распознаватель заставок.
+Resume > 0 shows as "Continue". The design's 90-second rule applies to regular films and episodes longer than 180 s; for short or unknown durations completion requires a confirmed EOF. A manual seek to the end never marks watched without playback/EOF confirmation. The next episode is set to position 0 only when the season/episode order is unambiguous. Auto-next is a separate setting. A missing file or mount never erases resume.
 
-## Проверка
+Chapters and buffered ranges are shown only when data exists. Seek thumbnails come from a separate asynchronous, rate-limited, cancellable extractor and cache in the provider (for example ffmpeg); it never seeks the main mpv to get an image. The timeline and time stay usable until a thumbnail is ready. Skip intro is available only with real chapter or segment metadata; there is no own intro detector.
 
-AC-15/16: local file, mounted network file, missing file, mount loss/recovery, два audio tracks, external/embedded subtitle, pause/seek/restart resume, конец фильма и переход эпизода. Provider crash не закрывает весь shell; player запускается в отдельном application scope, reconnect к принадлежащему Arinn player возможен без kill чужих mpv.
+## Verification
 
-Codec, hardware decoding, HDR и passthrough не объявляются гарантированными по документации: это проверка на отдельном HTPC. Library/parser и IPC contract tests запускаются на машине разработки.
+AC-15, AC-16: local file, mounted network file, missing file, mount loss and recovery, two audio tracks, external and embedded subtitles, pause/seek/restart resume, end of film and episode advance. A provider crash does not close the shell; the player runs in its own application scope and reconnecting to an Arinn-owned player never kills other mpv instances.
+
+Codecs, hardware decoding, HDR and passthrough are not guaranteed by documentation; they are checked on the target HTPC. Library/parser and IPC contract tests run on the development machine.

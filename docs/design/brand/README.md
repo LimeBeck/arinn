@@ -1,24 +1,24 @@
-# Бренд Arinn
+# Arinn brand
 
-Материалы предоставлены пользователем 2026-09-27 и сохранены без изменения содержимого:
+Materials delivered by the project owner on 2026-09-27 and kept unchanged:
 
-- [Brand Guide v0.1](brand-guide-v0.1.txt) — исходный текст гайда.
-- [Варианты логотипа и примеры применения](logo-directions.png) — исходный PNG с общей презентацией знаков.
+- [Brand Guide v0.1](brand-guide-v0.1.txt) — original text, in Russian.
+- [Logo directions and usage examples](logo-directions.png) — original PNG with an overview of the marks.
 
-## Ориентиры из гайда
+## Key points of the guide
 
-Основной знак — **Hearth A / A1 Classic**: буква A, напоминающая защищённое пространство, с небольшой точкой Ember внизу. A2 Rounded — дополнительный вариант; A4 Minimal — для размеров, где A1 теряет читаемость. A3 Split показан на изображении, но гайд не назначает ему роль.
+The primary mark is **Hearth A / A1 Classic**: a letter A that suggests a sheltered space, with a small Ember dot at the bottom. A2 Rounded is an alternative; A4 Minimal is for sizes where A1 loses legibility. A3 Split appears in the image but the guide assigns it no role.
 
-Базовая палитра: Charcoal `#0F1115`, Stone White `#EDEDED`, Ember Orange `#FF8A3D`. Оранжевый используется редко. В шапке предпочтителен небольшой знак рядом с названием Arinn; главным объектом экрана остаётся пользовательский контент. Существующее TV-first направление интерфейса сохраняется.
+Base palette: Charcoal `#0F1115`, Stone White `#EDEDED`, Ember Orange `#FF8A3D`. Orange is used sparingly. In the header a small mark next to the name "Arinn" is preferred; user content remains the main object on screen. The existing TV-first interface direction stays. The Nordic origin of the name ("hearth" in Old Norse) is not a visual theme: no runes, Vikings or ornaments.
 
-PNG — визуальный референс, а не набор отдельных production-иконок. В последующем handoff от 2026-09-27 появился [SVG знака A1 Classic](../handoff/assets/arinn-mark.svg) и [лист логотипов](../handoff/assets/logo-direction-A.png). Отдельные монохромные версии и экспорты для малых размеров в комплекте не представлены.
+The PNG is a visual reference, not a set of production icons. The later handoff of 2026-09-27 added the [A1 Classic SVG](../handoff/assets/arinn-mark.svg) and the [logo sheet](../handoff/assets/logo-direction-A.png). Monochrome versions and small-size exports are not included.
 
-## Связь с актуальным handoff
+## Relation to the current handoff
 
-[Обновлённый design handoff](../handoff/README.md) уже использует A1 Classic и Ember Orange `#FF8A3D`. Предыдущий вариант с amber dot mark и `#F2B45A` сохранён в [архиве](../archive/2026-09-27-before-brand/README.md).
+The [updated design handoff](../handoff/README.md) already uses A1 Classic and Ember Orange `#FF8A3D`. The previous amber dot mark with `#F2B45A` is kept in the [archive](../archive/2026-09-27-before-brand/README.md).
 
-- Новый handoff явно сохраняет световой focus: Ember не является цветом focus. Это конкретизирует общее упоминание focus/accent в гайде для текущего интерфейса.
-- Charcoal и Stone White используются для фона app icon и знака. Токены фона и текста UI остаются отдельными; базовая палитра бренда не заменяет их автоматически.
-- Цвет ошибок в новом handoff — `oklch(0.66 0.21 22)` (указанная в исходнике hex-аппроксимация `#E8474F`).
+- The handoff keeps light-based focus: Ember is never a focus colour. This refines the guide's general mention of focus/accent for the current UI.
+- Charcoal and Stone White are used for the app icon background and the mark. UI background and text tokens stay separate; the brand palette does not replace them automatically.
+- The error colour in the new handoff is `oklch(0.66 0.21 22)` (hex approximation `#E8474F`).
 
-Исходные комплекты сохранены без изменения содержимого. Добавление материалов не меняет runtime приложения. Раздел с prompt для дизайнера в исходном гайде является частью документа, а не отдельным поручением выполнить редизайн.
+Adding these materials does not change the application runtime. The designer prompt section of the guide is part of the document, not a separate request for a redesign.

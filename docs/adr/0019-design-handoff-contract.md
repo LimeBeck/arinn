@@ -1,50 +1,41 @@
-# ADR-0019: Дизайн-handoff как отдельный контракт представления
+# ADR-0019: The design handoff as a separate presentation contract
 
-- Статус: Предложено (Proposed), требуется архитектурное ревью.
-- Дата оформления: 2026-09-27.
-- Основание: [Design handoff](../design/handoff/README.md), разделы Fidelity, Design Tokens, Input model, Screens / Views, State Management, Assets; [Developer Specification v0.3](../specifications/developer-specification-v0.3.md), §15, 46–48, 55; уточнение пользователя о предоставлении отдельного дизайна.
+- **Status:** Accepted
+- **Date:** 2026-09-27 (proposed); accepted 2026-09-27 by [ADR-0028](0028-documentation-governance.md)
+- **Deciders:** project owner (design handoff 2026-09-27)
+- **Amends / Supersedes:** —
+- **Amended by / Superseded by:** [ADR-0022](0022-state-and-interaction-baseline.md) (ownership of prototype state), [ADR-0023](0023-mvp-product-clarifications.md) (Back on Home, Sleep), [ADR-0027](0027-activity-background-snapshot.md) (Activity background)
+- **Specification:** [§15](../specifications/arinn-specification.md)
 
-> Обновление 2026-09-27: Продуктовые расхождения закрыты [ADR-0023](0023-mvp-product-clarifications.md) и [API review](../plugin-api/mvp-extensions.md); compositor/OSD эффекты остаются проверяемыми gates, не вопросами предпочтения. Этот ADR сохраняет формулировку исходного v0.3; при расхождении действуют принятые уточнения ADR-0020–0025.
+## Context
 
-## Контекст
+A standalone design package was delivered: specification, HTML prototype, screens, Design System v2, direction study and 22 screenshots. It refines Quiet Spatial OS with direction 2a "Depth with Light". Visual parameters are declared final, but some prototype integration points go beyond Plugin API v1 and the original MVP.
 
-Получен самостоятельный комплект дизайна: спецификация, HTML-прототип, экраны, Design System v2, исследование направлений и 22 скриншота. Он уточняет Quiet Spatial OS направлением 2a «Глубина со светом». Визуальные параметры объявлены финальными, но prototype integration points местами выходят за Plugin API v1 и MVP developer ТЗ.
+## Decision
 
-## Предлагаемое решение
+The package is stored unchanged in `docs/design/handoff` and is the source of visual parameters. Presentation is implemented in Qt 6/QML (ADR-0002). The handoff itself asks to recreate the design in the target stack and not to ship the HTML; its mention of Electron/Tauri does not override the chosen architecture.
 
-Хранить исходный комплект без изменений в docs/design/handoff и ссылаться на него как на источник визуальных параметров. Реализовывать presentation на Qt 6/QML по ADR-0002. Сам handoff требует воссоздать дизайн в целевой среде, следовать выбранному стеку и не поставлять HTML как приложение; упоминание Electron/Tauri не заменяет выбранную архитектуру.
+The visual contract:
 
-Соблюдать заданный визуальный контракт:
+- Logical canvas 1920×1080, uniform scale `min(vw/1920, vh/1080)`, safe area and sizes from the handoff.
+- Onest and Material Symbols Rounded; minimum 24 for text and 26 for anything an action depends on; tabular numerals; room for longer Russian labels.
+- Ember marks status, progress and brand; focus uses light, scale and a ring over artwork. Other tokens, radii, elevation and motion come from the handoff.
+- The light field follows artwork hue, crossfades over 900 ms, can be disabled and is absent on system screens.
+- D-pad and pointer modes, spatial navigation, topmost focus scopes `dialog > power > sheet > nav > screen`, per-screen focus memory and 500 ms hover suppression after scroll.
+- Overlay, loading, empty, error, disabled, pressed and focus states are checked against the design system and screenshots. Placeholder artwork is not finished content.
 
-- Логический canvas 1920×1080, uniform scale `min(vw/1920, vh/1080)`, safe area и размеры из handoff.
-- Onest и Material Symbols Rounded; минимальные размеры 24 для текста и 26 для зависимого от него действия; tabular numerals и запас для русских подписей.
-- Ember означает статус/прогресс/бренд (обновлённый handoff от 2026-09-27; ранее Amber), focus обозначается светом, масштабом и кольцом поверх artwork. Остальные токены, radii, elevation и motion берутся из исходника.
-- Light field зависит от artwork hue, плавно меняется за 900 ms и отключается настройкой; на системных экранах отсутствует.
-- D-pad/pointer modes, spatial navigation, topmost focus scopes `dialog > power > sheet > nav > screen`, память focus и 500 ms suppression hover после scroll.
-- Overlay, loading, empty, error, disabled, pressed и focus states проверяются по дизайн-системе и экранным примерам. Placeholder artwork не считается готовым контентом.
+The prototype's JavaScript model demonstrates behaviour only. Provider-owned library, downloads and playback are not moved into the shell as its own backend. The shell keeps interaction state and gets data and commands through the daemon.
 
-Модель JavaScript-прототипа описывает демонстрацию поведения. Provider-owned библиотека, downloads и playback не переносятся в shell как собственный backend. Shell сохраняет interaction state, а данные и команды получает через daemon. Локальный preview таймлайна возможен как interaction state, но фактическая позиция и playback принадлежат provider.
+Conflicts and new capabilities are tracked in the [integration review](../design/integration-review.md). A screen existing in the handoff does not extend the MVP or define an API by itself.
 
-Конфликтующие требования и новые capabilities фиксируются в [карте согласования](../design/integration-review.md). Наличие экрана не считается автоматическим расширением MVP или готовым контрактом API.
+## Consequences
 
-## Последствия
+Developers have exact visual references and do not reinvent the design system. Dynamic APIs, compositor effects and disputed transitions must be agreed before implementation; an HTML mockup does not prove feasibility on Wayland.
 
-Разработчикам доступны точные визуальные ориентиры и полный reference bundle. Не требуется заново придумывать дизайн-систему. Динамические API, compositor effects и спорные переходы должны быть согласованы до соответствующей реализации; HTML mockup не доказывает их работоспособность на Wayland.
+## Alternatives considered
 
-## Альтернативы и ограничения
+Shipping the HTML as the shell contradicts the handoff. Replacing Qt/QML with the prototype stack or moving simulated integrations into QML does not follow from receiving the design.
 
-Поставка HTML как shell противоречит handoff. Замена Qt/QML стеком прототипа и перенос simulated integrations в QML не следуют из предоставления дизайна. Разрешение противоречий молчаливым приоритетом одного исходника скрывает изменение требований.
+## Verification
 
-## Разрешение вопросов
-
-Продуктовые расхождения закрыты [ADR-0023](0023-mvp-product-clarifications.md) и [API review](../plugin-api/mvp-extensions.md); compositor/OSD эффекты остаются проверяемыми gates, не вопросами предпочтения.
-
-### Вопросы исходного ревью (история)
-
-Back на Home; Downloads/MVP; library scanner и player controls сверх MPRIS; source of truth для resume; compositor texture/snapshot и допустимая деградация эффектов; Sleep против ambient; prototype timers против фактического завершения операции. Детали перечислены в карте согласования.
-
-## Проверка решения
-
-Сопоставить реализацию с Design System v2 и 22 screenshot states при logical 1920×1080 и целевом 4K scale. Проверить D-pad/pointer, scope trapping, возврат focus, 3-meter readability и поведение при delayed/unavailable providers. Реальные overlay/compositor возможности подтвердить Phase 0. Эти runtime/UI проверки пока не выполнялись.
-
-[Реестр ADR](README.md) · [Дизайн](../design/README.md)
+Compare the implementation with Design System v2 and the 22 screenshot states at logical 1920×1080 and 4K scale. Check D-pad/pointer, scope trapping, focus return, 3-metre readability and behaviour with delayed or unavailable providers.

@@ -1,43 +1,34 @@
-# ADR-0008: XDG discovery и lifecycle через systemd user services
+# ADR-0008: XDG discovery and lifecycle through systemd user services
 
-- Статус: Предложено (Proposed), требуется архитектурное ревью.
-- Дата оформления: 2026-09-27.
-- Основание: [Developer Specification v0.3](../specifications/developer-specification-v0.3.md), разделы 30, 31, 32, 33, 40, 42, 56, 58, 60.
+- **Status:** Accepted
+- **Date:** 2026-09-27 (proposed); accepted 2026-09-27 by [ADR-0028](0028-documentation-governance.md)
+- **Deciders:** project owner (Developer Specification v0.3)
+- **Amends / Supersedes:** —
+- **Amended by / Superseded by:** [ADR-0021](0021-plugin-runtime-ownership.md) — manifest schema, XDG precedence, transient units, explicit reload, restart policy
+- **Specification:** [§9.9, §9.10](../specifications/arinn-specification.md)
 
-> Обновление 2026-09-27: Manifest schema, XDG precedence, transient units, explicit reload и restart policy закрыты [ADR-0021](0021-plugin-runtime-ownership.md). Этот ADR сохраняет формулировку исходного v0.3; при расхождении действуют принятые уточнения ADR-0020–0025.
+## Context
 
-## Контекст
+A provider must be added by installing a manifest, without product changes in the core. Linux already has a process supervisor; the daemon should not duplicate it.
 
-Provider должен подключаться через установку manifest без продуктовых изменений core. На Linux уже существует supervisor, поэтому daemon не должен дублировать его целиком.
+## Decision
 
-## Предлагаемое решение
+Every plugin has a manifest with a stable `id`, `name`, `version`, `api_version`, `executable` and `capabilities`. System and user plugins use the same format.
 
-Каждый plugin имеет manifest со стабильным id, name, version, api_version, executable и capabilities. System и user plugins используют один формат. Пример manifest в ТЗ имеет TOML-представление; окончательную schema нужно зафиксировать в Plugin API.
+Discovery looks in `$XDG_DATA_HOME/arinn/plugins` and in `arinn/plugins` under every entry of `$XDG_DATA_DIRS`.
 
-Предпочтительные места discovery: $XDG_DATA_HOME/arinn/plugins и arinn/plugins в каждом элементе $XDG_DATA_DIRS.
+`arinnd` orchestrates discover, start, handshake, monitor, restart and stop. After start a plugin completes a handshake and registers its capabilities. Supervision uses systemd user services or transient units.
 
-arinnd оркестрирует discover/start/handshake/monitor/restart/stop. После старта plugin проходит handshake и регистрирует capabilities. Для supervision предпочтительны systemd user services или transient units; конкретный вариант ещё требует выбора.
+Packaging installs binaries and the Chrome Native Messaging manifest. The architecture does not depend on pacman.
 
-Packaging устанавливает binaries и Chrome Native Messaging manifest. Архитектура не привязана к pacman.
+## Consequences
 
-## Последствия
+Installing a plugin is a self-contained operation and the lifecycle reuses Linux facilities. Discovery conflicts and the daemon/systemd responsibility split need precise rules (ADR-0021).
 
-Установка plugin становится самостоятельной операцией, а lifecycle использует возможности Linux. Необходимо согласовать конфликты discovery и границу ответственности daemon/systemd.
+## Alternatives considered
 
-## Альтернативы и ограничения
+Turning `arinnd` into a full process supervisor is not recommended.
 
-Самостоятельный полноценный process supervisor в arinnd не рекомендуется ТЗ. Выбор между постоянными user services и transient units пока не сделан.
+## Verification
 
-## Разрешение вопросов
-
-Manifest schema, XDG precedence, transient units, explicit reload и restart policy закрыты [ADR-0021](0021-plugin-runtime-ownership.md).
-
-### Вопросы исходного ревью (история)
-
-Приоритет user/system manifest и дубликатов ID, executable lookup, refresh discovery, поведение удаления работающего provider, restart backoff/лимиты, handshake timeout. AC-11 не уточняет требование hot reload без restart daemon.
-
-## Проверка решения
-
-AC-11; установка/удаление provider без product-specific правок. Проверить handshake, несовместимую версию, restart/reconnect и отображение restart count/last error.
-
-[Реестр ADR](README.md) · [Карта ревью](../architecture/review-map.md)
+AC-11: install and remove a provider without product-specific changes. Check handshake, incompatible version, restart/reconnect and diagnostics (restart count, last error).

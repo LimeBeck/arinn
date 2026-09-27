@@ -1,0 +1,31 @@
+# SPDX-FileCopyrightText: 2026 Arinn contributors
+#
+# SPDX-License-Identifier: CC0-1.0
+
+# Licensing annotations for files that cannot carry an inline SPDX header.
+# Policy: docs/adr/0029-licensing.md
+
+version = 1
+SPDX-PackageName = "Arinn"
+SPDX-PackageDownloadLocation = "https://github.com/LimeBeck/arinn"
+
+# Documentation, specifications, ADRs and design materials.
+[[annotations]]
+path = ["docs/**", "*.md"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 Arinn contributors"
+SPDX-License-Identifier = "CC-BY-SA-4.0"
+
+# Plugin API interface definitions are licensed like the protocol crate.
+[[annotations]]
+path = "docs/plugin-api/**.xml"
+precedence = "override"
+SPDX-FileCopyrightText = "2026 Arinn contributors"
+SPDX-License-Identifier = "MIT OR Apache-2.0"
+
+# Generated files and trivial configuration.
+[[annotations]]
+path = ["Cargo.lock", ".gitignore", ".editorconfig", "deny.toml", ".github/**"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 Arinn contributors"
+SPDX-License-Identifier = "CC0-1.0"

@@ -1,14 +1,18 @@
-# Plugin API: текущий baseline
+# Plugin API
 
-Plugin API v1 ещё не выпущен как stable. Архитектура/семантика выбраны; Rust SDK, D-Bus XML всех capabilities и contract suite создаются при реализации.
+Plugin API v1 is **not yet released as stable**. The architecture and semantics are chosen; the Rust SDK, D-Bus XML for every capability and the contract suite are produced during implementation (Phase 1 onwards, see the [roadmap](../../ROADMAP.md)).
 
-- [ADR-0020: transport, identity, state и операции](../adr/0020-dbus-contract-baseline.md).
-- [Техническая основа и лимиты](../architecture/implementation-baseline.md).
-- [Manifest, registration, supervision](../architecture/plugin-runtime.md).
-- [Отдельный review media/download extensions](mvp-extensions.md).
+- Requirements summary: [specification §9](../specifications/arinn-specification.md).
+- [ADR-0020](../adr/0020-dbus-contract-baseline.md) and the [implementation baseline](../architecture/implementation-baseline.md): transport, identity, state, operations, limits.
+- [Plugin runtime](../architecture/plugin-runtime.md): manifest, registration, supervision.
+- [Media and download extensions](mvp-extensions.md): separate API review for the extended MVP.
 
-Текущие capabilities: application, browser, media, library, action, download. Последняя добавлена явным расширением MVP по ответу пользователя, а не извлечена из исходного v0.3.
+Capabilities: `application`, `browser`, `media`, `library`, `action`, `download`. The last one was added by an explicit MVP extension ([ADR-0025](../adr/0025-downloads-mvp.md)), not taken from specification v0.3.
 
-Перед реализацией каждой capability фиксируется versioned introspection XML с typed model и contract fixtures. Phase 0 требует только registry, application/demo snapshot, operations и state lifecycle; browser/media/download schemas не должны задерживать проверку KDE/Wayland.
+Before a capability is implemented, its versioned introspection XML with a typed model and contract fixtures is fixed. Phase 0 needed only the registry, an application/demo snapshot, operations and state lifecycle.
 
-Для выполненного spike сохранена фактическая [introspection XML](phase0.xml) интерфейса `org.arinn.Spike1`. Rust types — `crates/arinn-protocol`, Qt decoding проверяется интеграционным тестом. Имена и модель экспериментальные: singleton provider, сокращённый snapshot, временный KWin bridge. Это не замена production XML всех capabilities. При возврате структуры из zbus используется одноэлементный tuple `(Snapshot,)`, чтобы wire body содержал именно один struct, совпадающий с XML и QtDBus.
+The executed spike keeps the actual [introspection XML](phase0.xml) of `org.arinn.Spike1`. Rust types are in `crates/arinn-protocol`; Qt decoding is checked by an integration test. Names and model are experimental: a singleton provider, a reduced snapshot and a temporary KWin bridge. This is not a replacement for the production XML. When zbus returns a struct, a one-element tuple `(Snapshot,)` is used so the wire body contains exactly one struct matching the XML and QtDBus.
+
+## Licensing
+
+The protocol crate, the future SDK and the interface XML are licensed `MIT OR Apache-2.0`, so plugins may use any license ([ADR-0029](../adr/0029-licensing.md)).

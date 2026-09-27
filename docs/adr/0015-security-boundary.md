@@ -1,41 +1,32 @@
-# ADR-0015: Доверенные локальные plugins с валидацией IPC
+# ADR-0015: Trusted local plugins with IPC validation
 
-- Статус: Предложено (Proposed), требуется архитектурное ревью.
-- Дата оформления: 2026-09-27.
-- Основание: [Developer Specification v0.3](../specifications/developer-specification-v0.3.md), разделы 9, 15, 17, 27, 43, 44, 45, 49.
+- **Status:** Accepted
+- **Date:** 2026-09-27 (proposed); accepted 2026-09-27 by [ADR-0028](0028-documentation-governance.md)
+- **Deciders:** project owner (Developer Specification v0.3)
+- **Amends / Supersedes:** —
+- **Amended by / Superseded by:** [ADR-0020](0020-dbus-contract-baseline.md) (limits, logging privacy), [ADR-0021](0021-plugin-runtime-ownership.md) (peer registration)
+- **Specification:** [§13](../specifications/arinn-specification.md)
 
-> Обновление 2026-09-27: Лимиты, peer registration и logging privacy заданы [ADR-0020](0020-dbus-contract-baseline.md), [ADR-0021](0021-plugin-runtime-ownership.md). Этот ADR сохраняет формулировку исходного v0.3; при расхождении действуют принятые уточнения ADR-0020–0025.
+## Context
 
-## Контекст
+MVP plugins are locally installed trusted software. Still, bad data or commands must not break the shell or core or allow arbitrary execution through the API.
 
-MVP работает с локально установленными plugins, которые считаются доверенным software. Тем не менее ошибки данных и команд не должны разрушать shell/core или давать произвольное выполнение через API.
+## Decision
 
-## Предлагаемое решение
+The MVP is not a hostile-plugin sandbox. It keeps process isolation, IPC and command validation, bounded message sizes and timeouts. QML never runs arbitrary shell commands; the Plugin API allows no arbitrary code injection.
 
-Не позиционировать MVP как hostile-plugin sandbox. Сохранять process isolation, IPC/command validation, bounded message size и timeouts. QML не выполняет arbitrary shell commands, Plugin API не предоставляет arbitrary code injection.
+Plugins supply data, metadata, actions and capabilities, never QML, HTML or other UI. The Chrome extension requests minimal permissions.
 
-Plugin поставляет data/metadata/actions/capabilities, но не QML, HTML или другой произвольный UI. Chrome extension получает минимальные permissions.
+Regular logs never contain cookies, authorization headers, passwords or browser page content.
 
-В обычные логи не попадают cookies, authorization headers, passwords и browser page content.
+## Consequences
 
-## Последствия
+The protocol has defensive boundaries even for trusted software. Process isolation limits crash propagation but does not protect against a malicious local plugin.
 
-Протокол имеет защитные границы даже для доверенного software. Изоляция процессов ограничивает crash propagation, но не обещает защиту от злонамеренного локального plugin.
+## Alternatives considered
 
-## Альтернативы и ограничения
+Loading arbitrary UI, a command shell as API and in-process native plugins are excluded. A marketplace and remote plugin repositories are outside v1.
 
-Загрузка произвольного UI, командный shell как API и in-process native plugins исключены. Marketplace и remote plugin repository за пределами v1.
+## Verification
 
-## Разрешение вопросов
-
-Лимиты, peer registration и logging privacy заданы [ADR-0020](0020-dbus-contract-baseline.md), [ADR-0021](0021-plugin-runtime-ownership.md).
-
-### Вопросы исходного ревью (история)
-
-Конкретные лимиты payload, валидация URL/команд/metadata, идентификация IPC peer и политика diagnostic logging. ТЗ не определяет, как обрабатывать чувствительные query parameters URL в логах.
-
-## Проверка решения
-
-Проверить malformed/oversized IPC, invalid arguments и timeout после фиксации лимитов. Review должен подтвердить отсутствие QML shell execution, UI injection и запрещённых логируемых данных.
-
-[Реестр ADR](README.md) · [Карта ревью](../architecture/review-map.md)
+Malformed and oversized IPC, invalid arguments and timeouts are rejected. Review confirms no QML shell execution, no UI injection and no forbidden logged data.

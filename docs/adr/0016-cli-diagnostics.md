@@ -1,43 +1,34 @@
-# ADR-0016: Общий API для CLI, diagnostics и structured logs
+# ADR-0016: One API for CLI, diagnostics and structured logs
 
-- Статус: Предложено (Proposed), требуется архитектурное ревью.
-- Дата оформления: 2026-09-27.
-- Основание: [Developer Specification v0.3](../specifications/developer-specification-v0.3.md), разделы 28, 30, 41, 42, 43, 54.
+- **Status:** Accepted
+- **Date:** 2026-09-27 (proposed); accepted 2026-09-27 by [ADR-0028](0028-documentation-governance.md)
+- **Deciders:** project owner (Developer Specification v0.3)
+- **Amends / Supersedes:** —
+- **Amended by / Superseded by:** [ADR-0020](0020-dbus-contract-baseline.md) — log schema, CLI output and exit codes, diagnostics counters ([implementation baseline](../architecture/implementation-baseline.md))
+- **Specification:** [§14](../specifications/arinn-specification.md)
 
-> Обновление 2026-09-27: Log schema, CLI output/exit codes и diagnostics counters определены [технической основой](../architecture/implementation-baseline.md). Этот ADR сохраняет формулировку исходного v0.3; при расхождении действуют принятые уточнения ADR-0020–0025.
+## Context
 
-## Контекст
+An integration failure must be observable, not a tile that silently does nothing. Diagnostics are needed independently of the TV UI.
 
-Ошибка интеграции должна быть наблюдаемой, а не выглядеть как неработающая плитка. Диагностика нужна независимо от TV UI.
+## Decision
 
-## Предлагаемое решение
+`arinnctl` provides `status`, `providers`, `capabilities`, `activities` and `diagnostics` over the same public daemon API as the shell. `provider restart <id>` is desirable.
 
-Предоставить arinnctl status, providers, capabilities, activities, diagnostics через тот же публичный daemon API, который использует shell. Команда provider restart <id> желательна, но не является обязательной в v0.3.
+Diagnostics show the `arinnd` status, plugin status and version, API version, registered capabilities, last error and restart count. An incompatible plugin version is visible in diagnostics.
 
-Diagnostics показывает arinnd status, plugin status/version, API version, registered capabilities, last error и restart count. Несовместимая версия plugin видна в diagnostics.
+All components write structured logs with at least `component`, `provider_id`, `request_id`, `operation`, `duration` and `error`. The Linux backend is journald. Secrets and page content never appear in regular logs (ADR-0015).
 
-Все компоненты пишут structured logs; минимальные поля: component, provider_id, request_id, operation, duration, error. Основной Linux backend — journald. Секреты и содержимое browser pages не включаются в обычные логи (ADR-0015).
+An unavailable provider, a degraded daemon connection and a timeout each have an explicit UI state.
 
-Unavailable provider, degraded daemon connection и timeout имеют явное состояние в UI.
+## Consequences
 
-## Последствия
+Operators can find the cause of a failure without knowing the internal IPC. One API keeps shell and CLI views consistent.
 
-Оператор может понять причину сбоя без знания внутреннего IPC приложения. Общий API предотвращает расхождение представлений shell и CLI.
+## Alternatives considered
 
-## Альтернативы и ограничения
+Silent errors and plugin stack traces in the QML API are rejected. A separate CLI-only API is rejected.
 
-Немые ошибки и plugin-specific stack traces в QML API не соответствуют ТЗ. Отдельный обходной CLI API не выбирается.
+## Verification
 
-## Разрешение вопросов
-
-Log schema, CLI output/exit codes и diagnostics counters определены [технической основой](../architecture/implementation-baseline.md).
-
-### Вопросы исходного ревью (история)
-
-Схема diagnostics и log levels, формат CLI output/exit codes, семантика restart count и длительность хранения last error. Как представлять неприменимые поля лога у операций без provider?
-
-## Проверка решения
-
-Сопоставить статусы UI/CLI при crash, несовместимой версии, timeout и reconnect. Проверить корреляцию request ID и отсутствие запрещённых данных в логах.
-
-[Реестр ADR](README.md) · [Карта ревью](../architecture/review-map.md)
+UI and CLI statuses match on crash, incompatible version, timeout and reconnect. Request IDs correlate across components; logs contain no forbidden data.

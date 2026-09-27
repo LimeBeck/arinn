@@ -1,0 +1,56 @@
+name: Release
+
+# Publishes a GitHub release for a tag vX.Y.Z only after the full CI suite,
+# including the package build and install smoke test, passes on that commit.
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Version and changelog
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python scripts/release.py check "${GITHUB_REF_NAME}"
+
+  ci:
+    name: Full CI
+    needs: check
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    name: Publish release
+    needs: [check, ci]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          name: arinn-arch-package
+          path: dist
+      - name: Checksums and release notes
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          (cd dist && sha256sum * > SHA256SUMS)
+          python scripts/release.py notes "$version" > notes.md
+          if [ "${version%%.*}" = "0" ]; then echo "PRERELEASE=true" >> "$GITHUB_ENV"; else echo "PRERELEASE=false" >> "$GITHUB_ENV"; fi
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: Arinn ${{ github.ref_name }}
+          body_path: notes.md
+          prerelease: ${{ env.PRERELEASE }}
+          files: dist/*
+          fail_on_unmatched_files: true

@@ -1,3 +1,9 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Arinn contributors
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
 // Operator-only experiment, loaded temporarily by kwin_background.py.
 import QtQuick
 import QtQuick.Window

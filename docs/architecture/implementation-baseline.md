@@ -1,71 +1,71 @@
-# Техническая основа разработки
+# Implementation baseline
 
-Дата: 2026-09-27. Статус: выбрано для реализации по поручению пользователя самостоятельно закрыть технические решения. Это дополнение к developer v0.3 и design handoff; исходники не редактируются. Принятые решения — ADR-0020–0022. Числовые лимиты ниже являются выбранными defaults проекта, а не требованиями сторонних спецификаций.
+Part of [ADR-0020](../adr/0020-dbus-contract-baseline.md) and [ADR-0022](../adr/0022-state-and-interaction-baseline.md). Chosen 2026-09-27 as a delegated technical decision. Numeric limits below are project defaults, not requirements of third-party specifications. Requirements summary: [specification §8–§11, §14, §17](../specifications/arinn-specification.md).
 
-## Стек и границы
+## Stack and boundaries
 
-- Shell: Qt 6 Quick/QML, небольшой C++ слой QtDBus и typed models; UI thread не выполняет blocking D-Bus calls. CMake, Qt Quick Test/Qt Test.
-- Core/CLI/первые plugins: Rust workspace, Tokio, zbus, serde для файлов конфигурации; cargo test и общий contract harness. Версии зависимостей фиксируются lockfile при создании skeleton, без плавающих production dependencies.
-- Session D-Bus для shell/CLI ↔ daemon и daemon ↔ plugins. Публичное имя `org.arinn.Daemon1`, корень `/org/arinn/Daemon1`, interfaces с суффиксом major version `1`. Provider имеет unique bus owner и экспортирует `/org/arinn/Provider1`; core proxy доступен клиентам под `/org/arinn/Daemon1/providers/p_<uuid_hex>`. UUID хранится в registry; opaque plugin IDs не преобразуются напрямую в object paths.
-- Только daemon является интеграционным API shell. Клиент не обращается к provider endpoint, MPRIS или KWin напрямую.
-- Начальный build target — текущее стабильное окружение Arch/EndeavourOS, KDE 6/Wayland. Проверки portability на другие DE откладываются.
+- **Shell:** Qt 6 Quick/QML with a small C++ layer for QtDBus and typed models. The UI thread never makes blocking D-Bus calls. CMake, Qt Quick Test and Qt Test.
+- **Core, CLI and first plugins:** a Rust workspace with Tokio, zbus, and serde for configuration files; `cargo test` and a shared contract harness. Dependency versions are pinned by the lockfile; no floating production dependencies.
+- **Transport:** session D-Bus for shell/CLI ↔ daemon and daemon ↔ plugins. Public name `org.arinn.Daemon1`, root `/org/arinn/Daemon1`, interface names carry the major version suffix `1`. A provider has a unique bus owner and exports `/org/arinn/Provider1`; the core proxy is visible to clients at `/org/arinn/Daemon1/providers/p_<uuid_hex>`. The UUID is stored in the registry; opaque plugin IDs are never turned into object paths directly.
+- Only the daemon is the integration API of the shell. Clients never call provider endpoints, MPRIS or KWin directly.
+- The initial build target is the current stable Arch/EndeavourOS with KDE 6 on Wayland. Portability to other desktops is deferred.
 
-Qt предоставляет asynchronous D-Bus calls; zbus — подключение к session bus. Это основание выбора bindings, а не проверка реализации Arinn: [QtDBus](https://doc.qt.io/qt-6/qdbusconnection.html), [zbus](https://docs.rs/zbus/latest/zbus/connection/struct.Builder.html).
+Qt offers asynchronous D-Bus calls and zbus connects to the session bus; this is the reason for the bindings, not a test of Arinn: [QtDBus](https://doc.qt.io/qt-6/qdbusconnection.html), [zbus](https://docs.rs/zbus/latest/zbus/connection/struct.Builder.html).
 
-## Идентификаторы и маршрутизация
+## Identifiers and routing
 
-`plugin_id` — стабильный ID пакета из manifest. `provider_id` — стабильный ID настроенного экземпляра plugin; по умолчанию равен plugin_id. Несколько экземпляров объявляются конфигурацией daemon. Один provider регистрирует несколько capabilities.
+`plugin_id` is the stable package ID from the manifest. `provider_id` is the stable ID of a configured plugin instance; by default it equals `plugin_id`. Additional instances are declared in daemon configuration. One provider may register several capabilities.
 
-`EntityRef = (provider_id, capability, local_id)`: все три поля передаются раздельно как strings. Core знает capability, но не разбирает local_id. Ephemeral entities дополнительно адресуются с `generation`; stale generation даёт Conflict, никогда не перенаправляется к новому объекту с тем же ID. Favorites хранят только объявленные provider стабильные launch targets, а не временные tab IDs.
+`EntityRef = (provider_id, capability, local_id)`, three separate strings. The core knows the capability but never parses `local_id`. Ephemeral entities also carry a `generation`; a stale generation returns `Conflict` and is never redirected to a new object with the same ID. Favorites store only stable launch targets declared by a provider, never temporary tab IDs (see [OQ-02](../specifications/arinn-specification.md#21-open-questions)).
 
-Команда на entity всегда идёт её provider. Для generic команды (например, открыть URL без entity) используется сохранённый default capability provider; при единственном доступном provider он выбирается автоматически. При нескольких без default требуется выбор в Settings, без скрытого product-specific приоритета. Все providers можно агрегировать в список.
+A command on an entity always goes to its provider. A generic command (for example, open a URL without an entity) goes to the saved default provider of the capability; with exactly one available provider it is chosen automatically. With several and no default, the user chooses in Settings; there is no hidden product-specific priority. All providers can be aggregated into one list.
 
-## Snapshot и reconnect
+## Snapshots and reconnect
 
-Область revision — пара `(provider_id, capability)`. `generation` — UUID, выдаваемый daemon на каждую новую регистрацию, включая повторную регистрацию после restart daemon. Revision — uint64, начинается с 1 и строго растёт только при изменениях внутри generation. Одинаковые snapshots не требуют новой revision. Переполнение требует новой регистрации/generation.
+A revision is scoped to `(provider_id, capability)`. `generation` is a UUID issued by the daemon for every new registration, including re-registration after a daemon restart. A revision is a `uint64` that starts at 1 and grows strictly, only on changes within one generation. Identical snapshots need no new revision. Overflow requires a new registration and generation.
 
-StateChanged содержит provider_id, capability, generation, revision. Snapshot атомарно содержит ту же пару generation/revision и typed entries. Consumer устанавливает signal match до чтения первого snapshot, буферизует notifications, принимает snapshot и запрашивает следующий, если уже увидел большую revision. События можно coalesce; устаревшие ответы отбрасываются. Новый owner/generation инвалидирует весь старый snapshot и pending operations, затем выполняется полная загрузка.
+`StateChanged` carries `provider_id`, `capability`, `generation` and `revision`. A snapshot atomically carries the same generation/revision pair and typed entries. A consumer installs the signal match before reading the first snapshot, buffers notifications, accepts the snapshot and requests the next one if it has already seen a higher revision. Events may be coalesced; stale replies are dropped. A new owner or generation invalidates the whole old snapshot and pending operations, then a full reload follows.
 
-Large lists читаются страницами до 200 entries или 256 KiB encoded body, что наступит раньше. Page token привязан к immutable generation/revision и истекает через 30 s; Conflict означает начать чтение заново. Старый complete snapshot остаётся видимым до завершения нового; страницы разных revisions не смешиваются. Signal dispatch и snapshot publication атомарны относительно внутреннего state commit.
+Large lists are read in pages of at most 200 entries or 256 KiB of encoded body, whichever comes first. A page token is bound to an immutable generation/revision and expires after 30 s; `Conflict` means start over. The previous complete snapshot stays visible until the new one is complete; pages of different revisions are never mixed. Signal dispatch and snapshot publication are atomic with respect to the internal state commit.
 
-D-Bus unique names и NameOwnerChanged позволяют отслеживать lifetime соединения; прикладную generation и revisions вводит сам Arinn. [D-Bus specification](https://dbus.freedesktop.org/doc/dbus-specification.html).
+D-Bus unique names and `NameOwnerChanged` track connection lifetime; generation and revisions are Arinn's own ([D-Bus specification](https://dbus.freedesktop.org/doc/dbus-specification.html)).
 
-## Команды и ошибки
+## Commands and errors
 
-Typed capability methods принимают `request_id` (UUID от caller), возвращают operation object path немедленно после валидации и постановки в очередь. Operation имеет states queued/running/succeeded/failed/cancelled, typed error, start/end times и result entity refs. Клиент читает operation после установки подписки: сигнал мог прийти раньше ответа метода. InvalidArgument/NotFound/Unsupported/PermissionDenied при валидации возвращаются сразу как D-Bus error.
+Typed capability methods take a `request_id` (a UUID from the caller) and return an operation object path immediately after validation and queueing. An operation has the states queued, running, succeeded, failed and cancelled, a typed error, start and end times, and result entity refs. The client reads the operation after subscribing, because the signal may arrive before the method reply. `InvalidArgument`, `NotFound`, `Unsupported` and `PermissionDenied` found during validation are returned immediately as D-Bus errors.
 
-Ошибки: NotFound, Unavailable, Unsupported, PermissionDenied, Timeout, InvalidArgument, Conflict, Internal, Cancelled; пространство `org.arinn.Error1.*`. Operation state cancelled соответствует Cancelled. Тексты ошибок безопасны для UI; stack trace остаётся в diagnostics logs без payload.
+Errors: `NotFound`, `Unavailable`, `Unsupported`, `PermissionDenied`, `Timeout`, `InvalidArgument`, `Conflict`, `Internal`, `Cancelled`, in the namespace `org.arinn.Error1.*`. The operation state `cancelled` corresponds to `Cancelled`. Error texts are safe for the UI; stack traces stay in diagnostic logs without payload.
 
-Defaults: IPC admission/read — 3 s; controls/activate/seek — 5 s; launch/open/createTab — 30 s; handshake — 10 s. После timeout результат команды неизвестен, пока состояние не сверено snapshot. Успех launch означает подтверждённую отправку запуска или найденный running instance, но не готовность страницы/видео. UI ждёт фактическую Activity для перехода.
+Default timeouts: IPC admission/read 3 s; controls, activate and seek 5 s; launch, open and createTab 30 s; handshake 10 s. After a timeout the result of a command is unknown until reconciled with a snapshot. A successful launch means the launch was dispatched or a running instance was found, not that the page or video is ready. The UI waits for the actual Activity before transitioning.
 
-Cancel — best effort только если операция объявляет cancellable. Внешний side effect отмена не откатывает. Daemon не повторяет mutating commands автоматически. В пределах одного daemon epoch повтор `(caller unique owner, request_id)` возвращает ту же operation; другое содержимое с тем же ID — Conflict. Operation удерживается 5 min после завершения; после reconnect нельзя считать сохранённой гарантию дедупликации. На disconnect/generation change pending завершаются Unavailable, запоздалые ответы игнорируются.
+Cancellation is best effort and only for operations declared cancellable; it does not roll back external side effects. The daemon never retries mutating commands automatically. Within one daemon epoch, repeating `(caller unique owner, request_id)` returns the same operation; different content with the same ID is `Conflict`. Operations are kept for 5 minutes after completion; deduplication is not guaranteed across reconnects. On disconnect or generation change, pending operations end with `Unavailable` and late replies are ignored.
 
-## Ограничения и валидация
+## Limits and validation
 
-Body сообщения до 256 KiB; строка ID до 256 bytes UTF-8, обычный текст до 8 KiB, URL до 16 KiB. Artwork/video не передаются inline в snapshot: provider сообщает typed asset reference, daemon загружает или отдаёт cache asset. В QML не попадает arbitrary HTML/JS. Optional metadata — ограниченный a{sv} со scalar values и string arrays, до 32 keys; основные модели остаются typed.
+Message body up to 256 KiB; ID strings up to 256 bytes of UTF-8; ordinary text up to 8 KiB; URLs up to 16 KiB. Artwork and video are never inline in snapshots: a provider reports a typed asset reference and the daemon loads or serves the cached asset. No arbitrary HTML or JavaScript reaches QML. Optional metadata is a bounded `a{sv}` with scalar values and string arrays, at most 32 keys; core models stay typed.
 
-Native bridge применяет тот же лимит, разбивает большие snapshots на страницы и не пишет логи в stdout. В обоих направлениях validation до allocation по недоверенной длине. Устанавливать memory/queue caps на соединение; максимум 32 concurrent operations/provider, переполнение — Unavailable с retryable metadata; UI не запускает retry автоматически.
+The native bridge applies the same limit, pages large snapshots and never logs to stdout. Both directions validate before allocating by an untrusted length. Per-connection memory and queue caps apply; at most 32 concurrent operations per provider, overflow returns `Unavailable` with retryable metadata; the UI does not retry automatically.
 
-Проверять тип, длину, принадлежность provider и допустимость команды. Browser URL по умолчанию http/https; javascript/data/file и arbitrary schemes не принимаются generic open. Другие схемы только явно объявленными typed actions provider. .desktop запускается системным desktop-entry механизмом без shell interpolation из QML.
+Validation covers type, length, provider ownership and whether a command is allowed. Generic `open` accepts only `http` and `https` URLs; `javascript:`, `data:`, `file:` and arbitrary schemes are rejected. Other schemes are possible only through explicitly declared typed provider actions. `.desktop` entries are launched by the system desktop-entry mechanism without shell interpolation from QML.
 
-Обычные логи не содержат URL, titles вкладок, payload, содержимое страниц и секреты. Только IDs, operation, outcome и безопасный error code. Debug logging не снимает это ограничение.
+Regular logs contain no URLs, tab titles, payloads, page content or secrets — only IDs, operation, outcome and a safe error code. Debug logging does not lift this rule.
 
-## Хранение
+## Storage
 
-`$XDG_CONFIG_HOME/arinn/config.toml`: UI preferences, provider config/defaults и настройки Home. Запись через временный файл в той же директории, fsync и atomic rename. Shell изменяет конфигурацию через daemon; schema_version и migration до запуска providers.
+`$XDG_CONFIG_HOME/arinn/config.toml`: UI preferences, provider configuration and defaults, Home settings. Written through a temporary file in the same directory, fsync and atomic rename. The shell changes configuration through the daemon. `schema_version` and migration run before providers start.
 
-`$XDG_STATE_HOME/arinn/state.sqlite3`: favorites/order, stable provider-instance mapping, recent Arinn launch targets и diagnostic counters. SQLite transaction на изменение и schema migration; migration failure оставляет прежнюю БД и включает diagnostics/degraded state. SQLite выбран для транзакций, без собственной ORM requirement. [Обоснование атомарности SQLite](https://www.sqlite.org/atomiccommit.html).
+`$XDG_STATE_HOME/arinn/state.sqlite3`: favorites and their order, the stable provider-instance mapping, recent Arinn launch targets and diagnostic counters. One SQLite transaction per change and schema migrations; a failed migration keeps the previous database and turns on diagnostics/degraded state. SQLite was chosen for transactions; no ORM is required ([SQLite atomic commit](https://www.sqlite.org/atomiccommit.html)).
 
-Recent launch targets: до 100, retention 30 дней. Browser tab titles/URL/history не архивируются. Favorites сохраняются при удалении provider и помечаются unavailable, удаляются только действием пользователя. Секреты не записываются в обычный TOML: credential reference в системное secret storage при появлении интеграции, которой это требуется.
+Recent launch targets: at most 100, kept for 30 days. Browser tab titles, URLs and history are not archived. Favorites survive removal of their provider and are marked unavailable; only the user deletes them. Secrets never go into the TOML file: a credential reference into the system secret storage is added when an integration needs it.
 
-`$XDG_CACHE_HOME/arinn/`: artwork с LRU budget 512 MiB; сброс cache не теряет preferences. Provider databases принадлежат providers под XDG data/state в подкаталогах provider ID (имя каталога — registry UUID, без подстановки opaque ID в путь). Состояние playback не дублируется core. Snapshots live entities хранятся в памяти.
+`$XDG_CACHE_HOME/arinn/`: artwork with an LRU budget of 512 MiB; clearing the cache loses no preferences. Provider databases belong to providers under XDG data/state in per-provider directories named by the registry UUID, never by the opaque ID (see [OQ-06](../specifications/arinn-specification.md#21-open-questions)). Playback state is not duplicated in the core. Snapshots of live entities are kept in memory.
 
-## Наблюдаемость и тесты
+## Observability and tests
 
-Logs JSON в stderr → journald; уровни error/warn/info/debug, default info. Отсутствующие provider_id/request_id/error — null. duration_ms — monotonic elapsed duration. Diagnostics содержит runtime state, backend availability, generation, versions, capabilities, last safe error/code/time, restarts_since_daemon_start и cumulative_restart_count. Last error сохраняется до следующего error/ручного clear, помечается recovered_at после успешного восстановления.
+Logs are JSON on stderr, collected by journald; levels error, warn, info and debug, default info. Missing `provider_id`, `request_id` or `error` are `null`. `duration_ms` is a monotonic elapsed duration. Diagnostics contain runtime state, backend availability, generation, versions, capabilities, the last safe error with code and time, `restarts_since_daemon_start` and `cumulative_restart_count`. The last error stays until the next error or a manual clear and gets `recovered_at` after successful recovery.
 
-CLI: human text по умолчанию, `--json` для всех read commands; exit 0 success, 1 runtime failure, 2 invalid usage, 3 daemon unavailable. `provider restart <id>` и `providers reload` включить в технический baseline.
+CLI: human-readable text by default and `--json` for all read commands. Exit codes: 0 success, 1 runtime failure, 2 invalid usage, 3 daemon unavailable. `provider restart <id>` and `providers reload` are part of the baseline.
 
-Contract harness запускает любой provider через manifest и проверяет только объявленные capabilities. Demo fixtures: empty/populated, delayed, invalid ID, crash, reconnect, revision race, unavailable backend. Rust unit/integration через cargo test; QML interaction через Qt Quick Test, IPC adapter через Qt Test.
+The contract harness starts any provider from its manifest and checks only the declared capabilities. Demo fixtures: empty/populated, delayed, invalid ID, crash, reconnect, revision race, unavailable backend. Rust unit and integration tests run with `cargo test`; QML interaction with Qt Quick Test; the IPC adapter with Qt Test.
 
-Начальные engineering budgets на целевом устройстве: p95 input-to-focus ≤50 ms при тёплом UI и 60 Hz, p95 frame time ≤16.7 ms без тяжёлого initial load; медленный provider не влияет на focus. Это цели для измерения, не результаты. Perf regression оценивается на одном зафиксированном окружении; обычный CI не выдаёт synthetic FPS за TV acceptance.
+Initial engineering budgets on the target device: p95 input-to-focus ≤ 50 ms with a warm UI at 60 Hz; p95 frame time ≤ 16.7 ms outside heavy initial loads; a slow provider does not affect focus. These are measurement targets, not results. Performance regressions are judged on one fixed environment; regular CI never presents synthetic FPS as TV acceptance.

@@ -1,31 +1,33 @@
-# ADR-0023: Back, системный сон и целевой HTPC
+# ADR-0023: Back, system sleep and the target HTPC
 
-- Статус: Принято для реализации (Accepted).
-- Дата: 2026-09-27.
-- Основание: явные ответы пользователя по продуктовым вопросам; техническая реализация выбрана по делегированному поручению.
+- **Status:** Accepted
+- **Date:** 2026-09-27
+- **Deciders:** project owner (explicit answers P-01–P-05); technical realization by delegated choice
+- **Amends / Supersedes:** amends [ADR-0001](0001-product-scope.md), [ADR-0010](0010-activity-home.md), [ADR-0017](0017-navigation-design-boundary.md), [ADR-0018](0018-demo-testing-gates.md), [ADR-0019](0019-design-handoff-contract.md)
+- **Amended by / Superseded by:** [ADR-0030](0030-phase0-machine-and-standard-input.md) — Phase 0 on the development machine, remote as standard keyboard input
+- **Specification:** [§4, §5.7, §6.3, §19](../specifications/arinn-specification.md)
 
-## Контекст
+## Context
 
-Явные ответы пользователя закрыли противоречия UX и определили отдельную машину приёмки.
+Explicit answers from the project owner resolved UX conflicts between the developer specification and the design handoff and defined acceptance hardware.
 
-## Решение
+## Decision
 
-Принять таблицу Home/Back, OS suspend отдельно от ambient, HID input модель G60S Pro и hardware acceptance на отдельном KDE/Wayland HTPC. Состав MVP расширен локальной библиотекой/mpv и Transmission.
+- Home/Back follows one transition table (P-01): Back on Home returns to the Activity if there is one, otherwise opens navigation.
+- "Sleep" is OS suspend, separate from the ambient screen (P-04).
+- The MVP includes a local folder library with an external player (P-02) and Transmission (P-03).
+- Acceptance runs on a separate KDE/Wayland HTPC with the G60S Pro air mouse (P-05).
 
-Последующее уточнение пользователя: текущая машина подходит для технического spike, а G60S Pro мапится на стандартные клавиши (Backspace, Esc и т. д.). Отдельная hardware-интеграция пульта не нужна и не блокирует Phase 0. Клавиатурный input проверяется локально; физический пульт остаётся дополнительной проверкой удобства. Актуальные P-06/P-07 и AC-18 имеют приоритет над первоначальным требованием отдельного устройства.
+This extends v0.3 §13, §50 and §57 and the design handoff's Keys, Power and State Management sections. For v0.3 §48 it only adds the case "Back on Home without an Activity", which v0.3 left undefined. The new acceptance criteria are AC-15–AC-19.
 
-[Подробная спецификация](../architecture/product-decisions.md) · [Отдельный review расширений API](../plugin-api/mvp-extensions.md).
+## Consequences
 
-## Последствия
+The specification v0.4 reflects the table, the extended MVP and the new criteria.
 
-Изменяет противоречащие части developer §13, 48, 50, 57 и design Keys/Power/State Management. Исходники остаются неизменными; новые решения имеют приоритет.
+## Alternatives considered
 
-## Альтернативы
+"Back always opens navigation" and "Sleep shows the screensaver" (design handoff) were rejected by the project owner.
 
-Всегда открывать nav по Back и подменять Sleep заставкой отклонено явным выбором пользователя.
+## Verification
 
-## Проверка и оставшаяся работа
-
-Проверить новые AC-15–AC-19 из [уточнений MVP](../architecture/product-decisions.md) по применимости. Конкретные wire schemas и runtime integration tests входят в разработку. Compositor/input/media acceptance на целевом HTPC ещё не выполнялась; не считать её закрытой принятием ADR.
-
-[Реестр ADR](README.md)
+AC-15–AC-19. Compositor, input and media acceptance on the target HTPC is not implied by accepting this ADR.

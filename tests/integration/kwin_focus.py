@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+
+# SPDX-FileCopyrightText: 2026 Arinn contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Explicit operator-only live test helper: focus an exact application class."""
 import json,subprocess,sys,time
 from pathlib import Path

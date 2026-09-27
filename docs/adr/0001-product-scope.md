@@ -1,43 +1,34 @@
-# ADR-0001: Arinn как оркестратор общего домашнего HTPC
+# ADR-0001: Arinn as an orchestrator for a shared household HTPC
 
-- Статус: Предложено (Proposed), требуется архитектурное ревью.
-- Дата оформления: 2026-09-27.
-- Основание: [Developer Specification v0.3](../specifications/developer-specification-v0.3.md), разделы 1, 2, 3, 13, 49, 50, 51, 56, 61.
+- **Status:** Accepted
+- **Date:** 2026-09-27 (proposed); accepted 2026-09-27 by [ADR-0028](0028-documentation-governance.md)
+- **Deciders:** project owner (Developer Specification v0.3)
+- **Amends / Supersedes:** —
+- **Amended by / Superseded by:** [ADR-0023](0023-mvp-product-clarifications.md), [ADR-0024](0024-local-library-mpv.md), [ADR-0025](0025-downloads-mvp.md) — MVP scope now includes the local library, mpv and Transmission
+- **Specification:** [§2–4, §16](../specifications/arinn-specification.md)
 
-> Обновление 2026-09-27: Объём media/Downloads закрыт [ADR-0023](0023-mvp-product-clarifications.md), [ADR-0024](0024-local-library-mpv.md) и [ADR-0025](0025-downloads-mvp.md). Этот ADR сохраняет формулировку исходного v0.3; при расхождении действуют принятые уточнения ADR-0020–0025.
+## Context
 
-## Контекст
+The main scenario is a "Balanced HTPC": browser and online video, local and network media, Steam, ES-DE and ordinary Linux applications. The browser takes about 70% of usage time. The device is shared by two people.
 
-Основной сценарий — Balanced HTPC: браузер и онлайн-видео, локальное и сетевое медиа, Steam, ES-DE и обычные Linux-приложения. По исходному ТЗ браузер занимает около 70% времени использования. Устройство общее для двух людей.
+## Decision
 
-## Предлагаемое решение
+Arinn provides a TV UX, Activity orchestration, capability aggregation and a plugin platform on top of an existing Linux system. It reuses the existing browser, media player, Steam and ES-DE instead of replacing them.
 
-Arinn предоставляет TV UX, оркестрацию Activity, агрегацию capabilities и plugin platform поверх существующей Linux-системы. Он использует готовые браузер, медиаплеер, Steam и ES-DE.
+Version 1 uses one shared household space: no login screen, no profile selection, no per-user favorites, history or settings. Browser integration is part of the MVP. Steam and EmulationStation get their own entry points using the generic ApplicationProvider. The minimum plugin set is demo, desktop, chrome and mpris.
 
-В v1 используется единое домашнее пространство без login screen, выбора профиля и отдельных favorites/history/settings. Browser integration входит в MVP; Steam и EmulationStation имеют отдельные точки входа уже с generic ApplicationProvider. Минимальный набор plugins: demo, desktop, chrome, mpris.
+The first official target is Arch Linux / EndeavourOS with KDE Plasma 6 on Wayland. The core does not depend on pacman. Downloads stays a UI route; a DownloadProvider needs its own API review and is not added to v1 in advance.
 
-Первый официальный target — Arch Linux / EndeavourOS, KDE Plasma 6, Wayland; core не зависит от pacman. Downloads сохраняется как UI route, но DownloadProvider требует отдельного API review и не включается в v1 заранее.
+Out of scope for v1: own browser or media engines, a desktop environment, a plugin marketplace, a remote plugin repository, arbitrary QML plugins, automation and recommendation engines, multi-user accounts, cloud sync, Windows and macOS, own implementations of a Steam library or Jellyfin.
 
-За пределами v1: собственные browser/media engines и desktop environment, marketplace, remote plugin repository, arbitrary QML plugins, automation/recommendation engines, multi-user accounts, cloud sync, Windows/macOS, собственные реализации Steam library и Jellyfin.
+## Consequences
 
-## Последствия
+The MVP covers the daily browser workflow and game launching without waiting for rich library integrations. No internal accounts keeps the UX simple; external applications keep their own user models.
 
-MVP включает ежедневный browser workflow и запуск игр без ожидания богатых библиотечных интеграций. Отсутствие внутренних аккаунтов упрощает UX; внешние приложения сохраняют собственные модели пользователей.
+## Alternatives considered
 
-## Альтернативы и ограничения
+Own engines and a full desktop environment were excluded by the source specification. Rich Steam, ES-DE, Jellyfin, download and TV/webOS providers are deferred to later phases.
 
-Собственные движки и полноценная desktop environment исключены ТЗ. Расширенные Steam, ES-DE, Jellyfin, download и TV/webOS providers относятся к последующим этапам.
+## Verification
 
-## Разрешение вопросов
-
-Объём media/Downloads закрыт [ADR-0023](0023-mvp-product-clarifications.md), [ADR-0024](0024-local-library-mpv.md) и [ADR-0025](0025-downloads-mvp.md).
-
-### Вопросы исходного ревью (история)
-
-Какой конкретный end-to-end сценарий локального/сетевого медиа будет проверяться в MVP? ТЗ требует полноценный сценарий, но конкретный источник библиотеки и плеер не выбирает.
-
-## Проверка решения
-
-AC-03, AC-07, AC-08, AC-13. Проверить отсутствие обязательного выбора профиля и наличие browser/Steam/ES-DE entry points.
-
-[Реестр ADR](README.md) · [Карта ревью](../architecture/review-map.md)
+AC-03, AC-07, AC-08, AC-13: no mandatory profile selection; browser, Steam and ES-DE entry points exist.

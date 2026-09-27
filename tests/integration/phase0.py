@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+
+# SPDX-FileCopyrightText: 2026 Arinn contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Run on a private session bus: dbus-run-session -- python tests/integration/phase0.py."""
 import json, os, subprocess, tempfile, time
 from pathlib import Path

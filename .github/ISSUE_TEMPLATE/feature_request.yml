@@ -1,0 +1,25 @@
+name: Feature request
+description: Propose a feature or an integration
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please check the [specification](https://github.com/LimeBeck/arinn/blob/master/docs/specifications/arinn-specification.md) and the [roadmap](https://github.com/LimeBeck/arinn/blob/master/ROADMAP.md) first.
+        You may write in English or Russian.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What do you want to do on your TV that Arinn does not support?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How should it work? Can it be a plugin using existing capabilities (application, browser, media, library, action, download)?
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered

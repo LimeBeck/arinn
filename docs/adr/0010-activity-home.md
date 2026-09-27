@@ -1,45 +1,36 @@
-# ADR-0010: Activity и единая модель Continue/Home overlay
+# ADR-0010: Activity and one Continue/Home overlay model
 
-- Статус: Предложено (Proposed), требуется архитектурное ревью.
-- Дата оформления: 2026-09-27.
-- Основание: [Developer Specification v0.3](../specifications/developer-specification-v0.3.md), разделы 2, 4, 5, 6, 7, 37, 48, 51, 59, 61.
+- **Status:** Accepted
+- **Date:** 2026-09-27 (proposed); accepted 2026-09-27 by [ADR-0028](0028-documentation-governance.md)
+- **Deciders:** project owner (Developer Specification v0.3)
+- **Amends / Supersedes:** —
+- **Amended by / Superseded by:** [ADR-0022](0022-state-and-interaction-baseline.md) (Activity schema, ownership, deduplication), [ADR-0023](0023-mvp-product-clarifications.md) (Home/Back table)
+- **Specification:** [§5.1, §5.2, §6.3, §10](../specifications/arinn-specification.md)
 
-> Обновление 2026-09-27: Activity schema/ownership/dedup закрыты [ADR-0022](0022-state-and-interaction-baseline.md); Back закрыт явным ответом в [ADR-0023](0023-mvp-product-clarifications.md). Этот ADR сохраняет формулировку исходного v0.3; при расхождении действуют принятые уточнения ADR-0020–0025.
+## Context
 
-## Контекст
+A process list does not describe what the user is doing: Chrome is an application, a specific tab is an activity. A running external application is a normal state of Arinn.
 
-Список процессов не описывает занятие пользователя: Chrome — application, конкретная вкладка — activity. Внешнее приложение является нормальным состоянием Arinn.
+## Decision
 
-## Предлагаемое решение
+An Activity is what the user is doing right now: a tab, a game, ES-DE, movie playback. An Activity is not necessarily an Application.
 
-Использовать Activity для текущего занятия: вкладки, игры, ES-DE, movie playback. Activity не обязана совпадать с Application.
+Top-level routes: Home, Library, Downloads, Applications, Settings. Home is both the main screen and the global overlay. Continue merges resumable content and the active Activity; there are no competing sections such as "Now running", "Continue watching" or "Recent apps".
 
-Главные routes: Home, Library, Downloads, Applications, Settings. Home — главный экран и global overlay. Continue объединяет resumable content и активную Activity без конкурирующих секций «Сейчас запущено», «Продолжить просмотр», «Последние приложения».
+Favorites/Online holds direct entry points: Browser, online services, Steam, EmulationStation. New shows new or recommended items from providers; Arinn has no recommendation engine.
 
-Favorites/Online содержит прямые точки входа Browser, онлайн-сервисов, Steam и EmulationStation. New отображает новое/рекомендуемое от providers, без собственного recommendation engine.
+Home appears over the Activity. It does not terminate the application, does not destroy its state and does not pause it unless the provider requires that. Closing Home returns to the same Activity.
 
-Home появляется поверх Activity, не завершает приложение, не уничтожает состояние и не ставит его принудительно на паузу, если этого не требует provider. Закрытие Home возвращает в прежнюю Activity.
+Back is handled in order modal → overlay → nested screen → Home → active Activity. Back inside Home never terminates the active application.
 
-Back последовательно обрабатывается на уровнях modal → overlay → nested screen → Home → active Activity; Back внутри Home не завершает активное приложение.
+## Consequences
 
-## Последствия
+Users resume without choosing an application again. Activity identity must be consistent across data sources. Layout and transitions come from the [design handoff](../design/handoff/README.md).
 
-Пользователь продолжает занятие без повторного выбора приложения. Нужна согласованная идентичность Activity между источниками данных; layout и визуальные переходы заданы отдельным [дизайном](../design/handoff/README.md); API и расхождения поведения требуют [согласования](../design/integration-review.md).
+## Alternatives considered
 
-## Альтернативы и ограничения
+"An external application means leaving the launcher" contradicts the specification. Independent competing resume sections are excluded.
 
-Модель «внешнее приложение означает выход из launcher» противоречит ТЗ. Независимые конкурирующие секции продолжения исключены.
+## Verification
 
-## Разрешение вопросов
-
-Activity schema/ownership/dedup закрыты [ADR-0022](0022-state-and-interaction-baseline.md); Back закрыт явным ответом в [ADR-0023](0023-mvp-product-clarifications.md).
-
-### Вопросы исходного ревью (история)
-
-Schema Activity, producer/owner, resumable lifecycle, связь tab/application/media session и устранение дублей Continue. Что показывать при отсутствии Activity или её исчезновении во время overlay?
-
-## Проверка решения
-
-AC-05, AC-06, AC-07, AC-08. Проверить сохранение состояния приложения при Home/Back, единый Continue и требуемый приоритет Back.
-
-[Реестр ADR](README.md) · [Карта ревью](../architecture/review-map.md)
+AC-05, AC-06, AC-07, AC-08: application state survives Home/Back, Continue is unified, Back follows the priority.

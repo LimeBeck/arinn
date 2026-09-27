@@ -1,17 +1,17 @@
-# Блокировка, сон и завершение графической сессии
+# Lock, sleep and graphical session shutdown
 
-Shell отслеживает `org.freedesktop.ScreenSaver.ActiveChanged` на session bus и `org.freedesktop.login1.Manager.PrepareForSleep` на system bus. При lock или подготовке сна окно скрывается независимо от состояния daemon. Activity context сохраняется. После wake shell сначала повторно проверяет lock state; старый ответ GetActive не может отменить более новый сигнал. При недоступном ScreenSaver состояние считается заблокированным до подтверждения обратного.
+The shell listens to `org.freedesktop.ScreenSaver.ActiveChanged` on the session bus and `org.freedesktop.login1.Manager.PrepareForSleep` on the system bus. On lock or before sleep the window is hidden regardless of the daemon state; the Activity context is kept. After wake the shell first re-checks the lock state; an old `GetActive` reply cannot override a newer signal. If ScreenSaver is unavailable, the state counts as locked until confirmed otherwise.
 
-Transient units Phase 0 имеют `PartOf=graphical-session.target` и `After=graphical-session.target`: остановка графической сессии распространяется на daemon/demo/shell. Остановка всего desktop target в тестах не выполнялась.
+The Phase 0 transient units have `PartOf=graphical-session.target` and `After=graphical-session.target`: stopping the graphical session stops the daemon, demo and shell. Stopping the whole desktop target was not tested.
 
-## Проверено
+## Verified
 
-Private-bus Qt Test использует настоящие D-Bus subscriptions к поддельным ScreenSaver/login1 services: lock/unlock, sleep/wake, unlock во время sleep, исчезновение и возвращение владельца ScreenSaver. Полный IPC/input suite проходит. На разблокированной KDE-сессии проверены `blocked=false`, 20 циклов Chrome Home/Return и фактические PartOf/After properties всех трёх units. Это проверка реакции на события, а не утверждение о физическом suspend или compositor lockscreen.
+A private-bus Qt Test uses real D-Bus subscriptions to fake ScreenSaver and login1 services: lock/unlock, sleep/wake, unlock during sleep, ScreenSaver owner disappearing and returning. The full IPC/input suite passes. On an unlocked KDE session `blocked=false`, 20 Chrome Home/Return cycles and the actual `PartOf`/`After` properties of all three units were checked. This verifies the reaction to events, not physical suspend or the compositor lock screen.
 
-## Отложено по просьбе пользователя
+## Deferred by the project owner
 
-2026-09-27 пользователь выбрал «Оставить реальные проверки на потом». Реальная блокировка, suspend/wake и logout не выполнялись. Эти acceptance-пункты остаются открытыми; это не отсутствие продуктового решения.
+On 2026-09-27 the project owner chose to run the real checks later. Real lock, suspend/wake and logout were not executed. These acceptance items stay open (Phase 5, AC-19); this is not a missing product decision.
 
-Для согласованной оператором lock/unlock проверки подготовлен `tests/integration/kwin_lock.py`: сначала открыть Home поверх disposable Activity, затем запустить тест. Он **блокирует настоящий экран** и ожидает ручной unlock до 180 s. Тест проверяет property `org.arinn.SpikeSession1.blocked` и сохранение return target. Визуальную проверку отсутствия shell поверх lockscreen выполняет оператор. Suspend проверяется отдельно через штатное меню KDE, без обхода inhibitors; автоматического suspend или logout в test suite нет.
+For an operator-approved lock/unlock check there is `tests/integration/kwin_lock.py`: open Home over a disposable Activity first, then run the test. It **locks the real screen** and waits up to 180 s for a manual unlock. It checks the `org.arinn.SpikeSession1.blocked` property and that the return target is kept. The operator visually confirms the shell is not shown over the lock screen. Suspend is checked separately through the regular KDE menu without bypassing inhibitors; the test suite never suspends or logs out automatically.
 
-Полноценный MVP power action ещё требует отображения отказов/inhibitors и проверки восстановления providers после wake. SessionGuard не реализует саму команду suspend.
+A complete MVP power action still needs inhibitor/refusal reporting and provider recovery after wake. `SessionGuard` does not implement the suspend command itself.

@@ -1,51 +1,42 @@
-# ADR-0004: Пять capabilities и представление без plugin UI
+# ADR-0004: Capability contracts and no plugin-supplied UI
 
-- Статус: Предложено (Proposed), требуется архитектурное ревью.
-- Дата оформления: 2026-09-27.
-- Основание: [Developer Specification v0.3](../specifications/developer-specification-v0.3.md), разделы 2, 18, 19, 20, 21, 22, 23, 24, 29, 45, 59, 60.
+- **Status:** Accepted
+- **Date:** 2026-09-27 (proposed); accepted 2026-09-27 by [ADR-0028](0028-documentation-governance.md)
+- **Deciders:** project owner (Developer Specification v0.3)
+- **Amends / Supersedes:** —
+- **Amended by / Superseded by:** [ADR-0020](0020-dbus-contract-baseline.md) (identity and routing), [ADR-0025](0025-downloads-mvp.md) (sixth capability: DownloadProvider)
+- **Specification:** [§9.1, §9.2, §20](../specifications/arinn-specification.md)
 
-> Обновление 2026-09-27: Identity/routing определены [ADR-0020](0020-dbus-contract-baseline.md). Шестая capability DownloadProvider добавлена отдельным review [ADR-0025](0025-downloads-mvp.md). Этот ADR сохраняет формулировку исходного v0.3; при расхождении действуют принятые уточнения ADR-0020–0025.
+## Context
 
-## Контекст
+New integrations must be added by installing a provider, not by adding product-name conditions to the core or QML. One TV UI must keep navigation and visual consistency.
 
-Новые интеграции должны добавляться установкой provider, а не условиями по именам продуктов в core и QML. Единый TV UI должен сохранять навигацию и визуальную целостность.
+## Decision
 
-## Предлагаемое решение
+Plugin API v1 defines five capabilities: ApplicationProvider, BrowserProvider, MediaProvider, LibraryProvider and ActionProvider. A plugin may implement several capabilities; the registry and routing work on capabilities only.
 
-Plugin API v1 содержит ApplicationProvider, BrowserProvider, MediaProvider, LibraryProvider, ActionProvider. Plugin может реализовывать несколько capabilities; registry и routing опираются на них.
-
-| Capability | Концептуальные операции |
+| Capability | Conceptual operations |
 | --- | --- |
 | ApplicationProvider | listApplications, getApplication, launch, activate, terminate, listRunning |
 | BrowserProvider | getWindows, getTabs, open, activateTab, closeTab, createTab, getActiveTab |
 | MediaProvider | listSessions, getSession, play, pause, playPause, seek, next, previous, stop |
 | LibraryProvider | listCollections, listItems, getItem, launch |
-| ActionProvider | Generic actions с machine-readable id, title, icon, enabled |
+| ActionProvider | generic actions with a machine-readable id, title, icon and enabled flag |
 
-Application и browser IDs opaque: core не разбирает их содержимое. Например, application_id="steam" интерпретирует только соответствующий provider.
+Application and browser IDs are opaque: the core never parses them. For example, `application_id = "steam"` has meaning only inside its provider.
 
-Plugins поставляют data, metadata, actions и capabilities; произвольные QML/HTML и другой загружаемый UI запрещены. Весь UI рисует Arinn.
+Plugins supply data, metadata, actions and capabilities. They never supply QML, HTML or any other loadable UI. Arinn draws all UI.
 
-Если capabilities достаточно, новая интеграция не меняет arinnd/arinn-shell. Если недостаточно — требуется отдельное изменение Plugin API, применимое шире одного продукта. DownloadProvider не вводится до такого review.
+If the existing capabilities suffice, a new integration changes neither `arinnd` nor `arinn-shell`. If they do not, the Plugin API changes through a separate review, and the change must apply to more than one product.
 
-## Последствия
+## Consequences
 
-Интеграции становятся независимыми от presentation. Расширения, требующие новых семантических операций, проходят API review; произвольный plugin UI не может использоваться как обход ограничения.
+Integrations are independent of presentation. Extensions needing new semantic operations go through API review; plugin UI cannot be used to bypass that.
 
-## Альтернативы и ограничения
+## Alternatives considered
 
-Product-specific ветвления и типы вроде SteamLibrary/JellyfinLibrary противоречат ТЗ. ActionProvider предназначен для generic действий и не разрешает arbitrary code injection.
+Product-specific branches and types such as SteamLibrary or JellyfinLibrary contradict the specification. ActionProvider is for generic actions and does not allow arbitrary code injection.
 
-## Разрешение вопросов
+## Verification
 
-Identity/routing определены [ADR-0020](0020-dbus-contract-baseline.md). Шестая capability DownloadProvider добавлена отдельным review [ADR-0025](0025-downloads-mvp.md).
-
-### Вопросы исходного ревью (история)
-
-Как связаны plugin_id и provider_id, как маршрутизировать одинаковые opaque IDs у разных providers? Как выбирать provider при нескольких реализациях capability? Какие wire-типы и метод исполнения Action определить?
-
-## Проверка решения
-
-AC-11, AC-12; Rules 1, 4, 9, 10. Установка нового provider с существующими capabilities не требует правки shell/core. Концептуальные операции ещё не являются замороженными IPC signatures.
-
-[Реестр ADR](README.md) · [Карта ревью](../architecture/review-map.md)
+AC-11, AC-12; R-01, R-04, R-09, R-10. Installing a provider with existing capabilities needs no shell or core change. The operation lists above are conceptual, not frozen IPC signatures.

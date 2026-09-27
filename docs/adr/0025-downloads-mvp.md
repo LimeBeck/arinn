@@ -1,27 +1,28 @@
-# ADR-0025: DownloadProvider и Transmission в MVP
+# ADR-0025: DownloadProvider and Transmission in the MVP
 
-- Статус: Принято для реализации (Accepted).
-- Дата: 2026-09-27.
-- Основание: пользователь явно включил Transmission в MVP; техническая реализация выбрана по делегированному поручению.
+- **Status:** Accepted
+- **Date:** 2026-09-27
+- **Deciders:** project owner (Transmission in MVP, P-03); API by delegated choice
+- **Amends / Supersedes:** amends [ADR-0001](0001-product-scope.md), [ADR-0004](0004-capability-contracts.md)
+- **Amended by / Superseded by:** —
+- **Specification:** [§7.5, §9.1](../specifications/arinn-specification.md)
 
-## Контекст
+## Context
 
-Исходное developer ТЗ откладывало Downloads. Уточнение пользователя меняет scope MVP; Rule 10 требует отдельно оформить обобщённое расширение API.
+The developer specification v0.3 deferred Downloads. The project owner moved Transmission into the MVP; R-10 requires a generalized API extension.
 
-## Решение
+## Decision
 
-Ввести generic DownloadProvider с typed job state/actions, отдельный Transmission adapter и LibraryImport1 для completed media. [Отдельный API review](../plugin-api/mvp-extensions.md) фиксирует операции, ограничения и идемпотентность импорта. [Runtime интеграции](../architecture/transmission-mvp.md) описывает RPC, reconnect и связь с библиотекой.
+A generic sixth capability, DownloadProvider, with typed job state and actions; a separate Transmission adapter; and `LibraryImport1` for completed media. The [API review](../plugin-api/mvp-extensions.md) fixes operations, limits and import idempotency. [Transmission MVP](../architecture/transmission-mvp.md) describes RPC, reconnect and the link to the library.
 
-## Последствия
+## Consequences
 
-Базовых capabilities теперь шесть. Downloads становится работающим разделом MVP; completed и imported — разные состояния, torrent terminology остаётся внутри plugin. Core не обращается к Transmission напрямую. Исходное ТЗ сохраняется без изменений, это явное уточнение имеет приоритет.
+There are six base capabilities. Downloads becomes a working MVP section; "completed" and "imported" are separate states; torrent terminology stays inside the plugin. The core never talks to Transmission directly.
 
-## Альтернативы
+## Alternatives considered
 
-Зарезервированный Downloads route не удовлетворяет уточнению пользователя. Raw Transmission RPC в core и обход через произвольные Actions не используются.
+A reserved Downloads route does not satisfy the owner's answer. Raw Transmission RPC in the core and a workaround through arbitrary Actions are rejected.
 
-## Проверка и оставшаяся работа
+## Verification
 
-Проверить AC-17 из [уточнений MVP](../architecture/product-decisions.md): queue/actions/error/reconnect/completion/import без дублей Library/New. Wire schemas, serializers и executable contract tests входят в разработку. Принятие модели API не означает реализованную или протестированную интеграцию.
-
-[Реестр ADR](README.md)
+AC-17: queue, actions, error/reconnect, completion and import without duplicates in Library/New.

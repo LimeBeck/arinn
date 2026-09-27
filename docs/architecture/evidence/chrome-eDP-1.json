@@ -1,0 +1,31 @@
+{
+  "application_class": "chrome-__tmp_arinn-browser-fixture.html-Default",
+  "target_window": "{23ccaea4-4dd0-4284-9635-2018d532b625}",
+  "initial_fullscreen": true,
+  "output": "eDP-1",
+  "cycles": 20,
+  "same_window_restored": true,
+  "cycle_ms": [
+    204.7,
+    237.0,
+    269.5,
+    230.0,
+    164.8,
+    149.0,
+    157.8,
+    167.4,
+    153.1,
+    205.2,
+    160.9,
+    153.5,
+    159.3,
+    156.9,
+    211.8,
+    160.3,
+    163.9,
+    156.3,
+    153.7,
+    163.0
+  ],
+  "input": "KGlobalAccel invokeShortcut, not physical remote"
+}

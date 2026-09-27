@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,400..600,0..1,0&display=block">
+<script src="./image-slot.js"></script>
+<style>
+html,body{margin:0;background:oklch(0.17 0.005 260)}
+*{box-sizing:border-box}
+a{color:oklch(0.82 0.14 72);text-decoration:none} a:hover{color:oklch(0.97 0.004 260)}
+</style>
+</helmet>
+<div style="font-family:'Onest',sans-serif;color:oklch(0.97 0.004 260);-webkit-font-smoothing:antialiased;padding:72px 64px 120px;max-width:1720px;margin:0 auto;display:flex;flex-direction:column;gap:96px">
+
+<header style="display:flex;flex-direction:column;gap:24px">
+  <div style="display:flex;align-items:center;gap:16px"><div style="width:22px;height:22px;border-radius:11px;background:oklch(0.82 0.14 72)"></div><div style="font-size:32px;font-weight:600;letter-spacing:-0.02em">Arinn</div><div style="font-family:'JetBrains Mono',monospace;font-size:14px;color:oklch(0.68 0.008 260);margin-left:12px">design system v2 · направление 2a «Глубина со светом»</div></div>
+  <div style="font-size:64px;line-height:1.04;font-weight:700;letter-spacing:-0.03em;max-width:1200px;text-wrap:balance">Спокойная ОС, которая становится кинематографичной, когда этого заслуживает контент.</div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:32px;max-width:1500px;font-size:19px;line-height:1.55;color:oklch(0.82 0.006 260)">
+    <div><b style="color:oklch(0.97 0.004 260)">Глубина.</b> Интерфейс — стопка плоскостей. Фокус выдвигает элемент к зрителю, а системные слои (навигация, панели, питание) всплывают поверх текущего экрана и не заменяют его.</div>
+    <div><b style="color:oklch(0.97 0.004 260)">Свет.</b> Только медиа приносят цвет: пока фокус на фильме или серии, окружение подсвечено обложкой. У приложений лишь слабый оттенок, у системы света нет.</div>
+    <div><b style="color:oklch(0.97 0.004 260)">Активность.</b> Запущенное приложение не закрывается при вызове Home, а отъезжает назад. Фокус на «Вернуться» приближает его.</div>
+  </div>
+  <div style="display:flex;gap:20px;font-size:18px"><a href="arinn.dc.html">Интерактивный прототип →</a><a href="arinn%20Screens.dc.html">Все экраны →</a></div>
+</header>
+
+<section style="display:flex;flex-direction:column;gap:28px">
+  <div style="font-family:'JetBrains Mono',monospace;font-size:14px;letter-spacing:.08em;color:oklch(0.82 0.14 72)">01 · ПРОВЕРКА С 3 МЕТРОВ · 4K</div>
+  <div style="font-size:19px;line-height:1.55;color:oklch(0.82 0.006 260);max-width:1150px">Макеты собраны в логических пикселях 1080p, на 4K всё ×2. Для каждого экрана я пересчитал размеры в угловые минуты с места зрителя. Рабочие пороги: высота строчных (x-height ≈ 0.52 кегля Onest) от 10′ — минимально читаемо, от 14′ — комфортно. Изменение формы при фокусе — от 6′. Толщина линий — от 2′.</div>
+  <div style="display:flex;gap:10px;flex-wrap:wrap">
+    <sc-for list="{{ tvs }}" as="tv" hint-placeholder-count="5">
+      <div onClick="{{ tv.pick }}" style="height:52px;padding:0 22px;border-radius:26px;display:flex;align-items:center;font-size:18px;font-weight:600;cursor:pointer;background:{{ tv.bg }};color:{{ tv.fg }}">{{ tv.label }}</div>
+    </sc-for>
+  </div>
+  <div style="display:flex;flex-direction:column;border-top:1px solid rgba(255,255,255,.1)">
+    <div style="display:grid;grid-template-columns:minmax(0,2.4fr) repeat(3,minmax(0,1fr)) minmax(0,2.4fr);gap:20px;padding:12px 0;border-bottom:1px solid rgba(255,255,255,.1);font-family:'JetBrains Mono',monospace;font-size:13px;color:oklch(0.68 0.008 260)"><div>элемент</div><div>1080p px</div><div>угол</div><div>итог</div><div>решение</div></div>
+    <sc-for list="{{ rows }}" as="r" hint-placeholder-count="9">
+      <div style="display:grid;grid-template-columns:minmax(0,2.4fr) repeat(3,minmax(0,1fr)) minmax(0,2.4fr);gap:20px;padding:14px 0;border-bottom:1px solid rgba(255,255,255,.08);font-size:17px;line-height:1.45;align-items:baseline">
+        <div style="color:oklch(0.97 0.004 260);font-weight:600">{{ r.name }}</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:15px;color:oklch(0.82 0.006 260)">{{ r.px }}</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:15px;color:oklch(0.82 0.006 260)">{{ r.arc }}</div>
+        <div style="display:flex;align-items:center;gap:8px;font-weight:600;color:{{ r.c }}"><div style="width:10px;height:10px;border-radius:5px;background:{{ r.c }}"></div>{{ r.verdict }}</div>
+        <div style="color:oklch(0.82 0.006 260)">{{ r.note }}</div>
+      </div>
+    </sc-for>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:20px 40px;font-size:17px;line-height:1.55;color:oklch(0.82 0.006 260)">
+    <div><b style="color:oklch(0.97 0.004 260)">Что изменилось после проверки.</b> Метаданные 24 → 26, основной текст 28 → 30. Кант фокуса 2 → 3 px. Масштаб плиток приложений 1.06 → 1.08, а подложка при фокусе светлеет с 6% до 20%. Строки навигации 84 → 88.</div>
+    <div><b style="color:oklch(0.97 0.004 260)">Что сигналит о фокусе.</b> Кант 3 px (≈2′) в одиночку слишком тонкий. Главные сигналы — яркость подложки, подъём и тень. Кант только обрисовывает форму.</div>
+    <div><b style="color:oklch(0.97 0.004 260)">55″ на 3–4 м — граничный случай.</b> Метаданные 26 px опускаются ниже 10′. Для этого случая нужен пункт «Крупный текст» в Настройках → Оформление (+12% ко всем кеглям ниже 34 px). Сетка при этом не меняется: у рядов есть запас по ширине.</div>
+    <div><b style="color:oklch(0.97 0.004 260)">24 px — только подписи-спутники</b> (время рядом с крупным заголовком, «Сериал» на постере). Смысл, от которого зависит действие, не бывает мельче 26.</div>
+  </div>
+</section>
+
+<section style="display:flex;flex-direction:column;gap:28px">
+  <div style="font-family:'JetBrains Mono',monospace;font-size:14px;letter-spacing:.08em;color:oklch(0.82 0.14 72)">02 · ЛОГОТИПЫ В ПЛИТКАХ</div>
+  <div style="font-size:19px;line-height:1.55;color:oklch(0.82 0.006 260);max-width:1150px">Перетащите логотипы сервисов в ячейки ниже, лучше всего подходят PNG или SVG с прозрачным фоном. Три варианта ниже и интерактивный прототип подхватят их автоматически. Пока ячейка пустая, в плитке показывается монограмма.</div>
+  <div style="display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:20px;max-width:1200px">
+    <div style="display:flex;flex-direction:column;gap:10px"><div style="height:120px;border-radius:24px;overflow:hidden;background:rgba(255,255,255,.06)"><image-slot id="logo-browser" shape="rect" fit="contain" placeholder="Браузер"></image-slot></div><div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:oklch(0.68 0.008 260)">logo-browser</div></div>
+    <div style="display:flex;flex-direction:column;gap:10px"><div style="height:120px;border-radius:24px;overflow:hidden;background:rgba(255,255,255,.06)"><image-slot id="logo-kinopoisk" shape="rect" fit="contain" placeholder="Кинопоиск"></image-slot></div><div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:oklch(0.68 0.008 260)">logo-kinopoisk</div></div>
+    <div style="display:flex;flex-direction:column;gap:10px"><div style="height:120px;border-radius:24px;overflow:hidden;background:rgba(255,255,255,.06)"><image-slot id="logo-ivi" shape="rect" fit="contain" placeholder="IVI"></image-slot></div><div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:oklch(0.68 0.008 260)">logo-ivi</div></div>
+    <div style="display:flex;flex-direction:column;gap:10px"><div style="height:120px;border-radius:24px;overflow:hidden;background:rgba(255,255,255,.06)"><image-slot id="logo-youtube" shape="rect" fit="contain" placeholder="YouTube"></image-slot></div><div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:oklch(0.68 0.008 260)">logo-youtube</div></div>
+    <div style="display:flex;flex-direction:column;gap:10px"><div style="height:120px;border-radius:24px;overflow:hidden;background:rgba(255,255,255,.06)"><image-slot id="logo-steam" shape="rect" fit="contain" placeholder="Steam"></image-slot></div><div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:oklch(0.68 0.008 260)">logo-steam</div></div>
+    <div style="display:flex;flex-direction:column;gap:10px"><div style="height:120px;border-radius:24px;overflow:hidden;background:rgba(255,255,255,.06)"><image-slot id="logo-es" shape="rect" fit="contain" placeholder="EmulationStation"></image-slot></div><div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:oklch(0.68 0.008 260)">logo-es</div></div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(520px,1fr));gap:40px">
+    <sc-for list="{{ treatments }}" as="tr" hint-placeholder-count="3">
+      <div style="display:flex;flex-direction:column;gap:18px;padding:32px;border-radius:32px;background:rgba(255,255,255,.03);border:{{ tr.border }}">
+        <div style="display:flex;align-items:baseline;gap:14px"><div style="font-family:'JetBrains Mono',monospace;font-size:14px;color:oklch(0.82 0.14 72)">{{ tr.key }}</div><div style="font-size:26px;font-weight:700">{{ tr.title }}</div><sc-if value="{{ tr.rec }}"><div style="padding:4px 12px;border-radius:14px;background:oklch(0.82 0.14 72);color:oklch(0.17 0.006 260);font-size:14px;font-weight:600">стандарт Arinn</div></sc-if></div>
+        <div style="font-size:17px;line-height:1.5;color:oklch(0.82 0.006 260)">{{ tr.desc }}</div>
+        <div style="display:flex;gap:28px;flex-wrap:wrap;padding:28px 12px 16px">
+          <sc-for list="{{ tr.tiles }}" as="c" hint-placeholder-count="3">
+            <div style="position:relative;width:190px;height:106px;border-radius:18px;padding:0 16px;display:flex;align-items:center;gap:12px;background:{{ c.bg }};transform:{{ c.tf }};box-shadow:{{ c.sh }};flex-direction:{{ c.dir }};justify-content:{{ c.jc }}">
+              <div style="flex:none;width:{{ c.chipW }}px;height:{{ c.chipH }}px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;background-color:{{ c.chipBg }};background-image:{{ c.logo }};background-size:{{ c.logoSize }};background-position:center;background-repeat:no-repeat;filter:{{ c.logoFl }}">{{ c.mono }}<sc-if value="{{ c.hasLogo }}"><img src="{{ c.src }}" alt="" style="width:{{ c.imgS }};height:{{ c.imgS }};object-fit:contain;display:block;border-radius:inherit"></sc-if></div>
+              <sc-if value="{{ c.showName }}"><div style="font-size:18px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ c.name }}</div></sc-if>
+              <div style="position:absolute;inset:0;border-radius:18px;box-shadow:{{ c.kant }};pointer-events:none"></div>
+            </div>
+          </sc-for>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;font-size:16px;line-height:1.5;color:oklch(0.82 0.006 260)"><div><b style="color:oklch(0.97 0.004 260)">+</b> {{ tr.pro }}</div><div><b style="color:oklch(0.97 0.004 260)">−</b> {{ tr.con }}</div></div>
+      </div>
+    </sc-for>
+  </div>
+  <div style="font-size:17px;line-height:1.55;color:oklch(0.82 0.006 260);max-width:1150px">Во всех вариантах третья плитка в фокусе. Правила для логотипов: у знака всегда есть поле не меньше 15% чипа; логотип не заменяет подпись (название остаётся текстом, потому что его читают с 3 м); цвет бренда не заливает плитку целиком — он появляется только как оттенок света при фокусе.</div>
+</section>
+
+<section style="display:flex;flex-direction:column;gap:28px">
+  <div style="font-family:'JetBrains Mono',monospace;font-size:14px;letter-spacing:.08em;color:oklch(0.82 0.14 72)">03 · ЦВЕТ</div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px">
+    <sc-for list="{{ colors }}" as="c" hint-placeholder-count="12">
+      <div style="display:flex;flex-direction:column;gap:8px"><div style="height:96px;border-radius:18px;background:{{ c.v }};border:1px solid rgba(255,255,255,.08)"></div><div style="font-size:17px;font-weight:600">{{ c.n }}</div><div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:oklch(0.68 0.008 260)">{{ c.code }}</div><div style="font-size:14px;color:oklch(0.82 0.006 260)">{{ c.use }}</div></div>
+    </sc-for>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:20px 40px;font-size:17px;line-height:1.55;color:oklch(0.82 0.006 260)">
+    <div><b style="color:oklch(0.97 0.004 260)">Световое поле:</b> три радиальных пятна по оттенку обложки. L 0.48 / 0.42 / 0.32, C 0.1 / 0.09 / 0.06, прозрачность от 0.8. Под текстом свет не ярче L 0.48.</div>
+    <div><b style="color:oklch(0.97 0.004 260)">Вуали:</b> на детальных экранах — слева направо от bg 96% до 0 на 70% ширины и снизу вверх от bg 100% до 0 на 55% высоты.</div>
+    <div><b style="color:oklch(0.97 0.004 260)">Обложки:</b> в покое яркость .82, при соседнем фокусе .66, в фокусе 1.0. Если обложки нет, вместо неё поверхность с названием, набранным текстом.</div>
+  </div>
+</section>
+
+<section style="display:flex;flex-direction:column;gap:28px">
+  <div style="font-family:'JetBrains Mono',monospace;font-size:14px;letter-spacing:.08em;color:oklch(0.82 0.14 72)">04 · ТИПОГРАФИКА · ONEST · 1080p px</div>
+  <div style="display:flex;flex-direction:column;border-top:1px solid rgba(255,255,255,.08)">
+    <sc-for list="{{ type }}" as="ty" hint-placeholder-count="9">
+      <div style="display:grid;grid-template-columns:260px 1fr;gap:32px;align-items:baseline;padding:18px 0;border-bottom:1px solid rgba(255,255,255,.08)">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:13px;line-height:1.6;color:oklch(0.68 0.008 260)">{{ ty.spec }}</div>
+        <div style="font-size:{{ ty.size }}px;font-weight:{{ ty.w }};letter-spacing:{{ ty.ls }};line-height:{{ ty.lh }};text-transform:{{ ty.tt }};color:{{ ty.c }};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ ty.sample }}</div>
+      </div>
+    </sc-for>
+  </div>
+</section>
+
+<section style="display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:56px">
+  <div style="display:flex;flex-direction:column;gap:18px">
+    <div style="font-family:'JetBrains Mono',monospace;font-size:14px;letter-spacing:.08em;color:oklch(0.82 0.14 72)">05 · ОТСТУПЫ</div>
+    <sc-for list="{{ space }}" as="sp" hint-placeholder-count="8">
+      <div style="display:flex;align-items:center;gap:16px;font-size:15px;color:oklch(0.82 0.006 260)"><div style="width:{{ sp.v }}px;height:14px;border-radius:3px;background:oklch(0.82 0.14 72)"></div><span style="font-family:'JetBrains Mono',monospace">{{ sp.v }}</span>{{ sp.use }}</div>
+    </sc-for>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:18px">
+    <div style="font-family:'JetBrains Mono',monospace;font-size:14px;letter-spacing:.08em;color:oklch(0.82 0.14 72)">06 · РАДИУСЫ</div>
+    <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end">
+      <sc-for list="{{ radii }}" as="r" hint-placeholder-count="6">
+        <div style="display:flex;flex-direction:column;align-items:center;gap:8px"><div style="width:{{ r.w }}px;height:72px;border-radius:{{ r.v }}px;background:rgba(255,255,255,.1)"></div><div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:oklch(0.68 0.008 260)">{{ r.v }} · {{ r.use }}</div></div>
+      </sc-for>
+    </div>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:18px">
+    <div style="font-family:'JetBrains Mono',monospace;font-size:14px;letter-spacing:.08em;color:oklch(0.82 0.14 72)">07 · ГЛУБИНА И СЛОИ</div>
+    <sc-for list="{{ depth }}" as="dp" hint-placeholder-count="6">
+      <div style="display:grid;grid-template-columns:44px 1fr;gap:14px;font-size:15px;line-height:1.5;color:oklch(0.82 0.006 260)"><span style="font-family:'JetBrains Mono',monospace;color:oklch(0.97 0.004 260)">{{ dp.k }}</span><span>{{ dp.v }}</span></div>
+    </sc-for>
+  </div>
+</section>
+
+<section style="display:flex;flex-direction:column;gap:32px">
+  <div style="font-family:'JetBrains Mono',monospace;font-size:14px;letter-spacing:.08em;color:oklch(0.82 0.14 72)">08 · КОМПОНЕНТЫ И СОСТОЯНИЯ</div>
+  <div style="font-size:17px;line-height:1.55;color:oklch(0.82 0.006 260);max-width:1150px">Есть два режима ввода. <b style="color:oklch(0.97 0.004 260)">D-pad:</b> курсор скрыт, фокус выражен полностью. <b style="color:oklch(0.97 0.004 260)">Указатель:</b> курсор виден, наведение переносит фокус, но подъём уменьшен вдвое (×1.03), чтобы соседние элементы не прыгали под курсором. Первое нажатие стрелки возвращает режим D-pad.</div>
+  <div style="display:flex;flex-direction:column;border-top:1px solid rgba(255,255,255,.08)">
+    <div style="display:grid;grid-template-columns:200px repeat(6,minmax(0,1fr));gap:20px;padding:12px 0;font-family:'JetBrains Mono',monospace;font-size:13px;color:oklch(0.68 0.008 260);border-bottom:1px solid rgba(255,255,255,.08)"><div>компонент</div><div>default</div><div>hover · указатель</div><div>focus · D-pad</div><div>pressed</div><div>disabled</div><div>loading</div></div>
+    <sc-for list="{{ comps }}" as="cp" hint-placeholder-count="7">
+      <div style="display:grid;grid-template-columns:200px repeat(6,minmax(0,1fr));gap:20px;padding:30px 0;border-bottom:1px solid rgba(255,255,255,.08);align-items:center">
+        <div style="display:flex;flex-direction:column;gap:6px"><div style="font-size:18px;font-weight:700">{{ cp.name }}</div><div style="font-size:14px;line-height:1.45;color:oklch(0.72 0.008 260)">{{ cp.note }}</div></div>
+        <sc-for list="{{ cp.states }}" as="c" hint-placeholder-count="6">
+          <div style="display:flex;justify-content:center;opacity:{{ c.op }}">
+            <div style="position:relative;width:{{ c.w }}px;height:{{ c.h }}px;border-radius:{{ c.r }}px;overflow:hidden;display:flex;align-items:center;justify-content:{{ c.jc }};gap:8px;padding:0 {{ c.px }}px;font-size:{{ c.fs }}px;font-weight:600;white-space:nowrap;background:{{ c.bg }};color:{{ c.fg }};transform:{{ c.tf }};box-shadow:{{ c.sh }}">
+              <sc-if value="{{ c.hasArt }}"><div style="position:absolute;inset:0;background:{{ c.art }};filter:{{ c.fl }}"></div></sc-if>
+              <sc-if value="{{ c.hasLabel }}"><span style="position:relative">{{ c.label }}</span></sc-if>
+              <sc-if value="{{ c.isToggle }}"><div style="position:relative;margin-left:auto;width:44px;height:26px;border-radius:13px;padding:3px;display:flex;justify-content:flex-end;background:{{ c.tgBg }}"><div style="width:20px;height:20px;border-radius:10px;background:{{ c.tgK }}"></div></div></sc-if>
+              <div style="position:absolute;inset:0;border-radius:{{ c.r }}px;box-shadow:{{ c.kant }};pointer-events:none"></div>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+    </sc-for>
+  </div>
+</section>
+
+<section style="display:flex;flex-direction:column;gap:24px">
+  <div style="font-family:'JetBrains Mono',monospace;font-size:14px;letter-spacing:.08em;color:oklch(0.82 0.14 72)">09 · ПРАВИЛА ФОКУСА</div>
+  <div style="display:flex;flex-direction:column;border-top:1px solid rgba(255,255,255,.1)">
+    <sc-for list="{{ rules }}" as="r" hint-placeholder-count="10">
+      <div style="display:grid;grid-template-columns:240px minmax(0,1fr) minmax(0,1fr);gap:28px;padding:16px 0;border-bottom:1px solid rgba(255,255,255,.08);font-size:16px;line-height:1.5;color:oklch(0.82 0.006 260)"><div style="font-weight:700;color:oklch(0.97 0.004 260)">{{ r.c }}</div><div>{{ r.f }}</div><div>{{ r.n }}</div></div>
+    </sc-for>
+  </div>
+</section>
+
+<section style="display:grid;grid-template-columns:repeat(auto-fit,minmax(460px,1fr));gap:56px">
+  <div style="display:flex;flex-direction:column;gap:18px">
+    <div style="font-family:'JetBrains Mono',monospace;font-size:14px;letter-spacing:.08em;color:oklch(0.82 0.14 72)">10 · ДВИЖЕНИЕ</div>
+    <sc-for list="{{ motion }}" as="m" hint-placeholder-count="10">
+      <div style="display:grid;grid-template-columns:150px 1fr;gap:16px;padding:10px 0;border-bottom:1px solid rgba(255,255,255,.08);font-size:16px;line-height:1.5;color:oklch(0.82 0.006 260)"><span style="font-family:'JetBrains Mono',monospace;font-size:13px;color:oklch(0.97 0.004 260)">{{ m.k }}</span><span>{{ m.v }}</span></div>
+    </sc-for>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:18px">
+    <div style="font-family:'JetBrains Mono',monospace;font-size:14px;letter-spacing:.08em;color:oklch(0.82 0.14 72)">11 · КАРТА И КНОПКИ</div>
+    <div style="font-family:'JetBrains Mono',monospace;font-size:15px;line-height:1.75;color:oklch(0.82 0.006 260);white-space:pre;overflow-x:auto;padding:24px 28px;border-radius:24px;background:oklch(0.21 0.006 260)"><span style="color:oklch(0.97 0.004 260)">Home</span>
+├── Продолжить
+│   ├── Активность ──► вернуться (внешнее приложение)
+│   └── Медиа ──────► Плеер ──► Субтитры · Аудио
+├── Избранное ──► Активность (запуск или возврат)
+└── Новое ──────► Детали ──► Плеер
+
+<span style="color:oklch(0.97 0.004 260)">Навигация</span> (слой поверх любого экрана)
+├── Главная · Медиатека · Загрузки · Приложения · Настройки
+├── [Запущенная активность] ──► вернуться
+└── Питание ──► Сон · Перезагрузка · Выключение
+
+Медиатека ► Все/Фильмы/Сериалы ► Детали ► (Сезон ► Эпизод) ► Плеер
+Загрузки ► готово ► Детали ► Плеер
+Настройки ► категория ► строка</div>
+    <sc-for list="{{ keys }}" as="k" hint-placeholder-count="7">
+      <div style="display:grid;grid-template-columns:150px 1fr;gap:16px;font-size:16px;line-height:1.5;color:oklch(0.82 0.006 260)"><span style="font-weight:700;color:oklch(0.97 0.004 260)">{{ k.k }}</span><span>{{ k.v }}</span></div>
+    </sc-for>
+  </div>
+</section>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+const C={tx:'oklch(0.97 0.004 260)',tx2:'oklch(0.84 0.006 260)',ink:'oklch(0.17 0.006 260)',amber:'oklch(0.82 0.14 72)',err:'oklch(0.72 0.16 28)',warn:'oklch(0.82 0.14 80)'};
+const TVS=[{k:'55-3',in:55,d:3},{k:'65-3',in:65,d:3},{k:'75-3',in:75,d:3},{k:'65-2',in:65,d:2},{k:'55-4',in:55,d:4}];
+const APPS=[{id:'kinopoisk',n:'Кинопоиск',m:'К',h:55},{id:'youtube',n:'YouTube',m:'Y',h:25},{id:'steam',n:'Steam',m:'S',h:240}];
+const art=(h)=>`linear-gradient(155deg, oklch(0.5 0.09 ${h} / .5) 0%, oklch(0.5 0.09 ${h} / 0) 55%), repeating-linear-gradient(135deg, oklch(0.3 0.05 ${h}) 0 10px, oklch(0.265 0.045 ${h}) 10px 20px)`;
+class Component extends DCLogic {
+  state={tv:'65-3',logos:{}};
+  componentDidMount(){this.load();this.iv=setInterval(()=>this.load(),4000)}
+  componentWillUnmount(){clearInterval(this.iv)}
+  load(){fetch('.image-slots.state.json',{cache:'no-store'}).then(r=>r.ok?r.json():null).then(j=>{if(!j)return;const logos={};['browser','kinopoisk','ivi','youtube','steam','es'].forEach(a=>{const v=j['logo-'+a];const u=v&&(typeof v==='string'?v:v.u);if(u)logos[a]=u});
+    if(JSON.stringify(Object.keys(logos))!==JSON.stringify(Object.keys(this.state.logos)))this.setState({logos})}).catch(()=>{})}
+  renderVals(){
+    const s=this.state,tv=TVS.find(x=>x.k===s.tv);
+    const H=tv.in*0.0254*9/Math.hypot(16,9)*1000,pxmm=H/1080,dist=tv.d*1000;
+    const arc=px=>2*Math.atan(px*pxmm/2/dist)*180/Math.PI*60;
+    const XH=0.52;
+    const txt=(name,size,note)=>{const a=arc(size*XH);return{name,px:`${size} (x ${Math.round(size*XH)})`,arc:a.toFixed(1)+'′',verdict:a>=14?'комфортно':a>=10?'читаемо':'мелко',c:a>=14?C.amber:a>=10?C.warn:C.err,note}};
+    const shape=(name,px,min,note,label)=>{const a=arc(px);return{name,px:label||String(px),arc:a.toFixed(1)+'′',verdict:a>=min*1.6?'заметно':a>=min?'достаточно':'слабо',c:a>=min*1.6?C.amber:a>=min?C.warn:C.err,note}};
+    const rows=[
+      txt('Hero-заголовок',84,'Читается с любого места.'),
+      txt('Заголовок раздела',30,'«Продолжить», «Избранное», «Новое».'),
+      txt('Основной текст',30,'Описание, строки настроек. Раньше был 28.'),
+      txt('Метаданные',26,'Время, серия, статус загрузки. Раньше был 24.'),
+      txt('Подпись-спутник',24,'Только рядом с крупным текстом, не для действий.'),
+      shape('Подъём медиа ×1.06',12,6,'Главный сигнал фокуса вместе с яркостью.','400→424'),
+      shape('Подъём плитки ×1.08',11,6,'Раньше ×1.06 давало ≈4′. Стало ×1.08.','264→285'),
+      shape('Кант фокуса',3,2,'Только вспомогательный сигнал.','3'),
+      shape('Высота строки навигации',88,40,'Цель и для D-pad, и для воздушной мыши.','88'),
+      shape('Прогресс-бар',6,3,'На карточках. В плеере 8, а в фокусе 14.','6')];
+    const tvs=TVS.map(x=>({label:`${x.in}″ · ${x.d} м`,bg:x.k===s.tv?C.tx:'rgba(255,255,255,.08)',fg:x.k===s.tv?C.ink:C.tx,pick:()=>this.setState({tv:x.k})}));
+    const logo=a=>'none';
+    const tiles=kind=>APPS.map((a,i)=>{const on=i===2,has=!!s.logos[a.id];
+      const base={hasLogo:has,src:s.logos[a.id]||'',imgS:kind==='B'?'100%':'100%',name:a.n,mono:has?'':a.m,logo:logo(a.id),tf:on?'scale(1.08) translateY(-4px)':'none',kant:on?'inset 0 0 0 3px rgba(255,255,255,.45)':'inset 0 1px 0 rgba(255,255,255,.08)',dir:'row',jc:'flex-start',showName:true};
+      if(kind==='A')return{...base,bg:on?'rgba(255,255,255,.2)':'rgba(255,255,255,.06)',sh:on?`0 0 40px 0 oklch(0.62 0.13 ${a.h} / .22), 0 24px 40px -18px rgba(0,0,0,.9)`:'none',chipW:44,chipH:44,chipBg:'rgba(255,255,255,0)',logoSize:'contain',logoFl:has?'brightness(0) invert(1)':'none'};
+      if(kind==='B')return{...base,bg:on?'rgba(255,255,255,.2)':'rgba(255,255,255,.06)',sh:on?`0 0 40px 0 oklch(0.62 0.13 ${a.h} / .22), 0 24px 40px -18px rgba(0,0,0,.9)`:'none',chipW:48,chipH:48,chipBg:'rgba(255,255,255,.1)',logoSize:'70%',logoFl:'none'};
+      return{...base,bg:on?`oklch(0.36 0.07 ${a.h})`:`oklch(0.26 0.05 ${a.h})`,sh:on?`0 0 50px 0 oklch(0.62 0.13 ${a.h} / .4), 0 24px 40px -18px rgba(0,0,0,.9)`:'none',chipW:120,chipH:56,chipBg:'rgba(255,255,255,0)',logoSize:'contain',logoFl:'none',dir:'column',jc:'center',showName:!has}});
+    const treatments=[
+      {key:'A',title:'Монохромный знак',rec:false,border:'1px solid rgba(255,255,255,.06)',desc:'Логотип перекрашивается в белый силуэт и встаёт на ту же нейтральную плоскость. Цвет бренда появляется только в свечении фокуса.',pro:'Максимальное единство, все плитки одинаковые по весу.',con:'Нужны отдельные знаки без подложки. Иконки приложений с собственным фоном (как загруженные сейчас) превращаются в белые квадраты.',tiles:tiles('A')},
+      {key:'B',title:'Знак в чипе · принято',rec:true,border:'1px solid oklch(0.82 0.14 72 / .5)',desc:'Цветной логотип в собственном чипе 60–88 px, рядом название текстом. Плоскость плитки остаётся системной.',pro:'Узнаваемо и спокойно. Иконка приложения со своим фоном сама становится чипом, а для прозрачного знака чип даёт нейтральную подложку.',con:'Мелкие детали знака на 60 px видны хуже, поэтому название обязательно.',tiles:tiles('B')},
+      {key:'C',title:'Фирменная плашка',rec:false,border:'1px solid rgba(255,255,255,.06)',desc:'Плитка окрашена в приглушённый цвет бренда, крупный логотип стоит по центру.',pro:'Самая выразительная и лучше всего опознаётся издалека.',con:'Home превращается в разноцветный лаунчер и спорит с кинорежимом. Это противоречит направлению 2a.',tiles:tiles('C')}];
+    const colors=[['bg','oklch(0.17 0.005 260)','Фон системы'],['bg-deep','oklch(0.07 0.003 260)','Заставка, OLED'],['plate','rgba(255,255,255,.06)','Плоскость в покое'],['plate-focus','rgba(255,255,255,.20)','Плоскость в фокусе'],['glass','oklch(0.22 0.006 260 / .74)','Навигация, панели, питание · blur 40–48'],['text-1','oklch(0.97 0.004 260)','Заголовки, заливка кнопки в фокусе'],['text-2','oklch(0.84 0.006 260)','Метаданные, описания'],['text-3','oklch(0.68 0.008 260)','Только подсказки'],['ink','oklch(0.17 0.006 260)','Текст на светлой заливке'],['lime','oklch(0.82 0.14 72)','Логотип, прогресс, «запущено», текущий раздел, «готово»'],['error','oklch(0.72 0.16 28)','Ошибки, опасное действие'],['scrim','rgba(0,0,0,.55)','Под модальными слоями']].map(([n,v,use])=>({n,v,code:v,use}));
+    const type=[['display · 112/700 · −3%',112,700,'-0.03em',1,'Сёгун'],['hero · 84/700 · −2.5%',84,700,'-0.025em',1.02,'Дюна: Часть вторая'],['page · 56/700 · −2%',56,700,'-0.02em',1.1,'Медиатека'],['dialog · 48–52/700',52,700,'-0.02em',1.1,'Выключить Arinn?'],['section · 30/600',30,600,'0',1.2,'Продолжить просмотр · Continue Watching'],['body · 30/400 · 1.45',30,400,'0',1.45,'Пол Атрейдес объединяется с Чани и фрименами.'],['control · 28–32/600',30,600,'0',1.2,'Продолжить с 1:13:42'],['meta · 26/500',26,500,'0',1.3,'С1 Э4 · Восьмикратная ограда · Осталось 37 мин'],['eyebrow · 24/600 · +8% caps',24,600,'.08em',1.3,'Избранное · Игры'],['caption · 24/500',24,500,'0',1.3,'2023 · Сериал']].map(([spec,size,w,ls,lh,sample],i)=>({spec,size,w,ls,lh,sample,tt:i===8?'uppercase':'none',c:i>=7||i===5?C.tx2:C.tx}));
+    const space=[[8,'иконка — подпись'],[14,'eyebrow — заголовок'],[22,'блоки внутри героя'],[24,'между плитками'],[32,'между карточками · под фокус ×1.06'],[48,'между рядами'],[96,'правое поле'],[120,'левая линия контента']].map(([v,use])=>({v,use}));
+    const radii=[[12,'чип',72],[20,'постер',72],[26,'карточка, плитка',72],[30,'строка, большая плитка',96],[44,'панель, диалог',120],[999,'кнопка, вкладка',140]].map(([v,use,w])=>({v:v===999?36:v,use:v===999?'pill':use,w}));
+    const depth=[['z0','Фон и световое поле. Отодвинутая активность: ×0.90, blur 36, яркость .32.'],['z1','Плоскости в покое: белый 6%, верхний блик 1 px.'],['z2','Фокус: ×1.06–1.08, −6 px, тень 0 50 80 −30 black/90, кант 3 px белый/45.'],['z2+','Свет фокуса: медиа — 0 0 120 20 hue/.5, приложения — 0 0 60 hue/.22.'],['z3','Навигация и панели: стекло .74, blur 40–48; экран под ними ×0.98, яркость .55.'],['z4','Питание и диалоги: скрим black/55–60, всё остальное неактивно.']].map(([k,v])=>({k,v}));
+    const W=(o)=>({w:170,h:96,r:22,jc:'flex-start',px:0,fs:18,op:1,bg:'rgba(255,255,255,.06)',fg:C.tx,tf:'none',sh:'none',kant:'inset 0 1px 0 rgba(255,255,255,.08)',hasArt:false,art:'none',fl:'none',hasLabel:false,label:'',isToggle:false,tgBg:'',tgK:'',...o});
+    const FK='inset 0 0 0 3px rgba(255,255,255,.45)';
+    const media=(st)=>{const a=art(62),glow='0 0 60px 10px oklch(0.62 0.13 62 / .5), 0 30px 50px -20px rgba(0,0,0,.9)';
+      return{default:W({hasArt:true,art:a,fl:'brightness(.82)'}),hover:W({hasArt:true,art:a,tf:'scale(1.03) translateY(-2px)',sh:glow,kant:FK}),focus:W({hasArt:true,art:a,tf:'scale(1.06) translateY(-6px)',sh:glow,kant:FK}),pressed:W({hasArt:true,art:a,tf:'scale(1.02)',sh:glow,kant:FK}),disabled:W({hasArt:true,art:a,fl:'grayscale(1) brightness(.5)',op:.5}),loading:W({bg:'linear-gradient(100deg, oklch(0.22 0.006 260) 30%, oklch(0.27 0.006 260) 50%, oklch(0.22 0.006 260) 70%)',kant:'none'})}[st]};
+    const app=(st)=>{const L={hasLabel:true,label:'Steam',px:18,w:170,h:84};const g='0 0 40px 0 oklch(0.62 0.13 240 / .22), 0 24px 40px -18px rgba(0,0,0,.9)';
+      return{default:W(L),hover:W({...L,bg:'rgba(255,255,255,.2)',tf:'scale(1.04)',sh:g,kant:FK}),focus:W({...L,bg:'rgba(255,255,255,.2)',tf:'scale(1.08) translateY(-6px)',sh:g,kant:FK}),pressed:W({...L,bg:'rgba(255,255,255,.2)',tf:'scale(1.04)',kant:FK}),disabled:W({...L,op:.4}),loading:W({...L,label:'Запуск…',bg:'rgba(255,255,255,.2)',kant:FK})}[st]};
+    const button=(st)=>{const B={hasLabel:true,label:'▶ Смотреть',w:170,h:64,r:32,jc:'center',fs:20,bg:'rgba(255,255,255,.13)',kant:'none'};
+      return{default:W(B),hover:W({...B,bg:C.tx,fg:C.ink,tf:'scale(1.03)'}),focus:W({...B,bg:C.tx,fg:C.ink,tf:'scale(1.06)',sh:'0 18px 40px -12px rgba(0,0,0,.7)'}),pressed:W({...B,bg:C.tx,fg:C.ink,tf:'scale(.96)'}),disabled:W({...B,op:.4}),loading:W({...B,label:'Открывается…',fg:C.tx2})}[st]};
+    const navItem=(st)=>{const N={hasLabel:true,label:'Медиатека',w:190,h:64,r:22,px:18,bg:'rgba(255,255,255,0)',fg:C.tx2,kant:'none'};
+      return{default:W(N),hover:W({...N,bg:'rgba(255,255,255,.2)',fg:C.tx,tf:'scale(1.01)',kant:FK}),focus:W({...N,bg:'rgba(255,255,255,.2)',fg:C.tx,tf:'scale(1.02)',sh:'0 20px 40px -16px rgba(0,0,0,.9)',kant:FK}),pressed:W({...N,bg:'rgba(255,255,255,.2)',fg:C.tx,tf:'scale(.98)',kant:FK}),disabled:W({...N,op:.4}),loading:W({...N,label:'Загрузки  82%'})}[st]};
+    const row=(st)=>{const R={hasLabel:true,label:'Ночной режим',w:210,h:72,r:24,px:18,fs:17,isToggle:true,tgBg:'rgba(255,255,255,.2)',tgK:C.tx};
+      return{default:W(R),hover:W({...R,bg:'rgba(255,255,255,.2)',tf:'scale(1.01)',kant:FK}),focus:W({...R,bg:'rgba(255,255,255,.2)',tf:'scale(1.02)',sh:'0 20px 40px -16px rgba(0,0,0,.9)',kant:FK}),pressed:W({...R,bg:'rgba(255,255,255,.2)',tgBg:C.amber,tgK:C.ink,kant:FK}),disabled:W({...R,op:.4}),loading:W({...R,isToggle:false,label:'Проверяем сеть…',fg:C.tx2})}[st]};
+    const opt=(st)=>{const O={hasLabel:true,label:'✓ Русские',w:190,h:64,r:22,px:18,bg:'rgba(255,255,255,0)',fg:C.tx,kant:'none'};
+      return{default:W(O),hover:W({...O,bg:C.tx,fg:C.ink,tf:'scale(1.01)'}),focus:W({...O,bg:C.tx,fg:C.ink,tf:'scale(1.02)'}),pressed:W({...O,bg:C.tx,fg:C.ink,tf:'scale(.98)'}),disabled:W({...O,op:.4,label:'English (нет)'}),loading:W({...O,label:'…',fg:C.tx2})}[st]};
+    const tl=(st)=>{const T={w:200,h:{default:8,hover:12,focus:14,pressed:14,disabled:8,loading:8}[st],r:8,bg:'rgba(255,255,255,.24)',kant:'none',hasArt:true,art:`linear-gradient(90deg, ${C.amber} 0 44%, rgba(0,0,0,0) 44%)`};
+      if(st==='focus'||st==='pressed')T.sh='0 0 0 3px rgba(255,255,255,.35)';if(st==='disabled')T.op=.4;if(st==='loading')T.art='linear-gradient(90deg, rgba(255,255,255,.3) 0 30%, rgba(0,0,0,0) 30%)';return W(T)};
+    const S=['default','hover','focus','pressed','disabled','loading'];
+    const comps=[['MediaCard','Продолжить, Новое, эпизоды, медиатека',media],['AppTile','Избранное, приложения',app],['Button','Действия на детальном экране, в OSD, диалогах',button],['NavigationItem','Слой навигации',navItem],['SettingsRow','Переключатель или переход',row],['Modal option','Субтитры, аудио, питание',opt],['Timeline','Плеер · ←/→ = ±10 с',tl]].map(([name,note,fn])=>({name,note,states:S.map(st=>fn(st))}));
+    const rules=[
+      ['Вход на экран','Фокус получает главное действие: «Продолжить» или «Смотреть», первый элемент ряда «Продолжить», текущее значение в панели.','Если фильм не начат, главное действие — «Смотреть».'],
+      ['Горизонтальные ряды','Фокус держится на один элемент от края, дальше ряд прокручивается (400 мс).','С указателем прокрутка происходит только когда элемент выходит за край, и 500 мс после неё наведение не учитывается.'],
+      ['Переход между рядами','Фокус попадает на ближайший по горизонтали элемент.','Home помещается на один экран. При фокусе на «Новом» герой прячется, и название переезжает в подпись ряда.'],
+      ['Вкладки','Фокус выбирает вкладку сразу, без OK.','При входе в ряд вкладок фокус попадает на выбранную.'],
+      ['Навигация','Открывается по «Назад» на Home, по «Меню» или через левый край (указатель). Фокус — на текущем разделе.','«Назад» или OK на разделе закрывают слой.'],
+      ['Панели и диалоги','Фокус заперт внутри. «Назад» закрывает и возвращает фокус на элемент, который их открыл.','Выбор в панели закрывает её через 180 мс, чтобы галочка успела переехать.'],
+      ['Опасные действия','В подтверждении фокус по умолчанию на «Отмена». Кнопка действия подкрашена красным.','Сон срабатывает сразу, выключение и перезагрузка требуют подтверждения.'],
+      ['Плеер','Без OSD: ←/→ перематывают на ±10 с и показывают OSD, OK показывает OSD. С OSD: OK на таймлайне — пауза.','OSD скрывается через 4 с во время воспроизведения и никогда — на паузе.'],
+      ['Home над активностью','«Home» из активности показывает Arinn с фокусом на «Вернуться». Активность в этот момент ближе.','Когда фокус уходит, активность отъезжает дальше, и становится понятно, что она на заднем плане.'],
+      ['Недоступное','Недоступные элементы остаются фокусируемыми и объясняют причину («Этот файл больше недоступен»).','Нельзя, чтобы фокус «перепрыгивал» пустоту.']].map(([c,f,n])=>({c,f,n}));
+    const motion=[['120 мс','Нажатие. Масштаб −0.04, потом действие.'],['200–220 мс','Фокус: подъём, кант, яркость. ease-out (.2,.8,.2,1).'],['400–450 мс','Прокрутка рядов и страниц.'],['450 мс','Вход экрана: появление + 1.012 → 1. Экраны не сдвигаются вбок.'],['900 мс','Свет обложки. Всегда отстаёт от фокуса.'],['320 мс','Навигация: −40 px → 0 + появление. Экран под ней ×0.98.'],['320 мс','Панель справа: 64 px → 0.'],['1100 мс','Запуск активности: чип увеличивается, «Открывается …».'],['450 мс','Возврат в активность: ×0.93 → 1 и снятие размытия.'],['4 с · 8 с','Заставка: часы переезжают раз в 8 с за 4 с.']].map(([k,v])=>({k,v}));
+    const keys=[['← ↑ → ↓','Перемещение фокуса по экрану'],['OK / Enter','Выбор. В плеере — показать OSD / пауза'],['Назад / Esc','Вверх по иерархии. На Home — навигация'],['Home / H','Всегда Arinn. Из активности — поверх неё'],['Меню / M','Навигация'],['Меню (долго) / O','В приложениях — закрепить на главной или убрать'],['P · A','Питание · заставка (в прототипе)'],['+ / −','Громкость, не блокирует экран']].map(([k,v])=>({k,v}));
+    return{tvs,rows,treatments,colors,type,space,radii,depth,comps,rules,motion,keys};
+  }
+}
+</script>
+</body>
+</html>

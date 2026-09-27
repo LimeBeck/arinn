@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.24)
+project(ArinnPhase0 LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 20)
+find_package(Qt6 6.6 REQUIRED COMPONENTS Quick DBus Test)
+qt_standard_project_setup()
+add_subdirectory(apps/arinn-shell)

@@ -1,0 +1,10 @@
+[package]
+name = "arinn-plugin-demo"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+arinn-protocol.workspace = true
+tokio.workspace = true
+zbus.workspace = true

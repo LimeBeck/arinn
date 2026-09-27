@@ -1,0 +1,31 @@
+{
+  "application_class": "steam",
+  "target_window": "{476b64a1-8148-41f6-a643-73db65ad04c3}",
+  "initial_fullscreen": false,
+  "output": "DP-1",
+  "cycles": 20,
+  "same_window_restored": true,
+  "cycle_ms": [
+    132.3,
+    151.3,
+    160.4,
+    185.2,
+    166.8,
+    167.8,
+    181.6,
+    108.4,
+    146.1,
+    110.2,
+    139.0,
+    144.0,
+    144.1,
+    174.3,
+    150.8,
+    141.5,
+    158.0,
+    132.6,
+    154.5,
+    154.5
+  ],
+  "input": "KGlobalAccel invokeShortcut, not physical remote"
+}

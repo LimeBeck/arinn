@@ -1,0 +1,8 @@
+[package]
+name = "arinn-protocol"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serde.workspace = true
+zbus.workspace = true

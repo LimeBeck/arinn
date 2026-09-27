@@ -1,0 +1,31 @@
+{
+  "application_class": "Terraria.bin.x86_64",
+  "target_window": "{83b057b0-9676-413a-9f1d-1d5d7a293c5d}",
+  "initial_fullscreen": true,
+  "output": "eDP-1",
+  "cycles": 20,
+  "same_window_restored": true,
+  "cycle_ms": [
+    329.4,
+    259.1,
+    260.6,
+    261.2,
+    215.2,
+    220.4,
+    177.5,
+    193.4,
+    222.8,
+    176.7,
+    225.7,
+    239.8,
+    161.4,
+    161.3,
+    184.0,
+    236.2,
+    190.4,
+    167.3,
+    147.5,
+    151.4
+  ],
+  "input": "KGlobalAccel invokeShortcut, not physical remote"
+}

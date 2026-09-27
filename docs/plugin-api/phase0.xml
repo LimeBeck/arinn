@@ -1,0 +1,83 @@
+
+<!DOCTYPE node PUBLIC "-//freedesktop//DTD D-BUS Object Introspection 1.0//EN"
+ "http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd">
+<node>
+  <interface name="org.arinn.Spike1">
+    <method name="Status">
+      <arg type="(sbstbsssbbss)" direction="out"/>
+    </method>
+    <method name="Snapshot">
+      <arg type="(stba(ss))" direction="out"/>
+    </method>
+    <method name="Register">
+      <arg name="token" type="s" direction="in"/>
+      <arg name="api_version" type="u" direction="in"/>
+      <arg type="s" direction="out"/>
+    </method>
+    <method name="Publish">
+      <arg name="generation" type="s" direction="in"/>
+      <arg name="revision" type="t" direction="in"/>
+      <arg name="items" type="a(ss)" direction="in"/>
+    </method>
+    <method name="Activate">
+      <arg name="generation" type="s" direction="in"/>
+      <arg name="id" type="s" direction="in"/>
+      <arg name="request_id" type="s" direction="in"/>
+      <arg type="o" direction="out"/>
+    </method>
+    <method name="Home">
+    </method>
+    <method name="Back">
+    </method>
+    <method name="TakeCommand">
+      <arg type="s" direction="out"/>
+    </method>
+    <method name="ReportHome">
+      <arg name="visible" type="b" direction="in"/>
+      <arg name="target" type="s" direction="in"/>
+      <arg name="output" type="s" direction="in"/>
+    </method>
+    <method name="ReportWindow">
+      <arg name="id" type="s" direction="in"/>
+      <arg name="class" type="s" direction="in"/>
+      <arg name="fullscreen" type="b" direction="in"/>
+      <arg name="output" type="s" direction="in"/>
+    </method>
+    <signal name="Changed">
+    </signal>
+  </interface>
+  <interface name="org.freedesktop.DBus.Introspectable">
+    <method name="Introspect">
+      <arg type="s" direction="out"/>
+    </method>
+  </interface>
+  <interface name="org.freedesktop.DBus.Peer">
+    <method name="Ping">
+    </method>
+    <method name="GetMachineId">
+      <arg type="s" direction="out"/>
+    </method>
+  </interface>
+  <interface name="org.freedesktop.DBus.Properties">
+    <method name="Get">
+      <arg name="interface_name" type="s" direction="in"/>
+      <arg name="property_name" type="s" direction="in"/>
+      <arg type="v" direction="out"/>
+    </method>
+    <method name="Set">
+      <arg name="interface_name" type="s" direction="in"/>
+      <arg name="property_name" type="s" direction="in"/>
+      <arg name="value" type="v" direction="in"/>
+    </method>
+    <method name="GetAll">
+      <arg name="interface_name" type="s" direction="in"/>
+      <arg type="a{sv}" direction="out"/>
+    </method>
+    <signal name="PropertiesChanged">
+      <arg name="interface_name" type="s"/>
+      <arg name="changed_properties" type="a{sv}"/>
+      <arg name="invalidated_properties" type="as"/>
+    </signal>
+  </interface>
+</node>
+

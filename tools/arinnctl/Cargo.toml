@@ -1,0 +1,12 @@
+[package]
+name = "arinnctl"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+arinn-protocol.workspace = true
+tokio.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+zbus.workspace = true

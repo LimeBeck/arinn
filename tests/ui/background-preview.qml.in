@@ -1,0 +1,26 @@
+import QtQuick
+import QtQuick.Window
+import "@COMPONENT_DIR@"
+Window {
+    id: root
+    width: 1920
+    height: 1080
+    visible: true
+    opacity: 0
+    flags: Qt.WindowDoesNotAcceptFocus | Qt.FramelessWindowHint
+    ActivityBackground {
+        id: background
+        anchors.fill: parent
+        source: @SOURCE@
+        near: true
+    }
+    Timer {
+        interval: 1000
+        running: true
+        onTriggered: background.grabToImage(result => {
+            const ok = result.saveToFile(@OUTPUT@);
+            console.info("ARINN_EXTERNAL_BACKGROUND saved=" + ok);
+            Qt.quit();
+        }, Qt.size(1920, 1080))
+    }
+}

@@ -135,7 +135,7 @@
 | Back, Sleep, media/Downloads scope, устройство | Подтверждено пользователем | [Продуктовые решения](product-decisions.md) |
 | Local library и mpv | Компоненты и ownership выбраны | [Media MVP](media-mvp.md) |
 | DownloadProvider и rich media interfaces | Отдельный API review модели завершён, wire schemas предстоит реализовать | [API дополнения](../plugin-api/mvp-extensions.md) |
-| KWin overlay/focus и эффекты | Spike реализован; Home/Return проверен на двух экранах, эффекты остаются открыты | [Отчёт Phase 0](phase-0-report.md) |
+| KWin overlay/focus и эффекты | Home/Return и daemon recovery проверены; near/far и last-frame path подтверждены экспериментом, production capture lifecycle/performance ещё открыты | [Отчёт Phase 0](phase-0-report.md) |
 | Shell OSD поверх mpv | Требуется integration gate до media UI | [Media MVP](media-mvp.md) |
 | Input G60S Pro | Стандартные keyboard/mouse events; отдельного блокера Phase 0 нет | [Продуктовые решения](product-decisions.md) |
 

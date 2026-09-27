@@ -18,7 +18,7 @@
 | DR-02 | Закрыт пользователем: Transmission в MVP; [DownloadProvider API review](../plugin-api/mvp-extensions.md) оформлен отдельно. |
 | DR-03 | Выбраны folders library + внешний mpv; tracks/timeline API описан. [Media MVP](../architecture/media-mvp.md). OSD поверх внешнего видео требует runtime gate. |
 | DR-04 | Закрыт: library provider хранит resume, media provider — playback, shell — interaction state. [Media MVP](../architecture/media-mvp.md). |
-| DR-05 | Решается экспериментом: KWin adapter/effect выбран как путь spike, texture/blur ещё не проверены. [Phase 0](../architecture/phase-0-gate.md). |
+| DR-05 | WindowThumbnail и near/far проверены, last-frame можно читать отдельным Qt renderer. Capture lifecycle/performance ещё требуют реализации. [Experiment](../architecture/background-experiment.md). [Phase 0](../architecture/phase-0-gate.md). |
 | DR-06 | Закрыт пользователем: Sleep = OS suspend; ambient отдельно. [Продуктовые решения](../architecture/product-decisions.md). |
 | DR-07 | Закрыт: browser-first порядок сохранён, UI limit 1+4 не ограничивает registry; New — generic Library projection. [Interaction](../architecture/activity-and-interaction.md). |
 | DR-08 | Закрыт: animation duration не означает completion, pending/error определяется operation. [Interaction](../architecture/activity-and-interaction.md). |

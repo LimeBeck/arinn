@@ -1,0 +1,71 @@
+{
+  "raw": {
+    "pixels": [
+      3360,
+      1890
+    ],
+    "rgb_mean": [
+      41.702,
+      48.323,
+      56.836
+    ]
+  },
+  "near": {
+    "pixels": [
+      3360,
+      1890
+    ],
+    "rgb_mean": [
+      16.141,
+      17.888,
+      22.099
+    ]
+  },
+  "far": {
+    "pixels": [
+      3360,
+      1890
+    ],
+    "rgb_mean": [
+      4.42,
+      5.152,
+      5.954
+    ]
+  },
+  "raw-later": {
+    "pixels": [
+      3360,
+      1890
+    ],
+    "rgb_mean": [
+      41.704,
+      48.325,
+      56.838
+    ]
+  },
+  "external-shell": {
+    "pixels": [
+      3360,
+      1890
+    ],
+    "rgb_mean": [
+      14.955,
+      16.581,
+      20.477
+    ]
+  },
+  "live_changed_bbox": [
+    645,
+    720,
+    675,
+    760
+  ],
+  "fixture": "Locally authored Chrome test page; no user window content",
+  "not_a_frame_time_benchmark": true,
+  "grab_save_ms": {
+    "raw": 296,
+    "near": 367,
+    "far": 260,
+    "raw-later": 264
+  }
+}

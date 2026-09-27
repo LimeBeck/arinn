@@ -1,0 +1,64 @@
+// Operator-only experiment, loaded temporarily by kwin_background.py.
+import QtQuick
+import QtQuick.Window
+import QtQuick.Effects
+import org.kde.kwin as KWin
+Window {
+    id: root
+    width: 1920
+    height: 1080
+    visible: true
+    opacity: 0
+    color: "#131416"
+    flags: Qt.FramelessWindowHint | Qt.WindowDoesNotAcceptFocus | Qt.BypassWindowManagerHint
+    readonly property bool _q_showWithoutActivating: true
+    property var target: null
+    property string folder: @OUTPUT_DIR@
+    property int step: 0
+    property bool near: true
+    Component.onCompleted: {
+        for (const w of KWin.Workspace.windows) {
+            if (w.internalId.toString() === @WINDOW_ID@) {
+                target = w;
+                for (const display of Qt.application.screens) {
+                    if (display.name === w.output.name) root.screen = display;
+                }
+                break;
+            }
+        }
+        if (!target) { console.warn("ARINN_BACKGROUND missing target"); root.hide(); }
+    }
+    KWin.WindowThumbnail {
+        id: thumbnail
+        anchors.fill: parent
+        client: root.target
+        visible: false
+    }
+    ActivityBackground {
+        id: stage
+        anchors.fill: parent
+        sourceItem: thumbnail
+        near: root.near
+    }
+    function save(item, name) {
+        const start = Date.now();
+        item.grabToImage(result => {
+            const ok = result.saveToFile(folder + "/" + name + ".png");
+            console.info("ARINN_BACKGROUND " + name + " saved=" + ok + " grab_ms=" + (Date.now() - start));
+        }, Qt.size(1920, 1080));
+    }
+    Timer {
+        interval: 750
+        repeat: true
+        running: root.target !== null
+        onTriggered: {
+            if (root.step === 0) root.save(thumbnail, "raw");
+            if (root.step === 1) root.save(stage, "near");
+            if (root.step === 2) root.near = false;
+            if (root.step === 3) root.save(stage, "far");
+            if (root.step === 4) root.save(thumbnail, "raw-later");
+            if (root.step === 5) { stop(); root.hide(); console.info("ARINN_BACKGROUND complete"); }
+            root.step++;
+        }
+    }
+}

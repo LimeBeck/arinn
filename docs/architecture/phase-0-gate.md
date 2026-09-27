@@ -22,7 +22,7 @@ KWin scripting API документирует registerShortcut и workspace/wind
 | Steam и полноэкранная игра | Home поверх activity, восстановление focus, приложение не завершается | PASS: Steam 20/20, Terraria fullscreen по 20/20 на каждом output после исправления remap |
 | Удаление target window | Return не активирует другой случайный window, Home остаётся доступен | PASS на изолированном Chrome fixture |
 | Повтор Home | Нет duplicate shell; input scope корректен | Повтор сохраняет target/output во всех циклах; полные modal scopes ещё не реализованы |
-| Texture/near/far effects | Реальное внешнее окно, ограничения и нагрузка измерены | Не запускалась |
+| Texture/near/far effects | Реальное внешнее окно, ограничения и нагрузка измерены | Feasibility PASS, export timings сняты; production latency/lifecycle ещё открыты. [Experiment](background-experiment.md) |
 | Lock/session shutdown | Overlay не обходится поверх lockscreen, units завершаются корректно | SessionGuard и private-bus tests готовы; реальные проверки отложены пользователем. [Lifecycle](session-lifecycle.md) |
 
 В отчёте сохранить версии KDE/Qt/GPU/driver, native Wayland/XWayland mode приложения, monitor scale и fullscreen mode. Минимально проверить repeated Home/Return 20 циклов на Chrome и игре. Сбой focus является fail gate; отсутствие графического эффекта — отдельное незакрытое требование дизайна.

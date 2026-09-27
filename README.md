@@ -182,6 +182,6 @@ Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md), follo
 - Arinn is licensed under the [GNU General Public License v3.0 or later](LICENSE).
 - `crates/arinn-protocol`, the plugin SDK and the D-Bus interface definitions are licensed under [MIT](LICENSES/MIT.txt) or [Apache-2.0](LICENSES/Apache-2.0.txt), at your option.
 - Documentation and design materials are licensed under [CC-BY-SA-4.0](LICENSES/CC-BY-SA-4.0.txt).
-- Qt is used under the LGPL-3.0. Third-party logos shown in design materials belong to their owners and are not covered by these licenses.
+- Qt is used under the LGPL-3.0. The repository contains no third-party logos; service names such as Kinopoisk, IVI, YouTube or Steam are used only to describe integrations and belong to their owners.
 
 Each file states its license with an SPDX header or in [REUSE.toml](REUSE.toml). See [ADR-0029](docs/adr/0029-licensing.md) for the reasoning.

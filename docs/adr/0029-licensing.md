@@ -19,9 +19,9 @@ The repository had no license. The owner wants forks of Arinn to stay open, thir
 | `crates/arinn-protocol`, the future `arinn-plugin-sdk`, D-Bus interface XML, example manifests | `MIT OR Apache-2.0` |
 | Documentation and design materials | `CC-BY-SA-4.0` |
 | Generated files and trivial configuration | `CC0-1.0` |
-| Third-party service logos in the design prototype | not licensed; trademarks of their owners |
 
 - Every file carries an SPDX header or a `REUSE.toml` annotation; license texts live in `LICENSES/`; `reuse lint` runs in CI.
+- Third-party logos and trademarks are not committed. The logos originally embedded in the design prototype were replaced by neutral placeholders and removed from Git history before publication.
 - Contributors sign the [Contributor License Agreement](../../CLA.md) once, through the CLA Assistant workflow on pull requests. The CLA gives the maintainer the right to relicense contributions, which keeps a dual-licensing option (GPL plus a commercial license) open.
 - Dependencies must be compatible with GPL-3.0-or-later, and dependencies of `arinn-protocol` with `MIT OR Apache-2.0`; `cargo deny check licenses` enforces this. Qt is used under LGPL-3.0 with dynamic linking.
 

@@ -19,6 +19,10 @@ All notable changes to this project are documented here. The format follows [Kee
 - All living documentation translated to English. ADR-0001–ADR-0019 accepted.
 - `docs/architecture/review-map.md` and `docs/architecture/product-decisions.md` folded into the specification and the roadmap.
 
+### Removed
+
+- Third-party service logos from the design prototype and screenshots; replaced by neutral monograms, screenshots re-rendered from the prototype.
+
 ### Fixed
 
 - Ambient auto-start condition made consistent ("external Activity **or** playing media").

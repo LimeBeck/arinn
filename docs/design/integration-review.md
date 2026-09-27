@@ -54,4 +54,4 @@ The handoff declares colours, typography, spacing, radii, focus and motion timin
 
 Screen numbers inside the handoff's Screens / Views section sometimes differ from screenshot file names. Use the actual file name and image, for example `04-home-over-activity.jpg`, `10-player-osd.jpg`, `16-power.jpg`, `22-ambient.jpg`. The original numbering is not corrected.
 
-The whole bundle is kept with the hidden image-slot state, `support.js` and `image-slot.js`. The prototype runtime is not a production dependency. Artwork stays placeholder, and the handoff's advice on production fonts and logos stands.
+The whole bundle is kept with the hidden image-slot state (logos replaced by neutral placeholders, see the [design overview](README.md#licensing)), `support.js` and `image-slot.js`. The prototype runtime is not a production dependency. Artwork stays placeholder, and the handoff's advice on production fonts and logos stands.

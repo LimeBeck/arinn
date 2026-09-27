@@ -23,13 +23,6 @@ precedence = "override"
 SPDX-FileCopyrightText = "2026 Arinn contributors"
 SPDX-License-Identifier = "MIT OR Apache-2.0"
 
-# Third-party service logos embedded in the design prototype.
-[[annotations]]
-path = "docs/design/**/.image-slots.state.json"
-precedence = "override"
-SPDX-FileCopyrightText = "Respective trademark owners"
-SPDX-License-Identifier = "LicenseRef-Third-Party-Trademarks"
-
 # Generated files and trivial configuration.
 [[annotations]]
 path = ["Cargo.lock", ".gitignore", ".editorconfig", "deny.toml", ".github/**"]

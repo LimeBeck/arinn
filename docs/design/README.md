@@ -26,4 +26,6 @@ Source design files are never edited to record decisions. Requirement changes ar
 
 ## Licensing
 
-Design materials are licensed CC-BY-SA-4.0 ([ADR-0029](../adr/0029-licensing.md)). Third-party service logos in the prototype (`.image-slots.state.json`) and in screenshots are trademarks of their owners and are **not** licensed by this project; production builds must use properly licensed originals.
+Design materials are licensed CC-BY-SA-4.0 ([ADR-0029](../adr/0029-licensing.md)).
+
+**One deliberate change to the delivered sources (2026-09-27):** before the repository was made public, the third-party service logos (browser, Kinopoisk, IVI, YouTube, Steam, EmulationStation) were removed from the prototype's image slots (`.image-slots.state.json`, handoff and archive) and replaced by neutral letter monograms, and all screenshots were re-rendered from the unchanged prototype with those placeholders (960×540, clock fixed at 22:57). The logos were also removed from Git history. Nothing else in the handoff was changed. Production builds must use service icons whose licenses allow it.

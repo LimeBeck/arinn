@@ -112,7 +112,7 @@ The full rules are [ADR-0028](docs/adr/0028-documentation-governance.md). In pra
 
 Arinn is `GPL-3.0-or-later`; the protocol crate and SDK are `MIT OR Apache-2.0`; documentation is `CC-BY-SA-4.0` ([ADR-0029](docs/adr/0029-licensing.md)). Before your first pull request can be merged you sign the [Contributor License Agreement](CLA.md) once: the CLA Assistant bot comments on the pull request and you reply with the sentence it asks for.
 
-Only add dependencies whose licenses pass `cargo deny check licenses`. Never add third-party code, fonts, icons or images without recording their source and license.
+Only add dependencies whose licenses pass `cargo deny check licenses`. Never add third-party code, fonts, icons or images without recording their source and license, and never commit third-party logos or trademarks.
 
 ## AI-assisted contributions
 

@@ -46,7 +46,7 @@ jobs:
     container: archlinux:latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: arinn-arch-package
           path: pkg

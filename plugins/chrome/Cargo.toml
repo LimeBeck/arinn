@@ -1,0 +1,29 @@
+# SPDX-FileCopyrightText: 2026 Arinn contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+[package]
+name = "arinn-plugin-chrome"
+version.workspace = true
+edition.workspace = true
+license = "GPL-3.0-or-later"
+
+[[bin]]
+name = "arinn-plugin-chrome"
+path = "src/bin/provider.rs"
+
+[[bin]]
+name = "arinn-chrome-host"
+path = "src/bin/host.rs"
+
+[dependencies]
+anyhow.workspace = true
+arinn-protocol.workspace = true
+arinn-plugin-sdk.workspace = true
+futures-util.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["io-std", "io-util"] }
+zbus.workspace = true
+
+[dev-dependencies]
+uuid.workspace = true
+tokio = { workspace = true, features = ["io-std", "io-util", "process"] }

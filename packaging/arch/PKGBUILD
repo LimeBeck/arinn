@@ -55,6 +55,17 @@ package() {
   install -Dm755 "${target}"/release/arinn-plugin-desktop "${pkgdir}/usr/lib/arinn/plugins/arinn-plugin-desktop"
   install -Dm644 plugins/desktop/desktop.toml "${pkgdir}/usr/share/arinn/plugins/desktop.toml"
   install -Dm644 plugins/demo/demo.toml "${pkgdir}/usr/share/arinn/plugins/demo.toml"
+  # Chrome/Chromium integration (ADR-0048): provider, native host, the host
+  # manifest for both browsers and the unpacked extension.
+  install -Dm755 "${target}"/release/arinn-plugin-chrome "${pkgdir}/usr/lib/arinn/plugins/arinn-plugin-chrome"
+  install -Dm644 plugins/chrome/chrome.toml "${pkgdir}/usr/share/arinn/plugins/chrome.toml"
+  install -Dm755 "${target}"/release/arinn-chrome-host "${pkgdir}/usr/lib/arinn/arinn-chrome-host"
+  install -Dm644 packaging/chrome/org.arinn.chrome_host.json \
+    "${pkgdir}/etc/opt/chrome/native-messaging-hosts/org.arinn.chrome_host.json"
+  install -Dm644 packaging/chrome/org.arinn.chrome_host.json \
+    "${pkgdir}/etc/chromium/native-messaging-hosts/org.arinn.chrome_host.json"
+  install -Dm644 plugins/chrome/extension/manifest.json plugins/chrome/extension/background.js \
+    -t "${pkgdir}/usr/share/arinn/chrome-extension/"
   install -Dm644 packaging/web-shortcuts/web-shortcuts.toml "${pkgdir}/usr/share/arinn/web-shortcuts.toml"
   install -Dm644 platform/kde/phase0.js "${pkgdir}/usr/share/arinn/kwin/phase0.js"
   install -Dm755 platform/kde/arinn-kwin-adapter "${pkgdir}/usr/lib/arinn/arinn-kwin-adapter"

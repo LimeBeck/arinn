@@ -64,13 +64,13 @@ Building from source:
 
 - Rust (edition 2024) with `cargo`;
 - CMake ≥ 3.24, Ninja and a C++20 compiler;
-- Qt 6 ≥ 6.6: Quick, Quick Controls, Quick Test, DBus, Test;
+- Qt 6 ≥ 6.6: Quick, Quick Controls, Quick Test, DBus, Test, SVG;
 - Python 3, `qdbus6`; Node.js for the adapter tests.
 
 On Arch/EndeavourOS:
 
 ```sh
-sudo pacman -S --needed rust cmake ninja qt6-base qt6-declarative python nodejs
+sudo pacman -S --needed rust cmake ninja qt6-base qt6-declarative qt6-svg python nodejs
 ```
 
 ## Try the prototype

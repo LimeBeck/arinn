@@ -14,9 +14,12 @@ On 2026-09-28 the owner approved [ADR-0041](../adr/0041-independent-session-life
 application/provider integration, with independent fail-closed session observation.
 The inspected call paths below support the clarified gate. The original conflict
 below records the reviewed baseline, not an outstanding decision. R-05 platform
-transport extraction remains [#29](https://github.com/LimeBeck/arinn/issues/29).
+transport extraction is implemented by [#29](https://github.com/LimeBeck/arinn/issues/29):
+[SessionLifecycle](../../platform/session/sessionlifecycle.h) exposes neutral
+visibility state and [the platform adapter](../../platform/session/dbussessionlifecycle.cpp)
+contains the native subscriptions and asynchronous queries.
 The stale lifecycle interface name reported below is corrected in the living
-runbook. No new runtime or operator test is claimed by this update.
+runbook. The original review below remains historical evidence.
 
 ## Results at the original baseline
 
@@ -66,7 +69,7 @@ shell data to come through Daemon1. The
 daemon as the shell's only integration API. However,
 [session lifecycle, line 3](session-lifecycle.md) explicitly requires the shell
 to observe ScreenSaver and login1 directly, independently of daemon state.
-[SessionGuard lines 13–19 and 39–43](../../apps/arinn-shell/sessionguard.cpp)
+[SessionGuard lines 13–19 and 39–43](https://github.com/LimeBeck/arinn/blob/d20e9f15c5da013ca82973491e93388394e28d50/apps/arinn-shell/sessionguard.cpp)
 implement those subscriptions and `GetActive`; the shell constructs this class
 and uses its `blocked` property to hide the window.
 
@@ -104,3 +107,27 @@ contracts. Earlier CI results are historical evidence, not a new test run.
 Real-desktop operator tests were not run; no authorization was requested.
 No performance, full product navigation, lock-screen or suspend acceptance is
 claimed. G-1.6 and Phase 1 status are unchanged.
+
+## Platform extraction qualification (#29)
+
+The shell links the platform session library and retains the same QML visibility
+binding and exported `org.arinn.Session1.blocked` property. No application routing,
+public daemon/provider API or lifecycle behaviour changes. The platform observer
+has no dependency on the shell Backend or daemon; only its test executable links
+the production Backend and QML to verify actual window visibility during daemon
+failure. The extracted Qt test is registered in CTest on its own private bus.
+
+Coverage includes lock/unlock, sleep/wake, unlock during sleep, absent or unknown
+ScreenSaver state, owner loss/recovery, and stale GetActive replies following
+lock, owner loss and wake. The production window hides while Daemon1 is absent
+or accepts requests without answering, and wake waits for fresh lock state.
+Real-desktop operator tests remain unrun; AC-19 and phase completion are unchanged.
+
+Local verification on 2026-09-28 passed: CMake/Ninja, CTest (UI and lifecycle),
+Phase 1 private-bus integration, Rust formatting/Clippy/tests/example and binary
+builds, KWin JavaScript tests, documentation/architecture/ADR/release checks,
+REUSE and dependency licenses. Private-bus tests ran outside the socket-restricted
+sandbox. Rust tests/builds used debug information and incremental compilation
+disabled after the initial build exhausted temporary storage. An initial UI
+navigation test failure under the sandbox did not recur in the final full CTest
+run. Clean Arch package qualification is delegated to PR CI.

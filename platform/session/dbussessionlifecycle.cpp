@@ -2,14 +2,15 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "sessionguard.h"
+#include "dbussessionlifecycle.h"
 #include <QDBusMessage>
 #include <QDBusPendingCallWatcher>
 #include <QDBusPendingReply>
 #include <QDBusServiceWatcher>
-SessionGuard::SessionGuard(QObject *parent, QDBusConnection session,
-                           QDBusConnection system)
-    : QObject(parent), m_session(session) {
+DbusSessionLifecycle::DbusSessionLifecycle(QObject *parent,
+                                           QDBusConnection session,
+                                           QDBusConnection system)
+    : SessionLifecycle(parent), m_session(session) {
   session.connect("org.freedesktop.ScreenSaver", "/ScreenSaver",
                   "org.freedesktop.ScreenSaver", "ActiveChanged", this,
                   SLOT(lockChanged(bool)));
@@ -26,7 +27,7 @@ SessionGuard::SessionGuard(QObject *parent, QDBusConnection session,
   });
   refresh();
 }
-void SessionGuard::refresh() {
+void DbusSessionLifecycle::refresh() {
   const auto epoch = ++m_epoch;
   auto msg = QDBusMessage::createMethodCall(
       "org.freedesktop.ScreenSaver", "/ScreenSaver",
@@ -44,16 +45,20 @@ void SessionGuard::refresh() {
             emit changed();
           });
 }
-void SessionGuard::lockChanged(bool locked) {
+void DbusSessionLifecycle::lockChanged(bool locked) {
   ++m_epoch; // a pending old GetActive must not undo this signal
   m_locked = locked;
   emit changed();
 }
-void SessionGuard::prepareForSleep(bool sleeping) {
+void DbusSessionLifecycle::prepareForSleep(bool sleeping) {
   ++m_epoch;
   m_sleeping = sleeping;
   m_locked = true;
   emit changed();
   if (!sleeping)
     refresh();
+}
+
+SessionLifecycle *createSessionLifecycle(QObject *parent) {
+  return new DbusSessionLifecycle(parent);
 }

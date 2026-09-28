@@ -35,6 +35,7 @@ node --test tests/integration/kwin_adapter.test.cjs
 python scripts/check-docs.py
 python scripts/check-architecture.py
 python scripts/release.py check
+python -m unittest discover -s tests/ci
 reuse lint
 cargo deny check licenses
 ```
@@ -45,7 +46,7 @@ To test packaging locally on Arch: `git archive --prefix=arinn-$(python scripts/
 
 ## Continuous integration
 
-Every pull request runs the full pipeline described in [ADR-0033](docs/adr/0033-ci-cd-and-releases.md): Rust, the Qt build and integration suite on Arch Linux, licensing, documentation, and an Arch package that is built, installed into a clean system and smoke-tested. The same pipeline runs nightly on `master` against the latest Arch packages. A pull request is merged only when every check is green; a failing nightly is fixed before anything else is released.
+Every pull request runs the full pipeline described in [ADR-0033](docs/adr/0033-ci-cd-and-releases.md): Rust, the Qt build and integration suite on Arch Linux, licensing, documentation, and an Arch package that is built, installed into a clean system and smoke-tested. A pull request that changes only Markdown files and changelog fragments skips the build jobs and runs only licensing and documentation; pushes to `master` always run everything ([ADR-0044](docs/adr/0044-docs-only-ci-scope.md)). The same pipeline runs nightly on `master` against the latest Arch packages. A pull request is merged only when every check is green; a failing nightly is fixed before anything else is released.
 
 ## Releases
 

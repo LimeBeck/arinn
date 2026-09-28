@@ -39,6 +39,7 @@ node --test tests/integration/kwin_adapter.test.cjs
 python scripts/check-docs.py
 python scripts/adr.py check
 python scripts/release.py check
+python -m unittest discover -s tests/ci
 reuse lint
 cargo deny check licenses
 ```

@@ -22,8 +22,26 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # A pull request that changes only documentation skips the build jobs
+  # (ADR-0044). Skipped jobs still report their required checks as passed.
+  # Build jobs run unless the scope is positively docs-only, so a failure
+  # of this job falls back to the full pipeline instead of skipping it.
+  scope:
+    name: Change scope
+    runs-on: ubuntu-latest
+    outputs:
+      docs_only: ${{ steps.scope.outputs.docs_only }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+      - id: scope
+        run: python3 scripts/ci-scope.py
+
   rust:
     name: Rust (fmt, clippy, test)
+    needs: scope
+    if: ${{ !cancelled() && needs.scope.outputs.docs_only != 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -37,6 +55,8 @@ jobs:
 
   integration:
     name: Qt shell and private-bus integration (Arch Linux)
+    needs: scope
+    if: ${{ !cancelled() && needs.scope.outputs.docs_only != 'true' }}
     runs-on: ubuntu-latest
     container: archlinux:latest
     steps:
@@ -80,7 +100,14 @@ jobs:
       - run: python scripts/adr.py check
       - run: python scripts/check-architecture.py
       - run: python scripts/release.py check
+      - run: python -m unittest discover -s tests/ci
 
   package:
     name: Package
+    needs: scope
+    # The reusable workflow skips its own jobs, so its nested required
+    # checks are reported as skipped instead of never appearing.
+    if: ${{ !cancelled() }}
     uses: ./.github/workflows/package.yml
+    with:
+      skip: ${{ needs.scope.outputs.docs_only == 'true' }}

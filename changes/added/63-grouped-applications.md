@@ -1,0 +1,1 @@
+- The Applications screen groups tiles into Online, Games, Media and Other; empty groups are hidden and the D-pad moves between groups. Desktop applications are grouped by their `Categories=` entry (web browsers, games, audio/video).

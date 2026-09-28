@@ -34,7 +34,7 @@ jobs:
           su builder -c 'cd pkg && makepkg --noconfirm --cleanbuild'
           version="$(python scripts/release.py version)"
           cp "pkg/src/arinn-${version}/target/release/examples/private-systemd" pkg/private-systemd
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: arinn-arch-package
           path: |

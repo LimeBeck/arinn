@@ -587,6 +587,13 @@ it does not launch applications, retry a provider or perform system actions.
 This preview does not replace the production shell or settle OQ-02/OQ-05.
 Its scope and verification are recorded in the [component contract](../architecture/ui-components.md).
 
+The production shell uses the same Home/navigation components with asynchronous
+daemon data: an opaque Return target and paged application launch targets. Its
+Applications shortcut row and route do not imply persisted favorites or settle
+OQ-02/OQ-05. Unimplemented sections show an explicit unavailable presentation;
+launch feedback follows the daemon operation. The [component contract](../architecture/ui-components.md#production-home-and-applications)
+records the implemented subset and remaining qualification.
+
 ### 17.1. Continuous integration and delivery
 
 ([ADR-0033](../adr/0033-ci-cd-and-releases.md))

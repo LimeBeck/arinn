@@ -57,6 +57,7 @@ async fn run() -> Result<(), ErrorCode> {
         .build()
         .await
         .map_err(|_| ErrorCode::Unavailable)?;
+    let paths_state = paths.state.clone();
     let core = Core::new(&connection, paths, runtime);
     connection
         .object_server()
@@ -64,6 +65,23 @@ async fn run() -> Result<(), ErrorCode> {
         .await
         .map_err(|_| ErrorCode::Internal)?;
     core.export_platform().await?;
+    let shortcuts = arinnd::shortcuts::WebShortcuts::new(&paths_state, core.operations.clone());
+    let defaults = tokio::task::spawn_blocking(|| {
+        arinnd::shortcuts::load_defaults(&arinnd::shortcuts::data_roots())
+    })
+    .await
+    .map_err(|_| ErrorCode::Internal)?;
+    if shortcuts.seed(defaults).await.is_err() {
+        eprintln!(
+            "{}",
+            serde_json::json!({"level":"warn","component":"arinnd","provider_id":null,"request_id":null,"operation":"seed-web-shortcuts","error":"Internal","duration_ms":0})
+        );
+    }
+    connection
+        .object_server()
+        .at(PATH, shortcuts)
+        .await
+        .map_err(|_| ErrorCode::Internal)?;
     core.start().await;
     eprintln!(
         "{}",

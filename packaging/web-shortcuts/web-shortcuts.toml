@@ -1,0 +1,19 @@
+# SPDX-FileCopyrightText: 2026 Arinn contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Default web shortcuts, installed as /usr/share/arinn/web-shortcuts.toml and
+# seeded into each user's Arinn state once (ADR-0043). Users edit their own
+# list from the TV; changing this file never re-adds a removed shortcut.
+# No icons: the repository ships no third-party logos (spec §18).
+
+[[shortcut]]
+title = "YouTube"
+url = "https://www.youtube.com/"
+
+[[shortcut]]
+title = "Кинопоиск"
+url = "https://www.kinopoisk.ru/"
+
+[[shortcut]]
+title = "IVI"
+url = "https://www.ivi.ru/"

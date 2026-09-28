@@ -4,7 +4,7 @@
 - **Date:** 2026-09-27
 - **Deciders:** delegated technical choice
 - **Amends / Supersedes:** amends [ADR-0003](0003-external-plugin-processes.md), [ADR-0008](0008-discovery-lifecycle.md), [ADR-0011](0011-chrome-integration.md), [ADR-0012](0012-desktop-steam-esde.md), [ADR-0013](0013-mpris-media.md), [ADR-0015](0015-security-boundary.md)
-- **Amended by / Superseded by:** —
+- **Amended by / Superseded by:** [ADR-0038](0038-browser-launch-ownership.md) — browser launch ownership
 - **Specification:** [§7.1, §9.9, §9.10](../specifications/arinn-specification.md)
 
 ## Context

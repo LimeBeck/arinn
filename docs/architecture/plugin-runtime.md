@@ -79,7 +79,7 @@ Extension permissions are `tabs` and `nativeMessaging`; no content scripts and n
 
 Extension reconnect: 1, 2, 4, 8, 16, 30 s with jitter, capped at 30 s; after a successful connect a full snapshot, then events. This restores the connection; it never repeats a user's mutating command. Old tab IDs are invalid after a browser connection is lost.
 
-If the browser is closed, launch goes through the selected ApplicationProvider (see [OQ-03](../specifications/arinn-specification.md#21-open-questions)); open URL waits for a browser connection within the overall launch deadline. With several connections, the default or last foreground connection is used, if it still exists. Activating a tab inside the browser does not replace compositor activation of the window, which is requested through PlatformService.
+The desktop ApplicationProvider owns browser application launch. The Chrome provider declares only `browser`, not `application`; their entities link through a validated platform window token ([ADR-0038](../adr/0038-browser-launch-ownership.md), resolving OQ-03). If the browser is closed, launch goes through that ApplicationProvider; open URL waits for a browser connection within the overall launch deadline. With several connections, the default or last foreground connection is used, if it still exists. Activating a tab inside the browser does not replace compositor activation of the window, which is requested through PlatformService.
 
 ## Desktop and media edge cases
 

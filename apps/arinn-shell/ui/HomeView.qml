@@ -9,8 +9,14 @@ FocusScope {
     width: 1920; height: 1080
     // Immutable presentation snapshots; identifiers are opaque to QML.
     property var continueEntries: []
+    property var busyEntryIds: []
     property var favoriteEntries: []
     property var newEntries: []
+    property var applicationEntries: []
+    property var runningEntries: []
+    property string applicationFocusRow: "applications"
+    property string favoritesTitle: qsTr("Favorites")
+    property string sectionDescription: qsTr("This section is not connected in the Home preview.")
     property string returnActivityId: ""
     property string homeState: "ready" // ready, empty, loading, error, unavailable
     property string statusTitle: ""
@@ -29,6 +35,7 @@ FocusScope {
     readonly property var sections: [qsTr("Home"), qsTr("Library"), qsTr("Downloads"), qsTr("Applications"), qsTr("Settings")]
     readonly property var routes: ["home", "library", "downloads", "applications", "settings"]
     signal entryRequested(string entryId)
+    signal runningRequested(string entryId)
     signal returnRequested(string activityId)
     signal retryRequested()
     signal sectionRequested(string route)
@@ -46,7 +53,12 @@ FocusScope {
     }
     function restoreScreen() {
         if (screen === "home") restoreHome();
-        else sectionBack.forceActiveFocus();
+        else if (screen === "applications") {
+            if (applicationFocusRow === "running" && runningRow.visible && runningRow.restore()) return;
+            if (applicationsRow.visible && applicationsRow.restore()) return;
+            if (runningRow.visible && runningRow.restore()) return;
+            sectionBack.forceActiveFocus();
+        } else sectionBack.forceActiveFocus();
     }
     function openNavigation() {
         if (navOpen) return;
@@ -186,7 +198,7 @@ FocusScope {
                 Column {
                     x: 120; y: 136; width: 1300; spacing: 14
                     opacity: root.homeRow === "new" && newRow.visible ? 0 : 1
-                    UiText { role: "eyebrow"; text: root.focusedEntry.running ? qsTr("NOW RUNNING") : root.homeRow === "favorites" ? qsTr("FAVORITES") : qsTr("CONTINUE"); color: Theme.textSecondary }
+                    UiText { role: "eyebrow"; text: root.focusedEntry.running ? qsTr("NOW RUNNING") : root.homeRow === "favorites" ? root.favoritesTitle.toUpperCase() : qsTr("CONTINUE"); color: Theme.textSecondary }
                     UiText { width: parent.width; role: "hero"; text: root.focusedEntry.title || qsTr("Make yourself at home"); maximumLineCount: 1; elide: Text.ElideRight }
                     UiText { width: parent.width; role: "meta"; text: root.focusedEntry.subtitle || qsTr("Choose something to open"); maximumLineCount: 1; elide: Text.ElideRight; color: Theme.textSecondary }
                 }
@@ -194,7 +206,7 @@ FocusScope {
                     id: continueRow; objectName: "continue"
                     x: 120; y: 372; width: 1704
                     visible: count > 0
-                    title: qsTr("Continue"); entries: root.continueEntries
+                    title: qsTr("Continue"); entries: root.continueEntries; busyEntryIds: root.busyEntryIds
                     pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled
                     onSelected: entry => root.remember(continueRow, entry)
                     onActivated: entryId => root.activate(entryId)
@@ -207,7 +219,7 @@ FocusScope {
                     id: favoritesRow; objectName: "favorites"
                     x: 120; y: continueRow.visible ? 700 : 372; width: 1704
                     visible: count > 0
-                    title: qsTr("Favorites"); variant: "app"; entries: root.favoriteEntries
+                    title: root.favoritesTitle; variant: "app"; entries: root.favoriteEntries; busyEntryIds: root.busyEntryIds
                     pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled
                     onSelected: entry => root.remember(favoritesRow, entry)
                     onActivated: entryId => root.activate(entryId)
@@ -221,7 +233,7 @@ FocusScope {
                     x: 120; y: favoritesRow.visible ? favoritesRow.y + 230 : continueRow.visible ? 700 : 372; width: 1704
                     visible: count > 0
                     title: activeFocus ? qsTr("New") + " · " + (root.focusedEntry.title || "") : qsTr("New")
-                    variant: "poster"; entries: root.newEntries
+                    variant: "poster"; entries: root.newEntries; busyEntryIds: root.busyEntryIds
                     pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled
                     onSelected: entry => root.remember(newRow, entry)
                     onActivated: entryId => root.activate(entryId)
@@ -250,7 +262,41 @@ FocusScope {
             x: 120; y: 180; width: 1300; spacing: 40
             visible: root.screen !== "home"
             UiText { role: "title"; text: root.sections[root.routes.indexOf(root.screen)] || "" }
-            UiText { width: parent.width; text: qsTr("This section is not connected in the Home preview."); color: Theme.textSecondary }
+            UiText { width: parent.width; text: root.sectionDescription; color: Theme.textSecondary }
+            HomeRow {
+                id: applicationsRow; objectName: "applications"
+                width: 1704; variant: "app"
+                visible: root.screen === "applications" && count > 0
+                entries: root.applicationEntries; busyEntryIds: root.busyEntryIds
+                pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled
+                onSelected: root.applicationFocusRow = "applications"
+                onActivated: entryId => root.entryRequested(entryId)
+                onEdge: key => {
+                    if (key === Qt.Key_Left) root.openNavigation();
+                    else if (key === Qt.Key_Down) { if (!runningRow.visible || !runningRow.restore()) sectionBack.forceActiveFocus(); }
+                    else if (key === Qt.Key_Up) menuButton.forceActiveFocus();
+                }
+                onFocusLost: { if (!runningRow.visible || !runningRow.restore()) sectionBack.forceActiveFocus(); }
+                onScrolled: hoverDelay.restart()
+                onDpadRequested: root.pointerMode = false
+            }
+            HomeRow {
+                id: runningRow; objectName: "runningApplications"
+                width: 1704; variant: "app"; title: qsTr("Open windows")
+                visible: root.screen === "applications" && count > 0
+                entries: root.runningEntries; busyEntryIds: root.busyEntryIds
+                pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled
+                onSelected: root.applicationFocusRow = "running"
+                onActivated: entryId => root.runningRequested(entryId)
+                onEdge: key => {
+                    if (key === Qt.Key_Left) root.openNavigation();
+                    else if (key === Qt.Key_Down) sectionBack.forceActiveFocus();
+                    else if (key === Qt.Key_Up && (!applicationsRow.visible || !applicationsRow.restore())) menuButton.forceActiveFocus();
+                }
+                onFocusLost: { if (!applicationsRow.visible || !applicationsRow.restore()) sectionBack.forceActiveFocus(); }
+                onScrolled: hoverDelay.restart()
+                onDpadRequested: root.pointerMode = false
+            }
             ActionButton {
                 id: sectionBack; objectName: "sectionBack"
                 text: qsTr("Back to Home")
@@ -258,6 +304,7 @@ FocusScope {
                 onActivated: root.showHome()
                 onDpadRequested: root.pointerMode = false
                 Keys.onLeftPressed: root.openNavigation()
+                Keys.onUpPressed: root.restoreScreen()
             }
         }
     }

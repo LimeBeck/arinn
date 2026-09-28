@@ -65,6 +65,12 @@ systemd documents the transient service settings ([transient settings](https://s
 4. The daemon accepts only capabilities listed in the manifest and returns `daemon_epoch`, `generation` and negotiated limits. The provider becomes available only after successful registration and its first valid snapshot.
 5. `NameOwnerChanged` invalidates the provider. After a daemon restart, providers notice the owner change, receive a new registration challenge for the existing unit and register again with a new generation. The registry never starts a duplicate unit.
 
+The SDK filters its ownership signal subscription to `org.arinn.Daemon1` at the
+bus. Unrelated connection/name churn must not fill its signal queue while it waits
+for registration, including re-registration after daemon replacement. The SDK
+registration-context regression test generates unrelated ownership changes before
+the replacement daemon returns its registration reply (G-1.2, G-1.3).
+
 Token replay and a second active owner of one provider give `PermissionDenied` or `Conflict`. API v1 supports only major version 1; minor additions never change existing required fields or signatures. Unknown optional metadata keys are ignored; unknown enum values are shown as unsupported, never as success. Wire XML is fixed per capability; a major incompatibility is reported before a working provider starts.
 
 ## Chrome: two processes instead of two supervisors of one process

@@ -132,6 +132,34 @@ TestCase {
         focused("entry-a"); keyClick(Qt.Key_Return); compare(entries.count, 0);
         keyClick(Qt.Key_Right); focused("entry-c");
     }
+    function test_application_section_navigation_and_updates() {
+        home.applicationEntries = [{id: "app-one", title: "First"}, {id: "app-two", title: "Second"}];
+        home.selectSection(3);
+        focused("entry-app-one");
+        keyClick(Qt.Key_Right); focused("entry-app-two");
+        keyClick(Qt.Key_Return);
+        compare(entries.count, 1); compare(entries.signalArguments[0][0], "app-two");
+        keyClick(Qt.Key_Menu); focused("nav-3");
+        keyClick(Qt.Key_Escape); focused("entry-app-two");
+        home.applicationEntries = [{id: "app-one", title: "First"}];
+        focused("entry-app-one");
+        home.applicationEntries = [];
+        focused("sectionBack");
+        keyClick(Qt.Key_Backspace); compare(home.screen, "home"); focused("entry-a");
+    }
+    function test_running_windows_and_restoration() {
+        home.applicationEntries = [{id: "app", title: "Launch"}];
+        home.runningEntries = [{id: "window1", title: "First window"}, {id: "window2", title: "Second window"}];
+        const spy = createTemporaryObject(runningSpy, suite, {target: home});
+        home.selectSection(3); focused("entry-app");
+        keyClick(Qt.Key_Down); focused("entry-window1");
+        keyClick(Qt.Key_Right); focused("entry-window2");
+        keyClick(Qt.Key_Return); compare(spy.count, 1); compare(spy.signalArguments[0][0], "window2");
+        keyClick(Qt.Key_Menu); keyClick(Qt.Key_Escape); focused("entry-window2");
+        home.runningEntries = [{id: "window1", title: "First window"}]; focused("entry-window1");
+        home.runningEntries = []; focused("entry-app");
+    }
+    Component { id: runningSpy; SignalSpy { signalName: "runningRequested" } }
     function test_states_data() {
         return [{tag: "loading"}, {tag: "empty"}, {tag: "error"}, {tag: "unavailable"}];
     }

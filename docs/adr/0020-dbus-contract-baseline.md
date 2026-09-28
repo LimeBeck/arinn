@@ -4,7 +4,7 @@
 - **Date:** 2026-09-27
 - **Deciders:** delegated technical choice (the project owner asked the implementer to close technical decisions)
 - **Amends / Supersedes:** amends [ADR-0002](0002-component-boundaries.md), [ADR-0004](0004-capability-contracts.md), [ADR-0005](0005-ipc-versioning.md), [ADR-0006](0006-snapshots-subscriptions.md), [ADR-0007](0007-async-errors.md), [ADR-0015](0015-security-boundary.md), [ADR-0016](0016-cli-diagnostics.md), [ADR-0018](0018-demo-testing-gates.md)
-- **Amended by / Superseded by:** [ADR-0035](0035-phase1-application-wire-contract.md)
+- **Amended by / Superseded by:** [ADR-0035](0035-phase1-application-wire-contract.md), [ADR-0041](0041-independent-session-lifecycle-guard.md) (independent session observation)
 - **Specification:** [§8.6, §9, §11, §14, §17](../specifications/arinn-specification.md)
 
 ## Context

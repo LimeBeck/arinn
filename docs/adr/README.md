@@ -20,7 +20,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | ADR | Title | Status | Amended / superseded by |
 | --- | --- | --- | --- |
 | [0001](0001-product-scope.md) | Arinn as an orchestrator for a shared household HTPC | Accepted | 0023, 0024, 0025 |
-| [0002](0002-component-boundaries.md) | Qt/QML shell, Rust daemon and a public D-Bus API | Accepted | 0020, 0021 |
+| [0002](0002-component-boundaries.md) | Qt/QML shell, Rust daemon and a public D-Bus API | Accepted | 0020, 0021, 0041 |
 | [0003](0003-external-plugin-processes.md) | Integrations run in external processes | Accepted | 0021 |
 | [0004](0004-capability-contracts.md) | Capability contracts and no plugin-supplied UI | Accepted | 0020, 0025 |
 | [0005](0005-ipc-versioning.md) | A typed, versioned Plugin API | Accepted | 0020 |
@@ -38,7 +38,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0017](0017-navigation-design-boundary.md) | Local D-pad navigation and a separate design specification | Accepted | 0022, 0023, 0030 |
 | [0018](0018-demo-testing-gates.md) | Demo provider, shared contract suite and architecture gates | Accepted | 0020, 0023, 0033 |
 | [0019](0019-design-handoff-contract.md) | The design handoff as a separate presentation contract | Accepted | 0022, 0023, 0027 |
-| [0020](0020-dbus-contract-baseline.md) | D-Bus transport, identifiers and Plugin API reliability | Accepted | 0035 |
+| [0020](0020-dbus-contract-baseline.md) | D-Bus transport, identifiers and Plugin API reliability | Accepted | 0035, 0041 |
 | [0021](0021-plugin-runtime-ownership.md) | Transient systemd services and a separate Chrome native bridge | Accepted | 0038 |
 | [0022](0022-state-and-interaction-baseline.md) | Activity ownership, persistence and interaction state | Accepted | 0034 |
 | [0023](0023-mvp-product-clarifications.md) | Back, system sleep and the target HTPC | Accepted | 0030 |
@@ -58,4 +58,6 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0037](0037-agent-autonomy-and-owner-gated-decisions.md) | Agent autonomy and owner-gated decisions | Accepted | — |
 | [0038](0038-browser-launch-ownership.md) | Browser launch ownership | Accepted | — |
 | [0039](0039-platform-window-contract.md) | Platform window snapshot and control contract | Accepted | — |
+| [0040](0040-kwin-inventory-transport.md) | Trusted KWin inventory transport and SDK registration context | Accepted | — |
+| [0041](0041-independent-session-lifecycle-guard.md) | Daemon-independent session lifecycle guard | Accepted | — |
 <!-- register:end -->

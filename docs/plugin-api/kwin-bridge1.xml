@@ -1,0 +1,37 @@
+<!-- SPDX-FileCopyrightText: 2026 Arinn contributors
+SPDX-License-Identifier: MIT OR Apache-2.0 -->
+<node>
+  <interface name="org.arinn.KWinBridge1">
+    <method name="Connect">
+      <arg name="instance" type="s" direction="in"/>
+      <arg type="s" direction="out"/>
+    </method>
+    <method name="BeginInventory">
+      <arg name="generation" type="s" direction="in"/>
+      <arg name="revision" type="i" direction="in"/>
+      <arg name="count" type="i" direction="in"/>
+    </method>
+    <method name="PutWindow">
+      <arg name="generation" type="s" direction="in"/>
+      <arg name="revision" type="i" direction="in"/>
+      <arg name="index" type="i" direction="in"/>
+      <arg name="token" type="s" direction="in"/>
+      <arg name="desktop_id" type="s" direction="in"/>
+      <arg name="output" type="s" direction="in"/>
+      <arg name="flags" type="i" direction="in"/>
+    </method>
+    <method name="CommitInventory">
+      <arg name="generation" type="s" direction="in"/>
+      <arg name="revision" type="i" direction="in"/>
+    </method>
+    <method name="NextControl">
+      <arg name="generation" type="s" direction="in"/>
+      <arg type="as" direction="out"/>
+    </method>
+    <method name="CompleteControl">
+      <arg name="generation" type="s" direction="in"/>
+      <arg name="request_id" type="s" direction="in"/>
+      <arg name="error" type="s" direction="in"/>
+    </method>
+  </interface>
+</node>

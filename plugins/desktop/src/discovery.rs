@@ -177,6 +177,8 @@ impl Settings {
             id: id.into(),
             title,
             can_launch: true,
+            // Categories= mapping is #63.
+            group: "other".into(),
         };
         application.validate().ok()?;
         Some(Entry {

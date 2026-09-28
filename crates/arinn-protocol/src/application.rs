@@ -12,6 +12,37 @@ pub struct Application {
     pub id: String,
     pub title: String,
     pub can_launch: bool,
+    /// Presentation group on the Applications screen, chosen by the provider:
+    /// one of [`GROUPS`]. Consumers treat an unknown value as `other`, so a
+    /// newer provider may add groups without breaking older shells (#62).
+    pub group: String,
+}
+
+/// Application groups in display order (spec §5.5).
+pub const GROUPS: &[&str] = &["online", "games", "media", "other"];
+pub const MAX_GROUP_BYTES: usize = 32;
+
+/// A group is a short lowercase token; unknown tokens are valid on the wire.
+pub fn group(value: &str) -> Result<(), ErrorCode> {
+    if value.is_empty()
+        || value.len() > MAX_GROUP_BYTES
+        || !value
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+    {
+        Err(ErrorCode::InvalidArgument)
+    } else {
+        Ok(())
+    }
+}
+
+/// The known group for display; unknown groups fall back to `other`.
+pub fn display_group(value: &str) -> &'static str {
+    GROUPS
+        .iter()
+        .copied()
+        .find(|known| *known == value)
+        .unwrap_or("other")
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -36,7 +67,8 @@ pub struct ApplicationPage {
 impl Application {
     pub fn validate(&self) -> Result<(), ErrorCode> {
         validation::id(&self.id)?;
-        validation::text(&self.title)
+        validation::text(&self.title)?;
+        group(&self.group)
     }
 }
 impl RunningApplication {
@@ -134,6 +166,7 @@ mod tests {
                 id: id.to_string(),
                 title: "x".repeat(8192),
                 can_launch: true,
+                group: "other".into(),
             })
             .collect();
         assert!(page.encoded_len().unwrap() > MAX_BODY_BYTES);
@@ -143,9 +176,38 @@ mod tests {
                 id: "duplicate".into(),
                 title: "Test".into(),
                 can_launch: true,
+                group: "other".into(),
             };
             2
         ];
+        assert_eq!(page.validate(), Err(ErrorCode::InvalidArgument));
+    }
+
+    #[test]
+    fn groups_are_short_tokens_and_unknown_ones_display_as_other() {
+        assert_eq!(Application::SIGNATURE.to_string(), "(ssbs)");
+        for known in GROUPS {
+            assert_eq!(group(known), Ok(()));
+            assert_eq!(display_group(known), *known);
+        }
+        assert_eq!(group("future-group2"), Ok(()));
+        assert_eq!(display_group("future-group2"), "other");
+        for bad in [
+            "",
+            "Games",
+            "with space",
+            "x/y",
+            &"g".repeat(MAX_GROUP_BYTES + 1),
+        ] {
+            assert_eq!(group(bad), Err(ErrorCode::InvalidArgument), "{bad:?}");
+        }
+        let mut page = page();
+        page.applications = vec![Application {
+            id: "a".into(),
+            title: "A".into(),
+            can_launch: true,
+            group: String::new(),
+        }];
         assert_eq!(page.validate(), Err(ErrorCode::InvalidArgument));
     }
 

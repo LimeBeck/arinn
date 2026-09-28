@@ -73,6 +73,12 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             },
             title: format!("Demo application {i}"),
             can_launch: true,
+            // Cover every group; the single-entry fixtures stay "other".
+            group: if count == 1 {
+                "other".into()
+            } else {
+                arinn_protocol::application::GROUPS[i % 4].into()
+            },
         })
         .collect();
     let running = if count == 0 {
@@ -112,6 +118,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                         id: format!("demo.application.{i}"),
                         title: format!("Revision {counter}, application {i}"),
                         can_launch: true,
+                        group: arinn_protocol::application::GROUPS[i % 4].into(),
                     })
                     .collect();
                 let running = vec![RunningApplication {

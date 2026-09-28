@@ -4,7 +4,7 @@ SPDX-License-Identifier: MIT OR Apache-2.0 -->
   <interface name="org.arinn.Application1">
     <method name="GetApplications">
       <arg name="token" type="s" direction="in" />
-      <arg type="(sta(ssb)a(ssssbb)s)" direction="out" />
+      <arg type="(sta(ssbs)a(ssssbb)s)" direction="out" />
     </method>
     <method name="Launch">
       <arg name="generation" type="s" direction="in" />

@@ -79,6 +79,7 @@ mod tests {
                     id: "app.desktop".into(),
                     title: "App".into(),
                     can_launch: true,
+                    group: "other".into(),
                 },
                 path: "/fixture/app.desktop".into(),
                 dbus_name: None,

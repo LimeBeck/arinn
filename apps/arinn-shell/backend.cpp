@@ -252,7 +252,7 @@ void Backend::readApplications(const std::shared_ptr<Catalog> &catalog,
           readApplications(catalog, index + 1);
         };
         if (reply.type() == QDBusMessage::ErrorMessage ||
-            reply.signature() != "(sta(ssb)a(ssssbb)s)") {
+            reply.signature() != "(sta(ssbs)a(ssssbb)s)") {
           unavailable();
           return;
         }
@@ -271,11 +271,15 @@ void Backend::readApplications(const std::shared_ptr<Catalog> &catalog,
         catalog->revision = revision;
         arg.beginArray();
         while (!arg.atEnd()) {
-          QString id, title;
+          QString id, title, group;
           bool launchable;
           arg.beginStructure();
-          arg >> id >> title >> launchable;
+          arg >> id >> title >> launchable >> group;
           arg.endStructure();
+          // Providers choose the group; unknown groups display as "other".
+          static const QStringList groups{"online", "games", "media", "other"};
+          if (!groups.contains(group))
+            group = "other";
           const auto key =
               QUuid::createUuidV5(
                   QUuid(),
@@ -287,6 +291,7 @@ void Backend::readApplications(const std::shared_ptr<Catalog> &catalog,
               QVariantMap{{"id", key},
                           {"title", title},
                           {"enabled", launchable},
+                          {"group", group},
                           {"path", provider.value("path")},
                           {"generation", generation},
                           {"localId", id}});

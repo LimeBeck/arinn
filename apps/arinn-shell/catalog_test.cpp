@@ -11,6 +11,7 @@ struct ProviderWire {
 struct AppWire {
   QString id;
   bool enabled = true;
+  QString group = "games";
 };
 struct RunningWire {
   QString id;
@@ -32,7 +33,7 @@ QDBusArgument &operator<<(QDBusArgument &a, const ProviderWire &p) {
 }
 QDBusArgument &operator<<(QDBusArgument &a, const AppWire &p) {
   a.beginStructure();
-  a << p.id << QString("Application") << p.enabled;
+  a << p.id << QString("Application") << p.enabled << p.group;
   a.endStructure();
   return a;
 }
@@ -104,7 +105,8 @@ public:
       a << (mode == "generation" && !first ? QString("stale")
                                            : QString("generation"))
         << qulonglong(mode == "revision" && !first ? 2 : 1)
-        << QList<AppWire>{{first ? "first" : "second", first}}
+        << QList<AppWire>{{first ? "first" : "second", first,
+                           first ? "games" : "future-group"}}
         << QList<RunningWire>{{first ? "window-first" : "window-second"}}
         << (first || mode == "cycle" ? QString("next") : QString());
       a.endStructure();
@@ -160,6 +162,11 @@ private slots:
                  QString("window-second"));
         QCOMPARE(daemon.pages, 2);
         QCOMPARE(backend.applications()[1].toMap()["enabled"].toBool(), false);
+        // Provider groups pass through; unknown groups display as "other".
+        QCOMPARE(backend.applications()[0].toMap()["group"].toString(),
+                 QString("games"));
+        QCOMPARE(backend.applications()[1].toMap()["group"].toString(),
+                 QString("other"));
         QSignalSpy changes(&backend, &Backend::applicationsChanged);
         backend.refresh();
         QTest::qWait(200);

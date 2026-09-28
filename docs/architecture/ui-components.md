@@ -158,3 +158,50 @@ failed without pointer reset and passed with it (Qt 6.11.2, 2026-09-28,
 [issue #31](https://github.com/LimeBeck/arinn/issues/31)). This changes test
 isolation only; production input behaviour and acceptance gates are unchanged.
 The complete offscreen Qt Quick suite passed 20 consecutive runs after the fix.
+
+## Production Home and Applications
+
+[Issue #42](https://github.com/LimeBeck/arinn/issues/42) binds the shared logical
+canvas, Home and navigation to `Main.qml`. The shell bundles the same presentation
+resources and Onest font as the gallery. The independent session lifecycle guard
+still controls window visibility. Home starts in a degraded state when the daemon
+is absent and reconnects asynchronously.
+
+`Backend` constructs the Return card from the daemon's opaque return target. It
+reads all `Providers` and `Application1.GetApplications` pages through the daemon,
+checks snapshot identity, generation, revision and pagination cycles, and exposes
+launchable/disabled application entries. The Home shortcut row is labelled
+Applications; it does not claim these entries are persisted favorites. Applications
+also has a dedicated route. No provider-specific routing or QML business logic is
+introduced. Favorites persistence, web shortcuts, New, Library, Downloads, Settings
+and power actions remain separate work; unsupported sections explicitly say they
+are unavailable.
+
+Launch intents call `Application1.Launch` and observe `Operation1.Get`. Pending
+entries retain focus, show the busy treatment and suppress duplicate launch
+requests. Completion and errors come from the operation, never from animation
+timers. A failed provider snapshot does not remove other providers' valid entries.
+Unchanged poll results do not emit list replacement signals, preserving delegate
+identity and local focus. Daemon owner loss invalidates return and application
+entries; stale replies cannot replace a newer connection's state.
+
+The private-bus catalog tests cover multiple application pages, disabled entries,
+unchanged snapshots, generation/revision mismatches, cyclic tokens, partial
+provider failure, empty/error states and daemon disappearance/reappearance.
+Qt Quick tests cover Applications navigation, activation intents, removal and
+focus restoration. The production-shell private-bus test checks the actual Home
+binding and local navigation while a demo operation times out.
+
+Verification is recorded in the pull request. Real-desktop operator tests, target
+TV readability, global Home repetition while already visible, the 22-screen design
+gate and full AC-02/AC-18 acceptance are not claimed by this increment. The current
+Status contract does not distinguish a repeated global Home event from an ordinary
+state refresh; local Home is covered by the QML navigation suite.
+
+Local verification on 2026-09-28 (Qt 6.11.2): CMake and all three CTest suites
+passed, as did the complete Phase 1 private-bus suite (including the desktop
+fixtures), Rust fmt/clippy/tests/builds, JavaScript adapter tests,
+documentation/architecture/ADR/version checks, REUSE and dependency licenses.
+The production Home capture at 1080p and shared Home gallery at 4K were inspected.
+Hosted CI results are recorded in the pull request; no operator or TV result is
+implied by these isolated checks.

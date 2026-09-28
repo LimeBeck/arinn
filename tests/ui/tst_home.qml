@@ -132,6 +132,21 @@ TestCase {
         focused("entry-a"); keyClick(Qt.Key_Return); compare(entries.count, 0);
         keyClick(Qt.Key_Right); focused("entry-c");
     }
+    function test_application_section_navigation_and_updates() {
+        home.applicationEntries = [{id: "app-one", title: "First"}, {id: "app-two", title: "Second"}];
+        home.selectSection(3);
+        focused("entry-app-one");
+        keyClick(Qt.Key_Right); focused("entry-app-two");
+        keyClick(Qt.Key_Return);
+        compare(entries.count, 1); compare(entries.signalArguments[0][0], "app-two");
+        keyClick(Qt.Key_Menu); focused("nav-3");
+        keyClick(Qt.Key_Escape); focused("entry-app-two");
+        home.applicationEntries = [{id: "app-one", title: "First"}];
+        focused("entry-app-one");
+        home.applicationEntries = [];
+        focused("sectionBack");
+        keyClick(Qt.Key_Backspace); compare(home.screen, "home"); focused("entry-a");
+    }
     function test_states_data() {
         return [{tag: "loading"}, {tag: "empty"}, {tag: "error"}, {tag: "unavailable"}];
     }

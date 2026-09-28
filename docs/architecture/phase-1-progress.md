@@ -1,8 +1,8 @@
 # Phase 1 implementation record
 
 Started 2026-09-28 from `master` at `48d40c0`. Phase status remains **In progress**
-in [ROADMAP.md](../../ROADMAP.md): local implementation evidence does not close
-CI or the maintainer-only release gate.
+in [ROADMAP.md](../../ROADMAP.md): local and CI implementation evidence does not
+close the maintainer-only release and branch-protection gate.
 
 ## Implemented
 
@@ -67,9 +67,43 @@ and argv reload with the original fixture restored. See the sanitized
 Home/Back cycle, not physical input latency. Fullscreen games, other monitors,
 lock/suspend/logout and a physical remote were not tested in this run.
 
-**Not run:** a clean Arch package installation, GitHub CI and branch-protection/CLA
-verification. G-1.6 requires the maintainer
-to verify repository settings and publish `v0.1.0`; agents do not publish releases.
+### GitHub CI qualification
+
+Verified on 2026-09-28: [CI run 36383019061](https://github.com/LimeBeck/arinn/actions/runs/36383019061)
+passed on `master` commit `f4e9b688f0b02306384988fe67124d4c56877de0`.
+All six jobs completed successfully:
+
+| Check | Evidence |
+| --- | --- |
+| Rust formatting, clippy and unit/process tests | [Rust job](https://github.com/LimeBeck/arinn/actions/runs/36383019061/job/108802512207) |
+| Qt build, KWin JavaScript tests and private-bus integration suite | [Qt/integration job](https://github.com/LimeBeck/arinn/actions/runs/36383019061/job/108802512300) |
+| REUSE and dependency licenses | [Licensing job](https://github.com/LimeBeck/arinn/actions/runs/36383019061/job/108802512261) |
+| Documentation, ADR, architecture and release consistency | [Documentation job](https://github.com/LimeBeck/arinn/actions/runs/36383019061/job/108802512134) |
+| Arch package build and checks with makepkg | [Package build job](https://github.com/LimeBeck/arinn/actions/runs/36383019061/job/108802512246) |
+| Clean Arch installation, smoke test and uninstall | [Package installation job](https://github.com/LimeBeck/arinn/actions/runs/36383019061/job/108804414465) |
+
+The package installation job's installation, smoke-test and uninstall steps each
+passed. This supplies the previously missing clean-container package evidence;
+it does not verify autostart or session behaviour on the target HTPC, or close
+Phase 5 acceptance. These are inspected CI results, not newly rerun local tests.
+
+The original [Phase 1 PR #8](https://github.com/LimeBeck/arinn/pull/8) had a failed
+licensing job. The successful run above qualifies the later integrated `master`,
+not that earlier PR run. The PR's [CLA check](https://github.com/LimeBeck/arinn/actions/runs/36382270639/job/108800304208)
+passed; a successful CLA check does not prove that branch protection requires it.
+G-1.4 and AC-12 retain their separate review requirement.
+
+### Remaining maintainer gate
+
+On 2026-09-28, a read-only request to GitHub's branch-protection endpoint for
+`master` returned HTTP 403 with a requirement to upgrade to GitHub Pro or make the
+repository public. Required-check and CLA enforcement could therefore not be
+verified. Repository visibility and settings were not changed. The maintainer
+must resolve this restriction and verify the required checks for G-1.6.
+
+Publication of `v0.1.0` through the release pipeline remains a maintainer action;
+no release was created or published during this qualification. Phase 1 remains
+**In progress** until its remaining review and maintainer requirements are met.
 
 ## Reproduce the isolated checks
 

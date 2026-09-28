@@ -1,7 +1,0 @@
-- English [specification v0.4](docs/specifications/arinn-specification.md), consolidating developer specification v0.3 with all accepted decisions, including acceptance criteria AC-01–AC-19 and open questions OQ-01–OQ-06.
-- [ROADMAP.md](ROADMAP.md) with phase status, exit criteria and evidence links.
-- ADR-0028 (documentation governance), ADR-0029 (licensing), ADR-0030 and ADR-0031 (clarifications previously edited into ADR-0023 and ADR-0026), ADR-0032 (KWin script adapter), and an ADR template.
-- Licensing: `GPL-3.0-or-later` for the core, `MIT OR Apache-2.0` for `arinn-protocol` and interface XML, `CC-BY-SA-4.0` for documentation; SPDX headers, `REUSE.toml`, `LICENSES/`, `deny.toml`.
-- Contributor documentation: README (English and Russian), CONTRIBUTING, CLA, AGENTS/CLAUDE, SECURITY, Code of Conduct, issue and pull request templates.
-- CI/CD (ADR-0033): Rust build, tests and lints; Qt build and private-bus integration suite on Arch Linux; KWin adapter tests; REUSE, cargo-deny, documentation and version checks; Arch package build with a clean-install smoke test; nightly runs against the latest Arch packages; tag-gated releases to GitHub Releases; CLA check; Dependabot.
-- Arch Linux `PKGBUILD`, package smoke test and `scripts/release.py`.

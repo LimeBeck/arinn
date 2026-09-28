@@ -1,7 +1,0 @@
-- Production `org.arinn.Daemon1`, application proxies and asynchronous operation objects with versioned XML, caller-bound paging, request deduplication and deadlines (ADR-0035).
-- Systemd transient provider supervision, registration authentication, generation invalidation, daemon recovery and persisted restart diagnostics.
-- Versioned TOML/SQLite storage, SHA-256 provider directories, ordered favorites and bounded launch recents.
-- Production SDK demo fixtures and a private-bus contract suite covering recovery, limits, reload and Qt clients; package manifest and smoke-test integration.
-- Phase 1 foundation: XDG plugin manifest discovery, deterministic overrides and duplicate diagnostics, bounded file parsing, executable/capability validation and a declarative reload plan.
-- `arinnd --check-plugins`: offline JSON diagnostics without D-Bus or plugin execution; launch arguments are omitted from output.
-- Permissive `arinn-plugin-sdk` snapshot primitives: immutable revision paging, actual D-Bus body-size checks, caller-bound expiring tokens and bounded leases. The production transport and SDK demo are integrated.

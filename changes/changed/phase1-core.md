@@ -1,3 +1,0 @@
-- Shell, KDE adapter and CLI now use the production daemon API. CLI provides human/JSON output, paged diagnostics and capability commands; active Spike1 interfaces are removed.
-- Documented the owner-approved parallel UI workstream alongside Phase 1: QML design system, Home, global navigation, local focus/input and fixture-based checks, with explicit API/open-question dependencies. Full UI acceptance remains in Phase 5; no implementation gate is closed by this scheduling decision.
-- Specification v0.5 resolves OQ-06 with owner approval: provider data/state directories use the SHA-256 of `provider_id`, independent of `state.sqlite3` (ADR-0034). Provisioning and registry-reset recovery tests are implemented.

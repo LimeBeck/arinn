@@ -30,13 +30,17 @@ jobs:
           cp packaging/arch/PKGBUILD pkg/
           chown -R builder pkg
       - name: makepkg (build, check, package)
-        run: su builder -c 'cd pkg && makepkg --noconfirm --cleanbuild'
+        run: |
+          su builder -c 'cd pkg && makepkg --noconfirm --cleanbuild'
+          version="$(python scripts/release.py version)"
+          cp "pkg/src/arinn-${version}/target/release/examples/private-systemd" pkg/private-systemd
       - uses: actions/upload-artifact@v4
         with:
           name: arinn-arch-package
           path: |
             pkg/*.pkg.tar.zst
             pkg/*.tar.gz
+            pkg/private-systemd
           if-no-files-found: error
 
   smoke:
@@ -55,7 +59,9 @@ jobs:
           pacman -Syu --noconfirm --needed python dbus
           pacman -U --noconfirm pkg/*.pkg.tar.zst
       - name: Smoke test
-        run: dbus-run-session -- python tests/package/smoke.py
+        env:
+          ARINN_TEST_MANAGER: ${{ github.workspace }}/pkg/private-systemd
+        run: chmod +x "$ARINN_TEST_MANAGER" && dbus-run-session -- python tests/package/smoke.py
       - name: Uninstall cleanly
         run: |
           pacman -R --noconfirm arinn

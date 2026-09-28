@@ -12,3 +12,4 @@ repository.workspace = true
 [dependencies]
 serde.workspace = true
 zbus.workspace = true
+uuid.workspace = true

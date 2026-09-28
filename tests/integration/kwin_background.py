@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[2]
 def call(*args):
     return subprocess.check_output(['qdbus6', *args], text=True, timeout=8).strip()
 
-state = json.loads(subprocess.check_output([str(ROOT/'target/debug/arinnctl'), 'status']))
+state = json.loads(subprocess.check_output([str(ROOT/'target/debug/arinnctl'), '--json', 'status']))
 assert state['active_window'] and not state['home_visible'], state
 assert call('org.freedesktop.ScreenSaver', '/ScreenSaver', 'org.freedesktop.ScreenSaver.GetActive') == 'false'
 output = ROOT / '.phase0/background-probe'

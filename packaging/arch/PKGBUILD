@@ -13,7 +13,7 @@ pkgdesc='TV-first shell for a Linux HTPC (pre-alpha prototype)'
 arch=('x86_64')
 url='https://github.com/LimeBeck/arinn'
 license=('GPL-3.0-or-later' 'MIT OR Apache-2.0' 'CC-BY-SA-4.0')
-depends=('gcc-libs' 'glibc' 'dbus' 'qt6-base' 'qt6-declarative')
+depends=('gcc-libs' 'glibc' 'dbus' 'systemd' 'qt6-base' 'qt6-declarative')
 makedepends=('cargo' 'cmake' 'ninja')
 checkdepends=('python')
 options=('!lto')
@@ -31,6 +31,7 @@ build() {
   export RUSTUP_TOOLCHAIN=stable
   export CARGO_TARGET_DIR=target
   cargo build --frozen --release
+  cargo build --frozen --release --example private-systemd
   cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
   cmake --build build
 }
@@ -47,6 +48,7 @@ package() {
   install -Dm755 target/release/arinnctl "${pkgdir}/usr/bin/arinnctl"
   install -Dm755 build/apps/arinn-shell/arinn-shell "${pkgdir}/usr/bin/arinn-shell"
   install -Dm755 target/release/arinn-plugin-demo "${pkgdir}/usr/lib/arinn/plugins/arinn-plugin-demo"
+  install -Dm644 plugins/demo/demo.toml "${pkgdir}/usr/share/arinn/plugins/demo.toml"
   install -Dm644 platform/kde/phase0.js "${pkgdir}/usr/share/arinn/kwin/phase0.js"
   install -Dm644 README.md CHANGELOG.md -t "${pkgdir}/usr/share/doc/${pkgname}/"
   install -Dm644 LICENSES/*.txt -t "${pkgdir}/usr/share/licenses/${pkgname}/"

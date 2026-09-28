@@ -10,7 +10,7 @@
 #include <QVariantList>
 class Backend : public QObject {
   Q_OBJECT
-  Q_CLASSINFO("D-Bus Interface", "org.arinn.SpikeShell1")
+  Q_CLASSINFO("D-Bus Interface", "org.arinn.Shell1")
   Q_PROPERTY(bool connected READ connected NOTIFY changed)
   Q_PROPERTY(bool available READ available NOTIFY changed)
   Q_PROPERTY(bool homeVisible READ homeVisible NOTIFY changed)

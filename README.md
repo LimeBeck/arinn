@@ -21,7 +21,7 @@
 ---
 
 > [!WARNING]
-> **Arinn is pre-alpha.** Only the architecture spike (Phase 0) exists: a technical prototype that proves the design on KDE Plasma 6 / Wayland. It is not yet usable as an everyday HTPC shell. See the [roadmap](ROADMAP.md).
+> **Arinn is pre-alpha.** Phase 1 implements the production core and plugin SDK; the minimal UI remains a technical prototype. It is not yet usable as an everyday HTPC shell. See the [roadmap](ROADMAP.md).
 
 ## What is Arinn?
 
@@ -45,11 +45,11 @@ Every integration is a separate plugin process talking to a small core over D-Bu
 | Phase | Goal | Status |
 | --- | --- | --- |
 | 0 | Architecture spike on KDE/Wayland | ✅ Done |
-| 1 | Production core, protocol and plugin SDK | ⏭ Next |
+| 1 | Production core, protocol and plugin SDK | In progress |
 | 2–4 | Applications, browser, media | Planned |
 | 5 | MVP: downloads, full UI, packaging | Planned |
 
-What works today: the Rust daemon, a demo plugin, the CLI and a minimal Qt shell; global Home over Chrome, Steam and fullscreen games with focus return (verified 20/20 cycles on two monitors); recovery after plugin and daemon crashes. There is no finished UI, no browser, media or download integration and no installable package yet. Details: [ROADMAP.md](ROADMAP.md) and the [Phase 0 report](docs/architecture/phase-0-report.md).
+What works today: the Rust daemon, a demo plugin, the CLI and a minimal Qt shell; production manifest discovery, paged application state, asynchronous commands and recovery after plugin and daemon crashes. Global Home and focus return were verified in Phase 0 (20/20 cycles on two monitors); the migrated runtime also passed 20/20 Home/Back cycles over Chrome and real systemd restart/reload checks ([evidence](docs/architecture/phase-1-live-evidence.json)). There is no finished UI, no browser, media or download integration and no published release yet. Details: [ROADMAP.md](ROADMAP.md) and the [Phase 0 report](docs/architecture/phase-0-report.md).
 
 ## Requirements
 
@@ -75,7 +75,7 @@ sudo pacman -S --needed rust cmake ninja qt6-base qt6-declarative python nodejs
 
 ## Try the prototype
 
-There is no stable release yet. Pre-release Arch packages of the prototype will appear on the [Releases](https://github.com/LimeBeck/arinn/releases) page; they contain the binaries but no autostart. To build and run the Phase 0 prototype in your own Plasma session from source:
+There is no stable release yet. Pre-release Arch packages of the prototype will appear on the [Releases](https://github.com/LimeBeck/arinn/releases) page; they contain the binaries but no autostart. To build and run the current prototype in your own Plasma session from source:
 
 ```sh
 git clone https://github.com/LimeBeck/arinn.git
@@ -140,12 +140,25 @@ Read more in the [specification](docs/specifications/arinn-specification.md) and
 cargo fmt --all --check
 cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked
-cmake --build build && dbus-run-session -- python tests/integration/phase0.py
+cargo build --locked --examples
+cmake --build build && dbus-run-session -- python tests/integration/phase1.py
 node --test tests/integration/kwin_adapter.test.cjs
 python scripts/check-docs.py
 ```
 
 Every pull request and a nightly job run the full pipeline, including building the Arch package, installing it into a clean system and smoke-testing it; releases are published only after the whole pipeline passes on the tagged commit ([ADR-0033](docs/adr/0033-ci-cd-and-releases.md)). The full list of required checks, commit conventions, the release process and the Definition of Done are in [CONTRIBUTING.md](CONTRIBUTING.md). AI coding agents also follow [AGENTS.md](AGENTS.md).
+
+### Validate plugin manifests
+
+Plugin discovery also supports an offline check:
+
+```sh
+cargo run --locked -p arinnd -- --check-plugins
+```
+
+It reads XDG manifest directories and prints JSON diagnostics (exit 0 when valid,
+1 for manifest errors, 2 for invalid command usage). It does not start providers
+or connect to D-Bus. Runtime discovery and the production wire API are implemented; see the [Phase 1 implementation record](docs/architecture/phase-1-progress.md).
 
 ### Writing a plugin
 
@@ -160,7 +173,7 @@ executable = "/usr/lib/arinn/plugins/arinn-plugin-example"
 capabilities = ["application"]
 ```
 
-Plugins supply data and actions, never UI. The Plugin API v1 is **not stable yet**; the protocol crate and the future SDK are licensed `MIT OR Apache-2.0`, so your plugin may use any license. See the [Plugin API](docs/plugin-api/README.md) and [plugin runtime](docs/architecture/plugin-runtime.md).
+Plugins supply data and actions, never UI. The Plugin API v1 is **not stable yet**; the protocol crate and the SDK primitives are licensed `MIT OR Apache-2.0`, so your plugin may use any license. See the [Plugin API](docs/plugin-api/README.md) and [plugin runtime](docs/architecture/plugin-runtime.md).
 
 ### Documentation map
 

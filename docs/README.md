@@ -17,7 +17,11 @@
 | [Media MVP](architecture/media-mvp.md) | Local library, mpv, OSD, resume ownership |
 | [Transmission MVP](architecture/transmission-mvp.md) | Transmission adapter, polling, import into the library |
 | [Session lifecycle](architecture/session-lifecycle.md) | Lock, sleep and session shutdown |
-| [Plugin API](plugin-api/README.md) | Plugin API status, [media and download extensions](plugin-api/mvp-extensions.md), [Phase 0 XML](plugin-api/phase0.xml) |
+| [Plugin API](plugin-api/README.md) | Production XML, SDK semantics, [media and download extensions](plugin-api/mvp-extensions.md) |
+
+## Phase 1 progress
+
+[Implementation record](architecture/phase-1-progress.md): completed foundations, verification and remaining runtime work.
 
 ## Phase 0 evidence
 

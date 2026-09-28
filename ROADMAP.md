@@ -16,12 +16,65 @@ The single source of phase status ([ADR-0028](docs/adr/0028-documentation-govern
 | Phase | Goal | Status |
 | --- | --- | --- |
 | [0](#phase-0--architecture-spike) | Architecture spike on KDE/Wayland | **Done** (2026-09-27) |
-| [1](#phase-1--core-skeleton) | Production core skeleton, protocol and SDK | Planned — next |
+| [1](#phase-1--core-skeleton) | Production core skeleton, protocol and SDK | **In progress** (2026-09-28) |
 | [2](#phase-2--applications) | Desktop applications, Steam, ES-DE | Planned |
 | [3](#phase-3--browser) | Chrome integration — first daily-usable build | Planned |
 | [4](#phase-4--media) | MPRIS, local library and mpv | Planned |
 | [5](#phase-5--product-mvp) | Downloads, full UI, persistence, packaging — MVP | Planned |
 | [6](#phase-6--rich-integrations-post-mvp) | Rich integrations after the MVP | Planned |
+
+## Parallel UI work alongside Phase 1
+
+**Scheduling decision:** approved by the project owner on 2026-09-28.
+**UI increment status:** Planned; this decision records scope and dependencies,
+not implementation or verification evidence.
+
+Phase 0 is complete, so presentation and local navigation work may start while
+Phase 1 core/API work continues. Full UI acceptance remains in Phase 5; phases
+describe delivery and acceptance milestones, not a requirement to delay all UI
+implementation until Phase 5.
+
+| Workstream | Initial scope | Coordination boundary |
+| --- | --- | --- |
+| Core/API | Phase 1 daemon contracts, runtime, SDK, demo and shell transport migration | Own production D-Bus contracts and the shell C++ transport/model layer |
+| UI presentation | QML design tokens, typography, reusable cards/buttons, Home and global navigation; loading, empty, error and unavailable states | Consume explicit presentation models; coordinate shared components before splitting screen work |
+| Input and UI verification | Local D-pad/pointer handling, focus scopes and restoration, Qt Quick Test and visual comparison | Assign one owner for shared focus/input code; screen work uses that interface |
+
+### First UI increment
+
+- Implement the QML design system, Home and global navigation using the
+  [design contract](docs/specifications/arinn-specification.md#15-design-contract)
+  and its handoff references. The current specification governs behaviour,
+  including Home/Back; the HTML prototype is a visual reference.
+- Exercise populated, empty, loading, error and unavailable presentations with
+  explicit development/test fixtures. Fixtures do not become a production backend
+  or define new capability contracts.
+- Keep focus, navigation and interaction state local to the shell. Production
+  data and commands go through the daemon via asynchronous C++ models, respecting
+  R-01–R-05 and AC-12. Provider business logic does not move into QML.
+- Verify local navigation and focus restoration with Qt Quick Test, and compare
+  the implemented states with the handoff at logical 1920×1080 and 4K scale.
+  Record evidence for this subset without claiming full Phase 5 acceptance.
+
+### Dependencies and integration
+
+Visual components and fixture-based UI tests need not wait for all Phase 1 gates.
+Production binding follows the reviewed versioned contracts (G-1.5), the required
+daemon operations and demo fixtures; it is coordinated with the shell migration
+to `org.arinn.Daemon1` (G-1.4). Use the demo provider through the daemon for
+integration tests, including delayed/unavailable providers and reconnects.
+
+Before parallel implementation, agree on presentation-model fields and actions,
+and assign ownership of shared QML components, focus code, C++ models and build
+files so separate changes do not compete for the same files.
+
+Work depending on an open question waits for the owner's decision: web shortcuts
+(OQ-02), browser launch ownership (OQ-03), hidden-player input (OQ-01), global
+media/volume keys (OQ-04) and the live New projection (OQ-05). These dependencies
+do not block the first UI increment's generic components and fixture-based views.
+Production Activity background capture, session actions and their performance
+checks retain their existing phase gates. Real-desktop operator tests still
+require explicit permission.
 
 ## Phase 0 — Architecture spike
 
@@ -44,7 +97,19 @@ Goal: prove the architecture on KDE Plasma 6 / Wayland before significant UI wor
 
 ## Phase 1 — Core skeleton
 
-**Status:** Planned — next.
+**Status:** In progress (2026-09-28).
+
+The production registry, systemd adapter, SDK, application API, operation lifecycle,
+persistence, CLI and shell migration are implemented. Local private-bus contracts
+cover the demo fixtures, recovery and limits; versioned XML is checked against live
+introspection. See the [implementation record](docs/architecture/phase-1-progress.md)
+for evidence and remaining qualification. Real systemd/KDE checks also passed ([live evidence](docs/architecture/phase-1-live-evidence.json)).
+CI and the maintainer release gate remain pending; Phase 1 is not marked Done.
+
+**Decision resolved (2026-09-28):** OQ-06 uses SHA-256 of `provider_id`
+([ADR-0034](docs/adr/0034-provider-data-directory-identity.md)); provisioning and
+registry-reset recovery tests are implemented.
+G-1.6 also requires maintainer actions; agents do not publish releases.
 
 Goal: replace the spike interfaces with the production core, so every later phase adds providers instead of changing the core.
 
@@ -59,13 +124,13 @@ Scope:
 
 | Exit criterion | Evidence |
 | --- | --- |
-| G-1.1 Contract suite passes against the demo provider for its declared capabilities | CI |
-| G-1.2 Crash/restart, daemon restart, disappear/reappear and stale generation covered by integration tests | CI |
-| G-1.3 Limits, validation and timeouts rejected/handled as specified (malformed, oversized, slow provider) | CI |
-| G-1.4 Shell reads everything from `org.arinn.Daemon1`; no `Spike1` interfaces remain | Code review, CI |
-| G-1.5 Versioned introspection XML for the application capability and the daemon API | `docs/plugin-api/` |
-| AC-11 Dynamic provider: install/remove a manifest and reload without core changes | Integration test |
-| AC-12 No product-specific conditions in the shell | Code review, CI grep check |
+| G-1.1 Contract suite passes against the demo provider for its declared capabilities | Local private-bus coverage; CI pending ([record](docs/architecture/phase-1-progress.md)) |
+| G-1.2 Crash/restart, daemon restart, disappear/reappear and stale generation covered by integration tests | Local private-bus coverage; CI pending ([record](docs/architecture/phase-1-progress.md)) |
+| G-1.3 Limits, validation and timeouts rejected/handled as specified (malformed, oversized, slow provider) | Local private-bus coverage; CI pending ([record](docs/architecture/phase-1-progress.md)) |
+| G-1.4 Shell reads everything from `org.arinn.Daemon1`; no `Spike1` interfaces remain | Shell migrated; local Qt test; CI/review pending |
+| G-1.5 Versioned introspection XML for the application capability and the daemon API | [XML contracts](docs/plugin-api/README.md), live introspection comparison |
+| AC-11 Dynamic provider: install/remove a manifest and reload without core changes | Local manifest remove/reinstall and reload test; CI pending |
+| AC-12 No product-specific conditions in the shell | Local architecture guards and Qt tests; review/CI pending |
 | G-1.6 Branch protection on `master` requires all CI checks and the CLA; the first `v0.1.0` pre-release is published through the release pipeline | GitHub settings, release page |
 
 ## Phase 2 — Applications
@@ -112,9 +177,13 @@ Goal: MPRIS media control, the local library and playback in external mpv with A
 
 ## Phase 5 — Product MVP
 
-**Status:** Planned. Decide first: OQ-04, OQ-06.
+**Status:** Planned. Decide first: OQ-04. OQ-06 was resolved by [ADR-0034](docs/adr/0034-provider-data-directory-identity.md).
 
 Goal: everything needed to use Arinn as the HTPC shell — the full design, Downloads, persistence, diagnostics, error UX, power and packaging.
+
+The [parallel UI workstream](#parallel-ui-work-alongside-phase-1) starts with a
+bounded presentation/navigation increment alongside Phase 1. This phase integrates
+and accepts the full UI; early component work does not close its criteria.
 
 | Exit criterion | Evidence |
 | --- | --- |

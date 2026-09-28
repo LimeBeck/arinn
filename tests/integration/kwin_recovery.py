@@ -16,7 +16,7 @@ def run(*args):
     return subprocess.check_output(args, text=True, timeout=8, stderr=subprocess.DEVNULL).strip()
 
 def status():
-    return json.loads(run(str(ROOT / 'target/debug/arinnctl'), 'status'))
+    return json.loads(run(str(ROOT / 'target/debug/arinnctl'), '--json', 'status'))
 
 def wait(test, timeout=12):
     end = time.monotonic() + timeout

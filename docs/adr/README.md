@@ -36,9 +36,9 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0017](0017-navigation-design-boundary.md) | Local D-pad navigation and a separate design specification | Accepted | 0022, 0023, 0030 |
 | [0018](0018-demo-testing-gates.md) | Demo provider, shared contract suite and architecture gates | Accepted | 0020, 0023, 0033 |
 | [0019](0019-design-handoff-contract.md) | The design handoff as a separate presentation contract | Accepted | 0022, 0023, 0027 |
-| [0020](0020-dbus-contract-baseline.md) | D-Bus transport, identifiers and Plugin API reliability | Accepted | — |
+| [0020](0020-dbus-contract-baseline.md) | D-Bus transport, identifiers and Plugin API reliability | Accepted | 0035 |
 | [0021](0021-plugin-runtime-ownership.md) | Transient systemd services and a separate Chrome native bridge | Accepted | — |
-| [0022](0022-state-and-interaction-baseline.md) | Activity ownership, persistence and interaction state | Accepted | — |
+| [0022](0022-state-and-interaction-baseline.md) | Activity ownership, persistence and interaction state | Accepted | 0034 |
 | [0023](0023-mvp-product-clarifications.md) | Back, system sleep and the target HTPC | Accepted | 0030 |
 | [0024](0024-local-library-mpv.md) | Local library and external mpv with a rich media API | Accepted | — |
 | [0025](0025-downloads-mvp.md) | DownloadProvider and Transmission in the MVP | Accepted | — |
@@ -50,3 +50,5 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0031](0031-single-screen-target.md) | The target HTPC has one screen | Accepted | — |
 | [0032](0032-kwin-script-platform-adapter.md) | A packaged KWin script as the first KDE platform adapter | Accepted | — |
 | [0033](0033-ci-cd-and-releases.md) | CI/CD pipeline and release policy | Accepted | — |
+| [0034](0034-provider-data-directory-identity.md) | Provider data directories independent of registry state | Accepted | — |
+| [0035](0035-phase1-application-wire-contract.md) | Phase 1 application wire contract | Accepted | — |

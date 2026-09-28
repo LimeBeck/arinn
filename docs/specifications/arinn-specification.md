@@ -142,9 +142,9 @@ Home answers "What do I want to do right now?", not "Which application do I need
 
 **Continue.** One merged section that may contain an unfinished film, a series, a local video, the current browser activity, a running game or other resumable content. If an Activity exists right now, it is shown here too. There MUST NOT be competing concepts such as "Now running", "Continue watching" and "Recent apps" as separate sections. The initial projection is one foreground or last running Activity plus up to four resumable content entries; this UI limit MUST NOT limit the registry ([§10](#10-activity-model)).
 
-**Favorites / Online.** Quick entry points such as Browser, Kinopoisk, IVI, YouTube, Steam and EmulationStation. Streaming services may technically open in Chrome, but for the user they MUST exist as separate tiles; the user never goes Browser → Bookmark → Kinopoisk. The user pins and unpins favorites. Online-service tiles are Arinn-owned **web shortcuts** (title, URL, optional icon) that open in the default BrowserProvider. URLs are `https`, or plain `http` for a local-network host such as a media server or NAS ([ADR-0045](../adr/0045-local-http-web-shortcuts.md)); a default set ships as packaging data, and the user adds, edits and removes shortcuts from the TV. This resolves OQ-02 by owner decision on 2026-09-28 ([ADR-0043](../adr/0043-web-shortcuts.md)).
+**Favorites / Online.** Quick entry points such as Browser, Kinopoisk, IVI, YouTube, Steam and EmulationStation. Streaming services may technically open in Chrome, but for the user they MUST exist as separate tiles; the user never goes Browser → Bookmark → Kinopoisk. The user pins and unpins favorites. Online-service tiles are Arinn-owned **web shortcuts** (title, URL, optional icon) that open in the default BrowserProvider. URLs are `https`, or plain `http` for a local-network host such as a media server or NAS ([ADR-0045](../adr/0045-local-http-web-shortcuts.md)); a default set ships as packaging data, and the user adds, edits and removes shortcuts from the TV. In the MVP, text is entered with a hardware keyboard (for example the keyboard of a keyboard-compatible remote); an on-screen keyboard is post-MVP. Without a keyboard, shortcuts are managed through the CLI (§14.3). Owner decision on 2026-09-28 ([#68](https://github.com/LimeBeck/arinn/issues/68)). This resolves OQ-02 by owner decision on 2026-09-28 ([ADR-0043](../adr/0043-web-shortcuts.md)).
 
-**New.** Content that providers consider new or recommended. Arinn has no recommendation engine; it shows provider data. New is a generic projection of LibraryProvider data; a provider may not supply it, and an empty section is hidden or can be disabled in Settings. The API for New is open: [OQ-05](#21-open-questions).
+**New.** Not part of the MVP: Home has no New section in version 1, and no provider contract defines "new" content. This resolves OQ-05 by owner decision on 2026-09-28. A later version may add New as a generic projection of LibraryProvider data through a separate ADR; Arinn has no recommendation engine.
 
 ### 5.2. Global Home overlay
 
@@ -178,7 +178,7 @@ Categories as in the design: Media, Playback, Sound, Network, Applications, Appe
 
 Arinn provides one system overlay for Home, Back, Play/Pause, volume, mute, the power menu and Settings. Each action is executed by the platform layer or the matching provider. CEC is not part of the architecture; TV control (for example webOS) is added later through the same plugin mechanism, never in the core.
 
-Global media and volume keys while an external application has focus are open: [OQ-04](#21-open-questions).
+**Media and volume keys.** While an external application has focus, Arinn does not register media or volume keys globally: Plasma handles them with its own OSD. Arinn handles them, and shows its own volume HUD, only while the shell is visible. This resolves OQ-04 by owner decision on 2026-09-28.
 
 **Power.**
 
@@ -210,7 +210,7 @@ Input modes: **D-pad mode** (cursor hidden, full focus treatment) and **pointer 
 | Esc, Backspace | Back ([§6.3](#63-home-and-back)). In an editable text field Backspace deletes a character; Esc closes the topmost scope. |
 | Global Home | Configurable global shortcut owned by the platform layer (Meta+F12 in the Phase 0 spike) |
 | Menu | Toggle global navigation; long press in Applications pins/unpins |
-| Media and volume keys | Media and volume actions ([OQ-04](#21-open-questions) for global behaviour) |
+| Media and volume keys | Media and volume actions; outside the shell Plasma handles them ([§5.7](#57-system-ui-power-and-ambient)) |
 
 Outside the shell, keys belong to the active application. Arinn MUST NOT intercept Esc, Backspace or plain letters globally. The prototype's letter shortcuts (H, M, P, A, O) are development bindings, not product keys. The production mapping uses semantic actions and is configurable per device.
 
@@ -233,7 +233,7 @@ If the saved Activity disappears, Home stays open, briefly shows an unavailable 
 - **OSD hidden:** Left/Right seek ±10 s (only if seek is supported) and show the OSD with focus on the timeline; OK/Up/Down only show the OSD.
 - **OSD visible:** OK on the timeline toggles play/pause. The OSD hides 4 s after the last input while playing and never while paused.
 - **Back** first hides the OSD; the next Back leaves the playback view of a managed mpv session, stops playback, saves resume and returns to the Home or Detail screen where playback started. It never terminates an arbitrary external application.
-- How input reaches Arinn while the OSD is hidden is open: [OQ-01](#21-open-questions).
+- **Input during managed playback:** the shell keeps keyboard focus as a transparent fullscreen input layer over the mpv window, including while the OSD is hidden. All keys are handled locally in the shell; only commands (seek, play/pause, stop) go to the provider. mpv never receives keys and never forwards them. This resolves OQ-01 by owner decision on 2026-09-28 ([ADR-0046](../adr/0046-shell-input-layer-during-playback.md)); the media integration gate verifies that the layer does not degrade playback.
 
 ### 6.5. Performance principles
 
@@ -586,13 +586,13 @@ The standalone UI gallery also provides a Home/navigation development preview
 (`arinn-ui-gallery --home`) with explicit populated, empty, loading, error and
 unavailable presentation fixtures. It emits observable action intentions only;
 it does not launch applications, retry a provider or perform system actions.
-This preview does not replace the production shell or implement web shortcuts or OQ-05.
+This preview does not replace the production shell or implement web shortcuts.
 Its scope and verification are recorded in the [component contract](../architecture/ui-components.md).
 
 The production shell uses the same Home/navigation components with asynchronous
 daemon data: an opaque Return target and paged application launch targets. Its
 Applications shortcut row and route do not imply persisted favorites, web shortcuts
-or settle OQ-05. Unimplemented sections show an explicit unavailable presentation;
+or define New. Unimplemented sections show an explicit unavailable presentation;
 launch feedback follows the daemon operation. The [component contract](../architecture/ui-components.md#production-home-and-applications)
 records the implemented subset and remaining qualification.
 
@@ -657,7 +657,7 @@ The MVP is accepted when all of the following hold on the target HTPC. Verificat
 | AC-14 | **3-metre UX.** Current focus and primary actions are unambiguous on a TV. |
 | AC-15 | **Library.** A local folder and a mounted network folder are scanned; metadata or fallback is shown; entries survive an unavailable mount; a film and an episode can be started. |
 | AC-16 | **Playback.** Play/pause/seek, audio and subtitle selection, resume after restart and a correct Continue in the mpv workflow. |
-| AC-17 | **Downloads.** Transmission queue; pause/resume/start now/retry; error and unavailable states; completed media appears in Library/New exactly once and can be started. |
+| AC-17 | **Downloads.** Transmission queue; pause/resume/start now/retry; error and unavailable states; completed media appears in Library exactly once and can be started. |
 | AC-18 | **Home/Back input.** Home/Back follow [§6.3](#63-home-and-back) with standard keyboard and mouse events; Esc and Backspace work with the text-input exception. The G60S Pro uses the same input path; a physical remote check is an extra smoke test. |
 | AC-19 | **Suspend and ambient.** Sleep really suspends the HTPC; wake and provider reconnect work; the shell is never shown over the lock screen. Ambient is checked separately and never triggers suspend. |
 
@@ -690,13 +690,13 @@ Each question needs a decision by the project owner. The recommendation is the p
 
 | ID | Question | Conflict | Recommendation |
 | --- | --- | --- | --- |
-| OQ-01 | How does input reach Arinn while the player OSD is hidden? | [Media MVP](../architecture/media-mvp.md) routes keys from the mpv window through the plugin and daemon to the shell, which then moves focus to the timeline — the chain forbidden by [§6.5](#65-performance-principles). | Keep the shell focused during managed playback as a transparent fullscreen input layer over the mpv window; all keys are handled locally and only commands go to the provider. Verify in the media integration gate that the overlay does not break playback performance. |
-| OQ-04 | Do media and volume keys work globally while an external application has focus? | §5.7 requires a system overlay with Play/Pause, volume and mute, but only Home is registered globally and keys outside the shell belong to the application. | In the MVP rely on Plasma for global media/volume keys outside Arinn; Arinn handles them only while the shell is visible, and shows its own volume HUD only then. |
-| OQ-05 | How does a LibraryProvider supply the New section? | New is a LibraryProvider projection, but neither the base operations nor the extensions define "new". | Add an optional extension `LibraryNew1` (ordered list of item refs with `added_at`), declared by feature flag. |
+| — | No open questions. | — | — |
 
 ---
 
 ## 22. Changes from v0.3
+
+Owner decisions after the `v0.1.0` pre-release (2026-09-28, no version change): OQ-01 (the shell is the input layer during managed playback, ADR-0046), OQ-04 (Plasma handles media and volume keys outside the shell) and OQ-05 (New is not part of the MVP) are resolved; web shortcut text entry uses a hardware keyboard in the MVP.
 
 Version 0.6 accompanies the first `v0.1.0` pre-release. It includes the production
 application API (ADR-0035), browser launch ownership (ADR-0038), platform window

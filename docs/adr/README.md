@@ -42,7 +42,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0021](0021-plugin-runtime-ownership.md) | Transient systemd services and a separate Chrome native bridge | Accepted | 0038, 0042 |
 | [0022](0022-state-and-interaction-baseline.md) | Activity ownership, persistence and interaction state | Accepted | 0034, 0043 |
 | [0023](0023-mvp-product-clarifications.md) | Back, system sleep and the target HTPC | Accepted | 0030 |
-| [0024](0024-local-library-mpv.md) | Local library and external mpv with a rich media API | Accepted | — |
+| [0024](0024-local-library-mpv.md) | Local library and external mpv with a rich media API | Accepted | 0046 |
 | [0025](0025-downloads-mvp.md) | DownloadProvider and Transmission in the MVP | Accepted | — |
 | [0026](0026-multiple-monitors.md) | Home on the screen of the active Activity | Accepted | 0031 |
 | [0027](0027-activity-background-snapshot.md) | Compositor snapshot of the Activity for a separate Qt shell | Accepted | — |
@@ -64,4 +64,5 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0043](0043-web-shortcuts.md) | Arinn-owned web shortcuts for online-service tiles | Accepted | 0045 |
 | [0044](0044-docs-only-ci-scope.md) | Documentation-only pull requests skip the build jobs | Accepted | — |
 | [0045](0045-local-http-web-shortcuts.md) | Plain HTTP web shortcuts for local-network hosts | Accepted | — |
+| [0046](0046-shell-input-layer-during-playback.md) | The shell is the input layer during managed playback | Accepted | — |
 <!-- register:end -->

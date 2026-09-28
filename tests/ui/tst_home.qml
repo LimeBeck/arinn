@@ -29,7 +29,10 @@ TestCase {
     SignalSpy { id: retry; signalName: "retryRequested" }
     function child(name) { const item = findChild(home, name); verify(item !== null, name); return item; }
     function focused(name) { tryCompare(child(name), "activeFocus", true, 5000, name); }
-    function init() {
+    function createHome() {
+        // Qt Quick Test retains the pointer between fixtures. Park it outside
+        // controls before creating Home so a queued hover cannot steal focus.
+        mouseMove(suite, 10, 10);
         home = createTemporaryObject(factory, suite);
         verify(home);
         returns.target = home; returns.clear();
@@ -37,7 +40,26 @@ TestCase {
         retry.target = home; retry.clear();
         focused("entry-a");
     }
+    function init() { createHome(); }
     function cleanup() { returns.target = null; entries.target = null; retry.target = null; }
+
+    function test_fixture_resets_pointer_data() {
+        return [{tag: "second", entry: "b"}, {tag: "third", entry: "c"}];
+    }
+    function test_fixture_resets_pointer(data) {
+        mouseMove(child("entry-" + data.entry), 100, 100);
+        focused("entry-" + data.entry);
+        home.destroy();
+        wait(0);
+        createHome();
+        verify(waitForRendering(home));
+        wait(0);
+        focused("entry-a");
+        keyClick(Qt.Key_Right); focused("entry-b");
+        keyClick(Qt.Key_Right); focused("entry-c");
+        home.continueEntries = [{id: "a", title: "Activity"}, {id: "b", title: "Second"}, {id: "d", title: "Fourth"}];
+        focused("entry-b");
+    }
 
     function test_home_back_activity() {
         home.returnActivityId = "a";

@@ -148,3 +148,13 @@ The pointer regression test also checks first-move hover after D-pad input and
 hover within the same card after scroll suppression expires. It failed before
 deferring the component hover check until the parent input-mode update; it passes
 with that fix. No pointer click is needed to move focus.
+
+The Home test fixture parks the synthetic pointer in a non-interactive area
+before creating each view. Qt Quick Test retains pointer coordinates across
+fixtures; otherwise a queued hover can override the initial keyboard focus.
+Two regression cases recreate Home after hovering different cards and check
+initial focus, arrow navigation and previous-item focus after removal. Both
+failed without pointer reset and passed with it (Qt 6.11.2, 2026-09-28,
+[issue #31](https://github.com/LimeBeck/arinn/issues/31)). This changes test
+isolation only; production input behaviour and acceptance gates are unchanged.
+The complete offscreen Qt Quick suite passed 20 consecutive runs after the fix.

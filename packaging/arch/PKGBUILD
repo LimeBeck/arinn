@@ -52,6 +52,7 @@ package() {
   install -Dm755 target/release/arinn-plugin-desktop "${pkgdir}/usr/lib/arinn/plugins/arinn-plugin-desktop"
   install -Dm644 plugins/desktop/desktop.toml "${pkgdir}/usr/share/arinn/plugins/desktop.toml"
   install -Dm644 plugins/demo/demo.toml "${pkgdir}/usr/share/arinn/plugins/demo.toml"
+  install -Dm644 packaging/web-shortcuts/web-shortcuts.toml "${pkgdir}/usr/share/arinn/web-shortcuts.toml"
   install -Dm644 platform/kde/phase0.js "${pkgdir}/usr/share/arinn/kwin/phase0.js"
   install -Dm755 platform/kde/arinn-kwin-adapter "${pkgdir}/usr/lib/arinn/arinn-kwin-adapter"
   # Session units are installed but never enabled by the package (ADR-0042).

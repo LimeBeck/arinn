@@ -27,6 +27,9 @@ pub struct Settings {
 pub struct Entry {
     pub application: Application,
     pub path: PathBuf,
+    /// Well-known bus name for a D-Bus activatable entry, derived from the
+    /// file basename exactly as GLib does. `None` launches through GIO.
+    pub dbus_name: Option<String>,
 }
 impl Settings {
     pub fn from_env() -> Result<Self, ErrorCode> {
@@ -179,8 +182,16 @@ impl Settings {
         Some(Entry {
             application,
             path: path.into(),
+            dbus_name: dbus.then(|| dbus_name(path)).flatten(),
         })
     }
+}
+/// GLib activates over D-Bus only when the basename without `.desktop` is a
+/// valid well-known bus name; otherwise it falls back to Exec.
+fn dbus_name(path: &Path) -> Option<String> {
+    let stem = path.file_name()?.to_str()?.strip_suffix(".desktop")?;
+    zbus::names::WellKnownName::try_from(stem).ok()?;
+    Some(stem.into())
 }
 fn collect(
     root: &Path,
@@ -384,6 +395,22 @@ mod tests {
             "[Desktop Entry]\nType=Application\nName=DBus\nDBusActivatable=true\n",
         );
         assert_eq!(s.discover().unwrap().len(), 1);
+        // A one-element basename is not a bus name; GLib falls back to Exec.
+        assert_eq!(s.discover().unwrap()["dbus.desktop"].dbus_name, None);
+        put(
+            &s.roots[0],
+            "org.test.Bus.desktop",
+            "[Desktop Entry]\nType=Application\nName=DBus\nDBusActivatable=true\n",
+        );
+        put(&s.roots[0], "org.test.Plain.desktop", ENTRY);
+        let found = s.discover().unwrap();
+        assert_eq!(
+            found["org.test.Bus.desktop"].dbus_name.as_deref(),
+            Some("org.test.Bus")
+        );
+        assert_eq!(found["org.test.Plain.desktop"].dbus_name, None);
+        std::fs::remove_file(s.roots[0].join("org.test.Bus.desktop")).unwrap();
+        std::fs::remove_file(s.roots[0].join("org.test.Plain.desktop")).unwrap();
         put(
             &s.roots[0],
             "large.desktop",

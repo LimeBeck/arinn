@@ -1,7 +1,10 @@
 // SPDX-FileCopyrightText: 2026 Arinn contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use arinn_plugin_desktop::launcher::launch_on;
+use arinn_plugin_desktop::{
+    discovery::Settings,
+    launcher::{activate_on, dispatch_on, launch_on},
+};
 use arinn_protocol::validation::ErrorCode;
 use std::{
     collections::HashMap,
@@ -223,32 +226,35 @@ impl Activation {
     }
 }
 
+/// Regression test for issue #59: `gio launch` could exit before its
+/// asynchronous Activate call left the process. The entry is dispatched with no
+/// systemd manager on the bus, so any path through a launcher process fails;
+/// activation must arrive even though the dispatching connection closes first.
 #[tokio::test]
 async fn dbus_activatable_entry_uses_private_session_application() {
-    let version = Command::new("/usr/bin/gio")
-        .arg("version")
-        .output()
-        .unwrap();
-    assert!(version.status.success());
-    let version = String::from_utf8(version.stdout).unwrap();
-    let parts: Vec<u32> = version
-        .trim()
-        .split('.')
-        .map(|v| v.parse().unwrap())
-        .collect();
-    // Older gio launch loads a keyfile without its filename, losing the
-    // D-Bus application ID. The supported Arch package requires GLib >= 2.86.
-    // Keep Ubuntu's older runner useful by checking its normalized failure;
-    // Arch's package test exercises successful activation below.
-    let supports_activation = (parts[0], parts[1]) >= (2, 86);
     let dir = Tree(std::env::temp_dir().join(format!("arinn-activation-{}", uuid::Uuid::new_v4())));
-    std::fs::create_dir(&dir.0).unwrap();
-    let desktop = dir.0.join("org.arinn.DesktopFixture.desktop");
+    let applications = dir.0.join("applications");
+    std::fs::create_dir_all(&applications).unwrap();
     std::fs::write(
-        &desktop,
+        applications.join("org.arinn.DesktopFixture.desktop"),
         "[Desktop Entry]\nType=Application\nName=Fixture\nDBusActivatable=true\n",
     )
     .unwrap();
+    std::fs::write(
+        applications.join("org.arinn.MissingFixture.desktop"),
+        "[Desktop Entry]\nType=Application\nName=Missing\nDBusActivatable=true\n",
+    )
+    .unwrap();
+    let entries = Settings {
+        roots: vec![applications],
+        locale: String::new(),
+        desktops: Vec::new(),
+        executable_paths: Vec::new(),
+    }
+    .discover()
+    .unwrap();
+    let entry = &entries["org.arinn.DesktopFixture.desktop"];
+    assert_eq!(entry.dbus_name.as_deref(), Some("org.arinn.DesktopFixture"));
     let bus = Bus::start();
     let application = bus.connection().await;
     let activated = Arc::new(AtomicU64::new(0));
@@ -270,55 +276,34 @@ async fn dbus_activatable_entry_uses_private_session_application() {
         .request_name("org.arinn.DesktopFixture")
         .await
         .unwrap();
-    let server = bus.connection().await;
-    let service = Service::default();
-    server
-        .object_server()
-        .at("/org/freedesktop/systemd1/unit/test", service.clone())
-        .await
-        .unwrap();
-    server
-        .object_server()
-        .at(
-            "/org/freedesktop/systemd1",
-            Manager {
-                bus_address: bus.1.clone(),
-                expected: desktop.clone(),
-                service,
-            },
-        )
-        .await
-        .unwrap();
-    server
-        .request_name("org.freedesktop.systemd1")
-        .await
-        .unwrap();
-    let provider = bus.connection().await;
-    if !supports_activation {
-        assert_eq!(
-            launch_on(&provider, &desktop).await,
-            Err(ErrorCode::Unavailable)
-        );
-        assert_eq!(activated.load(Ordering::SeqCst), 0);
-        eprintln!(
-            "GIO < 2.86: verified unsupported-launch failure; successful activation requires the Arch package test"
-        );
-        return;
+    // Repeat: the lost activation was timing-dependent.
+    for round in 1..=20 {
+        let provider = bus.connection().await;
+        assert_eq!(dispatch_on(&provider, entry).await, Ok(()));
+        drop(provider);
+        // Hold activation until dispatch has returned and the provider is gone.
+        // Success acknowledges dispatch, not that the application handled it.
+        assert_eq!(activated.load(Ordering::SeqCst), round - 1);
+        release.notify_one();
+        tokio::time::timeout(std::time::Duration::from_secs(5), finished.notified())
+            .await
+            .expect("application did not handle the dispatched activation");
+        assert_eq!(activated.load(Ordering::SeqCst), round);
     }
-    assert_eq!(launch_on(&provider, &desktop).await, Ok(()));
-    drop(provider);
-    // Hold activation until dispatch has returned and the provider is gone.
-    // GIO success does not imply the application handled the request yet.
-    assert_eq!(activated.load(Ordering::SeqCst), 0);
-    release.notify_one();
-    tokio::time::timeout(std::time::Duration::from_secs(5), finished.notified())
-        .await
-        .expect("application did not handle the dispatched activation");
-    assert_eq!(activated.load(Ordering::SeqCst), 1);
+    // Neither running nor activatable: reported, never silently dropped.
+    let provider = bus.connection().await;
+    assert_eq!(
+        dispatch_on(&provider, &entries["org.arinn.MissingFixture.desktop"]).await,
+        Err(ErrorCode::Unavailable)
+    );
+    assert_eq!(
+        activate_on(&provider, ":1.1").await,
+        Err(ErrorCode::InvalidArgument)
+    );
     // Activation belongs to the application's own bus identity and survives
     // the caller connection. This is a lifetime assertion, not a cgroup claim.
     assert!(
-        zbus::fdo::DBusProxy::new(&server)
+        zbus::fdo::DBusProxy::new(&provider)
             .await
             .unwrap()
             .name_has_owner("org.arinn.DesktopFixture".try_into().unwrap())

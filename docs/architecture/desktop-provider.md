@@ -17,8 +17,8 @@ ID. Removing that override exposes the lower entry on the next scan.
 
 Names use LC_ALL, LC_MESSAGES, then LANG, with country/modifier fallbacks.
 OnlyShowIn, NotShowIn, NoDisplay, Hidden, TryExec and Type control visibility.
-Exec and DBusActivatable are delegated to the system launcher; no shell evaluates
-an Exec line in the provider. Duplicate groups/keys and malformed booleans are
+Exec is delegated to the system launcher and D-Bus activation to the session bus;
+no shell evaluates an Exec line in the provider. Duplicate groups/keys and malformed booleans are
 rejected. Directory symlinks are not traversed; non-regular files are rejected
 without blocking on FIFOs. A file is limited to 256 KiB and a scan to 100,000
 filesystem entries and 32 nested directories. Catalogue text has a conservative
@@ -30,15 +30,31 @@ catalogue. User paths, application arguments and titles are not diagnostic logs.
 The provider asks the session systemd manager to start `/usr/bin/gio launch`
 in a unique `app-arinn-<uuid>.service` in `app.slice`. The desktop-file path is
 one argument, using ExecStartEx with no environment expansion. GIO interprets
-desktop field codes and D-Bus activation. This is the system application launcher,
-not a provider-side Exec interpreter.
+desktop field codes. This is the system application launcher, not a provider-side
+Exec interpreter.
 
-The runtime requires GLib/GIO 2.86 or later. Earlier `gio launch` versions
-load desktop entries without their filename and therefore lose D-Bus activation
-identity ([upstream 2.86 launcher](https://github.com/GNOME/glib/blob/2.86.0/gio/gio-tool-launch.c)).
-The Arch package enforces this minimum. On older Ubuntu test runners the activation
-fixture checks a normalized failure; successful activation is verified locally
-with GIO 2.88 and in the Arch package test with the supported dependency.
+**D-Bus activatable entries** are not launched through GIO. `gio launch` sends
+`org.freedesktop.Application.Activate` asynchronously, flushes asynchronously and
+returns, so the process can exit before the call leaves it; the activation is then
+lost while GIO still exits 0 ([issue #59](https://github.com/LimeBeck/arinn/issues/59),
+[GLib 2.86 `g_desktop_app_info_launch_uris_internal`](https://github.com/GNOME/glib/blob/2.86.0/gio/gdesktopappinfo.c)).
+Instead the provider applies GLib's rule itself: an entry with
+`DBusActivatable=true` whose file basename without `.desktop` is a valid
+well-known bus name is activated on that name, at the object path formed by
+replacing `.` with `/` and `-` with `_`. The provider first checks that the name
+is owned or activatable and otherwise returns `Unavailable`. It then sends
+`Activate` with empty platform data and `NO_REPLY_EXPECTED` from a dedicated
+connection; the message is written to the bus socket before the call returns, so
+closing the connection cannot lose it. The bus, not the provider, starts the
+application, so it never joins the provider's cgroup (with systemd activation, as
+used by dbus-broker, it runs in its own unit). As with GIO, success acknowledges
+dispatch, not handling by the application. Other `DBusActivatable` entries fall
+back to GIO, as GLib does.
+
+The Arch package requires GLib/GIO 2.86 or later
+([upstream 2.86 launcher](https://github.com/GNOME/glib/blob/2.86.0/gio/gio-tool-launch.c)).
+The activation fixture no longer depends on the GIO version and runs on every CI
+job.
 
 The application unit has `Type=exec`, `ExitType=cgroup` and
 `CollectMode=inactive-or-failed`. It has no dependency on the provider service.
@@ -49,7 +65,7 @@ private paths or arguments; callers receive normalized error codes.
 
 A dedicated D-Bus connection holds an AddRef reference while reading launcher
 completion. Properties are read without caching, so an early zero exit timestamp
-cannot conceal completion. GIO exit status acknowledges dispatch, not window
+cannot conceal completion. For GIO launches, the exit status acknowledges dispatch, not window
 creation or the application's eventual exit. The reference is released after the
 result or when the connection dies; releasing it never stops the application unit.
 Launch mutations are never retried. A timeout can follow a dispatched side effect.
@@ -102,6 +118,12 @@ Local isolated checks on 2026-09-28:
 - `cargo test --locked`: temporary XDG trees, locale/visibility, deletion,
   duplicate IDs, oversize/non-regular files, GIO field codes and DBusActivatable,
   exact association/MRU/remap, plus production daemon endpoint tests.
+- D-Bus activation (2026-09-28, [issue #59](https://github.com/LimeBeck/arinn/issues/59)):
+  a discovered activatable entry is dispatched 20 times on a private bus with no
+  systemd manager, each time closing the provider connection before the fixture
+  application handles `Activate`; all activations arrive. Unknown names return
+  `Unavailable`. The test fails when the entry is routed through the GIO launcher.
+  The release-mode test binary passed 30 consecutive runs locally.
 - The production endpoint tests cover unauthorized callers, atomic/incomplete
   inventory, invalid indices, retired tokens, immutable pages, lease capacity,
   XML/live introspection agreement, deduplication, graceful-close errors,

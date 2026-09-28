@@ -10,7 +10,7 @@ Thank you for helping build Arinn. These rules apply to everyone — human contr
 
 ## Development setup
 
-Requirements: Rust (edition 2024) with `rustfmt` and `clippy`, CMake ≥ 3.24, Ninja, a C++20 compiler, Qt 6 ≥ 6.6 (Quick, Quick Controls, DBus, Test), Python 3, Node.js, `dbus-run-session`. Live platform tests additionally need KDE Plasma 6 on Wayland, a systemd user session and `qdbus6`.
+Requirements: Rust (edition 2024) with `rustfmt` and `clippy`, CMake ≥ 3.24, Ninja, a C++20 compiler, Qt 6 ≥ 6.6 (Quick, Quick Controls, Quick Test, DBus, Test), Python 3, Node.js, `dbus-run-session`. Live platform tests additionally need KDE Plasma 6 on Wayland, a systemd user session and `qdbus6`.
 
 ```sh
 cargo build --locked
@@ -29,6 +29,7 @@ cargo fmt --all --check
 cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked
 cargo build --locked --examples
+ctest --test-dir build --output-on-failure
 cmake --build build && dbus-run-session -- python tests/integration/phase1.py
 node --test tests/integration/kwin_adapter.test.cjs
 python scripts/check-docs.py

@@ -27,8 +27,10 @@ The single source of phase status ([ADR-0028](docs/adr/0028-documentation-govern
 ## Parallel UI work alongside Phase 1
 
 **Scheduling decision:** approved by the project owner on 2026-09-28.
-**UI increment status:** Planned; this decision records scope and dependencies,
-not implementation or verification evidence.
+**UI increment status:** In progress (2026-09-28). The reusable component subset
+and isolated fixture gallery are implemented ([component contract](docs/architecture/ui-components.md),
+[issue #10](https://github.com/LimeBeck/arinn/issues/10)); Home, global navigation
+and complete design verification remain pending. No Phase 5 gate is closed.
 
 Phase 0 is complete, so presentation and local navigation work may start while
 Phase 1 core/API work continues. Full UI acceptance remains in Phase 5; phases

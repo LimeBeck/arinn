@@ -11,7 +11,7 @@ An experimental vertical slice: Rust daemon, a separate demo provider, a Qt Quic
 
 ## Build
 
-Requirements: Rust with edition 2024, CMake ≥ 3.24, Ninja, C++20, Qt 6 Quick/Quick Controls/DBus/Test ≥ 6.6, Python 3, Node.js (adapter regression test), `dbus-run-session`. For the live session: KDE Plasma 6 on Wayland, a systemd user session and `qdbus6`. Verified versions are in the [report](phase-0-report.md).
+Requirements: Rust with edition 2024, CMake ≥ 3.24, Ninja, C++20, Qt 6 Quick/Quick Controls/Quick Test/DBus/Test ≥ 6.6, Python 3, Node.js (adapter regression test), `dbus-run-session`. For the live session: KDE Plasma 6 on Wayland, a systemd user session and `qdbus6`. Verified versions are in the [report](phase-0-report.md).
 
 From the repository root:
 
@@ -26,6 +26,9 @@ cargo fmt --all --check
 node --test tests/integration/kwin_adapter.test.cjs
 dbus-run-session -- python tests/integration/phase0.py
 ```
+
+The independent UI component suite runs with `ctest --test-dir build --output-on-failure`;
+see the [component gallery](ui-components.md) for visual checks.
 
 The private-bus suite runs Qt Test automatically with offscreen/software rendering. It checks reading a real typed snapshot through QtDBus and local focus during a slow action. It does not touch the live desktop.
 

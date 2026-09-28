@@ -51,6 +51,8 @@ jobs:
         run: |
           cmake -S . -B build -G Ninja
           cmake --build build
+      - name: QML component tests
+        run: ctest --test-dir build --output-on-failure
       - name: KWin adapter tests
         run: node --test tests/integration/kwin_adapter.test.cjs
       - name: Private-bus integration suite

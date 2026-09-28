@@ -467,6 +467,12 @@ Favorites survive removal of their provider and are marked unavailable. Browser 
 
 Wayland constraints: applications cannot control foreign windows, focus stealing is restricted, global hotkeys and overlay semantics depend on the compositor. Window management therefore stays in the platform layer.
 
+The pre-stable provider-facing window enumeration and control bindings are defined
+by [ADR-0039](../adr/0039-platform-window-contract.md) and the
+[platform window contract](../architecture/platform-windows.md). Protocol/SDK
+bindings and isolated fixtures exist; the production daemon/KDE implementation
+and Phase 2 qualification remain pending.
+
 ### 12.1. Global Home
 
 The platform layer registers the global Home shortcut, which MUST work while focus is in Chrome, Steam, a game or ES-DE. The shell MUST NOT rely on receiving ordinary key events while unfocused. The first mechanism is a packaged KWin script with a typed bridge to the daemon ([ADR-0032](../adr/0032-kwin-script-platform-adapter.md)); plugins can never submit scripts.

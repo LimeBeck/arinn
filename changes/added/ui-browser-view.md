@@ -1,0 +1,1 @@
+- The shell has a fixture-only browser tab screen: windows and tabs with title, address, active and audible state, and local activate, close and open intents. It is not connected to the daemon. See [browser tab screen](docs/architecture/ui-browser.md).

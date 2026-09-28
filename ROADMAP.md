@@ -107,7 +107,8 @@ persistence, CLI and shell migration are implemented. Local private-bus contract
 cover the demo fixtures, recovery and limits; versioned XML is checked against live
 introspection. See the [implementation record](docs/architecture/phase-1-progress.md)
 for evidence and remaining qualification. Real systemd/KDE checks also passed ([live evidence](docs/architecture/phase-1-live-evidence.json)).
-CI and the maintainer release gate remain pending; Phase 1 is not marked Done.
+CI and clean Arch package checks passed on 2026-09-28 ([CI evidence](docs/architecture/phase-1-progress.md#github-ci-qualification)).
+The maintainer release and branch-protection gate remains pending; Phase 1 is not marked Done.
 
 **Decision resolved (2026-09-28):** OQ-06 uses SHA-256 of `provider_id`
 ([ADR-0034](docs/adr/0034-provider-data-directory-identity.md)); provisioning and
@@ -127,14 +128,14 @@ Scope:
 
 | Exit criterion | Evidence |
 | --- | --- |
-| G-1.1 Contract suite passes against the demo provider for its declared capabilities | Local private-bus coverage; CI pending ([record](docs/architecture/phase-1-progress.md)) |
-| G-1.2 Crash/restart, daemon restart, disappear/reappear and stale generation covered by integration tests | Local private-bus coverage; CI pending ([record](docs/architecture/phase-1-progress.md)) |
-| G-1.3 Limits, validation and timeouts rejected/handled as specified (malformed, oversized, slow provider) | Local private-bus coverage; CI pending ([record](docs/architecture/phase-1-progress.md)) |
-| G-1.4 Shell reads everything from `org.arinn.Daemon1`; no `Spike1` interfaces remain | Shell migrated; local Qt test; CI/review pending |
+| G-1.1 Contract suite passes against the demo provider for its declared capabilities | Local and CI private-bus coverage passed (2026-09-28; [evidence](docs/architecture/phase-1-progress.md#github-ci-qualification)) |
+| G-1.2 Crash/restart, daemon restart, disappear/reappear and stale generation covered by integration tests | Local and CI private-bus coverage passed (2026-09-28; [evidence](docs/architecture/phase-1-progress.md#github-ci-qualification)) |
+| G-1.3 Limits, validation and timeouts rejected/handled as specified (malformed, oversized, slow provider) | Local and CI private-bus coverage passed (2026-09-28; [evidence](docs/architecture/phase-1-progress.md#github-ci-qualification)) |
+| G-1.4 Shell reads everything from `org.arinn.Daemon1`; no `Spike1` interfaces remain | Shell migrated; local and CI Qt/private-bus tests passed (2026-09-28); review pending ([evidence](docs/architecture/phase-1-progress.md#github-ci-qualification)) |
 | G-1.5 Versioned introspection XML for the application capability and the daemon API | [XML contracts](docs/plugin-api/README.md), live introspection comparison |
-| AC-11 Dynamic provider: install/remove a manifest and reload without core changes | Local manifest remove/reinstall and reload test; CI pending |
-| AC-12 No product-specific conditions in the shell | Local architecture guards and Qt tests; review/CI pending |
-| G-1.6 Branch protection on `master` requires all CI checks and the CLA; the first `v0.1.0` pre-release is published through the release pipeline | GitHub settings, release page |
+| AC-11 Dynamic provider: install/remove a manifest and reload without core changes | Local and CI manifest remove/reinstall and reload tests passed (2026-09-28; [evidence](docs/architecture/phase-1-progress.md#github-ci-qualification)) |
+| AC-12 No product-specific conditions in the shell | Local and CI architecture guards and Qt tests passed (2026-09-28); review pending ([evidence](docs/architecture/phase-1-progress.md#github-ci-qualification)) |
+| G-1.6 Branch protection on `master` requires all CI checks and the CLA; the first `v0.1.0` pre-release is published through the release pipeline | Pending: branch-protection API reports a plan restriction (2026-09-28); maintainer release still required ([details](docs/architecture/phase-1-progress.md#remaining-maintainer-gate)) |
 
 ## Phase 2 — Applications
 

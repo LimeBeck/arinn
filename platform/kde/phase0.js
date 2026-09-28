@@ -205,13 +205,28 @@ function publishInventory() {
         put(0);
     });
 }
+// KWin's callDBus may hand a D-Bus string array ("as") to the script as an
+// array-like object rather than a JS Array, especially when it is empty.
+// Treating that as a protocol error reset the inventory after every idle
+// NextControl poll, invalidating every window token (#73).
+function stringList(value) {
+    if (Array.isArray(value)) return value;
+    if (value === undefined || value === null) return [];
+    if (typeof value === "object" && typeof value.length === "number") return Array.from(value);
+    return null;
+}
 function pollControl() {
     if (!platformGeneration) return;
     const serial = inventorySerial, generation = platformGeneration;
     controllingAt = Date.now();
-    bridge("NextControl", generation, command => {
+    bridge("NextControl", generation, reply => {
         if (serial !== inventorySerial) return;
-        if (!Array.isArray(command)) { resetInventory(); return; }
+        const command = stringList(reply);
+        if (command === null || command.some(part => typeof part !== "string")) {
+            print("arinn: unexpected NextControl reply of type " + typeof reply);
+            resetInventory();
+            return;
+        }
         if (command.length === 0) { controllingAt = 0; pollControl(); return; }
         if (command.length !== 3 || !["activate", "close"].includes(command[1])) { resetInventory(); return; }
         function complete(error) {

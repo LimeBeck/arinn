@@ -35,6 +35,7 @@ function fixture() {
     const context = vm.createContext({ workspace,
         QTimer: class { constructor() { this.timeout = { connect: fn => { tick = fn; } }; } start() {} },
         registerShortcut: (_id, _label, _keys, fn) => { shortcut = fn; },
+        print: () => {},
         callDBus: (_service, _path, _interface, method, ...args) => {
             if (_interface === 'org.arinn.KWinBridge1') {
                 assert.ok(args.length <= 9);
@@ -140,6 +141,32 @@ test('controls acknowledge graceful dispatch, unsupported and locked failures', 
     f.lock(false); f.show(); f.command('activate', token);
     assert.equal(f.workspace.activeWindow, f.activity);
     assert.equal(f.report()[0], false);
+});
+
+test('idle control polls with array-like or missing lists keep the inventory', () => {
+    // Real KWin may deliver an empty "as" reply as a non-Array value.
+    for (const idle of [undefined, null, { length: 0 }]) {
+        const f = fixture();
+        const before = f.snapshots.at(-1).generation;
+        const polls = f.controls.length;
+        f.controls.at(-1)(idle);
+        assert.equal(f.controls.length, polls + 1, 'polls again');
+        f.refresh();
+        assert.equal(f.snapshots.at(-1).generation, before, 'no reconnect');
+    }
+    // An array-like command is executed, not treated as a protocol error.
+    const f = fixture();
+    const token = f.snapshots.at(-1).rows[0][0];
+    f.show();
+    f.controls.at(-1)({ length: 3, 0: 'request', 1: 'activate', 2: token });
+    assert.equal(f.workspace.activeWindow, f.activity);
+    assert.equal(f.acknowledgements.at(-1)[2], '');
+    // Anything else is still a protocol error.
+    const g = fixture();
+    const generation = g.snapshots.at(-1).generation;
+    g.controls.at(-1)(42);
+    g.refresh();
+    assert.notEqual(g.snapshots.at(-1).generation, generation);
 });
 
 test('generation replacement ignores old control callbacks', () => {

@@ -8,6 +8,7 @@ pub mod operations;
 pub mod platform;
 pub mod registry;
 pub mod runtime;
+pub mod shortcuts;
 pub mod storage;
 pub mod supervisor;
 

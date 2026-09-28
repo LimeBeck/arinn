@@ -18,7 +18,7 @@ jobs:
       - name: Install build dependencies
         run: |
           pacman -Syu --noconfirm --needed base-devel git rust cmake ninja \
-            qt6-base qt6-declarative python dbus
+            qt6-base qt6-declarative qt6-svg python dbus
           useradd --create-home builder
       - uses: actions/checkout@v4
       - name: Create source tarball

@@ -73,7 +73,7 @@ and assign ownership of shared QML components, focus code, C++ models and build
 files so separate changes do not compete for the same files.
 
 Work depending on an open question waits for the owner's decision: web shortcuts
-(OQ-02), browser launch ownership (OQ-03), hidden-player input (OQ-01), global
+(OQ-02), hidden-player input (OQ-01), global
 media/volume keys (OQ-04) and the live New projection (OQ-05). These dependencies
 do not block the first UI increment's generic components and fixture-based views.
 Production Activity background capture, session actions and their performance
@@ -140,7 +140,11 @@ Scope:
 
 ## Phase 2 — Applications
 
-**Status:** Planned. Decide first: OQ-03.
+**Status:** Planned. OQ-03 was resolved by the owner on 2026-09-28:
+the desktop provider launches the browser; the Chrome provider declares only
+`browser` ([ADR-0038](docs/adr/0038-browser-launch-ownership.md)).
+Implementation is tracked in [issue #20](https://github.com/LimeBeck/arinn/issues/20);
+platform contract work and verification remain pending.
 
 Goal: launch and return to ordinary applications, Steam and ES-DE through `arinn-plugin-desktop`.
 
@@ -154,7 +158,8 @@ Goal: launch and return to ordinary applications, Steam and ES-DE through `arinn
 
 ## Phase 3 — Browser
 
-**Status:** Planned. Decide first: OQ-02, OQ-03.
+**Status:** Planned. Decide first: OQ-02. Browser launch ownership (OQ-03)
+was resolved by [ADR-0038](docs/adr/0038-browser-launch-ownership.md).
 
 Goal: the main daily scenario — Arinn becomes usable every day.
 

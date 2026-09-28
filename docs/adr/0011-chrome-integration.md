@@ -4,7 +4,7 @@
 - **Date:** 2026-09-27 (proposed); accepted 2026-09-27 by [ADR-0028](0028-documentation-governance.md)
 - **Deciders:** project owner (Developer Specification v0.3)
 - **Amends / Supersedes:** —
-- **Amended by / Superseded by:** [ADR-0021](0021-plugin-runtime-ownership.md) — separate native bridge process and reconnect rules
+- **Amended by / Superseded by:** [ADR-0021](0021-plugin-runtime-ownership.md) — separate native bridge process and reconnect rules; [ADR-0038](0038-browser-launch-ownership.md) — browser launch ownership
 - **Specification:** [§7.1](../specifications/arinn-specification.md)
 
 ## Context

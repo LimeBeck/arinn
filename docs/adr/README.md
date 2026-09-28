@@ -29,7 +29,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0008](0008-discovery-lifecycle.md) | XDG discovery and lifecycle through systemd user services | Accepted | 0021 |
 | [0009](0009-kde-wayland-platform.md) | PlatformService and a mandatory KDE/Wayland spike | Accepted | 0026, 0027, 0032 |
 | [0010](0010-activity-home.md) | Activity and one Continue/Home overlay model | Accepted | 0022, 0023 |
-| [0011](0011-chrome-integration.md) | Chrome/Chromium through an MV3 extension and Native Messaging | Accepted | 0021 |
+| [0011](0011-chrome-integration.md) | Chrome/Chromium through an MV3 extension and Native Messaging | Accepted | 0021, 0038 |
 | [0012](0012-desktop-steam-esde.md) | Desktop provider and dedicated Steam/ES-DE entry points | Accepted | 0021 |
 | [0013](0013-mpris-media.md) | MediaProvider based on MPRIS | Accepted | 0021, 0024 |
 | [0014](0014-state-persistence.md) | Provider-owned state and minimal Arinn persistence | Accepted | 0022 |
@@ -39,7 +39,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0018](0018-demo-testing-gates.md) | Demo provider, shared contract suite and architecture gates | Accepted | 0020, 0023, 0033 |
 | [0019](0019-design-handoff-contract.md) | The design handoff as a separate presentation contract | Accepted | 0022, 0023, 0027 |
 | [0020](0020-dbus-contract-baseline.md) | D-Bus transport, identifiers and Plugin API reliability | Accepted | 0035 |
-| [0021](0021-plugin-runtime-ownership.md) | Transient systemd services and a separate Chrome native bridge | Accepted | — |
+| [0021](0021-plugin-runtime-ownership.md) | Transient systemd services and a separate Chrome native bridge | Accepted | 0038 |
 | [0022](0022-state-and-interaction-baseline.md) | Activity ownership, persistence and interaction state | Accepted | 0034 |
 | [0023](0023-mvp-product-clarifications.md) | Back, system sleep and the target HTPC | Accepted | 0030 |
 | [0024](0024-local-library-mpv.md) | Local library and external mpv with a rich media API | Accepted | — |
@@ -56,4 +56,5 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0035](0035-phase1-application-wire-contract.md) | Phase 1 application wire contract | Accepted | — |
 | [0036](0036-parallel-development.md) | Parallel development by several agents | Accepted | 0037 |
 | [0037](0037-agent-autonomy-and-owner-gated-decisions.md) | Agent autonomy and owner-gated decisions | Accepted | — |
+| [0038](0038-browser-launch-ownership.md) | Browser launch ownership | Accepted | — |
 <!-- register:end -->

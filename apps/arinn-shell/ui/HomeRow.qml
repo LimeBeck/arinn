@@ -6,6 +6,7 @@ import QtQuick
 FocusScope {
     id: root
     property var entries: []
+    property var busyEntryIds: []
     property string title: ""
     property string variant: "content"
     property bool pointerMode: false
@@ -111,7 +112,7 @@ FocusScope {
                             monogram: entryLoader.modelData.monogram || ""
                             running: entryLoader.modelData.running || false
                             enabled: entryLoader.modelData.enabled !== false
-                            busy: entryLoader.modelData.busy || false
+                            busy: entryLoader.modelData.busy || root.busyEntryIds.includes(entryLoader.modelData.id)
                             pointerMode: root.pointerMode
                             hoverFocusEnabled: root.hoverFocusEnabled
                             onActiveFocusChanged: if (activeFocus) entryLoader.chosen()
@@ -131,7 +132,7 @@ FocusScope {
                             showProgress: entryLoader.modelData.progress !== undefined
                             progress: entryLoader.modelData.progress || 0
                             enabled: entryLoader.modelData.enabled !== false
-                            busy: entryLoader.modelData.busy || false
+                            busy: entryLoader.modelData.busy || root.busyEntryIds.includes(entryLoader.modelData.id)
                             pointerMode: root.pointerMode
                             hoverFocusEnabled: root.hoverFocusEnabled
                             onActiveFocusChanged: if (activeFocus) entryLoader.chosen()

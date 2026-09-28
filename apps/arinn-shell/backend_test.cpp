@@ -9,6 +9,16 @@
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QtTest>
+namespace {
+QQuickItem *findItem(QQuickItem *root, const QString &name) {
+  if (root->objectName() == name)
+    return root;
+  for (auto *child : root->childItems())
+    if (auto *found = findItem(child, name))
+      return found;
+  return nullptr;
+}
+} // namespace
 class BackendTest : public QObject {
   Q_OBJECT
 private slots:
@@ -34,17 +44,44 @@ private slots:
     QTRY_VERIFY(window->property("navOpen").toBool());
     QTest::keyClick(window, Qt::Key_Escape);
     QTRY_VERIFY(!window->property("navOpen").toBool());
-    auto first = window->findChild<QQuickItem *>("returnButton");
-    auto second = window->findChild<QQuickItem *>("demoButton");
-    QVERIFY(first && second);
+    QTRY_COMPARE_WITH_TIMEOUT(backend.applications().size(), 1, 5000);
+    auto first = findItem(window->contentItem(), "menuButton");
+    QQuickItem *second = nullptr;
+    QTRY_VERIFY(
+        second = findItem(
+            window->contentItem(),
+            "entry-" +
+                backend.applications().at(0).toMap().value("id").toString()));
+    QVERIFY(first);
+    QCOMPARE(backend.homeState(), QString("ready"));
+    auto home = window->findChild<QQuickItem *>("productionHome");
+    QVERIFY(home);
+    second->forceActiveFocus();
+    QTRY_VERIFY(second->hasActiveFocus());
+    QSignalSpy updates(&backend, &Backend::applicationsChanged);
+    backend.refresh();
+    QTest::qWait(1200);
+    QCOMPARE(updates.count(), 0);
+    QVERIFY(second->hasActiveFocus());
+    const auto capture = qEnvironmentVariable("ARINN_UI_CAPTURE");
+    if (!capture.isEmpty()) {
+      QTest::qWait(300);
+      QVERIFY(window->grabWindow().save(capture));
+    }
     first->forceActiveFocus();
     QTRY_VERIFY(first->hasActiveFocus());
-    backend.activate(backend.items().at(0).toMap().value("id").toString()); // fixture deliberately takes 7 s
-    QTest::keyClick(window, Qt::Key_Right);
+    backend.activate(backend.items()
+                       .at(0)
+                       .toMap()
+                       .value("id")
+                       .toString()); // fixture deliberately takes 7 s
+    QVERIFY(!backend.busyEntryIds().isEmpty());
+    QTest::keyClick(window, Qt::Key_Down);
     QTRY_VERIFY_WITH_TIMEOUT(second->hasActiveFocus(), 500);
-    QTest::keyClick(window, Qt::Key_Left);
+    QTest::keyClick(window, Qt::Key_Up);
     QTRY_VERIFY_WITH_TIMEOUT(first->hasActiveFocus(), 500);
     QTRY_COMPARE_WITH_TIMEOUT(backend.message(), QString("Timeout"), 7000);
+    QVERIFY(backend.busyEntryIds().isEmpty());
   }
 };
 QTEST_MAIN(BackendTest)

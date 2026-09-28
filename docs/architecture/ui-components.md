@@ -6,14 +6,14 @@
 The first component subset of the [UI workstream](../../ROADMAP.md#parallel-ui-work-alongside-phase-1)
 implements presentation primitives from [specification §15](../specifications/arinn-specification.md#15-design-contract).
 Tracked in [issue #10](https://github.com/LimeBeck/arinn/issues/10), extended by
-the Home/navigation preview below. This is not a production-bound Home screen
-or Phase 5 acceptance (AC-02, AC-14, G-5.1).
+the Home/navigation preview below and the [production binding](#production-home-and-applications).
+These increments do not constitute full Phase 5 acceptance (AC-02, AC-14, G-5.1).
 
 ## Ownership and boundaries
 
 `apps/arinn-shell/ui` owns reusable QML presentation components. The gallery and
-`tests/ui` supply explicit local fixtures. The existing shell and its C++ transport
-are unchanged. Components make no IPC calls, know no providers, and execute no
+`tests/ui` supply explicit local fixtures. The production shell binds the components
+to its C++ transport as described below. Components make no IPC calls, know no providers, and execute no
 commands (R-01–R-05, AC-12). Screen integration owns mapping typed C++ presentation
 models into these properties and routing emitted actions to the daemon.
 
@@ -88,8 +88,8 @@ in `LICENSES/OFL-1.1.txt`, with the binary annotated in `REUSE.toml`.
 ## Home and global navigation preview
 
 [Issue #15](https://github.com/LimeBeck/arinn/issues/15) adds `HomeView` and
-`HomeRow`, exercised by the standalone `HomeGallery.qml`. The production shell
-and its transport remain unchanged. Other top-level routes show explicit preview
+`HomeRow`, exercised by the standalone `HomeGallery.qml`. That fixture preview
+is independent of the production binding below. Other top-level routes show explicit preview
 placeholders; no Library, Downloads, Applications or Settings backend is implied.
 Power emits an intent only; it never opens a destructive confirmation or performs
 a session action.
@@ -106,7 +106,7 @@ focus. `homeState` is ready/empty/loading/error/unavailable, accompanied by
 Actions emit `entryRequested(id)`, `returnRequested(id)`, `retryRequested()`,
 `sectionRequested(route)` and `powerRequested()`. The gallery displays intent
 feedback; no timeout or animation changes backend state. Production model binding
-and operation feedback are follow-up work on the existing daemon contracts.
+and operation feedback now use the existing daemon contracts as described below.
 
 Local input uses arrows, Enter, Menu, Home, Esc and Backspace. Home closes
 navigation and focuses the return Activity when present. Back closes navigation,
@@ -158,3 +158,52 @@ failed without pointer reset and passed with it (Qt 6.11.2, 2026-09-28,
 [issue #31](https://github.com/LimeBeck/arinn/issues/31)). This changes test
 isolation only; production input behaviour and acceptance gates are unchanged.
 The complete offscreen Qt Quick suite passed 20 consecutive runs after the fix.
+
+## Production Home and Applications
+
+[Issue #42](https://github.com/LimeBeck/arinn/issues/42) binds the shared logical
+canvas, Home and navigation to `Main.qml`. The shell bundles the same presentation
+resources and Onest font as the gallery. The independent session lifecycle guard
+still controls window visibility. Home starts in a degraded state when the daemon
+is absent and reconnects asynchronously.
+
+`Backend` constructs the Return card from the daemon's opaque return target. It
+reads all `Providers` and `Application1.GetApplications` pages through the daemon,
+checks snapshot identity, generation, revision and pagination cycles, and exposes
+launchable/disabled application entries. The Home shortcut row is labelled
+Applications; it does not claim these entries are persisted favorites. Applications
+also has a dedicated route, including the full paged list of open windows and
+`Activate` actions; this list is not truncated by the five-item `HomeItems` projection.
+No provider-specific routing or QML business logic is
+introduced. Favorites persistence, web shortcuts, New, Library, Downloads, Settings
+and power actions remain separate work; unsupported sections explicitly say they
+are unavailable.
+
+Launch intents call `Application1.Launch` and observe `Operation1.Get`. Pending
+entries retain focus, show the busy treatment and suppress duplicate launch
+requests. Completion and errors come from the operation, never from animation
+timers. A failed provider snapshot does not remove other providers' valid entries.
+Unchanged poll results do not emit list replacement signals, preserving delegate
+identity and local focus. Daemon owner loss invalidates return and application
+entries; stale replies cannot replace a newer connection's state.
+
+The private-bus catalog tests cover multiple application pages, disabled entries,
+unchanged snapshots, generation/revision mismatches, cyclic tokens, running-window paging, partial
+provider failure, empty/error states and daemon disappearance/reappearance.
+Qt Quick tests cover Applications navigation, activation intents, removal and
+focus restoration. The production-shell private-bus test checks the actual Home
+binding and local navigation while a demo operation times out.
+
+Verification is recorded in the pull request. Real-desktop operator tests, target
+TV readability, global Home repetition while already visible, the 22-screen design
+gate and full AC-02/AC-18 acceptance are not claimed by this increment. The current
+Status contract does not distinguish a repeated global Home event from an ordinary
+state refresh; local Home is covered by the QML navigation suite.
+
+Local verification on 2026-09-28 (Qt 6.11.2): CMake and all three CTest suites
+passed, as did the complete Phase 1 private-bus suite (including the desktop
+fixtures), Rust fmt/clippy/tests/builds, JavaScript adapter tests,
+documentation/architecture/ADR/version checks, REUSE and dependency licenses.
+The production Home capture at 1080p and shared Home gallery at 4K were inspected.
+Hosted CI results are recorded in the pull request; no operator or TV result is
+implied by these isolated checks.

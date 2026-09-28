@@ -17,7 +17,7 @@ The single source of phase status ([ADR-0028](docs/adr/0028-documentation-govern
 | Phase | Goal | Status |
 | --- | --- | --- |
 | [0](#phase-0--architecture-spike) | Architecture spike on KDE/Wayland | **Done** (2026-09-27) |
-| [1](#phase-1--core-skeleton) | Production core skeleton, protocol and SDK | **In progress** (2026-09-28) |
+| [1](#phase-1--core-skeleton) | Production core skeleton, protocol and SDK | **Done** (2026-09-28) |
 | [2](#phase-2--applications) | Desktop applications, Steam, ES-DE | Planned |
 | [3](#phase-3--browser) | Chrome integration — first daily-usable build | Planned |
 | [4](#phase-4--media) | MPRIS, local library and mpv | Planned |
@@ -101,21 +101,21 @@ Goal: prove the architecture on KDE Plasma 6 / Wayland before significant UI wor
 
 ## Phase 1 — Core skeleton
 
-**Status:** In progress (2026-09-28).
+**Status:** Done (2026-09-28), under explicit owner authorization.
 
 The production registry, systemd adapter, SDK, application API, operation lifecycle,
 persistence, CLI and shell migration are implemented. Local private-bus contracts
 cover the demo fixtures, recovery and limits; versioned XML is checked against live
 introspection. See the [implementation record](docs/architecture/phase-1-progress.md)
-for evidence and remaining qualification. Real systemd/KDE checks also passed ([live evidence](docs/architecture/phase-1-live-evidence.json)).
-CI and clean Arch package checks passed on 2026-09-28 ([CI evidence](docs/architecture/phase-1-progress.md#github-ci-qualification)).
-Branch protection is enabled and verified (2026-09-28). The maintainer release
-remains pending; Phase 1 is not marked Done.
+for verification evidence. Real systemd/KDE checks also passed ([live evidence](docs/architecture/phase-1-live-evidence.json)).
+CI and clean Arch package checks passed on 2026-09-28 ([CI evidence](docs/architecture/phase-1-progress.md#release-qualification)).
+Branch protection is enabled and verified. The [v0.1.0 pre-release](https://github.com/LimeBeck/arinn/releases/tag/v0.1.0)
+was published through the [successful release pipeline](https://github.com/LimeBeck/arinn/actions/runs/36416052425)
+on 2026-09-28; all Phase 1 exit criteria are met.
 
 **Decision resolved (2026-09-28):** OQ-06 uses SHA-256 of `provider_id`
 ([ADR-0034](docs/adr/0034-provider-data-directory-identity.md)); provisioning and
 registry-reset recovery tests are implemented.
-G-1.6 also requires maintainer actions; agents do not publish releases.
 
 Goal: replace the spike interfaces with the production core, so every later phase adds providers instead of changing the core.
 
@@ -130,14 +130,14 @@ Scope:
 
 | Exit criterion | Evidence |
 | --- | --- |
-| G-1.1 Contract suite passes against the demo provider for its declared capabilities | Local and CI private-bus coverage passed (2026-09-28; [evidence](docs/architecture/phase-1-progress.md#github-ci-qualification)) |
-| G-1.2 Crash/restart, daemon restart, disappear/reappear and stale generation covered by integration tests | Local and CI private-bus coverage passed (2026-09-28; [evidence](docs/architecture/phase-1-progress.md#github-ci-qualification)) |
-| G-1.3 Limits, validation and timeouts rejected/handled as specified (malformed, oversized, slow provider) | Local and CI private-bus coverage passed (2026-09-28; [evidence](docs/architecture/phase-1-progress.md#github-ci-qualification)) |
-| G-1.4 Shell application/provider integration data and commands use `org.arinn.Daemon1` and its daemon-owned endpoints; no executable `Spike1` interfaces remain. Independent session observation follows ADR-0041 | Source review passes the clarified boundary (2026-09-28; [review](docs/architecture/phase-1-shell-review.md), [owner decision](docs/adr/0041-independent-session-lifecycle-guard.md)); prior Qt/private-bus [CI evidence](docs/architecture/phase-1-progress.md#github-ci-qualification). R-05 lifecycle transport extraction was merged in [#32](https://github.com/LimeBeck/arinn/pull/32), closing [#29](https://github.com/LimeBeck/arinn/issues/29) |
+| G-1.1 Contract suite passes against the demo provider for its declared capabilities | Local and CI private-bus coverage passed (2026-09-28; [evidence](docs/architecture/phase-1-progress.md#release-qualification)) |
+| G-1.2 Crash/restart, daemon restart, disappear/reappear and stale generation covered by integration tests | Local and CI private-bus coverage passed (2026-09-28; [evidence](docs/architecture/phase-1-progress.md#release-qualification)) |
+| G-1.3 Limits, validation and timeouts rejected/handled as specified (malformed, oversized, slow provider) | Local and CI private-bus coverage passed (2026-09-28; [evidence](docs/architecture/phase-1-progress.md#release-qualification)) |
+| G-1.4 Shell application/provider integration data and commands use `org.arinn.Daemon1` and its daemon-owned endpoints; no executable `Spike1` interfaces remain. Independent session observation follows ADR-0041 | Source review passes the clarified boundary (2026-09-28; [review](docs/architecture/phase-1-shell-review.md), [owner decision](docs/adr/0041-independent-session-lifecycle-guard.md)); prior Qt/private-bus [CI evidence](docs/architecture/phase-1-progress.md#release-qualification). R-05 lifecycle transport extraction was merged in [#32](https://github.com/LimeBeck/arinn/pull/32), closing [#29](https://github.com/LimeBeck/arinn/issues/29) |
 | G-1.5 Versioned introspection XML for the application capability and the daemon API | [XML contracts](docs/plugin-api/README.md), live introspection comparison |
-| AC-11 Dynamic provider: install/remove a manifest and reload without core changes | Local and CI manifest remove/reinstall and reload tests passed (2026-09-28; [evidence](docs/architecture/phase-1-progress.md#github-ci-qualification)) |
-| AC-12 No product-specific conditions in the shell | Production shell source review passed (2026-09-28; [review](docs/architecture/phase-1-shell-review.md)); prior local/CI test evidence remains in the [implementation record](docs/architecture/phase-1-progress.md#github-ci-qualification) |
-| G-1.6 Branch protection on `master` requires all CI checks and the CLA; the first `v0.1.0` pre-release is published through the release pipeline | Partial: required checks and CLA enforced by branch protection, verified by API readback (2026-09-28); release preparation and maintainer publication of `v0.1.0` still required ([details](docs/architecture/phase-1-progress.md#remaining-maintainer-gate)) |
+| AC-11 Dynamic provider: install/remove a manifest and reload without core changes | Local and CI manifest remove/reinstall and reload tests passed (2026-09-28; [evidence](docs/architecture/phase-1-progress.md#release-qualification)) |
+| AC-12 No product-specific conditions in the shell | Production shell source review passed (2026-09-28; [review](docs/architecture/phase-1-shell-review.md)); prior local/CI test evidence remains in the [implementation record](docs/architecture/phase-1-progress.md#release-qualification) |
+| G-1.6 Branch protection on `master` requires all CI checks and the CLA; the first `v0.1.0` pre-release is published through the release pipeline | Pass (2026-09-28): required checks and CLA enforced by verified branch protection; `v0.1.0` published by the successful release pipeline, with downloaded asset checksums verified ([evidence](docs/architecture/phase-1-progress.md#release-qualification)) |
 
 ## Phase 2 — Applications
 

@@ -4,7 +4,7 @@
 - **Date:** 2026-09-27 (proposed); accepted 2026-09-27 by [ADR-0028](0028-documentation-governance.md)
 - **Deciders:** project owner (Developer Specification v0.3)
 - **Amends / Supersedes:** —
-- **Amended by / Superseded by:** [ADR-0020](0020-dbus-contract-baseline.md) (bindings, bus names, API defaults), [ADR-0021](0021-plugin-runtime-ownership.md) (units and autostart)
+- **Amended by / Superseded by:** [ADR-0020](0020-dbus-contract-baseline.md) (bindings, bus names, API defaults), [ADR-0021](0021-plugin-runtime-ownership.md) (units and autostart), [ADR-0041](0041-independent-session-lifecycle-guard.md) (independent session observation)
 - **Specification:** [§8, §14.3, §18](../specifications/arinn-specification.md)
 
 ## Context

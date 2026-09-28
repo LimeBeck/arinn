@@ -17,6 +17,9 @@ ID. Removing that override exposes the lower entry on the next scan.
 
 Names use LC_ALL, LC_MESSAGES, then LANG, with country/modifier fallbacks.
 OnlyShowIn, NotShowIn, NoDisplay, Hidden, TryExec and Type control visibility.
+`Categories=` sets the Applications group: `WebBrowser` is Online, then `Game` is
+Games, then `AudioVideo`, `Audio` or `Video` is Media; the first match in that
+order wins and everything else is Other (spec §5.5).
 Exec is delegated to the system launcher and D-Bus activation to the session bus;
 no shell evaluates an Exec line in the provider. Duplicate groups/keys and malformed booleans are
 rejected. Directory symlinks are not traversed; non-regular files are rejected

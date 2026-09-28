@@ -174,6 +174,13 @@ launchable/disabled application entries. The Home shortcut row is labelled
 Applications; it does not claim these entries are persisted favorites. Applications
 also has a dedicated route, including the full paged list of open windows and
 `Activate` actions; this list is not truncated by the five-item `HomeItems` projection.
+Applications are grouped into Online, Games, Media and Other rows, in that order
+(spec §5.5, [#63](https://github.com/LimeBeck/arinn/issues/63)). The group comes
+from the provider's application record; `Backend` maps unknown groups to Other
+before QML, which only filters by the known group names. Empty groups are hidden.
+Up/Down moves between visible group rows and the open-windows row, keeping the
+column position where possible; each screen remembers the focused row, and the
+section scrolls so the focused row stays on screen.
 No provider-specific routing or QML business logic is
 introduced. Favorites persistence, web shortcuts, New, Library, Downloads, Settings
 and power actions remain separate work; unsupported sections explicitly say they

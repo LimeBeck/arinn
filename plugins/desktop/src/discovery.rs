@@ -177,8 +177,7 @@ impl Settings {
             id: id.into(),
             title,
             can_launch: true,
-            // Categories= mapping is #63.
-            group: "other".into(),
+            group: group(values.get("Categories").map(String::as_str)).into(),
         };
         application.validate().ok()?;
         Some(Entry {
@@ -186,6 +185,26 @@ impl Settings {
             path: path.into(),
             dbus_name: dbus.then(|| dbus_name(path)).flatten(),
         })
+    }
+}
+/// Applications-screen group from freedesktop main categories (spec §5.5,
+/// #63): browsers are Online, then Game, then audio/video; the first match in
+/// that order wins and everything else is Other.
+fn group(categories: Option<&str>) -> &'static str {
+    let categories: Vec<&str> = categories
+        .unwrap_or_default()
+        .split(';')
+        .map(str::trim)
+        .collect();
+    let has = |names: &[&str]| categories.iter().any(|c| names.contains(c));
+    if has(&["WebBrowser"]) {
+        "online"
+    } else if has(&["Game"]) {
+        "games"
+    } else if has(&["AudioVideo", "Audio", "Video"]) {
+        "media"
+    } else {
+        "other"
     }
 }
 /// GLib activates over D-Bus only when the basename without `.desktop` is a
@@ -397,6 +416,38 @@ mod tests {
             "[Desktop Entry]\nType=Application\nName=DBus\nDBusActivatable=true\n",
         );
         assert_eq!(s.discover().unwrap().len(), 1);
+        // Groups come from Categories=, first match in Online, Games, Media order.
+        for (categories, expected) in [
+            ("Network;WebBrowser;", "online"),
+            ("Game;ActionGame;", "games"),
+            ("AudioVideo;Video;Player;", "media"),
+            ("Audio;", "media"),
+            ("Game;Video;WebBrowser;", "online"),
+            ("Video;Game;", "games"),
+            ("Utility;TextEditor;", "other"),
+            ("", "other"),
+        ] {
+            put(
+                &s.roots[0],
+                "org.test.Group.desktop",
+                &format!("{ENTRY}Categories={categories}\n"),
+            );
+            assert_eq!(
+                s.discover().unwrap()["org.test.Group.desktop"]
+                    .application
+                    .group,
+                expected,
+                "{categories}"
+            );
+        }
+        put(&s.roots[0], "org.test.Group.desktop", ENTRY);
+        assert_eq!(
+            s.discover().unwrap()["org.test.Group.desktop"]
+                .application
+                .group,
+            "other"
+        );
+        std::fs::remove_file(s.roots[0].join("org.test.Group.desktop")).unwrap();
         // A one-element basename is not a bus name; GLib falls back to Exec.
         assert_eq!(s.discover().unwrap()["dbus.desktop"].dbus_name, None);
         put(

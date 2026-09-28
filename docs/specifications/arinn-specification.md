@@ -266,7 +266,7 @@ Chrome ──Extension API──▶ Arinn Chrome extension (Manifest V3)
        ──Plugin API──▶ arinnd
 ```
 
-The extension requests only `tabs` and `nativeMessaging`; no content scripts and no host permissions. Version 1 needs no page scraping, DOM automation, arbitrary JavaScript or content analysis. The plugin works only with windows, tabs, URL, title, favicon and active/audible state. Incognito is not connected by default. Several browser profiles may produce several connections without creating Arinn profiles.
+The extension requests only `tabs` and `nativeMessaging`; no content scripts and no host permissions. Version 1 needs no page scraping, DOM automation, arbitrary JavaScript or content analysis. The plugin works only with windows, tabs, URL, title and active/audible state; version 1 transfers no favicon, because reading one would need a further extension permission ([ADR-0048](../adr/0048-browser-wire-contract.md)). Incognito is not connected by default. Several browser profiles may produce several connections without creating Arinn profiles.
 
 Generic `open` accepts only `http` and `https`. The desktop ApplicationProvider launches the browser application; `arinn-plugin-chrome` declares only `browser`, not `application`. The application and browser entities are linked through a validated platform window token, never through titles or product-specific core logic. This resolves OQ-03 by owner decision on 2026-09-28 ([ADR-0038](../adr/0038-browser-launch-ownership.md)). Details: [plugin runtime](../architecture/plugin-runtime.md).
 
@@ -372,7 +372,7 @@ A plugin declares capabilities, never a product type. One plugin may implement s
 | Capability | Manifest name | Conceptual operations |
 | --- | --- | --- |
 | ApplicationProvider | `application` | listApplications, getApplication, launch, activate, terminate, listRunning |
-| BrowserProvider | `browser` | getWindows, getTabs, open, activateTab, closeTab, createTab, getActiveTab; Tab = id, windowId, title, url, favicon, active, audible |
+| BrowserProvider | `browser` | getTabs (windows and tabs in one snapshot), open (a new tab), activateTab, closeTab; Window = id, window token, focused; Tab = id, windowId, title, url, active, audible ([ADR-0048](../adr/0048-browser-wire-contract.md)) |
 | MediaProvider | `media` | listSessions, getSession, play, pause, playPause, seek, next, previous, stop; extensions `MediaOpen1`, `MediaTracks1`, `MediaTimeline1` |
 | LibraryProvider | `library` | listCollections, listItems, getItem, launch; extensions `LibraryResume1`, `LibraryImport1` |
 | ActionProvider | `action` | generic actions with a machine-readable id, title, icon and enabled flag (for example TV power, TV input, custom system actions) |

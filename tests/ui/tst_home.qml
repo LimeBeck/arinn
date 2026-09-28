@@ -69,7 +69,9 @@ TestCase {
     }
     function test_rows_and_horizontal_scroll() {
         keyClick(Qt.Key_Down); focused("entry-f");
+        tryCompare(home, "hoverFocusEnabled", true);
         keyClick(Qt.Key_Down); focused("entry-n");
+        compare(home.hoverFocusEnabled, false);
         keyClick(Qt.Key_Up); focused("entry-f");
         keyClick(Qt.Key_Up); focused("entry-a");
         for (let i = 0; i < 4; ++i) keyClick(Qt.Key_Right);

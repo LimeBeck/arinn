@@ -23,6 +23,8 @@ FocusScope {
     property var focusedEntry: ({})
     property int navIndex: 0
     property var navigationOpener: null
+    readonly property real homeOffset: homeRow === "new" && newRow.visible ? -Math.min(360, Math.max(0, newRow.y - 570)) : 0
+    onHomeOffsetChanged: hoverDelay.restart()
     readonly property bool hoverFocusEnabled: !hoverDelay.running
     readonly property var sections: [qsTr("Home"), qsTr("Library"), qsTr("Downloads"), qsTr("Applications"), qsTr("Settings")]
     readonly property var routes: ["home", "library", "downloads", "applications", "settings"]
@@ -177,7 +179,10 @@ FocusScope {
                 anchors.fill: parent
                 visible: root.homeState === "ready"
                 // A translation keeps all rows in a single logical screen.
-                transform: Translate { y: root.homeRow === "new" && newRow.visible ? -Math.min(360, Math.max(0, newRow.y - 570)) : 0 }
+                transform: Translate {
+                    y: root.homeOffset
+                    Behavior on y { NumberAnimation { duration: 450; easing.type: Easing.OutCubic } }
+                }
                 Column {
                     x: 120; y: 136; width: 1300; spacing: 14
                     opacity: root.homeRow === "new" && newRow.visible ? 0 : 1

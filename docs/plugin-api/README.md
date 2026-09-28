@@ -20,6 +20,20 @@ order is defined in `arinn-protocol::production` and `application`; methods retu
 one struct use a one-element tuple to preserve the D-Bus body signature for QtDBus.
 The old [phase0.xml](phase0.xml) is historical evidence, not an active interface.
 
+### Platform window contract (production implementation pending)
+
+`org.arinn.PlatformWindows1` is specified for the daemon service/root path by
+[platform-windows1.xml](platform-windows1.xml) and
+[ADR-0039](../adr/0039-platform-window-contract.md). It defines paged live windows,
+platform generations and targeted activation/graceful-close operations for
+registered application providers. Exact field meanings, authorization, lifetime
+and failure rules are in the [platform contract](../architecture/platform-windows.md).
+The SDK exports `platform::WindowClient`; its private-bus fixture checks XML and
+client behaviour. The production daemon does **not** export this interface yet.
+This is not a seventh capability or a shell-to-compositor API.
+
+### Production application and registry semantics
+
 `Providers(token)` returns an immutable registry page with a snapshot ID. Start
 with an empty token and follow `next_token`; tokens are caller-bound and expire
 in 30 seconds. Each provider record identifies its capability endpoint, generation,

@@ -57,4 +57,5 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0036](0036-parallel-development.md) | Parallel development by several agents | Accepted | 0037 |
 | [0037](0037-agent-autonomy-and-owner-gated-decisions.md) | Agent autonomy and owner-gated decisions | Accepted | — |
 | [0038](0038-browser-launch-ownership.md) | Browser launch ownership | Accepted | — |
+| [0039](0039-platform-window-contract.md) | Platform window snapshot and control contract | Accepted | — |
 <!-- register:end -->

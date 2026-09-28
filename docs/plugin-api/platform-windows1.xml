@@ -1,0 +1,26 @@
+<!-- SPDX-FileCopyrightText: 2026 Arinn contributors
+SPDX-License-Identifier: MIT OR Apache-2.0 -->
+<node>
+  <interface name="org.arinn.PlatformWindows1">
+    <method name="GetWindows">
+      <arg name="token" type="s" direction="in" />
+      <arg type="(sta(sssbbbb)s)" direction="out" />
+    </method>
+    <method name="Activate">
+      <arg name="generation" type="s" direction="in" />
+      <arg name="token" type="s" direction="in" />
+      <arg name="request_id" type="s" direction="in" />
+      <arg type="o" direction="out" />
+    </method>
+    <method name="Close">
+      <arg name="generation" type="s" direction="in" />
+      <arg name="token" type="s" direction="in" />
+      <arg name="request_id" type="s" direction="in" />
+      <arg type="o" direction="out" />
+    </method>
+    <signal name="WindowsChanged">
+      <arg name="generation" type="s" />
+      <arg name="revision" type="t" />
+    </signal>
+  </interface>
+</node>

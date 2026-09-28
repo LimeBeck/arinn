@@ -5,6 +5,7 @@
 use serde::{Deserialize, Serialize};
 use zbus::zvariant::Type;
 pub mod application;
+pub mod platform;
 pub mod production;
 pub mod validation;
 

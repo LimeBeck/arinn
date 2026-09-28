@@ -7,7 +7,7 @@ members = ["crates/arinn-protocol", "crates/arinn-plugin-sdk", "crates/arinnd", 
 resolver = "2"
 
 [workspace.package]
-version = "0.0.1"
+version = "0.1.0"
 edition = "2024"
 repository = "https://github.com/LimeBeck/arinn"
 

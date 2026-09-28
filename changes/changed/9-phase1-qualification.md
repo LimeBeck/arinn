@@ -1,1 +1,0 @@
-- Record successful Phase 1 CI and clean Arch package checks, with source links and the remaining branch-protection and maintainer release requirements.

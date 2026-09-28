@@ -119,8 +119,11 @@ The `v0.1.0` release is still unpublished. On commit
 `cdc11c4dd3783cbe24faf4b3b8cb1fd3ad6c2088`,
 `python scripts/release.py check v0.1.0` failed because the workspace version
 is `0.0.1`, there is no collected release section, and changelog fragments remain.
-The maintainer must prepare the version and changelog in a release PR, satisfy
-CI and nightly requirements, and publish through the release pipeline as described
+The owner subsequently delegated preparation and publication of `v0.1.0`.
+The release preparation updates the workspace/package version, generates the
+lockfile with Cargo, collects the changelog and advances specification 0.6.
+`python scripts/release.py check v0.1.0` now passes on the release branch.
+CI and publication through the release pipeline remain required, as described
 in [CONTRIBUTING.md](../../CONTRIBUTING.md#releases).
 
 No release tag was created and no release was published during this verification.

@@ -2,7 +2,7 @@
 
 Started 2026-09-28 from `master` at `48d40c0`. Phase status remains **In progress**
 in [ROADMAP.md](../../ROADMAP.md): local and CI implementation evidence does not
-close the maintainer-only release and branch-protection gate.
+close the remaining maintainer release gate. Branch protection is now verified.
 
 ## Implemented
 
@@ -95,20 +95,37 @@ The subsequent [shell boundary review](phase-1-shell-review.md) passes AC-12
 for the reviewed production shell. The owner resolved the G-1.4 wording conflict
 in [ADR-0041](../adr/0041-independent-session-lifecycle-guard.md): application/provider integration remains daemon-only,
 while session observation stays independent. The review supports that clarified
-boundary; platform transport extraction and its regression evidence remain
+boundary. Platform transport extraction was merged in
+[PR #32](https://github.com/LimeBeck/arinn/pull/32), closing
 [task #29](https://github.com/LimeBeck/arinn/issues/29).
 
 ### Remaining maintainer gate
 
-On 2026-09-28, a read-only request to GitHub's branch-protection endpoint for
-`master` returned HTTP 403 with a requirement to upgrade to GitHub Pro or make the
-repository public. Required-check and CLA enforcement could therefore not be
-verified. Repository visibility and settings were not changed. The maintainer
-must resolve this restriction and verify the required checks for G-1.6.
+The earlier branch-protection API request returned a plan restriction. A fresh
+check on 2026-09-28 instead reported an unprotected branch. Following the owner's
+request to close Phase 1, protection was configured and verified by a separate
+GET of `repos/LimeBeck/arinn/branches/master/protection`:
 
-Publication of `v0.1.0` through the release pipeline remains a maintainer action;
-no release was created or published during this qualification. Phase 1 remains
-**In progress** until its remaining review and maintainer requirements are met.
+- Pull requests and an up-to-date branch are required, including for administrators.
+- Required checks: `Rust (fmt, clippy, test)`,
+  `Qt shell and private-bus integration (Arch Linux)`,
+  `Licensing (REUSE, cargo-deny)`, `Documentation consistency`,
+  `Changelog fragment`, `Package / Build Arch package`,
+  `Package / Install and smoke-test package`, and `cla`.
+- Checks are bound to the GitHub Actions app (15368).
+- Force pushes and branch deletion are disabled; code-owner approval is not required.
+
+The `v0.1.0` release is still unpublished. On commit
+`cdc11c4dd3783cbe24faf4b3b8cb1fd3ad6c2088`,
+`python scripts/release.py check v0.1.0` failed because the workspace version
+is `0.0.1`, there is no collected release section, and changelog fragments remain.
+The maintainer must prepare the version and changelog in a release PR, satisfy
+CI and nightly requirements, and publish through the release pipeline as described
+in [CONTRIBUTING.md](../../CONTRIBUTING.md#releases).
+
+No release tag was created and no release was published during this verification.
+Phase 1 remains **In progress** until publication evidence closes G-1.6.
+Remaining work is tracked in [task #41](https://github.com/LimeBeck/arinn/issues/41).
 
 ## Reproduce the isolated checks
 

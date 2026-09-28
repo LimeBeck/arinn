@@ -29,7 +29,9 @@ The overlay imports `ActionButton`, `Surface`, `StatusPane`, `UiText` and
 
 Local focus is trapped in this overlay (power above the screen): arrows and Tab
 do not leave it. The confirmation is a step inside the same scope. Back on that
-step matches the power-confirmation row of specification §6.3.
+step, and a click on the dimmed area outside the panel, matches the
+power-confirmation row of specification §6.3. Clearing `refusalMessage` returns
+focus to that step and does not report success.
 
 Session lock, OS suspend and the idle ambient timer are out of scope. Lock and
 sleep observation stay in the [session lifecycle](session-lifecycle.md) guard,
@@ -41,8 +43,13 @@ list from the live registry and must report a real platform refusal through
 
 ```sh
 QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
-  build/apps/arinn-shell/arinn-ui-test -input tests/ui PowerMenu
+  build/apps/arinn-shell/arinn-ui-test -input tests/ui
 ```
 
+Local run on 2026-09-28, Qt 6.8.3, offscreen platform and the software scene
+graph: 58 passed, 0 failed. That includes `PowerMenu` (Cancel focused by
+default for Restart and Shut down, sleep intent with no success state, an
+explicit refusal error, and a consumed ambient wake for both a key and a
+pointer move) and the existing component and Home cases in the same process.
 Operator tests were not run. This fixture does not lock the screen or suspend
-the machine.
+the machine. CI has not run for this change.

@@ -4,91 +4,6 @@
 import QtQuick
 import "../.." as Ui
 
-component MenuRow: Ui.Surface {
-    id: row
-    required property var owner
-    property string description: ""
-    width: 704
-    height: 112
-    cornerRadius: 30
-    focusScale: 1.02
-    pointerMode: owner.pointerMode
-        hoverFocusEnabled: owner.hoverFocusEnabled
-    onDpadRequested: owner.noteDpad()
-    contentItem: Item {
-        Column {
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.verticalCenter: parent.verticalCenter
-            spacing: 4
-            Ui.UiText {
-                x: 28
-                width: parent.width - 56
-                text: row.text
-                role: "control"
-                color: row.activeFocus ? Ui.Theme.textPrimary : Ui.Theme.textSecondary
-                elide: Text.ElideRight
-                maximumLineCount: 1
-            }
-            Ui.UiText {
-                x: 28
-                width: parent.width - 56
-                text: row.description
-                role: "caption"
-                color: Ui.Theme.textHint
-                elide: Text.ElideRight
-                maximumLineCount: 1
-            }
-        }
-    }
-    Keys.onUpPressed: event => { event.accepted = true; row.owner.noteDpad(); row.owner.moveMenu(-1, false); }
-    Keys.onDownPressed: event => { event.accepted = true; row.owner.noteDpad(); row.owner.moveMenu(1, false); }
-    Keys.onLeftPressed: event => { event.accepted = true; row.owner.noteDpad(); }
-    Keys.onRightPressed: event => { event.accepted = true; row.owner.noteDpad(); }
-    Keys.onTabPressed: event => { event.accepted = true; row.owner.moveMenu(1, true); }
-    Keys.onBacktabPressed: event => { event.accepted = true; row.owner.moveMenu(-1, true); }
-    Keys.onEscapePressed: event => { event.accepted = true; row.owner.goBack(); }
-    Keys.onPressed: event => {
-        if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter)
-            return;
-        if (event.key === Qt.Key_Backspace || event.key === Qt.Key_Back) {
-            event.accepted = true;
-            row.owner.goBack();
-        } else if (event.key === Qt.Key_Home) {
-            event.accepted = true;
-            row.owner.goHome();
-        }
-    }
-}
-
-component ConfirmButton: Ui.ActionButton {
-    id: confirm
-    required property var owner
-    width: 344
-    pointerMode: owner.pointerMode
-        hoverFocusEnabled: owner.hoverFocusEnabled
-    onDpadRequested: owner.noteDpad()
-    Keys.onLeftPressed: event => { event.accepted = true; confirm.owner.noteDpad(); confirm.owner.moveConfirm(-1, false); }
-    Keys.onRightPressed: event => { event.accepted = true; confirm.owner.noteDpad(); confirm.owner.moveConfirm(1, false); }
-    Keys.onUpPressed: event => { event.accepted = true; confirm.owner.noteDpad(); }
-    Keys.onDownPressed: event => { event.accepted = true; confirm.owner.noteDpad(); }
-    Keys.onTabPressed: event => { event.accepted = true; confirm.owner.moveConfirm(1, true); }
-    Keys.onBacktabPressed: event => { event.accepted = true; confirm.owner.moveConfirm(-1, true); }
-    Keys.onEscapePressed: event => { event.accepted = true; confirm.owner.goBack(); }
-    Keys.onPressed: event => {
-        if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter)
-            return;
-        if (event.key === Qt.Key_Backspace || event.key === Qt.Key_Back) {
-            event.accepted = true;
-            confirm.owner.goBack();
-        } else if (event.key === Qt.Key_Home) {
-            event.accepted = true;
-            confirm.owner.goHome();
-        }
-    }
-}
-
-
 // Power-scope overlay. Presentation only: intents leave this file, and nothing
 // here talks to the session, a registry, or a suspend API.
 FocusScope {
@@ -116,6 +31,12 @@ FocusScope {
     // Set on the ambient key press so the matching release performs the wake.
     // Restoring focus before that release would activate the control underneath.
     property bool waking: false
+    readonly property var menuEntries: [
+        {id: "sleep", title: qsTr("Sleep"), description: qsTr("Request system suspend")},
+        {id: "restart", title: qsTr("Restart"), description: qsTr("Confirmation is required")},
+        {id: "shutdown", title: qsTr("Shut down"), description: qsTr("Confirmation is required")},
+        {id: "ambient", title: qsTr("Ambient"), description: qsTr("Show the ambient screen")}
+    ]
     readonly property string confirmTitle: pendingAction === "shutdown" ? qsTr("Shut down?") : qsTr("Restart?")
     readonly property string confirmActionText: pendingAction === "shutdown" ? qsTr("Shut down") : qsTr("Restart")
     readonly property string closingSummary: {
@@ -145,10 +66,16 @@ FocusScope {
         hoverFocusEnabled = true;
     }
     function menuItems() {
-        return [sleepButton, restartButton, shutdownButton, ambientButton];
+        const items = [];
+        for (let i = 0; i < menuRows.count; ++i)
+            items.push(menuRows.itemAt(i));
+        return items;
     }
     function menuNames() {
-        return ["sleep", "restart", "shutdown", "ambient"];
+        const names = [];
+        for (let i = 0; i < menuEntries.length; ++i)
+            names.push(menuEntries[i].id);
+        return names;
     }
     function moveMenu(delta, wrap) {
         const items = menuItems();
@@ -183,7 +110,8 @@ FocusScope {
                 return;
             }
         }
-        sleepButton.forceActiveFocus();
+        if (items.length > 0)
+            items[0].forceActiveFocus();
     }
     function openConfirm(action) {
         pendingAction = action;
@@ -284,64 +212,140 @@ FocusScope {
                 role: "body"
                 color: Ui.Theme.textSecondary
             }
-            MenuRow {
-                id: sleepButton
-                objectName: "sleepButton"
-                owner: root
-                visible: root.step === "menu"
-                text: qsTr("Sleep")
-                description: qsTr("Request system suspend")
-                onActiveFocusChanged: if (activeFocus) root.menuFocus = "sleep"
-                onActivated: root.sleepRequested()
-            }
-            MenuRow {
-                id: restartButton
-                objectName: "restartButton"
-                owner: root
-                visible: root.step === "menu"
-                text: qsTr("Restart")
-                description: qsTr("Confirmation is required")
-                onActiveFocusChanged: if (activeFocus) root.menuFocus = "restart"
-                onActivated: root.openConfirm("restart")
-            }
-            MenuRow {
-                id: shutdownButton
-                objectName: "shutdownButton"
-                owner: root
-                visible: root.step === "menu"
-                text: qsTr("Shut down")
-                description: qsTr("Confirmation is required")
-                onActiveFocusChanged: if (activeFocus) root.menuFocus = "shutdown"
-                onActivated: root.openConfirm("shutdown")
-            }
-            MenuRow {
-                id: ambientButton
-                objectName: "ambientButton"
-                owner: root
-                visible: root.step === "menu"
-                text: qsTr("Ambient")
-                description: qsTr("Show the ambient screen")
-                onActiveFocusChanged: if (activeFocus) root.menuFocus = "ambient"
-                onActivated: root.startAmbient()
+            Repeater {
+                id: menuRows
+                model: root.menuEntries
+                delegate: Ui.Surface {
+                    id: row
+                    required property var modelData
+                    required property int index
+                    objectName: modelData.id + "Button"
+                    visible: root.step === "menu"
+                    width: 704
+                    height: 112
+                    text: modelData.title
+                    cornerRadius: 30
+                    focusScale: 1.02
+                    pointerMode: root.pointerMode
+                    hoverFocusEnabled: root.hoverFocusEnabled
+                    onDpadRequested: root.noteDpad()
+                    onActiveFocusChanged: if (activeFocus) root.menuFocus = modelData.id
+                    onActivated: {
+                        if (modelData.id === "sleep")
+                            root.sleepRequested();
+                        else if (modelData.id === "restart")
+                            root.openConfirm("restart");
+                        else if (modelData.id === "shutdown")
+                            root.openConfirm("shutdown");
+                        else
+                            root.startAmbient();
+                    }
+                    contentItem: Item {
+                        Column {
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            spacing: 4
+                            Ui.UiText {
+                                x: 28
+                                width: parent.width - 56
+                                text: row.text
+                                role: "control"
+                                color: row.activeFocus ? Ui.Theme.textPrimary : Ui.Theme.textSecondary
+                                elide: Text.ElideRight
+                                maximumLineCount: 1
+                            }
+                            Ui.UiText {
+                                x: 28
+                                width: parent.width - 56
+                                text: row.modelData.description
+                                role: "caption"
+                                color: Ui.Theme.textHint
+                                elide: Text.ElideRight
+                                maximumLineCount: 1
+                            }
+                        }
+                    }
+                    Keys.onUpPressed: event => { event.accepted = true; root.noteDpad(); root.moveMenu(-1, false); }
+                    Keys.onDownPressed: event => { event.accepted = true; root.noteDpad(); root.moveMenu(1, false); }
+                    Keys.onLeftPressed: event => { event.accepted = true; root.noteDpad(); }
+                    Keys.onRightPressed: event => { event.accepted = true; root.noteDpad(); }
+                    Keys.onTabPressed: event => { event.accepted = true; root.moveMenu(1, true); }
+                    Keys.onBacktabPressed: event => { event.accepted = true; root.moveMenu(-1, true); }
+                    Keys.onEscapePressed: event => { event.accepted = true; root.goBack(); }
+                    Keys.onPressed: event => {
+                        if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter)
+                            return;
+                        if (event.key === Qt.Key_Backspace || event.key === Qt.Key_Back) {
+                            event.accepted = true;
+                            root.goBack();
+                        } else if (event.key === Qt.Key_Home) {
+                            event.accepted = true;
+                            root.goHome();
+                        }
+                    }
+                }
             }
             Row {
                 objectName: "powerConfirm"
                 visible: root.step === "confirm"
                 spacing: 16
-                ConfirmButton {
+                Ui.ActionButton {
                     id: cancelButton
                     objectName: "cancelButton"
-                    owner: root
+                    width: 344
                     text: qsTr("Cancel")
+                    pointerMode: root.pointerMode
+                    hoverFocusEnabled: root.hoverFocusEnabled
+                    onDpadRequested: root.noteDpad()
                     onActivated: root.closeConfirm()
+                    Keys.onLeftPressed: event => { event.accepted = true; root.noteDpad(); root.moveConfirm(-1, false); }
+                    Keys.onRightPressed: event => { event.accepted = true; root.noteDpad(); root.moveConfirm(1, false); }
+                    Keys.onUpPressed: event => { event.accepted = true; root.noteDpad(); }
+                    Keys.onDownPressed: event => { event.accepted = true; root.noteDpad(); }
+                    Keys.onTabPressed: event => { event.accepted = true; root.moveConfirm(1, true); }
+                    Keys.onBacktabPressed: event => { event.accepted = true; root.moveConfirm(-1, true); }
+                    Keys.onEscapePressed: event => { event.accepted = true; root.goBack(); }
+                    Keys.onPressed: event => {
+                        if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter)
+                            return;
+                        if (event.key === Qt.Key_Backspace || event.key === Qt.Key_Back) {
+                            event.accepted = true;
+                            root.goBack();
+                        } else if (event.key === Qt.Key_Home) {
+                            event.accepted = true;
+                            root.goHome();
+                        }
+                    }
                 }
-                ConfirmButton {
+                Ui.ActionButton {
                     id: confirmButton
                     objectName: "confirmButton"
-                    owner: root
+                    width: 344
                     text: root.confirmActionText
                     destructive: true
+                    pointerMode: root.pointerMode
+                    hoverFocusEnabled: root.hoverFocusEnabled
+                    onDpadRequested: root.noteDpad()
                     onActivated: root.confirmAction()
+                    Keys.onLeftPressed: event => { event.accepted = true; root.noteDpad(); root.moveConfirm(-1, false); }
+                    Keys.onRightPressed: event => { event.accepted = true; root.noteDpad(); root.moveConfirm(1, false); }
+                    Keys.onUpPressed: event => { event.accepted = true; root.noteDpad(); }
+                    Keys.onDownPressed: event => { event.accepted = true; root.noteDpad(); }
+                    Keys.onTabPressed: event => { event.accepted = true; root.moveConfirm(1, true); }
+                    Keys.onBacktabPressed: event => { event.accepted = true; root.moveConfirm(-1, true); }
+                    Keys.onEscapePressed: event => { event.accepted = true; root.goBack(); }
+                    Keys.onPressed: event => {
+                        if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter)
+                            return;
+                        if (event.key === Qt.Key_Backspace || event.key === Qt.Key_Back) {
+                            event.accepted = true;
+                            root.goBack();
+                        } else if (event.key === Qt.Key_Home) {
+                            event.accepted = true;
+                            root.goHome();
+                        }
+                    }
                 }
             }
         }
@@ -363,7 +367,22 @@ FocusScope {
         hoverFocusEnabled: root.hoverFocusEnabled
         onActionRequested: root.goBack()
         onDpadRequested: root.noteDpad()
-        onVisibleChanged: if (visible) Qt.callLater(() => { if (visible) forceActiveFocus(); })
+        onVisibleChanged: {
+            if (visible) {
+                Qt.callLater(() => { if (visible) forceActiveFocus(); });
+                return;
+            }
+            // Clearing an explicit refusal returns to the power step. It does not
+            // report success.
+            Qt.callLater(() => {
+                if (root.refused || root.step === "ambient")
+                    return;
+                if (root.step === "confirm")
+                    cancelButton.forceActiveFocus();
+                else
+                    root.restoreMenuFocus();
+            });
+        }
     }
 
     Rectangle {
@@ -429,5 +448,5 @@ FocusScope {
         }
     }
 
-    Component.onCompleted: sleepButton.forceActiveFocus()
+    Component.onCompleted: Qt.callLater(restoreMenuFocus)
 }

@@ -30,6 +30,7 @@ impl ApplicationHandler for Handler {
 #[derive(Clone)]
 struct Daemon {
     epoch: String,
+    churn: bool,
     owner: Arc<Mutex<String>>,
 }
 #[zbus::interface(name = "org.arinn.Daemon1")]
@@ -38,7 +39,22 @@ impl Daemon {
         &self,
         request: Registration,
         #[zbus(header)] h: Header<'_>,
+        #[zbus(connection)] connection: &zbus::Connection,
     ) -> production::Result<(RegistrationReply,)> {
+        if self.churn {
+            // More signals than the provider connection queue can hold while
+            // Register is awaiting its reply. Unrelated owners must not stall it.
+            for _ in 0..128 {
+                connection
+                    .request_name("org.arinn.RegistrationNoise")
+                    .await
+                    .unwrap();
+                connection
+                    .release_name("org.arinn.RegistrationNoise")
+                    .await
+                    .unwrap();
+            }
+        }
         assert_eq!(request.provider_id, "fixture");
         assert_eq!(request.token, "fixture-token");
         *self.owner.lock().unwrap() = h.sender().unwrap().to_string();
@@ -71,6 +87,7 @@ async fn scenario() {
     let server = bus.connection().await;
     let daemon = Daemon {
         epoch: uuid::Uuid::new_v4().to_string(),
+        churn: false,
         owner: Arc::default(),
     };
     server
@@ -115,6 +132,7 @@ async fn scenario() {
     let replacement = bus.connection().await;
     let new_daemon = Daemon {
         epoch: uuid::Uuid::new_v4().to_string(),
+        churn: true,
         owner: Arc::default(),
     };
     replacement

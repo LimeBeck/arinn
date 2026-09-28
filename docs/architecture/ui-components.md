@@ -6,14 +6,14 @@
 The first component subset of the [UI workstream](../../ROADMAP.md#parallel-ui-work-alongside-phase-1)
 implements presentation primitives from [specification §15](../specifications/arinn-specification.md#15-design-contract).
 Tracked in [issue #10](https://github.com/LimeBeck/arinn/issues/10), extended by
-the Home/navigation preview below. This is not a production-bound Home screen
-or Phase 5 acceptance (AC-02, AC-14, G-5.1).
+the Home/navigation preview below and the [production binding](#production-home-and-applications).
+These increments do not constitute full Phase 5 acceptance (AC-02, AC-14, G-5.1).
 
 ## Ownership and boundaries
 
 `apps/arinn-shell/ui` owns reusable QML presentation components. The gallery and
-`tests/ui` supply explicit local fixtures. The existing shell and its C++ transport
-are unchanged. Components make no IPC calls, know no providers, and execute no
+`tests/ui` supply explicit local fixtures. The production shell binds the components
+to its C++ transport as described below. Components make no IPC calls, know no providers, and execute no
 commands (R-01–R-05, AC-12). Screen integration owns mapping typed C++ presentation
 models into these properties and routing emitted actions to the daemon.
 
@@ -88,8 +88,8 @@ in `LICENSES/OFL-1.1.txt`, with the binary annotated in `REUSE.toml`.
 ## Home and global navigation preview
 
 [Issue #15](https://github.com/LimeBeck/arinn/issues/15) adds `HomeView` and
-`HomeRow`, exercised by the standalone `HomeGallery.qml`. The production shell
-and its transport remain unchanged. Other top-level routes show explicit preview
+`HomeRow`, exercised by the standalone `HomeGallery.qml`. That fixture preview
+is independent of the production binding below. Other top-level routes show explicit preview
 placeholders; no Library, Downloads, Applications or Settings backend is implied.
 Power emits an intent only; it never opens a destructive confirmation or performs
 a session action.
@@ -106,7 +106,7 @@ focus. `homeState` is ready/empty/loading/error/unavailable, accompanied by
 Actions emit `entryRequested(id)`, `returnRequested(id)`, `retryRequested()`,
 `sectionRequested(route)` and `powerRequested()`. The gallery displays intent
 feedback; no timeout or animation changes backend state. Production model binding
-and operation feedback are follow-up work on the existing daemon contracts.
+and operation feedback now use the existing daemon contracts as described below.
 
 Local input uses arrows, Enter, Menu, Home, Esc and Backspace. Home closes
 navigation and focuses the return Activity when present. Back closes navigation,

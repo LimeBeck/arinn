@@ -20,6 +20,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "arinn-plugin-desktop"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "arinn-plugin-sdk",
+ "arinn-protocol",
+ "futures-util",
+ "libc",
+ "tokio",
+ "uuid",
+ "zbus",
+]
+
+[[package]]
 name = "arinn-plugin-sdk"
 version = "0.0.1"
 dependencies = [

@@ -1,0 +1,1 @@
+- Add a fixture-driven Settings screen. Categories and typed rows come from the caller; a missing playback, download or network capability is shown as unavailable; changing a value emits an intent and does not write daemon configuration ([settings view](docs/architecture/ui-settings.md)).

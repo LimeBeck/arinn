@@ -13,7 +13,7 @@ pkgdesc='TV-first shell for a Linux HTPC (pre-alpha prototype)'
 arch=('x86_64')
 url='https://github.com/LimeBeck/arinn'
 license=('GPL-3.0-or-later' 'MIT OR Apache-2.0' 'CC-BY-SA-4.0')
-depends=('gcc-libs' 'glibc' 'dbus' 'systemd' 'qt6-base' 'qt6-declarative' 'qt6-svg')
+depends=('gcc-libs' 'glibc' 'glib2>=2.86' 'dbus' 'systemd' 'qt6-base' 'qt6-declarative' 'qt6-svg')
 makedepends=('cargo' 'cmake' 'ninja')
 checkdepends=('python')
 options=('!lto')
@@ -48,6 +48,8 @@ package() {
   install -Dm755 target/release/arinnctl "${pkgdir}/usr/bin/arinnctl"
   install -Dm755 build/apps/arinn-shell/arinn-shell "${pkgdir}/usr/bin/arinn-shell"
   install -Dm755 target/release/arinn-plugin-demo "${pkgdir}/usr/lib/arinn/plugins/arinn-plugin-demo"
+  install -Dm755 target/release/arinn-plugin-desktop "${pkgdir}/usr/lib/arinn/plugins/arinn-plugin-desktop"
+  install -Dm644 plugins/desktop/desktop.toml "${pkgdir}/usr/share/arinn/plugins/desktop.toml"
   install -Dm644 plugins/demo/demo.toml "${pkgdir}/usr/share/arinn/plugins/demo.toml"
   install -Dm644 platform/kde/phase0.js "${pkgdir}/usr/share/arinn/kwin/phase0.js"
   install -Dm644 README.md CHANGELOG.md -t "${pkgdir}/usr/share/doc/${pkgname}/"

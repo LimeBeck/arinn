@@ -270,7 +270,7 @@ Generic `open` accepts only `http` and `https`. The desktop ApplicationProvider 
 
 ### 7.2. Applications, Steam and ES-DE
 
-Arinn works with ordinary Linux applications: discover, launch, activate, terminate and running state. `arinn-plugin-desktop` provides ApplicationProvider from `.desktop` entries; the core MUST NOT scan desktop files. Applications are launched by the session application launcher in their own application scope, never in the plugin's cgroup. Terminate requests a graceful close; force kill is not a regular MVP terminate.
+Arinn works with ordinary Linux applications: discover, launch, activate, terminate and running state. `arinn-plugin-desktop` provides ApplicationProvider from `.desktop` entries; the core MUST NOT scan desktop files. Applications are launched by the session application launcher in their own application scope, never in the plugin's cgroup. Terminate requests a graceful close; force kill is not a regular MVP terminate. Implementation and qualification status: [desktop provider](../architecture/desktop-provider.md).
 
 Steam and EmulationStation MUST be available in the MVP as dedicated Home tiles, launched through the generic ApplicationProvider, without an own Steam library client. Game libraries, artwork, recent games, continue playing and metadata are post-MVP providers.
 

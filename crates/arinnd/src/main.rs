@@ -63,6 +63,7 @@ async fn run() -> Result<(), ErrorCode> {
         .at(PATH, Daemon { core: core.clone() })
         .await
         .map_err(|_| ErrorCode::Internal)?;
+    core.export_platform().await?;
     core.start().await;
     eprintln!(
         "{}",

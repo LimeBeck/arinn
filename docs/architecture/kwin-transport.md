@@ -5,8 +5,9 @@
 
 [ADR-0040](../adr/0040-kwin-inventory-transport.md), prerequisite for desktop-provider
 implementation in issue #20. This document and the [XML](../plugin-api/kwin-bridge1.xml)
-define an internal platform transport, not a plugin capability. Production export,
-KWin JavaScript binding verification and real-desktop qualification remain pending.
+define an internal platform transport, not a plugin capability. Production export
+and deterministic adapter tests are implemented. Actual KWin JavaScript binding
+verification and real-desktop qualification remain pending.
 
 The [KWin callDBus implementation](https://github.com/KDE/kwin/blob/master/src/scripting/scripting.cpp)
 accepts at most nine JavaScript arguments after the method name, including the
@@ -108,6 +109,9 @@ the compatible session-bus wrapper. Launch environment variables are unchanged.
 Protocol tests cover bounded headers and control/error validation. Private-bus
 fixtures compare live introspection to XML and exercise staging, authentication,
 partial commits and acknowledgement records. SDK tests verify actual connection
-identity, owner-loss invalidation, re-registration and cancellation. These tests
-exercise the contract/SDK, not production inventory/queue enforcement or KWin's
-JavaScript marshalling. No Phase 2 gate or live desktop criterion is closed here.
+identity, owner-loss invalidation, re-registration and cancellation. The production follow-up now implements the daemon backend and KWin adapter;
+[desktop-provider verification](desktop-provider.md#verification-status) covers
+production staging, leases, authorization, queue limits and acknowledgements on
+private buses, plus deterministic adapter behavior. Actual KWin JavaScript
+marshalling and real-session behavior remain operator qualification work.
+No Phase 2 gate or live desktop criterion is closed here.

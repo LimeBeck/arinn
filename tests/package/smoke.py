@@ -25,6 +25,8 @@ from pathlib import Path
 PREFIX = Path(os.environ.get("ARINN_PREFIX", "/usr"))
 BIN = PREFIX / "bin"
 DEMO = PREFIX / "lib/arinn/plugins/arinn-plugin-demo"
+DESKTOP = PREFIX / "lib/arinn/plugins/arinn-plugin-desktop"
+assert (PREFIX / "share/arinn/plugins/desktop.toml").is_file()
 
 
 def cli(*args):
@@ -46,7 +48,7 @@ def wait(predicate, timeout=10):
     raise AssertionError("condition timed out")
 
 
-for path in (BIN / "arinnd", BIN / "arinnctl", BIN / "arinn-shell", DEMO):
+for path in (BIN / "arinnd", BIN / "arinnctl", BIN / "arinn-shell", DEMO, DESKTOP):
     assert path.is_file() and os.access(path, os.X_OK), f"missing executable {path}"
 
 with tempfile.TemporaryDirectory(prefix="arinn-smoke-") as folder:
@@ -61,6 +63,13 @@ with tempfile.TemporaryDirectory(prefix="arinn-smoke-") as folder:
     (manifests / "demo.toml").write_text(
         f'id = "demo"\nname = "Demo"\nversion = "0.0.1"\napi_version = 1\n'
         f'executable = "{DEMO}"\ncapabilities = ["application"]\n')
+    (manifests / "desktop.toml").write_text(
+        f'id="desktop"\nname="Desktop"\nversion="0.0.1"\napi_version=1\n'
+        f'executable="{DESKTOP}"\ncapabilities=["application"]\n')
+    applications = root / "data/applications"
+    applications.mkdir()
+    (applications / "fixture.desktop").write_text(
+        '[Desktop Entry]\nType=Application\nName=Packaged fixture\nExec=/usr/bin/true\n')
     manager = Path(os.environ.get("ARINN_TEST_MANAGER", "target/debug/examples/private-systemd"))
     assert manager.is_file(), "build the private-systemd example or set ARINN_TEST_MANAGER"
     processes = []
@@ -79,11 +88,16 @@ with tempfile.TemporaryDirectory(prefix="arinn-smoke-") as folder:
         snapshot = json.loads(cli("snapshot", "demo"))[0]
         assert snapshot["revision"] >= 1 and snapshot["applications"], snapshot
 
+        wait(lambda: any(p["id"] == "desktop" and p["runtime_state"] == "ready" for p in json.loads(cli("providers"))))
+        desktop = json.loads(cli("snapshot", "desktop"))[0]
+        assert desktop["applications"][0]["id"] == "fixture.desktop"
+        assert desktop["running"] == []
+
         shell = start(BIN / "arinn-shell", QT_QPA_PLATFORM="offscreen", QT_QUICK_BACKEND="software")
         time.sleep(5)
         if shell.poll() is not None:
             raise AssertionError(f"arinn-shell exited early with {shell.returncode}: {shell.stderr.read()}")
-        print("PASS: packaged daemon, demo provider, CLI and shell start and communicate")
+        print("PASS: packaged daemon, demo/desktop providers, CLI and shell start and communicate")
     finally:
         for process in reversed(processes):
             if process.poll() is None:

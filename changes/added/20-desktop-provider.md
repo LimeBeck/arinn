@@ -1,0 +1,1 @@
+- Add the desktop application provider with bounded XDG discovery, system GIO launch in independent application units, exact window association, activation and graceful close through the production KWin platform backend. Private-bus, adapter and package fixtures cover integration and lifetime handling; real KDE/cgroup qualification remains outstanding.

@@ -7,11 +7,11 @@
 provider-facing contract required by the desktop provider, implementing the
 existing window-management requirements of specification §§7.2, 10 and 12.
 
-**Implementation status:** protocol types, XML, SDK client and an isolated
-executable fixture exist. The production daemon does not yet export this
-interface. Production platform routing and KDE implementation belong to
-[issue #20](https://github.com/LimeBeck/arinn/issues/20); real-desktop qualification
-remains outstanding. Passing these fixtures closes no Phase 2 gate.
+**Implementation status (2026-09-28):** the daemon exports this interface with
+production authorization, immutable paging leases and acknowledged KWin controls.
+The desktop provider consumes it through the SDK. See the
+[implementation and verification record](desktop-provider.md) for isolated test
+evidence and outstanding real-desktop qualification. No Phase 2 gate is closed.
 
 ## Endpoint and ownership
 
@@ -162,11 +162,10 @@ The fixture models selected server behaviours; it is not reusable production cod
 and does not prove production authentication, lease/queue enforcement or cgroup
 isolation. `dbus-daemon` and Python 3 are required, as in the repository test setup.
 
-The production follow-up must cover trusted adapter lifetime, actual window
-identity resolution, atomic publication and caller-bound leases, operation queue
-and dispatch acknowledgements, provider registration lifetime, private-bus
-integration against arinnd, and live introspection of the production endpoint.
-The [internal KWin transport](kwin-transport.md) is defined separately in task #24;
-its production implementation remains in #20. G-2.1
-and G-2.3 still need explicitly authorized real-desktop evidence; G-2.2 needs the
-actual launcher/lifetime isolation checks. This contract alone proves none of them.
+The production backend and adapter tests now cover authentication, atomic staging,
+caller-bound leases, deduplication, shared queue limits, dispatch acknowledgements,
+provider lifetime and late replies. The private-bus desktop suite exercises the
+actual daemon/provider processes and GIO with a test manager. See
+[desktop-provider verification](desktop-provider.md#verification-status).
+G-2.1/G-2.3 real-desktop evidence and G-2.2 actual cgroup qualification remain pending.
+The internal compositor transport is [documented separately](kwin-transport.md).

@@ -215,3 +215,7 @@ with tempfile.TemporaryDirectory(prefix="arinn-production-") as folder:
                     child.wait()
         for log in logs:
             log.close()
+
+# A separate private bus prevents the desktop suite from inheriting this suite's
+# daemon, provider owners or systemd fixture state.
+subprocess.run(["dbus-run-session", "--", sys.executable, str(ROOT / "tests/integration/desktop.py")], check=True)

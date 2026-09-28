@@ -144,7 +144,7 @@ Scope:
 the desktop provider launches the browser; the Chrome provider declares only
 `browser` ([ADR-0038](docs/adr/0038-browser-launch-ownership.md)).
 Implementation is tracked in [issue #20](https://github.com/LimeBeck/arinn/issues/20);
-platform contract work and verification remain pending.
+the provider and platform backend are implemented with [isolated verification](docs/architecture/desktop-provider.md). Real KDE/systemd qualification remains pending.
 
 Goal: launch and return to ordinary applications, Steam and ES-DE through `arinn-plugin-desktop`.
 
@@ -153,8 +153,8 @@ Goal: launch and return to ordinary applications, Steam and ES-DE through `arinn
 | AC-07 Steam launches from its own tile | Operator test |
 | AC-08 EmulationStation launches from its own tile | Operator test |
 | G-2.1 Applications → Chrome/Steam/ES-DE → Home → Back → the same application | Operator test, evidence JSON |
-| G-2.2 Restarting or removing the desktop plugin does not kill launched applications (separate scopes) | Integration test |
-| G-2.3 Production Activity matching survives window remap (carried over from Phase 0) | Integration test |
+| G-2.2 Restarting or removing the desktop plugin does not kill launched applications (separate scopes) | Private-bus fixture lifetime passed (2026-09-28; [evidence](docs/architecture/desktop-provider.md#verification-status)); actual cgroup qualification pending |
+| G-2.3 Production Activity matching survives window remap (carried over from Phase 0) | Daemon/provider and adapter remap fixtures passed (2026-09-28; [evidence](docs/architecture/desktop-provider.md#verification-status)); real KDE/Activity qualification pending |
 
 ## Phase 3 — Browser
 

@@ -1,4 +1,4 @@
-# ADR-0034: Parallel development by several agents
+# ADR-0036: Parallel development by several agents
 
 - **Status:** Accepted
 - **Date:** 2026-09-28
@@ -9,13 +9,13 @@
 
 ## Context
 
-Several AI coding agents (Claude Code, Codex) and people are expected to work on Arinn at the same time. Merge conflicts come mostly from files that almost every pull request touches: `CHANGELOG.md`, the ADR register and the next free ADR number, the specification version, `ROADMAP.md`, `Cargo.lock`, the single-file daemon and the shared protocol. Two pull requests can also be green on their own and break each other once merged.
+Several AI coding agents (Claude Code, Codex) and people are expected to work on Arinn at the same time. Merge conflicts come mostly from files that almost every pull request touches: `CHANGELOG.md`, the ADR register and the next free ADR number, the specification version, `ROADMAP.md`, `Cargo.lock`, large source files and the shared protocol. Two pull requests can also be green on their own and break each other once merged.
 
 ## Decision
 
 **Work units.** One issue = one task = one agent = one branch = one pull request. An issue created from the *Agent task* template names the requirement IDs, the **zone** (paths the task may change), shared files it must touch, its dependencies and, if needed, a **reserved ADR number**. An agent claims an issue by assigning it and adding a label `agent:<name>`; claimed issues are not taken by anyone else. Tasks that depend on an open question (OQ-xx) or another issue wait.
 
-**Split along architecture boundaries.** Contracts first: a change to `crates/arinn-protocol`, the plugin SDK or interface XML in `docs/plugin-api/` is its own pull request labelled `contract-change`, and only one such pull request is open at a time. After it merges, providers, shell screens on the demo provider and platform work proceed in parallel, because they meet only through that contract. Large single files are split into modules before parallel work starts in them (the daemon's `main.rs` is the first Phase 1 task).
+**Split along architecture boundaries.** Contracts first: a change to `crates/arinn-protocol`, the plugin SDK or interface XML in `docs/plugin-api/` is its own pull request labelled `contract-change`, and only one such pull request is open at a time. After it merges, providers, shell screens on the demo provider and platform work proceed in parallel, because they meet only through that contract. A large single file is split into modules in its own pull request before several tasks work in it at once (Phase 1 already split the daemon's `main.rs`; `runtime.rs` is the largest file today).
 
 **Conflict-free shared files.**
 

@@ -1,5 +1,5 @@
 name: Agent task
-description: A unit of work for one agent or contributor (ADR-0034)
+description: A unit of work for one agent or contributor (ADR-0036)
 labels: [task]
 body:
   - type: markdown

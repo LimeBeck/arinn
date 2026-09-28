@@ -1,0 +1,60 @@
+<!-- SPDX-FileCopyrightText: 2026 Arinn contributors
+SPDX-License-Identifier: MIT OR Apache-2.0 -->
+<node>
+  <interface name="org.arinn.Daemon1">
+    <method name="HomeItems">
+      <arg type="a(sssss)" direction="out" />
+    </method>
+    <method name="Status">
+      <arg type="(sbstbsssbbss)" direction="out" />
+    </method>
+    <method name="Home">
+    </method>
+    <method name="Back">
+    </method>
+    <method name="TakeCommand">
+      <arg type="s" direction="out" />
+    </method>
+    <method name="ReportHome">
+      <arg name="visible" type="b" direction="in" />
+      <arg name="target" type="s" direction="in" />
+      <arg name="output" type="s" direction="in" />
+    </method>
+    <method name="ReportWindow">
+      <arg name="id" type="s" direction="in" />
+      <arg name="class" type="s" direction="in" />
+      <arg name="fullscreen" type="b" direction="in" />
+      <arg name="output" type="s" direction="in" />
+    </method>
+    <signal name="Changed">
+    </signal>
+    <method name="Providers">
+      <arg name="token" type="s" direction="in" />
+      <arg type="(sa(sssssoasssststttt)s)" direction="out" />
+    </method>
+    <method name="Diagnostics">
+      <arg type="s" direction="out" />
+    </method>
+    <method name="Register">
+      <arg name="request" type="(ssuusasos)" direction="in" />
+      <arg type="(ssuuuu)" direction="out" />
+    </method>
+    <method name="Reload">
+      <arg name="request_id" type="s" direction="in" />
+      <arg type="o" direction="out" />
+    </method>
+    <method name="Restart">
+      <arg name="provider_id" type="s" direction="in" />
+      <arg name="request_id" type="s" direction="in" />
+      <arg type="o" direction="out" />
+    </method>
+    <signal name="StateChanged">
+      <arg name="provider_id" type="s" />
+      <arg name="capability" type="s" />
+      <arg name="generation" type="s" />
+      <arg name="revision" type="t" />
+    </signal>
+    <signal name="ProvidersChanged">
+    </signal>
+  </interface>
+</node>

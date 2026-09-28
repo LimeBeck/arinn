@@ -15,6 +15,7 @@ desktop session.
 """
 
 import json
+import signal
 import os
 import subprocess
 import tempfile
@@ -27,7 +28,7 @@ DEMO = PREFIX / "lib/arinn/plugins/arinn-plugin-demo"
 
 
 def cli(*args):
-    result = subprocess.run([str(BIN / "arinnctl"), *args], capture_output=True, text=True, timeout=9)
+    result = subprocess.run([str(BIN / "arinnctl"), "--json", *args], env=env, capture_output=True, text=True, timeout=9)
     if result.returncode:
         raise AssertionError(result.stderr)
     return result.stdout
@@ -49,10 +50,19 @@ for path in (BIN / "arinnd", BIN / "arinnctl", BIN / "arinn-shell", DEMO):
     assert path.is_file() and os.access(path, os.X_OK), f"missing executable {path}"
 
 with tempfile.TemporaryDirectory(prefix="arinn-smoke-") as folder:
-    token = Path(folder) / "token"
-    token.write_text("package-smoke-test-token-0000000000")
-    token.chmod(0o600)
-    env = {**os.environ, "ARINN_SPIKE_TOKEN_FILE": str(token)}
+    root = Path(folder)
+    env = {**os.environ, "HOME": folder, "XDG_CONFIG_HOME": str(root / "config"),
+           "XDG_DATA_HOME": str(root / "data"), "XDG_DATA_DIRS": str(root / "system"),
+           "XDG_STATE_HOME": str(root / "state"), "XDG_RUNTIME_DIR": str(root / "run"),
+           "ARINN_PRIVATE_TEST_BUS": "1"}
+    (root / "run").mkdir(mode=0o700)
+    manifests = root / "data/arinn/plugins"
+    manifests.mkdir(parents=True)
+    (manifests / "demo.toml").write_text(
+        f'id = "demo"\nname = "Demo"\nversion = "0.0.1"\napi_version = 1\n'
+        f'executable = "{DEMO}"\ncapabilities = ["application"]\n')
+    manager = Path(os.environ.get("ARINN_TEST_MANAGER", "target/debug/examples/private-systemd"))
+    assert manager.is_file(), "build the private-systemd example or set ARINN_TEST_MANAGER"
     processes = []
 
     def start(command, **extra):
@@ -62,12 +72,12 @@ with tempfile.TemporaryDirectory(prefix="arinn-smoke-") as folder:
         return process
 
     try:
+        start(manager)
         start(BIN / "arinnd")
         wait(lambda: json.loads(cli("status"))["epoch"])
-        start(DEMO)
         wait(lambda: json.loads(cli("status"))["provider_available"])
-        snapshot = json.loads(cli("snapshot"))
-        assert snapshot["revision"] >= 1 and snapshot["items"], snapshot
+        snapshot = json.loads(cli("snapshot", "demo"))[0]
+        assert snapshot["revision"] >= 1 and snapshot["applications"], snapshot
 
         shell = start(BIN / "arinn-shell", QT_QPA_PLATFORM="offscreen", QT_QUICK_BACKEND="software")
         time.sleep(5)
@@ -77,7 +87,7 @@ with tempfile.TemporaryDirectory(prefix="arinn-smoke-") as folder:
     finally:
         for process in reversed(processes):
             if process.poll() is None:
-                process.terminate()
+                process.send_signal(signal.SIGINT)
         for process in processes:
             try:
                 process.wait(timeout=5)

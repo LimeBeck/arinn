@@ -28,15 +28,17 @@ Run these before opening a pull request; CI runs the same checks.
 cargo fmt --all --check
 cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked
-cmake --build build && dbus-run-session -- python tests/integration/phase0.py
+cargo build --locked --examples
+cmake --build build && dbus-run-session -- python tests/integration/phase1.py
 node --test tests/integration/kwin_adapter.test.cjs
 python scripts/check-docs.py
+python scripts/check-architecture.py
 python scripts/release.py check
 reuse lint
 cargo deny check licenses
 ```
 
-To test packaging locally on Arch: `git archive --prefix=arinn-$(python scripts/release.py version)/ -o packaging/arch/arinn-$(python scripts/release.py version).tar.gz HEAD && (cd packaging/arch && makepkg -f)`, then install the package and run `dbus-run-session -- python tests/package/smoke.py`.
+To test packaging locally on Arch: `git archive --prefix=arinn-$(python scripts/release.py version)/ -o packaging/arch/arinn-$(python scripts/release.py version).tar.gz HEAD && (cd packaging/arch && makepkg -f)`, then install the package and run `ARINN_TEST_MANAGER=/absolute/path/to/private-systemd dbus-run-session -- python tests/package/smoke.py`. Use the test helper built under the package source tree at `target/release/examples/private-systemd`; it is not installed as a production service.
 
 **Operator tests** (`tests/integration/kwin_*.py`, `scripts/phase0-session.py`) drive a real desktop session: they load KWin scripts, kill daemons or lock the screen. They never run in CI. Run them only on a disposable session and only when the change touches the platform layer; attach the result (evidence JSON or a short log) to the pull request.
 
@@ -55,7 +57,7 @@ Only the maintainer releases. To release version `X.Y.Z`:
 
 ## Parallel work
 
-Several agents and people work on Arinn at the same time. These rules keep them out of each other's way ([ADR-0034](docs/adr/0034-parallel-development.md)):
+Several agents and people work on Arinn at the same time. These rules keep them out of each other's way ([ADR-0036](docs/adr/0036-parallel-development.md)):
 
 1. **One issue per task.** Work starts from an issue created with the *Agent task* template: goal, requirement IDs, **zone** (paths the task may change), shared files, dependencies and a reserved ADR number if needed. Claim it by assigning yourself and adding the label `agent:<name>` (for example `agent:claude`, `agent:codex`); never take a claimed issue. One issue = one branch = one pull request.
 2. **Stay in your zone.** A change outside the zone goes into a separate issue, or is agreed in the issue first.
@@ -134,7 +136,7 @@ Only add dependencies whose licenses pass `cargo deny check licenses`. Never add
 
 ## AI-assisted contributions
 
-AI tools are welcome under the same rules as everyone else. The person or agent opening the pull request is responsible for the whole change: it must build, pass the checks and follow these rules. Credit the tool with a `Co-Authored-By:` trailer. Agents follow [AGENTS.md](AGENTS.md). If you run an agent yourself, its commits count as your contribution: sign the CLA with your own account. Agents operated by the maintainer are on the CLA allowlist ([ADR-0034](docs/adr/0034-parallel-development.md)).
+AI tools are welcome under the same rules as everyone else. The person or agent opening the pull request is responsible for the whole change: it must build, pass the checks and follow these rules. Credit the tool with a `Co-Authored-By:` trailer. Agents follow [AGENTS.md](AGENTS.md). If you run an agent yourself, its commits count as your contribution: sign the CLA with your own account. Agents operated by the maintainer are on the CLA allowlist ([ADR-0036](docs/adr/0036-parallel-development.md)).
 
 ## Language
 
@@ -155,7 +157,7 @@ A change is done when:
 
 These GitHub settings make the rules above enforceable:
 
-- **Branches → `master`:** require a pull request; require status checks *Rust*, *Qt shell and private-bus integration*, *Licensing*, *Documentation consistency*, *Changelog fragment*, *Package / Build Arch package*, *Package / Install and smoke-test package* and *CLAAssistant*; require branches to be up to date before merging; block force pushes and deletion. Do not require code owner review (the maintainer account also opens agent pull requests).
+- **Branches → `master`:** require a pull request; require status checks *Rust*, *Qt shell and private-bus integration*, *Licensing*, *Documentation consistency*, *Changelog fragment*, *Package / Build Arch package*, *Package / Install and smoke-test package* and *cla*; require branches to be up to date before merging; block force pushes and deletion. Do not require code owner review (the maintainer account also opens agent pull requests).
 - **Actions → General:** workflow permissions "Read and write" (the CLA bot stores signatures in the `cla-signatures` branch).
 - **Security:** private vulnerability reporting, Dependabot alerts and secret scanning on.
 - **Labels:** create the labels listed under *Parallel work*.

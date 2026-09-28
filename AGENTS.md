@@ -60,7 +60,7 @@ cargo deny check licenses
 
 ## Parallel work
 
-Other agents work on this repository at the same time. Follow *Parallel work* in [CONTRIBUTING.md](CONTRIBUTING.md#parallel-work) ([ADR-0034](docs/adr/0034-parallel-development.md)). In short:
+Other agents work on this repository at the same time. Follow *Parallel work* in [CONTRIBUTING.md](CONTRIBUTING.md#parallel-work) ([ADR-0036](docs/adr/0036-parallel-development.md)). In short:
 
 - **Work only on a claimed issue** (Agent task template): assign it, add `agent:<your name>`, use one branch and one pull request for it. If there is no issue, ask the user to create or approve one.
 - **Change only paths in the issue's zone.** If you must touch something else, stop and say so in the issue instead of editing it.

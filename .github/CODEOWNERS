@@ -1,4 +1,4 @@
-# Review requests for shared contracts and project rules (ADR-0034).
+# Review requests for shared contracts and project rules (ADR-0036).
 # Code owner review is not enforced by branch protection: the maintainer
 # account also opens agent pull requests and cannot approve its own.
 

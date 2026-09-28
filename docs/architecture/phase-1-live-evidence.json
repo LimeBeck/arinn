@@ -1,0 +1,39 @@
+{
+  "date": "2026-09-28",
+  "environment": "KDE Plasma on Wayland, real systemd user manager",
+  "authorization": "Project owner explicitly authorized tests in the working session.",
+  "home_back": {
+    "cycles": 20,
+    "same_window_restored": true,
+    "application_class": "google-chrome",
+    "fullscreen": false,
+    "same_output": true,
+    "cycle_ms_min": 58.2,
+    "cycle_ms_median": 100.8,
+    "cycle_ms_max": 202.1,
+    "input": "KGlobalAccel invokeShortcut, not physical remote"
+  },
+  "daemon_recovery": {
+    "daemon_crash_home_hidden": true,
+    "daemon_crash_home_visible": true,
+    "adapter_reloaded": false,
+    "activity_preserved": true,
+    "home_and_return_after_recovery": true
+  },
+  "provider_runtime": {
+    "real_systemd": true,
+    "manual_restart": true,
+    "crash_auto_restart": true,
+    "restart_counters": true,
+    "argv_reload": true,
+    "restored_populated_demo": true,
+    "stable_provider_path": true
+  },
+  "not_tested": [
+    "physical remote",
+    "lock/suspend/logout",
+    "fullscreen game",
+    "other monitors"
+  ],
+  "final_state": "Arinn left running; Home hidden, original populated demo restored."
+}

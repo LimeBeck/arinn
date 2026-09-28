@@ -1,1 +1,1 @@
-- Rules and tooling for parallel development by several agents ([ADR-0034](docs/adr/0034-parallel-development.md)): changelog fragments, reserved ADR numbers with a generated register, work zones and an agent task issue template.
+- Rules and tooling for parallel development by several agents ([ADR-0036](docs/adr/0036-parallel-development.md)): changelog fragments, reserved ADR numbers with a generated register, work zones and an agent task issue template.

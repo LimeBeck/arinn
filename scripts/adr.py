@@ -4,7 +4,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""ADR helpers (ADR-0028, ADR-0034).
+"""ADR helpers (ADR-0028, ADR-0036).
 
     python scripts/adr.py next                 print the next free ADR number
     python scripts/adr.py new NUMBER "Title"   create docs/adr/NUMBER-slug.md from the template

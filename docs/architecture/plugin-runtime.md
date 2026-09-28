@@ -1,6 +1,6 @@
 # Plugin runtime: discovery, supervision and the Chrome bridge
 
-Part of [ADR-0021](../adr/0021-plugin-runtime-ownership.md), 2026-09-27. Status: chosen for implementation; the production runtime is not implemented yet (Phase 0 has a single hard-wired demo provider).
+Part of [ADR-0021](../adr/0021-plugin-runtime-ownership.md), 2026-09-27. Status: production application runtime implemented; local private-bus verification uses a test manager. Real systemd/KDE restart, reload and Home/Back checks also passed; see the [implementation record](phase-1-progress.md) for scope and remaining checks.
 
 ## Manifest and discovery
 
@@ -9,6 +9,39 @@ A manifest is TOML with the required fields `id`, `name`, `version`, `api_versio
 Discovery reads `*.toml` directly in `$XDG_DATA_HOME/arinn/plugins`, then in `arinn/plugins` of each `$XDG_DATA_DIRS` entry in order. XDG defaults apply as specified. A user manifest overrides a system manifest with the same ID; an invalid user manifest disables the provider with an explicit error and no surprising fallback. Duplicate IDs at the same level are `Conflict`; no file is picked at random. The source path is shown in diagnostics.
 
 The registry is re-read at startup and on `arinnctl providers reload`; file watching and timed hot reload are not required for the MVP. Removing a manifest and reloading stops the provider unit and removes its capabilities; user applications it launched keep running. Changing `executable`, the API version or capabilities requires a provider restart; changing display metadata updates the registry without a restart. Favorites stay, marked unavailable.
+
+### Discovery implementation status (2026-09-28)
+
+The discovery library and reload planner are implemented in `crates/arinnd/src/registry.rs`;
+`arinnd --check-plugins` exposes an offline check. The live daemon applies it at startup and on an asynchronous `providers reload` operation.
+
+Discovery reads only direct `.toml` children, ignores relative XDG environment values,
+and uses deterministic ordering. Reads are bounded to 256 KiB per manifest and 1,024
+manifests per priority level. Non-regular manifest files are rejected without blocking
+on FIFOs. Arguments are passed through as data in the model; they are never evaluated.
+The manifest model allows at most 256 arguments, each within the ordinary-text limit.
+
+If an invalid manifest still has a valid ID, it shadows lower-priority entries for
+that ID and is shown as an error. If its ID cannot be recovered (including malformed
+TOML or an unreadable file/directory), discovery retains already resolved levels and
+valid entries in the current level, but suppresses lower-priority discovery: it cannot
+prove that a system manifest is not the broken override. Repair the diagnostic and
+re-run the check to restore lower-priority discovery. Duplicate IDs at one level
+remain conflicts when the ID is readable, even if other required fields are invalid.
+
+Changing argv also requires a restart. Name/version-only changes update metadata.
+The planner reports start, stop, restart or metadata actions; the runtime applies them
+through the systemd adapter. Diagnostic JSON contains source paths and safe
+error codes, but omits executable paths and argv values from the manifest.
+
+## Provider data-directory identity
+
+OQ-06 was resolved by the project owner on 2026-09-28: use the full lowercase
+SHA-256 digest of the exact UTF-8 `provider_id` for provider-owned data and state
+folders. This preserves their location independently of `state.sqlite3`.
+See [ADR-0034](../adr/0034-provider-data-directory-identity.md) and the
+[storage contract](implementation-baseline.md#storage). Directory provisioning
+and registry-reset recovery tests are implemented in Phase 1.
 
 ## Units and ownership
 

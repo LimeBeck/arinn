@@ -1,6 +1,6 @@
 # Changelog fragments
 
-Every pull request that changes something a user, plugin author or contributor can notice adds **one fragment file** here instead of editing `CHANGELOG.md`. Separate files mean parallel branches never conflict on the changelog ([ADR-0034](../docs/adr/0034-parallel-development.md)).
+Every pull request that changes something a user, plugin author or contributor can notice adds **one fragment file** here instead of editing `CHANGELOG.md`. Separate files mean parallel branches never conflict on the changelog ([ADR-0036](../docs/adr/0036-parallel-development.md)).
 
 - Put the file into the directory of its [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) category: `added/`, `changed/`, `deprecated/`, `removed/`, `fixed/` or `security/`.
 - Name it after the issue or topic: `changes/fixed/42-provider-timeout.md`. Names must be unique; the issue number makes them so.

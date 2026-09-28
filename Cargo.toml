@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 [workspace]
-members = ["crates/arinn-protocol", "crates/arinnd", "plugins/demo", "tools/arinnctl"]
+members = ["crates/arinn-protocol", "crates/arinn-plugin-sdk", "crates/arinnd", "plugins/demo", "tools/arinnctl"]
 resolver = "2"
 
 [workspace.package]
@@ -19,3 +19,10 @@ serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time", "signal"] }
 uuid = { version = "1", features = ["v4"] }
 zbus = { version = "5", default-features = false, features = ["tokio"] }
+
+toml = "0.9"
+libc = "0.2"
+sha2 = "0.10"
+rusqlite = { version = "0.37", features = ["bundled"] }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+arinn-plugin-sdk = { path = "crates/arinn-plugin-sdk" }

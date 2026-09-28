@@ -4,7 +4,7 @@
 - **Date:** 2026-09-27
 - **Deciders:** delegated technical choice
 - **Amends / Supersedes:** amends [ADR-0010](0010-activity-home.md), [ADR-0013](0013-mpris-media.md), [ADR-0014](0014-state-persistence.md), [ADR-0017](0017-navigation-design-boundary.md), [ADR-0019](0019-design-handoff-contract.md)
-- **Amended by / Superseded by:** —
+- **Amended by / Superseded by:** [ADR-0034](0034-provider-data-directory-identity.md) — provider data-directory identity
 - **Specification:** [§6, §10, §11](../specifications/arinn-specification.md)
 
 ## Context

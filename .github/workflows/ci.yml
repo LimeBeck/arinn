@@ -46,7 +46,7 @@ jobs:
             qt6-base qt6-declarative python nodejs dbus systemd
       - uses: actions/checkout@v4
       - name: Build Rust workspace
-        run: cargo build --locked
+        run: cargo build --locked && cargo build --locked --examples
       - name: Build shell
         run: |
           cmake -S . -B build -G Ninja
@@ -54,7 +54,7 @@ jobs:
       - name: KWin adapter tests
         run: node --test tests/integration/kwin_adapter.test.cjs
       - name: Private-bus integration suite
-        run: dbus-run-session -- python tests/integration/phase0.py
+        run: dbus-run-session -- python tests/integration/phase1.py
 
   licenses:
     name: Licensing (REUSE, cargo-deny)
@@ -76,6 +76,7 @@ jobs:
           python-version: "3.12"
       - run: python scripts/check-docs.py
       - run: python scripts/adr.py check
+      - run: python scripts/check-architecture.py
       - run: python scripts/release.py check
 
   package:

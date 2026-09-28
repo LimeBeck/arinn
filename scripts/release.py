@@ -4,7 +4,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Release and changelog helpers (ADR-0033, ADR-0034).
+"""Release and changelog helpers (ADR-0033, ADR-0036).
 
     python scripts/release.py version                 print the workspace version
     python scripts/release.py check [TAG]             verify version consistency (and the tag, if given)

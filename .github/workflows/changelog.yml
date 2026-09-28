@@ -1,7 +1,7 @@
 name: Changelog
 
 # Every pull request adds a fragment under changes/ unless it is labelled
-# skip-changelog or opened by Dependabot (ADR-0034). Separate from CI so
+# skip-changelog or opened by Dependabot (ADR-0036). Separate from CI so
 # label changes rerun only this check.
 
 on:

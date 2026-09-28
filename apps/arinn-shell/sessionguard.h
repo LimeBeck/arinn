@@ -11,7 +11,7 @@
 // UI visibility follows session lock and sleep independently of daemon state.
 class SessionGuard : public QObject {
   Q_OBJECT
-  Q_CLASSINFO("D-Bus Interface", "org.arinn.SpikeSession1")
+  Q_CLASSINFO("D-Bus Interface", "org.arinn.Session1")
   Q_PROPERTY(bool blocked READ blocked NOTIFY changed)
 public:
   explicit SessionGuard(QObject *parent = nullptr,

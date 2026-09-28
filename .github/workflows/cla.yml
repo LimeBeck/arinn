@@ -32,6 +32,6 @@ jobs:
           path-to-signatures: signatures/cla.json
           branch: cla-signatures
           # Commits by AI agents operated by the maintainer carry no GitHub account
-          # and are covered by the maintainer's own rights (ADR-0034).
+          # and are covered by the maintainer's own rights (ADR-0036).
           allowlist: LimeBeck,Claude,dependabot[bot],github-actions[bot]
           lock-pullrequest-aftermerge: false

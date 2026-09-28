@@ -25,7 +25,7 @@ finally:call('org.kde.KWin','/Scripting','org.kde.kwin.Scripting.unloadScript',n
 # unrelated user window when the fixture is absent or activation lost a race.
 end=time.monotonic()+3
 while time.monotonic()<end:
-    state=json.loads(subprocess.check_output([str(ROOT/'target/debug/arinnctl'),'status'],text=True))
+    state=json.loads(subprocess.check_output([str(ROOT/'target/debug/arinnctl'),'--json','status'],text=True))
     if state['active_class']==klass and (not output or state['active_output']==output) and (not full or state['active_fullscreen']):
         break
     time.sleep(.05)

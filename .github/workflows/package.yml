@@ -33,7 +33,7 @@ jobs:
           version="$(python scripts/release.py version)"
           mkdir -p pkg
           git archive --format=tar.gz --prefix="arinn-${version}/" -o "pkg/arinn-${version}.tar.gz" HEAD
-          cp packaging/arch/PKGBUILD pkg/
+          cp packaging/arch/PKGBUILD packaging/arch/arinn.install pkg/
           chown -R builder pkg
       - name: makepkg (build, check, package)
         run: |
@@ -68,7 +68,11 @@ jobs:
         env:
           ARINN_TEST_MANAGER: ${{ github.workspace }}/pkg/private-systemd
         run: chmod +x "$ARINN_TEST_MANAGER" && dbus-run-session -- python tests/package/smoke.py
+      - name: Session units and KWin adapter loader
+        run: python tests/package/session.py
       - name: Uninstall cleanly
         run: |
           pacman -R --noconfirm arinn
           test ! -e /usr/bin/arinnd
+          test ! -e /usr/lib/systemd/user/arinn-session.target
+          test ! -e /usr/lib/arinn/arinn-kwin-adapter

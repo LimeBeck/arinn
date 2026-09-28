@@ -1,0 +1,15 @@
+# SPDX-FileCopyrightText: 2026 Arinn contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Opt-in autostart of the Arinn TV shell for one user (ADR-0042):
+#   systemctl --user enable arinn-session.target
+[Unit]
+Description=Arinn TV shell session
+Documentation=https://github.com/LimeBeck/arinn
+Requisite=graphical-session.target
+PartOf=graphical-session.target
+After=graphical-session.target
+Wants=arinnd.service arinn-shell.service arinn-kwin.service
+
+[Install]
+WantedBy=graphical-session.target

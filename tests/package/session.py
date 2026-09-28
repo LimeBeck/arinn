@@ -1,0 +1,120 @@
+#!/usr/bin/env python3
+
+# SPDX-FileCopyrightText: 2026 Arinn contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+"""Check the packaged session units and the KWin adapter loader (ADR-0042).
+
+    python tests/package/session.py
+
+Runs against the installed package (ARINN_PREFIX, default /usr). Never talks
+to a real systemd user manager or KWin: units are verified offline and the
+loader runs against a fake busctl.
+"""
+
+import os
+import subprocess
+import tempfile
+from pathlib import Path
+
+PREFIX = Path(os.environ.get("ARINN_PREFIX", "/usr"))
+UNITS = PREFIX / "lib/systemd/user"
+ADAPTER = PREFIX / "lib/arinn/arinn-kwin-adapter"
+SCRIPT = PREFIX / "share/arinn/kwin/phase0.js"
+NAMES = ["arinn-session.target", "arinnd.service", "arinn-shell.service", "arinn-kwin.service"]
+
+for name in NAMES:
+    assert (UNITS / name).is_file(), f"missing unit {name}"
+assert ADAPTER.is_file() and os.access(ADAPTER, os.X_OK), "missing KWin adapter loader"
+assert SCRIPT.is_file(), "missing KWin script"
+
+# The package installs units but never enables them for anyone.
+for wants in UNITS.glob("*.wants"):
+    assert not any(p.name in NAMES for p in wants.iterdir()), f"enabled by default: {wants}"
+
+
+def unit(name):
+    sections, section = {}, None
+    for line in (UNITS / name).read_text().splitlines():
+        line = line.strip()
+        if line.startswith("[") and line.endswith("]"):
+            section = sections.setdefault(line[1:-1], {})
+        elif line and not line.startswith("#"):
+            key, value = line.split("=", 1)
+            section.setdefault(key, []).append(value)
+    return sections
+
+
+# Every service stops with the graphical session and with the Arinn target.
+target = unit("arinn-session.target")
+assert target["Install"]["WantedBy"] == ["graphical-session.target"]
+assert set(target["Unit"]["Wants"][0].split()) == set(NAMES[1:])
+for name in NAMES[1:]:
+    part_of = unit(name)["Unit"]["PartOf"][0].split()
+    assert part_of == ["graphical-session.target", "arinn-session.target"], name
+# One daemon and one shell: readiness and uniqueness follow their bus names.
+assert unit("arinnd.service")["Service"]["BusName"] == ["org.arinn.Daemon1"]
+assert unit("arinn-shell.service")["Service"]["BusName"] == ["org.arinn.Shell1"]
+assert "arinnd.service" in unit("arinn-shell.service")["Unit"]["After"][0].split()
+
+if PREFIX == Path("/usr"):
+    # Offline verification; unrelated units of the host may still warn.
+    with tempfile.TemporaryDirectory(prefix="sd-") as runtime:
+        result = subprocess.run(
+            ["systemd-analyze", "--user", "verify", *(str(UNITS / n) for n in NAMES)],
+            env={**os.environ, "XDG_RUNTIME_DIR": runtime}, capture_output=True, text=True, timeout=60)
+    problems = [line for line in (result.stdout + result.stderr).splitlines()
+                if any(n in line for n in NAMES) or "arinn" in line]
+    assert result.returncode == 0 and not problems, result.stdout + result.stderr
+else:
+    print(f"SKIP: systemd-analyze verify needs the /usr prefix, not {PREFIX}")
+
+FAKE_BUSCTL = """#!/bin/sh
+echo "$*" >> "$FAKE_LOG"
+case "$*" in
+*"isScriptLoaded s arinn-phase0"*) echo "b ${FAKE_PHASE0:-false}" ;;
+*"isScriptLoaded s arinn"*) echo "b ${FAKE_LOADED:-false}" ;;
+*loadScript*) echo "${FAKE_LOAD:-i 7}" ;;
+*"org.kde.kwin.Script run"*) ;;
+*unloadScript*) exit "${FAKE_UNLOAD_RC:-0}" ;;
+*) exit 9 ;;
+esac
+"""
+
+with tempfile.TemporaryDirectory(prefix="arinn-kwin-") as folder:
+    root = Path(folder)
+    (root / "busctl").write_text(FAKE_BUSCTL)
+    (root / "busctl").chmod(0o755)
+    log = root / "log"
+
+    def adapter(action, **fake):
+        log.write_text("")
+        env = {**os.environ, "PATH": f"{root}:{os.environ['PATH']}", "FAKE_LOG": str(log),
+               "ARINN_KWIN_SCRIPT": str(SCRIPT), **fake}
+        result = subprocess.run([str(ADAPTER), action], env=env, capture_output=True, text=True, timeout=30)
+        return result.returncode, log.read_text().splitlines()
+
+    code, calls = adapter("start")
+    assert code == 0, calls
+    assert calls[-2] == (f"--user call org.kde.KWin /Scripting org.kde.kwin.Scripting "
+                         f"loadScript ss {SCRIPT} arinn"), calls
+    assert calls[-1] == "--user call org.kde.KWin /Scripting/Script7 org.kde.kwin.Script run", calls
+
+    # Already loaded (unit restart): nothing is loaded twice.
+    code, calls = adapter("start", FAKE_LOADED="true")
+    assert code == 0 and not any("loadScript" in c for c in calls), calls
+
+    # KWin refusal and the competing developer adapter both fail the unit.
+    code, calls = adapter("start", FAKE_LOAD="i -1")
+    assert code == 1 and not any("Script run" in c for c in calls), calls
+    code, calls = adapter("start", FAKE_PHASE0="true")
+    assert code == 1 and not any("loadScript" in c for c in calls), calls
+
+    # Stopping never fails, even when KWin has already gone away.
+    code, calls = adapter("stop")
+    assert code == 0 and calls == ["--user call org.kde.KWin /Scripting org.kde.kwin.Scripting unloadScript s arinn"]
+    assert adapter("stop", FAKE_UNLOAD_RC="1")[0] == 0
+    assert adapter("bogus")[0] == 2
+
+print("PASS: session units are installed, disabled by default and valid; KWin adapter loader behaves")

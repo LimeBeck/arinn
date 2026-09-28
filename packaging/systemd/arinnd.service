@@ -1,0 +1,17 @@
+# SPDX-FileCopyrightText: 2026 Arinn contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+[Unit]
+Description=Arinn daemon
+Documentation=https://github.com/LimeBeck/arinn
+PartOf=graphical-session.target arinn-session.target
+After=graphical-session.target
+StartLimitIntervalSec=60s
+StartLimitBurst=5
+
+[Service]
+# Ready once it owns its bus name; a second instance cannot take the name.
+Type=dbus
+BusName=org.arinn.Daemon1
+ExecStart=/usr/bin/arinnd
+Restart=on-failure
+RestartSec=2s

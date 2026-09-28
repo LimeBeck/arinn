@@ -1,0 +1,14 @@
+# SPDX-FileCopyrightText: 2026 Arinn contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+[Unit]
+Description=Arinn KWin platform adapter
+Documentation=https://github.com/LimeBeck/arinn
+PartOf=graphical-session.target arinn-session.target
+After=graphical-session.target plasma-kwin_wayland.service arinnd.service
+
+[Service]
+# Loads the packaged KWin script for this session only (ADR-0032, ADR-0042).
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/arinn/arinn-kwin-adapter start
+ExecStop=/usr/lib/arinn/arinn-kwin-adapter stop

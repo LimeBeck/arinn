@@ -39,7 +39,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0018](0018-demo-testing-gates.md) | Demo provider, shared contract suite and architecture gates | Accepted | 0020, 0023, 0033 |
 | [0019](0019-design-handoff-contract.md) | The design handoff as a separate presentation contract | Accepted | 0022, 0023, 0027 |
 | [0020](0020-dbus-contract-baseline.md) | D-Bus transport, identifiers and Plugin API reliability | Accepted | 0035, 0041 |
-| [0021](0021-plugin-runtime-ownership.md) | Transient systemd services and a separate Chrome native bridge | Accepted | 0038 |
+| [0021](0021-plugin-runtime-ownership.md) | Transient systemd services and a separate Chrome native bridge | Accepted | 0038, 0042 |
 | [0022](0022-state-and-interaction-baseline.md) | Activity ownership, persistence and interaction state | Accepted | 0034, 0043 |
 | [0023](0023-mvp-product-clarifications.md) | Back, system sleep and the target HTPC | Accepted | 0030 |
 | [0024](0024-local-library-mpv.md) | Local library and external mpv with a rich media API | Accepted | — |
@@ -50,7 +50,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0029](0029-licensing.md) | GPL-3.0-or-later core, permissive protocol, contributor license agreement | Accepted | — |
 | [0030](0030-phase0-machine-and-standard-input.md) | Phase 0 on the development machine and the remote as standard keyboard input | Accepted | — |
 | [0031](0031-single-screen-target.md) | The target HTPC has one screen | Accepted | — |
-| [0032](0032-kwin-script-platform-adapter.md) | A packaged KWin script as the first KDE platform adapter | Accepted | — |
+| [0032](0032-kwin-script-platform-adapter.md) | A packaged KWin script as the first KDE platform adapter | Accepted | 0042 |
 | [0033](0033-ci-cd-and-releases.md) | CI/CD pipeline and release policy | Accepted | 0036, 0044 |
 | [0034](0034-provider-data-directory-identity.md) | Provider data directories independent of registry state | Accepted | — |
 | [0035](0035-phase1-application-wire-contract.md) | Phase 1 application wire contract | Accepted | — |
@@ -60,6 +60,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0039](0039-platform-window-contract.md) | Platform window snapshot and control contract | Accepted | — |
 | [0040](0040-kwin-inventory-transport.md) | Trusted KWin inventory transport and SDK registration context | Accepted | — |
 | [0041](0041-independent-session-lifecycle-guard.md) | Daemon-independent session lifecycle guard | Accepted | — |
+| [0042](0042-opt-in-session-autostart.md) | Opt-in session autostart through packaged systemd user units | Accepted | — |
 | [0043](0043-web-shortcuts.md) | Arinn-owned web shortcuts for online-service tiles | Accepted | — |
 | [0044](0044-docs-only-ci-scope.md) | Documentation-only pull requests skip the build jobs | Accepted | — |
 <!-- register:end -->

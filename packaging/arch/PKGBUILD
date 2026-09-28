@@ -17,6 +17,7 @@ depends=('gcc-libs' 'glibc' 'glib2>=2.86' 'dbus' 'systemd' 'qt6-base' 'qt6-decla
 makedepends=('cargo' 'cmake' 'ninja')
 checkdepends=('python')
 options=('!lto')
+install=arinn.install
 source=("${pkgname}-${pkgver}.tar.gz")
 sha256sums=('SKIP')
 
@@ -52,6 +53,11 @@ package() {
   install -Dm644 plugins/desktop/desktop.toml "${pkgdir}/usr/share/arinn/plugins/desktop.toml"
   install -Dm644 plugins/demo/demo.toml "${pkgdir}/usr/share/arinn/plugins/demo.toml"
   install -Dm644 platform/kde/phase0.js "${pkgdir}/usr/share/arinn/kwin/phase0.js"
+  install -Dm755 platform/kde/arinn-kwin-adapter "${pkgdir}/usr/lib/arinn/arinn-kwin-adapter"
+  # Session units are installed but never enabled by the package (ADR-0042).
+  install -Dm644 packaging/systemd/arinn-session.target packaging/systemd/arinnd.service \
+    packaging/systemd/arinn-shell.service packaging/systemd/arinn-kwin.service \
+    -t "${pkgdir}/usr/lib/systemd/user/"
   install -Dm644 README.md CHANGELOG.md -t "${pkgdir}/usr/share/doc/${pkgname}/"
   install -Dm644 LICENSES/*.txt -t "${pkgdir}/usr/share/licenses/${pkgname}/"
 }

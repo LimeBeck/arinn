@@ -198,7 +198,7 @@ and accepts the full UI; early component work does not close its criteria.
 
 | Exit criterion | Evidence |
 | --- | --- |
-| AC-01 Autostart after login shows Home | Operator test on the target HTPC |
+| AC-01 Autostart after login shows Home | Operator test on the target HTPC. Opt-in session units delivered early (2026-09-28, [ADR-0042](docs/adr/0042-opt-in-session-autostart.md), [#52](https://github.com/LimeBeck/arinn/issues/52)); offline unit and loader checks in the package test; acceptance not run |
 | AC-02 Full D-pad navigation | UI tests + operator test |
 | AC-13 No profile selection or login | Review |
 | AC-14 Focus and primary actions readable from 3 m | Operator test on a TV |

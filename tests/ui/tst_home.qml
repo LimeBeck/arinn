@@ -61,6 +61,29 @@ TestCase {
         focused("entry-b");
     }
 
+    function test_brand_mark_in_header_and_navigation() {
+        const header = child("headerBrand");
+        tryCompare(header, "markReady", true);
+        const mark = findChild(header, "brandMark");
+        verify(mark);
+        verify(waitForRendering(mark));
+        const pixels = grabImage(home);
+        const ember = mark.mapToItem(home, mark.width / 2, mark.height * 0.7);
+        const apex = mark.mapToItem(home, mark.width / 2, mark.height * 0.24);
+        verify(pixels.red(Math.floor(ember.x), Math.floor(ember.y)) > 230);
+        verify(pixels.green(Math.floor(ember.x), Math.floor(ember.y)) > 100);
+        verify(pixels.blue(Math.floor(ember.x), Math.floor(ember.y)) < 100);
+        verify(pixels.red(Math.floor(apex.x), Math.floor(apex.y)) > 220);
+        child("menuButton").forceActiveFocus();
+        focused("menuButton");
+        verify(child("menuButton").focusedColor !== Ui.Theme.textPrimary);
+        keyClick(Qt.Key_Return); focused("nav-0");
+        const navBrand = child("navigationBrand");
+        verify(navBrand.visible);
+        tryCompare(navBrand, "markReady", true);
+        keyClick(Qt.Key_Escape); focused("menuButton");
+    }
+
     function test_home_back_activity() {
         home.returnActivityId = "a";
         keyClick(Qt.Key_Right); focused("entry-b");

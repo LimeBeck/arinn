@@ -15,7 +15,7 @@ target_link_libraries(arinn-shell-test PRIVATE arinn-session-lifecycle Qt6::Quic
 set(ARINN_PRESENTATION_FILES
     ui/qmldir ui/Theme.qml ui/UiText.qml ui/LogicalCanvas.qml
     ui/Surface.qml ui/ActionButton.qml ui/ContentCard.qml ui/AppTile.qml
-    ui/HomeRow.qml ui/HomeView.qml
+    ui/HomeRow.qml ui/HomeView.qml ui/BrandLockup.qml ui/BrandButton.qml
     ui/ProgressTrack.qml ui/Skeleton.qml ui/StatusPane.qml ui/fonts/Onest.ttf)
 foreach(target arinn-shell arinn-shell-test)
     qt_add_resources(${target} presentation PREFIX "/" FILES ${ARINN_PRESENTATION_FILES})
@@ -46,3 +46,10 @@ qt_add_resources(arinn-session-lifecycle-test lifecycle_presentation PREFIX "/" 
 qt_add_executable(arinn-catalog-test catalog_test.cpp backend.cpp backend.h)
 target_link_libraries(arinn-catalog-test PRIVATE Qt6::DBus Qt6::Test)
 add_test(NAME application-catalog COMMAND dbus-run-session -- $<TARGET_FILE:arinn-catalog-test>)
+
+# Reuse the approved handoff asset unchanged, including its existing attribution.
+foreach(target arinn-shell arinn-shell-test arinn-ui-gallery arinn-ui-test arinn-session-lifecycle-test)
+    qt_add_resources(${target} brand PREFIX "/brand"
+        BASE "${PROJECT_SOURCE_DIR}/docs/design/handoff/assets"
+        FILES "${PROJECT_SOURCE_DIR}/docs/design/handoff/assets/arinn-mark.svg")
+endforeach()

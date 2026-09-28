@@ -1,11 +1,14 @@
 // SPDX-FileCopyrightText: 2026 Arinn contributors
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! Pre-stable web-shortcut contract (ADR-0043). Web shortcuts are Arinn state,
+//! Pre-stable web-shortcut contract (ADR-0043, ADR-0045). Web shortcuts are Arinn state,
 //! exported by the daemon at its root path; the daemon backend is a separate task.
 use crate::validation::{self, ErrorCode, MAX_BODY_BYTES};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::{
+    collections::HashSet,
+    net::{Ipv4Addr, Ipv6Addr},
+};
 use zbus::zvariant::{LE, OwnedObjectPath, Type, serialized::Context, to_bytes};
 
 pub const INTERFACE: &str = "org.arinn.WebShortcuts1";
@@ -32,8 +35,9 @@ pub struct WebShortcutList {
     pub shortcuts: Vec<WebShortcut>,
 }
 
-/// An absolute `https` URL without user information, whitespace or control
-/// characters, with a non-empty host and a valid optional port.
+/// An absolute URL without user information, whitespace or control
+/// characters, with a non-empty host and a valid optional port. `https` is
+/// accepted for any host; `http` only for a local-network host (ADR-0045).
 pub fn url(value: &str) -> Result<(), ErrorCode> {
     let invalid = Err(ErrorCode::InvalidArgument);
     if value.len() > MAX_URL_BYTES
@@ -43,13 +47,18 @@ pub fn url(value: &str) -> Result<(), ErrorCode> {
     {
         return invalid;
     }
-    let Some(scheme) = value.get(..8) else {
+    let scheme = |prefix: &str| {
+        value
+            .get(..prefix.len())
+            .is_some_and(|s| s.eq_ignore_ascii_case(prefix))
+    };
+    let (secure, rest) = if scheme("https://") {
+        (true, &value[8..])
+    } else if scheme("http://") {
+        (false, &value[7..])
+    } else {
         return invalid;
     };
-    if !scheme.eq_ignore_ascii_case("https://") {
-        return invalid;
-    }
-    let rest = &value[8..];
     let authority = &rest[..rest.find(['/', '?', '#']).unwrap_or(rest.len())];
     if authority.contains('@') {
         return invalid;
@@ -72,7 +81,7 @@ pub fn url(value: &str) -> Result<(), ErrorCode> {
             None => (authority, None),
         },
     };
-    if host.is_empty() {
+    if host.is_empty() || (!secure && !local_host(host)) {
         return invalid;
     }
     if let Some(port) = port
@@ -83,6 +92,29 @@ pub fn url(value: &str) -> Result<(), ErrorCode> {
         return invalid;
     }
     Ok(())
+}
+
+/// A host that cannot be a public Internet site, judged from the URL alone
+/// (no DNS): private, loopback, link-local and unique-local IP literals,
+/// single-label names and the local-use zones `.local`, `.lan`, `.home.arpa`
+/// and `.internal`. IPv6 literals arrive without brackets.
+pub fn local_host(host: &str) -> bool {
+    if let Ok(ip) = host.parse::<Ipv4Addr>() {
+        return ip.is_private() || ip.is_loopback() || ip.is_link_local();
+    }
+    if let Ok(ip) = host.parse::<Ipv6Addr>() {
+        let first = ip.segments()[0];
+        return ip.is_loopback() || first & 0xfe00 == 0xfc00 || first & 0xffc0 == 0xfe80;
+    }
+    let host = host.strip_suffix('.').unwrap_or(host).to_ascii_lowercase();
+    if host.is_empty() || host.bytes().all(|b| b.is_ascii_digit() || b == b'.') {
+        // Numeric forms that are not dotted-quad IPv4 are never local names.
+        return false;
+    }
+    !host.contains('.')
+        || [".local", ".lan", ".home.arpa", ".internal"]
+            .iter()
+            .any(|zone| host.ends_with(zone))
 }
 
 /// A non-empty single-line title.
@@ -177,13 +209,29 @@ mod tests {
     }
 
     #[test]
-    fn urls_are_https_without_credentials() {
+    fn urls_are_https_or_local_http_without_credentials() {
         for good in [
             "https://example.org",
             "HTTPS://Example.org/",
             "https://example.org:8443/path?q=1#frag",
             "https://[2001:db8::1]:443/",
             "https://пример.рф/",
+            // Plain http only inside the local network.
+            "http://192.168.1.10:8096/web/",
+            "HTTP://10.0.0.2",
+            "http://172.31.255.1/",
+            "http://127.0.0.1:8080/",
+            "http://169.254.1.1/",
+            "http://[fd00::1]:8096/",
+            "http://[fe80::1]/",
+            "http://[::1]/",
+            "http://nas/",
+            "http://jellyfin:8096",
+            "http://tv.local/",
+            "http://media.lan/",
+            "http://router.home.arpa/",
+            "http://kodi.internal/",
+            "http://NAS.LOCAL./",
         ] {
             assert_eq!(url(good), Ok(()), "{good}");
         }
@@ -191,6 +239,16 @@ mod tests {
         for bad in [
             "",
             "http://example.org",
+            "http://8.8.8.8/",
+            "http://172.32.0.1/",
+            "http://[2001:db8::1]/",
+            "http://local.example.org/",
+            "http://example.local.org/",
+            "http://10.1/",
+            "http://3232235777/",
+            "http://user@nas/",
+            "http:///path",
+            "ftp://nas/",
             "javascript:alert(1)",
             "file:///etc/passwd",
             "https://",

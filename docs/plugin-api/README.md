@@ -41,8 +41,11 @@ not a capability; the shell manages them from the TV.
 
 - `List` returns the complete ordered list `(revision, [(id, title, url, icon)])`.
   At most 64 shortcuts; titles are single-line, non-empty and at most 256 bytes;
-  URLs are absolute `https` without user information, whitespace or control
-  characters and at most 2048 bytes; `icon` is empty or an opaque packaged icon
+  URLs are absolute `https`, or `http` for a local-network host judged without
+  DNS (private, loopback, link-local and unique-local IP literals, single-label
+  names, `.local`, `.lan`, `.home.arpa`, `.internal`;
+  [ADR-0045](../adr/0045-local-http-web-shortcuts.md)), without user information,
+  whitespace or control characters and at most 2048 bytes; `icon` is empty or an opaque packaged icon
   reference. The largest valid list fits one message, so there is no paging.
 - `Add(title, url, icon, request_id)` returns the new ID and is deduplicated by
   caller and request ID. `Update(id, revision, …)` and `Remove(id, revision)`

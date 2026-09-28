@@ -61,6 +61,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0040](0040-kwin-inventory-transport.md) | Trusted KWin inventory transport and SDK registration context | Accepted | — |
 | [0041](0041-independent-session-lifecycle-guard.md) | Daemon-independent session lifecycle guard | Accepted | — |
 | [0042](0042-opt-in-session-autostart.md) | Opt-in session autostart through packaged systemd user units | Accepted | — |
-| [0043](0043-web-shortcuts.md) | Arinn-owned web shortcuts for online-service tiles | Accepted | — |
+| [0043](0043-web-shortcuts.md) | Arinn-owned web shortcuts for online-service tiles | Accepted | 0045 |
 | [0044](0044-docs-only-ci-scope.md) | Documentation-only pull requests skip the build jobs | Accepted | — |
+| [0045](0045-local-http-web-shortcuts.md) | Plain HTTP web shortcuts for local-network hosts | Accepted | — |
 <!-- register:end -->

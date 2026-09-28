@@ -601,7 +601,7 @@ records the implemented subset and remaining qualification.
 ([ADR-0033](../adr/0033-ci-cd-and-releases.md))
 
 - Every pull request and every push to `master` MUST pass the full pipeline: Rust lints and tests, the Qt build and private-bus integration suite on current Arch Linux, KWin adapter tests, licensing checks, documentation and version checks, and an Arch package build that is installed into a clean system, smoke-tested and uninstalled.
-- A pull request that changes only Markdown files and changelog fragments runs only the licensing and documentation checks; the build jobs are skipped. Pushes to `master`, nightly and release runs always run the full pipeline ([ADR-0044](../adr/0044-docs-only-ci-scope.md)).
+- A pull request that changes only Markdown files and changelog fragments runs only the licensing and documentation checks; the build jobs are skipped. Pushes to `master`, nightly and release runs always run the full pipeline ([ADR-0044](../adr/0044-docs-only-ci-scope.md)). On pull requests the package build reuses a Cargo cache and skips the release-mode `check()`, which the Rust job covers; release builds are clean and run `check()` ([ADR-0047](../adr/0047-faster-package-builds.md)).
 - The same pipeline runs nightly against the latest Arch Linux, Qt and Rust. A red nightly blocks releases.
 - `master` is protected: changes land only through pull requests with green CI and a signed CLA.
 - Releases are cut from `master` by a `vX.Y.Z` tag that matches the workspace version and a `CHANGELOG.md` section. The release pipeline reruns the full CI on the tagged commit and publishes only if it passes. `0.x` versions are pre-releases.

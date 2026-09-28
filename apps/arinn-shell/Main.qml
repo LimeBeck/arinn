@@ -21,14 +21,14 @@ Window {
             objectName: "productionHome"
             busyEntryIds: backend.busyEntryIds
             continueEntries: backend.continueEntries
-            favoriteEntries: backend.applications
+            favoriteEntries: backend.webShortcuts
             applicationEntries: backend.applications
             runningEntries: backend.items
-            favoritesTitle: qsTr("Applications")
+            favoritesTitle: qsTr("Favorites")
             returnActivityId: backend.returnWindow
             homeState: backend.homeState
             statusTitle: homeState === "unavailable" ? qsTr("Home is unavailable") : homeState === "loading" ? qsTr("Loading Home…") : homeState === "error" ? qsTr("Home could not be loaded") : qsTr("Your Home starts here")
-            statusDescription: homeState === "empty" ? qsTr("No applications are available yet.") : qsTr("Navigation remains available. Home reconnects automatically.")
+            statusDescription: homeState === "empty" ? qsTr("No favorites are available yet.") : qsTr("Navigation remains available. Home reconnects automatically.")
             sectionDescription: screen === "applications" ? ((applicationEntries.length || runningEntries.length) ? qsTr("Choose an application or an open window.") : qsTr("No applications are available.")) : qsTr("This section is not available yet.")
             clockText: Qt.formatTime(new Date(), "hh:mm")
             Timer { interval: 1000; running: true; repeat: true; onTriggered: home.clockText = Qt.formatTime(new Date(), "hh:mm") }

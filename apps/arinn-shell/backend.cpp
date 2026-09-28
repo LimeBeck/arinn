@@ -24,7 +24,6 @@ struct Backend::Catalog {
   quint64 revision = 0;
   int pages = 0;
   qsizetype providerStart = 0, runningStart = 0;
-  bool hadError = false;
 };
 Backend::Backend(QObject *parent) : QObject(parent) {
   auto bus = QDBusConnection::sessionBus();
@@ -32,6 +31,9 @@ Backend::Backend(QObject *parent) : QObject(parent) {
   bus.connect(service, path, service, "ProvidersChanged", this,
               SLOT(refresh()));
   bus.connect(service, path, service, "StateChanged", this, SLOT(refresh()));
+  // Subscribe before the first List (WebShortcuts1).
+  bus.connect(service, path, "org.arinn.WebShortcuts1", "Changed", this,
+              SLOT(refresh()));
   auto watcher = new QDBusServiceWatcher(
       service, bus, QDBusServiceWatcher::WatchForOwnerChange, this);
   connect(watcher, &QDBusServiceWatcher::serviceOwnerChanged, this,
@@ -45,8 +47,7 @@ Backend::Backend(QObject *parent) : QObject(parent) {
             m_items.clear();
             m_applications.clear();
             m_return.clear();
-            m_loaded = false;
-            m_snapshotError = false;
+            clearShortcuts();
             publishState();
             refresh();
           });
@@ -68,6 +69,10 @@ void Backend::publishState() {
     m_publishedApplications = m_applications;
     emit applicationsChanged();
   }
+  if (m_publishedShortcuts != m_webShortcuts) {
+    m_publishedShortcuts = m_webShortcuts;
+    emit webShortcutsChanged();
+  }
   emit changed();
 }
 QVariantList Backend::continueEntries() const {
@@ -81,11 +86,17 @@ QVariantList Backend::continueEntries() const {
 QString Backend::homeState() const {
   if (!m_connected)
     return "unavailable";
-  if (!m_return.isEmpty() || !m_applications.isEmpty())
+  if (!m_return.isEmpty() || !m_webShortcuts.isEmpty())
     return "ready";
-  if (m_snapshotError)
+  if (m_shortcutsError)
     return "error";
-  return m_loaded ? "empty" : "loading";
+  return m_shortcutsLoaded ? "empty" : "loading";
+}
+void Backend::clearShortcuts() {
+  ++m_shortcutTicket;
+  m_webShortcuts.clear();
+  m_shortcutsLoaded = false;
+  m_shortcutsError = false;
 }
 void Backend::refresh() {
   if (m_refreshing) {
@@ -115,7 +126,7 @@ void Backend::refresh() {
               m_items.clear();
               m_applications.clear();
               m_return.clear();
-              m_loaded = false;
+              clearShortcuts();
               m_message = tr("Daemon is unavailable · reconnecting");
               publishState();
               return;
@@ -135,10 +146,15 @@ void Backend::refresh() {
               m_items.clear();
               m_applications.clear();
               m_snapshotRevision = 0;
-              m_loaded = false;
             }
             emit screenRequested(homeOutput);
             m_connected = true;
+            // Let Home publish "loading" before List runs. A same-thread bus
+            // delivers List immediately, which would skip that state.
+            QTimer::singleShot(0, this, [this, epoch] {
+              if (epoch == m_connectionEpoch)
+                readShortcuts(epoch);
+            });
             if (!platform)
               m_message = tr("KWin adapter is not connected");
             else if (!m_available)
@@ -245,7 +261,6 @@ void Backend::readApplications(const std::shared_ptr<Catalog> &catalog,
           return;
         }
         auto unavailable = [this, catalog, index] {
-          catalog->hadError = true;
           catalog->applications.resize(catalog->providerStart);
           catalog->running.resize(catalog->runningStart);
           catalog->tokens.clear();
@@ -337,8 +352,6 @@ void Backend::finishCatalog(const std::shared_ptr<Catalog> &catalog,
     refresh();
     return;
   }
-  m_snapshotError = !success || catalog->hadError;
-  m_loaded = success;
   m_applications = success ? catalog->applications : QVariantList{};
   m_items = success ? catalog->running : QVariantList{};
   publishState();
@@ -356,7 +369,69 @@ void Backend::back() {
     call->deleteLater();
   });
 }
+void Backend::readShortcuts(quint64 epoch) {
+  const auto ticket = ++m_shortcutTicket;
+  auto msg = QDBusMessage::createMethodCall(service, path,
+                                            "org.arinn.WebShortcuts1", "List");
+  auto pending = new QDBusPendingCallWatcher(
+      QDBusConnection::sessionBus().asyncCall(msg, 3000), this);
+  connect(
+      pending, &QDBusPendingCallWatcher::finished, this,
+      [this, epoch, ticket](auto *call) {
+        const auto reply = call->reply();
+        call->deleteLater();
+        if (epoch != m_connectionEpoch || ticket != m_shortcutTicket)
+          return;
+        auto fail = [this] {
+          m_webShortcuts.clear();
+          m_shortcutsLoaded = false;
+          m_shortcutsError = true;
+          publishState();
+        };
+        if (reply.type() == QDBusMessage::ErrorMessage ||
+            reply.arguments().isEmpty() || reply.signature() != "(ta(ssss))") {
+          fail();
+          return;
+        }
+        const auto arg = qvariant_cast<QDBusArgument>(reply.arguments().at(0));
+        qulonglong revision;
+        QVariantList entries;
+        arg.beginStructure();
+        arg >> revision;
+        arg.beginArray();
+        while (!arg.atEnd()) {
+          QString id, title, url, icon;
+          arg.beginStructure();
+          arg >> id >> title >> url >> icon;
+          arg.endStructure();
+          // The URL and icon reference are user configuration. Discard them
+          // after decoding; they are not stored, displayed or logged.
+          url.clear();
+          icon.clear();
+          QString monogram;
+          if (const auto trimmed = title.trimmed(); !trimmed.isEmpty())
+            monogram = QString(trimmed.front().toUpper());
+          entries.append(
+              QVariantMap{{"id", id}, {"title", title}, {"monogram", monogram}});
+        }
+        arg.endArray();
+        arg.endStructure();
+        Q_UNUSED(revision);
+        m_webShortcuts = entries;
+        m_shortcutsLoaded = true;
+        m_shortcutsError = false;
+        publishState();
+      });
+}
 void Backend::launch(const QString &id) {
+  // Home favorites and Applications share entryRequested. A shortcut id opens
+  // through WebShortcuts1; every other id is an application launch target.
+  for (const auto &item : m_webShortcuts) {
+    if (item.toMap().value("id").toString() == id) {
+      openShortcut(id);
+      return;
+    }
+  }
   runApplication(id, m_applications, "Launch");
 }
 void Backend::activate(const QString &id) {
@@ -384,86 +459,116 @@ void Backend::runApplication(const QString &id, const QVariantList &entries,
   msg << selected.value("generation").toString()
       << selected.value("localId").toString()
       << QUuid::createUuid().toString(QUuid::WithoutBraces);
+  beginOperation(id, msg);
+}
+void Backend::openShortcut(const QString &id) {
+  if (m_pendingIds.contains(id))
+    return;
+  bool found = false;
+  for (const auto &item : m_webShortcuts) {
+    if (item.toMap().value("id").toString() == id) {
+      found = true;
+      break;
+    }
+  }
+  if (!found) {
+    m_message = "NotFound";
+    publishState();
+    return;
+  }
+  auto msg = QDBusMessage::createMethodCall(service, path,
+                                            "org.arinn.WebShortcuts1", "Open");
+  msg << id << QUuid::createUuid().toString(QUuid::WithoutBraces);
+  beginOperation(id, msg);
+}
+void Backend::beginOperation(const QString &id, const QDBusMessage &msg) {
+  if (m_pendingIds.contains(id))
+    return;
   const auto epoch = m_connectionEpoch;
   m_pendingIds.insert(id);
   m_message = tr("Working…");
   publishState();
   auto pending = new QDBusPendingCallWatcher(
       QDBusConnection::sessionBus().asyncCall(msg, 3000), this);
-  connect(
-      pending, &QDBusPendingCallWatcher::finished, this,
-      [this, id, epoch](auto *call) {
-        const auto reply = call->reply();
-        call->deleteLater();
-        if (epoch != m_connectionEpoch)
-          return;
-        if (reply.type() == QDBusMessage::ErrorMessage ||
-            reply.signature() != "o" || reply.arguments().isEmpty()) {
-          m_pendingIds.remove(id);
-          m_message = reply.type() == QDBusMessage::ErrorMessage
-                          ? reply.errorMessage()
-                          : tr("Operation is unavailable");
-          publishState();
-          return;
-        }
-        auto op =
-            qvariant_cast<QDBusObjectPath>(reply.arguments().at(0)).path();
-        auto timer = new QTimer(this);
-        timer->setInterval(100);
-        connect(timer, &QTimer::timeout, this, [this, timer, op, id, epoch] {
-          timer->stop();
-          if (epoch != m_connectionEpoch) {
-            timer->deleteLater();
-            return;
-          }
-          auto msg = QDBusMessage::createMethodCall(
-              service, op, "org.arinn.Operation1", "Get");
-          auto p = new QDBusPendingCallWatcher(
-              QDBusConnection::sessionBus().asyncCall(msg, 3000), this);
-          connect(p, &QDBusPendingCallWatcher::finished, this,
-                  [this, timer, id, epoch](auto *call) {
-                    const auto reply = call->reply();
-                    call->deleteLater();
-                    if (epoch != m_connectionEpoch) {
-                      timer->deleteLater();
-                      return;
-                    }
-                    if (reply.type() == QDBusMessage::ErrorMessage ||
-                        reply.signature() != "(ssbtta(sss)b)" ||
-                        reply.arguments().isEmpty()) {
+  connect(pending, &QDBusPendingCallWatcher::finished, this,
+          [this, id, epoch](auto *call) {
+            const auto reply = call->reply();
+            call->deleteLater();
+            if (epoch != m_connectionEpoch)
+              return;
+            if (reply.type() == QDBusMessage::ErrorMessage ||
+                reply.signature() != "o" || reply.arguments().isEmpty()) {
+              m_pendingIds.remove(id);
+              m_message = reply.type() == QDBusMessage::ErrorMessage
+                              ? reply.errorMessage()
+                              : tr("Operation is unavailable");
+              publishState();
+              return;
+            }
+            watchOperation(
+                id,
+                qvariant_cast<QDBusObjectPath>(reply.arguments().at(0)).path(),
+                epoch);
+          });
+}
+void Backend::watchOperation(const QString &id, const QString &operationPath,
+                             quint64 epoch) {
+  auto timer = new QTimer(this);
+  timer->setInterval(100);
+  connect(timer, &QTimer::timeout, this,
+          [this, timer, operationPath, id, epoch] {
+            timer->stop();
+            if (epoch != m_connectionEpoch) {
+              timer->deleteLater();
+              return;
+            }
+            auto msg = QDBusMessage::createMethodCall(
+                service, operationPath, "org.arinn.Operation1", "Get");
+            auto p = new QDBusPendingCallWatcher(
+                QDBusConnection::sessionBus().asyncCall(msg, 3000), this);
+            connect(p, &QDBusPendingCallWatcher::finished, this,
+                    [this, timer, id, epoch](auto *call) {
+                      const auto reply = call->reply();
+                      call->deleteLater();
+                      if (epoch != m_connectionEpoch) {
+                        timer->deleteLater();
+                        return;
+                      }
+                      if (reply.type() == QDBusMessage::ErrorMessage ||
+                          reply.signature() != "(ssbtta(sss)b)" ||
+                          reply.arguments().isEmpty()) {
+                        m_pendingIds.remove(id);
+                        m_message = tr("Operation is unavailable");
+                        timer->deleteLater();
+                        publishState();
+                        return;
+                      }
+                      const QDBusArgument arg =
+                          qvariant_cast<QDBusArgument>(reply.arguments().at(0));
+                      QString state, error;
+                      bool retryable, cancellable;
+                      qulonglong started, ended;
+                      arg.beginStructure();
+                      arg >> state >> error >> retryable >> started >> ended;
+                      arg.beginArray();
+                      while (!arg.atEnd()) {
+                        QString provider, capability, resultId;
+                        arg.beginStructure();
+                        arg >> provider >> capability >> resultId;
+                        arg.endStructure();
+                      }
+                      arg.endArray();
+                      arg >> cancellable;
+                      arg.endStructure();
+                      if (state == "running" || state == "queued") {
+                        timer->start();
+                        return;
+                      }
                       m_pendingIds.remove(id);
-                      m_message = tr("Operation is unavailable");
+                      m_message = state == "succeeded" ? tr("Done") : error;
                       timer->deleteLater();
                       publishState();
-                      return;
-                    }
-                    const QDBusArgument arg =
-                        qvariant_cast<QDBusArgument>(reply.arguments().at(0));
-                    QString state, error;
-                    bool retryable, cancellable;
-                    qulonglong started, ended;
-                    arg.beginStructure();
-                    arg >> state >> error >> retryable >> started >> ended;
-                    arg.beginArray();
-                    while (!arg.atEnd()) {
-                      QString provider, capability, id;
-                      arg.beginStructure();
-                      arg >> provider >> capability >> id;
-                      arg.endStructure();
-                    }
-                    arg.endArray();
-                    arg >> cancellable;
-                    arg.endStructure();
-                    if (state == "running" || state == "queued") {
-                      timer->start();
-                      return;
-                    }
-                    m_pendingIds.remove(id);
-                    m_message = state == "succeeded" ? tr("Done") : error;
-                    timer->deleteLater();
-                    publishState();
-                  });
-        });
-        timer->start();
-      });
+                    });
+          });
+  timer->start();
 }

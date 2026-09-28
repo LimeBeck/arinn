@@ -1,0 +1,1 @@
+- Home favorites show the daemon's web shortcuts (title and a monogram or neutral placeholder) and open them with `WebShortcuts1.Open`, including an Unavailable result when no browser provider is available ([ui-web-shortcuts.md](docs/architecture/ui-web-shortcuts.md)). Applications stay on the Applications route.

@@ -1,0 +1,1 @@
+- A provider could stay in "starting" forever after a reload: two concurrent token rotations could leave the token file and the daemon's expected token different, so every registration was rejected. Rotations are now serialized ([#66](https://github.com/LimeBeck/arinn/issues/66)).

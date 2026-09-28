@@ -1,0 +1,35 @@
+<!-- SPDX-FileCopyrightText: 2026 Arinn contributors
+SPDX-License-Identifier: MIT OR Apache-2.0 -->
+<node>
+  <interface name="org.arinn.WebShortcuts1">
+    <method name="List">
+      <arg type="(ta(ssss))" direction="out" />
+    </method>
+    <method name="Add">
+      <arg name="title" type="s" direction="in" />
+      <arg name="url" type="s" direction="in" />
+      <arg name="icon" type="s" direction="in" />
+      <arg name="request_id" type="s" direction="in" />
+      <arg type="s" direction="out" />
+    </method>
+    <method name="Update">
+      <arg name="id" type="s" direction="in" />
+      <arg name="revision" type="t" direction="in" />
+      <arg name="title" type="s" direction="in" />
+      <arg name="url" type="s" direction="in" />
+      <arg name="icon" type="s" direction="in" />
+    </method>
+    <method name="Remove">
+      <arg name="id" type="s" direction="in" />
+      <arg name="revision" type="t" direction="in" />
+    </method>
+    <method name="Open">
+      <arg name="id" type="s" direction="in" />
+      <arg name="request_id" type="s" direction="in" />
+      <arg type="o" direction="out" />
+    </method>
+    <signal name="Changed">
+      <arg name="revision" type="t" />
+    </signal>
+  </interface>
+</node>

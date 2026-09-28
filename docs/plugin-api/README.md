@@ -32,6 +32,35 @@ The SDK exports `platform::WindowClient`; its private-bus fixture checks XML and
 client behaviour. The production daemon does **not** export this interface yet.
 This is not a seventh capability or a shell-to-compositor API.
 
+### Web shortcut contract (daemon implementation pending)
+
+`org.arinn.WebShortcuts1` is specified for the daemon service/root path by
+[web-shortcuts1.xml](web-shortcuts1.xml) and typed in `arinn-protocol::web`
+([ADR-0043](../adr/0043-web-shortcuts.md)). Web shortcuts are Arinn-owned state,
+not a capability; the shell manages them from the TV.
+
+- `List` returns the complete ordered list `(revision, [(id, title, url, icon)])`.
+  At most 64 shortcuts; titles are single-line, non-empty and at most 256 bytes;
+  URLs are absolute `https`, or `http` for a local-network host judged without
+  DNS (private, loopback, link-local and unique-local IP literals, single-label
+  names, `.local`, `.lan`, `.home.arpa`, `.internal`;
+  [ADR-0045](../adr/0045-local-http-web-shortcuts.md)), without user information,
+  whitespace or control characters and at most 2048 bytes; `icon` is empty or an opaque packaged icon
+  reference. The largest valid list fits one message, so there is no paging.
+- `Add(title, url, icon, request_id)` returns the new ID and is deduplicated by
+  caller and request ID. `Update(id, revision, …)` and `Remove(id, revision)`
+  take the list revision the caller last read and fail with `Conflict` when it
+  is stale, `NotFound` for an unknown ID and `InvalidArgument` for invalid input.
+- `Open(id, request_id)` returns an `org.arinn.Operation1` object. The daemon
+  opens the URL through the default BrowserProvider; with none available the
+  operation fails with `Unavailable`.
+- `Changed(revision)` follows every committed change; subscribe before `List`.
+
+Shortcut URLs are user configuration: they never appear in logs, diagnostics or
+`arinnctl diagnostics` output. The protocol test checks the XML against a live
+fixture export on a private bus. The production daemon does **not** export this
+interface yet ([task #56](https://github.com/LimeBeck/arinn/issues/56)).
+
 ### Production application and registry semantics
 
 `Providers(token)` returns an immutable registry page with a snapshot ID. Start

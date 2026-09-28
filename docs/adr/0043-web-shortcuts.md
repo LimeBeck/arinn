@@ -4,7 +4,7 @@
 - **Date:** 2026-09-28
 - **Deciders:** project owner, explicit choice of option A for OQ-02 in [issue #53](https://github.com/LimeBeck/arinn/issues/53); technical details under delegated authority ([ADR-0037](0037-agent-autonomy-and-owner-gated-decisions.md))
 - **Amends / Supersedes:** amends [ADR-0022](0022-state-and-interaction-baseline.md) (Arinn-owned state), [ADR-0038](0038-browser-launch-ownership.md) (opens its deferred OQ-02 point only)
-- **Amended by / Superseded by:** —
+- **Amended by / Superseded by:** [ADR-0045](0045-local-http-web-shortcuts.md) — plain `http` for local-network hosts
 - **Specification:** [§5.1](../specifications/arinn-specification.md#51-home), [§7.1](../specifications/arinn-specification.md#71-browser-chromechromium), [§11](../specifications/arinn-specification.md#11-state-ownership-and-persistence)
 
 ## Context

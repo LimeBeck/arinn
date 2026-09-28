@@ -9,6 +9,7 @@ pub mod kwin;
 pub mod platform;
 pub mod production;
 pub mod validation;
+pub mod web;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct Status {

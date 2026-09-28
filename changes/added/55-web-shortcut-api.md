@@ -1,0 +1,1 @@
+- The pre-stable `org.arinn.WebShortcuts1` contract for Arinn-owned web shortcuts: list, add, update, remove and open, with URL and size validation in `arinn-protocol::web` ([web-shortcuts1.xml](docs/plugin-api/web-shortcuts1.xml), [ADR-0043](docs/adr/0043-web-shortcuts.md)). The daemon does not export it yet.

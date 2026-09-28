@@ -13,3 +13,7 @@ repository.workspace = true
 serde.workspace = true
 zbus.workspace = true
 uuid.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
+futures-util.workspace = true

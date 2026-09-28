@@ -60,7 +60,8 @@ function fixture() {
         refresh() { tick(); }, lock(value) { locked = value; },
         command(action, token) { control([randomUUID(), action, token]); },
         reconnect(value) { owner = value; tick(); },
-        show: () => shortcut(), back: () => takeCommand('return'), report: () => report,
+        show: () => shortcut(), back: () => takeCommand('return'),
+        dismiss: () => takeCommand('dismiss'), report: () => report,
         remove(w) { windows = windows.filter(x => x !== w); workspace.windowRemoved.emit(w); },
         add(w) { windows.push(w); workspace.windowAdded.emit(w); } };
 }
@@ -77,6 +78,18 @@ test('same KWin identity remaps and remains the Return target on its output', ()
     f.back();
     assert.equal(f.workspace.activeWindow, f.activity);
     assert.equal(f.report()[0], false);
+});
+
+test('a launched application dismisses Home without returning to the Activity', () => {
+    const f = fixture();
+    f.show();
+    assert.equal(f.home.keepAbove, true);
+    assert.deepEqual(f.report(), [true, 'original-id', 'second-screen']);
+    f.dismiss();
+    assert.deepEqual(f.report(), [false, '', 'second-screen']);
+    assert.equal(f.home.keepAbove, false);
+    f.dismiss(); // idempotent when Home is already hidden
+    assert.deepEqual(f.report(), [false, '', 'second-screen']);
 });
 
 test('another window of the same application never replaces a closed target', () => {

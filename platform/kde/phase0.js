@@ -57,6 +57,16 @@ function returnToActivity() {
     target = "";
     detachedTarget = "";
 }
+function dismissHome() {
+    // A launched application replaces Home: hide it without activating the
+    // previous Activity; the new window takes focus as it maps.
+    if (!homeVisible) return;
+    const home = shell(); if (home) home.keepAbove = false;
+    homeVisible = false;
+    target = "";
+    detachedTarget = "";
+    rpc("ReportHome", false, "", homeOutput);
+}
 function poll() {
     if (!daemonOwner) return;
     const serial = ++pollSerial;
@@ -65,6 +75,7 @@ function poll() {
         if (serial !== pollSerial) return; // reply from an obsolete owner/request
         pollStarted = 0;
         if (command === "home") showHome();
+        else if (command === "dismiss") dismissHome();
         else if (command === "return") returnToActivity();
         poll();
     });

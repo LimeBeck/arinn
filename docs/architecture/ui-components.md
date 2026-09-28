@@ -72,8 +72,8 @@ comparison of all 22 handoff screens. GPU rendering, target-TV usability and
 operator tests were not run; CI has not run for this change.
 
 Remaining design work includes artwork-dependent glow/elevation, the light field,
-Material Symbols, poster/row variants, shimmer, Home/global navigation and full
-focus-scope restoration. The current subset uses a pulse for loading and neutral
+Material Symbols, full poster/row styling, shimmer and the complete modal/sheet
+focus stack. The Home/navigation subset is described below. The current subset uses a pulse for loading and neutral
 status glyphs. Full handoff fidelity and 3-metre TV readability are not claimed.
 
 ## Font provenance
@@ -83,3 +83,62 @@ Onest is bundled unchanged from the Google Fonts `ofl/onest` directory:
 [upstream project](https://github.com/googlefonts/onest).
 Copyright 2021 The Onest Project Authors. License: SIL Open Font License 1.1,
 in `LICENSES/OFL-1.1.txt`, with the binary annotated in `REUSE.toml`.
+
+## Home and global navigation preview
+
+[Issue #15](https://github.com/LimeBeck/arinn/issues/15) adds `HomeView` and
+`HomeRow`, exercised by the standalone `HomeGallery.qml`. The production shell
+and its transport remain unchanged. Other top-level routes show explicit preview
+placeholders; no Library, Downloads, Applications or Settings backend is implied.
+Power emits an intent only; it never opens a destructive confirmation or performs
+a session action.
+
+`HomeView` accepts immutable `continueEntries`, `favoriteEntries` and `newEntries`
+arrays. Each entry has a unique opaque `id`, `title`, and optional `subtitle`,
+`artwork`, `monogram`, `running`, `progress`, `enabled` and `busy`. The caller owns
+the Continue projection (one Activity plus up to four resumable entries), New
+availability and provider state. QML neither aggregates providers nor persists
+these arrays. `returnActivityId` identifies the return target independently of
+focus. `homeState` is ready/empty/loading/error/unavailable, accompanied by
+`statusTitle` and `statusDescription`; `clockText` is display-only.
+
+Actions emit `entryRequested(id)`, `returnRequested(id)`, `retryRequested()`,
+`sectionRequested(route)` and `powerRequested()`. The gallery displays intent
+feedback; no timeout or animation changes backend state. Production model binding
+and operation feedback are follow-up work on the existing daemon contracts.
+
+Local input uses arrows, Enter, Menu, Home, Esc and Backspace. Home closes
+navigation and focuses the return Activity when present. Back closes navigation,
+returns a section to Home, requests Return from Home with an Activity, or opens
+navigation without one. Editable text consumes Backspace normally. No global
+key registration is added. Navigation traps focus and restores its opener; if
+that item disappears it restores the nearest surviving row item. Snapshots keep
+selection by ID across reordering and choose the previous index after removal.
+Empty rows fall back to a neighbouring row, then the menu button. New scrolls
+into view locally; horizontal rows reveal the focused item and suppress hover
+focus for 500 ms after scrolling. Pointer movement and arrows switch input modes.
+
+```sh
+build/apps/arinn-shell/arinn-ui-gallery --home
+build/apps/arinn-shell/arinn-ui-gallery --home --nav
+build/apps/arinn-shell/arinn-ui-gallery --home --state unavailable
+QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software build/apps/arinn-shell/arinn-ui-gallery --home --4k --capture /tmp/home-4k.png
+```
+
+`--state` accepts populated (default), empty, loading, error and unavailable.
+Captures use original geometric fixture artwork and neutral application names.
+The comparison target is the handoff Home/nav layout, not all 22 screens:
+logical safe area, hero, Continue/Favorites/New positioning, navigation panel,
+focus visibility and uniform scaling. Activity backdrop capture, material icons,
+artwork lighting, real TV readability and the full Phase 5 design gate remain
+outside this increment. Operator tests were not run: this preview has no platform
+binding and permission to drive the real desktop was not requested.
+
+Local verification on 2026-09-28 (Qt 6.11.2): CMake build and CTest passed
+(42 Qt Quick results, including the existing components). Rust fmt, clippy,
+tests and example builds, the Phase 1 private-bus suite, KWin JavaScript tests,
+documentation/architecture/ADR/version checks, REUSE and dependency license
+checks passed. Populated Home and navigation were compared with the handoff;
+all five fixture states were captured at 1080p and 4K, with representative captures
+inspected for scaling, readable status text and clipping. This validates the
+presentation subset, not full design fidelity or production navigation.

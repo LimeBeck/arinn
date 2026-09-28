@@ -54,5 +54,6 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0033](0033-ci-cd-and-releases.md) | CI/CD pipeline and release policy | Accepted | 0036 |
 | [0034](0034-provider-data-directory-identity.md) | Provider data directories independent of registry state | Accepted | — |
 | [0035](0035-phase1-application-wire-contract.md) | Phase 1 application wire contract | Accepted | — |
-| [0036](0036-parallel-development.md) | Parallel development by several agents | Accepted | — |
+| [0036](0036-parallel-development.md) | Parallel development by several agents | Accepted | 0037 |
+| [0037](0037-agent-autonomy-and-owner-gated-decisions.md) | Agent autonomy and owner-gated decisions | Accepted | — |
 <!-- register:end -->

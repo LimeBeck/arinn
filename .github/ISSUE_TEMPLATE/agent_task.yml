@@ -5,8 +5,9 @@ body:
   - type: markdown
     attributes:
       value: |
-        One issue = one task = one branch = one pull request. Claim it by assigning yourself and adding `agent:<name>`.
-        Do not start while a dependency or an open question (OQ-xx) is unresolved.
+        One issue = one task = one branch = one pull request. Agents create these issues themselves from the roadmap (ADR-0037).
+        Claim it with the label `agent:<name>` and a "claimed" comment naming the branch; a claim without activity for 48 hours may be taken over.
+        Do not start while a dependency or an open question (OQ-xx) is unresolved; mark owner decisions with `needs-owner`.
   - type: textarea
     id: goal
     attributes:

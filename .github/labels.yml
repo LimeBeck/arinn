@@ -1,0 +1,32 @@
+# Repository labels, created and updated by .github/workflows/labels.yml
+# (ADR-0037). Edit this file instead of creating labels by hand.
+- name: task
+  color: "1d76db"
+  description: Agent task (one issue, one branch, one pull request)
+- name: agent:claude
+  color: "d4a373"
+  description: Claimed by a Claude Code agent
+- name: agent:codex
+  color: "5b8def"
+  description: Claimed by a Codex agent
+- name: needs-owner
+  color: "d93f0b"
+  description: Waiting for a decision by the project owner (ADR-0037)
+- name: blocked
+  color: "b60205"
+  description: Waiting for another issue or pull request
+- name: contract-change
+  color: "5319e7"
+  description: Changes arinn-protocol, the plugin SDK or interface XML
+- name: skip-changelog
+  color: "cfd3d7"
+  description: No changelog fragment needed
+- name: bug
+  color: "d73a4a"
+  description: Something does not work as specified
+- name: enhancement
+  color: "a2eeef"
+  description: New feature or integration
+- name: dependencies
+  color: "0366d6"
+  description: Dependency updates

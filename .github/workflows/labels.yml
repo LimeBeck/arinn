@@ -1,0 +1,32 @@
+name: Labels
+
+# Creates and updates repository labels from .github/labels.yml (ADR-0037).
+# Labels missing from the file are left alone, never deleted.
+
+on:
+  push:
+    branches: [master]
+    paths: [".github/labels.yml"]
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Sync labels
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 -m pip install --quiet pyyaml
+          python3 - <<'PY'
+          import json, subprocess, yaml
+          for label in yaml.safe_load(open(".github/labels.yml")):
+              subprocess.run(["gh", "label", "create", label["name"], "--force",
+                              "--color", label["color"], "--description", label["description"],
+                              "--repo", "${{ github.repository }}"], check=True)
+              print("synced", label["name"])
+          PY

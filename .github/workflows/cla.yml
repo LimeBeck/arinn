@@ -31,7 +31,9 @@ jobs:
           path-to-document: https://github.com/LimeBeck/arinn/blob/master/CLA.md
           path-to-signatures: signatures/cla.json
           branch: cla-signatures
-          # Commits by AI agents operated by the maintainer carry no GitHub account
-          # and are covered by the maintainer's own rights (ADR-0036).
-          allowlist: LimeBeck,Claude,dependabot[bot],github-actions[bot]
+          # Commits by AI agents operated by the maintainer are covered by the
+          # maintainer's own rights (ADR-0036). GitHub resolves the Claude agent's
+          # commit email to the login "claude"; matching is case-sensitive, so
+          # both the login and the unlinked git name are listed.
+          allowlist: LimeBeck,claude,Claude,dependabot[bot],github-actions[bot]
           lock-pullrequest-aftermerge: false

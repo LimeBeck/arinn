@@ -29,6 +29,10 @@ def start():
         raise SystemExit('Phase 0 is already running. Use stop before start.')
     if dbus('org.kde.KWin','/Scripting','org.kde.kwin.Scripting.isScriptLoaded',NAME).stdout.strip()=='true':
         raise SystemExit('KWin adapter already loaded; use stop first.')
+    # The packaged session (ADR-0042) owns the same bus names and shortcut.
+    if run('systemctl','--user','is-active','--quiet','arinn-session.target',check=False).returncode==0 or \
+       dbus('org.kde.KWin','/Scripting','org.kde.kwin.Scripting.isScriptLoaded','arinn').stdout.strip()=='true':
+        raise SystemExit('The packaged Arinn session is running: systemctl --user stop arinn-session.target')
     RUN.mkdir(mode=0o700,exist_ok=True);RUN.chmod(0o700)
     manifests=RUN/'data/arinn/plugins';manifests.mkdir(parents=True,exist_ok=True)
     (manifests/'demo.toml').write_text('id = \"demo\"\nname = \"Demo\"\nversion = \"0.0.1\"\napi_version = 1\ncapabilities = [\"application\"]\nexecutable = '+json.dumps(str(ROOT/'target/debug/arinn-plugin-demo'))+'\n')

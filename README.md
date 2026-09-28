@@ -94,7 +94,15 @@ sudo pacman -S --needed rust cmake ninja qt6-base qt6-declarative qt6-svg python
 
 ## Try the prototype
 
-There is no stable release yet. Pre-release Arch packages of the prototype will appear on the [Releases](https://github.com/LimeBeck/arinn/releases) page; they contain the binaries but no autostart. To build and run the current prototype in your own Plasma session from source:
+There is no stable release yet. Pre-release Arch packages of the prototype are published on the [Releases](https://github.com/LimeBeck/arinn/releases) page. The package starts nothing by itself. To start Arinn after every login for your user on KDE Plasma (Wayland), enable its session target once and log in again:
+
+```sh
+systemctl --user enable arinn-session.target    # start daemon, shell and KWin adapter at login
+systemctl --user disable arinn-session.target   # stop starting it at login
+systemctl --user stop arinn-session.target      # stop it in the current session
+```
+
+Disable the target before removing the package. To build and run the current prototype in your own Plasma session from source instead:
 
 ```sh
 git clone https://github.com/LimeBeck/arinn.git

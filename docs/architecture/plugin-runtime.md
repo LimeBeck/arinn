@@ -47,6 +47,8 @@ and registry-reset recovery tests are implemented in Phase 1.
 
 **Daemon:** a regular `arinnd.service` bound to the graphical session, without user lingering. The shell is started by the session autostart launcher after Plasma login and connects to the same daemon. Autostart must not create a second shell or daemon; packaging tests graphical session shutdown.
 
+The package ships these as systemd user units: `arinn-session.target` (opt-in, `WantedBy=graphical-session.target`) pulls in `arinnd.service` and `arinn-shell.service` (both `Type=dbus` on their bus names) and `arinn-kwin.service`, which loads the packaged KWin script for the session. All are `PartOf=` the graphical session and the target. Nothing is enabled by the package; a user runs `systemctl --user enable arinn-session.target` ([ADR-0042](../adr/0042-opt-in-session-autostart.md)).
+
 **Provider:** a systemd **transient user service** created by the daemon through the systemd D-Bus API. The unit name is derived from the registry UUID; `ExecStart` is the validated binary plus argv, never a shell string. Only systemd restarts the process; the daemon controls handshake and availability.
 
 Defaults: `Type=exec`, `Restart=on-failure`, `RestartSec=2s`, `StartLimitIntervalSec=60s`, `StartLimitBurst=5`, `TimeoutStopSec=5s`. After the limit is exhausted the provider is failed, the error is in diagnostics and a manual restart is needed; there is no infinite loop. Only an explicit request clears the failed/start-limit state. A handshake timeout stops the hung plugin and counts against the same restart budget.

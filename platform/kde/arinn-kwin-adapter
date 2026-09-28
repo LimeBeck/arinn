@@ -1,0 +1,47 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: 2026 Arinn contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Load or unload Arinn's packaged KWin script in the running KWin session
+# (ADR-0032, ADR-0042). Used by arinn-kwin.service; changes no KWin settings.
+set -eu
+script=${ARINN_KWIN_SCRIPT:-/usr/share/arinn/kwin/phase0.js}
+name=arinn
+scripting() {
+    busctl --user call org.kde.KWin /Scripting org.kde.kwin.Scripting "$@"
+}
+case "${1:-}" in
+start)
+    [ -r "$script" ] || { echo "arinn-kwin-adapter: missing $script" >&2; exit 1; }
+    # KWin may still be starting with the session: wait up to 10 s.
+    tries=0
+    until loaded=$(scripting isScriptLoaded s "$name" 2>/dev/null); do
+        tries=$((tries + 1))
+        [ "$tries" -lt 20 ] || { echo "arinn-kwin-adapter: KWin scripting unavailable" >&2; exit 1; }
+        sleep 0.5
+    done
+    [ "$loaded" = "b true" ] && exit 0
+    # The developer session loads the same adapter; two copies would compete.
+    if [ "$(scripting isScriptLoaded s arinn-phase0)" = "b true" ]; then
+        echo "arinn-kwin-adapter: the Phase 0 session adapter is loaded; stop it first" >&2
+        exit 1
+    fi
+    reply=$(scripting loadScript ss "$script" "$name")
+    id=${reply#i }
+    case "$id" in
+    '' | *[!0-9]*)
+        echo "arinn-kwin-adapter: KWin refused the script" >&2
+        exit 1
+        ;;
+    esac
+    busctl --user call org.kde.KWin "/Scripting/Script$id" org.kde.kwin.Script run
+    ;;
+stop)
+    # KWin may already be gone when the graphical session ends.
+    scripting unloadScript s "$name" >/dev/null 2>&1 || true
+    ;;
+*)
+    echo "usage: arinn-kwin-adapter start|stop" >&2
+    exit 2
+    ;;
+esac

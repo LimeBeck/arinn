@@ -1,0 +1,20 @@
+# SPDX-FileCopyrightText: 2026 Arinn contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+post_install() {
+  echo ':: Arinn does not start automatically. To start it after every login'
+  echo '   for your user (KDE Plasma on Wayland), run:'
+  echo '     systemctl --user enable arinn-session.target'
+  echo '   and log in again. Disable with: systemctl --user disable arinn-session.target'
+}
+
+post_upgrade() {
+  if [ "$(vercmp "$2" 0.1.0)" -le 0 ]; then
+    post_install
+  fi
+}
+
+pre_remove() {
+  echo ':: Users who enabled autostart should run before removal:'
+  echo '     systemctl --user disable --now arinn-session.target'
+}

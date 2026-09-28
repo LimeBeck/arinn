@@ -4,7 +4,7 @@
 - **Date:** 2026-09-27 (recorded retroactively; the path was chosen for Phase 0)
 - **Deciders:** delegated technical choice, confirmed by the Phase 0 spike
 - **Amends / Supersedes:** amends [ADR-0009](0009-kde-wayland-platform.md)
-- **Amended by / Superseded by:** —
+- **Amended by / Superseded by:** [ADR-0042](0042-opt-in-session-autostart.md) — loading the packaged script per session
 - **Specification:** [§12.1](../specifications/arinn-specification.md)
 
 ## Context

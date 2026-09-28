@@ -1,0 +1,1 @@
+- The Arch package installs opt-in systemd user units to start Arinn after login on KDE Plasma: enable once with `systemctl --user enable arinn-session.target`. The target starts the daemon, the shell and the KWin adapter and stops them with the session ([ADR-0042](docs/adr/0042-opt-in-session-autostart.md)).

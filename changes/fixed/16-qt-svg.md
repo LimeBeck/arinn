@@ -1,0 +1,1 @@
+- Declare Qt SVG as a required build and Arch package dependency, and install it in clean CI environments so the UI artwork loading and pixel regression test can decode SVG fixtures. Missing Qt SVG now fails at configuration instead of during UI tests.

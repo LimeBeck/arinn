@@ -273,7 +273,12 @@ pub async fn run_on(
     }
     let daemon = ProductionDaemonProxy::new(&connection).await?;
     let bus = zbus::fdo::DBusProxy::new(&connection).await?;
-    let mut owners = bus.receive_name_owner_changed().await?;
+    // Only daemon ownership affects registration. Unrelated name churn can
+    // otherwise fill this stream while Register awaits its reply and block
+    // the shared connection from delivering that reply.
+    let mut owners = bus
+        .receive_name_owner_changed_with_args(&[(0, production::SERVICE)])
+        .await?;
     let mut updates = service.updates.subscribe();
     let mut tick = tokio::time::interval(Duration::from_millis(500));
     loop {

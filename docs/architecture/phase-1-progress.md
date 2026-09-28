@@ -92,9 +92,11 @@ licensing job. The successful run above qualifies the later integrated `master`,
 not that earlier PR run. The PR's [CLA check](https://github.com/LimeBeck/arinn/actions/runs/36382270639/job/108800304208)
 passed; a successful CLA check does not prove that branch protection requires it.
 The subsequent [shell boundary review](phase-1-shell-review.md) passes AC-12
-for the reviewed production shell. G-1.4 remains unresolved: its literal
-Daemon1-only condition conflicts with the documented direct lifecycle guard
-([owner decision #26](https://github.com/LimeBeck/arinn/issues/26)).
+for the reviewed production shell. The owner resolved the G-1.4 wording conflict
+in [ADR-0041](../adr/0041-independent-session-lifecycle-guard.md): application/provider integration remains daemon-only,
+while session observation stays independent. The review supports that clarified
+boundary; platform transport extraction and its regression evidence remain
+[task #29](https://github.com/LimeBeck/arinn/issues/29).
 
 ### Remaining maintainer gate
 

@@ -8,7 +8,17 @@ Baseline: `d20e9f15c5da013ca82973491e93388394e28d50` on `master`.
 This is source-review evidence for G-1.4 and AC-12, not Phase 1 completion,
 full UI acceptance or an operator test.
 
-## Results
+## Owner resolution after review
+
+On 2026-09-28 the owner approved [ADR-0041](../adr/0041-independent-session-lifecycle-guard.md): G-1.4 covers
+application/provider integration, with independent fail-closed session observation.
+The inspected call paths below support the clarified gate. The original conflict
+below records the reviewed baseline, not an outstanding decision. R-05 platform
+transport extraction remains [#29](https://github.com/LimeBeck/arinn/issues/29).
+The stale lifecycle interface name reported below is corrected in the living
+runbook. No new runtime or operator test is claimed by this update.
+
+## Results at the original baseline
 
 | Requirement | Review result |
 | --- | --- |
@@ -48,7 +58,7 @@ full UI acceptance or an operator test.
   [Phase 1 record](phase-1-progress.md#github-ci-qualification); those tests were
   not rerun for this documentation-only review.
 
-## Conflict requiring a decision
+## Original conflict (resolved by ADR-0041)
 
 At the reviewed revision, [ROADMAP.md line 135](../../ROADMAP.md) requires all
 shell data to come through Daemon1. The

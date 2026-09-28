@@ -1,0 +1,1 @@
+- `arinn-shell` exited silently when another shell already owned its bus name, and systemd restarted it until the start limit was hit. It now logs which process owns the name, and the unit no longer restarts it in that case.

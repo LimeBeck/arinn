@@ -57,6 +57,9 @@ for name in NAMES[1:]:
 assert unit("arinnd.service")["Service"]["BusName"] == ["org.arinn.Daemon1"]
 assert unit("arinn-shell.service")["Service"]["BusName"] == ["org.arinn.Shell1"]
 assert "arinnd.service" in unit("arinn-shell.service")["Unit"]["After"][0].split()
+# A shell that finds its name taken exits with 2; systemd must not restart it
+# into the start limit (#75).
+assert unit("arinn-shell.service")["Service"]["RestartPreventExitStatus"] == ["2"]
 
 if PREFIX == Path("/usr"):
     # Offline verification; unrelated units of the host may still warn.

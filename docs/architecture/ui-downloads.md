@@ -78,5 +78,15 @@ The Qt Quick case is `tests/ui/tst_downloads.qml` (`Downloads`). The existing
 `ui-components` CTest loads every `tests/ui/tst_*.qml`; this screen does not add
 a CMake target. Operator tests were not run.
 
-Results of the offscreen software run are recorded in the pull request for this
-change. Until that run is attached, treat this section as not yet verified.
+Local run on 2026-09-28, Qt 6.8.3, `QT_QPA_PLATFORM=offscreen` and
+`QT_QUICK_BACKEND=software`. The runner is `tests/ui/main.cpp`
+(`QUICK_TEST_MAIN`) with `-input tests/ui` and the `Downloads::` cases.
+Result: 15 cases passed, 0 failed (Qt Test reports 17 including init and
+cleanup), about 3.5 s. `python scripts/check-docs.py` and
+`python scripts/release.py check` passed.
+
+The image's Ubuntu Qt is 6.4.2, so `find_package(Qt6 6.6)` was not configured
+and `UiText`'s `font.features` does not load there. The run used a separate
+Qt 6.8.3 prefix. The Home and component cases in the same runner were not
+executed for this change. CI has not run yet. GPU rendering, a 3-metre TV check
+and operator tests were not run.

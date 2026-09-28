@@ -216,6 +216,8 @@ TestCase {
         tryCompare(view, "toastMessage", "Ready item is ready to watch");
         verify(child("completionToast").visible);
         compare(child("completionToastText").text, "Ready item is ready to watch");
+        focused("job-active");
+        keyClick(Qt.Key_Down);
         focused("job-ready");
         compare(child("action-ready").text, "Watch");
         view.jobs = [{id: "extra", title: "Extra file", state: "completed", importState: "unsupported"}];

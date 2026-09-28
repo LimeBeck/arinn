@@ -186,7 +186,9 @@ introduced. Favorites persistence, web shortcuts, New, Library, Downloads, Setti
 and power actions remain separate work; unsupported sections explicitly say they
 are unavailable.
 
-Launch intents call `Application1.Launch` and observe `Operation1.Get`. Pending
+Launch intents call `Application1.Launch` and observe `Operation1.Get`. A successful launch closes Home: the daemon asks the platform adapter to
+dismiss Home without returning to the previous Activity, so the new window is not
+opened underneath the shell. Pending
 entries retain focus, show the busy treatment and suppress duplicate launch
 requests. Completion and errors come from the operation, never from animation
 timers. A failed provider snapshot does not remove other providers' valid entries.

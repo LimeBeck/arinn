@@ -680,6 +680,11 @@ impl Core {
                 Err(ErrorCode::Unavailable)
             };
             if result.is_ok() && action == "launch" {
+                // A launched application replaces Home: ask the platform to
+                // hide Home without returning to the previous Activity, so the
+                // new window is not left underneath the shell. Best effort:
+                // without a platform adapter there is no Home overlay.
+                let _ = core.platform.queue("dismiss").await;
                 let state = core.paths.state.clone();
                 let target = crate::storage::Target {
                     provider_id: id.clone(),

@@ -384,3 +384,94 @@ async fn acknowledged_operations_deduplication_disconnect_and_timeout() {
         Err(production::Error::Unavailable(_))
     ));
 }
+
+struct LaunchingProvider;
+#[zbus::interface(name = "org.arinn.Provider1")]
+impl LaunchingProvider {
+    fn launch(&self, _generation: &str, _id: &str) -> production::Result<()> {
+        Ok(())
+    }
+}
+/// A successful launch hides Home through the platform adapter, so the new
+/// application window is not left underneath the shell.
+#[tokio::test]
+async fn successful_launch_dismisses_home() {
+    let f = Fixture::new().await;
+    f.provider
+        .object_server()
+        .at(production::PROVIDER_PATH, LaunchingProvider)
+        .await
+        .unwrap();
+    f.core
+        .connection
+        .object_server()
+        .at(
+            production::PATH,
+            Daemon {
+                core: f.core.clone(),
+            },
+        )
+        .await
+        .unwrap();
+    let generation = {
+        let mut state = f.core.state.lock().await;
+        let p = state.providers.get_mut("fixture").unwrap();
+        p.applications = vec![Application {
+            id: "app".into(),
+            title: "App".into(),
+            can_launch: true,
+            group: "other".into(),
+        }];
+        p.info.generation.clone()
+    };
+    // The KWin adapter long-polls for commands; its first poll marks it live.
+    let kwin = f.kwin.clone();
+    let poll = tokio::spawn(async move {
+        kwin.call_method(
+            Some(production::SERVICE),
+            production::PATH,
+            Some("org.arinn.Daemon1"),
+            "TakeCommand",
+            &(),
+        )
+        .await
+        .unwrap()
+        .body()
+        .deserialize::<String>()
+        .unwrap()
+    });
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let path = f
+        .core
+        .command(
+            "fixture",
+            "launch",
+            &generation,
+            "app",
+            &Uuid::new_v4().to_string(),
+            "caller",
+        )
+        .await
+        .unwrap();
+    let command = tokio::time::timeout(Duration::from_secs(10), poll)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(command, "dismiss");
+    let operation = ProductionOperationProxy::builder(&f.provider)
+        .path(path)
+        .unwrap()
+        .build()
+        .await
+        .unwrap();
+    // Dismissal is queued as the launch succeeds; the operation completes next.
+    let mut state = String::new();
+    for _ in 0..50 {
+        state = operation.get().await.unwrap().0.state;
+        if state != "queued" && state != "running" {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(state, "succeeded");
+}

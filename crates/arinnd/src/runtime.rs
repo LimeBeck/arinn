@@ -7,9 +7,10 @@ use crate::{
     storage::{Config, Paths, Store, atomic_write, private_dir},
     supervisor::Supervisor,
 };
-use arinn_plugin_sdk::snapshots::Snapshots;
+use arinn_plugin_sdk::snapshots::{Snapshots, TabSnapshots};
 use arinn_protocol::{
     application::{Application, ApplicationPage, RunningApplication, validate_entries},
+    browser::{self, BrowserProviderProxy, BrowserWindow, Tab, TabPage},
     production::{
         self, ApplicationProviderProxy, EntityRef, ProviderInfo, Registration, RegistrationReply,
     },
@@ -36,9 +37,25 @@ struct Provider {
     cache: Option<Snapshots>,
     applications: Vec<Application>,
     running: Vec<RunningApplication>,
+    /// `browser` providers (ADR-0048): tab snapshot cache and entries.
+    tab_cache: Option<TabSnapshots>,
+    windows: Vec<BrowserWindow>,
+    tabs: Vec<Tab>,
     started: Instant,
     enabled: bool,
 }
+impl Provider {
+    /// The single capability a provider serves: `application` or `browser`.
+    fn capability(&self) -> &str {
+        self.info
+            .capabilities
+            .first()
+            .map(String::as_str)
+            .unwrap_or("")
+    }
+}
+/// Capability sets the daemon routes; anything else is incompatible.
+const ROUTED: &[&str] = &["application", "browser"];
 struct State {
     providers: BTreeMap<String, Provider>,
     error: String,
@@ -203,10 +220,9 @@ impl Core {
                 if let Some(error) = error {
                     failed(&mut info, error);
                 }
-                if manifest
-                    .as_ref()
-                    .is_some_and(|m| m.capabilities != ["application"])
-                {
+                if manifest.as_ref().is_some_and(|m| {
+                    m.capabilities.len() != 1 || !ROUTED.contains(&m.capabilities[0].as_str())
+                }) {
                     info.runtime_state = "incompatible".into();
                     failed(&mut info, ErrorCode::Unsupported);
                 }
@@ -222,6 +238,9 @@ impl Core {
                         cache: None,
                         applications: Vec::new(),
                         running: Vec::new(),
+                        tab_cache: None,
+                        windows: Vec::new(),
+                        tabs: Vec::new(),
                         started: Instant::now(),
                         enabled,
                     },
@@ -256,7 +275,12 @@ impl Core {
             let _ = self
                 .connection
                 .object_server()
-                .remove::<ApplicationEndpoint, _>(path)
+                .remove::<ApplicationEndpoint, _>(path.clone())
+                .await;
+            let _ = self
+                .connection
+                .object_server()
+                .remove::<BrowserEndpoint, _>(path)
                 .await;
         }
         for (id, new) in next.iter_mut() {
@@ -289,17 +313,29 @@ impl Core {
                 supervisor.stop(&unit).await?;
                 self.unavailable(id, &owner).await;
             }
-            self.connection
-                .object_server()
-                .at(
-                    new.info.path.clone(),
-                    ApplicationEndpoint {
-                        core: self.clone(),
-                        id: id.clone(),
-                    },
-                )
-                .await
-                .map_err(|_| ErrorCode::Internal)?;
+            let server = self.connection.object_server();
+            let exported = if new.capability() == "browser" {
+                server
+                    .at(
+                        new.info.path.clone(),
+                        BrowserEndpoint {
+                            core: self.clone(),
+                            id: id.clone(),
+                        },
+                    )
+                    .await
+            } else {
+                server
+                    .at(
+                        new.info.path.clone(),
+                        ApplicationEndpoint {
+                            core: self.clone(),
+                            id: id.clone(),
+                        },
+                    )
+                    .await
+            };
+            exported.map_err(|_| ErrorCode::Internal)?;
         }
         for (id, new) in next {
             let replace = {
@@ -406,6 +442,9 @@ impl Core {
                 p.cache = None;
                 p.applications.clear();
                 p.running.clear();
+                p.tab_cache = None;
+                p.windows.clear();
+                p.tabs.clear();
                 p.info.revision = 0;
                 p.info.backend_state = "unavailable".into();
                 p.info.runtime_state = "restarting".into();
@@ -436,7 +475,7 @@ impl Core {
                     let Some(event)=event else{return;};let Ok(args)=event.args() else{continue;};
                     if args.new_owner.is_some(){continue;}
                     let name=args.name.as_str();
-                    {let mut state=self.state.lock().await;state.listings.disconnect(name);for p in state.providers.values_mut(){if let Some(cache)=p.cache.as_mut(){cache.disconnect(name);}}}
+                    {let mut state=self.state.lock().await;state.listings.disconnect(name);for p in state.providers.values_mut(){if let Some(cache)=p.cache.as_mut(){cache.disconnect(name);}if let Some(cache)=p.tab_cache.as_mut(){cache.disconnect(name);}}}
                     let ids:Vec<_>=self.state.lock().await.providers.iter().filter(|(_,p)|p.owner==name).map(|(id,_)|id.clone()).collect();
                     for id in ids {self.unavailable(&id,name).await;}
                     self.operations.invalidate(&self.connection,None,Some(name)).await;
@@ -502,6 +541,92 @@ impl Core {
         }
     }
     async fn watch_provider(&self, id: String, owner: String, generation: String) {
+        let browser = self
+            .state
+            .lock()
+            .await
+            .providers
+            .get(&id)
+            .is_some_and(|p| p.capability() == "browser");
+        if browser {
+            self.watch_browser(id, owner, generation).await;
+        } else {
+            self.watch_applications(id, owner, generation).await;
+        }
+    }
+    async fn watch_browser(&self, id: String, owner: String, generation: String) {
+        let Ok(proxy) = BrowserProviderProxy::builder(&self.connection)
+            .destination(owner.as_str())
+            .and_then(|b| b.path(production::PROVIDER_PATH))
+            .unwrap()
+            .build()
+            .await
+        else {
+            return;
+        };
+        let Ok(mut changes) = proxy.receive_provider_state_changed().await else {
+            return;
+        };
+        let mut tick = tokio::time::interval(Duration::from_secs(1));
+        loop {
+            tokio::select! {_=tick.tick()=>{},event=changes.next()=>{if event.is_none(){return;}}}
+            if !self
+                .state
+                .lock()
+                .await
+                .providers
+                .get(&id)
+                .is_some_and(|p| p.owner == owner && p.info.generation == generation)
+            {
+                return;
+            }
+            let result =
+                tokio::time::timeout(Duration::from_secs(3), read_tabs(&proxy, &generation))
+                    .await
+                    .unwrap_or(Err(ErrorCode::Timeout));
+            let mut state = self.state.lock().await;
+            let Some(p) = state.providers.get_mut(&id) else {
+                return;
+            };
+            if p.owner != owner || p.info.generation != generation {
+                return;
+            }
+            let mut signal = None;
+            match result {
+                Ok((revision, windows, tabs, backend)) => {
+                    let cache = p
+                        .tab_cache
+                        .get_or_insert_with(|| TabSnapshots::new(&generation).unwrap());
+                    match cache.import(revision, windows.clone(), tabs.clone()) {
+                        Ok(()) => {
+                            if revision != p.info.revision {
+                                signal = Some(revision);
+                            }
+                            p.windows = windows;
+                            p.tabs = tabs;
+                            p.info.revision = revision;
+                            p.info.backend_state = backend;
+                            p.info.runtime_state = "ready".into();
+                            if !p.info.last_error.is_empty() && p.info.recovered_at == 0 {
+                                p.info.recovered_at = now();
+                            }
+                        }
+                        Err(error) => failed(&mut p.info, error),
+                    }
+                }
+                Err(error) => failed(&mut p.info, error),
+            }
+            drop(state);
+            if let Some(revision) = signal {
+                if let Ok(emitter) = SignalEmitter::new(&self.connection, production::PATH) {
+                    let _ = Daemon::state_changed(&emitter, &id, "browser", &generation, revision)
+                        .await;
+                }
+                self.changed().await;
+            }
+        }
+    }
+    async fn watch_applications(&self, id: String, owner: String, generation: String) {
         let Ok(proxy) = ApplicationProviderProxy::builder(&self.connection)
             .destination(owner.as_str())
             .and_then(|b| b.path(production::PROVIDER_PATH))
@@ -574,6 +699,87 @@ impl Core {
             }
         }
     }
+    /// Bring a browser window forward after a tab or URL was opened in it.
+    /// With a validated window token the platform activates exactly that
+    /// window, which also hides Home; without one Home is hidden and the
+    /// browser's own focus request decides (ADR-0048).
+    async fn show_browser_window(
+        &self,
+        id: &str,
+        owner: &str,
+        registration: &str,
+        window_token: &str,
+    ) -> Result<(), ErrorCode> {
+        if window_token.is_empty() {
+            let _ = self.platform.queue("dismiss").await;
+            return Ok(());
+        }
+        let scope = crate::windows::Scope {
+            provider: id.into(),
+            owner: owner.into(),
+            registration: registration.into(),
+        };
+        let generation = self.windows.current_generation().await;
+        let receiver = self
+            .windows
+            .enqueue(
+                &self.connection,
+                scope,
+                &generation,
+                window_token,
+                "activate",
+            )
+            .await?;
+        tokio::time::timeout(Duration::from_secs(5), receiver)
+            .await
+            .map_err(|_| ErrorCode::Timeout)?
+            .map_err(|_| ErrorCode::Unavailable)?
+    }
+
+    /// Open a URL in the default browser provider: the first ready `browser`
+    /// provider with a connected browser. Used by web shortcuts (ADR-0043).
+    /// Launching a closed browser first is not implemented yet (#88).
+    pub async fn open_url(&self, url: &str) -> Result<(), ErrorCode> {
+        arinn_protocol::web::open_url(url)?;
+        let (id, owner, generation, window_token) = {
+            let state = self.state.lock().await;
+            let (id, p) = state
+                .providers
+                .iter()
+                .find(|(_, p)| {
+                    p.capability() == "browser"
+                        && p.info.runtime_state == "ready"
+                        && p.info.backend_state != "unavailable"
+                        && !p.owner.is_empty()
+                })
+                .ok_or(ErrorCode::Unavailable)?;
+            let token = p
+                .windows
+                .iter()
+                .find(|w| w.focused)
+                .map(|w| w.window_token.clone())
+                .unwrap_or_default();
+            (
+                id.clone(),
+                p.owner.clone(),
+                p.info.generation.clone(),
+                token,
+            )
+        };
+        let proxy = BrowserProviderProxy::builder(&self.connection)
+            .destination(owner.as_str())
+            .map_err(|_| ErrorCode::Internal)?
+            .build()
+            .await
+            .map_err(|_| ErrorCode::Unavailable)?;
+        tokio::time::timeout(Duration::from_secs(10), proxy.open_url(&generation, url))
+            .await
+            .map_err(|_| ErrorCode::Timeout)?
+            .map_err(normalize_error)?;
+        self.show_browser_window(&id, &owner, &generation, &window_token)
+            .await
+    }
+
     async fn command(
         &self,
         id: &str,
@@ -617,9 +823,26 @@ impl Core {
                 .iter()
                 .find(|r| r.id == local_id)
                 .map(|r| r.can_terminate),
+            "activate_tab" | "close_tab" => p.tabs.iter().find(|t| t.id == local_id).map(|_| true),
             _ => return Err(ErrorCode::Unsupported),
         }
         .ok_or(ErrorCode::NotFound)?;
+        let capability = if action.ends_with("_tab") {
+            "browser"
+        } else {
+            "application"
+        };
+        if p.capability() != capability {
+            return Err(ErrorCode::Unsupported);
+        }
+        // The compositor window of a tab, when the provider linked it.
+        let window_token = p
+            .tabs
+            .iter()
+            .find(|t| t.id == local_id)
+            .and_then(|t| p.windows.iter().find(|w| w.id == t.window_id))
+            .map(|w| w.window_token.clone())
+            .unwrap_or_default();
         if !allowed {
             return Err(ErrorCode::Unsupported);
         }
@@ -648,6 +871,20 @@ impl Core {
                 value.started_at = now();
             }
             let work = async {
+                if capability == "browser" {
+                    let proxy = BrowserProviderProxy::builder(&core.connection)
+                        .destination(owner.as_str())
+                        .map_err(|_| ErrorCode::Internal)?
+                        .build()
+                        .await
+                        .map_err(|_| ErrorCode::Unavailable)?;
+                    let result = if action == "activate_tab" {
+                        proxy.activate_tab(&generation, &local_id).await
+                    } else {
+                        proxy.close_tab(&generation, &local_id).await
+                    };
+                    return result.map_err(normalize_error);
+                }
                 let proxy = ApplicationProviderProxy::builder(&core.connection)
                     .destination(owner.as_str())
                     .map_err(|_| ErrorCode::Internal)?
@@ -674,11 +911,18 @@ impl Core {
                 .providers
                 .get(&id)
                 .is_some_and(|p| p.owner == owner && p.info.generation == generation);
-            let result = if valid {
+            let mut result = if valid {
                 result
             } else {
                 Err(ErrorCode::Unavailable)
             };
+            if result.is_ok() && action == "activate_tab" {
+                // The browser selected the tab; the compositor window still
+                // has to come forward, which hides Home (ADR-0048).
+                result = core
+                    .show_browser_window(&id, &owner, &generation, &window_token)
+                    .await;
+            }
             if result.is_ok() && action == "launch" {
                 // A launched application replaces Home: ask the platform to
                 // hide Home without returning to the previous Activity, so the
@@ -705,7 +949,7 @@ impl Core {
                 result.map(|_| {
                     vec![EntityRef {
                         provider_id: id,
-                        capability: "application".into(),
+                        capability: capability.into(),
                         local_id,
                     }]
                 }),
@@ -774,6 +1018,47 @@ async fn read_snapshot(
         return Err(ErrorCode::Unsupported);
     }
     Ok((revision, apps, running, backend))
+}
+
+async fn read_tabs(
+    proxy: &BrowserProviderProxy<'_>,
+    generation: &str,
+) -> Result<(u64, Vec<BrowserWindow>, Vec<Tab>, String), ErrorCode> {
+    let mut token = String::new();
+    let mut tokens = HashSet::new();
+    let mut revision = 0;
+    let mut windows = Vec::new();
+    let mut tabs = Vec::new();
+    let mut total = 0;
+    loop {
+        let (page,): (TabPage,) = proxy.get_tabs(&token).await.map_err(normalize_error)?;
+        page.validate()?;
+        total += page.encoded_len()?;
+        if total > 16 * 1024 * 1024
+            || windows.len() + tabs.len() + page.windows.len() + page.tabs.len() > 100_000
+        {
+            return Err(ErrorCode::InvalidArgument);
+        }
+        if page.generation != generation || (revision != 0 && page.revision != revision) {
+            return Err(ErrorCode::Conflict);
+        }
+        revision = page.revision;
+        windows.extend(page.windows);
+        tabs.extend(page.tabs);
+        token = page.next_token;
+        if token.is_empty() {
+            break;
+        }
+        if !tokens.insert(token.clone()) {
+            return Err(ErrorCode::Conflict);
+        }
+    }
+    browser::validate_entries(&windows, &tabs)?;
+    let backend = proxy.backend_state().await.map_err(normalize_error)?;
+    if !["available", "unavailable", "degraded"].contains(&backend.as_str()) {
+        return Err(ErrorCode::Unsupported);
+    }
+    Ok((revision, windows, tabs, backend))
 }
 
 pub struct Daemon {
@@ -1082,6 +1367,68 @@ impl Daemon {
     #[zbus(signal)]
     async fn providers_changed(emitter: &SignalEmitter<'_>) -> zbus::Result<()>;
 }
+struct BrowserEndpoint {
+    core: Core,
+    id: String,
+}
+#[zbus::interface(name = "org.arinn.Browser1")]
+impl BrowserEndpoint {
+    async fn get_tabs(
+        &self,
+        token: &str,
+        #[zbus(header)] h: Header<'_>,
+    ) -> production::Result<(TabPage,)> {
+        let owner = sender(&h)?;
+        let mut state = self.core.state.lock().await;
+        let p = state
+            .providers
+            .get_mut(&self.id)
+            .ok_or(ErrorCode::NotFound)?;
+        Ok((p.tab_cache.as_mut().ok_or(ErrorCode::Unavailable)?.page(
+            &owner,
+            token,
+            Instant::now(),
+        )?,))
+    }
+    async fn activate_tab(
+        &self,
+        generation: &str,
+        id: &str,
+        request_id: &str,
+        #[zbus(header)] h: Header<'_>,
+    ) -> production::Result<OwnedObjectPath> {
+        Ok(self
+            .core
+            .command(
+                &self.id,
+                "activate_tab",
+                generation,
+                id,
+                request_id,
+                &sender(&h)?,
+            )
+            .await?)
+    }
+    async fn close_tab(
+        &self,
+        generation: &str,
+        id: &str,
+        request_id: &str,
+        #[zbus(header)] h: Header<'_>,
+    ) -> production::Result<OwnedObjectPath> {
+        Ok(self
+            .core
+            .command(
+                &self.id,
+                "close_tab",
+                generation,
+                id,
+                request_id,
+                &sender(&h)?,
+            )
+            .await?)
+    }
+}
 struct ApplicationEndpoint {
     core: Core,
     id: String,
@@ -1165,7 +1512,7 @@ fn window_scope(state: &State, owner: &str) -> Result<crate::windows::Scope, Err
             p.owner == owner
                 && !p.info.generation.is_empty()
                 && p.enabled
-                && p.info.capabilities.iter().any(|c| c == "application")
+                && ROUTED.contains(&p.capability())
         })
         .map(|(id, p)| crate::windows::Scope {
             provider: id.clone(),
@@ -1337,6 +1684,9 @@ impl WindowEndpoint {
 }
 
 #[cfg(test)]
+#[path = "browser_tests.rs"]
+mod browser_tests;
+#[cfg(test)]
 #[path = "../../../platform/kde/window_tests.rs"]
 mod window_tests;
 
@@ -1417,6 +1767,9 @@ mod token_tests {
                 cache: None,
                 applications: Vec::new(),
                 running: Vec::new(),
+                tab_cache: None,
+                windows: Vec::new(),
+                tabs: Vec::new(),
                 started: Instant::now(),
                 enabled: true,
             },

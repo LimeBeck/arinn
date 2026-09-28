@@ -83,7 +83,9 @@ with tempfile.TemporaryDirectory(prefix="arinn-production-") as folder:
             node = ET.Element("node")
             node.append(element)
             ET.indent(node)
+            # REUSE-IgnoreStart (header of the generated XML, not of this file)
             document.write_text('<!-- SPDX-FileCopyrightText: 2026 Arinn contributors\nSPDX-License-Identifier: MIT OR Apache-2.0 -->\n' + ET.tostring(node, encoding="unicode") + "\n")
+            # REUSE-IgnoreEnd
         expected = ET.parse(document).getroot().find(f"interface[@name='{interface}']")
         def normalized(node):
             children = [normalized(child) for child in node]

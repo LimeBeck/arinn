@@ -13,6 +13,7 @@ use std::{
         atomic::{AtomicI32, AtomicU64, Ordering},
     },
 };
+use tokio::sync::Notify;
 use zbus::{
     Connection,
     zvariant::{OwnedObjectPath, OwnedValue},
@@ -208,11 +209,17 @@ async fn system_launcher_dispatch_failure_and_argument_isolation() {
     );
 }
 
-struct Activation(Arc<AtomicU64>);
+struct Activation {
+    count: Arc<AtomicU64>,
+    release: Arc<Notify>,
+    finished: Arc<Notify>,
+}
 #[zbus::interface(name = "org.freedesktop.Application")]
 impl Activation {
-    fn activate(&self, _platform_data: HashMap<String, OwnedValue>) {
-        self.0.fetch_add(1, Ordering::SeqCst);
+    async fn activate(&self, _platform_data: HashMap<String, OwnedValue>) {
+        self.release.notified().await;
+        self.count.fetch_add(1, Ordering::SeqCst);
+        self.finished.notify_one();
     }
 }
 
@@ -245,9 +252,18 @@ async fn dbus_activatable_entry_uses_private_session_application() {
     let bus = Bus::start();
     let application = bus.connection().await;
     let activated = Arc::new(AtomicU64::new(0));
+    let release = Arc::new(Notify::new());
+    let finished = Arc::new(Notify::new());
     application
         .object_server()
-        .at("/org/arinn/DesktopFixture", Activation(activated.clone()))
+        .at(
+            "/org/arinn/DesktopFixture",
+            Activation {
+                count: activated.clone(),
+                release: release.clone(),
+                finished: finished.clone(),
+            },
+        )
         .await
         .unwrap();
     application
@@ -291,6 +307,13 @@ async fn dbus_activatable_entry_uses_private_session_application() {
     }
     assert_eq!(launch_on(&provider, &desktop).await, Ok(()));
     drop(provider);
+    // Hold activation until dispatch has returned and the provider is gone.
+    // GIO success does not imply the application handled the request yet.
+    assert_eq!(activated.load(Ordering::SeqCst), 0);
+    release.notify_one();
+    tokio::time::timeout(std::time::Duration::from_secs(5), finished.notified())
+        .await
+        .expect("application did not handle the dispatched activation");
     assert_eq!(activated.load(Ordering::SeqCst), 1);
     // Activation belongs to the application's own bus identity and survives
     // the caller connection. This is a lifetime assertion, not a cgroup claim.

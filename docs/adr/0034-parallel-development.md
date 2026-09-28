@@ -30,6 +30,8 @@ Several AI coding agents (Claude Code, Codex) and people are expected to work on
 
 **Integration.** Branches are short-lived and merge `master` regularly; nobody rewrites another branch's history. Branch protection requires branches to be up to date with `master` before merging, so CI always runs on the merged result. If the repository moves to an organization, a GitHub merge queue replaces that rule. `.github/CODEOWNERS` requests the maintainer's review for contracts, specification, ADRs, roadmap and pipelines.
 
+**Agent commits and the CLA.** Agents operated by the maintainer commit under their own git identity (for example `Claude <noreply@anthropic.com>`), which has no GitHub account and cannot sign the CLA. Their work is directed and reviewed by the maintainer and covered by the maintainer's rights, so these identities are on the CLA allowlist. Agents run by other contributors commit under that contributor's identity or add it as co-author, and the contributor signs the CLA.
+
 **Isolation.** Each agent works in its own clone, worktree or cloud session with its own `target/` and `build/`. Automated tests already use private D-Bus buses and run in parallel safely. Operator tests use fixed unit names and the live desktop; they run one at a time, only with the owner's permission.
 
 ## Consequences

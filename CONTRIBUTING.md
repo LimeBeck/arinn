@@ -134,7 +134,7 @@ Only add dependencies whose licenses pass `cargo deny check licenses`. Never add
 
 ## AI-assisted contributions
 
-AI tools are welcome under the same rules as everyone else. The person or agent opening the pull request is responsible for the whole change: it must build, pass the checks and follow these rules. Credit the tool with a `Co-Authored-By:` trailer. Agents follow [AGENTS.md](AGENTS.md).
+AI tools are welcome under the same rules as everyone else. The person or agent opening the pull request is responsible for the whole change: it must build, pass the checks and follow these rules. Credit the tool with a `Co-Authored-By:` trailer. Agents follow [AGENTS.md](AGENTS.md). If you run an agent yourself, its commits count as your contribution: sign the CLA with your own account. Agents operated by the maintainer are on the CLA allowlist ([ADR-0034](docs/adr/0034-parallel-development.md)).
 
 ## Language
 

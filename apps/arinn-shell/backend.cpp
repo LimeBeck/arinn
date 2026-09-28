@@ -18,12 +18,12 @@ QDBusMessage request(const char *method) {
 struct Backend::Catalog {
   quint64 epoch;
   QString snapshot;
-  QVariantList providers, applications;
+  QVariantList providers, applications, running;
   QSet<QString> tokens;
   QString generation;
   quint64 revision = 0;
   int pages = 0;
-  qsizetype providerStart = 0;
+  qsizetype providerStart = 0, runningStart = 0;
   bool hadError = false;
 };
 Backend::Backend(QObject *parent) : QObject(parent) {
@@ -97,114 +97,61 @@ void Backend::refresh() {
   const auto epoch = m_connectionEpoch;
   auto pending = new QDBusPendingCallWatcher(
       QDBusConnection::sessionBus().asyncCall(request("Status"), 3000), this);
-  connect(
-      pending, &QDBusPendingCallWatcher::finished, this,
-      [this, epoch](auto *call) {
-        const auto reply = call->reply();
-        call->deleteLater();
-        if (epoch != m_connectionEpoch) {
-          m_refreshing = false;
-          refresh();
-          return;
-        }
-        if (reply.type() == QDBusMessage::ErrorMessage ||
-            reply.arguments().isEmpty() ||
-            reply.signature() != "(sbstbsssbbss)") {
-          m_refreshing = false;
-          m_connected = false;
-          m_available = false;
-          m_items.clear();
-          m_applications.clear();
-          m_return.clear();
-          m_loaded = false;
-          m_message = tr("Daemon is unavailable · reconnecting");
-          publishState();
-          return;
-        }
-        const QDBusArgument arg =
-            qvariant_cast<QDBusArgument>(reply.arguments().at(0));
-        const auto previousGeneration = m_generation;
-        QString daemonEpoch, active, klass, homeOutput, activeOutput;
-        qulonglong revision;
-        bool full, platform;
-        arg.beginStructure();
-        arg >> daemonEpoch >> m_available >> m_generation >> revision >>
-            m_home >> m_return >> active >> klass >> full >> platform >>
-            homeOutput >> activeOutput;
-        arg.endStructure();
-        if (previousGeneration != m_generation) {
-          m_items.clear();
-          m_applications.clear();
-          m_snapshotRevision = 0;
-          m_loaded = false;
-        }
-        emit screenRequested(homeOutput);
-        m_connected = true;
-        if (!platform)
-          m_message = tr("KWin adapter is not connected");
-        else if (!m_available)
-          m_message = tr("Provider is unavailable");
-        else if (m_message.startsWith("Daemon") ||
-                 m_message.startsWith("Provider") ||
-                 m_message.startsWith("KWin"))
-          m_message.clear();
-        publishState();
-        const auto generation = m_generation;
-        auto snapshot = new QDBusPendingCallWatcher(
-            QDBusConnection::sessionBus().asyncCall(request("HomeItems"), 3000),
-            this);
-        connect(
-            snapshot, &QDBusPendingCallWatcher::finished, this,
-            [this, epoch, generation](auto *call) {
-              auto reply = call->reply();
-              call->deleteLater();
-              if (epoch != m_connectionEpoch || generation != m_generation) {
-                m_refreshing = false;
-                refresh();
-                return;
-              }
-              if (epoch != m_connectionEpoch || generation != m_generation ||
-                  reply.type() == QDBusMessage::ErrorMessage ||
-                  reply.arguments().isEmpty() ||
-                  reply.signature() != "a(sssss)") {
-                m_refreshing = false;
-                m_snapshotError = true;
-                m_items.clear();
-                m_applications.clear();
-                publishState();
-                return;
-              }
-              const QDBusArgument arg =
-                  qvariant_cast<QDBusArgument>(reply.arguments().at(0));
-              QVariantList items;
-              arg.beginArray();
-              while (!arg.atEnd()) {
-                QString provider, providerPath, gen, localId, title;
-                arg.beginStructure();
-                arg >> provider >> providerPath >> gen >> localId >> title;
-                arg.endStructure();
-                // UI identity is opaque; route with the separate fields below.
-                const auto key =
-                    QUuid::createUuidV5(
-                        QUuid(),
-                        QJsonDocument(QJsonArray{provider, gen, localId})
-                            .toJson(QJsonDocument::Compact))
-                        .toString();
-                items.append(QVariantMap{{"id", key},
-                                         {"provider", provider},
-                                         {"path", providerPath},
-                                         {"generation", gen},
-                                         {"localId", localId},
-                                         {"title", title}});
-              }
-              arg.endArray();
-              m_items = items;
+  connect(pending, &QDBusPendingCallWatcher::finished, this,
+          [this, epoch](auto *call) {
+            const auto reply = call->reply();
+            call->deleteLater();
+            if (epoch != m_connectionEpoch) {
+              m_refreshing = false;
+              refresh();
+              return;
+            }
+            if (reply.type() == QDBusMessage::ErrorMessage ||
+                reply.arguments().isEmpty() ||
+                reply.signature() != "(sbstbsssbbss)") {
+              m_refreshing = false;
+              m_connected = false;
+              m_available = false;
+              m_items.clear();
+              m_applications.clear();
+              m_return.clear();
+              m_loaded = false;
+              m_message = tr("Daemon is unavailable · reconnecting");
               publishState();
-              auto catalog = std::make_shared<Catalog>();
-              catalog->epoch = epoch;
-              readProviders(catalog);
-            });
-      });
+              return;
+            }
+            const QDBusArgument arg =
+                qvariant_cast<QDBusArgument>(reply.arguments().at(0));
+            const auto previousGeneration = m_generation;
+            QString daemonEpoch, active, klass, homeOutput, activeOutput;
+            qulonglong revision;
+            bool full, platform;
+            arg.beginStructure();
+            arg >> daemonEpoch >> m_available >> m_generation >> revision >>
+                m_home >> m_return >> active >> klass >> full >> platform >>
+                homeOutput >> activeOutput;
+            arg.endStructure();
+            if (previousGeneration != m_generation) {
+              m_items.clear();
+              m_applications.clear();
+              m_snapshotRevision = 0;
+              m_loaded = false;
+            }
+            emit screenRequested(homeOutput);
+            m_connected = true;
+            if (!platform)
+              m_message = tr("KWin adapter is not connected");
+            else if (!m_available)
+              m_message = tr("Provider is unavailable");
+            else if (m_message.startsWith("Daemon") ||
+                     m_message.startsWith("Provider") ||
+                     m_message.startsWith("KWin"))
+              m_message.clear();
+            publishState();
+            auto catalog = std::make_shared<Catalog>();
+            catalog->epoch = epoch;
+            readProviders(catalog);
+          });
 }
 void Backend::readProviders(const std::shared_ptr<Catalog> &catalog,
                             const QString &token) {
@@ -277,8 +224,10 @@ void Backend::readApplications(const std::shared_ptr<Catalog> &catalog,
     return;
   }
   catalog->tokens.insert(token);
-  if (token.isEmpty())
+  if (token.isEmpty()) {
     catalog->providerStart = catalog->applications.size();
+    catalog->runningStart = catalog->running.size();
+  }
   const auto provider = catalog->providers.at(index).toMap();
   auto msg = QDBusMessage::createMethodCall(
       service, provider.value("path").toString(), "org.arinn.Application1",
@@ -298,6 +247,7 @@ void Backend::readApplications(const std::shared_ptr<Catalog> &catalog,
         auto unavailable = [this, catalog, index] {
           catalog->hadError = true;
           catalog->applications.resize(catalog->providerStart);
+          catalog->running.resize(catalog->runningStart);
           catalog->tokens.clear();
           readApplications(catalog, index + 1);
         };
@@ -349,6 +299,20 @@ void Backend::readApplications(const std::shared_ptr<Catalog> &catalog,
           arg.beginStructure();
           arg >> id >> application >> title >> window >> activate >> terminate;
           arg.endStructure();
+          const auto key =
+              QUuid::createUuidV5(
+                  QUuid(),
+                  QJsonDocument(QJsonArray{provider.value("id").toString(),
+                                           generation, "activate", id})
+                      .toJson(QJsonDocument::Compact))
+                  .toString();
+          catalog->running.append(QVariantMap{{"id", key},
+                                              {"title", title},
+                                              {"enabled", activate},
+                                              {"running", true},
+                                              {"path", provider.value("path")},
+                                              {"generation", generation},
+                                              {"localId", id}});
         }
         arg.endArray();
         arg >> next;
@@ -371,6 +335,7 @@ void Backend::finishCatalog(const std::shared_ptr<Catalog> &catalog,
   m_snapshotError = !success || catalog->hadError;
   m_loaded = success;
   m_applications = success ? catalog->applications : QVariantList{};
+  m_items = success ? catalog->running : QVariantList{};
   publishState();
   if (m_dirty)
     QTimer::singleShot(0, this, &Backend::refresh);

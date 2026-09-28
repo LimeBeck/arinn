@@ -12,7 +12,9 @@ struct AppWire {
   QString id;
   bool enabled = true;
 };
-struct RunningWire {};
+struct RunningWire {
+  QString id;
+};
 struct HomeWire {};
 Q_DECLARE_METATYPE(ProviderWire)
 Q_DECLARE_METATYPE(AppWire)
@@ -34,9 +36,10 @@ QDBusArgument &operator<<(QDBusArgument &a, const AppWire &p) {
   a.endStructure();
   return a;
 }
-QDBusArgument &operator<<(QDBusArgument &a, const RunningWire &) {
+QDBusArgument &operator<<(QDBusArgument &a, const RunningWire &p) {
   a.beginStructure();
-  a << QString() << QString() << QString() << QString() << false << false;
+  a << p.id << QString("application") << QString("Window")
+    << QString("window-token") << true << false;
   a.endStructure();
   return a;
 }
@@ -102,7 +105,7 @@ public:
                                            : QString("generation"))
         << qulonglong(mode == "revision" && !first ? 2 : 1)
         << QList<AppWire>{{first ? "first" : "second", first}}
-        << QList<RunningWire>{}
+        << QList<RunningWire>{{first ? "window-first" : "window-second"}}
         << (first || mode == "cycle" ? QString("next") : QString());
       a.endStructure();
     } else if (m.member() == "Launch") {
@@ -152,6 +155,9 @@ private slots:
       QTRY_COMPARE(backend.homeState(), QString(state));
       if (mode == "populated" || mode == "partial") {
         QTRY_COMPARE(backend.applications().size(), 2);
+        QCOMPARE(backend.items().size(), 2);
+        QCOMPARE(backend.items()[1].toMap()["localId"].toString(),
+                 QString("window-second"));
         QCOMPARE(daemon.pages, 2);
         QCOMPARE(backend.applications()[1].toMap()["enabled"].toBool(), false);
         QSignalSpy changes(&backend, &Backend::applicationsChanged);

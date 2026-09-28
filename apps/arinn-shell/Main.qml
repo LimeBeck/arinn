@@ -23,15 +23,17 @@ Window {
             continueEntries: backend.continueEntries
             favoriteEntries: backend.applications
             applicationEntries: backend.applications
+            runningEntries: backend.items
             favoritesTitle: qsTr("Applications")
             returnActivityId: backend.returnWindow
             homeState: backend.homeState
             statusTitle: homeState === "unavailable" ? qsTr("Home is unavailable") : homeState === "loading" ? qsTr("Loading Home…") : homeState === "error" ? qsTr("Home could not be loaded") : qsTr("Your Home starts here")
             statusDescription: homeState === "empty" ? qsTr("No applications are available yet.") : qsTr("Navigation remains available. Home reconnects automatically.")
-            sectionDescription: screen === "applications" ? (applicationEntries.length ? qsTr("Choose an application to open.") : qsTr("No applications are available.")) : qsTr("This section is not available yet.")
+            sectionDescription: screen === "applications" ? ((applicationEntries.length || runningEntries.length) ? qsTr("Choose an application or an open window.") : qsTr("No applications are available.")) : qsTr("This section is not available yet.")
             clockText: Qt.formatTime(new Date(), "hh:mm")
             Timer { interval: 1000; running: true; repeat: true; onTriggered: home.clockText = Qt.formatTime(new Date(), "hh:mm") }
             onEntryRequested: entryId => backend.launch(entryId)
+            onRunningRequested: entryId => backend.activate(entryId)
             onReturnRequested: backend.back()
             onRetryRequested: backend.refresh()
             onPowerRequested: { feedback.text = qsTr("Power controls are not available yet."); feedbackTimer.restart(); }

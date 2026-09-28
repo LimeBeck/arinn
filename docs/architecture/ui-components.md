@@ -172,7 +172,9 @@ reads all `Providers` and `Application1.GetApplications` pages through the daemo
 checks snapshot identity, generation, revision and pagination cycles, and exposes
 launchable/disabled application entries. The Home shortcut row is labelled
 Applications; it does not claim these entries are persisted favorites. Applications
-also has a dedicated route. No provider-specific routing or QML business logic is
+also has a dedicated route, including the full paged list of open windows and
+`Activate` actions; this list is not truncated by the five-item `HomeItems` projection.
+No provider-specific routing or QML business logic is
 introduced. Favorites persistence, web shortcuts, New, Library, Downloads, Settings
 and power actions remain separate work; unsupported sections explicitly say they
 are unavailable.
@@ -186,7 +188,7 @@ identity and local focus. Daemon owner loss invalidates return and application
 entries; stale replies cannot replace a newer connection's state.
 
 The private-bus catalog tests cover multiple application pages, disabled entries,
-unchanged snapshots, generation/revision mismatches, cyclic tokens, partial
+unchanged snapshots, generation/revision mismatches, cyclic tokens, running-window paging, partial
 provider failure, empty/error states and daemon disappearance/reappearance.
 Qt Quick tests cover Applications navigation, activation intents, removal and
 focus restoration. The production-shell private-bus test checks the actual Home

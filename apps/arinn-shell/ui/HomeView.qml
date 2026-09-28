@@ -13,6 +13,8 @@ FocusScope {
     property var favoriteEntries: []
     property var newEntries: []
     property var applicationEntries: []
+    property var runningEntries: []
+    property string applicationFocusRow: "applications"
     property string favoritesTitle: qsTr("Favorites")
     property string sectionDescription: qsTr("This section is not connected in the Home preview.")
     property string returnActivityId: ""
@@ -33,6 +35,7 @@ FocusScope {
     readonly property var sections: [qsTr("Home"), qsTr("Library"), qsTr("Downloads"), qsTr("Applications"), qsTr("Settings")]
     readonly property var routes: ["home", "library", "downloads", "applications", "settings"]
     signal entryRequested(string entryId)
+    signal runningRequested(string entryId)
     signal returnRequested(string activityId)
     signal retryRequested()
     signal sectionRequested(string route)
@@ -50,8 +53,12 @@ FocusScope {
     }
     function restoreScreen() {
         if (screen === "home") restoreHome();
-        else if (screen === "applications" && applicationEntries.length && applicationsRow.restore()) return;
-        else sectionBack.forceActiveFocus();
+        else if (screen === "applications") {
+            if (applicationFocusRow === "running" && runningRow.visible && runningRow.restore()) return;
+            if (applicationsRow.visible && applicationsRow.restore()) return;
+            if (runningRow.visible && runningRow.restore()) return;
+            sectionBack.forceActiveFocus();
+        } else sectionBack.forceActiveFocus();
     }
     function openNavigation() {
         if (navOpen) return;
@@ -262,9 +269,31 @@ FocusScope {
                 visible: root.screen === "applications" && count > 0
                 entries: root.applicationEntries; busyEntryIds: root.busyEntryIds
                 pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled
+                onSelected: root.applicationFocusRow = "applications"
                 onActivated: entryId => root.entryRequested(entryId)
-                onEdge: key => { if (key === Qt.Key_Left) root.openNavigation(); else if (key === Qt.Key_Down) sectionBack.forceActiveFocus(); else if (key === Qt.Key_Up) menuButton.forceActiveFocus(); }
-                onFocusLost: sectionBack.forceActiveFocus()
+                onEdge: key => {
+                    if (key === Qt.Key_Left) root.openNavigation();
+                    else if (key === Qt.Key_Down) { if (!runningRow.visible || !runningRow.restore()) sectionBack.forceActiveFocus(); }
+                    else if (key === Qt.Key_Up) menuButton.forceActiveFocus();
+                }
+                onFocusLost: { if (!runningRow.visible || !runningRow.restore()) sectionBack.forceActiveFocus(); }
+                onScrolled: hoverDelay.restart()
+                onDpadRequested: root.pointerMode = false
+            }
+            HomeRow {
+                id: runningRow; objectName: "runningApplications"
+                width: 1704; variant: "app"; title: qsTr("Open windows")
+                visible: root.screen === "applications" && count > 0
+                entries: root.runningEntries; busyEntryIds: root.busyEntryIds
+                pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled
+                onSelected: root.applicationFocusRow = "running"
+                onActivated: entryId => root.runningRequested(entryId)
+                onEdge: key => {
+                    if (key === Qt.Key_Left) root.openNavigation();
+                    else if (key === Qt.Key_Down) sectionBack.forceActiveFocus();
+                    else if (key === Qt.Key_Up && (!applicationsRow.visible || !applicationsRow.restore())) menuButton.forceActiveFocus();
+                }
+                onFocusLost: { if (!applicationsRow.visible || !applicationsRow.restore()) sectionBack.forceActiveFocus(); }
                 onScrolled: hoverDelay.restart()
                 onDpadRequested: root.pointerMode = false
             }

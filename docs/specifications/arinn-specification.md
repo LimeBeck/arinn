@@ -699,7 +699,8 @@ Each question needs a decision by the project owner. The recommendation is the p
 Version 0.6 accompanies the first `v0.1.0` pre-release. It includes the production
 application API (ADR-0035), browser launch ownership (ADR-0038), platform window
 integration (ADR-0039/0040), and independent session lifecycle guard (ADR-0041).
-Phase 1 completion is recorded separately in the roadmap after release verification;
+It also includes production Home and Applications binding to asynchronous daemon
+models. Phase 1 completion is recorded separately in the roadmap after release verification;
 this version does not declare Plugin API 1.0 stable.
 
 Version 0.5 resolves OQ-06: provider data-directory identity is derived from the

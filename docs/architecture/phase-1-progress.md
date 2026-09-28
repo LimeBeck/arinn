@@ -99,6 +99,18 @@ boundary. Platform transport extraction was merged in
 [PR #32](https://github.com/LimeBeck/arinn/pull/32), closing
 [task #29](https://github.com/LimeBeck/arinn/issues/29).
 
+### Release recovery regression
+
+Release qualification exposed a provider re-registration stall under unrelated
+D-Bus name churn. [PR #46](https://github.com/LimeBeck/arinn/pull/46) filters the
+SDK ownership subscription to the daemon name. The regression creates 128 unrelated
+name acquisition/release pairs before a replacement daemon replies: it failed on
+the old SDK with a timeout and passed with the fix. A temporary private-bus stress
+harness completed 300 consecutive daemon restarts after the fix. The complete
+[PR CI](https://github.com/LimeBeck/arinn/actions/runs/36412698903), including clean
+Arch package installation, passed on the integrated branch. This resolves
+[issue #34](https://github.com/LimeBeck/arinn/issues/34) before publication.
+
 ### Remaining maintainer gate
 
 The earlier branch-protection API request returned a plan restriction. A fresh

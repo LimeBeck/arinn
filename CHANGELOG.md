@@ -27,6 +27,13 @@ fixtures, and Qt Quick navigation tests. Production provider binding is pending.
 <!-- SPDX-License-Identifier: CC-BY-SA-4.0 -->
 
 - Add Home, Library and player design screenshots to the English and Russian READMEs, with captions distinguishing the target design from the implemented Qt shell.
+<!-- SPDX-FileCopyrightText: 2026 Arinn contributors -->
+<!-- SPDX-License-Identifier: CC-BY-SA-4.0 -->
+
+- The production shell now uses the shared Home and navigation design, with a Return
+card, a paged Applications catalogue and asynchronous launch feedback. Navigation
+remains local during operations, unchanged snapshots preserve focus, and missing
+services show explicit empty, error or unavailable states.
 - English [specification v0.4](docs/specifications/arinn-specification.md), consolidating developer specification v0.3 with all accepted decisions, including acceptance criteria AC-01–AC-19 and open questions OQ-01–OQ-06.
 - [ROADMAP.md](ROADMAP.md) with phase status, exit criteria and evidence links.
 - ADR-0028 (documentation governance), ADR-0029 (licensing), ADR-0030 and ADR-0031 (clarifications previously edited into ADR-0023 and ADR-0026), ADR-0032 (KWin script adapter), and an ADR template.
@@ -89,6 +96,10 @@ fixtures, and Qt Quick navigation tests. Production provider binding is pending.
 <!-- SPDX-License-Identifier: CC-BY-SA-4.0 -->
 
 - Isolate the Home navigation tests from pointer positions left by previous fixtures, preventing intermittent focus failures in CI.
+<!-- SPDX-FileCopyrightText: 2026 Arinn contributors -->
+<!-- SPDX-License-Identifier: CC-BY-SA-4.0 -->
+
+- Prevent unrelated D-Bus name changes from blocking provider registration and recovery after daemon restart.
 - Ambient auto-start condition made consistent ("external Activity **or** playing media").
 
 ## Phase 0 — architecture spike (2026-09-27)

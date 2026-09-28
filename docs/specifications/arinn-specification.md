@@ -142,7 +142,7 @@ Home answers "What do I want to do right now?", not "Which application do I need
 
 **Continue.** One merged section that may contain an unfinished film, a series, a local video, the current browser activity, a running game or other resumable content. If an Activity exists right now, it is shown here too. There MUST NOT be competing concepts such as "Now running", "Continue watching" and "Recent apps" as separate sections. The initial projection is one foreground or last running Activity plus up to four resumable content entries; this UI limit MUST NOT limit the registry ([§10](#10-activity-model)).
 
-**Favorites / Online.** Quick entry points such as Browser, Kinopoisk, IVI, YouTube, Steam and EmulationStation. Streaming services may technically open in Chrome, but for the user they MUST exist as separate tiles; the user never goes Browser → Bookmark → Kinopoisk. The user pins and unpins favorites. The source of online-service tiles is open: [OQ-02](#21-open-questions).
+**Favorites / Online.** Quick entry points such as Browser, Kinopoisk, IVI, YouTube, Steam and EmulationStation. Streaming services may technically open in Chrome, but for the user they MUST exist as separate tiles; the user never goes Browser → Bookmark → Kinopoisk. The user pins and unpins favorites. Online-service tiles are Arinn-owned **web shortcuts** (title, `https` URL, optional icon) that open in the default BrowserProvider; a default set ships as packaging data, and the user adds, edits and removes shortcuts from the TV. This resolves OQ-02 by owner decision on 2026-09-28 ([ADR-0043](../adr/0043-web-shortcuts.md)).
 
 **New.** Content that providers consider new or recommended. Arinn has no recommendation engine; it shows provider data. New is a generic projection of LibraryProvider data; a provider may not supply it, and an empty section is hidden or can be disabled in Settings. The API for New is open: [OQ-05](#21-open-questions).
 
@@ -448,7 +448,7 @@ Arinn persists only its own state:
 | Location | Content |
 | --- | --- |
 | `$XDG_CONFIG_HOME/arinn/config.toml` | UI preferences, provider configuration and defaults, Home settings; atomic write, schema version and migration |
-| `$XDG_STATE_HOME/arinn/state.sqlite3` | favorites and order, provider-instance mapping, recent launch targets (≤ 100, 30 days), diagnostic counters |
+| `$XDG_STATE_HOME/arinn/state.sqlite3` | favorites and order, web shortcuts ([ADR-0043](../adr/0043-web-shortcuts.md)), provider-instance mapping, recent launch targets (≤ 100, 30 days), diagnostic counters |
 | `$XDG_CACHE_HOME/arinn/` | artwork cache (LRU, 512 MiB); clearing it loses nothing else |
 | `$XDG_DATA_HOME/arinn/` | plugin manifests; provider-owned data in `providers/<digest>/` directories ([ADR-0034](../adr/0034-provider-data-directory-identity.md)) |
 
@@ -461,7 +461,7 @@ Recreating Arinn state therefore preserves the directory location for an unchang
 provider ID; it does not restore lost instance configuration. This resolves OQ-06
 by the project owner's confirmation on 2026-09-28 ([ADR-0034](../adr/0034-provider-data-directory-identity.md)).
 
-Favorites survive removal of their provider and are marked unavailable. Browser tab titles, URLs and history are not archived. Secrets are never stored in TOML; credential references go to the system secret storage when an integration needs one.
+Favorites survive removal of their provider and are marked unavailable. Browser tab titles, URLs and history are not archived. The only URLs Arinn stores are user-configured web shortcuts; they MUST NOT appear in logs or diagnostics. Secrets are never stored in TOML; credential references go to the system secret storage when an integration needs one.
 
 ---
 
@@ -584,13 +584,13 @@ The standalone UI gallery also provides a Home/navigation development preview
 (`arinn-ui-gallery --home`) with explicit populated, empty, loading, error and
 unavailable presentation fixtures. It emits observable action intentions only;
 it does not launch applications, retry a provider or perform system actions.
-This preview does not replace the production shell or settle OQ-02/OQ-05.
+This preview does not replace the production shell or implement web shortcuts or OQ-05.
 Its scope and verification are recorded in the [component contract](../architecture/ui-components.md).
 
 The production shell uses the same Home/navigation components with asynchronous
 daemon data: an opaque Return target and paged application launch targets. Its
-Applications shortcut row and route do not imply persisted favorites or settle
-OQ-02/OQ-05. Unimplemented sections show an explicit unavailable presentation;
+Applications shortcut row and route do not imply persisted favorites, web shortcuts
+or settle OQ-05. Unimplemented sections show an explicit unavailable presentation;
 launch feedback follows the daemon operation. The [component contract](../architecture/ui-components.md#production-home-and-applications)
 records the implemented subset and remaining qualification.
 
@@ -688,7 +688,6 @@ Each question needs a decision by the project owner. The recommendation is the p
 | ID | Question | Conflict | Recommendation |
 | --- | --- | --- | --- |
 | OQ-01 | How does input reach Arinn while the player OSD is hidden? | [Media MVP](../architecture/media-mvp.md) routes keys from the mpv window through the plugin and daemon to the shell, which then moves focus to the timeline — the chain forbidden by [§6.5](#65-performance-principles). | Keep the shell focused during managed playback as a transparent fullscreen input layer over the mpv window; all keys are handled locally and only commands go to the provider. Verify in the media integration gate that the overlay does not break playback performance. |
-| OQ-02 | Where do online-service tiles (Kinopoisk, IVI, YouTube) come from? | Favorites may store only provider-declared launch targets and Arinn does not archive URLs ([implementation baseline](../architecture/implementation-baseline.md)), but no provider declares these services; AC-03 depends on them. The handoff has "Add application — any site as an app". | Introduce Arinn-owned **web shortcuts** (title, `https` URL, icon) stored in Arinn state and opened through the default BrowserProvider; ship a default set as packaging data, not in core code. |
 | OQ-04 | Do media and volume keys work globally while an external application has focus? | §5.7 requires a system overlay with Play/Pause, volume and mute, but only Home is registered globally and keys outside the shell belong to the application. | In the MVP rely on Plasma for global media/volume keys outside Arinn; Arinn handles them only while the shell is visible, and shows its own volume HUD only then. |
 | OQ-05 | How does a LibraryProvider supply the New section? | New is a LibraryProvider projection, but neither the base operations nor the extensions define "new". | Add an optional extension `LibraryNew1` (ordered list of item refs with `added_at`), declared by feature flag. |
 

@@ -1685,7 +1685,7 @@ impl WindowEndpoint {
 }
 
 #[cfg(test)]
-#[path = "browser_tests.rs"]
+#[path = "../../../platform/kde/browser_tests.rs"]
 mod browser_tests;
 #[cfg(test)]
 #[path = "../../../platform/kde/window_tests.rs"]

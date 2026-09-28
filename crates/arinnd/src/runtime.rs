@@ -49,6 +49,9 @@ pub struct Core {
     state: Arc<Mutex<State>>,
     reload_lock: Arc<Mutex<()>>,
     maintenance: Arc<Mutex<()>>,
+    // Serializes token rotation so the token file and the registry agree
+    // (#66): a vanished owner's `unavailable` can race `launch` in a reload.
+    rotation: Arc<Mutex<()>>,
     pub operations: Operations,
     pub connection: Connection,
     pub epoch: String,
@@ -77,6 +80,7 @@ impl Core {
             })),
             reload_lock: Arc::new(Mutex::new(())),
             maintenance: Arc::new(Mutex::new(())),
+            rotation: Arc::new(Mutex::new(())),
             operations: Operations::default(),
             connection: connection.clone(),
             epoch: Uuid::new_v4().to_string(),
@@ -326,6 +330,9 @@ impl Core {
         Ok(())
     }
     async fn rotate_token(&self, id: &str) -> Result<(), ErrorCode> {
+        // Held across the file write and the registry update: the last token
+        // written is always the one Register accepts.
+        let _rotation = self.rotation.lock().await;
         let token = format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
         let path = self
             .state
@@ -1332,3 +1339,104 @@ impl WindowEndpoint {
 #[cfg(test)]
 #[path = "../../../platform/kde/window_tests.rs"]
 mod window_tests;
+
+#[cfg(test)]
+mod token_tests {
+    use super::*;
+    use std::io::{BufRead, BufReader};
+    use std::process::{Command, Stdio};
+
+    /// Regression test for #66: concurrent rotations (a vanished owner's
+    /// `unavailable` racing `launch` during a reload) must leave the token
+    /// file and the in-memory token equal, or the provider can never register.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn concurrent_token_rotations_keep_file_and_memory_equal() {
+        struct Bus(std::process::Child, PathBuf);
+        impl Drop for Bus {
+            fn drop(&mut self) {
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+                let _ = std::fs::remove_dir_all(&self.1);
+            }
+        }
+        let folder = std::env::temp_dir().join(format!("arinn-tokens-{}", Uuid::new_v4()));
+        std::fs::create_dir(&folder).unwrap();
+        let mut bus = Bus(
+            Command::new("dbus-daemon")
+                .args(["--session", "--nofork", "--print-address=1"])
+                .stdout(Stdio::piped())
+                .spawn()
+                .unwrap(),
+            folder.clone(),
+        );
+        let mut address = String::new();
+        BufReader::new(bus.0.stdout.take().unwrap())
+            .read_line(&mut address)
+            .unwrap();
+        let connection = zbus::connection::Builder::address(address.trim())
+            .unwrap()
+            .build()
+            .await
+            .unwrap();
+        let core = Core::new(
+            &connection,
+            Paths {
+                config: folder.join("config"),
+                data: folder.join("data"),
+                state: folder.join("state"),
+            },
+            folder.clone(),
+        );
+        let token_file = folder.join("fixture.token");
+        core.state.lock().await.providers.insert(
+            "fixture".into(),
+            Provider {
+                info: ProviderInfo {
+                    id: "fixture".into(),
+                    plugin_id: "fixture".into(),
+                    source_path: String::new(),
+                    name: "Fixture".into(),
+                    version: "0.0.1".into(),
+                    path: "/org/arinn/Daemon1/providers/fixture".try_into().unwrap(),
+                    capabilities: vec!["application".into()],
+                    runtime_state: "starting".into(),
+                    backend_state: "unavailable".into(),
+                    generation: String::new(),
+                    revision: 0,
+                    last_error: String::new(),
+                    error_at: 0,
+                    recovered_at: 0,
+                    restarts_since_daemon_start: 0,
+                    cumulative_restart_count: 0,
+                },
+                manifest: None,
+                unit: "fixture.service".into(),
+                token_file: token_file.clone(),
+                token: String::new(),
+                owner: String::new(),
+                cache: None,
+                applications: Vec::new(),
+                running: Vec::new(),
+                started: Instant::now(),
+                enabled: true,
+            },
+        );
+        for round in 0..30 {
+            let rotations: Vec<_> = (0..16)
+                .map(|_| {
+                    let core = core.clone();
+                    tokio::spawn(async move { core.rotate_token("fixture").await })
+                })
+                .collect();
+            for rotation in rotations {
+                rotation.await.unwrap().unwrap();
+            }
+            let file = std::fs::read_to_string(&token_file).unwrap();
+            let memory = core.state.lock().await.providers["fixture"].token.clone();
+            assert_eq!(
+                file, memory,
+                "round {round}: token file and memory diverged"
+            );
+        }
+    }
+}

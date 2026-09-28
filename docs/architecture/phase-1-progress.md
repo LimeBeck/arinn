@@ -1,8 +1,8 @@
 # Phase 1 implementation record
 
-Started 2026-09-28 from `master` at `48d40c0`. Phase status remains **In progress**
-in [ROADMAP.md](../../ROADMAP.md): local and CI implementation evidence does not
-close the remaining maintainer release gate. Branch protection is now verified.
+Started 2026-09-28 from `master` at `48d40c0`. Phase 1 is **Done**
+(2026-09-28) in [ROADMAP.md](../../ROADMAP.md), under explicit owner authorization.
+The release pipeline published `v0.1.0`; branch protection and release assets are verified.
 
 ## Implemented
 
@@ -111,7 +111,7 @@ harness completed 300 consecutive daemon restarts after the fix. The complete
 Arch package installation, passed on the integrated branch. This resolves
 [issue #34](https://github.com/LimeBeck/arinn/issues/34) before publication.
 
-### Remaining maintainer gate
+### Release qualification
 
 The earlier branch-protection API request returned a plan restriction. A fresh
 check on 2026-09-28 instead reported an unprotected branch. Following the owner's
@@ -127,20 +127,43 @@ GET of `repos/LimeBeck/arinn/branches/master/protection`:
 - Checks are bound to the GitHub Actions app (15368).
 - Force pushes and branch deletion are disabled; code-owner approval is not required.
 
-The `v0.1.0` release is still unpublished. On commit
-`cdc11c4dd3783cbe24faf4b3b8cb1fd3ad6c2088`,
-`python scripts/release.py check v0.1.0` failed because the workspace version
-is `0.0.1`, there is no collected release section, and changelog fragments remain.
-The owner subsequently delegated preparation and publication of `v0.1.0`.
-The release preparation updates the workspace/package version, generates the
-lockfile with Cargo, collects the changelog and advances specification 0.6.
-`python scripts/release.py check v0.1.0` now passes on the release branch.
-CI and publication through the release pipeline remain required, as described
-in [CONTRIBUTING.md](../../CONTRIBUTING.md#releases).
+The owner explicitly delegated release preparation, publication and Phase 1
+completion. [PR #43](https://github.com/LimeBeck/arinn/pull/43) set the workspace and
+Arch package version to `0.1.0`, regenerated Cargo.lock with Cargo, collected the
+changelog, advanced specification 0.6, and integrated the recovery fix from PR #46.
+Its [complete CI](https://github.com/LimeBeck/arinn/actions/runs/36414466155) passed
+before the squash merge. The latest scheduled
+[nightly](https://github.com/LimeBeck/arinn/actions/runs/36406375062) was also green.
 
-No release tag was created and no release was published during this verification.
-Phase 1 remains **In progress** until publication evidence closes G-1.6.
-Remaining work is tracked in [task #41](https://github.com/LimeBeck/arinn/issues/41).
+The annotated tag `v0.1.0` points to the merged `master` commit
+`d3b384fe8e1af816c1aa616f2c06276abb931190`. At the owner's explicit request it has
+no GPG signature; this release-specific exception is recorded in
+[task #41](https://github.com/LimeBeck/arinn/issues/41#issuecomment-5868541470).
+
+[Release workflow 36416052425](https://github.com/LimeBeck/arinn/actions/runs/36416052425)
+completed successfully and published the
+[v0.1.0 pre-release](https://github.com/LimeBeck/arinn/releases/tag/v0.1.0) on
+2026-09-28. The API confirms it is published, not a draft. All eight jobs passed:
+
+- Version and collected changelog verification.
+- Documentation, ADR and architecture guards.
+- Rust formatting, clippy and workspace tests.
+- Qt tests, KWin adapter tests and the full private-bus integration suite,
+  including live XML comparison, provider lifecycle, validation and limits.
+- REUSE and dependency licensing.
+- Arch package build and checks.
+- Clean-container installation, smoke test and uninstall.
+- Release publication.
+
+The published main Arch package, debug package, source archive and test-manager
+helper were downloaded; `sha256sum --check SHA256SUMS` passed for all four files.
+Branch protection was read back again after publication with the settings above.
+This closes G-1.6. Together with the existing implementation, shell boundary and
+live-session evidence, it completes G-1.1–G-1.6, AC-11 and AC-12.
+
+No new real-desktop operator tests were run for this release preparation or
+completion record; the earlier live evidence retains its stated scope. Phase 2
+application qualification and Phase 5 UI/session acceptance remain separate.
 
 ## Reproduce the isolated checks
 

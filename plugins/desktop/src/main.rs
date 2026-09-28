@@ -75,7 +75,7 @@ impl ApplicationHandler for Handler {
                         // not launch an obsolete lower-priority entry.
                         let entries = discover(self.settings.clone()).await?;
                         let entry = entries.get(&id).ok_or(ErrorCode::NotFound)?;
-                        launcher::launch(&entry.path).await
+                        launcher::dispatch(entry).await
                     }
                     Action::Activate | Action::Terminate => {
                         let (client, generation) = {

@@ -81,6 +81,7 @@ mod tests {
                     can_launch: true,
                 },
                 path: "/fixture/app.desktop".into(),
+                dbus_name: None,
             },
         )]);
         let window = |token: &str, desktop: &str, active| Window {

@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // Temporary Phase 0 KWin adapter. No startup installation or arbitrary script API.
-const service = "org.arinn.Spike1";
-const path = "/org/arinn/Spike1";
+const service = "org.arinn.Daemon1";
+const path = "/org/arinn/Daemon1";
 let target = "";
 let detachedTarget = "";
 let homeVisible = false;

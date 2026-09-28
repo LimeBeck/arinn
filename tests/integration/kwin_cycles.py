@@ -11,7 +11,7 @@ import json,subprocess,time
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[2]
 def run(*args):return subprocess.run(args,check=True,capture_output=True,text=True,timeout=5).stdout
-def status():return json.loads(run(str(ROOT/'target/debug/arinnctl'),'status'))
+def status():return json.loads(run(str(ROOT/'target/debug/arinnctl'),'--json','status'))
 def wait(test):
     end=time.monotonic()+4
     while time.monotonic()<end:

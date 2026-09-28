@@ -15,7 +15,7 @@ int main(int argc, char **argv) {
   app.setApplicationName("arinn-shell");
   app.setDesktopFileName("org.arinn.Shell");
   auto bus = QDBusConnection::sessionBus();
-  if (!bus.registerService("org.arinn.SpikeShell1"))
+  if (!bus.registerService("org.arinn.Shell1"))
     return 2;
   Backend backend;
   SessionGuard sessionGuard;

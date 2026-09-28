@@ -5,9 +5,11 @@
 #include "backend.h"
 #include <QUuid>
 #include <QtDBus>
+#include <QJsonDocument>
+#include <QJsonArray>
 namespace {
-constexpr auto service = "org.arinn.Spike1";
-constexpr auto path = "/org/arinn/Spike1";
+constexpr auto service = "org.arinn.Daemon1";
+constexpr auto path = "/org/arinn/Daemon1";
 QDBusMessage request(const char *method) {
   return QDBusMessage::createMethodCall(service, path, service, method);
 }
@@ -15,6 +17,8 @@ QDBusMessage request(const char *method) {
 Backend::Backend(QObject *parent) : QObject(parent) {
   auto bus = QDBusConnection::sessionBus();
   bus.connect(service, path, service, "Changed", this, SLOT(refresh()));
+  bus.connect(service, path, service, "ProvidersChanged", this, SLOT(refresh()));
+  bus.connect(service, path, service, "StateChanged", this, SLOT(refresh()));
   auto watcher = new QDBusServiceWatcher(
       service, bus, QDBusServiceWatcher::WatchForOwnerChange, this);
   connect(watcher, &QDBusServiceWatcher::serviceOwnerChanged, this,
@@ -47,14 +51,15 @@ void Backend::refresh() {
       [this, epoch](auto *call) {
         const auto reply = call->reply();
         call->deleteLater();
-        m_refreshing = false;
         if (epoch != m_connectionEpoch) {
+          m_refreshing = false;
           refresh();
           return;
         }
         if (reply.type() == QDBusMessage::ErrorMessage ||
             reply.arguments().isEmpty() ||
             reply.signature() != "(sbstbsssbbss)") {
+          m_refreshing = false;
           m_connected = false;
           m_available = false;
           m_items.clear();
@@ -90,45 +95,40 @@ void Backend::refresh() {
         emit changed();
         const auto generation = m_generation;
         auto snapshot = new QDBusPendingCallWatcher(
-            QDBusConnection::sessionBus().asyncCall(request("Snapshot"), 3000),
+            QDBusConnection::sessionBus().asyncCall(request("HomeItems"), 3000),
             this);
         connect(snapshot, &QDBusPendingCallWatcher::finished, this,
                 [this, epoch, generation](auto *call) {
                   auto reply = call->reply();
                   call->deleteLater();
+                  m_refreshing = false;
+                  if (m_dirty || epoch != m_connectionEpoch || generation != m_generation) {
+                    refresh();
+                    return;
+                  }
                   if (epoch != m_connectionEpoch ||
                       generation != m_generation ||
                       reply.type() == QDBusMessage::ErrorMessage ||
                       reply.arguments().isEmpty() ||
-                      reply.signature() != "(stba(ss))")
+                      reply.signature() != "a(sssss)")
                     return;
-                  const QDBusArgument arg =
-                      qvariant_cast<QDBusArgument>(reply.arguments().at(0));
-                  QString gen;
-                  qulonglong rev;
-                  bool available;
+                  const QDBusArgument arg = qvariant_cast<QDBusArgument>(reply.arguments().at(0));
                   QVariantList items;
-                  arg.beginStructure();
-                  arg >> gen >> rev >> available;
                   arg.beginArray();
                   while (!arg.atEnd()) {
-                    QString id, title;
+                    QString provider, providerPath, gen, localId, title;
                     arg.beginStructure();
-                    arg >> id >> title;
+                    arg >> provider >> providerPath >> gen >> localId >> title;
                     arg.endStructure();
-                    items.append(QVariantMap{{"id", id}, {"title", title}});
+                    // UI identity is opaque; route with the separate fields below.
+                    const auto key = QUuid::createUuidV5(QUuid(), QJsonDocument(QJsonArray{provider, gen, localId}).toJson(QJsonDocument::Compact)).toString();
+                    items.append(QVariantMap{{"id", key}, {"provider", provider}, {"path", providerPath}, {"generation", gen}, {"localId", localId}, {"title", title}});
                   }
                   arg.endArray();
-                  arg.endStructure();
-                  if (gen != m_generation || rev < m_snapshotRevision)
-                    return;
-                  m_snapshotRevision = rev;
                   m_items = items;
-                  m_available = available;
+                  m_available = !items.isEmpty();
                   emit changed();
                 });
-        if (m_dirty)
-          refresh();
       });
 }
 void Backend::back() {
@@ -143,8 +143,13 @@ void Backend::back() {
   });
 }
 void Backend::activate(const QString &id) {
-  auto msg = request("Activate");
-  msg << m_generation << id
+  QVariantMap selected;
+  for (const auto &item : m_items) {
+    if (item.toMap().value("id").toString() == id) { selected = item.toMap(); break; }
+  }
+  if (selected.isEmpty()) { m_message = "NotFound"; emit changed(); return; }
+  auto msg = QDBusMessage::createMethodCall(service, selected.value("path").toString(), "org.arinn.Application1", "Activate");
+  msg << selected.value("generation").toString() << selected.value("localId").toString()
       << QUuid::createUuid().toString(QUuid::WithoutBraces);
   m_message = "Выполняется…";
   emit changed();
@@ -166,29 +171,35 @@ void Backend::activate(const QString &id) {
             connect(timer, &QTimer::timeout, this, [this, timer, op] {
               timer->stop();
               auto msg = QDBusMessage::createMethodCall(
-                  service, op, "org.freedesktop.DBus.Properties", "GetAll");
-              msg << "org.arinn.SpikeOperation1";
+                  service, op, "org.arinn.Operation1", "Get");
               auto p = new QDBusPendingCallWatcher(
                   QDBusConnection::sessionBus().asyncCall(msg, 3000), this);
               connect(p, &QDBusPendingCallWatcher::finished, this,
                       [this, timer](auto *call) {
-                        QDBusPendingReply<QVariantMap> reply = *call;
+                        const auto reply = call->reply();
                         call->deleteLater();
-                        if (reply.isError()) {
+                        if (reply.type() == QDBusMessage::ErrorMessage || reply.signature() != "(ssbtta(sss)b)" || reply.arguments().isEmpty()) {
                           m_message = "Операция недоступна";
                           timer->deleteLater();
                           emit changed();
                           return;
                         }
-                        const auto values = reply.value();
-                        const auto state = values.value("State").toString();
+                        const QDBusArgument arg = qvariant_cast<QDBusArgument>(reply.arguments().at(0));
+                        QString state, error;
+                        bool retryable, cancellable;
+                        qulonglong started, ended;
+                        arg.beginStructure();
+                        arg >> state >> error >> retryable >> started >> ended;
+                        arg.beginArray();
+                        while (!arg.atEnd()) { QString provider, capability, id; arg.beginStructure(); arg >> provider >> capability >> id; arg.endStructure(); }
+                        arg.endArray(); arg >> cancellable; arg.endStructure();
                         if (state == "running" || state == "queued") {
                           timer->start();
                           return;
                         }
                         m_message = state == "succeeded"
                                         ? "Готово"
-                                        : values.value("Error").toString();
+                                        : error;
                         timer->deleteLater();
                         emit changed();
                       });

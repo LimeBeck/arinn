@@ -15,10 +15,10 @@ def call(*args):
     return subprocess.check_output(['qdbus6', *args], text=True, timeout=5).strip()
 
 def blocked():
-    return call('org.arinn.SpikeShell1', '/org/arinn/Session1', 'org.freedesktop.DBus.Properties.Get', 'org.arinn.SpikeSession1', 'blocked') == 'true'
+    return call('org.arinn.Shell1', '/org/arinn/Session1', 'org.freedesktop.DBus.Properties.Get', 'org.arinn.Session1', 'blocked') == 'true'
 
 def state():
-    return json.loads(subprocess.check_output([str(ROOT/'target/debug/arinnctl'), 'status']))
+    return json.loads(subprocess.check_output([str(ROOT/'target/debug/arinnctl'), '--json', 'status']))
 
 initial = state()
 assert initial['home_visible'] and initial['return_window'], initial

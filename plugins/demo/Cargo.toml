@@ -14,3 +14,4 @@ anyhow.workspace = true
 arinn-protocol.workspace = true
 tokio.workspace = true
 zbus.workspace = true
+arinn-plugin-sdk.workspace = true

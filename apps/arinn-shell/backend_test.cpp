@@ -69,7 +69,7 @@ private slots:
     QTRY_VERIFY_WITH_TIMEOUT(backend.connected(), 5000);
     QTRY_VERIFY_WITH_TIMEOUT(backend.available(), 5000);
     QTRY_COMPARE_WITH_TIMEOUT(backend.items().size(), 1, 5000);
-    QCOMPARE(backend.items().at(0).toMap().value("id").toString(),
+    QCOMPARE(backend.items().at(0).toMap().value("localId").toString(),
              QString("demo.activity"));
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty("backend", &backend);
@@ -90,7 +90,7 @@ private slots:
     QVERIFY(first && second);
     first->forceActiveFocus();
     QTRY_VERIFY(first->hasActiveFocus());
-    backend.activate("demo.activity"); // fixture deliberately takes 7 s
+    backend.activate(backend.items().at(0).toMap().value("id").toString()); // fixture deliberately takes 7 s
     QTest::keyClick(window, Qt::Key_Right);
     QTRY_VERIFY_WITH_TIMEOUT(second->hasActiveFocus(), 500);
     QTest::keyClick(window, Qt::Key_Left);

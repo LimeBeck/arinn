@@ -28,15 +28,17 @@ Run these before opening a pull request; CI runs the same checks.
 cargo fmt --all --check
 cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked
-cmake --build build && dbus-run-session -- python tests/integration/phase0.py
+cargo build --locked --examples
+cmake --build build && dbus-run-session -- python tests/integration/phase1.py
 node --test tests/integration/kwin_adapter.test.cjs
 python scripts/check-docs.py
+python scripts/check-architecture.py
 python scripts/release.py check
 reuse lint
 cargo deny check licenses
 ```
 
-To test packaging locally on Arch: `git archive --prefix=arinn-$(python scripts/release.py version)/ -o packaging/arch/arinn-$(python scripts/release.py version).tar.gz HEAD && (cd packaging/arch && makepkg -f)`, then install the package and run `dbus-run-session -- python tests/package/smoke.py`.
+To test packaging locally on Arch: `git archive --prefix=arinn-$(python scripts/release.py version)/ -o packaging/arch/arinn-$(python scripts/release.py version).tar.gz HEAD && (cd packaging/arch && makepkg -f)`, then install the package and run `ARINN_TEST_MANAGER=/absolute/path/to/private-systemd dbus-run-session -- python tests/package/smoke.py`. Use the test helper built under the package source tree at `target/release/examples/private-systemd`; it is not installed as a production service.
 
 **Operator tests** (`tests/integration/kwin_*.py`, `scripts/phase0-session.py`) drive a real desktop session: they load KWin scripts, kill daemons or lock the screen. They never run in CI. Run them only on a disposable session and only when the change touches the platform layer; attach the result (evidence JSON or a short log) to the pull request.
 

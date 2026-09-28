@@ -2,6 +2,8 @@
 
 Part of [ADR-0020](../adr/0020-dbus-contract-baseline.md) and [ADR-0022](../adr/0022-state-and-interaction-baseline.md). Chosen 2026-09-27 as a delegated technical decision. Numeric limits below are project defaults, not requirements of third-party specifications. Requirements summary: [specification §8–§11, §14, §17](../specifications/arinn-specification.md).
 
+Implementation status: the Phase 1 application bindings are specified by [ADR-0035](../adr/0035-phase1-application-wire-contract.md) and [Plugin API XML](../plugin-api/README.md). See the [implementation record](phase-1-progress.md) for verification and remaining qualification.
+
 ## Stack and boundaries
 
 - **Shell:** Qt 6 Quick/QML with a small C++ layer for QtDBus and typed models. The UI thread never makes blocking D-Bus calls. CMake, Qt Quick Test and Qt Test.
@@ -58,7 +60,7 @@ Regular logs contain no URLs, tab titles, payloads, page content or secrets — 
 
 Recent launch targets: at most 100, kept for 30 days. Browser tab titles, URLs and history are not archived. Favorites survive removal of their provider and are marked unavailable; only the user deletes them. Secrets never go into the TOML file: a credential reference into the system secret storage is added when an integration needs it.
 
-`$XDG_CACHE_HOME/arinn/`: artwork with an LRU budget of 512 MiB; clearing the cache loses no preferences. Provider databases belong to providers under XDG data/state in per-provider directories named by the registry UUID, never by the opaque ID (see [OQ-06](../specifications/arinn-specification.md#21-open-questions)). Playback state is not duplicated in the core. Snapshots of live entities are kept in memory.
+`$XDG_CACHE_HOME/arinn/`: artwork with an LRU budget of 512 MiB; clearing the cache loses no preferences. Provider databases belong to providers under `$XDG_DATA_HOME/arinn/providers/<digest>/` and `$XDG_STATE_HOME/arinn/providers/<digest>/`. The digest is the full 64-character lowercase hexadecimal SHA-256 of the exact UTF-8 bytes of the validated `provider_id`, without normalization; it is independent of the registry UUID and database ([ADR-0034](../adr/0034-provider-data-directory-identity.md), resolving OQ-06). The opaque ID is never used directly as a path component. Playback state is not duplicated in the core. Snapshots of live entities are kept in memory.
 
 ## Observability and tests
 

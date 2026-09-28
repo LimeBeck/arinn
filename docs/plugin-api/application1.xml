@@ -1,0 +1,28 @@
+<!-- SPDX-FileCopyrightText: 2026 Arinn contributors
+SPDX-License-Identifier: MIT OR Apache-2.0 -->
+<node>
+  <interface name="org.arinn.Application1">
+    <method name="GetApplications">
+      <arg name="token" type="s" direction="in" />
+      <arg type="(sta(ssb)a(ssssbb)s)" direction="out" />
+    </method>
+    <method name="Launch">
+      <arg name="generation" type="s" direction="in" />
+      <arg name="id" type="s" direction="in" />
+      <arg name="request_id" type="s" direction="in" />
+      <arg type="o" direction="out" />
+    </method>
+    <method name="Activate">
+      <arg name="generation" type="s" direction="in" />
+      <arg name="id" type="s" direction="in" />
+      <arg name="request_id" type="s" direction="in" />
+      <arg type="o" direction="out" />
+    </method>
+    <method name="Terminate">
+      <arg name="generation" type="s" direction="in" />
+      <arg name="id" type="s" direction="in" />
+      <arg name="request_id" type="s" direction="in" />
+      <arg type="o" direction="out" />
+    </method>
+  </interface>
+</node>

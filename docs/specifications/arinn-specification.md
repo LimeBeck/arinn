@@ -2,9 +2,9 @@
 
 | | |
 | --- | --- |
-| **Version** | 0.4 |
+| **Version** | 0.5 |
 | **Status** | Current — the single source of current requirements ([ADR-0028](../adr/0028-documentation-governance.md)) |
-| **Date** | 2026-09-27 |
+| **Date** | 2026-09-28 |
 | **Supersedes** | [Developer Specification v0.3](developer-specification-v0.3.md) (Russian, kept unchanged as history) |
 | **Target platform** | Linux HTPC, KDE Plasma 6 on Wayland |
 | **Primary UX** | TV-first, D-pad-first, air mouse supported |
@@ -353,6 +353,12 @@ Session D-Bus on both boundaries ([ADR-0020](../adr/0020-dbus-contract-baseline.
 
 ## 9. Plugin API v1
 
+Phase 1 fixes the application/daemon wire bindings in [ADR-0035](../adr/0035-phase1-application-wire-contract.md)
+and the [versioned XML](../plugin-api/README.md). Installed and running application
+entries share one paged snapshot. Public commands return daemon-owned operations;
+private provider replies complete those operations. Other capabilities receive
+concrete XML in their implementation phases. Plugin API major 1 remains pre-stable.
+
 Plugin API v1 is not yet stable; wire XML, SDK and the contract suite are produced per capability before its first provider ([plugin API](../plugin-api/README.md)).
 
 ### 9.1. Capabilities
@@ -442,7 +448,16 @@ Arinn persists only its own state:
 | `$XDG_CONFIG_HOME/arinn/config.toml` | UI preferences, provider configuration and defaults, Home settings; atomic write, schema version and migration |
 | `$XDG_STATE_HOME/arinn/state.sqlite3` | favorites and order, provider-instance mapping, recent launch targets (≤ 100, 30 days), diagnostic counters |
 | `$XDG_CACHE_HOME/arinn/` | artwork cache (LRU, 512 MiB); clearing it loses nothing else |
-| `$XDG_DATA_HOME/arinn/` | plugin manifests; provider-owned data in per-provider directories (naming: [OQ-06](#21-open-questions)) |
+| `$XDG_DATA_HOME/arinn/` | plugin manifests; provider-owned data in `providers/<digest>/` directories ([ADR-0034](../adr/0034-provider-data-directory-identity.md)) |
+
+Provider data and state directories MUST be named by the full lowercase hexadecimal
+SHA-256 digest of the exact UTF-8 bytes of the validated `provider_id`, without
+normalization. They live under `$XDG_DATA_HOME/arinn/providers/<digest>/` and
+`$XDG_STATE_HOME/arinn/providers/<digest>/`. Their location MUST remain independent
+of `state.sqlite3`, registry UUIDs, plugin versions and registration generations.
+Recreating Arinn state therefore preserves the directory location for an unchanged
+provider ID; it does not restore lost instance configuration. This resolves OQ-06
+by the project owner's confirmation on 2026-09-28 ([ADR-0034](../adr/0034-provider-data-directory-identity.md)).
 
 Favorites survive removal of their provider and are marked unavailable. Browser tab titles, URLs and history are not archived. Secrets are never stored in TOML; credential references go to the system secret storage when an integration needs one.
 
@@ -549,6 +564,12 @@ Failure behaviour: if the Chrome plugin crashes, Home keeps working, Steam still
 
 Performance budgets: [§6.5](#65-performance-principles). Contribution workflow and required local checks: [CONTRIBUTING.md](../../CONTRIBUTING.md).
 
+An offline development check, `arinnd --check-plugins`, validates discovered manifests
+and reports JSON diagnostics without launching plugins or requiring a session bus.
+Its availability does not imply that production runtime discovery or Plugin API v1
+is complete. The [Phase 1 implementation record](../architecture/phase-1-progress.md)
+distinguishes implemented primitives from the remaining runtime work.
+
 ### 17.1. Continuous integration and delivery
 
 ([ADR-0033](../adr/0033-ci-cd-and-releases.md))
@@ -574,7 +595,7 @@ Repository layout (may evolve; the separation shell / core / protocol / plugins 
 apps/arinn-shell/        Qt/QML shell
 crates/arinnd/           daemon
 crates/arinn-protocol/   shared protocol types (permissive license)
-crates/arinn-plugin-sdk/ plugin SDK (planned, permissive license)
+crates/arinn-plugin-sdk/ plugin SDK primitives (permissive license; transport pending)
 plugins/<name>/          Arinn's own plugins
 platform/kde/            KDE platform adapter (KWin script)
 tools/arinnctl/          CLI
@@ -646,11 +667,15 @@ Each question needs a decision by the project owner. The recommendation is the p
 | OQ-03 | Which provider launches Chrome? | v0.3 §18/§31 had the Chrome plugin declare `application` as well as `browser`, while the [plugin runtime](../architecture/plugin-runtime.md) launches a closed browser through the selected ApplicationProvider (the desktop provider). Both would list Chrome in Applications. | The Chrome plugin declares only `browser`; the desktop provider launches the browser application; the two are linked through the platform window token. |
 | OQ-04 | Do media and volume keys work globally while an external application has focus? | §5.7 requires a system overlay with Play/Pause, volume and mute, but only Home is registered globally and keys outside the shell belong to the application. | In the MVP rely on Plasma for global media/volume keys outside Arinn; Arinn handles them only while the shell is visible, and shows its own volume HUD only then. |
 | OQ-05 | How does a LibraryProvider supply the New section? | New is a LibraryProvider projection, but neither the base operations nor the extensions define "new". | Add an optional extension `LibraryNew1` (ordered list of item refs with `added_at`), declared by feature flag. |
-| OQ-06 | How are provider data directories named? | They are named by the registry UUID stored in Arinn's `state.sqlite3`; losing or resetting Arinn state would orphan provider data, including the library's resume database — although providers own their state (§11). | Name directories by a deterministic hash of `provider_id` (for example the first 32 hex characters of SHA-256), independent of Arinn state. |
 
 ---
 
 ## 22. Changes from v0.3
+
+Version 0.5 resolves OQ-06: provider data-directory identity is derived from the
+provider ID, independently of the registry database (ADR-0034). It also includes
+the Phase 1 status clarification and offline manifest check documented in the
+0.4.1 working draft. No implementation gate is closed by this decision.
 
 | Area | v0.3 | v0.4 | Source |
 | --- | --- | --- | --- |
@@ -674,6 +699,8 @@ Each question needs a decision by the project owner. The recommendation is the p
 | CI/CD | — | Full pipeline on every change and nightly; package install tests; gated releases | ADR-0033 |
 | Development phases | §57 | Moved to the [roadmap](../../ROADMAP.md) | ADR-0028 |
 | Repository layout | `crates/arinn-platform` | `platform/kde` for the KWin adapter | Phase 0 |
+
+Phase 1 adds the concrete application wire contract and live introspection checks (ADR-0035).
 
 ---
 

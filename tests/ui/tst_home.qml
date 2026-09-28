@@ -183,6 +183,38 @@ TestCase {
         home.runningEntries = []; focused("entry-app");
     }
     Component { id: runningSpy; SignalSpy { signalName: "runningRequested" } }
+    function test_application_groups() {
+        // Online, Games, Media, Other; empty groups hidden; unknown -> Other.
+        home.applicationEntries = [
+            {id: "other1", title: "Editor"},
+            {id: "game1", title: "Game", group: "games"},
+            {id: "web1", title: "Browser", group: "online"},
+            {id: "game2", title: "Second game", group: "games"}
+        ];
+        home.runningEntries = [{id: "window1", title: "Window"}];
+        home.selectSection(3);
+        focused("entry-web1");
+        verify(child("group-online").visible);
+        verify(child("group-games").visible);
+        verify(!child("group-media").visible);
+        verify(child("group-other").visible);
+        compare(child("group-games").count, 2);
+        keyClick(Qt.Key_Down); focused("entry-game1");
+        keyClick(Qt.Key_Right); focused("entry-game2");
+        keyClick(Qt.Key_Down); focused("entry-other1");
+        keyClick(Qt.Key_Down); focused("entry-window1");
+        keyClick(Qt.Key_Down); focused("sectionBack");
+        keyClick(Qt.Key_Up); focused("entry-window1");
+        keyClick(Qt.Key_Up); focused("entry-other1");
+        keyClick(Qt.Key_Up); focused("entry-game1");
+        // The group row is remembered across navigation.
+        keyClick(Qt.Key_Menu); focused("nav-3");
+        keyClick(Qt.Key_Escape); focused("entry-game1");
+        // Removing the focused group moves focus to a neighbouring group.
+        home.applicationEntries = [{id: "other1", title: "Editor"}, {id: "web1", title: "Browser", group: "online"}];
+        focused("entry-web1");
+        keyClick(Qt.Key_Up); focused("menuButton");
+    }
     function test_states_data() {
         return [{tag: "loading"}, {tag: "empty"}, {tag: "error"}, {tag: "unavailable"}];
     }

@@ -14,7 +14,12 @@ FocusScope {
     property var newEntries: []
     property var applicationEntries: []
     property var runningEntries: []
-    property string applicationFocusRow: "applications"
+    property string applicationFocusRow: "group-online"
+    // Applications-screen groups in display order (spec §5.5). Providers set
+    // `group`; the C++ model maps unknown groups to "other" before QML.
+    readonly property var applicationGroups: ["online", "games", "media", "other"]
+    readonly property var groupTitles: ({online: qsTr("Online"), games: qsTr("Games"), media: qsTr("Media"), other: qsTr("Other")})
+    property real sectionOffset: 0
     property string favoritesTitle: qsTr("Favorites")
     property string sectionDescription: qsTr("This section is not connected in the Home preview.")
     property string returnActivityId: ""
@@ -51,12 +56,45 @@ FocusScope {
         }
         menuButton.forceActiveFocus();
     }
+    function groupEntries(group) {
+        return applicationEntries.filter(entry => (entry.group || "other") === group);
+    }
+    // Visible application rows, top to bottom: groups, then open windows.
+    function applicationRows() {
+        const rows = [];
+        for (let i = 0; i < groupRows.count; ++i) rows.push(groupRows.itemAt(i));
+        rows.push(runningRow);
+        return rows.filter(row => row && row.visible);
+    }
+    function revealRow(row) {
+        sectionOffset = Math.max(0, row.y + row.height - 700);
+    }
+    function applicationEdge(row, key) {
+        if (key === Qt.Key_Left) { openNavigation(); return; }
+        if (key === Qt.Key_Right) return;
+        const rows = applicationRows();
+        const step = key === Qt.Key_Up ? -1 : 1;
+        for (let i = rows.indexOf(row) + step; i >= 0 && i < rows.length; i += step) {
+            if (rows[i].focusIndex(row.selectedIndex) || rows[i].restore()) return;
+        }
+        if (key === Qt.Key_Up) { sectionOffset = 0; menuButton.forceActiveFocus(); }
+        else sectionBack.forceActiveFocus();
+    }
+    function applicationFocusLost(row) {
+        const rows = applicationRows();
+        const index = rows.indexOf(row);
+        for (let i = index - 1; i >= 0; --i) if (rows[i].restore()) return;
+        for (let i = index + 1; i < rows.length; ++i) if (rows[i].restore()) return;
+        for (const other of rows) if (other !== row && other.restore()) return;
+        sectionBack.forceActiveFocus();
+    }
     function restoreScreen() {
         if (screen === "home") restoreHome();
         else if (screen === "applications") {
-            if (applicationFocusRow === "running" && runningRow.visible && runningRow.restore()) return;
-            if (applicationsRow.visible && applicationsRow.restore()) return;
-            if (runningRow.visible && runningRow.restore()) return;
+            const rows = applicationRows();
+            const remembered = rows.find(row => row.objectName === applicationFocusRow);
+            if (remembered && remembered.restore()) return;
+            for (const row of rows) if (row.restore()) return;
             sectionBack.forceActiveFocus();
         } else sectionBack.forceActiveFocus();
     }
@@ -90,6 +128,7 @@ FocusScope {
         else openNavigation();
     }
     function selectSection(index) {
+        sectionOffset = 0;
         screen = routes[index];
         navOpen = false;
         restoreScreen();
@@ -259,26 +298,31 @@ FocusScope {
             }
         }
         Column {
-            x: 120; y: 180; width: 1300; spacing: 40
+            // Scrolls so the focused group stays on screen at TV sizes.
+            x: 120; y: 180 - root.sectionOffset; width: 1300; spacing: 40
             visible: root.screen !== "home"
+            Behavior on y { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
             UiText { role: "title"; text: root.sections[root.routes.indexOf(root.screen)] || "" }
             UiText { width: parent.width; text: root.sectionDescription; color: Theme.textSecondary }
-            HomeRow {
-                id: applicationsRow; objectName: "applications"
-                width: 1704; variant: "app"
-                visible: root.screen === "applications" && count > 0
-                entries: root.applicationEntries; busyEntryIds: root.busyEntryIds
-                pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled
-                onSelected: root.applicationFocusRow = "applications"
-                onActivated: entryId => root.entryRequested(entryId)
-                onEdge: key => {
-                    if (key === Qt.Key_Left) root.openNavigation();
-                    else if (key === Qt.Key_Down) { if (!runningRow.visible || !runningRow.restore()) sectionBack.forceActiveFocus(); }
-                    else if (key === Qt.Key_Up) menuButton.forceActiveFocus();
+            Repeater {
+                id: groupRows
+                model: root.applicationGroups
+                HomeRow {
+                    id: groupRow
+                    required property string modelData
+                    objectName: "group-" + modelData
+                    width: 1704; variant: "app"
+                    title: root.groupTitles[modelData]
+                    visible: root.screen === "applications" && count > 0
+                    entries: root.groupEntries(modelData); busyEntryIds: root.busyEntryIds
+                    pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled
+                    onSelected: { root.applicationFocusRow = groupRow.objectName; root.revealRow(groupRow); }
+                    onActivated: entryId => root.entryRequested(entryId)
+                    onEdge: key => root.applicationEdge(groupRow, key)
+                    onFocusLost: root.applicationFocusLost(groupRow)
+                    onScrolled: hoverDelay.restart()
+                    onDpadRequested: root.pointerMode = false
                 }
-                onFocusLost: { if (!runningRow.visible || !runningRow.restore()) sectionBack.forceActiveFocus(); }
-                onScrolled: hoverDelay.restart()
-                onDpadRequested: root.pointerMode = false
             }
             HomeRow {
                 id: runningRow; objectName: "runningApplications"
@@ -286,14 +330,10 @@ FocusScope {
                 visible: root.screen === "applications" && count > 0
                 entries: root.runningEntries; busyEntryIds: root.busyEntryIds
                 pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled
-                onSelected: root.applicationFocusRow = "running"
+                onSelected: { root.applicationFocusRow = runningRow.objectName; root.revealRow(runningRow); }
                 onActivated: entryId => root.runningRequested(entryId)
-                onEdge: key => {
-                    if (key === Qt.Key_Left) root.openNavigation();
-                    else if (key === Qt.Key_Down) sectionBack.forceActiveFocus();
-                    else if (key === Qt.Key_Up && (!applicationsRow.visible || !applicationsRow.restore())) menuButton.forceActiveFocus();
-                }
-                onFocusLost: { if (!applicationsRow.visible || !applicationsRow.restore()) sectionBack.forceActiveFocus(); }
+                onEdge: key => root.applicationEdge(runningRow, key)
+                onFocusLost: root.applicationFocusLost(runningRow)
                 onScrolled: hoverDelay.restart()
                 onDpadRequested: root.pointerMode = false
             }

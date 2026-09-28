@@ -25,7 +25,7 @@ jobs:
         if: env.SKIP != 'true'
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         if: env.SKIP != 'true'
         with:
           python-version: "3.12"

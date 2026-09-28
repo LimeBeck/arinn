@@ -4,7 +4,7 @@
 - **Date:** 2026-09-28
 - **Deciders:** project owner, explicit answer to OQ-03 in the Codex conversation; recorded in [issue #19](https://github.com/LimeBeck/arinn/issues/19)
 - **Amends / Supersedes:** [ADR-0011](0011-chrome-integration.md), [ADR-0021](0021-plugin-runtime-ownership.md) (browser launch ownership only)
-- **Amended by / Superseded by:** —
+- **Amended by / Superseded by:** [ADR-0043](0043-web-shortcuts.md) — web shortcuts (OQ-02)
 - **Specification:** [§7.1–7.2](../specifications/arinn-specification.md#71-browser-chromechromium)
 
 ## Context

@@ -72,8 +72,7 @@ Before parallel implementation, agree on presentation-model fields and actions,
 and assign ownership of shared QML components, focus code, C++ models and build
 files so separate changes do not compete for the same files.
 
-Work depending on an open question waits for the owner's decision: web shortcuts
-(OQ-02), hidden-player input (OQ-01), global
+Work depending on an open question waits for the owner's decision: hidden-player input (OQ-01), global
 media/volume keys (OQ-04) and the live New projection (OQ-05). These dependencies
 do not block the first UI increment's generic components and fixture-based views.
 Production Activity background capture, session actions and their performance
@@ -159,8 +158,9 @@ Goal: launch and return to ordinary applications, Steam and ES-DE through `arinn
 
 ## Phase 3 — Browser
 
-**Status:** Planned. Decide first: OQ-02. Browser launch ownership (OQ-03)
-was resolved by [ADR-0038](docs/adr/0038-browser-launch-ownership.md).
+**Status:** Planned. Browser launch ownership (OQ-03) was resolved by
+[ADR-0038](docs/adr/0038-browser-launch-ownership.md); online-service tiles (OQ-02)
+were resolved on 2026-09-28 as Arinn-owned web shortcuts ([ADR-0043](docs/adr/0043-web-shortcuts.md)).
 
 Goal: the main daily scenario — Arinn becomes usable every day.
 

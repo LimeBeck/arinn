@@ -40,7 +40,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0019](0019-design-handoff-contract.md) | The design handoff as a separate presentation contract | Accepted | 0022, 0023, 0027 |
 | [0020](0020-dbus-contract-baseline.md) | D-Bus transport, identifiers and Plugin API reliability | Accepted | 0035, 0041 |
 | [0021](0021-plugin-runtime-ownership.md) | Transient systemd services and a separate Chrome native bridge | Accepted | 0038 |
-| [0022](0022-state-and-interaction-baseline.md) | Activity ownership, persistence and interaction state | Accepted | 0034 |
+| [0022](0022-state-and-interaction-baseline.md) | Activity ownership, persistence and interaction state | Accepted | 0034, 0043 |
 | [0023](0023-mvp-product-clarifications.md) | Back, system sleep and the target HTPC | Accepted | 0030 |
 | [0024](0024-local-library-mpv.md) | Local library and external mpv with a rich media API | Accepted | — |
 | [0025](0025-downloads-mvp.md) | DownloadProvider and Transmission in the MVP | Accepted | — |
@@ -56,9 +56,10 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0035](0035-phase1-application-wire-contract.md) | Phase 1 application wire contract | Accepted | — |
 | [0036](0036-parallel-development.md) | Parallel development by several agents | Accepted | 0037 |
 | [0037](0037-agent-autonomy-and-owner-gated-decisions.md) | Agent autonomy and owner-gated decisions | Accepted | — |
-| [0038](0038-browser-launch-ownership.md) | Browser launch ownership | Accepted | — |
+| [0038](0038-browser-launch-ownership.md) | Browser launch ownership | Accepted | 0043 |
 | [0039](0039-platform-window-contract.md) | Platform window snapshot and control contract | Accepted | — |
 | [0040](0040-kwin-inventory-transport.md) | Trusted KWin inventory transport and SDK registration context | Accepted | — |
 | [0041](0041-independent-session-lifecycle-guard.md) | Daemon-independent session lifecycle guard | Accepted | — |
+| [0043](0043-web-shortcuts.md) | Arinn-owned web shortcuts for online-service tiles | Accepted | — |
 | [0044](0044-docs-only-ci-scope.md) | Documentation-only pull requests skip the build jobs | Accepted | — |
 <!-- register:end -->

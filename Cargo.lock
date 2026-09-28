@@ -9,6 +9,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
+name = "arinn-plugin-chrome"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arinn-plugin-sdk",
+ "arinn-protocol",
+ "futures-util",
+ "serde",
+ "serde_json",
+ "tokio",
+ "uuid",
+ "zbus",
+]
+
+[[package]]
 name = "arinn-plugin-demo"
 version = "0.1.0"
 dependencies = [

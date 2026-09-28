@@ -590,11 +590,15 @@ This preview does not replace the production shell or implement web shortcuts.
 Its scope and verification are recorded in the [component contract](../architecture/ui-components.md).
 
 The production shell uses the same Home/navigation components with asynchronous
-daemon data: an opaque Return target and paged application launch targets. Its
-Applications shortcut row and route do not imply persisted favorites, web shortcuts
-or define New. Unimplemented sections show an explicit unavailable presentation;
-launch feedback follows the daemon operation. The [component contract](../architecture/ui-components.md#production-home-and-applications)
-records the implemented subset and remaining qualification.
+daemon data: an opaque Return target, daemon web shortcuts on the Home favorites
+row, and paged application launch targets on the Applications route. A Home
+favorite shows the shortcut title and a monogram or neutral placeholder, and
+selecting it calls `WebShortcuts1.Open` ([§5.1](#51-home)). The Applications
+route does not imply persisted favorites and does not define New. Unimplemented
+sections show an explicit unavailable presentation; launch and shortcut feedback
+follow the daemon operation. The [shell binding](../architecture/ui-web-shortcuts.md)
+records this Home row. The [component contract](../architecture/ui-components.md#production-home-and-applications)
+records the shared components.
 
 ### 17.1. Continuous integration and delivery
 

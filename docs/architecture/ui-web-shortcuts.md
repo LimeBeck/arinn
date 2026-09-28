@@ -66,14 +66,16 @@ The offscreen Qt Quick Home test is `tests/ui/tst_home.qml`. It drives
 `HomeView` with local fixtures. This change does not modify `HomeView`:
 `favoriteEntries` and `entryRequested` already carry a shortcut id.
 
+`apps/arinn-shell/backend_test.cpp` is the production shell check started from
+`tests/integration/phase1.py`. It asserts that Home favorites are the daemon
+web-shortcut list, that an application does not make Home ready, and that the
+application tile is on the Applications route and not under the favorites row.
+Local focus still survives a refresh, and keyboard movement during a running
+activate still reaches that tile and returns to the menu button.
+
 Local run on 2026-09-28, Qt 6.11.2, offscreen platform and software rendering,
 private session bus: `dbus-run-session -- arinn-catalog-test` passed (the
 existing catalog cases and `webShortcuts`), and `arinn-ui-test -input tests/ui`
-passed, including `HomeNavigation`. Operator tests were not run.
-
-`apps/arinn-shell/backend_test.cpp` (started from `tests/integration/phase1.py`)
-still looks up an application tile on the visible Home row and expects
-`homeState == "ready"` from the application catalog. That file is outside this
-change and was not run. With an empty shortcut list, Home is `empty` and the
-application tile is only on the Applications route, so that check needs a
-follow-up before the production private-bus GUI test can pass.
+passed, including `HomeNavigation`. The same Qt build then ran
+`arinn-shell-test` against `arinnd` and the delayed demo provider:
+`BackendTest::typedWireAndLocalFocus` passed. Operator tests were not run.

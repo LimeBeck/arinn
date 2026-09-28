@@ -72,8 +72,7 @@ Before parallel implementation, agree on presentation-model fields and actions,
 and assign ownership of shared QML components, focus code, C++ models and build
 files so separate changes do not compete for the same files.
 
-Work depending on an open question waits for the owner's decision: hidden-player input (OQ-01), global
-media/volume keys (OQ-04) and the live New projection (OQ-05). These dependencies
+Hidden-player input (OQ-01), global media/volume keys (OQ-04) and the New projection (OQ-05) were decided by the owner on 2026-09-28; New is not part of the MVP. These dependencies
 do not block the first UI increment's generic components and fixture-based views.
 Production Activity background capture, session actions and their performance
 checks retain their existing phase gates. Real-desktop operator tests still
@@ -175,7 +174,7 @@ Goal: the main daily scenario — Arinn becomes usable every day.
 
 ## Phase 4 — Media
 
-**Status:** Planned. Decide first: OQ-01, OQ-05.
+**Status:** Planned. OQ-01 and OQ-05 were resolved by the owner on 2026-09-28 ([ADR-0046](docs/adr/0046-shell-input-layer-during-playback.md); New is not part of the MVP).
 
 Goal: MPRIS media control, the local library and playback in external mpv with Arinn's OSD.
 
@@ -184,11 +183,11 @@ Goal: MPRIS media control, the local library and playback in external mpv with A
 | AC-09 MPRIS session shown and controlled | Integration + operator test |
 | AC-15 Library scan of local and mounted folders, fallback metadata, unavailable mount, film and episode start | Integration test |
 | AC-16 Play/pause/seek, audio/subtitle selection, resume after restart, Continue | Integration + operator test |
-| G-4.1 Media integration gate: OSD over video without losing playback, input path per OQ-01, Home/Return | Operator test |
+| G-4.1 Media integration gate: OSD over video without losing playback, shell input layer per ADR-0046, Home/Return | Operator test |
 
 ## Phase 5 — Product MVP
 
-**Status:** Planned. Decide first: OQ-04. OQ-06 was resolved by [ADR-0034](docs/adr/0034-provider-data-directory-identity.md).
+**Status:** Planned. OQ-04 was resolved by the owner on 2026-09-28 (Plasma handles media/volume keys outside the shell). OQ-06 was resolved by [ADR-0034](docs/adr/0034-provider-data-directory-identity.md).
 
 Goal: everything needed to use Arinn as the HTPC shell — the full design, Downloads, persistence, diagnostics, error UX, power and packaging.
 
@@ -202,7 +201,7 @@ and accepts the full UI; early component work does not close its criteria.
 | AC-02 Full D-pad navigation | UI tests + operator test |
 | AC-13 No profile selection or login | Review |
 | AC-14 Focus and primary actions readable from 3 m | Operator test on a TV |
-| AC-17 Downloads with Transmission, import into Library/New exactly once | Integration + operator test |
+| AC-17 Downloads with Transmission, import into Library exactly once | Integration + operator test |
 | AC-18 Home/Back table with standard keyboard input, Esc/Backspace exception | UI tests |
 | AC-19 Suspend, wake, lock screen and ambient (carried over G-0.8) | Operator test |
 | G-5.1 UI matches the design handoff states and the 22 screenshots | Design review |

@@ -14,9 +14,9 @@ MVP metadata: title, year, season and episode from the file name and sidecar NFO
 
 ## Shell OSD and platform
 
-mpv draws the video; Arinn draws the OSD and track sheets through the platform overlay. Two modes must be verified: OSD hidden — the video window receives input through an adapter that sends semantic events through the plugin and daemon; OSD visible — the shell has focus. Seek must not be duplicated between mpv bindings and the shell. The shipped mpv configuration disables conflicting default bindings and the OSC and defines Arinn actions. No global plain-letter keys control other applications.
+mpv draws the video; Arinn draws the OSD and track sheets through the platform overlay. Two modes must be verified: OSD hidden — the shell's transparent input layer has focus and the video stays visible; OSD visible — the shell has focus and draws the OSD. Seek must not be duplicated between mpv bindings and the shell. The shipped mpv configuration disables the default key bindings and the OSC, so mpv never acts on keys itself. No global plain-letter keys control other applications.
 
-The hidden-OSD input path conflicts with the local-focus principle ([specification §6.5](../specifications/arinn-specification.md)) and is tracked as [OQ-01](../specifications/arinn-specification.md#21-open-questions).
+Input does not travel through mpv or the provider: the shell stays focused as a transparent fullscreen input layer over the mpv window, handles every key locally and sends only commands to the provider ([ADR-0046](../adr/0046-shell-input-layer-during-playback.md), specification §6.4–§6.5).
 
 This is an extra integration gate before the media UI: an overlay over video without losing playback, correct input, audio/subtitle sheets and Home/Return. Track selection is confirmed by the mpv API; the QML overlay on the target HTPC is not yet confirmed.
 

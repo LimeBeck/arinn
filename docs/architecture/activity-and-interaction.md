@@ -20,7 +20,7 @@ Focus scopes, input modes, per-screen focus memory, OSD visibility and timeline 
 
 The 1100 ms launch animation is a visual cycle, not guaranteed completion. If the operation is still pending, a calm loading state continues; if the target Activity is already available, the UI switches to it. An error opens the error state immediately. The 1.9 s startup animation never holds back a degraded Home when the backend is unavailable. No fake success after a timer.
 
-With the player OSD hidden, Left/Right seek ±10 s only if seek is supported and open the OSD on the timeline; OK/Up/Down only open the OSD. With the timeline visible, OK is playPause. Back first hides the OSD; the next Back leaves the playback view of a managed mpv session with stop and resume save, and returns to the Home or Detail it came from. It never terminates an arbitrary external application. Global Home stays a platform action. (Input routing while the OSD is hidden is open: [OQ-01](../specifications/arinn-specification.md#21-open-questions).)
+With the player OSD hidden, Left/Right seek ±10 s only if seek is supported and open the OSD on the timeline; OK/Up/Down only open the OSD. With the timeline visible, OK is playPause. Back first hides the OSD; the next Back leaves the playback view of a managed mpv session with stop and resume save, and returns to the Home or Detail it came from. It never terminates an arbitrary external application. Global Home stays a platform action. During managed playback the shell keeps focus as a transparent input layer over the mpv window and sends only commands to the provider ([ADR-0046](../adr/0046-shell-input-layer-during-playback.md)).
 
 H/M/P/A/O are prototype development shortcuts, not required global keys. The production mapping uses semantic Home/Back/Menu/Select/media actions and is configurable per device. The letter H is never grabbed globally in the browser. The first D-pad input switches from pointer mode; hover suppression of 500 ms after scrolling stays.
 
@@ -28,14 +28,14 @@ Remote input ([ADR-0030](../adr/0030-phase0-machine-and-standard-input.md)): the
 
 ## Settings, system actions and diagnostics
 
-UI preferences (light background, show New, language, input mapping) belong to the daemon config. Provider settings have a typed schema: id, title, description, type, current_value, constraints, enabled; types boolean, enum, string, integer, path reference. No arbitrary QML widgets or raw RPC are passed. The schema and wire interface come before the provider settings screen, not in Phase 0.
+UI preferences (light background, language, input mapping) belong to the daemon config. Provider settings have a typed schema: id, title, description, type, current_value, constraints, enabled; types boolean, enum, string, integer, path reference. No arbitrary QML widgets or raw RPC are passed. The schema and wire interface come before the provider settings screen, not in Phase 0.
 
 The core settings UI shows only registered capabilities; a missing playback, download or network function never pretends to succeed. System volume, network and power are executed by PlatformService. Running application names for the power confirmation come from the live registry, not a hard-coded "Kinopoisk". The confirm button never hides system inhibitor or permission errors.
 
 ## Resolved design questions
 
 - The three equal entry modes of the design do not change the browser-first development order.
-- New is a generic projection of LibraryProvider, not a product-specific local-file branch. A provider may not supply New; an empty section is hidden (API gap: [OQ-05](../specifications/arinn-specification.md#21-open-questions)).
+- New is not part of the MVP (owner decision on 2026-09-28). If a later version adds it, it is a generic projection of LibraryProvider, not a product-specific local-file branch.
 - Prototype JavaScript state never becomes a shell backend.
 - Provider errors, timeouts, the OSD and focus after list updates follow the rules above.
 - Idle ambient never stops applications automatically. Automatic ambient is suppressed while an external Activity is in the foreground **or** media is playing; explicit ambient is always available. "Sleep" is OS suspend (P-04); ambient is a separate feature.

@@ -91,7 +91,10 @@ The original [Phase 1 PR #8](https://github.com/LimeBeck/arinn/pull/8) had a fai
 licensing job. The successful run above qualifies the later integrated `master`,
 not that earlier PR run. The PR's [CLA check](https://github.com/LimeBeck/arinn/actions/runs/36382270639/job/108800304208)
 passed; a successful CLA check does not prove that branch protection requires it.
-G-1.4 and AC-12 retain their separate review requirement.
+The subsequent [shell boundary review](phase-1-shell-review.md) passes AC-12
+for the reviewed production shell. G-1.4 remains unresolved: its literal
+Daemon1-only condition conflicts with the documented direct lifecycle guard
+([owner decision #26](https://github.com/LimeBeck/arinn/issues/26)).
 
 ### Remaining maintainer gate
 

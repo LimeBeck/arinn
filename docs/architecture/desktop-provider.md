@@ -145,6 +145,19 @@ Local isolated checks on 2026-09-28:
   (`glib2>=2.86`). Its smoke test checks discovery through the installed daemon/provider.
 
 The test manager verifies unit requests and fixture-process lifetime, not kernel
-cgroup membership. No real KDE/Wayland operator tests were run. AC-07, AC-08,
-G-2.1, actual cgroup qualification for G-2.2 and real Activity/remap qualification
-for G-2.3 remain outstanding in [qualification task #35](https://github.com/LimeBeck/arinn/issues/35). Phase 2 is not marked Done.
+cgroup membership. No agent-run KDE/Wayland operator tests were run.
+
+Real KDE qualification ([#35](https://github.com/LimeBeck/arinn/issues/35)), 2026-09-28:
+the owner checked the v0.1 package (commit `e97879b`) on their KDE Plasma 6 /
+Wayland machine and reported that all checks passed. By owner decision these
+manual checks count as the qualification, and Phase 2 is Done. The checks:
+
+- Steam, EmulationStation and an ordinary application launch from their tiles,
+  and the launched window appears above the shell;
+- activating an open window from Home works;
+- Home → Return reaches the same application;
+- a launched application survives `arinnctl provider restart desktop`;
+- the KWin adapter no longer reconnects on idle control polls.
+
+Not covered: kernel cgroup membership was not inspected, and a window remap was
+not specifically exercised.

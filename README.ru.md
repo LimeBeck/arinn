@@ -38,7 +38,7 @@ Arinn не заменяет браузер, плеер или игровой л�
 - пользовательская сессия systemd;
 - пульт, клавиатура или аэромышь со стандартными клавишами.
 
-Для сборки: Rust (edition 2024), CMake ≥ 3.24, Ninja, компилятор C++20, Qt 6 ≥ 6.6 (Quick, Quick Controls, DBus, Test), Python 3, `qdbus6`.
+Для сборки: Rust (edition 2024), CMake ≥ 3.24, Ninja, компилятор C++20, Qt 6 ≥ 6.6 (Quick, Quick Controls, Quick Test, DBus, Test), Python 3, `qdbus6`.
 
 ```sh
 sudo pacman -S --needed rust cmake ninja qt6-base qt6-declarative python nodejs

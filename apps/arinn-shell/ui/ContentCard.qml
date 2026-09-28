@@ -1,0 +1,87 @@
+// SPDX-FileCopyrightText: 2026 Arinn contributors
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+import QtQuick
+
+Surface {
+    id: root
+    property string subtitle: ""
+    property url artwork: ""
+    property bool running: false
+    property bool showProgress: false
+    property real progress: 0
+    readonly property bool artworkReady: picture.ready
+    implicitWidth: 400
+    implicitHeight: 225
+    contentItem: Item {
+        Rectangle {
+            anchors.fill: parent
+            radius: root.cornerRadius
+            color: "#25282e"
+            visible: !picture.ready
+        }
+        Canvas {
+            id: picture
+            anchors.fill: parent
+            property bool ready: false
+            property url source: root.artwork
+            property url cachedSource: ""
+            onSourceChanged: {
+                if (cachedSource.toString().length) unloadImage(cachedSource);
+                cachedSource = source;
+                ready = false;
+                if (source.toString().length) loadImage(source);
+                requestPaint();
+            }
+            Component.onCompleted: {
+                if (source.toString().length) loadImage(source);
+            }
+            onImageLoaded: {
+                ready = isImageLoaded(source);
+                requestPaint();
+            }
+            onWidthChanged: requestPaint()
+            onHeightChanged: requestPaint()
+            onPaint: {
+                const ctx = getContext("2d");
+                ctx.reset();
+                if (!ready) return;
+                const w = width, h = height, r = root.cornerRadius;
+                ctx.beginPath();
+                ctx.moveTo(r, 0);
+                ctx.lineTo(w - r, 0); ctx.quadraticCurveTo(w, 0, w, r);
+                ctx.lineTo(w, h - r); ctx.quadraticCurveTo(w, h, w - r, h);
+                ctx.lineTo(r, h); ctx.quadraticCurveTo(0, h, 0, h - r);
+                ctx.lineTo(0, r); ctx.quadraticCurveTo(0, 0, r, 0);
+                ctx.closePath();
+                ctx.clip();
+                ctx.drawImage(source, 0, 0, w, h);
+            }
+        }
+        Rectangle {
+            anchors.fill: parent
+            radius: root.cornerRadius
+            gradient: Gradient {
+                GradientStop { position: 0; color: "#10131416" }
+                GradientStop { position: 1; color: "#ee0a0b0d" }
+            }
+        }
+        UiText {
+            x: 24; y: 20
+            width: parent.width - 48
+            role: "caption"
+            text: root.busy ? qsTr("Loading…") : root.running ? qsTr("Now running") : ""
+            color: root.running && !root.busy ? Theme.ember : Theme.textSecondary
+        }
+        Column {
+            x: 24
+            anchors.bottom: parent.bottom
+            anchors.bottomMargin: 24
+            width: parent.width - 48
+            spacing: 8
+            UiText { width: parent.width; text: root.text; role: "section"; maximumLineCount: 2; elide: Text.ElideRight }
+            UiText { width: parent.width; text: root.subtitle; role: "meta"; maximumLineCount: 1; elide: Text.ElideRight; color: Theme.textSecondary }
+            ProgressTrack { width: parent.width; visible: root.showProgress; value: root.progress }
+        }
+    }
+}

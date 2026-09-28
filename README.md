@@ -64,7 +64,7 @@ Building from source:
 
 - Rust (edition 2024) with `cargo`;
 - CMake ≥ 3.24, Ninja and a C++20 compiler;
-- Qt 6 ≥ 6.6: Quick, Quick Controls, DBus, Test;
+- Qt 6 ≥ 6.6: Quick, Quick Controls, Quick Test, DBus, Test;
 - Python 3, `qdbus6`; Node.js for the adapter tests.
 
 On Arch/EndeavourOS:
@@ -141,6 +141,7 @@ cargo fmt --all --check
 cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked
 cargo build --locked --examples
+ctest --test-dir build --output-on-failure
 cmake --build build && dbus-run-session -- python tests/integration/phase1.py
 node --test tests/integration/kwin_adapter.test.cjs
 python scripts/check-docs.py
@@ -198,3 +199,6 @@ Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md), follo
 - Qt is used under the LGPL-3.0. The repository contains no third-party logos; service names such as Kinopoisk, IVI, YouTube or Steam are used only to describe integrations and belong to their owners.
 
 Each file states its license with an SPDX header or in [REUSE.toml](REUSE.toml). See [ADR-0029](docs/adr/0029-licensing.md) for the reasoning.
+
+The isolated [UI component gallery](docs/architecture/ui-components.md) runs with
+`build/apps/arinn-shell/arinn-ui-gallery`, without a daemon or desktop integration.

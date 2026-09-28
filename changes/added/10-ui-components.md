@@ -1,0 +1,1 @@
+- Reusable QML UI foundation: Onest typography, design tokens, logical canvas, buttons, content cards, app tiles, progress and status components; isolated fixture gallery and offscreen Qt Quick component tests. Production screen integration remains pending.

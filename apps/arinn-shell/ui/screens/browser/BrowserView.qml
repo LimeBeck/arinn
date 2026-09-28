@@ -228,6 +228,27 @@ FocusScope {
         selectWindow(index);
     }
 
+    function trapTab(event) {
+        if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
+            pointerMode = false;
+            event.accepted = true;
+            move(event.key === Qt.Key_Tab ? Qt.Key_Right : Qt.Key_Left);
+            return;
+        }
+        if (event.key === Qt.Key_Left || event.key === Qt.Key_Right || event.key === Qt.Key_Up || event.key === Qt.Key_Down)
+            event.accepted = false;
+    }
+
+    function muteTabStops(node) {
+        if (!node)
+            return;
+        if (node !== root && node.activeFocusOnTab)
+            node.activeFocusOnTab = false;
+        const kids = node.children || [];
+        for (let i = 0; i < kids.length; ++i)
+            muteTabStops(kids[i]);
+    }
+
     function focusCell(row, index) {
         const count = countFor(row);
         if (count <= 0)
@@ -310,12 +331,19 @@ FocusScope {
     onFocusedWindowIdChanged: syncVisibleTabs()
     onBrowserStateChanged: {
         focusRow = preferredRow();
-        Qt.callLater(restoreFocus);
+        Qt.callLater(() => {
+            muteTabStops(root);
+            focusRow = preferredRow();
+            restoreFocus();
+        });
     }
     Component.onCompleted: {
         rebuild();
-        focusRow = preferredRow();
-        Qt.callLater(restoreFocus);
+        Qt.callLater(() => {
+            muteTabStops(root);
+            focusRow = preferredRow();
+            restoreFocus();
+        });
     }
 
     Keys.onPressed: event => {
@@ -369,8 +397,11 @@ FocusScope {
                             required property int index
                             objectName: "window-" + modelData
                             text: qsTr("Window %1").arg(index + 1)
+                            activeFocusOnTab: false
                             pointerMode: root.pointerMode
                             hoverFocusEnabled: root.hoverFocusEnabled
+                            Keys.priority: Keys.BeforeItem
+                            Keys.onPressed: event => root.trapTab(event)
                             onActiveFocusChanged: if (activeFocus) root.noteWindowFocus(index)
                             onDpadRequested: root.pointerMode = false
                             Rectangle {
@@ -405,8 +436,11 @@ FocusScope {
                                 height: 225
                                 text: modelData.title
                                 subtitle: modelData.url
+                                activeFocusOnTab: false
                                 pointerMode: root.pointerMode
                                 hoverFocusEnabled: root.hoverFocusEnabled
+                                Keys.priority: Keys.BeforeItem
+                                Keys.onPressed: event => root.trapTab(event)
                                 onActiveFocusChanged: if (activeFocus) {
                                     root.focusRow = "tabs";
                                     root.tabIndex = index;
@@ -447,8 +481,11 @@ FocusScope {
                         id: activateButton
                         objectName: "activateTab"
                         text: qsTr("Activate")
+                        activeFocusOnTab: false
                         pointerMode: root.pointerMode
                         hoverFocusEnabled: root.hoverFocusEnabled
+                        Keys.priority: Keys.BeforeItem
+                        Keys.onPressed: event => root.trapTab(event)
                         onActiveFocusChanged: if (activeFocus) {
                             root.focusRow = "actions";
                             root.actionIndex = 0;
@@ -461,8 +498,11 @@ FocusScope {
                         objectName: "closeTab"
                         text: qsTr("Close")
                         destructive: true
+                        activeFocusOnTab: false
                         pointerMode: root.pointerMode
                         hoverFocusEnabled: root.hoverFocusEnabled
+                        Keys.priority: Keys.BeforeItem
+                        Keys.onPressed: event => root.trapTab(event)
                         onActiveFocusChanged: if (activeFocus) {
                             root.focusRow = "actions";
                             root.actionIndex = 1;
@@ -488,6 +528,8 @@ FocusScope {
                 hoverFocusEnabled: root.hoverFocusEnabled
                 onActionRequested: root.retryRequested()
                 onDpadRequested: root.pointerMode = false
+                Keys.priority: Keys.BeforeItem
+                Keys.onPressed: event => root.trapTab(event)
             }
 
             Column {
@@ -507,8 +549,11 @@ FocusScope {
                             required property int index
                             objectName: "shortcut-" + modelData.id
                             text: modelData.title
+                            activeFocusOnTab: false
                             pointerMode: root.pointerMode
                             hoverFocusEnabled: root.hoverFocusEnabled
+                            Keys.priority: Keys.BeforeItem
+                            Keys.onPressed: event => root.trapTab(event)
                             onActiveFocusChanged: if (activeFocus) {
                                 root.focusRow = "shortcuts";
                                 root.shortcutIndex = index;

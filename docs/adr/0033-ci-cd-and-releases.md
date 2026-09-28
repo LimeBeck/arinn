@@ -4,7 +4,7 @@
 - **Date:** 2026-09-27
 - **Deciders:** project owner (requirement: no regressions reaching users)
 - **Amends / Supersedes:** amends [ADR-0018](0018-demo-testing-gates.md)
-- **Amended by / Superseded by:** [ADR-0036](0036-parallel-development.md) — changelog fragments; up-to-date branches before merge
+- **Amended by / Superseded by:** [ADR-0036](0036-parallel-development.md) — changelog fragments; up-to-date branches before merge; [ADR-0044](0044-docs-only-ci-scope.md) — documentation-only pull requests skip the build jobs
 - **Specification:** [§17, §18](../specifications/arinn-specification.md)
 
 ## Context

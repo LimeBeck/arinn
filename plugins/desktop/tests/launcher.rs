@@ -218,6 +218,22 @@ impl Activation {
 
 #[tokio::test]
 async fn dbus_activatable_entry_uses_private_session_application() {
+    let version = Command::new("/usr/bin/gio")
+        .arg("version")
+        .output()
+        .unwrap();
+    assert!(version.status.success());
+    let version = String::from_utf8(version.stdout).unwrap();
+    let parts: Vec<u32> = version
+        .trim()
+        .split('.')
+        .map(|v| v.parse().unwrap())
+        .collect();
+    // Older gio launch loads a keyfile without its filename, losing the
+    // D-Bus application ID. The supported Arch package requires GLib >= 2.86.
+    // Keep Ubuntu's older runner useful by checking its normalized failure;
+    // Arch's package test exercises successful activation below.
+    let supports_activation = (parts[0], parts[1]) >= (2, 86);
     let dir = Tree(std::env::temp_dir().join(format!("arinn-activation-{}", uuid::Uuid::new_v4())));
     std::fs::create_dir(&dir.0).unwrap();
     let desktop = dir.0.join("org.arinn.DesktopFixture.desktop");
@@ -262,6 +278,17 @@ async fn dbus_activatable_entry_uses_private_session_application() {
         .await
         .unwrap();
     let provider = bus.connection().await;
+    if !supports_activation {
+        assert_eq!(
+            launch_on(&provider, &desktop).await,
+            Err(ErrorCode::Unavailable)
+        );
+        assert_eq!(activated.load(Ordering::SeqCst), 0);
+        eprintln!(
+            "GIO < 2.86: verified unsupported-launch failure; successful activation requires the Arch package test"
+        );
+        return;
+    }
     assert_eq!(launch_on(&provider, &desktop).await, Ok(()));
     drop(provider);
     assert_eq!(activated.load(Ordering::SeqCst), 1);

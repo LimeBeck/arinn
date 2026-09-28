@@ -33,6 +33,13 @@ one argument, using ExecStartEx with no environment expansion. GIO interprets
 desktop field codes and D-Bus activation. This is the system application launcher,
 not a provider-side Exec interpreter.
 
+The runtime requires GLib/GIO 2.86 or later. Earlier `gio launch` versions
+load desktop entries without their filename and therefore lose D-Bus activation
+identity ([upstream 2.86 launcher](https://github.com/GNOME/glib/blob/2.86.0/gio/gio-tool-launch.c)).
+The Arch package enforces this minimum. On older Ubuntu test runners the activation
+fixture checks a normalized failure; successful activation is verified locally
+with GIO 2.88 and in the Arch package test with the supported dependency.
+
 The application unit has `Type=exec`, `ExitType=cgroup` and
 `CollectMode=inactive-or-failed`. It has no dependency on the provider service.
 The provider's registration-token environment is never copied to it. The manager
@@ -110,7 +117,7 @@ Local isolated checks on 2026-09-28:
   the sentinel alive. Duplicate launch UUIDs dispatch only once. The existing
   `phase1.py` CI entry point also invokes this suite on a separate private bus.
 - The Arch package installs the desktop executable/manifest and requires GIO
-  (`glib2`). Its smoke test checks discovery through the installed daemon/provider.
+  (`glib2>=2.86`). Its smoke test checks discovery through the installed daemon/provider.
 
 The test manager verifies unit requests and fixture-process lifetime, not kernel
 cgroup membership. No real KDE/Wayland operator tests were run. AC-07, AC-08,

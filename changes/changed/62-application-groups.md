@@ -1,0 +1,1 @@
+- Application records carry a provider-chosen group (`online`, `games`, `media` or `other`) for grouping the Applications screen; the wire signature of an application entry changes from `(ssb)` to `(ssbs)` in the pre-stable `Application1`/`Provider1` interfaces. Unknown groups are shown as Other.

@@ -69,6 +69,11 @@ in 30 seconds. Each provider record identifies its capability endpoint, generati
 revision, runtime/backend status, source manifest and safe diagnostic timestamps.
 Clients derive available capabilities from ready provider records.
 
+Each application record is `(id, title, can_launch, group)`. `group` is chosen
+by the provider: `online`, `games`, `media` or `other` (spec §5.5). It is a short
+lowercase token on the wire; consumers display an unknown value as `other`, so
+providers can add groups without breaking older shells.
+
 `GetApplications(token)` combines installed applications and running instances
 under one immutable generation/revision. Pages have at most 200 total entries and
 256 KiB of encoded body. The complete catalogue is bounded to 100,000 entries and

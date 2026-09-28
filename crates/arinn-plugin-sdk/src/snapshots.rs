@@ -240,6 +240,7 @@ mod tests {
                 id: format!("opaque/{i}"),
                 title: "x".repeat(title_len),
                 can_launch: true,
+                group: "other".into(),
             })
             .collect()
     }

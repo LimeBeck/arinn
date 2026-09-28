@@ -168,6 +168,8 @@ A working MVP section backed by DownloadProvider ([§7.5](#75-downloads-and-tran
 
 Online services, games and other applications as tiles; pin/unpin to Home ([§7.2](#72-applications-steam-and-es-de)).
 
+Tiles are grouped, in this order: **Online** (browsers and web shortcuts), **Games**, **Media** and **Other**; empty groups are hidden. This extends the handoff's Online · Games · Other layout with Media, by owner decision on 2026-09-28 ([#62](https://github.com/LimeBeck/arinn/issues/62)). The provider sets each application's group; the core and the shell never infer it from titles, IDs or product names, and an unknown group is shown as Other.
+
 ### 5.6. Settings
 
 Categories as in the design: Media, Playback, Sound, Network, Applications, Appearance, System. UI preferences belong to the daemon configuration. Provider settings use a typed schema (id, title, description, type, current value, constraints, enabled; types boolean, enum, string, integer, path reference); plugins MUST NOT supply QML widgets or raw RPC. The core settings UI shows only registered capabilities; a missing playback, download or network function never pretends to succeed. Details: [Activity and interaction](../architecture/activity-and-interaction.md).

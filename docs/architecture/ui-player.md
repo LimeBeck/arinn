@@ -68,7 +68,9 @@ never while paused. The timer only clears `osdVisible`. It does not emit
 [`PlayerView.qml`](../../apps/arinn-shell/ui/screens/player/PlayerView.qml)
 by filesystem path. The existing `ui-components` CTest passes `-input tests/ui`
 to `arinn-ui-test`, which loads every `tst_*.qml` on the offscreen platform.
-No operator test is involved.
+Back, Esc, arrows and OK go through `keyClick`. Qt Test aborts on media-key
+codes, so those codes call the same key handler directly. No operator test
+is involved.
 
 This does not pass AC-16 or the media integration gate. There is no provider,
 resume store or video window.

@@ -292,22 +292,33 @@ TestCase {
         compare(player.playing, false)
     }
 
+    // Qt Test keyClick aborts on media keys (no ASCII mapping). The same
+    // handler serves real key events; this drives it with those key codes.
+    function pressMedia(key) {
+        const event = {key: key, isAutoRepeat: false, accepted: false}
+        player.handleKey(event)
+        verify(event.accepted)
+    }
     function test_media_keys_emit_intents_while_osd_hidden() {
         player.osdVisible = false
-        keyClick(Qt.Key_MediaPlay)
+        pressMedia(Qt.Key_MediaPlay)
         compare(plays.count, 1)
         compare(player.playing, false)
         compare(player.osdVisible, true)
         compare(player.osdFocus, "timeline")
         player.osdVisible = false
         player.playing = true
-        keyClick(Qt.Key_MediaPause)
+        pressMedia(Qt.Key_MediaPause)
         compare(pauses.count, 1)
         compare(player.playing, true)
         player.osdVisible = false
-        keyClick(Qt.Key_MediaStop)
+        pressMedia(Qt.Key_MediaStop)
         compare(stops.count, 1)
         compare(leaves.count, 0)
         compare(player.playing, true)
+        player.osdVisible = false
+        pressMedia(Qt.Key_MediaTogglePlayPause)
+        compare(pauses.count, 2)
+        compare(plays.count, 1)
     }
 }

@@ -1,0 +1,58 @@
+name: Agent task
+description: A unit of work for one agent or contributor (ADR-0034)
+labels: [task]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        One issue = one task = one branch = one pull request. Claim it by assigning yourself and adding `agent:<name>`.
+        Do not start while a dependency or an open question (OQ-xx) is unresolved.
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: What must be true when the task is done.
+    validations:
+      required: true
+  - type: input
+    id: requirements
+    attributes:
+      label: Requirements
+      description: AC-xx, G-x.y, R-xx, OQ-xx, ADR-NNNN this implements or affects.
+      placeholder: G-1.1, AC-11
+    validations:
+      required: true
+  - type: textarea
+    id: zone
+    attributes:
+      label: Zone
+      description: Paths this task may change. Anything outside needs a separate task or an explicit note below.
+      placeholder: |
+        plugins/desktop/**
+        docs/architecture/plugin-runtime.md
+    validations:
+      required: true
+  - type: textarea
+    id: shared
+    attributes:
+      label: Shared files touched
+      description: Contracts (crates/arinn-protocol, docs/plugin-api), specification sections, roadmap rows. A contract change is its own task labelled contract-change.
+      placeholder: none
+  - type: input
+    id: adr
+    attributes:
+      label: Reserved ADR number
+      description: If the task records a decision, reserve the next free number (`python scripts/adr.py next`, also checking other open tasks).
+      placeholder: none
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Depends on
+      placeholder: "blocked by #12"
+  - type: textarea
+    id: verification
+    attributes:
+      label: Verification
+      description: Tests and evidence that prove the task is done.
+    validations:
+      required: true

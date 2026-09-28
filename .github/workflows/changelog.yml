@@ -1,0 +1,30 @@
+name: Changelog
+
+# Every pull request adds a fragment under changes/ unless it is labelled
+# skip-changelog (ADR-0034). Separate from CI so label changes rerun only this.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+permissions:
+  contents: read
+
+jobs:
+  fragment:
+    name: Changelog fragment
+    runs-on: ubuntu-latest
+    steps:
+      - name: Skipped by label
+        if: contains(github.event.pull_request.labels.*.name, 'skip-changelog')
+        run: echo "Labelled skip-changelog; no fragment required."
+      - uses: actions/checkout@v4
+        if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-changelog') }}
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-changelog') }}
+        with:
+          python-version: "3.12"
+      - if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-changelog') }}
+        run: python scripts/release.py check-fragment "origin/${{ github.base_ref }}"

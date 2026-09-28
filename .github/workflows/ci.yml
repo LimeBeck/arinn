@@ -75,6 +75,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: python scripts/check-docs.py
+      - run: python scripts/adr.py check
       - run: python scripts/release.py check
 
   package:

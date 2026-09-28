@@ -2,6 +2,10 @@
 
 <!-- What does this change and why? One topic per pull request. -->
 
+## Task
+
+<!-- Closes #N (Agent task issue). The change stays inside the zone named in the issue. -->
+
 ## Requirements
 
 <!-- IDs this implements or affects: AC-xx, G-x.y, R-xx, OQ-xx, ADR-NNNN. Write "none" for pure maintenance. -->
@@ -16,7 +20,7 @@
 - [ ] ADR added for an architectural decision — or not needed
 - [ ] `ROADMAP.md` updated for gate or phase changes — or not needed
 - [ ] Technical documents in `docs/architecture` / `docs/plugin-api` updated — or not needed
-- [ ] `CHANGELOG.md` updated under *Unreleased*
+- [ ] Changelog fragment added under `changes/<category>/` — or the pull request is labelled `skip-changelog`
 
 ## Checklist
 

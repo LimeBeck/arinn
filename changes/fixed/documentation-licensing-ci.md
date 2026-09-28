@@ -1,0 +1,1 @@
+- Ambient auto-start condition made consistent ("external Activity **or** playing media").

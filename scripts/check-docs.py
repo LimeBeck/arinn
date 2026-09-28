@@ -103,7 +103,9 @@ def check_links(path: Path) -> None:
         if re.match(r"^[a-z][a-z0-9+.-]*:", target) or target.startswith("//"):
             continue  # external URL or mailto
         file_part, _, anchor = target.partition("#")
-        resolved = path if not file_part else (path.parent / file_part).resolve()
+        # Changelog fragments are moved into CHANGELOG.md, so their links are relative to the root.
+        base = ROOT if path.parent.parent == ROOT / "changes" else path.parent
+        resolved = path if not file_part else (base / file_part).resolve()
         if not resolved.exists():
             error(path, f"broken link {target}")
             continue
@@ -158,12 +160,25 @@ def check_acceptance_criteria() -> None:
         error(ROADMAP, f"{criterion} is not defined in the specification")
 
 
+def check_tools() -> None:
+    """ADR register/numbering and changelog fragments (scripts/adr.py, scripts/release.py)."""
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import adr  # noqa: E402
+    import release  # noqa: E402
+
+    for problem in adr.check():
+        error(ADR_DIR / "README.md", problem)
+    for problem in release.fragment_problems():
+        error(ROOT / "changes", problem)
+
+
 def main() -> int:
     for path in living_markdown():
         check_links(path)
         check_language(path)
     check_adrs()
     check_acceptance_criteria()
+    check_tools()
     if errors:
         print("\n".join(errors))
         print(f"\n{len(errors)} documentation problem(s) found.")

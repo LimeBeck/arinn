@@ -1,0 +1,1 @@
+- Third-party service logos from the design prototype and screenshots; replaced by neutral monograms, screenshots re-rendered from the prototype.

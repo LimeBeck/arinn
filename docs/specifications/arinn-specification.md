@@ -26,8 +26,8 @@ The key words **MUST**, **MUST NOT**, **SHOULD**, **SHOULD NOT** and **MAY** are
 
 - Every change goes through a pull request.
 - A change to an architectural decision (see [ADR-0028](../adr/0028-documentation-governance.md) for the list) needs an ADR in the same pull request.
-- The version is bumped on merge: **minor** (0.4 → 0.5) for added or changed requirements, **patch** (0.4 → 0.4.1) for clarifications and errata that do not change requirements. Version 1.0 is declared together with a stable Plugin API v1.
-- Every change is summarised in [§22](#22-changes-from-v03) or its successor change log.
+- Pull requests change the text but not the version, so parallel pull requests do not conflict ([ADR-0034](../adr/0034-parallel-development.md)). Each change is recorded in a changelog fragment (`changes/`).
+- The maintainer bumps the version when preparing a release: **minor** (0.4 → 0.5) if requirements were added or changed since the last version, **patch** (0.4 → 0.4.1) for clarifications and errata only, and summarises the changes in [§22](#22-changes-from-v03) or its successor change log. Version 1.0 is declared together with a stable Plugin API v1.
 
 ### 1.3. Requirement identifiers
 
@@ -557,6 +557,7 @@ Performance budgets: [§6.5](#65-performance-principles). Contribution workflow 
 - The same pipeline runs nightly against the latest Arch Linux, Qt and Rust. A red nightly blocks releases.
 - `master` is protected: changes land only through pull requests with green CI and a signed CLA.
 - Releases are cut from `master` by a `vX.Y.Z` tag that matches the workspace version and a `CHANGELOG.md` section. The release pipeline reruns the full CI on the tagged commit and publishes only if it passes. `0.x` versions are pre-releases.
+- Pull requests must be up to date with `master` before merging, so CI runs on the merged result; parallel work follows [ADR-0034](../adr/0034-parallel-development.md).
 - Every bug fix includes a regression test. Changes to the platform layer, input or session behaviour also need operator tests on a real KDE session before release, because hosted CI cannot run a compositor.
 
 ---

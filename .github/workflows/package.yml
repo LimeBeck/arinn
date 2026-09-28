@@ -20,7 +20,7 @@ jobs:
           pacman -Syu --noconfirm --needed base-devel git rust cmake ninja \
             qt6-base qt6-declarative qt6-svg python dbus
           useradd --create-home builder
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Create source tarball
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
@@ -34,7 +34,7 @@ jobs:
           su builder -c 'cd pkg && makepkg --noconfirm --cleanbuild'
           version="$(python scripts/release.py version)"
           cp "pkg/src/arinn-${version}/target/release/examples/private-systemd" pkg/private-systemd
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: arinn-arch-package
           path: |
@@ -49,8 +49,8 @@ jobs:
     runs-on: ubuntu-latest
     container: archlinux:latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           name: arinn-arch-package
           path: pkg

@@ -21,11 +21,11 @@ jobs:
       - name: No fragment required
         if: env.SKIP == 'true'
         run: echo "Labelled skip-changelog or opened by Dependabot; no fragment required."
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         if: env.SKIP != 'true'
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         if: env.SKIP != 'true'
         with:
           python-version: "3.12"

@@ -26,7 +26,7 @@ jobs:
     name: Rust (fmt, clippy, test)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -44,7 +44,7 @@ jobs:
         run: |
           pacman -Syu --noconfirm --needed base-devel git rust cmake ninja \
             qt6-base qt6-declarative qt6-svg python nodejs dbus systemd
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Build Rust workspace
         run: cargo build --locked && cargo build --locked --examples
       - name: Build shell
@@ -62,8 +62,8 @@ jobs:
     name: Licensing (REUSE, cargo-deny)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: fsfe/reuse-action@v5
+      - uses: actions/checkout@v7
+      - uses: fsfe/reuse-action@v6
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check licenses
@@ -72,8 +72,8 @@ jobs:
     name: Documentation consistency
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - run: python scripts/check-docs.py

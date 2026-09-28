@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use arinn_protocol::{
-    application::{Application, ApplicationPage, RunningApplication, validate_entries},
+    application::{self, Application, ApplicationPage, RunningApplication},
+    browser::{self, BrowserWindow, Tab, TabPage},
     validation::{self, ErrorCode, MAX_BODY_BYTES, MAX_PAGE_ENTRIES},
 };
 use std::{
@@ -18,22 +19,135 @@ const MAX_LEASES: usize = 32;
 const MAX_SNAPSHOT_BYTES: usize = 16 * 1024 * 1024;
 const MAX_SNAPSHOT_ENTRIES: usize = 100_000;
 
-struct Lease {
+/// A paged snapshot kind: two entry lists in one page type, as in
+/// `(generation, revision, first[], second[], next_token)`.
+pub trait Catalog: Send + Sync + 'static {
+    type First: Clone + PartialEq + Send + Sync;
+    type Second: Clone + PartialEq + Send + Sync;
+    type Page: Clone + Send + Sync;
+    fn validate(first: &[Self::First], second: &[Self::Second]) -> Result<(), ErrorCode>;
+    /// Text bytes of the entries, checked before encoding anything.
+    fn text_bytes(first: &[Self::First], second: &[Self::Second]) -> usize;
+    fn empty_page(generation: &str, revision: u64) -> Self::Page;
+    fn lists(page: &Self::Page) -> (&[Self::First], &[Self::Second]);
+    fn lists_mut(page: &mut Self::Page) -> (&mut Vec<Self::First>, &mut Vec<Self::Second>);
+    fn set_revision(page: &mut Self::Page, revision: u64);
+    fn next_token(page: &mut Self::Page) -> &mut String;
+    fn encoded_len(page: &Self::Page) -> Result<usize, ErrorCode>;
+}
+
+/// Applications and running instances (`org.arinn.Provider1`).
+pub struct ApplicationCatalog;
+impl Catalog for ApplicationCatalog {
+    type First = Application;
+    type Second = RunningApplication;
+    type Page = ApplicationPage;
+    fn validate(first: &[Application], second: &[RunningApplication]) -> Result<(), ErrorCode> {
+        application::validate_entries(first, second)
+    }
+    fn text_bytes(first: &[Application], second: &[RunningApplication]) -> usize {
+        first
+            .iter()
+            .map(|a| a.id.len() + a.title.len())
+            .sum::<usize>()
+            + second
+                .iter()
+                .map(|r| r.id.len() + r.application_id.len() + r.title.len() + r.window_token.len())
+                .sum::<usize>()
+    }
+    fn empty_page(generation: &str, revision: u64) -> ApplicationPage {
+        ApplicationPage {
+            generation: generation.into(),
+            revision,
+            applications: Vec::new(),
+            running: Vec::new(),
+            next_token: String::new(),
+        }
+    }
+    fn lists(page: &ApplicationPage) -> (&[Application], &[RunningApplication]) {
+        (&page.applications, &page.running)
+    }
+    fn lists_mut(
+        page: &mut ApplicationPage,
+    ) -> (&mut Vec<Application>, &mut Vec<RunningApplication>) {
+        (&mut page.applications, &mut page.running)
+    }
+    fn set_revision(page: &mut ApplicationPage, revision: u64) {
+        page.revision = revision;
+    }
+    fn next_token(page: &mut ApplicationPage) -> &mut String {
+        &mut page.next_token
+    }
+    fn encoded_len(page: &ApplicationPage) -> Result<usize, ErrorCode> {
+        page.encoded_len()
+    }
+}
+
+/// Browser windows and tabs (`org.arinn.BrowserProvider1`, ADR-0048).
+pub struct BrowserCatalog;
+impl Catalog for BrowserCatalog {
+    type First = BrowserWindow;
+    type Second = Tab;
+    type Page = TabPage;
+    fn validate(first: &[BrowserWindow], second: &[Tab]) -> Result<(), ErrorCode> {
+        browser::validate_entries(first, second)
+    }
+    fn text_bytes(first: &[BrowserWindow], second: &[Tab]) -> usize {
+        first
+            .iter()
+            .map(|w| w.id.len() + w.window_token.len())
+            .sum::<usize>()
+            + second
+                .iter()
+                .map(|t| t.id.len() + t.window_id.len() + t.title.len() + t.url.len())
+                .sum::<usize>()
+    }
+    fn empty_page(generation: &str, revision: u64) -> TabPage {
+        TabPage {
+            generation: generation.into(),
+            revision,
+            windows: Vec::new(),
+            tabs: Vec::new(),
+            next_token: String::new(),
+        }
+    }
+    fn lists(page: &TabPage) -> (&[BrowserWindow], &[Tab]) {
+        (&page.windows, &page.tabs)
+    }
+    fn lists_mut(page: &mut TabPage) -> (&mut Vec<BrowserWindow>, &mut Vec<Tab>) {
+        (&mut page.windows, &mut page.tabs)
+    }
+    fn set_revision(page: &mut TabPage, revision: u64) {
+        page.revision = revision;
+    }
+    fn next_token(page: &mut TabPage) -> &mut String {
+        &mut page.next_token
+    }
+    fn encoded_len(page: &TabPage) -> Result<usize, ErrorCode> {
+        page.encoded_len()
+    }
+}
+
+struct Lease<P> {
     owner: String,
     created: Instant,
-    pages: Arc<Vec<ApplicationPage>>,
+    pages: Arc<Vec<P>>,
 }
 
 /// Atomically published snapshots with immutable, caller-bound paging leases.
-/// Keep one store per (provider instance, application capability) registration.
-pub struct Snapshots {
+/// Keep one store per (provider instance, capability) registration.
+pub struct Store<C: Catalog> {
     generation: String,
     revision: u64,
-    pages: Arc<Vec<ApplicationPage>>,
-    leases: HashMap<String, Lease>,
+    pages: Arc<Vec<C::Page>>,
+    leases: HashMap<String, Lease<C::Page>>,
 }
+/// Application snapshots, the original SDK store.
+pub type Snapshots = Store<ApplicationCatalog>;
+/// Browser window and tab snapshots.
+pub type TabSnapshots = Store<BrowserCatalog>;
 
-impl Snapshots {
+impl<C: Catalog> Store<C> {
     pub fn new(generation: &str) -> Result<Self, ErrorCode> {
         Uuid::parse_str(generation).map_err(|_| ErrorCode::InvalidArgument)?;
         Ok(Self {
@@ -44,69 +158,91 @@ impl Snapshots {
         })
     }
 
+    fn same(&self, first: &[C::First], second: &[C::Second]) -> bool {
+        self.pages
+            .iter()
+            .flat_map(|p| C::lists(p).0.iter())
+            .eq(first.iter())
+            && self
+                .pages
+                .iter()
+                .flat_map(|p| C::lists(p).1.iter())
+                .eq(second.iter())
+    }
+
     /// Validate and build the complete replacement before committing. A failed
     /// publish leaves both the current snapshot and existing leases untouched.
     pub fn publish(
         &mut self,
-        applications: Vec<Application>,
-        running: Vec<RunningApplication>,
+        first: Vec<C::First>,
+        second: Vec<C::Second>,
     ) -> Result<u64, ErrorCode> {
-        if applications.len().saturating_add(running.len()) > MAX_SNAPSHOT_ENTRIES {
+        self.build(first, second, false)
+    }
+
+    /// Publish the unchanged entries under a new revision, for a change that
+    /// lives outside the entries (such as the backend state).
+    pub fn touch(&mut self) -> Result<u64, ErrorCode> {
+        if self.revision == 0 {
             return Err(ErrorCode::Unavailable);
         }
-        validate_entries(&applications, &running)?;
-        // Avoid allocating encoded copies of an unbounded snapshot.
-        let text_bytes: usize = applications
+        let first = self
+            .pages
             .iter()
-            .map(|a| a.id.len() + a.title.len())
-            .sum::<usize>()
-            + running
-                .iter()
-                .map(|r| r.id.len() + r.application_id.len() + r.title.len() + r.window_token.len())
-                .sum::<usize>();
-        if text_bytes > MAX_SNAPSHOT_BYTES {
+            .flat_map(|p| C::lists(p).0.iter().cloned())
+            .collect();
+        let second = self
+            .pages
+            .iter()
+            .flat_map(|p| C::lists(p).1.iter().cloned())
+            .collect();
+        self.build(first, second, true)
+    }
+
+    fn build(
+        &mut self,
+        first: Vec<C::First>,
+        second: Vec<C::Second>,
+        force: bool,
+    ) -> Result<u64, ErrorCode> {
+        if first.len().saturating_add(second.len()) > MAX_SNAPSHOT_ENTRIES {
             return Err(ErrorCode::Unavailable);
         }
-        let old_applications = self.pages.iter().flat_map(|p| p.applications.iter());
-        let old_running = self.pages.iter().flat_map(|p| p.running.iter());
-        if self.revision > 0
-            && old_applications.eq(applications.iter())
-            && old_running.eq(running.iter())
-        {
+        C::validate(&first, &second)?;
+        // Avoid allocating encoded copies of an unbounded snapshot.
+        if C::text_bytes(&first, &second) > MAX_SNAPSHOT_BYTES {
+            return Err(ErrorCode::Unavailable);
+        }
+        if !force && self.revision > 0 && self.same(&first, &second) {
             return Ok(self.revision);
         }
         let revision = self.revision.checked_add(1).ok_or(ErrorCode::Conflict)?;
-        let mut page = ApplicationPage {
-            generation: self.generation.clone(),
-            revision,
-            applications: Vec::new(),
-            running: Vec::new(),
-            // Reserve the maximum actual token size while sizing each page.
-            next_token: "0".repeat(43),
-        };
+        let mut page = C::empty_page(&self.generation, revision);
+        // Reserve the maximum actual token size while sizing each page.
+        *C::next_token(&mut page) = "0".repeat(43);
         let mut pages = Vec::new();
         let mut bytes = 0;
-        for entry in applications
+        for entry in first
             .into_iter()
-            .map(Entry::Application)
-            .chain(running.into_iter().map(Entry::Running))
+            .map(Entry::First)
+            .chain(second.into_iter().map(Entry::Second))
         {
-            entry.push(&mut page);
-            if page.applications.len() + page.running.len() > MAX_PAGE_ENTRIES
-                || page.encoded_len()? > MAX_BODY_BYTES
-            {
-                let overflow = entry.pop(&mut page);
-                bytes += page.encoded_len()?;
+            entry.push::<C>(&mut page);
+            let (a, b) = C::lists(&page);
+            if a.len() + b.len() > MAX_PAGE_ENTRIES || C::encoded_len(&page)? > MAX_BODY_BYTES {
+                let overflow = entry.pop::<C>(&mut page);
+                bytes += C::encoded_len(&page)?;
                 pages.push(page.clone());
-                page.applications.clear();
-                page.running.clear();
-                overflow.push(&mut page);
+                let (a, b) = C::lists_mut(&mut page);
+                a.clear();
+                b.clear();
+                overflow.push::<C>(&mut page);
             }
             if bytes > MAX_SNAPSHOT_BYTES {
                 return Err(ErrorCode::Unavailable);
             }
         }
-        bytes += page.encoded_len()?;
+        bytes += C::encoded_len(&page)?;
         if bytes > MAX_SNAPSHOT_BYTES {
             return Err(ErrorCode::Unavailable);
         }
@@ -120,39 +256,24 @@ impl Snapshots {
     pub fn import(
         &mut self,
         revision: u64,
-        applications: Vec<Application>,
-        running: Vec<RunningApplication>,
+        first: Vec<C::First>,
+        second: Vec<C::Second>,
     ) -> Result<(), ErrorCode> {
         if revision == 0 || revision < self.revision {
             return Err(ErrorCode::Conflict);
         }
-        let same = self
-            .pages
-            .iter()
-            .flat_map(|p| p.applications.iter())
-            .eq(applications.iter())
-            && self
-                .pages
-                .iter()
-                .flat_map(|p| p.running.iter())
-                .eq(running.iter());
-        if revision == self.revision && !same {
+        if revision == self.revision && !self.same(&first, &second) {
             return Err(ErrorCode::Conflict);
         }
-        self.publish(applications, running)?;
+        self.publish(first, second)?;
         self.revision = revision;
         for page in Arc::make_mut(&mut self.pages) {
-            page.revision = revision;
+            C::set_revision(page, revision);
         }
         Ok(())
     }
 
-    pub fn page(
-        &mut self,
-        owner: &str,
-        token: &str,
-        now: Instant,
-    ) -> Result<ApplicationPage, ErrorCode> {
+    pub fn page(&mut self, owner: &str, token: &str, now: Instant) -> Result<C::Page, ErrorCode> {
         validation::id(owner)?;
         self.leases
             .retain(|_, lease| now.saturating_duration_since(lease.created) < TOKEN_TTL);
@@ -162,7 +283,7 @@ impl Snapshots {
             }
             if self.pages.len() == 1 {
                 let mut page = self.pages[0].clone();
-                page.next_token.clear();
+                C::next_token(&mut page).clear();
                 return Ok(page);
             }
             if self.leases.len() >= MAX_LEASES {
@@ -174,7 +295,7 @@ impl Snapshots {
                 created: now,
                 pages: self.pages.clone(),
             };
-            let first = leased_page(&key, &lease, 0)?;
+            let first = leased_page::<C>(&key, &lease, 0)?;
             self.leases.insert(key, lease);
             return Ok(first);
         }
@@ -185,7 +306,7 @@ impl Snapshots {
         if lease.owner != owner {
             return Err(ErrorCode::PermissionDenied);
         }
-        leased_page(key, lease, index)
+        leased_page::<C>(key, lease, index)
     }
 
     /// Drop all old generations and leases immediately on re-registration.
@@ -199,9 +320,13 @@ impl Snapshots {
     }
 }
 
-fn leased_page(key: &str, lease: &Lease, index: usize) -> Result<ApplicationPage, ErrorCode> {
+fn leased_page<C: Catalog>(
+    key: &str,
+    lease: &Lease<C::Page>,
+    index: usize,
+) -> Result<C::Page, ErrorCode> {
     let mut page = lease.pages.get(index).ok_or(ErrorCode::Conflict)?.clone();
-    page.next_token = if index + 1 < lease.pages.len() {
+    *C::next_token(&mut page) = if index + 1 < lease.pages.len() {
         format!("{key}:{}", index + 1)
     } else {
         String::new()
@@ -209,21 +334,23 @@ fn leased_page(key: &str, lease: &Lease, index: usize) -> Result<ApplicationPage
     Ok(page)
 }
 
-enum Entry {
-    Application(Application),
-    Running(RunningApplication),
+enum Entry<F, S> {
+    First(F),
+    Second(S),
 }
-impl Entry {
-    fn push(&self, page: &mut ApplicationPage) {
+impl<F: Clone, S: Clone> Entry<F, S> {
+    fn push<C: Catalog<First = F, Second = S>>(&self, page: &mut C::Page) {
+        let (a, b) = C::lists_mut(page);
         match self {
-            Self::Application(a) => page.applications.push(a.clone()),
-            Self::Running(r) => page.running.push(r.clone()),
+            Self::First(x) => a.push(x.clone()),
+            Self::Second(x) => b.push(x.clone()),
         }
     }
-    fn pop(&self, page: &mut ApplicationPage) -> Self {
+    fn pop<C: Catalog<First = F, Second = S>>(&self, page: &mut C::Page) -> Self {
+        let (a, b) = C::lists_mut(page);
         match self {
-            Self::Application(_) => Self::Application(page.applications.pop().unwrap()),
-            Self::Running(_) => Self::Running(page.running.pop().unwrap()),
+            Self::First(_) => Self::First(a.pop().unwrap()),
+            Self::Second(_) => Self::Second(b.pop().unwrap()),
         }
     }
 }
@@ -341,6 +468,45 @@ mod tests {
         assert_eq!(
             store.page(":1.1", &first.next_token, now).unwrap().revision,
             7
+        );
+    }
+
+    #[test]
+    fn tab_snapshots_page_and_validate_like_applications() {
+        let mut store = TabSnapshots::new(&Uuid::new_v4().to_string()).unwrap();
+        let windows = vec![BrowserWindow {
+            id: "w".into(),
+            window_token: String::new(),
+            focused: true,
+        }];
+        let tabs: Vec<Tab> = (0..250)
+            .map(|i| Tab {
+                id: format!("t{i}"),
+                window_id: "w".into(),
+                title: "Tab".into(),
+                url: "https://example.org/".into(),
+                active: i == 0,
+                audible: false,
+            })
+            .collect();
+        assert_eq!(store.publish(windows.clone(), tabs.clone()), Ok(1));
+        assert_eq!(store.touch(), Ok(2));
+        let now = Instant::now();
+        let first = store.page(":1.1", "", now).unwrap();
+        first.validate().unwrap();
+        assert_eq!(first.revision, 2);
+        let last = store.page(":1.1", &first.next_token, now).unwrap();
+        last.validate().unwrap();
+        assert!(last.next_token.is_empty());
+        let all: Vec<Tab> = first.tabs.into_iter().chain(last.tabs).collect();
+        assert_eq!(all, tabs);
+        let orphan = vec![Tab {
+            window_id: "missing".into(),
+            ..tabs[0].clone()
+        }];
+        assert_eq!(
+            store.publish(windows, orphan),
+            Err(ErrorCode::InvalidArgument)
         );
     }
 

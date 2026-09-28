@@ -1,0 +1,1 @@
+- The browser wire contract (`Browser1`, `BrowserProvider1`) and SDK support for browser providers are defined (ADR-0048).

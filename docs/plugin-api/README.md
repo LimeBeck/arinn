@@ -14,11 +14,40 @@ capability, but **has not been released as a stable Plugin API**. Requirements:
 | `org.arinn.Application1` | Daemon-owned `/org/arinn/Daemon1/providers/p_<uuid_hex>`; [application1.xml](application1.xml) |
 | `org.arinn.Provider1` | Provider unique bus owner, `/org/arinn/Provider1`; [provider1.xml](provider1.xml) |
 | `org.arinn.Operation1` | Daemon-owned operation path returned by a command; [operation1.xml](operation1.xml) |
+| `org.arinn.Browser1` | Daemon-owned `/org/arinn/Daemon1/providers/p_<uuid_hex>` of a `browser` provider; [browser1.xml](browser1.xml) (daemon implementation pending, [#83](https://github.com/LimeBeck/arinn/issues/83)) |
+| `org.arinn.BrowserProvider1` | Provider unique bus owner, `/org/arinn/Provider1`; [browser-provider1.xml](browser-provider1.xml) |
 
 The private-bus suite compares these files to live introspection. Struct field
 order is defined in `arinn-protocol::production` and `application`; methods returning
 one struct use a one-element tuple to preserve the D-Bus body signature for QtDBus.
 The old [phase0.xml](phase0.xml) is historical evidence, not an active interface.
+
+### Browser contract
+
+`browser` providers export `org.arinn.BrowserProvider1`
+([browser-provider1.xml](browser-provider1.xml)); the daemon exposes their tabs to
+the shell through `org.arinn.Browser1` ([browser1.xml](browser1.xml)). Types are in
+`arinn-protocol::browser`; decisions are in [ADR-0048](../adr/0048-browser-wire-contract.md).
+
+- A snapshot `(generation, revision, [(id, window_token, focused)],
+  [(id, window_id, title, url, active, audible)], next_token)` pages like the
+  application snapshot. Every tab belongs to a listed window; a window has at
+  most one active tab; at most one window is focused. `window_token` is a
+  validated PlatformWindows1 token or empty. Tab URLs are single-line, at most
+  16 KiB and may use any scheme the browser shows. There is no favicon in
+  version 1.
+- Provider methods: `GetTabs`, `BackendState`, `OpenUrl(generation, url)`
+  (`http`/`https` only), `ActivateTab(generation, id)`, `CloseTab(generation, id)`
+  and the `StateChanged(generation, revision)` signal; a backend-state change
+  alone publishes a new revision. Only the daemon may call them.
+- Daemon methods: `GetTabs`, and `ActivateTab`/`CloseTab` with a request ID,
+  returning `Operation1` objects. The shell has no generic open-URL method; it
+  opens web shortcuts through `WebShortcuts1.Open`.
+- Tab titles and URLs never appear in logs or diagnostics.
+
+The SDK serves the provider side with `runtime::BrowserService` and
+`run_browser`/`run_browser_on`; its private-bus test compares the live export with
+the XML.
 
 ### Platform window contract (production implementation pending)
 

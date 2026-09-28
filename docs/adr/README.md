@@ -29,7 +29,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0008](0008-discovery-lifecycle.md) | XDG discovery and lifecycle through systemd user services | Accepted | 0021 |
 | [0009](0009-kde-wayland-platform.md) | PlatformService and a mandatory KDE/Wayland spike | Accepted | 0026, 0027, 0032 |
 | [0010](0010-activity-home.md) | Activity and one Continue/Home overlay model | Accepted | 0022, 0023 |
-| [0011](0011-chrome-integration.md) | Chrome/Chromium through an MV3 extension and Native Messaging | Accepted | 0021, 0038 |
+| [0011](0011-chrome-integration.md) | Chrome/Chromium through an MV3 extension and Native Messaging | Accepted | 0021, 0038, 0048 |
 | [0012](0012-desktop-steam-esde.md) | Desktop provider and dedicated Steam/ES-DE entry points | Accepted | 0021 |
 | [0013](0013-mpris-media.md) | MediaProvider based on MPRIS | Accepted | 0021, 0024 |
 | [0014](0014-state-persistence.md) | Provider-owned state and minimal Arinn persistence | Accepted | 0022 |
@@ -66,4 +66,5 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0045](0045-local-http-web-shortcuts.md) | Plain HTTP web shortcuts for local-network hosts | Accepted | — |
 | [0046](0046-shell-input-layer-during-playback.md) | The shell is the input layer during managed playback | Accepted | — |
 | [0047](0047-faster-package-builds.md) | Cached package builds and no release-mode check() on pull requests | Accepted | — |
+| [0048](0048-browser-wire-contract.md) | Browser wire contract (Browser1 and BrowserProvider1) | Accepted | — |
 <!-- register:end -->

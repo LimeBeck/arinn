@@ -39,8 +39,19 @@ pub struct WebShortcutList {
 /// characters, with a non-empty host and a valid optional port. `https` is
 /// accepted for any host; `http` only for a local-network host (ADR-0045).
 pub fn url(value: &str) -> Result<(), ErrorCode> {
+    parse(value, MAX_URL_BYTES, false)
+}
+
+/// A URL for generic browser `open` (spec §7.1): the same syntax rules as
+/// [`url`], but plain `http` is accepted for any host. Web shortcuts use the
+/// stricter [`url`]; this is for the browser contract (ADR-0048).
+pub fn open_url(value: &str) -> Result<(), ErrorCode> {
+    parse(value, validation::MAX_URL_BYTES, true)
+}
+
+fn parse(value: &str, max_bytes: usize, public_http: bool) -> Result<(), ErrorCode> {
     let invalid = Err(ErrorCode::InvalidArgument);
-    if value.len() > MAX_URL_BYTES
+    if value.len() > max_bytes
         || value
             .chars()
             .any(|c| c.is_control() || c.is_whitespace() || c == '\\')
@@ -81,7 +92,7 @@ pub fn url(value: &str) -> Result<(), ErrorCode> {
             None => (authority, None),
         },
     };
-    if host.is_empty() || (!secure && !local_host(host)) {
+    if host.is_empty() || (!secure && !public_http && !local_host(host)) {
         return invalid;
     }
     if let Some(port) = port
@@ -269,6 +280,30 @@ mod tests {
         ] {
             assert_eq!(url(bad), Err(ErrorCode::InvalidArgument), "{bad:?}");
         }
+    }
+
+    #[test]
+    fn open_urls_allow_public_http_but_keep_the_syntax_rules() {
+        for good in ["http://example.org/", "https://example.org", "http://nas/"] {
+            assert_eq!(open_url(good), Ok(()), "{good}");
+        }
+        for bad in [
+            "",
+            "ftp://example.org/",
+            "javascript:alert(1)",
+            "file:///etc/passwd",
+            "chrome://settings",
+            "http://user@example.org/",
+            "http:///path",
+            "https://exa mple.org/",
+        ] {
+            assert_eq!(open_url(bad), Err(ErrorCode::InvalidArgument), "{bad:?}");
+        }
+        let long = format!(
+            "https://example.org/{}",
+            "x".repeat(validation::MAX_URL_BYTES)
+        );
+        assert_eq!(open_url(&long), Err(ErrorCode::InvalidArgument));
     }
 
     #[test]

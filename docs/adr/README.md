@@ -51,7 +51,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0030](0030-phase0-machine-and-standard-input.md) | Phase 0 on the development machine and the remote as standard keyboard input | Accepted | — |
 | [0031](0031-single-screen-target.md) | The target HTPC has one screen | Accepted | — |
 | [0032](0032-kwin-script-platform-adapter.md) | A packaged KWin script as the first KDE platform adapter | Accepted | — |
-| [0033](0033-ci-cd-and-releases.md) | CI/CD pipeline and release policy | Accepted | 0036 |
+| [0033](0033-ci-cd-and-releases.md) | CI/CD pipeline and release policy | Accepted | 0036, 0044 |
 | [0034](0034-provider-data-directory-identity.md) | Provider data directories independent of registry state | Accepted | — |
 | [0035](0035-phase1-application-wire-contract.md) | Phase 1 application wire contract | Accepted | — |
 | [0036](0036-parallel-development.md) | Parallel development by several agents | Accepted | 0037 |
@@ -61,4 +61,5 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0040](0040-kwin-inventory-transport.md) | Trusted KWin inventory transport and SDK registration context | Accepted | — |
 | [0041](0041-independent-session-lifecycle-guard.md) | Daemon-independent session lifecycle guard | Accepted | — |
 | [0043](0043-web-shortcuts.md) | Arinn-owned web shortcuts for online-service tiles | Accepted | — |
+| [0044](0044-docs-only-ci-scope.md) | Documentation-only pull requests skip the build jobs | Accepted | — |
 <!-- register:end -->

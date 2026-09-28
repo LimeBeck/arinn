@@ -5,6 +5,11 @@ name: Package
 
 on:
   workflow_call:
+    inputs:
+      skip:
+        description: Skip the build for a documentation-only change (ADR-0044)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -12,6 +17,7 @@ permissions:
 jobs:
   build:
     name: Build Arch package
+    if: ${{ !inputs.skip }}
     runs-on: ubuntu-latest
     container: archlinux:latest
     steps:

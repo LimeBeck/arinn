@@ -1,7 +1,10 @@
 name: Package
 
 # Reusable: builds the Arch Linux package from the checked-out commit and
-# verifies it by installing it into a clean system (ADR-0033).
+# verifies it by installing it into a clean system (ADR-0033). Pull requests
+# and master reuse a Cargo cache; pull requests skip the release-mode
+# check(), which the Rust job already covers. Tag builds are clean and run
+# check() (ADR-0047).
 
 on:
   workflow_call:
@@ -22,11 +25,20 @@ jobs:
     container: archlinux:latest
     steps:
       - name: Install build dependencies
+        id: deps
         run: |
           pacman -Syu --noconfirm --needed base-devel git rust cmake ninja \
             qt6-base qt6-declarative qt6-svg python dbus
           useradd --create-home builder
+          echo "rustc=$(rustc -V | tr -c 'A-Za-z0-9.\n' '-')" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v7
+      - name: Restore Cargo cache
+        if: ${{ github.ref_type != 'tag' }}
+        uses: actions/cache@v4
+        with:
+          path: cargo-cache
+          key: arinn-pkg-${{ steps.deps.outputs.rustc }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: arinn-pkg-${{ steps.deps.outputs.rustc }}-
       - name: Create source tarball
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
@@ -36,10 +48,14 @@ jobs:
           cp packaging/arch/PKGBUILD packaging/arch/arinn.install pkg/
           chown -R builder pkg
       - name: makepkg (build, check, package)
+        env:
+          NOCHECK: ${{ github.event_name == 'pull_request' && '--nocheck' || '' }}
         run: |
-          su builder -c 'cd pkg && makepkg --noconfirm --cleanbuild'
-          version="$(python scripts/release.py version)"
-          cp "pkg/src/arinn-${version}/target/release/examples/private-systemd" pkg/private-systemd
+          cache="$GITHUB_WORKSPACE/cargo-cache"
+          mkdir -p "$cache/home" "$cache/target"
+          chown -R builder "$cache"
+          su builder -c "cd pkg && CARGO_HOME='$cache/home' CARGO_TARGET_DIR='$cache/target' makepkg --noconfirm --cleanbuild $NOCHECK"
+          cp "$cache/target/release/examples/private-systemd" pkg/private-systemd
       - uses: actions/upload-artifact@v7
         with:
           name: arinn-arch-package

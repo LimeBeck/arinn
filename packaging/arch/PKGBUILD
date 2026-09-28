@@ -30,7 +30,8 @@ prepare() {
 build() {
   cd "${pkgname}-${pkgver}"
   export RUSTUP_TOOLCHAIN=stable
-  export CARGO_TARGET_DIR=target
+  # CI may point this at a cached directory outside $srcdir (ADR-0047).
+  export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-target}"
   cargo build --frozen --release
   cargo build --frozen --release --example private-systemd
   cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
@@ -40,16 +41,18 @@ build() {
 check() {
   cd "${pkgname}-${pkgver}"
   export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-target}"
   cargo test --frozen --release
 }
 
 package() {
   cd "${pkgname}-${pkgver}"
-  install -Dm755 target/release/arinnd "${pkgdir}/usr/bin/arinnd"
-  install -Dm755 target/release/arinnctl "${pkgdir}/usr/bin/arinnctl"
+  local target="${CARGO_TARGET_DIR:-target}"
+  install -Dm755 "${target}"/release/arinnd "${pkgdir}/usr/bin/arinnd"
+  install -Dm755 "${target}"/release/arinnctl "${pkgdir}/usr/bin/arinnctl"
   install -Dm755 build/apps/arinn-shell/arinn-shell "${pkgdir}/usr/bin/arinn-shell"
-  install -Dm755 target/release/arinn-plugin-demo "${pkgdir}/usr/lib/arinn/plugins/arinn-plugin-demo"
-  install -Dm755 target/release/arinn-plugin-desktop "${pkgdir}/usr/lib/arinn/plugins/arinn-plugin-desktop"
+  install -Dm755 "${target}"/release/arinn-plugin-demo "${pkgdir}/usr/lib/arinn/plugins/arinn-plugin-demo"
+  install -Dm755 "${target}"/release/arinn-plugin-desktop "${pkgdir}/usr/lib/arinn/plugins/arinn-plugin-desktop"
   install -Dm644 plugins/desktop/desktop.toml "${pkgdir}/usr/share/arinn/plugins/desktop.toml"
   install -Dm644 plugins/demo/demo.toml "${pkgdir}/usr/share/arinn/plugins/demo.toml"
   install -Dm644 packaging/web-shortcuts/web-shortcuts.toml "${pkgdir}/usr/share/arinn/web-shortcuts.toml"

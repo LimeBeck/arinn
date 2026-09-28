@@ -1,1 +1,0 @@
-- Add a fixture-driven Library screen with catalogue tabs, a poster grid, detail, missing-file badges, loading skeletons, and empty, loading, error and unavailable states. Focus stays in the screen and actions are intents only ([architecture](../docs/architecture/ui-library.md)).

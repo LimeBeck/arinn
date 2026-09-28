@@ -1,0 +1,1 @@
+- The daemon stores web shortcuts in its state database and exports `org.arinn.WebShortcuts1`. The package ships a default set (YouTube, Kinopoisk, IVI) that is added once per user; opening a shortcut reports "unavailable" until browser integration arrives in Phase 3.

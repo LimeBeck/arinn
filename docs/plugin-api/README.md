@@ -58,8 +58,16 @@ not a capability; the shell manages them from the TV.
 
 Shortcut URLs are user configuration: they never appear in logs, diagnostics or
 `arinnctl diagnostics` output. The protocol test checks the XML against a live
-fixture export on a private bus. The production daemon does **not** export this
-interface yet ([task #56](https://github.com/LimeBeck/arinn/issues/56)).
+fixture export on a private bus.
+
+The production daemon exports it ([task #56](https://github.com/LimeBeck/arinn/issues/56)).
+Shortcuts and the list revision are stored in `state.sqlite3` (schema 3), so a
+stale revision stays stale across daemon restarts. On start the daemon seeds the
+packaged default set from the first `arinn/web-shortcuts.toml` in the XDG data
+home and data directories, once per state database; invalid entries are skipped
+and a removed default is never re-added. A full list rejects `Add` with
+`InvalidArgument`. Until a BrowserProvider runtime contract exists (Phase 3),
+`Open` admits an operation that fails with `Unavailable`.
 
 ### Production application and registry semantics
 

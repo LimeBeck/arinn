@@ -2,7 +2,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! Blocking persistence primitives. Call these from a dedicated blocking task.
-use arinn_protocol::validation::{self, ErrorCode, MAX_BODY_BYTES};
+use arinn_protocol::{
+    validation::{self, ErrorCode, MAX_BODY_BYTES},
+    web::{MAX_SHORTCUTS, WebShortcut, WebShortcutList},
+};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -287,7 +290,7 @@ impl Store {
         let version: u32 = transaction
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .map_err(|_| ErrorCode::Internal)?;
-        if version > 2 {
+        if version > 3 {
             return Err(ErrorCode::Unsupported);
         }
         if version == 0 {
@@ -298,6 +301,14 @@ impl Store {
         }
         if version <= 1 {
             transaction.execute_batch("ALTER TABLE providers ADD COLUMN supervisor_restarts INTEGER NOT NULL DEFAULT 0; PRAGMA user_version = 2;").map_err(|_|ErrorCode::Internal)?;
+        }
+        if version <= 2 {
+            // Web shortcuts (ADR-0043). The revision is persisted so a client's
+            // stale revision is never accepted again after a daemon restart.
+            transaction.execute_batch("CREATE TABLE web_shortcuts (position INTEGER NOT NULL UNIQUE, id TEXT PRIMARY KEY, title TEXT NOT NULL, url TEXT NOT NULL, icon TEXT NOT NULL);
+                CREATE TABLE web_shortcut_state (singleton INTEGER PRIMARY KEY CHECK (singleton = 0), revision INTEGER NOT NULL CHECK (revision >= 1), defaults_seeded INTEGER NOT NULL);
+                INSERT INTO web_shortcut_state VALUES (0, 1, 0);
+                PRAGMA user_version = 3;").map_err(|_| ErrorCode::Internal)?;
         }
         transaction.commit().map_err(|_| ErrorCode::Internal)
     }
@@ -484,6 +495,178 @@ impl Store {
             .collect::<Result<Vec<_>, _>>()
             .map_err(|_| ErrorCode::Internal)
     }
+}
+/// Web shortcuts (ADR-0043, ADR-0045). Every mutation validates, runs in one
+/// immediate transaction and increments the persisted list revision.
+impl Store {
+    pub fn web_shortcuts(&self) -> Result<WebShortcutList, ErrorCode> {
+        let revision: i64 = self
+            .connection
+            .query_row("SELECT revision FROM web_shortcut_state", [], |row| {
+                row.get(0)
+            })
+            .map_err(|_| ErrorCode::Internal)?;
+        let shortcuts = self
+            .connection
+            .prepare("SELECT id,title,url,icon FROM web_shortcuts ORDER BY position")
+            .map_err(|_| ErrorCode::Internal)?
+            .query_map([], |row| {
+                Ok(WebShortcut {
+                    id: row.get(0)?,
+                    title: row.get(1)?,
+                    url: row.get(2)?,
+                    icon: row.get(3)?,
+                })
+            })
+            .map_err(|_| ErrorCode::Internal)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| ErrorCode::Internal)?;
+        let list = WebShortcutList {
+            revision: u64::try_from(revision).map_err(|_| ErrorCode::Internal)?,
+            shortcuts,
+        };
+        // A corrupted or hand-edited database is reported, never published.
+        list.validate().map_err(|_| ErrorCode::Internal)?;
+        Ok(list)
+    }
+    /// Appends a validated shortcut and returns the new revision.
+    pub fn add_web_shortcut(&mut self, shortcut: &WebShortcut) -> Result<u64, ErrorCode> {
+        shortcut.validate()?;
+        self.mutate_web_shortcuts(None, |transaction| {
+            append(transaction, shortcut)?;
+            Ok(true)
+        })
+    }
+    pub fn update_web_shortcut(
+        &mut self,
+        expected: u64,
+        shortcut: &WebShortcut,
+    ) -> Result<u64, ErrorCode> {
+        shortcut.validate()?;
+        self.mutate_web_shortcuts(Some(expected), |transaction| {
+            let changed = transaction
+                .execute(
+                    "UPDATE web_shortcuts SET title=?2,url=?3,icon=?4 WHERE id=?1",
+                    params![shortcut.id, shortcut.title, shortcut.url, shortcut.icon],
+                )
+                .map_err(|_| ErrorCode::Internal)?;
+            if changed == 0 {
+                return Err(ErrorCode::NotFound);
+            }
+            Ok(true)
+        })
+    }
+    pub fn remove_web_shortcut(&mut self, expected: u64, id: &str) -> Result<u64, ErrorCode> {
+        validation::id(id)?;
+        self.mutate_web_shortcuts(Some(expected), |transaction| {
+            let changed = transaction
+                .execute("DELETE FROM web_shortcuts WHERE id=?1", [id])
+                .map_err(|_| ErrorCode::Internal)?;
+            if changed == 0 {
+                return Err(ErrorCode::NotFound);
+            }
+            Ok(true)
+        })
+    }
+    /// Seeds the packaged defaults exactly once per state database, so an
+    /// upgrade never re-adds a shortcut the user removed. Invalid defaults and
+    /// defaults beyond the capacity are skipped. Returns the new revision when
+    /// anything was added.
+    pub fn seed_web_shortcuts(
+        &mut self,
+        defaults: &[WebShortcut],
+    ) -> Result<Option<u64>, ErrorCode> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| ErrorCode::Unavailable)?;
+        let (revision, seeded): (i64, bool) = transaction
+            .query_row(
+                "SELECT revision,defaults_seeded FROM web_shortcut_state",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .map_err(|_| ErrorCode::Internal)?;
+        if seeded {
+            return Ok(None);
+        }
+        let mut added = false;
+        for shortcut in defaults {
+            if shortcut.validate().is_ok() && append(&transaction, shortcut).is_ok() {
+                added = true;
+            }
+        }
+        let revision = revision + i64::from(added);
+        transaction
+            .execute(
+                "UPDATE web_shortcut_state SET revision=?1, defaults_seeded=1",
+                [revision],
+            )
+            .map_err(|_| ErrorCode::Internal)?;
+        transaction.commit().map_err(|_| ErrorCode::Internal)?;
+        Ok(added.then_some(revision as u64))
+    }
+    fn mutate_web_shortcuts(
+        &mut self,
+        expected: Option<u64>,
+        change: impl FnOnce(&rusqlite::Transaction<'_>) -> Result<bool, ErrorCode>,
+    ) -> Result<u64, ErrorCode> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| ErrorCode::Unavailable)?;
+        let revision: i64 = transaction
+            .query_row("SELECT revision FROM web_shortcut_state", [], |row| {
+                row.get(0)
+            })
+            .map_err(|_| ErrorCode::Internal)?;
+        let revision = u64::try_from(revision).map_err(|_| ErrorCode::Internal)?;
+        if expected.is_some_and(|expected| expected != revision) {
+            return Err(ErrorCode::Conflict);
+        }
+        change(&transaction)?;
+        let next = revision.checked_add(1).ok_or(ErrorCode::Internal)?;
+        transaction
+            .execute(
+                "UPDATE web_shortcut_state SET revision=?1",
+                [i64::try_from(next).map_err(|_| ErrorCode::Internal)?],
+            )
+            .map_err(|_| ErrorCode::Internal)?;
+        transaction.commit().map_err(|_| ErrorCode::Internal)?;
+        Ok(next)
+    }
+}
+/// Appends at the end; `InvalidArgument` when full or the ID is taken.
+fn append(
+    transaction: &rusqlite::Transaction<'_>,
+    shortcut: &WebShortcut,
+) -> Result<(), ErrorCode> {
+    let (count, next): (i64, i64) = transaction
+        .query_row(
+            "SELECT COUNT(*), COALESCE(MAX(position) + 1, 0) FROM web_shortcuts",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(|_| ErrorCode::Internal)?;
+    if count as usize >= MAX_SHORTCUTS {
+        return Err(ErrorCode::InvalidArgument);
+    }
+    let inserted = transaction
+        .execute(
+            "INSERT OR IGNORE INTO web_shortcuts VALUES (?1,?2,?3,?4,?5)",
+            params![
+                next,
+                shortcut.id,
+                shortcut.title,
+                shortcut.url,
+                shortcut.icon
+            ],
+        )
+        .map_err(|_| ErrorCode::Internal)?;
+    if inserted == 0 {
+        return Err(ErrorCode::InvalidArgument);
+    }
+    Ok(())
 }
 fn prune(transaction: &rusqlite::Transaction<'_>, now: i64) -> Result<(), ErrorCode> {
     transaction

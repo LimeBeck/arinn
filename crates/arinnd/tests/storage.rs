@@ -220,3 +220,150 @@ fn storage_refuses_symlinked_database_and_provider_directory() {
     .unwrap();
     assert!(paths.provider_dirs("provider").is_err());
 }
+
+fn shortcut(id: &str, url: &str) -> arinn_protocol::web::WebShortcut {
+    arinn_protocol::web::WebShortcut {
+        id: id.into(),
+        title: format!("Title {id}"),
+        url: url.into(),
+        icon: String::new(),
+    }
+}
+
+#[test]
+fn web_shortcuts_revisions_conflicts_and_reopen() {
+    let fixture = Fixture::new();
+    let state = fixture.paths().state;
+    let mut store = Store::open(&state).unwrap();
+    let empty = store.web_shortcuts().unwrap();
+    assert_eq!((empty.revision, empty.shortcuts.len()), (1, 0));
+    assert_eq!(
+        store.add_web_shortcut(&shortcut("a", "https://a.example/")),
+        Ok(2)
+    );
+    assert_eq!(
+        store.add_web_shortcut(&shortcut("b", "http://nas.local:8096/")),
+        Ok(3)
+    );
+    // Invalid input and duplicate IDs change nothing.
+    for bad in [
+        shortcut("c", "http://public.example/"),
+        shortcut("a", "https://again.example/"),
+    ] {
+        assert_eq!(
+            store.add_web_shortcut(&bad),
+            Err(ErrorCode::InvalidArgument)
+        );
+    }
+    assert_eq!(
+        store.update_web_shortcut(2, &shortcut("a", "https://new.example/")),
+        Err(ErrorCode::Conflict)
+    );
+    assert_eq!(
+        store.update_web_shortcut(3, &shortcut("zz", "https://new.example/")),
+        Err(ErrorCode::NotFound)
+    );
+    assert_eq!(
+        store.update_web_shortcut(3, &shortcut("a", "https://new.example/")),
+        Ok(4)
+    );
+    assert_eq!(store.remove_web_shortcut(3, "b"), Err(ErrorCode::Conflict));
+    assert_eq!(
+        store.remove_web_shortcut(4, "missing"),
+        Err(ErrorCode::NotFound)
+    );
+    drop(store);
+    // Revision and order survive a restart, so a stale revision stays stale.
+    let mut store = Store::open(&state).unwrap();
+    let list = store.web_shortcuts().unwrap();
+    assert_eq!(list.revision, 4);
+    assert_eq!(
+        list.shortcuts
+            .iter()
+            .map(|s| s.id.as_str())
+            .collect::<Vec<_>>(),
+        ["a", "b"]
+    );
+    assert_eq!(list.shortcuts[0].url, "https://new.example/");
+    assert_eq!(store.remove_web_shortcut(4, "a"), Ok(5));
+    assert_eq!(
+        store.add_web_shortcut(&shortcut("c", "https://c.example/")),
+        Ok(6)
+    );
+    let ids: Vec<_> = store
+        .web_shortcuts()
+        .unwrap()
+        .shortcuts
+        .into_iter()
+        .map(|s| s.id)
+        .collect();
+    assert_eq!(ids, ["b", "c"]);
+}
+
+#[test]
+fn web_shortcut_defaults_seed_once_and_capacity_is_enforced() {
+    let fixture = Fixture::new();
+    let state = fixture.paths().state;
+    let mut store = Store::open(&state).unwrap();
+    let defaults = vec![
+        shortcut("d1", "https://one.example/"),
+        shortcut("bad", "ftp://two.example/"),
+        shortcut("d3", "https://three.example/"),
+    ];
+    assert_eq!(store.seed_web_shortcuts(&defaults), Ok(Some(2)));
+    let seeded = store.web_shortcuts().unwrap();
+    assert_eq!(seeded.shortcuts.len(), 2);
+    // A removed default is never re-added, even by a later package.
+    let revision = store.remove_web_shortcut(2, "d1").unwrap();
+    assert_eq!(store.seed_web_shortcuts(&defaults), Ok(None));
+    drop(store);
+    let mut store = Store::open(&state).unwrap();
+    assert_eq!(store.seed_web_shortcuts(&defaults), Ok(None));
+    assert_eq!(store.web_shortcuts().unwrap().revision, revision);
+    for i in 1..arinn_protocol::web::MAX_SHORTCUTS {
+        store
+            .add_web_shortcut(&shortcut(&format!("n{i}"), "https://n.example/"))
+            .unwrap();
+    }
+    assert_eq!(
+        store.add_web_shortcut(&shortcut("over", "https://over.example/")),
+        Err(ErrorCode::InvalidArgument)
+    );
+    assert_eq!(
+        store.web_shortcuts().unwrap().shortcuts.len(),
+        arinn_protocol::web::MAX_SHORTCUTS
+    );
+}
+
+#[test]
+fn web_shortcuts_migrate_from_schema_two_and_reject_corrupted_rows() {
+    let fixture = Fixture::new();
+    let state = fixture.paths().state;
+    drop(Store::open(&state).unwrap());
+    let database = state.join("state.sqlite3");
+    {
+        // Recreate a schema-2 database with existing data.
+        let connection = rusqlite::Connection::open(&database).unwrap();
+        connection
+            .execute_batch(
+                "DROP TABLE web_shortcuts; DROP TABLE web_shortcut_state; PRAGMA user_version=2;
+                 INSERT INTO providers (provider_id, registry_uuid) VALUES ('kept', 'uuid-1');",
+            )
+            .unwrap();
+    }
+    let mut store = Store::open(&state).unwrap();
+    assert_eq!(store.web_shortcuts().unwrap().revision, 1);
+    assert_eq!(store.restart_count("kept"), Ok(0));
+    store
+        .add_web_shortcut(&shortcut("a", "https://a.example/"))
+        .unwrap();
+    drop(store);
+    rusqlite::Connection::open(&database)
+        .unwrap()
+        .execute("UPDATE web_shortcuts SET url='javascript:alert(1)'", [])
+        .unwrap();
+    assert_eq!(
+        Store::open(&state).unwrap().web_shortcuts(),
+        Err(ErrorCode::Internal)
+    );
+}

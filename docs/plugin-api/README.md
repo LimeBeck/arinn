@@ -84,3 +84,10 @@ require their own typed XML and contract fixtures.
 
 Protocol types, SDK and interface XML use `MIT OR Apache-2.0`; providers may use any
 license ([ADR-0029](../adr/0029-licensing.md)).
+
+## Internal platform transport
+
+[KWinBridge1](kwin-bridge1.xml) and [its lifecycle contract](../architecture/kwin-transport.md)
+define trusted adapter inventory/control transport. This is not a provider capability.
+SDK registration contexts expose the registered connection for authenticated platform
+access. Production daemon/KDE implementation remains in issue #20.

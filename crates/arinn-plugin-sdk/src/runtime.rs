@@ -11,11 +11,35 @@ use futures_util::StreamExt;
 use std::{
     future::Future,
     pin::Pin,
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant},
 };
 use tokio::sync::Mutex;
 use zbus::{message::Header, object_server::SignalEmitter};
+
+/// Valid only while the registration watch channel contains this context.
+/// Consumers must discard platform clients and snapshots on every change.
+#[derive(Clone, Debug)]
+pub struct RegistrationContext {
+    pub connection: zbus::Connection,
+    pub daemon_owner: String,
+    pub daemon_epoch: String,
+    pub generation: String,
+}
+
+struct RegistrationGuard {
+    registrations: tokio::sync::watch::Sender<Option<RegistrationContext>>,
+    running: Arc<AtomicBool>,
+}
+impl Drop for RegistrationGuard {
+    fn drop(&mut self) {
+        self.registrations.send_replace(None);
+        self.running.store(false, Ordering::Release);
+    }
+}
 
 #[derive(Clone, Copy, Debug)]
 pub enum Action {
@@ -42,6 +66,8 @@ pub struct ApplicationService {
     data: Arc<Mutex<Data>>,
     handler: Arc<dyn ApplicationHandler>,
     backend: String,
+    registrations: tokio::sync::watch::Sender<Option<RegistrationContext>>,
+    running: Arc<AtomicBool>,
     updates: tokio::sync::watch::Sender<(String, u64)>,
 }
 impl ApplicationService {
@@ -65,8 +91,15 @@ impl ApplicationService {
             })),
             handler: Arc::new(handler),
             backend: backend.into(),
+            registrations: tokio::sync::watch::channel(None).0,
+            running: Arc::new(AtomicBool::new(false)),
             updates: tokio::sync::watch::channel((String::new(), 0)).0,
         })
+    }
+    /// Subscribe before starting run(). None means unregistered/unavailable;
+    /// Some carries the same connection/unique owner used to register the provider.
+    pub fn registrations(&self) -> tokio::sync::watch::Receiver<Option<RegistrationContext>> {
+        self.registrations.subscribe()
     }
     pub async fn replace(
         &self,
@@ -92,7 +125,8 @@ impl ApplicationService {
     }
     async fn authorized(&self, header: &Header<'_>) -> production::Result<()> {
         let data = self.data.lock().await;
-        if data.daemon_owner.is_empty()
+        if !self.running.load(Ordering::Acquire)
+            || data.daemon_owner.is_empty()
             || header.sender().map(|s| s.as_str()) != Some(&data.daemon_owner)
         {
             return Err(ErrorCode::PermissionDenied.into());
@@ -202,6 +236,24 @@ impl ApplicationService {
 pub async fn run(
     service: ApplicationService,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let connection = zbus::connection::Builder::session()?.build().await?;
+    run_on(connection, service).await
+}
+
+/// Use an explicit bus connection (also useful for private-bus test fixtures).
+/// A service may be run only once at a time; callers own the task lifetime.
+pub async fn run_on(
+    connection: zbus::Connection,
+    service: ApplicationService,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    if service.running.swap(true, Ordering::AcqRel) {
+        return Err("provider service already running".into());
+    }
+    let _registration_guard = RegistrationGuard {
+        registrations: service.registrations.clone(),
+        running: service.running.clone(),
+    };
+    service.registrations.send_replace(None);
     {
         let mut data = service.data.lock().await;
         data.snapshots = None;
@@ -212,10 +264,13 @@ pub async fn run(
     let plugin_id = std::env::var("ARINN_PLUGIN_ID")?;
     let version = std::env::var("ARINN_PLUGIN_VERSION")?;
     let token_file = std::env::var("ARINN_TOKEN_FILE")?;
-    let connection = zbus::connection::Builder::session()?
-        .serve_at(production::PROVIDER_PATH, service.clone())?
-        .build()
-        .await?;
+    if !connection
+        .object_server()
+        .at(production::PROVIDER_PATH, service.clone())
+        .await?
+    {
+        return Err("provider endpoint already exported".into());
+    }
     let daemon = ProductionDaemonProxy::new(&connection).await?;
     let bus = zbus::fdo::DBusProxy::new(&connection).await?;
     let mut owners = bus.receive_name_owner_changed().await?;
@@ -238,6 +293,7 @@ pub async fn run(
                     let mut data=service.data.lock().await;
                     if current.as_deref()!=Some(data.daemon_owner.as_str()) {
                         data.snapshots=None; data.generation.clear(); data.daemon_owner.clear();
+                        service.registrations.send_replace(None);
                     }
                 }
             }
@@ -286,6 +342,14 @@ pub async fn run(
         snapshots.publish(data.applications.clone(), data.running.clone())?;
         data.generation = reply.generation.clone();
         data.snapshots = Some(snapshots);
+        service
+            .registrations
+            .send_replace(Some(RegistrationContext {
+                connection: connection.clone(),
+                daemon_owner: owner.to_string(),
+                daemon_epoch: reply.epoch.clone(),
+                generation: reply.generation.clone(),
+            }));
         drop(data);
         let emitter = SignalEmitter::new(&connection, production::PROVIDER_PATH)?;
         ApplicationService::state_changed(&emitter, &reply.generation, 1).await?;

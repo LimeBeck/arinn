@@ -58,5 +58,6 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0037](0037-agent-autonomy-and-owner-gated-decisions.md) | Agent autonomy and owner-gated decisions | Accepted | — |
 | [0038](0038-browser-launch-ownership.md) | Browser launch ownership | Accepted | — |
 | [0039](0039-platform-window-contract.md) | Platform window snapshot and control contract | Accepted | — |
+| [0040](0040-kwin-inventory-transport.md) | Trusted KWin inventory transport and SDK registration context | Accepted | — |
 | [0041](0041-independent-session-lifecycle-guard.md) | Daemon-independent session lifecycle guard | Accepted | — |
 <!-- register:end -->

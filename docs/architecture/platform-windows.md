@@ -166,6 +166,7 @@ The production follow-up must cover trusted adapter lifetime, actual window
 identity resolution, atomic publication and caller-bound leases, operation queue
 and dispatch acknowledgements, provider registration lifetime, private-bus
 integration against arinnd, and live introspection of the production endpoint.
-Compositor-specific internal transport may need a separate contract task. G-2.1
+The [internal KWin transport](kwin-transport.md) is defined separately in task #24;
+its production implementation remains in #20. G-2.1
 and G-2.3 still need explicitly authorized real-desktop evidence; G-2.2 needs the
 actual launcher/lifetime isolation checks. This contract alone proves none of them.

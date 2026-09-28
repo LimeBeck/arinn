@@ -185,7 +185,7 @@ Global media and volume keys while an external application has focus are open: [
 
 **Ambient (screensaver).** Started by an explicit action or an idle timeout (10 minutes by default). Any key or pointer movement wakes the UI; the first wake event is consumed and triggers no action. Automatic ambient MUST NOT start while an external Activity is in the foreground **or** media is playing. The idle timer never triggers OS suspend. Ambient never stops applications.
 
-**Session lifecycle.** On lock or before sleep the shell hides regardless of daemon state and keeps the Activity context; after wake it re-checks the lock state before showing anything. If the lock state is unknown, the shell treats the session as locked ([session lifecycle](../architecture/session-lifecycle.md)).
+**Session lifecycle.** On lock or before sleep the shell hides regardless of daemon state and keeps the Activity context; after wake it re-checks the lock state before showing anything. If the lock state is unknown, the shell treats the session as locked ([session lifecycle](../architecture/session-lifecycle.md)). Lock/sleep observation MUST remain independent of daemon availability through an asynchronous, fail-closed platform lifecycle guard ([ADR-0041](../adr/0041-independent-session-lifecycle-guard.md)). The guard observes session state; it does not execute power or application commands.
 
 ---
 
@@ -327,7 +327,7 @@ Steam and EmulationStation MUST be available in the MVP as dedicated Home tiles,
 
 Qt 6 Quick/QML with a small C++ layer for QtDBus and typed models. The shell is only the presentation layer: navigation, focus management, animations, rendering, overlays, screens, the design system and interaction state (focus scopes, input mode, OSD visibility, timeline preview).
 
-The shell MUST NOT launch Chrome, read `.desktop` files, talk to MPRIS, control Steam, run shell commands or know the IPC of third-party applications. All actions go through `arinnd`. The UI thread never makes blocking D-Bus calls.
+The shell MUST NOT launch Chrome, read `.desktop` files, talk to MPRIS, control Steam, run shell commands or know the IPC of third-party applications. All application/provider integration data and commands go through `arinnd`. The daemon-independent lifecycle guard in §5.7 is limited to session-state observation and shell hiding; it does not authorize direct application integration. The UI thread never makes blocking D-Bus calls.
 
 ### 8.3. arinnd
 
@@ -345,9 +345,11 @@ Plugins supply data, metadata, actions and capabilities. They MUST NOT supply QM
 
 Platform-specific functions are behind `PlatformService`; the first implementation is `KdePlatformService` for KDE Plasma 6 on Wayland: global shortcuts, application/window activation, overlay and window integration, session state and system actions (volume, network, power). KDE-specific code MUST NOT be spread across the daemon, and window management MUST NOT be spread across plugins. Details: [§12](#12-platform-integration-kde-plasma-6--wayland).
 
+The shell lifecycle guard uses platform-layer session observation independently of the daemon. Platform-specific transport stays in that layer; QML only consumes the resulting visibility guard. The existing shell-local transport is scheduled for extraction in [task #29](https://github.com/LimeBeck/arinn/issues/29).
+
 ### 8.6. IPC
 
-Session D-Bus on both boundaries ([ADR-0020](../adr/0020-dbus-contract-baseline.md)): shell/CLI ↔ daemon under `org.arinn.Daemon1` at `/org/arinn/Daemon1`, and daemon ↔ plugins, each provider exporting `/org/arinn/Provider1` under its unique bus name. Interfaces carry a major version suffix (`…1`). Clients never call provider endpoints, MPRIS or KWin directly. The Chrome host ↔ Chrome provider link is a separate typed D-Bus interface that never reaches the core.
+Session D-Bus on both boundaries ([ADR-0020](../adr/0020-dbus-contract-baseline.md)): shell/CLI ↔ daemon under `org.arinn.Daemon1` at `/org/arinn/Daemon1`, and daemon ↔ plugins, each provider exporting `/org/arinn/Provider1` under its unique bus name. Interfaces carry a major version suffix (`…1`). Clients never call provider endpoints, MPRIS or KWin directly. The Chrome host ↔ Chrome provider link is a separate typed D-Bus interface that never reaches the core. The narrow session-observation exception in §5.7 is defined by [ADR-0041](../adr/0041-independent-session-lifecycle-guard.md).
 
 ---
 

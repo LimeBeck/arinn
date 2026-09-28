@@ -1,0 +1,14 @@
+# Review requests for shared contracts and project rules (ADR-0036).
+# Code owner review is not enforced by branch protection: the maintainer
+# account also opens agent pull requests and cannot approve its own.
+
+/crates/arinn-protocol/        @LimeBeck
+/docs/plugin-api/              @LimeBeck
+/docs/specifications/          @LimeBeck
+/docs/adr/                     @LimeBeck
+/ROADMAP.md                    @LimeBeck
+/.github/                      @LimeBeck
+/packaging/                    @LimeBeck
+/LICENSES/                     @LimeBeck
+/REUSE.toml                    @LimeBeck
+/CLA.md                        @LimeBeck

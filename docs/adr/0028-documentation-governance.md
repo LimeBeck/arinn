@@ -4,7 +4,7 @@
 - **Date:** 2026-09-27
 - **Deciders:** project owner
 - **Amends / Supersedes:** changes the status of ADR-0001–ADR-0019 from Proposed to Accepted
-- **Amended by / Superseded by:** —
+- **Amended by / Superseded by:** [ADR-0036](0036-parallel-development.md) — specification version bumped at release; reserved ADR numbers
 - **Specification:** [§1](../specifications/arinn-specification.md)
 
 ## Context

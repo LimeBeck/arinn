@@ -50,10 +50,28 @@ Every pull request runs the full pipeline described in [ADR-0033](docs/adr/0033-
 
 Only the maintainer releases. To release version `X.Y.Z`:
 
-1. In a pull request, set `version` in the root `Cargo.toml` and `pkgver` in `packaging/arch/PKGBUILD` to `X.Y.Z`, and move the *Unreleased* entries of `CHANGELOG.md` into a `## [X.Y.Z] - YYYY-MM-DD` section. Run `python scripts/release.py check vX.Y.Z`.
+1. In a pull request, set `version` in the root `Cargo.toml` and `pkgver` in `packaging/arch/PKGBUILD` to `X.Y.Z`; run `python scripts/release.py collect X.Y.Z` to move the changelog fragments into a `## [X.Y.Z]` section; bump the specification version and update its §22 if requirements changed since the last version. Run `python scripts/release.py check vX.Y.Z`.
 2. If the release touches the platform layer, input or session behaviour, run the relevant operator tests on a real KDE session and attach the evidence to that pull request.
 3. Merge, make sure the latest nightly is green, then tag the merge commit: `git tag -s vX.Y.Z -m "Arinn X.Y.Z" && git push origin vX.Y.Z`.
 4. The release workflow reruns the full CI on the tag and publishes the GitHub Release with the Arch package, source tarball and checksums. `0.x` versions are marked as pre-releases.
+
+## Parallel work
+
+Several agents and people work on Arinn at the same time. These rules keep them out of each other's way ([ADR-0036](docs/adr/0036-parallel-development.md)):
+
+1. **One issue per task.** Work starts from an issue created with the *Agent task* template: goal, requirement IDs, **zone** (paths the task may change), shared files, dependencies and a reserved ADR number if needed. Claim it by assigning yourself and adding the label `agent:<name>` (for example `agent:claude`, `agent:codex`); never take a claimed issue. One issue = one branch = one pull request.
+2. **Stay in your zone.** A change outside the zone goes into a separate issue, or is agreed in the issue first.
+3. **Contracts first, one at a time.** Changes to `crates/arinn-protocol`, the plugin SDK or `docs/plugin-api/` are separate pull requests labelled `contract-change`; only one is open at a time, and dependent tasks start after it merges.
+4. **Shared files without conflicts:**
+   - changelog: add a fragment under [`changes/`](changes/README.md), never edit `CHANGELOG.md`;
+   - ADRs: use the number reserved in the issue; regenerate the register with `python scripts/adr.py register`;
+   - specification: change text only; the version is bumped at release;
+   - roadmap: change only the rows of your own gates;
+   - `Cargo.lock`: on a conflict, take `master`'s version and let `cargo build` regenerate it; never merge it by hand.
+5. **Stay current.** Merge `master` into your branch regularly and before asking for review; the branch must be up to date to merge. Never rewrite another branch's history.
+6. **Isolate your workspace.** Use your own clone, worktree or cloud session with its own `target/` and `build/`. Automated tests use private D-Bus buses and can run in parallel; operator tests cannot and need the owner's permission.
+
+Labels used by this process: `task`, `agent:<name>`, `blocked`, `contract-change`, `skip-changelog`.
 
 ## Branches and commits
 
@@ -80,7 +98,7 @@ The full rules are [ADR-0028](docs/adr/0028-documentation-governance.md). In pra
 
 | When you… | Update in the same pull request |
 | --- | --- |
-| change behaviour a user or plugin author can observe | the [specification](docs/specifications/arinn-specification.md) (bump the version as described in its §1.2) and `CHANGELOG.md` |
+| change behaviour a user or plugin author can observe | the [specification](docs/specifications/arinn-specification.md) (text only; the version is bumped at release) and a [changelog fragment](changes/README.md) |
 | make or change an architectural decision | a new ADR (never edit an accepted one) and the specification |
 | complete a gate, move an item or change a phase status | [ROADMAP.md](ROADMAP.md) with evidence links |
 | change a technical contract (IPC, runtime, persistence) | the matching document in `docs/architecture/` or `docs/plugin-api/` |
@@ -118,7 +136,7 @@ Only add dependencies whose licenses pass `cargo deny check licenses`. Never add
 
 ## AI-assisted contributions
 
-AI tools are welcome under the same rules as everyone else. The person or agent opening the pull request is responsible for the whole change: it must build, pass the checks and follow these rules. Credit the tool with a `Co-Authored-By:` trailer. Agents follow [AGENTS.md](AGENTS.md).
+AI tools are welcome under the same rules as everyone else. The person or agent opening the pull request is responsible for the whole change: it must build, pass the checks and follow these rules. Credit the tool with a `Co-Authored-By:` trailer. Agents follow [AGENTS.md](AGENTS.md). If you run an agent yourself, its commits count as your contribution: sign the CLA with your own account. Agents operated by the maintainer are on the CLA allowlist ([ADR-0036](docs/adr/0036-parallel-development.md)).
 
 ## Language
 
@@ -131,9 +149,18 @@ A change is done when:
 - [ ] it implements what the issue or roadmap item asks, and nothing unrelated;
 - [ ] all required checks pass locally and in CI;
 - [ ] tests cover the new behaviour; a bug fix has a regression test that fails without the fix;
-- [ ] the specification, ADRs, roadmap, technical documents and `CHANGELOG.md` are updated as the table above requires;
+- [ ] the specification, ADRs, roadmap and technical documents are updated as the table above requires, and a changelog fragment is added (or the pull request is labelled `skip-changelog`);
 - [ ] new files have SPDX headers;
 - [ ] the CLA is signed.
+
+## Repository settings (maintainer)
+
+These GitHub settings make the rules above enforceable:
+
+- **Branches → `master`:** require a pull request; require status checks *Rust*, *Qt shell and private-bus integration*, *Licensing*, *Documentation consistency*, *Changelog fragment*, *Package / Build Arch package*, *Package / Install and smoke-test package* and *cla*; require branches to be up to date before merging; block force pushes and deletion. Do not require code owner review (the maintainer account also opens agent pull requests).
+- **Actions → General:** workflow permissions "Read and write" (the CLA bot stores signatures in the `cla-signatures` branch).
+- **Security:** private vulnerability reporting, Dependabot alerts and secret scanning on.
+- **Labels:** create the labels listed under *Parallel work*.
 
 ## Code of conduct and security
 

@@ -1,0 +1,2 @@
+- All living documentation translated to English. ADR-0001–ADR-0019 accepted.
+- `docs/architecture/review-map.md` and `docs/architecture/product-decisions.md` folded into the specification and the roadmap.

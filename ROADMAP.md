@@ -6,9 +6,10 @@ The single source of phase status ([ADR-0028](docs/adr/0028-documentation-govern
 
 - **Statuses:** `Planned` → `In progress` → `Done`. `Blocked` when waiting on a decision or an external dependency (say which).
 - **Exit criteria** reference requirement IDs: acceptance criteria (AC-xx), gates (G-x.y), rules (R-xx), open questions (OQ-xx).
-- **A phase is Done** only when every exit criterion holds with linked evidence (test, report or evidence file) **and** the documentation is synchronized: specification, ADRs, this file, `CHANGELOG.md`. Items that are knowingly moved to a later phase are listed under *Carried over* with their target.
+- **A phase is Done** only when every exit criterion holds with linked evidence (test, report or evidence file) **and** the documentation is synchronized: specification, ADRs, this file and changelog fragments. Items that are knowingly moved to a later phase are listed under *Carried over* with their target.
 - **Open questions** listed under a phase must be decided before that phase starts the affected work.
-- **Updating:** change this file in the same pull request that changes a phase status, closes a gate or moves an item. Record the date.
+- **Updating:** a pull request changes only the rows of the gates it closes or moves, and records the date; phase status is changed by the maintainer. This keeps parallel pull requests free of conflicts ([ADR-0036](docs/adr/0036-parallel-development.md)).
+- **Tasks:** each phase is split into issues from the *Agent task* template before parallel work starts; issues name their zone and dependencies.
 - **Every acceptance criterion** AC-01–AC-19 is assigned to exactly one phase below; `scripts/check-docs.py` enforces it.
 
 ## Overview

@@ -10,7 +10,7 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
 name = "arinn-plugin-demo"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "arinn-plugin-sdk",
@@ -21,7 +21,7 @@ dependencies = [
 
 [[package]]
 name = "arinn-plugin-desktop"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "arinn-plugin-sdk",
@@ -35,7 +35,7 @@ dependencies = [
 
 [[package]]
 name = "arinn-plugin-sdk"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "arinn-protocol",
  "futures-util",
@@ -46,7 +46,7 @@ dependencies = [
 
 [[package]]
 name = "arinn-protocol"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "serde",
  "uuid",
@@ -55,7 +55,7 @@ dependencies = [
 
 [[package]]
 name = "arinnctl"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "arinn-protocol",
@@ -68,7 +68,7 @@ dependencies = [
 
 [[package]]
 name = "arinnd"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "arinn-plugin-sdk",

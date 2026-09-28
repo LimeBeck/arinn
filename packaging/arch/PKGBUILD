@@ -7,7 +7,7 @@
 # scripts/release.py; do not edit it by hand.
 
 pkgname=arinn
-pkgver=0.0.1
+pkgver=0.1.0
 pkgrel=1
 pkgdesc='TV-first shell for a Linux HTPC (pre-alpha prototype)'
 arch=('x86_64')

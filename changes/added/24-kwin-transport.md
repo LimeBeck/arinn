@@ -1,1 +1,0 @@
-- Define the internal KWin inventory/control wire contract and SDK registration contexts for desktop-provider integration, with isolated contract and lifecycle tests. Production backend and KDE qualification remain pending (#24, G-1.5, G-2.1–G-2.3).

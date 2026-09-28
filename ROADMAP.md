@@ -109,7 +109,8 @@ cover the demo fixtures, recovery and limits; versioned XML is checked against l
 introspection. See the [implementation record](docs/architecture/phase-1-progress.md)
 for evidence and remaining qualification. Real systemd/KDE checks also passed ([live evidence](docs/architecture/phase-1-live-evidence.json)).
 CI and clean Arch package checks passed on 2026-09-28 ([CI evidence](docs/architecture/phase-1-progress.md#github-ci-qualification)).
-The maintainer release and branch-protection gate remains pending; Phase 1 is not marked Done.
+Branch protection is enabled and verified (2026-09-28). The maintainer release
+remains pending; Phase 1 is not marked Done.
 
 **Decision resolved (2026-09-28):** OQ-06 uses SHA-256 of `provider_id`
 ([ADR-0034](docs/adr/0034-provider-data-directory-identity.md)); provisioning and
@@ -132,11 +133,11 @@ Scope:
 | G-1.1 Contract suite passes against the demo provider for its declared capabilities | Local and CI private-bus coverage passed (2026-09-28; [evidence](docs/architecture/phase-1-progress.md#github-ci-qualification)) |
 | G-1.2 Crash/restart, daemon restart, disappear/reappear and stale generation covered by integration tests | Local and CI private-bus coverage passed (2026-09-28; [evidence](docs/architecture/phase-1-progress.md#github-ci-qualification)) |
 | G-1.3 Limits, validation and timeouts rejected/handled as specified (malformed, oversized, slow provider) | Local and CI private-bus coverage passed (2026-09-28; [evidence](docs/architecture/phase-1-progress.md#github-ci-qualification)) |
-| G-1.4 Shell application/provider integration data and commands use `org.arinn.Daemon1` and its daemon-owned endpoints; no executable `Spike1` interfaces remain. Independent session observation follows ADR-0041 | Source review passes the clarified boundary (2026-09-28; [review](docs/architecture/phase-1-shell-review.md), [owner decision](docs/adr/0041-independent-session-lifecycle-guard.md)); prior Qt/private-bus [CI evidence](docs/architecture/phase-1-progress.md#github-ci-qualification). R-05 lifecycle transport extraction remains [#29](https://github.com/LimeBeck/arinn/issues/29) |
+| G-1.4 Shell application/provider integration data and commands use `org.arinn.Daemon1` and its daemon-owned endpoints; no executable `Spike1` interfaces remain. Independent session observation follows ADR-0041 | Source review passes the clarified boundary (2026-09-28; [review](docs/architecture/phase-1-shell-review.md), [owner decision](docs/adr/0041-independent-session-lifecycle-guard.md)); prior Qt/private-bus [CI evidence](docs/architecture/phase-1-progress.md#github-ci-qualification). R-05 lifecycle transport extraction was merged in [#32](https://github.com/LimeBeck/arinn/pull/32), closing [#29](https://github.com/LimeBeck/arinn/issues/29) |
 | G-1.5 Versioned introspection XML for the application capability and the daemon API | [XML contracts](docs/plugin-api/README.md), live introspection comparison |
 | AC-11 Dynamic provider: install/remove a manifest and reload without core changes | Local and CI manifest remove/reinstall and reload tests passed (2026-09-28; [evidence](docs/architecture/phase-1-progress.md#github-ci-qualification)) |
 | AC-12 No product-specific conditions in the shell | Production shell source review passed (2026-09-28; [review](docs/architecture/phase-1-shell-review.md)); prior local/CI test evidence remains in the [implementation record](docs/architecture/phase-1-progress.md#github-ci-qualification) |
-| G-1.6 Branch protection on `master` requires all CI checks and the CLA; the first `v0.1.0` pre-release is published through the release pipeline | Pending: branch-protection API reports a plan restriction (2026-09-28); maintainer release still required ([details](docs/architecture/phase-1-progress.md#remaining-maintainer-gate)) |
+| G-1.6 Branch protection on `master` requires all CI checks and the CLA; the first `v0.1.0` pre-release is published through the release pipeline | Partial: required checks and CLA enforced by branch protection, verified by API readback (2026-09-28); release preparation and maintainer publication of `v0.1.0` still required ([details](docs/architecture/phase-1-progress.md#remaining-maintainer-gate)) |
 
 ## Phase 2 — Applications
 

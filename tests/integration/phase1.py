@@ -133,6 +133,25 @@ with tempfile.TemporaryDirectory(prefix="arinn-production-") as folder:
         cli("launch", "test", "demo.application.0")
         assert cli("activate", "test", "unknown", ok=False).returncode == 1
         assert cli("nonsense", ok=False).returncode == 2
+        # Web shortcuts from the CLI (#84): add, list, edit and remove; open fails
+        # with Unavailable while no browser is connected.
+        added = json.loads(cli("--json", "shortcuts", "add", "Media", "http://nas.local:8096/").stdout)["id"]
+        listed = json.loads(cli("--json", "shortcuts").stdout)["shortcuts"]
+        assert [s["title"] for s in listed if s["id"] == added] == ["Media"], listed
+        cli("shortcuts", "edit", added, "Jellyfin", "https://media.example/")
+        listed = json.loads(cli("--json", "shortcuts", "list").stdout)["shortcuts"]
+        assert any(s["id"] == added and s["title"] == "Jellyfin" for s in listed), listed
+        rejected = cli("shortcuts", "add", "Public", "http://example.org/", ok=False)
+        assert rejected.returncode == 1 and "InvalidArgument" in rejected.stderr, rejected.stderr
+        unavailable = cli("shortcuts", "open", added, ok=False)
+        assert unavailable.returncode == 1 and "Unavailable" in unavailable.stderr, unavailable.stderr
+        cli("shortcuts", "remove", added)
+        assert not any(s["id"] == added for s in json.loads(cli("--json", "shortcuts").stdout)["shortcuts"])
+        missing = cli("shortcuts", "remove", added, ok=False)
+        assert missing.returncode == 1 and "NotFound" in missing.stderr, missing.stderr
+        assert json.loads(cli("--json", "browser", "tabs").stdout) == []
+        assert cli("shortcuts", "add", "OnlyTitle", ok=False).returncode == 2
+        assert cli("browser", "activate", "chrome", ok=False).returncode == 2
         manifest(name="Renamed")
         cli("providers", "reload")
         assert ready()["generation"] == first["generation"]

@@ -1,0 +1,1 @@
+- Power and ambient overlay fixture with Sleep, Restart and Shut down. Restart and Shut down ask for confirmation, Sleep and ambient emit intents only, and a refusal stays an error.

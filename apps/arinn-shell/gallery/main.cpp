@@ -4,16 +4,23 @@
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQuickWindow>
+#include <QVariantMap>
 #include <QTimer>
 
 int main(int argc, char **argv) {
   QGuiApplication app(argc, argv);
   QQmlApplicationEngine engine;
-  engine.load(QUrl("qrc:/gallery/Gallery.qml"));
+  const auto args = app.arguments();
+  const auto fixture = args.indexOf("--state");
+  if (args.contains("--home")) {
+    engine.setInitialProperties({
+        {"fixture", fixture >= 0 && fixture + 1 < args.size() ? args.at(fixture + 1) : QString("populated")},
+        {"showNavigation", args.contains("--nav")}});
+  }
+  engine.load(QUrl(args.contains("--home") ? "qrc:/gallery/HomeGallery.qml" : "qrc:/gallery/Gallery.qml"));
   if (engine.rootObjects().isEmpty())
     return 1;
   auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
-  const auto args = app.arguments();
   if (args.contains("--4k"))
     window->resize(3840, 2160);
   const auto capture = args.indexOf("--capture");

@@ -68,9 +68,17 @@ T.AbstractButton {
         opacity: root.activeFocus ? 1 : 0
         Behavior on opacity { NumberAnimation { duration: Theme.focusDuration } }
     }
+    function focusFromHover() {
+        if (hoverTracker.hovered && pointerMode && hoverFocusEnabled && enabled)
+            forceActiveFocus(Qt.MouseFocusReason);
+    }
+    // The parent input scope and this handler receive the same move. Defer the
+    // check until its pointer-mode update has propagated, regardless of order.
+    onPointerModeChanged: if (pointerMode) Qt.callLater(focusFromHover)
     HoverHandler {
-        onHoveredChanged: if (hovered && root.pointerMode && root.hoverFocusEnabled && root.enabled)
-            root.forceActiveFocus(Qt.MouseFocusReason)
+        id: hoverTracker
+        onHoveredChanged: Qt.callLater(root.focusFromHover)
+        onPointChanged: Qt.callLater(root.focusFromHover)
     }
     Behavior on scale {
         NumberAnimation {

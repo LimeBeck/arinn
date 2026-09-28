@@ -11,6 +11,7 @@
 #include <QQmlContext>
 #include <QQuickWindow>
 #include <QScreen>
+#include <cstdio>
 int main(int argc, char **argv) {
   QGuiApplication app(argc, argv);
   app.setApplicationName("arinn-shell");
@@ -22,9 +23,12 @@ int main(int argc, char **argv) {
     // instance cannot burn the start limit.
     const auto owner =
         bus.interface()->servicePid("org.arinn.Shell1").value();
-    qCritical("arinn-shell: org.arinn.Shell1 is already owned%s; another "
-              "Arinn shell is running. Stop it before starting this one.",
-              owner ? qPrintable(QString(" by PID %1").arg(owner)) : "");
+    // Plain stderr, not qCritical: Qt may route its logging to journald
+    // when stderr is not a terminal. systemd captures stderr either way.
+    std::fprintf(stderr,
+                 "arinn-shell: org.arinn.Shell1 is already owned%s; another "
+                 "Arinn shell is running. Stop it before starting this one.\n",
+                 owner ? qPrintable(QString(" by PID %1").arg(owner)) : "");
     return 2;
   }
   Backend backend;

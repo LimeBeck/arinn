@@ -73,8 +73,8 @@ jobs:
           cmake --build build
       - name: QML component tests
         run: ctest --test-dir build --output-on-failure
-      - name: KWin adapter tests
-        run: node --test tests/integration/kwin_adapter.test.cjs
+      - name: KWin adapter and Chrome extension tests
+        run: node --test tests/integration/kwin_adapter.test.cjs tests/integration/chrome_extension.test.cjs
       - name: Private-bus integration suite
         run: dbus-run-session -- python tests/integration/phase1.py
 

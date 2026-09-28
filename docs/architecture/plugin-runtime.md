@@ -83,11 +83,45 @@ Chrome starts the short-lived `arinn-chrome-host` on `connectNative`. The host o
 
 Chrome owns the lifetime of the native host and talks over stdin/stdout; `connectNative` creates a persistent port ([Native Messaging](https://developer.chrome.com/docs/extensions/develop/concepts/native-messaging)). So the host is not another instance of the systemd provider.
 
-Extension permissions are `tabs` and `nativeMessaging`; no content scripts and no `host_permissions` for reading pages. The native manifest's `allowed_origins` contains the exact extension ID. Incognito is not connected by default. Each bridge connection gets a UUID; tabs get an opaque local ID composed by the plugin from the connection identity and the browser ID. The core never parses it. Several browser profiles may produce several connections without creating Arinn profiles.
+Extension permissions are `tabs` and `nativeMessaging`; no content scripts and no `host_permissions` for reading pages. The native manifest's `allowed_origins` contains the exact extension ID. Incognito is not connected by default. Each bridge connection gets an ID unique for the provider's lifetime; tabs get an opaque local ID composed by the plugin from the connection identity and the browser ID. The core never parses it. Several browser profiles may produce several connections without creating Arinn profiles.
 
-Extension reconnect: 1, 2, 4, 8, 16, 30 s with jitter, capped at 30 s; after a successful connect a full snapshot, then events. This restores the connection; it never repeats a user's mutating command. Old tab IDs are invalid after a browser connection is lost.
+Extension reconnect: 1, 2, 4, 8, 16, 30 s with jitter, capped at 30 s; after a successful connect a full snapshot, then a debounced full snapshot after every change. This restores the connection; it never repeats a user's mutating command. Old tab IDs are invalid after a browser connection is lost.
 
 The desktop ApplicationProvider owns browser application launch. The Chrome provider declares only `browser`, not `application`; their entities link through a validated platform window token ([ADR-0038](../adr/0038-browser-launch-ownership.md), resolving OQ-03). If the browser is closed, launch goes through that ApplicationProvider; open URL waits for a browser connection within the overall launch deadline. With several connections, the default or last foreground connection is used, if it still exists. Activating a tab inside the browser does not replace compositor activation of the window, which is requested through PlatformService.
+
+### Chrome implementation (2026-09-28, [#82](https://github.com/LimeBeck/arinn/issues/82))
+
+- **Extension** (`plugins/chrome/extension`, installed to `/usr/share/arinn/chrome-extension`):
+  - MV3 service worker; `key` fixes the ID `eajlncomibfmpmkhkbcdmajmkpfaaibf`;
+  - sends `{"type":"snapshot","windows":[{id,focused}],"tabs":[{id,windowId,title,url,active,audible}]}`, debounced by 150 ms;
+  - executes `{"type":"command","serial","action","tabId","url"}` (`activate`, `close`, `open`) and answers `{"type":"result","serial","error"}`;
+  - skips incognito windows and tabs.
+- **Host** (`/usr/lib/arinn/arinn-chrome-host`):
+  - refuses any origin except the packaged extension (exit status 2) before touching the bus;
+  - frames Native Messaging with at most 8 MiB in and 1 MiB out;
+  - rejects unknown message types and fields;
+  - attaches to the provider's well-known name `org.arinn.ChromeBridge1` and publishes snapshots;
+  - exports `org.arinn.ChromeHost1.Command(action, tab, url) → error` only to the bridge owner, with a 5 s result timeout;
+  - exits when the port closes, a message is malformed or the provider goes away. It never logs titles or URLs.
+- **Provider** (`arinn-plugin-chrome`):
+  - owns `org.arinn.ChromeBridge1` (one instance per session) and serves `BrowserProvider1` through the SDK;
+  - merges up to 16 connections: tab IDs `c<n>:t<tab>`, window IDs `c<n>:w<window>`; only the most recently focused connection keeps a focused window;
+  - cuts long titles, and replaces URLs that break the wire rules with an empty string;
+  - `open` goes to the most recently focused connection;
+  - backend `unavailable` without a browser;
+  - window tokens are empty until window association is implemented.
+- **Packaging:** the same host manifest is installed for Google Chrome (`/etc/opt/chrome/native-messaging-hosts/`) and Chromium (`/etc/chromium/native-messaging-hosts/`).
+- **Installing the extension** (owner decision, 2026-09-28): open `chrome://extensions`, enable *Developer mode*, choose *Load unpacked* and select `/usr/share/arinn/chrome-extension`. The ID stays the same across updates; after a package update, press *Reload* on the extension card. Publishing to the Chrome Web Store is a pre-release decision ([#74](https://github.com/LimeBeck/arinn/issues/74)).
+- **Until the daemon routes `browser` providers** ([#83](https://github.com/LimeBeck/arinn/issues/83)), the daemon lists the Chrome provider as incompatible (`Unsupported`) and does not start it.
+
+Verification:
+
+- unit tests: framing, messages, snapshot merging and routing;
+- `plugins/chrome/tests/chain.rs`: the real host binary between a fake extension and the bridge on a private bus, covering origin refusal, snapshots, command round trips and error mapping, command validation, caller checks, malformed input, port close and provider loss;
+- `tests/integration/chrome_extension.test.cjs`: the extension against a mocked `chrome` API, covering the manifest permissions and ID, snapshots without incognito, debouncing, commands, backoff and no replay;
+- the package tests check the installed files, the manifests and the origin refusal.
+
+A real-browser check is an owner operator test.
 
 ## Desktop implementation status (2026-09-28)
 

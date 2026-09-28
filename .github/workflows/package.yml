@@ -92,3 +92,7 @@ jobs:
           test ! -e /usr/bin/arinnd
           test ! -e /usr/lib/systemd/user/arinn-session.target
           test ! -e /usr/lib/arinn/arinn-kwin-adapter
+          test ! -e /usr/lib/arinn/arinn-chrome-host
+          test ! -e /etc/opt/chrome/native-messaging-hosts/org.arinn.chrome_host.json
+          test ! -e /etc/chromium/native-messaging-hosts/org.arinn.chrome_host.json
+          test ! -e /usr/share/arinn/chrome-extension

@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "Arinn",
+  "description": "Lets the Arinn TV shell list, switch and open browser tabs.",
+  "version": "0.1.0",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAnuoSo5mkknIPzV8UPPilGHPYOHMotOQvzGloPbb+kcqQmwPaNH2rOkeXQyyCYV3UbazT/9+lv9YoA6eI70OkAf0L3MadkfeyedzgySsw/feXDc9/nPoXQIiZaEEvZHcNiEdg1V0tTdnKnTL5YzUcmKbWJRScSkFvabXfT0nnVNiV8yVzWtlPnXjO8sUu9xBA37IHcFMWm88qi9EaZN0HpHRm1IDxqoW9KPymkN3HBf9MjXSa3oWwiHBjlkR+Lw+KTa/H6Hy02/u088K1m2tn8spVw28xFNDlfPPUYjpMU9kBEQuJg7phBs/8GY9w/fSn4PH50lGslnnBvkCtNXvkcQIDAQAB",
+  "permissions": ["tabs", "nativeMessaging"],
+  "background": { "service_worker": "background.js" },
+  "minimum_chrome_version": "116"
+}

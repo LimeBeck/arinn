@@ -475,7 +475,8 @@ impl Core {
                     let Some(event)=event else{return;};let Ok(args)=event.args() else{continue;};
                     if args.new_owner.is_some(){continue;}
                     let name=args.name.as_str();
-                    {let mut state=self.state.lock().await;state.listings.disconnect(name);for p in state.providers.values_mut(){if let Some(cache)=p.cache.as_mut(){cache.disconnect(name);}if let Some(cache)=p.tab_cache.as_mut(){cache.disconnect(name);}}}
+                    {let mut state=self.state.lock().await;state.listings.disconnect(name);for p in state.providers.values_mut(){if let Some(cache)=p.cache.as_mut(){cache.disconnect(name);}
+                    if let Some(cache)=p.tab_cache.as_mut(){cache.disconnect(name);}}}
                     let ids:Vec<_>=self.state.lock().await.providers.iter().filter(|(_,p)|p.owner==name).map(|(id,_)|id.clone()).collect();
                     for id in ids {self.unavailable(&id,name).await;}
                     self.operations.invalidate(&self.connection,None,Some(name)).await;

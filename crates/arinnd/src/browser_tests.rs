@@ -5,9 +5,7 @@
 //! `Browser1`, tab commands with compositor activation and web shortcut open.
 use super::*;
 use arinn_protocol::{
-    browser::BrowserApiProxy,
-    kwin::KWinBridgeProxy,
-    production::{Error, ProductionOperationProxy},
+    browser::BrowserApiProxy, kwin::KWinBridgeProxy, production::ProductionOperationProxy,
 };
 use std::{
     io::{BufRead, BufReader},
@@ -89,6 +87,8 @@ struct Fixture {
     core: Core,
     kwin: Connection,
     client: Connection,
+    // Keeps the fake provider's bus name alive for the whole test.
+    _provider: Connection,
     browser: FakeBrowser,
     generation: String,
 }
@@ -217,6 +217,7 @@ impl Fixture {
             core,
             kwin,
             client,
+            _provider: provider,
             browser,
             generation,
         };
@@ -446,5 +447,4 @@ async fn urls_open_in_the_connected_browser_and_raise_its_focused_window() {
         f.core.open_url("https://example.org/").await,
         Err(ErrorCode::Unavailable)
     );
-    let _: Option<Error> = None;
 }

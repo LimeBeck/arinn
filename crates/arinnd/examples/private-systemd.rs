@@ -14,6 +14,10 @@ use zbus::{
     zvariant::{OwnedObjectPath, OwnedValue},
 };
 struct Unit {
+    application: bool,
+    exit_code: i32,
+    exit_status: i32,
+    exited: u64,
     command: String,
     args: Vec<String>,
     env: Vec<String>,
@@ -80,27 +84,59 @@ impl Manager {
         #[zbus(connection)] connection: &Connection,
     ) -> zbus::fdo::Result<OwnedObjectPath> {
         let mut properties: HashMap<_, _> = properties.into_iter().collect();
-        let commands: Vec<(String, Vec<String>, bool)> =
-            properties.remove("ExecStart").unwrap().try_into().unwrap();
-        let env: Vec<String> = properties
-            .remove("Environment")
-            .unwrap()
-            .try_into()
-            .unwrap();
-        assert_eq!(
-            u64::try_from(properties.remove("RestartUSec").unwrap()).unwrap(),
-            2_000_000
-        );
-        assert_eq!(
-            u32::try_from(properties.remove("StartLimitBurst").unwrap()).unwrap(),
-            5
-        );
-        assert_eq!(
-            String::try_from(properties.remove("Restart").unwrap()).unwrap(),
-            "on-failure"
-        );
-        let (command, args, _) = commands.into_iter().next().unwrap();
+        let application = properties.contains_key("ExecStartEx");
+        let (command, args, env) = if application {
+            assert!(name.starts_with("app-arinn-"));
+            let commands: Vec<(String, Vec<String>, Vec<String>)> = properties
+                .remove("ExecStartEx")
+                .unwrap()
+                .try_into()
+                .unwrap();
+            let (command, args, flags) = commands.into_iter().next().unwrap();
+            assert_eq!(command, "/usr/bin/gio");
+            assert_eq!(flags, ["no-env-expand"]);
+            for (key, value) in [
+                ("Type", "exec"),
+                ("ExitType", "cgroup"),
+                ("Slice", "app.slice"),
+                ("StandardOutput", "null"),
+                ("StandardError", "null"),
+            ] {
+                assert_eq!(
+                    String::try_from(properties.remove(key).unwrap()).unwrap(),
+                    value
+                );
+            }
+            assert!(!properties.contains_key("Environment"));
+            (command, args, Vec::new())
+        } else {
+            let commands: Vec<(String, Vec<String>, bool)> =
+                properties.remove("ExecStart").unwrap().try_into().unwrap();
+            let env: Vec<String> = properties
+                .remove("Environment")
+                .unwrap()
+                .try_into()
+                .unwrap();
+            assert_eq!(
+                u64::try_from(properties.remove("RestartUSec").unwrap()).unwrap(),
+                2_000_000
+            );
+            assert_eq!(
+                u32::try_from(properties.remove("StartLimitBurst").unwrap()).unwrap(),
+                5
+            );
+            assert_eq!(
+                String::try_from(properties.remove("Restart").unwrap()).unwrap(),
+                "on-failure"
+            );
+            let (command, args, _) = commands.into_iter().next().unwrap();
+            (command, args, env)
+        };
         let mut unit = Unit {
+            application,
+            exit_code: 0,
+            exit_status: 0,
+            exited: 0,
             command,
             args,
             env,
@@ -139,6 +175,7 @@ impl Manager {
             .await?;
         Ok("/org/freedesktop/systemd1/job/1".try_into().unwrap())
     }
+    fn unref_unit(&self, _name: &str) {}
     async fn stop_unit(&self, name: &str, _mode: &str) -> zbus::fdo::Result<OwnedObjectPath> {
         if let Some(unit) = self.units.lock().await.get_mut(name) {
             if let Some(child) = unit.child.as_mut() {
@@ -200,6 +237,33 @@ struct ServiceObject {
 }
 #[zbus::interface(name = "org.freedesktop.systemd1.Service")]
 impl ServiceObject {
+    #[zbus(property)]
+    async fn exec_main_exit_timestamp_monotonic(&self) -> u64 {
+        self.units
+            .lock()
+            .await
+            .get(&self.name)
+            .map(|u| u.exited)
+            .unwrap_or(0)
+    }
+    #[zbus(property)]
+    async fn exec_main_code(&self) -> i32 {
+        self.units
+            .lock()
+            .await
+            .get(&self.name)
+            .map(|u| u.exit_code)
+            .unwrap_or(0)
+    }
+    #[zbus(property)]
+    async fn exec_main_status(&self) -> i32 {
+        self.units
+            .lock()
+            .await
+            .get(&self.name)
+            .map(|u| u.exit_status)
+            .unwrap_or(0)
+    }
     #[zbus(property, name = "NRestarts")]
     async fn restarts(&self) -> u32 {
         self.units
@@ -233,11 +297,27 @@ async fn main() -> anyhow::Result<()> {
             tokio::time::sleep(Duration::from_millis(100)).await;
             for unit in shared.lock().await.values_mut() {
                 if let Some(child) = unit.child.as_mut()
-                    && child.try_wait().ok().flatten().is_some()
+                    && let Some(status) = child.try_wait().ok().flatten()
                 {
                     unit.child = None;
-                    unit.state = "activating".into();
-                    unit.retry_at = Some(Instant::now() + Duration::from_secs(2));
+                    unit.exit_code = if status.code().is_some() {
+                        libc::CLD_EXITED
+                    } else {
+                        libc::CLD_KILLED
+                    };
+                    unit.exit_status = status.code().unwrap_or(1);
+                    unit.exited = 1;
+                    unit.state = if unit.application {
+                        "inactive"
+                    } else {
+                        "activating"
+                    }
+                    .into();
+                    unit.retry_at = if unit.application {
+                        None
+                    } else {
+                        Some(Instant::now() + Duration::from_secs(2))
+                    };
                 }
                 if unit.retry_at.is_some_and(|time| Instant::now() >= time) {
                     while unit

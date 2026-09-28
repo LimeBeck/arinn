@@ -1,4 +1,1 @@
-Add desktop-entry discovery with XDG precedence and visibility/locale handling,
-and session-launch delegation to GIO in an independent systemd application unit.
-Private-bus fixtures cover dispatch, field codes and D-Bus activation; real KDE
-and cgroup qualification remain outstanding.
+- Add the desktop application provider with bounded XDG discovery, system GIO launch in independent application units, exact window association, activation and graceful close through the production KWin platform backend. Private-bus, adapter and package fixtures cover integration and lifetime handling; real KDE/cgroup qualification remains outstanding.

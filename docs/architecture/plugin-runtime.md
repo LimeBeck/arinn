@@ -81,6 +81,14 @@ Extension reconnect: 1, 2, 4, 8, 16, 30 s with jitter, capped at 30 s; after a s
 
 The desktop ApplicationProvider owns browser application launch. The Chrome provider declares only `browser`, not `application`; their entities link through a validated platform window token ([ADR-0038](../adr/0038-browser-launch-ownership.md), resolving OQ-03). If the browser is closed, launch goes through that ApplicationProvider; open URL waits for a browser connection within the overall launch deadline. With several connections, the default or last foreground connection is used, if it still exists. Activating a tab inside the browser does not replace compositor activation of the window, which is requested through PlatformService.
 
+## Desktop implementation status (2026-09-28)
+
+The desktop provider, authenticated KWin inventory backend and session launcher
+are implemented. Private-bus tests exercise actual daemon/provider processes,
+GIO dispatch, failure propagation, remap, restart/removal and fixture-application
+lifetime. The test manager cannot prove cgroup isolation; real KDE/systemd
+qualification is outstanding. See the [implementation record](desktop-provider.md).
+
 ## Desktop and media edge cases
 
 The desktop provider reports installed entries and running instances. Window identity comes from PlatformService. Closing an application first requests a graceful close of its windows; if that is impossible, `Unsupported` — never a kill by process name. Force kill is not a regular MVP terminate. Several windows are separate instances; activate picks the most recently used available window.

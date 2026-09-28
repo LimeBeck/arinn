@@ -10,3 +10,6 @@ pub mod registry;
 pub mod runtime;
 pub mod storage;
 pub mod supervisor;
+
+#[path = "../../../platform/kde/windows.rs"]
+pub mod windows;

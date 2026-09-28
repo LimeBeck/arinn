@@ -55,6 +55,7 @@ pub struct Core {
     paths: Paths,
     runtime_dir: PathBuf,
     platform: crate::platform::Platform,
+    windows: crate::windows::Windows,
 }
 fn sender(h: &Header<'_>) -> Result<String, ErrorCode> {
     h.sender()
@@ -82,7 +83,22 @@ impl Core {
             paths,
             runtime_dir,
             platform: crate::platform::Platform::default(),
+            windows: crate::windows::Windows::default(),
         }
+    }
+    pub async fn export_platform(&self) -> Result<(), ErrorCode> {
+        self.windows.start(&self.connection).await?;
+        self.connection
+            .object_server()
+            .at(production::PATH, self.windows.clone())
+            .await
+            .map_err(|_| ErrorCode::Internal)?;
+        self.connection
+            .object_server()
+            .at(production::PATH, WindowEndpoint { core: self.clone() })
+            .await
+            .map_err(|_| ErrorCode::Internal)?;
+        Ok(())
     }
     pub async fn start(&self) {
         let core = self.clone();
@@ -391,6 +407,7 @@ impl Core {
                 return;
             }
         }
+        self.windows.disconnect(owner).await;
         self.operations
             .invalidate(&self.connection, Some(id), None)
             .await;
@@ -1127,3 +1144,186 @@ impl ApplicationEndpoint {
             .await?)
     }
 }
+
+fn window_scope(state: &State, owner: &str) -> Result<crate::windows::Scope, ErrorCode> {
+    state
+        .providers
+        .iter()
+        .find(|(_, p)| {
+            p.owner == owner
+                && !p.info.generation.is_empty()
+                && p.enabled
+                && p.info.capabilities.iter().any(|c| c == "application")
+        })
+        .map(|(id, p)| crate::windows::Scope {
+            provider: id.clone(),
+            owner: owner.into(),
+            registration: p.info.generation.clone(),
+        })
+        .ok_or(ErrorCode::PermissionDenied)
+}
+// Preserve operation completion if a caller's admission budget expires after
+// allocating its deduplication record but before spawning the completion task.
+struct WindowAdmission(Option<(Connection, OwnedObjectPath, crate::operations::Operation)>);
+impl Drop for WindowAdmission {
+    fn drop(&mut self) {
+        if let Some((connection, path, operation)) = self.0.take() {
+            tokio::spawn(async move {
+                operation
+                    .finish(&connection, &path, Err(ErrorCode::Timeout))
+                    .await;
+            });
+        }
+    }
+}
+struct WindowEndpoint {
+    core: Core,
+}
+impl WindowEndpoint {
+    async fn control(
+        &self,
+        action: &str,
+        generation: &str,
+        token: &str,
+        request_id: &str,
+        caller: &str,
+    ) -> production::Result<OwnedObjectPath> {
+        let state = self.core.state.lock().await;
+        let scope = window_scope(&state, caller)?;
+        arinn_protocol::platform::validate_command(generation, token, request_id)?;
+        let fingerprint = serde_json::to_string(&("platform", action, generation, token))
+            .map_err(|_| ErrorCode::Internal)?;
+        if let Some(path) = self
+            .core
+            .operations
+            .existing(caller, request_id, &fingerprint)
+            .await?
+        {
+            return Ok(path);
+        }
+        self.core
+            .windows
+            .check(&self.core.connection, generation, token, action)
+            .await?;
+        let (path, operation, fresh) = self
+            .core
+            .operations
+            .admit(
+                &self.core.connection,
+                caller,
+                request_id,
+                &fingerprint,
+                &scope.provider,
+            )
+            .await?;
+        if fresh {
+            let mut admission = WindowAdmission(Some((
+                self.core.connection.clone(),
+                path.clone(),
+                operation.clone(),
+            )));
+            let work = self
+                .core
+                .windows
+                .enqueue(
+                    &self.core.connection,
+                    scope.clone(),
+                    generation,
+                    token,
+                    action,
+                )
+                .await;
+            drop(state);
+            {
+                let mut value = operation.value.lock().await;
+                if value.state == "queued" {
+                    value.state = "running".into();
+                    value.started_at = now();
+                }
+            }
+            let core = self.core.clone();
+            let object = path.clone();
+            admission.0.take();
+            tokio::spawn(async move {
+                let result = match work {
+                    Ok(receiver) => tokio::time::timeout(Duration::from_secs(5), receiver)
+                        .await
+                        .map_err(|_| ErrorCode::Timeout)
+                        .and_then(|r| r.map_err(|_| ErrorCode::Unavailable))
+                        .and_then(|r| r),
+                    Err(error) => Err(error),
+                };
+                let current = window_scope(&*core.state.lock().await, &scope.owner);
+                let result = if current.as_ref() == Ok(&scope) {
+                    result
+                } else {
+                    Err(ErrorCode::Unavailable)
+                };
+                operation
+                    .finish(&core.connection, &object, result.map(|_| Vec::new()))
+                    .await;
+            });
+        }
+        Ok(path)
+    }
+}
+#[zbus::interface(name = "org.arinn.PlatformWindows1")]
+impl WindowEndpoint {
+    async fn get_windows(
+        &self,
+        token: &str,
+        #[zbus(header)] h: Header<'_>,
+    ) -> production::Result<(arinn_protocol::platform::WindowPage,)> {
+        tokio::time::timeout(Duration::from_secs(3), async {
+            let caller = sender(&h)?;
+            let state = self.core.state.lock().await;
+            let scope = window_scope(&state, &caller)?;
+            self.core
+                .windows
+                .page(&self.core.connection, &scope, token)
+                .await
+                .map(|page| (page,))
+                .map_err(production::Error::from)
+        })
+        .await
+        .map_err(|_| production::Error::from(ErrorCode::Timeout))?
+    }
+    async fn activate(
+        &self,
+        generation: &str,
+        token: &str,
+        request_id: &str,
+        #[zbus(header)] h: Header<'_>,
+    ) -> production::Result<OwnedObjectPath> {
+        tokio::time::timeout(
+            Duration::from_secs(3),
+            self.control("activate", generation, token, request_id, &sender(&h)?),
+        )
+        .await
+        .map_err(|_| production::Error::from(ErrorCode::Timeout))?
+    }
+    async fn close(
+        &self,
+        generation: &str,
+        token: &str,
+        request_id: &str,
+        #[zbus(header)] h: Header<'_>,
+    ) -> production::Result<OwnedObjectPath> {
+        tokio::time::timeout(
+            Duration::from_secs(3),
+            self.control("close", generation, token, request_id, &sender(&h)?),
+        )
+        .await
+        .map_err(|_| production::Error::from(ErrorCode::Timeout))?
+    }
+    #[zbus(signal)]
+    async fn windows_changed(
+        emitter: &SignalEmitter<'_>,
+        generation: &str,
+        revision: u64,
+    ) -> zbus::Result<()>;
+}
+
+#[cfg(test)]
+#[path = "../../../platform/kde/window_tests.rs"]
+mod window_tests;

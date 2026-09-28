@@ -8,6 +8,7 @@ const assert = require('node:assert/strict');
 const vm = require('node:vm');
 const fs = require('node:fs');
 const path = require('node:path');
+const {randomUUID} = require('node:crypto');
 
 function signal() {
     const handlers = [];
@@ -17,12 +18,16 @@ function fixture() {
     const output = { name: 'second-screen' };
     function window(uuid, klass) {
         return { internalId: uuid, resourceClass: klass, normalWindow: true,
-            output, fullScreen: true, outputChanged: signal(), fullScreenChanged: signal() };
+            output, fullScreen: true, desktopFileName: klass === 'org.arinn.Shell' ? klass : 'org.test',
+            wantsInput: true, closeable: true, closed: 0, closeWindow() { this.closed++; },
+            outputChanged: signal(), fullScreenChanged: signal() };
     }
     const activity = window('original-id', 'game');
     const home = window('shell-id', 'org.arinn.Shell');
     let windows = [activity, home];
-    let shortcut, takeCommand, report, tick;
+    let shortcut, takeCommand, report, tick, control;
+    let locked = false, generation = randomUUID(), stage = [];
+    const snapshots = [], acknowledgements = [], controls = [];
     let owner = ":1.10"; const polls = [];
     const workspace = { activeWindow: activity, activeScreen: output, screens: [output],
         windowList: () => windows, windowAdded: signal(), windowRemoved: signal(),
@@ -31,7 +36,17 @@ function fixture() {
         QTimer: class { constructor() { this.timeout = { connect: fn => { tick = fn; } }; } start() {} },
         registerShortcut: (_id, _label, _keys, fn) => { shortcut = fn; },
         callDBus: (_service, _path, _interface, method, ...args) => {
-            if (method === 'GetActive') args[0](false);
+            if (_interface === 'org.arinn.KWinBridge1') {
+                assert.ok(args.length <= 9);
+                const callback = args.at(-1);
+                if (method === 'Connect') { generation = randomUUID(); callback(generation); }
+                if (method === 'BeginInventory') { stage = []; callback(); }
+                if (method === 'PutWindow') { stage[args[2]] = args.slice(3, 7); callback(); }
+                if (method === 'CommitInventory') { snapshots.push({generation: args[0], revision: args[1], rows: stage}); callback(); }
+                if (method === 'NextControl') { control = callback; controls.push(callback); }
+                if (method === 'CompleteControl') { acknowledgements.push(args.slice(0, 3)); callback(); }
+            }
+            if (method === 'GetActive') args[0](locked);
             if (method === 'NameHasOwner') args[1](!!owner);
             if (method === 'GetNameOwner') args[1](owner);
             if (method === 'TakeCommand') { takeCommand = args[0]; polls.push(takeCommand); }
@@ -41,7 +56,9 @@ function fixture() {
             }
         } });
     vm.runInContext(fs.readFileSync(path.join(__dirname, '../../platform/kde/phase0.js'), 'utf8'), context);
-    return { activity, home, workspace, window, polls,
+    return { activity, home, workspace, window, polls, snapshots, acknowledgements, controls,
+        refresh() { tick(); }, lock(value) { locked = value; },
+        command(action, token) { control([randomUUID(), action, token]); },
         reconnect(value) { owner = value; tick(); },
         show: () => shortcut(), back: () => takeCommand('return'), report: () => report,
         remove(w) { windows = windows.filter(x => x !== w); workspace.windowRemoved.emit(w); },
@@ -87,4 +104,60 @@ test('daemon owner change restores Home context and ignores late old commands', 
     f.back();
     assert.equal(f.workspace.activeWindow, f.activity);
     assert.equal(f.report()[0], false);
+});
+
+
+test('inventory has exact desktop IDs, distinct remap tokens and change-only revisions', () => {
+    const f = fixture();
+    const first = f.snapshots.at(-1);
+    assert.equal(first.rows.length, 1);
+    assert.equal(first.rows[0][1], 'org.test.desktop');
+    assert.equal(first.rows[0][3], 15);
+    f.refresh();
+    assert.equal(f.snapshots.length, 1);
+    const extra = f.window('extra', 'same-class');
+    extra.desktopFileName = '/unknown/location/org.test.desktop';
+    f.add(extra); f.refresh();
+    assert.equal(f.snapshots.at(-1).rows[1][1], '');
+    f.remove(f.activity); f.refresh(); f.add(f.activity); f.refresh();
+    const remapped = f.snapshots.at(-1).rows.find(row => row[1] === 'org.test.desktop');
+    assert.notEqual(remapped[0], first.rows[0][0]);
+    f.command('activate', first.rows[0][0]);
+    assert.equal(f.acknowledgements.at(-1)[2], 'NotFound');
+});
+
+test('controls acknowledge graceful dispatch, unsupported and locked failures', () => {
+    const f = fixture();
+    const token = f.snapshots.at(-1).rows[0][0];
+    f.command('close', token);
+    assert.equal(f.activity.closed, 1);
+    assert.equal(f.acknowledgements.at(-1)[2], '');
+    f.activity.closeable = false;
+    f.command('close', token);
+    assert.equal(f.acknowledgements.at(-1)[2], 'Unsupported');
+    f.lock(true); f.command('activate', token);
+    assert.equal(f.acknowledgements.at(-1)[2], 'PermissionDenied');
+    f.lock(false); f.show(); f.command('activate', token);
+    assert.equal(f.workspace.activeWindow, f.activity);
+    assert.equal(f.report()[0], false);
+});
+
+test('generation replacement ignores old control callbacks', () => {
+    const f = fixture();
+    const before = f.snapshots.at(-1);
+    const old = f.controls[0];
+    f.reconnect(':1.99');
+    assert.notEqual(f.snapshots.at(-1).generation, before.generation);
+    old([randomUUID(), 'close', before.rows[0][0]]);
+    assert.equal(f.activity.closed, 0);
+    assert.equal(f.acknowledgements.length, 0);
+});
+
+
+test('Plasma lock surface and input method are never application windows', () => {
+    const f = fixture();
+    const locker = f.window('lock-surface', 'kscreenlocker_greet');
+    const input = f.window('input-surface', 'input'); input.inputMethod = true;
+    f.add(locker); f.add(input); f.refresh();
+    assert.equal(f.snapshots.at(-1).rows.length, 1);
 });

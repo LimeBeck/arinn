@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Temporary Phase 0 KWin adapter. No startup installation or arbitrary script API.
+// KWin platform adapter. Installation remains explicit; no arbitrary script API.
 const service = "org.arinn.Daemon1";
 const path = "/org/arinn/Daemon1";
 let target = "";
@@ -80,6 +80,7 @@ function checkDaemon() {
         if (!exists) {
             probeStarted = 0;
             daemonOwner = "";
+            resetInventory();
             ++pollSerial;
             pollStarted = 0;
             return;
@@ -97,6 +98,7 @@ function checkDaemon() {
             } else if (!pollStarted || Date.now() - pollStarted > 26000) {
                 poll();
             }
+            inventoryTick();
         });
     });
 }
@@ -117,6 +119,153 @@ workspace.windowList().forEach(watchWindow);
 workspace.windowAdded.connect(watchWindow);
 workspace.windowActivated.connect(report);
 workspace.windowRemoved.connect(w => {
+    windowTokens.delete(w);
     if (id(w) === target) { detachedTarget = target; target = ""; if (homeVisible) rpc("ReportHome", true, "", homeOutput); }
 });
+
+// Versioned internal transport: bounded scalar callDBus arguments and explicit
+// command acknowledgements. None of these tokens is a process ID or command.
+let inventoryOwner = "";
+let inventorySerial = 0;
+let inventoryInstance = "";
+let platformGeneration = "";
+let inventoryRevision = 0;
+let windowCounter = 0;
+let windowTokens = new Map();
+let inventoryFingerprint = "";
+let connectingAt = 0;
+let publishingAt = 0;
+let controllingAt = 0;
+function uuid() {
+    return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => {
+        const r = Math.floor(Math.random() * 16);
+        return (c === "x" ? r : (r & 3) | 8).toString(16);
+    });
+}
+function bridge(method, ...args) { callDBus(service, path, "org.arinn.KWinBridge1", method, ...args); }
+function resetInventory() {
+    ++inventorySerial;
+    inventoryOwner = "";
+    inventoryInstance = uuid();
+    platformGeneration = "";
+    inventoryRevision = 0;
+    windowCounter = 0;
+    windowTokens = new Map();
+    inventoryFingerprint = "";
+    connectingAt = publishingAt = controllingAt = 0;
+}
+function boundedId(value) {
+    try { return value && !value.includes("\0") && encodeURIComponent(value).replace(/%[0-9A-F]{2}/g, "x").length <= 256 ? value : ""; }
+    catch (_) { return ""; }
+}
+function applicationWindow(w) {
+    // isLockScreen() is not exported to KWin JavaScript. WaylandWindow derives
+    // resourceClass from the executable basename; exclude Plasma's locker here,
+    // like the shell, without using resourceClass for application association.
+    return w && w.normalWindow && !isShell(w) && w.resourceClass !== "kscreenlocker_greet" && !w.inputMethod;
+}
+function desktopId(w) {
+    // KWin documents a basename WITHOUT extension, or a full path. A full
+    // path cannot establish an XDG desktop ID here and remains unassociated.
+    const name = String(w.desktopFileName || "");
+    return name && !name.includes("/") ? boundedId(name + ".desktop") : "";
+}
+function inventory() {
+    const windows = workspace.windowList().filter(applicationWindow);
+    for (const w of windowTokens.keys()) if (!windows.includes(w)) windowTokens.delete(w);
+    return windows.map(w => {
+        if (!windowTokens.has(w)) windowTokens.set(w, platformGeneration + ":" + (++windowCounter));
+        const flags = (workspace.activeWindow === w ? 1 : 0) | (w.fullScreen ? 2 : 0) |
+            (w.wantsInput === true ? 4 : 0) | (w.closeable === true && typeof w.closeWindow === "function" ? 8 : 0);
+        return [windowTokens.get(w), desktopId(w), boundedId(w.output ? String(w.output.name) : ""), flags];
+    });
+}
+function publishInventory() {
+    if (!platformGeneration || publishingAt) return;
+    const rows = inventory();
+    const fingerprint = JSON.stringify(rows);
+    if (fingerprint === inventoryFingerprint) return;
+    if (rows.length > 100000 || inventoryRevision >= 2147483647) { resetInventory(); return; }
+    const serial = inventorySerial, generation = platformGeneration, revision = inventoryRevision + 1;
+    publishingAt = Date.now();
+    bridge("BeginInventory", generation, revision, rows.length, () => {
+        function put(index) {
+            if (serial !== inventorySerial) return;
+            if (index === rows.length) {
+                bridge("CommitInventory", generation, revision, () => {
+                    if (serial !== inventorySerial) return;
+                    publishingAt = 0;
+                    inventoryRevision = revision;
+                    inventoryFingerprint = fingerprint;
+                });
+                return;
+            }
+            bridge("PutWindow", generation, revision, index, ...rows[index], () => put(index + 1));
+        }
+        put(0);
+    });
+}
+function pollControl() {
+    if (!platformGeneration) return;
+    const serial = inventorySerial, generation = platformGeneration;
+    controllingAt = Date.now();
+    bridge("NextControl", generation, command => {
+        if (serial !== inventorySerial) return;
+        if (!Array.isArray(command)) { resetInventory(); return; }
+        if (command.length === 0) { controllingAt = 0; pollControl(); return; }
+        if (command.length !== 3 || !["activate", "close"].includes(command[1])) { resetInventory(); return; }
+        function complete(error) {
+            if (serial !== inventorySerial) return;
+            bridge("CompleteControl", generation, command[0], error, () => {
+                if (serial !== inventorySerial) return;
+                controllingAt = 0;
+                publishInventory();
+                pollControl();
+            });
+        }
+        callDBus("org.freedesktop.ScreenSaver", "/ScreenSaver", "org.freedesktop.ScreenSaver", "GetActive", locked => {
+            if (serial !== inventorySerial) return;
+            if (locked !== false) { complete("PermissionDenied"); return; }
+            const w = workspace.windowList().find(w => applicationWindow(w) && windowTokens.get(w) === command[2]);
+            if (!w) { complete("NotFound"); return; }
+            try {
+                if (command[1] === "close") {
+                    if (w.closeable !== true || typeof w.closeWindow !== "function") { complete("Unsupported"); return; }
+                    w.closeWindow();
+                } else {
+                    if (w.wantsInput !== true) { complete("Unsupported"); return; }
+                    const home = shell(); if (home) home.keepAbove = false;
+                    homeVisible = false; target = detachedTarget = "";
+                    rpc("ReportHome", false, "", homeOutput);
+                    w.minimized = false;
+                    workspace.activeWindow = w;
+                }
+                complete("");
+            } catch (_) { complete("Unavailable"); }
+        });
+    });
+}
+function inventoryTick() {
+    if (!daemonOwner) return;
+    if (inventoryOwner && inventoryOwner !== daemonOwner) resetInventory();
+    const now = Date.now();
+    if ((connectingAt && now - connectingAt > 5000) ||
+        (publishingAt && now - publishingAt > 3500) ||
+        (controllingAt && now - controllingAt > 2500)) resetInventory();
+    if (!platformGeneration) {
+        if (connectingAt) return;
+        if (!inventoryInstance) inventoryInstance = uuid();
+        inventoryOwner = daemonOwner;
+        const serial = inventorySerial;
+        connectingAt = now;
+        bridge("Connect", inventoryInstance, generation => {
+            if (serial !== inventorySerial) return;
+            if (typeof generation !== "string" || !/^[0-9a-f-]{36}$/i.test(generation)) { resetInventory(); return; }
+            connectingAt = 0;
+            platformGeneration = generation;
+            publishInventory();
+            pollControl();
+        });
+    } else publishInventory();
+}
 checkDaemon();

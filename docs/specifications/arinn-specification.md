@@ -473,7 +473,9 @@ The pre-stable provider-facing window enumeration and control bindings are defin
 by [ADR-0039](../adr/0039-platform-window-contract.md) and the
 [platform window contract](../architecture/platform-windows.md). Protocol/SDK
 bindings and isolated fixtures exist; the production daemon/KDE implementation
-and Phase 2 qualification remain pending.
+and Phase 2 qualification remain pending. The internal trusted-adapter transport
+and SDK registration context are specified by [ADR-0040](../adr/0040-kwin-inventory-transport.md)
+and the [KWin transport contract](../architecture/kwin-transport.md).
 
 ### 12.1. Global Home
 

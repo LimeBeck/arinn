@@ -1,0 +1,1 @@
+- Phase 2 (applications) is Done: the owner qualified desktop, Steam and ES-DE launch and return on a real KDE Plasma session.

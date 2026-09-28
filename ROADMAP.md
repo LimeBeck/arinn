@@ -18,7 +18,7 @@ The single source of phase status ([ADR-0028](docs/adr/0028-documentation-govern
 | --- | --- | --- |
 | [0](#phase-0--architecture-spike) | Architecture spike on KDE/Wayland | **Done** (2026-09-27) |
 | [1](#phase-1--core-skeleton) | Production core skeleton, protocol and SDK | **Done** (2026-09-28) |
-| [2](#phase-2--applications) | Desktop applications, Steam, ES-DE | Planned |
+| [2](#phase-2--applications) | Desktop applications, Steam, ES-DE | **Done** (2026-09-28) |
 | [3](#phase-3--browser) | Chrome integration — first daily-usable build | Planned |
 | [4](#phase-4--media) | MPRIS, local library and mpv | Planned |
 | [5](#phase-5--product-mvp) | Downloads, full UI, persistence, packaging — MVP | Planned |
@@ -139,21 +139,28 @@ Scope:
 
 ## Phase 2 — Applications
 
-**Status:** Planned. OQ-03 was resolved by the owner on 2026-09-28:
+OQ-03 was resolved by the owner on 2026-09-28:
 the desktop provider launches the browser; the Chrome provider declares only
 `browser` ([ADR-0038](docs/adr/0038-browser-launch-ownership.md)).
 Implementation is tracked in [issue #20](https://github.com/LimeBeck/arinn/issues/20);
-the provider and platform backend are implemented with [isolated verification](docs/architecture/desktop-provider.md). Real KDE/systemd qualification remains pending.
+the provider and platform backend are implemented with [isolated verification](docs/architecture/desktop-provider.md).
+
+**Status:** Done (2026-09-28), by owner decision: the owner's manual checks of
+the v0.1 package on their KDE Plasma 6 / Wayland machine (commit `e97879b`)
+count as the real KDE qualification for [#35](https://github.com/LimeBeck/arinn/issues/35).
+The owner reported that every check below passed; no agent-run operator test and
+no evidence JSON exist for them. Kernel cgroup separation was not inspected
+directly; only application survival across a provider restart was checked.
 
 Goal: launch and return to ordinary applications, Steam and ES-DE through `arinn-plugin-desktop`.
 
 | Exit criterion | Evidence |
 | --- | --- |
-| AC-07 Steam launches from its own tile | Operator test |
-| AC-08 EmulationStation launches from its own tile | Operator test |
-| G-2.1 Applications → Chrome/Steam/ES-DE → Home → Back → the same application | Operator test, evidence JSON |
-| G-2.2 Restarting or removing the desktop plugin does not kill launched applications (separate scopes) | Private-bus fixture lifetime passed (2026-09-28; [evidence](docs/architecture/desktop-provider.md#verification-status)); actual cgroup qualification pending |
-| G-2.3 Production Activity matching survives window remap (carried over from Phase 0) | Daemon/provider and adapter remap fixtures passed (2026-09-28; [evidence](docs/architecture/desktop-provider.md#verification-status)); real KDE/Activity qualification pending |
+| AC-07 Steam launches from its own tile | Passed, owner's manual check (2026-09-28) |
+| AC-08 EmulationStation launches from its own tile | Passed, owner's manual check (2026-09-28) |
+| G-2.1 Applications → Chrome/Steam/ES-DE → Home → Back → the same application | Passed, owner's manual check (2026-09-28): launch from Applications puts the window above the shell ([#72](https://github.com/LimeBeck/arinn/pull/72)), switching to an open window works ([#73](https://github.com/LimeBeck/arinn/pull/73)), Home → Return reaches the same application; Steam and ES-DE from their tiles |
+| G-2.2 Restarting or removing the desktop plugin does not kill launched applications (separate scopes) | Private-bus fixture lifetime passed (2026-09-28; [evidence](docs/architecture/desktop-provider.md#verification-status)); on the owner's KDE session a launched application survived `arinnctl provider restart desktop` (owner's manual check, 2026-09-28). Kernel cgroups not inspected |
+| G-2.3 Production Activity matching survives window remap (carried over from Phase 0) | Daemon/provider and adapter remap fixtures passed (2026-09-28; [evidence](docs/architecture/desktop-provider.md#verification-status)); on real KDE, activation of an open window and Home → Return passed with a stable adapter connection (owner's manual check, 2026-09-28). A window remap was not specifically exercised |
 
 ## Phase 3 — Browser
 

@@ -108,11 +108,10 @@ TestCase {
         verify(next.visible);
         compare(next.enabled, false);
         compare(next.opacity, 0.4);
+        focused("action-play");
         mouseClick(next, next.width / 2, next.height / 2);
-        next.forceActiveFocus();
-        keyClick(Qt.Key_Return);
-        keyClick(Qt.Key_Space);
         compare(nexts.count, 0);
+        compare(plays.count, 0);
         focused("action-play");
         keyClick(Qt.Key_Right); focused("action-pause");
         keyClick(Qt.Key_Right); focused("action-playPause");

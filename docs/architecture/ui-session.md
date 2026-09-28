@@ -81,7 +81,11 @@ a CMake target. Run offscreen:
 
 ```sh
 QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
-  build/apps/arinn-shell/arinn-ui-test -input tests/ui tst_session.qml
+  build/apps/arinn-shell/arinn-ui-test -input tests/ui
 ```
 
-Operator tests were not run.
+Local verification on 2026-09-28 (Qt 6.8.3, offscreen platform, software
+renderer): that command reported 56 passed and 0 failed. The total includes
+the existing component and Home cases plus the six Session cases (play/pause,
+disabled next, seek, D-pad focus, empty and unavailable). This is not the
+Arch CI Qt. Operator tests were not run. CI has not run for this change.

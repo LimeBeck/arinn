@@ -1,7 +1,8 @@
 name: Changelog
 
 # Every pull request adds a fragment under changes/ unless it is labelled
-# skip-changelog (ADR-0034). Separate from CI so label changes rerun only this.
+# skip-changelog or opened by Dependabot (ADR-0034). Separate from CI so
+# label changes rerun only this check.
 
 on:
   pull_request:
@@ -14,17 +15,19 @@ jobs:
   fragment:
     name: Changelog fragment
     runs-on: ubuntu-latest
+    env:
+      SKIP: ${{ contains(github.event.pull_request.labels.*.name, 'skip-changelog') || github.event.pull_request.user.login == 'dependabot[bot]' }}
     steps:
-      - name: Skipped by label
-        if: contains(github.event.pull_request.labels.*.name, 'skip-changelog')
-        run: echo "Labelled skip-changelog; no fragment required."
+      - name: No fragment required
+        if: env.SKIP == 'true'
+        run: echo "Labelled skip-changelog or opened by Dependabot; no fragment required."
       - uses: actions/checkout@v4
-        if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-changelog') }}
+        if: env.SKIP != 'true'
         with:
           fetch-depth: 0
       - uses: actions/setup-python@v5
-        if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-changelog') }}
+        if: env.SKIP != 'true'
         with:
           python-version: "3.12"
-      - if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-changelog') }}
+      - if: env.SKIP != 'true'
         run: python scripts/release.py check-fragment "origin/${{ github.base_ref }}"

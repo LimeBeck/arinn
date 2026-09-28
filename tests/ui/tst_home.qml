@@ -120,12 +120,24 @@ TestCase {
         keyClick(Qt.Key_Escape); focused("menuButton");
     }
     function test_pointer_and_dpad() {
+        tryCompare(home, "hoverFocusEnabled", true);
+        mouseMove(home, 10, 10);
+        keyClick(Qt.Key_Up);
         mouseMove(child("entry-b"), 100, 100);
         tryCompare(home, "pointerMode", true);
+        focused("entry-b");
         mouseClick(child("entry-b"), 100, 100);
         compare(entries.count, 1);
         keyClick(Qt.Key_Left);
         compare(home.pointerMode, false);
+        focused("entry-a");
+        child("continueViewport").contentX = 80;
+        compare(home.hoverFocusEnabled, false);
+        mouseMove(child("entry-c"), 100, 100);
+        focused("entry-a");
+        tryCompare(home, "hoverFocusEnabled", true);
+        mouseMove(child("entry-c"), 101, 100);
+        focused("entry-c");
     }
     function test_new_without_other_rows() {
         home.continueEntries = [];

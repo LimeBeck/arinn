@@ -5,8 +5,9 @@
 
 The first component subset of the [UI workstream](../../ROADMAP.md#parallel-ui-work-alongside-phase-1)
 implements presentation primitives from [specification §15](../specifications/arinn-specification.md#15-design-contract).
-Tracked in [issue #10](https://github.com/LimeBeck/arinn/issues/10). This is not a
-complete Home screen or Phase 5 acceptance (AC-02, AC-14, G-5.1).
+Tracked in [issue #10](https://github.com/LimeBeck/arinn/issues/10), extended by
+the Home/navigation preview below. This is not a production-bound Home screen
+or Phase 5 acceptance (AC-02, AC-14, G-5.1).
 
 ## Ownership and boundaries
 
@@ -142,3 +143,8 @@ checks passed. Populated Home and navigation were compared with the handoff;
 all five fixture states were captured at 1080p and 4K, with representative captures
 inspected for scaling, readable status text and clipping. This validates the
 presentation subset, not full design fidelity or production navigation.
+
+The pointer regression test also checks first-move hover after D-pad input and
+hover within the same card after scroll suppression expires. It failed before
+deferring the component hover check until the parent input-mode update; it passes
+with that fix. No pointer click is needed to move focus.

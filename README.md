@@ -40,6 +40,29 @@ Arinn does **not** replace your browser, player or game launcher. It orchestrate
 
 Every integration is a separate plugin process talking to a small core over D-Bus, so new services can be added without touching Arinn itself.
 
+## Interface preview
+
+These screenshots show the **target design from the HTML prototype**, with placeholder artwork and neutral service icons. The Qt shell currently implements only part of this design; these images do not represent completed integrations. See the [UI implementation status](docs/architecture/ui-components.md).
+
+**Home** — Continue, favorite applications and new media in one view.
+
+![Arinn Home design with Continue cards, favorite application tiles and the New row](docs/design/handoff/screenshots/01-home.jpg)
+
+<details>
+<summary>More screenshots: Library and player</summary>
+
+**Library** — films and series with a visible remote-control focus.
+
+![Arinn Library design with film and series posters and the focused item highlighted](docs/design/handoff/screenshots/06-library.jpg)
+
+**Player controls** — timeline, seek preview, audio and subtitle selection.
+
+![Arinn player design with a seek preview, playback progress and audio and subtitle controls](docs/design/handoff/screenshots/10-player-osd.jpg)
+
+</details>
+
+Explore [all 22 screen states](docs/design/handoff/screenshots/) and the [design handoff](docs/design/README.md).
+
 ## Status
 
 | Phase | Goal | Status |

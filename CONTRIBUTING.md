@@ -60,7 +60,7 @@ Only the maintainer releases. To release version `X.Y.Z`:
 
 Several agents and people work on Arinn at the same time. These rules keep them out of each other's way ([ADR-0036](docs/adr/0036-parallel-development.md)):
 
-1. **One issue per task.** Work starts from an issue created with the *Agent task* template: goal, requirement IDs, **zone** (paths the task may change), shared files, dependencies and a reserved ADR number if needed. Claim it by assigning yourself and adding the label `agent:<name>` (for example `agent:claude`, `agent:codex`); never take a claimed issue. One issue = one branch = one pull request.
+1. **One issue per task.** Work starts from an issue created with the *Agent task* template: goal, requirement IDs, **zone** (paths the task may change), shared files, dependencies and a reserved ADR number if needed. Anyone may create such issues from the roadmap; agents do so themselves ([ADR-0037](docs/adr/0037-agent-autonomy-and-owner-gated-decisions.md)). Claim an issue with the label `agent:<name>` (for example `agent:claude`, `agent:codex`) or by assigning yourself, and comment which branch you use; never take an active claim. A claim without any activity for 48 hours may be taken over after a comment. One issue = one branch = one pull request.
 2. **Stay in your zone.** A change outside the zone goes into a separate issue, or is agreed in the issue first.
 3. **Contracts first, one at a time.** Changes to `crates/arinn-protocol`, the plugin SDK or `docs/plugin-api/` are separate pull requests labelled `contract-change`; only one is open at a time, and dependent tasks start after it merges.
 4. **Shared files without conflicts:**
@@ -72,7 +72,9 @@ Several agents and people work on Arinn at the same time. These rules keep them 
 5. **Stay current.** Merge `master` into your branch regularly and before asking for review; the branch must be up to date to merge. Never rewrite another branch's history.
 6. **Isolate your workspace.** Use your own clone, worktree or cloud session with its own `target/` and `build/`. Automated tests use private D-Bus buses and can run in parallel; operator tests cannot and need the owner's permission.
 
-Labels used by this process: `task`, `agent:<name>`, `blocked`, `contract-change`, `skip-changelog`.
+7. **Owner decisions.** Agents merge their own pull requests when all checks are green on an up-to-date branch and nothing owner-gated is touched. Open questions, product scope, phase completion, non-technical ADRs, licensing, releases, operator tests, repository administration and these rules are owner-gated: such issues and pull requests carry `needs-owner` and the owner decides and merges ([ADR-0037](docs/adr/0037-agent-autonomy-and-owner-gated-decisions.md)).
+
+Labels are declared in [`.github/labels.yml`](.github/labels.yml) and created by the *Labels* workflow: `task`, `agent:<name>`, `needs-owner`, `blocked`, `contract-change`, `skip-changelog`, `bug`, `enhancement`, `dependencies`.
 
 ## Branches and commits
 
@@ -86,7 +88,7 @@ Labels used by this process: `task`, `agent:<name>`, `blocked`, `contract-change
 - One topic per pull request; small pull requests get reviewed faster.
 - Fill in the [pull request template](.github/PULL_REQUEST_TEMPLATE.md): the requirement IDs it touches, how it was tested and which documents were updated.
 - CI must be green and the CLA must be signed ([Licensing](#licensing-and-the-cla)).
-- The maintainer reviews every pull request against the [architecture rules](docs/specifications/arinn-specification.md#20-architecture-rules) R-01–R-10.
+- Every pull request is checked against the [architecture rules](docs/specifications/arinn-specification.md#20-architecture-rules) R-01–R-10: by its author before opening it, by the CI guards, and by the maintainer when it is owner-gated. Agents merge their own pull requests only under the conditions of *Parallel work* item 7; everything else is merged by the maintainer.
 - Pull requests are merged with **squash merge**; the pull request title becomes the commit subject, so write it like one.
 
 ## Requirement traceability
@@ -161,7 +163,7 @@ These GitHub settings make the rules above enforceable:
 - **Branches → `master`:** require a pull request; require status checks *Rust*, *Qt shell and private-bus integration*, *Licensing*, *Documentation consistency*, *Changelog fragment*, *Package / Build Arch package*, *Package / Install and smoke-test package* and *cla*; require branches to be up to date before merging; block force pushes and deletion. Do not require code owner review (the maintainer account also opens agent pull requests).
 - **Actions → General:** workflow permissions "Read and write" (the CLA bot stores signatures in the `cla-signatures` branch).
 - **Security:** private vulnerability reporting, Dependabot alerts and secret scanning on.
-- **Labels:** create the labels listed under *Parallel work*.
+- **Labels:** run the *Labels* workflow once (Actions → Labels → Run workflow); afterwards it runs whenever `.github/labels.yml` changes.
 
 ## Code of conduct and security
 

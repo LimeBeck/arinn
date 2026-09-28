@@ -4,7 +4,7 @@
 - **Date:** 2026-09-28
 - **Deciders:** project owner
 - **Amends / Supersedes:** amends [ADR-0028](0028-documentation-governance.md) (specification versioning, ADR numbering) and [ADR-0033](0033-ci-cd-and-releases.md) (changelog, merging)
-- **Amended by / Superseded by:** —
+- **Amended by / Superseded by:** [ADR-0037](0037-agent-autonomy-and-owner-gated-decisions.md) — agents create and merge their own tasks; owner-gated decisions
 - **Specification:** [§1.2, §17.1](../specifications/arinn-specification.md)
 
 ## Context

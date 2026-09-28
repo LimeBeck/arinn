@@ -16,4 +16,6 @@ BusName=org.arinn.Shell1
 ExecStart=/usr/bin/arinn-shell
 Environment=QT_QPA_PLATFORM=wayland
 Restart=on-failure
+# Exit status 2: another shell owns org.arinn.Shell1; restarting cannot help.
+RestartPreventExitStatus=2
 RestartSec=2s

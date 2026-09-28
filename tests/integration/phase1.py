@@ -198,6 +198,17 @@ with tempfile.TemporaryDirectory(prefix="arinn-production-") as folder:
                              env={**env, "QT_QPA_PLATFORM": "offscreen", "QT_QUICK_BACKEND": "software"},
                              capture_output=True, text=True, timeout=20)
         assert gui.returncode == 0, gui.stdout + gui.stderr
+        # A second shell must say why it exits instead of failing silently (#75).
+        shell_env = {**env, "QT_QPA_PLATFORM": "offscreen", "QT_QUICK_BACKEND": "software"}
+        first_shell = subprocess.Popen([str(ROOT / "build/apps/arinn-shell/arinn-shell")], env=shell_env,
+                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        processes.append(first_shell)
+        wait(lambda: subprocess.run(["busctl", "--user", "status", "org.arinn.Shell1"], env=env,
+                                    capture_output=True, timeout=3).returncode == 0)
+        second_shell = subprocess.run([str(ROOT / "build/apps/arinn-shell/arinn-shell")], env=shell_env,
+                                      capture_output=True, text=True, timeout=20)
+        assert second_shell.returncode == 2, second_shell.stderr
+        assert f"already owned by PID {first_shell.pid}" in second_shell.stderr, second_shell.stderr
         print("PASS: production registration, typed pages, operations, metadata reload, manual restart, daemon recovery, paging, manifest removal/reinstall, timeout and local Qt focus")
     except Exception:
         for log in logs:

@@ -2,12 +2,15 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-qt_add_executable(arinn-shell main.cpp backend.cpp backend.h sessionguard.cpp sessionguard.h)
+add_subdirectory("${PROJECT_SOURCE_DIR}/platform/session"
+    "${CMAKE_CURRENT_BINARY_DIR}/platform-session")
+
+qt_add_executable(arinn-shell main.cpp backend.cpp backend.h)
 qt_add_resources(arinn-shell ui PREFIX "/" FILES Main.qml)
-target_link_libraries(arinn-shell PRIVATE Qt6::Quick Qt6::DBus)
-qt_add_executable(arinn-shell-test backend_test.cpp backend.cpp backend.h sessionguard.cpp sessionguard.h)
+target_link_libraries(arinn-shell PRIVATE arinn-session-lifecycle Qt6::Quick Qt6::DBus)
+qt_add_executable(arinn-shell-test backend_test.cpp backend.cpp backend.h)
 qt_add_resources(arinn-shell-test test_ui PREFIX "/" FILES Main.qml)
-target_link_libraries(arinn-shell-test PRIVATE Qt6::Quick Qt6::DBus Qt6::Test)
+target_link_libraries(arinn-shell-test PRIVATE arinn-session-lifecycle Qt6::Quick Qt6::DBus Qt6::Test)
 
 # Development-only gallery: no backend, bus registration or platform actions.
 qt_add_executable(arinn-ui-gallery gallery/main.cpp)
@@ -25,3 +28,9 @@ add_test(NAME ui-components COMMAND arinn-ui-test
     -input "${PROJECT_SOURCE_DIR}/tests/ui")
 set_tests_properties(ui-components PROPERTIES ENVIRONMENT
     "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software")
+
+# Exercise the production window binding against isolated lifecycle/daemon doubles.
+target_sources(arinn-session-lifecycle-test PRIVATE backend.cpp backend.h)
+target_include_directories(arinn-session-lifecycle-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+qt_add_resources(arinn-session-lifecycle-test lifecycle_test_ui PREFIX "/" FILES Main.qml)
+target_link_libraries(arinn-session-lifecycle-test PRIVATE Qt6::Quick)

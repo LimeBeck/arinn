@@ -42,26 +42,22 @@ Every integration is a separate plugin process talking to a small core over D-Bu
 
 ## Interface preview
 
-These screenshots show the **target design from the HTML prototype**, with placeholder artwork and neutral service icons. The Qt shell currently implements only part of this design; these images do not represent completed integrations. See the [UI implementation status](docs/architecture/ui-components.md).
+These are screenshots of the **current Qt/QML interface**, rendered by the development gallery with fictional fixture data, placeholder artwork and neutral application icons. Home and navigation share their components with the production shell. Media, favorites and service integrations shown by the fixtures are not completed integrations. See the [UI implementation status](docs/architecture/ui-components.md).
 
-**Home** — Continue, favorite applications and new media in one view.
+**Home** — the Arinn brand mark, Continue cards and application tiles, with visible remote-control focus.
 
-![Arinn Home design with Continue cards, favorite application tiles and the New row](docs/design/handoff/screenshots/01-home.jpg)
+![Current Arinn Qt Home with the brand mark, Continue cards and neutral application tiles](docs/design/current-ui/home.png)
 
 <details>
-<summary>More screenshots: Library and player</summary>
+<summary>Navigation screenshot</summary>
 
-**Library** — films and series with a visible remote-control focus.
+**Navigation** — the shared brand lockup and section menu over a dimmed Home, with the current selection highlighted.
 
-![Arinn Library design with film and series posters and the focused item highlighted](docs/design/handoff/screenshots/06-library.jpg)
-
-**Player controls** — timeline, seek preview, audio and subtitle selection.
-
-![Arinn player design with a seek preview, playback progress and audio and subtitle controls](docs/design/handoff/screenshots/10-player-osd.jpg)
+![Current Arinn Qt navigation with the brand mark and Home selected](docs/design/current-ui/navigation.png)
 
 </details>
 
-Explore [all 22 screen states](docs/design/handoff/screenshots/) and the [design handoff](docs/design/README.md).
+[Capture instructions and provenance](docs/design/current-ui/README.md). The [22 HTML target-design states](docs/design/handoff/screenshots/) remain available in the [design handoff](docs/design/README.md).
 
 ## Status
 

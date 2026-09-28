@@ -207,3 +207,14 @@ documentation/architecture/ADR/version checks, REUSE and dependency licenses.
 The production Home capture at 1080p and shared Home gallery at 4K were inspected.
 Hosted CI results are recorded in the pull request; no operator or TV result is
 implied by these isolated checks.
+
+### Brand mark
+
+`BrandLockup` combines the existing approved Arinn SVG mark with the Onest
+wordmark. `BrandButton` keeps a dark focus plate and the shared focus ring so the
+white mark remains visible. Home and the navigation panel use this lockup.
+The shell, gallery and UI test targets embed the original
+[`arinn-mark.svg`](../design/handoff/assets/arinn-mark.svg) unchanged under
+`qrc:/brand/`; its existing CC-BY-SA-4.0 attribution remains applicable.
+Application tiles retain neutral placeholders: `Application1` currently provides
+no application icon field, and this change adds no third-party logos.

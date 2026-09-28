@@ -170,7 +170,7 @@ FocusScope {
         opacity: root.navOpen ? 0.55 : 1
         Behavior on scale { NumberAnimation { duration: 320 } }
         Behavior on opacity { NumberAnimation { duration: 320 } }
-        ActionButton {
+        BrandButton {
             id: menuButton
             objectName: "menuButton"
             x: 120; y: 44; height: 64; text: "Arinn"
@@ -327,7 +327,7 @@ FocusScope {
         Rectangle {
             x: 72; y: 112; width: 500; height: 856; radius: 44; color: "#292b30"
             MouseArea { anchors.fill: parent }
-            UiText { x: 40; y: 32; text: "Arinn"; role: "section" }
+            BrandLockup { objectName: "navigationBrand"; x: 40; y: 32; markSize: 40; textRole: "section" }
             Column {
                 x: 28; y: 100; spacing: 8
                 Repeater {

@@ -45,36 +45,26 @@ private slots:
     QTest::keyClick(window, Qt::Key_Escape);
     QTRY_VERIFY(!window->property("navOpen").toBool());
     QTRY_COMPARE_WITH_TIMEOUT(backend.applications().size(), 1, 5000);
-    QTRY_VERIFY(backend.homeState() != QString("loading"));
+    QTRY_COMPARE(backend.homeState(), QString("ready"));
     const auto appId =
         backend.applications().at(0).toMap().value("id").toString();
-    // Home favorites are the daemon web-shortcut list. An application does
-    // not make Home ready and is not a favorite tile.
-    for (const auto &shortcut : backend.webShortcuts())
-      QVERIFY(shortcut.toMap().value("id").toString() != appId);
-    QCOMPARE(backend.homeState(),
-             QString(backend.returnWindow().isEmpty() &&
-                             backend.webShortcuts().isEmpty()
-                         ? "empty"
-                         : "ready"));
+    const auto shortcutCount = backend.webShortcuts().size();
+    const auto favorites = backend.favorites();
+    QCOMPARE(favorites.size(), shortcutCount + backend.applications().size());
+    for (int i = 0; i < shortcutCount; ++i)
+      QCOMPARE(favorites.at(i).toMap().value("id").toString(),
+               backend.webShortcuts().at(i).toMap().value("id").toString());
+    QCOMPARE(favorites.at(shortcutCount).toMap().value("id").toString(), appId);
     auto home = window->findChild<QQuickItem *>("productionHome");
     QVERIFY(home);
+    QCOMPARE(home->property("screen").toString(), QString("home"));
     QCOMPARE(home->property("favoriteEntries").toList().size(),
-             backend.webShortcuts().size());
-    if (auto *onHome = findItem(window->contentItem(), "entry-" + appId))
-      QVERIFY(!onHome->isVisible());
-    QTest::keyClick(window, Qt::Key_Backspace);
-    QTRY_VERIFY(window->property("navOpen").toBool());
-    for (int step = 1; step <= 3; ++step) {
-      QTest::keyClick(window, Qt::Key_Down);
-      auto *nav = findItem(window->contentItem(),
-                           QStringLiteral("nav-%1").arg(step));
-      QVERIFY(nav);
-      QTRY_VERIFY(nav->hasActiveFocus());
-    }
-    QTest::keyClick(window, Qt::Key_Return);
-    QTRY_COMPARE(home->property("screen").toString(), QString("applications"));
-    QTRY_VERIFY(!window->property("navOpen").toBool());
+             favorites.size());
+    bool onApplicationsRoute = false;
+    for (const auto &entry : home->property("applicationEntries").toList())
+      if (entry.toMap().value("id").toString() == appId)
+        onApplicationsRoute = true;
+    QVERIFY(onApplicationsRoute);
     auto first = findItem(window->contentItem(), "menuButton");
     QQuickItem *second = nullptr;
     QTRY_VERIFY(second = findItem(window->contentItem(), "entry-" + appId));
@@ -84,7 +74,7 @@ private slots:
     for (auto *item = second; item; item = item->parentItem())
       if (item->objectName() == QStringLiteral("favorites"))
         inFavorites = true;
-    QVERIFY(!inFavorites);
+    QVERIFY(inFavorites);
     second->forceActiveFocus();
     QTRY_VERIFY(second->hasActiveFocus());
     QSignalSpy updates(&backend, &Backend::applicationsChanged);

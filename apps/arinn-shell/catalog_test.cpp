@@ -102,6 +102,8 @@ public:
   int pages = 0;
   int launches = 0;
   int opens = 0;
+  int lists = 0;
+  int providerCalls = 0;
   QString introspect(const QString &) const override { return {}; }
   bool handleMessage(const QDBusMessage &m,
                      const QDBusConnection &bus) override {
@@ -115,6 +117,7 @@ public:
     } else if (m.member() == "HomeItems") {
       a << QList<HomeWire>{};
     } else if (m.member() == "Providers") {
+      ++providerCalls;
       if (mode == "error") {
         bus.send(m.createErrorReply(QDBusError::Failed, "Unavailable"));
         return true;
@@ -151,6 +154,7 @@ public:
           m.createErrorReply(QDBusError::Failed, "fixture operation failure"));
       return true;
     } else if (m.member() == "List") {
+      ++lists;
       if (listError) {
         bus.send(m.createErrorReply(QDBusError::Failed, "list failed"));
         return true;
@@ -212,9 +216,14 @@ private slots:
     {
       Backend backend;
       QTRY_VERIFY(backend.connected());
-      // Home follows the web-shortcut list. This fixture serves an empty list,
-      // so Home is empty whether or not the application catalog succeeded.
-      QTRY_COMPARE(backend.homeState(), QString("empty"));
+      const auto state = (mode == "populated" || mode == "partial") ? "ready"
+                         : mode == "empty"                          ? "empty"
+                                                                    : "error";
+      const auto applicationsState = mode == "populated" ? "ready"
+                                     : mode == "empty"   ? "empty"
+                                                         : "error";
+      QTRY_COMPARE(backend.homeState(), QString(state));
+      QTRY_COMPARE(backend.applicationsState(), QString(applicationsState));
       if (mode == "populated" || mode == "partial") {
         QTRY_COMPARE(backend.applications().size(), 2);
         QCOMPARE(backend.items().size(), 2);
@@ -227,6 +236,16 @@ private slots:
                  QString("games"));
         QCOMPARE(backend.applications()[1].toMap()["group"].toString(),
                  QString("other"));
+        // Shortcuts lead the Home row; application tiles follow them.
+        const auto shortcutCount = backend.webShortcuts().size();
+        QCOMPARE(backend.favorites().size(),
+                 shortcutCount + backend.applications().size());
+        QCOMPARE(backend.favorites()
+                     .at(shortcutCount)
+                     .toMap()
+                     .value("id")
+                     .toString(),
+                 backend.applications().at(0).toMap().value("id").toString());
         QSignalSpy changes(&backend, &Backend::applicationsChanged);
         backend.refresh();
         QTest::qWait(200);
@@ -245,11 +264,38 @@ private slots:
         daemon.returnedWindow.clear();
         backend.refresh();
         QTRY_VERIFY(backend.continueEntries().isEmpty());
-      } else {
-        // Home no longer waits on the application catalog, so give that
-        // catalog time to finish before asserting it published nothing.
-        QTest::qWait(200);
+      } else
         QVERIFY(backend.applications().isEmpty());
+      if (mode == "error") {
+        // A failed catalog stays an application error while shortcuts load.
+        // It must not be reported as an empty shortcut list.
+        QCOMPARE(backend.homeState(), QString("error"));
+        QCOMPARE(backend.applicationsState(), QString("error"));
+        QVERIFY(backend.webShortcuts().isEmpty());
+        daemon.shortcuts = {{QStringLiteral("keep"), QStringLiteral("Keep"),
+                             QStringLiteral("https://example.test/keep"),
+                             QString()}};
+        daemon.shortcutRevision = 3;
+        const int providersBefore = daemon.providerCalls;
+        auto signal = QDBusMessage::createSignal(
+            "/org/arinn/Daemon1", "org.arinn.WebShortcuts1", "Changed");
+        signal << qulonglong(3);
+        QVERIFY(bus.send(signal));
+        QTRY_COMPARE(backend.webShortcuts().size(), 1);
+        QCOMPARE(backend.homeState(), QString("ready"));
+        QCOMPARE(backend.applicationsState(), QString("error"));
+        QVERIFY(backend.applications().isEmpty());
+        QCOMPARE(backend.favorites().at(0).toMap().value("id").toString(),
+                 QString("keep"));
+        QCOMPARE(daemon.providerCalls, providersBefore);
+        daemon.shortcuts.clear();
+        daemon.shortcutRevision = 4;
+        auto cleared = QDBusMessage::createSignal(
+            "/org/arinn/Daemon1", "org.arinn.WebShortcuts1", "Changed");
+        cleared << qulonglong(4);
+        QVERIFY(bus.send(cleared));
+        QTRY_VERIFY(backend.webShortcuts().isEmpty());
+        QCOMPARE(backend.homeState(), QString("error"));
       }
       daemon.mode = "empty";
       backend.refresh();
@@ -282,17 +328,29 @@ private slots:
       QVERIFY(backend.webShortcuts().isEmpty());
 
       const auto north = QStringLiteral("https://example.test/north");
+      const QString emoji = QString(QChar(0xD83C)) + QChar(0xDFAE);
+      const QString broken(QChar(0xD800));
       daemon.shortcuts = {{QStringLiteral("north"), QStringLiteral("north"),
                            north, QStringLiteral("packaged-mark")},
                           {QStringLiteral("south"), QStringLiteral("South"),
                            QStringLiteral("https://example.test/south"),
+                           QString()},
+                          {QStringLiteral("emoji"), emoji,
+                           QStringLiteral("https://example.test/emoji"),
+                           QString()},
+                          {QStringLiteral("broken"), broken,
+                           QStringLiteral("https://example.test/broken"),
                            QString()}};
       daemon.shortcutRevision = 2;
+      const int listsBefore = daemon.lists;
+      const int providersBefore = daemon.providerCalls;
       auto signal = QDBusMessage::createSignal(
           "/org/arinn/Daemon1", "org.arinn.WebShortcuts1", "Changed");
       signal << qulonglong(2);
       QVERIFY(bus.send(signal));
-      QTRY_COMPARE(backend.webShortcuts().size(), 2);
+      QTRY_COMPARE(backend.webShortcuts().size(), 4);
+      QCOMPARE(daemon.lists, listsBefore + 1);
+      QCOMPARE(daemon.providerCalls, providersBefore);
       const auto first = backend.webShortcuts().at(0).toMap();
       QCOMPARE(first.value("id").toString(), QString("north"));
       QCOMPARE(first.value("title").toString(), QString("north"));
@@ -300,6 +358,13 @@ private slots:
       QCOMPARE(
           backend.webShortcuts().at(1).toMap().value("monogram").toString(),
           QString("S"));
+      const auto emojiEntry = backend.webShortcuts().at(2).toMap();
+      QCOMPARE(emojiEntry.value("monogram").toString(), emoji.toUpper());
+      QVERIFY(emojiEntry.value("monogram").toString() !=
+              QString(emoji.at(0)));
+      QCOMPARE(
+          backend.webShortcuts().at(3).toMap().value("monogram").toString(),
+          QString());
       for (const auto &entry : backend.webShortcuts()) {
         const auto map = entry.toMap();
         QVERIFY(!map.contains("url"));
@@ -337,12 +402,22 @@ private slots:
       QCOMPARE(daemon.launches, 0);
 
       backend.launch(QStringLiteral("missing"));
-      QCOMPARE(backend.message(), QString("NotFound"));
+      QCOMPARE(backend.message(), QString("Shortcut is no longer available"));
       QCOMPARE(daemon.opens, 2);
+
+      const int listsAfterOpen = daemon.lists;
+      auto focus = QDBusMessage::createSignal(
+          "/org/arinn/Daemon1", "org.arinn.Daemon1", "StateChanged");
+      focus << QStringLiteral("test") << QStringLiteral("browser")
+            << QStringLiteral("generation") << qulonglong(1);
+      QVERIFY(bus.send(focus));
+      QTest::qWait(300);
+      QCOMPARE(daemon.lists, listsAfterOpen);
 
       daemon.listError = true;
       backend.refresh();
       QTRY_COMPARE(backend.homeState(), QString("error"));
+      QCOMPARE(backend.applicationsState(), QString("empty"));
       QVERIFY(backend.webShortcuts().isEmpty());
 
       bus.unregisterService("org.arinn.Daemon1");

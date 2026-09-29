@@ -590,14 +590,18 @@ This preview does not replace the production shell or implement web shortcuts.
 Its scope and verification are recorded in the [component contract](../architecture/ui-components.md).
 
 The production shell uses the same Home/navigation components with asynchronous
-daemon data: an opaque Return target, daemon web shortcuts on the Home favorites
-row, and paged application launch targets on the Applications route. A Home
-favorite shows the shortcut title and a monogram or neutral placeholder, and
-selecting it calls `WebShortcuts1.Open` ([§5.1](#51-home)). The Applications
-route does not imply persisted favorites and does not define New. Unimplemented
-sections show an explicit unavailable presentation; launch and shortcut feedback
-follow the daemon operation. The [shell binding](../architecture/ui-web-shortcuts.md)
-records this Home row. The [component contract](../architecture/ui-components.md#production-home-and-applications)
+daemon data: an opaque Return target, and a Home favorites row that lists daemon
+web shortcuts and then application entries until the user can pin favorites.
+Steam and ES-DE stay on that row as application tiles ([§5.1](#51-home),
+[§7.2](#72-applications-steam-and-es-de)). A shortcut shows its title and a
+monogram or neutral placeholder, and selecting it calls `WebShortcuts1.Open`.
+Selecting an application launches it through the generic application provider.
+The Applications route lists those same application targets and does not define
+New. A failed application catalog is a separate error from an empty shortcut
+list. Unimplemented sections show an explicit unavailable presentation; launch
+and shortcut feedback follow the daemon operation. The
+[shell binding](../architecture/ui-web-shortcuts.md) records this Home row. The
+[component contract](../architecture/ui-components.md#production-home-and-applications)
 records the shared components.
 
 ### 17.1. Continuous integration and delivery

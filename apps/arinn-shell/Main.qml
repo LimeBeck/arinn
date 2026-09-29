@@ -21,7 +21,7 @@ Window {
             objectName: "productionHome"
             busyEntryIds: backend.busyEntryIds
             continueEntries: backend.continueEntries
-            favoriteEntries: backend.webShortcuts
+            favoriteEntries: backend.favorites
             applicationEntries: backend.applications
             runningEntries: backend.items
             favoritesTitle: qsTr("Favorites")

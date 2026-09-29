@@ -6,6 +6,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QSet>
+#include <QTextBoundaryFinder>
 #include <QUuid>
 #include <QtDBus>
 namespace {
@@ -13,6 +14,26 @@ constexpr auto service = "org.arinn.Daemon1";
 constexpr auto path = "/org/arinn/Daemon1";
 QDBusMessage request(const char *method) {
   return QDBusMessage::createMethodCall(service, path, service, method);
+}
+// First grapheme, uppercased. A leading unpaired surrogate is not a letter:
+// the tile keeps the neutral placeholder.
+QString monogramFor(const QString &title) {
+  const auto trimmed = title.trimmed();
+  if (trimmed.isEmpty())
+    return {};
+  const auto first = trimmed.at(0);
+  if (first.isSurrogate() &&
+      !(first.isHighSurrogate() && trimmed.size() > 1 &&
+        trimmed.at(1).isLowSurrogate()))
+    return {};
+  QTextBoundaryFinder finder(QTextBoundaryFinder::Grapheme, trimmed);
+  const int end = finder.toNextBoundary();
+  if (end <= 0)
+    return {};
+  const auto grapheme = trimmed.left(end);
+  if (grapheme.size() == 1 && grapheme.at(0).isSurrogate())
+    return {};
+  return grapheme.toUpper();
 }
 } // namespace
 struct Backend::Catalog {
@@ -24,16 +45,20 @@ struct Backend::Catalog {
   quint64 revision = 0;
   int pages = 0;
   qsizetype providerStart = 0, runningStart = 0;
+  bool hadError = false;
 };
 Backend::Backend(QObject *parent) : QObject(parent) {
   auto bus = QDBusConnection::sessionBus();
-  bus.connect(service, path, service, "Changed", this, SLOT(refresh()));
+  bus.connect(service, path, service, "Changed", this, SLOT(reloadCatalog()));
   bus.connect(service, path, service, "ProvidersChanged", this,
-              SLOT(refresh()));
-  bus.connect(service, path, service, "StateChanged", this, SLOT(refresh()));
-  // Subscribe before the first List (WebShortcuts1).
+              SLOT(reloadCatalog()));
+  // Focus and provider StateChanged refresh the catalog only. Listing
+  // shortcuts here would repeat List on every focus change.
+  bus.connect(service, path, service, "StateChanged", this,
+              SLOT(reloadCatalog()));
+  // Subscribe before the first List. This signal re-reads shortcuts only.
   bus.connect(service, path, "org.arinn.WebShortcuts1", "Changed", this,
-              SLOT(refresh()));
+              SLOT(reloadShortcuts()));
   auto watcher = new QDBusServiceWatcher(
       service, bus, QDBusServiceWatcher::WatchForOwnerChange, this);
   connect(watcher, &QDBusServiceWatcher::serviceOwnerChanged, this,
@@ -47,11 +72,13 @@ Backend::Backend(QObject *parent) : QObject(parent) {
             m_items.clear();
             m_applications.clear();
             m_return.clear();
+            m_loaded = false;
+            m_snapshotError = false;
             clearShortcuts();
             publishState();
             refresh();
           });
-  connect(&m_timer, &QTimer::timeout, this, &Backend::refresh);
+  connect(&m_timer, &QTimer::timeout, this, &Backend::reloadCatalog);
   m_timer.start(1000);
   refresh();
 }
@@ -83,22 +110,45 @@ QVariantList Backend::continueEntries() const {
                       {"subtitle", tr("Continue where you left off")},
                       {"running", true}}};
 }
+QVariantList Backend::favorites() const {
+  // Until pinned favorites exist, web shortcuts lead and application tiles
+  // (Steam, ES-DE, and the rest of the catalog) stay on the same Home row.
+  auto rows = m_webShortcuts;
+  rows += m_applications;
+  return rows;
+}
 QString Backend::homeState() const {
   if (!m_connected)
     return "unavailable";
-  if (!m_return.isEmpty() || !m_webShortcuts.isEmpty())
+  if (!m_return.isEmpty() || !m_webShortcuts.isEmpty() ||
+      !m_applications.isEmpty())
     return "ready";
-  if (m_shortcutsError)
+  if (m_shortcutsError || m_snapshotError)
     return "error";
-  return m_shortcutsLoaded ? "empty" : "loading";
+  return m_shortcutsLoaded && m_loaded ? "empty" : "loading";
+}
+QString Backend::applicationsState() const {
+  if (!m_connected)
+    return "unavailable";
+  if (m_snapshotError)
+    return "error";
+  if (!m_loaded)
+    return "loading";
+  return m_applications.isEmpty() ? "empty" : "ready";
 }
 void Backend::clearShortcuts() {
   ++m_shortcutTicket;
   m_webShortcuts.clear();
   m_shortcutsLoaded = false;
   m_shortcutsError = false;
+  m_shortcutsRequested = false;
 }
 void Backend::refresh() {
+  m_forceShortcutReload = true;
+  reloadCatalog();
+}
+void Backend::reloadShortcuts() { readShortcuts(m_connectionEpoch); }
+void Backend::reloadCatalog() {
   if (m_refreshing) {
     m_dirty = true;
     return;
@@ -126,6 +176,8 @@ void Backend::refresh() {
               m_items.clear();
               m_applications.clear();
               m_return.clear();
+              m_loaded = false;
+              m_snapshotError = false;
               clearShortcuts();
               m_message = tr("Daemon is unavailable · reconnecting");
               publishState();
@@ -149,12 +201,17 @@ void Backend::refresh() {
             }
             emit screenRequested(homeOutput);
             m_connected = true;
-            // Let Home publish "loading" before List runs. A same-thread bus
-            // delivers List immediately, which would skip that state.
-            QTimer::singleShot(0, this, [this, epoch] {
-              if (epoch == m_connectionEpoch)
-                readShortcuts(epoch);
-            });
+            // List once per connection, on an explicit refresh, and on
+            // WebShortcuts1.Changed. A focus StateChanged must not List.
+            // Defer List so Home can publish "loading" first; a same-thread
+            // bus would otherwise deliver it before that state.
+            if (m_forceShortcutReload || !m_shortcutsRequested) {
+              m_forceShortcutReload = false;
+              QTimer::singleShot(0, this, [this, epoch] {
+                if (epoch == m_connectionEpoch)
+                  readShortcuts(epoch);
+              });
+            }
             if (!platform)
               m_message = tr("KWin adapter is not connected");
             else if (!m_available)
@@ -261,6 +318,7 @@ void Backend::readApplications(const std::shared_ptr<Catalog> &catalog,
           return;
         }
         auto unavailable = [this, catalog, index] {
+          catalog->hadError = true;
           catalog->applications.resize(catalog->providerStart);
           catalog->running.resize(catalog->runningStart);
           catalog->tokens.clear();
@@ -352,11 +410,13 @@ void Backend::finishCatalog(const std::shared_ptr<Catalog> &catalog,
     refresh();
     return;
   }
+  m_snapshotError = !success || catalog->hadError;
+  m_loaded = success;
   m_applications = success ? catalog->applications : QVariantList{};
   m_items = success ? catalog->running : QVariantList{};
   publishState();
   if (m_dirty)
-    QTimer::singleShot(0, this, &Backend::refresh);
+    QTimer::singleShot(0, this, &Backend::reloadCatalog);
 }
 void Backend::back() {
   auto call = new QDBusPendingCallWatcher(
@@ -370,6 +430,9 @@ void Backend::back() {
   });
 }
 void Backend::readShortcuts(quint64 epoch) {
+  if (epoch != m_connectionEpoch)
+    return;
+  m_shortcutsRequested = true;
   const auto ticket = ++m_shortcutTicket;
   auto msg = QDBusMessage::createMethodCall(service, path,
                                             "org.arinn.WebShortcuts1", "List");
@@ -408,11 +471,10 @@ void Backend::readShortcuts(quint64 epoch) {
           // after decoding; they are not stored, displayed or logged.
           url.clear();
           icon.clear();
-          QString monogram;
-          if (const auto trimmed = title.trimmed(); !trimmed.isEmpty())
-            monogram = QString(trimmed.front().toUpper());
           entries.append(
-              QVariantMap{{"id", id}, {"title", title}, {"monogram", monogram}});
+              QVariantMap{{"id", id},
+                          {"title", title},
+                          {"monogram", monogramFor(title)}});
         }
         arg.endArray();
         arg.endStructure();
@@ -424,15 +486,23 @@ void Backend::readShortcuts(quint64 epoch) {
       });
 }
 void Backend::launch(const QString &id) {
-  // Home favorites and Applications share entryRequested. A shortcut id opens
-  // through WebShortcuts1; every other id is an application launch target.
+  // Home favorites and Applications share entryRequested. Shortcut ids and
+  // application ids do not collide: a shortcut opens through WebShortcuts1,
+  // and any other known id is an application launch target.
   for (const auto &item : m_webShortcuts) {
     if (item.toMap().value("id").toString() == id) {
       openShortcut(id);
       return;
     }
   }
-  runApplication(id, m_applications, "Launch");
+  for (const auto &item : m_applications) {
+    if (item.toMap().value("id").toString() == id) {
+      runApplication(id, m_applications, "Launch");
+      return;
+    }
+  }
+  m_message = tr("Shortcut is no longer available");
+  publishState();
 }
 void Backend::activate(const QString &id) {
   runApplication(id, m_items, "Activate");
@@ -449,7 +519,8 @@ void Backend::runApplication(const QString &id, const QVariantList &entries,
     }
   }
   if (selected.isEmpty() || !selected.value("enabled", true).toBool()) {
-    m_message = selected.isEmpty() ? "NotFound" : "Unavailable";
+    m_message = selected.isEmpty() ? tr("Shortcut is no longer available")
+                                   : QStringLiteral("Unavailable");
     publishState();
     return;
   }
@@ -472,7 +543,7 @@ void Backend::openShortcut(const QString &id) {
     }
   }
   if (!found) {
-    m_message = "NotFound";
+    m_message = tr("Shortcut is no longer available");
     publishState();
     return;
   }

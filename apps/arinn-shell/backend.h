@@ -25,7 +25,9 @@ class Backend : public QObject {
       QVariantList applications READ applications NOTIFY applicationsChanged)
   Q_PROPERTY(
       QVariantList webShortcuts READ webShortcuts NOTIFY webShortcutsChanged)
+  Q_PROPERTY(QVariantList favorites READ favorites NOTIFY changed)
   Q_PROPERTY(QString homeState READ homeState NOTIFY changed)
+  Q_PROPERTY(QString applicationsState READ applicationsState NOTIFY changed)
   Q_PROPERTY(QStringList busyEntryIds READ busyEntryIds NOTIFY changed)
   Q_PROPERTY(QString message READ message NOTIFY changed)
 public:
@@ -38,7 +40,9 @@ public:
   QVariantList continueEntries() const;
   QVariantList applications() const { return m_applications; }
   QVariantList webShortcuts() const { return m_webShortcuts; }
+  QVariantList favorites() const;
   QString homeState() const;
+  QString applicationsState() const;
   QStringList busyEntryIds() const { return m_pendingIds.values(); }
   QString message() const { return m_message; }
   Q_INVOKABLE void back();
@@ -46,6 +50,9 @@ public:
   Q_INVOKABLE void activate(const QString &id);
 public slots:
   void refresh();
+private slots:
+  void reloadCatalog();
+  void reloadShortcuts();
 signals:
   void changed();
   void itemsChanged();
@@ -75,8 +82,10 @@ private:
       m_publishedShortcuts;
   QVariantList m_applications, m_webShortcuts;
   bool m_connected = false, m_available = false, m_home = true,
-       m_refreshing = false, m_dirty = false, m_shortcutsLoaded = false,
-       m_shortcutsError = false;
+       m_refreshing = false, m_dirty = false, m_loaded = false,
+       m_snapshotError = false, m_shortcutsLoaded = false,
+       m_shortcutsError = false, m_shortcutsRequested = false,
+       m_forceShortcutReload = false;
   quint64 m_connectionEpoch = 0, m_snapshotRevision = 0, m_shortcutTicket = 0;
   QString m_generation, m_return, m_message;
   QVariantList m_items;

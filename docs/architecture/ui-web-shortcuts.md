@@ -11,71 +11,85 @@ not add, edit or remove shortcuts, and it does not change the daemon.
 
 ## What the shell shows
 
-`Backend` subscribes to `WebShortcuts1.Changed` before the first `List`, then
-re-reads the list on that signal and on the same refresh that reads daemon
-status. `List` is one message, `(revision, [(id, title, url, icon)])`.
+`Backend` subscribes to `WebShortcuts1.Changed` before the first `List`. That
+signal calls `readShortcuts` only. It does not re-read the application catalog.
+Daemon `StateChanged` (including focus changes) reloads status and the catalog
+and does not call `List`. `List` runs on the first connection, on an explicit
+refresh, and on `WebShortcuts1.Changed`. `List` is one message,
+`(revision, [(id, title, url, icon)])`.
 
-Each tile shows the shortcut **title** and a **monogram** (the first character
+Until pinned favorites exist, the Home row is web shortcuts first and then the
+application entries. Steam and ES-DE stay on that row. The Applications route
+still lists the same application targets.
+
+Each shortcut tile shows the **title** and a **monogram** (the first grapheme
 of the trimmed title, uppercased) inside the existing neutral tile plate. An
-empty title keeps an empty monogram, which is the neutral placeholder. The
-`icon` field is an opaque packaged reference; the shell does not load it and
-does not draw third-party logos. The URL is discarded after the D-Bus decode.
-Neither the URL nor the title is written to a log.
+empty title, or a title whose first unit is an unpaired surrogate, keeps an
+empty monogram, which is the neutral placeholder. The `icon` field is an opaque
+packaged reference; the shell does not load it and does not draw third-party
+logos. The URL is discarded after the D-Bus decode. Neither the URL nor the
+title is written to a log.
 
-Home state follows that list, plus the existing return target:
+Home state follows the return target, the shortcut list, and the application
+catalog together:
 
 | State | When |
 | --- | --- |
 | `unavailable` | The daemon is not connected |
-| `loading` | Connected, and `List` has not completed |
-| `error` | `List` failed and there is nothing to show |
-| `empty` | `List` succeeded with no shortcuts and there is no return target |
-| `ready` | At least one shortcut, or a return target |
+| `loading` | Connected, and a list that could fill the row has not completed |
+| `error` | Shortcuts or the application catalog failed, and there is nothing to show |
+| `empty` | Both lists succeeded empty and there is no return target |
+| `ready` | A return target, a shortcut, or an application entry |
 
-A return target wins over a list error so Continue stays on screen. Applications
-do not make Home ready: they stay on the Applications route, including group
-rows and open windows. An empty favorites list is the Home empty state even
-when applications exist.
+`applicationsState` is separate (`unavailable`, `loading`, `error`, `empty`,
+`ready`). A failed catalog is `error` there even when the shortcut list is
+empty, so Home does not present that failure as an empty shortcut list. A
+return target, a shortcut, or an application entry still makes Home `ready`.
 
 ## Opening a shortcut
 
 The favorites row and the Applications route share `entryRequested`. `launch`
 sends `WebShortcuts1.Open(id, request_id)` when the id is in the shortcut list,
-and `Application1.Launch` otherwise. `Open` returns an `Operation1` path. The
+and `Application1.Launch` when the id is an application. Shortcut ids and
+application ids do not collide. An id that is in neither list shows
+"Shortcut is no longer available". `Open` returns an `Operation1` path. The
 shell polls `Operation1.Get` the same way it polls an application launch: the
 tile stays busy, a duplicate request is ignored, and the operation state is
 shown when it finishes. `succeeded` is "Done". Any other terminal state shows
 the operation error string.
 
-Until a browser provider is wired into the daemon, `Open` still finishes
-`Unavailable`. The shell calls `Open` anyway and shows that result. It does not
-pre-disable the tile and it does not open the URL itself.
+When no browser provider is connected, `Open` still finishes `Unavailable`.
+The shell calls `Open` anyway and shows that result. It does not pre-disable
+the tile and it does not open the URL itself.
 
 ## Verification
 
 `apps/arinn-shell/catalog_test.cpp` (`webShortcuts`, private bus) covers loading
 (recorded from `changed` when the daemon appears), an empty list, `Changed`
-refreshing the list, monograms, absence of the URL and icon in the presentation
-model, `Open` deduplicated while the operation is running, a failed operation
-whose error is `Unavailable`, a succeeded operation, an unknown id, a failed
-`List` (error) and daemon disappearance (unavailable). The existing catalog
-cases still drive `Application1.Launch` and now expect Home to be empty when
-the fixture serves no shortcuts.
+refreshing the shortcut list without re-reading the application catalog,
+monograms (including a surrogate-pair grapheme and an unpaired surrogate),
+absence of the URL and icon in the presentation model, `Open` deduplicated
+while the operation is running, a failed operation whose error is `Unavailable`,
+a succeeded operation, an unknown id ("Shortcut is no longer available"), a
+focus `StateChanged` that does not call `List`, a failed `List` (Home error
+while `applicationsState` stays empty) and daemon disappearance (unavailable).
+The catalog cases expect Home `ready` when applications exist, `empty` when
+both lists are empty, and `error` when the catalog fails. A failed catalog with
+a shortcut still loaded keeps `applicationsState` at `error` and Home `ready`.
 
 The offscreen Qt Quick Home test is `tests/ui/tst_home.qml`. It drives
 `HomeView` with local fixtures. This change does not modify `HomeView`:
 `favoriteEntries` and `entryRequested` already carry a shortcut id.
 
 `apps/arinn-shell/backend_test.cpp` is the production shell check started from
-`tests/integration/phase1.py`. It asserts that Home favorites are the daemon
-web-shortcut list, that an application does not make Home ready, and that the
-application tile is on the Applications route and not under the favorites row.
-Local focus still survives a refresh, and keyboard movement during a running
-activate still reaches that tile and returns to the menu button.
+`tests/integration/phase1.py`. It asserts that Home favorites list web shortcuts
+and then the application entry, that the application tile is visible on Home
+under the favorites row (and still present on the Applications route), and that
+local focus survives a refresh. Keyboard movement during a running activate
+still reaches that tile and returns to the menu button.
 
-Local run on 2026-09-28, Qt 6.11.2, offscreen platform and software rendering,
+Local run on 2026-09-29, Qt 6.11.2, offscreen platform and software rendering,
 private session bus: `dbus-run-session -- arinn-catalog-test` passed (the
-existing catalog cases and `webShortcuts`), and `arinn-ui-test -input tests/ui`
-passed, including `HomeNavigation`. The same Qt build then ran
+catalog cases and `webShortcuts`, 10 passed). The same Qt build then ran
 `arinn-shell-test` against `arinnd` and the delayed demo provider:
 `BackendTest::typedWireAndLocalFocus` passed. Operator tests were not run.

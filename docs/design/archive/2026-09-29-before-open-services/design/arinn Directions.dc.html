@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&family=Golos+Text:wght@400;500;600&family=Literata:ital,opsz,wght@0,7..72,500;0,7..72,600;1,7..72,500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,400..600,0..1,0&display=block">
+<style>
+html,body{margin:0;background:#141517}
+*{box-sizing:border-box}
+a{color:oklch(0.89 0.2 128);text-decoration:none} a:hover{color:#fff}
+</style>
+</helmet>
+
+<section style="padding:80px 80px 40px;display:flex;flex-direction:column;gap:40px;font-family:'Onest',sans-serif;color:oklch(0.95 0.004 260);border-bottom:1px solid rgba(255,255,255,.08)">
+  <div id="2a" style="display:flex;flex-direction:column;gap:28px">
+    <div style="display:flex;align-items:center;gap:16px">
+      <div style="padding:6px 14px;border-radius:8px;background:oklch(0.89 0.2 128);color:#111;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:500">2a</div>
+      <div style="font-size:40px;font-weight:700;letter-spacing:-0.02em">Глубина со светом</div>
+      <div style="font-size:18px;color:oklch(0.64 0.01 260)">основа <a href="#1a">1a</a> + поведение света из <a href="#1b">1b</a></div>
+    </div>
+    <div style="font-size:19px;line-height:1.55;color:oklch(0.80 0.008 260);max-width:1150px">Система остаётся тихой стопкой плоскостей из 1a. Из 1b берётся только реакция на контент. Когда фокус попадает на фильм или серию, их цвет мягко заливает окружение и светится из-под карточки. Когда фокус уходит на приложения, игры или настройки, свет гаснет и остаётся только глубина.</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:14px 40px;font-size:16px;line-height:1.5;color:oklch(0.80 0.008 260);max-width:1700px">
+      <div><b style="color:oklch(0.95 0.004 260)">Из 1a:</b> шрифт Onest, плоскости (белый 6%, блик 1px, радиус 24–28), фокус через подъём ×1.06 с кантом и тенью, монограммы в плитках, навигация-панель, активность отъезжает назад (×0.93, размытие).</div>
+      <div><b style="color:oklch(0.95 0.004 260)">Из 1b:</b> световое поле из 2–3 пятен цвета обложки вместо полосатого фона, цветное свечение под медиа в фокусе, перетекание света за 900 мс.</div>
+      <div><b style="color:oklch(0.95 0.004 260)">Не берём из 1b:</b> засечки, плитки-цветовые поля и сильное затемнение соседей. Соседи медиа гаснут только до 0.8, приложения не гаснут совсем.</div>
+      <div><b style="color:oklch(0.95 0.004 260)">Правило света:</b> медиа — полный свет. Сервисы — едва заметный тёплый кант (по желанию, фирменный оттенок на 8%). Система и настройки — без света.</div>
+    </div>
+
+    <div style="display:flex;flex-wrap:wrap;gap:32px">
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:oklch(0.64 0.01 260)">HOME · СПОКОЙНЫЙ РЕЖИМ · ФОКУС НА STEAM</div>
+        <div style="position:relative;width:672px;height:378px;overflow:hidden;border-radius:10px;box-shadow:0 20px 60px rgba(0,0,0,.5)">
+          <div style="position:absolute;left:0;top:0;width:1920px;height:1080px;transform:scale(.35);transform-origin:0 0;background:oklch(0.17 0.005 260);color:oklch(0.97 0.004 260)">
+            <div style="position:absolute;top:48px;right:96px;display:flex;align-items:center;gap:20px;font-size:30px;font-weight:500;color:oklch(0.86 0.006 260)"><span style="font-family:'Material Symbols Rounded';font-size:32px;font-feature-settings:'liga';font-variation-settings:'FILL' 1">wifi</span>20:16</div>
+            <div style="position:absolute;left:120px;top:120px;display:flex;flex-direction:column;gap:14px">
+              <div style="font-size:24px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:oklch(0.80 0.008 260)">Избранное · Игры</div>
+              <div style="font-size:84px;font-weight:700;letter-spacing:-0.025em;line-height:1">Steam</div>
+              <div style="font-size:28px;font-weight:500;color:oklch(0.80 0.008 260)">Откроется на весь экран</div>
+            </div>
+            <div style="position:absolute;left:120px;top:370px;font-size:28px;font-weight:600;color:oklch(0.86 0.006 260)">Продолжить</div>
+            <div style="position:absolute;left:120px;top:420px;display:flex;gap:32px">
+              <div style="width:400px;height:225px;border-radius:26px;padding:24px;display:flex;flex-direction:column;justify-content:space-between;background:rgba(255,255,255,.06);box-shadow:inset 0 1px 0 rgba(255,255,255,.08)"><div style="display:flex;align-items:center;gap:10px;font-size:20px;font-weight:600"><div style="width:12px;height:12px;border-radius:6px;background:oklch(0.89 0.2 128)"></div>Сейчас запущено</div><div style="font-size:34px;font-weight:600">Кинопоиск</div></div>
+              <div style="position:relative;width:400px;height:225px;border-radius:26px;overflow:hidden"><div style="position:absolute;inset:0;background:repeating-linear-gradient(135deg, oklch(0.32 0.06 62) 0 14px, oklch(0.28 0.05 62) 14px 28px);opacity:.75"></div><div style="position:absolute;inset:0;background:linear-gradient(0deg, rgba(10,11,13,.9), rgba(10,11,13,0) 70%)"></div><div style="position:absolute;left:24px;right:24px;bottom:22px;display:flex;flex-direction:column;gap:12px"><div style="font-size:32px;font-weight:600">Дюна: Часть вторая</div><div style="height:6px;border-radius:3px;background:rgba(255,255,255,.25)"><div style="width:44%;height:100%;border-radius:3px;background:oklch(0.89 0.2 128)"></div></div></div></div>
+              <div style="position:relative;width:400px;height:225px;border-radius:26px;overflow:hidden"><div style="position:absolute;inset:0;background:repeating-linear-gradient(135deg, oklch(0.32 0.06 22) 0 14px, oklch(0.28 0.05 22) 14px 28px);opacity:.75"></div><div style="position:absolute;inset:0;background:linear-gradient(0deg, rgba(10,11,13,.9), rgba(10,11,13,0) 70%)"></div><div style="position:absolute;left:24px;bottom:22px;font-size:32px;font-weight:600">Сёгун</div></div>
+            </div>
+            <div style="position:absolute;left:120px;top:710px;font-size:28px;font-weight:600;color:oklch(0.86 0.006 260)">Избранное</div>
+            <div style="position:absolute;left:120px;top:760px;display:flex;gap:24px">
+              <div style="width:250px;height:120px;border-radius:24px;padding:0 24px;display:flex;align-items:center;gap:18px;background:rgba(255,255,255,.06);box-shadow:inset 0 1px 0 rgba(255,255,255,.08);font-size:26px;font-weight:600"><div style="width:52px;height:52px;border-radius:26px;background:rgba(255,255,255,.1);display:flex;align-items:center;justify-content:center">Б</div>Браузер</div>
+              <div style="width:250px;height:120px;border-radius:24px;padding:0 24px;display:flex;align-items:center;gap:18px;background:rgba(255,255,255,.06);box-shadow:inset 0 1px 0 rgba(255,255,255,.08);font-size:26px;font-weight:600"><div style="width:52px;height:52px;border-radius:26px;background:rgba(255,255,255,.1);display:flex;align-items:center;justify-content:center">К</div>Кинопоиск</div>
+              <div style="width:250px;height:120px;border-radius:24px;padding:0 24px;display:flex;align-items:center;gap:18px;background:rgba(255,255,255,.06);box-shadow:inset 0 1px 0 rgba(255,255,255,.08);font-size:26px;font-weight:600"><div style="width:52px;height:52px;border-radius:26px;background:rgba(255,255,255,.1);display:flex;align-items:center;justify-content:center">I</div>IVI</div>
+              <div style="width:250px;height:120px;border-radius:24px;padding:0 24px;display:flex;align-items:center;gap:18px;background:rgba(255,255,255,.06);box-shadow:inset 0 1px 0 rgba(255,255,255,.08);font-size:26px;font-weight:600"><div style="width:52px;height:52px;border-radius:26px;background:rgba(255,255,255,.1);display:flex;align-items:center;justify-content:center">Y</div>YouTube</div>
+              <div style="width:250px;height:120px;border-radius:24px;padding:0 24px;display:flex;align-items:center;gap:18px;background:rgba(255,255,255,.17);transform:scale(1.06) translateY(-6px);box-shadow:inset 0 0 0 2px rgba(255,255,255,.3), 0 40px 70px -26px rgba(0,0,0,.9);font-size:26px;font-weight:600"><div style="width:52px;height:52px;border-radius:26px;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center">S</div>Steam</div>
+              <div style="width:250px;height:120px;border-radius:24px;padding:0 24px;display:flex;align-items:center;gap:18px;background:rgba(255,255,255,.06);box-shadow:inset 0 1px 0 rgba(255,255,255,.08);font-size:26px;font-weight:600;white-space:nowrap;overflow:hidden"><div style="flex:none;width:52px;height:52px;border-radius:26px;background:rgba(255,255,255,.1);display:flex;align-items:center;justify-content:center">E</div>Emulation…</div>
+            </div>
+            <div style="position:absolute;left:120px;top:940px;font-size:28px;font-weight:600;color:oklch(0.86 0.006 260)">Новое</div>
+            <div style="position:absolute;left:120px;top:990px;display:flex;gap:24px">
+              <div style="width:180px;height:270px;border-radius:20px;background:repeating-linear-gradient(135deg, oklch(0.30 0.05 330) 0 12px, oklch(0.265 0.045 330) 12px 24px);opacity:.75"></div>
+              <div style="width:180px;height:270px;border-radius:20px;background:repeating-linear-gradient(135deg, oklch(0.30 0.05 35) 0 12px, oklch(0.265 0.045 35) 12px 24px);opacity:.75"></div>
+              <div style="width:180px;height:270px;border-radius:20px;background:repeating-linear-gradient(135deg, oklch(0.30 0.05 150) 0 12px, oklch(0.265 0.045 150) 12px 24px);opacity:.75"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:oklch(0.64 0.01 260)">HOME · ФОКУС НА ФИЛЬМЕ · СВЕТ ВКЛЮЧИЛСЯ</div>
+        <div style="position:relative;width:672px;height:378px;overflow:hidden;border-radius:10px;box-shadow:0 20px 60px rgba(0,0,0,.5)">
+          <div style="position:absolute;left:0;top:0;width:1920px;height:1080px;transform:scale(.35);transform-origin:0 0;background:oklch(0.17 0.005 260);color:oklch(0.97 0.004 260)">
+            <div style="position:absolute;inset:0;background:radial-gradient(55% 70% at 74% 22%, oklch(0.48 0.1 62 / .8) 0%, oklch(0.48 0.1 62 / 0) 70%), radial-gradient(38% 45% at 36% 58%, oklch(0.42 0.09 55 / .45) 0%, oklch(0.42 0.09 55 / 0) 70%), radial-gradient(40% 40% at 100% 90%, oklch(0.32 0.06 80 / .45) 0%, oklch(0.32 0.06 80 / 0) 70%)"></div>
+            <div style="position:absolute;right:96px;top:130px;font-family:'JetBrains Mono',monospace;font-size:20px;color:rgba(255,255,255,.45)">световое поле · цвет обложки · 900 мс</div>
+            <div style="position:absolute;top:48px;right:96px;display:flex;align-items:center;gap:20px;font-size:30px;font-weight:500;color:oklch(0.9 0.006 260)"><span style="font-family:'Material Symbols Rounded';font-size:32px;font-feature-settings:'liga';font-variation-settings:'FILL' 1">wifi</span>20:16</div>
+            <div style="position:absolute;left:120px;top:120px;display:flex;flex-direction:column;gap:14px">
+              <div style="font-size:24px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:oklch(0.84 0.01 70)">Продолжить</div>
+              <div style="font-size:84px;font-weight:700;letter-spacing:-0.025em;line-height:1">Дюна: Часть вторая</div>
+              <div style="font-size:28px;font-weight:500;color:oklch(0.88 0.01 70)">1:13:42 из 2:46:00 · Осталось 1 ч 32 мин</div>
+            </div>
+            <div style="position:absolute;left:120px;top:370px;font-size:28px;font-weight:600;color:oklch(0.88 0.008 70)">Продолжить</div>
+            <div style="position:absolute;left:120px;top:420px;display:flex;gap:32px">
+              <div style="width:400px;height:225px;border-radius:26px;padding:24px;display:flex;flex-direction:column;justify-content:space-between;background:rgba(255,255,255,.06);box-shadow:inset 0 1px 0 rgba(255,255,255,.08);opacity:.8"><div style="display:flex;align-items:center;gap:10px;font-size:20px;font-weight:600"><div style="width:12px;height:12px;border-radius:6px;background:oklch(0.89 0.2 128)"></div>Сейчас запущено</div><div style="font-size:34px;font-weight:600">Кинопоиск</div></div>
+              <div style="position:relative;width:400px;height:225px;border-radius:26px;overflow:hidden;transform:scale(1.06) translateY(-6px);box-shadow:inset 0 0 0 2px rgba(255,255,255,.35), 0 0 120px 20px oklch(0.62 0.13 62 / .5), 0 50px 80px -30px rgba(0,0,0,.9)">
+                <div style="position:absolute;inset:0;background:repeating-linear-gradient(135deg, oklch(0.46 0.1 62) 0 14px, oklch(0.41 0.09 62) 14px 28px)"></div>
+                <div style="position:absolute;inset:0;background:linear-gradient(0deg, rgba(10,11,13,.85), rgba(10,11,13,0) 65%)"></div>
+                <div style="position:absolute;left:24px;right:24px;bottom:22px;display:flex;flex-direction:column;gap:12px"><div style="font-size:32px;font-weight:600">Дюна: Часть вторая</div><div style="height:6px;border-radius:3px;background:rgba(255,255,255,.25)"><div style="width:44%;height:100%;border-radius:3px;background:oklch(0.89 0.2 128)"></div></div></div>
+              </div>
+              <div style="position:relative;width:400px;height:225px;border-radius:26px;overflow:hidden;filter:brightness(.8)"><div style="position:absolute;inset:0;background:repeating-linear-gradient(135deg, oklch(0.32 0.06 22) 0 14px, oklch(0.28 0.05 22) 14px 28px);opacity:.75"></div><div style="position:absolute;inset:0;background:linear-gradient(0deg, rgba(10,11,13,.9), rgba(10,11,13,0) 70%)"></div><div style="position:absolute;left:24px;bottom:22px;font-size:32px;font-weight:600">Сёгун</div></div>
+            </div>
+            <div style="position:absolute;left:120px;top:710px;font-size:28px;font-weight:600;color:oklch(0.88 0.008 70)">Избранное</div>
+            <div style="position:absolute;left:120px;top:760px;display:flex;gap:24px">
+              <div style="width:250px;height:120px;border-radius:24px;padding:0 24px;display:flex;align-items:center;gap:18px;background:rgba(255,255,255,.06);box-shadow:inset 0 1px 0 rgba(255,255,255,.08);font-size:26px;font-weight:600"><div style="width:52px;height:52px;border-radius:26px;background:rgba(255,255,255,.1);display:flex;align-items:center;justify-content:center">Б</div>Браузер</div>
+              <div style="width:250px;height:120px;border-radius:24px;padding:0 24px;display:flex;align-items:center;gap:18px;background:rgba(255,255,255,.06);box-shadow:inset 0 1px 0 rgba(255,255,255,.08);font-size:26px;font-weight:600"><div style="width:52px;height:52px;border-radius:26px;background:rgba(255,255,255,.1);display:flex;align-items:center;justify-content:center">К</div>Кинопоиск</div>
+              <div style="width:250px;height:120px;border-radius:24px;padding:0 24px;display:flex;align-items:center;gap:18px;background:rgba(255,255,255,.06);box-shadow:inset 0 1px 0 rgba(255,255,255,.08);font-size:26px;font-weight:600"><div style="width:52px;height:52px;border-radius:26px;background:rgba(255,255,255,.1);display:flex;align-items:center;justify-content:center">I</div>IVI</div>
+              <div style="width:250px;height:120px;border-radius:24px;padding:0 24px;display:flex;align-items:center;gap:18px;background:rgba(255,255,255,.06);box-shadow:inset 0 1px 0 rgba(255,255,255,.08);font-size:26px;font-weight:600"><div style="width:52px;height:52px;border-radius:26px;background:rgba(255,255,255,.1);display:flex;align-items:center;justify-content:center">Y</div>YouTube</div>
+              <div style="width:250px;height:120px;border-radius:24px;padding:0 24px;display:flex;align-items:center;gap:18px;background:rgba(255,255,255,.06);box-shadow:inset 0 1px 0 rgba(255,255,255,.08);font-size:26px;font-weight:600"><div style="width:52px;height:52px;border-radius:26px;background:rgba(255,255,255,.1);display:flex;align-items:center;justify-content:center">S</div>Steam</div>
+            </div>
+            <div style="position:absolute;left:120px;top:940px;font-size:28px;font-weight:600;color:oklch(0.88 0.008 70)">Новое</div>
+            <div style="position:absolute;left:120px;top:990px;display:flex;gap:24px">
+              <div style="width:180px;height:270px;border-radius:20px;background:repeating-linear-gradient(135deg, oklch(0.30 0.05 330) 0 12px, oklch(0.265 0.045 330) 12px 24px);opacity:.75"></div>
+              <div style="width:180px;height:270px;border-radius:20px;background:repeating-linear-gradient(135deg, oklch(0.30 0.05 35) 0 12px, oklch(0.265 0.045 35) 12px 24px);opacity:.75"></div>
+              <div style="width:180px;height:270px;border-radius:20px;background:repeating-linear-gradient(135deg, oklch(0.30 0.05 150) 0 12px, oklch(0.265 0.045 150) 12px 24px);opacity:.75"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:oklch(0.64 0.01 260)">НАВИГАЦИЯ · ПОВЕРХ ЗАПУЩЕННОГО КИНОПОИСКА</div>
+        <div style="position:relative;width:672px;height:378px;overflow:hidden;border-radius:10px;box-shadow:0 20px 60px rgba(0,0,0,.5)">
+          <div style="position:absolute;left:0;top:0;width:1920px;height:1080px;transform:scale(.35);transform-origin:0 0;background:#0b0c0e;color:oklch(0.97 0.004 260)">
+            <div style="position:absolute;inset:0;border-radius:48px;overflow:hidden;transform:scale(.93);filter:blur(14px) brightness(.55)"><div style="position:absolute;inset:0;background:repeating-linear-gradient(135deg, oklch(0.45 0.1 45) 0 26px, oklch(0.40 0.09 45) 26px 52px)"></div></div>
+            <div style="position:absolute;inset:0;background:radial-gradient(60% 80% at 20% 50%, oklch(0.40 0.08 45 / .35) 0%, oklch(0.40 0.08 45 / 0) 70%)"></div>
+            <div style="position:absolute;right:120px;top:90px;font-family:'JetBrains Mono',monospace;font-size:20px;color:rgba(255,255,255,.45)">activity · Кинопоиск отодвинут назад, его свет остаётся</div>
+            <div style="position:absolute;left:80px;top:130px;bottom:130px;width:480px;border-radius:44px;padding:44px 28px;display:flex;flex-direction:column;gap:8px;background:oklch(0.22 0.006 260 / .7);backdrop-filter:blur(30px);-webkit-backdrop-filter:blur(30px);border:1px solid rgba(255,255,255,.1);box-shadow:0 40px 100px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.1)">
+              <div style="display:flex;align-items:center;gap:14px;padding:0 20px 28px;font-size:28px;font-weight:600"><div style="width:18px;height:18px;border-radius:9px;background:oklch(0.89 0.2 128)"></div>Arinn</div>
+              <div style="height:84px;border-radius:26px;padding:0 22px;display:flex;align-items:center;gap:20px;font-size:30px;font-weight:600"><span style="font-family:'Material Symbols Rounded';font-size:38px;font-feature-settings:'liga';font-variation-settings:'FILL' 1">home</span>Главная<div style="margin-left:auto;width:10px;height:10px;border-radius:5px;background:oklch(0.89 0.2 128)"></div></div>
+              <div style="height:84px;border-radius:26px;padding:0 22px;display:flex;align-items:center;gap:20px;font-size:30px;font-weight:600;background:rgba(255,255,255,.16);transform:scale(1.04);box-shadow:0 20px 40px -12px rgba(0,0,0,.7), inset 0 0 0 2px rgba(255,255,255,.28)"><span style="font-family:'Material Symbols Rounded';font-size:38px;font-feature-settings:'liga';font-variation-settings:'FILL' 1">video_library</span>Медиатека</div>
+              <div style="height:84px;border-radius:26px;padding:0 22px;display:flex;align-items:center;gap:20px;font-size:30px;font-weight:600;color:oklch(0.82 0.006 260)"><span style="font-family:'Material Symbols Rounded';font-size:38px;font-feature-settings:'liga';font-variation-settings:'FILL' 1">download</span>Загрузки<span style="margin-left:auto;font-size:24px;color:oklch(0.89 0.2 128)">82%</span></div>
+              <div style="height:84px;border-radius:26px;padding:0 22px;display:flex;align-items:center;gap:20px;font-size:30px;font-weight:600;color:oklch(0.82 0.006 260)"><span style="font-family:'Material Symbols Rounded';font-size:38px;font-feature-settings:'liga';font-variation-settings:'FILL' 1">apps</span>Приложения</div>
+              <div style="height:84px;border-radius:26px;padding:0 22px;display:flex;align-items:center;gap:20px;font-size:30px;font-weight:600;color:oklch(0.82 0.006 260)"><span style="font-family:'Material Symbols Rounded';font-size:38px;font-feature-settings:'liga';font-variation-settings:'FILL' 1">settings</span>Настройки</div>
+              <div style="margin-top:auto;height:1px;background:rgba(255,255,255,.1);margin-bottom:16px"></div>
+              <div style="height:96px;border-radius:26px;padding:0 22px;display:flex;align-items:center;gap:18px;background:rgba(255,255,255,.05)"><div style="width:12px;height:12px;border-radius:6px;background:oklch(0.89 0.2 128)"></div><div style="display:flex;flex-direction:column"><span style="font-size:26px;font-weight:600">Кинопоиск</span><span style="font-size:22px;color:oklch(0.80 0.008 260)">Вернуться</span></div></div>
+            </div>
+            <div style="position:absolute;right:120px;bottom:90px;padding:14px 26px;border-radius:30px;background:rgba(0,0,0,.45);font-size:24px;color:oklch(0.86 0.006 260)">Назад — вернуться в Кинопоиск</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:oklch(0.64 0.01 260)">ФОКУС ПО ТИПУ КОНТЕНТА · ПОКОЙ / ФОКУС</div>
+      <div style="position:relative;width:1400px;max-width:100%;height:231px;overflow:hidden;border-radius:10px">
+        <div style="position:absolute;left:0;top:0;width:4000px;height:660px;transform:scale(.35);transform-origin:0 0;background:oklch(0.17 0.005 260);color:oklch(0.97 0.004 260);display:flex;align-items:center;gap:90px;padding:0 120px">
+          <div style="display:flex;flex-direction:column;gap:36px;align-items:center"><div style="width:400px;height:225px;border-radius:26px;background:repeating-linear-gradient(135deg, oklch(0.32 0.06 62) 0 14px, oklch(0.28 0.05 62) 14px 28px);opacity:.75"></div><div style="font-family:'JetBrains Mono',monospace;font-size:26px;color:oklch(0.64 0.01 260)">медиа · покой</div></div>
+          <div style="position:relative;display:flex;flex-direction:column;gap:36px;align-items:center"><div style="position:absolute;left:-200px;right:-200px;top:-200px;bottom:-60px;background:radial-gradient(50% 50% at 50% 40%, oklch(0.48 0.1 62 / .6), oklch(0.48 0.1 62 / 0) 70%)"></div><div style="position:relative;width:400px;height:225px;border-radius:26px;transform:scale(1.06) translateY(-6px);background:repeating-linear-gradient(135deg, oklch(0.46 0.1 62) 0 14px, oklch(0.41 0.09 62) 14px 28px);box-shadow:inset 0 0 0 2px rgba(255,255,255,.35), 0 0 120px 20px oklch(0.62 0.13 62 / .5), 0 50px 80px -30px rgba(0,0,0,.9)"></div><div style="position:relative;font-family:'JetBrains Mono',monospace;font-size:26px;color:oklch(0.9 0.01 70)">медиа · фокус: подъём + свет</div></div>
+          <div style="width:2px;height:300px;background:rgba(255,255,255,.08)"></div>
+          <div style="display:flex;flex-direction:column;gap:36px;align-items:center"><div style="width:300px;height:140px;border-radius:26px;padding:0 26px;display:flex;align-items:center;gap:20px;background:rgba(255,255,255,.06);box-shadow:inset 0 1px 0 rgba(255,255,255,.08);font-size:30px;font-weight:600"><div style="width:60px;height:60px;border-radius:30px;background:rgba(255,255,255,.1);display:flex;align-items:center;justify-content:center">К</div>Кинопоиск</div><div style="font-family:'JetBrains Mono',monospace;font-size:26px;color:oklch(0.64 0.01 260)">сервис · покой</div></div>
+          <div style="display:flex;flex-direction:column;gap:36px;align-items:center"><div style="width:300px;height:140px;border-radius:26px;padding:0 26px;display:flex;align-items:center;gap:20px;background:rgba(255,255,255,.17);transform:scale(1.06) translateY(-6px);box-shadow:inset 0 0 0 2px rgba(255,255,255,.3), 0 0 60px 0 oklch(0.62 0.13 55 / .22), 0 40px 70px -26px rgba(0,0,0,.9);font-size:30px;font-weight:600"><div style="width:60px;height:60px;border-radius:30px;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center">К</div>Кинопоиск</div><div style="font-family:'JetBrains Mono',monospace;font-size:26px;color:oklch(0.64 0.01 260)">сервис · фокус: подъём + слабый оттенок</div></div>
+          <div style="width:2px;height:300px;background:rgba(255,255,255,.08)"></div>
+          <div style="display:flex;flex-direction:column;gap:36px;align-items:center"><div style="width:560px;height:100px;border-radius:26px;padding:0 30px;display:flex;align-items:center;font-size:30px;font-weight:600;background:rgba(255,255,255,.06)">Автозапуск следующей серии</div><div style="font-family:'JetBrains Mono',monospace;font-size:26px;color:oklch(0.64 0.01 260)">система · покой</div></div>
+          <div style="display:flex;flex-direction:column;gap:36px;align-items:center"><div style="width:560px;height:100px;border-radius:26px;padding:0 30px;display:flex;align-items:center;font-size:30px;font-weight:600;background:rgba(255,255,255,.17);transform:scale(1.03);box-shadow:inset 0 0 0 2px rgba(255,255,255,.3), 0 30px 60px -24px rgba(0,0,0,.9)">Автозапуск следующей серии</div><div style="font-family:'JetBrains Mono',monospace;font-size:26px;color:oklch(0.64 0.01 260)">система · фокус: только подъём</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:14px 40px;font-size:16px;line-height:1.5;color:oklch(0.80 0.008 260);max-width:1700px">
+      <div><b style="color:oklch(0.95 0.004 260)">Движение:</b> фокус 220 мс (1a), свет 900 мс (1b). Свет всегда отстаёт от фокуса, поэтому при быстрой прокрутке фон не мигает.</div>
+      <div><b style="color:oklch(0.95 0.004 260)">Home поверх активности:</b> активность отъезжает назад и размывается, её доминирующий цвет остаётся слабым светом в комнате. Так понятно, что она не закрыта.</div>
+      <div><b style="color:oklch(0.95 0.004 260)">Контраст:</b> пятна света не заходят под текст ярче L 0.48. У левой колонки заголовков всегда тёмная зона.</div>
+    </div>
+  </div>
+  <div style="font-size:16px;color:oklch(0.64 0.01 260)">Ниже — исходные направления <a href="#1a">1a</a>, <a href="#1b">1b</a>, <a href="#1c">1c</a>.</div>
+</section>
+
+<section style="padding:80px;display:flex;flex-direction:column;gap:48px;font-family:'Onest',sans-serif;color:oklch(0.95 0.004 260)">
+  <div style="display:flex;flex-direction:column;gap:12px;max-width:1400px">
+    <div style="font-family:'JetBrains Mono',monospace;font-size:14px;letter-spacing:.08em;color:oklch(0.89 0.2 128)">ARINN · ЭТАП 1 · ВИЗУАЛЬНЫЕ НАПРАВЛЕНИЯ</div>
+    <div style="font-size:48px;font-weight:700;letter-spacing:-0.02em">Три направления на выбор</div>
+    <div style="font-size:19px;line-height:1.55;color:oklch(0.76 0.008 260);max-width:1100px">Контент и структура у всех трёх одинаковые: Продолжить (с запущенным Кинопоиском), Избранное, Новое. Различаются философия, шрифты, поверхности, фокус и движение. Каждое направление показано в трёх видах: Home с фокусом на фильме (кинорежим), навигация поверх запущенной активности (спокойный режим ОС), а также карточка и плитка в покое и в фокусе. После выбора я разверну его в полную систему и экраны из п. 57.</div>
+  </div>
+
+  <div style="display:flex;flex-wrap:wrap;gap:72px;align-items:flex-start">
+
+    <!-- ================= 1a ================= -->
+    <div id="1a" style="width:864px;display:flex;flex-direction:column;gap:28px">
+      <div style="display:flex;align-items:center;gap:16px">
+        <div style="padding:6px 14px;border-radius:8px;background:oklch(0.89 0.2 128);color:#111;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:500">1a</div>
+        <div style="font-size:34px;font-weight:700;letter-spacing:-0.02em">Глубина</div>
+        <div style="font-size:18px;color:oklch(0.64 0.01 260)">Quiet Spatial OS</div>
+      </div>
+      <div style="font-size:18px;line-height:1.55;color:oklch(0.80 0.008 260)">Интерфейс устроен как стопка тихих плоскостей. Фокус выдвигает элемент к зрителю, а остальное не двигается. Кино проявляется как мягкий свет за карточкой, а не как постер на весь экран.</div>
+      <div style="display:grid;grid-template-columns:150px 1fr;gap:10px 20px;font-size:16px;line-height:1.5;color:oklch(0.80 0.008 260)">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:oklch(0.64 0.01 260)">Шрифт</div><div>Onest 400–700. Один гротеск, иерархия строится только размером и весом.</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:oklch(0.64 0.01 260)">Поверхности</div><div>Полупрозрачные плоскости (белый 6%), верхний блик 1px, радиус 24–28. Стекло только у системных слоёв.</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:oklch(0.64 0.01 260)">Фокус</div><div>Подъём ×1.06, светлая подложка, глубокая тень под элементом и тонкий светлый кант. Рамки-обводки нет.</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:oklch(0.64 0.01 260)">Цвет</div><div>Нейтральный графит. Лайм только для «запущено» и прогресса.</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:oklch(0.64 0.01 260)">Карточки</div><div>16:9 в Продолжить, плитки-плоскости с монограммой в Избранном, постеры 2:3 в Новом.</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:oklch(0.64 0.01 260)">Движение</div><div>220 мс, ease-out, движение по оси Z. По Home активность отъезжает назад (×0.94, размытие), Arinn выходит вперёд.</div>
+      </div>
+
+      <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:oklch(0.64 0.01 260)">HOME · ФОКУС НА ФИЛЬМЕ</div>
+      <div style="position:relative;width:864px;height:486px;overflow:hidden;border-radius:10px;box-shadow:0 20px 60px rgba(0,0,0,.5)">
+        <div style="position:absolute;left:0;top:0;width:1920px;height:1080px;transform:scale(.45);transform-origin:0 0;background:oklch(0.17 0.005 260);font-family:'Onest',sans-serif;color:oklch(0.97 0.004 260)">
+          <div style="position:absolute;inset:0;background:repeating-linear-gradient(135deg, oklch(0.36 0.07 62) 0 22px, oklch(0.32 0.06 62) 22px 44px);opacity:.55;-webkit-mask-image:radial-gradient(70% 80% at 78% 18%, #000 0%, transparent 70%);mask-image:radial-gradient(70% 80% at 78% 18%, #000 0%, transparent 70%)"></div>
+          <div style="position:absolute;right:96px;top:130px;font-family:'JetBrains Mono',monospace;font-size:20px;color:rgba(255,255,255,.4)">backdrop · проявляется при фокусе</div>
+          <div style="position:absolute;top:48px;right:96px;display:flex;align-items:center;gap:20px;font-size:30px;font-weight:500;color:oklch(0.86 0.006 260)"><span style="font-family:'Material Symbols Rounded';font-size:32px;font-feature-settings:'liga';font-variation-settings:'FILL' 1">wifi</span>20:16</div>
+          <div style="position:absolute;left:120px;top:120px;display:flex;flex-direction:column;gap:14px">
+            <div style="font-size:24px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:oklch(0.80 0.008 260)">Продолжить</div>
+            <div style="font-size:84px;font-weight:700;letter-spacing:-0.025em;line-height:1">Дюна: Часть вторая</div>
+            <div style="font-size:28px;font-weight:500;color:oklch(0.86 0.006 260)">1:13:42 из 2:46:00 · Осталось 1 ч 32 мин</div>
+          </div>
+          <div style="position:absolute;left:120px;top:370px;font-size:28px;font-weight:600;color:oklch(0.86 0.006 260)">Продолжить</div>
+          <div style="position:absolute;left:120px;top:420px;display:flex;gap:32px">
+            <div style="position:relative;width:400px;height:225px;border-radius:26px;overflow:hidden;background:oklch(0.23 0.006 260);box-shadow:inset 0 1px 0 rgba(255,255,255,.08)">
+              <div style="position:absolute;inset:0;background:repeating-linear-gradient(135deg, oklch(0.32 0.06 45) 0 14px, oklch(0.28 0.05 45) 14px 28px);opacity:.55"></div>
+              <div style="position:absolute;inset:0;background:linear-gradient(0deg, rgba(10,11,13,.9), rgba(10,11,13,0) 70%)"></div>
+              <div style="position:absolute;left:24px;top:22px;display:flex;align-items:center;gap:10px;font-size:20px;font-weight:600"><div style="width:12px;height:12px;border-radius:6px;background:oklch(0.89 0.2 128)"></div>Сейчас запущено</div>
+              <div style="position:absolute;left:24px;bottom:22px;font-size:32px;font-weight:600">Кинопоиск</div>
+            </div>
+            <div style="position:relative;width:400px;height:225px;border-radius:26px;overflow:hidden;transform:scale(1.06) translateY(-6px);box-shadow:inset 0 0 0 2px rgba(255,255,255,.35), 0 50px 80px -30px rgba(0,0,0,.9), 0 0 0 1px rgba(255,255,255,.1)">
+              <div style="position:absolute;inset:0;background:repeating-linear-gradient(135deg, oklch(0.44 0.09 62) 0 14px, oklch(0.39 0.08 62) 14px 28px)"></div>
+              <div style="position:absolute;inset:0;background:linear-gradient(0deg, rgba(10,11,13,.85), rgba(10,11,13,0) 65%)"></div>
+              <div style="position:absolute;left:24px;right:24px;bottom:22px;display:flex;flex-direction:column;gap:12px"><div style="font-size:32px;font-weight:600">Дюна: Часть вторая</div><div style="height:6px;border-radius:3px;background:rgba(255,255,255,.25)"><div style="width:44%;height:100%;border-radius:3px;background:oklch(0.89 0.2 128)"></div></div></div>
+            </div>
+            <div style="position:relative;width:400px;height:225px;border-radius:26px;overflow:hidden;background:oklch(0.23 0.006 260)">
+              <div style="position:absolute;inset:0;background:repeating-linear-gradient(135deg, oklch(0.32 0.06 22) 0 14px, oklch(0.28 0.05 22) 14px 28px);opacity:.6"></div>
+              <div style="position:absolute;inset:0;background:linear-gradient(0deg, rgba(10,11,13,.9), rgba(10,11,13,0) 70%)"></div>
+              <div style="position:absolute;left:24px;bottom:22px;display:flex;flex-direction:column;gap:6px"><div style="font-size:32px;font-weight:600">Сёгун</div><div style="font-size:22px;color:oklch(0.80 0.008 260)">С1 Э4</div></div>
+            </div>
+          </div>
+          <div style="position:absolute;left:120px;top:710px;font-size:28px;font-weight:600;color:oklch(0.86 0.006 260)">Избранное</div>
+          <div style="position:absolute;left:120px;top:760px;display:flex;gap:24px">
+            <div style="width:250px;height:120px;border-radius:24px;padding:0 24px;display:flex;align-items:center;gap:18px;background:rgba(255,255,255,.06);box-shadow:inset 0 1px 0 rgba(255,255,255,.08);font-size:26px;font-weight:600"><div style="width:52px;height:52px;border-radius:26px;background:rgba(255,255,255,.1);display:flex;align-items:center;justify-content:center;font-size:24px">Б</div>Браузер</div>
+            <div style="width:250px;height:120px;border-radius:24px;padding:0 24px;display:flex;align-items:center;gap:18px;background:rgba(255,255,255,.06);box-shadow:inset 0 1px 0 rgba(255,255,255,.08);font-size:26px;font-weight:600"><div style="width:52px;height:52px;border-radius:26px;background:rgba(255,255,255,.1);display:flex;align-items:center;justify-content:center;font-size:24px">К</div>Кинопоиск</div>
+            <div style="width:250px;height:120px;border-radius:24px;padding:0 24px;display:flex;align-items:center;gap:18px;background:rgba(255,255,255,.06);box-shadow:inset 0 1px 0 rgba(255,255,255,.08);font-size:26px;font-weight:600"><div style="width:52px;height:52px;border-radius:26px;background:rgba(255,255,255,.1);display:flex;align-items:center;justify-content:center;font-size:24px">I</div>IVI</div>
+            <div style="width:250px;height:120px;border-radius:24px;padding:0 24px;display:flex;align-items:center;gap:18px;background:rgba(255,255,255,.06);box-shadow:inset 0 1px 0 rgba(255,255,255,.08);font-size:26px;font-weight:600"><div style="width:52px;height:52px;border-radius:26px;background:rgba(255,255,255,.1);display:flex;align-items:center;justify-content:center;font-size:24px">Y</div>YouTube</div>
+            <div style="width:250px;height:120px;border-radius:24px;padding:0 24px;display:flex;align-items:center;gap:18px;background:rgba(255,255,255,.06);box-shadow:inset 0 1px 0 rgba(255,255,255,.08);font-size:26px;font-weight:600"><div style="width:52px;height:52px;border-radius:26px;background:rgba(255,255,255,.1);display:flex;align-items:center;justify-content:center;font-size:24px">S</div>Steam</div>
+            <div style="width:250px;height:120px;border-radius:24px;padding:0 24px;display:flex;align-items:center;gap:18px;background:rgba(255,255,255,.06);box-shadow:inset 0 1px 0 rgba(255,255,255,.08);font-size:26px;font-weight:600;white-space:nowrap;overflow:hidden"><div style="flex:none;width:52px;height:52px;border-radius:26px;background:rgba(255,255,255,.1);display:flex;align-items:center;justify-content:center;font-size:24px">E</div>Emulation…</div>
+          </div>
+          <div style="position:absolute;left:120px;top:940px;font-size:28px;font-weight:600;color:oklch(0.86 0.006 260)">Новое</div>
+          <div style="position:absolute;left:120px;top:990px;display:flex;gap:24px">
+            <div style="width:180px;height:270px;border-radius:20px;background:repeating-linear-gradient(135deg, oklch(0.30 0.05 330) 0 12px, oklch(0.265 0.045 330) 12px 24px);opacity:.7"></div>
+            <div style="width:180px;height:270px;border-radius:20px;background:repeating-linear-gradient(135deg, oklch(0.30 0.05 35) 0 12px, oklch(0.265 0.045 35) 12px 24px);opacity:.7"></div>
+            <div style="width:180px;height:270px;border-radius:20px;background:repeating-linear-gradient(135deg, oklch(0.30 0.05 150) 0 12px, oklch(0.265 0.045 150) 12px 24px);opacity:.7"></div>
+            <div style="width:180px;height:270px;border-radius:20px;background:repeating-linear-gradient(135deg, oklch(0.30 0.05 285) 0 12px, oklch(0.265 0.045 285) 12px 24px);opacity:.7"></div>
+          </div>
+        </div>
+      </div>
+
+      <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:oklch(0.64 0.01 260)">НАВИГАЦИЯ · ПОВЕРХ ЗАПУЩЕННОГО КИНОПОИСКА</div>
+      <div style="position:relative;width:864px;height:486px;overflow:hidden;border-radius:10px;box-shadow:0 20px 60px rgba(0,0,0,.5)">
+        <div style="position:absolute;left:0;top:0;width:1920px;height:1080px;transform:scale(.45);transform-origin:0 0;background:#0b0c0e;font-family:'Onest',sans-serif;color:oklch(0.97 0.004 260)">
+          <div style="position:absolute;inset:0;border-radius:48px;overflow:hidden;transform:scale(.93);filter:blur(14px) brightness(.5)">
+            <div style="position:absolute;inset:0;background:repeating-linear-gradient(135deg, oklch(0.45 0.1 45) 0 26px, oklch(0.40 0.09 45) 26px 52px)"></div>
+          </div>
+          <div style="position:absolute;right:120px;top:90px;font-family:'JetBrains Mono',monospace;font-size:20px;color:rgba(255,255,255,.45)">activity · Кинопоиск (живой кадр, отодвинут назад)</div>
+          <div style="position:absolute;left:80px;top:130px;bottom:130px;width:480px;border-radius:44px;padding:44px 28px;display:flex;flex-direction:column;gap:8px;background:oklch(0.22 0.006 260 / .7);border:1px solid rgba(255,255,255,.1);box-shadow:0 40px 100px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.1)">
+            <div style="display:flex;align-items:center;gap:14px;padding:0 20px 28px;font-size:28px;font-weight:600"><div style="width:18px;height:18px;border-radius:9px;background:oklch(0.89 0.2 128)"></div>Arinn</div>
+            <div style="height:84px;border-radius:26px;padding:0 22px;display:flex;align-items:center;gap:20px;font-size:30px;font-weight:600"><span style="font-family:'Material Symbols Rounded';font-size:38px;font-feature-settings:'liga';font-variation-settings:'FILL' 1">home</span>Главная<div style="margin-left:auto;width:10px;height:10px;border-radius:5px;background:oklch(0.89 0.2 128)"></div></div>
+            <div style="height:84px;border-radius:26px;padding:0 22px;display:flex;align-items:center;gap:20px;font-size:30px;font-weight:600;background:rgba(255,255,255,.16);transform:scale(1.04);box-shadow:0 20px 40px -12px rgba(0,0,0,.7), inset 0 0 0 2px rgba(255,255,255,.28)"><span style="font-family:'Material Symbols Rounded';font-size:38px;font-feature-settings:'liga';font-variation-settings:'FILL' 1">video_library</span>Медиатека</div>
+            <div style="height:84px;border-radius:26px;padding:0 22px;display:flex;align-items:center;gap:20px;font-size:30px;font-weight:600;color:oklch(0.82 0.006 260)"><span style="font-family:'Material Symbols Rounded';font-size:38px;font-feature-settings:'liga';font-variation-settings:'FILL' 1">download</span>Загрузки<span style="margin-left:auto;font-size:24px;color:oklch(0.89 0.2 128)">82%</span></div>
+            <div style="height:84px;border-radius:26px;padding:0 22px;display:flex;align-items:center;gap:20px;font-size:30px;font-weight:600;color:oklch(0.82 0.006 260)"><span style="font-family:'Material Symbols Rounded';font-size:38px;font-feature-settings:'liga';font-variation-settings:'FILL' 1">apps</span>Приложения</div>
+            <div style="height:84px;border-radius:26px;padding:0 22px;display:flex;align-items:center;gap:20px;font-size:30px;font-weight:600;color:oklch(0.82 0.006 260)"><span style="font-family:'Material Symbols Rounded';font-size:38px;font-feature-settings:'liga';font-variation-settings:'FILL' 1">settings</span>Настройки</div>
+            <div style="margin-top:auto;height:1px;background:rgba(255,255,255,.1);margin-bottom:16px"></div>
+            <div style="height:96px;border-radius:26px;padding:0 22px;display:flex;align-items:center;gap:18px;background:rgba(255,255,255,.05)"><div style="width:12px;height:12px;border-radius:6px;background:oklch(0.89 0.2 128)"></div><div style="display:flex;flex-direction:column"><span style="font-size:26px;font-weight:600">Кинопоиск</span><span style="font-size:22px;color:oklch(0.80 0.008 260)">Вернуться</span></div></div>
+          </div>
+          <div style="position:absolute;right:120px;bottom:90px;padding:14px 26px;border-radius:30px;background:rgba(0,0,0,.45);font-size:24px;color:oklch(0.86 0.006 260)">Назад — вернуться в Кинопоиск</div>
+        </div>
+      </div>
+
+      <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:oklch(0.64 0.01 260)">КАРТОЧКА И ПЛИТКА · ПОКОЙ / ФОКУС</div>
+      <div style="position:relative;width:864px;height:270px;overflow:hidden;border-radius:10px">
+        <div style="position:absolute;left:0;top:0;width:1920px;height:600px;transform:scale(.45);transform-origin:0 0;background:oklch(0.17 0.005 260);font-family:'Onest',sans-serif;color:oklch(0.97 0.004 260);display:flex;align-items:center;gap:72px;padding:0 100px">
+          <div style="display:flex;flex-direction:column;gap:28px;align-items:center"><div style="width:400px;height:225px;border-radius:26px;background:repeating-linear-gradient(135deg, oklch(0.32 0.06 62) 0 14px, oklch(0.28 0.05 62) 14px 28px);opacity:.7"></div><div style="font-family:'JetBrains Mono',monospace;font-size:24px;color:oklch(0.64 0.01 260)">покой</div></div>
+          <div style="display:flex;flex-direction:column;gap:28px;align-items:center"><div style="position:relative;width:400px;height:225px;border-radius:26px;transform:scale(1.06) translateY(-6px);background:repeating-linear-gradient(135deg, oklch(0.44 0.09 62) 0 14px, oklch(0.39 0.08 62) 14px 28px);box-shadow:inset 0 0 0 2px rgba(255,255,255,.35), 0 50px 80px -30px rgba(0,0,0,.9)"></div><div style="font-size:26px;font-weight:600;margin-top:10px">Продолжить · 1:13:42</div></div>
+          <div style="display:flex;flex-direction:column;gap:28px;align-items:center"><div style="width:300px;height:140px;border-radius:26px;padding:0 26px;display:flex;align-items:center;gap:20px;background:rgba(255,255,255,.06);box-shadow:inset 0 1px 0 rgba(255,255,255,.08);font-size:30px;font-weight:600"><div style="width:60px;height:60px;border-radius:30px;background:rgba(255,255,255,.1);display:flex;align-items:center;justify-content:center">S</div>Steam</div><div style="font-family:'JetBrains Mono',monospace;font-size:24px;color:oklch(0.64 0.01 260)">покой</div></div>
+          <div style="display:flex;flex-direction:column;gap:28px;align-items:center"><div style="width:300px;height:140px;border-radius:26px;padding:0 26px;display:flex;align-items:center;gap:20px;background:rgba(255,255,255,.17);transform:scale(1.06) translateY(-6px);box-shadow:inset 0 0 0 2px rgba(255,255,255,.3), 0 40px 70px -26px rgba(0,0,0,.9);font-size:30px;font-weight:600"><div style="width:60px;height:60px;border-radius:30px;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center">S</div>Steam</div><div style="font-family:'JetBrains Mono',monospace;font-size:24px;color:oklch(0.64 0.01 260)">фокус</div></div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;font-size:16px;line-height:1.5;color:oklch(0.80 0.008 260)">
+        <div><b style="color:oklch(0.95 0.004 260)">Сильная сторона:</b> одинаково естественно выглядит для фильмов, игр и системы, и его проще всего масштабировать.</div>
+        <div><b style="color:oklch(0.95 0.004 260)">Риск:</b> наименее характерное из трёх, и узнаваемость Arinn держится в основном на деталях.</div>
+      </div>
+    </div>
+
+    <!-- ================= 1b ================= -->
+    <div id="1b" style="width:864px;display:flex;flex-direction:column;gap:28px">
+      <div style="display:flex;align-items:center;gap:16px">
+        <div style="padding:6px 14px;border-radius:8px;background:oklch(0.89 0.2 128);color:#111;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:500">1b</div>
+        <div style="font-size:34px;font-weight:700;letter-spacing:-0.02em">Свет</div>
+        <div style="font-size:18px;color:oklch(0.64 0.01 260)">Cinematic Ambient</div>
+      </div>
+      <div style="font-size:18px;line-height:1.55;color:oklch(0.80 0.008 260)">Окружение освещено контентом. В покое это тёплая темнота. Когда фокус на фильме, его цвет заливает комнату. Каждый сервис и каждая игра приносят свой свет, а сам интерфейс почти бестелесен.</div>
+      <div style="display:grid;grid-template-columns:150px 1fr;gap:10px 20px;font-size:16px;line-height:1.5;color:oklch(0.80 0.008 260)">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:oklch(0.64 0.01 260)">Шрифт</div><div>Literata для названий фильмов и сервисов и для курсивных подписей разделов, Golos Text для интерфейса. Засечки только у контента.</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:oklch(0.64 0.01 260)">Поверхности</div><div>Их почти нет. Карточки без рамок, фон — размытое световое поле из 2–3 цветовых пятен.</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:oklch(0.64 0.01 260)">Фокус</div><div>Карточка ярче и ×1.04, её цвет «проливается» наружу мягким свечением. Соседи уходят в полутень (яркость 0.5).</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:oklch(0.64 0.01 260)">Цвет</div><div>Палитра берётся из обложки или сервиса. Системный цвет только один — лайм в логотипе и прогрессе.</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:oklch(0.64 0.01 260)">Карточки</div><div>Изображения без рамок с радиусом 14. Плитки сервисов — цветовые поля с названием, без иконок.</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:oklch(0.64 0.01 260)">Движение</div><div>Свет перетекает 600–900 мс, фокус 240 мс. Навигация всплывает капсулой, фон при этом остаётся живым.</div>
+      </div>
+
+      <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:oklch(0.64 0.01 260)">HOME · ФОКУС НА ФИЛЬМЕ</div>
+      <div style="position:relative;width:864px;height:486px;overflow:hidden;border-radius:10px;box-shadow:0 20px 60px rgba(0,0,0,.5)">
+        <div style="position:absolute;left:0;top:0;width:1920px;height:1080px;transform:scale(.45);transform-origin:0 0;background:oklch(0.13 0.01 60);font-family:'Golos Text',sans-serif;color:oklch(0.97 0.006 80)">
+          <div style="position:absolute;inset:0;background:radial-gradient(55% 70% at 72% 26%, oklch(0.50 0.11 62 / .85) 0%, oklch(0.50 0.11 62 / 0) 70%), radial-gradient(40% 50% at 18% 100%, oklch(0.36 0.08 35 / .6) 0%, oklch(0.36 0.08 35 / 0) 70%), radial-gradient(40% 40% at 100% 80%, oklch(0.32 0.06 80 / .5) 0%, oklch(0.32 0.06 80 / 0) 70%)"></div>
+          <div style="position:absolute;right:96px;top:130px;font-family:'JetBrains Mono',monospace;font-size:20px;color:rgba(255,255,255,.45)">световое поле · цвет обложки</div>
+          <div style="position:absolute;top:48px;right:96px;font-size:30px;font-weight:500;color:oklch(0.9 0.01 80)">20:16</div>
+          <div style="position:absolute;left:120px;top:110px;display:flex;flex-direction:column;gap:18px">
+            <div style="font-family:'Literata',serif;font-style:italic;font-size:30px;color:oklch(0.86 0.02 80)">Продолжить</div>
+            <div style="font-family:'Literata',serif;font-size:104px;font-weight:600;letter-spacing:-0.02em;line-height:1">Дюна: Часть вторая</div>
+            <div style="font-size:28px;color:oklch(0.88 0.02 80)">С 1:13:42 · Осталось 1 ч 32 мин</div>
+          </div>
+          <div style="position:absolute;left:120px;top:440px;display:flex;gap:40px;align-items:center">
+            <div style="position:relative;width:400px;height:225px;border-radius:14px;overflow:hidden;filter:brightness(.5)">
+              <div style="position:absolute;inset:0;background:repeating-linear-gradient(135deg, oklch(0.42 0.1 45) 0 14px, oklch(0.37 0.09 45) 14px 28px)"></div>
+              <div style="position:absolute;left:22px;bottom:20px;font-family:'Literata',serif;font-size:32px;font-weight:600">Кинопоиск</div>
+              <div style="position:absolute;left:22px;top:20px;font-size:20px;font-weight:600">● Сейчас запущено</div>
+            </div>
+            <div style="position:relative;width:400px;height:225px;border-radius:14px;overflow:hidden;transform:scale(1.04);box-shadow:0 0 140px 30px oklch(0.62 0.13 62 / .55), 0 30px 60px -20px rgba(0,0,0,.6)">
+              <div style="position:absolute;inset:0;background:repeating-linear-gradient(135deg, oklch(0.52 0.11 62) 0 14px, oklch(0.47 0.1 62) 14px 28px)"></div>
+              <div style="position:absolute;left:0;right:0;bottom:0;height:6px;background:rgba(0,0,0,.3)"><div style="width:44%;height:100%;background:oklch(0.89 0.2 128)"></div></div>
+            </div>
+            <div style="position:relative;width:400px;height:225px;border-radius:14px;overflow:hidden;filter:brightness(.5)">
+              <div style="position:absolute;inset:0;background:repeating-linear-gradient(135deg, oklch(0.42 0.1 22) 0 14px, oklch(0.37 0.09 22) 14px 28px)"></div>
+              <div style="position:absolute;left:22px;bottom:20px;font-family:'Literata',serif;font-size:32px;font-weight:600">Сёгун</div>
+            </div>
+          </div>
+          <div style="position:absolute;left:120px;top:730px;font-family:'Literata',serif;font-style:italic;font-size:30px;color:oklch(0.86 0.02 80)">Избранное</div>
+          <div style="position:absolute;left:120px;top:780px;display:flex;gap:24px;filter:brightness(.62)">
+            <div style="width:250px;height:120px;border-radius:14px;padding:22px;display:flex;align-items:flex-end;font-size:26px;font-weight:600;background:linear-gradient(150deg, oklch(0.42 0.06 250), oklch(0.26 0.03 250))">Браузер</div>
+            <div style="width:250px;height:120px;border-radius:14px;padding:22px;display:flex;align-items:flex-end;font-size:26px;font-weight:600;background:linear-gradient(150deg, oklch(0.55 0.13 55), oklch(0.32 0.07 45))">Кинопоиск</div>
+            <div style="width:250px;height:120px;border-radius:14px;padding:22px;display:flex;align-items:flex-end;font-size:26px;font-weight:600;background:linear-gradient(150deg, oklch(0.48 0.13 355), oklch(0.28 0.07 350))">IVI</div>
+            <div style="width:250px;height:120px;border-radius:14px;padding:22px;display:flex;align-items:flex-end;font-size:26px;font-weight:600;background:linear-gradient(150deg, oklch(0.50 0.14 25), oklch(0.28 0.07 25))">YouTube</div>
+            <div style="width:250px;height:120px;border-radius:14px;padding:22px;display:flex;align-items:flex-end;font-size:26px;font-weight:600;background:linear-gradient(150deg, oklch(0.42 0.08 240), oklch(0.22 0.04 245))">Steam</div>
+            <div style="width:250px;height:120px;border-radius:14px;padding:22px;display:flex;align-items:flex-end;font-size:24px;font-weight:600;background:linear-gradient(150deg, oklch(0.42 0.1 300), oklch(0.24 0.05 300))">EmulationStation</div>
+          </div>
+          <div style="position:absolute;left:120px;top:950px;font-family:'Literata',serif;font-style:italic;font-size:30px;color:oklch(0.86 0.02 80)">Новое</div>
+          <div style="position:absolute;left:120px;top:1000px;display:flex;gap:24px;filter:brightness(.55)">
+            <div style="width:180px;height:270px;border-radius:14px;background:repeating-linear-gradient(135deg, oklch(0.40 0.08 330) 0 12px, oklch(0.35 0.07 330) 12px 24px)"></div>
+            <div style="width:180px;height:270px;border-radius:14px;background:repeating-linear-gradient(135deg, oklch(0.40 0.08 35) 0 12px, oklch(0.35 0.07 35) 12px 24px)"></div>
+            <div style="width:180px;height:270px;border-radius:14px;background:repeating-linear-gradient(135deg, oklch(0.40 0.08 150) 0 12px, oklch(0.35 0.07 150) 12px 24px)"></div>
+            <div style="width:180px;height:270px;border-radius:14px;background:repeating-linear-gradient(135deg, oklch(0.40 0.08 285) 0 12px, oklch(0.35 0.07 285) 12px 24px)"></div>
+          </div>
+        </div>
+      </div>
+
+      <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:oklch(0.64 0.01 260)">НАВИГАЦИЯ · ПОВЕРХ ЗАПУЩЕННОГО КИНОПОИСКА</div>
+      <div style="position:relative;width:864px;height:486px;overflow:hidden;border-radius:10px;box-shadow:0 20px 60px rgba(0,0,0,.5)">
+        <div style="position:absolute;left:0;top:0;width:1920px;height:1080px;transform:scale(.45);transform-origin:0 0;background:#000;font-family:'Golos Text',sans-serif;color:oklch(0.97 0.006 80)">
+          <div style="position:absolute;inset:0;background:repeating-linear-gradient(135deg, oklch(0.45 0.1 45) 0 26px, oklch(0.40 0.09 45) 26px 52px);filter:brightness(.55) saturate(1.1)"></div>
+          <div style="position:absolute;inset:0;background:radial-gradient(90% 70% at 50% 0%, rgba(0,0,0,.75) 0%, rgba(0,0,0,.2) 60%), linear-gradient(0deg, rgba(0,0,0,.7), rgba(0,0,0,0) 50%)"></div>
+          <div style="position:absolute;left:120px;bottom:100px;font-family:'JetBrains Mono',monospace;font-size:20px;color:rgba(255,255,255,.45)">activity · Кинопоиск (живой, на месте, притушен)</div>
+          <div style="position:absolute;left:50%;top:64px;transform:translateX(-50%);height:100px;padding:0 16px;border-radius:50px;display:flex;align-items:center;gap:6px;background:rgba(24,18,12,.5);backdrop-filter:blur(30px);-webkit-backdrop-filter:blur(30px);border:1px solid rgba(255,255,255,.1);box-shadow:0 30px 80px rgba(0,0,0,.5)">
+            <div style="width:16px;height:16px;border-radius:8px;background:oklch(0.89 0.2 128);margin:0 18px 0 20px"></div>
+            <div style="position:relative;height:72px;padding:0 26px;display:flex;align-items:center;font-size:28px;font-weight:500;color:oklch(0.97 0.006 80)">Главная<div style="position:absolute;left:26px;right:26px;bottom:10px;height:3px;border-radius:2px;background:rgba(255,255,255,.4)"></div></div>
+            <div style="position:relative;height:72px;padding:0 30px;border-radius:36px;display:flex;align-items:center;font-size:28px;font-weight:600;background:radial-gradient(100% 140% at 50% 100%, rgba(255,235,200,.34), rgba(255,235,200,.08));box-shadow:0 0 60px rgba(255,220,170,.3);transform:scale(1.05)">Медиатека</div>
+            <div style="height:72px;padding:0 26px;display:flex;align-items:center;gap:10px;font-size:28px;font-weight:500;color:oklch(0.80 0.015 80)">Загрузки<span style="font-size:22px;color:oklch(0.89 0.2 128)">82%</span></div>
+            <div style="height:72px;padding:0 26px;display:flex;align-items:center;font-size:28px;font-weight:500;color:oklch(0.80 0.015 80)">Приложения</div>
+            <div style="height:72px;padding:0 26px;display:flex;align-items:center;font-size:28px;font-weight:500;color:oklch(0.80 0.015 80)">Настройки</div>
+            <div style="width:1px;height:48px;background:rgba(255,255,255,.15);margin:0 10px"></div>
+            <div style="height:72px;padding:0 28px 0 22px;border-radius:36px;display:flex;align-items:center;gap:12px;font-size:26px;font-weight:500;background:rgba(255,255,255,.08)"><span style="font-family:'Literata',serif;font-weight:600">Кинопоиск</span><span style="color:oklch(0.80 0.015 80)">· вернуться</span></div>
+          </div>
+          <div style="position:absolute;left:120px;top:420px;display:flex;flex-direction:column;gap:14px">
+            <div style="font-family:'Literata',serif;font-style:italic;font-size:30px;color:oklch(0.86 0.02 80)">Сейчас идёт</div>
+            <div style="font-family:'Literata',serif;font-size:96px;font-weight:600;letter-spacing:-0.02em;line-height:1">Кинопоиск</div>
+            <div style="font-size:28px;color:oklch(0.86 0.02 80)">Назад — вернуться к просмотру</div>
+          </div>
+        </div>
+      </div>
+
+      <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:oklch(0.64 0.01 260)">КАРТОЧКА И ПЛИТКА · ПОКОЙ / ФОКУС</div>
+      <div style="position:relative;width:864px;height:270px;overflow:hidden;border-radius:10px">
+        <div style="position:absolute;left:0;top:0;width:1920px;height:600px;transform:scale(.45);transform-origin:0 0;background:radial-gradient(50% 90% at 35% 50%, oklch(0.36 0.08 62 / .6), oklch(0.13 0.01 60) 70%);font-family:'Golos Text',sans-serif;color:oklch(0.97 0.006 80);display:flex;align-items:center;gap:72px;padding:0 100px">
+          <div style="display:flex;flex-direction:column;gap:28px;align-items:center"><div style="width:400px;height:225px;border-radius:14px;background:repeating-linear-gradient(135deg, oklch(0.52 0.11 62) 0 14px, oklch(0.47 0.1 62) 14px 28px);filter:brightness(.5)"></div><div style="font-family:'JetBrains Mono',monospace;font-size:24px;color:oklch(0.7 0.02 80)">покой</div></div>
+          <div style="display:flex;flex-direction:column;gap:28px;align-items:center"><div style="width:400px;height:225px;border-radius:14px;transform:scale(1.04);background:repeating-linear-gradient(135deg, oklch(0.52 0.11 62) 0 14px, oklch(0.47 0.1 62) 14px 28px);box-shadow:0 0 140px 30px oklch(0.62 0.13 62 / .6)"></div><div style="font-family:'Literata',serif;font-size:30px;font-weight:600">Дюна: Часть вторая</div></div>
+          <div style="display:flex;flex-direction:column;gap:28px;align-items:center"><div style="width:300px;height:140px;border-radius:14px;padding:24px;display:flex;align-items:flex-end;font-size:30px;font-weight:600;background:linear-gradient(150deg, oklch(0.42 0.08 240), oklch(0.22 0.04 245));filter:brightness(.62)">Steam</div><div style="font-family:'JetBrains Mono',monospace;font-size:24px;color:oklch(0.7 0.02 80)">покой</div></div>
+          <div style="display:flex;flex-direction:column;gap:28px;align-items:center"><div style="width:300px;height:140px;border-radius:14px;padding:24px;display:flex;align-items:flex-end;font-size:30px;font-weight:600;transform:scale(1.05);background:linear-gradient(150deg, oklch(0.52 0.1 240), oklch(0.28 0.05 245));box-shadow:0 0 100px 20px oklch(0.55 0.12 240 / .55)">Steam</div><div style="font-family:'JetBrains Mono',monospace;font-size:24px;color:oklch(0.7 0.02 80)">фокус</div></div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;font-size:16px;line-height:1.5;color:oklch(0.80 0.008 260)">
+        <div><b style="color:oklch(0.95 0.004 260)">Сильная сторона:</b> самое кинематографичное из трёх. Переходы от «спокойной ОС» к «кино» здесь самые выразительные.</div>
+        <div><b style="color:oklch(0.95 0.004 260)">Риск:</b> всё зависит от обложек, контраст приходится защищать вуалями, а в Настройках свет не из чего брать.</div>
+      </div>
+    </div>
+
+    <!-- ================= 1c ================= -->
+    <div id="1c" style="width:864px;display:flex;flex-direction:column;gap:28px">
+      <div style="display:flex;align-items:center;gap:16px">
+        <div style="padding:6px 14px;border-radius:8px;background:oklch(0.89 0.2 128);color:#111;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:500">1c</div>
+        <div style="font-size:34px;font-weight:700;letter-spacing:-0.02em">Сетка</div>
+        <div style="font-size:18px;color:oklch(0.64 0.01 260)">Architectural Minimalism</div>
+      </div>
+      <div style="font-size:18px;line-height:1.55;color:oklch(0.80 0.008 260)">Вместо декора — типографика и сетка. Каждый раздел пронумерован и выровнен по колонкам. Изображения живут только в строгих кадрах, и кино здесь — это кадр 2.39:1, а не весь экран.</div>
+      <div style="display:grid;grid-template-columns:150px 1fr;gap:10px 20px;font-size:16px;line-height:1.5;color:oklch(0.80 0.008 260)">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:oklch(0.64 0.01 260)">Шрифт</div><div>IBM Plex Sans 500–600 и IBM Plex Mono для метаданных и индексов. Прописные моно-подписи.</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:oklch(0.64 0.01 260)">Поверхности</div><div>Плоские, без теней и размытий. Волосяные линии 1px делят экран на полосы. Радиус 4.</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:oklch(0.64 0.01 260)">Фокус</div><div>Инверсия. Плитки и кнопки становятся сплошными светлыми. У медиа — плотная рамка 6px и лаймовая плашка с действием «Enter — …».</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:oklch(0.64 0.01 260)">Цвет</div><div>Тёплый чёрный и бумажно-белый. Лайм структурный: плашка действия и маркер текущего раздела.</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:oklch(0.64 0.01 260)">Карточки</div><div>Прямоугольники 16:9. Приложения — текстовые плитки с категорией.</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:oklch(0.64 0.01 260)">Движение</div><div>Быстро и прямо, 140–180 мс. Фокус переключается почти мгновенно, панели выезжают по сетке без масштабирования.</div>
+      </div>
+
+      <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:oklch(0.64 0.01 260)">HOME · ФОКУС НА ФИЛЬМЕ</div>
+      <div style="position:relative;width:864px;height:486px;overflow:hidden;border-radius:10px;box-shadow:0 20px 60px rgba(0,0,0,.5)">
+        <div style="position:absolute;left:0;top:0;width:1920px;height:1080px;transform:scale(.45);transform-origin:0 0;background:oklch(0.135 0.004 80);font-family:'IBM Plex Sans',sans-serif;color:oklch(0.95 0.008 90)">
+          <div style="position:absolute;left:120px;right:120px;top:56px;display:flex;align-items:center;justify-content:space-between"><div style="display:flex;align-items:center;gap:14px;font-size:28px;font-weight:600"><div style="width:16px;height:16px;background:oklch(0.89 0.2 128)"></div>Arinn</div><div style="font-family:'IBM Plex Mono',monospace;font-size:28px">20:16</div></div>
+          <div style="position:absolute;left:120px;right:120px;top:130px;height:1px;background:rgba(255,255,255,.14)"></div>
+          <div style="position:absolute;left:120px;top:170px;font-family:'IBM Plex Mono',monospace;font-size:22px;letter-spacing:.06em;color:oklch(0.68 0.01 90)">00 / СЕЙЧАС</div>
+          <div style="position:absolute;left:440px;top:164px;width:640px;display:flex;flex-direction:column;gap:18px">
+            <div style="font-size:76px;font-weight:600;letter-spacing:-0.02em;line-height:1.02">Дюна: Часть вторая</div>
+            <div style="font-family:'IBM Plex Mono',monospace;font-size:24px;letter-spacing:.04em;color:oklch(0.75 0.01 90)">2024 — 2:46:00 — ОСТАЛОСЬ 1:32:18</div>
+          </div>
+          <div style="position:absolute;left:1160px;top:164px;width:640px;height:268px;background:repeating-linear-gradient(135deg, oklch(0.44 0.09 62) 0 14px, oklch(0.39 0.08 62) 14px 28px)"><div style="position:absolute;left:18px;top:14px;font-family:'IBM Plex Mono',monospace;font-size:18px;color:rgba(255,255,255,.55)">backdrop · кадр 2.39:1</div></div>
+          <div style="position:absolute;left:120px;right:120px;top:480px;height:1px;background:rgba(255,255,255,.14)"></div>
+          <div style="position:absolute;left:120px;top:520px;font-family:'IBM Plex Mono',monospace;font-size:22px;letter-spacing:.06em;color:oklch(0.68 0.01 90)">01 / ПРОДОЛЖИТЬ</div>
+          <div style="position:absolute;left:440px;top:514px;display:flex;gap:40px">
+            <div style="width:420px;height:236px;border-radius:4px;background:oklch(0.19 0.004 80);border:1px solid rgba(255,255,255,.12);padding:24px;display:flex;flex-direction:column;justify-content:space-between"><div style="display:flex;align-items:center;gap:10px;font-family:'IBM Plex Mono',monospace;font-size:20px;letter-spacing:.06em;color:oklch(0.89 0.2 128)"><div style="width:10px;height:10px;background:oklch(0.89 0.2 128)"></div>ЗАПУЩЕНО</div><div style="font-size:40px;font-weight:600">Кинопоиск</div></div>
+            <div style="display:flex;flex-direction:column">
+              <div style="width:420px;height:236px;border-radius:4px;outline:6px solid oklch(0.95 0.008 90);background:repeating-linear-gradient(135deg, oklch(0.44 0.09 62) 0 14px, oklch(0.39 0.08 62) 14px 28px);position:relative"><div style="position:absolute;left:0;right:0;bottom:0;height:6px;background:rgba(0,0,0,.4)"><div style="width:44%;height:100%;background:oklch(0.95 0.008 90)"></div></div></div>
+              <div style="width:420px;height:48px;margin-top:6px;outline:6px solid oklch(0.89 0.2 128);background:oklch(0.89 0.2 128);color:oklch(0.16 0.01 120);display:flex;align-items:center;padding:0 16px;font-family:'IBM Plex Mono',monospace;font-size:20px;font-weight:500;letter-spacing:.04em">ENTER — ПРОДОЛЖИТЬ 1:13:42</div>
+            </div>
+            <div style="width:420px;height:236px;border-radius:4px;background:repeating-linear-gradient(135deg, oklch(0.32 0.06 22) 0 14px, oklch(0.28 0.05 22) 14px 28px);filter:brightness(.8)"></div>
+          </div>
+          <div style="position:absolute;left:120px;right:120px;top:830px;height:1px;background:rgba(255,255,255,.14)"></div>
+          <div style="position:absolute;left:120px;top:870px;font-family:'IBM Plex Mono',monospace;font-size:22px;letter-spacing:.06em;color:oklch(0.68 0.01 90)">02 / ИЗБРАННОЕ</div>
+          <div style="position:absolute;left:440px;top:864px;display:flex;gap:20px">
+            <div style="width:210px;height:112px;border-radius:4px;border:1px solid rgba(255,255,255,.18);padding:16px 18px;display:flex;flex-direction:column;justify-content:space-between"><div style="font-family:'IBM Plex Mono',monospace;font-size:16px;color:oklch(0.68 0.01 90)">ОНЛАЙН</div><div style="font-size:28px;font-weight:600">Браузер</div></div>
+            <div style="width:210px;height:112px;border-radius:4px;border:1px solid rgba(255,255,255,.18);padding:16px 18px;display:flex;flex-direction:column;justify-content:space-between"><div style="font-family:'IBM Plex Mono',monospace;font-size:16px;color:oklch(0.68 0.01 90)">ОНЛАЙН</div><div style="font-size:28px;font-weight:600">Кинопоиск</div></div>
+            <div style="width:210px;height:112px;border-radius:4px;border:1px solid rgba(255,255,255,.18);padding:16px 18px;display:flex;flex-direction:column;justify-content:space-between"><div style="font-family:'IBM Plex Mono',monospace;font-size:16px;color:oklch(0.68 0.01 90)">ОНЛАЙН</div><div style="font-size:28px;font-weight:600">IVI</div></div>
+            <div style="width:210px;height:112px;border-radius:4px;border:1px solid rgba(255,255,255,.18);padding:16px 18px;display:flex;flex-direction:column;justify-content:space-between"><div style="font-family:'IBM Plex Mono',monospace;font-size:16px;color:oklch(0.68 0.01 90)">ОНЛАЙН</div><div style="font-size:28px;font-weight:600">YouTube</div></div>
+            <div style="width:210px;height:112px;border-radius:4px;border:1px solid rgba(255,255,255,.18);padding:16px 18px;display:flex;flex-direction:column;justify-content:space-between"><div style="font-family:'IBM Plex Mono',monospace;font-size:16px;color:oklch(0.68 0.01 90)">ИГРЫ</div><div style="font-size:28px;font-weight:600">Steam</div></div>
+            <div style="width:210px;height:112px;border-radius:4px;border:1px solid rgba(255,255,255,.18);padding:16px 18px;display:flex;flex-direction:column;justify-content:space-between"><div style="font-family:'IBM Plex Mono',monospace;font-size:16px;color:oklch(0.68 0.01 90)">ИГРЫ</div><div style="font-size:24px;font-weight:600">EmulationSt.</div></div>
+          </div>
+          <div style="position:absolute;left:120px;right:120px;top:1020px;height:1px;background:rgba(255,255,255,.14)"></div>
+          <div style="position:absolute;left:120px;top:1044px;font-family:'IBM Plex Mono',monospace;font-size:22px;letter-spacing:.06em;color:oklch(0.68 0.01 90)">03 / НОВОЕ</div>
+        </div>
+      </div>
+
+      <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:oklch(0.64 0.01 260)">НАВИГАЦИЯ · ПОВЕРХ ЗАПУЩЕННОГО КИНОПОИСКА</div>
+      <div style="position:relative;width:864px;height:486px;overflow:hidden;border-radius:10px;box-shadow:0 20px 60px rgba(0,0,0,.5)">
+        <div style="position:absolute;left:0;top:0;width:1920px;height:1080px;transform:scale(.45);transform-origin:0 0;background:#000;font-family:'IBM Plex Sans',sans-serif;color:oklch(0.95 0.008 90)">
+          <div style="position:absolute;inset:0;background:repeating-linear-gradient(135deg, oklch(0.45 0.1 45) 0 26px, oklch(0.40 0.09 45) 26px 52px);filter:brightness(.32) grayscale(.4)"></div>
+          <div style="position:absolute;right:120px;top:90px;font-family:'IBM Plex Mono',monospace;font-size:20px;color:rgba(255,255,255,.5)">activity · Кинопоиск (притушен, без размытия)</div>
+          <div style="position:absolute;left:0;top:0;bottom:0;width:660px;background:oklch(0.135 0.004 80);border-right:1px solid rgba(255,255,255,.16);padding:56px 0 64px;display:flex;flex-direction:column">
+            <div style="display:flex;align-items:center;gap:14px;padding:0 64px 48px;font-size:28px;font-weight:600"><div style="width:16px;height:16px;background:oklch(0.89 0.2 128)"></div>Arinn</div>
+            <div style="height:1px;background:rgba(255,255,255,.14)"></div>
+            <div style="height:112px;padding:0 64px;display:flex;align-items:center;gap:28px;border-bottom:1px solid rgba(255,255,255,.14)"><span style="font-family:'IBM Plex Mono',monospace;font-size:22px;color:oklch(0.68 0.01 90)">01</span><span style="font-size:52px;font-weight:600">Главная</span><div style="margin-left:auto;width:14px;height:14px;background:oklch(0.89 0.2 128)"></div></div>
+            <div style="height:112px;padding:0 64px;display:flex;align-items:center;gap:28px;background:oklch(0.95 0.008 90);color:oklch(0.14 0.004 80)"><span style="font-family:'IBM Plex Mono',monospace;font-size:22px">02</span><span style="font-size:52px;font-weight:600">Медиатека</span><span style="margin-left:auto;font-family:'IBM Plex Mono',monospace;font-size:20px">ENTER →</span></div>
+            <div style="height:112px;padding:0 64px;display:flex;align-items:center;gap:28px;border-bottom:1px solid rgba(255,255,255,.14)"><span style="font-family:'IBM Plex Mono',monospace;font-size:22px;color:oklch(0.68 0.01 90)">03</span><span style="font-size:52px;font-weight:600">Загрузки</span><span style="margin-left:auto;font-family:'IBM Plex Mono',monospace;font-size:22px;color:oklch(0.89 0.2 128)">82%</span></div>
+            <div style="height:112px;padding:0 64px;display:flex;align-items:center;gap:28px;border-bottom:1px solid rgba(255,255,255,.14)"><span style="font-family:'IBM Plex Mono',monospace;font-size:22px;color:oklch(0.68 0.01 90)">04</span><span style="font-size:52px;font-weight:600">Приложения</span></div>
+            <div style="height:112px;padding:0 64px;display:flex;align-items:center;gap:28px;border-bottom:1px solid rgba(255,255,255,.14)"><span style="font-family:'IBM Plex Mono',monospace;font-size:22px;color:oklch(0.68 0.01 90)">05</span><span style="font-size:52px;font-weight:600">Настройки</span></div>
+            <div style="margin-top:auto;padding:0 64px;display:flex;flex-direction:column;gap:10px"><span style="font-family:'IBM Plex Mono',monospace;font-size:20px;letter-spacing:.06em;color:oklch(0.89 0.2 128)">■ ЗАПУЩЕНО</span><span style="font-size:36px;font-weight:600">Кинопоиск</span><span style="font-family:'IBM Plex Mono',monospace;font-size:20px;color:oklch(0.68 0.01 90)">НАЗАД — ВЕРНУТЬСЯ</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:oklch(0.64 0.01 260)">КАРТОЧКА И ПЛИТКА · ПОКОЙ / ФОКУС</div>
+      <div style="position:relative;width:864px;height:270px;overflow:hidden;border-radius:10px">
+        <div style="position:absolute;left:0;top:0;width:1920px;height:600px;transform:scale(.45);transform-origin:0 0;background:oklch(0.135 0.004 80);font-family:'IBM Plex Sans',sans-serif;color:oklch(0.95 0.008 90);display:flex;align-items:center;gap:72px;padding:0 100px">
+          <div style="display:flex;flex-direction:column;gap:28px;align-items:center"><div style="width:400px;height:225px;border-radius:4px;background:repeating-linear-gradient(135deg, oklch(0.44 0.09 62) 0 14px, oklch(0.39 0.08 62) 14px 28px);filter:brightness(.8)"></div><div style="font-family:'IBM Plex Mono',monospace;font-size:24px;color:oklch(0.68 0.01 90)">ПОКОЙ</div></div>
+          <div style="display:flex;flex-direction:column;align-items:center"><div style="width:400px;height:225px;border-radius:4px;outline:6px solid oklch(0.95 0.008 90);background:repeating-linear-gradient(135deg, oklch(0.44 0.09 62) 0 14px, oklch(0.39 0.08 62) 14px 28px)"></div><div style="width:400px;height:48px;margin-top:6px;outline:6px solid oklch(0.89 0.2 128);background:oklch(0.89 0.2 128);color:oklch(0.16 0.01 120);display:flex;align-items:center;padding:0 16px;font-family:'IBM Plex Mono',monospace;font-size:20px;font-weight:500">ENTER — СМОТРЕТЬ</div></div>
+          <div style="display:flex;flex-direction:column;gap:28px;align-items:center"><div style="width:300px;height:140px;border-radius:4px;border:1px solid rgba(255,255,255,.18);padding:18px 20px;display:flex;flex-direction:column;justify-content:space-between"><div style="font-family:'IBM Plex Mono',monospace;font-size:18px;color:oklch(0.68 0.01 90)">ИГРЫ</div><div style="font-size:32px;font-weight:600">Steam</div></div><div style="font-family:'IBM Plex Mono',monospace;font-size:24px;color:oklch(0.68 0.01 90)">ПОКОЙ</div></div>
+          <div style="display:flex;flex-direction:column;gap:28px;align-items:center"><div style="width:300px;height:140px;border-radius:4px;background:oklch(0.95 0.008 90);color:oklch(0.14 0.004 80);padding:18px 20px;display:flex;flex-direction:column;justify-content:space-between"><div style="display:flex;justify-content:space-between;font-family:'IBM Plex Mono',monospace;font-size:18px"><span>ИГРЫ</span><span>ENTER →</span></div><div style="font-size:32px;font-weight:600">Steam</div></div><div style="font-family:'IBM Plex Mono',monospace;font-size:24px;color:oklch(0.68 0.01 90)">ФОКУС</div></div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;font-size:16px;line-height:1.5;color:oklch(0.80 0.008 260)">
+        <div><b style="color:oklch(0.95 0.004 260)">Сильная сторона:</b> лучшая читаемость с 3 метров и самый узнаваемый характер. Фокус прямо говорит, что сделает Enter.</div>
+        <div><b style="color:oklch(0.95 0.004 260)">Риск:</b> строгость может показаться холодной для кино, а кинематографичность ограничена рамкой кадра.</div>
+      </div>
+    </div>
+
+  </div>
+  <div style="font-size:16px;color:oklch(0.64 0.01 260)">Прошлый интерактивный прототип сохранён: <a href="arinn%20Prototype.dc.html">Arinn Prototype</a>. Выбранное направление перенесу туда.</div>
+</section>
+</x-dc>
+</body>
+</html>

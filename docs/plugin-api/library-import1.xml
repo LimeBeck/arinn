@@ -1,0 +1,11 @@
+<!-- SPDX-FileCopyrightText: 2026 Arinn contributors
+SPDX-License-Identifier: MIT OR Apache-2.0 -->
+<node>
+  <interface name="org.arinn.LibraryImport1">
+    <method name="ImportCompleted">
+      <arg name="generation" type="s" direction="in" />
+      <arg name="candidates" type="a((sss)ss)" direction="in" />
+      <arg type="as" direction="out" />
+    </method>
+  </interface>
+</node>

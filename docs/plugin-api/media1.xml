@@ -1,0 +1,92 @@
+<!-- SPDX-FileCopyrightText: 2026 Arinn contributors
+SPDX-License-Identifier: MIT OR Apache-2.0 -->
+<node>
+  <interface name="org.arinn.Media1">
+    <method name="GetSessions">
+      <arg name="token" type="s" direction="in" />
+      <arg type="(sta(sssssxxtasb(sss))s)" direction="out" />
+    </method>
+    <method name="GetSession">
+      <arg name="generation" type="s" direction="in" />
+      <arg name="id" type="s" direction="in" />
+      <arg type="(sssssxxtasb(sss))" direction="out" />
+    </method>
+    <method name="Features">
+      <arg type="as" direction="out" />
+    </method>
+    <method name="Play">
+      <arg name="generation" type="s" direction="in" />
+      <arg name="id" type="s" direction="in" />
+      <arg name="request_id" type="s" direction="in" />
+      <arg type="o" direction="out" />
+    </method>
+    <method name="Pause">
+      <arg name="generation" type="s" direction="in" />
+      <arg name="id" type="s" direction="in" />
+      <arg name="request_id" type="s" direction="in" />
+      <arg type="o" direction="out" />
+    </method>
+    <method name="PlayPause">
+      <arg name="generation" type="s" direction="in" />
+      <arg name="id" type="s" direction="in" />
+      <arg name="request_id" type="s" direction="in" />
+      <arg type="o" direction="out" />
+    </method>
+    <method name="Seek">
+      <arg name="generation" type="s" direction="in" />
+      <arg name="id" type="s" direction="in" />
+      <arg name="position_us" type="x" direction="in" />
+      <arg name="request_id" type="s" direction="in" />
+      <arg type="o" direction="out" />
+    </method>
+    <method name="Next">
+      <arg name="generation" type="s" direction="in" />
+      <arg name="id" type="s" direction="in" />
+      <arg name="request_id" type="s" direction="in" />
+      <arg type="o" direction="out" />
+    </method>
+    <method name="Previous">
+      <arg name="generation" type="s" direction="in" />
+      <arg name="id" type="s" direction="in" />
+      <arg name="request_id" type="s" direction="in" />
+      <arg type="o" direction="out" />
+    </method>
+    <method name="Stop">
+      <arg name="generation" type="s" direction="in" />
+      <arg name="id" type="s" direction="in" />
+      <arg name="request_id" type="s" direction="in" />
+      <arg type="o" direction="out" />
+    </method>
+    <method name="ListTracks">
+      <arg name="generation" type="s" direction="in" />
+      <arg name="id" type="s" direction="in" />
+      <arg type="a(sssssubb)" direction="out" />
+    </method>
+    <method name="SelectTrack">
+      <arg name="generation" type="s" direction="in" />
+      <arg name="id" type="s" direction="in" />
+      <arg name="kind" type="s" direction="in" />
+      <arg name="track_id" type="s" direction="in" />
+      <arg name="request_id" type="s" direction="in" />
+      <arg type="o" direction="out" />
+    </method>
+    <method name="DisableSubtitles">
+      <arg name="generation" type="s" direction="in" />
+      <arg name="id" type="s" direction="in" />
+      <arg name="request_id" type="s" direction="in" />
+      <arg type="o" direction="out" />
+    </method>
+    <method name="GetTimeline">
+      <arg name="generation" type="s" direction="in" />
+      <arg name="id" type="s" direction="in" />
+      <arg type="(a(sxs)a(xx))" direction="out" />
+    </method>
+    <method name="RequestThumbnail">
+      <arg name="generation" type="s" direction="in" />
+      <arg name="id" type="s" direction="in" />
+      <arg name="position_us" type="x" direction="in" />
+      <arg name="request_id" type="s" direction="in" />
+      <arg type="o" direction="out" />
+    </method>
+  </interface>
+</node>

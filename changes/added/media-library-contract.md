@@ -1,0 +1,1 @@
+- Media and library providers have a wire contract (`Media1`, `MediaProvider1`, `Library1`, `LibraryProvider1`) with optional `MediaOpen1`, `MediaTracks1`, `MediaTimeline1`, `LibraryResume1` and `LibraryImport1` ([ADR-0054](docs/adr/0054-media-and-library-wire-contract.md)).

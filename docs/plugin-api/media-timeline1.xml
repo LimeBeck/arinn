@@ -1,0 +1,17 @@
+<!-- SPDX-FileCopyrightText: 2026 Arinn contributors
+SPDX-License-Identifier: MIT OR Apache-2.0 -->
+<node>
+  <interface name="org.arinn.MediaTimeline1">
+    <method name="GetTimeline">
+      <arg name="generation" type="s" direction="in" />
+      <arg name="id" type="s" direction="in" />
+      <arg type="(a(sxs)a(xx))" direction="out" />
+    </method>
+    <method name="RequestThumbnail">
+      <arg name="generation" type="s" direction="in" />
+      <arg name="id" type="s" direction="in" />
+      <arg name="position_us" type="x" direction="in" />
+      <arg type="(sx)" direction="out" />
+    </method>
+  </interface>
+</node>

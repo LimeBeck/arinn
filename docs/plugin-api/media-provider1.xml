@@ -1,0 +1,54 @@
+<!-- SPDX-FileCopyrightText: 2026 Arinn contributors
+SPDX-License-Identifier: MIT OR Apache-2.0 -->
+<node>
+  <interface name="org.arinn.MediaProvider1">
+    <method name="GetSessions">
+      <arg name="token" type="s" direction="in" />
+      <arg type="(sta(sssssxxtasb(sss))s)" direction="out" />
+    </method>
+    <method name="GetSession">
+      <arg name="generation" type="s" direction="in" />
+      <arg name="id" type="s" direction="in" />
+      <arg type="(sssssxxtasb(sss))" direction="out" />
+    </method>
+    <method name="BackendState">
+      <arg type="s" direction="out" />
+    </method>
+    <method name="Features">
+      <arg type="as" direction="out" />
+    </method>
+    <method name="Play">
+      <arg name="generation" type="s" direction="in" />
+      <arg name="id" type="s" direction="in" />
+    </method>
+    <method name="Pause">
+      <arg name="generation" type="s" direction="in" />
+      <arg name="id" type="s" direction="in" />
+    </method>
+    <method name="PlayPause">
+      <arg name="generation" type="s" direction="in" />
+      <arg name="id" type="s" direction="in" />
+    </method>
+    <method name="Seek">
+      <arg name="generation" type="s" direction="in" />
+      <arg name="id" type="s" direction="in" />
+      <arg name="position_us" type="x" direction="in" />
+    </method>
+    <method name="Next">
+      <arg name="generation" type="s" direction="in" />
+      <arg name="id" type="s" direction="in" />
+    </method>
+    <method name="Previous">
+      <arg name="generation" type="s" direction="in" />
+      <arg name="id" type="s" direction="in" />
+    </method>
+    <method name="Stop">
+      <arg name="generation" type="s" direction="in" />
+      <arg name="id" type="s" direction="in" />
+    </method>
+    <signal name="StateChanged">
+      <arg name="generation" type="s" />
+      <arg name="revision" type="t" />
+    </signal>
+  </interface>
+</node>

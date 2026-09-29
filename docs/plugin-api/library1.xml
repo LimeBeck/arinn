@@ -1,0 +1,34 @@
+<!-- SPDX-FileCopyrightText: 2026 Arinn contributors
+SPDX-License-Identifier: MIT OR Apache-2.0 -->
+<node>
+  <interface name="org.arinn.Library1">
+    <method name="GetLibrary">
+      <arg name="token" type="s" direction="in" />
+      <arg type="(sta(sss)a(sssssbibubuxssb)s)" direction="out" />
+    </method>
+    <method name="GetItem">
+      <arg name="generation" type="s" direction="in" />
+      <arg name="id" type="s" direction="in" />
+      <arg type="(sssssbibubuxssb)" direction="out" />
+    </method>
+    <method name="Features">
+      <arg type="as" direction="out" />
+    </method>
+    <method name="Launch">
+      <arg name="generation" type="s" direction="in" />
+      <arg name="id" type="s" direction="in" />
+      <arg name="request_id" type="s" direction="in" />
+      <arg type="o" direction="out" />
+    </method>
+    <method name="GetResumes">
+      <arg name="token" type="s" direction="in" />
+      <arg type="(sta(sxxbt)s)" direction="out" />
+    </method>
+    <method name="RestartFromBeginning">
+      <arg name="generation" type="s" direction="in" />
+      <arg name="id" type="s" direction="in" />
+      <arg name="request_id" type="s" direction="in" />
+      <arg type="o" direction="out" />
+    </method>
+  </interface>
+</node>

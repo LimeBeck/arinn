@@ -162,7 +162,16 @@ FocusScope {
     onSessionStateChanged: Qt.callLater(restore)
     onAvailableActionsChanged: Qt.callLater(keepFocus)
     Timer { id: hoverDelay; interval: 500 }
-    HoverHandler { onPointChanged: root.pointerMode = true }
+    HoverHandler {
+        property point previousPosition: Qt.point(-1, -1)
+        onPointChanged: {
+            const next = point.scenePosition;
+            if (next.x === previousPosition.x && next.y === previousPosition.y)
+                return;
+            previousPosition = next;
+            root.pointerMode = true;
+        }
+    }
     Keys.onPressed: event => {
         if (acceptBack(event))
             return;

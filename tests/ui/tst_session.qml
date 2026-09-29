@@ -167,6 +167,15 @@ TestCase {
         compare(view.pointerMode, false);
     }
 
+    function test_repeat_hover_keeps_dpad_mode() {
+        const button = child("action-play");
+        mouseMove(button, 30, 20);
+        tryCompare(view, "pointerMode", true);
+        // keyClick delivers the same hover point again. That must not undo D-pad.
+        keyClick(Qt.Key_Left);
+        compare(view.pointerMode, false);
+    }
+
     function test_empty_shows_no_session() {
         view.sessionState = "empty";
         tryCompare(child("sessionBody"), "visible", false);

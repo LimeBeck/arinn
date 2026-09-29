@@ -67,6 +67,19 @@ TestCase {
         compare(cancels.count, 2);
     }
 
+    function test_stall_keeps_slow_message_visible() {
+        overlay.active = true;
+        wait(0);
+        // Block the UI thread after the timers are armed, for longer than
+        // every deadline. Parallel timers finish together and the timeout
+        // hides the slow message's parent, so visible becomes false.
+        const started = Date.now();
+        while (Date.now() - started < overlay.timeoutDelay + 50) {}
+        tryCompare(overlay, "slow", true);
+        compare(overlay.timedOut, false);
+        compare(child("launchSlow").visible, true);
+    }
+
     function test_timeout_dialog() {
         overlay.active = true;
         tryCompare(overlay, "timedOut", true);

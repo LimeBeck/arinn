@@ -33,10 +33,13 @@ The repository is private, so GitHub-hosted Actions minutes are limited. On
   Pushes to `master`, the nightly, releases and manual runs always build the
   package. Running CI manually on a branch forces a package build for a pull
   request.
-- **The runner is switchable.** Every job in `ci.yml` and `package.yml` runs on
-  the repository variable `ARINN_RUNNER` when it is set (for example
-  `self-hosted`), and on `ubuntu-latest` otherwise. A self-hosted runner uses no
-  GitHub minutes.
+- **The runner is switchable.** Every job in `ci.yml`, `package.yml` and
+  `changelog.yml` runs on the repository variable `ARINN_RUNNER` when it is set
+  (for example `self-hosted`), and on `ubuntu-latest` otherwise. A self-hosted
+  runner uses no GitHub minutes. Jobs that ran directly on the Ubuntu image now
+  run in containers (`python:3.12`, `rust:1`), so a runner on any Linux
+  distribution needs only Docker and git. The CLA workflow is owner-gated and
+  keeps `ubuntu-latest`.
 
 ## Consequences
 
@@ -44,11 +47,8 @@ The repository is private, so GitHub-hosted Actions minutes are limited. On
   documentation, changelog and CLA jobs. The package job reports as skipped, and
   packaging regressions from ordinary code changes are found on `master`.
 - `master` artifacts exist only for the last commit of a burst of merges.
-- **A self-hosted runner** must provide:
-  - Linux x64 with Docker, because the Arch jobs run in `archlinux:latest`
-    containers;
-  - `git`, `curl` and `dbus` (the Rust tests start private buses);
-  - enough disk for Cargo caches, about 20 GB.
+- **A self-hosted runner** must provide Linux x64 with Docker and git, and
+  enough disk for images and Cargo caches, about 30 GB.
 
   It runs pull request code with its own user's rights. While the repository is
   private and all authors are trusted this is acceptable. Before the repository

@@ -24,7 +24,8 @@ env:
   CARGO_TERM_COLOR: always
 
 # Every job runs on `vars.ARINN_RUNNER` when that repository variable is set
-# (for example `self-hosted`), else on GitHub-hosted Ubuntu (ADR-0049).
+# (for example `self-hosted`), else on GitHub-hosted Ubuntu (ADR-0049). Jobs
+# run in containers, so a self-hosted runner needs only Docker and git.
 
 jobs:
   # A pull request that changes only documentation skips the build jobs
@@ -34,6 +35,7 @@ jobs:
   scope:
     name: Change scope
     runs-on: ${{ vars.ARINN_RUNNER || 'ubuntu-latest' }}
+    container: python:3.12
     outputs:
       docs_only: ${{ steps.scope.outputs.docs_only }}
       package: ${{ steps.scope.outputs.package }}
@@ -49,7 +51,11 @@ jobs:
     needs: scope
     if: ${{ !cancelled() && needs.scope.outputs.docs_only != 'true' }}
     runs-on: ${{ vars.ARINN_RUNNER || 'ubuntu-latest' }}
+    container: rust:1
     steps:
+      - name: Install dependencies
+        # The tests start private session buses with dbus-daemon.
+        run: apt-get update && apt-get install -y --no-install-recommends dbus
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -97,11 +103,9 @@ jobs:
   docs:
     name: Documentation consistency
     runs-on: ${{ vars.ARINN_RUNNER || 'ubuntu-latest' }}
+    container: python:3.12
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
       - run: python scripts/check-docs.py
       - run: python scripts/adr.py check
       - run: python scripts/check-architecture.py

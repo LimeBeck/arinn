@@ -93,6 +93,9 @@ jobs:
   licenses:
     name: Licensing (REUSE, cargo-deny)
     runs-on: ${{ vars.ARINN_RUNNER || 'ubuntu-latest' }}
+    # Every job runs in a container: container jobs leave root-owned files
+    # in the shared workspace that a host-level job could not clean.
+    container: python:3.12
     steps:
       - uses: actions/checkout@v7
       - uses: fsfe/reuse-action@v6

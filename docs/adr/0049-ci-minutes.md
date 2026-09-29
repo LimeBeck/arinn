@@ -38,7 +38,9 @@ The repository is private, so GitHub-hosted Actions minutes are limited. On
   (for example `self-hosted`), and on `ubuntu-latest` otherwise. A self-hosted
   runner uses no GitHub minutes. Jobs that ran directly on the Ubuntu image now
   run in containers (`python:3.12`, `rust:1`), so a runner on any Linux
-  distribution needs only Docker and git. The CLA workflow is owner-gated and
+  distribution needs only Docker and git. No job runs on the host itself:
+  container jobs leave root-owned files in the runner's shared workspace,
+  which a host-level job could not clean. The CLA workflow is owner-gated and
   keeps `ubuntu-latest`.
 
 ## Consequences

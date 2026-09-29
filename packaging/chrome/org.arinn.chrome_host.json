@@ -1,0 +1,7 @@
+{
+  "name": "org.arinn.chrome_host",
+  "description": "Arinn browser bridge",
+  "path": "/usr/lib/arinn/arinn-chrome-host",
+  "type": "stdio",
+  "allowed_origins": ["chrome-extension://eajlncomibfmpmkhkbcdmajmkpfaaibf/"]
+}

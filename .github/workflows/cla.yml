@@ -17,7 +17,10 @@ permissions:
 
 jobs:
   cla:
-    runs-on: ubuntu-latest
+    # Same runner switch as ci.yml (ADR-0049). The job checks out no pull
+    # request code; it only runs the CLA action.
+    runs-on: ${{ vars.ARINN_RUNNER || 'ubuntu-latest' }}
+    container: python:3.12
     if: >-
       github.event_name == 'pull_request_target' ||
       (github.event.issue.pull_request &&

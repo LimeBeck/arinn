@@ -266,7 +266,7 @@ Chrome ──Extension API──▶ Arinn Chrome extension (Manifest V3)
        ──Plugin API──▶ arinnd
 ```
 
-The extension requests only `tabs` and `nativeMessaging`; no content scripts and no host permissions. Version 1 needs no page scraping, DOM automation, arbitrary JavaScript or content analysis. The plugin works only with windows, tabs, URL, title, favicon and active/audible state. Incognito is not connected by default. Several browser profiles may produce several connections without creating Arinn profiles.
+The extension requests only `tabs` and `nativeMessaging`; no content scripts and no host permissions. Version 1 needs no page scraping, DOM automation, arbitrary JavaScript or content analysis. The plugin works only with windows, tabs, URL, title and active/audible state; version 1 transfers no favicon, because reading one would need a further extension permission ([ADR-0048](../adr/0048-browser-wire-contract.md)). Incognito is not connected by default. Several browser profiles may produce several connections without creating Arinn profiles.
 
 Generic `open` accepts only `http` and `https`. The desktop ApplicationProvider launches the browser application; `arinn-plugin-chrome` declares only `browser`, not `application`. The application and browser entities are linked through a validated platform window token, never through titles or product-specific core logic. This resolves OQ-03 by owner decision on 2026-09-28 ([ADR-0038](../adr/0038-browser-launch-ownership.md)). Details: [plugin runtime](../architecture/plugin-runtime.md).
 
@@ -372,7 +372,7 @@ A plugin declares capabilities, never a product type. One plugin may implement s
 | Capability | Manifest name | Conceptual operations |
 | --- | --- | --- |
 | ApplicationProvider | `application` | listApplications, getApplication, launch, activate, terminate, listRunning |
-| BrowserProvider | `browser` | getWindows, getTabs, open, activateTab, closeTab, createTab, getActiveTab; Tab = id, windowId, title, url, favicon, active, audible |
+| BrowserProvider | `browser` | getTabs (windows and tabs in one snapshot), open (a new tab), activateTab, closeTab; Window = id, window token, focused; Tab = id, windowId, title, url, active, audible ([ADR-0048](../adr/0048-browser-wire-contract.md)) |
 | MediaProvider | `media` | listSessions, getSession, play, pause, playPause, seek, next, previous, stop; extensions `MediaOpen1`, `MediaTracks1`, `MediaTimeline1` |
 | LibraryProvider | `library` | listCollections, listItems, getItem, launch; extensions `LibraryResume1`, `LibraryImport1` |
 | ActionProvider | `action` | generic actions with a machine-readable id, title, icon and enabled flag (for example TV power, TV input, custom system actions) |
@@ -525,7 +525,7 @@ Diagnostics show the daemon status and, per provider: runtime and backend state,
 
 ### 14.3. CLI
 
-`arinnctl` uses the same public daemon API as the shell and provides at least `status`, `providers`, `capabilities`, `activities`, `diagnostics`, `provider restart <id>` and `providers reload`. Human-readable output by default and `--json` for read commands. Exit codes: 0 success, 1 runtime failure, 2 invalid usage, 3 daemon unavailable.
+`arinnctl` uses the same public daemon API as the shell and provides at least `status`, `providers`, `capabilities`, `activities`, `diagnostics`, `provider restart <id>` and `providers reload`. Human-readable output by default and `--json` for read commands. Exit codes: 0 success, 1 runtime failure, 2 invalid usage, 3 daemon unavailable. Web shortcuts are managed with `shortcuts [list]`, `shortcuts add <title> <url> [icon]`, `shortcuts edit <id> <title> <url> [icon]`, `shortcuts remove <id>` and `shortcuts open <id>` (the TV fallback without a keyboard, §5.1); `browser tabs`, `browser activate <provider> <tab>` and `browser close <provider> <tab>` work on browser providers. A failed call prints the Arinn error name (for example `Conflict`) on standard error; URLs appear only in the command's own output.
 
 ---
 
@@ -601,7 +601,7 @@ records the implemented subset and remaining qualification.
 ([ADR-0033](../adr/0033-ci-cd-and-releases.md))
 
 - Every pull request and every push to `master` MUST pass the full pipeline: Rust lints and tests, the Qt build and private-bus integration suite on current Arch Linux, KWin adapter tests, licensing checks, documentation and version checks, and an Arch package build that is installed into a clean system, smoke-tested and uninstalled.
-- A pull request that changes only Markdown files and changelog fragments runs only the licensing and documentation checks; the build jobs are skipped. Pushes to `master`, nightly and release runs always run the full pipeline ([ADR-0044](../adr/0044-docs-only-ci-scope.md)). On pull requests the package build reuses a Cargo cache and skips the release-mode `check()`, which the Rust job covers; release builds are clean and run `check()` ([ADR-0047](../adr/0047-faster-package-builds.md)).
+- A pull request that changes only Markdown files and changelog fragments runs only the licensing and documentation checks; the build jobs are skipped. Pushes to `master`, nightly and release runs always run the full pipeline ([ADR-0044](../adr/0044-docs-only-ci-scope.md)). On pull requests the package build reuses a Cargo cache and skips the release-mode `check()`, which the Rust job covers; release builds are clean and run `check()` ([ADR-0047](../adr/0047-faster-package-builds.md)). A pull request builds and smoke-tests the package only when it changes packaging inputs, and a newer push cancels the running pipeline of the same pull request or of `master`; jobs run on a self-hosted runner when the repository variable `ARINN_RUNNER` names one ([ADR-0049](../adr/0049-ci-minutes.md)).
 - The same pipeline runs nightly against the latest Arch Linux, Qt and Rust. A red nightly blocks releases.
 - `master` is protected: changes land only through pull requests with green CI and a signed CLA.
 - Releases are cut from `master` by a `vX.Y.Z` tag that matches the workspace version and a `CHANGELOG.md` section. The release pipeline reruns the full CI on the tagged commit and publishes only if it passes. `0.x` versions are pre-releases.

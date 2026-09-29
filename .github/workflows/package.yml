@@ -10,7 +10,7 @@ on:
   workflow_call:
     inputs:
       skip:
-        description: Skip the build for a documentation-only change (ADR-0044)
+        description: Skip the build (documentation-only change, ADR-0044, or a pull request that does not touch the package, ADR-0049)
         type: boolean
         default: false
 
@@ -21,7 +21,7 @@ jobs:
   build:
     name: Build Arch package
     if: ${{ !inputs.skip }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.ARINN_RUNNER || 'ubuntu-latest' }}
     container: archlinux:latest
     steps:
       - name: Install build dependencies
@@ -68,7 +68,7 @@ jobs:
   smoke:
     name: Install and smoke-test package
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.ARINN_RUNNER || 'ubuntu-latest' }}
     container: archlinux:latest
     steps:
       - uses: actions/checkout@v7
@@ -92,3 +92,7 @@ jobs:
           test ! -e /usr/bin/arinnd
           test ! -e /usr/lib/systemd/user/arinn-session.target
           test ! -e /usr/lib/arinn/arinn-kwin-adapter
+          test ! -e /usr/lib/arinn/arinn-chrome-host
+          test ! -e /etc/opt/chrome/native-messaging-hosts/org.arinn.chrome_host.json
+          test ! -e /etc/chromium/native-messaging-hosts/org.arinn.chrome_host.json
+          test ! -e /usr/share/arinn/chrome-extension

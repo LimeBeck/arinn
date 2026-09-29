@@ -1,0 +1,29 @@
+<!-- SPDX-FileCopyrightText: 2026 Arinn contributors
+SPDX-License-Identifier: MIT OR Apache-2.0 -->
+<node>
+  <interface name="org.arinn.BrowserProvider1">
+    <method name="GetTabs">
+      <arg name="token" type="s" direction="in" />
+      <arg type="(sta(ssb)a(ssssbb)s)" direction="out" />
+    </method>
+    <method name="BackendState">
+      <arg type="s" direction="out" />
+    </method>
+    <method name="OpenUrl">
+      <arg name="generation" type="s" direction="in" />
+      <arg name="url" type="s" direction="in" />
+    </method>
+    <method name="ActivateTab">
+      <arg name="generation" type="s" direction="in" />
+      <arg name="id" type="s" direction="in" />
+    </method>
+    <method name="CloseTab">
+      <arg name="generation" type="s" direction="in" />
+      <arg name="id" type="s" direction="in" />
+    </method>
+    <signal name="StateChanged">
+      <arg name="generation" type="s" />
+      <arg name="revision" type="t" />
+    </signal>
+  </interface>
+</node>

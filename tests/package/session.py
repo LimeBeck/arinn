@@ -13,6 +13,7 @@ to a real systemd user manager or KWin: units are verified offline and the
 loader runs against a fake busctl.
 """
 
+import json
 import os
 import subprocess
 import tempfile
@@ -120,4 +121,28 @@ with tempfile.TemporaryDirectory(prefix="arinn-kwin-") as folder:
     assert adapter("stop", FAKE_UNLOAD_RC="1")[0] == 0
     assert adapter("bogus")[0] == 2
 
-print("PASS: session units are installed, disabled by default and valid; KWin adapter loader behaves")
+# Chrome integration (ADR-0048): one host manifest for both browsers, pointing
+# at the installed host and allowing only the packaged extension.
+EXTENSION = PREFIX / "share/arinn/chrome-extension"
+HOST = PREFIX / "lib/arinn/arinn-chrome-host"
+assert (PREFIX / "lib/arinn/plugins/arinn-plugin-chrome").is_file()
+assert (PREFIX / "share/arinn/plugins/chrome.toml").is_file()
+assert HOST.is_file() and os.access(HOST, os.X_OK), "missing Chrome native host"
+manifest = json.loads((EXTENSION / "manifest.json").read_text())
+assert sorted(manifest["permissions"]) == ["nativeMessaging", "tabs"], manifest["permissions"]
+assert (EXTENSION / "background.js").is_file()
+if PREFIX == Path("/usr"):
+    for folder in ("/etc/opt/chrome", "/etc/chromium"):
+        host_manifest = json.loads(Path(folder, "native-messaging-hosts/org.arinn.chrome_host.json").read_text())
+        assert host_manifest["path"] == str(HOST), host_manifest["path"]
+        assert host_manifest["type"] == "stdio"
+        [origin] = host_manifest["allowed_origins"]
+        assert origin.startswith("chrome-extension://") and origin.endswith("/"), origin
+    # Any other extension is refused before the host touches the bus.
+    refused = subprocess.run([str(HOST), "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/"],
+                             capture_output=True, timeout=10)
+    assert refused.returncode == 2, refused
+else:
+    print(f"SKIP: native messaging manifests are checked only for the /usr prefix, not {PREFIX}")
+
+print("PASS: session units are installed, disabled by default and valid; KWin adapter loader behaves; Chrome integration files are installed")

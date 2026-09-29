@@ -14,8 +14,14 @@ FocusScope {
     focus: true
 
     property string title: ""
+    property string episodeLine: ""
+    property string clockText: ""
+    property string liveClock: Qt.formatTime(new Date(), "hh:mm")
+    readonly property string clockLabel: clockText !== "" ? clockText : liveClock
     property real position: 0
     property real duration: 0
+    property real buffered: 0
+    property var chapters: []
     property bool playing: false
     property bool seekSupported: true
     property var audioTracks: []
@@ -28,17 +34,25 @@ FocusScope {
     property bool osdVisible: true
     // Local hide delay from specification §6.4. Not a provider result.
     property int osdIdleMs: 4000
-    property string osdFocus: "timeline" // timeline, audio, subtitles
+    property string osdFocus: "timeline" // timeline, subtitles, audio, more
+    property string sheetKind: "" // "", audio, subtitles
     property int audioIndex: 0
     property int subtitleIndex: 0
     readonly property int seekStepSeconds: 10
     readonly property bool transportReady: playbackState === "ready"
+    readonly property bool timelineFocused: osdFocus === "timeline" && sheetKind === ""
     readonly property int audioCount: audioTracks && audioTracks.length !== undefined ? audioTracks.length : 0
     readonly property int subtitleCount: subtitleTracks && subtitleTracks.length !== undefined ? subtitleTracks.length : 0
+    readonly property int chapterCount: chapters && chapters.length !== undefined ? chapters.length : 0
+    readonly property int openSheetCount: sheetKind === "audio" ? audioCount : (sheetKind === "subtitles" ? subtitleCount : 0)
     readonly property bool audioListAvailable: audioCount > 0
     readonly property bool subtitleListAvailable: subtitleCount > 0
-    readonly property string audioCaption: trackCaption(audioTracks, audioIndex, audioCount, qsTr("Audio unavailable"))
-    readonly property string subtitleCaption: trackCaption(subtitleTracks, subtitleIndex, subtitleCount, qsTr("Subtitles unavailable"))
+    readonly property real progressFraction: duration > 0 ? Math.max(0, Math.min(1, position / duration)) : 0
+    readonly property real bufferFraction: duration > 0 && buffered > 0 ? Math.max(0, Math.min(1, buffered / duration)) : 0
+    readonly property string audioCaption: selectedCaption(audioTracks, audioCount, audioTrackId, qsTr("Audio unavailable"))
+    readonly property string subtitleCaption: selectedCaption(subtitleTracks, subtitleCount, subtitleTrackId, qsTr("Subtitles unavailable"))
+    readonly property string audioPillText: audioListAvailable ? qsTr("Audio") + " · " + audioCaption : audioCaption
+    readonly property string subtitlePillText: subtitleListAvailable ? qsTr("Subtitles") + " · " + subtitleCaption : subtitleCaption
     readonly property string statusHeading: {
         if (statusTitle !== "")
             return statusTitle
@@ -57,7 +71,6 @@ FocusScope {
             return qsTr("Playback could not be shown.")
         return qsTr("Playback is not available.")
     }
-    readonly property string playPauseText: playing ? qsTr("Pause") : qsTr("Play")
 
     signal play()
     signal pause()
@@ -67,13 +80,26 @@ FocusScope {
     signal stop()
     signal leave()
 
-    function trackCaption(tracks, index, count, unavailable) {
+    function selectedCaption(tracks, count, selectedId, unavailable) {
         if (count <= 0)
             return unavailable
-        const track = tracks[Math.max(0, Math.min(index, count - 1))]
-        if (track && track.label !== undefined && String(track.label) !== "")
-            return String(track.label)
+        for (let i = 0; i < count; i++) {
+            const track = tracks[i]
+            if (track && String(track.id) === selectedId && track.label !== undefined && String(track.label) !== "")
+                return String(track.label)
+        }
+        const first = tracks[0]
+        if (first && first.label !== undefined && String(first.label) !== "")
+            return String(first.label)
         return qsTr("Track")
+    }
+
+    function selectedIndex(tracks, count, selectedId) {
+        for (let i = 0; i < count; i++) {
+            if (tracks[i] && String(tracks[i].id) === selectedId)
+                return i
+        }
+        return 0
     }
 
     function clampedSeek(deltaSeconds) {
@@ -101,10 +127,31 @@ FocusScope {
         return minutes + ":" + padded
     }
 
+    function chapterFraction(index) {
+        if (!(duration > 0) || !chapters || chapters[index] === undefined)
+            return 0
+        const entry = chapters[index]
+        let seconds = 0
+        if (typeof entry === "number")
+            seconds = entry
+        else if (entry && entry.at !== undefined)
+            seconds = Number(entry.at)
+        else if (entry && entry.position !== undefined)
+            seconds = Number(entry.position)
+        if (!isFinite(seconds))
+            return 0
+        return Math.max(0, Math.min(1, seconds / duration))
+    }
+
     function trackAt(tracks, index, count) {
         if (count <= 0)
             return null
         return tracks[Math.max(0, Math.min(index, count - 1))]
+    }
+
+    function sheetTrack(index) {
+        const tracks = sheetKind === "audio" ? audioTracks : subtitleTracks
+        return tracks && tracks[index] ? tracks[index] : null
     }
 
     function armIdle() {
@@ -115,12 +162,50 @@ FocusScope {
     }
 
     function showTimeline() {
+        sheetKind = ""
         osdFocus = "timeline"
         osdVisible = true
         armIdle()
     }
 
+    function movePill(delta) {
+        const order = ["subtitles", "audio", "more"]
+        let index = order.indexOf(osdFocus)
+        if (index < 0)
+            index = 0
+        osdFocus = order[Math.max(0, Math.min(order.length - 1, index + delta))]
+    }
+
+    function moveSheet(delta) {
+        if (sheetKind === "audio" && audioCount > 0)
+            audioIndex = Math.max(0, Math.min(audioIndex + delta, audioCount - 1))
+        else if (sheetKind === "subtitles" && subtitleCount > 0)
+            subtitleIndex = Math.max(0, Math.min(subtitleIndex + delta, subtitleCount - 1))
+    }
+
+    function confirmSheet() {
+        if (sheetKind === "audio") {
+            const track = trackAt(audioTracks, audioIndex, audioCount)
+            if (!track || track.id === undefined || String(track.id) === "")
+                return
+            selectAudio(String(track.id))
+        } else if (sheetKind === "subtitles") {
+            const track = trackAt(subtitleTracks, subtitleIndex, subtitleCount)
+            if (!track || track.id === undefined || String(track.id) === "")
+                return
+            selectSubtitle(String(track.id))
+        } else {
+            return
+        }
+        sheetKind = ""
+    }
+
     function onBack() {
+        if (sheetKind !== "") {
+            sheetKind = ""
+            armIdle()
+            return
+        }
         if (transportReady && osdVisible) {
             osdVisible = false
             return
@@ -135,19 +220,22 @@ FocusScope {
             showTimeline()
             return
         }
+        if (sheetKind !== "") {
+            confirmSheet()
+            armIdle()
+            return
+        }
         if (osdFocus === "timeline") {
             if (playing)
                 pause()
             else
                 play()
-        } else if (osdFocus === "audio") {
-            const track = trackAt(audioTracks, audioIndex, audioCount)
-            if (track && track.id !== undefined && String(track.id) !== "")
-                selectAudio(String(track.id))
-        } else if (osdFocus === "subtitles") {
-            const track = trackAt(subtitleTracks, subtitleIndex, subtitleCount)
-            if (track && track.id !== undefined && String(track.id) !== "")
-                selectSubtitle(String(track.id))
+        } else if (osdFocus === "audio" && audioListAvailable) {
+            audioIndex = selectedIndex(audioTracks, audioCount, audioTrackId)
+            sheetKind = "audio"
+        } else if (osdFocus === "subtitles" && subtitleListAvailable) {
+            subtitleIndex = selectedIndex(subtitleTracks, subtitleCount, subtitleTrackId)
+            sheetKind = "subtitles"
         }
         armIdle()
     }
@@ -155,6 +243,11 @@ FocusScope {
     function onHorizontal(delta) {
         if (!transportReady)
             return
+        if (sheetKind !== "") {
+            moveSheet(delta)
+            armIdle()
+            return
+        }
         if (!osdVisible || osdFocus === "timeline") {
             if (seekSupported)
                 seek(clampedSeek(delta * seekStepSeconds))
@@ -164,10 +257,7 @@ FocusScope {
                 armIdle()
             return
         }
-        if (osdFocus === "audio" && audioCount > 0)
-            audioIndex = Math.max(0, Math.min(audioIndex + delta, audioCount - 1))
-        else if (osdFocus === "subtitles" && subtitleCount > 0)
-            subtitleIndex = Math.max(0, Math.min(subtitleIndex + delta, subtitleCount - 1))
+        movePill(delta)
         armIdle()
     }
 
@@ -178,11 +268,17 @@ FocusScope {
             showTimeline()
             return
         }
-        const order = ["timeline", "audio", "subtitles"]
-        let index = order.indexOf(osdFocus)
-        if (index < 0)
-            index = 0
-        osdFocus = order[Math.max(0, Math.min(order.length - 1, index + delta))]
+        if (sheetKind !== "") {
+            moveSheet(delta)
+            armIdle()
+            return
+        }
+        if (osdFocus === "timeline") {
+            if (delta > 0)
+                osdFocus = "subtitles"
+        } else if (delta < 0) {
+            osdFocus = "timeline"
+        }
         armIdle()
     }
 
@@ -245,9 +341,14 @@ FocusScope {
 
     Keys.onPressed: event => handleKey(event)
     onPlayingChanged: armIdle()
-    onOsdVisibleChanged: armIdle()
+    onOsdVisibleChanged: {
+        if (!osdVisible)
+            sheetKind = ""
+        armIdle()
+    }
     onPlaybackStateChanged: armIdle()
     onOsdIdleMsChanged: armIdle()
+    onSheetKindChanged: armIdle()
     Component.onCompleted: armIdle()
 
     Timer {
@@ -261,6 +362,13 @@ FocusScope {
         }
     }
 
+    Timer {
+        interval: 1000
+        repeat: true
+        running: root.clockText === ""
+        onTriggered: root.liveClock = Qt.formatTime(new Date(), "hh:mm")
+    }
+
     Ui.LogicalCanvas {
         anchors.fill: parent
         Item {
@@ -271,7 +379,52 @@ FocusScope {
 
             Rectangle {
                 anchors.fill: parent
-                color: Ui.Theme.background
+                color: "#0b0c0f"
+            }
+            Rectangle {
+                width: 980
+                height: 720
+                radius: width / 2
+                anchors.centerIn: parent
+                anchors.verticalCenterOffset: -40
+                color: Qt.rgba(0.22, 0.18, 0.14, 0.28)
+            }
+            Ui.UiText {
+                objectName: "videoLabel"
+                anchors.centerIn: parent
+                text: qsTr("video")
+                font.pixelSize: 22
+                font.weight: 500
+                font.letterSpacing: 1.8
+                color: Qt.rgba(1, 1, 1, 0.35)
+            }
+
+            Rectangle {
+                objectName: "pausedMark"
+                visible: root.transportReady && !root.playing
+                width: 160
+                height: 160
+                radius: 80
+                anchors.centerIn: parent
+                color: Qt.rgba(0.12, 0.12, 0.13, 0.62)
+                Rectangle {
+                    width: 14
+                    height: 56
+                    radius: 4
+                    color: Ui.Theme.textPrimary
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    anchors.horizontalCenterOffset: -16
+                }
+                Rectangle {
+                    width: 14
+                    height: 56
+                    radius: 4
+                    color: Ui.Theme.textPrimary
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    anchors.horizontalCenterOffset: 16
+                }
             }
 
             Column {
@@ -280,6 +433,7 @@ FocusScope {
                 width: 820
                 spacing: 24
                 anchors.centerIn: parent
+                z: 3
                 Rectangle {
                     anchors.horizontalCenter: parent.horizontalCenter
                     width: 160
@@ -313,6 +467,7 @@ FocusScope {
                 objectName: "osd"
                 anchors.fill: parent
                 visible: root.transportReady && root.osdVisible
+                z: 2
 
                 Rectangle {
                     anchors.left: parent.left
@@ -320,8 +475,8 @@ FocusScope {
                     anchors.top: parent.top
                     height: 260
                     gradient: Gradient {
-                        GradientStop { position: 0; color: Qt.rgba(0.075, 0.078, 0.086, 0.92) }
-                        GradientStop { position: 1; color: Qt.rgba(0.075, 0.078, 0.086, 0) }
+                        GradientStop { position: 0; color: Qt.rgba(0, 0, 0, 0.65) }
+                        GradientStop { position: 1; color: Qt.rgba(0, 0, 0, 0) }
                     }
                 }
                 Rectangle {
@@ -330,199 +485,359 @@ FocusScope {
                     anchors.bottom: parent.bottom
                     height: 420
                     gradient: Gradient {
-                        GradientStop { position: 0; color: Qt.rgba(0.075, 0.078, 0.086, 0) }
-                        GradientStop { position: 1; color: Qt.rgba(0.075, 0.078, 0.086, 0.94) }
-                    }
-                }
-
-                Ui.UiText {
-                    objectName: "titleLabel"
-                    x: Ui.Theme.safeLeft
-                    y: 72
-                    width: parent.width - Ui.Theme.safeLeft - Ui.Theme.safeRight
-                    text: root.title
-                    font.pixelSize: 48
-                    font.weight: Font.Bold
-                    elide: Text.ElideRight
-                    maximumLineCount: 1
-                }
-
-                Rectangle {
-                    objectName: "pausedMark"
-                    visible: !root.playing
-                    width: 160
-                    height: 160
-                    radius: 80
-                    anchors.centerIn: parent
-                    color: Ui.Theme.plate
-                    Ui.UiText {
-                        anchors.centerIn: parent
-                        text: root.playPauseText
-                        role: "control"
+                        GradientStop { position: 0; color: Qt.rgba(0, 0, 0, 0) }
+                        GradientStop { position: 0.45; color: Qt.rgba(0, 0, 0, 0.45) }
+                        GradientStop { position: 1; color: Qt.rgba(0, 0, 0, 0.82) }
                     }
                 }
 
                 Column {
+                    x: 120
+                    y: 72
+                    spacing: 10
+                    Ui.UiText {
+                        objectName: "titleLabel"
+                        text: root.title
+                        font.pixelSize: 48
+                        font.weight: 700
+                        font.letterSpacing: -0.96
+                        elide: Text.ElideRight
+                        width: 1400
+                    }
+                    Ui.UiText {
+                        objectName: "episodeLabel"
+                        visible: root.episodeLine !== ""
+                        text: root.episodeLine
+                        font.pixelSize: 28
+                        font.weight: 500
+                        color: Ui.Theme.textSecondary
+                    }
+                }
+
+                Ui.UiText {
+                    objectName: "clockLabel"
+                    anchors.right: parent.right
+                    anchors.rightMargin: 120
+                    y: 80
+                    text: root.clockLabel
+                    font.pixelSize: 30
+                    font.weight: 500
+                    color: Ui.Theme.textSecondary
+                }
+
+                Item {
+                    id: timelineRow
+                    objectName: "timelineRow"
                     anchors.left: parent.left
                     anchors.right: parent.right
                     anchors.bottom: parent.bottom
-                    anchors.leftMargin: Ui.Theme.safeLeft
-                    anchors.rightMargin: Ui.Theme.safeRight
-                    anchors.bottomMargin: 64
-                    spacing: 20
+                    anchors.leftMargin: 120
+                    anchors.rightMargin: 120
+                    anchors.bottomMargin: 180
+                    height: 60
 
-                    Row {
-                        width: parent.width
-                        height: 40
-                        spacing: 24
-                        Ui.UiText {
-                            objectName: "positionLabel"
-                            width: 140
-                            height: parent.height
-                            text: root.formatTime(root.position)
-                            role: "meta"
-                            verticalAlignment: Text.AlignVCenter
+                    Ui.UiText {
+                        objectName: "positionLabel"
+                        width: 130
+                        height: parent.height
+                        text: root.formatTime(root.position)
+                        font.pixelSize: 28
+                        font.weight: 600
+                        verticalAlignment: Text.AlignVCenter
+                    }
+
+                    Item {
+                        id: track
+                        objectName: "timeline"
+                        x: 162
+                        width: parent.width - 324
+                        height: parent.height
+                        readonly property bool focused: root.timelineFocused
+                        readonly property int trackHeight: focused ? 14 : 8
+
+                        Rectangle {
+                            id: trackBody
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            height: track.trackHeight
+                            radius: 8
+                            color: Qt.rgba(1, 1, 1, 0.24)
+                            Rectangle {
+                                width: parent.width * root.bufferFraction
+                                height: parent.height
+                                radius: parent.radius
+                                color: Qt.rgba(1, 1, 1, 0.18)
+                            }
+                            Rectangle {
+                                width: parent.width * root.progressFraction
+                                height: parent.height
+                                radius: parent.radius
+                                color: Ui.Theme.ember
+                            }
+                            Repeater {
+                                model: root.chapterCount
+                                delegate: Rectangle {
+                                    required property int index
+                                    width: 4
+                                    height: parent.height
+                                    x: parent.width * root.chapterFraction(index) - 2
+                                    color: Qt.rgba(0, 0, 0, 0.6)
+                                }
+                            }
+                        }
+                        Rectangle {
+                            anchors.fill: trackBody
+                            anchors.margins: -6
+                            radius: 12
+                            color: "transparent"
+                            border.width: track.focused ? 3 : 0
+                            border.color: Ui.Theme.ring
+                        }
+                        Rectangle {
+                            objectName: "timelineKnob"
+                            visible: track.focused
+                            width: 40
+                            height: 40
+                            radius: 20
+                            color: Ui.Theme.textPrimary
+                            y: (parent.height - height) / 2
+                            x: Math.max(0, Math.min(track.width - width, root.progressFraction * track.width - width / 2))
                         }
                         Item {
-                            objectName: "timeline"
-                            width: parent.width - 328
-                            height: parent.height
+                            objectName: "timelineThumb"
+                            visible: track.focused
+                            width: 336
+                            height: 249
+                            y: -height - 20
+                            x: Math.max(0, Math.min(track.width - width, root.progressFraction * track.width - width / 2))
                             Rectangle {
-                                anchors.fill: parent
-                                anchors.margins: -8
-                                radius: 16
-                                color: "transparent"
-                                border.width: root.osdFocus === "timeline" ? 3 : 0
-                                border.color: Ui.Theme.ring
-                            }
-                            Ui.ProgressTrack {
-                                anchors.left: parent.left
-                                anchors.right: parent.right
-                                anchors.verticalCenter: parent.verticalCenter
-                                height: root.osdFocus === "timeline" ? 14 : 8
-                                value: root.duration > 0 ? root.position / root.duration : 0
-                            }
-                        }
-                        Ui.UiText {
-                            objectName: "durationLabel"
-                            width: 140
-                            height: parent.height
-                            text: root.formatTime(root.duration)
-                            role: "meta"
-                            horizontalAlignment: Text.AlignRight
-                            verticalAlignment: Text.AlignVCenter
-                        }
-                    }
-
-                    Ui.UiText {
-                        objectName: "playPause"
-                        text: root.playPauseText
-                        role: "control"
-                        color: root.osdFocus === "timeline" ? Ui.Theme.textPrimary : Ui.Theme.textSecondary
-                    }
-
-                    Column {
-                        id: audioColumn
-                        objectName: "audioList"
-                        width: parent.width
-                        spacing: 8
-                        Ui.UiText {
-                            text: qsTr("Audio")
-                            role: "caption"
-                            color: Ui.Theme.textHint
-                        }
-                        Repeater {
-                            model: root.audioCount
-                            delegate: Rectangle {
-                                required property int index
-                                objectName: "audio-" + (root.audioTracks[index] ? String(root.audioTracks[index].id) : index)
-                                width: audioColumn.width
-                                height: 76
-                                radius: 28
-                                color: root.osdFocus === "audio" && root.audioIndex === index ? Ui.Theme.textPrimary : Ui.Theme.plate
+                                width: 336
+                                height: 189
+                                radius: 18
+                                color: "#1a1c20"
+                                border.width: 3
+                                border.color: Ui.Theme.textPrimary
                                 Ui.UiText {
-                                    anchors.fill: parent
-                                    anchors.leftMargin: 28
-                                    anchors.rightMargin: 28
-                                    text: root.trackCaption(root.audioTracks, index, root.audioCount, qsTr("Audio unavailable"))
-                                    role: "control"
-                                    verticalAlignment: Text.AlignVCenter
-                                    color: root.osdFocus === "audio" && root.audioIndex === index ? Ui.Theme.ink : Ui.Theme.textPrimary
+                                    x: 14
+                                    y: 12
+                                    text: qsTr("thumbnail")
+                                    font.pixelSize: 14
+                                    color: Qt.rgba(1, 1, 1, 0.5)
                                 }
                             }
-                        }
-                        Rectangle {
-                            objectName: "audioUnavailable"
-                            visible: !root.audioListAvailable
-                            width: audioColumn.width
-                            height: 76
-                            radius: 28
-                            color: root.osdFocus === "audio" ? Ui.Theme.textPrimary : Ui.Theme.plate
-                            Ui.UiText {
-                                anchors.fill: parent
-                                anchors.leftMargin: 28
-                                anchors.rightMargin: 28
-                                text: root.audioCaption
-                                role: "control"
-                                verticalAlignment: Text.AlignVCenter
-                                color: root.osdFocus === "audio" ? Ui.Theme.ink : Ui.Theme.error
-                            }
-                        }
-                    }
-
-                    Column {
-                        id: subtitleColumn
-                        objectName: "subtitleList"
-                        width: parent.width
-                        spacing: 8
-                        Ui.UiText {
-                            text: qsTr("Subtitles")
-                            role: "caption"
-                            color: Ui.Theme.textHint
-                        }
-                        Repeater {
-                            model: root.subtitleCount
-                            delegate: Rectangle {
-                                required property int index
-                                objectName: "subtitle-" + (root.subtitleTracks[index] ? String(root.subtitleTracks[index].id) : index)
-                                width: subtitleColumn.width
-                                height: 76
-                                radius: 28
-                                color: root.osdFocus === "subtitles" && root.subtitleIndex === index ? Ui.Theme.textPrimary : Ui.Theme.plate
+                            Rectangle {
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                anchors.bottom: parent.bottom
+                                width: timeChip.implicitWidth + 36
+                                height: 48
+                                radius: 20
+                                color: Ui.Theme.textPrimary
                                 Ui.UiText {
-                                    anchors.fill: parent
-                                    anchors.leftMargin: 28
-                                    anchors.rightMargin: 28
-                                    text: root.trackCaption(root.subtitleTracks, index, root.subtitleCount, qsTr("Subtitles unavailable"))
-                                    role: "control"
-                                    verticalAlignment: Text.AlignVCenter
-                                    color: root.osdFocus === "subtitles" && root.subtitleIndex === index ? Ui.Theme.ink : Ui.Theme.textPrimary
+                                    id: timeChip
+                                    anchors.centerIn: parent
+                                    text: root.formatTime(root.position)
+                                    font.pixelSize: 28
+                                    font.weight: 700
+                                    color: Ui.Theme.ink
                                 }
-                            }
-                        }
-                        Rectangle {
-                            objectName: "subtitleUnavailable"
-                            visible: !root.subtitleListAvailable
-                            width: subtitleColumn.width
-                            height: 76
-                            radius: 28
-                            color: root.osdFocus === "subtitles" ? Ui.Theme.textPrimary : Ui.Theme.plate
-                            Ui.UiText {
-                                anchors.fill: parent
-                                anchors.leftMargin: 28
-                                anchors.rightMargin: 28
-                                text: root.subtitleCaption
-                                role: "control"
-                                verticalAlignment: Text.AlignVCenter
-                                color: root.osdFocus === "subtitles" ? Ui.Theme.ink : Ui.Theme.error
                             }
                         }
                     }
 
                     Ui.UiText {
-                        text: qsTr("Left/Right — 10 seconds · OK — play/pause")
-                        role: "caption"
+                        objectName: "durationLabel"
+                        anchors.right: parent.right
+                        width: 130
+                        height: parent.height
+                        text: root.formatTime(root.duration)
+                        font.pixelSize: 28
+                        font.weight: 500
+                        color: Ui.Theme.textSecondary
+                        horizontalAlignment: Text.AlignRight
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                }
+
+                Item {
+                    id: pillRow
+                    objectName: "pillRow"
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    anchors.leftMargin: 120
+                    anchors.rightMargin: 120
+                    anchors.bottomMargin: 72
+                    height: 76
+
+                    Row {
+                        height: parent.height
+                        spacing: 16
+                        Rectangle {
+                            objectName: "subtitlePill"
+                            height: 76
+                            radius: 38
+                            width: subtitlePillLabel.implicitWidth + 64
+                            color: root.osdFocus === "subtitles" && root.sheetKind === "" ? Ui.Theme.textPrimary : Qt.rgba(1, 1, 1, 0.14)
+                            Ui.UiText {
+                                id: subtitlePillLabel
+                                objectName: "subtitlePillLabel"
+                                anchors.centerIn: parent
+                                text: root.subtitlePillText
+                                font.pixelSize: 28
+                                font.weight: 600
+                                color: root.osdFocus === "subtitles" && root.sheetKind === ""
+                                       ? Ui.Theme.ink
+                                       : (root.subtitleListAvailable ? Ui.Theme.textPrimary : Ui.Theme.error)
+                            }
+                        }
+                        Rectangle {
+                            objectName: "audioPill"
+                            height: 76
+                            radius: 38
+                            width: audioPillLabel.implicitWidth + 64
+                            color: root.osdFocus === "audio" && root.sheetKind === "" ? Ui.Theme.textPrimary : Qt.rgba(1, 1, 1, 0.14)
+                            Ui.UiText {
+                                id: audioPillLabel
+                                objectName: "audioPillLabel"
+                                anchors.centerIn: parent
+                                text: root.audioPillText
+                                font.pixelSize: 28
+                                font.weight: 600
+                                color: root.osdFocus === "audio" && root.sheetKind === ""
+                                       ? Ui.Theme.ink
+                                       : (root.audioListAvailable ? Ui.Theme.textPrimary : Ui.Theme.error)
+                            }
+                        }
+                        Rectangle {
+                            objectName: "morePill"
+                            height: 76
+                            radius: 38
+                            width: morePillLabel.implicitWidth + 64
+                            color: root.osdFocus === "more" && root.sheetKind === "" ? Ui.Theme.textPrimary : Qt.rgba(1, 1, 1, 0.14)
+                            Ui.UiText {
+                                id: morePillLabel
+                                objectName: "morePillLabel"
+                                anchors.centerIn: parent
+                                text: qsTr("More")
+                                font.pixelSize: 28
+                                font.weight: 600
+                                color: root.osdFocus === "more" && root.sheetKind === "" ? Ui.Theme.ink : Ui.Theme.textPrimary
+                            }
+                        }
+                    }
+
+                    Ui.UiText {
+                        objectName: "osdHint"
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: qsTr("Left/Right — 10 seconds · OK — pause")
+                        font.pixelSize: 24
+                        font.weight: 500
                         color: Ui.Theme.textHint
+                    }
+                }
+            }
+
+            Item {
+                objectName: "trackSheet"
+                visible: root.sheetKind !== ""
+                anchors.top: parent.top
+                anchors.bottom: parent.bottom
+                anchors.right: parent.right
+                width: 720
+                z: 4
+                Rectangle {
+                    anchors.fill: parent
+                    color: Qt.rgba(0.08, 0.08, 0.09, 0.55)
+                }
+                Rectangle {
+                    anchors.fill: parent
+                    color: Qt.rgba(0.13, 0.14, 0.15, 0.88)
+                    border.width: 1
+                    border.color: Qt.rgba(1, 1, 1, 0.08)
+                    Column {
+                        anchors.fill: parent
+                        anchors.leftMargin: 56
+                        anchors.rightMargin: 56
+                        anchors.topMargin: 112
+                        anchors.bottomMargin: 64
+                        spacing: 8
+                        Ui.UiText {
+                            text: qsTr("Playback")
+                            font.pixelSize: 24
+                            font.weight: 600
+                            font.letterSpacing: 1.9
+                            font.capitalization: Font.AllUppercase
+                            color: Ui.Theme.textSecondary
+                        }
+                        Ui.UiText {
+                            objectName: "sheetTitle"
+                            text: root.sheetKind === "audio" ? qsTr("Audio") : qsTr("Subtitles")
+                            font.pixelSize: 52
+                            font.weight: 700
+                            font.letterSpacing: -1
+                            bottomPadding: 32
+                        }
+                        Repeater {
+                            model: root.openSheetCount
+                            delegate: Rectangle {
+                                id: sheetRow
+                                required property int index
+                                width: 608
+                                height: Math.max(104, sheetLabel.implicitHeight + (sheetDetail.visible ? sheetDetail.implicitHeight + 4 : 0) + 36)
+                                radius: 28
+                                color: sheetRowFocused ? Ui.Theme.textPrimary : Qt.rgba(1, 1, 1, 0.08)
+                                readonly property var entry: root.sheetTrack(index)
+                                readonly property bool sheetRowFocused: (root.sheetKind === "audio" && root.audioIndex === index)
+                                        || (root.sheetKind === "subtitles" && root.subtitleIndex === index)
+                                readonly property bool current: entry && (
+                                    (root.sheetKind === "audio" && String(entry.id) === root.audioTrackId)
+                                    || (root.sheetKind === "subtitles" && String(entry.id) === root.subtitleTrackId))
+                                Rectangle {
+                                    width: 18
+                                    height: 18
+                                    radius: 9
+                                    anchors.left: parent.left
+                                    anchors.leftMargin: 28
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    visible: sheetRow.current
+                                    color: sheetRow.sheetRowFocused ? Ui.Theme.ink : Ui.Theme.ember
+                                }
+                                Column {
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    anchors.leftMargin: 68
+                                    anchors.rightMargin: 28
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    spacing: 4
+                                    Ui.UiText {
+                                        id: sheetLabel
+                                        width: parent.width
+                                        text: sheetRow.entry && sheetRow.entry.label !== undefined ? String(sheetRow.entry.label) : ""
+                                        font.pixelSize: 32
+                                        font.weight: 600
+                                        color: sheetRow.sheetRowFocused ? Ui.Theme.ink : Ui.Theme.textPrimary
+                                    }
+                                    Ui.UiText {
+                                        id: sheetDetail
+                                        width: parent.width
+                                        visible: sheetRow.entry && sheetRow.entry.detail !== undefined && String(sheetRow.entry.detail) !== ""
+                                        text: visible ? String(sheetRow.entry.detail) : ""
+                                        font.pixelSize: 26
+                                        font.weight: 500
+                                        color: sheetRow.sheetRowFocused ? Ui.Theme.ink : Ui.Theme.textSecondary
+                                    }
+                                }
+                            }
+                        }
+                        Item { width: 1; height: 1 }
+                        Ui.UiText {
+                            text: qsTr("Back closes")
+                            font.pixelSize: 26
+                            font.weight: 500
+                            color: Ui.Theme.textHint
+                        }
                     }
                 }
             }

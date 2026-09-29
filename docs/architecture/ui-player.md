@@ -21,14 +21,16 @@ video. Resume, watched state and the real track list stay with the providers.
 
 | Property | Meaning |
 | --- | --- |
-| `title` | Line shown on the OSD |
+| `title`, `episodeLine` | Title at the top left, and an optional line under it |
+| `clockText` | Top-right clock. Empty uses the local time as display only |
 | `position`, `duration` | Seconds. The screen displays them and does not write them |
-| `playing` | Play/pause glyph and whether the OSD may auto-hide |
-| `seekSupported` | When false, Left/Right do not emit `seek` |
-| `audioTracks`, `subtitleTracks` | Lists of `{id, label}` |
-| `audioTrackId`, `subtitleTrackId` | Selected ids supplied by the fixture |
+| `buffered`, `chapters` | Optional buffer end, in seconds, and chapter positions. Absent data draws nothing extra |
+| `playing` | Centered pause badge when false, and whether the OSD may auto-hide |
+| `seekSupported` | When false, Left/Right on the timeline do not emit `seek` |
+| `audioTracks`, `subtitleTracks` | Lists of `{id, label}`. An optional `detail` is the sheet subline |
+| `audioTrackId`, `subtitleTrackId` | Selected ids supplied by the fixture. The pills show those names |
 | `playbackState` | `ready`, `loading`, `error` or `unavailable` |
-| `osdVisible` | Local chrome. Hidden video is a clear surface, not a stopped session |
+| `osdVisible` | Local chrome. The picture stand-in stays up either way |
 | `osdIdleMs` | Defaults to 4000. Local hide delay, not a provider timeout |
 
 Signals, and only these, leave the screen: `play`, `pause`,
@@ -36,9 +38,14 @@ Signals, and only these, leave the screen: `play`, `pause`,
 `stop`, `leave`. Emitting one does not change the fixture. The caller applies
 a provider result by writing the properties.
 
-`ready` shows the transport OSD. `loading`, `error` and `unavailable` show a
-status message and ignore transport keys. An empty audio or subtitle list is
-labelled unavailable. OK on that row does not emit a select signal.
+The ready surface is the handoff OSD: a full-bleed picture stand-in, top and
+bottom scrims, the timeline along the bottom, and a row of Subtitles, Audio
+and More pills. `loading`, `error` and `unavailable` show a status message and
+ignore transport keys. An empty audio or subtitle list labels that pill
+unavailable. OK on it does not open a sheet and does not emit a select signal.
+OK on a pill that has tracks opens a sheet; OK on a row emits the select
+signal and closes the sheet, returning focus to that pill. More does not emit
+a transport signal.
 
 ## Keys
 
@@ -50,11 +57,14 @@ handled here. Nothing in this file forwards them to a player.
 | Hidden | Left/Right | `seek` ±10 s when seek is supported, then show the OSD focused on the timeline. Without seek support, show the OSD and do not emit `seek` |
 | Hidden | OK, Up, Down | Show the OSD on the timeline. No seek, play or pause |
 | Visible | OK on the timeline | `pause` when `playing` is true, otherwise `play` |
-| Visible | OK on a track | `selectAudio` or `selectSubtitle` with that id |
-| Visible | Up/Down | Move focus among the timeline, the audio list and the subtitle list |
+| Visible | Up/Down | Move between the timeline and the pill row. No seek and no toggle |
 | Visible | Left/Right on the timeline | Same seek rule. The OSD stays open |
-| Visible | Left/Right on a list | Move the highlight. No select signal until OK |
-| Visible | Back, Esc, Backspace | Hide the OSD. No `leave` and no `stop` |
+| Visible | Left/Right on the pills | Move among Subtitles, Audio and More. No seek |
+| Visible | OK on Subtitles or Audio | Open that sheet when the list is non-empty. No select signal yet |
+| Sheet | Up/Down or Left/Right | Move the highlight. No select signal |
+| Sheet | OK | `selectAudio` or `selectSubtitle`, then close the sheet onto its pill |
+| Sheet | Back, Esc, Backspace | Close the sheet onto its pill. The OSD stays. No `leave` and no `stop` |
+| Visible, no sheet | Back, Esc, Backspace | Hide the OSD. No `leave` and no `stop` |
 | Hidden | Back, Esc, Backspace | `leave`. Playback properties stay as they are. No `stop` |
 | Either, `ready` | Media play, pause, play/pause, stop | The matching signal, then show the OSD if it was hidden |
 

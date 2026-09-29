@@ -570,7 +570,7 @@ fn assert_same_or_one_republish(before: u64, after: u64) {
     }
     let delta = after.saturating_sub(before);
     assert!(
-        (500_000..1_500_000).contains(&delta),
+        (900_000..1_500_000).contains(&delta),
         "anchor moved by {delta} us; expected the same anchor or one ~1s republish"
     );
 }

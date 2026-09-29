@@ -12,7 +12,9 @@ FocusScope {
     height: 1080
 
     property var tabs: []
+    property var windows: []
     property var shortcuts: []
+    property bool interactive: true
     property string browserState: "populated" // populated, empty, loading, error, unavailable
     property string statusTitle: ""
     property string statusDescription: ""
@@ -59,7 +61,7 @@ FocusScope {
     function normalizeTabs(input) {
         const source = Array.isArray(input) ? input : [];
         const seen = {};
-        let activeAssigned = false;
+        const activeWindows = {};
         const result = [];
         for (let i = 0; i < source.length; ++i) {
             const tab = source[i] || {};
@@ -67,17 +69,37 @@ FocusScope {
             if (!id || seen[id])
                 continue;
             seen[id] = true;
-            const active = !!tab.active && !activeAssigned;
+            const windowId = tab.windowId !== undefined && tab.windowId !== null ? String(tab.windowId) : "";
+            const active = !!tab.active && !activeWindows[windowId];
             if (active)
-                activeAssigned = true;
+                activeWindows[windowId] = true;
             result.push({
                 id: id,
-                windowId: tab.windowId !== undefined && tab.windowId !== null ? String(tab.windowId) : "",
+                windowId: windowId,
                 title: tab.title !== undefined && tab.title !== null ? String(tab.title) : "",
                 url: tab.url !== undefined && tab.url !== null ? String(tab.url) : "",
                 active: active,
                 audible: !!tab.audible
             });
+        }
+        return result;
+    }
+
+    function normalizeWindows(input) {
+        const source = Array.isArray(input) ? input : [];
+        const seen = {};
+        let focusedAssigned = false;
+        const result = [];
+        for (let i = 0; i < source.length; ++i) {
+            const entry = source[i] || {};
+            const id = entry.id !== undefined && entry.id !== null ? String(entry.id) : "";
+            if (!id || seen[id])
+                continue;
+            seen[id] = true;
+            const focused = !!entry.focused && !focusedAssigned;
+            if (focused)
+                focusedAssigned = true;
+            result.push({id: id, focused: focused});
         }
         return result;
     }
@@ -102,6 +124,8 @@ FocusScope {
     function syncVisibleTabs() {
         const visible = presentationTabs.filter(tab => tab.windowId === focusedWindowId);
         visibleTabs = visible;
+        const active = visible.find(tab => tab.active);
+        activeTabId = active ? active.id : "";
         if (!visible.some(tab => tab.id === focusedTabId)) {
             const preferred = visible.find(tab => tab.active) || visible[0];
             focusedTabId = preferred ? preferred.id : "";
@@ -111,28 +135,46 @@ FocusScope {
 
     function rebuild() {
         const nextTabs = normalizeTabs(tabs);
+        const explicit = normalizeWindows(windows);
         const ids = [];
         const seen = {};
-        for (let i = 0; i < nextTabs.length; ++i) {
-            const windowId = nextTabs[i].windowId;
-            if (seen[windowId])
+        const source = explicit.length ? explicit.map(entry => entry.id) : nextTabs.map(tab => tab.windowId);
+        for (let i = 0; i < source.length; ++i) {
+            if (seen[source[i]])
                 continue;
-            seen[windowId] = true;
-            ids.push(windowId);
+            seen[source[i]] = true;
+            ids.push(source[i]);
         }
+        if (explicit.length) {
+            for (let i = 0; i < nextTabs.length; ++i) {
+                const windowId = nextTabs[i].windowId;
+                if (seen[windowId])
+                    continue;
+                seen[windowId] = true;
+                ids.push(windowId);
+            }
+        }
+        const marked = explicit.find(entry => entry.focused);
         const active = nextTabs.find(tab => tab.active);
         presentationTabs = nextTabs;
         windowIds = ids;
         shortcutEntries = normalizeShortcuts(shortcuts);
-        activeTabId = active ? active.id : "";
-        const nextWindow = ids.indexOf(focusedWindowId) >= 0
-                ? focusedWindowId
+        const fallback = marked && ids.indexOf(marked.id) >= 0 ? marked.id
                 : (active ? active.windowId : (ids.length ? ids[0] : ""));
+        const nextWindow = ids.indexOf(focusedWindowId) >= 0 ? focusedWindowId : fallback;
         const windowChanged = focusedWindowId !== nextWindow;
         focusedWindowId = nextWindow;
         windowIndex = Math.max(0, ids.indexOf(focusedWindowId));
         if (!windowChanged)
             syncVisibleTabs();
+    }
+
+    function settleFocus() {
+        if (!interactive)
+            return;
+        muteTabStops(root);
+        focusRow = preferredRow();
+        restoreFocus();
     }
 
     function rowNames() {
@@ -330,31 +372,27 @@ FocusScope {
     onTabsChanged: {
         const keepFocus = activeFocus;
         rebuild();
-        if (keepFocus)
+        if (interactive && keepFocus)
+            Qt.callLater(restoreFocus);
+    }
+    onWindowsChanged: {
+        const keepFocus = activeFocus;
+        rebuild();
+        if (interactive && keepFocus)
             Qt.callLater(restoreFocus);
     }
     onShortcutsChanged: {
         const keepFocus = activeFocus;
         rebuild();
-        if (keepFocus)
+        if (interactive && keepFocus)
             Qt.callLater(restoreFocus);
     }
     onFocusedWindowIdChanged: syncVisibleTabs()
-    onBrowserStateChanged: {
-        focusRow = preferredRow();
-        Qt.callLater(() => {
-            muteTabStops(root);
-            focusRow = preferredRow();
-            restoreFocus();
-        });
-    }
+    onBrowserStateChanged: Qt.callLater(settleFocus)
+    onInteractiveChanged: if (interactive) Qt.callLater(settleFocus)
     Component.onCompleted: {
         rebuild();
-        Qt.callLater(() => {
-            muteTabStops(root);
-            focusRow = preferredRow();
-            restoreFocus();
-        });
+        Qt.callLater(settleFocus);
     }
 
     Keys.onPressed: event => {

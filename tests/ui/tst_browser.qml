@@ -25,6 +25,20 @@ TestCase {
             shortcuts: [{id: "s1", title: "Known", url: "not-a-location"}]
         }
     }
+    Component {
+        id: focusedFactory
+        Browser.BrowserView {
+            windows: [
+                {id: "w1", focused: false},
+                {id: "w2", focused: true},
+                {id: "w2", focused: true}
+            ]
+            tabs: [
+                {id: "t1", windowId: "w1", title: "First", url: "loc-1", active: true, audible: false},
+                {id: "t2", windowId: "w2", title: "Second", url: "loc-2", active: true, audible: false}
+            ]
+        }
+    }
     SignalSpy { id: activates; signalName: "activateTab" }
     SignalSpy { id: closes; signalName: "closeTab" }
     SignalSpy { id: opens; signalName: "open" }
@@ -177,6 +191,31 @@ TestCase {
         verify(child("active-a").visible);
         verify(!child("active-b").visible);
         verify(child("audible-b").visible);
+    }
+
+    function test_one_focused_window() {
+        view.destroy();
+        view = createTemporaryObject(focusedFactory, suite);
+        verify(view);
+        activates.target = view;
+        closes.target = view;
+        opens.target = view;
+        retries.target = view;
+        backs.target = view;
+        compare(view.focusedWindowId, "w2");
+        compare(view.windowIds.length, 2);
+        compare(view.activeTabId, "t2");
+        focused("tab-t2");
+        verify(child("active-t2").visible);
+        keyClick(Qt.Key_Up);
+        focused("window-w2");
+        keyClick(Qt.Key_Left);
+        focused("window-w1");
+        compare(view.focusedWindowId, "w1");
+        keyClick(Qt.Key_Down);
+        focused("tab-t1");
+        verify(child("active-t1").visible);
+        compare(view.activeTabId, "t1");
     }
 
     function test_empty() {

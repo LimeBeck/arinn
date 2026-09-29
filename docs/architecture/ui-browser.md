@@ -3,78 +3,99 @@
 
 # Browser tab screen
 
-Fixture presentation for [specification §7.1](../specifications/arinn-specification.md#71-browser-chromechromium).
-The screen lists windows and tabs and emits browser intents. It is not bound to
-the daemon. Production data and commands stay behind `arinnd`. The daemon
-exports `org.arinn.Browser1`
-([issue #83](https://github.com/LimeBeck/arinn/issues/83)). Binding this fixture
-to `GetTabs`, `ActivateTab` and `CloseTab` is the follow-up.
+Presentation for [specification §7.1](../specifications/arinn-specification.md#71-browser-chromechromium).
+The screen lists windows and tabs from `org.arinn.Browser1` and sends activate
+and close through that interface. `BrowserCatalog`
+(`apps/arinn-shell/browser_catalog.cpp`) is the only D-Bus client. The QML does
+not import a bus type and does not call a provider.
 
-The QML is `apps/arinn-shell/ui/screens/browser/BrowserView.qml`. It imports
-`Theme`, `StatusPane`, `ContentCard`, `LogicalCanvas`, `ActionButton` and
-`UiText` from `apps/arinn-shell/ui`. It is not registered in the shell resources
-and is not reachable from Home. A later binding task can parent it on the
-logical canvas in `Main.qml` and map daemon snapshots onto the properties below.
+`Main.qml` parents `BrowserView` on the logical canvas and passes the catalog's
+tabs, windows, shortcuts and `browserState`. The Home favorites row is unchanged.
+`browserOpen` on the shell window shows the screen; Back emits `backRequested()`
+and returns to Home.
 
-## Fixture model
+## Daemon binding
 
-`tabs` is an explicit array. Each entry has `id`, `windowId`, `title`, `url`,
-`active` and `audible`. There is no favicon property and the screen does not
-draw one. Identifiers are opaque: the screen does not parse them and does not
-group windows by title.
+The catalog follows the application catalog's read loop. It calls
+`Daemon1.Status` and `Daemon1.Providers`, keeps ready `browser` providers whose
+backend is not `unavailable`, and pages `Browser1.GetTabs`. The snapshot
+signature is `(generation, revision, windows, tabs, next_token)` from
+[browser1.xml](../plugin-api/browser1.xml): windows are `(id, window_token,
+focused)` and tabs are `(id, window_id, title, url, active, audible)`. There is
+no favicon. `window_token` is not shown.
 
-The presentation model keeps a single active tab. If the fixture marks more
-than one tab `active`, only the first is shown as active and exposed as
-`activeTabId`. Duplicate tab ids are dropped. `focusedWindowId` is the one
-window whose tabs are on screen. It starts as the active tab's window, then
-follows D-pad focus along the window row.
+`ActivateTab` and `CloseTab` send the provider generation, the provider tab id
+and a fresh request id. The shell then polls the returned `Operation1` object
+until it leaves `queued` or `running`. Duplicate calls for a tab that already
+has an operation in flight are ignored.
 
-`shortcuts` is an explicit array of already-known shortcut ids and display
-titles. An `url` field on a shortcut is ignored. `open` is emitted only when
-the id is in that array. The screen never accepts a typed address. Creating a
-tab in this screen goes through a known shortcut id, which matches
+A connected daemon with no ready browser provider, or only `unavailable`
+browser backends, is `unavailable` (no browser connected). A failed snapshot is
+`error`. A successful snapshot with no tabs is `empty`. Tabs on screen are
+`populated`. The first read, before a snapshot exists, is `loading`.
+
+The model keeps one focused window. If more than one snapshot window is
+focused, only the first is marked. Each window keeps at most one active tab.
+Local D-pad focus stays on the current window when a later snapshot still
+contains it. Focus movement does not call the daemon
+([specification §6.5](../specifications/arinn-specification.md#65-performance-principles)).
+
+Titles and addresses are properties of the tab cards. The catalog drops shortcut
+URLs after reading `WebShortcuts1.List` and does not log titles or addresses.
+
+## Creating a tab
+
+Creating a tab in this screen goes through a known shortcut id, which matches
 [specification §7.1](../specifications/arinn-specification.md#71-browser-chromechromium)
-for this fixture.
+for this fixture. `open(shortcutId)` is emitted only for an id in the shortcut
+list. `BrowserCatalog.openShortcut` calls `WebShortcuts1.Open` with that id and
+a request id, then observes the operation. The shell has no open-URL method
+([ADR-0048](../adr/0048-browser-wire-contract.md)).
 
-`browserState` is `populated`, `empty`, `loading`, `error` or `unavailable`.
-`unavailable` means no browser is connected. `populated` shows the window row,
-the focused window's tabs, Activate and Close. The other states show
-`StatusPane` and hide the tab list. Loading hides the status action and the
-shortcut row. Empty, error and unavailable keep the shortcut row so a known
-shortcut can still be opened. Optional `statusTitle` and `statusDescription`
-replace the default copy.
+## Screen model
 
-## Intents and focus
+`tabs` entries have `id`, `windowId`, `title`, `url`, `active` and `audible`.
+`windows` entries have `id` and `focused`. Identifiers are opaque presentation
+ids derived from the provider id, generation and provider-local id. The screen
+does not parse them.
+
+`shortcuts` entries have `id` and `title`. An `url` field on a shortcut is
+ignored. `browserState` is `populated`, `empty`, `loading`, `error` or
+`unavailable`. `populated` shows the window row, the focused window's tabs,
+Activate and Close. The other states show `StatusPane` and hide the tab list.
+Loading hides the status action and the shortcut row. Empty, error and
+unavailable keep the shortcut row so a known shortcut can still be opened.
 
 | Signal | When |
 | --- | --- |
 | `activateTab(tabId)` | OK on a tab card, or OK on Activate, for the focused tab |
 | `closeTab(tabId)` | OK on Close, for the focused tab |
 | `open(shortcutId)` | OK on a known shortcut |
-| `retryRequested()` | OK on the status action |
+| `retryRequested()` | OK on the status action; the catalog refreshes |
 | `backRequested()` | Escape, Backspace or Back |
 
 Arrows, Tab and Backtab move inside the screen and stop at the ends of each
 row. Escape, Backspace and Back emit `backRequested()` and leave focus where
 it is. The rows are windows, tabs, Activate/Close, then shortcuts. Status
-replaces the first three rows when the list is hidden. Focus changes are local;
-nothing on this screen sends a provider request in order to move focus
-([specification §6.5](../specifications/arinn-specification.md#65-performance-principles)).
+replaces the first three rows when the list is hidden.
 
-Titles and addresses are drawn on the tab cards only. The screen does not log
-them, and it has no product-specific conditions (R-01, R-03, AC-12).
+The QML imports `Theme`, `StatusPane`, `ContentCard`, `LogicalCanvas`,
+`ActionButton` and `UiText` from `apps/arinn-shell/ui`. It has no
+product-specific conditions (R-01, R-03, AC-12).
 
 ## Verification
 
-`tests/ui/tst_browser.qml` imports the screen directory from the filesystem.
-The existing `ui-components` CTest loads every `tests/ui/tst_*.qml`, so this
-file runs with that test. No gallery page and no CMake change are required.
+`tests/ui/tst_browser.qml` imports the screen from the filesystem and runs as
+part of the `ui-components` CTest. `browser_catalog_test.cpp` is the private-bus
+test `browser-catalog`: a tab snapshot reaches the model, one window is
+focused, and activate, close and a known-shortcut open are issued and observed.
 
 ```sh
-cmake -S . -B build -G Ninja && cmake --build build --target arinn-ui-test
+cmake -S . -B build -G Ninja && cmake --build build --target arinn-ui-test arinn-browser-catalog-test
+dbus-run-session -- build/apps/arinn-shell/arinn-browser-catalog-test
 QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
-    build/apps/arinn-shell/arinn-ui-test -input tests/ui BrowserTabs
+    build/apps/arinn-shell/arinn-ui-test -input tests/ui
 ```
 
-Operator tests were not run. This screen has no platform binding and does not
-lock the session or load a KWin script.
+Operator tests were not run. This binding does not lock the session or load a
+KWin script.

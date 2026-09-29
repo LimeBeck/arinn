@@ -277,4 +277,29 @@ TestCase {
         verify(child("cancelButton").activeFocus);
         verify(!child("confirmButton").activeFocus);
     }
+
+    function test_escape_closes_confirm_without_shutdown_data() {
+        return [
+            {tag: "escape", key: Qt.Key_Escape},
+            {tag: "backspace", key: Qt.Key_Backspace},
+            {tag: "back", key: Qt.Key_Back}
+        ];
+    }
+    function test_escape_closes_confirm_without_shutdown(data) {
+        keyClick(Qt.Key_Down);
+        keyClick(Qt.Key_Down);
+        focused("shutdownButton");
+        keyClick(Qt.Key_Return);
+        compare(menu.step, "confirm");
+        focused("cancelButton");
+        keyClick(Qt.Key_Right);
+        focused("confirmButton");
+        keyClick(data.key);
+        compare(menu.step, "menu");
+        compare(shutdownSpy.count, 0);
+        compare(restartSpy.count, 0);
+        compare(sleepSpy.count, 0);
+        focused("shutdownButton");
+        verify(findChild(menu, "powerSuccess") === null);
+    }
 }

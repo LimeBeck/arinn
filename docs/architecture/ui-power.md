@@ -35,13 +35,13 @@ fourth row on that panel and still opens the full-screen ambient state.
 | Refusal | `refusalMessage` shows `StatusPane` kind `error`. The overlay never sets that property and has no timer that reports success. |
 | Ambient | `startAmbient()` and the Ambient row emit `ambientRequested()` and show a full-screen state. There is no idle timer. |
 | Wake | The first key or pointer event while ambient is armed is accepted, emits `wakeRequested()`, and does not activate Sleep, Restart, Shut down or Ambient again. |
-| Back, Home | Back closes a confirmation onto its opener. Home closes a confirmation without a destructive intent and emits `homeRequested()`. Focus stays inside the overlay. |
+| Back, Home | Esc, Backspace and Back close a confirmation onto its opener and do not confirm a destructive action. Home closes a confirmation without a destructive intent and emits `homeRequested()`. Focus stays inside the overlay. |
 
 Local focus is trapped in this overlay (power above the screen): arrows and Tab
-do not leave it. The confirmation is a step inside the same scope. Back on that
-step, and a click on the dimmed area outside the panel, matches the
-power-confirmation row of specification §6.3. Clearing `refusalMessage` returns
-focus to that step and does not report success.
+do not leave it. The confirmation is a step inside the same scope. Esc,
+Backspace and Back on that step, and a click on the dimmed area outside the
+panel, match the power-confirmation row of specification §6.3. Clearing
+`refusalMessage` returns focus to that step and does not report success.
 
 Session lock, OS suspend and the idle ambient timer are out of scope. Lock and
 sleep observation stay in the [session lifecycle](session-lifecycle.md) guard,
@@ -57,10 +57,11 @@ QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
 ```
 
 Local run on 2026-09-29, Qt 6.8.3, offscreen platform and the software scene
-graph: 59 passed, 0 failed. That includes `PowerMenu` (Cancel focused by
+graph: 62 passed, 0 failed. That includes `PowerMenu` (Cancel focused by
 default for Restart and Shut down, sleep intent with no success state, an
 explicit refusal error, a consumed ambient wake for both a key and a
-pointer move, and the glass-panel geometry) and the existing component and
-Home cases in the same process.
+pointer move, the glass-panel geometry, and Esc, Backspace and Back closing
+Shut down confirmation without a shutdown intent) and the existing component
+and Home cases in the same process.
 Operator tests were not run. This fixture does not lock the screen or suspend
 the machine. CI has not run for this change.

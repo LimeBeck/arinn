@@ -141,6 +141,19 @@ FocusScope {
         // A refusal stays until the caller clears it. Back does not report success.
         dismissRequested();
     }
+    // Esc, Backspace and Back are Back in every power scope (§6.2, AC-18).
+    // Return and Enter stay with the control so a confirmation can still activate.
+    function handleScopeKey(event, onBack) {
+        if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter)
+            return;
+        if (event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace || event.key === Qt.Key_Back) {
+            event.accepted = true;
+            onBack();
+        } else if (event.key === Qt.Key_Home) {
+            event.accepted = true;
+            goHome();
+        }
+    }
     function goHome() {
         if (step === "confirm" && !refused)
             closeConfirm();
@@ -171,6 +184,10 @@ FocusScope {
             Qt.callLater(() => { hoverFocusEnabled = true; });
         });
     }
+
+    // Fallback when focus is on this scope rather than a row or pill.
+    // Ambient accepts the key first and wakes, so this does not dismiss it.
+    Keys.onPressed: event => handleScopeKey(event, () => goBack())
 
     Ui.LogicalCanvas {
         id: canvas
@@ -386,7 +403,7 @@ FocusScope {
                                             text: row.modelData.description
                                             role: "meta"
                                             font.pixelSize: 26
-                                            color: row.activeFocus ? "#5E6068" : Ui.Theme.textSecondary
+                                            color: row.activeFocus ? Ui.Theme.ink : Ui.Theme.textSecondary
                                             elide: Text.ElideRight
                                             maximumLineCount: 1
                                         }
@@ -399,18 +416,7 @@ FocusScope {
                     Keys.onRightPressed: event => { event.accepted = true; root.noteDpad(); }
                     Keys.onTabPressed: event => { event.accepted = true; root.moveMenu(1, true); }
                     Keys.onBacktabPressed: event => { event.accepted = true; root.moveMenu(-1, true); }
-                    Keys.onEscapePressed: event => { event.accepted = true; root.goBack(); }
-                    Keys.onPressed: event => {
-                        if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter)
-                            return;
-                        if (event.key === Qt.Key_Backspace || event.key === Qt.Key_Back) {
-                            event.accepted = true;
-                            root.goBack();
-                        } else if (event.key === Qt.Key_Home) {
-                            event.accepted = true;
-                            root.goHome();
-                        }
-                    }
+                    Keys.onPressed: event => root.handleScopeKey(event, () => root.goBack())
                 }
             }
         }
@@ -435,18 +441,7 @@ FocusScope {
                     Keys.onDownPressed: event => { event.accepted = true; root.noteDpad(); }
                     Keys.onTabPressed: event => { event.accepted = true; root.moveConfirm(1, true); }
                     Keys.onBacktabPressed: event => { event.accepted = true; root.moveConfirm(-1, true); }
-                    Keys.onEscapePressed: event => { event.accepted = true; root.goBack(); }
-                    Keys.onPressed: event => {
-                        if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter)
-                            return;
-                        if (event.key === Qt.Key_Backspace || event.key === Qt.Key_Back) {
-                            event.accepted = true;
-                            root.goBack();
-                        } else if (event.key === Qt.Key_Home) {
-                            event.accepted = true;
-                            root.goHome();
-                        }
-                    }
+                    Keys.onPressed: event => root.handleScopeKey(event, () => root.goBack())
                 }
                 Ui.ActionButton {
                     id: confirmButton
@@ -465,18 +460,7 @@ FocusScope {
                     Keys.onDownPressed: event => { event.accepted = true; root.noteDpad(); }
                     Keys.onTabPressed: event => { event.accepted = true; root.moveConfirm(1, true); }
                     Keys.onBacktabPressed: event => { event.accepted = true; root.moveConfirm(-1, true); }
-                    Keys.onEscapePressed: event => { event.accepted = true; root.goBack(); }
-                    Keys.onPressed: event => {
-                        if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter)
-                            return;
-                        if (event.key === Qt.Key_Backspace || event.key === Qt.Key_Back) {
-                            event.accepted = true;
-                            root.goBack();
-                        } else if (event.key === Qt.Key_Home) {
-                            event.accepted = true;
-                            root.goHome();
-                        }
-                    }
+                    Keys.onPressed: event => root.handleScopeKey(event, () => root.goBack())
                 }
             }
         }
@@ -498,6 +482,7 @@ FocusScope {
         hoverFocusEnabled: root.hoverFocusEnabled
         onActionRequested: root.goBack()
         onDpadRequested: root.noteDpad()
+        Keys.onPressed: event => root.handleScopeKey(event, () => root.goBack())
         onVisibleChanged: {
             if (visible) {
                 Qt.callLater(() => { if (visible) forceActiveFocus(); });

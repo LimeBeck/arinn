@@ -27,6 +27,10 @@ use tokio::sync::Mutex;
 use uuid::Uuid;
 use zbus::{Connection, message::Header, object_server::SignalEmitter, zvariant::OwnedObjectPath};
 
+/// How long opening a URL waits for the browser's next snapshot before it
+/// only hides Home (ADR-0052).
+const OPEN_FOCUS_WAIT: Duration = Duration::from_secs(2);
+
 struct Provider {
     info: ProviderInfo,
     manifest: Option<Manifest>,
@@ -742,7 +746,7 @@ impl Core {
     /// Launching a closed browser first is not implemented yet (#88).
     pub async fn open_url(&self, url: &str) -> Result<(), ErrorCode> {
         arinn_protocol::web::open_url(url)?;
-        let (id, owner, generation, window_token) = {
+        let (id, owner, generation, before, known) = {
             let state = self.state.lock().await;
             let (id, p) = state
                 .providers
@@ -754,17 +758,15 @@ impl Core {
                         && !p.owner.is_empty()
                 })
                 .ok_or(ErrorCode::Unavailable)?;
-            let token = p
-                .windows
-                .iter()
-                .find(|w| w.focused)
-                .map(|w| w.window_token.clone())
-                .unwrap_or_default();
             (
                 id.clone(),
                 p.owner.clone(),
                 p.info.generation.clone(),
-                token,
+                p.info.revision,
+                p.windows
+                    .iter()
+                    .map(|w| w.id.clone())
+                    .collect::<HashSet<_>>(),
             )
         };
         let proxy = BrowserProviderProxy::builder(&self.connection)
@@ -777,8 +779,55 @@ impl Core {
             .await
             .map_err(|_| ErrorCode::Timeout)?
             .map_err(normalize_error)?;
+        // The URL opens in a new window or focuses the window that already
+        // shows its origin (ADR-0050). The window focused before the call is
+        // not necessarily the one to show, so decide on the first newer
+        // snapshot (ADR-0052).
+        let window_token = self
+            .focused_token_after(&id, &generation, before, &known)
+            .await;
         self.show_browser_window(&id, &owner, &generation, &window_token)
             .await
+    }
+
+    /// The token of the focused browser window in the first snapshot newer
+    /// than `revision`. Empty when that snapshot has a window that is not in
+    /// `known` (a new window has no link yet; the browser raises it itself),
+    /// or when no newer snapshot arrives within the wait.
+    async fn focused_token_after(
+        &self,
+        id: &str,
+        generation: &str,
+        revision: u64,
+        known: &HashSet<String>,
+    ) -> String {
+        let deadline = tokio::time::Instant::now() + OPEN_FOCUS_WAIT;
+        loop {
+            {
+                let state = self.state.lock().await;
+                let Some(p) = state.providers.get(id) else {
+                    return String::new();
+                };
+                if p.info.generation != generation {
+                    return String::new();
+                }
+                if p.info.revision > revision {
+                    if p.windows.iter().any(|w| !known.contains(&w.id)) {
+                        return String::new();
+                    }
+                    return p
+                        .windows
+                        .iter()
+                        .find(|w| w.focused)
+                        .map(|w| w.window_token.clone())
+                        .unwrap_or_default();
+                }
+            }
+            if tokio::time::Instant::now() >= deadline {
+                return String::new();
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
     }
 
     async fn command(

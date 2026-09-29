@@ -18,25 +18,26 @@ struct FakeBrowser {
     generation: String,
     backend: Arc<StdMutex<String>>,
     calls: Arc<StdMutex<Vec<String>>>,
+    /// The snapshot revision and windows; the tabs stay fixed.
+    snapshot: Arc<StdMutex<(u64, Vec<BrowserWindow>)>>,
+    /// Windows the browser reports after the next `OpenUrl`.
+    after_open: Arc<StdMutex<Option<Vec<BrowserWindow>>>>,
+}
+fn window(id: &str, token: &str, focused: bool) -> BrowserWindow {
+    BrowserWindow {
+        id: id.into(),
+        window_token: token.into(),
+        focused,
+    }
 }
 #[zbus::interface(name = "org.arinn.BrowserProvider1")]
 impl FakeBrowser {
     fn get_tabs(&self, _token: &str) -> production::Result<(TabPage,)> {
+        let (revision, windows) = self.snapshot.lock().unwrap().clone();
         Ok((TabPage {
             generation: self.generation.clone(),
-            revision: 1,
-            windows: vec![
-                BrowserWindow {
-                    id: "w1".into(),
-                    window_token: "token-0".into(),
-                    focused: true,
-                },
-                BrowserWindow {
-                    id: "w2".into(),
-                    window_token: String::new(),
-                    focused: false,
-                },
-            ],
+            revision,
+            windows,
             tabs: vec![
                 Tab {
                     id: "t1".into(),
@@ -61,8 +62,23 @@ impl FakeBrowser {
     fn backend_state(&self) -> String {
         self.backend.lock().unwrap().clone()
     }
-    fn open_url(&self, _generation: &str, url: &str) -> production::Result<()> {
+    async fn open_url(
+        &self,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+        _generation: &str,
+        url: &str,
+    ) -> production::Result<()> {
         self.calls.lock().unwrap().push(format!("open {url}"));
+        let next = self.after_open.lock().unwrap().take();
+        if let Some(windows) = next {
+            let revision = {
+                let mut snapshot = self.snapshot.lock().unwrap();
+                snapshot.0 += 1;
+                snapshot.1 = windows;
+                snapshot.0
+            };
+            let _ = Self::state_changed(&emitter, &self.generation, revision).await;
+        }
         Ok(())
     }
     fn activate_tab(&self, _generation: &str, id: &str) -> production::Result<()> {
@@ -145,6 +161,11 @@ impl Fixture {
             generation: generation.clone(),
             backend: Arc::new(StdMutex::new("available".into())),
             calls: Arc::default(),
+            snapshot: Arc::new(StdMutex::new((
+                1,
+                vec![window("w1", "token-0", true), window("w2", "", false)],
+            ))),
+            after_open: Arc::default(),
         };
         provider
             .object_server()
@@ -233,11 +254,13 @@ impl Fixture {
     async fn platform(&self) -> String {
         let bridge = KWinBridgeProxy::new(&self.kwin).await.unwrap();
         let generation = bridge.connect(&Uuid::new_v4().to_string()).await.unwrap();
-        bridge.begin_inventory(&generation, 1, 1).await.unwrap();
-        bridge
-            .put_window(&generation, 1, 0, "token-0", "browser.desktop", "", 12)
-            .await
-            .unwrap();
+        bridge.begin_inventory(&generation, 1, 2).await.unwrap();
+        for (index, token) in [(0, "token-0"), (1, "token-2")] {
+            bridge
+                .put_window(&generation, 1, index, token, "browser.desktop", "", 12)
+                .await
+                .unwrap();
+        }
         bridge.commit_inventory(&generation, 1).await.unwrap();
         generation
     }
@@ -407,25 +430,46 @@ async fn browser_snapshot_is_served_and_tab_commands_raise_the_window() {
 }
 
 #[tokio::test]
-async fn urls_open_in_the_connected_browser_and_raise_its_focused_window() {
+async fn urls_open_in_the_connected_browser_and_raise_the_window_that_shows_them() {
     let f = Fixture::new().await;
     let platform = f.platform().await;
     let bridge = KWinBridgeProxy::new(&f.kwin).await.unwrap();
+
+    // The URL's origin is already open in w2 (ADR-0050): the browser focuses
+    // w2, and its window comes forward, not w1, which had the focus before.
+    *f.browser.after_open.lock().unwrap() = Some(vec![
+        window("w1", "token-0", false),
+        window("w2", "token-2", true),
+    ]);
     let core = f.core.clone();
-    let open = tokio::spawn(async move { core.open_url("https://example.org/watch").await });
+    let open = tokio::spawn(async move { core.open_url("https://mail.example/inbox").await });
     let control = tokio::time::timeout(Duration::from_secs(5), bridge.next_control(&platform))
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(&control[1..], ["activate", "token-0"]);
+    assert_eq!(&control[1..], ["activate", "token-2"]);
     bridge
         .complete_control(&platform, &control[0], "")
         .await
         .unwrap();
     assert_eq!(open.await.unwrap(), Ok(()));
+
+    // A new window has no link yet: Home is only hidden and the browser
+    // raises its new window itself.
+    *f.browser.after_open.lock().unwrap() = Some(vec![
+        window("w1", "token-0", false),
+        window("w2", "token-2", false),
+        window("w3", "", true),
+    ]);
+    let command = f.take_command();
+    assert_eq!(f.core.open_url("https://example.org/watch").await, Ok(()));
+    assert_eq!(command.await.unwrap(), "dismiss");
     assert_eq!(
         *f.browser.calls.lock().unwrap(),
-        vec!["open https://example.org/watch"]
+        vec![
+            "open https://mail.example/inbox",
+            "open https://example.org/watch"
+        ]
     );
 
     assert_eq!(

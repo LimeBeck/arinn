@@ -114,16 +114,16 @@ The desktop ApplicationProvider owns browser application launch. The Chrome prov
   - cuts long titles, and replaces URLs that break the wire rules with an empty string;
   - `open` goes to the most recently focused connection;
   - backend `unavailable` without a browser;
-  - window tokens are empty until window association is implemented.
+  - window tokens link browser windows to platform windows by focus agreement ([ADR-0052](../adr/0052-browser-window-association.md), [#101](https://github.com/LimeBeck/arinn/issues/101)). The provider reads `PlatformWindows1` under its registration. One focused browser window and one active platform window that agree for 0.5 s are linked. A link ends when either side, the platform generation or the registration goes away.
 - **Packaging:** the same host manifest is installed for Google Chrome (`/etc/opt/chrome/native-messaging-hosts/`) and Chromium (`/etc/chromium/native-messaging-hosts/`).
 - **Installing the extension** (owner decision, 2026-09-28): open `chrome://extensions`, enable *Developer mode*, choose *Load unpacked* and select `/usr/share/arinn/chrome-extension`. The ID stays the same across updates; after a package update, press *Reload* on the extension card. Publishing to the Chrome Web Store is a pre-release decision ([#74](https://github.com/LimeBeck/arinn/issues/74)).
 - **Daemon routing** ([#83](https://github.com/LimeBeck/arinn/issues/83)):
   - a manifest declares exactly one routed capability, `application` or `browser`; other sets are incompatible (`Unsupported`);
   - for a `browser` provider the daemon imports the tab snapshot and exports `Browser1` at the provider's path;
   - `ActivateTab` asks the provider to select the tab, then activates the tab's compositor window through PlatformWindows1 when its window has a token, which also hides Home; without a token it only hides Home and the browser's own focus request decides;
-  - `WebShortcuts1.Open` opens the URL in the first ready provider with a connected browser and brings its focused window forward the same way;
+  - `WebShortcuts1.Open` opens the URL in the first ready provider with a connected browser. It then waits up to 2 s for the provider's next snapshot. If the URL opened a new window, the daemon only hides Home. Otherwise it activates the focused window's token (ADR-0052);
   - `browser` providers may read platform windows, for window association;
-  - not yet implemented: launching a closed browser before opening a URL (ADR-0038), and filling `window_token` in the Chrome provider.
+  - not yet implemented: launching a closed browser before opening a URL (ADR-0038).
 
 Verification:
 

@@ -70,4 +70,5 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0049](0049-ci-minutes.md) | Spend fewer CI minutes | Accepted | — |
 | [0050](0050-window-per-browser-activity.md) | One fullscreen browser window per browser activity | Accepted | 0051 |
 | [0051](0051-address-and-search-entry.md) | Address and search entry for free browsing | Accepted | — |
+| [0052](0052-browser-window-association.md) | Browser windows are linked to platform windows by focus agreement | Accepted | — |
 <!-- register:end -->

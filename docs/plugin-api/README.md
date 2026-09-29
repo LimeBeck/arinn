@@ -16,7 +16,7 @@ capability, but **has not been released as a stable Plugin API**. Requirements:
 | `org.arinn.Operation1` | Daemon-owned operation path returned by a command; [operation1.xml](operation1.xml) |
 | `org.arinn.Browser1` | Daemon-owned `/org/arinn/Daemon1/providers/p_<uuid_hex>` of a `browser` provider; [browser1.xml](browser1.xml) |
 | `org.arinn.BrowserProvider1` | Provider unique bus owner, `/org/arinn/Provider1`; [browser-provider1.xml](browser-provider1.xml) |
-| `org.arinn.Media1` | Daemon-owned `/org/arinn/Daemon1/providers/p_<uuid_hex>` of a `media` provider; [media1.xml](media1.xml). Daemon export is not implemented yet |
+| `org.arinn.Media1` | Daemon-owned `/org/arinn/Daemon1/providers/p_<uuid_hex>` of a `media` provider; [media1.xml](media1.xml). Exported by the daemon ([ADR-0058](../adr/0058-media-routing.md)) |
 | `org.arinn.MediaProvider1` | Provider unique bus owner, `/org/arinn/Provider1`; [media-provider1.xml](media-provider1.xml) |
 | `org.arinn.MediaOpen1` | Optional provider interface; [media-open1.xml](media-open1.xml) |
 | `org.arinn.MediaTracks1` | Optional provider interface; [media-tracks1.xml](media-tracks1.xml) |
@@ -66,7 +66,8 @@ the XML.
 `org.arinn.LibraryProvider1` ([library-provider1.xml](library-provider1.xml)).
 Types are in `arinn-protocol::media` and `arinn-protocol::library`. Decisions
 are in [ADR-0054](../adr/0054-media-and-library-wire-contract.md). `Media1` and
-`Library1` are specified for the daemon path and are not exported yet.
+`Library1` are specified for the daemon path. `Media1` is exported
+([ADR-0058](../adr/0058-media-routing.md)); `Library1` is not exported yet.
 
 - A session is `(id, title, subtitle, artwork, state, duration_us, position_us,
   anchor_us, actions, has_content, content)`. `artwork` is an asset id or empty.
@@ -189,9 +190,10 @@ fixtures through manifest reloads on a private bus. See the
 [implementation record](../architecture/phase-1-progress.md) for evidence and limits.
 
 Known capabilities are `application`, `browser`, `media`, `library`, `action` and
-`download`. The daemon routes `application` and `browser`. Media and library
-have provider contracts and SDK services ([ADR-0054](../adr/0054-media-and-library-wire-contract.md));
-the daemon does not route them yet. `action` and `download` stay incompatible
+`download`. The daemon routes `application`, `browser` and `media`
+([ADR-0058](../adr/0058-media-routing.md)). Library has a provider contract and
+an SDK service ([ADR-0054](../adr/0054-media-and-library-wire-contract.md)); the
+daemon does not route it yet. `action` and `download` stay incompatible
 until their XML exists. [MVP extensions](mvp-extensions.md) describe the media
 flags and the download model; download XML is still outstanding.
 

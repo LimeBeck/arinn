@@ -1,0 +1,627 @@
+// SPDX-FileCopyrightText: 2026 Arinn contributors
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+//! Daemon routing for `media` providers (ADR-0054, ADR-0058): session
+//! snapshot import, `org.arinn.Media1` and commands as `Operation1` objects.
+//! Optional interfaces are called only when the provider's `Features` lists
+//! them; otherwise the daemon answers `Unsupported`.
+use super::*;
+use arinn_plugin_sdk::snapshots::SessionSnapshots;
+use arinn_protocol::media::{
+    self, FEATURE_OPEN, FEATURE_TIMELINE, FEATURE_TRACKS, MediaProviderProxy, MediaTimelineProxy,
+    MediaTracksProxy, Session, SessionPage, Timeline, Track,
+};
+
+/// Feature flags the daemon knows; others are ignored.
+const KNOWN_FEATURES: &[&str] = &[FEATURE_OPEN, FEATURE_TRACKS, FEATURE_TIMELINE];
+/// Command timeout for playback controls (spec §9.5).
+const MEDIA_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// A `Media1` command. Base commands need their token in the session's
+/// `actions`; extension commands need their feature flag.
+#[derive(Clone, Debug, serde::Serialize)]
+pub(super) enum MediaAction {
+    Play,
+    Pause,
+    PlayPause,
+    Seek(i64),
+    Next,
+    Previous,
+    Stop,
+    SelectTrack { kind: String, track: String },
+    DisableSubtitles,
+    Thumbnail(i64),
+}
+impl MediaAction {
+    fn token(&self) -> Option<&'static str> {
+        Some(match self {
+            Self::Play => "play",
+            Self::Pause => "pause",
+            Self::PlayPause => "play-pause",
+            Self::Seek(_) => "seek",
+            Self::Next => "next",
+            Self::Previous => "previous",
+            Self::Stop => "stop",
+            _ => return None,
+        })
+    }
+    fn feature(&self) -> Option<&'static str> {
+        match self {
+            Self::SelectTrack { .. } | Self::DisableSubtitles => Some(FEATURE_TRACKS),
+            Self::Thumbnail(_) => Some(FEATURE_TIMELINE),
+            _ => None,
+        }
+    }
+    /// Checks the daemon can make before admitting an operation.
+    fn check(&self, session: &Session, features: &[String]) -> Result<(), ErrorCode> {
+        if let Some(token) = self.token()
+            && !session.actions.iter().any(|a| a == token)
+        {
+            return Err(ErrorCode::Unsupported);
+        }
+        if let Some(feature) = self.feature()
+            && !features.iter().any(|f| f == feature)
+        {
+            return Err(ErrorCode::Unsupported);
+        }
+        match self {
+            Self::Seek(position) | Self::Thumbnail(position) if *position < 0 => {
+                Err(ErrorCode::InvalidArgument)
+            }
+            Self::SelectTrack { kind, track } => {
+                if !["audio", "subtitle"].contains(&kind.as_str()) {
+                    return Err(ErrorCode::InvalidArgument);
+                }
+                validation::id(track)
+            }
+            _ => Ok(()),
+        }
+    }
+}
+
+/// The complete session snapshot, backend state and features of a provider.
+pub(super) async fn read_sessions(
+    proxy: &MediaProviderProxy<'_>,
+    generation: &str,
+) -> Result<(u64, Vec<Session>, String, Vec<String>), ErrorCode> {
+    let mut token = String::new();
+    let mut tokens = HashSet::new();
+    let mut revision = 0;
+    let mut sessions = Vec::new();
+    let mut total = 0;
+    loop {
+        let (page,): (SessionPage,) = proxy.get_sessions(&token).await.map_err(normalize_error)?;
+        page.validate()?;
+        total += page.encoded_len()?;
+        if total > 16 * 1024 * 1024 || sessions.len() + page.sessions.len() > 100_000 {
+            return Err(ErrorCode::InvalidArgument);
+        }
+        if page.generation != generation || (revision != 0 && page.revision != revision) {
+            return Err(ErrorCode::Conflict);
+        }
+        revision = page.revision;
+        sessions.extend(page.sessions);
+        token = page.next_token;
+        if token.is_empty() {
+            break;
+        }
+        if !tokens.insert(token.clone()) {
+            return Err(ErrorCode::Conflict);
+        }
+    }
+    media::validate_sessions(&sessions)?;
+    let backend = proxy.backend_state().await.map_err(normalize_error)?;
+    if !["available", "unavailable", "degraded"].contains(&backend.as_str()) {
+        return Err(ErrorCode::Unsupported);
+    }
+    let features = proxy.features().await.map_err(normalize_error)?;
+    // Unknown flags are ignored; the daemon only acts on the ones it knows.
+    let features = features
+        .into_iter()
+        .filter(|f| KNOWN_FEATURES.contains(&f.as_str()))
+        .collect();
+    Ok((revision, sessions, backend, features))
+}
+
+impl Core {
+    pub(super) async fn watch_media(&self, id: String, owner: String, generation: String) {
+        let Ok(proxy) = MediaProviderProxy::builder(&self.connection)
+            .destination(owner.as_str())
+            .and_then(|b| b.path(production::PROVIDER_PATH))
+            .unwrap()
+            .build()
+            .await
+        else {
+            return;
+        };
+        let Ok(mut changes) = proxy.receive_provider_state_changed().await else {
+            return;
+        };
+        let mut tick = tokio::time::interval(Duration::from_secs(1));
+        loop {
+            tokio::select! {_=tick.tick()=>{},event=changes.next()=>{if event.is_none(){return;}}}
+            if !self
+                .state
+                .lock()
+                .await
+                .providers
+                .get(&id)
+                .is_some_and(|p| p.owner == owner && p.info.generation == generation)
+            {
+                return;
+            }
+            let result =
+                tokio::time::timeout(Duration::from_secs(3), read_sessions(&proxy, &generation))
+                    .await
+                    .unwrap_or(Err(ErrorCode::Timeout));
+            let mut state = self.state.lock().await;
+            let Some(p) = state.providers.get_mut(&id) else {
+                return;
+            };
+            if p.owner != owner || p.info.generation != generation {
+                return;
+            }
+            let mut signal = None;
+            match result {
+                Ok((revision, sessions, backend, features)) => {
+                    let cache = p
+                        .session_cache
+                        .get_or_insert_with(|| SessionSnapshots::new(&generation).unwrap());
+                    match cache.import(revision, sessions.clone()) {
+                        Ok(()) => {
+                            if revision != p.info.revision {
+                                signal = Some(revision);
+                            }
+                            p.sessions = sessions;
+                            p.features = features;
+                            p.info.revision = revision;
+                            p.info.backend_state = backend;
+                            p.info.runtime_state = "ready".into();
+                            if !p.info.last_error.is_empty() && p.info.recovered_at == 0 {
+                                p.info.recovered_at = now();
+                            }
+                        }
+                        Err(error) => failed(&mut p.info, error),
+                    }
+                }
+                Err(error) => failed(&mut p.info, error),
+            }
+            drop(state);
+            if let Some(revision) = signal {
+                if let Ok(emitter) = SignalEmitter::new(&self.connection, production::PATH) {
+                    let _ =
+                        Daemon::state_changed(&emitter, &id, "media", &generation, revision).await;
+                }
+                self.changed().await;
+            }
+        }
+    }
+
+    /// The provider's owner after checking generation, readiness, the session
+    /// and the feature flag an extension read needs.
+    async fn media_target(
+        &self,
+        id: &str,
+        generation: &str,
+        session: &str,
+        feature: &str,
+    ) -> Result<String, ErrorCode> {
+        validation::id(session)?;
+        let state = self.state.lock().await;
+        let p = state.providers.get(id).ok_or(ErrorCode::NotFound)?;
+        if p.info.generation != generation {
+            return Err(ErrorCode::Conflict);
+        }
+        if p.info.runtime_state != "ready" || p.info.backend_state == "unavailable" {
+            return Err(ErrorCode::Unavailable);
+        }
+        if !p.features.iter().any(|f| f == feature) {
+            return Err(ErrorCode::Unsupported);
+        }
+        if !p.sessions.iter().any(|s| s.id == session) {
+            return Err(ErrorCode::NotFound);
+        }
+        Ok(p.owner.clone())
+    }
+
+    pub(super) async fn media_tracks(
+        &self,
+        id: &str,
+        generation: &str,
+        session: &str,
+    ) -> Result<Vec<Track>, ErrorCode> {
+        let owner = self
+            .media_target(id, generation, session, FEATURE_TRACKS)
+            .await?;
+        let proxy = MediaTracksProxy::builder(&self.connection)
+            .destination(owner.as_str())
+            .map_err(|_| ErrorCode::Internal)?
+            .build()
+            .await
+            .map_err(|_| ErrorCode::Unavailable)?;
+        let tracks = tokio::time::timeout(
+            MEDIA_COMMAND_TIMEOUT,
+            proxy.list_tracks(generation, session),
+        )
+        .await
+        .map_err(|_| ErrorCode::Timeout)?
+        .map_err(normalize_error)?;
+        media::validate_tracks(&tracks)?;
+        Ok(tracks)
+    }
+
+    pub(super) async fn media_timeline(
+        &self,
+        id: &str,
+        generation: &str,
+        session: &str,
+    ) -> Result<Timeline, ErrorCode> {
+        let owner = self
+            .media_target(id, generation, session, FEATURE_TIMELINE)
+            .await?;
+        let proxy = MediaTimelineProxy::builder(&self.connection)
+            .destination(owner.as_str())
+            .map_err(|_| ErrorCode::Internal)?
+            .build()
+            .await
+            .map_err(|_| ErrorCode::Unavailable)?;
+        let (timeline,) = tokio::time::timeout(
+            MEDIA_COMMAND_TIMEOUT,
+            proxy.get_timeline(generation, session),
+        )
+        .await
+        .map_err(|_| ErrorCode::Timeout)?
+        .map_err(normalize_error)?;
+        timeline.validate()?;
+        Ok(timeline)
+    }
+
+    /// Admit a media command as an operation and run it against the
+    /// provider. Mutating commands are never retried. A thumbnail's asset id
+    /// is returned as the operation's result (ADR-0058).
+    pub(super) async fn media_command(
+        &self,
+        id: &str,
+        action: MediaAction,
+        generation: &str,
+        session: &str,
+        request_id: &str,
+        caller: &str,
+    ) -> Result<OwnedObjectPath, ErrorCode> {
+        validation::id(session)?;
+        let fingerprint = serde_json::to_string(&(id, &action, generation, session))
+            .map_err(|_| ErrorCode::Internal)?;
+        if let Some(path) = self
+            .operations
+            .existing(caller, request_id, &fingerprint)
+            .await?
+        {
+            return Ok(path);
+        }
+        let state = self.state.lock().await;
+        let p = state.providers.get(id).ok_or(ErrorCode::NotFound)?;
+        if p.capability() != "media" {
+            return Err(ErrorCode::Unsupported);
+        }
+        if p.info.generation != generation {
+            return Err(ErrorCode::Conflict);
+        }
+        if p.info.runtime_state != "ready" || p.info.backend_state == "unavailable" {
+            return Err(ErrorCode::Unavailable);
+        }
+        let entry = p
+            .sessions
+            .iter()
+            .find(|s| s.id == session)
+            .ok_or(ErrorCode::NotFound)?;
+        action.check(entry, &p.features)?;
+        let owner = p.owner.clone();
+        let (path, op, fresh) = self
+            .operations
+            .admit(&self.connection, caller, request_id, &fingerprint, id)
+            .await?;
+        drop(state);
+        if !fresh {
+            return Ok(path);
+        }
+        let core = self.clone();
+        let (id, generation, session) = (id.to_owned(), generation.to_owned(), session.to_owned());
+        let path_copy = path.clone();
+        tokio::spawn(async move {
+            {
+                let mut value = op.value.lock().await;
+                if value.state != "queued" {
+                    return;
+                }
+                value.state = "running".into();
+                value.started_at = now();
+            }
+            let work = async {
+                let base = || async {
+                    MediaProviderProxy::builder(&core.connection)
+                        .destination(owner.as_str())
+                        .map_err(|_| ErrorCode::Internal)?
+                        .build()
+                        .await
+                        .map_err(|_| ErrorCode::Unavailable)
+                };
+                let (g, s) = (generation.as_str(), session.as_str());
+                let mut asset = None;
+                match &action {
+                    MediaAction::Play => base().await?.play(g, s).await,
+                    MediaAction::Pause => base().await?.pause(g, s).await,
+                    MediaAction::PlayPause => base().await?.play_pause(g, s).await,
+                    MediaAction::Seek(position) => base().await?.seek(g, s, *position).await,
+                    MediaAction::Next => base().await?.next(g, s).await,
+                    MediaAction::Previous => base().await?.previous(g, s).await,
+                    MediaAction::Stop => base().await?.stop(g, s).await,
+                    MediaAction::SelectTrack { kind, track } => {
+                        MediaTracksProxy::builder(&core.connection)
+                            .destination(owner.as_str())
+                            .map_err(|_| ErrorCode::Internal)?
+                            .build()
+                            .await
+                            .map_err(|_| ErrorCode::Unavailable)?
+                            .select_track(g, s, kind, track)
+                            .await
+                    }
+                    MediaAction::DisableSubtitles => {
+                        MediaTracksProxy::builder(&core.connection)
+                            .destination(owner.as_str())
+                            .map_err(|_| ErrorCode::Internal)?
+                            .build()
+                            .await
+                            .map_err(|_| ErrorCode::Unavailable)?
+                            .disable_subtitles(g, s)
+                            .await
+                    }
+                    MediaAction::Thumbnail(position) => {
+                        MediaTimelineProxy::builder(&core.connection)
+                            .destination(owner.as_str())
+                            .map_err(|_| ErrorCode::Internal)?
+                            .build()
+                            .await
+                            .map_err(|_| ErrorCode::Unavailable)?
+                            .request_thumbnail(g, s, *position)
+                            .await
+                            .map(|(thumbnail,)| {
+                                asset = Some(thumbnail.asset);
+                            })
+                    }
+                }
+                .map_err(normalize_error)?;
+                Ok::<_, ErrorCode>(asset)
+            };
+            let result = tokio::time::timeout(MEDIA_COMMAND_TIMEOUT, work)
+                .await
+                .unwrap_or(Err(ErrorCode::Timeout));
+            let valid = core
+                .state
+                .lock()
+                .await
+                .providers
+                .get(&id)
+                .is_some_and(|p| p.owner == owner && p.info.generation == generation);
+            let result = if valid {
+                result
+            } else {
+                Err(ErrorCode::Unavailable)
+            };
+            let result = result.and_then(|asset| match asset {
+                Some(asset) if validation::id(&asset).is_err() => Err(ErrorCode::InvalidArgument),
+                Some(asset) => Ok(vec![EntityRef {
+                    provider_id: id.clone(),
+                    capability: "media".into(),
+                    local_id: asset,
+                }]),
+                None => Ok(vec![EntityRef {
+                    provider_id: id.clone(),
+                    capability: "media".into(),
+                    local_id: session.clone(),
+                }]),
+            });
+            op.finish(&core.connection, &path_copy, result).await;
+        });
+        Ok(path)
+    }
+}
+
+pub(super) struct MediaEndpoint {
+    pub(super) core: Core,
+    pub(super) id: String,
+}
+#[zbus::interface(name = "org.arinn.Media1")]
+impl MediaEndpoint {
+    async fn get_sessions(
+        &self,
+        token: &str,
+        #[zbus(header)] h: Header<'_>,
+    ) -> production::Result<(SessionPage,)> {
+        let owner = sender(&h)?;
+        let mut state = self.core.state.lock().await;
+        let p = state
+            .providers
+            .get_mut(&self.id)
+            .ok_or(ErrorCode::NotFound)?;
+        Ok((p
+            .session_cache
+            .as_mut()
+            .ok_or(ErrorCode::Unavailable)?
+            .page(&owner, token, Instant::now())?,))
+    }
+    async fn get_session(&self, generation: &str, id: &str) -> production::Result<(Session,)> {
+        let state = self.core.state.lock().await;
+        let p = state.providers.get(&self.id).ok_or(ErrorCode::NotFound)?;
+        if p.info.generation != generation {
+            return Err(ErrorCode::Conflict.into());
+        }
+        Ok((p
+            .sessions
+            .iter()
+            .find(|s| s.id == id)
+            .cloned()
+            .ok_or(ErrorCode::NotFound)?,))
+    }
+    async fn features(&self) -> production::Result<Vec<String>> {
+        let state = self.core.state.lock().await;
+        let p = state.providers.get(&self.id).ok_or(ErrorCode::NotFound)?;
+        Ok(p.features.clone())
+    }
+    async fn play(
+        &self,
+        generation: &str,
+        id: &str,
+        request_id: &str,
+        #[zbus(header)] h: Header<'_>,
+    ) -> production::Result<OwnedObjectPath> {
+        self.command(MediaAction::Play, generation, id, request_id, &h)
+            .await
+    }
+    async fn pause(
+        &self,
+        generation: &str,
+        id: &str,
+        request_id: &str,
+        #[zbus(header)] h: Header<'_>,
+    ) -> production::Result<OwnedObjectPath> {
+        self.command(MediaAction::Pause, generation, id, request_id, &h)
+            .await
+    }
+    async fn play_pause(
+        &self,
+        generation: &str,
+        id: &str,
+        request_id: &str,
+        #[zbus(header)] h: Header<'_>,
+    ) -> production::Result<OwnedObjectPath> {
+        self.command(MediaAction::PlayPause, generation, id, request_id, &h)
+            .await
+    }
+    async fn seek(
+        &self,
+        generation: &str,
+        id: &str,
+        position_us: i64,
+        request_id: &str,
+        #[zbus(header)] h: Header<'_>,
+    ) -> production::Result<OwnedObjectPath> {
+        self.command(
+            MediaAction::Seek(position_us),
+            generation,
+            id,
+            request_id,
+            &h,
+        )
+        .await
+    }
+    async fn next(
+        &self,
+        generation: &str,
+        id: &str,
+        request_id: &str,
+        #[zbus(header)] h: Header<'_>,
+    ) -> production::Result<OwnedObjectPath> {
+        self.command(MediaAction::Next, generation, id, request_id, &h)
+            .await
+    }
+    async fn previous(
+        &self,
+        generation: &str,
+        id: &str,
+        request_id: &str,
+        #[zbus(header)] h: Header<'_>,
+    ) -> production::Result<OwnedObjectPath> {
+        self.command(MediaAction::Previous, generation, id, request_id, &h)
+            .await
+    }
+    async fn stop(
+        &self,
+        generation: &str,
+        id: &str,
+        request_id: &str,
+        #[zbus(header)] h: Header<'_>,
+    ) -> production::Result<OwnedObjectPath> {
+        self.command(MediaAction::Stop, generation, id, request_id, &h)
+            .await
+    }
+    async fn list_tracks(&self, generation: &str, id: &str) -> production::Result<Vec<Track>> {
+        Ok(self.core.media_tracks(&self.id, generation, id).await?)
+    }
+    async fn select_track(
+        &self,
+        generation: &str,
+        id: &str,
+        kind: &str,
+        track_id: &str,
+        request_id: &str,
+        #[zbus(header)] h: Header<'_>,
+    ) -> production::Result<OwnedObjectPath> {
+        let action = MediaAction::SelectTrack {
+            kind: kind.into(),
+            track: track_id.into(),
+        };
+        self.command(action, generation, id, request_id, &h).await
+    }
+    async fn disable_subtitles(
+        &self,
+        generation: &str,
+        id: &str,
+        request_id: &str,
+        #[zbus(header)] h: Header<'_>,
+    ) -> production::Result<OwnedObjectPath> {
+        self.command(
+            MediaAction::DisableSubtitles,
+            generation,
+            id,
+            request_id,
+            &h,
+        )
+        .await
+    }
+    async fn get_timeline(&self, generation: &str, id: &str) -> production::Result<(Timeline,)> {
+        Ok((self.core.media_timeline(&self.id, generation, id).await?,))
+    }
+    async fn request_thumbnail(
+        &self,
+        generation: &str,
+        id: &str,
+        position_us: i64,
+        request_id: &str,
+        #[zbus(header)] h: Header<'_>,
+    ) -> production::Result<OwnedObjectPath> {
+        self.command(
+            MediaAction::Thumbnail(position_us),
+            generation,
+            id,
+            request_id,
+            &h,
+        )
+        .await
+    }
+}
+impl MediaEndpoint {
+    async fn command(
+        &self,
+        action: MediaAction,
+        generation: &str,
+        session: &str,
+        request_id: &str,
+        h: &Header<'_>,
+    ) -> production::Result<OwnedObjectPath> {
+        Ok(self
+            .core
+            .media_command(
+                &self.id,
+                action,
+                generation,
+                session,
+                request_id,
+                &sender(h)?,
+            )
+            .await?)
+    }
+}
+
+#[cfg(test)]
+#[path = "media_tests.rs"]
+mod tests;

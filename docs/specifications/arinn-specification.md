@@ -369,7 +369,8 @@ and the [versioned XML](../plugin-api/README.md). Installed and running applicat
 entries share one paged snapshot. Public commands return daemon-owned operations;
 private provider replies complete those operations. Media and library wire
 bindings are fixed by [ADR-0054](../adr/0054-media-and-library-wire-contract.md);
-the daemon does not route those capabilities yet. Action and download still
+the daemon routes `media` ([ADR-0058](../adr/0058-media-routing.md)) and does not
+route `library` yet. Action and download still
 receive concrete XML before their first provider. Plugin API major 1 remains pre-stable.
 
 Plugin API v1 is not yet stable; wire XML, SDK and the contract suite are produced per capability before its first provider ([plugin API](../plugin-api/README.md)).

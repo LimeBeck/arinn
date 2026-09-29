@@ -4,7 +4,7 @@
 - **Date:** 2026-09-28
 - **Deciders:** project owner, explicit request to stop full application builds for documentation changes; mechanism under delegated authority
 - **Amends / Supersedes:** amends [ADR-0033](0033-ci-cd-and-releases.md) (scope of the pull request pipeline only)
-- **Amended by / Superseded by:** —
+- **Amended by / Superseded by:** [ADR-0049](0049-ci-minutes.md) — package build only when a pull request touches it, cancelled superseded runs, switchable runner
 - **Specification:** [§17.1, §18](../specifications/arinn-specification.md#171-continuous-integration-and-delivery)
 
 ## Context

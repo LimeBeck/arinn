@@ -14,7 +14,7 @@ capability, but **has not been released as a stable Plugin API**. Requirements:
 | `org.arinn.Application1` | Daemon-owned `/org/arinn/Daemon1/providers/p_<uuid_hex>`; [application1.xml](application1.xml) |
 | `org.arinn.Provider1` | Provider unique bus owner, `/org/arinn/Provider1`; [provider1.xml](provider1.xml) |
 | `org.arinn.Operation1` | Daemon-owned operation path returned by a command; [operation1.xml](operation1.xml) |
-| `org.arinn.Browser1` | Daemon-owned `/org/arinn/Daemon1/providers/p_<uuid_hex>` of a `browser` provider; [browser1.xml](browser1.xml) (daemon implementation pending, [#83](https://github.com/LimeBeck/arinn/issues/83)) |
+| `org.arinn.Browser1` | Daemon-owned `/org/arinn/Daemon1/providers/p_<uuid_hex>` of a `browser` provider; [browser1.xml](browser1.xml) |
 | `org.arinn.BrowserProvider1` | Provider unique bus owner, `/org/arinn/Provider1`; [browser-provider1.xml](browser-provider1.xml) |
 
 The private-bus suite compares these files to live introspection. Struct field
@@ -95,8 +95,10 @@ stale revision stays stale across daemon restarts. On start the daemon seeds the
 packaged default set from the first `arinn/web-shortcuts.toml` in the XDG data
 home and data directories, once per state database; invalid entries are skipped
 and a removed default is never re-added. A full list rejects `Add` with
-`InvalidArgument`. Until a BrowserProvider runtime contract exists (Phase 3),
-`Open` admits an operation that fails with `Unavailable`.
+`InvalidArgument`. `Open` opens the URL in the first ready `browser` provider with a connected
+browser and brings its focused window forward ([#83](https://github.com/LimeBeck/arinn/issues/83));
+with no connected browser the operation fails with `Unavailable`. Launching a
+closed browser first is not implemented yet.
 
 ### Production application and registry semantics
 

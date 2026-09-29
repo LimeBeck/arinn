@@ -12,6 +12,8 @@ The files in `design/` are **design references built in HTML**: prototypes of th
 
 Open `design/arinn.dc.html` in a browser (next to `support.js`) to use the interactive prototype. Click once to give it keyboard focus.
 
+Open services in the prototype: Kinopoisk, IVI and YouTube open as web-service windows. Inside one, **N** simulates the site opening a link in a new window. The **Open services** screen is reached from the nav or the Continue card. Demo props: `simulateErrors` (Kinopoisk is slow → cancel; IVI fails → dialog; Browser fails) and `browserOff` (browser unavailable state).
+
 ## Fidelity
 **High-fidelity.** Colors, typography, spacing, radii, focus states and motion timings are final. Artwork is placeholder: striped gradients labelled `poster`, `backdrop`, `still`, `video` stand in for real images from the metadata source.
 
@@ -148,7 +150,7 @@ Purpose: “What do we want to do right now?” It fits on one screen with no lo
 - **Home over activity (16)**: the running app is rendered behind Arinn as a receded layer (see Activity below). With focus on the activity card it comes **near**: scale .95, blur 8, brightness .6, scrim .3, plus an app-hue tint. Otherwise it is **far**: scale .90, blur 36, brightness .32, scrim .6.
 
 ### 04 · Global navigation
-A floating glass panel at x72, y112–968, w500, r44, padding 40/28.
+A floating glass panel at x72, y72–1008, w500, r44, padding 40/28.
 - Header: mark 38 + “Arinn” 28/600.
 - Items, h88, r28, icon 40 + label 30/600: Главная, Медиатека, Загрузки (ember % badge while downloading), Приложения, Настройки. The current section has an ember dot 10 on the right.
 - Separator, then the running activity (h100: ember dot, name 28/600, “Вернуться” 24), then “Питание” (h80).
@@ -228,7 +230,7 @@ A dialog over the current screen: error icon 64, “Браузер не удал
 
 ### Open services (ADR-0050) · OS-1…7, H-1…6
 Each web service is its own full-screen Chrome window with no Chrome UI. Arinn lists, switches and closes them. The live canvas is in `design/arinn Open Services.dc.html` and the screenshots are `screenshots/os-*.png`. The only data used is page title, address, and the `active` and `audible` flags.
-- **Screen “Открытые сервисы” / Open services**: title 56/700 at x120 y136, followed by a count in 40/600 text-3. A flat list starts at x120 y250, w≈1500, with rows gap 16. Order: the service on screen first, then by last use.
+- **Screen “Открытые сервисы” / Open services**: title 56/700 at x120 y96 (same as other screens), followed by a count in 40/600 text-3. A flat list starts at x120 y210, w≈1500, with rows gap 16. Order: the service on screen first, then by last use.
 - **Row**: min-h128, r26, padding 22/28. It has a chip 76 r22, a title 30/600 (1 line with ellipsis; 2 lines when focused), and a subline 24/500 text-2 with the domain plus status: ember dot + “На экране” and/or ember `volume_up` + “Звук”. A separate close button 128×128 r26 sits to the right of the row, gap 16.
 - **Focus**: the row uses the standard `row` lift (×1.02, plate 20%, 3 px white-45% ring, 22% glow in the service hue). → moves to the close button (white fill + ink, ×1.06) and ← returns to the row. OK on the row switches to that window. OK on close closes it with no confirmation, even when audio is playing. Back returns to the previous screen. The bottom hint reads “OK Перейти · → Закрыть · Назад Выйти”.
 - **Chip**: use the web-shortcut icon when the address matches a packaged shortcut. Otherwise show the first letter of the domain (www./m./hd. stripped), 34/700, on a white-12% chip. No favicons, and no per-product special cases.
@@ -238,12 +240,39 @@ Each web service is its own full-screen Chrome window with no Chrome UI. Arinn l
 - **Nothing open (OS-6)**: `stacks` 88 text-3, “Ничего не открыто” 48/700, body 30, and the button “На главную”.
 - **Browser unavailable (OS-7)**: `public_off` 88 in the error colour, “Браузер недоступен”, “Онлайн-сервисы сейчас не открываются. Медиатека, загрузки и игры работают.”, and the button “Повторить” (reconnects the plugin).
 - **Home (H-1)**: the first Continue card is the current service (“Сейчас запущено” · chip · page title · “домен · Вернуться”). The second card, “Ещё N открыто”, shows stacked chips and opens the list; hide it when only one service is open. An ember dot on a Favorites web-shortcut tile means “already open”. Arinn computes this by matching window addresses to shortcut URLs, so no contract change is needed.
-- **Nav (H-2)**: a new item below the main sections, after a divider: `stacks` + “Открытые сервисы”, subline “На экране: {name}” with an ember dot, and a count pill 48 r24. When the list is empty the item stays and the count is hidden.
+- **Nav (H-2)**: a new item directly below the main sections (no divider), min-h88, padding 12/24, gap 16. It has `stacks` 40, “Открытые сервисы” 30/600, and the subline “На экране: {name}” 22/500 with an ember dot (only when a web service is current). The count uses the same style as the Downloads badge (24/600 ember). When the list is empty the item stays and the count is hidden. When the current activity is a web service, this item replaces the bottom activity row; for external apps (Steam, ES, free-browsing Chrome) that row stays. **The nav panel now spans y72–1008** (was y112–968) so both fit.
 - **Browser unavailable on Home (H-3)**: web-shortcut tiles at 40% opacity with greyscale chips and the subline “Недоступно”. They stay focusable, and OK opens OS-7. The status bar shows the chip `public_off` + “Браузер недоступен”. The rest of Home works.
-- **Opening (H-4, H-5)**: Home recedes (×.97, blur 12, brightness .6) under a 60% black scrim. Centred: a 160 chip r44 with a glow in the service hue, “Открывается {name}…” 44/700, and an indeterminate bar 360×6 with an ember segment. Skip the overlay if the window appears within 400 ms. After 8 s, add “Браузер запускается дольше обычного” and the button “Отменить” (Back cancels too).
+- **Opening (H-4, H-5)**: the existing launch overlay (see Activity) plus an indeterminate bar 360×6 below the text, with a 120 px ember segment looping in 1.4 s. Skip the overlay if the window appears within 400 ms. After 8 s, add “Браузер запускается дольше обычного” and the button “Отменить” (Back cancels too).
 - **Failed (H-6)**: after the 30 s timeout or on error, show a dialog as in 18b: “{name} не открылся”, “Браузер не ответил за 30 секунд. Попробуйте ещё раз.”, and the buttons “Повторить” (default) and “Закрыть” (focus goes back to the tile).
 - **Transition (#80)**: Arinn cannot animate the Chrome window. Opening: 0–220 ms press feedback, then 220–500 ms Arinn recedes (×.97, blur 12) and fades to a dark tint of the service hue, then the window is raised. Return via Home uses the existing `lt-return` (450 ms from blur), with focus on the current-service card. Switching between services always goes through Arinn.
-- **Free-browsing “Браузер” tile**: opens a normal Chrome window with tabs and an address bar. These rules do not apply to it.
+- **Free-browsing “Браузер” tile**: replaced by the address and search screen (#106, below). Whether a normal Chrome window with tabs stays available is an open owner decision (V-1a/b).
+
+### Address and search (#106) · IN-1…9, T-1, OS-8, V-1…3
+A screen for typing a site address or a search query on a hardware keyboard. The result opens as another web service, following all of the rules above (H-4…H-6, OS-7, the Open services row). The live canvas is `design/arinn Browser Input.dc.html` and the screenshots are `screenshots/in-*.png`.
+- **Screen**: a separate screen (`screen: browse`), not an overlay. Title “Сайт или поиск” 56/700 at x120 y96. Back/Esc returns to where the user came from, and the typed text is discarded.
+- **Field**: x120 y210, w1480, min-h132, r34, padding 26/40/26/32, focused plate white-12% + 3 px white-45% ring. It has a 56 icon at left and text 48/500 with line-height 1.3, plus a 4×54 ember caret. The placeholder is “Адрес сайта или что найти” in text-3. The field grows to 3 lines for long input and keeps the end with the caret in view; earlier lines fade out under a 40 px top mask.
+- **Intent line** (below the field, padding-left 32, 30/500 text-2): key chip “Enter” (26/600 on white-12%) + what Enter will do. It updates on every keystroke:
+  - Address: `public` icon, “открыть сайт {url with scheme}”; for long input, only the domain.
+  - Search: `search` icon, “искать «{query}» в {engine}”.
+  - Already open: ember dot + “перейти в открытый {name}” in text-1. Enter switches to that window and creates no duplicate.
+  - Invalid scheme: `error` icon and the text “Arinn открывает только адреса http и https”, both in the error colour. Enter does nothing and the field is not cleared.
+  - A shortcut suggestion is focused: “открыть {shortcut}”.
+- **Shortcut suggestions**: up to 3 web shortcuts, matched by word prefix in the name or address; this is not history. Label “Ярлыки” 26/600, rows w1040 min-h104 r26 with chip 64 + name 30/600 + domain 24, plus “Открыт” with an ember dot when that shortcut’s window is open. ↓ from the field moves to the suggestions and ↑ from the first returns. Any printable key returns focus to the field and is inserted into the text.
+- **Input rules**: see the table at the end of the canvas.
+  - http/https: used as typed.
+  - IPv4, localhost, `*.local` or anything with a port: `http://` is added.
+  - A dotted host with a TLD of 2+ letters and no spaces: `https://` is added.
+  - Any other scheme: invalid.
+  - Everything else: search.
+  - Matching against open windows compares the host without `www.`.
+- **No keyboard (IN-8)**: the field dims to 60% with the `keyboard_off` icon, and the status bar shows `keyboard_off`. Title “Для ввода нужна клавиатура” 44/700 and a body 30. Shortcuts stay openable with the remote, with focus on the first. The first letter keypress switches the screen to IN-1 with that character in the field.
+- **Browser unavailable (IN-9)**: dimmed field, then the OS-7 text and the “Повторить” button.
+- **Home tile (T-1)**: recommended rename to “Сайт или поиск” with a neutral chip holding `travel_explore` 36 instead of the Chrome logo (T-1b). T-1a keeps “Браузер”.
+- **Second entry (OS-8)**: a “Сайт или поиск” pill button (h80, `add` icon) at the right of the Open services title, reached with ↑ from the first row. There is no new nav item. A search results page is an ordinary row: the title comes from the search engine, with domain `ya.ru` and the letter chip Y.
+- **Owner decisions** are shown as pairs; the search engine choice changes only the name in the intent line (plus a Settings › Apps row when it is selectable):
+  - V-1a: remove Chrome with tabs. V-1b: keep it as a secondary pill “Открыть Chrome с вкладками” below the field.
+  - V-2a: no recent entries. V-2b: up to 5 recent entries with the `history` icon, shown when the field is empty, with the button “Очистить”.
+  - V-3a: no saving. V-3b: a bookmark button between the row and Close in Open services; after saving it shows `bookmark_added` and the mark “Ярлык”, and the shortcut goes to Apps › Online.
 
 ### 20 · Ambient / screensaver
 - Background bg-deep. Clock 160/500 in `oklch(0.60 0.004 260)`, date 32 in `oklch(0.45…)`, optional line “Кинопоиск на паузе” with a dim ember dot.
@@ -263,7 +292,8 @@ Each web service is its own full-screen Chrome window with no Chrome UI. Arinn l
 ---
 
 ## State Management (as modelled in the prototype)
-- `screen`: boot · home · library · detail · player · downloads · apps · settings · activity · ambient · off
+- `screen`: boot · home · library · detail · player · downloads · apps · settings · services · activity · ambient · off
+- `svcs[]` `{id, app|null, t (page title), a (address), audio, closing}`: open web-service windows in recency order. `activity` is either an app id (external) or `w:{id}` (a web service window).
 - Overlays: `nav`, `sheet {kind, ret, parent}`, `power {step: menu|confirm, action}`, `dialog {kind}`, `launching`
 - `activity`: id of the running external app, or null
 - `focus`, plus per-screen memory of the last focus (restored on return)
@@ -285,7 +315,8 @@ Integration points: a browser extension (`tabs` + `nativeMessaging`) that expose
 - `screenshots/`: 22 JPEG captures of each screen state (01-home … 22-ambient), matching `arinn Screens.dc.html`.
 - `design/arinn.dc.html`: the interactive prototype covering all screens and states. Logic (data, i18n RU/EN, focus engine, presets) is in the `<script data-dc-script>` block.
 - `design/arinn Screens.dc.html`: a canvas of all 22 screen states.
-- `design/arinn Open Services.dc.html`: open services (ADR-0050): design answers, the list screen OS-1…7, Home/nav/launch states H-1…6, and the transition spec. Screenshots are in `screenshots/os-*.png`.
+- `design/arinn Browser Input.dc.html`: the address and search screen (#106): design answers, input states IN-1…9, tile T-1a/b, OS-8, owner-decision variants V-1…3, and input rules. Screenshots are in `screenshots/in-*.png`.
+- `design/arinn Open Services.dc.html`: open services (ADR-0050), switchable RU/EN through the `lang` prop: design answers, the list screen OS-1…7, Home/nav/launch states H-1…6, and the transition spec. Screenshots are in `screenshots/os-*.png`.
 - `design/arinn Design System v2.dc.html`: tokens, the 3 m viewing-distance check, logo treatments, component state matrix, focus rules, motion, map and keys.
 - `design/arinn Directions.dc.html`: the concept exploration (1a/1b/1c and the chosen 2a).
 - `design/support.js`, `design/image-slot.js`, `design/.image-slots.state.json`: runtime needed to open the files locally.

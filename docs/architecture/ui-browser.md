@@ -90,21 +90,27 @@ which emits `backRequested()`. Error and unavailable offer Retry. Loading hides
 the action.
 
 OK on a row emits `activateTab`. A bookmark control sits between the row and
-its close control. OK on that control calls `BrowserCatalog.addShortcut`, which
-sends `WebShortcuts1.Add` with the row title (the page title, or the host when
-the page title is empty) and the page address, an empty icon reference and a
-request id. The shell follows the method reply. Success marks the row saved:
-the control shows `bookmark_added` and the row carries the mark "Shortcut".
-The new shortcut is an Applications › Online tile once `WebShortcuts1.Changed`
-refreshes the favorites model. A row whose origin already matches a shortcut
-shows that saved state and OK does not call `Add` again. An address the daemon
-rejects is shown as the daemon error name on `operationState` (for example
-`InvalidArgument`). The control is disabled when `browserState` is
-`unavailable`, and `Add` is not called. OK on the close control emits
+its close control. OK on that control emits `savePage`. `Main.qml` connects
+that signal to `BrowserCatalog.addShortcut`, which sends `WebShortcuts1.Add`
+with the row title (the page title, or the host when the page title is empty)
+and the page address, an empty icon reference and a request id. The shell
+follows the method reply. Success marks the row saved: the control shows
+`bookmark_added` and the row carries the mark "Shortcut". The new shortcut is
+an Applications › Online tile once `WebShortcuts1.Changed` refreshes the
+favorites model. A row whose origin already matches a shortcut shows that
+saved state and OK does not call `Add` again. A rejected address sets
+`saveError`, separate from `operationState`, so activate and close failures
+do not use the same label. The screen maps `InvalidArgument`, `Conflict` and
+`NotFound` to short messages. The label clears when focus moves and four
+seconds after it appears. The list position stays visible beside it. The
+control is disabled when `browserState` is `unavailable`, and `Add` is not
+called; the list itself is hidden in that state. OK on the close control emits
 `closeTab` with no confirmation, including when the tab is audible. The row
 then shows "Closing…" at half opacity until the snapshot drops it, and the row
 collapses. A failed operation clears that state while the tab remains. Moving
 focus does not call the daemon and does not change which window is focused.
+The bottom hint labels → as Save, because that key reaches the bookmark before
+Close.
 
 | Signal | When |
 | --- | --- |
@@ -164,11 +170,17 @@ activate and close, which share `operationState` but not `opening`.
 part of the `ui-components` CTest. It covers focus, empty, many and unavailable
 states, and uses a model-supplied letter instead of parsing a shortcut URL.
 `tests/ui/tst_browser_shortcut.qml` covers the bookmark focus order (row, then
-bookmark, then close), the saved mark, the daemon error text and the disabled
-control when no browser is connected. The private-bus case `saveOpenPage`
-checks `Add` (title, address, empty icon), a rejected address, an origin that
-is already saved, and that `Add` is not called while the browser is
-unavailable.
+bookmark, then close), the saved mark, the mapped save-error text, clearing
+that text when focus moves, and the guard used when no browser is connected.
+The private-bus case `saveOpenPage` checks `Add` (title, address, empty icon),
+a rejected address, an origin that is already saved, and that `Add` is not
+called while the browser is unavailable. `saveSurvivesStaleListUntilRemoved`
+checks a `List` reply that arrives while `Add` is in flight, then a later list
+that no longer contains the shortcut. `productionSaveWiring` loads `Main.qml`
+and calls `requestSave`, the function OK on the bookmark uses, through the
+`savePage` binding. `saveErrorTimesOut` checks the four-second
+clear. The browser-catalog test loads the shell window, so it runs with
+`QT_QPA_PLATFORM=offscreen`.
 `tests/ui/tst_home.qml` covers the Continue card rules, the navigation item and
 the unavailable shortcut tile. `tests/ui/tst_launch.qml` covers the overlay
 delays with shortened timers. `browser_catalog_test.cpp` is the private-bus

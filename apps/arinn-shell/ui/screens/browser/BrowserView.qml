@@ -18,10 +18,16 @@ FocusScope {
     property bool interactive: true
     property string browserState: "populated" // populated, empty, loading, error, unavailable
     property string operationState: ""
+    property string saveError: ""
     readonly property bool saveEnabled: browserState !== "unavailable"
-    readonly property bool saveFailed: {
-        const state = operationState;
-        return state.length > 0 && state !== "queued" && state !== "running" && state !== "succeeded";
+    readonly property string saveErrorText: {
+        if (saveError === "InvalidArgument")
+            return qsTr("This address cannot be saved.");
+        if (saveError === "Conflict")
+            return qsTr("This page is already saved.");
+        if (saveError === "NotFound")
+            return qsTr("This page is no longer open.");
+        return saveError.length ? qsTr("The page could not be saved.") : "";
     }
     property string statusTitle: ""
     property string statusDescription: ""
@@ -64,11 +70,14 @@ FocusScope {
     property string focusRow: "list"
     property string listSide: "row"
     property int listIndex: 0
+    property string announcedSide: ""
+    property int announcedIndex: -1
     property int repeatRun: 0
 
     signal activateTab(string tabId)
     signal closeTab(string tabId)
     signal savePage(string tabId)
+    signal saveErrorDismissed()
     signal open(string shortcutId)
     signal retryRequested()
     signal backRequested()
@@ -107,8 +116,23 @@ FocusScope {
         return tab && tab.url !== undefined && tab.url !== null ? String(tab.url) : "";
     }
 
+    // A C++ QVariantList is array-like in QML. Array.isArray is false for it.
+    function asList(input) {
+        if (!input)
+            return [];
+        if (Array.isArray(input))
+            return input;
+        const length = input.length;
+        if (typeof length !== "number")
+            return [];
+        const result = [];
+        for (let i = 0; i < length; ++i)
+            result.push(input[i]);
+        return result;
+    }
+
     function normalizeTabs(input) {
-        const source = Array.isArray(input) ? input : [];
+        const source = asList(input);
         const seen = {};
         const activeWindows = {};
         const result = [];
@@ -141,7 +165,7 @@ FocusScope {
     }
 
     function normalizeWindows(input) {
-        const source = Array.isArray(input) ? input : [];
+        const source = asList(input);
         const seen = {};
         let focusedAssigned = false;
         const result = [];
@@ -160,7 +184,7 @@ FocusScope {
     }
 
     function normalizeShortcuts(input) {
-        const source = Array.isArray(input) ? input : [];
+        const source = asList(input);
         const seen = {};
         const result = [];
         for (let i = 0; i < source.length; ++i) {
@@ -417,14 +441,6 @@ FocusScope {
         if (!tab || tab.saved)
             return;
         savePage(tabId);
-        let catalog = null;
-        try {
-            catalog = browserCatalog;
-        } catch (ignore) {
-            catalog = null;
-        }
-        if (catalog && catalog.addShortcut)
-            catalog.addShortcut(tabId);
     }
 
     function requestOpen(shortcutId) {
@@ -460,11 +476,16 @@ FocusScope {
     }
 
     function noteRowFocus(index, side) {
+        const moved = announcedSide !== side || announcedIndex !== index;
+        announcedSide = side;
+        announcedIndex = index;
         focusRow = "list";
         listSide = side;
         listIndex = index;
         if (index >= 0 && index < orderedTabs.length)
             focusedEntryId = orderedTabs[index].id;
+        if (moved && saveError.length)
+            saveErrorDismissed();
     }
 
     onTabsChanged: {
@@ -548,12 +569,14 @@ FocusScope {
                 }
                 Ui.UiText {
                     objectName: "saveError"
-                    visible: root.saveFailed
+                    visible: root.saveErrorText.length > 0
                     anchors.baseline: screenTitle.baseline
                     anchors.right: parent.right
+                    anchors.rightMargin: listPosition.visible ? listPosition.implicitWidth + 24 : 0
+                    width: Math.min(implicitWidth, Math.max(0, parent.width - screenTitle.width - 160 - anchors.rightMargin))
                     role: "meta"
                     color: Ui.Theme.error
-                    text: root.operationState
+                    text: root.saveErrorText
                     maximumLineCount: 1
                     elide: Text.ElideRight
                 }
@@ -570,8 +593,9 @@ FocusScope {
                     color: Ui.Theme.textHint
                 }
                 Ui.UiText {
+                    id: listPosition
                     objectName: "listPosition"
-                    visible: root.listOverflow && !root.saveFailed
+                    visible: root.listOverflow
                     anchors.baseline: screenTitle.baseline
                     anchors.right: parent.right
                     role: "meta"
@@ -582,6 +606,7 @@ FocusScope {
 
             ListView {
                 id: services
+                objectName: "serviceList"
                 x: 96
                 y: 196
                 width: 1548
@@ -1075,7 +1100,7 @@ FocusScope {
                         }
                     }
                     Ui.UiText {
-                        text: qsTr("Close")
+                        text: qsTr("Save")
                         role: "caption"
                         color: Ui.Theme.textHint
                         anchors.verticalCenter: parent.verticalCenter

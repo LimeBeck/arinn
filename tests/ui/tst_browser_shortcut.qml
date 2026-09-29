@@ -84,11 +84,50 @@ TestCase {
         focused("row-a");
         compare(child("saveError").visible, false);
         view.operationState = "InvalidArgument";
+        compare(child("saveError").visible, false);
+        view.saveError = "InvalidArgument";
         tryCompare(child("saveError"), "visible", true);
-        compare(child("saveError").text, "InvalidArgument");
+        compare(child("saveError").text, "This address cannot be saved.");
+        view.saveError = "Conflict";
+        compare(child("saveError").text, "This page is already saved.");
+        view.saveError = "NotFound";
+        compare(child("saveError").text, "This page is no longer open.");
+        view.saveError = "Unavailable";
+        compare(child("saveError").text, "The page could not be saved.");
+    }
+
+    function test_focus_move_dismisses_save_error() {
+        focused("row-a");
+        view.saveError = "InvalidArgument";
+        tryCompare(child("saveError"), "visible", true);
+        view.saveErrorDismissed.connect(() => { view.saveError = ""; });
+        keyClick(Qt.Key_Right);
+        focused("bookmark-a");
+        compare(view.saveError, "");
+        compare(child("saveError").visible, false);
+    }
+
+    function test_save_error_keeps_the_list_position() {
+        const many = [];
+        for (let i = 0; i < 12; ++i) {
+            many.push({
+                id: "n" + i, windowId: "w", title: "Row " + i,
+                url: "https://pages.example/" + i, active: i === 0,
+                audible: false, saved: false
+            });
+        }
+        view.tabs = many;
+        tryCompare(child("listPosition"), "visible", true);
+        view.saveError = "InvalidArgument";
+        tryCompare(child("saveError"), "visible", true);
+        compare(child("listPosition").visible, true);
+        compare(child("listPosition").text, "1 of 12");
     }
 
     function test_bookmark_disabled_without_browser() {
+        // The list is hidden while the browser is unavailable, so this does not
+        // show a disabled bookmark on screen. It checks the guard OK uses
+        // before that list exists: save stays off and no savePage is emitted.
         focused("row-a");
         keyClick(Qt.Key_Right);
         focused("bookmark-a");
@@ -96,6 +135,7 @@ TestCase {
         compare(child("bookmark-a").enabled, true);
         view.browserState = "unavailable";
         compare(view.saveEnabled, false);
+        compare(view.showTabs, false);
         view.requestSave("a");
         compare(saves.count, 0);
     }

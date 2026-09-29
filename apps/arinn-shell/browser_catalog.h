@@ -7,7 +7,6 @@
 #pragma once
 #include <QHash>
 #include <QObject>
-#include <QQmlParserStatus>
 #include <QSet>
 #include <QTimer>
 #include <QVariantList>
@@ -15,14 +14,14 @@
 
 // Reads org.arinn.Browser1 for the shell. The screen only sees presentation
 // properties; tab commands go back through this object.
-class BrowserCatalog : public QObject, public QQmlParserStatus {
+class BrowserCatalog : public QObject {
   Q_OBJECT
-  Q_INTERFACES(QQmlParserStatus)
   Q_PROPERTY(QVariantList tabs READ tabs NOTIFY tabsChanged)
   Q_PROPERTY(QVariantList windows READ windows NOTIFY windowsChanged)
   Q_PROPERTY(QVariantList shortcuts READ shortcuts NOTIFY shortcutsChanged)
   Q_PROPERTY(QString browserState READ browserState NOTIFY changed)
   Q_PROPERTY(QString operationState READ operationState NOTIFY changed)
+  Q_PROPERTY(QString saveError READ saveError NOTIFY changed)
   Q_PROPERTY(QStringList openShortcutIds READ openShortcutIds NOTIFY
                  openShortcutIdsChanged)
   Q_PROPERTY(QVariantMap currentService READ currentService NOTIFY
@@ -38,6 +37,7 @@ public:
   QVariantList shortcuts() const { return m_shortcuts; }
   QString browserState() const;
   QString operationState() const { return m_operation; }
+  QString saveError() const { return m_saveError; }
   QStringList openShortcutIds() const { return m_openShortcutIds; }
   QVariantMap currentService() const { return m_currentService; }
   QString retryAction() const { return m_retryAction; }
@@ -52,8 +52,7 @@ public:
   Q_INVOKABLE void dismissOpenFailure();
   Q_INVOKABLE void retryOpen();
   Q_INVOKABLE void addShortcut(const QString &id);
-  void classBegin() override {}
-  void componentComplete() override;
+  Q_INVOKABLE void dismissSaveError();
 public slots:
   void refresh();
 signals:
@@ -93,8 +92,10 @@ private:
   void rememberFocus(const QVariantList &windows);
   void presentTabs(QVariantList tabs);
   void markSaved(const QString &url);
+  void setSaveError(const QString &code);
   void clearUseOrder();
   QString m_operation;
+  QString m_saveError;
   QVariantList m_tabs, m_windows, m_shortcuts;
   QHash<QString, TabRef> m_refs;
   QSet<QString> m_pending;
@@ -115,4 +116,5 @@ private:
   quint64 m_epoch = 0;
   QString m_generation;
   QTimer m_timer;
+  QTimer m_saveErrorTimer;
 };

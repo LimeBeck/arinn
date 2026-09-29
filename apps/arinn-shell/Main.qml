@@ -68,8 +68,11 @@ Window {
             shortcuts: browserCatalog.shortcuts
             browserState: browserCatalog.browserState
             operationState: browserCatalog.operationState
+            saveError: browserCatalog.saveError
             onActivateTab: tabId => browserCatalog.activateTab(tabId)
             onCloseTab: tabId => browserCatalog.closeTab(tabId)
+            onSavePage: tabId => browserCatalog.addShortcut(tabId)
+            onSaveErrorDismissed: browserCatalog.dismissSaveError()
             onOpen: shortcutId => browserCatalog.openShortcut(shortcutId)
             onRetryRequested: browserCatalog.retry()
             onBackRequested: { root.browserOpen = false; Qt.callLater(home.showHome); }

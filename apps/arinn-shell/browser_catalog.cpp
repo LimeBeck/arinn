@@ -5,7 +5,6 @@
 #include "browser_catalog.h"
 #include <QJsonArray>
 #include <QJsonDocument>
-#include <QQmlEngine>
 #include <QUrl>
 #include <QUuid>
 #include <QtDBus>
@@ -132,6 +131,8 @@ BrowserCatalog::BrowserCatalog(QObject *parent) : QObject(parent) {
             m_shortcuts.clear();
             m_origins.clear();
             m_pendingSaved.clear();
+            m_saveError.clear();
+            m_saveErrorTimer.stop();
             clearUseOrder();
             m_opening = false;
             m_openingError.clear();
@@ -144,6 +145,10 @@ BrowserCatalog::BrowserCatalog(QObject *parent) : QObject(parent) {
           });
   connect(&m_timer, &QTimer::timeout, this, &BrowserCatalog::refresh);
   m_timer.start(1000);
+  m_saveErrorTimer.setSingleShot(true);
+  m_saveErrorTimer.setInterval(4000);
+  connect(&m_saveErrorTimer, &QTimer::timeout, this,
+          &BrowserCatalog::dismissSaveError);
   refresh();
 }
 QString BrowserCatalog::browserState() const {
@@ -603,9 +608,20 @@ void BrowserCatalog::markSaved(const QString &url) {
   m_pendingSaved.insert(token);
   presentTabs(m_tabs);
 }
+void BrowserCatalog::setSaveError(const QString &code) {
+  const auto different = m_saveError != code;
+  m_saveError = code;
+  if (code.isEmpty())
+    m_saveErrorTimer.stop();
+  else
+    m_saveErrorTimer.start();
+  if (different)
+    emit changed();
+}
+void BrowserCatalog::dismissSaveError() { setSaveError(QString()); }
 void BrowserCatalog::addShortcut(const QString &id) {
   if (!m_connected || m_noBrowser) {
-    setOperation(QStringLiteral("Unavailable"));
+    setSaveError(QStringLiteral("Unavailable"));
     return;
   }
   const auto pendingId = QStringLiteral("save:") + id;
@@ -620,7 +636,7 @@ void BrowserCatalog::addShortcut(const QString &id) {
     }
   }
   if (tab.isEmpty()) {
-    setOperation(QStringLiteral("NotFound"));
+    setSaveError(QStringLiteral("NotFound"));
     return;
   }
   if (tab.value(QStringLiteral("saved")).toBool())
@@ -634,7 +650,6 @@ void BrowserCatalog::addShortcut(const QString &id) {
       << QUuid::createUuid().toString(QUuid::WithoutBraces);
   const auto epoch = m_epoch;
   m_pending.insert(pendingId);
-  setOperation(QStringLiteral("running"));
   auto pending = new QDBusPendingCallWatcher(
       QDBusConnection::sessionBus().asyncCall(msg, 3000), this);
   connect(pending, &QDBusPendingCallWatcher::finished, this,
@@ -648,20 +663,15 @@ void BrowserCatalog::addShortcut(const QString &id) {
                 reply.signature() != QLatin1String("s") ||
                 reply.arguments().isEmpty() ||
                 reply.arguments().at(0).toString().isEmpty()) {
-              setOperation(reply.type() == QDBusMessage::ErrorMessage
+              setSaveError(reply.type() == QDBusMessage::ErrorMessage
                                ? errorCode(reply)
                                : QStringLiteral("Unavailable"));
               return;
             }
             markSaved(url);
-            setOperation(QStringLiteral("succeeded"));
+            setSaveError(QString());
           },
           Qt::QueuedConnection);
-}
-void BrowserCatalog::componentComplete() {
-  if (auto *engine = qmlEngine(this))
-    engine->rootContext()->setContextProperty(QStringLiteral("browserCatalog"),
-                                              this);
 }
 void BrowserCatalog::activateTab(const QString &id) {
   commandTab(id, "ActivateTab");

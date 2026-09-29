@@ -2,6 +2,17 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "browser_catalog.h"
+#include <fcntl.h>
+#include <unistd.h>
+#include <QElapsedTimer>
+#include <QGuiApplication>
+#include <QProcess>
+#include <QQmlApplicationEngine>
+#include <QQmlContext>
+#include <QQuickItem>
+#include <QQuickWindow>
+#include <QSocketNotifier>
+#include <QTimer>
 #include <QtDBus>
 #include <QtTest>
 
@@ -88,9 +99,57 @@ public:
   QString runtime = "ready";
   QString activatedId, closedId, openedId, activateRequest, restartedId;
   int tabReads = 0, activates = 0, closes = 0, opens = 0, operationReads = 0,
-      openArgCount = 0, providerReads = 0, restarts = 0, cancels = 0, adds = 0;
-  bool scripted = false, holdOperation = false, rejectAdd = false;
+      openArgCount = 0, providerReads = 0, restarts = 0, cancels = 0, adds = 0,
+      lists = 0;
+  bool scripted = false, holdOperation = false, rejectAdd = false,
+       holdAdd = false, holdList = false, recordAdded = true;
+  QString rejectCode = QStringLiteral("InvalidArgument");
   QString addedTitle, addedUrl, addedIcon, addedRequest;
+  QList<QDBusMessage> heldAdds, heldLists, staleLists;
+  QDBusConnection replyBus = QDBusConnection::sessionBus();
+  void replyLists(const QList<QDBusMessage> &messages) {
+    auto bus = QDBusConnection::sessionBus();
+    for (const auto &held : messages) {
+      QDBusArgument body;
+      body.beginStructure();
+      body << qulonglong(1) << scriptedShortcuts;
+      body.endStructure();
+      bus.send(held.createReply(QVariant::fromValue(body)));
+    }
+  }
+  void releaseLists() {
+    const auto pending = heldLists;
+    heldLists.clear();
+    replyLists(pending);
+  }
+  void releaseStaleLists() {
+    const auto pending = staleLists;
+    staleLists.clear();
+    replyLists(pending);
+  }
+  void captureStaleLists() {
+    if (holdList && staleLists.isEmpty() && !heldLists.isEmpty()) {
+      staleLists = heldLists;
+      heldLists.clear();
+    }
+  }
+  void releaseAdds() {
+    auto bus = QDBusConnection::sessionBus();
+    const auto pending = heldAdds;
+    heldAdds.clear();
+    for (const auto &held : pending) {
+      if (rejectAdd) {
+        bus.send(held.createErrorReply(
+            QStringLiteral("org.arinn.Error1.") + rejectCode, rejectCode));
+        continue;
+      }
+      if (scripted && recordAdded)
+        scriptedShortcuts.append(
+            ShortcutWire{QStringLiteral("added-%1").arg(adds), addedTitle,
+                         addedUrl, {}});
+      bus.send(held.createReply(QStringLiteral("new-shortcut")));
+    }
+  }
   QList<WindowWire> scriptedWindows;
   QList<TabWire> scriptedTabs;
   QList<ShortcutWire> scriptedShortcuts;
@@ -171,6 +230,15 @@ public:
           QVariant::fromValue(QDBusObjectPath("/org/arinn/Daemon1/ops/tab"))));
       return true;
     } else if (message.member() == "List") {
+      ++lists;
+      if (holdList) {
+        message.setDelayedReply(true);
+        heldLists.append(message);
+        replyBus = bus;
+        fprintf(stdout, "held-list\n");
+        fflush(stdout);
+        return true;
+      }
       body.beginStructure();
       body << qulonglong(1)
            << (scripted ? scriptedShortcuts
@@ -183,12 +251,19 @@ public:
       addedUrl = message.arguments().at(1).toString();
       addedIcon = message.arguments().at(2).toString();
       addedRequest = message.arguments().at(3).toString();
-      if (rejectAdd) {
-        bus.send(message.createErrorReply("org.arinn.Error1.InvalidArgument",
-                                          "InvalidArgument"));
+      if (holdAdd) {
+        message.setDelayedReply(true);
+        heldAdds.append(message);
+        replyBus = bus;
         return true;
       }
-      if (scripted)
+      captureStaleLists();
+      if (rejectAdd) {
+        bus.send(message.createErrorReply(
+            QStringLiteral("org.arinn.Error1.") + rejectCode, rejectCode));
+        return true;
+      }
+      if (scripted && recordAdded)
         scriptedShortcuts.append(
             ShortcutWire{QStringLiteral("added-%1").arg(adds), addedTitle,
                          addedUrl, {}});
@@ -219,6 +294,35 @@ public:
   }
 };
 
+class ShellStandIn : public QObject {
+  Q_OBJECT
+  Q_PROPERTY(bool homeVisible MEMBER m_home CONSTANT)
+  Q_PROPERTY(QString returnWindow MEMBER m_return CONSTANT)
+  Q_PROPERTY(QVariantList items MEMBER m_items CONSTANT)
+  Q_PROPERTY(QVariantList continueEntries MEMBER m_continue CONSTANT)
+  Q_PROPERTY(QVariantList applications MEMBER m_applications CONSTANT)
+  Q_PROPERTY(QVariantList favorites MEMBER m_favorites CONSTANT)
+  Q_PROPERTY(QString homeState MEMBER m_homeState CONSTANT)
+  Q_PROPERTY(QStringList busyEntryIds MEMBER m_busy CONSTANT)
+  Q_PROPERTY(QString message MEMBER m_message CONSTANT)
+public:
+  bool m_home = true;
+  QString m_return;
+  QString m_homeState = QStringLiteral("empty");
+  QString m_message;
+  QVariantList m_items, m_continue, m_applications, m_favorites;
+  QStringList m_busy;
+  Q_INVOKABLE void back() {}
+  Q_INVOKABLE void launch(const QString &) {}
+  Q_INVOKABLE void activate(const QString &) {}
+  Q_INVOKABLE void refresh() {}
+};
+class SessionGuardStandIn : public QObject {
+  Q_OBJECT
+  Q_PROPERTY(bool blocked MEMBER m_blocked CONSTANT)
+public:
+  bool m_blocked = false;
+};
 class BrowserCatalogTest : public QObject {
   Q_OBJECT
 private slots:
@@ -439,8 +543,9 @@ private slots:
     QCOMPARE(daemon.addedUrl, QString("https://pages.example/watch"));
     QCOMPARE(daemon.addedIcon, QString());
     QVERIFY(!QUuid::fromString(daemon.addedRequest).isNull());
-    QTRY_COMPARE(catalog.operationState(), QString("succeeded"));
-    QCOMPARE(findTab(QStringLiteral("Page")).value("saved").toBool(), true);
+    QTRY_COMPARE(findTab(QStringLiteral("Page")).value("saved").toBool(), true);
+    QCOMPARE(catalog.operationState(), QString());
+    QCOMPARE(catalog.saveError(), QString());
     catalog.addShortcut(page.value("id").toString());
     QTest::qWait(200);
     QCOMPARE(daemon.adds, 1);
@@ -456,18 +561,295 @@ private slots:
     QCOMPARE(bad.value("saved").toBool(), false);
     catalog.addShortcut(bad.value("id").toString());
     QTRY_COMPARE(daemon.adds, 3);
-    QTRY_COMPARE(catalog.operationState(), QString("InvalidArgument"));
+    QTRY_COMPARE(catalog.saveError(), QString("InvalidArgument"));
+    QCOMPARE(catalog.operationState(), QString());
     QCOMPARE(findTab(QStringLiteral("Bad")).value("saved").toBool(), false);
+    catalog.dismissSaveError();
+    QCOMPARE(catalog.saveError(), QString());
+    daemon.rejectCode = QStringLiteral("Conflict");
+    catalog.addShortcut(bad.value("id").toString());
+    QTRY_COMPARE(catalog.saveError(), QString("Conflict"));
+    QCOMPARE(catalog.operationState(), QString());
+    catalog.addShortcut(QStringLiteral("missing"));
+    QCOMPARE(catalog.saveError(), QString("NotFound"));
+    QCOMPARE(catalog.operationState(), QString());
 
     daemon.mode = "unavailable";
     catalog.refresh();
     QTRY_COMPARE(catalog.browserState(), QString("unavailable"));
     const auto adds = daemon.adds;
     catalog.addShortcut(QStringLiteral("anything"));
-    QTRY_COMPARE(catalog.operationState(), QString("Unavailable"));
+    QTRY_COMPARE(catalog.saveError(), QString("Unavailable"));
+    QCOMPARE(catalog.operationState(), QString());
     QCOMPARE(daemon.adds, adds);
+  }
+  void saveSurvivesStaleListUntilRemoved() {
+    // A delayed reply and the next call cannot share this process: Qt delivers
+    // local virtual-object calls directly and rejects the second one. The
+    // fixture process owns the daemon so List can stay in flight while Add
+    // completes. Wait with qWait: QProcess::waitForReadyRead does not dispatch
+    // the session bus, so the catalog would never send the held List.
+    QProcess fixture;
+    fixture.setProcessChannelMode(QProcess::SeparateChannels);
+    fixture.start(QCoreApplication::applicationFilePath(),
+                  {QStringLiteral("--shortcut-fixture")});
+    QVERIFY2(fixture.waitForStarted(), qPrintable(fixture.errorString()));
+    struct Stop {
+      QProcess *process;
+      ~Stop() {
+        if (process->state() == QProcess::NotRunning)
+          return;
+        process->write("quit\n");
+        process->waitForBytesWritten(200);
+        if (!process->waitForFinished(1000)) {
+          process->kill();
+          process->waitForFinished(1000);
+        }
+      }
+    } stop{&fixture};
+    QByteArray output;
+    auto waitOutput = [&](const QByteArray &needle) {
+      QElapsedTimer timer;
+      timer.start();
+      while (timer.elapsed() < 5000) {
+        QTest::qWait(20);
+        output += fixture.readAllStandardOutput();
+        if (output.contains(needle))
+          return true;
+      }
+      return false;
+    };
+    auto dumped = [&](const char *what) {
+      QTest::qWait(20);
+      output += fixture.readAllStandardOutput();
+      return QStringLiteral("%1 stdout=%2 stderr=%3 state=%4")
+          .arg(QString::fromUtf8(what), QString::fromUtf8(output),
+               QString::fromUtf8(fixture.readAllStandardError()))
+          .arg(int(fixture.state()));
+    };
+    if (!waitOutput("ready"))
+      QFAIL(qPrintable(dumped("ready")));
+    BrowserCatalog catalog;
+    QTRY_COMPARE(catalog.browserState(), QString("populated"));
+    QString pageId;
+    for (const auto &entry : catalog.tabs()) {
+      const auto map = entry.toMap();
+      if (map.value(QStringLiteral("title")).toString() ==
+          QStringLiteral("Page")) {
+        pageId = map.value(QStringLiteral("id")).toString();
+        QCOMPARE(map.value(QStringLiteral("saved")).toBool(), false);
+      }
+    }
+    QVERIFY(!pageId.isEmpty());
+    fixture.write("hold-all\n");
+    QVERIFY(fixture.waitForBytesWritten());
+    if (!waitOutput("holding"))
+      QFAIL(qPrintable(dumped("holding")));
+    catalog.refresh();
+    if (!waitOutput("held-list"))
+      QFAIL(qPrintable(dumped("held-list")));
+    catalog.addShortcut(pageId);
+    QTRY_COMPARE(catalog.tabs().at(0).toMap().value(QStringLiteral("saved")).toBool(),
+                 true);
+    fixture.write("seed-other\n");
+    fixture.write("release-stale\n");
+    QVERIFY(fixture.waitForBytesWritten());
+    auto hasOther = [&] {
+      for (const auto &entry : catalog.shortcuts())
+        if (entry.toMap().value(QStringLiteral("id")).toString() ==
+            QStringLiteral("other"))
+          return true;
+      return false;
+    };
+    QTRY_VERIFY(hasOther());
+    QCOMPARE(catalog.tabs().at(0).toMap().value(QStringLiteral("saved")).toBool(),
+             true);
+    fixture.write("clear-and-release\n");
+    QVERIFY(fixture.waitForBytesWritten());
+    catalog.refresh();
+    QTRY_COMPARE(catalog.tabs().at(0).toMap().value(QStringLiteral("saved")).toBool(),
+                 false);
+    QTRY_VERIFY(catalog.shortcuts().isEmpty());
+    fixture.write("quit\n");
+    QVERIFY(fixture.waitForFinished(2000));
+  }
+  void saveErrorTimesOut() {
+    auto bus = QDBusConnection::sessionBus();
+    BrowserDaemon daemon;
+    daemon.scripted = true;
+    daemon.rejectAdd = true;
+    daemon.scriptedWindows = {WindowWire{"w1", {}, true}};
+    daemon.scriptedTabs = {
+        TabWire{"page", "w1", "Page", "https://pages.example/watch", true,
+                false}};
+    QVERIFY(bus.registerService("org.arinn.Daemon1"));
+    QVERIFY(bus.registerVirtualObject("/org/arinn", &daemon,
+                                      QDBusConnection::SubPath));
+    BrowserCatalog catalog;
+    QTRY_COMPARE(catalog.browserState(), QString("populated"));
+    const auto id = catalog.tabs().at(0).toMap().value("id").toString();
+    catalog.addShortcut(id);
+    QTRY_COMPARE(catalog.saveError(), QString("InvalidArgument"));
+    QCOMPARE(catalog.operationState(), QString());
+    QTRY_COMPARE_WITH_TIMEOUT(catalog.saveError(), QString(), 6000);
+  }
+  void productionSaveWiring() {
+    auto bus = QDBusConnection::sessionBus();
+    BrowserDaemon daemon;
+    daemon.scripted = true;
+    daemon.scriptedWindows = {WindowWire{"w1", {}, true}};
+    daemon.scriptedTabs = {
+        TabWire{"page", "w1", "Page", "https://pages.example/watch", true,
+                false},
+        TabWire{"bad", "w1", "Bad", "http://public.example/a", false, false}};
+    QVERIFY(bus.registerService("org.arinn.Daemon1"));
+    QVERIFY(bus.registerVirtualObject("/org/arinn", &daemon,
+                                      QDBusConnection::SubPath));
+    ShellStandIn backend;
+    SessionGuardStandIn guard;
+    QQmlApplicationEngine engine;
+    QStringList problems;
+    QObject::connect(
+        &engine, &QQmlEngine::warnings, &engine,
+        [&](const QList<QQmlError> &warnings) {
+          for (const auto &warning : warnings) {
+            const auto text = warning.toString();
+            if (text.contains(QStringLiteral("qrc:/brand/")))
+              continue;
+            problems.append(text);
+          }
+        });
+    engine.rootContext()->setContextProperty(QStringLiteral("backend"),
+                                             &backend);
+    engine.rootContext()->setContextProperty(QStringLiteral("sessionGuard"),
+                                             &guard);
+    engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
+    QVERIFY2(problems.isEmpty(), qPrintable(problems.join('\n')));
+    QVERIFY(!engine.rootObjects().isEmpty());
+    auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+    QVERIFY(window);
+    window->show();
+    window->requestActivate();
+    window->setProperty("browserOpen", true);
+    auto browser =
+        window->findChild<QQuickItem *>(QStringLiteral("productionBrowser"));
+    QVERIFY(browser);
+    QTRY_COMPARE(browser->property("browserState").toString(),
+                 QString("populated"));
+    QString pageId;
+    QString badId;
+    const auto tabs = browser->property("orderedTabs").toList();
+    for (const auto &entry : tabs) {
+      const auto map = entry.toMap();
+      if (map.value(QStringLiteral("title")).toString() ==
+          QStringLiteral("Page"))
+        pageId = map.value(QStringLiteral("id")).toString();
+      if (map.value(QStringLiteral("title")).toString() == QStringLiteral("Bad"))
+        badId = map.value(QStringLiteral("id")).toString();
+    }
+    QVERIFY(!pageId.isEmpty());
+    QVERIFY(!badId.isEmpty());
+    QVERIFY(QMetaObject::invokeMethod(browser, "requestSave",
+                                      Q_ARG(QVariant, QVariant(pageId))));
+    QTRY_COMPARE(daemon.adds, 1);
+    QCOMPARE(daemon.addedTitle, QString("Page"));
+    QCOMPARE(daemon.addedUrl, QString("https://pages.example/watch"));
+    QCOMPARE(daemon.addedIcon, QString());
+    QVERIFY(QMetaObject::invokeMethod(browser, "requestSave",
+                                      Q_ARG(QVariant, QVariant(pageId))));
+    QTest::qWait(200);
+    QCOMPARE(daemon.adds, 1);
+
+    daemon.rejectAdd = true;
+    QVERIFY(QMetaObject::invokeMethod(browser, "requestSave",
+                                      Q_ARG(QVariant, QVariant(badId))));
+    QTRY_COMPARE(daemon.adds, 2);
+    auto error = window->findChild<QQuickItem *>(QStringLiteral("saveError"));
+    QVERIFY(error);
+    QTRY_COMPARE(error->property("text").toString(),
+                 QString("This address cannot be saved."));
+    QVERIFY(error->property("visible").toBool());
+    QVERIFY(QMetaObject::invokeMethod(
+        browser, "noteRowFocus", Q_ARG(QVariant, QVariant(0)),
+        Q_ARG(QVariant, QVariant(QStringLiteral("bookmark")))));
+    QTRY_COMPARE(error->property("text").toString(), QString());
   }
 };
 
-QTEST_GUILESS_MAIN(BrowserCatalogTest)
+int runShortcutFixture(int argc, char **argv) {
+  QCoreApplication app(argc, argv);
+  BrowserDaemon daemon;
+  daemon.scripted = true;
+  daemon.recordAdded = false;
+  daemon.scriptedWindows = {WindowWire{"w1", {}, true}};
+  daemon.scriptedTabs = {
+      TabWire{"page", "w1", "Page", "https://pages.example/watch", true, false}};
+  auto bus = QDBusConnection::sessionBus();
+  qDBusRegisterMetaType<WindowWire>();
+  qDBusRegisterMetaType<TabWire>();
+  qDBusRegisterMetaType<EffectWire>();
+  qDBusRegisterMetaType<ProviderWire>();
+  qDBusRegisterMetaType<ShortcutWire>();
+  if (!bus.registerService("org.arinn.Daemon1") ||
+      !bus.registerVirtualObject("/org/arinn", &daemon,
+                                QDBusConnection::SubPath))
+    return 1;
+  const int fd = fileno(stdin);
+  const int flags = fcntl(fd, F_GETFL, 0);
+  if (flags >= 0)
+    fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+  QByteArray pending;
+  auto drain = [&] {
+    char buf[256];
+    while (true) {
+      const auto n = ::read(fd, buf, sizeof buf);
+      if (n <= 0)
+        break;
+      pending.append(buf, int(n));
+    }
+    while (true) {
+      const auto nl = pending.indexOf('\n');
+      if (nl < 0)
+        break;
+      const auto line = QString::fromUtf8(pending.left(nl)).trimmed();
+      pending.remove(0, nl + 1);
+      if (line == QLatin1String("hold-all")) {
+        daemon.holdList = true;
+        fprintf(stdout, "holding\n");
+        fflush(stdout);
+      } else if (line == QLatin1String("seed-other"))
+        daemon.scriptedShortcuts = {
+            ShortcutWire{"other", "Other", "https://other.example/a", {}}};
+      else if (line == QLatin1String("release-stale"))
+        daemon.releaseStaleLists();
+      else if (line == QLatin1String("clear-and-release")) {
+        daemon.holdList = false;
+        daemon.scriptedShortcuts.clear();
+        daemon.releaseLists();
+        daemon.releaseStaleLists();
+      } else if (line == QLatin1String("quit"))
+        app.quit();
+    }
+  };
+  QSocketNotifier notifier(fd, QSocketNotifier::Read);
+  QObject::connect(&notifier, &QSocketNotifier::activated, &app,
+                   [&](QSocketDescriptor, QSocketNotifier::Type) { drain(); });
+  QTimer poll;
+  poll.setInterval(20);
+  QObject::connect(&poll, &QTimer::timeout, &app, drain);
+  poll.start();
+  fprintf(stdout, "ready\n");
+  fflush(stdout);
+  return app.exec();
+}
+
+int main(int argc, char **argv) {
+  for (int i = 1; i < argc; ++i) {
+    if (qstrcmp(argv[i], "--shortcut-fixture") == 0)
+      return runShortcutFixture(argc, argv);
+  }
+  QGuiApplication app(argc, argv);
+  BrowserCatalogTest test;
+  return QTest::qExec(&test, argc, argv);
+}
 #include "browser_catalog_test.moc"

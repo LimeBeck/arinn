@@ -89,6 +89,8 @@ TestCase {
     }
 
     function test_bookmark_disabled_without_browser() {
+        focused("row-a");
+        keyClick(Qt.Key_Right);
         focused("bookmark-a");
         compare(view.saveEnabled, true);
         compare(child("bookmark-a").enabled, true);

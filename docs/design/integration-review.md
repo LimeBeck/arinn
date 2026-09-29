@@ -2,7 +2,20 @@
 
 Sources: [developer specification v0.3](../specifications/developer-specification-v0.3.md) (historical), the current [specification](../specifications/arinn-specification.md) and the [design handoff](handoff/README.md). No source was edited except the logo removal described in the [design README](README.md#licensing). The original conflicts are kept below as history; decisions come from explicit answers of the project owner and delegated technical choices on 2026-09-27.
 
-## Handoff update of 2026-09-29
+## Handoff update of 2026-09-29 (address and search)
+
+The package answers the [#106](https://github.com/LimeBeck/arinn/issues/106) brief ([issue #107](https://github.com/LimeBeck/arinn/issues/107)). It adds `design/arinn Browser Input.dc.html` and 18 `in-*.png` screenshots. It also updates the prototype and the Open services file: the Open services screen joins the prototype, the navigation panel spans y72–1008, the Open services item has no divider, and the opening overlay reuses the launch overlay. The previous package is in the [archive](archive/2026-09-29-before-address-search/README.md).
+
+| ID | Point | Resolution / remaining check |
+| --- | --- | --- |
+| DR-18 | The handoff leaves V-1 (ordinary Chrome window), V-2 (recent entries), V-3 (save as shortcut), T-1 (tile name) and the search engine to the owner. | Closed by the owner on 2026-09-29: V-1b, V-2b, V-3b, T-1b, and a selectable engine with default Google ([ADR-0051](../adr/0051-address-and-search-entry.md)). |
+| DR-19 | Opening a typed address or search needs a shell-facing method; ADR-0048 allows only web shortcuts. | Open: a separate `contract-change` task. |
+| DR-20 | Recent entries contradict "web shortcuts are the only stored URLs" (ADR-0043, §11). | Closed by ADR-0051 and [specification §11](../specifications/arinn-specification.md#11-state-ownership-and-persistence). |
+| DR-21 | The Open services navigation item lost its divider; §5 said "after a divider". | Specification §5 updated. |
+| DR-22 | The input rules and the search engine name must not become QML business logic (R-01, R-05). | Technical: the rules live in the daemon or the shell's C++ layer; engine names come from configuration. |
+| DR-23 | The delivered main screenshots predate the navigation panel change. | `05-global-nav.jpg` is stale for the panel height; the prototype and README are authoritative. |
+
+## Handoff update of 2026-09-29 (Open services)
 
 The package answers the [ADR-0050](../adr/0050-window-per-browser-activity.md) design brief ([issue #104](https://github.com/LimeBeck/arinn/issues/104)). It adds `design/arinn Open Services.dc.html`, the *Open services* section of the README and 13 `os-*.png` screenshots; every other design file is unchanged. The previous package is in the [archive](archive/2026-09-29-before-open-services/README.md). The designer answered the six brief questions: the screen is called "Open services" (Russian UI label in the handoff); the list is a separate screen reached from navigation and from Continue; a row shows the web-shortcut icon when the address matches a shortcut, otherwise the domain's first letter; closing needs no confirmation, even with sound; a web-shortcut tile shows an Ember dot when its service is open; only Arinn animates, because the browser window cannot be animated ([#80](https://github.com/LimeBeck/arinn/issues/80)).
 

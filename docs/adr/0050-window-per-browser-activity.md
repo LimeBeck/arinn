@@ -4,7 +4,7 @@
 - **Date:** 2026-09-29
 - **Deciders:** project owner, explicit choice of the window-per-activity option with an application-launch fallback in the session of 2026-09-29 ([issue #99](https://github.com/LimeBeck/arinn/issues/99)); technical details under delegated authority ([ADR-0037](0037-agent-autonomy-and-owner-gated-decisions.md))
 - **Amends / Supersedes:** amends [ADR-0048](0048-browser-wire-contract.md) (`OpenUrl` semantics only; the wire contract is unchanged)
-- **Amended by / Superseded by:** —
+- **Amended by / Superseded by:** [ADR-0051](0051-address-and-search-entry.md) — the generic browser entry becomes the address and search screen
 - **Specification:** [§7.1](../specifications/arinn-specification.md#71-browser-chromechromium)
 
 ## Context

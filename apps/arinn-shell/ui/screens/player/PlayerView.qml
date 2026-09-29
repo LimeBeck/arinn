@@ -625,8 +625,9 @@ FocusScope {
                                     text: qsTr("thumbnail")
                                     // Placeholder caption from the handoff. This face is not a UI text role.
                                     font.family: "JetBrains Mono"
-                                    font.pixelSize: 14
-                                    color: Qt.rgba(1, 1, 1, 0.5)
+                                    font.pixelSize: 20
+                                    font.letterSpacing: 2
+                                    color: Qt.rgba(1, 1, 1, 0.92)
                                 }
                             }
                             Rectangle {

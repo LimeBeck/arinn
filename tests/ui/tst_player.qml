@@ -91,6 +91,7 @@ TestCase {
         compare(child("timelineKnob").visible, true)
         compare(child("timelineThumb").visible, true)
         compare(child("thumbnailLabel").text, "thumbnail")
+        compare(child("thumbnailLabel").text.length, 9)
         compare(child("subtitlePillLabel").text, "Subtitles · Notes")
         compare(child("audioPillLabel").text, "Audio · One")
         compare(child("morePillLabel").text, "More")

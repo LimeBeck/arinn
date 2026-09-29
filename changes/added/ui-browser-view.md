@@ -1,0 +1,1 @@
+- The shell browser screen lists daemon tabs from `org.arinn.Browser1` and activates or closes them through observed operations. A new tab is still a known web shortcut, not an arbitrary URL. See [browser tab screen](docs/architecture/ui-browser.md).

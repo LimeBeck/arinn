@@ -1,0 +1,5 @@
+# SPDX-FileCopyrightText: 2026 Arinn contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+module Arinn.Settings
+SettingsView 1.0 SettingsView.qml

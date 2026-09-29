@@ -231,3 +231,47 @@ The shell, gallery and UI test targets embed the original
 `qrc:/brand/`; its existing CC-BY-SA-4.0 attribution remains applicable.
 Application tiles retain neutral placeholders: `Application1` currently provides
 no application icon field, and this change adds no third-party logos.
+
+## Handoff visual comparison
+
+[Issue #120](https://github.com/LimeBeck/arinn/issues/120) adds a local comparison
+of the fixture-driven screens with the design handoff. It is evidence for the
+[first UI increment](../../ROADMAP.md#first-ui-increment) and, later, for a design
+review of G-5.1. It does not pass G-5.1, AC-14, or any Phase 5 gate.
+
+The manifest is [`tests/ui/visual/manifest.json`](../../tests/ui/visual/manifest.json).
+Each entry is one screen state. `reference` names a file in
+[`docs/design/handoff/screenshots/`](../design/handoff/screenshots/): the 22 main
+`*.jpg` files, the `os-*.png` Open services states, and the `in-*.png` address
+states. A state with no handoff file has `reference` null. A handoff file whose
+screen is not implemented has `render` false and a reason. The address and
+search states are in that last group. The comparison does not edit those
+screens.
+
+```sh
+cmake -S . -B build -G Ninja
+cmake --build build --target arinn-ui-test
+python scripts/ui-compare.py --check
+python scripts/ui-compare.py
+```
+
+`--check` only confirms that the manifest and the handoff directory name the
+same files. The full command renders every `render: true` state with
+`arinn-ui-test` and [`tests/ui/visual/capture.qml`](../../tests/ui/visual/capture.qml)
+on the offscreen platform and the software scene graph. It writes PNGs and
+`report.html` under `build/ui-compare/`. Those files are generated and are not
+committed. Nothing is added to CI.
+
+1080p is a 1920×1080 framebuffer. 4K is the same logical canvas at device pixel
+ratio 2, so the framebuffer is 3840×2160. If the offscreen platform does not
+apply that ratio, the tool scales the logical canvas by 2 and says so in the
+report. The report places each render next to its handoff file and overlays
+them with a difference blend. A mean absolute channel error, sampled on a
+64×36 grid, is a drift hint. It is not a threshold: handoff artwork is
+placeholder, service marks in the product are monograms, and some references
+are not 1920×1080.
+
+The capture uses the same fixture screens as the Qt Quick tests. It does not
+launch applications, talk to the daemon, or drive a session. Operator tests
+were not run. A sample of the generated summary belongs in the pull request;
+the images themselves stay local.

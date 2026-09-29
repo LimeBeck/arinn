@@ -226,6 +226,25 @@ Same as movie with padTop 180. The primary is “Продолжить · С1 Э4
 ### Browser failed (18b)
 A dialog over the current screen: error icon 64, “Браузер не удалось открыть” 48, body “Попробуйте ещё раз. Если ошибка повторится, перезагрузите Arinn.”, and buttons “Попробовать снова” (default focus) and “Закрыть”.
 
+### Open services (ADR-0050) · OS-1…7, H-1…6
+Each web service is its own full-screen Chrome window with no Chrome UI. Arinn lists, switches and closes them. The live canvas is in `design/arinn Open Services.dc.html` and the screenshots are `screenshots/os-*.png`. The only data used is page title, address, and the `active` and `audible` flags.
+- **Screen “Открытые сервисы” / Open services**: title 56/700 at x120 y136, followed by a count in 40/600 text-3. A flat list starts at x120 y250, w≈1500, with rows gap 16. Order: the service on screen first, then by last use.
+- **Row**: min-h128, r26, padding 22/28. It has a chip 76 r22, a title 30/600 (1 line with ellipsis; 2 lines when focused), and a subline 24/500 text-2 with the domain plus status: ember dot + “На экране” and/or ember `volume_up` + “Звук”. A separate close button 128×128 r26 sits to the right of the row, gap 16.
+- **Focus**: the row uses the standard `row` lift (×1.02, plate 20%, 3 px white-45% ring, 22% glow in the service hue). → moves to the close button (white fill + ink, ×1.06) and ← returns to the row. OK on the row switches to that window. OK on close closes it with no confirmation, even when audio is playing. Back returns to the previous screen. The bottom hint reads “OK Перейти · → Закрыть · Назад Выйти”.
+- **Chip**: use the web-shortcut icon when the address matches a packaged shortcut. Otherwise show the first letter of the domain (www./m./hd. stripped), 34/700, on a white-12% chip. No favicons, and no per-product special cases.
+- **Empty title**: show the domain as the title and the full address as the subline.
+- **Closing (OS-3)**: the row drops to 50% opacity and a spinner replaces the close icon, with the status “Закрывается…”. Focus moves to the next row. When the browser confirms, the row collapses in 220 ms.
+- **Many (OS-4)**: vertical scroll that keeps focus 2–3 rows from the bottom, with top/bottom fade masks and a position “9 из 18” at top-right (26/500). Holding an arrow accelerates the scroll.
+- **Nothing open (OS-6)**: `stacks` 88 text-3, “Ничего не открыто” 48/700, body 30, and the button “На главную”.
+- **Browser unavailable (OS-7)**: `public_off` 88 in the error colour, “Браузер недоступен”, “Онлайн-сервисы сейчас не открываются. Медиатека, загрузки и игры работают.”, and the button “Повторить” (reconnects the plugin).
+- **Home (H-1)**: the first Continue card is the current service (“Сейчас запущено” · chip · page title · “домен · Вернуться”). The second card, “Ещё N открыто”, shows stacked chips and opens the list; hide it when only one service is open. An ember dot on a Favorites web-shortcut tile means “already open”. Arinn computes this by matching window addresses to shortcut URLs, so no contract change is needed.
+- **Nav (H-2)**: a new item below the main sections, after a divider: `stacks` + “Открытые сервисы”, subline “На экране: {name}” with an ember dot, and a count pill 48 r24. When the list is empty the item stays and the count is hidden.
+- **Browser unavailable on Home (H-3)**: web-shortcut tiles at 40% opacity with greyscale chips and the subline “Недоступно”. They stay focusable, and OK opens OS-7. The status bar shows the chip `public_off` + “Браузер недоступен”. The rest of Home works.
+- **Opening (H-4, H-5)**: Home recedes (×.97, blur 12, brightness .6) under a 60% black scrim. Centred: a 160 chip r44 with a glow in the service hue, “Открывается {name}…” 44/700, and an indeterminate bar 360×6 with an ember segment. Skip the overlay if the window appears within 400 ms. After 8 s, add “Браузер запускается дольше обычного” and the button “Отменить” (Back cancels too).
+- **Failed (H-6)**: after the 30 s timeout or on error, show a dialog as in 18b: “{name} не открылся”, “Браузер не ответил за 30 секунд. Попробуйте ещё раз.”, and the buttons “Повторить” (default) and “Закрыть” (focus goes back to the tile).
+- **Transition (#80)**: Arinn cannot animate the Chrome window. Opening: 0–220 ms press feedback, then 220–500 ms Arinn recedes (×.97, blur 12) and fades to a dark tint of the service hue, then the window is raised. Return via Home uses the existing `lt-return` (450 ms from blur), with focus on the current-service card. Switching between services always goes through Arinn.
+- **Free-browsing “Браузер” tile**: opens a normal Chrome window with tabs and an address bar. These rules do not apply to it.
+
 ### 20 · Ambient / screensaver
 - Background bg-deep. Clock 160/500 in `oklch(0.60 0.004 260)`, date 32 in `oklch(0.45…)`, optional line “Кинопоиск на паузе” with a dim ember dot.
 - The whole block moves to a random position every 8 s with a 4 s ease-in-out move, so no static high-contrast pixels remain.
@@ -255,7 +274,7 @@ A dialog over the current screen: error icon 64, “Браузер не удал
 - Settings toggles: `autoscan, showNew, autonext, skipIntro, night, uisounds, lightBg`
 - Continue rules: at most 1 activity + 4 media. A movie within 90 s of the end is finished and removed. A finished episode advances to the next one at position 0.
 
-Integration points: a media library scanner/metadata source (titles, years, runtime, artwork, dominant hue), a Transmission RPC adapter that exposes only the states above, an app launcher and window manager (launch, focus, and a snapshot/texture of the running app), a player (mpv or similar) with track lists, and system power actions.
+Integration points: a browser extension (`tabs` + `nativeMessaging`) that exposes open windows as `{title, url, active, audible}` and accepts focus/close commands; a media library scanner/metadata source (titles, years, runtime, artwork, dominant hue), a Transmission RPC adapter that exposes only the states above, an app launcher and window manager (launch, focus, and a snapshot/texture of the running app), a player (mpv or similar) with track lists, and system power actions.
 
 ## Assets
 - **Fonts**: Onest (Google Fonts); Material Symbols Rounded (Google Fonts). JetBrains Mono is used only for placeholder labels and is not part of the UI.
@@ -266,6 +285,7 @@ Integration points: a media library scanner/metadata source (titles, years, runt
 - `screenshots/`: 22 JPEG captures of each screen state (01-home … 22-ambient), matching `arinn Screens.dc.html`.
 - `design/arinn.dc.html`: the interactive prototype covering all screens and states. Logic (data, i18n RU/EN, focus engine, presets) is in the `<script data-dc-script>` block.
 - `design/arinn Screens.dc.html`: a canvas of all 22 screen states.
+- `design/arinn Open Services.dc.html`: open services (ADR-0050): design answers, the list screen OS-1…7, Home/nav/launch states H-1…6, and the transition spec. Screenshots are in `screenshots/os-*.png`.
 - `design/arinn Design System v2.dc.html`: tokens, the 3 m viewing-distance check, logo treatments, component state matrix, focus rules, motion, map and keys.
 - `design/arinn Directions.dc.html`: the concept exploration (1a/1b/1c and the chosen 2a).
 - `design/support.js`, `design/image-slot.js`, `design/.image-slots.state.json`: runtime needed to open the files locally.

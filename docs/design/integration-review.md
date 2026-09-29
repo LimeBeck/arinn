@@ -1,6 +1,20 @@
 # Reconciling the specification and the design handoff
 
-Sources: [developer specification v0.3](../specifications/developer-specification-v0.3.md) (historical), the current [specification](../specifications/arinn-specification.md) and the [design handoff](handoff/README.md). No source was edited. The original conflicts are kept below as history; decisions come from explicit answers of the project owner and delegated technical choices on 2026-09-27.
+Sources: [developer specification v0.3](../specifications/developer-specification-v0.3.md) (historical), the current [specification](../specifications/arinn-specification.md) and the [design handoff](handoff/README.md). No source was edited except the logo removal described in the [design README](README.md#licensing). The original conflicts are kept below as history; decisions come from explicit answers of the project owner and delegated technical choices on 2026-09-27.
+
+## Handoff update of 2026-09-29
+
+The package answers the [ADR-0050](../adr/0050-window-per-browser-activity.md) design brief ([issue #104](https://github.com/LimeBeck/arinn/issues/104)). It adds `design/arinn Open Services.dc.html`, the *Open services* section of the README and 13 `os-*.png` screenshots; every other design file is unchanged. The previous package is in the [archive](archive/2026-09-29-before-open-services/README.md). The designer answered the six brief questions: the screen is called "Open services" (Russian UI label in the handoff); the list is a separate screen reached from navigation and from Continue; a row shows the web-shortcut icon when the address matches a shortcut, otherwise the domain's first letter; closing needs no confirmation, even with sound; a web-shortcut tile shows an Ember dot when its service is open; only Arinn animates, because the browser window cannot be animated ([#80](https://github.com/LimeBeck/arinn/issues/80)).
+
+| ID | Point | Resolution / remaining check |
+| --- | --- | --- |
+| DR-11 | Continue shows an "N more open" summary entry (H-1). §5.1 allowed only the Activity and content entries. | Closed by the owner on 2026-09-29: accepted in [specification §5.1](../specifications/arinn-specification.md#51-home). |
+| DR-12 | Global navigation gets an "Open services" item below the top-level sections (H-2). | Closed by the owner on 2026-09-29: accepted in [specification §5](../specifications/arinn-specification.md#5-information-architecture). |
+| DR-13 | The list is ordered by last use. `Browser1` carries only `focused` and `active`, no time of use. | Technical, no contract change: the order is kept from observed focus changes and is lost when the daemon or shell restarts. Decided in the implementation task. |
+| DR-14 | The "already open" dot and the shortcut icon on a row need the open windows' addresses matched to web shortcuts. | Technical, no contract change: match by origin as in ADR-0050, in the daemon or the shell's C++ models, never in QML (R-01, R-05). |
+| DR-15 | The *Retry* button on *Browser unavailable* (OS-7) "reconnects the plugin". Restarting the provider does not reconnect a closed Chrome. | Open for the implementation task: with no browser connected, retry launches the browser through the ApplicationProvider (ADR-0038); with a failed provider, it restarts the provider. |
+| DR-16 | The opening transition fades to "a dark tint of the service hue". No service hue is in the data. | Open for the implementation task: take it from a packaged shortcut icon when there is one, otherwise use the neutral tint. |
+| DR-17 | The package carried third-party service logos again. | Replaced with the existing monograms before adding; see [design README](README.md#licensing). |
 
 ## Handoff update of 2026-09-27
 

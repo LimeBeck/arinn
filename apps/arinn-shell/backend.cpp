@@ -471,10 +471,10 @@ void Backend::readShortcuts(quint64 epoch) {
           // after decoding; they are not stored, displayed or logged.
           url.clear();
           icon.clear();
-          entries.append(
-              QVariantMap{{"id", id},
-                          {"title", title},
-                          {"monogram", monogramFor(title)}});
+          entries.append(QVariantMap{{"id", id},
+                                      {"title", title},
+                                      {"monogram", monogramFor(title)},
+                                      {"webShortcut", true}});
         }
         arg.endArray();
         arg.endStructure();

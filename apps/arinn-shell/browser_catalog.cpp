@@ -5,9 +5,11 @@
 #include "browser_catalog.h"
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QUrl>
 #include <QUuid>
 #include <QtDBus>
 #include <QtQml>
+#include <algorithm>
 namespace {
 constexpr auto service = "org.arinn.Daemon1";
 constexpr auto path = "/org/arinn/Daemon1";
@@ -32,6 +34,58 @@ void registerBrowserCatalog() {
   qmlRegisterType<BrowserCatalog>("Arinn.Shell", 1, 0, "BrowserCatalog");
 }
 Q_COREAPP_STARTUP_FUNCTION(registerBrowserCatalog)
+struct Origin {
+  QString scheme;
+  QString host;
+  int port = -1;
+  bool ok = false;
+};
+Origin originOf(const QString &text) {
+  const QUrl url(text);
+  if (!url.isValid() || url.scheme().isEmpty() || url.host().isEmpty())
+    return {};
+  Origin origin;
+  origin.scheme = url.scheme().toLower();
+  auto host = url.host().toLower();
+  if (host.startsWith(QLatin1String("www.")))
+    host.remove(0, 4);
+  origin.host = host;
+  auto port = url.port();
+  if (port < 0) {
+    if (origin.scheme == QLatin1String("https"))
+      port = 443;
+    else if (origin.scheme == QLatin1String("http"))
+      port = 80;
+    else
+      port = 0;
+  }
+  origin.port = port;
+  origin.ok = !origin.host.isEmpty();
+  return origin;
+}
+QString displayHost(const QString &text) {
+  const QUrl url(text);
+  if (!url.isValid() || url.host().isEmpty())
+    return {};
+  auto host = url.host().toLower();
+  if (url.port() > 0)
+    host += QLatin1Char(':') + QString::number(url.port());
+  return host;
+}
+QString letterOf(const QString &text) {
+  auto host = displayHost(text);
+  const auto colon = host.indexOf(QLatin1Char(':'));
+  if (colon >= 0)
+    host.truncate(colon);
+  for (const auto prefix : {QLatin1String("www."), QLatin1String("m."),
+                            QLatin1String("hd.")}) {
+    if (host.startsWith(prefix)) {
+      host.remove(0, prefix.size());
+      break;
+    }
+  }
+  return host.isEmpty() ? QString() : host.left(1).toUpper();
+}
 } // namespace
 struct BrowserCatalog::Catalog {
   quint64 epoch = 0;
@@ -45,6 +99,7 @@ struct BrowserCatalog::Catalog {
   int pages = 0, focused = 0;
   qsizetype windowStart = 0, tabStart = 0;
   bool hadError = false, noBrowser = false;
+  QStringList failedProviders;
 };
 BrowserCatalog::BrowserCatalog(QObject *parent) : QObject(parent) {
   auto bus = QDBusConnection::sessionBus();
@@ -68,6 +123,11 @@ BrowserCatalog::BrowserCatalog(QObject *parent) : QObject(parent) {
             m_windows.clear();
             m_refs.clear();
             m_shortcuts.clear();
+            m_origins.clear();
+            clearUseOrder();
+            m_opening = false;
+            m_openingError.clear();
+            m_openOperationPath.clear();
             emit windowsChanged();
             emit tabsChanged();
             emit shortcutsChanged();
@@ -152,6 +212,7 @@ void BrowserCatalog::refresh() {
               m_loaded = false;
               m_snapshotError = false;
               m_noBrowser = false;
+              clearUseOrder();
               if (!m_tabs.isEmpty() || !m_windows.isEmpty()) {
                 m_tabs.clear();
                 m_windows.clear();
@@ -213,12 +274,16 @@ void BrowserCatalog::readProviders(const std::shared_ptr<Catalog> &catalog,
                   capabilities >> runtime >> backend >> generation >> revision >>
                   error >> errorAt >> recovered >> restarts >> cumulative;
               arg.endStructure();
-              if (runtime == "ready" && backend != "unavailable" &&
-                  capabilities.contains("browser"))
+              if (!capabilities.contains(QLatin1String("browser")))
+                continue;
+              if (runtime == QLatin1String("ready") &&
+                  backend != QLatin1String("unavailable"))
                 catalog->providers.append(
                     QVariantMap{{"id", id},
                                 {"path", endpoint.path()},
                                 {"generation", generation}});
+              else if (runtime == QLatin1String("failed") && !id.isEmpty())
+                catalog->failedProviders.append(id);
             }
             arg.endArray();
             arg >> next;
@@ -406,15 +471,26 @@ void BrowserCatalog::finishCatalog(const std::shared_ptr<Catalog> &catalog,
   m_loaded = true;
   QVariantList windows, tabs;
   QHash<QString, TabRef> refs;
+  QString failedProvider;
   if (!success) {
     m_snapshotError = true;
     m_noBrowser = false;
+    m_retryAction = QStringLiteral("refresh");
+    m_failedProviderId.clear();
   } else if (catalog->noBrowser) {
     m_snapshotError = false;
     m_noBrowser = true;
+    failedProvider = catalog->failedProviders.isEmpty()
+                         ? QString()
+                         : catalog->failedProviders.first();
+    m_failedProviderId = failedProvider;
+    m_retryAction = failedProvider.isEmpty() ? QStringLiteral("refresh")
+                                             : QStringLiteral("restart");
   } else {
     m_noBrowser = false;
     m_snapshotError = catalog->hadError && catalog->tabs.isEmpty();
+    m_failedProviderId.clear();
+    m_retryAction = QStringLiteral("refresh");
     bool focused = false;
     for (const auto &entry : catalog->windows) {
       const auto map = entry.toMap();
@@ -430,11 +506,9 @@ void BrowserCatalog::finishCatalog(const std::shared_ptr<Catalog> &catalog,
     m_windows = windows;
     emit windowsChanged();
   }
-  if (m_tabs != tabs) {
-    m_tabs = tabs;
-    emit tabsChanged();
-  }
   m_refs = refs;
+  rememberFocus(windows);
+  presentTabs(tabs);
   publish();
   if (m_dirty)
     QTimer::singleShot(0, this, &BrowserCatalog::refresh);
@@ -451,6 +525,7 @@ void BrowserCatalog::readShortcuts(quint64 epoch) {
             if (epoch != m_epoch || !m_connected)
               return;
             QVariantList shortcuts;
+            QList<ShortcutOrigin> origins;
             if (reply.type() != QDBusMessage::ErrorMessage &&
                 !reply.arguments().isEmpty() &&
                 reply.signature() == "(ta(ssss))") {
@@ -466,21 +541,35 @@ void BrowserCatalog::readShortcuts(quint64 epoch) {
                 arg.beginStructure();
                 arg >> id >> title >> url >> icon;
                 arg.endStructure();
-                (void)url;
-                (void)icon;
-                if (id.isEmpty() || seen.contains(id))
+                if (id.isEmpty() || seen.contains(id)) {
+                  url.clear();
                   continue;
+                }
                 seen.insert(id);
+                const auto origin = originOf(url);
+                url.clear();
+                origins.append(ShortcutOrigin{id, icon, origin.scheme,
+                                              origin.host, origin.port,
+                                              origin.ok});
                 shortcuts.append(QVariantMap{{"id", id}, {"title", title}});
               }
               arg.endArray();
               arg.endStructure();
             }
-            if (m_shortcuts != shortcuts) {
+            const auto previousTabs = m_tabs;
+            const auto previousIds = m_openShortcutIds;
+            const auto previousService = m_currentService;
+            m_origins = origins;
+            const auto listChanged = m_shortcuts != shortcuts;
+            if (listChanged) {
               m_shortcuts = shortcuts;
               emit shortcutsChanged();
-              emit changed();
             }
+            presentTabs(m_tabs);
+            if (listChanged || m_tabs != previousTabs ||
+                m_openShortcutIds != previousIds ||
+                m_currentService != previousService)
+              emit changed();
           },
           Qt::QueuedConnection);
 }
@@ -528,17 +617,30 @@ void BrowserCatalog::openShortcut(const QString &id) {
   const auto pendingId = QString("shortcut:%1").arg(id);
   if (m_pending.contains(pendingId))
     return;
+  QString title;
   bool known = false;
   for (const auto &entry : m_shortcuts) {
-    if (entry.toMap().value("id").toString() == id) {
+    const auto map = entry.toMap();
+    if (map.value("id").toString() == id) {
       known = true;
+      title = map.value("title").toString();
       break;
     }
   }
   if (!known) {
     setOperation("NotFound");
+    m_opening = false;
+    m_openingError = QStringLiteral("NotFound");
+    emit changed();
     return;
   }
+  m_openingId = id;
+  m_openingTitle = title;
+  m_openingError.clear();
+  m_openCancelRequested = false;
+  m_openOperationPath.clear();
+  m_opening = true;
+  emit changed();
   auto msg = daemonCall("org.arinn.WebShortcuts1", "Open");
   msg << id << QUuid::createUuid().toString(QUuid::WithoutBraces);
   const auto epoch = m_epoch;
@@ -555,14 +657,27 @@ void BrowserCatalog::openShortcut(const QString &id) {
             if (reply.type() == QDBusMessage::ErrorMessage ||
                 reply.signature() != "o" || reply.arguments().isEmpty()) {
               m_pending.remove(pendingId);
-              setOperation(reply.type() == QDBusMessage::ErrorMessage
-                               ? errorCode(reply)
-                               : QString("Unavailable"));
+              const auto failed = reply.type() == QDBusMessage::ErrorMessage
+                                      ? errorCode(reply)
+                                      : QString("Unavailable");
+              setOperation(failed);
+              if (pendingId.startsWith(QLatin1String("shortcut:"))) {
+                m_opening = false;
+                m_openingError =
+                    m_openCancelRequested ? QString() : failed;
+                m_openCancelRequested = false;
+                emit changed();
+              }
               return;
             }
-            watchOperation(
-                qvariant_cast<QDBusObjectPath>(reply.arguments().at(0)).path(),
-                pendingId, epoch);
+            const auto objectPath =
+                qvariant_cast<QDBusObjectPath>(reply.arguments().at(0)).path();
+            if (pendingId.startsWith(QLatin1String("shortcut:"))) {
+              m_openOperationPath = objectPath;
+              if (m_openCancelRequested)
+                cancelOpen();
+            }
+            watchOperation(objectPath, pendingId, epoch);
           },
           Qt::QueuedConnection);
 }
@@ -594,6 +709,15 @@ void BrowserCatalog::watchOperation(const QString &objectPath,
                   reply.arguments().isEmpty()) {
                 m_pending.remove(pendingId);
                 setOperation("Unavailable");
+                if (pendingId.startsWith(QLatin1String("shortcut:"))) {
+                  m_opening = false;
+                  m_openingError = m_openCancelRequested
+                                       ? QString()
+                                       : QStringLiteral("Unavailable");
+                  m_openCancelRequested = false;
+                  m_openOperationPath.clear();
+                  emit changed();
+                }
                 timer->deleteLater();
                 return;
               }
@@ -619,12 +743,190 @@ void BrowserCatalog::watchOperation(const QString &objectPath,
                 return;
               }
               m_pending.remove(pendingId);
-              setOperation(state == "succeeded"
-                               ? QString("succeeded")
-                               : (error.isEmpty() ? QString("failed") : error));
+              const auto failed =
+                  state == "succeeded"
+                      ? QString()
+                      : (error.isEmpty() ? QString("failed") : error);
+              setOperation(failed.isEmpty() ? QString("succeeded") : failed);
+              if (pendingId.startsWith(QLatin1String("shortcut:"))) {
+                m_openOperationPath.clear();
+                m_opening = false;
+                if (m_openCancelRequested || failed.isEmpty())
+                  m_openingError.clear();
+                else
+                  m_openingError = failed;
+                m_openCancelRequested = false;
+                emit changed();
+              }
               timer->deleteLater();
             },
             Qt::QueuedConnection);
   });
   timer->start();
+}
+void BrowserCatalog::clearUseOrder() {
+  m_lastUse.clear();
+  m_focusedWindow.clear();
+  m_useTick = 0;
+}
+void BrowserCatalog::rememberFocus(const QVariantList &windows) {
+  QString focused;
+  for (const auto &entry : windows) {
+    const auto map = entry.toMap();
+    if (map.value(QStringLiteral("focused")).toBool()) {
+      focused = map.value(QStringLiteral("id")).toString();
+      break;
+    }
+  }
+  if (focused.isEmpty()) {
+    m_focusedWindow.clear();
+    return;
+  }
+  if (focused != m_focusedWindow) {
+    m_lastUse.insert(focused, ++m_useTick);
+    m_focusedWindow = focused;
+  }
+}
+void BrowserCatalog::presentTabs(QVariantList tabs) {
+  QString onScreen;
+  for (const auto &entry : m_windows) {
+    const auto map = entry.toMap();
+    if (map.value(QStringLiteral("focused")).toBool()) {
+      onScreen = map.value(QStringLiteral("id")).toString();
+      break;
+    }
+  }
+  QStringList openIds;
+  QVariantMap current;
+  for (auto &entry : tabs) {
+    auto map = entry.toMap();
+    const auto url = map.value(QStringLiteral("url")).toString();
+    const auto origin = originOf(url);
+    QString icon;
+    QString shortcutId;
+    if (origin.ok) {
+      for (const auto &shortcut : m_origins) {
+        if (!shortcut.ok || shortcut.scheme != origin.scheme ||
+            shortcut.host != origin.host || shortcut.port != origin.port)
+          continue;
+        shortcutId = shortcut.id;
+        if (!shortcut.icon.isEmpty())
+          icon = shortcut.icon;
+        break;
+      }
+    }
+    map.insert(QStringLiteral("letter"), letterOf(url));
+    map.insert(QStringLiteral("domain"), displayHost(url));
+    if (icon.isEmpty())
+      map.remove(QStringLiteral("icon"));
+    else
+      map.insert(QStringLiteral("icon"), icon);
+    const auto active = map.value(QStringLiteral("active")).toBool();
+    const auto windowId = map.value(QStringLiteral("windowId")).toString();
+    if (active && !shortcutId.isEmpty() && !openIds.contains(shortcutId))
+      openIds.append(shortcutId);
+    if (current.isEmpty() && windowId == onScreen && active) {
+      const auto domain = map.value(QStringLiteral("domain")).toString();
+      const auto title = map.value(QStringLiteral("title")).toString();
+      current = QVariantMap{
+          {QStringLiteral("id"), map.value(QStringLiteral("id"))},
+          {QStringLiteral("title"), title.isEmpty() ? domain : title},
+          {QStringLiteral("subtitle"),
+           domain.isEmpty() ? tr("Return")
+                            : tr("%1 · Return").arg(domain)}};
+    }
+    entry = map;
+  }
+  std::stable_sort(tabs.begin(), tabs.end(),
+                   [&](const QVariant &left, const QVariant &right) {
+                     const auto a = left.toMap();
+                     const auto b = right.toMap();
+                     const auto aw = a.value(QStringLiteral("windowId")).toString();
+                     const auto bw = b.value(QStringLiteral("windowId")).toString();
+                     const auto aOn = !onScreen.isEmpty() && aw == onScreen;
+                     const auto bOn = !onScreen.isEmpty() && bw == onScreen;
+                     if (aOn != bOn)
+                       return aOn;
+                     const auto used =
+                         m_lastUse.value(aw, 0) - m_lastUse.value(bw, 0);
+                     if (used != 0)
+                       return used > 0;
+                     const auto aActive = a.value(QStringLiteral("active")).toBool();
+                     const auto bActive = b.value(QStringLiteral("active")).toBool();
+                     if (aw == bw && aActive != bActive)
+                       return aActive;
+                     return false;
+                   });
+  if (m_tabs != tabs) {
+    m_tabs = tabs;
+    emit tabsChanged();
+  }
+  if (m_openShortcutIds != openIds) {
+    m_openShortcutIds = openIds;
+    emit openShortcutIdsChanged();
+  }
+  if (m_currentService != current) {
+    m_currentService = current;
+    emit currentServiceChanged();
+  }
+}
+void BrowserCatalog::retry() {
+  if (m_retryAction == QLatin1String("restart") &&
+      !m_failedProviderId.isEmpty()) {
+    if (m_pending.contains(QStringLiteral("restart")))
+      return;
+    auto msg = daemonCall(service, "Restart");
+    msg << m_failedProviderId
+        << QUuid::createUuid().toString(QUuid::WithoutBraces);
+    const auto epoch = m_epoch;
+    m_pending.insert(QStringLiteral("restart"));
+    setOperation(QStringLiteral("running"));
+    auto pending = new QDBusPendingCallWatcher(
+        QDBusConnection::sessionBus().asyncCall(msg, 3000), this);
+    connect(pending, &QDBusPendingCallWatcher::finished, this,
+            [this, epoch](auto *call) {
+              const auto reply = call->reply();
+              call->deleteLater();
+              m_pending.remove(QStringLiteral("restart"));
+              if (epoch != m_epoch)
+                return;
+              if (reply.type() == QDBusMessage::ErrorMessage ||
+                  reply.signature() != "o" || reply.arguments().isEmpty()) {
+                setOperation(reply.type() == QDBusMessage::ErrorMessage
+                                 ? errorCode(reply)
+                                 : QStringLiteral("Unavailable"));
+                return;
+              }
+              watchOperation(qvariant_cast<QDBusObjectPath>(reply.arguments().at(0))
+                                 .path(),
+                             QStringLiteral("restart"), epoch);
+            },
+            Qt::QueuedConnection);
+    return;
+  }
+  refresh();
+}
+void BrowserCatalog::cancelOpen() {
+  m_openCancelRequested = true;
+  m_opening = false;
+  m_openingError.clear();
+  const auto path = m_openOperationPath;
+  emit changed();
+  if (path.isEmpty())
+    return;
+  auto msg = QDBusMessage::createMethodCall(service, path, "org.arinn.Operation1",
+                                            "Cancel");
+  QDBusConnection::sessionBus().asyncCall(msg, 3000);
+}
+void BrowserCatalog::dismissOpenFailure() {
+  if (m_openingError.isEmpty())
+    return;
+  m_openingError.clear();
+  emit changed();
+}
+void BrowserCatalog::retryOpen() {
+  const auto id = m_openingId;
+  dismissOpenFailure();
+  if (!id.isEmpty())
+    openShortcut(id);
 }

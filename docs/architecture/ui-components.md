@@ -96,11 +96,15 @@ a session action.
 
 `HomeView` accepts immutable `continueEntries`, `favoriteEntries` and `newEntries`
 arrays. Each entry has a unique opaque `id`, `title`, and optional `subtitle`,
-`artwork`, `monogram`, `running`, `progress`, `enabled` and `busy`. The caller owns
-the Continue projection (one Activity plus up to four resumable entries), New
-availability and provider state. QML neither aggregates providers nor persists
-these arrays. `returnActivityId` identifies the return target independently of
-focus. `homeState` is ready/empty/loading/error/unavailable, accompanied by
+`artwork`, `monogram`, `running`, `progress`, `enabled`, `busy` and
+`webShortcut`. The caller owns the Continue projection (one Activity plus up to
+four resumable entries), New availability and provider state. Optional
+`currentServiceTitle`, `openServiceCount`, `openShortcutIds` and
+`browserUnavailable` add the Open services Continue card, the navigation item
+and the unavailable shortcut treatment; they default so a fixture that omits
+them is unchanged. QML neither aggregates providers nor persists these arrays.
+`returnActivityId` identifies the return target independently of focus.
+`homeState` is ready/empty/loading/error/unavailable, accompanied by
 `statusTitle` and `statusDescription`; `clockText` is display-only.
 
 Actions emit `entryRequested(id)`, `returnRequested(id)`, `retryRequested()`,

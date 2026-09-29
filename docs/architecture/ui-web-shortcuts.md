@@ -25,10 +25,13 @@ still lists the same application targets.
 Each shortcut tile shows the **title** and a **monogram** (the first grapheme
 of the trimmed title, uppercased) inside the existing neutral tile plate. An
 empty title, or a title whose first unit is an unpaired surrogate, keeps an
-empty monogram, which is the neutral placeholder. The `icon` field is an opaque
-packaged reference; the shell does not load it and does not draw third-party
-logos. The URL is discarded after the D-Bus decode. Neither the URL nor the
-title is written to a log.
+empty monogram, which is the neutral placeholder. The favorites model sets
+`webShortcut: true` so Home can tell these tiles from application tiles. The
+`icon` field is an opaque packaged reference; the favorites row does not load
+it and does not draw third-party logos. The URL is discarded after the D-Bus
+decode. Neither the URL nor the title is written to a log. Open-services
+matching of that URL is described in [ui-browser.md](ui-browser.md); the
+favorites model still has no URL and no icon.
 
 Home state follows the return target, the shortcut list, and the application
 catalog together:
@@ -78,8 +81,9 @@ both lists are empty, and `error` when the catalog fails. A failed catalog with
 a shortcut still loaded keeps `applicationsState` at `error` and Home `ready`.
 
 The offscreen Qt Quick Home test is `tests/ui/tst_home.qml`. It drives
-`HomeView` with local fixtures. This change does not modify `HomeView`:
-`favoriteEntries` and `entryRequested` already carry a shortcut id.
+`HomeView` with local fixtures. Favorites still open through `entryRequested`
+unless the tile is marked unavailable, which is the Open services behaviour in
+[ui-browser.md](ui-browser.md).
 
 `apps/arinn-shell/backend_test.cpp` is the production shell check started from
 `tests/integration/phase1.py`. It asserts that Home favorites list web shortcuts

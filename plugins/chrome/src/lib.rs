@@ -8,6 +8,7 @@
 //! browser; the provider is the systemd-supervised plugin. The host ↔ provider
 //! link below is plugin-internal and never reaches the core. Tab titles and
 //! URLs are never logged.
+pub mod association;
 pub mod bridge;
 pub mod framing;
 pub mod host;

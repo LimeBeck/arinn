@@ -1,0 +1,1 @@
+- The shell browser screen shows open services as one list. The service on screen is first, OK switches to it, and its close control closes it without confirmation. See [browser tab screen](docs/architecture/ui-browser.md).

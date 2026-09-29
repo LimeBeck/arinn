@@ -3,7 +3,9 @@
 
 import QtQuick
 import QtQuick.Window
+import Arinn.Shell 1.0
 import "ui" as Ui
+import "ui/screens/browser" as Browser
 
 Window {
     id: root
@@ -13,7 +15,9 @@ Window {
     title: "Arinn"
     flags: Qt.Window | Qt.FramelessWindowHint
     readonly property bool navOpen: home.navOpen
+    property bool browserOpen: false
     onVisibleChanged: if (visible) Qt.callLater(home.showHome)
+    BrowserCatalog { id: browserCatalog }
     Ui.LogicalCanvas {
         anchors.fill: parent
         Ui.HomeView {
@@ -37,6 +41,22 @@ Window {
             onReturnRequested: backend.back()
             onRetryRequested: backend.refresh()
             onPowerRequested: { feedback.text = qsTr("Power controls are not available yet."); feedbackTimer.restart(); }
+        }
+        Browser.BrowserView {
+            objectName: "productionBrowser"
+            visible: root.browserOpen
+            enabled: root.browserOpen
+            interactive: root.browserOpen
+            tabs: browserCatalog.tabs
+            windows: browserCatalog.windows
+            shortcuts: browserCatalog.shortcuts
+            browserState: browserCatalog.browserState
+            operationState: browserCatalog.operationState
+            onActivateTab: tabId => browserCatalog.activateTab(tabId)
+            onCloseTab: tabId => browserCatalog.closeTab(tabId)
+            onOpen: shortcutId => browserCatalog.openShortcut(shortcutId)
+            onRetryRequested: browserCatalog.refresh()
+            onBackRequested: { root.browserOpen = false; Qt.callLater(home.showHome); }
         }
         Rectangle {
             x: 420; y: 970; width: 1080; height: 72; radius: 36

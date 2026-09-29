@@ -123,7 +123,7 @@ The desktop ApplicationProvider owns browser application launch. The Chrome prov
   - `ActivateTab` asks the provider to select the tab, then activates the tab's compositor window through PlatformWindows1 when its window has a token, which also hides Home; without a token it only hides Home and the browser's own focus request decides;
   - `WebShortcuts1.Open` opens the URL in the first ready provider with a connected browser. It then waits up to 2 s for the provider's next snapshot. If the URL opened a new window, the daemon only hides Home. Otherwise it activates the focused window's token (ADR-0052);
   - `browser` providers may read platform windows, for window association;
-  - not yet implemented: launching a closed browser before opening a URL (ADR-0038).
+  - with no browser connected, `WebShortcuts1.Open` first launches the browser application through the ApplicationProvider ([ADR-0054](../adr/0054-launching-a-closed-browser.md)). The application is `browser_application` in `config.toml`, or else the first launchable entry of the packaged `/usr/share/arinn/browser-applications.toml`. Launch, connection and open share one 30 s deadline.
 
 Verification:
 

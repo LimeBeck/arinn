@@ -72,4 +72,5 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0051](0051-address-and-search-entry.md) | Address and search entry for free browsing | Accepted | — |
 | [0052](0052-browser-window-association.md) | Browser windows are linked to platform windows by focus agreement | Accepted | — |
 | [0053](0053-release-and-label-workflows-on-the-runner.md) | Release and label workflows use the switchable runner | Accepted | — |
+| [0054](0054-launching-a-closed-browser.md) | Launching a closed browser before opening a URL | Accepted | — |
 <!-- register:end -->

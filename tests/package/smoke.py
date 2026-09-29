@@ -28,6 +28,7 @@ DEMO = PREFIX / "lib/arinn/plugins/arinn-plugin-demo"
 DESKTOP = PREFIX / "lib/arinn/plugins/arinn-plugin-desktop"
 assert (PREFIX / "share/arinn/plugins/desktop.toml").is_file()
 assert (PREFIX / "share/arinn/web-shortcuts.toml").is_file()
+assert (PREFIX / "share/arinn/browser-applications.toml").is_file()
 
 
 def cli(*args):

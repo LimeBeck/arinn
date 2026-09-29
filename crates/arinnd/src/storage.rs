@@ -90,6 +90,11 @@ pub struct Config {
     pub home_output: String,
     #[serde(default = "yes")]
     pub animations: bool,
+    /// Application ID an ApplicationProvider launches when a URL must open
+    /// and no browser is connected (ADR-0054). Empty: the packaged candidate
+    /// list decides.
+    #[serde(default)]
+    pub browser_application: String,
 }
 fn home_shortcut() -> String {
     "Meta+F12".into()
@@ -103,6 +108,7 @@ impl Default for Config {
             home_shortcut: home_shortcut(),
             home_output: String::new(),
             animations: true,
+            browser_application: String::new(),
         }
     }
 }
@@ -116,6 +122,9 @@ impl Config {
         }
         validation::text(&self.home_shortcut)?;
         validation::text(&self.home_output)?;
+        if !self.browser_application.is_empty() {
+            validation::id(&self.browser_application)?;
+        }
         for (id, instance) in &self.providers {
             validation::id(id)?;
             validation::id(&instance.plugin_id)?;

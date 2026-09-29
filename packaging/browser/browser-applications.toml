@@ -1,0 +1,9 @@
+# SPDX-FileCopyrightText: 2026 Arinn contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Browser applications Arinn may launch when a web shortcut opens and no
+# browser is connected, installed as /usr/share/arinn/browser-applications.toml
+# (ADR-0054). The first ID an ApplicationProvider can launch is used; users
+# override it with `browser_application` in config.toml. IDs are desktop-file
+# IDs as the desktop provider publishes them.
+applications = ["google-chrome.desktop", "chromium.desktop"]

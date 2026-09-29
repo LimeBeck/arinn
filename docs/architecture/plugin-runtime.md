@@ -95,7 +95,12 @@ The desktop ApplicationProvider owns browser application launch. The Chrome prov
   - MV3 service worker; `key` fixes the ID `eajlncomibfmpmkhkbcdmajmkpfaaibf`;
   - sends `{"type":"snapshot","windows":[{id,focused}],"tabs":[{id,windowId,title,url,active,audible}]}`, debounced by 150 ms;
   - executes `{"type":"command","serial","action","tabId","url"}` (`activate`, `close`, `open`) and answers `{"type":"result","serial","error"}`;
-  - skips incognito windows and tabs.
+  - skips incognito windows and tabs;
+  - window per activity ([ADR-0050](../adr/0050-window-per-browser-activity.md), [#100](https://github.com/LimeBeck/arinn/issues/100)): every window Arinn manages has the Chrome window type `popup`, so the rules survive a service worker restart without a `storage` permission. Snapshots list `normal` and `popup` windows;
+  - `open` focuses a managed window whose active tab has the same origin (scheme, host and port), otherwise creates a `popup` window; either way the window becomes focused and fullscreen. It never adds a tab to an existing window;
+  - a tab whose opener is in a managed window (a `target=_blank` link; Chrome places it in a normal window) moves into its own fullscreen `popup` window;
+  - a managed window that leaves fullscreen returns to it on `windows.onBoundsChanged`; minimised windows are left alone. Pages' own `window.open` popups are also `popup` windows and are therefore kept fullscreen;
+  - KWin reports managed windows with the app ID `chrome-<extension id>-<profile>` and ordinary windows with `google-chrome`; window association ([#101](https://github.com/LimeBeck/arinn/issues/101)) may use this.
 - **Host** (`/usr/lib/arinn/arinn-chrome-host`):
   - refuses any origin except the packaged extension (exit status 2) before touching the bus;
   - frames Native Messaging with at most 8 MiB in and 1 MiB out;
@@ -124,7 +129,8 @@ Verification:
 
 - unit tests: framing, messages, snapshot merging and routing;
 - `plugins/chrome/tests/chain.rs`: the real host binary between a fake extension and the bridge on a private bus, covering origin refusal, snapshots, command round trips and error mapping, command validation, caller checks, malformed input, port close and provider loss;
-- `tests/integration/chrome_extension.test.cjs`: the extension against a mocked `chrome` API, covering the manifest permissions and ID, snapshots without incognito, debouncing, commands, backoff and no replay;
+- `tests/integration/chrome_extension.test.cjs`: the extension against a mocked `chrome` API, covering the manifest permissions and ID, snapshots without incognito, debouncing, commands, backoff and no replay, and the window-per-activity rules (new window, same-origin reuse, origin matching, adopting opened tabs, keeping fullscreen);
+- isolated window-per-activity check (2026-09-29): the extension loaded into Chrome 153 in a nested `kwin_wayland --virtual` on a private session bus, driven through the DevTools protocol. Opening a URL gave a fullscreen 1920×1080 `popup` window; opening the same origin again created no window; a `target=_blank` click moved the new tab into its own fullscreen window; a window set back to normal returned to fullscreen. Page `window.open` popups, DRM services and the real desktop were not tested;
 - the package tests check the installed files, the manifests and the origin refusal.
 
 A real-browser check is an owner operator test.

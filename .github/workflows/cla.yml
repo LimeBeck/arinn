@@ -38,5 +38,5 @@ jobs:
           # maintainer's own rights (ADR-0036). GitHub resolves the Claude agent's
           # commit email to the login "claude"; matching is case-sensitive, so
           # both the login and the unlinked git name are listed.
-          allowlist: LimeBeck,claude,Claude,dependabot[bot],github-actions[bot]
+          allowlist: LimeBeck,claude,Claude,cursoragent,Cursor Agent,dependabot[bot],github-actions[bot]
           lock-pullrequest-aftermerge: false

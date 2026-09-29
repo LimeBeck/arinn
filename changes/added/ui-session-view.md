@@ -1,0 +1,1 @@
+- The shell can show one media session from local fixtures: title, artist, playback, position and play, pause, seek, next, previous and stop. Empty or unavailable shows no session. It does not talk to MPRIS ([session view](docs/architecture/ui-session.md)).

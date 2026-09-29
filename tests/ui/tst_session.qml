@@ -66,6 +66,10 @@ TestCase {
         view = createTemporaryObject(factory, suite, props || {});
         verify(view);
         arm(view);
+        // The view is created under the cursor. Deliver that hover before the
+        // test, then leave D-pad mode so a repeat of the same point is not a move.
+        mouseMove(view, 8, 8);
+        view.pointerMode = false;
     }
     function init() { createView(); }
     function cleanup() { arm(null); }

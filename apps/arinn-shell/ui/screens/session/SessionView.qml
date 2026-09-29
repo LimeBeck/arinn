@@ -127,6 +127,10 @@ FocusScope {
         return true;
     }
     function moveFocus(key) {
+        // A hover delivery for the cursor's current point can land after this
+        // key. Remember that point so it does not turn pointer mode back on.
+        if (hoverPoint.hovered)
+            hoverPoint.previousPosition = hoverPoint.point.scenePosition;
         pointerMode = false;
         if (!hasSession) return;
         if (seekTrack.activeFocus && (key === Qt.Key_Left || key === Qt.Key_Right)) {
@@ -163,6 +167,7 @@ FocusScope {
     onAvailableActionsChanged: Qt.callLater(keepFocus)
     Timer { id: hoverDelay; interval: 500 }
     HoverHandler {
+        id: hoverPoint
         property point previousPosition: Qt.point(-1, -1)
         onPointChanged: {
             const next = point.scenePosition;

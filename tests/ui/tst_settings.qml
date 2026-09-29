@@ -39,7 +39,7 @@ TestCase {
                 { id: "output", categoryId: "sound", title: "Output", description: "Audio output",
                   type: "enum", currentValue: "stereo", constraints: { values: ["stereo", "surround"] }, enabled: true },
                 { id: "label", categoryId: "applications", title: "Label", description: "Shown under the icon",
-                  type: "string", currentValue: "", constraints: { maximumLength: 40 }, enabled: true },
+                  type: "string", currentValue: "note", constraints: { maximumLength: 40 }, enabled: true },
                 { id: "density", categoryId: "appearance", title: "Density", description: "Interface density",
                   type: "enum", currentValue: "regular", constraints: { values: ["regular", "compact"] }, enabled: true },
                 { id: "idle", categoryId: "system", title: "Idle minutes", description: "Wait before the ambient screen",
@@ -56,6 +56,7 @@ TestCase {
     }
 
     SignalSpy { id: changes; signalName: "valueChangeRequested" }
+    SignalSpy { id: dismissals; signalName: "dismissRequested" }
 
     function child(name) {
         const item = findChild(view, name);
@@ -86,11 +87,14 @@ TestCase {
         verify(view);
         changes.target = view;
         changes.clear();
+        dismissals.target = view;
+        dismissals.clear();
         focused("category-media");
     }
     function init() { createView(); }
     function cleanup() {
         changes.target = null;
+        dismissals.target = null;
         view = null;
     }
 
@@ -214,6 +218,41 @@ TestCase {
         compare(changes.count, 0);
         compare(child("knob-scan").x, 5);
         verify(findChild(view, "value-scan") === null);
+        verify(insideView(windowFocus()));
+    }
+
+    function test_back_key() {
+        focused("category-media");
+        keyClick(Qt.Key_Back);
+        compare(dismissals.count, 1);
+        focused("category-media");
+        verify(insideView(windowFocus()));
+        dismissals.clear();
+        keyClick(Qt.Key_Right);
+        focused("setting-scan");
+        keyClick(Qt.Key_Back);
+        focused("category-media");
+        compare(dismissals.count, 0);
+        verify(insideView(windowFocus()));
+    }
+
+    function test_text_backspace_stays_in_row() {
+        for (let step = 0; step < 4; ++step) keyClick(Qt.Key_Down);
+        focused("category-applications");
+        keyClick(Qt.Key_Right);
+        focused("setting-label");
+        keyClick(Qt.Key_Return);
+        const editor = child("editor-label");
+        tryCompare(editor, "visible", true);
+        tryCompare(editor, "activeFocus", true);
+        compare(editor.text, "note");
+        keyClick(Qt.Key_Backspace);
+        compare(editor.text, "not");
+        compare(view.editingId, "label");
+        tryCompare(editor, "activeFocus", true);
+        compare(changes.count, 0);
+        compare(dismissals.count, 0);
+        compare(child("category-applications").activeFocus, false);
         verify(insideView(windowFocus()));
     }
 }

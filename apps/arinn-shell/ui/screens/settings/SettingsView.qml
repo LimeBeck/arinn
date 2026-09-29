@@ -297,7 +297,7 @@ FocusScope {
         else if (event.key === Qt.Key_Right) { moveToRows(); event.accepted = true; }
         else if (event.key === Qt.Key_Tab) { moveVertical(1); event.accepted = true; }
         else if (event.key === Qt.Key_Backtab) { moveVertical(-1); event.accepted = true; }
-        else if (event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace) {
+        else if (event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace || event.key === Qt.Key_Back) {
             if (detailFocused) moveToCategories();
             else dismissRequested();
             event.accepted = true;
@@ -611,6 +611,7 @@ FocusScope {
                                         clip: true
                                         onVisibleChanged: if (visible) {
                                             text = root.editingDraft;
+                                            cursorPosition = text.length;
                                             forceActiveFocus();
                                         }
                                         onTextChanged: if (visible && activeFocus) root.editingDraft = text

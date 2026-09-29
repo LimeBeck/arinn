@@ -54,8 +54,9 @@ chevron. A path does not add a folder or file caption.
 Select on a boolean proposes the opposite value. Select on an enum proposes the
 next entry in `constraints.values`, wrapping, or the first entry when the
 current value is unsupported. Select on an integer proposes `currentValue + step`
-when that stays inside the minimum and maximum. Select on a string or path opens
-a local editor; confirming it proposes the draft, and a string longer than
+when that stays inside the minimum and maximum. An integer row currently only
+steps up. Left and Right for minus and plus is deferred. Select on a string or
+path opens a local editor; confirming it proposes the draft, and a string longer than
 `maximumLength` is not proposed. The signal is `valueChangeRequested(settingId, value)`.
 
 The view does not assign the proposed value back to `currentValue`. The caller
@@ -79,27 +80,31 @@ stays editable. An empty category that does not require a capability uses
 The screen is one focus scope. Up and Down move through the category list or,
 once Right has entered it, through the focused category's focusable rows. Left
 from a row returns to that category. The ends of each list do not move focus
-further. Tab is handled the same way as Down. Esc and Backspace leave the row
+further. Tab is handled the same way as Down. Esc, Backspace and Back leave the row
 list for the categories, and on the category list emit `dismissRequested`
 without focusing anything outside this view. Editable text consumes Backspace
-itself. Arrow keys are accepted inside the scope.
+itself and does not leave the row (specification §6.2, AC-18). Arrow keys are
+accepted inside the scope.
 
 ## Verification
 
 The Qt Quick case `tests/ui/tst_settings.qml` imports this directory from the
 filesystem. It covers category focus, a boolean change intent, an enum change
-intent, and missing playback, network and download capabilities shown as
-unavailable. The existing `ui-components` CTest passes `-input tests/ui`, which
-loads every `tst_*.qml`; this screen is not added to the gallery or to Home.
+intent, missing playback, network and download capabilities shown as
+unavailable, Back (`Key_Back`) from the category list and from a row, and
+Backspace inside the string editor. The existing `ui-components` CTest passes
+`-input tests/ui`, which loads every `tst_*.qml`; this screen is not added to
+the gallery or to Home.
 
-Offscreen run on 2026-09-29, Qt 6.11.2, software rendering, after the handoff frame restyle:
+Offscreen Settings run on 2026-09-29, Qt 6.11.2, software rendering:
 
 ```sh
 QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
-  build/apps/arinn-shell/arinn-ui-test -input tests/ui
+  build/apps/arinn-shell/arinn-ui-test -input tests/ui/tst_settings.qml
 ```
 
-56 passed, 0 failed. That includes the existing component and Home cases and
-the Settings cases: category focus, boolean and enum change intents, unavailable
-playback, unavailable network, and an unavailable download row. Operator tests
-were not run. This does not close AC-02, AC-14 or G-5.1.
+10 passed, 0 failed. That is the Settings cases: category focus, boolean and
+enum change intents, unavailable playback, unavailable network, an unavailable
+download row, `Key_Back`, and Backspace in the string editor. The full
+`tests/ui` suite was not rerun for this review. Operator tests were not run.
+This does not close AC-02, AC-14, AC-18 or G-5.1.

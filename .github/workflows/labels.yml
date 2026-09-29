@@ -11,6 +11,8 @@ on:
   workflow_dispatch:
 
 permissions:
+  # Checkout needs read access to a private repository.
+  contents: read
   issues: write
 
 jobs:

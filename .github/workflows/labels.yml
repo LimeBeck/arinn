@@ -1,32 +1,56 @@
 name: Labels
 
-# Creates and updates repository labels from .github/labels.yml (ADR-0037).
+# Creates and updates repository labels from .github/labels.yml (ADR-0037,
+# ADR-0053).
 # Labels missing from the file are left alone, never deleted.
 
 on:
   push:
     branches: [master]
-    paths: [".github/labels.yml"]
+    paths: [".github/labels.yml", ".github/workflows/labels.yml"]
   workflow_dispatch:
 
 permissions:
   issues: write
 
 jobs:
+  # Runs in a container like the other jobs, so a self-hosted runner
+  # (ARINN_RUNNER, ADR-0049) needs only Docker and git. The container has no
+  # gh CLI; the labels are written through the REST API.
   sync:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.ARINN_RUNNER || 'ubuntu-latest' }}
+    container: python:3.12
     steps:
       - uses: actions/checkout@v7
       - name: Sync labels
         env:
           GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          API: ${{ github.api_url }}
         run: |
           python3 -m pip install --quiet pyyaml
           python3 - <<'PY'
-          import json, subprocess, yaml
+          import json, os, urllib.error, urllib.parse, urllib.request, yaml
+
+          api = f"{os.environ['API']}/repos/{os.environ['REPOSITORY']}/labels"
+          headers = {
+              "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+              "Accept": "application/vnd.github+json",
+              "Content-Type": "application/json",
+          }
+
+          def call(method, url, body):
+              request = urllib.request.Request(url, json.dumps(body).encode(), headers, method=method)
+              urllib.request.urlopen(request).close()
+
           for label in yaml.safe_load(open(".github/labels.yml")):
-              subprocess.run(["gh", "label", "create", label["name"], "--force",
-                              "--color", label["color"], "--description", label["description"],
-                              "--repo", "${{ github.repository }}"], check=True)
+              body = {"color": label["color"], "description": label["description"]}
+              try:
+                  # Update in place; create only a missing label.
+                  call("PATCH", f"{api}/{urllib.parse.quote(label['name'], safe='')}", body)
+              except urllib.error.HTTPError as error:
+                  if error.code != 404:
+                      raise
+                  call("POST", api, {"name": label["name"], **body})
               print("synced", label["name"])
           PY

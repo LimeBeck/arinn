@@ -30,7 +30,8 @@ video. Resume, watched state and the real track list stay with the providers.
 | `audioTracks`, `subtitleTracks` | Lists of `{id, label}`. An optional `detail` is the sheet subline |
 | `audioTrackId`, `subtitleTrackId` | Selected ids supplied by the fixture. The pills show those names |
 | `playbackState` | `ready`, `loading`, `error` or `unavailable` |
-| `osdVisible` | Local chrome. The picture stand-in stays up either way |
+| `pictureStandIn` | Defaults to true. The full-bleed stand-in. False leaves that layer transparent so a later binding can sit over the video window ([ADR-0046](../adr/0046-shell-input-layer-during-playback.md)) |
+| `osdVisible` | Local chrome. Hiding the OSD does not change the picture stand-in |
 | `osdIdleMs` | Defaults to 4000. Local hide delay, not a provider timeout |
 
 Signals, and only these, leave the screen: `play`, `pause`,
@@ -38,9 +39,11 @@ Signals, and only these, leave the screen: `play`, `pause`,
 `stop`, `leave`. Emitting one does not change the fixture. The caller applies
 a provider result by writing the properties.
 
-The ready surface is the handoff OSD: a full-bleed picture stand-in, top and
-bottom scrims, the timeline along the bottom, and a row of Subtitles, Audio
-and More pills. A focused timeline shows a seek stand-in labelled thumbnail.
+The ready surface is the handoff OSD: a full-bleed picture stand-in when
+`pictureStandIn` is true, top and bottom scrims, the timeline along the bottom,
+and a row of Subtitles, Audio and More pills. Pill and sheet fills use
+`Theme.plate` and `Theme.plateFocus`. A focused timeline shows a seek stand-in
+labelled thumbnail.
 `loading`, `error` and `unavailable` show a status message and ignore transport
 keys. An empty audio or subtitle list labels that pill
 unavailable. OK on it does not open a sheet and does not emit a select signal.
@@ -51,7 +54,10 @@ a transport signal.
 ## Keys
 
 The screen keeps keyboard focus, including while the OSD is hidden. Keys are
-handled here. Nothing in this file forwards them to a player.
+handled here. Nothing in this file forwards them to a player. During managed
+playback the shell handles media keys
+([ADR-0046](../adr/0046-shell-input-layer-during-playback.md)); outside the
+shell, Plasma does (OQ-04).
 
 | OSD | Key | Result |
 | --- | --- | --- |

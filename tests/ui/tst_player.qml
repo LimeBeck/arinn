@@ -3,6 +3,7 @@
 
 import QtQuick
 import QtTest
+import "../../apps/arinn-shell/ui" as Ui
 import "../../apps/arinn-shell/ui/screens/player" as Player
 
 TestCase {
@@ -114,6 +115,25 @@ TestCase {
         compare(child("statusPane").visible, false)
         compare(child("osd").visible, true)
         compare(child("trackSheet").visible, false)
+    }
+
+    function test_picture_stand_in_and_plate_fills() {
+        compare(player.pictureStandIn, true)
+        compare(child("pictureStandIn").color, "#0b0c0f")
+        compare(child("videoLabel").visible, true)
+        compare(child("subtitlePill").color, Ui.Theme.plate)
+        compare(child("audioPill").color, Ui.Theme.plate)
+        compare(child("morePill").color, Ui.Theme.plate)
+        player.osdFocus = "audio"
+        compare(child("audioPill").color, Ui.Theme.plateFocus)
+        compare(child("subtitlePill").color, Ui.Theme.plate)
+        player.sheetKind = "subtitles"
+        compare(child("trackSheet").visible, true)
+        compare(child("sheetRow").color, Ui.Theme.plateFocus)
+        player.pictureStandIn = false
+        compare(child("pictureStandIn").color, "#00000000")
+        compare(child("videoLabel").visible, false)
+        assertNoCommands()
     }
 
     function test_startup_emits_nothing() {

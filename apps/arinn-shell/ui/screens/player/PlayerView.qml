@@ -29,6 +29,8 @@ FocusScope {
     property string audioTrackId: ""
     property string subtitleTrackId: ""
     property string playbackState: "ready" // ready, loading, error, unavailable
+    // Fixture picture. False leaves this layer transparent for a video window.
+    property bool pictureStandIn: true
     property string statusTitle: ""
     property string statusDescription: ""
     property bool osdVisible: true
@@ -378,10 +380,12 @@ FocusScope {
             height: Ui.Theme.canvasHeight
 
             Rectangle {
+                objectName: "pictureStandIn"
                 anchors.fill: parent
-                color: "#0b0c0f"
+                color: root.pictureStandIn ? "#0b0c0f" : "transparent"
             }
             Rectangle {
+                visible: root.pictureStandIn
                 width: 980
                 height: 720
                 radius: width / 2
@@ -391,6 +395,7 @@ FocusScope {
             }
             Ui.UiText {
                 objectName: "videoLabel"
+                visible: root.pictureStandIn
                 anchors.centerIn: parent
                 text: qsTr("video")
                 font.pixelSize: 22
@@ -682,7 +687,7 @@ FocusScope {
                             height: 76
                             radius: 38
                             width: subtitlePillLabel.implicitWidth + 64
-                            color: root.osdFocus === "subtitles" && root.sheetKind === "" ? Ui.Theme.textPrimary : Qt.rgba(1, 1, 1, 0.14)
+                            color: root.osdFocus === "subtitles" && root.sheetKind === "" ? Ui.Theme.plateFocus : Ui.Theme.plate
                             Ui.UiText {
                                 id: subtitlePillLabel
                                 objectName: "subtitlePillLabel"
@@ -690,9 +695,7 @@ FocusScope {
                                 text: root.subtitlePillText
                                 font.pixelSize: 28
                                 font.weight: 600
-                                color: root.osdFocus === "subtitles" && root.sheetKind === ""
-                                       ? Ui.Theme.ink
-                                       : (root.subtitleListAvailable ? Ui.Theme.textPrimary : Ui.Theme.error)
+                                color: root.subtitleListAvailable ? Ui.Theme.textPrimary : Ui.Theme.error
                             }
                         }
                         Rectangle {
@@ -700,7 +703,7 @@ FocusScope {
                             height: 76
                             radius: 38
                             width: audioPillLabel.implicitWidth + 64
-                            color: root.osdFocus === "audio" && root.sheetKind === "" ? Ui.Theme.textPrimary : Qt.rgba(1, 1, 1, 0.14)
+                            color: root.osdFocus === "audio" && root.sheetKind === "" ? Ui.Theme.plateFocus : Ui.Theme.plate
                             Ui.UiText {
                                 id: audioPillLabel
                                 objectName: "audioPillLabel"
@@ -708,9 +711,7 @@ FocusScope {
                                 text: root.audioPillText
                                 font.pixelSize: 28
                                 font.weight: 600
-                                color: root.osdFocus === "audio" && root.sheetKind === ""
-                                       ? Ui.Theme.ink
-                                       : (root.audioListAvailable ? Ui.Theme.textPrimary : Ui.Theme.error)
+                                color: root.audioListAvailable ? Ui.Theme.textPrimary : Ui.Theme.error
                             }
                         }
                         Rectangle {
@@ -718,7 +719,7 @@ FocusScope {
                             height: 76
                             radius: 38
                             width: morePillLabel.implicitWidth + 64
-                            color: root.osdFocus === "more" && root.sheetKind === "" ? Ui.Theme.textPrimary : Qt.rgba(1, 1, 1, 0.14)
+                            color: root.osdFocus === "more" && root.sheetKind === "" ? Ui.Theme.plateFocus : Ui.Theme.plate
                             Ui.UiText {
                                 id: morePillLabel
                                 objectName: "morePillLabel"
@@ -726,7 +727,7 @@ FocusScope {
                                 text: qsTr("More")
                                 font.pixelSize: 28
                                 font.weight: 600
-                                color: root.osdFocus === "more" && root.sheetKind === "" ? Ui.Theme.ink : Ui.Theme.textPrimary
+                                color: Ui.Theme.textPrimary
                             }
                         }
                     }
@@ -787,11 +788,12 @@ FocusScope {
                             model: root.openSheetCount
                             delegate: Rectangle {
                                 id: sheetRow
+                                objectName: "sheetRow"
                                 required property int index
                                 width: 608
                                 height: Math.max(104, sheetLabel.implicitHeight + (sheetDetail.visible ? sheetDetail.implicitHeight + 4 : 0) + 36)
                                 radius: 28
-                                color: sheetRowFocused ? Ui.Theme.textPrimary : Qt.rgba(1, 1, 1, 0.08)
+                                color: sheetRowFocused ? Ui.Theme.plateFocus : Ui.Theme.plate
                                 readonly property var entry: root.sheetTrack(index)
                                 readonly property bool sheetRowFocused: (root.sheetKind === "audio" && root.audioIndex === index)
                                         || (root.sheetKind === "subtitles" && root.subtitleIndex === index)
@@ -806,7 +808,7 @@ FocusScope {
                                     anchors.leftMargin: 28
                                     anchors.verticalCenter: parent.verticalCenter
                                     visible: sheetRow.current
-                                    color: sheetRow.sheetRowFocused ? Ui.Theme.ink : Ui.Theme.ember
+                                    color: Ui.Theme.ember
                                 }
                                 Column {
                                     anchors.left: parent.left
@@ -821,7 +823,7 @@ FocusScope {
                                         text: sheetRow.entry && sheetRow.entry.label !== undefined ? String(sheetRow.entry.label) : ""
                                         font.pixelSize: 32
                                         font.weight: 600
-                                        color: sheetRow.sheetRowFocused ? Ui.Theme.ink : Ui.Theme.textPrimary
+                                        color: Ui.Theme.textPrimary
                                     }
                                     Ui.UiText {
                                         id: sheetDetail
@@ -830,7 +832,7 @@ FocusScope {
                                         text: visible ? String(sheetRow.entry.detail) : ""
                                         font.pixelSize: 26
                                         font.weight: 500
-                                        color: sheetRow.sheetRowFocused ? Ui.Theme.ink : Ui.Theme.textSecondary
+                                        color: Ui.Theme.textSecondary
                                     }
                                 }
                             }

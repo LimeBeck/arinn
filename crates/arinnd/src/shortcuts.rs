@@ -97,6 +97,9 @@ pub struct WebShortcuts {
     lock: Arc<Mutex<()>>,
     requests: Arc<Mutex<Requests>>,
     operations: Operations,
+    /// Opens URLs in the default browser provider; without it `Open` fails
+    /// with `Unavailable` (fixtures and tests).
+    browser: Option<crate::runtime::Core>,
 }
 impl WebShortcuts {
     pub fn new(state: &Path, operations: Operations) -> Self {
@@ -105,7 +108,13 @@ impl WebShortcuts {
             lock: Arc::new(Mutex::new(())),
             requests: Arc::default(),
             operations,
+            browser: None,
         }
+    }
+    /// Route `Open` through the daemon's browser providers (ADR-0048).
+    pub fn with_browser(mut self, core: crate::runtime::Core) -> Self {
+        self.browser = Some(core);
+        self
     }
     /// Seeds the packaged defaults once; call before exporting.
     pub async fn seed(&self, defaults: Option<Vec<WebShortcut>>) -> Result<(), ErrorCode> {
@@ -224,9 +233,12 @@ impl WebShortcuts {
         #[zbus(connection)] connection: &Connection,
     ) -> production::Result<OwnedObjectPath> {
         let list = self.store(|store| store.web_shortcuts()).await?;
-        if !list.shortcuts.iter().any(|s| s.id == id) {
-            return Err(ErrorCode::NotFound.into());
-        }
+        let url = list
+            .shortcuts
+            .iter()
+            .find(|s| s.id == id)
+            .map(|s| s.url.clone())
+            .ok_or(ErrorCode::NotFound)?;
         let (path, operation, fresh) = self
             .operations
             .admit(
@@ -238,11 +250,25 @@ impl WebShortcuts {
             )
             .await?;
         if fresh {
-            // No BrowserProvider has a runtime contract yet (Phase 3), so there
-            // is no default browser to open the URL in.
-            operation
-                .finish(connection, &path, Err(ErrorCode::Unavailable))
-                .await;
+            let browser = self.browser.clone();
+            let connection = connection.clone();
+            let object = path.clone();
+            tokio::spawn(async move {
+                {
+                    let mut value = operation.value.lock().await;
+                    if value.state == "queued" {
+                        value.state = "running".into();
+                        value.started_at = crate::operations::now();
+                    }
+                }
+                let result = match browser {
+                    Some(core) => core.open_url(&url).await,
+                    None => Err(ErrorCode::Unavailable),
+                };
+                operation
+                    .finish(&connection, &object, result.map(|_| Vec::new()))
+                    .await;
+            });
         }
         Ok(path)
     }

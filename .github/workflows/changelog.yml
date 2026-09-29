@@ -14,7 +14,9 @@ permissions:
 jobs:
   fragment:
     name: Changelog fragment
-    runs-on: ubuntu-latest
+    # Same runner switch as ci.yml (ADR-0049).
+    runs-on: ${{ vars.ARINN_RUNNER || 'ubuntu-latest' }}
+    container: python:3.12
     env:
       SKIP: ${{ contains(github.event.pull_request.labels.*.name, 'skip-changelog') || github.event.pull_request.user.login == 'dependabot[bot]' }}
     steps:
@@ -25,9 +27,8 @@ jobs:
         if: env.SKIP != 'true'
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v7
-        if: env.SKIP != 'true'
-        with:
-          python-version: "3.12"
       - if: env.SKIP != 'true'
-        run: python scripts/release.py check-fragment "origin/${{ github.base_ref }}"
+        # The checkout belongs to the runner user, not to root in the container.
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          python scripts/release.py check-fragment "origin/${{ github.base_ref }}"

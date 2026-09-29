@@ -20,7 +20,8 @@ FocusScope {
     // Microseconds. Unknown duration is -1. Position is non-negative.
     property real durationUs: -1
     property real positionUs: 0
-    property color artworkHue: "#2a2d33"
+    // Neutral plate from the shared theme. Callers may override with a fixture hue.
+    property color artworkHue: Ui.Theme.plate
     property var availableActions: ["play", "pause", "playPause", "seek", "next", "previous", "stop"]
     property bool pointerMode: false
 
@@ -47,6 +48,9 @@ FocusScope {
     signal nextRequested()
     signal previousRequested()
     signal stopRequested()
+    // Leave this screen. Esc, Backspace and the remote Back key share it.
+    // Playback properties stay as the fixture supplied them.
+    signal backRequested()
 
     function allows(name) {
         if (!hasSession || !availableActions) return false;
@@ -111,6 +115,17 @@ FocusScope {
             if (row[i].activeFocus && row[i].enabled) return;
         restore();
     }
+    function isBackKey(key) {
+        return key === Qt.Key_Escape || key === Qt.Key_Backspace || key === Qt.Key_Back;
+    }
+    function acceptBack(event) {
+        if (!isBackKey(event.key))
+            return false;
+        if (!event.isAutoRepeat)
+            backRequested();
+        event.accepted = true;
+        return true;
+    }
     function moveFocus(key) {
         pointerMode = false;
         if (!hasSession) return;
@@ -149,6 +164,8 @@ FocusScope {
     Timer { id: hoverDelay; interval: 500 }
     HoverHandler { onPointChanged: root.pointerMode = true }
     Keys.onPressed: event => {
+        if (acceptBack(event))
+            return;
         const key = event.key;
         if (key === Qt.Key_Left || key === Qt.Key_Right || key === Qt.Key_Up || key === Qt.Key_Down
                 || key === Qt.Key_Tab || key === Qt.Key_Backtab) {
@@ -233,6 +250,7 @@ FocusScope {
                     opacity: root.allows("seek") ? 1 : 0.4
                     Accessible.role: Accessible.Slider
                     Accessible.name: qsTr("Seek")
+                    Keys.onPressed: event => root.acceptBack(event)
                     Ui.UiText {
                         text: qsTr("Seek")
                         role: "meta"
@@ -274,6 +292,7 @@ FocusScope {
                         enabled: root.allows("previous")
                         pointerMode: root.pointerMode
                         hoverFocusEnabled: root.hoverFocusEnabled
+                        Keys.onPressed: event => root.acceptBack(event)
                         onActivated: root.request("previous")
                     }
                     Ui.ActionButton {
@@ -283,6 +302,7 @@ FocusScope {
                         enabled: root.allows("play")
                         pointerMode: root.pointerMode
                         hoverFocusEnabled: root.hoverFocusEnabled
+                        Keys.onPressed: event => root.acceptBack(event)
                         onActivated: root.request("play")
                     }
                     Ui.ActionButton {
@@ -292,6 +312,7 @@ FocusScope {
                         enabled: root.allows("pause")
                         pointerMode: root.pointerMode
                         hoverFocusEnabled: root.hoverFocusEnabled
+                        Keys.onPressed: event => root.acceptBack(event)
                         onActivated: root.request("pause")
                     }
                     Ui.ActionButton {
@@ -301,6 +322,7 @@ FocusScope {
                         enabled: root.allows("playPause")
                         pointerMode: root.pointerMode
                         hoverFocusEnabled: root.hoverFocusEnabled
+                        Keys.onPressed: event => root.acceptBack(event)
                         onActivated: root.request("playPause")
                     }
                     Ui.ActionButton {
@@ -310,6 +332,7 @@ FocusScope {
                         enabled: root.allows("seek")
                         pointerMode: root.pointerMode
                         hoverFocusEnabled: root.hoverFocusEnabled
+                        Keys.onPressed: event => root.acceptBack(event)
                         onActivated: if (root.allows("seek")) seekTrack.forceActiveFocus()
                     }
                     Ui.ActionButton {
@@ -319,6 +342,7 @@ FocusScope {
                         enabled: root.allows("next")
                         pointerMode: root.pointerMode
                         hoverFocusEnabled: root.hoverFocusEnabled
+                        Keys.onPressed: event => root.acceptBack(event)
                         onActivated: root.request("next")
                     }
                     Ui.ActionButton {
@@ -328,6 +352,7 @@ FocusScope {
                         enabled: root.allows("stop")
                         pointerMode: root.pointerMode
                         hoverFocusEnabled: root.hoverFocusEnabled
+                        Keys.onPressed: event => root.acceptBack(event)
                         onActivated: root.request("stop")
                     }
                 }

@@ -27,6 +27,7 @@ TestCase {
             availableActions: ["play", "pause", "playPause", "seek", "previous", "stop"]
         }
     }
+    Component { id: plainFactory; Session.SessionView {} }
     SignalSpy { id: plays; signalName: "playRequested" }
     SignalSpy { id: pauses; signalName: "pauseRequested" }
     SignalSpy { id: toggles; signalName: "playPauseRequested" }
@@ -34,6 +35,7 @@ TestCase {
     SignalSpy { id: nexts; signalName: "nextRequested" }
     SignalSpy { id: previouses; signalName: "previousRequested" }
     SignalSpy { id: stops; signalName: "stopRequested" }
+    SignalSpy { id: backs; signalName: "backRequested" }
 
     function child(name) {
         const item = findChild(view, name);
@@ -57,6 +59,7 @@ TestCase {
         nexts.target = target; nexts.clear();
         previouses.target = target; previouses.clear();
         stops.target = target; stops.clear();
+        backs.target = target; backs.clear();
     }
     function createView(props) {
         mouseMove(suite, 10, 10);
@@ -202,5 +205,39 @@ TestCase {
         focused("action-play");
         keyClick(Qt.Key_Return);
         compare(plays.count, 1);
+    }
+
+    function test_back_matches_escape() {
+        focused("action-play");
+        keyClick(Qt.Key_Escape);
+        compare(backs.count, 1);
+        compare(stops.count, 0);
+        compare(plays.count, 0);
+        backs.clear();
+        keyClick(Qt.Key_Back);
+        compare(backs.count, 1);
+        compare(stops.count, 0);
+        compare(plays.count, 0);
+        compare(view.positionUs, 65000000);
+        compare(view.sessionState, "ready");
+        backs.clear();
+        keyClick(Qt.Key_Backspace);
+        compare(backs.count, 1);
+        compare(stops.count, 0);
+        keyClick(Qt.Key_Up);
+        focused("seekTrack");
+        backs.clear();
+        keyClick(Qt.Key_Back);
+        compare(backs.count, 1);
+        compare(seeks.count, 0);
+    }
+
+    function test_default_artwork_uses_theme_plate() {
+        mouseMove(suite, 10, 10);
+        const plain = createTemporaryObject(plainFactory, suite);
+        verify(plain);
+        const plate = findChild(plain, "artworkPlate");
+        verify(plate !== null);
+        verify(Qt.colorEqual(plate.color, Ui.Theme.plate));
     }
 }

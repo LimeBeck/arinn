@@ -27,6 +27,9 @@ use tokio::sync::Mutex;
 use uuid::Uuid;
 use zbus::{Connection, message::Header, object_server::SignalEmitter, zvariant::OwnedObjectPath};
 
+/// Opening a URL with the browser closed: launch, connection and open share
+/// the launch timeout of spec §9.5 (ADR-0055).
+const BROWSER_LAUNCH_DEADLINE: Duration = Duration::from_secs(30);
 /// How long opening a URL waits for the browser's next snapshot before it
 /// only hides Home (ADR-0052).
 const OPEN_FOCUS_WAIT: Duration = Duration::from_secs(2);
@@ -73,6 +76,8 @@ pub struct Core {
     // Serializes token rotation so the token file and the registry agree
     // (#66): a vanished owner's `unavailable` can race `launch` in a reload.
     rotation: Arc<Mutex<()>>,
+    // One browser launch at a time: concurrent opens wait for it (ADR-0055).
+    browser_launch: Arc<Mutex<()>>,
     pub operations: Operations,
     pub connection: Connection,
     pub epoch: String,
@@ -102,6 +107,7 @@ impl Core {
             reload_lock: Arc::new(Mutex::new(())),
             maintenance: Arc::new(Mutex::new(())),
             rotation: Arc::new(Mutex::new(())),
+            browser_launch: Arc::new(Mutex::new(())),
             operations: Operations::default(),
             connection: connection.clone(),
             epoch: Uuid::new_v4().to_string(),
@@ -743,9 +749,14 @@ impl Core {
 
     /// Open a URL in the default browser provider: the first ready `browser`
     /// provider with a connected browser. Used by web shortcuts (ADR-0043).
-    /// Launching a closed browser first is not implemented yet (#88).
+    /// With no browser connected, the browser application is launched first
+    /// (ADR-0038, ADR-0055); the whole open shares one launch deadline.
     pub async fn open_url(&self, url: &str) -> Result<(), ErrorCode> {
         arinn_protocol::web::open_url(url)?;
+        let deadline = tokio::time::Instant::now() + BROWSER_LAUNCH_DEADLINE;
+        if !self.browser_connected().await {
+            self.launch_browser(deadline).await?;
+        }
         let (id, owner, generation, before, known) = {
             let state = self.state.lock().await;
             let (id, p) = state
@@ -788,6 +799,88 @@ impl Core {
             .await;
         self.show_browser_window(&id, &owner, &generation, &window_token)
             .await
+    }
+
+    /// Whether a ready `browser` provider has a connected browser.
+    async fn browser_connected(&self) -> bool {
+        self.state.lock().await.providers.values().any(|p| {
+            p.capability() == "browser"
+                && p.info.runtime_state == "ready"
+                && p.info.backend_state != "unavailable"
+                && !p.owner.is_empty()
+        })
+    }
+
+    /// Launch the browser application through an ApplicationProvider and
+    /// wait until a browser connects, within `deadline` (ADR-0055). Without a
+    /// ready browser provider there is nothing to open the URL in, so nothing
+    /// is launched. A mutating launch is never retried.
+    async fn launch_browser(&self, deadline: tokio::time::Instant) -> Result<(), ErrorCode> {
+        let _launching = self.browser_launch.lock().await;
+        // Another open may have launched it while this one waited.
+        if self.browser_connected().await {
+            return Ok(());
+        }
+        let candidates = {
+            let configured = Config::load(&self.paths.config)
+                .map(|c| c.browser_application)
+                .unwrap_or_default();
+            if configured.is_empty() {
+                crate::shortcuts::browser_candidates(&crate::shortcuts::data_roots())
+            } else {
+                vec![configured]
+            }
+        };
+        let (owner, generation, application) = {
+            let state = self.state.lock().await;
+            let provider_ready = state.providers.values().any(|p| {
+                p.capability() == "browser"
+                    && p.info.runtime_state == "ready"
+                    && !p.owner.is_empty()
+            });
+            if !provider_ready {
+                return Err(ErrorCode::Unavailable);
+            }
+            candidates
+                .iter()
+                .find_map(|candidate| {
+                    state.providers.values().find_map(|p| {
+                        (p.capability() == "application"
+                            && p.info.runtime_state == "ready"
+                            && !p.owner.is_empty()
+                            && p.applications
+                                .iter()
+                                .any(|a| &a.id == candidate && a.can_launch))
+                        .then(|| {
+                            (
+                                p.owner.clone(),
+                                p.info.generation.clone(),
+                                candidate.clone(),
+                            )
+                        })
+                    })
+                })
+                .ok_or(ErrorCode::Unavailable)?
+        };
+        let proxy = ApplicationProviderProxy::builder(&self.connection)
+            .destination(owner.as_str())
+            .map_err(|_| ErrorCode::Internal)?
+            .build()
+            .await
+            .map_err(|_| ErrorCode::Unavailable)?;
+        tokio::time::timeout_at(deadline, proxy.launch(&generation, &application))
+            .await
+            .map_err(|_| ErrorCode::Timeout)?
+            .map_err(normalize_error)?;
+        loop {
+            if self.browser_connected().await {
+                return Ok(());
+            }
+            if tokio::time::Instant::now() >= deadline {
+                return Err(ErrorCode::Timeout);
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
     }
 
     /// The token of the focused browser window in the first snapshot newer

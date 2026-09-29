@@ -268,6 +268,10 @@ impl Windows {
         }
         leased(key, lease, index.parse().map_err(|_| ErrorCode::Conflict)?)
     }
+    /// The current platform generation, for daemon-initiated controls.
+    pub async fn current_generation(&self) -> String {
+        self.state.lock().await.generation.clone()
+    }
     pub async fn check(
         &self,
         c: &Connection,

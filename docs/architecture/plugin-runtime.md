@@ -112,7 +112,13 @@ The desktop ApplicationProvider owns browser application launch. The Chrome prov
   - window tokens are empty until window association is implemented.
 - **Packaging:** the same host manifest is installed for Google Chrome (`/etc/opt/chrome/native-messaging-hosts/`) and Chromium (`/etc/chromium/native-messaging-hosts/`).
 - **Installing the extension** (owner decision, 2026-09-28): open `chrome://extensions`, enable *Developer mode*, choose *Load unpacked* and select `/usr/share/arinn/chrome-extension`. The ID stays the same across updates; after a package update, press *Reload* on the extension card. Publishing to the Chrome Web Store is a pre-release decision ([#74](https://github.com/LimeBeck/arinn/issues/74)).
-- **Until the daemon routes `browser` providers** ([#83](https://github.com/LimeBeck/arinn/issues/83)), the daemon lists the Chrome provider as incompatible (`Unsupported`) and does not start it.
+- **Daemon routing** ([#83](https://github.com/LimeBeck/arinn/issues/83)):
+  - a manifest declares exactly one routed capability, `application` or `browser`; other sets are incompatible (`Unsupported`);
+  - for a `browser` provider the daemon imports the tab snapshot and exports `Browser1` at the provider's path;
+  - `ActivateTab` asks the provider to select the tab, then activates the tab's compositor window through PlatformWindows1 when its window has a token, which also hides Home; without a token it only hides Home and the browser's own focus request decides;
+  - `WebShortcuts1.Open` opens the URL in the first ready provider with a connected browser and brings its focused window forward the same way;
+  - `browser` providers may read platform windows, for window association;
+  - not yet implemented: launching a closed browser before opening a URL (ADR-0038), and filling `window_token` in the Chrome provider.
 
 Verification:
 

@@ -14,12 +14,18 @@ on:
 permissions:
   contents: read
 
+# A newer commit on the same pull request or on master supersedes the
+# running pipeline; the nightly and releases always finish (ADR-0049).
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/master') }}
 
 env:
   CARGO_TERM_COLOR: always
+
+# Every job runs on `vars.ARINN_RUNNER` when that repository variable is set
+# (for example `self-hosted`), else on GitHub-hosted Ubuntu (ADR-0049). Jobs
+# run in containers, so a self-hosted runner needs only Docker and git.
 
 jobs:
   # A pull request that changes only documentation skips the build jobs
@@ -28,22 +34,34 @@ jobs:
   # of this job falls back to the full pipeline instead of skipping it.
   scope:
     name: Change scope
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.ARINN_RUNNER || 'ubuntu-latest' }}
+    container: python:3.12
     outputs:
       docs_only: ${{ steps.scope.outputs.docs_only }}
+      package: ${{ steps.scope.outputs.package }}
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 2
       - id: scope
-        run: python3 scripts/ci-scope.py
+        # The checkout belongs to the runner user, not to root in the
+        # container; without this git fails and the scope falls back to a
+        # full run.
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          python3 scripts/ci-scope.py
 
   rust:
     name: Rust (fmt, clippy, test)
     needs: scope
     if: ${{ !cancelled() && needs.scope.outputs.docs_only != 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.ARINN_RUNNER || 'ubuntu-latest' }}
+    container: rust:1
     steps:
+      - name: Install dependencies
+        # The tests start private session buses with dbus-daemon and check
+        # interface XML with Python.
+        run: apt-get update && apt-get install -y --no-install-recommends dbus python-is-python3
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -57,7 +75,7 @@ jobs:
     name: Qt shell and private-bus integration (Arch Linux)
     needs: scope
     if: ${{ !cancelled() && needs.scope.outputs.docs_only != 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.ARINN_RUNNER || 'ubuntu-latest' }}
     container: archlinux:latest
     steps:
       - name: Install dependencies
@@ -80,7 +98,10 @@ jobs:
 
   licenses:
     name: Licensing (REUSE, cargo-deny)
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.ARINN_RUNNER || 'ubuntu-latest' }}
+    # Every job runs in a container: container jobs leave root-owned files
+    # in the shared workspace that a host-level job could not clean.
+    container: python:3.12
     steps:
       - uses: actions/checkout@v7
       - uses: fsfe/reuse-action@v6
@@ -90,12 +111,10 @@ jobs:
 
   docs:
     name: Documentation consistency
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.ARINN_RUNNER || 'ubuntu-latest' }}
+    container: python:3.12
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
       - run: python scripts/check-docs.py
       - run: python scripts/adr.py check
       - run: python scripts/check-architecture.py
@@ -110,4 +129,6 @@ jobs:
     if: ${{ !cancelled() }}
     uses: ./.github/workflows/package.yml
     with:
-      skip: ${{ needs.scope.outputs.docs_only == 'true' }}
+      # Pull requests build the package only when they touch it (ADR-0049);
+      # run CI manually on the branch to force a package build.
+      skip: ${{ needs.scope.outputs.package != 'true' }}

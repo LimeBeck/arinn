@@ -44,7 +44,12 @@ jobs:
         with:
           fetch-depth: 2
       - id: scope
-        run: python3 scripts/ci-scope.py
+        # The checkout belongs to the runner user, not to root in the
+        # container; without this git fails and the scope falls back to a
+        # full run.
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          python3 scripts/ci-scope.py
 
   rust:
     name: Rust (fmt, clippy, test)
@@ -54,8 +59,9 @@ jobs:
     container: rust:1
     steps:
       - name: Install dependencies
-        # The tests start private session buses with dbus-daemon.
-        run: apt-get update && apt-get install -y --no-install-recommends dbus
+        # The tests start private session buses with dbus-daemon and check
+        # interface XML with Python.
+        run: apt-get update && apt-get install -y --no-install-recommends dbus python-is-python3
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:

@@ -28,4 +28,7 @@ jobs:
         with:
           fetch-depth: 0
       - if: env.SKIP != 'true'
-        run: python scripts/release.py check-fragment "origin/${{ github.base_ref }}"
+        # The checkout belongs to the runner user, not to root in the container.
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          python scripts/release.py check-fragment "origin/${{ github.base_ref }}"

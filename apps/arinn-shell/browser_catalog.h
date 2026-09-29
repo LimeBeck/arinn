@@ -21,6 +21,7 @@ class BrowserCatalog : public QObject {
   Q_PROPERTY(QVariantList shortcuts READ shortcuts NOTIFY shortcutsChanged)
   Q_PROPERTY(QString browserState READ browserState NOTIFY changed)
   Q_PROPERTY(QString operationState READ operationState NOTIFY changed)
+  Q_PROPERTY(QString saveError READ saveError NOTIFY changed)
   Q_PROPERTY(QStringList openShortcutIds READ openShortcutIds NOTIFY
                  openShortcutIdsChanged)
   Q_PROPERTY(QVariantMap currentService READ currentService NOTIFY
@@ -36,6 +37,7 @@ public:
   QVariantList shortcuts() const { return m_shortcuts; }
   QString browserState() const;
   QString operationState() const { return m_operation; }
+  QString saveError() const { return m_saveError; }
   QStringList openShortcutIds() const { return m_openShortcutIds; }
   QVariantMap currentService() const { return m_currentService; }
   QString retryAction() const { return m_retryAction; }
@@ -49,6 +51,8 @@ public:
   Q_INVOKABLE void cancelOpen();
   Q_INVOKABLE void dismissOpenFailure();
   Q_INVOKABLE void retryOpen();
+  Q_INVOKABLE void addShortcut(const QString &id);
+  Q_INVOKABLE void dismissSaveError();
 public slots:
   void refresh();
 signals:
@@ -87,12 +91,16 @@ private:
                       quint64 epoch);
   void rememberFocus(const QVariantList &windows);
   void presentTabs(QVariantList tabs);
+  void markSaved(const QString &url);
+  void setSaveError(const QString &code);
   void clearUseOrder();
   QString m_operation;
+  QString m_saveError;
   QVariantList m_tabs, m_windows, m_shortcuts;
   QHash<QString, TabRef> m_refs;
   QSet<QString> m_pending;
   QList<ShortcutOrigin> m_origins;
+  QSet<QString> m_pendingSaved;
   QHash<QString, qint64> m_lastUse;
   QString m_focusedWindow;
   qint64 m_useTick = 0;
@@ -108,4 +116,5 @@ private:
   quint64 m_epoch = 0;
   QString m_generation;
   QTimer m_timer;
+  QTimer m_saveErrorTimer;
 };

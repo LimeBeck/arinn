@@ -38,7 +38,7 @@ public:
   QString returnWindow() const { return m_return; }
   QVariantList items() const { return m_items; }
   QVariantList continueEntries() const;
-  QVariantList applications() const { return m_applications; }
+  QVariantList applications() const;
   QVariantList webShortcuts() const { return m_webShortcuts; }
   QVariantList favorites() const;
   QString homeState() const;

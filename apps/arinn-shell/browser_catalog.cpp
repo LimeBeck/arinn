@@ -63,6 +63,12 @@ Origin originOf(const QString &text) {
   origin.ok = !origin.host.isEmpty();
   return origin;
 }
+QString originToken(const Origin &origin) {
+  if (!origin.ok || origin.scheme.isEmpty() || origin.host.isEmpty())
+    return {};
+  return origin.scheme + QLatin1Char('|') + origin.host + QLatin1Char('|') +
+         QString::number(origin.port);
+}
 QString displayHost(const QString &text) {
   const QUrl url(text);
   if (!url.isValid() || url.host().isEmpty())
@@ -124,6 +130,9 @@ BrowserCatalog::BrowserCatalog(QObject *parent) : QObject(parent) {
             m_refs.clear();
             m_shortcuts.clear();
             m_origins.clear();
+            m_pendingSaved.clear();
+            m_saveError.clear();
+            m_saveErrorTimer.stop();
             clearUseOrder();
             m_opening = false;
             m_openingError.clear();
@@ -136,6 +145,10 @@ BrowserCatalog::BrowserCatalog(QObject *parent) : QObject(parent) {
           });
   connect(&m_timer, &QTimer::timeout, this, &BrowserCatalog::refresh);
   m_timer.start(1000);
+  m_saveErrorTimer.setSingleShot(true);
+  m_saveErrorTimer.setInterval(4000);
+  connect(&m_saveErrorTimer, &QTimer::timeout, this,
+          &BrowserCatalog::dismissSaveError);
   refresh();
 }
 QString BrowserCatalog::browserState() const {
@@ -514,21 +527,26 @@ void BrowserCatalog::finishCatalog(const std::shared_ptr<Catalog> &catalog,
     QTimer::singleShot(0, this, &BrowserCatalog::refresh);
 }
 void BrowserCatalog::readShortcuts(quint64 epoch) {
+  // A List issued before Add returns must not wipe a save that landed while
+  // that call was in flight. Tokens inserted after this snapshot stay.
+  const auto pendingAtCall = m_pendingSaved;
   auto pending = new QDBusPendingCallWatcher(
       QDBusConnection::sessionBus().asyncCall(
           daemonCall("org.arinn.WebShortcuts1", "List"), 3000),
       this);
   connect(pending, &QDBusPendingCallWatcher::finished, this,
-          [this, epoch](auto *call) {
+          [this, epoch, pendingAtCall](auto *call) {
             const auto reply = call->reply();
             call->deleteLater();
             if (epoch != m_epoch || !m_connected)
               return;
             QVariantList shortcuts;
             QList<ShortcutOrigin> origins;
-            if (reply.type() != QDBusMessage::ErrorMessage &&
-                !reply.arguments().isEmpty() &&
-                reply.signature() == "(ta(ssss))") {
+            QSet<QString> confirmed;
+            const auto listed = reply.type() != QDBusMessage::ErrorMessage &&
+                                !reply.arguments().isEmpty() &&
+                                reply.signature() == "(ta(ssss))";
+            if (listed) {
               const auto arg =
                   qvariant_cast<QDBusArgument>(reply.arguments().at(0));
               qulonglong revision = 0;
@@ -548,6 +566,9 @@ void BrowserCatalog::readShortcuts(quint64 epoch) {
                 seen.insert(id);
                 const auto origin = originOf(url);
                 url.clear();
+                const auto token = originToken(origin);
+                if (!token.isEmpty())
+                  confirmed.insert(token);
                 origins.append(ShortcutOrigin{id, icon, origin.scheme,
                                               origin.host, origin.port,
                                               origin.ok});
@@ -560,6 +581,13 @@ void BrowserCatalog::readShortcuts(quint64 epoch) {
             const auto previousIds = m_openShortcutIds;
             const auto previousService = m_currentService;
             m_origins = origins;
+            QSet<QString> kept;
+            for (const auto &token : m_pendingSaved) {
+              if (!pendingAtCall.contains(token))
+                kept.insert(token);
+            }
+            m_pendingSaved = listed ? confirmed : QSet<QString>{};
+            m_pendingSaved += kept;
             const auto listChanged = m_shortcuts != shortcuts;
             if (listChanged) {
               m_shortcuts = shortcuts;
@@ -570,6 +598,78 @@ void BrowserCatalog::readShortcuts(quint64 epoch) {
                 m_openShortcutIds != previousIds ||
                 m_currentService != previousService)
               emit changed();
+          },
+          Qt::QueuedConnection);
+}
+void BrowserCatalog::markSaved(const QString &url) {
+  const auto token = originToken(originOf(url));
+  if (token.isEmpty())
+    return;
+  m_pendingSaved.insert(token);
+  presentTabs(m_tabs);
+}
+void BrowserCatalog::setSaveError(const QString &code) {
+  const auto different = m_saveError != code;
+  m_saveError = code;
+  if (code.isEmpty())
+    m_saveErrorTimer.stop();
+  else
+    m_saveErrorTimer.start();
+  if (different)
+    emit changed();
+}
+void BrowserCatalog::dismissSaveError() { setSaveError(QString()); }
+void BrowserCatalog::addShortcut(const QString &id) {
+  if (!m_connected || m_noBrowser) {
+    setSaveError(QStringLiteral("Unavailable"));
+    return;
+  }
+  const auto pendingId = QStringLiteral("save:") + id;
+  if (m_pending.contains(pendingId))
+    return;
+  QVariantMap tab;
+  for (const auto &entry : m_tabs) {
+    const auto map = entry.toMap();
+    if (map.value(QStringLiteral("id")).toString() == id) {
+      tab = map;
+      break;
+    }
+  }
+  if (tab.isEmpty()) {
+    setSaveError(QStringLiteral("NotFound"));
+    return;
+  }
+  if (tab.value(QStringLiteral("saved")).toBool())
+    return;
+  auto title = tab.value(QStringLiteral("title")).toString().trimmed();
+  if (title.isEmpty())
+    title = tab.value(QStringLiteral("domain")).toString();
+  const auto url = tab.value(QStringLiteral("url")).toString();
+  auto msg = daemonCall("org.arinn.WebShortcuts1", "Add");
+  msg << title << url << QString()
+      << QUuid::createUuid().toString(QUuid::WithoutBraces);
+  const auto epoch = m_epoch;
+  m_pending.insert(pendingId);
+  auto pending = new QDBusPendingCallWatcher(
+      QDBusConnection::sessionBus().asyncCall(msg, 3000), this);
+  connect(pending, &QDBusPendingCallWatcher::finished, this,
+          [this, pendingId, url, epoch](auto *call) {
+            const auto reply = call->reply();
+            call->deleteLater();
+            m_pending.remove(pendingId);
+            if (epoch != m_epoch)
+              return;
+            if (reply.type() == QDBusMessage::ErrorMessage ||
+                reply.signature() != QLatin1String("s") ||
+                reply.arguments().isEmpty() ||
+                reply.arguments().at(0).toString().isEmpty()) {
+              setSaveError(reply.type() == QDBusMessage::ErrorMessage
+                               ? errorCode(reply)
+                               : QStringLiteral("Unavailable"));
+              return;
+            }
+            markSaved(url);
+            setSaveError(QString());
           },
           Qt::QueuedConnection);
 }
@@ -821,6 +921,9 @@ void BrowserCatalog::presentTabs(QVariantList tabs) {
       map.remove(QStringLiteral("icon"));
     else
       map.insert(QStringLiteral("icon"), icon);
+    map.insert(QStringLiteral("saved"),
+               !shortcutId.isEmpty() ||
+                   m_pendingSaved.contains(originToken(origin)));
     const auto active = map.value(QStringLiteral("active")).toBool();
     const auto windowId = map.value(QStringLiteral("windowId")).toString();
     if (active && !shortcutId.isEmpty() && !openIds.contains(shortcutId))

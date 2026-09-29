@@ -55,6 +55,11 @@ FocusScope {
     signal retryRequested(string jobId)
     signal watchRequested(string jobId)
     signal refreshRequested()
+    signal backRequested()
+
+    // Screen-local timings. Callers do not set these, and they are not theme tokens.
+    readonly property int toastDurationMs: 2600
+    readonly property int hoverSuppressMs: 500
 
     property var knownImports: ({})
     property bool importsReady: false
@@ -193,14 +198,23 @@ FocusScope {
             event.accepted = true;
         }
     }
+    // Esc, Backspace and the remote Back key ask the parent to leave. The view stays put.
+    function acceptKey(event) {
+        if (event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace || event.key === Qt.Key_Back) {
+            if (!event.isAutoRepeat) backRequested();
+            event.accepted = true;
+            return;
+        }
+        acceptDirection(event);
+    }
 
     Component.onCompleted: Qt.callLater(() => { syncImports(); restore(); })
     onViewStateChanged: Qt.callLater(restore)
     onJobsChanged: Qt.callLater(() => { syncImports(); restore(); })
-    Timer { id: hoverDelay; interval: 500 }
-    Timer { id: toastTimer; interval: 2600; onTriggered: root.toastMessage = "" }
+    Timer { id: hoverDelay; interval: hoverSuppressMs }
+    Timer { id: toastTimer; interval: toastDurationMs; onTriggered: root.toastMessage = "" }
     HoverHandler { onPointChanged: root.pointerMode = true }
-    Keys.onPressed: event => root.acceptDirection(event)
+    Keys.onPressed: event => root.acceptKey(event)
 
     Rectangle { anchors.fill: parent; color: Ui.Theme.background }
     Ui.LogicalCanvas {
@@ -271,7 +285,7 @@ FocusScope {
                                 if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
                                     if (!event.isAutoRepeat) root.activateJob(row.modelData);
                                     event.accepted = true;
-                                } else root.acceptDirection(event);
+                                } else root.acceptKey(event);
                             }
                             HoverHandler {
                                 onHoveredChanged: if (hovered) Qt.callLater(row.hoverFocus)
@@ -403,7 +417,7 @@ FocusScope {
                 hoverFocusEnabled: root.hoverFocusEnabled
                 onActionRequested: root.refreshRequested()
                 onDpadRequested: root.pointerMode = false
-                Keys.onPressed: event => root.acceptDirection(event)
+                Keys.onPressed: event => root.acceptKey(event)
             }
             Rectangle {
                 id: toast

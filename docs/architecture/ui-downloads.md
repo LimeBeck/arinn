@@ -49,11 +49,16 @@ control hidden. Busy and disabled jobs keep focus and do not emit.
 ## Signals
 
 `pauseRequested(id)`, `resumeRequested(id)`, `startNowRequested(id)`,
-`retryRequested(id)`, `watchRequested(id)`, and `refreshRequested()` for the
-error and unavailable Retry control. Nothing in the view applies those intents
-to the `jobs` array. A completion toast is presentation only: the first snapshot
-does not toast, a job that appears already imported does not toast, and a
-non-imported completion does not toast. The notice stays for 2.6 seconds.
+`retryRequested(id)`, `watchRequested(id)`, `refreshRequested()` for the
+error and unavailable Retry control, and `backRequested()` when the focused
+item receives Escape, Backspace or the remote Back key. Back does not change
+`jobs`, `viewState` or focus; the parent decides where it leads. Nothing in
+the view applies action intents to the `jobs` array. A completion toast is
+presentation only: the first snapshot does not toast, a job that appears
+already imported does not toast, and a non-imported completion does not toast.
+The notice stays for `toastDurationMs` (2600). Hover after a scroll is ignored
+for `hoverSuppressMs` (500). Both durations are named constants in
+`DownloadsView.qml`, not theme tokens.
 
 ## Focus
 
@@ -62,8 +67,10 @@ ends. Left and Right stay on the current row. Tab wraps inside the queue.
 Error and unavailable keep D-pad focus on Retry. Loading shows four `Skeleton`
 rows and does not offer an action. Empty uses `StatusPane` without an action.
 After a focused id disappears, focus moves to the previous index. Reordering
-keeps the same id. Hover focuses a row unless a scroll in the last 500 ms has
-suppressed it. Arrow keys return to D-pad mode.
+keeps the same id. Hover focuses a row unless a scroll in the last
+`hoverSuppressMs` has suppressed it. Arrow keys return to D-pad mode.
+Escape, Backspace and Back emit `backRequested()` from a row, from Retry, and
+from the loading scope, and stay inside this screen.
 
 ## Known presentation gaps
 
@@ -78,12 +85,13 @@ The Qt Quick case is `tests/ui/tst_downloads.qml` (`Downloads`). The existing
 `ui-components` CTest loads every `tests/ui/tst_*.qml`; this screen does not add
 a CMake target. Operator tests were not run.
 
-Local run on 2026-09-28, Qt 6.8.3, `QT_QPA_PLATFORM=offscreen` and
+Local run on 2026-09-29, Qt 6.8.3, `QT_QPA_PLATFORM=offscreen` and
 `QT_QUICK_BACKEND=software`. The runner is `tests/ui/main.cpp`
 (`QUICK_TEST_MAIN`) with `-input tests/ui` and the `Downloads::` cases.
-Result: 15 cases passed, 0 failed (Qt Test reports 17 including init and
-cleanup), about 3.5 s. `python scripts/check-docs.py` and
-`python scripts/release.py check` passed.
+Result: 22 cases passed, 0 failed (Qt Test reports 24 including init and
+cleanup), about 3.5 s. That includes Escape, Backspace and Back from the
+queue, Retry, loading and the empty state. `python scripts/check-docs.py`
+passed after the Back note.
 
 The image's Ubuntu Qt is 6.4.2, so `find_package(Qt6 6.6)` was not configured
 and `UiText`'s `font.features` does not load there. The run used a separate

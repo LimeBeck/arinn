@@ -34,6 +34,7 @@ TestCase {
     SignalSpy { id: retries; signalName: "retryRequested" }
     SignalSpy { id: watches; signalName: "watchRequested" }
     SignalSpy { id: refreshes; signalName: "refreshRequested" }
+    SignalSpy { id: backs; signalName: "backRequested" }
 
     function child(name) {
         const item = findChild(view, name);
@@ -56,6 +57,7 @@ TestCase {
         retries.target = target; retries.clear();
         watches.target = target; watches.clear();
         refreshes.target = target; refreshes.clear();
+        backs.target = target; backs.clear();
     }
     function createView(props) {
         mouseMove(suite, 10, 10);
@@ -148,6 +150,31 @@ TestCase {
         verify(child("progress-over").visible);
         compare(child("progress-over").fraction, 1);
         compare(child("status-over").text, "Paused · 100%");
+    }
+
+    function test_back_requested_data() {
+        return [
+            {tag: "escape", key: Qt.Key_Escape, state: "populated"},
+            {tag: "backspace", key: Qt.Key_Backspace, state: "populated"},
+            {tag: "back", key: Qt.Key_Back, state: "populated"},
+            {tag: "escape-error", key: Qt.Key_Escape, state: "error"},
+            {tag: "backspace-unavailable", key: Qt.Key_Backspace, state: "unavailable"},
+            {tag: "back-loading", key: Qt.Key_Back, state: "loading"},
+            {tag: "escape-empty", key: Qt.Key_Escape, state: "empty"}
+        ];
+    }
+    function test_back_requested(data) {
+        view.viewState = data.state;
+        if (data.state === "populated") focused("job-active");
+        else if (data.state === "error" || data.state === "unavailable") focused("statusAction");
+        else verify(insideView(view.Window.window.activeFocusItem));
+        keyClick(data.key);
+        compare(backs.count, 1);
+        compare(pauses.count, 0);
+        compare(refreshes.count, 0);
+        compare(view.viewState, data.state);
+        verify(insideView(view.Window.window.activeFocusItem));
+        if (data.state === "populated") focused("job-active");
     }
 
     function test_dpad_stays_inside() {

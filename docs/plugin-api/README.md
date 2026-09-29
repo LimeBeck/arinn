@@ -149,10 +149,22 @@ in 30 seconds. Each provider record identifies its capability endpoint, generati
 revision, runtime/backend status, source manifest and safe diagnostic timestamps.
 Clients derive available capabilities from ready provider records.
 
-Each application record is `(id, title, can_launch, group)`. `group` is chosen
+Each application record is `(id, title, can_launch, group, icon)`
+([ADR-0059](../adr/0059-application-icon-references.md)). `group` is chosen
 by the provider: `online`, `games`, `media` or `other` (spec §5.5). It is a short
 lowercase token on the wire; consumers display an unknown value as `other`, so
 providers can add groups without breaking older shells.
+
+`icon` is empty or a local reference of at most 1024 bytes: a theme icon name
+(ASCII letters, digits, `.`, `_` and `-`, with at least one letter or digit) or
+an absolute file path (`/` but not `//`, no empty, `.` or `..` segment). A URL,
+a `file:` URI or a relative path is `InvalidArgument`. Empty, invalid, or a
+reference the consumer cannot load as a local image is the existing neutral
+placeholder. The consumer does not fetch an icon and does not call the provider
+for one. The reference is not image bytes and is not logged. Desktop `Icon`
+discovery and shell loading are later tasks; in-tree providers send an empty
+reference until then. `Application1` is pre-stable, so this signature change is
+the same class as the group field, not a minor addition to a released API.
 
 `GetApplications(token)` combines installed applications and running instances
 under one immutable generation/revision. Pages have at most 200 total entries and

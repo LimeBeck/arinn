@@ -232,6 +232,11 @@ The shell, gallery and UI test targets embed the original
 Application tiles retain neutral placeholders: `Application1` currently provides
 no application icon field, and this change adds no third-party logos.
 
+[ADR-0059](../adr/0059-application-icon-references.md) later adds an optional
+icon reference on the application record. The shell decodes it and still
+discards it, so tiles keep this neutral placeholder. No third-party logos are
+bundled, and the shell does not call a provider to fetch an icon.
+
 ## Handoff visual comparison
 
 [Issue #120](https://github.com/LimeBeck/arinn/issues/120) adds a local comparison

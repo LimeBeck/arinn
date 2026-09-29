@@ -20,6 +20,8 @@ OnlyShowIn, NotShowIn, NoDisplay, Hidden, TryExec and Type control visibility.
 `Categories=` sets the Applications group: `WebBrowser` is Online, then `Game` is
 Games, then `AudioVideo`, `Audio` or `Video` is Media; the first match in that
 order wins and everything else is Other (spec §5.5).
+The published icon reference is empty. Reading the desktop `Icon` key is a
+later task ([ADR-0059](../adr/0059-application-icon-references.md)).
 Exec is delegated to the system launcher and D-Bus activation to the session bus;
 no shell evaluates an Exec line in the provider. Duplicate groups/keys and malformed booleans are
 rejected. Directory symlinks are not traversed; non-regular files are rejected

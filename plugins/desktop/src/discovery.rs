@@ -178,6 +178,10 @@ impl Settings {
             title,
             can_launch: true,
             group: group(values.get("Categories").map(String::as_str)).into(),
+            // The desktop Icon key is not read here. Discovery of that
+            // reference is a later task (ADR-0059); empty keeps the neutral
+            // placeholder.
+            icon: String::new(),
         };
         application.validate().ok()?;
         Some(Entry {

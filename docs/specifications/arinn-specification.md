@@ -172,6 +172,8 @@ Online services, games and other applications as tiles; pin/unpin to Home ([§7.
 
 Tiles are grouped, in this order: **Online** (browsers and web shortcuts), **Games**, **Media** and **Other**; empty groups are hidden. This extends the handoff's Online · Games · Other layout with Media, by owner decision on 2026-09-28 ([#62](https://github.com/LimeBeck/arinn/issues/62)). The provider sets each application's group; the core and the shell never infer it from titles, IDs or product names, and an unknown group is shown as Other.
 
+An application record may include an icon reference ([ADR-0059](../adr/0059-application-icon-references.md)): empty, a theme icon name, or an absolute local file path. It is not image bytes and not a remote address. An empty reference, or one the shell cannot load as a local image, keeps the existing neutral placeholder. The shell does not call the provider to obtain an icon (R-03). Web-shortcut icons and service defaults are a separate field and are unchanged.
+
 ### 5.6. Settings
 
 Categories as in the design: Media, Playback, Sound, Network, Applications, Appearance, System. UI preferences belong to the daemon configuration. Provider settings use a typed schema (id, title, description, type, current value, constraints, enabled; types boolean, enum, string, integer, path reference); plugins MUST NOT supply QML widgets or raw RPC. The core settings UI shows only registered capabilities; a missing playback, download or network function never pretends to succeed. Details: [Activity and interaction](../architecture/activity-and-interaction.md).
@@ -278,7 +280,7 @@ Generic `open` accepts only `http` and `https`. The desktop ApplicationProvider 
 
 ### 7.2. Applications, Steam and ES-DE
 
-Arinn works with ordinary Linux applications: discover, launch, activate, terminate and running state. `arinn-plugin-desktop` provides ApplicationProvider from `.desktop` entries; the core MUST NOT scan desktop files. Applications are launched by the session application launcher in their own application scope, never in the plugin's cgroup. Terminate requests a graceful close; force kill is not a regular MVP terminate. Implementation and qualification status: [desktop provider](../architecture/desktop-provider.md).
+Arinn works with ordinary Linux applications: discover, launch, activate, terminate and running state. `arinn-plugin-desktop` provides ApplicationProvider from `.desktop` entries; the core MUST NOT scan desktop files. Applications are launched by the session application launcher in their own application scope, never in the plugin's cgroup. Terminate requests a graceful close; force kill is not a regular MVP terminate. Each record may carry the optional icon reference in [§5.5](#55-applications) ([ADR-0059](../adr/0059-application-icon-references.md)). Reading a desktop file's `Icon` key is not part of that contract. Implementation and qualification status: [desktop provider](../architecture/desktop-provider.md).
 
 Steam and EmulationStation MUST be available in the MVP as dedicated Home tiles, launched through the generic ApplicationProvider, without an own Steam library client. Game libraries, artwork, recent games, continue playing and metadata are post-MVP providers.
 
@@ -414,7 +416,7 @@ Errors are normalized by the core in the namespace `org.arinn.Error1.*`: `NotFou
 
 ### 9.7. Limits and validation
 
-Message body ≤ 256 KiB; ID ≤ 256 bytes; text ≤ 8 KiB; URL ≤ 16 KiB; optional metadata ≤ 32 keys; ≤ 32 concurrent operations per provider. Artwork is passed as typed asset references, never inline. Every message is validated for type, length, provider ownership and command permission before use.
+Message body ≤ 256 KiB; ID ≤ 256 bytes; text ≤ 8 KiB; URL ≤ 16 KiB; an application icon reference ≤ 1024 bytes; optional metadata ≤ 32 keys; ≤ 32 concurrent operations per provider. Artwork and application icons are passed as typed references, never inline. Every message is validated for type, length, provider ownership and command permission before use.
 
 ### 9.8. Extensibility and versioning
 

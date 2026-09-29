@@ -53,7 +53,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0032](0032-kwin-script-platform-adapter.md) | A packaged KWin script as the first KDE platform adapter | Accepted | 0042 |
 | [0033](0033-ci-cd-and-releases.md) | CI/CD pipeline and release policy | Accepted | 0036, 0044, 0047, 0049 |
 | [0034](0034-provider-data-directory-identity.md) | Provider data directories independent of registry state | Accepted | — |
-| [0035](0035-phase1-application-wire-contract.md) | Phase 1 application wire contract | Accepted | — |
+| [0035](0035-phase1-application-wire-contract.md) | Phase 1 application wire contract | Accepted | 0059 |
 | [0036](0036-parallel-development.md) | Parallel development by several agents | Accepted | 0037 |
 | [0037](0037-agent-autonomy-and-owner-gated-decisions.md) | Agent autonomy and owner-gated decisions | Accepted | — |
 | [0038](0038-browser-launch-ownership.md) | Browser launch ownership | Accepted | 0043 |
@@ -75,4 +75,5 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0054](0054-media-and-library-wire-contract.md) | Media and library wire contract | Accepted | — |
 | [0055](0055-launching-a-closed-browser.md) | Launching a closed browser before opening a URL | Accepted | — |
 | [0058](0058-media-routing.md) | Daemon routing for media providers | Accepted | — |
+| [0059](0059-application-icon-references.md) | Application icon references | Accepted | — |
 <!-- register:end -->

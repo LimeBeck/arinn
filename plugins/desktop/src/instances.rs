@@ -80,6 +80,7 @@ mod tests {
                     title: "App".into(),
                     can_launch: true,
                     group: "other".into(),
+                    icon: String::new(),
                 },
                 path: "/fixture/app.desktop".into(),
                 dbus_name: None,

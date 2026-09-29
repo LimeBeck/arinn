@@ -50,7 +50,7 @@ impl Catalog for ApplicationCatalog {
     fn text_bytes(first: &[Application], second: &[RunningApplication]) -> usize {
         first
             .iter()
-            .map(|a| a.id.len() + a.title.len())
+            .map(|a| a.id.len() + a.title.len() + a.icon.len())
             .sum::<usize>()
             + second
                 .iter()
@@ -671,6 +671,7 @@ mod tests {
                 title: "x".repeat(title_len),
                 can_launch: true,
                 group: "other".into(),
+                icon: String::new(),
             })
             .collect()
     }
@@ -811,6 +812,36 @@ mod tests {
             store.publish(windows, orphan),
             Err(ErrorCode::InvalidArgument)
         );
+    }
+
+    #[test]
+    fn application_icon_references_are_validated_and_counted() {
+        let mut store = store();
+        let mut entries = apps(1, 1);
+        entries[0].icon = "https://example.invalid/icon.png".into();
+        assert_eq!(
+            store.publish(entries, vec![]),
+            Err(ErrorCode::InvalidArgument)
+        );
+
+        let mut entries = apps(1, 1);
+        entries[0].icon = "applications-games".into();
+        assert_eq!(store.publish(entries, vec![]), Ok(1));
+        let page = store.page(":1.42", "", Instant::now()).unwrap();
+        page.validate().unwrap();
+        assert_eq!(page.applications[0].icon, "applications-games");
+
+        // The catalogue budget counts the reference, not only id and title.
+        let huge = "a".repeat(arinn_protocol::application::MAX_ICON_REFERENCE_BYTES);
+        let mut entries = apps(20_000, 1);
+        for entry in &mut entries {
+            entry.icon.clone_from(&huge);
+        }
+        assert!(
+            ApplicationCatalog::text_bytes(&entries, &[]) > 16 * 1024 * 1024,
+            "icon bytes must be part of the catalogue budget"
+        );
+        assert_eq!(store.publish(entries, vec![]), Err(ErrorCode::Unavailable));
     }
 
     #[test]

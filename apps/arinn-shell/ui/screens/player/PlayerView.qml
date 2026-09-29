@@ -618,10 +618,13 @@ FocusScope {
                                 color: "#1a1c20"
                                 border.width: 3
                                 border.color: Ui.Theme.textPrimary
-                                Ui.UiText {
+                                Text {
+                                    objectName: "thumbnailLabel"
                                     x: 14
                                     y: 12
                                     text: qsTr("thumbnail")
+                                    // Placeholder caption from the handoff. This face is not a UI text role.
+                                    font.family: "JetBrains Mono"
                                     font.pixelSize: 14
                                     color: Qt.rgba(1, 1, 1, 0.5)
                                 }

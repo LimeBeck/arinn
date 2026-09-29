@@ -40,8 +40,9 @@ a provider result by writing the properties.
 
 The ready surface is the handoff OSD: a full-bleed picture stand-in, top and
 bottom scrims, the timeline along the bottom, and a row of Subtitles, Audio
-and More pills. `loading`, `error` and `unavailable` show a status message and
-ignore transport keys. An empty audio or subtitle list labels that pill
+and More pills. A focused timeline shows a seek stand-in labelled thumbnail.
+`loading`, `error` and `unavailable` show a status message and ignore transport
+keys. An empty audio or subtitle list labels that pill
 unavailable. OK on it does not open a sheet and does not emit a select signal.
 OK on a pill that has tracks opens a sheet; OK on a row emits the select
 signal and closes the sheet, returning focus to that pill. More does not emit

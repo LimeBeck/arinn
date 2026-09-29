@@ -90,6 +90,7 @@ TestCase {
         compare(child("pausedMark").visible, true)
         compare(child("timelineKnob").visible, true)
         compare(child("timelineThumb").visible, true)
+        compare(child("thumbnailLabel").text, "thumbnail")
         compare(child("subtitlePillLabel").text, "Subtitles · Notes")
         compare(child("audioPillLabel").text, "Audio · One")
         compare(child("morePillLabel").text, "More")

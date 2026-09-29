@@ -5,12 +5,12 @@
 add_subdirectory("${PROJECT_SOURCE_DIR}/platform/session"
     "${CMAKE_CURRENT_BINARY_DIR}/platform-session")
 
-qt_add_executable(arinn-shell main.cpp backend.cpp backend.h)
+qt_add_executable(arinn-shell main.cpp backend.cpp backend.h browser_catalog.cpp browser_catalog.h)
 qt_add_resources(arinn-shell ui PREFIX "/" FILES Main.qml)
-target_link_libraries(arinn-shell PRIVATE arinn-session-lifecycle Qt6::Quick Qt6::DBus)
-qt_add_executable(arinn-shell-test backend_test.cpp backend.cpp backend.h)
+target_link_libraries(arinn-shell PRIVATE arinn-session-lifecycle Qt6::Quick Qt6::Qml Qt6::DBus)
+qt_add_executable(arinn-shell-test backend_test.cpp backend.cpp backend.h browser_catalog.cpp browser_catalog.h)
 qt_add_resources(arinn-shell-test test_ui PREFIX "/" FILES Main.qml)
-target_link_libraries(arinn-shell-test PRIVATE arinn-session-lifecycle Qt6::Quick Qt6::DBus Qt6::Test)
+target_link_libraries(arinn-shell-test PRIVATE arinn-session-lifecycle Qt6::Quick Qt6::Qml Qt6::DBus Qt6::Test)
 
 set(ARINN_PRESENTATION_FILES
     ui/qmldir ui/Theme.qml ui/UiText.qml ui/LogicalCanvas.qml
@@ -36,16 +36,25 @@ set_tests_properties(ui-components PROPERTIES ENVIRONMENT
     "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software")
 
 # Exercise the production window binding against isolated lifecycle/daemon doubles.
-target_sources(arinn-session-lifecycle-test PRIVATE backend.cpp backend.h)
+target_sources(arinn-session-lifecycle-test PRIVATE backend.cpp backend.h browser_catalog.cpp browser_catalog.h)
 target_include_directories(arinn-session-lifecycle-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 qt_add_resources(arinn-session-lifecycle-test lifecycle_test_ui PREFIX "/" FILES Main.qml)
-target_link_libraries(arinn-session-lifecycle-test PRIVATE Qt6::Quick)
+target_link_libraries(arinn-session-lifecycle-test PRIVATE Qt6::Quick Qt6::Qml)
 
 qt_add_resources(arinn-session-lifecycle-test lifecycle_presentation PREFIX "/" FILES ${ARINN_PRESENTATION_FILES})
 
 qt_add_executable(arinn-catalog-test catalog_test.cpp backend.cpp backend.h)
 target_link_libraries(arinn-catalog-test PRIVATE Qt6::DBus Qt6::Test)
 add_test(NAME application-catalog COMMAND dbus-run-session -- $<TARGET_FILE:arinn-catalog-test>)
+
+qt_add_executable(arinn-browser-catalog-test browser_catalog_test.cpp browser_catalog.cpp browser_catalog.h)
+target_link_libraries(arinn-browser-catalog-test PRIVATE Qt6::DBus Qt6::Qml Qt6::Test)
+add_test(NAME browser-catalog COMMAND dbus-run-session -- $<TARGET_FILE:arinn-browser-catalog-test>)
+
+set(ARINN_BROWSER_FILES ui/screens/browser/qmldir ui/screens/browser/BrowserView.qml)
+foreach(target arinn-shell arinn-shell-test arinn-session-lifecycle-test)
+    qt_add_resources(${target} browser_screen PREFIX "/" FILES ${ARINN_BROWSER_FILES})
+endforeach()
 
 # Reuse the approved handoff asset unchanged, including its existing attribution.
 foreach(target arinn-shell arinn-shell-test arinn-ui-gallery arinn-ui-test arinn-session-lifecycle-test)

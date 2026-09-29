@@ -1,0 +1,1 @@
+- Integration test: killing the Chrome provider process leaves the daemon running and marks the browser provider unavailable (AC-10).

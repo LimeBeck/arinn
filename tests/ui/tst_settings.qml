@@ -20,13 +20,13 @@ TestCase {
         id: factory
         Settings.SettingsView {
             categories: [
-                { id: "media", title: "Media", capability: "library" },
-                { id: "playback", title: "Playback", capability: "playback" },
-                { id: "sound", title: "Sound" },
-                { id: "network", title: "Network", capability: "network" },
-                { id: "applications", title: "Applications" },
-                { id: "appearance", title: "Appearance" },
-                { id: "system", title: "System" }
+                { id: "media", title: "Media", capability: "library", icon: "video_library" },
+                { id: "playback", title: "Playback", capability: "playback", icon: "play_circle" },
+                { id: "sound", title: "Sound", icon: "volume_up" },
+                { id: "network", title: "Network", capability: "network", icon: "wifi" },
+                { id: "applications", title: "Applications", icon: "apps" },
+                { id: "appearance", title: "Appearance", icon: "palette" },
+                { id: "system", title: "System", icon: "memory" }
             ]
             rows: [
                 { id: "scan", categoryId: "media", title: "Scan folders", description: "Look for new files",
@@ -104,6 +104,9 @@ TestCase {
         focused("category-sound");
         keyClick(Qt.Key_Right);
         focused("setting-output");
+        verify(findChild(child("category-sound"), "focusRing") === null);
+        compare(child("category-dot-sound").opacity, 1);
+        compare(child("category-dot-sound").color, Ui.Theme.ember);
         verify(insideView(windowFocus()));
         keyClick(Qt.Key_Left);
         focused("category-sound");
@@ -138,12 +141,15 @@ TestCase {
         focused("category-media");
         keyClick(Qt.Key_Right);
         focused("setting-scan");
-        compare(child("value-scan").text, "Off");
+        verify(findChild(view, "value-scan") === null);
+        compare(child("knob-scan").x, 5);
+        compare(child("track-scan").color, Qt.rgba(1, 1, 1, 0.20));
         keyClick(Qt.Key_Return);
         compare(changes.count, 1);
         compare(changes.signalArguments[0][0], "scan");
         compare(changes.signalArguments[0][1], true);
-        compare(child("value-scan").text, "Off");
+        compare(child("knob-scan").x, 5);
+        verify(findChild(view, "value-scan") === null);
         compare(view.rows[0].currentValue, false);
     }
 
@@ -154,6 +160,7 @@ TestCase {
         keyClick(Qt.Key_Right);
         focused("setting-output");
         compare(child("value-output").text, "stereo");
+        verify(child("chevron-output").visible);
         keyClick(Qt.Key_Return);
         compare(changes.count, 1);
         compare(changes.signalArguments[0][0], "output");
@@ -197,14 +204,16 @@ TestCase {
         verify(findChild(view, "setting-download-location") === null);
         verify(findChild(view, "value-download-location") === null);
         verify(findChild(view, "toggle-download-location") === null);
-        compare(child("value-scan").text, "Off");
+        compare(child("knob-scan").x, 5);
+        verify(findChild(view, "value-scan") === null);
         keyClick(Qt.Key_Right);
         focused("setting-scan");
         keyClick(Qt.Key_Down);
         focused("unavailable-download-location");
         keyClick(Qt.Key_Return);
         compare(changes.count, 0);
-        compare(child("value-scan").text, "Off");
+        compare(child("knob-scan").x, 5);
+        verify(findChild(view, "value-scan") === null);
         verify(insideView(windowFocus()));
     }
 }

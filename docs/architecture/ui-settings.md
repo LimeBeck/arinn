@@ -8,9 +8,9 @@ The behaviour rules live in the specification and in
 [Activity and interaction](activity-and-interaction.md#settings-system-actions-and-diagnostics).
 This screen does not close a Phase 5 gate.
 
-`apps/arinn-shell/ui/screens/settings/` owns `SettingsView` only. It imports the
-existing shell components (`Theme`, `UiText`, `Surface`, `StatusPane`) and does
-not modify them. It is not registered in the shell executable, `Main.qml` or
+`apps/arinn-shell/ui/screens/settings/` owns `SettingsView` only. It imports
+`Theme`, `UiText` and `StatusPane` and does not modify them. Category and
+setting rows are drawn in this screen so focus can be the handoff's light plate. It is not registered in the shell executable, `Main.qml` or
 Home. Nothing here talks to a daemon, a D-Bus interface, a plugin process or a
 provider-supplied widget (R-03, R-04).
 
@@ -36,8 +36,18 @@ System — are fixture data. The QML does not embed those names or any product n
 An unknown `type`, a boolean that is not true or false, an enum value outside
 `constraints.values`, or an integer that is not finite is labelled Unsupported.
 An empty string or path is labelled Not set. Unsupported and unavailable copy
-uses the error colour from the component theme. Ember stays reserved for
-progress, as in the [component contract](ui-components.md).
+uses the error colour from the component theme.
+
+The layout follows the settings frame in the design handoff: title at left 120
+and top 96, category column at left 120 and top 220, rows 88 by 540 with radius
+26, and the detail pane from x 740. A category may carry an optional `icon`
+name (`video_library`, `play_circle`, `volume_up`, `wifi`, `apps`, `palette`,
+`memory`); anything else is a plain mark. The selected category shows an ember
+dot on the right while focus is in its rows, and an 8% plate. Focus itself is
+a 20% light plate, without the shared component focus ring. A boolean is only
+an 88×50 switch: ember track and ink knob at the end when on, a 20% white track
+and light knob at the start when off. Other values sit on the right with a
+chevron. A path does not add a folder or file caption.
 
 ## Intents
 
@@ -82,7 +92,7 @@ intent, and missing playback, network and download capabilities shown as
 unavailable. The existing `ui-components` CTest passes `-input tests/ui`, which
 loads every `tst_*.qml`; this screen is not added to the gallery or to Home.
 
-Offscreen run on 2026-09-28, Qt 6.11.2, software rendering:
+Offscreen run on 2026-09-29, Qt 6.11.2, software rendering, after the handoff frame restyle:
 
 ```sh
 QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \

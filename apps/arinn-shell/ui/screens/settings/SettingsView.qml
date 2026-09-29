@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import QtQuick
+import QtQuick.Templates as T
 import "../../" as Ui
 
 // Fixture-driven settings. Categories, rows and capabilities are supplied by
@@ -76,11 +77,9 @@ FocusScope {
     }
     function displayValue(row) {
         if (!row) return "";
-        if (row.type === "boolean") {
-            if (row.currentValue === true) return qsTr("On");
-            if (row.currentValue === false) return qsTr("Off");
-            return qsTr("Unsupported");
-        }
+        // A boolean is only the switch. Words would read as a second value.
+        if (row.type === "boolean")
+            return (row.currentValue === true || row.currentValue === false) ? "" : qsTr("Unsupported");
         if (row.type === "enum") {
             if (valueUnsupported(row)) return qsTr("Unsupported");
             return String(row.currentValue);
@@ -96,13 +95,72 @@ FocusScope {
         }
         return qsTr("Unsupported");
     }
-    function pathKindLabel(row) {
-        if (!row || row.type !== "path" || !row.constraints) return "";
-        const kind = row.constraints.kind;
-        if (!kind) return "";
-        if (kind === "directory") return qsTr("Folder");
-        if (kind === "file") return qsTr("File");
-        return qsTr("Unsupported");
+    function paintIcon(ctx, name) {
+        ctx.clearRect(0, 0, 38, 38);
+        ctx.lineWidth = 2.2;
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+        const stroke = () => { ctx.stroke(); };
+        if (name === "video_library") {
+            ctx.beginPath();
+            ctx.moveTo(8, 12); ctx.lineTo(30, 12); ctx.lineTo(30, 26); ctx.lineTo(8, 26); ctx.closePath();
+            stroke();
+            ctx.beginPath();
+            ctx.moveTo(16, 16); ctx.lineTo(16, 22); ctx.lineTo(23, 19); ctx.closePath();
+            ctx.fill();
+        } else if (name === "play_circle") {
+            ctx.beginPath();
+            ctx.arc(19, 19, 10, 0, Math.PI * 2);
+            stroke();
+            ctx.beginPath();
+            ctx.moveTo(16, 14); ctx.lineTo(16, 24); ctx.lineTo(25, 19); ctx.closePath();
+            ctx.fill();
+        } else if (name === "volume_up") {
+            ctx.beginPath();
+            ctx.moveTo(10, 16); ctx.lineTo(15, 16); ctx.lineTo(21, 11); ctx.lineTo(21, 27); ctx.lineTo(15, 22); ctx.lineTo(10, 22); ctx.closePath();
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(21, 19, 6, -0.9, 0.9);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.arc(21, 19, 10, -0.8, 0.8);
+            ctx.stroke();
+        } else if (name === "wifi") {
+            ctx.beginPath(); ctx.arc(19, 26, 2.2, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.arc(19, 26, 7, Math.PI * 1.2, Math.PI * 1.8); ctx.stroke();
+            ctx.beginPath(); ctx.arc(19, 26, 12, Math.PI * 1.25, Math.PI * 1.75); ctx.stroke();
+        } else if (name === "apps") {
+            for (let col = 0; col < 2; ++col) {
+                for (let row = 0; row < 2; ++row) {
+                    ctx.beginPath();
+                    ctx.rect(9 + col * 11, 9 + row * 11, 8, 8);
+                    ctx.fill();
+                }
+            }
+        } else if (name === "palette") {
+            ctx.beginPath();
+            ctx.arc(19, 19, 11, 0, Math.PI * 2);
+            stroke();
+            ctx.beginPath(); ctx.arc(14, 16, 2, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.arc(22, 14, 2, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.arc(25, 21, 2, 0, Math.PI * 2); ctx.fill();
+        } else if (name === "memory") {
+            ctx.beginPath();
+            ctx.rect(12, 12, 14, 14);
+            stroke();
+            for (let i = 0; i < 3; ++i) {
+                ctx.beginPath();
+                ctx.moveTo(15 + i * 4, 12); ctx.lineTo(15 + i * 4, 8);
+                ctx.moveTo(15 + i * 4, 26); ctx.lineTo(15 + i * 4, 30);
+                ctx.moveTo(12, 15 + i * 4); ctx.lineTo(8, 15 + i * 4);
+                ctx.moveTo(26, 15 + i * 4); ctx.lineTo(30, 15 + i * 4);
+                ctx.stroke();
+            }
+        } else {
+            ctx.beginPath();
+            ctx.arc(19, 19, 8, 0, Math.PI * 2);
+            stroke();
+        }
     }
     function proposedValue(row) {
         const constraints = row.constraints || {};
@@ -248,55 +306,98 @@ FocusScope {
     Component.onCompleted: Qt.callLater(() => { if (categories.length) focusCategory(0); })
     onCategoryIndexChanged: rowFlick.contentY = 0
 
+    function selectKey(button, event, release) {
+        if (event.key !== Qt.Key_Return && event.key !== Qt.Key_Enter) return false;
+        if (!release) {
+            if (!event.isAutoRepeat && button.enabled) button.down = true;
+        } else if (!event.isAutoRepeat) {
+            const invoke = button.down && button.enabled;
+            button.down = false;
+            if (invoke) button.clicked();
+        }
+        event.accepted = true;
+        return true;
+    }
+
     Rectangle { anchors.fill: parent; color: Ui.Theme.background }
     Ui.UiText {
-        x: Ui.Theme.safeLeft
-        y: 64
+        x: 120
+        y: 96
         text: qsTr("Settings")
         role: "title"
     }
     Column {
         id: categoryColumn
-        x: Ui.Theme.safeLeft
-        y: 168
+        x: 120
+        y: 220
         width: 540
-        spacing: 12
+        spacing: 8
         Repeater {
             id: categoryRepeater
             model: root.categories
-            delegate: Ui.Surface {
+            delegate: T.AbstractButton {
                 id: categoryButton
                 required property var modelData
                 required property int index
+                readonly property bool chosen: index === root.categoryIndex
                 objectName: "category-" + modelData.id
                 width: categoryColumn.width
                 height: 88
-                cornerRadius: 26
+                padding: 0
+                focusPolicy: Qt.StrongFocus
+                activeFocusOnTab: false
                 text: modelData.title || ""
-                pointerMode: root.pointerMode
-                hoverFocusEnabled: true
                 focus: index === root.categoryIndex && !root.detailFocused
-                restingColor: index === root.categoryIndex ? Qt.rgba(1, 1, 1, 0.08) : Ui.Theme.plate
-                onDpadRequested: root.pointerMode = false
-                onActivated: root.moveToRows()
+                onClicked: root.moveToRows()
+                Keys.onPressed: event => root.selectKey(categoryButton, event, false)
+                Keys.onReleased: event => root.selectKey(categoryButton, event, true)
+                background: Rectangle {
+                    radius: 26
+                    color: categoryButton.activeFocus ? Qt.rgba(1, 1, 1, 0.20)
+                           : (categoryButton.chosen ? Qt.rgba(1, 1, 1, 0.08) : "transparent")
+                }
                 contentItem: Item {
-                    Rectangle {
-                        x: 28
-                        anchors.verticalCenter: parent.verticalCenter
-                        width: 10
-                        height: 10
-                        radius: 5
-                        color: Ui.Theme.textPrimary
-                        opacity: categoryButton.index === root.categoryIndex ? 1 : 0
+                    Canvas {
+                        id: categoryIcon
+                        x: 26
+                        y: (parent.height - height) / 2
+                        width: 38
+                        height: 38
+                        property string glyph: modelData.icon || ""
+                        property color ink: (categoryButton.activeFocus || categoryButton.chosen)
+                                             ? Ui.Theme.textPrimary : Ui.Theme.textSecondary
+                        onGlyphChanged: requestPaint()
+                        onInkChanged: requestPaint()
+                        onPaint: {
+                            const ctx = getContext("2d");
+                            ctx.reset();
+                            ctx.strokeStyle = ink;
+                            ctx.fillStyle = ink;
+                            root.paintIcon(ctx, glyph);
+                        }
+                        Component.onCompleted: requestPaint()
                     }
                     Ui.UiText {
-                        x: 54
-                        width: parent.width - 78
+                        x: 86
+                        width: parent.width - 86 - 52
                         anchors.verticalCenter: parent.verticalCenter
                         text: categoryButton.text
                         role: "section"
                         elide: Text.ElideRight
                         wrapMode: Text.NoWrap
+                        color: (categoryButton.activeFocus || categoryButton.chosen)
+                               ? Ui.Theme.textPrimary : Ui.Theme.textSecondary
+                    }
+                    Rectangle {
+                        objectName: "category-dot-" + modelData.id
+                        width: 10
+                        height: 10
+                        radius: 5
+                        anchors.right: parent.right
+                        anchors.rightMargin: 26
+                        anchors.verticalCenter: parent.verticalCenter
+                        color: Ui.Theme.ember
+                        opacity: categoryButton.chosen && !categoryButton.activeFocus ? 1 : 0
                     }
                 }
             }
@@ -306,13 +407,16 @@ FocusScope {
     Item {
         id: detail
         x: 740
-        y: 168
-        width: 1920 - 740 - Ui.Theme.safeRight
-        height: 1080 - 168 - 72
+        y: 220
+        width: 1920 - 740 - 96
+        height: 1080 - 220 - 48
         Ui.UiText {
             id: eyebrow
             width: parent.width
+            height: 40
+            verticalAlignment: Text.AlignVCenter
             role: "eyebrow"
+            font.capitalization: Font.AllUppercase
             color: Ui.Theme.textSecondary
             text: {
                 const category = root.currentCategory();
@@ -323,7 +427,7 @@ FocusScope {
             id: statusPane
             objectName: root.paneKind === "unavailable" ? "unavailablePane" : "emptyPane"
             anchors.top: eyebrow.bottom
-            anchors.topMargin: 36
+            anchors.topMargin: 10
             anchors.horizontalCenter: parent.horizontalCenter
             width: Math.min(820, parent.width)
             visible: root.paneKind !== "ready"
@@ -339,7 +443,7 @@ FocusScope {
         Flickable {
             id: rowFlick
             anchors.top: eyebrow.bottom
-            anchors.topMargin: 28
+            anchors.topMargin: 10
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.bottom: parent.bottom
@@ -351,7 +455,7 @@ FocusScope {
             Column {
                 id: rowColumn
                 width: rowFlick.width
-                spacing: 16
+                spacing: 10
                 Repeater {
                     id: rowRepeater
                     model: root.activeRows
@@ -362,28 +466,32 @@ FocusScope {
                         readonly property bool blocked: root.rowBlocked(modelData)
                         readonly property Item focusTarget: blocked ? blockedButton : settingButton
                         readonly property bool canFocus: focusTarget.visible && focusTarget.enabled
+                        readonly property bool switchRow: !blocked && modelData.type === "boolean" && !root.valueUnsupported(modelData)
                         width: rowColumn.width
-                        height: blocked ? blockedButton.implicitHeight : settingButton.implicitHeight
+                        height: blocked ? blockedButton.height : settingButton.height
 
-                        Ui.Surface {
+                        T.AbstractButton {
                             id: blockedButton
                             visible: rowScope.blocked
                             enabled: rowScope.blocked
                             width: rowScope.width
-                            implicitHeight: Math.max(112, blockedText.implicitHeight + 40)
-                            cornerRadius: 28
+                            height: Math.max(112, blockedText.implicitHeight + 40)
+                            padding: 0
+                            focusPolicy: Qt.StrongFocus
+                            activeFocusOnTab: false
                             text: modelData.title || ""
                             objectName: rowScope.blocked ? "unavailable-" + modelData.id : ""
-                            pointerMode: root.pointerMode
-                            hoverFocusEnabled: true
                             focus: root.detailFocused && rowScope.index === root.rowFocusIndex && rowScope.blocked
-                            onDpadRequested: root.pointerMode = false
+                            background: Rectangle {
+                                radius: 28
+                                color: blockedButton.activeFocus ? Qt.rgba(1, 1, 1, 0.20) : Qt.rgba(1, 1, 1, 0.06)
+                            }
                             contentItem: Item {
                                 Column {
                                     id: blockedText
                                     x: 32
                                     y: 20
-                                    width: parent.width - 32 - 220 - 24 - 32
+                                    width: parent.width - 32 - 220 - 32
                                     spacing: 6
                                     Ui.UiText {
                                         width: parent.width
@@ -395,10 +503,10 @@ FocusScope {
                                         text: modelData.description || ""
                                         role: "meta"
                                         color: Ui.Theme.textSecondary
+                                        visible: text.length > 0
                                     }
                                 }
                                 Ui.UiText {
-                                    id: blockedState
                                     objectName: rowScope.blocked ? "state-" + modelData.id : ""
                                     width: 220
                                     anchors.right: parent.right
@@ -412,122 +520,134 @@ FocusScope {
                             }
                         }
 
-                        Ui.Surface {
+                        T.AbstractButton {
                             id: settingButton
                             visible: !rowScope.blocked
                             enabled: !rowScope.blocked && modelData.enabled !== false
                             width: rowScope.width
-                            implicitHeight: Math.max(112, settingText.implicitHeight + 40)
-                            cornerRadius: 28
+                            height: Math.max(112, settingText.implicitHeight + 40)
+                            padding: 0
+                            focusPolicy: Qt.StrongFocus
+                            activeFocusOnTab: false
                             text: modelData.title || ""
                             objectName: rowScope.blocked ? "" : "setting-" + modelData.id
-                            pointerMode: root.pointerMode
-                            hoverFocusEnabled: true
                             focus: root.detailFocused && rowScope.index === root.rowFocusIndex && !rowScope.blocked
-                            onDpadRequested: root.pointerMode = false
-                            onActivated: root.commitRow(modelData)
+                            onClicked: root.commitRow(modelData)
+                            Keys.onPressed: event => root.selectKey(settingButton, event, false)
+                            Keys.onReleased: event => root.selectKey(settingButton, event, true)
+                            background: Rectangle {
+                                radius: 28
+                                color: settingButton.activeFocus ? Qt.rgba(1, 1, 1, 0.20) : Qt.rgba(1, 1, 1, 0.06)
+                            }
                             contentItem: Item {
-                                Row {
-                                    id: settingLayout
-                                    anchors.fill: parent
-                                    anchors.leftMargin: 32
+                                Column {
+                                    id: settingText
+                                    x: 32
+                                    y: 20
+                                    width: parent.width - 64 - (rowScope.switchRow ? 88 : 240)
+                                    spacing: 6
+                                    Ui.UiText {
+                                        width: parent.width
+                                        text: modelData.title || ""
+                                        role: "control"
+                                    }
+                                    Ui.UiText {
+                                        width: parent.width
+                                        text: modelData.description || ""
+                                        role: "meta"
+                                        color: Ui.Theme.textSecondary
+                                        visible: text.length > 0
+                                    }
+                                }
+                                Item {
+                                    id: toggle
+                                    objectName: rowScope.switchRow ? "toggle-" + modelData.id : ""
+                                    visible: rowScope.switchRow
+                                    width: 88
+                                    height: 50
+                                    anchors.right: parent.right
                                     anchors.rightMargin: 32
-                                    anchors.topMargin: 20
-                                    anchors.bottomMargin: 20
-                                    spacing: 24
-                                    Column {
-                                        id: settingText
-                                        width: settingLayout.width - valueBox.width - settingLayout.spacing
-                                        spacing: 6
-                                        Ui.UiText {
-                                            width: parent.width
-                                            text: modelData.title || ""
-                                            role: "control"
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    Rectangle {
+                                        objectName: rowScope.switchRow ? "track-" + modelData.id : ""
+                                        anchors.fill: parent
+                                        radius: 25
+                                        color: modelData.currentValue === true ? Ui.Theme.ember : Qt.rgba(1, 1, 1, 0.20)
+                                    }
+                                    Rectangle {
+                                        objectName: rowScope.switchRow ? "knob-" + modelData.id : ""
+                                        y: 5
+                                        x: modelData.currentValue === true ? 43 : 5
+                                        width: 40
+                                        height: 40
+                                        radius: 20
+                                        color: modelData.currentValue === true ? Ui.Theme.ink : Ui.Theme.textPrimary
+                                    }
+                                }
+                                Row {
+                                    visible: !rowScope.switchRow
+                                    anchors.right: parent.right
+                                    anchors.rightMargin: 32
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    spacing: 8
+                                    Ui.UiText {
+                                        objectName: rowScope.blocked || rowScope.switchRow || root.editingId === modelData.id ? "" : "value-" + modelData.id
+                                        visible: root.editingId !== modelData.id
+                                        width: Math.min(220, implicitWidth)
+                                        horizontalAlignment: Text.AlignRight
+                                        role: "meta"
+                                        color: root.valueUnsupported(modelData) ? Ui.Theme.error : Ui.Theme.textSecondary
+                                        text: root.displayValue(modelData)
+                                    }
+                                    TextInput {
+                                        id: editor
+                                        objectName: "editor-" + modelData.id
+                                        visible: root.editingId === modelData.id
+                                        width: 180
+                                        horizontalAlignment: Text.AlignRight
+                                        color: Ui.Theme.textPrimary
+                                        font.family: Ui.Theme.fontFamily
+                                        font.pixelSize: 26
+                                        clip: true
+                                        onVisibleChanged: if (visible) {
+                                            text = root.editingDraft;
+                                            forceActiveFocus();
                                         }
-                                        Ui.UiText {
-                                            width: parent.width
-                                            text: modelData.description || ""
-                                            role: "meta"
-                                            color: Ui.Theme.textSecondary
+                                        onTextChanged: if (visible && activeFocus) root.editingDraft = text
+                                        Keys.onPressed: event => {
+                                            if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                                                if (!event.isAutoRepeat) root.finishEdit(true);
+                                                event.accepted = true;
+                                            } else if (event.key === Qt.Key_Escape) {
+                                                root.finishEdit(false);
+                                                event.accepted = true;
+                                            } else if (event.key === Qt.Key_Up || event.key === Qt.Key_Down) {
+                                                const step = event.key === Qt.Key_Up ? -1 : 1;
+                                                root.finishEdit(false);
+                                                root.moveVertical(step);
+                                                event.accepted = true;
+                                            }
                                         }
                                     }
-                                    Item {
-                                        id: valueBox
-                                        width: 320
-                                        height: settingText.implicitHeight
-                                        Row {
-                                            anchors.right: parent.right
-                                            anchors.verticalCenter: parent.verticalCenter
-                                            spacing: 16
-                                            Rectangle {
-                                                objectName: rowScope.blocked || modelData.type !== "boolean" ? "" : "toggle-" + modelData.id
-                                                visible: modelData.type === "boolean" && !root.valueUnsupported(modelData)
-                                                width: 88
-                                                height: 50
-                                                radius: 25
-                                                anchors.verticalCenter: parent.verticalCenter
-                                                color: modelData.currentValue === true ? Ui.Theme.textPrimary : Ui.Theme.plate
-                                                Rectangle {
-                                                    width: 36
-                                                    height: 36
-                                                    radius: 18
-                                                    anchors.verticalCenter: parent.verticalCenter
-                                                    x: modelData.currentValue === true ? parent.width - width - 7 : 7
-                                                    color: modelData.currentValue === true ? Ui.Theme.ink : Ui.Theme.textPrimary
-                                                }
-                                            }
-                                            Column {
-                                                spacing: 4
-                                                anchors.verticalCenter: parent.verticalCenter
-                                                Ui.UiText {
-                                                    objectName: rowScope.blocked || root.editingId === modelData.id ? "" : "value-" + modelData.id
-                                                    visible: root.editingId !== modelData.id
-                                                    width: 180
-                                                    horizontalAlignment: Text.AlignRight
-                                                    role: "meta"
-                                                    color: root.valueUnsupported(modelData) ? Ui.Theme.error : Ui.Theme.textPrimary
-                                                    text: root.displayValue(modelData)
-                                                }
-                                                TextInput {
-                                                    id: editor
-                                                    objectName: "editor-" + modelData.id
-                                                    visible: root.editingId === modelData.id
-                                                    width: 180
-                                                    horizontalAlignment: Text.AlignRight
-                                                    color: Ui.Theme.textPrimary
-                                                    font.family: Ui.Theme.fontFamily
-                                                    font.pixelSize: 26
-                                                    clip: true
-                                                    onVisibleChanged: if (visible) {
-                                                        text = root.editingDraft;
-                                                        forceActiveFocus();
-                                                    }
-                                                    onTextChanged: if (visible && activeFocus) root.editingDraft = text
-                                                    Keys.onPressed: event => {
-                                                        if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                                                            if (!event.isAutoRepeat) root.finishEdit(true);
-                                                            event.accepted = true;
-                                                        } else if (event.key === Qt.Key_Escape) {
-                                                            root.finishEdit(false);
-                                                            event.accepted = true;
-                                                        } else if (event.key === Qt.Key_Up || event.key === Qt.Key_Down) {
-                                                            const step = event.key === Qt.Key_Up ? -1 : 1;
-                                                            root.finishEdit(false);
-                                                            root.moveVertical(step);
-                                                            event.accepted = true;
-                                                        }
-                                                    }
-                                                }
-                                                Ui.UiText {
-                                                    width: 180
-                                                    horizontalAlignment: Text.AlignRight
-                                                    role: "caption"
-                                                    color: root.pathKindLabel(modelData) === qsTr("Unsupported") ? Ui.Theme.error : Ui.Theme.textHint
-                                                    text: root.pathKindLabel(modelData)
-                                                    visible: text.length > 0 && root.editingId !== modelData.id
-                                                }
-                                            }
+                                    Canvas {
+                                        objectName: rowScope.switchRow || root.editingId === modelData.id ? "" : "chevron-" + modelData.id
+                                        visible: root.editingId !== modelData.id
+                                        width: 28
+                                        height: 36
+                                        onPaint: {
+                                            const ctx = getContext("2d");
+                                            ctx.reset();
+                                            ctx.strokeStyle = Ui.Theme.textSecondary;
+                                            ctx.lineWidth = 2.4;
+                                            ctx.lineCap = "round";
+                                            ctx.lineJoin = "round";
+                                            ctx.beginPath();
+                                            ctx.moveTo(8, 8);
+                                            ctx.lineTo(16, 18);
+                                            ctx.lineTo(8, 28);
+                                            ctx.stroke();
                                         }
+                                        Component.onCompleted: requestPaint()
                                     }
                                 }
                             }

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use arinn_protocol::validation::ErrorCode;
+use std::time::Duration;
 
 #[tokio::main]
 async fn main() {
@@ -19,6 +20,7 @@ async fn main() {
 async fn run() -> Result<(), ErrorCode> {
     let connection = zbus::connection::Builder::session()
         .map_err(|_| ErrorCode::Unavailable)?
+        .method_timeout(Duration::from_secs(2))
         .build()
         .await
         .map_err(|_| ErrorCode::Unavailable)?;

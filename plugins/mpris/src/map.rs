@@ -74,15 +74,18 @@ pub(crate) fn subtitle(artists: &[String], album: &str) -> String {
     bounded(chosen)
 }
 
+/// `CanControl` false clears every flag. `play-pause` is offered only when
+/// the player can pause: MPRIS `PlayPause` fails otherwise (ADR-0054).
 pub(crate) fn actions(caps: &Caps) -> Vec<String> {
+    if !caps.control {
+        return Vec::new();
+    }
     let mut names = Vec::new();
     if caps.play {
         names.push(media::ACTION_PLAY.to_string());
     }
     if caps.pause {
         names.push(media::ACTION_PAUSE.to_string());
-    }
-    if caps.control {
         names.push(media::ACTION_PLAY_PAUSE.to_string());
     }
     if caps.seek {
@@ -94,9 +97,7 @@ pub(crate) fn actions(caps: &Caps) -> Vec<String> {
     if caps.previous {
         names.push(media::ACTION_PREVIOUS.to_string());
     }
-    if caps.control {
-        names.push(media::ACTION_STOP.to_string());
-    }
+    names.push(media::ACTION_STOP.to_string());
     names
 }
 
@@ -151,6 +152,17 @@ fn seek_jump(previous: i64, position: i64, elapsed: Duration) -> bool {
     let elapsed_us = i64::try_from(elapsed.as_micros()).unwrap_or(i64::MAX);
     let expected = previous.saturating_add(elapsed_us);
     (position - expected).saturating_abs() > SEEK_SLACK_US
+}
+
+/// Position for a relative seek when a live read is unavailable. While
+/// `playing`, advance from the anchor by the time since it was taken.
+pub(crate) fn extrapolated_position(sample: &Sample, now: Instant) -> i64 {
+    if sample.state != "playing" {
+        return sample.position_us;
+    }
+    let elapsed = now.saturating_duration_since(sample.anchored_at);
+    let elapsed_us = i64::try_from(elapsed.as_micros()).unwrap_or(i64::MAX);
+    sample.position_us.saturating_add(elapsed_us)
 }
 
 pub(crate) fn project(
@@ -278,13 +290,35 @@ mod tests {
         );
         let mut partial = caps(false);
         partial.play = true;
+        partial.pause = true;
         partial.seek = true;
-        assert_eq!(actions(&partial), vec!["play", "seek"]);
+        assert!(actions(&partial).is_empty());
         partial.control = true;
+        partial.pause = false;
+        assert_eq!(actions(&partial), vec!["play", "seek", "stop"]);
+        partial.pause = true;
         assert_eq!(
             actions(&partial),
-            vec!["play", "play-pause", "seek", "stop"]
+            vec!["play", "pause", "play-pause", "seek", "stop"]
         );
+    }
+
+    #[test]
+    fn relative_seek_advances_from_the_anchor_while_playing() {
+        let now = Instant::now();
+        let sample = Sample {
+            anchor_us: 10,
+            anchored_at: now,
+            state: "playing".into(),
+            position_us: 1_000,
+        };
+        let later = now + Duration::from_millis(400);
+        assert_eq!(extrapolated_position(&sample, later), 401_000);
+        let paused = Sample {
+            state: "paused".into(),
+            ..sample
+        };
+        assert_eq!(extrapolated_position(&paused, later), 1_000);
     }
 
     #[test]

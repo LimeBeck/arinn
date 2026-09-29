@@ -5,7 +5,7 @@
 //! No rich interfaces. Artwork URLs are not read or forwarded.
 use crate::map::{self, Caps, RawPlayer, Sample};
 use arinn_plugin_sdk::runtime::{MediaAction, MediaHandler, MediaService, run_media_on};
-use arinn_protocol::validation::ErrorCode;
+use arinn_protocol::{media::Session, validation::ErrorCode};
 use futures_util::StreamExt;
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
@@ -17,12 +17,15 @@ use std::{
 use tokio::sync::{Mutex, Notify};
 use zbus::{
     Connection,
-    names::InterfaceName,
+    proxy::CacheProperties,
     zvariant::{ObjectPath, OwnedValue},
 };
 
 const PLAYER_PATH: &str = "/org/mpris/MediaPlayer2";
 const PLAYER_INTERFACE: &str = "org.mpris.MediaPlayer2.Player";
+const NO_TRACK: &str = "/org/mpris/MediaPlayer2/TrackList/NoTrack";
+/// One player that never answers must not hold the snapshot loop.
+const READ_TIMEOUT: Duration = Duration::from_secs(1);
 
 #[zbus::proxy(
     interface = "org.mpris.MediaPlayer2.Player",
@@ -46,11 +49,28 @@ impl Drop for AbortOnDrop {
     }
 }
 
+#[derive(Clone)]
+enum PlayerRead {
+    Pending,
+    Failed,
+    Ready(RawPlayer),
+}
+
+struct Snapshot {
+    id: String,
+    previous: Option<Sample>,
+    published: Option<Session>,
+    latest: Arc<Mutex<PlayerRead>>,
+}
+
 struct Tracked {
     bus_name: String,
     sample: Option<Sample>,
+    session: Option<Session>,
     track_id: Option<String>,
+    latest: Arc<Mutex<PlayerRead>>,
     listener: Option<tokio::task::JoinHandle<()>>,
+    reader: tokio::task::JoinHandle<()>,
 }
 
 #[derive(Clone)]
@@ -99,22 +119,34 @@ impl Bridge {
         let mut tick = tokio::time::interval(Duration::from_millis(250));
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
+            // Name changes first. A slow read must not sit ahead of them.
             tokio::select! {
+                biased;
                 event = name_events.recv() => {
                     let Some(event) = event else {
                         return Err(ErrorCode::Unavailable);
                     };
-                    let Ok(args) = event.args() else { continue };
-                    if map::session_id(args.name.as_str()).is_none() {
-                        continue;
-                    }
-                    self.rescan(&bus).await;
+                    self.on_name(&bus, event).await;
+                    continue;
                 }
                 _ = self.wake.notified() => {}
                 _ = tick.tick() => {}
             }
+            while let Ok(event) = name_events.try_recv() {
+                self.on_name(&bus, event).await;
+            }
             self.publish(&service).await?;
         }
+    }
+
+    async fn on_name(&self, bus: &zbus::fdo::DBusProxy<'_>, event: zbus::fdo::NameOwnerChanged) {
+        let Ok(args) = event.args() else {
+            return;
+        };
+        if map::session_id(args.name.as_str()).is_none() {
+            return;
+        }
+        self.rescan(bus).await;
     }
 
     async fn rescan(&self, bus: &zbus::fdo::DBusProxy<'_>) {
@@ -135,81 +167,94 @@ impl Bridge {
             .cloned()
             .collect();
         for id in stale {
-            if let Some(tracked) = players.remove(&id)
-                && let Some(listener) = tracked.listener
-            {
-                listener.abort();
+            if let Some(tracked) = players.remove(&id) {
+                tracked.reader.abort();
+                if let Some(listener) = tracked.listener {
+                    listener.abort();
+                }
             }
         }
         for (id, bus_name) in desired {
             if players.contains_key(&id) {
                 continue;
             }
+            let latest = Arc::new(Mutex::new(PlayerRead::Pending));
+            let reader = spawn_reader(
+                self.connection.clone(),
+                bus_name.clone(),
+                latest.clone(),
+                self.wake.clone(),
+            );
             let listener = listen(self.connection.clone(), bus_name.clone(), self.wake.clone());
             players.insert(
                 id,
                 Tracked {
                     bus_name,
                     sample: None,
+                    session: None,
                     track_id: None,
+                    latest,
                     listener: Some(listener),
+                    reader,
                 },
             );
         }
     }
 
     async fn publish(&self, service: &MediaService) -> Result<(), ErrorCode> {
-        let names: Vec<(String, String, Option<Sample>)> = {
+        let names: Vec<Snapshot> = {
             let players = self.players.lock().await;
             players
                 .iter()
-                .map(|(id, tracked)| (id.clone(), tracked.bus_name.clone(), tracked.sample.clone()))
+                .map(|(id, tracked)| Snapshot {
+                    id: id.clone(),
+                    previous: tracked.sample.clone(),
+                    published: tracked.session.clone(),
+                    latest: tracked.latest.clone(),
+                })
                 .collect()
         };
         let force = {
             let mut force = self.force.lock().await;
             std::mem::take(&mut *force)
         };
-        let now = Instant::now();
-        let now_us = map::monotonic_us();
         let mut sessions = Vec::new();
-        let mut dead = Vec::new();
         let mut samples = BTreeMap::new();
         let mut tracks = BTreeMap::new();
-        for (id, bus_name, previous) in names {
-            let Ok(raw) = read_player(&self.connection, &bus_name).await else {
-                dead.push(id);
+        let mut published = BTreeMap::new();
+        for player in names {
+            let PlayerRead::Ready(raw) = player.latest.lock().await.clone() else {
+                if let Some(last) = player.published {
+                    sessions.push(last);
+                }
                 continue;
             };
             let (session, sample) = map::project(
-                &id,
+                &player.id,
                 &raw,
-                previous.as_ref(),
-                force.contains(&id),
-                now,
-                now_us,
+                player.previous.as_ref(),
+                force.contains(&player.id),
+                Instant::now(),
+                map::monotonic_us(),
             );
             if session.validate().is_err() {
-                dead.push(id);
+                if let Some(last) = player.published {
+                    sessions.push(last);
+                }
                 continue;
             }
-            tracks.insert(id.clone(), raw.track_id);
-            samples.insert(id, sample);
+            tracks.insert(player.id.clone(), raw.track_id);
+            samples.insert(player.id.clone(), sample);
+            published.insert(player.id, session.clone());
             sessions.push(session);
         }
         {
             let mut players = self.players.lock().await;
-            for id in dead {
-                if let Some(tracked) = players.remove(&id)
-                    && let Some(listener) = tracked.listener
-                {
-                    listener.abort();
-                }
-            }
             for (id, sample) in samples {
                 if let Some(tracked) = players.get_mut(&id) {
                     tracked.track_id = tracks.remove(&id).flatten();
                     tracked.sample = Some(sample);
+                    tracked.session = published.remove(&id);
                 }
             }
         }
@@ -222,20 +267,17 @@ impl Bridge {
         id: String,
         position_us: i64,
     ) -> Result<(), ErrorCode> {
-        let (bus_name, track_id, current) = {
+        let (bus_name, stored_track, sample) = {
             let players = self.players.lock().await;
             let tracked = players.get(&id).ok_or(ErrorCode::NotFound)?;
             (
                 tracked.bus_name.clone(),
                 tracked.track_id.clone(),
-                tracked
-                    .sample
-                    .as_ref()
-                    .map(|sample| sample.position_us)
-                    .unwrap_or(0),
+                tracked.sample.clone(),
             )
         };
         let proxy = PlayerProxy::builder(&self.connection)
+            .cache_properties(CacheProperties::No)
             .destination(bus_name.as_str())
             .map_err(|_| ErrorCode::Unavailable)?
             .path(PLAYER_PATH)
@@ -244,26 +286,52 @@ impl Bridge {
             .await
             .map_err(|_| ErrorCode::Unavailable)?;
         let result = match action {
-            MediaAction::Play => proxy.play().await,
-            MediaAction::Pause => proxy.pause().await,
-            MediaAction::PlayPause => proxy.play_pause().await,
-            MediaAction::Next => proxy.next().await,
-            MediaAction::Previous => proxy.previous().await,
-            MediaAction::Stop => proxy.stop().await,
-            MediaAction::Seek => match track_id.as_deref() {
-                Some(track) => {
-                    let path = ObjectPath::try_from(track).map_err(|_| ErrorCode::Unavailable)?;
-                    proxy.set_position(path, position_us).await
-                }
-                None => proxy.seek(position_us.saturating_sub(current)).await,
-            },
+            MediaAction::Play => bounded(proxy.play()).await,
+            MediaAction::Pause => bounded(proxy.pause()).await,
+            MediaAction::PlayPause => bounded(proxy.play_pause()).await,
+            MediaAction::Next => bounded(proxy.next()).await,
+            MediaAction::Previous => bounded(proxy.previous()).await,
+            MediaAction::Stop => bounded(proxy.stop()).await,
+            MediaAction::Seek => {
+                self.seek(&proxy, &bus_name, stored_track, sample, position_us)
+                    .await
+            }
         };
-        result.map_err(|_| ErrorCode::Unavailable)?;
+        result?;
         if action == MediaAction::Seek {
             self.force.lock().await.insert(id);
         }
         self.wake.notify_one();
         Ok(())
+    }
+}
+
+impl Bridge {
+    async fn seek(
+        &self,
+        proxy: &PlayerProxy<'_>,
+        bus_name: &str,
+        stored_track: Option<String>,
+        sample: Option<Sample>,
+        position_us: i64,
+    ) -> Result<(), ErrorCode> {
+        let (track_id, current) = match read_player(&self.connection, bus_name).await {
+            Ok(raw) => (raw.track_id, raw.position_us),
+            Err(_) => {
+                let current = sample
+                    .as_ref()
+                    .map(|sample| map::extrapolated_position(sample, Instant::now()))
+                    .unwrap_or(0);
+                (stored_track, current)
+            }
+        };
+        match track_id.as_deref() {
+            Some(track) => {
+                let path = ObjectPath::try_from(track).map_err(|_| ErrorCode::Unavailable)?;
+                bounded(proxy.set_position(path, position_us)).await
+            }
+            None => bounded(proxy.seek(position_us.saturating_sub(current))).await,
+        }
     }
 }
 
@@ -278,14 +346,40 @@ impl MediaHandler for Bridge {
     }
 }
 
+fn spawn_reader(
+    connection: Connection,
+    bus_name: String,
+    latest: Arc<Mutex<PlayerRead>>,
+    wake: Arc<Notify>,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        // The snapshot loop never waits on this task. A lost or stalled read
+        // is abandoned and tried again so a player that appears after its name
+        // is still published (AC-09).
+        loop {
+            let next =
+                match tokio::time::timeout(READ_TIMEOUT, read_player_once(&connection, &bus_name))
+                    .await
+                {
+                    Ok(Ok(raw)) => PlayerRead::Ready(raw),
+                    _ => PlayerRead::Failed,
+                };
+            *latest.lock().await = next;
+            wake.notify_one();
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+    })
+}
+
 fn listen(
     connection: Connection,
     bus_name: String,
     wake: Arc<Notify>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        let Ok(builder) =
-            zbus::fdo::PropertiesProxy::builder(&connection).destination(bus_name.as_str())
+        let Ok(builder) = zbus::fdo::PropertiesProxy::builder(&connection)
+            .cache_properties(CacheProperties::No)
+            .destination(bus_name.as_str())
         else {
             return;
         };
@@ -304,20 +398,34 @@ fn listen(
     })
 }
 
+async fn bounded(call: impl Future<Output = zbus::Result<()>>) -> Result<(), ErrorCode> {
+    match tokio::time::timeout(READ_TIMEOUT, call).await {
+        Ok(Ok(())) => Ok(()),
+        _ => Err(ErrorCode::Unavailable),
+    }
+}
+
 async fn read_player(connection: &Connection, bus_name: &str) -> Result<RawPlayer, ErrorCode> {
-    let properties = zbus::fdo::PropertiesProxy::builder(connection)
-        .destination(bus_name)
-        .map_err(|_| ErrorCode::Unavailable)?
-        .path(PLAYER_PATH)
-        .map_err(|_| ErrorCode::Unavailable)?
-        .build()
+    match tokio::time::timeout(READ_TIMEOUT, read_player_once(connection, bus_name)).await {
+        Ok(result) => result,
+        Err(_) => Err(ErrorCode::Unavailable),
+    }
+}
+
+async fn read_player_once(connection: &Connection, bus_name: &str) -> Result<RawPlayer, ErrorCode> {
+    let reply = connection
+        .call_method(
+            Some(bus_name),
+            PLAYER_PATH,
+            Some("org.freedesktop.DBus.Properties"),
+            "GetAll",
+            &PLAYER_INTERFACE,
+        )
         .await
         .map_err(|_| ErrorCode::Unavailable)?;
-    let interface =
-        InterfaceName::try_from(PLAYER_INTERFACE).map_err(|_| ErrorCode::Unavailable)?;
-    let values = properties
-        .get_all(interface)
-        .await
+    let values = reply
+        .body()
+        .deserialize()
         .map_err(|_| ErrorCode::Unavailable)?;
     Ok(decode(&values))
 }
@@ -402,7 +510,7 @@ fn object_path(value: &OwnedValue) -> Option<String> {
         return None;
     };
     let path = path.as_str();
-    (!path.is_empty() && path != "/").then(|| path.to_owned())
+    (!path.is_empty() && path != "/" && path != NO_TRACK).then(|| path.to_owned())
 }
 
 fn string_list(value: &OwnedValue) -> Vec<String> {

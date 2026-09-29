@@ -158,6 +158,16 @@ impl Player {
     }
 }
 
+/// `PlaybackStatus` never returns, so `GetAll` on this player does not finish.
+struct HungPlayer;
+#[zbus::interface(name = "org.mpris.MediaPlayer2.Player")]
+impl HungPlayer {
+    #[zbus(property)]
+    async fn playback_status(&self) -> String {
+        std::future::pending().await
+    }
+}
+
 fn owned(value: impl Into<zbus::zvariant::Value<'static>>) -> OwnedValue {
     OwnedValue::try_from(value.into()).unwrap()
 }
@@ -376,6 +386,10 @@ async fn scenario() {
     let other = player("Other", false);
     let other_calls = other.0.clone();
     *other_calls.position.lock().unwrap() = 1_000;
+    other_calls.metadata.lock().unwrap().insert(
+        "mpris:trackid".into(),
+        owned(OwnedObjectPath::try_from("/org/mpris/MediaPlayer2/TrackList/NoTrack").unwrap()),
+    );
     other_bus
         .object_server()
         .at("/org/mpris/MediaPlayer2", other)
@@ -395,6 +409,17 @@ async fn scenario() {
     );
     assert_eq!(both.sessions[1].title, "Other");
     assert!(both.sessions[1].artwork.is_empty());
+    assert_eq!(both.sessions[1].position_us, 1_000);
+    // The published position stays at the anchor. The offset must use the
+    // live Position (500_000), and the no-track id must not become SetPosition.
+    *other_calls.position.lock().unwrap() = 500_000;
+    let before = other_calls.calls.lock().unwrap().len();
+    proxy
+        .seek(both.generation.as_str(), "other", 4_000_000)
+        .await
+        .unwrap();
+    wait_call(&other_calls, before, "Seek:3500000").await;
+    *other_calls.position.lock().unwrap() = 1_000;
 
     player_bus
         .release_name("org.mpris.MediaPlayer2.fixture")
@@ -403,20 +428,9 @@ async fn scenario() {
     let (left,) = wait_page(&proxy, |page| page.sessions.len() == 1).await;
     assert_eq!(left.sessions[0].id, "other");
 
-    let before = other_calls.calls.lock().unwrap().clone();
+    let before = other_calls.calls.lock().unwrap().len();
     proxy.seek(&left.generation, "other", 4_000).await.unwrap();
-    let deadline = Instant::now() + Duration::from_secs(3);
-    loop {
-        let recorded = other_calls.calls.lock().unwrap().clone();
-        if recorded.len() > before.len() {
-            assert_eq!(recorded.last().map(String::as_str), Some("Seek:3000"));
-            break;
-        }
-        if Instant::now() > deadline {
-            panic!("relative seek was not recorded");
-        }
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
+    wait_call(&other_calls, before, "Seek:3000").await;
 
     other_bus
         .release_name("org.mpris.MediaPlayer2.other")
@@ -427,11 +441,133 @@ async fn scenario() {
     runner.abort();
 }
 
+async fn hung_scenario() {
+    let bus = Bus::start();
+    let daemon = bus.connection().await;
+    daemon
+        .object_server()
+        .at(production::PATH, Daemon)
+        .await
+        .unwrap();
+    daemon.request_name(production::SERVICE).await.unwrap();
+
+    let provider = bus.connection().await;
+    let destination = provider.unique_name().unwrap().clone();
+    let runner = tokio::spawn(async move {
+        serve(provider).await.unwrap();
+    });
+    let proxy = MediaProviderProxy::builder(&daemon)
+        .destination(&destination)
+        .unwrap()
+        .build()
+        .await
+        .unwrap();
+
+    let hung_bus = bus.connection().await;
+    hung_bus
+        .object_server()
+        .at("/org/mpris/MediaPlayer2", HungPlayer)
+        .await
+        .unwrap();
+    hung_bus
+        .request_name("org.mpris.MediaPlayer2.hung")
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    let healthy_bus = bus.connection().await;
+    let healthy = player("Healthy", true);
+    let healthy_iface = healthy.clone();
+    let healthy_state = healthy.0.clone();
+    healthy_bus
+        .object_server()
+        .at("/org/mpris/MediaPlayer2", healthy)
+        .await
+        .unwrap();
+    healthy_bus
+        .request_name("org.mpris.MediaPlayer2.healthy")
+        .await
+        .unwrap();
+
+    let (page,) = wait_page_for(&proxy, Duration::from_secs(8), |page| {
+        page.sessions.iter().any(|session| session.id == "healthy")
+    })
+    .await;
+    assert!(page.sessions.iter().all(|session| session.id != "hung"));
+    let answered = tokio::time::timeout(Duration::from_secs(2), proxy.get_sessions("")).await;
+    assert!(
+        answered.is_ok(),
+        "GetSessions did not return while a player was stalled"
+    );
+
+    *healthy_state.status.lock().unwrap() = "Paused".into();
+    emit(&healthy_bus, &healthy_iface, "status").await;
+    let (paused,) = wait_page_for(&proxy, Duration::from_secs(8), |page| {
+        page.sessions
+            .iter()
+            .any(|session| session.id == "healthy" && session.state == "paused")
+    })
+    .await;
+    assert!(paused.sessions.iter().all(|session| session.id != "hung"));
+    runner.abort();
+}
+
+async fn late_scenario() {
+    let bus = Bus::start();
+    let daemon = bus.connection().await;
+    daemon
+        .object_server()
+        .at(production::PATH, Daemon)
+        .await
+        .unwrap();
+    daemon.request_name(production::SERVICE).await.unwrap();
+
+    let provider = bus.connection().await;
+    let destination = provider.unique_name().unwrap().clone();
+    let runner = tokio::spawn(async move {
+        serve(provider).await.unwrap();
+    });
+    let proxy = MediaProviderProxy::builder(&daemon)
+        .destination(&destination)
+        .unwrap()
+        .build()
+        .await
+        .unwrap();
+
+    let player_bus = bus.connection().await;
+    player_bus
+        .request_name("org.mpris.MediaPlayer2.late")
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let fixture = player("Late", true);
+    player_bus
+        .object_server()
+        .at("/org/mpris/MediaPlayer2", fixture)
+        .await
+        .unwrap();
+
+    let (page,) = wait_page(&proxy, |page| {
+        page.sessions.iter().any(|session| session.id == "late")
+    })
+    .await;
+    assert_eq!(page.sessions[0].title, "Late");
+    runner.abort();
+}
+
 async fn wait_page(
     proxy: &MediaProviderProxy<'_>,
     ready: impl Fn(&arinn_protocol::media::SessionPage) -> bool,
 ) -> (arinn_protocol::media::SessionPage,) {
-    let deadline = Instant::now() + Duration::from_secs(5);
+    wait_page_for(proxy, Duration::from_secs(5), ready).await
+}
+
+async fn wait_page_for(
+    proxy: &MediaProviderProxy<'_>,
+    limit: Duration,
+    ready: impl Fn(&arinn_protocol::media::SessionPage) -> bool,
+) -> (arinn_protocol::media::SessionPage,) {
+    let deadline = Instant::now() + limit;
     loop {
         if let Ok(Ok(page)) =
             tokio::time::timeout(Duration::from_secs(2), proxy.get_sessions("")).await
@@ -446,18 +582,29 @@ async fn wait_page(
     }
 }
 
-fn child() {
-    if std::env::var_os("ARINN_MPRIS_CHILD").is_some() {
-        return;
+async fn wait_call(inner: &Arc<Inner>, before: usize, expected: &str) {
+    let deadline = Instant::now() + Duration::from_secs(3);
+    loop {
+        let recorded = inner.calls.lock().unwrap().clone();
+        if recorded.len() > before {
+            assert_eq!(recorded.last().map(String::as_str), Some(expected));
+            return;
+        }
+        if Instant::now() > deadline {
+            panic!("call {expected} was not recorded, got {recorded:?}");
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
     }
-    let token = std::env::temp_dir().join(format!("arinn-mpris-{}", std::process::id()));
+}
+
+fn enter(test: &str) -> bool {
+    if std::env::var_os("ARINN_MPRIS_CHILD").is_some() {
+        return true;
+    }
+    let token = std::env::temp_dir().join(format!("arinn-mpris-{}-{}", test, std::process::id()));
     std::fs::write(&token, "fixture-token").unwrap();
     let output = Command::new(std::env::current_exe().unwrap())
-        .args([
-            "--exact",
-            "mpris_players_appear_and_take_commands",
-            "--nocapture",
-        ])
+        .args(["--exact", test, "--nocapture"])
         .env("ARINN_MPRIS_CHILD", "1")
         .env("ARINN_PROVIDER_ID", "mpris")
         .env("ARINN_PLUGIN_ID", "mpris")
@@ -472,14 +619,32 @@ fn child() {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+    false
 }
 
 #[test]
 fn mpris_players_appear_and_take_commands() {
-    if std::env::var_os("ARINN_MPRIS_CHILD").is_some() {
-        let runtime = tokio::runtime::Runtime::new().unwrap();
-        runtime.block_on(scenario());
+    if !enter("mpris_players_appear_and_take_commands") {
         return;
     }
-    child();
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    runtime.block_on(scenario());
+}
+
+#[test]
+fn mpris_hung_player_does_not_block_other_sessions() {
+    if !enter("mpris_hung_player_does_not_block_other_sessions") {
+        return;
+    }
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    runtime.block_on(hung_scenario());
+}
+
+#[test]
+fn mpris_player_appears_after_a_failed_first_read() {
+    if !enter("mpris_player_appears_after_a_failed_first_read") {
+        return;
+    }
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    runtime.block_on(late_scenario());
 }

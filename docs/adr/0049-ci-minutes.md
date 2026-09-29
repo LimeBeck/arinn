@@ -43,8 +43,10 @@ The repository is private, so GitHub-hosted Actions minutes are limited. On
   which a host-level job could not clean. At the owner's request
   (2026-09-29) the CLA workflow uses the same switch; it runs no pull request
   code. The release and label workflows keep `ubuntu-latest`: they run rarely.
-  Before the repository becomes public, self-hosted runners must be revisited,
-  because pull requests from forks could then run on them (#74).
+  The self-hosted runner is used only while the repository is private (owner,
+  2026-09-29): when it becomes public, `ARINN_RUNNER` is removed so every job
+  returns to GitHub-hosted runners and pull requests from forks never run on
+  the owner's machine (#74).
 
 ## Consequences
 

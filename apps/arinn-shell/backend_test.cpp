@@ -45,17 +45,36 @@ private slots:
     QTest::keyClick(window, Qt::Key_Escape);
     QTRY_VERIFY(!window->property("navOpen").toBool());
     QTRY_COMPARE_WITH_TIMEOUT(backend.applications().size(), 1, 5000);
-    auto first = findItem(window->contentItem(), "menuButton");
-    QQuickItem *second = nullptr;
-    QTRY_VERIFY(
-        second = findItem(
-            window->contentItem(),
-            "entry-" +
-                backend.applications().at(0).toMap().value("id").toString()));
-    QVERIFY(first);
-    QCOMPARE(backend.homeState(), QString("ready"));
+    QTRY_COMPARE(backend.homeState(), QString("ready"));
+    const auto appId =
+        backend.applications().at(0).toMap().value("id").toString();
+    const auto shortcutCount = backend.webShortcuts().size();
+    const auto favorites = backend.favorites();
+    QCOMPARE(favorites.size(), shortcutCount + backend.applications().size());
+    for (int i = 0; i < shortcutCount; ++i)
+      QCOMPARE(favorites.at(i).toMap().value("id").toString(),
+               backend.webShortcuts().at(i).toMap().value("id").toString());
+    QCOMPARE(favorites.at(shortcutCount).toMap().value("id").toString(), appId);
     auto home = window->findChild<QQuickItem *>("productionHome");
     QVERIFY(home);
+    QCOMPARE(home->property("screen").toString(), QString("home"));
+    QCOMPARE(home->property("favoriteEntries").toList().size(),
+             favorites.size());
+    bool onApplicationsRoute = false;
+    for (const auto &entry : home->property("applicationEntries").toList())
+      if (entry.toMap().value("id").toString() == appId)
+        onApplicationsRoute = true;
+    QVERIFY(onApplicationsRoute);
+    auto first = findItem(window->contentItem(), "menuButton");
+    QQuickItem *second = nullptr;
+    QTRY_VERIFY(second = findItem(window->contentItem(), "entry-" + appId));
+    QVERIFY(first);
+    QVERIFY(second->isVisible());
+    bool inFavorites = false;
+    for (auto *item = second; item; item = item->parentItem())
+      if (item->objectName() == QStringLiteral("favorites"))
+        inFavorites = true;
+    QVERIFY(inFavorites);
     second->forceActiveFocus();
     QTRY_VERIFY(second->hasActiveFocus());
     QSignalSpy updates(&backend, &Backend::applicationsChanged);

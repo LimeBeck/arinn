@@ -30,14 +30,6 @@ MANIFEST_PATH = ROOT / "tests/ui/visual/manifest.json"
 SCREENSHOTS = ROOT / "docs/design/handoff/screenshots"
 CAPTURE_QML = ROOT / "tests/ui/visual/capture.qml"
 REQUEST = ROOT / "tests/ui/visual/capture-request.js"
-REQUEST_STUB = """// SPDX-FileCopyrightText: 2026 Arinn contributors
-// SPDX-License-Identifier: GPL-3.0-or-later
-
-.pragma library
-
-function output() { return "" }
-function scale() { return "" }
-"""
 MARKER = "ARINN_CAPTURE "
 
 
@@ -101,22 +93,25 @@ def parse_captures(output: str) -> list[dict]:
     return rows
 
 
-def run_capture(
-    binary: Path, output: Path, scale: str, scale_factor: str | None
-) -> tuple[int, str, list[dict]]:
-    output.mkdir(parents=True, exist_ok=True)
+def write_request(stub: str, output: Path, scale: str) -> None:
     safe_output = json.dumps(str(output))
     safe_scale = json.dumps(scale)
-    REQUEST.write_text(
-        "// SPDX-FileCopyrightText: 2026 Arinn contributors\n"
-        "// SPDX-License-Identifier: GPL-3.0-or-later\n"
-        "\n"
-        ".pragma library\n"
-        "\n"
-        f"function output() {{ return {safe_output} }}\n"
-        f"function scale() {{ return {safe_scale} }}\n",
-        encoding="utf-8",
-    )
+    lines = []
+    for line in stub.splitlines():
+        if line.startswith("function output"):
+            lines.append(f"function output() {{ return {safe_output} }}")
+        elif line.startswith("function scale"):
+            lines.append(f"function scale() {{ return {safe_scale} }}")
+        else:
+            lines.append(line)
+    REQUEST.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def run_capture(
+    binary: Path, output: Path, scale: str, scale_factor: str | None, stub: str
+) -> tuple[int, str, list[dict]]:
+    output.mkdir(parents=True, exist_ok=True)
+    write_request(stub, output, scale)
     env = os.environ.copy()
     env["QT_QPA_PLATFORM"] = "offscreen"
     env["QT_QUICK_BACKEND"] = "software"
@@ -137,20 +132,22 @@ def run_capture(
     return result.returncode, combined, rows
 
 
-def require_capture(binary: Path, output: Path, scale: str, scale_factor: str | None) -> list[dict]:
-    code, combined, rows = run_capture(binary, output, scale, scale_factor)
+def require_capture(
+    binary: Path, output: Path, scale: str, scale_factor: str | None, stub: str
+) -> list[dict]:
+    code, combined, rows = run_capture(binary, output, scale, scale_factor, stub)
     if code != 0 or not rows:
         sys.stderr.write(combined)
         raise SystemExit(f"capture failed for {scale} (exit {code})")
     return rows
 
 
-def four_k_captures(binary: Path, output: Path) -> tuple[list[dict], str]:
+def four_k_captures(binary: Path, output: Path, stub: str) -> tuple[list[dict], str]:
     """Prefer a real device pixel ratio of 2. Fall back to a 2× canvas scale."""
-    _code, _combined, rows = run_capture(binary, output, "4k", "2")
+    _code, _combined, rows = run_capture(binary, output, "4k", "2", stub)
     if rows and rows[0].get("width") == 3840 and rows[0].get("height") == 2160:
         return rows, "device pixel ratio 2 (3840×2160 framebuffer, logical 1920×1080)"
-    rows = require_capture(binary, output, "4k-layout", None)
+    rows = require_capture(binary, output, "4k-layout", None, stub)
     if rows[0].get("width") != 3840 or rows[0].get("height") != 2160:
         raise SystemExit(
             f"4K capture was {rows[0].get('width')}×{rows[0].get('height')}, expected 3840×2160"
@@ -313,13 +310,14 @@ def main() -> int:
     if not binary.is_file():
         print(f"missing {binary}; build the arinn-ui-test target first", file=sys.stderr)
         return 1
+    stub = REQUEST.read_text(encoding="utf-8")
     try:
-        rows_1080 = require_capture(binary, output / "1080", "1080", None)
+        rows_1080 = require_capture(binary, output / "1080", "1080", None, stub)
         if rows_1080 and (rows_1080[0].get("width") != 1920 or rows_1080[0].get("height") != 1080):
             raise SystemExit(
                 f"1080p capture was {rows_1080[0].get('width')}×{rows_1080[0].get('height')}"
             )
-        rows_4k, method = four_k_captures(binary, output / "4k")
+        rows_4k, method = four_k_captures(binary, output / "4k", stub)
         expected = [state["id"] for state in manifest["states"] if state.get("render")]
         for label, rows in ("1080", rows_1080), ("4k", rows_4k):
             got = [row["id"] for row in rows]
@@ -327,7 +325,7 @@ def main() -> int:
                 raise SystemExit(f"{label} rendered {got} but the manifest lists {expected}")
         write_reports(output, manifest, {"1080": rows_1080, "4k": rows_4k}, method)
     finally:
-        REQUEST.write_text(REQUEST_STUB, encoding="utf-8")
+        REQUEST.write_text(stub, encoding="utf-8")
     print(f"wrote {output / 'report.html'}")
     return 0
 

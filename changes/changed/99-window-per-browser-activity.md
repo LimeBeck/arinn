@@ -1,0 +1,1 @@
+- Every browser activity is shown as its own fullscreen browser window, and opening an already open service focuses its window instead of adding a tab ([ADR-0050](docs/adr/0050-window-per-browser-activity.md)).

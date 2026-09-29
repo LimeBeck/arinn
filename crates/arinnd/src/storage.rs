@@ -91,7 +91,7 @@ pub struct Config {
     #[serde(default = "yes")]
     pub animations: bool,
     /// Application ID an ApplicationProvider launches when a URL must open
-    /// and no browser is connected (ADR-0054). Empty: the packaged candidate
+    /// and no browser is connected (ADR-0055). Empty: the packaged candidate
     /// list decides.
     #[serde(default)]
     pub browser_application: String,

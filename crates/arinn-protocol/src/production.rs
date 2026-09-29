@@ -86,7 +86,7 @@ pub struct ProviderPage {
     pub providers: Vec<ProviderInfo>,
     pub next_token: String,
 }
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 pub struct EntityRef {
     pub provider_id: String,
     pub capability: String,

@@ -247,10 +247,30 @@ trait Endpoint: Clone + Send + Sync + zbus::object_server::Interface {
     /// Create the snapshot store for a new generation with the current entries.
     fn install(&self, generation: &str) -> impl Future<Output = Result<(), ErrorCode>> + Send;
     fn emit(
+        &self,
         connection: &zbus::Connection,
         generation: &str,
         revision: u64,
     ) -> impl Future<Output = zbus::Result<()>> + Send;
+    /// Export the provider object. Media and library also export optional
+    /// extension interfaces on the same path (ADR-0054).
+    fn export(
+        &self,
+        connection: &zbus::Connection,
+    ) -> impl Future<Output = Result<(), Box<dyn std::error::Error + Send + Sync>>> + Send {
+        let connection = connection.clone();
+        let service = self.clone();
+        async move {
+            if !connection
+                .object_server()
+                .at(production::PROVIDER_PATH, service)
+                .await?
+            {
+                return Err("provider endpoint already exported".into());
+            }
+            Ok(())
+        }
+    }
 }
 
 /// Connect using the launch context created by arinnd. No mutating application
@@ -304,13 +324,7 @@ async fn run_endpoint<E: Endpoint>(
     let plugin_id = std::env::var("ARINN_PLUGIN_ID")?;
     let version = std::env::var("ARINN_PLUGIN_VERSION")?;
     let token_file = std::env::var("ARINN_TOKEN_FILE")?;
-    if !connection
-        .object_server()
-        .at(production::PROVIDER_PATH, service.clone())
-        .await?
-    {
-        return Err("provider endpoint already exported".into());
-    }
+    service.export(&connection).await?;
     let daemon = ProductionDaemonProxy::new(&connection).await?;
     let bus = zbus::fdo::DBusProxy::new(&connection).await?;
     // Only daemon ownership affects registration. Unrelated name churn can
@@ -326,7 +340,7 @@ async fn run_endpoint<E: Endpoint>(
             result=updates.changed()=> {
                 if result.is_err(){return Ok(());}
                 let (generation,revision)=updates.borrow_and_update().clone();
-                E::emit(&connection,&generation,revision).await?;
+                service.emit(&connection,&generation,revision).await?;
                 continue;
             },
             _=tick.tick()=>{},
@@ -389,7 +403,7 @@ async fn run_endpoint<E: Endpoint>(
                 daemon_epoch: reply.epoch.clone(),
                 generation: reply.generation.clone(),
             }));
-        E::emit(&connection, &reply.generation, 1).await?;
+        service.emit(&connection, &reply.generation, 1).await?;
     }
 }
 
@@ -428,6 +442,7 @@ impl Endpoint for ApplicationService {
         Ok(())
     }
     async fn emit(
+        &self,
         connection: &zbus::Connection,
         generation: &str,
         revision: u64,
@@ -677,6 +692,7 @@ impl Endpoint for BrowserService {
         Ok(())
     }
     async fn emit(
+        &self,
         connection: &zbus::Connection,
         generation: &str,
         revision: u64,
@@ -685,3 +701,14 @@ impl Endpoint for BrowserService {
         BrowserService::state_changed(&emitter, generation, revision).await
     }
 }
+
+mod library;
+mod media;
+pub use library::{
+    LibraryExtensions, LibraryHandler, LibraryImportHandler, LibraryResumeHandler, LibraryService,
+    run_library, run_library_on,
+};
+pub use media::{
+    MediaAction, MediaExtensions, MediaHandler, MediaOpenHandler, MediaService,
+    MediaTimelineHandler, MediaTracksHandler, run_media, run_media_on,
+};

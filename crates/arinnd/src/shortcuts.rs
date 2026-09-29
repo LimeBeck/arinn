@@ -71,7 +71,7 @@ pub fn load_defaults(roots: &[PathBuf]) -> Option<Vec<WebShortcut>> {
     )
 }
 /// Packaged browser applications to launch when a URL must open and no
-/// browser is connected (ADR-0054): `arinn/browser-applications.toml` in the
+/// browser is connected (ADR-0055): `arinn/browser-applications.toml` in the
 /// first data root that has it. Product IDs live in this packaging data,
 /// never in core code (R-01).
 pub const BROWSER_APPLICATIONS_FILE: &str = "arinn/browser-applications.toml";

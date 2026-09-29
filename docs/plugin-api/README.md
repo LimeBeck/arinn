@@ -16,9 +16,19 @@ capability, but **has not been released as a stable Plugin API**. Requirements:
 | `org.arinn.Operation1` | Daemon-owned operation path returned by a command; [operation1.xml](operation1.xml) |
 | `org.arinn.Browser1` | Daemon-owned `/org/arinn/Daemon1/providers/p_<uuid_hex>` of a `browser` provider; [browser1.xml](browser1.xml) |
 | `org.arinn.BrowserProvider1` | Provider unique bus owner, `/org/arinn/Provider1`; [browser-provider1.xml](browser-provider1.xml) |
+| `org.arinn.Media1` | Daemon-owned `/org/arinn/Daemon1/providers/p_<uuid_hex>` of a `media` provider; [media1.xml](media1.xml). Daemon export is not implemented yet |
+| `org.arinn.MediaProvider1` | Provider unique bus owner, `/org/arinn/Provider1`; [media-provider1.xml](media-provider1.xml) |
+| `org.arinn.MediaOpen1` | Optional provider interface; [media-open1.xml](media-open1.xml) |
+| `org.arinn.MediaTracks1` | Optional provider interface; [media-tracks1.xml](media-tracks1.xml) |
+| `org.arinn.MediaTimeline1` | Optional provider interface; [media-timeline1.xml](media-timeline1.xml) |
+| `org.arinn.Library1` | Daemon-owned provider path of a `library` provider; [library1.xml](library1.xml). Daemon export is not implemented yet |
+| `org.arinn.LibraryProvider1` | Provider unique bus owner, `/org/arinn/Provider1`; [library-provider1.xml](library-provider1.xml) |
+| `org.arinn.LibraryResume1` | Optional provider interface; [library-resume1.xml](library-resume1.xml) |
+| `org.arinn.LibraryImport1` | Optional provider interface; [library-import1.xml](library-import1.xml) |
 
-The private-bus suite compares these files to live introspection. Struct field
-order is defined in `arinn-protocol::production` and `application`; methods returning
+The private-bus suite compares the implemented daemon exports to live
+introspection. Provider XML for browser, media and library is compared by the
+SDK tests. Struct field order is defined in `arinn-protocol`; methods returning
 one struct use a one-element tuple to preserve the D-Bus body signature for QtDBus.
 The old [phase0.xml](phase0.xml) is historical evidence, not an active interface.
 
@@ -48,6 +58,36 @@ the shell through `org.arinn.Browser1` ([browser1.xml](browser1.xml)). Types are
 The SDK serves the provider side with `runtime::BrowserService` and
 `run_browser`/`run_browser_on`; its private-bus test compares the live export with
 the XML.
+
+### Media and library contract
+
+`media` providers export `org.arinn.MediaProvider1`
+([media-provider1.xml](media-provider1.xml)); `library` providers export
+`org.arinn.LibraryProvider1` ([library-provider1.xml](library-provider1.xml)).
+Types are in `arinn-protocol::media` and `arinn-protocol::library`. Decisions
+are in [ADR-0054](../adr/0054-media-and-library-wire-contract.md). `Media1` and
+`Library1` are specified for the daemon path and are not exported yet.
+
+- A session is `(id, title, subtitle, artwork, state, duration_us, position_us,
+  anchor_us, actions, has_content, content)`. `artwork` is an asset id or empty.
+  `anchor_us` is `CLOCK_MONOTONIC` microseconds. Only state `playing` advances.
+  Unknown duration is −1. Position and seek are microseconds.
+- `Features` lists `MediaOpen1`, `MediaTracks1` and `MediaTimeline1` when those
+  interfaces are exported. An MPRIS provider returns an empty list. A missing
+  flag is `Unsupported` on the daemon methods, never a successful no-op.
+- `MediaOpen1.Open` takes a `file:///` URI. The shell never sends it. Library
+  `Launch` returns that URI to the daemon only.
+- A library page is collections plus items. Year, season and episode use a
+  has-value flag. `available` false keeps a missing file in the catalogue.
+  `parent_id` links an episode to its series.
+- `LibraryResume1` and `LibraryImport1` are optional. `SetProgress` and
+  `ImportCompleted` are daemon-to-provider methods. Resume revisions do not
+  bump the catalogue revision.
+
+The SDK serves the provider side with `runtime::MediaService` and
+`runtime::LibraryService` (`run_media` / `run_library`). Private-bus tests
+compare the live provider export with the XML. File URIs and titles are not
+logged.
 
 ### Platform window contract (production implementation pending)
 
@@ -149,9 +189,11 @@ fixtures through manifest reloads on a private bus. See the
 [implementation record](../architecture/phase-1-progress.md) for evidence and limits.
 
 Known capabilities are `application`, `browser`, `media`, `library`, `action` and
-`download`. Only application has a runtime contract in Phase 1; the others are
-explicitly incompatible until implemented. [MVP extensions](mvp-extensions.md)
-require their own typed XML and contract fixtures.
+`download`. The daemon routes `application` and `browser`. Media and library
+have provider contracts and SDK services ([ADR-0054](../adr/0054-media-and-library-wire-contract.md));
+the daemon does not route them yet. `action` and `download` stay incompatible
+until their XML exists. [MVP extensions](mvp-extensions.md) describe the media
+flags and the download model; download XML is still outstanding.
 
 ## Licensing
 

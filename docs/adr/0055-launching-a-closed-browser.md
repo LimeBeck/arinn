@@ -1,4 +1,4 @@
-# ADR-0054: Launching a closed browser before opening a URL
+# ADR-0055: Launching a closed browser before opening a URL
 
 - **Status:** Accepted
 - **Date:** 2026-09-29

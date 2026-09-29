@@ -4,7 +4,7 @@
 - **Date:** 2026-09-27 (proposed); accepted 2026-09-27 by [ADR-0028](0028-documentation-governance.md)
 - **Deciders:** project owner (Developer Specification v0.3)
 - **Amends / Supersedes:** —
-- **Amended by / Superseded by:** [ADR-0021](0021-plugin-runtime-ownership.md) (session priority, units, position anchors), [ADR-0024](0024-local-library-mpv.md) (rich playback through mpv)
+- **Amended by / Superseded by:** [ADR-0021](0021-plugin-runtime-ownership.md) (session priority, units, position anchors), [ADR-0024](0024-local-library-mpv.md) (rich playback through mpv), [ADR-0054](0054-media-and-library-wire-contract.md) (wire schema)
 - **Specification:** [§7.3](../specifications/arinn-specification.md)
 
 ## Context

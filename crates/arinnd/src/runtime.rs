@@ -28,7 +28,7 @@ use uuid::Uuid;
 use zbus::{Connection, message::Header, object_server::SignalEmitter, zvariant::OwnedObjectPath};
 
 /// Opening a URL with the browser closed: launch, connection and open share
-/// the launch timeout of spec §9.5 (ADR-0054).
+/// the launch timeout of spec §9.5 (ADR-0055).
 const BROWSER_LAUNCH_DEADLINE: Duration = Duration::from_secs(30);
 /// How long opening a URL waits for the browser's next snapshot before it
 /// only hides Home (ADR-0052).
@@ -76,7 +76,7 @@ pub struct Core {
     // Serializes token rotation so the token file and the registry agree
     // (#66): a vanished owner's `unavailable` can race `launch` in a reload.
     rotation: Arc<Mutex<()>>,
-    // One browser launch at a time: concurrent opens wait for it (ADR-0054).
+    // One browser launch at a time: concurrent opens wait for it (ADR-0055).
     browser_launch: Arc<Mutex<()>>,
     pub operations: Operations,
     pub connection: Connection,
@@ -750,7 +750,7 @@ impl Core {
     /// Open a URL in the default browser provider: the first ready `browser`
     /// provider with a connected browser. Used by web shortcuts (ADR-0043).
     /// With no browser connected, the browser application is launched first
-    /// (ADR-0038, ADR-0054); the whole open shares one launch deadline.
+    /// (ADR-0038, ADR-0055); the whole open shares one launch deadline.
     pub async fn open_url(&self, url: &str) -> Result<(), ErrorCode> {
         arinn_protocol::web::open_url(url)?;
         let deadline = tokio::time::Instant::now() + BROWSER_LAUNCH_DEADLINE;
@@ -812,7 +812,7 @@ impl Core {
     }
 
     /// Launch the browser application through an ApplicationProvider and
-    /// wait until a browser connects, within `deadline` (ADR-0054). Without a
+    /// wait until a browser connects, within `deadline` (ADR-0055). Without a
     /// ready browser provider there is nothing to open the URL in, so nothing
     /// is launched. A mutating launch is never retried.
     async fn launch_browser(&self, deadline: tokio::time::Instant) -> Result<(), ErrorCode> {

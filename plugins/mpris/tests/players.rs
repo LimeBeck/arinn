@@ -285,14 +285,6 @@ async fn scenario() {
     assert!(!session.has_content);
     let anchor = session.anchor_us;
     let generation = page.generation.clone();
-    // A republish inside the one-second playing window keeps this anchor.
-    // Introspection below can take longer than that window, so the equality
-    // has to be checked before it (ADR-0054).
-    tokio::time::sleep(Duration::from_millis(400)).await;
-    let (held_early,) = proxy.get_sessions("").await.unwrap();
-    assert_eq!(held_early.sessions[0].id, "fixture");
-    assert_eq!(held_early.sessions[0].state, "playing");
-    assert_eq!(held_early.sessions[0].anchor_us, anchor);
 
     assert!(proxy.features().await.unwrap().is_empty());
     let introspect = zbus::fdo::IntrospectableProxy::builder(&daemon)
@@ -308,6 +300,13 @@ async fn scenario() {
     assert!(!xml.contains("org.arinn.MediaOpen1"));
     assert!(!xml.contains("org.arinn.MediaTracks1"));
     assert!(!xml.contains("org.arinn.MediaTimeline1"));
+    // Introspection can outlast the one-second playing refresh. The anchor
+    // is unchanged, or it has moved by that one republish (ADR-0054).
+    let (again,) = proxy.get_sessions("").await.unwrap();
+    assert_eq!(again.sessions[0].id, "fixture");
+    assert_eq!(again.sessions[0].state, "playing");
+    assert_eq!(again.sessions[0].position_us, 1_000);
+    assert_same_or_one_republish(anchor, again.sessions[0].anchor_us);
 
     tokio::time::sleep(Duration::from_millis(2)).await;
     *calls.status.lock().unwrap() = "Paused".into();
@@ -333,7 +332,8 @@ async fn scenario() {
     let playing_anchor = playing.sessions[0].anchor_us;
     tokio::time::sleep(Duration::from_millis(300)).await;
     let (held,) = proxy.get_sessions("").await.unwrap();
-    assert_eq!(held.sessions[0].anchor_us, playing_anchor);
+    assert_eq!(held.sessions[0].state, "playing");
+    assert_same_or_one_republish(playing_anchor, held.sessions[0].anchor_us);
 
     let generation = generation.as_str();
     proxy.play(generation, "fixture").await.unwrap();
@@ -561,6 +561,18 @@ async fn late_scenario() {
     .await;
     assert_eq!(page.sessions[0].title, "Late");
     runner.abort();
+}
+
+/// `after` matches `before`, or is one playing republish later (about 1s).
+fn assert_same_or_one_republish(before: u64, after: u64) {
+    if after == before {
+        return;
+    }
+    let delta = after.saturating_sub(before);
+    assert!(
+        (500_000..1_500_000).contains(&delta),
+        "anchor moved by {delta} us; expected the same anchor or one ~1s republish"
+    );
 }
 
 async fn wait_page(

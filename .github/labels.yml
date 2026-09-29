@@ -11,7 +11,7 @@
   description: Claimed by a Codex agent
 - name: agent:cursor
   color: "8250df"
-  description: For or claimed by a Cursor agent; the owner assigns Cursor tasks with it
+  description: Claimed by a Cursor agent
 - name: needs-owner
   color: "d93f0b"
   description: Waiting for a decision by the project owner (ADR-0037)

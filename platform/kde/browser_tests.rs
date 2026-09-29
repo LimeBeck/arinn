@@ -97,6 +97,22 @@ impl FakeBrowser {
     ) -> zbus::Result<()>;
 }
 
+/// An ApplicationProvider whose launch "starts" the browser: the fake
+/// browser reports a connection afterwards (ADR-0054).
+#[derive(Clone)]
+struct FakeApps {
+    calls: Arc<StdMutex<Vec<String>>>,
+    browser_backend: Arc<StdMutex<String>>,
+}
+#[zbus::interface(name = "org.arinn.Provider1")]
+impl FakeApps {
+    fn launch(&self, _generation: &str, id: &str) -> production::Result<()> {
+        self.calls.lock().unwrap().push(format!("launch {id}"));
+        *self.browser_backend.lock().unwrap() = "available".into();
+        Ok(())
+    }
+}
+
 struct Fixture {
     bus: Child,
     folder: PathBuf,
@@ -298,6 +314,100 @@ impl Fixture {
             .unwrap()
         })
     }
+}
+
+impl Fixture {
+    /// Serve an application provider with one launchable application and
+    /// mark the browser as closed.
+    async fn with_closed_browser(&self, application: &str) -> FakeApps {
+        let apps = FakeApps {
+            calls: Arc::default(),
+            browser_backend: self.browser.backend.clone(),
+        };
+        self.client
+            .object_server()
+            .at(production::PROVIDER_PATH, apps.clone())
+            .await
+            .unwrap();
+        *self.browser.backend.lock().unwrap() = "unavailable".into();
+        let mut state = self.core.state.lock().await;
+        state
+            .providers
+            .get_mut("chrome")
+            .unwrap()
+            .info
+            .backend_state = "unavailable".into();
+        let mut desktop = Provider {
+            info: state.providers["chrome"].info.clone(),
+            manifest: None,
+            unit: "desktop.service".into(),
+            token_file: self.folder.join("desktop.token"),
+            token: String::new(),
+            owner: self.client.unique_name().unwrap().to_string(),
+            cache: None,
+            applications: vec![Application {
+                id: application.into(),
+                title: "Browser".into(),
+                can_launch: true,
+                group: "online".into(),
+            }],
+            running: Vec::new(),
+            tab_cache: None,
+            windows: Vec::new(),
+            tabs: Vec::new(),
+            started: Instant::now(),
+            enabled: true,
+        };
+        desktop.info.id = "desktop".into();
+        desktop.info.plugin_id = "desktop".into();
+        desktop.info.capabilities = vec!["application".into()];
+        desktop.info.runtime_state = "ready".into();
+        desktop.info.backend_state = "available".into();
+        state.providers.insert("desktop".into(), desktop);
+        apps
+    }
+    fn configure_browser(&self, application: &str) {
+        crate::storage::Config {
+            browser_application: application.into(),
+            ..Default::default()
+        }
+        .save(&self.core.paths.config)
+        .unwrap();
+    }
+}
+
+#[tokio::test]
+async fn a_closed_browser_is_launched_before_the_url_opens() {
+    let f = Fixture::new().await;
+    let apps = f.with_closed_browser("browser.desktop").await;
+    f.configure_browser("browser.desktop");
+    let command = f.take_command();
+    assert_eq!(f.core.open_url("https://example.org/").await, Ok(()));
+    // Launched once, then the URL opened in the connected browser.
+    assert_eq!(*apps.calls.lock().unwrap(), vec!["launch browser.desktop"]);
+    assert_eq!(
+        *f.browser.calls.lock().unwrap(),
+        vec!["open https://example.org/"]
+    );
+    assert_eq!(command.await.unwrap(), "dismiss");
+    // Now the browser is connected: no second launch.
+    let command = f.take_command();
+    assert_eq!(f.core.open_url("https://example.org/b").await, Ok(()));
+    assert_eq!(apps.calls.lock().unwrap().len(), 1);
+    command.await.unwrap();
+}
+
+#[tokio::test]
+async fn nothing_is_launched_without_a_known_browser_application() {
+    let f = Fixture::new().await;
+    let apps = f.with_closed_browser("editor.desktop").await;
+    f.configure_browser("browser.desktop");
+    assert_eq!(
+        f.core.open_url("https://example.org/").await,
+        Err(ErrorCode::Unavailable)
+    );
+    assert!(apps.calls.lock().unwrap().is_empty());
+    assert!(f.browser.calls.lock().unwrap().is_empty());
 }
 
 #[tokio::test]

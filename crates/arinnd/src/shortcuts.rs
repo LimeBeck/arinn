@@ -70,6 +70,40 @@ pub fn load_defaults(roots: &[PathBuf]) -> Option<Vec<WebShortcut>> {
             .collect(),
     )
 }
+/// Packaged browser applications to launch when a URL must open and no
+/// browser is connected (ADR-0055): `arinn/browser-applications.toml` in the
+/// first data root that has it. Product IDs live in this packaging data,
+/// never in core code (R-01).
+pub const BROWSER_APPLICATIONS_FILE: &str = "arinn/browser-applications.toml";
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BrowserApplicationsFile {
+    applications: Vec<String>,
+}
+pub fn browser_candidates(roots: &[PathBuf]) -> Vec<String> {
+    let Some(path) = roots
+        .iter()
+        .map(|root| root.join(BROWSER_APPLICATIONS_FILE))
+        .find(|path| path.is_file())
+    else {
+        return Vec::new();
+    };
+    let mut text = String::new();
+    let read = std::fs::File::open(&path)
+        .and_then(|f| f.take(MAX_DEFAULTS_BYTES + 1).read_to_string(&mut text));
+    if read.is_err() || text.len() as u64 > MAX_DEFAULTS_BYTES {
+        return Vec::new();
+    }
+    toml::from_str::<BrowserApplicationsFile>(&text)
+        .map(|f| {
+            f.applications
+                .into_iter()
+                .filter(|id| arinn_protocol::validation::id(id).is_ok())
+                .take(16)
+                .collect()
+        })
+        .unwrap_or_default()
+}
 /// Absolute XDG data roots in precedence order.
 pub fn data_roots() -> Vec<PathBuf> {
     let home = std::env::var_os("HOME").map(PathBuf::from);
@@ -274,4 +308,41 @@ impl WebShortcuts {
     }
     #[zbus(signal, name = "Changed")]
     async fn changed_signal(emitter: &SignalEmitter<'_>, revision: u64) -> zbus::Result<()>;
+}
+
+#[cfg(test)]
+mod browser_candidate_tests {
+    use super::*;
+
+    #[test]
+    fn packaged_browser_candidates_come_from_the_first_root_that_has_them() {
+        let base = std::env::temp_dir().join(format!("arinn-browsers-{}", uuid::Uuid::new_v4()));
+        let (first, second) = (base.join("home"), base.join("system"));
+        for root in [&first, &second] {
+            std::fs::create_dir_all(root.join("arinn")).unwrap();
+        }
+        assert!(browser_candidates(&[first.clone(), second.clone()]).is_empty());
+        std::fs::write(
+            second.join(BROWSER_APPLICATIONS_FILE),
+            "applications = [\"a.desktop\", \"\", \"b.desktop\"]",
+        )
+        .unwrap();
+        // Invalid (here: empty) IDs are dropped, order is kept.
+        assert_eq!(
+            browser_candidates(&[first.clone(), second.clone()]),
+            ["a.desktop", "b.desktop"]
+        );
+        std::fs::write(
+            first.join(BROWSER_APPLICATIONS_FILE),
+            "applications = [\"c.desktop\"]",
+        )
+        .unwrap();
+        assert_eq!(
+            browser_candidates(&[first.clone(), second.clone()]),
+            ["c.desktop"]
+        );
+        std::fs::write(first.join(BROWSER_APPLICATIONS_FILE), "unknown = 1").unwrap();
+        assert!(browser_candidates(&[first, second]).is_empty());
+        std::fs::remove_dir_all(base).unwrap();
+    }
 }

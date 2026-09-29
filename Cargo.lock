@@ -15,6 +15,7 @@ dependencies = [
  "anyhow",
  "arinn-plugin-sdk",
  "arinn-protocol",
+ "arinnd",
  "futures-util",
  "serde",
  "serde_json",

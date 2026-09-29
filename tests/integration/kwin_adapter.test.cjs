@@ -16,11 +16,24 @@ function signal() {
 }
 function fixture() {
     const output = { name: 'second-screen' };
+    const trace = [];
     function window(uuid, klass) {
-        return { internalId: uuid, resourceClass: klass, normalWindow: true,
+        const fields = { keepAbove: false, minimized: false };
+        const w = { internalId: uuid, resourceClass: klass, normalWindow: true,
             output, fullScreen: true, desktopFileName: klass === 'org.arinn.Shell' ? klass : 'org.test',
             wantsInput: true, closeable: true, closed: 0, closeWindow() { this.closed++; },
             outputChanged: signal(), fullScreenChanged: signal() };
+        for (const name of ['keepAbove', 'minimized']) {
+            Object.defineProperty(w, name, {
+                enumerable: true,
+                get() { return fields[name]; },
+                set(value) {
+                    fields[name] = value;
+                    trace.push({ kind: name, window: w, value });
+                },
+            });
+        }
+        return w;
     }
     const activity = window('original-id', 'game');
     const home = window('shell-id', 'org.arinn.Shell');
@@ -29,7 +42,13 @@ function fixture() {
     let locked = false, generation = randomUUID(), stage = [];
     const snapshots = [], acknowledgements = [], controls = [];
     let owner = ":1.10"; const polls = [];
-    const workspace = { activeWindow: activity, activeScreen: output, screens: [output],
+    let activeWindow = activity;
+    const workspace = { activeScreen: output, screens: [output],
+        get activeWindow() { return activeWindow; },
+        set activeWindow(value) {
+            activeWindow = value;
+            trace.push({ kind: 'activeWindow', window: value });
+        },
         windowList: () => windows, windowAdded: signal(), windowRemoved: signal(),
         windowActivated: signal(), sendClientToScreen: (w, o) => { w.output = o; } };
     const context = vm.createContext({ workspace,
@@ -53,11 +72,12 @@ function fixture() {
             if (method === 'TakeCommand') { takeCommand = args[0]; polls.push(takeCommand); }
             if (method === 'ReportHome') {
                 report = args.slice(0, 3);
+                trace.push({ kind: 'ReportHome', visible: args[0] });
                 if (typeof args[3] === 'function') args[3]();
             }
         } });
     vm.runInContext(fs.readFileSync(path.join(__dirname, '../../platform/kde/phase0.js'), 'utf8'), context);
-    return { activity, home, workspace, window, polls, snapshots, acknowledgements, controls,
+    return { activity, home, workspace, window, polls, snapshots, acknowledgements, controls, trace,
         refresh() { tick(); }, lock(value) { locked = value; },
         command(action, token) { control([randomUUID(), action, token]); },
         reconnect(value) { owner = value; tick(); },
@@ -200,4 +220,45 @@ test('Plasma lock surface and input method are never application windows', () =>
     const input = f.window('input-surface', 'input'); input.inputMethod = true;
     f.add(locker); f.add(input); f.refresh();
     assert.equal(f.snapshots.at(-1).rows.length, 1);
+});
+
+// Clearing keepAbove before the Activity is active leaves a frame where the
+// Plasma panel is covered by neither surface (#79).
+function assertCoversPanelFirst(trace, from, activity, home) {
+    function at(pred) {
+        for (let i = from; i < trace.length; i++) if (pred(trace[i])) return i;
+        return -1;
+    }
+    const unminimized = at(e => e.kind === 'minimized' && e.window === activity && e.value === false);
+    const activated = at(e => e.kind === 'activeWindow' && e.window === activity);
+    const lowered = at(e => e.kind === 'keepAbove' && e.window === home && e.value === false);
+    const reported = at(e => e.kind === 'ReportHome' && e.visible === false);
+    assert.ok(unminimized !== -1, 'un-minimizes the Activity');
+    assert.ok(activated !== -1, 'activates the Activity');
+    assert.ok(lowered !== -1, 'clears keepAbove on the shell');
+    assert.ok(reported !== -1, 'reports Home hidden');
+    assert.ok(unminimized < activated, 'un-minimize before focus');
+    assert.ok(activated < lowered, 'focus before the shell drops keepAbove');
+    assert.ok(lowered < reported, 'ReportHome after the shell steps down');
+}
+
+test('Return and activate cover the panel before the shell steps down', () => {
+    const f = fixture();
+    f.show();
+    f.activity.minimized = true;
+    let from = f.trace.length;
+    f.back();
+    assertCoversPanelFirst(f.trace, from, f.activity, f.home);
+    assert.equal(f.workspace.activeWindow, f.activity);
+    assert.equal(f.report()[0], false);
+
+    f.show();
+    f.activity.minimized = true;
+    from = f.trace.length;
+    const token = f.snapshots.at(-1).rows[0][0];
+    f.command('activate', token);
+    assertCoversPanelFirst(f.trace, from, f.activity, f.home);
+    assert.equal(f.workspace.activeWindow, f.activity);
+    assert.equal(f.acknowledgements.at(-1)[2], '');
+    assert.equal(f.report()[0], false);
 });

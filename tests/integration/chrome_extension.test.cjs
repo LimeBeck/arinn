@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The Arinn MV3 extension against a mocked chrome API (spec §7.1, ADR-0048).
+// The Arinn MV3 extension against a mocked chrome API (spec §7.1, ADR-0048, ADR-0050).
 "use strict";
 const assert = require("node:assert/strict");
 const crypto = require("node:crypto");
@@ -46,10 +46,16 @@ function load({ windows, connectFails = false } = {}) {
             },
         },
         windows: {
-            onCreated: event(), onRemoved: event(), onFocusChanged: event(),
+            onCreated: event(), onRemoved: event(), onFocusChanged: event(), onBoundsChanged: event(),
             async getAll(options) {
                 calls.push(["windows.getAll", options]);
-                return state.map(w => ({ ...w, tabs: options.populate ? w.tabs : undefined }));
+                return state.filter(w => options.windowTypes.includes(w.type || "normal"))
+                    .map(w => ({ type: "normal", ...w, tabs: options.populate ? w.tabs : undefined }));
+            },
+            async get(id, options = {}) {
+                const w = state.find(w => w.id === id);
+                if (!w) throw new Error(`No window with id: ${id}.`);
+                return { type: "normal", ...w, tabs: options.populate ? w.tabs : undefined };
             },
             async update(id, props) { calls.push(["windows.update", id, props]); return { id }; },
             async create(props) { calls.push(["windows.create", props]); return { id: 99 }; },
@@ -68,10 +74,15 @@ function load({ windows, connectFails = false } = {}) {
                 if (!tabsById().has(id)) throw new Error(`No tab with id: ${id}.`);
             },
             async create(props) { calls.push(["tabs.create", props]); return { id: 100 }; },
+            async get(id) {
+                const tab = tabsById().get(id);
+                if (!tab) throw new Error(`No tab with id: ${id}.`);
+                return tab;
+            },
         },
     };
     const context = {
-        chrome, console, String, Math, Map, Error,
+        chrome, console, String, Math, Map, Error, URL,
         setTimeout: (f, ms) => { timers.push({ f, ms }); return timers.length; },
         clearTimeout: id => { if (timers[id - 1]) timers[id - 1].f = null; },
     };
@@ -147,16 +158,103 @@ test("commands run and report results by serial", async () => {
     assert.deepEqual(results(), [[1, ""], [2, "NotFound"], [3, ""], [4, "InvalidArgument"], [5, "InvalidArgument"]]);
     assert.ok(x.calls.some(c => c[0] === "tabs.update" && c[1] === 7));
     assert.ok(x.calls.some(c => c[0] === "windows.update" && c[1] === 1 && c[2].focused));
-    assert.ok(x.calls.some(c => c[0] === "tabs.create" && c[1].windowId === 1 && c[1].url === "https://example.org/"));
+    assert.ok(!x.calls.some(c => c[0] === "tabs.create"), "open never adds a tab to a window");
 });
 
-test("open without a normal window creates one", async () => {
+async function open(x, url) {
+    x.calls.length = 0;
+    x.ports[0].onMessage.fire({ type: "command", serial: 1, action: "open", tabId: 0, url });
+    for (let i = 0; i < 4; i++) await x.flush();
+    return x.posted.filter(m => m.type === "result").at(-1).error;
+}
+
+const managed = [
+    { id: 1, focused: false, incognito: false, tabs: [{ id: 7, title: "Browser", url: "https://video.example/", active: true }] },
+    { id: 3, type: "popup", focused: true, incognito: false, tabs: [{ id: 10, title: "Video", url: "https://video.example/watch?v=1", active: true }] },
+    { id: 4, type: "popup", focused: false, incognito: true, tabs: [{ id: 11, title: "Private", url: "https://mail.example/", active: true }] },
+];
+
+test("open creates a fullscreen popup window for a new service", async () => {
     const x = load({ windows: [] });
     await x.flush();
-    x.ports[0].onMessage.fire({ type: "command", serial: 1, action: "open", tabId: 0, url: "https://example.org/" });
+    assert.equal(await open(x, "https://example.org/"), "");
+    assert.deepEqual(JSON.parse(JSON.stringify(x.calls.filter(c => c[0].startsWith("windows.") && c[0] !== "windows.getAll"))), [
+        ["windows.create", { url: "https://example.org/", type: "popup", focused: true }],
+        ["windows.update", 99, { focused: true, state: "fullscreen" }],
+    ]);
+});
+
+test("open of an already open origin focuses its window instead of creating one", async () => {
+    const x = load({ windows: managed });
     await x.flush();
+    assert.equal(await open(x, "https://video.example/other"), "");
+    assert.ok(!x.calls.some(c => c[0] === "windows.create" || c[0] === "tabs.create"));
+    assert.deepEqual(JSON.parse(JSON.stringify(x.calls.find(c => c[0] === "windows.update"))),
+        ["windows.update", 3, { focused: true, state: "fullscreen" }]);
+});
+
+test("open matches the origin, not the host or the path", async () => {
+    const x = load({ windows: managed });
     await x.flush();
-    assert.ok(x.calls.some(c => c[0] === "windows.create" && c[1].url === "https://example.org/"));
+    // A different scheme or port is a different service; incognito and
+    // ordinary windows are never reused.
+    for (const url of ["http://video.example/", "https://video.example:8443/", "https://mail.example/"]) {
+        assert.equal(await open(x, url), "");
+        assert.ok(x.calls.some(c => c[0] === "windows.create" && c[1].url === url), url);
+    }
+});
+
+test("a tab opened from a managed window moves into its own fullscreen window", async () => {
+    const x = load({ windows: managed });
+    await x.flush();
+    // Chrome put the new tab into the ordinary window 1.
+    x.setState([{ ...managed[0], tabs: [
+        { id: 7, title: "Browser", url: "https://video.example/", active: false },
+        { id: 12, title: "", url: "https://video.example/next", active: true, openerTabId: 10 },
+    ] }, managed[1], managed[2]]);
+    x.calls.length = 0;
+    x.chrome.tabs.onCreated.fire({ id: 12, windowId: 1, openerTabId: 10, incognito: false });
+    for (let i = 0; i < 6; i++) await x.flush();
+    assert.deepEqual(JSON.parse(JSON.stringify(x.calls.filter(c => c[0] !== "windows.getAll"))), [
+        ["windows.create", { tabId: 12, type: "popup", focused: true }],
+        ["windows.update", 99, { state: "fullscreen" }],
+    ]);
+});
+
+test("tabs not opened from a managed window stay where they are", async () => {
+    const x = load({ windows: managed });
+    await x.flush();
+    x.calls.length = 0;
+    // No opener, an opener in an ordinary window, an unknown opener, a lone
+    // tab already in its own popup, and an incognito tab.
+    x.chrome.tabs.onCreated.fire({ id: 20, windowId: 1, incognito: false });
+    x.chrome.tabs.onCreated.fire({ id: 21, windowId: 1, openerTabId: 7, incognito: false });
+    x.chrome.tabs.onCreated.fire({ id: 22, windowId: 1, openerTabId: 404, incognito: false });
+    x.chrome.tabs.onCreated.fire({ id: 10, windowId: 3, openerTabId: 10, incognito: false });
+    x.chrome.tabs.onCreated.fire({ id: 23, windowId: 4, openerTabId: 11, incognito: true });
+    for (let i = 0; i < 6; i++) await x.flush();
+    assert.ok(!x.calls.some(c => c[0] === "windows.create" || c[0] === "windows.update"));
+});
+
+test("a managed window that leaves fullscreen returns to it", async () => {
+    const x = load({ windows: managed });
+    await x.flush();
+    x.calls.length = 0;
+    x.chrome.windows.onBoundsChanged.fire({ id: 3, type: "popup", state: "normal", incognito: false });
+    // Ordinary, minimised, fullscreen and incognito windows are left alone.
+    x.chrome.windows.onBoundsChanged.fire({ id: 1, type: "normal", state: "normal", incognito: false });
+    x.chrome.windows.onBoundsChanged.fire({ id: 3, type: "popup", state: "minimized", incognito: false });
+    x.chrome.windows.onBoundsChanged.fire({ id: 3, type: "popup", state: "fullscreen", incognito: false });
+    x.chrome.windows.onBoundsChanged.fire({ id: 4, type: "popup", state: "normal", incognito: true });
+    await x.flush();
+    assert.deepEqual(JSON.parse(JSON.stringify(x.calls)), [["windows.update", 3, { state: "fullscreen" }]]);
+});
+
+test("snapshots include managed popup windows", async () => {
+    const x = load({ windows: managed });
+    await x.flush();
+    assert.deepEqual(JSON.parse(JSON.stringify(x.posted[0].windows)), [{ id: 1, focused: false }, { id: 3, focused: true }]);
+    assert.deepEqual(JSON.parse(JSON.stringify(x.posted[0].tabs.map(t => t.id))), [7, 10]);
 });
 
 test("reconnects with capped exponential backoff and never replays commands", async () => {

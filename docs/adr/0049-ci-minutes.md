@@ -40,8 +40,11 @@ The repository is private, so GitHub-hosted Actions minutes are limited. On
   run in containers (`python:3.12`, `rust:1`), so a runner on any Linux
   distribution needs only Docker and git. No job runs on the host itself:
   container jobs leave root-owned files in the runner's shared workspace,
-  which a host-level job could not clean. The CLA workflow is owner-gated and
-  keeps `ubuntu-latest`.
+  which a host-level job could not clean. At the owner's request
+  (2026-09-29) the CLA workflow uses the same switch; it runs no pull request
+  code. The release and label workflows keep `ubuntu-latest`: they run rarely.
+  Before the repository becomes public, self-hosted runners must be revisited,
+  because pull requests from forks could then run on them (#74).
 
 ## Consequences
 

@@ -2,6 +2,8 @@ name: Release
 
 # Publishes a GitHub release for a tag vX.Y.Z only after the full CI suite,
 # including the package build and install smoke test, passes on that commit.
+# Jobs run in containers like CI, so a self-hosted runner (ARINN_RUNNER,
+# ADR-0049) needs only Docker and git.
 
 on:
   push:
@@ -13,13 +15,14 @@ permissions:
 jobs:
   check:
     name: Version and changelog
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.ARINN_RUNNER || 'ubuntu-latest' }}
+    container: python:3.12
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-      - run: python scripts/release.py check "${GITHUB_REF_NAME}"
+      # The checkout belongs to the runner user, not to root in the container.
+      - run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          python scripts/release.py check "${GITHUB_REF_NAME}"
 
   ci:
     name: Full CI
@@ -29,14 +32,12 @@ jobs:
   publish:
     name: Publish release
     needs: [check, ci]
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.ARINN_RUNNER || 'ubuntu-latest' }}
+    container: python:3.12
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
       - uses: actions/download-artifact@v8
         with:
           name: arinn-arch-package

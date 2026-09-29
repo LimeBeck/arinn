@@ -1,0 +1,3 @@
+- Power and ambient overlay fixture with Sleep, Restart and Shut down. Restart and Shut down ask for confirmation, Sleep and ambient emit intents only, and a refusal stays an error.
+- Power menu uses a full-screen dim scrim and a centered glass panel, with tall rows and side-by-side confirmation pills.
+- Opening ambient does not also wake it. The next key or pointer move does.

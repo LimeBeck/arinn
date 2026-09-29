@@ -47,15 +47,23 @@ function showHome() {
         rpc("ReportHome", true, target, homeOutput, raiseShell);
     });
 }
+// Give the Activity the screen before the shell stops covering it. Clearing
+// keepAbove first leaves a frame where neither surface covers the panel (#79).
+function handOff(w) {
+    w.minimized = false;
+    workspace.activeWindow = w;
+    const home = shell();
+    if (home) home.keepAbove = false;
+    homeVisible = false;
+    target = "";
+    detachedTarget = "";
+}
 function returnToActivity() {
     if (!homeVisible) return;
     const w = workspace.windowList().find(w => id(w) === (target || detachedTarget));
     if (!w) { target = ""; rpc("ReportHome", true, "", homeOutput); return; }
-    const home = shell(); if (home) home.keepAbove = false;
-    homeVisible = false;
-    rpc("ReportHome", false, "", homeOutput, () => { w.minimized = false; workspace.activeWindow = w; });
-    target = "";
-    detachedTarget = "";
+    handOff(w);
+    rpc("ReportHome", false, "", homeOutput);
 }
 function dismissHome() {
     // A launched application replaces Home: hide it without activating the
@@ -260,11 +268,8 @@ function pollControl() {
                     w.closeWindow();
                 } else {
                     if (w.wantsInput !== true) { complete("Unsupported"); return; }
-                    const home = shell(); if (home) home.keepAbove = false;
-                    homeVisible = false; target = detachedTarget = "";
+                    handOff(w);
                     rpc("ReportHome", false, "", homeOutput);
-                    w.minimized = false;
-                    workspace.activeWindow = w;
                 }
                 complete("");
             } catch (_) { complete("Unavailable"); }

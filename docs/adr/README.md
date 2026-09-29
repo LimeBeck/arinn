@@ -66,6 +66,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0045](0045-local-http-web-shortcuts.md) | Plain HTTP web shortcuts for local-network hosts | Accepted | — |
 | [0046](0046-shell-input-layer-during-playback.md) | The shell is the input layer during managed playback | Accepted | — |
 | [0047](0047-faster-package-builds.md) | Cached package builds and no release-mode check() on pull requests | Accepted | — |
-| [0048](0048-browser-wire-contract.md) | Browser wire contract (Browser1 and BrowserProvider1) | Accepted | — |
+| [0048](0048-browser-wire-contract.md) | Browser wire contract (Browser1 and BrowserProvider1) | Accepted | 0050 |
 | [0049](0049-ci-minutes.md) | Spend fewer CI minutes | Accepted | — |
+| [0050](0050-window-per-browser-activity.md) | One fullscreen browser window per browser activity | Accepted | — |
 <!-- register:end -->

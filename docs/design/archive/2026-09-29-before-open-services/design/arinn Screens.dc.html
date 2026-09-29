@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>html,body{margin:0;background:#101113}*{box-sizing:border-box}a{color:oklch(0.75 0.17 50);text-decoration:none}a:hover{color:#fff}</style>
+</helmet>
+<section style="padding:80px;display:flex;flex-direction:column;gap:48px;font-family:'Onest',sans-serif;color:oklch(0.95 0.004 260)">
+  <div style="display:flex;flex-direction:column;gap:12px;max-width:1400px">
+    <div style="font-family:'JetBrains Mono',monospace;font-size:14px;letter-spacing:.08em;color:oklch(0.75 0.17 50)">ARINN · 2a «ГЛУБИНА СО СВЕТОМ» · ЭКРАНЫ</div>
+    <div style="font-size:48px;font-weight:700;letter-spacing:-0.02em">Экраны из п. 57</div>
+    <div style="font-size:19px;line-height:1.55;color:oklch(0.80 0.008 260);max-width:1100px">Каждый кадр — живой рендер интерактивного прототипа <a href="arinn.dc.html">Arinn</a> в нужном состоянии, логические 1920×1080 (×2 для 4K). Номер соответствует пункту брифа. Система, токены, проверка размеров с 3 м и логотипы — в <a href="arinn%20Design%20System%20v2.dc.html">arinn Design System v2</a>.</div>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(2,960px);gap:64px 56px">
+    <div id="s01" style="display:flex;flex-direction:column;gap:14px">
+      <div style="display:flex;align-items:baseline;gap:14px"><div style="padding:4px 10px;border-radius:6px;background:oklch(0.75 0.17 50);color:#111;font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:500">01</div><div style="font-size:24px;font-weight:600">Home — спокойный режим</div></div>
+      <div style="position:relative;width:960px;height:540px;border-radius:10px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.5)"><dc-import name="arinn" preset="home" style="position:absolute;inset:0" hint-size="960px,540px"></dc-import></div>
+      <div style="font-size:16px;line-height:1.5;color:oklch(0.72 0.008 260)">Фокус на Steam. Света нет, только глубина.</div>
+    </div>
+    <div id="s02" style="display:flex;flex-direction:column;gap:14px">
+      <div style="display:flex;align-items:baseline;gap:14px"><div style="padding:4px 10px;border-radius:6px;background:oklch(0.75 0.17 50);color:#111;font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:500">02</div><div style="font-size:24px;font-weight:600">Home — фокус на фильме</div></div>
+      <div style="position:relative;width:960px;height:540px;border-radius:10px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.5)"><dc-import name="arinn" preset="home-movie" style="position:absolute;inset:0" hint-size="960px,540px"></dc-import></div>
+      <div style="font-size:16px;line-height:1.5;color:oklch(0.72 0.008 260)">Цвет обложки заливает окружение, карточка светится.</div>
+    </div>
+    <div id="s03" style="display:flex;flex-direction:column;gap:14px">
+      <div style="display:flex;align-items:baseline;gap:14px"><div style="padding:4px 10px;border-radius:6px;background:oklch(0.75 0.17 50);color:#111;font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:500">03</div><div style="font-size:24px;font-weight:600">Home — есть активная Activity</div></div>
+      <div style="position:relative;width:960px;height:540px;border-radius:10px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.5)"><dc-import name="arinn" preset="home-activity" style="position:absolute;inset:0" hint-size="960px,540px"></dc-import></div>
+      <div style="font-size:16px;line-height:1.5;color:oklch(0.72 0.008 260)">Кинопоиск запущен и далеко отодвинут, фокус на медиа.</div>
+    </div>
+    <div id="s16" style="display:flex;flex-direction:column;gap:14px">
+      <div style="display:flex;align-items:baseline;gap:14px"><div style="padding:4px 10px;border-radius:6px;background:oklch(0.75 0.17 50);color:#111;font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:500">16</div><div style="font-size:24px;font-weight:600">Home поверх Кинопоиска</div></div>
+      <div style="position:relative;width:960px;height:540px;border-radius:10px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.5)"><dc-import name="arinn" preset="home-over-activity" style="position:absolute;inset:0" hint-size="960px,540px"></dc-import></div>
+      <div style="font-size:16px;line-height:1.5;color:oklch(0.72 0.008 260)">Фокус на «Вернуться»: активность приближается.</div>
+    </div>
+    <div id="s04" style="display:flex;flex-direction:column;gap:14px">
+      <div style="display:flex;align-items:baseline;gap:14px"><div style="padding:4px 10px;border-radius:6px;background:oklch(0.75 0.17 50);color:#111;font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:500">04</div><div style="font-size:24px;font-weight:600">Глобальная навигация</div></div>
+      <div style="position:relative;width:960px;height:540px;border-radius:10px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.5)"><dc-import name="arinn" preset="nav" style="position:absolute;inset:0" hint-size="960px,540px"></dc-import></div>
+      <div style="font-size:16px;line-height:1.5;color:oklch(0.72 0.008 260)">Плавающий слой поверх текущего экрана. Вызов: Назад на Home, Меню, левый край.</div>
+    </div>
+    <div id="s05" style="display:flex;flex-direction:column;gap:14px">
+      <div style="display:flex;align-items:baseline;gap:14px"><div style="padding:4px 10px;border-radius:6px;background:oklch(0.75 0.17 50);color:#111;font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:500">05</div><div style="font-size:24px;font-weight:600">Медиатека</div></div>
+      <div style="position:relative;width:960px;height:540px;border-radius:10px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.5)"><dc-import name="arinn" preset="library" style="position:absolute;inset:0" hint-size="960px,540px"></dc-import></div>
+      <div style="font-size:16px;line-height:1.5;color:oklch(0.72 0.008 260)">Все / Фильмы / Сериалы. Фон слабее, чем на Home.</div>
+    </div>
+    <div id="s06" style="display:flex;flex-direction:column;gap:14px">
+      <div style="display:flex;align-items:baseline;gap:14px"><div style="padding:4px 10px;border-radius:6px;background:oklch(0.75 0.17 50);color:#111;font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:500">06</div><div style="font-size:24px;font-weight:600">Фильм</div></div>
+      <div style="position:relative;width:960px;height:540px;border-radius:10px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.5)"><dc-import name="arinn" preset="detail" style="position:absolute;inset:0" hint-size="960px,540px"></dc-import></div>
+      <div style="font-size:16px;line-height:1.5;color:oklch(0.72 0.008 260)">Главное действие «Продолжить», если фильм начат.</div>
+    </div>
+    <div id="s07" style="display:flex;flex-direction:column;gap:14px">
+      <div style="display:flex;align-items:baseline;gap:14px"><div style="padding:4px 10px;border-radius:6px;background:oklch(0.75 0.17 50);color:#111;font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:500">07</div><div style="font-size:24px;font-weight:600">Сериал — эпизоды</div></div>
+      <div style="position:relative;width:960px;height:540px;border-radius:10px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.5)"><dc-import name="arinn" preset="show" style="position:absolute;inset:0" hint-size="960px,540px"></dc-import></div>
+      <div style="font-size:16px;line-height:1.5;color:oklch(0.72 0.008 260)">Сезоны вкладками, эпизоды рядом.</div>
+    </div>
+    <div id="s08" style="display:flex;flex-direction:column;gap:14px">
+      <div style="display:flex;align-items:baseline;gap:14px"><div style="padding:4px 10px;border-radius:6px;background:oklch(0.75 0.17 50);color:#111;font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:500">08</div><div style="font-size:24px;font-weight:600">Плеер — без OSD</div></div>
+      <div style="position:relative;width:960px;height:540px;border-radius:10px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.5)"><dc-import name="arinn" preset="player-hidden" style="position:absolute;inset:0" hint-size="960px,540px"></dc-import></div>
+      <div style="font-size:16px;line-height:1.5;color:oklch(0.72 0.008 260)">Только видео.</div>
+    </div>
+    <div id="s09" style="display:flex;flex-direction:column;gap:14px">
+      <div style="display:flex;align-items:baseline;gap:14px"><div style="padding:4px 10px;border-radius:6px;background:oklch(0.75 0.17 50);color:#111;font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:500">09</div><div style="font-size:24px;font-weight:600">Плеер — OSD</div></div>
+      <div style="position:relative;width:960px;height:540px;border-radius:10px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.5)"><dc-import name="arinn" preset="player-osd" style="position:absolute;inset:0" hint-size="960px,540px"></dc-import></div>
+      <div style="font-size:16px;line-height:1.5;color:oklch(0.72 0.008 260)">Таймлайн в фокусе: ←/→ перематывают, OK ставит на паузу.</div>
+    </div>
+    <div id="s10" style="display:flex;flex-direction:column;gap:14px">
+      <div style="display:flex;align-items:baseline;gap:14px"><div style="padding:4px 10px;border-radius:6px;background:oklch(0.75 0.17 50);color:#111;font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:500">10</div><div style="font-size:24px;font-weight:600">Субтитры</div></div>
+      <div style="position:relative;width:960px;height:540px;border-radius:10px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.5)"><dc-import name="arinn" preset="subs" style="position:absolute;inset:0" hint-size="960px,540px"></dc-import></div>
+      <div style="font-size:16px;line-height:1.5;color:oklch(0.72 0.008 260)">Боковая панель, фокус на текущем значении.</div>
+    </div>
+    <div id="s11" style="display:flex;flex-direction:column;gap:14px">
+      <div style="display:flex;align-items:baseline;gap:14px"><div style="padding:4px 10px;border-radius:6px;background:oklch(0.75 0.17 50);color:#111;font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:500">11</div><div style="font-size:24px;font-weight:600">Аудио</div></div>
+      <div style="position:relative;width:960px;height:540px;border-radius:10px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.5)"><dc-import name="arinn" preset="audio" style="position:absolute;inset:0" hint-size="960px,540px"></dc-import></div>
+      <div style="font-size:16px;line-height:1.5;color:oklch(0.72 0.008 260)">Та же панель для серии.</div>
+    </div>
+    <div id="s12" style="display:flex;flex-direction:column;gap:14px">
+      <div style="display:flex;align-items:baseline;gap:14px"><div style="padding:4px 10px;border-radius:6px;background:oklch(0.75 0.17 50);color:#111;font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:500">12</div><div style="font-size:24px;font-weight:600">Загрузки</div></div>
+      <div style="position:relative;width:960px;height:540px;border-radius:10px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.5)"><dc-import name="arinn" preset="downloads" style="position:absolute;inset:0" hint-size="960px,540px"></dc-import></div>
+      <div style="font-size:16px;line-height:1.5;color:oklch(0.72 0.008 260)">Состояния: загрузка, очередь, пауза, готово, ошибка.</div>
+    </div>
+    <div id="s13" style="display:flex;flex-direction:column;gap:14px">
+      <div style="display:flex;align-items:baseline;gap:14px"><div style="padding:4px 10px;border-radius:6px;background:oklch(0.75 0.17 50);color:#111;font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:500">13</div><div style="font-size:24px;font-weight:600">Приложения</div></div>
+      <div style="position:relative;width:960px;height:540px;border-radius:10px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.5)"><dc-import name="arinn" preset="apps" style="position:absolute;inset:0" hint-size="960px,540px"></dc-import></div>
+      <div style="font-size:16px;line-height:1.5;color:oklch(0.72 0.008 260)">Группы Онлайн / Игры / Другое, закреплённые отмечены.</div>
+    </div>
+    <div id="s14" style="display:flex;flex-direction:column;gap:14px">
+      <div style="display:flex;align-items:baseline;gap:14px"><div style="padding:4px 10px;border-radius:6px;background:oklch(0.75 0.17 50);color:#111;font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:500">14</div><div style="font-size:24px;font-weight:600">Настройки</div></div>
+      <div style="position:relative;width:960px;height:540px;border-radius:10px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.5)"><dc-import name="arinn" preset="settings" style="position:absolute;inset:0" hint-size="960px,540px"></dc-import></div>
+      <div style="font-size:16px;line-height:1.5;color:oklch(0.72 0.008 260)">Две колонки, крупные строки, переключатели.</div>
+    </div>
+    <div id="s15" style="display:flex;flex-direction:column;gap:14px">
+      <div style="display:flex;align-items:baseline;gap:14px"><div style="padding:4px 10px;border-radius:6px;background:oklch(0.75 0.17 50);color:#111;font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:500">15</div><div style="font-size:24px;font-weight:600">Питание</div></div>
+      <div style="position:relative;width:960px;height:540px;border-radius:10px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.5)"><dc-import name="arinn" preset="power" style="position:absolute;inset:0" hint-size="960px,540px"></dc-import></div>
+      <div style="font-size:16px;line-height:1.5;color:oklch(0.72 0.008 260)">Сон срабатывает сразу.</div>
+    </div>
+    <div id="s15b" style="display:flex;flex-direction:column;gap:14px">
+      <div style="display:flex;align-items:baseline;gap:14px"><div style="padding:4px 10px;border-radius:6px;background:oklch(0.75 0.17 50);color:#111;font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:500">15b</div><div style="font-size:24px;font-weight:600">Питание — подтверждение</div></div>
+      <div style="position:relative;width:960px;height:540px;border-radius:10px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.5)"><dc-import name="arinn" preset="power-confirm" style="position:absolute;inset:0" hint-size="960px,540px"></dc-import></div>
+      <div style="font-size:16px;line-height:1.5;color:oklch(0.72 0.008 260)">Фокус по умолчанию на «Отмена».</div>
+    </div>
+    <div id="s17" style="display:flex;flex-direction:column;gap:14px">
+      <div style="display:flex;align-items:baseline;gap:14px"><div style="padding:4px 10px;border-radius:6px;background:oklch(0.75 0.17 50);color:#111;font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:500">17</div><div style="font-size:24px;font-weight:600">Пустая медиатека</div></div>
+      <div style="position:relative;width:960px;height:540px;border-radius:10px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.5)"><dc-import name="arinn" preset="library-empty" style="position:absolute;inset:0" hint-size="960px,540px"></dc-import></div>
+      <div style="font-size:16px;line-height:1.5;color:oklch(0.72 0.008 260)">Одно действие: открыть настройки.</div>
+    </div>
+    <div id="s18" style="display:flex;flex-direction:column;gap:14px">
+      <div style="display:flex;align-items:baseline;gap:14px"><div style="padding:4px 10px;border-radius:6px;background:oklch(0.75 0.17 50);color:#111;font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:500">18</div><div style="font-size:24px;font-weight:600">Ошибка — загрузки недоступны</div></div>
+      <div style="position:relative;width:960px;height:540px;border-radius:10px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.5)"><dc-import name="arinn" preset="error" style="position:absolute;inset:0" hint-size="960px,540px"></dc-import></div>
+      <div style="font-size:16px;line-height:1.5;color:oklch(0.72 0.008 260)">Без технических деталей.</div>
+    </div>
+    <div id="s18b" style="display:flex;flex-direction:column;gap:14px">
+      <div style="display:flex;align-items:baseline;gap:14px"><div style="padding:4px 10px;border-radius:6px;background:oklch(0.75 0.17 50);color:#111;font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:500">18b</div><div style="font-size:24px;font-weight:600">Ошибка — браузер не открылся</div></div>
+      <div style="position:relative;width:960px;height:540px;border-radius:10px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.5)"><dc-import name="arinn" preset="browser-error" style="position:absolute;inset:0" hint-size="960px,540px"></dc-import></div>
+      <div style="font-size:16px;line-height:1.5;color:oklch(0.72 0.008 260)">Диалог поверх Home.</div>
+    </div>
+    <div id="s19" style="display:flex;flex-direction:column;gap:14px">
+      <div style="display:flex;align-items:baseline;gap:14px"><div style="padding:4px 10px;border-radius:6px;background:oklch(0.75 0.17 50);color:#111;font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:500">19</div><div style="font-size:24px;font-weight:600">Загрузка</div></div>
+      <div style="position:relative;width:960px;height:540px;border-radius:10px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.5)"><dc-import name="arinn" preset="loading" style="position:absolute;inset:0" hint-size="960px,540px"></dc-import></div>
+      <div style="font-size:16px;line-height:1.5;color:oklch(0.72 0.008 260)">Скелетоны сохраняют раскладку.</div>
+    </div>
+    <div id="s20" style="display:flex;flex-direction:column;gap:14px">
+      <div style="display:flex;align-items:baseline;gap:14px"><div style="padding:4px 10px;border-radius:6px;background:oklch(0.75 0.17 50);color:#111;font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:500">20</div><div style="font-size:24px;font-weight:600">Заставка</div></div>
+      <div style="position:relative;width:960px;height:540px;border-radius:10px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.5)"><dc-import name="arinn" preset="ambient" style="position:absolute;inset:0" hint-size="960px,540px"></dc-import></div>
+      <div style="font-size:16px;line-height:1.5;color:oklch(0.72 0.008 260)">Почти чёрный фон, часы медленно меняют положение.</div>
+    </div>
+  </div>
+</section>
+</x-dc>
+</body>
+</html>

@@ -48,11 +48,17 @@ struct Provider {
     tab_cache: Option<TabSnapshots>,
     windows: Vec<BrowserWindow>,
     tabs: Vec<Tab>,
+    /// `media` providers (ADR-0054, ADR-0058): session cache, sessions and
+    /// the optional interfaces the provider declared.
+    session_cache: Option<arinn_plugin_sdk::snapshots::SessionSnapshots>,
+    sessions: Vec<arinn_protocol::media::Session>,
+    features: Vec<String>,
     started: Instant,
     enabled: bool,
 }
 impl Provider {
-    /// The single capability a provider serves: `application` or `browser`.
+    /// The single capability a provider serves: `application`, `browser` or
+    /// `media`.
     fn capability(&self) -> &str {
         self.info
             .capabilities
@@ -61,8 +67,10 @@ impl Provider {
             .unwrap_or("")
     }
 }
+mod media_routing;
+
 /// Capability sets the daemon routes; anything else is incompatible.
-const ROUTED: &[&str] = &["application", "browser"];
+const ROUTED: &[&str] = &["application", "browser", "media"];
 struct State {
     providers: BTreeMap<String, Provider>,
     error: String,
@@ -249,6 +257,9 @@ impl Core {
                         applications: Vec::new(),
                         running: Vec::new(),
                         tab_cache: None,
+                        session_cache: None,
+                        sessions: Vec::new(),
+                        features: Vec::new(),
                         windows: Vec::new(),
                         tabs: Vec::new(),
                         started: Instant::now(),
@@ -324,7 +335,17 @@ impl Core {
                 self.unavailable(id, &owner).await;
             }
             let server = self.connection.object_server();
-            let exported = if new.capability() == "browser" {
+            let exported = if new.capability() == "media" {
+                server
+                    .at(
+                        new.info.path.clone(),
+                        media_routing::MediaEndpoint {
+                            core: self.clone(),
+                            id: id.clone(),
+                        },
+                    )
+                    .await
+            } else if new.capability() == "browser" {
                 server
                     .at(
                         new.info.path.clone(),
@@ -455,6 +476,9 @@ impl Core {
                 p.tab_cache = None;
                 p.windows.clear();
                 p.tabs.clear();
+                p.session_cache = None;
+                p.sessions.clear();
+                p.features.clear();
                 p.info.revision = 0;
                 p.info.backend_state = "unavailable".into();
                 p.info.runtime_state = "restarting".into();
@@ -552,14 +576,17 @@ impl Core {
         }
     }
     async fn watch_provider(&self, id: String, owner: String, generation: String) {
-        let browser = self
+        let capability = self
             .state
             .lock()
             .await
             .providers
             .get(&id)
-            .is_some_and(|p| p.capability() == "browser");
-        if browser {
+            .map(|p| p.capability().to_owned())
+            .unwrap_or_default();
+        if capability == "media" {
+            self.watch_media(id, owner, generation).await;
+        } else if capability == "browser" {
             self.watch_browser(id, owner, generation).await;
         } else {
             self.watch_applications(id, owner, generation).await;
@@ -1911,6 +1938,9 @@ mod token_tests {
                 applications: Vec::new(),
                 running: Vec::new(),
                 tab_cache: None,
+                session_cache: None,
+                sessions: Vec::new(),
+                features: Vec::new(),
                 windows: Vec::new(),
                 tabs: Vec::new(),
                 started: Instant::now(),

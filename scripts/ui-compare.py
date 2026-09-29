@@ -29,7 +29,15 @@ ROOT = Path(__file__).resolve().parents[1]
 MANIFEST_PATH = ROOT / "tests/ui/visual/manifest.json"
 SCREENSHOTS = ROOT / "docs/design/handoff/screenshots"
 CAPTURE_QML = ROOT / "tests/ui/visual/capture.qml"
-REQUEST = ROOT / "tests/ui/visual/.capture-request.json"
+REQUEST = ROOT / "tests/ui/visual/capture-request.js"
+REQUEST_STUB = """// SPDX-FileCopyrightText: 2026 Arinn contributors
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+.pragma library
+
+function output() { return "" }
+function scale() { return "" }
+"""
 MARKER = "ARINN_CAPTURE "
 
 
@@ -97,17 +105,26 @@ def run_capture(
     binary: Path, output: Path, scale: str, scale_factor: str | None
 ) -> tuple[int, str, list[dict]]:
     output.mkdir(parents=True, exist_ok=True)
+    safe_output = json.dumps(str(output))
+    safe_scale = json.dumps(scale)
     REQUEST.write_text(
-        json.dumps({"output": str(output), "scale": scale}),
+        "// SPDX-FileCopyrightText: 2026 Arinn contributors\n"
+        "// SPDX-License-Identifier: GPL-3.0-or-later\n"
+        "\n"
+        ".pragma library\n"
+        "\n"
+        f"function output() {{ return {safe_output} }}\n"
+        f"function scale() {{ return {safe_scale} }}\n",
         encoding="utf-8",
     )
     env = os.environ.copy()
     env["QT_QPA_PLATFORM"] = "offscreen"
     env["QT_QUICK_BACKEND"] = "software"
+    env["QML_XHR_ALLOW_FILE_READ"] = "1"
     env.pop("QT_SCALE_FACTOR", None)
     if scale_factor:
         env["QT_SCALE_FACTOR"] = scale_factor
-    command = [str(binary), "-input", str(CAPTURE_QML), "--", str(output), scale]
+    command = [str(binary), "-input", str(CAPTURE_QML)]
     try:
         result = subprocess.run(
             command, cwd=ROOT, env=env, text=True, capture_output=True, timeout=600
@@ -310,7 +327,7 @@ def main() -> int:
                 raise SystemExit(f"{label} rendered {got} but the manifest lists {expected}")
         write_reports(output, manifest, {"1080": rows_1080, "4k": rows_4k}, method)
     finally:
-        REQUEST.unlink(missing_ok=True)
+        REQUEST.write_text(REQUEST_STUB, encoding="utf-8")
     print(f"wrote {output / 'report.html'}")
     return 0
 

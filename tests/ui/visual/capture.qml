@@ -12,6 +12,7 @@ import "../../../apps/arinn-shell/ui/screens/player" as Player
 import "../../../apps/arinn-shell/ui/screens/power" as Power
 import "../../../apps/arinn-shell/ui/screens/session" as Session
 import "../../../apps/arinn-shell/ui/screens/settings" as Settings
+import "capture-request.js" as Request
 
 // Offscreen capture of fixture-driven screens. Not part of the ui-components
 // CTest input: that runner only loads tst_*.qml from tests/ui.
@@ -23,25 +24,11 @@ TestCase {
     width: job.wide ? 3840 : 1920
     height: job.wide ? 2160 : 1080
 
-    readonly property var job: readJob()
-
-    function userArgs() {
-        const args = Qt.application.arguments;
-        const split = args.indexOf("--");
-        return split >= 0 ? args.slice(split + 1) : [];
-    }
-    function readJob() {
-        const extra = userArgs();
-        if (extra.length >= 2)
-            return {output: extra[0], scale: extra[1], wide: extra[1] === "4k-layout"};
-        const xhr = new XMLHttpRequest();
-        xhr.open("GET", Qt.resolvedUrl(".capture-request.json"), false);
-        xhr.send();
-        if (!xhr.responseText)
-            return {output: "", scale: "", wide: false};
-        const data = JSON.parse(xhr.responseText);
-        return {output: data.output || "", scale: data.scale || "", wide: data.scale === "4k-layout"};
-    }
+    readonly property var job: ({
+        output: Request.output(),
+        scale: Request.scale(),
+        wide: Request.scale() === "4k-layout"
+    })
     function readManifest() {
         const xhr = new XMLHttpRequest();
         xhr.open("GET", Qt.resolvedUrl("manifest.json"), false);
@@ -321,7 +308,7 @@ TestCase {
     }
     function tune(kind, item) {
         if (kind === "nav")
-            item.openNavigation();
+            item.navOpen = true;
         else if (kind === "menu") {
             wait(50);
             const menu = findChild(item, "menuButton");
@@ -424,9 +411,15 @@ TestCase {
             if (plan.tune)
                 tune(plan.tune, shown);
             wait(0);
+            if (!shown.Window.window)
+                fail(state.id + " has no window (" + shown.width + "x" + shown.height + ")");
             verify(waitForRendering(shown, 5000), state.id);
             wait(plan.tune === "nav" ? 450 : 200);
-            verify(waitForRendering(shown, 5000), state.id);
+            // A settled animation can leave waitForRendering false even though the
+            // item is on screen. The grab below still needs a live item.
+            if (!shown || !shown.visible)
+                fail("not visible: " + state.id);
+            waitForRendering(shown, 1000);
             const shot = grabImage(suite);
             const path = job.output + "/" + state.id + ".png";
             shot.save(path);

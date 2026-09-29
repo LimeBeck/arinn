@@ -229,13 +229,11 @@ white mark remains visible. Home and the navigation panel use this lockup.
 The shell, gallery and UI test targets embed the original
 [`arinn-mark.svg`](../design/handoff/assets/arinn-mark.svg) unchanged under
 `qrc:/brand/`; its existing CC-BY-SA-4.0 attribution remains applicable.
-Application tiles retain neutral placeholders: `Application1` currently provides
-no application icon field, and this change adds no third-party logos.
-
-[ADR-0059](../adr/0059-application-icon-references.md) later adds an optional
-icon reference on the application record. The shell decodes it and still
-discards it, so tiles keep this neutral placeholder. No third-party logos are
-bundled, and the shell does not call a provider to fetch an icon.
+Application tiles retain neutral placeholders; this change adds no third-party logos.
+`Application1` provides an optional icon reference
+([ADR-0059](../adr/0059-application-icon-references.md)). The shell decodes it
+and still discards it, so tiles keep this neutral placeholder. No third-party
+logos are bundled, and the shell does not call a provider to fetch an icon.
 
 ## Handoff visual comparison
 

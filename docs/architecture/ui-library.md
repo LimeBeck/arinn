@@ -65,8 +65,9 @@ Opening a poster pushes detail and focuses Play, Continue or Remove. Down from
 that action reaches season pills when the entry has seasons, otherwise episodes
 when the entry has them. Down from a season pill reaches that season's stills.
 Up from a still returns to the season pills when they exist, otherwise to the
-action. Back or Esc closes detail and restores the opener. A further Back emits `backRequested` and leaves focus
-on the poster. Home emits `homeRequested`, closes detail when it is open, and
+action. Escape, Backspace and Back close detail and restore the opener. A
+further one of those keys emits `backRequested` and leaves focus on the poster.
+Home emits `homeRequested`, closes detail when it is open, and
 leaves focus inside the view. Tab does not leave the view.
 
 ## Verification

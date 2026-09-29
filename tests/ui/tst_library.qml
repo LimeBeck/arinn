@@ -167,6 +167,22 @@ TestCase {
         focused("poster-b");
     }
 
+    function test_back_key_closes_detail_then_requests_back() {
+        createLibrary(catalogue());
+        focused("tab-films");
+        keyClick(Qt.Key_Down);
+        focused("poster-a");
+        keyClick(Qt.Key_Return);
+        focused("detailPlay");
+        keyClick(Qt.Key_Back);
+        focused("poster-a");
+        compare(library.detailOpen, false);
+        compare(backs.count, 0);
+        keyClick(Qt.Key_Back);
+        compare(backs.count, 1);
+        focused("poster-a");
+    }
+
     function test_missing_file_badge_and_remove_intent() {
         createLibrary(catalogue());
         focused("tab-films");

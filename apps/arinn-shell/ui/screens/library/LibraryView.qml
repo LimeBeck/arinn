@@ -23,6 +23,8 @@ FocusScope {
     property int columns: 0
     property string detailEntryId: ""
     property bool pointerMode: false
+    // Suppresses hover focus while the grid is scrolling. Local to this screen.
+    readonly property int hoverDelayMs: 500
     readonly property bool hoverFocusEnabled: !hoverDelay.running
     readonly property bool detailOpen: detailEntryId.length > 0
     readonly property int posterWidth: 210
@@ -404,7 +406,7 @@ FocusScope {
 
     Timer {
         id: hoverDelay
-        interval: 500
+        interval: root.hoverDelayMs
     }
     HoverHandler {
         onPointChanged: root.pointerMode = true
@@ -427,7 +429,7 @@ FocusScope {
             event.accepted = true;
             return;
         }
-        if (event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace) {
+        if (event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace || event.key === Qt.Key_Back) {
             back();
             event.accepted = true;
             return;

@@ -149,6 +149,10 @@ TestCase {
         compare(entriesSpy.signalArguments[0][0], "b");
         focused("detailPlay");
         compare(child("detailMissing").visible, false);
+        compare(child("detailTitle").font.pixelSize, 112);
+        compare(child("detailTitle").role, "display");
+        compare(child("detailBackdropMark").text, "backdrop · Bravo");
+        compare(child("detailEyebrow").text, "Film");
         keyClick(Qt.Key_Return);
         compare(plays.count, 1);
         compare(plays.signalArguments[0][0], "b");
@@ -171,6 +175,9 @@ TestCase {
         compare(child("missing-a").visible, false);
         compare(child("missing-d").visible, true);
         compare(child("missing-d").parent.text, "Delta");
+        compare(child("missingLabel-d").text, "No file");
+        compare(child("missing-d").height, 40);
+        verify(child("missing-d").y > child("poster-d").height * 0.7);
         keyClick(Qt.Key_Right);
         keyClick(Qt.Key_Right);
         focused("poster-d");
@@ -202,6 +209,11 @@ TestCase {
         compare(child("detailMissing").visible, false);
         keyClick(Qt.Key_Down);
         focused("episode-e1");
+        compare(child("episode-e1").width, 420);
+        compare(child("episode-e1").height, 236);
+        compare(child("episode-e1").cornerRadius, 22);
+        compare(child("episodeMark-e1").text, "still");
+        compare(findChild(library, "season-s1"), null);
         compare(child("episode-missing-e1").visible, false);
         keyClick(Qt.Key_Right);
         focused("episode-e2");
@@ -223,7 +235,15 @@ TestCase {
         focused("tab-films");
         compare(child("librarySkeletons").visible, true);
         compare(child("skeleton-0").visible, true);
+        compare(child("skeleton-0").width, 210);
+        compare(child("skeleton-0").height, 315);
+        compare(child("skeleton-0").radius, 20);
         compare(child("skeleton-7").visible, true);
+        const skeletons = child("librarySkeletons").mapToItem(library, 0, 0);
+        compare(skeletons.x, 120);
+        compare(skeletons.y, 310);
+        verify(findChild(library, "skeleton-13") !== null);
+        compare(findChild(library, "skeleton-14"), null);
         compare(child("libraryStatus").visible, false);
         compare(child("libraryGrid").visible, false);
 
@@ -276,5 +296,163 @@ TestCase {
             {id: "e", tabId: "films", title: "Echo"}
         ];
         focused("poster-a");
+    }
+
+    function ember(color) {
+        verify(Math.abs(color.r - 1) < 0.02);
+        verify(Math.abs(color.g - 138 / 255) < 0.02);
+        verify(Math.abs(color.b - 61 / 255) < 0.02);
+    }
+
+    function test_default_columns_are_seven() {
+        const entries = [];
+        for (let i = 0; i < 8; ++i)
+            entries.push({id: "p" + i, tabId: "films", title: "Plate " + i, year: String(2000 + i)});
+        createLibrary({tabs: [{id: "films", title: "Films"}], entries: entries});
+        compare(library.columnCount, 7);
+        compare(library.width, 1920);
+        compare(library.height, 1080);
+        tryCompare(child("poster-p1").parent, "x", 250);
+        tryCompare(child("poster-p7").parent, "y", 427 + 48);
+        const first = child("poster-p0").mapToItem(library, 0, 0);
+        const second = child("poster-p1").mapToItem(library, 0, 0);
+        const eighth = child("poster-p7").mapToItem(library, 0, 0);
+        compare(first.x, 120);
+        compare(first.y, 310);
+        compare(second.x, 120 + 210 + 40);
+        compare(second.y, first.y);
+        compare(eighth.x, first.x);
+        compare(eighth.y, first.y + 427 + 48);
+        compare(child("posterYear-p0").text, "2000");
+        compare(child("posterYear-p0").font.pixelSize, 24);
+    }
+
+    function test_handoff_grid_frame() {
+        createLibrary(catalogue());
+        compare(library.columnCount, 4);
+        const heading = child("libraryHeading");
+        compare(heading.x, 120);
+        compare(heading.y, 96);
+        compare(heading.font.pixelSize, 56);
+        compare(heading.font.weight, 700);
+        const tab = child("tab-films");
+        compare(tab.height, 64);
+        compare(tab.cornerRadius, 32);
+        const tabAt = tab.mapToItem(library, 0, 0);
+        compare(tabAt.x, 120);
+        compare(tabAt.y, 190);
+        compare(child("tabLabel-films").font.pixelSize, 28);
+        compare(child("tabUnderline-films").visible, true);
+        compare(child("tabUnderline-series").visible, false);
+        ember(child("tabUnderline-films").color);
+        compare(child("libraryStage").y, 282);
+        const poster = child("poster-a");
+        compare(poster.width, 210);
+        compare(poster.height, 315);
+        compare(poster.cornerRadius, 20);
+        const at = poster.mapToItem(library, 0, 0);
+        compare(at.x, 120);
+        compare(at.y, 310);
+        tryCompare(child("poster-b").parent, "x", 250);
+        const beside = child("poster-b").mapToItem(library, 0, 0);
+        compare(beside.x, 370);
+        compare(beside.y, 310);
+        tryCompare(child("poster-e").parent, "y", 427 + 48);
+        const below = child("poster-e").mapToItem(library, 0, 0);
+        compare(below.x, 120);
+        compare(below.y, 310 + 427 + 48);
+        compare(child("posterMark-a").text, "poster");
+        compare(child("posterMark-a").visible, true);
+        compare(child("posterPlate-a").visible, false);
+        compare(child("posterYear-a").text, "2001");
+        compare(child("posterYear-a").font.pixelSize, 24);
+        compare(child("posterLabel-a").font.pixelSize, 26);
+        focused("tab-films");
+        keyClick(Qt.Key_Down);
+        focused("poster-a");
+        verify(child("posterCaption-a").lift < 0);
+        library.pointerMode = false;
+        compare(child("posterCaption-a").lift, -10);
+        library.pointerMode = true;
+        compare(child("posterCaption-a").lift, -4);
+        tryVerify(function() { return child("poster-a").scale > 1.01; });
+        keyClick(Qt.Key_Up);
+        focused("tab-films");
+        keyClick(Qt.Key_Right);
+        focused("tab-series");
+        compare(child("tabUnderline-series").visible, true);
+        compare(child("tabUnderline-films").visible, false);
+        compare(child("posterKind-s").visible, true);
+        compare(child("posterKindLabel-s").text, "Series");
+    }
+
+    function test_no_art_poster_keeps_the_title() {
+        createLibrary({
+            tabs: [{id: "films", title: "Films"}],
+            entries: [{id: "n", tabId: "films", title: "Noir", year: "1999", noArt: true, kind: "film"}]
+        });
+        compare(child("posterMark-n").visible, false);
+        compare(child("posterPlate-n").visible, true);
+        compare(child("posterArtTitle-n").text, "Noir");
+        compare(child("posterGlyph-n").width, 44);
+        compare(child("posterLabel-n").text, "Noir");
+        compare(child("posterYear-n").text, "1999");
+        compare(child("missing-n").visible, false);
+    }
+
+    function test_series_detail_has_seasons_and_stills() {
+        createLibrary({
+            tabs: [{id: "series", title: "Series"}],
+            entries: [{
+                id: "show",
+                tabId: "series",
+                title: "Serial",
+                subtitle: "2011",
+                kind: "series",
+                description: "A seasonal entry.",
+                seasons: [{id: "s1", title: "Season 1"}, {id: "s2", title: "Season 2"}],
+                episodes: [
+                    {id: "p1", seasonId: "s1", title: "Pilot", duration: "40 min", number: 1},
+                    {id: "p2", seasonId: "s2", title: "Next", duration: "41 min", number: 1, missing: true}
+                ]
+            }]
+        });
+        focused("tab-series");
+        keyClick(Qt.Key_Down);
+        focused("poster-show");
+        keyClick(Qt.Key_Return);
+        focused("detailPlay");
+        compare(child("detailTitle").font.pixelSize, 112);
+        compare(child("detailTitle").text, "Serial");
+        compare(child("detailBackdropMark").text, "backdrop · Serial");
+        compare(child("detailEyebrow").text, "Series");
+        compare(child("detailMeta").text, "2011");
+        compare(child("detailMeta").font.pixelSize, 30);
+        keyClick(Qt.Key_Down);
+        focused("season-s1");
+        ember(child("seasonUnderline-s1").color);
+        compare(child("seasonUnderline-s2").visible, false);
+        compare(child("episode-p1").width, 420);
+        compare(child("episode-p1").height, 236);
+        compare(child("episodeMark-p1").text, "still");
+        compare(child("episodeDuration-p1").text, "40 min");
+        compare(findChild(library, "episode-p2"), null);
+        keyClick(Qt.Key_Down);
+        focused("episode-p1");
+        keyClick(Qt.Key_Right);
+        focused("episode-p1");
+        keyClick(Qt.Key_Up);
+        focused("season-s1");
+        keyClick(Qt.Key_Right);
+        focused("season-s2");
+        compare(child("seasonUnderline-s2").visible, true);
+        compare(findChild(library, "episode-p1"), null);
+        keyClick(Qt.Key_Down);
+        focused("episode-p2");
+        compare(child("episode-missing-p2").visible, true);
+        keyClick(Qt.Key_Up);
+        focused("season-s2");
+        keyClick(Qt.Key_Up);
+        focused("detailPlay");
     }
 }

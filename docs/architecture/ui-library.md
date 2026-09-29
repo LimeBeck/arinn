@@ -24,14 +24,30 @@ from titles. `kind` may be `film` or `series` for the detail eyebrow only.
 | --- | --- |
 | `libraryState` | `ready`, `empty`, `loading`, `error` or `unavailable` |
 | `tabs` | `{id, title}` catalogue tabs |
-| `entries` | `{id, tabId, title, subtitle, description, artwork, kind, missing, enabled, busy, progress, episodes}` |
-| `episodes` | `{id, title, missing, enabled}` on an entry |
-| `columns` | Poster columns; `0` fits the 1920×1080 safe area |
+| `entries` | `{id, tabId, title, subtitle, year, description, artwork, kind, noArt, missing, enabled, busy, progress, seasons, episodes}` |
+| `seasons` | `{id, title}` on an entry. Season pills are shown only when this list is non-empty |
+| `episodes` | `{id, seasonId, number, title, duration, missing, enabled, progress}` on an entry. `seasonId` filters the stills; an episode without one stays visible for every season |
+| `columns` | Poster columns. `0` uses the seven-column frame; a positive value overrides it |
 
-`missing` draws a "No file" badge on the poster and, in detail, explains that
-the entry stays in the catalogue. `progress` greater than zero labels the
-primary action Continue and shows the progress track. A missing entry's primary
-action is Remove from library.
+`missing` draws a "No file" pill on the poster's bottom-left, not a second
+title, and in detail explains that the entry stays in the catalogue. `progress`
+greater than zero labels the primary action Continue and shows the progress
+track. A missing entry's primary action is Remove from library. `noArt` draws a
+plate with a film glyph and the title. Any other poster is a colored stand-in
+labeled `poster`. `year`, or `subtitle` when `year` is absent, sits under the
+title.
+
+## Frame
+
+The view is a 1920×1080 canvas. The heading is at left 120, top 96, 56px.
+Catalogue tabs sit at top 190: 64px pills with a 32px radius. The selected tab
+has an ember underline. The poster grid starts at top 282, inset 28px, so the
+first poster is at left 120, top 310. Posters are 210×315 with a 20px radius,
+in seven columns unless `columns` is set, with a 40px column gap and a 48px
+row gap. Focus scales the poster and lifts its label. Detail replaces the grid:
+a full-bleed stand-in backdrop, a left scrim, an uppercase eyebrow, a 112px
+title, meta, description, and pill actions. A series with `seasons` adds season
+pills and episode stills at 420×236, labeled `still`.
 
 Signals are intents only: `tabRequested`, `entryRequested`, `playRequested`,
 `episodeRequested`, `removeRequested`, `retryRequested`, `backRequested` and
@@ -46,8 +62,10 @@ past either end. Down enters the first poster, or the status action when the
 grid is absent. Posters move by column and skip disabled entries; the edges do
 not wrap to another screen. Up from the first row returns to the current tab.
 Opening a poster pushes detail and focuses Play, Continue or Remove. Down from
-that action reaches episodes when the entry has them. Back or Esc closes detail
-and restores the opener. A further Back emits `backRequested` and leaves focus
+that action reaches season pills when the entry has seasons, otherwise episodes
+when the entry has them. Down from a season pill reaches that season's stills.
+Up from a still returns to the season pills when they exist, otherwise to the
+action. Back or Esc closes detail and restores the opener. A further Back emits `backRequested` and leaves focus
 on the poster. Home emits `homeRequested`, closes detail when it is open, and
 leaves focus inside the view. Tab does not leave the view.
 
@@ -56,8 +74,9 @@ leaves focus inside the view. Tab does not leave the view.
 `tests/ui/tst_library.qml` imports this directory from the filesystem. The
 existing `ui-components` CTest loads every `tests/ui/tst_*.qml`, so no build
 file change is required. The cases cover grid and detail focus, the four
-non-ready states plus a ready grid, the missing-file badge, and focus after a
-poster disappears.
+non-ready states plus a ready grid, the missing-file badge, focus after a
+poster disappears, and the handoff frame: column count, poster geometry, the
+ember tab underline, stand-in and no-art plates, and series season stills.
 
 ```sh
 cmake -S . -B build -G Ninja

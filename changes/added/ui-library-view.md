@@ -1,1 +1,2 @@
 - Add a fixture-driven Library screen with catalogue tabs, a poster grid, detail, missing-file badges, loading skeletons, and empty, loading, error and unavailable states. Focus stays in the screen and actions are intents only ([architecture](docs/architecture/ui-library.md)).
+- Match the Library and detail frames to the handoff: a 56px title, ember-underlined pills, a seven-column poster grid with stand-in artwork, and a full-bleed detail with season pills and episode stills ([architecture](docs/architecture/ui-library.md)).

@@ -31,12 +31,8 @@ FocusScope {
     readonly property int gridGapY: 48
     readonly property int marginLeft: 120
     readonly property int marginRight: 96
-    readonly property int columnCount: {
-        if (columns > 0)
-            return columns;
-        const usable = width - marginLeft - marginRight + gridGapX;
-        return Math.max(1, Math.floor(usable / (posterWidth + gridGapX)));
-    }
+    // The handoff grid is seven 210-wide posters. Tests may set a smaller count.
+    readonly property int columnCount: columns > 0 ? columns : 7
     readonly property var visibleEntries: {
         const tab = currentTabId;
         const source = entries || [];
@@ -92,9 +88,27 @@ FocusScope {
     property string focusedPosterId: ""
     property int focusedPosterIndex: 0
     property int episodeIndex: 0
+    property int seasonIndex: 0
+    property string currentSeasonId: ""
     // Survives delegate destruction so a removed poster can restore a neighbour.
     property string focusPlace: "tab"
-    readonly property int skeletonSlots: 8
+    readonly property int skeletonSlots: 14
+    readonly property var detailSeasons: detailEntry && detailEntry.seasons ? detailEntry.seasons : []
+    readonly property var detailEpisodes: {
+        const entry = detailEntry;
+        if (!entry || !entry.episodes)
+            return [];
+        const season = currentSeasonId;
+        if (!season.length)
+            return entry.episodes;
+        const out = [];
+        for (let i = 0; i < entry.episodes.length; ++i) {
+            const episode = entry.episodes[i];
+            if (!episode.seasonId || episode.seasonId === season)
+                out.push(episode);
+        }
+        return out;
+    }
 
     signal tabRequested(string tabId)
     signal entryRequested(string entryId)
@@ -105,6 +119,13 @@ FocusScope {
     signal backRequested()
     signal homeRequested()
 
+    function standInColor(id) {
+        let hash = 0;
+        const text = String(id || "");
+        for (let i = 0; i < text.length; ++i)
+            hash = (hash * 33 + text.charCodeAt(i)) >>> 0;
+        return Qt.hsla((hash % 360) / 360, 0.42, 0.34, 1);
+    }
     function entryById(id) {
         const source = entries || [];
         for (let i = 0; i < source.length; ++i)
@@ -176,7 +197,7 @@ FocusScope {
         return focusPosterIndex(index >= 0 ? index : Math.max(0, focusedPosterIndex - 1));
     }
     function revealCell(cell) {
-        const top = cell.y;
+        const top = cell.y + posterGrid.y;
         const bottom = top + cell.height;
         if (top < scroller.contentY)
             scroller.contentY = top;
@@ -196,15 +217,31 @@ FocusScope {
         if (button && button.visible)
             button.forceActiveFocus();
     }
+    function focusSeason(index) {
+        if (index < 0 || index >= detailSeasons.length)
+            return false;
+        const item = seasonRepeater.itemAt(index);
+        if (!item)
+            return false;
+        seasonIndex = index;
+        const season = detailSeasons[index];
+        if (season && currentSeasonId !== season.id) {
+            currentSeasonId = season.id;
+            episodeIndex = 0;
+            episodeFlick.contentX = 0;
+        }
+        item.forceActiveFocus();
+        return true;
+    }
     function focusEpisode(index) {
-        const episodes = detailEntry && detailEntry.episodes ? detailEntry.episodes : [];
+        const episodes = detailEpisodes;
         if (index < 0 || index >= episodes.length)
             return false;
         const item = episodeRepeater.itemAt(index);
         if (!item)
             return false;
         episodeIndex = index;
-        item.forceActiveFocus();
+        item.focusStill();
         return true;
     }
     function focusInitial() {
@@ -229,6 +266,9 @@ FocusScope {
         focusedPosterId = id;
         detailEntryId = id;
         episodeIndex = 0;
+        seasonIndex = 0;
+        const seasons = entry.seasons || [];
+        currentSeasonId = seasons.length ? seasons[0].id : "";
         entryRequested(id);
         Qt.callLater(focusDetailAction);
     }
@@ -274,15 +314,28 @@ FocusScope {
             focusPosterIndex(Math.min(below, count - 1));
     }
     function moveDetail(key) {
-        const episodes = detailEntry && detailEntry.episodes ? detailEntry.episodes : [];
+        const episodes = detailEpisodes;
+        const seasons = detailSeasons;
         const focused = Window.activeFocusItem;
-        const onEpisode = focused && String(focused.objectName).indexOf("episode-") === 0
-                && String(focused.objectName).indexOf("episode-missing-") !== 0;
+        const name = focused ? String(focused.objectName) : "";
+        const onEpisode = name.indexOf("episode-") === 0 && name.indexOf("episode-missing-") !== 0;
+        const onSeason = name.indexOf("season-") === 0;
+        if (key === Qt.Key_Down && !onEpisode && !onSeason && seasons.length) {
+            focusSeason(Math.min(seasonIndex, seasons.length - 1));
+            return;
+        }
         if (key === Qt.Key_Down && !onEpisode && episodes.length) {
             focusEpisode(Math.min(episodeIndex, episodes.length - 1));
             return;
         }
         if (key === Qt.Key_Up && onEpisode) {
+            if (seasons.length)
+                focusSeason(Math.min(seasonIndex, seasons.length - 1));
+            else
+                focusDetailAction();
+            return;
+        }
+        if (key === Qt.Key_Up && onSeason) {
             focusDetailAction();
             return;
         }
@@ -291,6 +344,13 @@ FocusScope {
             const next = episodeIndex + step;
             if (next >= 0 && next < episodes.length)
                 focusEpisode(next);
+            return;
+        }
+        if (onSeason && (key === Qt.Key_Left || key === Qt.Key_Right)) {
+            const step = key === Qt.Key_Right ? 1 : -1;
+            const next = seasonIndex + step;
+            if (next >= 0 && next < seasons.length)
+                focusSeason(next);
         }
     }
     function back() {
@@ -414,14 +474,14 @@ FocusScope {
         id: heading
         objectName: "libraryHeading"
         x: root.marginLeft
-        y: 72
+        y: 96
         text: qsTr("Library")
         role: "title"
     }
     Row {
         id: tabRow
         x: root.marginLeft
-        y: 168
+        y: 190
         spacing: 12
         visible: root.tabs && root.tabs.length > 0
         Repeater {
@@ -433,6 +493,7 @@ FocusScope {
                 required property int index
                 objectName: "tab-" + modelData.id
                 implicitWidth: Math.max(120, tabLabel.implicitWidth + 56)
+                height: 64
                 implicitHeight: 64
                 cornerRadius: 32
                 focusScale: 1.02
@@ -444,19 +505,24 @@ FocusScope {
                 onActivated: root.focusTab(index)
                 contentItem: Ui.UiText {
                     id: tabLabel
+                    objectName: "tabLabel-" + modelData.id
                     text: tabButton.text
-                    role: "control"
+                    font.pixelSize: 28
+                    font.weight: 600
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
                 }
                 Rectangle {
-                    anchors.horizontalCenter: parent.horizontalCenter
+                    objectName: "tabUnderline-" + modelData.id
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.leftMargin: 28
+                    anchors.rightMargin: 28
                     anchors.bottom: parent.bottom
-                    anchors.bottomMargin: 8
-                    width: tabLabel.implicitWidth
+                    anchors.bottomMargin: 7
                     height: 4
                     radius: 2
-                    color: Ui.Theme.textPrimary
+                    color: Ui.Theme.ember
                     visible: modelData.id === root.currentTabId
                 }
             }
@@ -464,16 +530,18 @@ FocusScope {
     }
 
     Item {
-        id: body
-        x: root.marginLeft
-        y: 260
-        width: parent.width - root.marginLeft - root.marginRight
-        height: parent.height - y - 36
+        id: libraryStage
+        objectName: "libraryStage"
+        y: 282
+        width: parent.width
+        height: parent.height - y
+        clip: true
 
         Ui.StatusPane {
             id: libraryStatus
             objectName: "libraryStatus"
             anchors.horizontalCenter: parent.horizontalCenter
+            y: 48
             width: Math.min(820, parent.width)
             visible: root.showStatus
             kind: root.statusKind
@@ -489,17 +557,38 @@ FocusScope {
         Grid {
             id: skeletonGrid
             objectName: "librarySkeletons"
+            x: root.marginLeft
+            y: 28
             visible: root.libraryState === "loading" && !root.detailOpen
             columns: root.columnCount
             columnSpacing: root.gridGapX
             rowSpacing: root.gridGapY
             Repeater {
                 model: root.skeletonSlots
-                delegate: Ui.Skeleton {
+                delegate: Item {
                     required property int index
-                    objectName: "skeleton-" + index
                     width: root.posterWidth
-                    height: root.posterHeight
+                    height: root.posterHeight + 16 + 24 + 16 + 20
+                    Ui.Skeleton {
+                        objectName: "skeleton-" + index
+                        width: root.posterWidth
+                        height: root.posterHeight
+                        radius: 20
+                    }
+                    Rectangle {
+                        y: root.posterHeight + 16
+                        width: parent.width * 0.8
+                        height: 24
+                        radius: 8
+                        color: Ui.Theme.plate
+                    }
+                    Rectangle {
+                        y: root.posterHeight + 16 + 24 + 16
+                        width: parent.width * 0.36
+                        height: 20
+                        radius: 8
+                        color: Ui.Theme.plate
+                    }
                 }
             }
         }
@@ -510,13 +599,15 @@ FocusScope {
             anchors.fill: parent
             visible: root.showGrid
             clip: true
-            contentWidth: posterGrid.width
-            contentHeight: posterGrid.height
+            contentWidth: posterGrid.x + posterGrid.width
+            contentHeight: posterGrid.y + posterGrid.height
             boundsBehavior: Flickable.StopAtBounds
             flickableDirection: Flickable.VerticalFlick
             onContentYChanged: hoverDelay.restart()
             Grid {
                 id: posterGrid
+                x: root.marginLeft
+                y: 28
                 width: root.columnCount * root.posterWidth + Math.max(0, root.columnCount - 1) * root.gridGapX
                 columns: root.columnCount
                 columnSpacing: root.gridGapX
@@ -529,7 +620,8 @@ FocusScope {
                         required property var modelData
                         required property int index
                         width: root.posterWidth
-                        height: root.posterHeight + 88
+                        height: 427
+                        z: poster.activeFocus ? 2 : 0
                         function focusPoster() {
                             poster.forceActiveFocus();
                         }
@@ -538,9 +630,13 @@ FocusScope {
                             objectName: "poster-" + modelData.id
                             width: root.posterWidth
                             height: root.posterHeight
+                            cornerRadius: 20
+                            focusScale: 1.06
                             text: modelData.title || ""
                             enabled: modelData.enabled !== false
                             busy: !!modelData.busy
+                            restingColor: modelData.noArt ? Qt.rgba(0.21, 0.21, 0.23, 1) : root.standInColor(modelData.id)
+                            focusedColor: restingColor
                             pointerMode: root.pointerMode
                             hoverFocusEnabled: root.hoverFocusEnabled
                             onDpadRequested: root.pointerMode = false
@@ -553,232 +649,559 @@ FocusScope {
                             }
                             onActivated: root.openEntry(modelData.id)
                             contentItem: Item {
+                                Rectangle {
+                                    anchors.fill: parent
+                                    radius: 20
+                                    visible: !!modelData.noArt
+                                    gradient: Gradient {
+                                        GradientStop { position: 0.0; color: Qt.rgba(0.29, 0.29, 0.31, 1) }
+                                        GradientStop { position: 1.0; color: Qt.rgba(0.21, 0.21, 0.23, 1) }
+                                    }
+                                }
                                 Image {
                                     anchors.fill: parent
                                     fillMode: Image.PreserveAspectCrop
                                     asynchronous: true
                                     source: modelData.artwork ? modelData.artwork : ""
-                                    visible: status === Image.Ready
+                                    visible: !modelData.noArt && status === Image.Ready
                                 }
-                                Ui.UiText {
-                                    anchors.left: parent.left
+                                Text {
+                                    objectName: "posterMark-" + modelData.id
+                                    visible: !modelData.noArt
+                                    x: 14
+                                    y: 12
+                                    text: "poster"
+                                    font.family: Ui.Theme.fontFamily
+                                    font.pixelSize: 14
+                                    color: Qt.rgba(1, 1, 1, 0.45)
+                                }
+                                Item {
+                                    objectName: "posterPlate-" + modelData.id
+                                    anchors.fill: parent
+                                    anchors.leftMargin: 20
+                                    anchors.rightMargin: 20
+                                    anchors.topMargin: 22
+                                    anchors.bottomMargin: 22
+                                    visible: !!modelData.noArt
+                                    Item {
+                                        id: filmGlyph
+                                        objectName: "posterGlyph-" + modelData.id
+                                        width: 44
+                                        height: 44
+                                        Rectangle {
+                                            anchors.fill: parent
+                                            radius: 6
+                                            color: "transparent"
+                                            border.width: 2
+                                            border.color: Ui.Theme.textHint
+                                        }
+                                        Column {
+                                            anchors.left: parent.left
+                                            anchors.leftMargin: 2
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            spacing: 5
+                                            Repeater {
+                                                model: 3
+                                                Rectangle { width: 3; height: 6; color: Ui.Theme.textHint }
+                                            }
+                                        }
+                                        Column {
+                                            anchors.right: parent.right
+                                            anchors.rightMargin: 2
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            spacing: 5
+                                            Repeater {
+                                                model: 3
+                                                Rectangle { width: 3; height: 6; color: Ui.Theme.textHint }
+                                            }
+                                        }
+                                        Rectangle {
+                                            anchors.centerIn: parent
+                                            width: 14
+                                            height: 14
+                                            radius: 7
+                                            color: "transparent"
+                                            border.width: 2
+                                            border.color: Ui.Theme.textHint
+                                        }
+                                    }
+                                    Ui.UiText {
+                                        objectName: "posterArtTitle-" + modelData.id
+                                        anchors.left: parent.left
+                                        anchors.right: parent.right
+                                        anchors.bottom: parent.bottom
+                                        text: modelData.title || ""
+                                        font.pixelSize: 26
+                                        font.weight: 600
+                                        maximumLineCount: 3
+                                        elide: Text.ElideRight
+                                    }
+                                }
+                                Rectangle {
+                                    objectName: "posterKind-" + modelData.id
+                                    visible: modelData.kind === "series"
                                     anchors.right: parent.right
-                                    anchors.bottom: parent.bottom
-                                    anchors.margins: 16
-                                    text: modelData.title || ""
-                                    role: "meta"
-                                    maximumLineCount: 3
-                                    elide: Text.ElideRight
-                                    visible: !modelData.artwork
+                                    anchors.top: parent.top
+                                    anchors.margins: 12
+                                    height: 36
+                                    radius: 18
+                                    width: kindLabel.implicitWidth + 24
+                                    color: Qt.rgba(8 / 255, 9 / 255, 11 / 255, 0.6)
+                                    Ui.UiText {
+                                        id: kindLabel
+                                        objectName: "posterKindLabel-" + modelData.id
+                                        anchors.centerIn: parent
+                                        text: qsTr("Series")
+                                        font.pixelSize: 20
+                                        font.weight: 600
+                                    }
                                 }
                             }
                             Rectangle {
                                 objectName: "missing-" + modelData.id
                                 visible: !!modelData.missing
                                 z: 40
-                                x: 12
-                                y: parent.height - height - 12
+                                x: 14
+                                y: parent.height - height - 14
                                 height: 40
                                 radius: 20
-                                width: Math.min(parent.width - 24, missingLabel.implicitWidth + 28)
-                                color: "#cc08090b"
-                                Ui.UiText {
-                                    id: missingLabel
+                                width: Math.min(parent.width - 28, missingRow.implicitWidth + 20)
+                                color: Qt.rgba(8 / 255, 9 / 255, 11 / 255, 0.72)
+                                Row {
+                                    id: missingRow
                                     anchors.centerIn: parent
-                                    text: qsTr("No file")
-                                    role: "caption"
-                                    color: Ui.Theme.error
+                                    spacing: 6
+                                    Text {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: "!"
+                                        font.pixelSize: 18
+                                        font.weight: 700
+                                        color: Ui.Theme.error
+                                    }
+                                    Ui.UiText {
+                                        id: missingLabel
+                                        objectName: "missingLabel-" + modelData.id
+                                        text: qsTr("No file")
+                                        font.pixelSize: 20
+                                        font.weight: 600
+                                        color: Ui.Theme.error
+                                    }
                                 }
                             }
                         }
-                        Ui.UiText {
-                            anchors.top: poster.bottom
-                            anchors.topMargin: 12
-                            width: parent.width
-                            text: modelData.title || ""
-                            role: "meta"
-                            maximumLineCount: 2
-                            elide: Text.ElideRight
-                        }
-                        Ui.UiText {
-                            anchors.bottom: parent.bottom
-                            width: parent.width
-                            text: modelData.subtitle || ""
-                            role: "caption"
-                            color: Ui.Theme.textSecondary
-                            maximumLineCount: 1
-                            elide: Text.ElideRight
+                        Item {
+                            id: caption
+                            objectName: "posterCaption-" + modelData.id
+                            property real lift: poster.activeFocus ? (root.pointerMode ? -4 : -10) : 0
+                            x: 4
+                            y: root.posterHeight + 16
+                            width: parent.width - 8
+                            height: 96
+                            transform: Translate { y: caption.lift }
+                            Ui.UiText {
+                                id: posterLabel
+                                objectName: "posterLabel-" + modelData.id
+                                width: parent.width
+                                text: modelData.title || ""
+                                font.pixelSize: 26
+                                font.weight: poster.activeFocus ? 600 : 500
+                                maximumLineCount: 2
+                                elide: Text.ElideRight
+                            }
+                            Ui.UiText {
+                                objectName: "posterYear-" + modelData.id
+                                anchors.top: posterLabel.bottom
+                                anchors.topMargin: 4
+                                width: parent.width
+                                text: modelData.year !== undefined && modelData.year !== null && String(modelData.year).length
+                                      ? String(modelData.year) : (modelData.subtitle || "")
+                                font.pixelSize: 24
+                                font.weight: 500
+                                color: Ui.Theme.textHint
+                                maximumLineCount: 1
+                                elide: Text.ElideRight
+                            }
                         }
                     }
                 }
             }
         }
+
+        Rectangle {
+            z: 4
+            width: parent.width
+            height: 18
+            gradient: Gradient {
+                GradientStop { position: 0.0; color: Ui.Theme.background }
+                GradientStop { position: 1.0; color: "transparent" }
+            }
+        }
     }
 
     Rectangle {
+        id: detailLayer
+        objectName: "detailLayer"
         anchors.fill: parent
         visible: root.detailOpen
-        color: Ui.Theme.background
+        color: root.detailEntry ? root.standInColor(root.detailEntry.id) : Ui.Theme.background
         z: 5
-        Column {
-            x: root.marginLeft
-            y: 96
-            width: 960
-            spacing: 20
-            Ui.UiText {
-                width: parent.width
-                role: "eyebrow"
-                text: root.detailEntry && root.detailEntry.kind === "series" ? qsTr("Series")
-                        : root.detailEntry && root.detailEntry.kind === "film" ? qsTr("Film") : ""
-                visible: text.length > 0
-                color: Ui.Theme.textSecondary
+        Text {
+            objectName: "detailBackdropMark"
+            z: 1
+            anchors.right: parent.right
+            anchors.rightMargin: 96
+            y: 140
+            text: "backdrop · " + (root.detailEntry ? (root.detailEntry.title || "") : "")
+            font.family: Ui.Theme.fontFamily
+            font.pixelSize: 18
+            color: Qt.rgba(1, 1, 1, 0.42)
+        }
+        Rectangle {
+            z: 2
+            anchors.fill: parent
+            gradient: Gradient {
+                orientation: Gradient.Horizontal
+                GradientStop { position: 0.0; color: Qt.rgba(Ui.Theme.background.r, Ui.Theme.background.g, Ui.Theme.background.b, 0.96) }
+                GradientStop { position: 0.32; color: Qt.rgba(Ui.Theme.background.r, Ui.Theme.background.g, Ui.Theme.background.b, 0.80) }
+                GradientStop { position: 0.68; color: Qt.rgba(Ui.Theme.background.r, Ui.Theme.background.g, Ui.Theme.background.b, 0.15) }
+                GradientStop { position: 1.0; color: Qt.rgba(Ui.Theme.background.r, Ui.Theme.background.g, Ui.Theme.background.b, 0.0) }
             }
-            Ui.UiText {
-                objectName: "detailTitle"
-                width: parent.width
-                role: "hero"
-                text: root.detailEntry ? (root.detailEntry.title || "") : ""
-                maximumLineCount: 2
-                elide: Text.ElideRight
+        }
+        Rectangle {
+            z: 2
+            anchors.fill: parent
+            gradient: Gradient {
+                GradientStop { position: 0.45; color: Qt.rgba(Ui.Theme.background.r, Ui.Theme.background.g, Ui.Theme.background.b, 0.0) }
+                GradientStop { position: 0.72; color: Qt.rgba(Ui.Theme.background.r, Ui.Theme.background.g, Ui.Theme.background.b, 0.70) }
+                GradientStop { position: 1.0; color: Qt.rgba(Ui.Theme.background.r, Ui.Theme.background.g, Ui.Theme.background.b, 1.0) }
             }
-            Ui.UiText {
-                width: parent.width
-                role: "body"
-                text: root.detailEntry ? (root.detailEntry.subtitle || "") : ""
-                color: Ui.Theme.textSecondary
-                visible: text.length > 0
-            }
-            Ui.UiText {
-                width: parent.width
-                role: "body"
-                text: root.detailEntry ? (root.detailEntry.description || "") : ""
-                color: Ui.Theme.textSecondary
-                maximumLineCount: 3
-                elide: Text.ElideRight
-                visible: text.length > 0
-            }
-            Row {
-                objectName: "detailMissing"
-                visible: !!(root.detailEntry && root.detailEntry.missing)
-                spacing: 16
+        }
+        Item {
+            z: 3
+            anchors.fill: parent
+            Column {
+                id: detailCopy
+                x: root.marginLeft
+                y: (root.detailEntry && root.detailEntry.kind === "series") || root.detailSeasons.length ? 180 : 320
+                width: 1140
+                spacing: 22
+                Ui.UiText {
+                    objectName: "detailEyebrow"
+                    role: "eyebrow"
+                    font.capitalization: Font.AllUppercase
+                    text: root.detailEntry && root.detailEntry.kind === "series" ? qsTr("Series")
+                            : root.detailEntry && root.detailEntry.kind === "film" ? qsTr("Film") : ""
+                    visible: text.length > 0
+                    color: Ui.Theme.textSecondary
+                }
+                Ui.UiText {
+                    objectName: "detailTitle"
+                    width: parent.width
+                    role: "display"
+                    text: root.detailEntry ? (root.detailEntry.title || "") : ""
+                    maximumLineCount: 2
+                    elide: Text.ElideRight
+                }
+                Ui.UiText {
+                    objectName: "detailMeta"
+                    width: parent.width
+                    font.pixelSize: 30
+                    font.weight: 500
+                    color: Ui.Theme.textPrimary
+                    text: {
+                        const entry = root.detailEntry;
+                        if (!entry)
+                            return "";
+                        if (entry.subtitle && String(entry.subtitle).length)
+                            return String(entry.subtitle);
+                        if (entry.year !== undefined && entry.year !== null && String(entry.year).length)
+                            return String(entry.year);
+                        return "";
+                    }
+                    visible: text.length > 0
+                }
+                Ui.UiText {
+                    objectName: "detailDescription"
+                    width: Math.min(960, parent.width)
+                    role: "body"
+                    text: root.detailEntry ? (root.detailEntry.description || "") : ""
+                    color: Ui.Theme.textSecondary
+                    maximumLineCount: 3
+                    elide: Text.ElideRight
+                    visible: text.length > 0
+                }
                 Rectangle {
-                    width: 64
-                    height: 64
-                    radius: 20
-                    color: Ui.Theme.plate
-                    Ui.UiText {
-                        anchors.centerIn: parent
-                        text: "!"
-                        role: "title"
-                        color: Ui.Theme.error
-                    }
-                }
-                Column {
-                    width: 760
-                    spacing: 4
-                    Ui.UiText {
-                        width: parent.width
-                        role: "section"
-                        text: root.detailEntry && root.detailEntry.missingTitle
-                                ? root.detailEntry.missingTitle
-                                : qsTr("This file is no longer available")
-                    }
-                    Ui.UiText {
-                        width: parent.width
-                        role: "meta"
-                        color: Ui.Theme.textSecondary
-                        text: root.detailEntry && root.detailEntry.missingDescription
-                                ? root.detailEntry.missingDescription
-                                : qsTr("The entry stays in the catalogue.")
-                    }
-                }
-            }
-            Row {
-                spacing: 20
-                Ui.ActionButton {
-                    id: detailPlay
-                    objectName: "detailPlay"
-                    visible: !!(root.detailEntry && !root.detailEntry.missing)
-                    text: root.detailEntry && root.detailEntry.progress > 0 ? qsTr("Continue") : qsTr("Play")
-                    pointerMode: root.pointerMode
-                    hoverFocusEnabled: root.hoverFocusEnabled
-                    onDpadRequested: root.pointerMode = false
-                    onActivated: root.playRequested(root.detailEntryId)
-                }
-                Ui.ActionButton {
-                    id: detailRemove
-                    objectName: "detailRemove"
+                    objectName: "detailMissing"
                     visible: !!(root.detailEntry && root.detailEntry.missing)
-                    text: qsTr("Remove from library")
-                    pointerMode: root.pointerMode
-                    hoverFocusEnabled: root.hoverFocusEnabled
-                    onDpadRequested: root.pointerMode = false
-                    onActivated: root.removeRequested(root.detailEntryId)
+                    width: Math.min(900, parent.width)
+                    radius: 26
+                    color: Qt.rgba(8 / 255, 9 / 255, 11 / 255, 0.5)
+                    implicitHeight: missingCopy.implicitHeight + 44
+                    height: implicitHeight
+                    Row {
+                        anchors.left: parent.left
+                        anchors.leftMargin: 28
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: 20
+                        Text {
+                            text: "!"
+                            font.pixelSize: 44
+                            font.weight: 700
+                            color: Ui.Theme.error
+                        }
+                        Column {
+                            id: missingCopy
+                            width: 760
+                            spacing: 4
+                            Ui.UiText {
+                                width: parent.width
+                                font.pixelSize: 30
+                                font.weight: 600
+                                text: root.detailEntry && root.detailEntry.missingTitle
+                                        ? root.detailEntry.missingTitle
+                                        : qsTr("This file is no longer available")
+                            }
+                            Ui.UiText {
+                                width: parent.width
+                                font.pixelSize: 26
+                                color: Ui.Theme.textSecondary
+                                text: root.detailEntry && root.detailEntry.missingDescription
+                                        ? root.detailEntry.missingDescription
+                                        : qsTr("The entry stays in the catalogue.")
+                            }
+                        }
+                    }
+                }
+                Row {
+                    spacing: 20
+                    Ui.ActionButton {
+                        id: detailPlay
+                        objectName: "detailPlay"
+                        visible: !!(root.detailEntry && !root.detailEntry.missing)
+                        text: root.detailEntry && root.detailEntry.progress > 0 ? qsTr("Continue") : qsTr("Play")
+                        pointerMode: root.pointerMode
+                        hoverFocusEnabled: root.hoverFocusEnabled
+                        onDpadRequested: root.pointerMode = false
+                        onActivated: root.playRequested(root.detailEntryId)
+                    }
+                    Ui.ActionButton {
+                        id: detailRemove
+                        objectName: "detailRemove"
+                        visible: !!(root.detailEntry && root.detailEntry.missing)
+                        text: qsTr("Remove from library")
+                        pointerMode: root.pointerMode
+                        hoverFocusEnabled: root.hoverFocusEnabled
+                        onDpadRequested: root.pointerMode = false
+                        onActivated: root.removeRequested(root.detailEntryId)
+                    }
+                }
+                Row {
+                    spacing: 20
+                    visible: !!(root.detailEntry && !root.detailEntry.missing && root.detailEntry.progress > 0)
+                    Item {
+                        width: 300
+                        height: 26
+                        Ui.ProgressTrack {
+                            id: detailProgress
+                            objectName: "detailProgress"
+                            anchors.verticalCenter: parent.verticalCenter
+                            visible: !!(root.detailEntry && !root.detailEntry.missing && root.detailEntry.progress > 0)
+                            width: 300
+                            height: 6
+                            value: root.detailEntry && root.detailEntry.progress ? root.detailEntry.progress : 0
+                        }
+                    }
+                    Ui.UiText {
+                        font.pixelSize: 26
+                        font.weight: 500
+                        color: Ui.Theme.textSecondary
+                        text: root.detailEntry && root.detailEntry.progress
+                              ? Math.round(root.detailEntry.progress * 100) + "%"
+                              : ""
+                    }
                 }
             }
-            Ui.ProgressTrack {
-                objectName: "detailProgress"
-                visible: !!(root.detailEntry && !root.detailEntry.missing && root.detailEntry.progress > 0)
-                width: 300
-                value: root.detailEntry && root.detailEntry.progress ? root.detailEntry.progress : 0
-            }
-            Flickable {
-                width: parent.width
-                height: episodeRow.height
-                visible: episodeRepeater.count > 0
-                contentWidth: episodeRow.width
-                contentHeight: height
-                clip: true
-                flickableDirection: Flickable.HorizontalFlick
-                boundsBehavior: Flickable.StopAtBounds
+            Column {
+                x: root.marginLeft
+                width: parent.width - x
+                anchors.top: detailCopy.bottom
+                anchors.topMargin: root.detailSeasons.length ? 100 : 36
+                spacing: 30
+                visible: root.detailSeasons.length > 0 || episodeRepeater.count > 0
                 Row {
-                    id: episodeRow
-                    spacing: 24
+                    spacing: 12
+                    height: 64
+                    visible: root.detailSeasons.length > 0
                     Repeater {
-                        id: episodeRepeater
-                        model: root.detailEntry && root.detailEntry.episodes ? root.detailEntry.episodes : []
+                        id: seasonRepeater
+                        model: root.detailSeasons
                         delegate: Ui.Surface {
-                            id: episodeButton
+                            id: seasonButton
                             required property var modelData
                             required property int index
-                            objectName: "episode-" + modelData.id
-                            width: 280
-                            height: 158
+                            objectName: "season-" + modelData.id
+                            implicitWidth: Math.max(120, seasonLabel.implicitWidth + 56)
+                            height: 64
+                            implicitHeight: 64
+                            cornerRadius: 32
+                            focusScale: 1.02
                             text: modelData.title || ""
-                            enabled: modelData.enabled !== false
+                            restingColor: modelData.id === root.currentSeasonId ? Qt.rgba(1, 1, 1, 0.16) : Ui.Theme.plate
                             pointerMode: root.pointerMode
                             hoverFocusEnabled: root.hoverFocusEnabled
                             onDpadRequested: root.pointerMode = false
-                            onActiveFocusChanged: if (activeFocus) root.episodeIndex = index
-                            onActivated: root.episodeRequested(root.detailEntryId, modelData.id)
-                            contentItem: Item {
-                                Ui.UiText {
-                                    anchors.left: parent.left
-                                    anchors.right: parent.right
-                                    anchors.bottom: parent.bottom
-                                    anchors.margins: 16
-                                    text: modelData.title || ""
-                                    role: "meta"
-                                    maximumLineCount: 2
-                                    elide: Text.ElideRight
-                                }
+                            onActivated: root.focusSeason(index)
+                            contentItem: Ui.UiText {
+                                id: seasonLabel
+                                text: seasonButton.text
+                                font.pixelSize: 28
+                                font.weight: 600
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
                             }
                             Rectangle {
-                                objectName: "episode-missing-" + modelData.id
-                                visible: !!modelData.missing
-                                z: 40
-                                x: 12
-                                y: parent.height - height - 12
-                                height: 36
-                                radius: 18
-                                width: Math.min(parent.width - 24, episodeMissingLabel.implicitWidth + 24)
-                                color: "#cc08090b"
-                                Ui.UiText {
-                                    id: episodeMissingLabel
-                                    anchors.centerIn: parent
-                                    text: qsTr("No file")
-                                    role: "caption"
-                                    color: Ui.Theme.error
+                                objectName: "seasonUnderline-" + modelData.id
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.leftMargin: 28
+                                anchors.rightMargin: 28
+                                anchors.bottom: parent.bottom
+                                anchors.bottomMargin: 7
+                                height: 4
+                                radius: 2
+                                color: Ui.Theme.ember
+                                visible: modelData.id === root.currentSeasonId
+                            }
+                        }
+                    }
+                }
+                Flickable {
+                    id: episodeFlick
+                    width: parent.width
+                    height: episodeRow.height
+                    visible: episodeRepeater.count > 0
+                    contentWidth: episodeRow.width
+                    contentHeight: height
+                    clip: true
+                    flickableDirection: Flickable.HorizontalFlick
+                    boundsBehavior: Flickable.StopAtBounds
+                    Row {
+                        id: episodeRow
+                        spacing: 40
+                        Repeater {
+                            id: episodeRepeater
+                            model: root.detailEpisodes
+                            delegate: Item {
+                                id: episodeCell
+                                required property var modelData
+                                required property int index
+                                width: 420
+                                height: 236 + 16 + 72
+                                function focusStill() {
+                                    still.forceActiveFocus();
+                                }
+                                Ui.Surface {
+                                    id: still
+                                    objectName: "episode-" + modelData.id
+                                    width: 420
+                                    height: 236
+                                    cornerRadius: 22
+                                    focusScale: 1.06
+                                    text: modelData.title || ""
+                                    enabled: modelData.enabled !== false
+                                    restingColor: root.standInColor(modelData.id)
+                                    focusedColor: restingColor
+                                    pointerMode: root.pointerMode
+                                    hoverFocusEnabled: root.hoverFocusEnabled
+                                    onDpadRequested: root.pointerMode = false
+                                    onActiveFocusChanged: {
+                                        if (!activeFocus)
+                                            return;
+                                        root.episodeIndex = index;
+                                        const left = episodeCell.x;
+                                        const right = left + episodeCell.width;
+                                        if (left < episodeFlick.contentX)
+                                            episodeFlick.contentX = left;
+                                        else if (right > episodeFlick.contentX + episodeFlick.width)
+                                            episodeFlick.contentX = Math.max(0, right - episodeFlick.width);
+                                    }
+                                    onActivated: root.episodeRequested(root.detailEntryId, modelData.id)
+                                    contentItem: Item {
+                                        Text {
+                                            objectName: "episodeMark-" + modelData.id
+                                            x: 18
+                                            y: 14
+                                            text: "still"
+                                            font.family: Ui.Theme.fontFamily
+                                            font.pixelSize: 14
+                                            color: Qt.rgba(1, 1, 1, 0.45)
+                                        }
+                                        Rectangle {
+                                            visible: modelData.progress > 0
+                                            anchors.left: parent.left
+                                            anchors.right: parent.right
+                                            anchors.bottom: parent.bottom
+                                            anchors.leftMargin: 20
+                                            anchors.rightMargin: 20
+                                            anchors.bottomMargin: 18
+                                            height: 6
+                                            radius: 3
+                                            color: Qt.rgba(1, 1, 1, 0.25)
+                                            Rectangle {
+                                                width: parent.width * Math.max(0, Math.min(1, modelData.progress || 0))
+                                                height: parent.height
+                                                radius: parent.radius
+                                                color: Ui.Theme.ember
+                                            }
+                                        }
+                                    }
+                                    Rectangle {
+                                        objectName: "episode-missing-" + modelData.id
+                                        visible: !!modelData.missing
+                                        z: 40
+                                        x: 14
+                                        y: parent.height - height - 14
+                                        height: 40
+                                        radius: 20
+                                        width: Math.min(parent.width - 28, episodeMissingLabel.implicitWidth + 36)
+                                        color: Qt.rgba(8 / 255, 9 / 255, 11 / 255, 0.72)
+                                        Ui.UiText {
+                                            id: episodeMissingLabel
+                                            anchors.centerIn: parent
+                                            text: qsTr("No file")
+                                            font.pixelSize: 20
+                                            font.weight: 600
+                                            color: Ui.Theme.error
+                                        }
+                                    }
+                                }
+                                Item {
+                                    id: episodeCaption
+                                    x: 4
+                                    y: 236 + 16
+                                    width: parent.width - 8
+                                    property real lift: still.activeFocus ? (root.pointerMode ? -4 : -10) : 0
+                                    transform: Translate { y: episodeCaption.lift }
+                                    Ui.UiText {
+                                        id: episodeLabel
+                                        width: parent.width
+                                        text: (modelData.number !== undefined && modelData.number !== null && String(modelData.number).length
+                                               ? String(modelData.number) + ". " : "") + (modelData.title || "")
+                                        font.pixelSize: 26
+                                        font.weight: still.activeFocus ? 600 : 500
+                                        maximumLineCount: 1
+                                        elide: Text.ElideRight
+                                    }
+                                    Ui.UiText {
+                                        objectName: "episodeDuration-" + modelData.id
+                                        anchors.top: episodeLabel.bottom
+                                        anchors.topMargin: 4
+                                        width: parent.width
+                                        text: modelData.duration || ""
+                                        font.pixelSize: 24
+                                        color: Ui.Theme.textHint
+                                        visible: text.length > 0
+                                    }
                                 }
                             }
                         }

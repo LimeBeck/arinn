@@ -1,0 +1,1 @@
+- `arinn-plugin-mpris` publishes session-bus players as `media` sessions. `Features` stays empty, artwork URLs are not forwarded, and a command the player does not offer returns `Unsupported`.

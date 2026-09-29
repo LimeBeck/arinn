@@ -1,0 +1,17 @@
+# SPDX-FileCopyrightText: 2026 Arinn contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+[package]
+name = "arinn-plugin-mpris"
+version.workspace = true
+edition.workspace = true
+license = "GPL-3.0-or-later"
+repository.workspace = true
+
+[dependencies]
+arinn-plugin-sdk.workspace = true
+arinn-protocol.workspace = true
+futures-util.workspace = true
+libc.workspace = true
+tokio.workspace = true
+zbus.workspace = true

@@ -250,7 +250,8 @@ async fn scenario() {
     let provider = bus.connection().await;
     let destination = provider.unique_name().unwrap().clone();
     let runner = tokio::spawn(async move {
-        serve(provider).await.unwrap();
+        // Dropping the bus at the end of the test closes this task.
+        let _ = serve(provider).await;
     });
     let proxy = MediaProviderProxy::builder(&daemon)
         .destination(&destination)
@@ -282,10 +283,18 @@ async fn scenario() {
         ]
     );
     assert!(!session.has_content);
-    assert!(proxy.features().await.unwrap().is_empty());
     let anchor = session.anchor_us;
     let generation = page.generation.clone();
+    // A republish inside the one-second playing window keeps this anchor.
+    // Introspection below can take longer than that window, so the equality
+    // has to be checked before it (ADR-0054).
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    let (held_early,) = proxy.get_sessions("").await.unwrap();
+    assert_eq!(held_early.sessions[0].id, "fixture");
+    assert_eq!(held_early.sessions[0].state, "playing");
+    assert_eq!(held_early.sessions[0].anchor_us, anchor);
 
+    assert!(proxy.features().await.unwrap().is_empty());
     let introspect = zbus::fdo::IntrospectableProxy::builder(&daemon)
         .destination(&destination)
         .unwrap()
@@ -299,9 +308,6 @@ async fn scenario() {
     assert!(!xml.contains("org.arinn.MediaOpen1"));
     assert!(!xml.contains("org.arinn.MediaTracks1"));
     assert!(!xml.contains("org.arinn.MediaTimeline1"));
-
-    let (again,) = proxy.get_sessions("").await.unwrap();
-    assert_eq!(again.sessions[0].anchor_us, anchor);
 
     tokio::time::sleep(Duration::from_millis(2)).await;
     *calls.status.lock().unwrap() = "Paused".into();
@@ -454,7 +460,8 @@ async fn hung_scenario() {
     let provider = bus.connection().await;
     let destination = provider.unique_name().unwrap().clone();
     let runner = tokio::spawn(async move {
-        serve(provider).await.unwrap();
+        // Dropping the bus at the end of the test closes this task.
+        let _ = serve(provider).await;
     });
     let proxy = MediaProviderProxy::builder(&daemon)
         .destination(&destination)
@@ -525,7 +532,8 @@ async fn late_scenario() {
     let provider = bus.connection().await;
     let destination = provider.unique_name().unwrap().clone();
     let runner = tokio::spawn(async move {
-        serve(provider).await.unwrap();
+        // Dropping the bus at the end of the test closes this task.
+        let _ = serve(provider).await;
     });
     let proxy = MediaProviderProxy::builder(&daemon)
         .destination(&destination)

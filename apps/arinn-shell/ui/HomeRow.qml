@@ -7,6 +7,8 @@ FocusScope {
     id: root
     property var entries: []
     property var busyEntryIds: []
+    property var openShortcutIds: []
+    property bool browserUnavailable: false
     property string title: ""
     property string variant: "content"
     property bool pointerMode: false
@@ -110,7 +112,10 @@ FocusScope {
                             width: entryLoader.width; height: entryLoader.height
                             text: entryLoader.modelData.title
                             monogram: entryLoader.modelData.monogram || ""
+                            subtitle: (root.browserUnavailable && entryLoader.modelData.webShortcut) ? qsTr("Unavailable") : (entryLoader.modelData.subtitle || "")
                             running: entryLoader.modelData.running || false
+                            serviceOpen: root.openShortcutIds.indexOf(entryLoader.modelData.id) >= 0
+                            unavailable: root.browserUnavailable && !!entryLoader.modelData.webShortcut
                             enabled: entryLoader.modelData.enabled !== false
                             busy: entryLoader.modelData.busy || root.busyEntryIds.includes(entryLoader.modelData.id)
                             pointerMode: root.pointerMode

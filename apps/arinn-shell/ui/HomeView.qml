@@ -23,6 +23,13 @@ FocusScope {
     property string favoritesTitle: qsTr("Favorites")
     property string sectionDescription: qsTr("This section is not connected in the Home preview.")
     property string returnActivityId: ""
+    property bool returnIsWebService: false
+    property int openServiceCount: 0
+    property string currentServiceId: ""
+    property string currentServiceTitle: ""
+    property string currentServiceSubtitle: ""
+    property bool browserUnavailable: false
+    property var openShortcutIds: []
     property string homeState: "ready" // ready, empty, loading, error, unavailable
     property string statusTitle: ""
     property string statusDescription: ""
@@ -45,6 +52,37 @@ FocusScope {
     signal retryRequested()
     signal sectionRequested(string route)
     signal powerRequested()
+    signal openServicesRequested()
+    signal serviceRequested(string serviceId)
+    readonly property var continuePresentation: {
+        if (openServiceCount <= 1 && !currentServiceTitle.length)
+            return continueEntries;
+        const shown = currentServiceTitle.length > 0;
+        const service = shown ? [{
+            id: "current-service",
+            serviceId: currentServiceId,
+            title: currentServiceTitle,
+            subtitle: currentServiceSubtitle,
+            running: true,
+            kind: "service"
+        }] : [];
+        const others = openServiceCount - (shown ? 1 : 0);
+        const more = openServiceCount > 1 ? [{
+            id: "open-services-more",
+            title: qsTr("%1 more open").arg(Math.max(others, 1)),
+            subtitle: qsTr("Open services"),
+            kind: "more"
+        }] : [];
+        const activity = !shown && continueEntries.length ? [continueEntries[0]] : [];
+        const rest = shown ? continueEntries : continueEntries.slice(1);
+        const further = more.slice();
+        for (let i = 0; i < rest.length && further.length < 4; ++i) {
+            if (shown && rest[i].id === currentServiceId)
+                continue;
+            further.push(rest[i]);
+        }
+        return service.concat(activity).concat(further.slice(0, 4));
+    }
 
     function rowItems() { return [continueRow, favoritesRow, newRow]; }
     function restoreHome() {
@@ -152,7 +190,21 @@ FocusScope {
         menuButton.forceActiveFocus();
     }
     function remember(row, entry) { homeRow = row.objectName; focusedEntry = entry; }
+    function entryById(entryId) {
+        const pools = [continuePresentation, favoriteEntries, newEntries, applicationEntries, runningEntries];
+        for (let p = 0; p < pools.length; ++p) {
+            const pool = pools[p] || [];
+            for (let i = 0; i < pool.length; ++i)
+                if (pool[i] && pool[i].id === entryId)
+                    return pool[i];
+        }
+        return null;
+    }
     function activate(entryId) {
+        const entry = entryById(entryId);
+        if (entry && entry.kind === "more") { openServicesRequested(); return; }
+        if (entry && entry.kind === "service") { serviceRequested(entry.serviceId || ""); return; }
+        if (browserUnavailable && entry && entry.webShortcut) { openServicesRequested(); return; }
         if (entryId === returnActivityId) returnRequested(entryId);
         else entryRequested(entryId);
     }
@@ -161,7 +213,8 @@ FocusScope {
         if (!returnActivityId) {
             activityNotice.visible = true;
             noticeTimer.restart();
-            if (navOpen && navIndex === 5) navItems.itemAt(4).forceActiveFocus();
+            if (navOpen && navIndex === 6)
+                navItems.itemAt(5).forceActiveFocus();
         }
     }
     Component.onCompleted: Qt.callLater(restoreHome)
@@ -222,6 +275,19 @@ FocusScope {
             }
         }
         UiText { x: 1460; y: 60; width: 364; horizontalAlignment: Text.AlignRight; text: root.clockText; role: "meta" }
+        Row {
+            objectName: "browserStatusChip"
+            x: 1180; y: 56; spacing: 12
+            visible: root.browserUnavailable
+            Rectangle { width: 28; height: 28; radius: 14; color: Theme.error; anchors.verticalCenter: parent.verticalCenter }
+            UiText {
+                objectName: "browserStatusLabel"
+                text: qsTr("Browser unavailable")
+                role: "caption"
+                color: Theme.error
+                anchors.verticalCenter: parent.verticalCenter
+            }
+        }
         Item {
             anchors.fill: parent
             visible: root.screen === "home"
@@ -245,7 +311,7 @@ FocusScope {
                     id: continueRow; objectName: "continue"
                     x: 120; y: 372; width: 1704
                     visible: count > 0
-                    title: qsTr("Continue"); entries: root.continueEntries; busyEntryIds: root.busyEntryIds
+                    title: qsTr("Continue"); entries: root.continuePresentation; busyEntryIds: root.busyEntryIds
                     pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled
                     onSelected: entry => root.remember(continueRow, entry)
                     onActivated: entryId => root.activate(entryId)
@@ -259,6 +325,7 @@ FocusScope {
                     x: 120; y: continueRow.visible ? 700 : 372; width: 1704
                     visible: count > 0
                     title: root.favoritesTitle; variant: "app"; entries: root.favoriteEntries; busyEntryIds: root.busyEntryIds
+                    browserUnavailable: root.browserUnavailable; openShortcutIds: root.openShortcutIds
                     pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled
                     onSelected: entry => root.remember(favoritesRow, entry)
                     onActivated: entryId => root.activate(entryId)
@@ -365,37 +432,96 @@ FocusScope {
         anchors.fill: parent; visible: root.navOpen
         MouseArea { anchors.fill: parent; onClicked: root.closeNavigation() }
         Rectangle {
-            x: 72; y: 112; width: 500; height: 856; radius: 44; color: "#292b30"
+            x: 72; y: 72; width: 500; height: 936; radius: 44; color: "#292b30"
             MouseArea { anchors.fill: parent }
             BrandLockup { objectName: "navigationBrand"; x: 40; y: 32; markSize: 40; textRole: "section" }
             Column {
                 x: 28; y: 100; spacing: 8
                 Repeater {
                     id: navItems
-                    model: root.sections.concat([qsTr("Return to activity"), qsTr("Power")])
+                    model: root.sections.concat([qsTr("Open services"), qsTr("Return to activity"), qsTr("Power")])
                     delegate: Surface {
+                        id: navButton
                         required property int index
                         required property string modelData
                         objectName: "nav-" + index
-                        width: 444; height: 88; text: modelData
-                        visible: index !== 5 || root.returnActivityId.length > 0
+                        width: 444
+                        height: index === 5 && root.currentServiceTitle.length ? 112 : 88
+                        text: modelData
+                        visible: index !== 6 || (root.returnActivityId.length > 0 && !root.returnIsWebService)
                         focusScale: 1.02
                         cornerRadius: 28
                         restingColor: "transparent"
-                        contentItem: UiText {
-                            leftPadding: 32; rightPadding: 44
-                            text: parent.text
-                            role: "control"
-                            color: parent.activeFocus ? Theme.textPrimary : Theme.textSecondary
-                            verticalAlignment: Text.AlignVCenter
-                            maximumLineCount: 1; elide: Text.ElideRight
+                        readonly property color labelColor: activeFocus ? Theme.textPrimary : Theme.textSecondary
+                        contentItem: Item {
+                            Row {
+                                x: 24
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: parent.width - 96
+                                spacing: 16
+                                Rectangle {
+                                    visible: index === 5
+                                    width: 40; height: 40; radius: 12
+                                    color: Qt.rgba(1, 1, 1, 0.08)
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    Column {
+                                        anchors.centerIn: parent
+                                        spacing: 3
+                                        Rectangle { width: 22; height: 4; radius: 1; color: navButton.labelColor }
+                                        Rectangle { width: 16; height: 4; radius: 1; color: navButton.labelColor }
+                                        Rectangle { width: 10; height: 4; radius: 1; color: navButton.labelColor }
+                                    }
+                                }
+                                Column {
+                                    width: parent.width - (index === 5 ? 56 : 0)
+                                    spacing: 2
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    UiText {
+                                        width: parent.width
+                                        text: modelData
+                                        role: "control"
+                                        color: navButton.labelColor
+                                        maximumLineCount: 1; elide: Text.ElideRight
+                                    }
+                                    UiText {
+                                        objectName: index === 5 ? "openServicesSubline" : ""
+                                        width: parent.width
+                                        visible: index === 5 && root.currentServiceTitle.length > 0
+                                        text: index === 5 ? qsTr("On screen: %1").arg(root.currentServiceTitle) : ""
+                                        role: "caption"
+                                        color: Theme.textSecondary
+                                        maximumLineCount: 1; elide: Text.ElideRight
+                                    }
+                                }
+                            }
+                            Rectangle {
+                                objectName: index === 5 ? "openServicesBadge" : ""
+                                visible: index === 5 && root.openServiceCount > 0
+                                anchors.right: parent.right
+                                anchors.rightMargin: 20
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: Math.max(36, openServicesCount.implicitWidth + 16)
+                                height: 32
+                                radius: 16
+                                color: Theme.ember
+                                UiText {
+                                    id: openServicesCount
+                                    objectName: index === 5 ? "openServicesCount" : ""
+                                    anchors.centerIn: parent
+                                    text: index === 5 ? String(root.openServiceCount) : ""
+                                    font.pixelSize: 24
+                                    font.weight: 600
+                                    color: Theme.ink
+                                }
+                            }
                         }
                         pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled
                         onActiveFocusChanged: if (activeFocus) root.navIndex = index
                         onDpadRequested: root.pointerMode = false
                         onActivated: {
                             if (index < 5) root.selectSection(index);
-                            else if (index === 5) root.returnRequested(root.returnActivityId);
+                            else if (index === 5) { root.navOpen = false; root.openServicesRequested(); }
+                            else if (index === 6) root.returnRequested(root.returnActivityId);
                             else root.powerRequested();
                         }
                         Keys.onTabPressed: root.moveNavigation(1)

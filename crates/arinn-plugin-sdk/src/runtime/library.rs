@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Arinn contributors
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! `org.arinn.LibraryProvider1` and optional resume/import (ADR-0052).
+//! `org.arinn.LibraryProvider1` and optional resume/import (ADR-0054).
 //! Launch returns a file URI to the daemon only. The SDK does not log it.
 use super::{Endpoint, RegistrationContext, backend_state, run_endpoint};
 use crate::snapshots::{LibrarySnapshots, ResumeSnapshots};

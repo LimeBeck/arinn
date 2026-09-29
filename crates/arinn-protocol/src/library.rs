@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Arinn contributors
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! Pre-stable library contract (ADR-0024, ADR-0052).
+//! Pre-stable library contract (ADR-0024, ADR-0054).
 //!
 //! File URIs are visible only to the daemon and the provider. They never
 //! reach the shell and are never logged (spec §13).

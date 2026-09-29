@@ -253,7 +253,7 @@ trait Endpoint: Clone + Send + Sync + zbus::object_server::Interface {
         revision: u64,
     ) -> impl Future<Output = zbus::Result<()>> + Send;
     /// Export the provider object. Media and library also export optional
-    /// extension interfaces on the same path (ADR-0052).
+    /// extension interfaces on the same path (ADR-0054).
     fn export(
         &self,
         connection: &zbus::Connection,

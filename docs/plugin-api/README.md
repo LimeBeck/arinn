@@ -65,7 +65,7 @@ the XML.
 ([media-provider1.xml](media-provider1.xml)); `library` providers export
 `org.arinn.LibraryProvider1` ([library-provider1.xml](library-provider1.xml)).
 Types are in `arinn-protocol::media` and `arinn-protocol::library`. Decisions
-are in [ADR-0052](../adr/0052-media-and-library-wire-contract.md). `Media1` and
+are in [ADR-0054](../adr/0054-media-and-library-wire-contract.md). `Media1` and
 `Library1` are specified for the daemon path and are not exported yet.
 
 - A session is `(id, title, subtitle, artwork, state, duration_us, position_us,
@@ -190,7 +190,7 @@ fixtures through manifest reloads on a private bus. See the
 
 Known capabilities are `application`, `browser`, `media`, `library`, `action` and
 `download`. The daemon routes `application` and `browser`. Media and library
-have provider contracts and SDK services ([ADR-0052](../adr/0052-media-and-library-wire-contract.md));
+have provider contracts and SDK services ([ADR-0054](../adr/0054-media-and-library-wire-contract.md));
 the daemon does not route them yet. `action` and `download` stay incompatible
 until their XML exists. [MVP extensions](mvp-extensions.md) describe the media
 flags and the download model; download XML is still outstanding.

@@ -16,7 +16,8 @@ set(ARINN_PRESENTATION_FILES
     ui/qmldir ui/Theme.qml ui/UiText.qml ui/LogicalCanvas.qml
     ui/Surface.qml ui/ActionButton.qml ui/ContentCard.qml ui/AppTile.qml
     ui/HomeRow.qml ui/HomeView.qml ui/BrandLockup.qml ui/BrandButton.qml
-    ui/ProgressTrack.qml ui/Skeleton.qml ui/StatusPane.qml ui/fonts/Onest.ttf)
+    ui/ProgressTrack.qml ui/Skeleton.qml ui/StatusPane.qml ui/LaunchOverlay.qml
+    ui/fonts/Onest.ttf)
 foreach(target arinn-shell arinn-shell-test)
     qt_add_resources(${target} presentation PREFIX "/" FILES ${ARINN_PRESENTATION_FILES})
 endforeach()

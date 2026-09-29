@@ -22,7 +22,7 @@ This is an extra integration gate before the media UI: an overlay over video wit
 
 ## Contract and resume ownership
 
-The MediaProvider base stays MPRIS-compatible. Rich features are separate typed interfaces with feature flags `MediaTracks1`, `MediaTimeline1` and `MediaOpen1` ([API review](../plugin-api/mvp-extensions.md), [wire contract](../adr/0052-media-and-library-wire-contract.md)). The MPRIS provider does not have to declare them. A missing feature is hidden or disabled in the UI, never a no-op.
+The MediaProvider base stays MPRIS-compatible. Rich features are separate typed interfaces with feature flags `MediaTracks1`, `MediaTimeline1` and `MediaOpen1` ([API review](../plugin-api/mvp-extensions.md), [wire contract](../adr/0054-media-and-library-wire-contract.md)). The MPRIS provider does not have to declare them. A missing feature is hidden or disabled in the UI, never a no-op.
 
 Library launch returns a content `EntityRef` and calls the selected `MediaOpen1` provider through daemon routing. The media session reports the same content ref. The library provider receives progress through a daemon subscription and writes resume every 5 s and on pause, seek, end and stop. Only the library is the persistent source of truth; mpv watch-later never becomes a second resume store for Arinn-managed sessions.
 

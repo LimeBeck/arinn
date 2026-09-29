@@ -3,10 +3,18 @@
 
 //! `arinn-plugin-chrome`: the `browser` provider. It owns the bridge name for
 //! native hosts and publishes their merged state through the SDK.
-use arinn_plugin_chrome::{BRIDGE_NAME, BRIDGE_PATH, bridge::Bridge};
-use arinn_plugin_sdk::runtime::{self, BrowserHandler, BrowserService, TabAction};
+use arinn_plugin_chrome::{
+    BRIDGE_NAME, BRIDGE_PATH,
+    association::{Association, SETTLE},
+    bridge::Bridge,
+};
+use arinn_plugin_sdk::{
+    platform::WindowClient,
+    runtime::{self, BrowserHandler, BrowserService, TabAction},
+};
 use arinn_protocol::validation::ErrorCode;
-use std::{future::Future, pin::Pin};
+use futures_util::StreamExt;
+use std::{future::Future, pin::Pin, time::Duration};
 
 struct Handler {
     bridge: Bridge,
@@ -59,29 +67,81 @@ async fn main() -> anyhow::Result<()> {
         Vec::new(),
         "unavailable",
     )?;
-    let publisher = {
-        let service = service.clone();
-        let mut changes = bridge.changes();
-        tokio::spawn(async move {
-            loop {
-                let (windows, tabs, connected) = bridge.snapshot();
-                let backend = if connected {
-                    "available"
-                } else {
-                    "unavailable"
-                };
-                if service.replace(windows, tabs, backend).await.is_err() {
-                    // The merged snapshot is fitted to the wire rules; this
-                    // only fails on an internal inconsistency.
-                    eprintln!("arinn-plugin-chrome: rejected an invalid browser snapshot");
-                }
-                if changes.changed().await.is_err() {
-                    break;
-                }
-            }
-        })
-    };
+    let publisher = tokio::spawn(publish(service.clone(), bridge.clone()));
     let result = runtime::run_browser_on(connection, service).await;
     publisher.abort();
     result.map_err(|e| anyhow::anyhow!(e))
+}
+
+/// Publish the merged browser snapshot, with window tokens linked through the
+/// platform window inventory while the provider is registered (ADR-0052).
+async fn publish(service: BrowserService, bridge: Bridge) {
+    let mut changes = bridge.changes();
+    let mut registrations = service.registrations();
+    let mut association = Association::default();
+    let mut platform = None;
+    let mut generation = String::new();
+    loop {
+        let context = registrations.borrow_and_update().clone();
+        if platform.is_none()
+            && let Some(context) = context
+            && let Ok(client) = WindowClient::new(&context.connection).await
+            && let Ok(stream) = client.proxy().receive_windows_changed().await
+        {
+            platform = Some((client, stream));
+        }
+        let (mut windows, tabs, connected) = bridge.snapshot();
+        let inventory = match &platform {
+            Some((client, _)) => client.snapshot().await.ok(),
+            None => None,
+        };
+        match inventory {
+            Some(snapshot) => {
+                // Tokens never survive a new platform generation.
+                if snapshot.generation != generation {
+                    association.clear();
+                    generation = snapshot.generation;
+                }
+                association.observe(&windows, &snapshot.windows, tokio::time::Instant::now());
+            }
+            None => {
+                platform = None;
+                association.clear();
+            }
+        }
+        association.apply(&mut windows);
+        let backend = if connected {
+            "available"
+        } else {
+            "unavailable"
+        };
+        if service.replace(windows, tabs, backend).await.is_err() {
+            // The merged snapshot is fitted to the wire rules; this only
+            // fails on an internal inconsistency.
+            eprintln!("arinn-plugin-chrome: rejected an invalid browser snapshot");
+        }
+        // A pending focus pair is re-checked after it settles; otherwise the
+        // platform inventory is polled like the desktop provider does.
+        let wait = if association.pending() {
+            SETTLE
+        } else {
+            Duration::from_secs(1)
+        };
+        let platform_event = async {
+            match platform.as_mut() {
+                Some((_, stream)) => stream.next().await.is_some(),
+                None => std::future::pending().await,
+            }
+        };
+        tokio::select! {
+            changed = changes.changed() => if changed.is_err() { break },
+            changed = registrations.changed() => {
+                if changed.is_err() { break }
+                platform = None;
+                association.clear();
+            }
+            alive = platform_event => if !alive { platform = None },
+            _ = tokio::time::sleep(wait) => {}
+        }
+    }
 }

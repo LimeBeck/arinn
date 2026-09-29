@@ -31,7 +31,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0010](0010-activity-home.md) | Activity and one Continue/Home overlay model | Accepted | 0022, 0023 |
 | [0011](0011-chrome-integration.md) | Chrome/Chromium through an MV3 extension and Native Messaging | Accepted | 0021, 0038, 0048 |
 | [0012](0012-desktop-steam-esde.md) | Desktop provider and dedicated Steam/ES-DE entry points | Accepted | 0021 |
-| [0013](0013-mpris-media.md) | MediaProvider based on MPRIS | Accepted | 0021, 0024, 0052 |
+| [0013](0013-mpris-media.md) | MediaProvider based on MPRIS | Accepted | 0021, 0024, 0054 |
 | [0014](0014-state-persistence.md) | Provider-owned state and minimal Arinn persistence | Accepted | 0022 |
 | [0015](0015-security-boundary.md) | Trusted local plugins with IPC validation | Accepted | 0020, 0021 |
 | [0016](0016-cli-diagnostics.md) | One API for CLI, diagnostics and structured logs | Accepted | 0020 |
@@ -42,7 +42,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0021](0021-plugin-runtime-ownership.md) | Transient systemd services and a separate Chrome native bridge | Accepted | 0038, 0042 |
 | [0022](0022-state-and-interaction-baseline.md) | Activity ownership, persistence and interaction state | Accepted | 0034, 0043 |
 | [0023](0023-mvp-product-clarifications.md) | Back, system sleep and the target HTPC | Accepted | 0030 |
-| [0024](0024-local-library-mpv.md) | Local library and external mpv with a rich media API | Accepted | 0046, 0052 |
+| [0024](0024-local-library-mpv.md) | Local library and external mpv with a rich media API | Accepted | 0046, 0054 |
 | [0025](0025-downloads-mvp.md) | DownloadProvider and Transmission in the MVP | Accepted | — |
 | [0026](0026-multiple-monitors.md) | Home on the screen of the active Activity | Accepted | 0031 |
 | [0027](0027-activity-background-snapshot.md) | Compositor snapshot of the Activity for a separate Qt shell | Accepted | — |
@@ -70,6 +70,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0049](0049-ci-minutes.md) | Spend fewer CI minutes | Accepted | 0053 |
 | [0050](0050-window-per-browser-activity.md) | One fullscreen browser window per browser activity | Accepted | 0051 |
 | [0051](0051-address-and-search-entry.md) | Address and search entry for free browsing | Accepted | — |
-| [0052](0052-media-and-library-wire-contract.md) | Media and library wire contract | Accepted | — |
+| [0052](0052-browser-window-association.md) | Browser windows are linked to platform windows by focus agreement | Accepted | — |
 | [0053](0053-release-and-label-workflows-on-the-runner.md) | Release and label workflows use the switchable runner | Accepted | — |
+| [0054](0054-media-and-library-wire-contract.md) | Media and library wire contract | Accepted | — |
 <!-- register:end -->

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! `LibraryService` registers `library` and keeps resume and import optional
-//! (ADR-0052). Launch's file URI is not logged.
+//! (ADR-0054). Launch's file URI is not logged.
 mod common;
 use arinn_plugin_sdk::runtime::{
     self, LibraryExtensions, LibraryHandler, LibraryImportHandler, LibraryResumeHandler,

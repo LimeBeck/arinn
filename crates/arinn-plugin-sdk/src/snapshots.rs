@@ -130,7 +130,7 @@ impl Catalog for BrowserCatalog {
     }
 }
 
-/// Library collections and items (`org.arinn.LibraryProvider1`, ADR-0052).
+/// Library collections and items (`org.arinn.LibraryProvider1`, ADR-0054).
 pub struct LibraryCatalog;
 impl Catalog for LibraryCatalog {
     type First = Collection;

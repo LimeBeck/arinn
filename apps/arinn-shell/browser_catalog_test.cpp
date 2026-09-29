@@ -17,7 +17,9 @@ struct EffectWire {
   QString provider, capability, id;
 };
 struct ProviderWire {
-  QString backend;
+  QString backend = QStringLiteral("available");
+  QString runtime = QStringLiteral("ready");
+  QString id = QStringLiteral("browser");
 };
 struct ShortcutWire {
   QString id, title, url, icon;
@@ -57,10 +59,10 @@ const QDBusArgument &operator>>(const QDBusArgument &argument, EffectWire &) {
 }
 QDBusArgument &operator<<(QDBusArgument &argument, const ProviderWire &provider) {
   argument.beginStructure();
-  argument << QString("browser") << QString("plugin") << QString()
-           << QString("Browser") << QString("1")
+  argument << provider.id << QString("plugin") << QString() << QString("Browser")
+           << QString("1")
            << QDBusObjectPath("/org/arinn/Daemon1/providers/p_browser")
-           << QStringList{"browser"} << QString("ready") << provider.backend
+           << QStringList{"browser"} << provider.runtime << provider.backend
            << QString("11111111-1111-4111-8111-111111111111") << qulonglong(1)
            << QString() << qulonglong(0) << qulonglong(0) << qulonglong(0)
            << qulonglong(0);
@@ -83,9 +85,14 @@ const QDBusArgument &operator>>(const QDBusArgument &argument, ShortcutWire &) {
 class BrowserDaemon : public QDBusVirtualObject {
 public:
   QString mode = "populated";
-  QString activatedId, closedId, openedId, activateRequest;
+  QString runtime = "ready";
+  QString activatedId, closedId, openedId, activateRequest, restartedId;
   int tabReads = 0, activates = 0, closes = 0, opens = 0, operationReads = 0,
-      openArgCount = 0;
+      openArgCount = 0, providerReads = 0, restarts = 0, cancels = 0;
+  bool scripted = false, holdOperation = false;
+  QList<WindowWire> scriptedWindows;
+  QList<TabWire> scriptedTabs;
+  QList<ShortcutWire> scriptedShortcuts;
   QString introspect(const QString &) const override { return {}; }
   bool handleMessage(const QDBusMessage &message,
                      const QDBusConnection &bus) override {
@@ -97,12 +104,28 @@ public:
            << QString() << QString();
       body.endStructure();
     } else if (message.member() == "Providers") {
-      const auto backend =
-          mode == "unavailable" ? QString("unavailable") : QString("available");
+      ++providerReads;
+      const auto failed = mode == "failed" || runtime == "failed";
+      const auto backend = mode == "unavailable" || failed
+                               ? QString("unavailable")
+                               : QString("available");
+      const auto state = failed ? QString("failed") : runtime;
       body.beginStructure();
       body << QString("snapshot")
-           << QList<ProviderWire>{{backend}} << QString();
+           << QList<ProviderWire>{{backend, state, QStringLiteral("browser")}}
+           << QString();
       body.endStructure();
+    } else if (message.member() == "Restart") {
+      ++restarts;
+      restartedId = message.arguments().at(0).toString();
+      bus.send(message.createReply(
+          QVariant::fromValue(QDBusObjectPath("/org/arinn/Daemon1/ops/restart"))));
+      return true;
+    } else if (message.member() == "Cancel") {
+      ++cancels;
+      holdOperation = false;
+      bus.send(message.createReply());
+      return true;
     } else if (message.member() == "GetTabs") {
       ++tabReads;
       if (mode == "error") {
@@ -112,13 +135,19 @@ public:
       body.beginStructure();
       body << QString("11111111-1111-4111-8111-111111111111") << qulonglong(1);
       body.beginArray(QMetaType::fromType<WindowWire>());
-      if (mode == "populated") {
+      if (scripted) {
+        for (const auto &window : scriptedWindows)
+          body << window;
+      } else if (mode == "populated") {
         body << WindowWire{"w1", {}, true};
         body << WindowWire{"w2", {}, false};
       }
       body.endArray();
       body.beginArray(QMetaType::fromType<TabWire>());
-      if (mode == "populated") {
+      if (scripted) {
+        for (const auto &tab : scriptedTabs)
+          body << tab;
+      } else if (mode == "populated") {
         body << TabWire{"t1", "w1", "First", "https://example.test/1", true,
                         false};
         body << TabWire{"t2", "w2", "Second", "https://example.test/2", true,
@@ -143,8 +172,9 @@ public:
     } else if (message.member() == "List") {
       body.beginStructure();
       body << qulonglong(1)
-           << QList<ShortcutWire>{
-                  {"known", "Known", "https://example.test/s", {}}};
+           << (scripted ? scriptedShortcuts
+                        : QList<ShortcutWire>{
+                              {"known", "Known", "https://example.test/s", {}}});
       body.endStructure();
     } else if (message.member() == "Open") {
       ++opens;
@@ -156,8 +186,8 @@ public:
     } else if (message.member() == "Get") {
       ++operationReads;
       body.beginStructure();
-      body << QString("succeeded") << QString() << false << qulonglong(1)
-           << qulonglong(2);
+      body << QString(holdOperation ? "running" : "succeeded") << QString()
+           << false << qulonglong(1) << qulonglong(2);
       body.beginArray(QMetaType::fromType<EffectWire>());
       body.endArray();
       body << false;
@@ -255,6 +285,95 @@ private slots:
     bus.unregisterService("org.arinn.Daemon1");
     QTRY_COMPARE(catalog.browserState(), QString("unavailable"));
     QVERIFY(catalog.tabs().isEmpty());
+  }
+  void orderOriginAndRetry() {
+    auto bus = QDBusConnection::sessionBus();
+    BrowserDaemon daemon;
+    daemon.scripted = true;
+    daemon.scriptedWindows = {WindowWire{"w1", {}, true},
+                              WindowWire{"w2", {}, false},
+                              WindowWire{"w3", {}, false}};
+    daemon.scriptedTabs = {
+        TabWire{"t1", "w1", "First", "https://www.example.test:8443/a", true,
+                false},
+        TabWire{"t2", "w2", "Second", "https://example.test/b", true, false},
+        TabWire{"idle", "w2", "Idle", "https://hd.videos.example/watch", false,
+                false},
+        TabWire{"scheme", "w3", "Scheme", "http://example.test:8443/c", true,
+                false}};
+    daemon.scriptedShortcuts = {
+        ShortcutWire{"port", "Port", "https://example.test:8443/s",
+                     "packaged:mark"},
+        ShortcutWire{"plain", "Plain", "http://example.test/s", {}}};
+    QVERIFY(bus.registerService("org.arinn.Daemon1"));
+    QVERIFY(bus.registerVirtualObject("/org/arinn", &daemon,
+                                      QDBusConnection::SubPath));
+    BrowserCatalog catalog;
+    QTRY_COMPARE(catalog.browserState(), QString("populated"));
+    QTRY_COMPARE(catalog.tabs().at(0).toMap().value("title").toString(),
+                 QString("First"));
+    QCOMPARE(catalog.tabs().at(0).toMap().value("letter").toString(),
+             QString("E"));
+    QCOMPARE(catalog.tabs().at(0).toMap().value("icon").toString(),
+             QString("packaged:mark"));
+    QCOMPARE(catalog.openShortcutIds(), QStringList{"port"});
+    QCOMPARE(catalog.currentService().value("title").toString(),
+             QString("First"));
+    QCOMPARE(catalog.currentService().value("subtitle").toString(),
+             QString("www.example.test:8443 · Return"));
+    QVariantMap idle;
+    for (const auto &entry : catalog.tabs()) {
+      if (entry.toMap().value("title").toString() == QLatin1String("Idle"))
+        idle = entry.toMap();
+    }
+    QCOMPARE(idle.value("letter").toString(), QString("V"));
+    QVERIFY(!idle.contains(QStringLiteral("icon")));
+    for (const auto &entry : catalog.shortcuts()) {
+      const auto map = entry.toMap();
+      QVERIFY(!map.contains("url"));
+      QVERIFY(!map.contains("icon"));
+    }
+    daemon.scriptedWindows = {WindowWire{"w1", {}, false},
+                              WindowWire{"w2", {}, true},
+                              WindowWire{"w3", {}, false}};
+    catalog.refresh();
+    QTRY_COMPARE(catalog.tabs().at(0).toMap().value("title").toString(),
+                 QString("Second"));
+    QCOMPARE(catalog.tabs().at(1).toMap().value("title").toString(),
+             QString("Idle"));
+    QCOMPARE(catalog.currentService().value("title").toString(),
+             QString("Second"));
+    QVERIFY(!catalog.openShortcutIds().contains(QString("plain")));
+
+    daemon.holdOperation = true;
+    catalog.openShortcut("port");
+    QTRY_VERIFY(catalog.opening());
+    QCOMPARE(catalog.openingTitle(), QString("Port"));
+    catalog.cancelOpen();
+    QTRY_COMPARE(daemon.cancels, 1);
+    QCOMPARE(catalog.opening(), false);
+    QCOMPARE(catalog.openingError(), QString());
+
+    daemon.mode = "unavailable";
+    daemon.runtime = "ready";
+    daemon.scripted = false;
+    catalog.refresh();
+    QTRY_COMPARE(catalog.browserState(), QString("unavailable"));
+    QCOMPARE(catalog.retryAction(), QString("refresh"));
+    const auto reads = daemon.tabReads;
+    const auto providers = daemon.providerReads;
+    catalog.retry();
+    QTRY_VERIFY(daemon.providerReads > providers);
+    QCOMPARE(daemon.restarts, 0);
+    QCOMPARE(daemon.tabReads, reads);
+
+    daemon.runtime = "failed";
+    catalog.refresh();
+    QTRY_COMPARE(catalog.retryAction(), QString("restart"));
+    catalog.retry();
+    QTRY_COMPARE(daemon.restartedId, QString("browser"));
+    QCOMPARE(daemon.restarts, 1);
+    QCOMPARE(daemon.tabReads, reads);
   }
 };
 

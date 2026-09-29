@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! `MediaService` registers `media`, serves the base contract only to the
-//! daemon, and exports rich interfaces only when asked (ADR-0052).
+//! daemon, and exports rich interfaces only when asked (ADR-0054).
 mod common;
 use arinn_plugin_sdk::runtime::{
     self, MediaAction, MediaExtensions, MediaHandler, MediaOpenHandler, MediaService,

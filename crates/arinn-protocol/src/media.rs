@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Arinn contributors
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! Pre-stable media contract (ADR-0013, ADR-0024, ADR-0052).
+//! Pre-stable media contract (ADR-0013, ADR-0024, ADR-0054).
 //!
 //! Session titles and file URIs travel to the daemon and, for titles, the
 //! shell. URIs never reach the shell and neither is logged (spec §13).

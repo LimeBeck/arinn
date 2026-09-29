@@ -10,9 +10,10 @@ row. It sends activate and close through that interface. `BrowserCatalog`
 not import a bus type and does not call a provider.
 
 `Main.qml` parents `BrowserView` on the logical canvas and passes the catalog's
-tabs, windows, shortcuts and `browserState`. The Home favorites row is unchanged.
-`browserOpen` on the shell window shows the screen; Back emits `backRequested()`
-and returns to Home.
+tabs, windows, shortcuts and `browserState`. Home and navigation read the same
+catalog for the current service, the open-shortcut marks and the unavailable
+state. `browserOpen` on the shell window shows the screen; Back emits
+`backRequested()` and returns to Home.
 
 ## Daemon binding
 
@@ -36,13 +37,21 @@ browser backends, is `unavailable` (no browser connected). A failed snapshot is
 
 The model keeps one focused window. If more than one snapshot window is
 focused, only the first is marked. Each window keeps at most one active tab.
-Local D-pad focus stays on the current window when a later snapshot still
-contains it. Focus movement does not call the daemon
+The highlighted row stays on the same tab when a later snapshot still contains
+it. The "On screen" mark follows the focused window in that snapshot. Moving
+the highlight does not call the daemon
 ([specification §6.5](../specifications/arinn-specification.md#65-performance-principles)).
 
-Titles and addresses are properties of the service rows. The catalog drops
-shortcut URLs after reading `WebShortcuts1.List` and does not log titles or
-addresses.
+Titles and addresses are properties of the service rows. The catalog keeps
+shortcut origins in memory so it can match them, then drops the URL strings.
+It does not log titles or addresses, and the shortcut list published to QML
+has no URL and no icon. A matched row receives the shortcut's packaged icon
+reference when that reference is non-empty. QML draws it only when the
+reference is a local `file:`, `qrc:`, `image:` or absolute path; any other
+token stays the letter chip. Origin comparison is scheme, host and port, with
+`www.` ignored and default ports (`http` 80, `https` 443) filled in. The row
+letter is the first character of the host after one `www.`, `m.` or `hd.`
+prefix, computed in the catalog.
 
 ## Creating a tab
 
@@ -62,12 +71,13 @@ ids derived from the provider id, generation and provider-local id. The screen
 does not parse them.
 
 The list contains every tab. The active tab of the focused window is marked
-"On screen" and is placed first; the rest keep snapshot order. There is no
-last-use timestamp on the snapshot, so the screen does not invent one. An
-audible tab is marked "Sound". The chip is the first letter of the host, after
-`www.`, `m.` and `hd.` are stripped. An empty title uses the host as the title
-and the full address as the subline. There is no favicon and no per-product
-artwork.
+"On screen" and is placed first. The remaining windows follow last use: the
+catalog records a monotonic stamp when a window becomes the focused window.
+The stamp is in memory only and is cleared when the daemon generation changes
+or the daemon disappears. An audible tab is marked "Sound". The chip is the
+matched shortcut icon when the catalog supplies a loadable reference, otherwise
+the letter described above. An empty title uses the host as the title and the
+full address as the subline. There is no favicon and no per-product artwork.
 
 `shortcuts` entries have `id` and `title`. An `url` field on a shortcut is
 ignored. `browserState` is `populated`, `empty`, `loading`, `error` or
@@ -87,7 +97,7 @@ focus does not call the daemon and does not change which window is focused.
 | `activateTab(tabId)` | OK on a service row |
 | `closeTab(tabId)` | OK on that row's close control |
 | `open(shortcutId)` | A known shortcut id passed to `requestOpen` |
-| `retryRequested()` | OK on Retry; the catalog refreshes |
+| `retryRequested()` | OK on Retry. A failed browser provider calls `Daemon1.Restart`. A ready provider with no browser connected only re-reads state. The shell does not launch the browser. |
 | `backRequested()` | Escape, Backspace, Back, or OK on Home when nothing is open |
 
 Right moves from a row to its close control and Left returns. Up and Down move
@@ -99,13 +109,51 @@ row-heights above the bottom and the header shows the position as "n of m".
 
 The QML imports `Theme`, `LogicalCanvas` and `UiText` from
 `apps/arinn-shell/ui`. It has no product-specific conditions (R-01, R-03, AC-12).
+Origin matching and last-use order live in `BrowserCatalog`, not in QML.
+
+## Home and navigation
+
+The focused window's active tab is `currentService` (`id`, `title`,
+`subtitle`). Home shows it as the first Continue card. When more than one tab
+is open, one of the four further Continue entries is "N more open" and opens
+this screen; with a single tab that card is hidden. `openShortcutIds` lists
+shortcut ids whose origin matches an **active** tab. A favorites tile with
+`webShortcut: true` and that id shows an ember dot. When `browserState` is
+`unavailable`, those tiles dim, their subtitle is "Unavailable", they stay
+focusable, and OK opens this screen instead of `WebShortcuts1.Open`. A status
+chip on Home reads "Browser unavailable".
+
+Global navigation lists **Open services** directly under the five sections, with
+no divider. The item stays when the list is empty; the count badge is hidden
+then. A subline "On screen: {title}" is shown only when a service is current.
+The panel runs from y 72 to y 1008. Whether the return-activity row is a web
+service is a caller-supplied `returnIsWebService` flag. The shell does not
+infer it from a window class (R-01); the compositor link is still open
+([#101](https://github.com/LimeBeck/arinn/issues/101)).
+
+## Opening
+
+`openShortcut` sets `opening` while that operation is queued or running.
+`LaunchOverlay` waits 400 ms before it appears, so a fast success shows nothing.
+After 8 s it adds "The browser is taking longer than usual" and Cancel. Cancel
+calls `Operation1.Cancel` when the operation path is known (best effort) and
+hides the overlay. After 30 s, or when `openingError` is set, a dialog offers
+Retry and Close. Retry calls `Open` again for the same shortcut id. The scrim
+is a fixed neutral tint; icon hues are not read. The overlay is skipped for tab
+activate and close, which share `operationState` but not `opening`.
 
 ## Verification
 
 `tests/ui/tst_browser.qml` imports the screen from the filesystem and runs as
-part of the `ui-components` CTest. `browser_catalog_test.cpp` is the private-bus
+part of the `ui-components` CTest. It covers focus, empty, many and unavailable
+states, and uses a model-supplied letter instead of parsing a shortcut URL.
+`tests/ui/tst_home.qml` covers the Continue card rules, the navigation item and
+the unavailable shortcut tile. `tests/ui/tst_launch.qml` covers the overlay
+delays with shortened timers. `browser_catalog_test.cpp` is the private-bus
 test `browser-catalog`: a tab snapshot reaches the model, one window is
-focused, and activate, close and a known-shortcut open are issued and observed.
+focused, activate, close and a known-shortcut open are observed, and a second
+case checks last-use order, origin matching (scheme, port, `www.`), cancel and
+the two retry paths.
 
 ```sh
 cmake -S . -B build -G Ninja && cmake --build build --target arinn-ui-test arinn-browser-catalog-test

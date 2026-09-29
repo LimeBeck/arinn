@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Arinn contributors
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! `org.arinn.MediaProvider1` and the optional rich interfaces (ADR-0052).
+//! `org.arinn.MediaProvider1` and the optional rich interfaces (ADR-0054).
 //! File URIs are accepted on `MediaOpen1` and never logged.
 use super::{Endpoint, RegistrationContext, backend_state, run_endpoint};
 use crate::snapshots::SessionSnapshots;

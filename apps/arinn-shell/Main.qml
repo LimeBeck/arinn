@@ -30,6 +30,12 @@ Window {
             runningEntries: backend.items
             favoritesTitle: qsTr("Favorites")
             returnActivityId: backend.returnWindow
+            openServiceCount: browserCatalog.tabs.length
+            currentServiceId: browserCatalog.currentService.id || ""
+            currentServiceTitle: browserCatalog.currentService.title || ""
+            currentServiceSubtitle: browserCatalog.currentService.subtitle || ""
+            browserUnavailable: browserCatalog.browserState === "unavailable"
+            openShortcutIds: browserCatalog.openShortcutIds
             homeState: backend.homeState
             statusTitle: homeState === "unavailable" ? qsTr("Home is unavailable") : homeState === "loading" ? qsTr("Loading Home…") : homeState === "error" ? qsTr("Home could not be loaded") : qsTr("Your Home starts here")
             statusDescription: homeState === "empty" ? qsTr("No favorites are available yet.") : qsTr("Navigation remains available. Home reconnects automatically.")
@@ -40,9 +46,19 @@ Window {
             onRunningRequested: entryId => backend.activate(entryId)
             onReturnRequested: backend.back()
             onRetryRequested: backend.refresh()
+            onOpenServicesRequested: {
+                root.browserOpen = true;
+                Qt.callLater(() => browserView.forceActiveFocus());
+            }
+            onServiceRequested: serviceId => {
+                if (serviceId.length)
+                    browserCatalog.activateTab(serviceId);
+                backend.back();
+            }
             onPowerRequested: { feedback.text = qsTr("Power controls are not available yet."); feedbackTimer.restart(); }
         }
         Browser.BrowserView {
+            id: browserView
             objectName: "productionBrowser"
             visible: root.browserOpen
             enabled: root.browserOpen
@@ -55,8 +71,18 @@ Window {
             onActivateTab: tabId => browserCatalog.activateTab(tabId)
             onCloseTab: tabId => browserCatalog.closeTab(tabId)
             onOpen: shortcutId => browserCatalog.openShortcut(shortcutId)
-            onRetryRequested: browserCatalog.refresh()
+            onRetryRequested: browserCatalog.retry()
             onBackRequested: { root.browserOpen = false; Qt.callLater(home.showHome); }
+        }
+        Ui.LaunchOverlay {
+            anchors.fill: parent
+            z: 20
+            active: browserCatalog.opening
+            serviceTitle: browserCatalog.openingTitle
+            failure: browserCatalog.openingError
+            onCancelRequested: browserCatalog.cancelOpen()
+            onRetryRequested: browserCatalog.retryOpen()
+            onDismissRequested: browserCatalog.dismissOpenFailure()
         }
         Rectangle {
             x: 420; y: 970; width: 1080; height: 72; radius: 36

@@ -1,4 +1,4 @@
-# ADR-0052: Media and library wire contract
+# ADR-0054: Media and library wire contract
 
 - **Status:** Accepted
 - **Date:** 2026-09-29

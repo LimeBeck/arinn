@@ -56,4 +56,4 @@ The library provider reconciles files, creates or updates its entries and return
 
 A generic ActionProvider cannot express a structured list of jobs with revisions, states and available actions; a product-specific Transmission API in the core would violate R-01. Hence a separate DownloadProvider. `LibraryImport1` separates download completion from content indexing and works with any download backend.
 
-The chosen types, state machine and ownership close the architectural question of the extension. Exact D-Bus XML, serializers, the SDK and an executable contract suite are implementation deliverables, not completed checks. Transport limits and errors come from ADR-0020.
+The chosen types, state machine and ownership close the architectural question of the extension. Media and library D-Bus XML, protocol types, the SDK and the provider contract tests are [ADR-0052](../adr/0052-media-and-library-wire-contract.md). DownloadProvider XML, serializers and its contract suite are still implementation deliverables. Transport limits and errors come from ADR-0020.

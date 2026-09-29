@@ -2,7 +2,7 @@
 
 Part of [ADR-0020](../adr/0020-dbus-contract-baseline.md) and [ADR-0022](../adr/0022-state-and-interaction-baseline.md). Chosen 2026-09-27 as a delegated technical decision. Numeric limits below are project defaults, not requirements of third-party specifications. Requirements summary: [specification §8–§11, §14, §17](../specifications/arinn-specification.md).
 
-Implementation status: the Phase 1 application bindings are specified by [ADR-0035](../adr/0035-phase1-application-wire-contract.md) and [Plugin API XML](../plugin-api/README.md). See the [implementation record](phase-1-progress.md) for verification and remaining qualification.
+Implementation status: the Phase 1 application bindings are specified by [ADR-0035](../adr/0035-phase1-application-wire-contract.md) and [Plugin API XML](../plugin-api/README.md). Media and library wire bindings are [ADR-0052](../adr/0052-media-and-library-wire-contract.md); the daemon does not route those capabilities yet. See the [implementation record](phase-1-progress.md) for verification and remaining qualification.
 
 ## Stack and boundaries
 

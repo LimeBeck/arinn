@@ -7,6 +7,8 @@ use zbus::zvariant::Type;
 pub mod application;
 pub mod browser;
 pub mod kwin;
+pub mod library;
+pub mod media;
 pub mod platform;
 pub mod production;
 pub mod validation;

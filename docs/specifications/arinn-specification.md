@@ -284,7 +284,7 @@ Steam and EmulationStation MUST be available in the MVP as dedicated Home tiles,
 
 ### 7.3. Media sessions (MPRIS)
 
-`arinn-plugin-mpris` discovers current media sessions on Linux. A session reports title, subtitle/artist, artwork, playback state, duration, position and available actions, and supports play, pause, playPause, seek, next, previous and stop. The shell MUST NOT talk to MPRIS directly. Session selection, units and position anchors: [plugin runtime](../architecture/plugin-runtime.md).
+`arinn-plugin-mpris` discovers current media sessions on Linux. A session reports title, subtitle/artist, artwork, playback state, duration, position and available actions, and supports play, pause, playPause, seek, next, previous and stop. The shell MUST NOT talk to MPRIS directly. Session selection, units and position anchors: [plugin runtime](../architecture/plugin-runtime.md). The wire contract is [ADR-0052](../adr/0052-media-and-library-wire-contract.md): sessions are a paged snapshot, and `MediaOpen1`, `MediaTracks1` and `MediaTimeline1` are optional. An MPRIS provider does not implement tracks or thumbnails.
 
 ### 7.4. Local library and mpv
 
@@ -296,6 +296,7 @@ Steam and EmulationStation MUST be available in the MVP as dedicated Home tiles,
 - `arinn-plugin-mpv` (MediaProvider plus `MediaOpen1`, `MediaTracks1`, `MediaTimeline1`) controls an external mpv process over a private JSON IPC socket. The shell draws the OSD and track sheets; mpv draws video.
 - The library provider is the only persistent owner of resume and watched state (written every 5 s and on pause, seek, end and stop). A film is finished 90 s before its end when its duration exceeds 180 s; otherwise only on confirmed EOF.
 - MPRIS remains the integration for other players and does not have to implement tracks or thumbnails.
+- The wire contract is [ADR-0052](../adr/0052-media-and-library-wire-contract.md). `LibraryResume1` and `LibraryImport1` are optional. Launch resolves a local file for the daemon, which opens it through `MediaOpen1`. The shell never sees the file URI.
 
 ### 7.5. Downloads and Transmission
 
@@ -366,8 +367,10 @@ Session D-Bus on both boundaries ([ADR-0020](../adr/0020-dbus-contract-baseline.
 Phase 1 fixes the application/daemon wire bindings in [ADR-0035](../adr/0035-phase1-application-wire-contract.md)
 and the [versioned XML](../plugin-api/README.md). Installed and running application
 entries share one paged snapshot. Public commands return daemon-owned operations;
-private provider replies complete those operations. Other capabilities receive
-concrete XML in their implementation phases. Plugin API major 1 remains pre-stable.
+private provider replies complete those operations. Media and library wire
+bindings are fixed by [ADR-0052](../adr/0052-media-and-library-wire-contract.md);
+the daemon does not route those capabilities yet. Action and download still
+receive concrete XML before their first provider. Plugin API major 1 remains pre-stable.
 
 Plugin API v1 is not yet stable; wire XML, SDK and the contract suite are produced per capability before its first provider ([plugin API](../plugin-api/README.md)).
 
@@ -379,12 +382,12 @@ A plugin declares capabilities, never a product type. One plugin may implement s
 | --- | --- | --- |
 | ApplicationProvider | `application` | listApplications, getApplication, launch, activate, terminate, listRunning |
 | BrowserProvider | `browser` | getTabs (windows and tabs in one snapshot), open (a new tab), activateTab, closeTab; Window = id, window token, focused; Tab = id, windowId, title, url, active, audible ([ADR-0048](../adr/0048-browser-wire-contract.md)) |
-| MediaProvider | `media` | listSessions, getSession, play, pause, playPause, seek, next, previous, stop; extensions `MediaOpen1`, `MediaTracks1`, `MediaTimeline1` |
-| LibraryProvider | `library` | listCollections, listItems, getItem, launch; extensions `LibraryResume1`, `LibraryImport1` |
+| MediaProvider | `media` | listSessions, getSession, play, pause, playPause, seek, next, previous, stop; extensions `MediaOpen1`, `MediaTracks1`, `MediaTimeline1` ([ADR-0052](../adr/0052-media-and-library-wire-contract.md)) |
+| LibraryProvider | `library` | listCollections, listItems, getItem, launch; extensions `LibraryResume1`, `LibraryImport1` ([ADR-0052](../adr/0052-media-and-library-wire-contract.md)) |
 | ActionProvider | `action` | generic actions with a machine-readable id, title, icon and enabled flag (for example TV power, TV input, custom system actions) |
 | DownloadProvider | `download` | GetSnapshot, GetJob, Pause, Resume, StartNow, Retry ([API review](../plugin-api/mvp-extensions.md)) |
 
-Operation lists are conceptual until the wire XML of each capability is fixed. Extension interfaces are optional feature flags; a missing feature is hidden or disabled in the UI, never a no-op.
+Media and library operation lists are fixed by [ADR-0052](../adr/0052-media-and-library-wire-contract.md). Action and download stay conceptual until their wire XML is fixed. Extension interfaces are optional feature flags; a missing feature is hidden or disabled in the UI, never a no-op.
 
 ### 9.2. Identity and routing
 

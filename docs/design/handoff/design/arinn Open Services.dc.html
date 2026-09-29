@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,400..600,0..1,0&display=block">
+<style>
+html,body{margin:0;background:oklch(0.13 0.005 260)}
+*{box-sizing:border-box}
+a{color:oklch(0.75 0.17 50)} a:hover{color:oklch(0.97 0.004 260)}
+</style>
+</helmet>
+<div style="min-height:100vh;padding:96px 96px 160px;background:oklch(0.13 0.005 260);font-family:'Onest',sans-serif;color:oklch(0.97 0.004 260);-webkit-font-smoothing:antialiased;display:flex;flex-direction:column;gap:88px">
+
+<div style="display:flex;flex-direction:column;gap:20px;max-width:1200px">
+  <div style="font-size:20px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:oklch(0.75 0.17 50)">Arinn · ADR-0050</div>
+  <div style="font-size:64px;font-weight:700;letter-spacing:-0.025em;line-height:1.05">Открытые сервисы</div>
+  <div style="font-size:22px;line-height:1.55;color:oklch(0.82 0.006 260);text-wrap:pretty">Каждый сервис открыт в своём окне Chrome на весь экран. Arinn показывает их плоским списком, переключает между ними и закрывает их. Все макеты 1920×1080, показаны в масштабе 50%.</div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:28px">
+  <div style="font-size:36px;font-weight:700;letter-spacing:-0.015em">Ответы на вопросы к дизайну</div>
+  <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px;max-width:1968px">
+    <sc-for list="{{ answers }}" as="a" hint-placeholder-count="6">
+      <div style="border-radius:20px;padding:28px 30px;background:rgba(255,255,255,.05);box-shadow:inset 0 1px 0 rgba(255,255,255,.07);display:flex;flex-direction:column;gap:12px">
+        <div style="font-size:18px;font-weight:500;color:oklch(0.72 0.008 260);line-height:1.4">{{ a.q }}</div>
+        <div style="font-size:24px;font-weight:600;line-height:1.3">{{ a.a }}</div>
+        <div style="font-size:18px;line-height:1.5;color:oklch(0.82 0.006 260);text-wrap:pretty">{{ a.why }}</div>
+      </div>
+    </sc-for>
+  </div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:28px">
+  <div style="font-size:36px;font-weight:700;letter-spacing:-0.015em">Экран «Открытые сервисы»</div>
+  <div style="display:flex;flex-wrap:wrap;gap:56px 48px">
+    <sc-for list="{{ listFrames }}" as="f" hint-placeholder-count="5">
+      <div id="{{ f.id }}" style="display:flex;flex-direction:column;gap:14px;width:960px">
+        <div style="display:flex;align-items:baseline;gap:14px"><div style="padding:4px 10px;border-radius:6px;background:oklch(0.75 0.17 50);color:#111;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:500">{{ f.id }}</div><div style="font-size:24px;font-weight:600">{{ f.label }}</div></div>
+        <div style="position:relative;width:960px;height:540px;border-radius:10px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.5)">
+          <div style="position:absolute;left:0;top:0;width:1920px;height:1080px;transform:scale(.5);transform-origin:0 0;overflow:hidden;background:oklch(0.17 0.005 260)">
+            <div style="position:absolute;inset:0;background:{{ f.light }}"></div>
+            <div style="position:absolute;top:44px;right:96px;height:64px;display:flex;align-items:center;gap:24px;color:oklch(0.88 0.005 260)"><span style="font-family:'Material Symbols Rounded';font-size:32px;line-height:1;font-feature-settings:'liga';font-variation-settings:'FILL' 1">wifi</span><span style="font-size:30px;font-weight:500;font-variant-numeric:tabular-nums">21:47</span></div>
+            <div style="position:absolute;left:120px;right:300px;top:136px;display:flex;align-items:baseline;gap:20px">
+              <div style="font-size:56px;font-weight:700;letter-spacing:-0.02em">Открытые сервисы</div>
+              <div style="font-size:40px;font-weight:600;color:oklch(0.68 0.008 260);font-variant-numeric:tabular-nums">{{ f.count }}</div>
+              <div style="flex:1"></div>
+              <div style="font-size:26px;font-weight:500;color:oklch(0.84 0.006 260);font-variant-numeric:tabular-nums">{{ f.pos }}</div>
+            </div>
+            <div style="position:absolute;left:96px;width:1548px;top:236px;bottom:150px;overflow:hidden;-webkit-mask-image:{{ f.mask }};mask-image:{{ f.mask }}">
+              <div style="padding:14px 24px;display:flex;flex-direction:column;gap:16px;transform:translateY({{ f.ty }}px)">
+                <sc-for list="{{ f.rows }}" as="r" hint-placeholder-count="4">
+                  <div style="display:flex;gap:16px;align-items:center;opacity:{{ r.op }}">
+                    <div style="position:relative;flex:1;min-width:0;min-height:128px;border-radius:26px;padding:22px 28px;display:flex;align-items:center;gap:24px;background:{{ r.bg }};transform:{{ r.tf }};box-shadow:{{ r.sh }};z-index:{{ r.z }}">
+                      <div style="flex:none;width:76px;height:76px;border-radius:22px;overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:34px;font-weight:700;color:oklch(0.9 0.005 260);background:rgba(255,255,255,.12)">{{ r.letter }}<sc-if value="{{ r.hasLogo }}"><img src="{{ r.src }}" alt="" style="width:100%;height:100%;object-fit:contain;display:block"></sc-if></div>
+                      <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:8px">
+                        <div style="font-size:30px;font-weight:600;line-height:1.25;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:{{ r.lines }};overflow:hidden;word-break:break-word">{{ r.title }}</div>
+                        <div style="display:flex;align-items:center;gap:24px;font-size:24px;font-weight:500;color:oklch(0.84 0.006 260);min-width:0">
+                          <span style="min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.sub }}</span>
+                          <sc-if value="{{ r.current }}"><span style="flex:none;display:flex;align-items:center;gap:10px;color:oklch(0.97 0.004 260)"><span style="width:12px;height:12px;border-radius:6px;background:oklch(0.75 0.17 50)"></span>На экране</span></sc-if>
+                          <sc-if value="{{ r.audio }}"><span style="flex:none;display:flex;align-items:center;gap:8px;color:oklch(0.97 0.004 260)"><span style="font-family:'Material Symbols Rounded';font-size:30px;line-height:1;color:oklch(0.75 0.17 50);font-feature-settings:'liga';font-variation-settings:'FILL' 1">volume_up</span>Звук</span></sc-if>
+                          <sc-if value="{{ r.closing }}"><span style="flex:none;color:oklch(0.97 0.004 260)">Закрывается…</span></sc-if>
+                        </div>
+                      </div>
+                      <div style="position:absolute;inset:0;border-radius:26px;box-shadow:{{ r.kant }};pointer-events:none"></div>
+                    </div>
+                    <div style="flex:none;width:128px;height:128px;border-radius:26px;display:flex;align-items:center;justify-content:center;background:{{ r.closeBg }};color:{{ r.closeFg }};transform:{{ r.closeTf }};box-shadow:{{ r.closeSh }}"><span style="font-family:'Material Symbols Rounded';font-size:44px;line-height:1;font-feature-settings:'liga'">{{ r.closeIcon }}</span></div>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+            <div style="position:absolute;left:120px;bottom:64px;display:flex;gap:44px;font-size:24px;font-weight:500;color:oklch(0.72 0.008 260)">
+              <span style="display:flex;align-items:center;gap:12px"><span style="padding:2px 12px;border-radius:10px;background:rgba(255,255,255,.1);color:oklch(0.92 0.005 260);font-weight:600">OK</span>Перейти</span>
+              <span style="display:flex;align-items:center;gap:12px"><span style="font-family:'Material Symbols Rounded';font-size:30px;line-height:1;padding:2px 6px;border-radius:10px;background:rgba(255,255,255,.1);color:oklch(0.92 0.005 260);font-feature-settings:'liga'">arrow_forward</span>Закрыть</span>
+              <span style="display:flex;align-items:center;gap:12px"><span style="padding:2px 12px;border-radius:10px;background:rgba(255,255,255,.1);color:oklch(0.92 0.005 260);font-weight:600">Назад</span>Выйти</span>
+            </div>
+          </div>
+        </div>
+        <div style="font-size:16px;line-height:1.5;color:oklch(0.72 0.008 260);text-wrap:pretty">{{ f.caption }}</div>
+      </div>
+    </sc-for>
+
+    <sc-for list="{{ msgFrames }}" as="f" hint-placeholder-count="2">
+      <div id="{{ f.id }}" style="display:flex;flex-direction:column;gap:14px;width:960px">
+        <div style="display:flex;align-items:baseline;gap:14px"><div style="padding:4px 10px;border-radius:6px;background:oklch(0.75 0.17 50);color:#111;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:500">{{ f.id }}</div><div style="font-size:24px;font-weight:600">{{ f.label }}</div></div>
+        <div style="position:relative;width:960px;height:540px;border-radius:10px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.5)">
+          <div style="position:absolute;left:0;top:0;width:1920px;height:1080px;transform:scale(.5);transform-origin:0 0;overflow:hidden;background:oklch(0.17 0.005 260)">
+            <div style="position:absolute;top:44px;right:96px;height:64px;display:flex;align-items:center;gap:24px;color:oklch(0.88 0.005 260)"><span style="font-family:'Material Symbols Rounded';font-size:32px;line-height:1;font-feature-settings:'liga';font-variation-settings:'FILL' 1">wifi</span><span style="font-size:30px;font-weight:500;font-variant-numeric:tabular-nums">21:47</span></div>
+            <div style="position:absolute;left:120px;top:136px;display:flex;align-items:baseline;gap:20px"><div style="font-size:56px;font-weight:700;letter-spacing:-0.02em">Открытые сервисы</div></div>
+            <div style="position:absolute;left:120px;top:360px;width:980px;display:flex;flex-direction:column;align-items:flex-start;gap:24px">
+              <span style="font-family:'Material Symbols Rounded';font-size:88px;line-height:1;color:{{ f.iconColor }};font-feature-settings:'liga'">{{ f.icon }}</span>
+              <div style="font-size:48px;font-weight:700;letter-spacing:-0.02em">{{ f.title }}</div>
+              <div style="font-size:30px;line-height:1.45;color:oklch(0.84 0.006 260);text-wrap:pretty">{{ f.body }}</div>
+              <div style="margin-top:16px;height:88px;padding:0 44px;border-radius:44px;display:flex;align-items:center;gap:14px;font-size:30px;font-weight:600;background:oklch(0.97 0.004 260);color:oklch(0.17 0.006 260);transform:scale(1.06);transform-origin:left center;box-shadow:0 18px 40px -12px rgba(0,0,0,.7)"><span style="font-family:'Material Symbols Rounded';font-size:36px;line-height:1;font-feature-settings:'liga'">{{ f.btnIcon }}</span>{{ f.btn }}</div>
+            </div>
+          </div>
+        </div>
+        <div style="font-size:16px;line-height:1.5;color:oklch(0.72 0.008 260);text-wrap:pretty">{{ f.caption }}</div>
+      </div>
+    </sc-for>
+  </div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:28px">
+  <div style="font-size:36px;font-weight:700;letter-spacing:-0.015em">Home и навигация</div>
+  <div style="display:flex;flex-wrap:wrap;gap:56px 48px">
+    <sc-for list="{{ homeFrames }}" as="f" hint-placeholder-count="3">
+      <div id="{{ f.id }}" style="display:flex;flex-direction:column;gap:14px;width:960px">
+        <div style="display:flex;align-items:baseline;gap:14px"><div style="padding:4px 10px;border-radius:6px;background:oklch(0.75 0.17 50);color:#111;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:500">{{ f.id }}</div><div style="font-size:24px;font-weight:600">{{ f.label }}</div></div>
+        <div style="position:relative;width:960px;height:540px;border-radius:10px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.5)">
+          <div style="position:absolute;left:0;top:0;width:1920px;height:1080px;transform:scale(.5);transform-origin:0 0;overflow:hidden;background:oklch(0.17 0.005 260)">
+            <div style="position:absolute;inset:0;background:{{ f.light }}"></div>
+            <div style="position:absolute;inset:0;isolation:isolate;z-index:0;filter:{{ f.homeFl }};transform:{{ f.homeTf }}">
+              <div style="position:absolute;top:44px;right:96px;height:64px;display:flex;align-items:center;gap:24px;color:oklch(0.88 0.005 260)">
+                <sc-if value="{{ f.warn }}"><div style="height:48px;padding:0 20px 0 14px;border-radius:24px;display:flex;align-items:center;gap:10px;background:rgba(255,255,255,.08);font-size:24px;font-weight:600"><span style="font-family:'Material Symbols Rounded';font-size:28px;line-height:1;color:oklch(0.66 0.21 22);font-feature-settings:'liga'">public_off</span>Браузер недоступен</div></sc-if>
+                <span style="font-family:'Material Symbols Rounded';font-size:32px;line-height:1;font-feature-settings:'liga';font-variation-settings:'FILL' 1">wifi</span><span style="font-size:30px;font-weight:500;font-variant-numeric:tabular-nums">21:47</span>
+              </div>
+              <div style="position:absolute;left:120px;top:48px;height:56px;display:flex;align-items:center;gap:14px;font-size:28px;font-weight:600;color:oklch(0.9 0.005 260)"><svg viewBox="0 0 100 100" width="36" height="36" style="flex:none;display:block;overflow:visible"><path d="M14 86 L50 18 L86 86" fill="none" stroke="#EDEDED" stroke-width="15" stroke-linejoin="round"></path><circle cx="50" cy="70" r="10" fill="#FF8A3D"></circle></svg>Arinn</div>
+              <div style="position:absolute;left:120px;top:136px;width:1300px;display:flex;flex-direction:column;gap:14px">
+                <div style="display:flex;align-items:center;gap:12px;font-size:24px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:oklch(0.84 0.008 260)"><sc-if value="{{ f.heroLive }}"><div style="width:12px;height:12px;border-radius:6px;background:oklch(0.75 0.17 50)"></div></sc-if><span>{{ f.heroEyebrow }}</span></div>
+                <div style="font-size:84px;line-height:1.02;font-weight:700;letter-spacing:-0.025em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ f.heroTitle }}</div>
+                <div style="font-size:28px;font-weight:500;color:oklch(0.86 0.006 260);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ f.heroMeta }}</div>
+              </div>
+              <div style="position:absolute;left:0;right:0;top:372px">
+                <div style="padding-left:120px;height:50px;font-size:30px;font-weight:600;color:oklch(0.9 0.005 260)">Продолжить</div>
+                <div style="display:flex;gap:32px;padding-left:120px">
+                  <sc-for list="{{ f.cont }}" as="c" hint-placeholder-count="4">
+                    <div style="position:relative;flex:none;width:400px;height:225px;border-radius:26px;overflow:hidden;background:{{ c.bg }};transform:{{ c.tf }};box-shadow:{{ c.sh }};z-index:{{ c.z }}">
+                      <sc-if value="{{ c.isSvc }}">
+                        <div style="position:absolute;inset:0;padding:24px 26px;display:flex;flex-direction:column;justify-content:space-between">
+                          <div style="display:flex;align-items:center;justify-content:space-between">
+                            <div style="display:flex;align-items:center;gap:10px;font-size:24px;font-weight:600"><div style="width:12px;height:12px;border-radius:6px;background:oklch(0.75 0.17 50)"></div>Сейчас запущено</div>
+                            <div style="width:64px;height:64px;border-radius:20px;overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:700;background:rgba(255,255,255,.12)">{{ c.letter }}<sc-if value="{{ c.hasLogo }}"><img src="{{ c.src }}" alt="" style="width:100%;height:100%;object-fit:contain;display:block"></sc-if></div>
+                          </div>
+                          <div style="display:flex;flex-direction:column;gap:4px;min-width:0"><div style="font-size:32px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ c.title }}</div><div style="font-size:24px;font-weight:500;color:oklch(0.84 0.006 260);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ c.sub }}</div></div>
+                        </div>
+                      </sc-if>
+                      <sc-if value="{{ c.isAll }}">
+                        <div style="position:absolute;inset:0;padding:24px 26px;display:flex;flex-direction:column;justify-content:space-between">
+                          <div style="display:flex">
+                            <sc-for list="{{ c.stack }}" as="k" hint-placeholder-count="3"><div style="width:64px;height:64px;margin-right:-18px;border-radius:20px;overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:700;background:oklch(0.3 0.006 260);box-shadow:0 0 0 4px oklch(0.24 0.006 260)">{{ k.letter }}<sc-if value="{{ k.hasLogo }}"><img src="{{ k.src }}" alt="" style="width:100%;height:100%;object-fit:contain;display:block"></sc-if></div></sc-for>
+                          </div>
+                          <div style="display:flex;flex-direction:column;gap:4px"><div style="font-size:32px;font-weight:600">Ещё 3 открыто</div><div style="font-size:24px;font-weight:500;color:oklch(0.84 0.006 260)">Все открытые сервисы</div></div>
+                        </div>
+                      </sc-if>
+                      <sc-if value="{{ c.isMedia }}">
+                        <div style="position:absolute;inset:0;background:{{ c.art }};filter:brightness(.82)"></div>
+                        <div style="position:absolute;left:22px;top:18px;font-family:'JetBrains Mono',monospace;font-size:15px;color:rgba(255,255,255,.45)">backdrop</div>
+                        <div style="position:absolute;inset:0;background:linear-gradient(0deg, rgba(10,11,13,.9) 0%, rgba(10,11,13,.4) 45%, rgba(10,11,13,0) 70%)"></div>
+                        <div style="position:absolute;left:24px;right:24px;bottom:22px;display:flex;flex-direction:column;gap:6px">
+                          <div style="font-size:30px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ c.title }}</div>
+                          <div style="font-size:24px;font-weight:500;color:oklch(0.86 0.006 260)">{{ c.sub }}</div>
+                          <div style="height:6px;margin-top:8px;border-radius:3px;background:rgba(255,255,255,.25);overflow:hidden"><div style="height:100%;width:{{ c.pct }}%;border-radius:3px;background:oklch(0.75 0.17 50)"></div></div>
+                        </div>
+                      </sc-if>
+                      <div style="position:absolute;inset:0;border-radius:26px;box-shadow:{{ c.kant }};pointer-events:none"></div>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+              <div style="position:absolute;left:0;right:0;top:700px">
+                <div style="padding-left:120px;height:50px;font-size:30px;font-weight:600;color:oklch(0.9 0.005 260)">Избранное</div>
+                <div style="display:flex;gap:24px;padding-left:120px">
+                  <sc-for list="{{ f.favs }}" as="c" hint-placeholder-count="6">
+                    <div style="position:relative;flex:none;width:264px;height:132px;border-radius:26px;padding:0 22px;display:flex;align-items:center;gap:18px;background:{{ c.bg }};transform:{{ c.tf }};box-shadow:{{ c.sh }};z-index:{{ c.z }}">
+                      <div style="flex:none;width:60px;height:60px;border-radius:18px;overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:26px;font-weight:700;background:rgba(255,255,255,.12);opacity:{{ c.op }};filter:{{ c.fl }}">{{ c.letter }}<sc-if value="{{ c.hasLogo }}"><img src="{{ c.src }}" alt="" style="width:100%;height:100%;object-fit:contain;display:block"></sc-if></div>
+                      <div style="min-width:0;display:flex;flex-direction:column;gap:2px"><div style="font-size:28px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:{{ c.fg }}">{{ c.name }}</div><sc-if value="{{ c.hasSub }}"><div style="font-size:22px;font-weight:500;color:oklch(0.72 0.008 260);white-space:nowrap">{{ c.sub }}</div></sc-if></div>
+                      <sc-if value="{{ c.open }}"><div style="position:absolute;right:16px;top:16px;width:12px;height:12px;border-radius:6px;background:oklch(0.75 0.17 50)"></div></sc-if>
+                      <div style="position:absolute;inset:0;border-radius:26px;box-shadow:{{ c.kant }};pointer-events:none"></div>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+            </div>
+
+            <sc-if value="{{ f.nav }}">
+              <div style="position:absolute;inset:0;background:linear-gradient(90deg, rgba(0,0,0,.45), rgba(0,0,0,.1))"></div>
+              <div style="position:absolute;left:72px;top:112px;bottom:112px;width:500px;border-radius:44px;padding:40px 28px 28px;display:flex;flex-direction:column;gap:8px;background:oklch(0.21 0.006 260 / .82);backdrop-filter:blur(40px);box-shadow:inset 0 1px 0 rgba(255,255,255,.1), 0 40px 80px -20px rgba(0,0,0,.8)">
+                <div style="display:flex;align-items:center;gap:14px;padding:0 22px 26px;font-size:28px;font-weight:600"><svg viewBox="0 0 100 100" width="38" height="38" style="flex:none;display:block;overflow:visible"><path d="M14 86 L50 18 L86 86" fill="none" stroke="#EDEDED" stroke-width="15" stroke-linejoin="round"></path><circle cx="50" cy="70" r="10" fill="#FF8A3D"></circle></svg>Arinn</div>
+                <sc-for list="{{ navItems }}" as="n" hint-placeholder-count="5">
+                  <div style="height:88px;border-radius:28px;padding:0 24px;display:flex;align-items:center;gap:20px;font-size:30px;font-weight:500;color:oklch(0.84 0.006 260)"><span style="font-family:'Material Symbols Rounded';font-size:36px;line-height:1;font-feature-settings:'liga'">{{ n.icon }}</span>{{ n.label }}</div>
+                </sc-for>
+                <div style="height:1px;margin:12px 24px;background:rgba(255,255,255,.1)"></div>
+                <div style="position:relative;min-height:104px;border-radius:28px;padding:14px 24px;display:flex;align-items:center;gap:20px;background:rgba(255,255,255,.2);transform:scale(1.02);box-shadow:0 30px 60px -24px rgba(0,0,0,.9)">
+                  <span style="font-family:'Material Symbols Rounded';font-size:36px;line-height:1;font-feature-settings:'liga'">stacks</span>
+                  <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px"><div style="font-size:30px;font-weight:600">Открытые сервисы</div><div style="font-size:22px;font-weight:500;color:oklch(0.84 0.006 260);display:flex;align-items:center;gap:8px"><span style="width:10px;height:10px;border-radius:5px;background:oklch(0.75 0.17 50)"></span>На экране: Кинопоиск</div></div>
+                  <div style="flex:none;min-width:48px;height:48px;padding:0 12px;border-radius:24px;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:700;background:rgba(255,255,255,.14);font-variant-numeric:tabular-nums">4</div>
+                  <div style="position:absolute;inset:0;border-radius:28px;box-shadow:inset 0 0 0 3px rgba(255,255,255,.45);pointer-events:none"></div>
+                </div>
+                <div style="flex:1"></div>
+                <div style="height:88px;border-radius:28px;padding:0 24px;display:flex;align-items:center;gap:20px;font-size:30px;font-weight:500;color:oklch(0.84 0.006 260)"><span style="font-family:'Material Symbols Rounded';font-size:36px;line-height:1;font-feature-settings:'liga'">power_settings_new</span>Питание</div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ f.launch }}">
+              <div style="position:absolute;inset:0;background:rgba(0,0,0,.6)"></div>
+              <div style="position:absolute;left:0;right:0;top:300px;display:flex;flex-direction:column;align-items:center;gap:36px">
+                <div style="width:160px;height:160px;border-radius:44px;overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:64px;font-weight:700;background:rgba(255,255,255,.12);box-shadow:0 0 120px 20px oklch(0.62 0.13 55 / .35)">{{ f.lLetter }}<sc-if value="{{ f.lHasLogo }}"><img src="{{ f.lSrc }}" alt="" style="width:100%;height:100%;object-fit:contain;display:block"></sc-if></div>
+                <div style="font-size:44px;font-weight:700;letter-spacing:-0.015em">Открывается Кинопоиск…</div>
+                <div style="position:relative;width:360px;height:6px;border-radius:3px;background:rgba(255,255,255,.18);overflow:hidden"><div style="position:absolute;left:{{ f.barX }}px;top:0;bottom:0;width:120px;border-radius:3px;background:oklch(0.75 0.17 50)"></div></div>
+                <sc-if value="{{ f.slow }}">
+                  <div style="font-size:30px;line-height:1.45;color:oklch(0.84 0.006 260);text-align:center">Браузер запускается дольше обычного</div>
+                  <div style="height:88px;padding:0 44px;border-radius:44px;display:flex;align-items:center;font-size:30px;font-weight:600;background:oklch(0.97 0.004 260);color:oklch(0.17 0.006 260);transform:scale(1.06);box-shadow:0 18px 40px -12px rgba(0,0,0,.7)">Отменить</div>
+                </sc-if>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ f.fail }}">
+              <div style="position:absolute;inset:0;background:rgba(0,0,0,.6)"></div>
+              <div style="position:absolute;left:50%;top:50%;width:860px;margin-left:-430px;transform:translateY(-50%);border-radius:48px;padding:52px 52px 44px;display:flex;flex-direction:column;gap:20px;background:oklch(0.23 0.006 260 / .92);backdrop-filter:blur(40px);box-shadow:inset 0 1px 0 rgba(255,255,255,.1), 0 60px 120px -30px rgba(0,0,0,.9)">
+                <span style="font-family:'Material Symbols Rounded';font-size:64px;line-height:1;color:oklch(0.66 0.21 22);font-feature-settings:'liga';font-variation-settings:'FILL' 1">error</span>
+                <div style="font-size:48px;font-weight:700;letter-spacing:-0.02em">Кинопоиск не открылся</div>
+                <div style="font-size:30px;line-height:1.45;color:oklch(0.84 0.006 260);margin-bottom:16px">Браузер не ответил за 30 секунд. Попробуйте ещё раз.</div>
+                <div style="display:flex;gap:20px">
+                  <div style="height:88px;padding:0 44px;border-radius:44px;display:flex;align-items:center;font-size:30px;font-weight:600;background:oklch(0.97 0.004 260);color:oklch(0.17 0.006 260);transform:scale(1.06);box-shadow:0 18px 40px -12px rgba(0,0,0,.7)">Повторить</div>
+                  <div style="height:88px;padding:0 44px;border-radius:44px;display:flex;align-items:center;font-size:30px;font-weight:600;background:rgba(255,255,255,.13)">Закрыть</div>
+                </div>
+              </div>
+            </sc-if>
+          </div>
+        </div>
+        <div style="font-size:16px;line-height:1.5;color:oklch(0.72 0.008 260);text-wrap:pretty">{{ f.caption }}</div>
+      </div>
+    </sc-for>
+  </div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:28px;max-width:1968px">
+  <div style="font-size:36px;font-weight:700;letter-spacing:-0.015em">Переход Arinn ⇄ окно сервиса (#80)</div>
+  <div style="font-size:20px;line-height:1.55;color:oklch(0.82 0.006 260);max-width:1200px;text-wrap:pretty">Окно Chrome Arinn не рисует, поэтому анимирует только свою сторону: уходит в цвет сервиса и появляется из него. Используются существующие кривые и длительности.</div>
+  <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:20px">
+    <sc-for list="{{ motion }}" as="m" hint-placeholder-count="4">
+      <div style="border-radius:20px;padding:28px 30px;background:rgba(255,255,255,.05);box-shadow:inset 0 1px 0 rgba(255,255,255,.07);display:flex;flex-direction:column;gap:12px">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:16px;color:oklch(0.75 0.17 50)">{{ m.t }}</div>
+        <div style="font-size:24px;font-weight:600;line-height:1.3">{{ m.h }}</div>
+        <div style="font-size:18px;line-height:1.5;color:oklch(0.82 0.006 260);text-wrap:pretty">{{ m.d }}</div>
+      </div>
+    </sc-for>
+  </div>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+const C={tx:'oklch(0.97 0.004 260)',tx2:'oklch(0.84 0.006 260)',ink:'oklch(0.17 0.006 260)'};
+const HUE={kinopoisk:55,youtube:25,ivi:355};
+const letterOf=d=>{const h=d.split('/')[0].replace(/^(www|m|hd)\./,'');return h.charAt(0).toUpperCase()};
+const art=h=>`linear-gradient(155deg, oklch(0.5 0.09 ${h} / .5) 0%, oklch(0.5 0.09 ${h} / 0) 55%), repeating-linear-gradient(135deg, oklch(0.3 0.05 ${h}) 0 16px, oklch(0.27 0.05 ${h}) 16px 32px)`;
+const light=h=>`radial-gradient(ellipse 70% 60% at 18% 0%, oklch(0.5 0.12 ${h} / .32) 0%, oklch(0.5 0.12 ${h} / 0) 70%)`;
+const BASE=[
+ {app:'kinopoisk',title:'Дюна: Часть вторая — смотреть онлайн в хорошем качестве',addr:'hd.kinopoisk.ru/film/4540126',current:1,audio:1},
+ {app:'youtube',title:'Как снимали «Сёгун»: за кадром',addr:'youtube.com/watch?v=Qk2h7s'},
+ {app:'ivi',title:'Каталог фильмов',addr:'ivi.ru/movies'},
+ {title:'Прогноз погоды на 10 дней — Москва',addr:'yandex.ru/pogoda/moscow'}
+];
+const MANY=[['Смотреть сериал «Медведь», 3 сезон','okko.tv/serial/the-bear'],['Премьеры недели','start.ru/premieres'],['Концерт в Большом зале консерватории — трансляция','meloman.ru/live'],['Расписание матчей РПЛ','sports.ru/rfpl/calendar'],['Прямой эфир','smotrim.ru/live'],['Рецепт пасты карбонара','eda.ru/recepty/pasta'],['Лучшие фильмы 2024 года','kinopoisk.ru/lists/top-2024'],['Подкасты','music.yandex.ru/podcasts'],['Лекция о чёрных дырах','postnauka.ru/video/1182'],['Новые серии каждую пятницу','wink.ru/series'],['Мультфильмы для детей','kion.ru/kids'],['Главные новости','ria.ru'],['Документальные фильмы','premier.one/docs'],['Чемпионат мира по фигурному катанию','matchtv.ru/figure']];
+const LONG='Смотреть сериал Сёгун 1 сезон 4 серия «Восьмикратная изгородь» онлайн бесплатно в хорошем качестве HD 1080 без регистрации и рекламы на русском языке в озвучке';
+class Component extends DCLogic {
+  state={logos:{}};
+  componentDidMount(){fetch('.image-slots.state.json').then(r=>r.ok?r.json():null).then(j=>{if(!j)return;const logos={};['browser','kinopoisk','ivi','youtube','steam','es'].forEach(a=>{const v=j['logo-'+a];const u=v&&(typeof v==='string'?v:v.u);if(u)logos[a]=u});this.setState({logos})}).catch(()=>{})}
+  ic(app,dom){const src=app&&this.state.logos[app];return{hasLogo:!!src,src:src||'',letter:src?'':(app?{kinopoisk:'К',youtube:'Y',ivi:'I',browser:'Б',steam:'S',es:'E'}[app]:letterOf(dom))}}
+  row(o,focus,extra={}){const on=focus==='row',cOn=focus==='close',dom=o.addr.split('/')[0];const title=o.title||dom;
+    return{...this.ic(o.app,o.addr),title,sub:o.title?dom:o.addr,current:!!o.current,audio:!!o.audio,closing:!!extra.closing,lines:on?2:1,
+      bg:on?'rgba(255,255,255,.2)':'rgba(255,255,255,.06)',tf:on?'scale(1.02)':'none',z:on?3:1,
+      sh:on?`0 0 60px 0 oklch(0.62 0.13 ${HUE[o.app]||260} / .22), 0 40px 70px -26px rgba(0,0,0,.9)`:'none',
+      kant:on?'inset 0 0 0 3px rgba(255,255,255,.45)':'inset 0 1px 0 rgba(255,255,255,.08)',
+      closeBg:cOn?C.tx:'rgba(255,255,255,.06)',closeFg:cOn?C.ink:C.tx2,closeTf:cOn?'scale(1.06)':'none',closeSh:cOn?'0 18px 40px -12px rgba(0,0,0,.7)':'none',
+      closeIcon:extra.closing?'progress_activity':'close',op:extra.closing?.5:1}}
+  tile(o,focus){const on=!!focus;return{bg:on?'rgba(255,255,255,.2)':'rgba(255,255,255,.06)',tf:on?'scale(1.06) translateY(-6px)':'none',z:on?3:1,sh:on?'0 0 120px 20px oklch(0.62 0.13 55 / .4), 0 50px 80px -30px rgba(0,0,0,.9)':'none',kant:on?'inset 0 0 0 3px rgba(255,255,255,.45)':'inset 0 1px 0 rgba(255,255,255,.08)',...o}}
+  renderVals(){
+    const noMask='none',fade='linear-gradient(180deg, transparent 0, #000 60px, #000 calc(100% - 90px), transparent 100%)';
+    const base=(fi,ff)=>BASE.map((o,i)=>this.row(o,i===fi?ff:null));
+    const many=[...BASE,...MANY.map(([t,a])=>({title:t,addr:a}))];
+    const listFrames=[
+      {id:'OS-1',label:'Список, фокус на сервисе',count:'4',pos:'',rows:base(1,'row'),light:light(25),mask:noMask,ty:0,caption:'Первым идёт сервис, который сейчас на экране, дальше по времени последнего использования. Свет фона берёт оттенок сервиса в фокусе (иконка ярлыка или нейтральный). OK переключает на окно.'},
+      {id:'OS-2',label:'Фокус на «Закрыть»',count:'4',pos:'',rows:base(0,'close'),light:light(55),mask:noMask,ty:0,caption:'Стрелка вправо переводит фокус на кнопку закрытия этой строки, влево возвращает. Сервис со звуком закрывается без подтверждения: кнопка отдельная, случайно не нажать.'},
+      {id:'OS-3',label:'Закрывается',count:'4',pos:'',rows:BASE.map((o,i)=>i===2?this.row(o,null,{closing:1}):this.row(o,i===3?'row':null)),light:light(260),mask:noMask,ty:0,caption:'Строка приглушена до 50%, в кнопке индикатор. Фокус сразу уходит на следующую строку. Когда браузер подтвердит, строка схлопывается (220 мс), список подтягивается.'},
+      {id:'OS-4',label:'Много открыто (18)',count:'18',pos:'9 из 18',rows:many.map((o,i)=>this.row(o,i===8?'row':null)),light:light(260),mask:fade,ty:-620,caption:'Список прокручивается так, чтобы фокус держался во второй-третьей строке снизу. Край списка гаснет, справа позиция «9 из 18». Прокрутка от удержания стрелки ускоряется.'},
+      {id:'OS-5',label:'Длинный и пустой заголовок',count:'4',pos:'',rows:[this.row({app:'kinopoisk',title:'Дюна: Часть вторая',addr:'hd.kinopoisk.ru/film/4540126',current:1,audio:1},null),this.row({title:LONG,addr:'seriesonline.example/shogun/s1e4'},'row'),this.row({title:'',addr:'rutube.ru/video/8f3a2c1b9e7d'},null),this.row({app:'ivi',title:'',addr:'ivi.ru/watch/210488'},null)],light:light(260),mask:noMask,ty:0,caption:'Без фокуса заголовок в одну строку с многоточием, в фокусе до двух строк. Пустой заголовок заменяется доменом, адрес уходит в подпись. Буквенный знак строится из домена, если ярлыка для сайта нет.'}
+    ];
+    const msgFrames=[
+      {id:'OS-6',label:'Ничего не открыто',icon:'stacks',iconColor:'oklch(0.68 0.008 260)',title:'Ничего не открыто',body:'Здесь появятся сервисы, которые вы откроете с главного экрана.',btn:'На главную',btnIcon:'home',caption:'Пустое состояние. Сюда можно попасть из навигации, когда список пуст; пункт в навигации при этом остаётся, счётчик скрыт.'},
+      {id:'OS-7',label:'Браузер недоступен',icon:'public_off',iconColor:'oklch(0.66 0.21 22)',title:'Браузер недоступен',body:'Онлайн-сервисы сейчас не открываются. Медиатека, загрузки и игры работают.',btn:'Повторить',btnIcon:'refresh',caption:'Расширение не подключено или плагин упал. Список не показывается: данных о вкладках нет. «Повторить» переподключает плагин.'}
+    ];
+    const lg=this.state.logos;
+    const svc={isSvc:1,...this.ic('kinopoisk'),title:'Дюна: Часть вторая — смотреть онлайн',sub:'hd.kinopoisk.ru · Вернуться'};
+    const stack=['youtube','ivi',null].map(a=>a?this.ic(a):{hasLogo:false,src:'',letter:'Y'});
+    const media=[{isMedia:1,title:'Сёгун',sub:'С1 · Э4 · осталось 38 мин',pct:42,art:art(20)},{isMedia:1,title:'Фоллаут',sub:'С1 · Э2 · осталось 21 мин',pct:66,art:art(140)}];
+    const favs=(unav,openDots)=>[['browser','Браузер'],['kinopoisk','Кинопоиск'],['ivi','IVI'],['youtube','YouTube'],['steam','Steam'],['es','EmulationStation']].map(([a,n],i)=>{const web=i<4,dim=unav&&web;
+      return this.tile({...this.ic(a),name:n,open:openDots&&!unav&&['kinopoisk','ivi','youtube'].includes(a),op:dim?.4:1,fl:dim?'grayscale(1)':'none',fg:dim?'oklch(0.68 0.008 260)':C.tx,hasSub:dim,sub:'Недоступно'},unav&&i===1)});
+    const hf=(o)=>({light:light(55),homeFl:'none',homeTf:'none',nav:false,launch:false,fail:false,warn:false,heroLive:1,heroEyebrow:'Сейчас запущено',heroTitle:'Кинопоиск',heroMeta:'Дюна: Часть вторая · hd.kinopoisk.ru',slow:false,barX:0,...this.ic('kinopoisk'),lHasLogo:!!lg.kinopoisk,lSrc:lg.kinopoisk||'',lLetter:lg.kinopoisk?'':'К',...o});
+    const homeFrames=[
+      hf({id:'H-1',label:'Home поверх сервиса',cont:[this.tile(svc,1),this.tile({isAll:1,stack}),...media.map(m=>this.tile(m))],favs:favs(false,true),caption:'Первая карточка Continue — текущий сервис: иконка ярлыка или буква, заголовок страницы, домен. Вторая — «Ещё N открыто», ведёт на экран «Открытые сервисы»; при одном открытом сервисе её нет. Точка на плитке ярлыка значит «уже открыт»: Arinn сопоставляет адреса вкладок с адресами ярлыков сам, доработка расширения не нужна.'}),
+      hf({id:'H-2',label:'Навигация: пункт «Открытые сервисы»',cont:[this.tile(svc),this.tile({isAll:1,stack}),...media.map(m=>this.tile(m))],favs:favs(false,true),nav:true,homeFl:'blur(8px) brightness(.7)',homeTf:'scale(.97)',caption:'Отдельный пункт под основными разделами, со счётчиком и подписью о том, что сейчас на экране. Заменяет прежнюю строку активности для веб-сервисов.'}),
+      hf({id:'H-3',label:'Home, браузер недоступен',cont:media.map(m=>this.tile(m)),favs:favs(true,false),warn:true,light:'none',heroLive:0,heroEyebrow:'Продолжить просмотр',heroTitle:'Сёгун',heroMeta:'Сезон 1 · Эпизод 4 · осталось 38 мин',caption:'Плитки веб-ярлыков приглушены, иконки обесцвечены, подпись «Недоступно». Они остаются фокусируемыми: OK показывает экран OS-7. В строке статуса метка «Браузер недоступен». Остальной Home работает.'}),
+      hf({id:'H-4',label:'Открывается',cont:[this.tile({isAll:1,stack}),...media.map(m=>this.tile(m))],favs:favs(false,false),heroLive:0,heroEyebrow:'Продолжить просмотр',heroTitle:'Сёгун',heroMeta:'Сезон 1 · Эпизод 4 · осталось 38 мин',light:light(20),launch:true,barX:120,homeFl:'blur(12px) brightness(.6)',homeTf:'scale(.97)',caption:'Плитка нажата. Home уходит назад, по центру знак сервиса и бегущая полоса. Если окно появилось быстрее 400 мс, экран не показывается вовсе.'}),
+      hf({id:'H-5',label:'Открывается дольше 8 секунд',cont:[this.tile({isAll:1,stack}),...media.map(m=>this.tile(m))],favs:favs(false,false),heroLive:0,heroEyebrow:'Продолжить просмотр',heroTitle:'Сёгун',heroMeta:'Сезон 1 · Эпизод 4 · осталось 38 мин',light:light(20),launch:true,slow:true,barX:220,homeFl:'blur(12px) brightness(.6)',homeTf:'scale(.97)',caption:'Chrome запускается с нуля. После 8 с появляется пояснение и «Отменить»; Назад делает то же самое.'}),
+      hf({id:'H-6',label:'Не удалось открыть',cont:[this.tile({isAll:1,stack}),...media.map(m=>this.tile(m))],favs:favs(false,false),heroLive:0,heroEyebrow:'Продолжить просмотр',heroTitle:'Сёгун',heroMeta:'Сезон 1 · Эпизод 4 · осталось 38 мин',light:light(20),fail:true,homeFl:'blur(12px) brightness(.6)',homeTf:'scale(.97)',caption:'Тайм-аут 30 с или ошибка. Диалог по образцу 18b, пользователь остаётся в Arinn. «Закрыть» возвращает фокус на плитку.'})
+    ];
+    const navItems=[['home','Главная'],['video_library','Медиатека'],['download','Загрузки'],['apps','Приложения'],['settings','Настройки']].map(([icon,label])=>({icon,label}));
+    const answers=[
+      {q:'Как называть экран?',a:'«Открытые сервисы» / Open services',why:'«Вкладки» — слово браузера, а вкладок пользователь здесь не видит. «Запущено» уже занято приложениями и играми.'},
+      {q:'Где живёт список?',a:'Отдельный экран, вход из навигации и с карточки «Ещё N открыто» в Continue',why:'Быстрый переключатель по кнопке потребовал бы отдельную клавишу, а на пульте только стрелки, OK, Назад и Home.'},
+      {q:'Что на карточке без favicon?',a:'Иконка ярлыка, если адрес совпал с ярлыком; иначе буква домена',why:'Буква на нейтральном чипе, без выдуманных цветов. Заголовок страницы — главная строка, домен — подпись.'},
+      {q:'Подтверждать закрытие со звуком?',a:'Нет',why:'Закрытие — отдельная кнопка справа от строки, до неё нужно дойти стрелкой. Диалог добавил бы лишний шаг к частому действию.'},
+      {q:'Отметка «уже открыт» на ярлыке?',a:'Да, та же точка Ember, что у запущенных приложений',why:'Данные уже есть: Arinn сравнивает адреса открытых окон с адресами ярлыков. Правка контракта не нужна.'},
+      {q:'Переход Arinn ⇄ окно (#80)?',a:'Arinn уходит в цвет сервиса и возвращается из размытия',why:'Окно браузера анимировать нельзя, поэтому движется только Arinn. Подробно — в последнем разделе.'}
+    ];
+    const motion=[
+      {t:'0–220 мс',h:'Нажатие',d:'Строка или плитка сжимается до 0.98 и возвращается, как при любом OK.'},
+      {t:'220–500 мс',h:'Уход Arinn',d:'Интерфейс отдаляется (scale .97, blur 12) и гаснет в тёмный оттенок сервиса. Затем Arinn поднимает окно Chrome.'},
+      {t:'Home из сервиса',h:'Возврат',d:'Существующая анимация lt-return: Arinn проявляется из размытия за 450 мс, фокус на карточке текущего сервиса.'},
+      {t:'Переключение',h:'Сервис → сервис',d:'Через список: уход Arinn, как выше. Прямого перехода между окнами без Arinn нет.'}
+    ];
+    return{answers,listFrames,msgFrames,homeFrames,navItems,motion};
+  }
+}
+</script>
+</body>
+</html>

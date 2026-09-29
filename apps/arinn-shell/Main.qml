@@ -51,6 +51,7 @@ Window {
             windows: browserCatalog.windows
             shortcuts: browserCatalog.shortcuts
             browserState: browserCatalog.browserState
+            operationState: browserCatalog.operationState
             onActivateTab: tabId => browserCatalog.activateTab(tabId)
             onCloseTab: tabId => browserCatalog.closeTab(tabId)
             onOpen: shortcutId => browserCatalog.openShortcut(shortcutId)

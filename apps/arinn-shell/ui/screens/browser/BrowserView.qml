@@ -4,8 +4,9 @@
 import QtQuick
 import "../../" as Ui
 
-// Fixture presentation of one browser capability's windows and tabs.
-// Callers pass explicit properties; this screen does not talk to a daemon.
+// Open services list. One row per tab from the caller. The active tab of the
+// focused window is on screen and is ordered first. OK on a row activates it.
+// OK on its close control closes it. This screen does not talk to a daemon.
 FocusScope {
     id: root
     width: 1920
@@ -16,47 +17,79 @@ FocusScope {
     property var shortcuts: []
     property bool interactive: true
     property string browserState: "populated" // populated, empty, loading, error, unavailable
+    property string operationState: ""
     property string statusTitle: ""
     property string statusDescription: ""
     property bool pointerMode: false
     property bool hoverFocusEnabled: true
 
-    readonly property bool showTabs: browserState === "populated" && presentationTabs.length > 0
+    readonly property bool showTabs: browserState === "populated" && orderedTabs.length > 0
     readonly property string statusKind: {
-        if (browserState === "populated")
+        if (showTabs)
+            return "populated";
+        if (browserState === "populated" || browserState === "empty")
             return "empty";
-        if (browserState === "empty" || browserState === "loading" || browserState === "error" || browserState === "unavailable")
+        if (browserState === "loading" || browserState === "error" || browserState === "unavailable")
             return browserState;
         return "unavailable";
     }
-    readonly property string statusActionText: statusKind === "loading" ? "" : statusKind === "empty" ? qsTr("Refresh") : qsTr("Retry")
+    readonly property string statusActionText: {
+        if (showTabs || statusKind === "loading")
+            return "";
+        return statusKind === "empty" ? qsTr("Home") : qsTr("Retry");
+    }
     readonly property var stateCopy: ({
-        empty: [qsTr("No tabs"), qsTr("No tabs are open.")],
+        empty: [qsTr("Nothing open"), qsTr("Services you open from Home will appear here.")],
         loading: [qsTr("Loading tabs"), qsTr("The tab list is loading.")],
         error: [qsTr("Tabs unavailable"), qsTr("The tab list could not be loaded.")],
-        unavailable: [qsTr("No browser connected"), qsTr("No browser is connected.")]
+        unavailable: [qsTr("Browser unavailable"), qsTr("Online services cannot be opened right now. Library, downloads and games still work.")]
     })
     readonly property string resolvedTitle: statusTitle.length ? statusTitle : (stateCopy[statusKind] ? stateCopy[statusKind][0] : "")
     readonly property string resolvedDescription: statusDescription.length ? statusDescription : (stateCopy[statusKind] ? stateCopy[statusKind][1] : "")
+    readonly property bool listOverflow: showTabs && services.contentHeight > services.height + 1
 
     property var presentationTabs: []
+    property var orderedTabs: []
     property var windowIds: []
-    property var visibleTabs: []
     property var shortcutEntries: []
     property string activeTabId: ""
     property string focusedWindowId: ""
-    property string focusedTabId: ""
-    property string focusRow: "tabs"
-    property int windowIndex: 0
-    property int tabIndex: 0
-    property int actionIndex: 0
-    property int shortcutIndex: 0
+    property string focusedEntryId: ""
+    property string closingId: ""
+    property string focusRow: "list"
+    property string listSide: "row"
+    property int listIndex: 0
+    property int repeatRun: 0
 
     signal activateTab(string tabId)
     signal closeTab(string tabId)
     signal open(string shortcutId)
     signal retryRequested()
     signal backRequested()
+
+    function hostOf(url) {
+        const value = url !== undefined && url !== null ? String(url) : "";
+        const stripped = value.replace(/^[a-z][a-z0-9+.-]*:\/\//i, "");
+        const cut = stripped.search(/[/?#]/);
+        return cut >= 0 ? stripped.slice(0, cut) : stripped;
+    }
+
+    function letterOf(url) {
+        const host = hostOf(url).replace(/^(www|m|hd)\./i, "");
+        return host.length ? host.charAt(0).toUpperCase() : "";
+    }
+
+    function displayTitle(tab) {
+        const title = tab && tab.title ? String(tab.title) : "";
+        return title.length ? title : hostOf(tab ? tab.url : "");
+    }
+
+    function displaySub(tab) {
+        const title = tab && tab.title ? String(tab.title) : "";
+        if (title.length)
+            return hostOf(tab ? tab.url : "");
+        return tab && tab.url !== undefined && tab.url !== null ? String(tab.url) : "";
+    }
 
     function normalizeTabs(input) {
         const source = Array.isArray(input) ? input : [];
@@ -121,16 +154,28 @@ FocusScope {
         return result;
     }
 
-    function syncVisibleTabs() {
-        const visible = presentationTabs.filter(tab => tab.windowId === focusedWindowId);
-        visibleTabs = visible;
-        const active = visible.find(tab => tab.active);
-        activeTabId = active ? active.id : "";
-        if (!visible.some(tab => tab.id === focusedTabId)) {
-            const preferred = visible.find(tab => tab.active) || visible[0];
-            focusedTabId = preferred ? preferred.id : "";
+    function onScreenTab(nextTabs, windowId) {
+        for (let i = 0; i < nextTabs.length; ++i) {
+            if (nextTabs[i].windowId === windowId && nextTabs[i].active)
+                return nextTabs[i];
         }
-        tabIndex = Math.max(0, visible.findIndex(tab => tab.id === focusedTabId));
+        for (let i = 0; i < nextTabs.length; ++i) {
+            if (nextTabs[i].active)
+                return nextTabs[i];
+        }
+        return null;
+    }
+
+    function orderTabs(nextTabs, onScreenId) {
+        const rest = [];
+        let first = null;
+        for (let i = 0; i < nextTabs.length; ++i) {
+            if (!first && nextTabs[i].id === onScreenId)
+                first = nextTabs[i];
+            else
+                rest.push(nextTabs[i]);
+        }
+        return first ? [first].concat(rest) : rest;
     }
 
     function rebuild() {
@@ -140,19 +185,17 @@ FocusScope {
         const seen = {};
         const source = explicit.length ? explicit.map(entry => entry.id) : nextTabs.map(tab => tab.windowId);
         for (let i = 0; i < source.length; ++i) {
-            if (seen[source[i]])
+            if (!source[i] || seen[source[i]])
                 continue;
             seen[source[i]] = true;
             ids.push(source[i]);
         }
-        if (explicit.length) {
-            for (let i = 0; i < nextTabs.length; ++i) {
-                const windowId = nextTabs[i].windowId;
-                if (seen[windowId])
-                    continue;
-                seen[windowId] = true;
-                ids.push(windowId);
-            }
+        for (let i = 0; i < nextTabs.length; ++i) {
+            const windowId = nextTabs[i].windowId;
+            if (!windowId || seen[windowId])
+                continue;
+            seen[windowId] = true;
+            ids.push(windowId);
         }
         const marked = explicit.find(entry => entry.focused);
         const active = nextTabs.find(tab => tab.active);
@@ -162,71 +205,30 @@ FocusScope {
         const fallback = marked && ids.indexOf(marked.id) >= 0 ? marked.id
                 : (active ? active.windowId : (ids.length ? ids[0] : ""));
         const nextWindow = ids.indexOf(focusedWindowId) >= 0 ? focusedWindowId : fallback;
-        const windowChanged = focusedWindowId !== nextWindow;
         focusedWindowId = nextWindow;
-        windowIndex = Math.max(0, ids.indexOf(focusedWindowId));
-        if (!windowChanged)
-            syncVisibleTabs();
+        const onScreen = onScreenTab(nextTabs, nextWindow);
+        activeTabId = onScreen ? onScreen.id : "";
+        const ordered = orderTabs(nextTabs, activeTabId);
+        orderedTabs = ordered;
+        if (closingId.length && !ordered.some(tab => tab.id === closingId))
+            closingId = "";
+        if (!ordered.some(tab => tab.id === focusedEntryId)) {
+            focusedEntryId = activeTabId || (ordered.length ? ordered[0].id : "");
+            listSide = "row";
+        }
+        listIndex = Math.max(0, ordered.findIndex(tab => tab.id === focusedEntryId));
     }
 
     function settleFocus() {
         if (!interactive)
             return;
         muteTabStops(root);
-        focusRow = preferredRow();
-        restoreFocus();
-    }
-
-    function rowNames() {
-        const rows = [];
-        if (showTabs) {
-            if (windowIds.length)
-                rows.push("windows");
-            if (visibleTabs.length)
-                rows.push("tabs");
-            if (visibleTabs.length)
-                rows.push("actions");
-        } else if (statusActionText.length) {
-            rows.push("status");
-        }
-        if (shortcutEntries.length && browserState !== "loading")
-            rows.push("shortcuts");
-        return rows;
-    }
-
-    function preferredRow() {
-        const rows = rowNames();
-        if (rows.indexOf("tabs") >= 0)
-            return "tabs";
-        if (rows.indexOf("status") >= 0)
-            return "status";
-        return rows.length ? rows[0] : "";
-    }
-
-    function indexFor(row) {
-        if (row === "windows")
-            return windowIndex;
-        if (row === "tabs")
-            return tabIndex;
-        if (row === "actions")
-            return actionIndex;
-        if (row === "shortcuts")
-            return shortcutIndex;
-        return 0;
-    }
-
-    function countFor(row) {
-        if (row === "windows")
-            return windowIds.length;
-        if (row === "tabs")
-            return visibleTabs.length;
-        if (row === "actions")
-            return visibleTabs.length ? 2 : 0;
-        if (row === "shortcuts")
-            return shortcutEntries.length;
-        if (row === "status")
-            return statusActionText.length ? 1 : 0;
-        return 0;
+        if (showTabs)
+            focusEntry(listIndex, listSide);
+        else if (statusActionText.length)
+            focusStatus();
+        else
+            forceActiveFocus();
     }
 
     function findNamed(node, name) {
@@ -243,32 +245,109 @@ FocusScope {
         return null;
     }
 
-    function itemFor(row, index) {
-        if (row === "windows")
-            return windowRepeater.itemAt(index);
-        if (row === "tabs")
-            return tabRepeater.itemAt(index);
-        if (row === "actions")
-            return index === 0 ? activateButton : closeButton;
-        if (row === "shortcuts")
-            return shortcutRepeater.itemAt(index);
-        if (row === "status")
-            return findNamed(statusPane, "statusAction");
-        return null;
+    function itemFor(index, side) {
+        const entry = services.itemAtIndex(index);
+        if (!entry || index < 0 || index >= orderedTabs.length)
+            return null;
+        const id = orderedTabs[index].id;
+        return findNamed(entry, (side === "close" ? "close-" : "row-") + id);
     }
 
-    function selectWindow(index) {
-        if (index < 0 || index >= windowIds.length)
+    function focusWhenReady(index, side, tries) {
+        const item = itemFor(index, side);
+        if (item) {
+            item.forceActiveFocus();
+            reveal(index);
             return;
-        windowIndex = index;
-        focusedWindowId = windowIds[index];
+        }
+        if (tries > 0)
+            Qt.callLater(() => focusWhenReady(index, side, tries - 1));
     }
 
-    function noteWindowFocus(index) {
-        focusRow = "windows";
-        if (windowIndex === index && focusedWindowId === windowIds[index])
+    function focusEntry(index, side) {
+        if (!showTabs || !orderedTabs.length)
+            return false;
+        index = Math.max(0, Math.min(index, orderedTabs.length - 1));
+        side = side === "close" ? "close" : "row";
+        listIndex = index;
+        listSide = side;
+        focusRow = "list";
+        focusedEntryId = orderedTabs[index].id;
+        focusWhenReady(index, side, 8);
+        return true;
+    }
+
+    function focusStatus() {
+        focusRow = "status";
+        const apply = tries => {
+            const item = findNamed(messagePane, "statusAction");
+            if (item && item.visible) {
+                item.forceActiveFocus();
+                return;
+            }
+            if (tries > 0)
+                Qt.callLater(() => apply(tries - 1));
+            else
+                forceActiveFocus();
+        };
+        apply(8);
+    }
+
+    // Keep the focused row about two row-heights above the bottom edge.
+    function reveal(index) {
+        const entry = services.itemAtIndex(index);
+        if (!entry)
             return;
-        selectWindow(index);
+        const marginBelow = 288;
+        const marginAbove = 144;
+        const top = entry.y;
+        const bottom = entry.y + entry.height;
+        let y = services.contentY;
+        const limit = Math.max(0, services.contentHeight - services.height);
+        if (bottom > y + services.height - marginBelow)
+            y = bottom - (services.height - marginBelow);
+        if (top < y + marginAbove)
+            y = top - marginAbove;
+        y = Math.max(0, Math.min(y, limit));
+        if (Math.abs(services.contentY - y) > 0.5)
+            services.contentY = y;
+    }
+
+    function stepCount(autoRepeat) {
+        if (!autoRepeat) {
+            repeatRun = 0;
+            return 1;
+        }
+        repeatRun += 1;
+        if (repeatRun >= 8)
+            return 3;
+        if (repeatRun >= 4)
+            return 2;
+        return 1;
+    }
+
+    function move(key, autoRepeat) {
+        pointerMode = false;
+        if (key === Qt.Key_Left || key === Qt.Key_Right)
+            repeatRun = 0;
+        if (!showTabs) {
+            if (statusActionText.length)
+                focusStatus();
+            else
+                forceActiveFocus();
+            return;
+        }
+        if (key === Qt.Key_Left) {
+            focusEntry(listIndex, "row");
+            return;
+        }
+        if (key === Qt.Key_Right) {
+            focusEntry(listIndex, "close");
+            return;
+        }
+        const direction = key === Qt.Key_Up ? -1 : 1;
+        const next = listIndex + direction * stepCount(!!autoRepeat);
+        focusEntry(next, listSide);
     }
 
     function isBackKey(key) {
@@ -282,14 +361,14 @@ FocusScope {
                 backRequested();
             return;
         }
-        if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
-            pointerMode = false;
+        if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab
+                || event.key === Qt.Key_Left || event.key === Qt.Key_Right
+                || event.key === Qt.Key_Up || event.key === Qt.Key_Down) {
             event.accepted = true;
-            move(event.key === Qt.Key_Tab ? Qt.Key_Right : Qt.Key_Left);
-            return;
+            const key = event.key === Qt.Key_Tab ? Qt.Key_Right
+                    : event.key === Qt.Key_Backtab ? Qt.Key_Left : event.key;
+            move(key, event.isAutoRepeat);
         }
-        if (event.key === Qt.Key_Left || event.key === Qt.Key_Right || event.key === Qt.Key_Up || event.key === Qt.Key_Down)
-            event.accepted = false;
     }
 
     function muteTabStops(node) {
@@ -302,64 +381,6 @@ FocusScope {
             muteTabStops(kids[i]);
     }
 
-    function focusCell(row, index) {
-        const count = countFor(row);
-        if (count <= 0)
-            return false;
-        index = Math.max(0, Math.min(index, count - 1));
-        if (row === "windows")
-            selectWindow(index);
-        else if (row === "tabs") {
-            tabIndex = index;
-            focusedTabId = visibleTabs[index].id;
-        } else if (row === "actions") {
-            actionIndex = index;
-        } else if (row === "shortcuts") {
-            shortcutIndex = index;
-        }
-        focusRow = row;
-        const item = itemFor(row, index);
-        if (!item)
-            return false;
-        item.forceActiveFocus();
-        return true;
-    }
-
-    function restoreFocus() {
-        const rows = rowNames();
-        if (!rows.length) {
-            forceActiveFocus();
-            return;
-        }
-        const row = rows.indexOf(focusRow) >= 0 ? focusRow : preferredRow();
-        if (!focusCell(row, indexFor(row)) && row !== preferredRow())
-            focusCell(preferredRow(), indexFor(preferredRow()));
-    }
-
-    function move(key) {
-        const rows = rowNames();
-        if (!rows.length)
-            return;
-        let row = rows.indexOf(focusRow) >= 0 ? focusRow : rows[0];
-        const rowPos = rows.indexOf(row);
-        if (key === Qt.Key_Left || key === Qt.Key_Right) {
-            const delta = key === Qt.Key_Left ? -1 : 1;
-            const next = indexFor(row) + delta;
-            if (next >= 0 && next < countFor(row))
-                focusCell(row, next);
-            else
-                focusCell(row, indexFor(row));
-            return;
-        }
-        const delta = key === Qt.Key_Up ? -1 : 1;
-        const nextRowPos = rowPos + delta;
-        if (nextRowPos < 0 || nextRowPos >= rows.length) {
-            focusCell(row, indexFor(row));
-            return;
-        }
-        focusCell(rows[nextRowPos], indexFor(rows[nextRowPos]));
-    }
-
     function requestOpen(shortcutId) {
         for (let i = 0; i < shortcutEntries.length; ++i) {
             if (shortcutEntries[i].id === shortcutId) {
@@ -369,51 +390,71 @@ FocusScope {
         }
     }
 
+    function beginClose(tabId) {
+        if (!tabId)
+            return;
+        const already = closingId === tabId;
+        closingId = tabId;
+        if (!already)
+            closeTab(tabId);
+        const index = orderedTabs.findIndex(tab => tab.id === tabId);
+        let next = index;
+        if (index >= 0 && index + 1 < orderedTabs.length)
+            next = index + 1;
+        else if (index > 0)
+            next = index - 1;
+        focusEntry(Math.max(0, next), "row");
+    }
+
+    function activateStatus() {
+        if (statusKind === "empty")
+            backRequested();
+        else if (statusKind === "error" || statusKind === "unavailable")
+            retryRequested();
+    }
+
+    function noteRowFocus(index, side) {
+        focusRow = "list";
+        listSide = side;
+        listIndex = index;
+        if (index >= 0 && index < orderedTabs.length)
+            focusedEntryId = orderedTabs[index].id;
+    }
+
     onTabsChanged: {
         const keepFocus = activeFocus;
         rebuild();
         if (interactive && keepFocus)
-            Qt.callLater(restoreFocus);
+            Qt.callLater(settleFocus);
     }
     onWindowsChanged: {
         const keepFocus = activeFocus;
         rebuild();
         if (interactive && keepFocus)
-            Qt.callLater(restoreFocus);
+            Qt.callLater(settleFocus);
     }
     onShortcutsChanged: {
         const keepFocus = activeFocus;
         rebuild();
         if (interactive && keepFocus)
-            Qt.callLater(restoreFocus);
+            Qt.callLater(settleFocus);
     }
-    onFocusedWindowIdChanged: syncVisibleTabs()
     onBrowserStateChanged: Qt.callLater(settleFocus)
     onInteractiveChanged: if (interactive) Qt.callLater(settleFocus)
+    onOperationStateChanged: {
+        if (!closingId.length)
+            return;
+        if (operationState === "" || operationState === "queued" || operationState === "running" || operationState === "succeeded")
+            return;
+        if (orderedTabs.some(tab => tab.id === closingId))
+            closingId = "";
+    }
     Component.onCompleted: {
         rebuild();
         Qt.callLater(settleFocus);
     }
 
-    Keys.onPressed: event => {
-        if (isBackKey(event.key)) {
-            event.accepted = true;
-            if (!event.isAutoRepeat)
-                backRequested();
-            return;
-        }
-        const arrows = [Qt.Key_Left, Qt.Key_Right, Qt.Key_Up, Qt.Key_Down];
-        if (arrows.indexOf(event.key) < 0 && event.key !== Qt.Key_Tab && event.key !== Qt.Key_Backtab)
-            return;
-        pointerMode = false;
-        event.accepted = true;
-        if (event.key === Qt.Key_Tab)
-            move(Qt.Key_Right);
-        else if (event.key === Qt.Key_Backtab)
-            move(Qt.Key_Left);
-        else
-            move(event.key);
-    }
+    Keys.onPressed: event => root.localKey(event)
 
     Ui.LogicalCanvas {
         anchors.fill: parent
@@ -423,200 +464,617 @@ FocusScope {
                 anchors.fill: parent
                 color: Ui.Theme.background
             }
-            Ui.UiText {
-                x: Ui.Theme.safeLeft
-                y: 48
-                width: parent.width - Ui.Theme.safeLeft - Ui.Theme.safeRight
-                role: "title"
-                text: qsTr("Browser")
-                maximumLineCount: 1
-                elide: Text.ElideRight
-            }
-
-            Column {
-                id: listColumn
-                x: Ui.Theme.safeLeft
-                y: 160
-                width: parent.width - Ui.Theme.safeLeft - Ui.Theme.safeRight
-                spacing: 16
+            Rectangle {
                 visible: root.showTabs
+                x: -80
+                y: -220
+                width: 980
+                height: 680
+                radius: width / 2
+                color: Qt.rgba(0.337, 0.522, 0.831, 0.22)
+            }
 
-                Ui.UiText { width: parent.width; role: "section"; text: qsTr("Windows"); maximumLineCount: 1 }
-                Row {
-                    spacing: 24
-                    Repeater {
-                        id: windowRepeater
-                        model: root.showTabs ? root.windowIds : []
-                        delegate: Ui.ActionButton {
-                            required property string modelData
-                            required property int index
-                            objectName: "window-" + modelData
-                            text: qsTr("Window %1").arg(index + 1)
-                            activeFocusOnTab: false
-                            pointerMode: root.pointerMode
-                            hoverFocusEnabled: root.hoverFocusEnabled
-                            Keys.priority: Keys.BeforeItem
-                            Keys.onPressed: event => root.localKey(event)
-                            onActiveFocusChanged: if (activeFocus) root.noteWindowFocus(index)
-                            onDpadRequested: root.pointerMode = false
-                            Rectangle {
-                                objectName: "windowMark-" + modelData
-                                anchors.left: parent.left
-                                anchors.right: parent.right
-                                anchors.bottom: parent.bottom
-                                height: 4
-                                radius: 2
-                                color: Ui.Theme.ember
-                                visible: root.focusedWindowId === modelData
+            Text {
+                id: clock
+                objectName: "browserClock"
+                y: 44
+                height: 64
+                anchors.right: parent.right
+                anchors.rightMargin: 96
+                verticalAlignment: Text.AlignVCenter
+                font.family: Ui.Theme.fontFamily
+                font.pixelSize: 30
+                font.weight: 500
+                font.features: ({"tnum": 1})
+                color: Ui.Theme.textSecondary
+                text: Qt.formatTime(new Date(), "hh:mm")
+                Timer {
+                    interval: 30000
+                    running: true
+                    repeat: true
+                    triggeredOnStart: true
+                    onTriggered: clock.text = Qt.formatTime(new Date(), "hh:mm")
+                }
+            }
+
+            Item {
+                x: 120
+                y: 136
+                width: parent.width - 120 - 300
+                height: 72
+                Ui.UiText {
+                    id: screenTitle
+                    objectName: "screenTitle"
+                    text: qsTr("Open services")
+                    role: "title"
+                    maximumLineCount: 1
+                }
+                Text {
+                    objectName: "serviceCount"
+                    visible: root.showTabs
+                    x: screenTitle.width + 20
+                    anchors.baseline: screenTitle.baseline
+                    text: String(root.orderedTabs.length)
+                    font.family: Ui.Theme.fontFamily
+                    font.pixelSize: 40
+                    font.weight: 600
+                    font.features: ({"tnum": 1})
+                    color: Ui.Theme.textHint
+                }
+                Ui.UiText {
+                    objectName: "listPosition"
+                    visible: root.listOverflow
+                    anchors.baseline: screenTitle.baseline
+                    anchors.right: parent.right
+                    role: "meta"
+                    color: Ui.Theme.textSecondary
+                    text: qsTr("%1 of %2").arg(root.listIndex + 1).arg(root.orderedTabs.length)
+                }
+            }
+
+            ListView {
+                id: services
+                x: 96
+                y: 236
+                width: 1548
+                height: 694
+                visible: root.showTabs
+                clip: true
+                interactive: false
+                keyNavigationEnabled: false
+                highlightFollowsCurrentItem: false
+                reuseItems: false
+                model: root.showTabs ? root.orderedTabs : []
+                spacing: 16
+                topMargin: 14
+                bottomMargin: 14
+                leftMargin: 24
+                rightMargin: 24
+                displaced: Transition {
+                    NumberAnimation { properties: "y"; duration: Ui.Theme.focusDuration }
+                }
+                delegate: Item {
+                    id: entry
+                    required property var modelData
+                    required property int index
+                    objectName: "entry-" + modelData.id
+                    width: ListView.view.width - 48
+                    height: Math.max(plate.height, closeBtn.height)
+                    opacity: root.closingId === modelData.id ? 0.5 : 1
+                    z: plate.activeFocus || closeBtn.activeFocus ? 3 : 1
+                    Behavior on opacity { NumberAnimation { duration: Ui.Theme.focusDuration } }
+
+                    ListView.onRemove: removeAnim.start()
+                    SequentialAnimation {
+                        id: removeAnim
+                        PropertyAction { target: entry; property: "ListView.delayRemove"; value: true }
+                        ParallelAnimation {
+                            NumberAnimation { target: entry; property: "opacity"; to: 0; duration: Ui.Theme.focusDuration }
+                            NumberAnimation { target: entry; property: "height"; to: 0; duration: Ui.Theme.focusDuration }
+                        }
+                        PropertyAction { target: entry; property: "ListView.delayRemove"; value: false }
+                    }
+
+                    Item {
+                        id: plate
+                        objectName: "row-" + modelData.id
+                        width: entry.width - 144
+                        height: Math.max(128, textCol.implicitHeight + 44)
+                        anchors.verticalCenter: parent.verticalCenter
+                        scale: activeFocus ? (pressed ? 0.98 : 1.02) : 1
+                        activeFocusOnTab: false
+                        property bool pressed: false
+
+                        Behavior on scale {
+                            NumberAnimation { duration: plate.pressed ? Ui.Theme.pressDuration : Ui.Theme.focusDuration }
+                        }
+                        Rectangle {
+                            z: -1
+                            anchors.centerIn: parent
+                            width: parent.width + 56
+                            height: parent.height + 40
+                            radius: 48
+                            color: Qt.rgba(0.337, 0.522, 0.831, plate.activeFocus ? 0.22 : 0)
+                        }
+                        Rectangle {
+                            anchors.fill: parent
+                            radius: 26
+                            color: plate.activeFocus ? Ui.Theme.plateFocus : Ui.Theme.plate
+                            Behavior on color { ColorAnimation { duration: Ui.Theme.focusDuration } }
+                        }
+                        Rectangle {
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.top: parent.top
+                            height: 1
+                            color: Qt.rgba(1, 1, 1, 0.08)
+                            visible: !plate.activeFocus
+                        }
+                        Rectangle {
+                            anchors.fill: parent
+                            radius: 26
+                            color: "transparent"
+                            border.width: 3
+                            border.color: Ui.Theme.ring
+                            opacity: plate.activeFocus ? 1 : 0
+                        }
+                        Rectangle {
+                            x: 28
+                            width: 76
+                            height: 76
+                            radius: 22
+                            anchors.verticalCenter: parent.verticalCenter
+                            color: Qt.rgba(1, 1, 1, 0.12)
+                            Ui.UiText {
+                                objectName: "letter-" + modelData.id
+                                anchors.centerIn: parent
+                                text: root.letterOf(modelData.url)
+                                font.pixelSize: 34
+                                font.weight: 700
+                                color: Ui.Theme.textPrimary
                             }
                         }
-                    }
-                }
-
-                Ui.UiText { width: parent.width; role: "section"; text: qsTr("Tabs"); maximumLineCount: 1 }
-                Item {
-                    width: parent.width
-                    height: 250
-                    clip: true
-                    Row {
-                        spacing: 32
-                        Repeater {
-                            id: tabRepeater
-                            model: root.showTabs ? root.visibleTabs : []
-                            delegate: Ui.ContentCard {
-                                required property var modelData
-                                required property int index
-                                objectName: "tab-" + modelData.id
-                                width: 400
-                                height: 225
-                                text: modelData.title
-                                subtitle: modelData.url
-                                activeFocusOnTab: false
-                                pointerMode: root.pointerMode
-                                hoverFocusEnabled: root.hoverFocusEnabled
-                                Keys.priority: Keys.BeforeItem
-                                Keys.onPressed: event => root.localKey(event)
-                                onActiveFocusChanged: if (activeFocus) {
-                                    root.focusRow = "tabs";
-                                    root.tabIndex = index;
-                                    root.focusedTabId = modelData.id;
-                                }
-                                onActivated: root.activateTab(modelData.id)
-                                onDpadRequested: root.pointerMode = false
+                        Column {
+                            id: textCol
+                            x: 128
+                            width: parent.width - 156
+                            anchors.verticalCenter: parent.verticalCenter
+                            spacing: 8
+                            Ui.UiText {
+                                id: titleText
+                                objectName: "title-" + modelData.id
+                                width: textCol.width
+                                text: root.displayTitle(modelData)
+                                role: "section"
+                                lineHeight: 1.25
+                                lineHeightMode: Text.ProportionalHeight
+                                wrapMode: Text.WordWrap
+                                maximumLineCount: plate.activeFocus ? 2 : 1
+                                elide: Text.ElideRight
+                            }
+                            Row {
+                                id: hostLine
+                                width: textCol.width
+                                spacing: 24
                                 Ui.UiText {
-                                    objectName: "active-" + modelData.id
-                                    x: 24
-                                    y: 20
-                                    z: 50
+                                    objectName: "sub-" + modelData.id
+                                    width: Math.max(0, hostLine.width - statusMarks.implicitWidth - (statusMarks.implicitWidth > 0 ? hostLine.spacing : 0))
+                                    text: root.displaySub(modelData)
                                     role: "caption"
-                                    text: modelData.active ? qsTr("Active") : ""
-                                    color: Ui.Theme.ember
-                                    visible: modelData.active
-                                }
-                                Ui.UiText {
-                                    objectName: "audible-" + modelData.id
-                                    anchors.right: parent.right
-                                    anchors.top: parent.top
-                                    anchors.rightMargin: 24
-                                    anchors.topMargin: 20
-                                    z: 50
-                                    role: "caption"
-                                    text: modelData.audible ? qsTr("Audible") : ""
                                     color: Ui.Theme.textSecondary
-                                    visible: modelData.audible
+                                    elide: Text.ElideRight
+                                    maximumLineCount: 1
+                                    wrapMode: Text.NoWrap
+                                    anchors.verticalCenter: parent.verticalCenter
+                                }
+                                Row {
+                                    id: statusMarks
+                                    spacing: 24
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    Row {
+                                        objectName: "onscreen-" + modelData.id
+                                        spacing: 10
+                                        visible: modelData.id === root.activeTabId
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        Rectangle {
+                                            width: 12
+                                            height: 12
+                                            radius: 6
+                                            color: Ui.Theme.ember
+                                            anchors.verticalCenter: parent.verticalCenter
+                                        }
+                                        Ui.UiText {
+                                            text: qsTr("On screen")
+                                            role: "caption"
+                                            color: Ui.Theme.textPrimary
+                                            anchors.verticalCenter: parent.verticalCenter
+                                        }
+                                    }
+                                    Row {
+                                        objectName: "sound-" + modelData.id
+                                        spacing: 8
+                                        visible: !!modelData.audible
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        Rectangle {
+                                            width: 8
+                                            height: 14
+                                            radius: 2
+                                            color: Ui.Theme.ember
+                                            anchors.verticalCenter: parent.verticalCenter
+                                        }
+                                        Rectangle {
+                                            width: 4
+                                            height: 22
+                                            radius: 2
+                                            color: Ui.Theme.ember
+                                            anchors.verticalCenter: parent.verticalCenter
+                                        }
+                                        Ui.UiText {
+                                            text: qsTr("Sound")
+                                            role: "caption"
+                                            color: Ui.Theme.textPrimary
+                                            anchors.verticalCenter: parent.verticalCenter
+                                        }
+                                    }
+                                    Ui.UiText {
+                                        objectName: "closing-" + modelData.id
+                                        visible: root.closingId === modelData.id
+                                        text: qsTr("Closing…")
+                                        role: "caption"
+                                        color: Ui.Theme.textPrimary
+                                        anchors.verticalCenter: parent.verticalCenter
+                                    }
                                 }
                             }
                         }
+                        Keys.priority: Keys.BeforeItem
+                        Keys.onPressed: event => {
+                            if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                                if (!event.isAutoRepeat)
+                                    pressed = true;
+                                event.accepted = true;
+                                return;
+                            }
+                            root.localKey(event);
+                        }
+                        Keys.onReleased: event => {
+                            if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                                const go = pressed && !event.isAutoRepeat;
+                                pressed = false;
+                                if (go)
+                                    root.activateTab(modelData.id);
+                                event.accepted = true;
+                            }
+                        }
+                        onActiveFocusChanged: if (activeFocus) root.noteRowFocus(index, "row")
+                        TapHandler { onTapped: root.activateTab(modelData.id) }
+                        HoverHandler {
+                            onHoveredChanged: if (hovered && root.pointerMode && root.hoverFocusEnabled) plate.forceActiveFocus()
+                        }
                     }
-                }
 
-                Row {
-                    spacing: 24
-                    Ui.ActionButton {
-                        id: activateButton
-                        objectName: "activateTab"
-                        text: qsTr("Activate")
+                    Item {
+                        id: closeBtn
+                        objectName: "close-" + modelData.id
+                        x: plate.width + 16
+                        width: 128
+                        height: 128
+                        anchors.verticalCenter: parent.verticalCenter
+                        scale: activeFocus ? (pressed ? 0.98 : 1.06) : 1
                         activeFocusOnTab: false
-                        pointerMode: root.pointerMode
-                        hoverFocusEnabled: root.hoverFocusEnabled
-                        Keys.priority: Keys.BeforeItem
-                        Keys.onPressed: event => root.localKey(event)
-                        onActiveFocusChanged: if (activeFocus) {
-                            root.focusRow = "actions";
-                            root.actionIndex = 0;
+                        property bool pressed: false
+                        readonly property bool closing: root.closingId === modelData.id
+
+                        Behavior on scale {
+                            NumberAnimation { duration: closeBtn.pressed ? Ui.Theme.pressDuration : Ui.Theme.focusDuration }
                         }
-                        onActivated: if (root.focusedTabId.length) root.activateTab(root.focusedTabId)
-                        onDpadRequested: root.pointerMode = false
-                    }
-                    Ui.ActionButton {
-                        id: closeButton
-                        objectName: "closeTab"
-                        text: qsTr("Close")
-                        destructive: true
-                        activeFocusOnTab: false
-                        pointerMode: root.pointerMode
-                        hoverFocusEnabled: root.hoverFocusEnabled
-                        Keys.priority: Keys.BeforeItem
-                        Keys.onPressed: event => root.localKey(event)
-                        onActiveFocusChanged: if (activeFocus) {
-                            root.focusRow = "actions";
-                            root.actionIndex = 1;
+                        Rectangle {
+                            anchors.fill: parent
+                            anchors.topMargin: 18
+                            radius: 26
+                            color: Qt.rgba(0, 0, 0, closeBtn.activeFocus ? 0.45 : 0)
+                            z: -1
                         }
-                        onActivated: if (root.focusedTabId.length) root.closeTab(root.focusedTabId)
-                        onDpadRequested: root.pointerMode = false
+                        Rectangle {
+                            anchors.fill: parent
+                            radius: 26
+                            color: closeBtn.activeFocus ? Ui.Theme.textPrimary : Ui.Theme.plate
+                            Behavior on color { ColorAnimation { duration: Ui.Theme.focusDuration } }
+                        }
+                        Ui.UiText {
+                            anchors.centerIn: parent
+                            visible: !closeBtn.closing
+                            text: "×"
+                            font.pixelSize: 44
+                            color: closeBtn.activeFocus ? Ui.Theme.ink : Ui.Theme.textSecondary
+                        }
+                        Item {
+                            anchors.centerIn: parent
+                            width: 44
+                            height: 44
+                            visible: closeBtn.closing
+                            RotationAnimation on rotation {
+                                from: 0
+                                to: 360
+                                duration: 900
+                                loops: Animation.Infinite
+                                running: closeBtn.closing
+                            }
+                            Rectangle {
+                                anchors.fill: parent
+                                radius: 22
+                                color: "transparent"
+                                border.width: 4
+                                border.color: Qt.rgba(1, 1, 1, 0.18)
+                            }
+                            Rectangle {
+                                x: 20
+                                y: 2
+                                width: 4
+                                height: 14
+                                radius: 2
+                                color: Ui.Theme.textSecondary
+                            }
+                        }
+                        Keys.priority: Keys.BeforeItem
+                        Keys.onPressed: event => {
+                            if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                                if (!event.isAutoRepeat)
+                                    pressed = true;
+                                event.accepted = true;
+                                return;
+                            }
+                            root.localKey(event);
+                        }
+                        Keys.onReleased: event => {
+                            if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                                const go = pressed && !event.isAutoRepeat;
+                                pressed = false;
+                                if (go)
+                                    root.beginClose(modelData.id);
+                                event.accepted = true;
+                            }
+                        }
+                        onActiveFocusChanged: if (activeFocus) root.noteRowFocus(index, "close")
+                        TapHandler { onTapped: root.beginClose(modelData.id) }
+                        HoverHandler {
+                            onHoveredChanged: if (hovered && root.pointerMode && root.hoverFocusEnabled) closeBtn.forceActiveFocus()
+                        }
                     }
                 }
             }
 
-            Ui.StatusPane {
-                id: statusPane
-                objectName: "browserStatus"
-                anchors.horizontalCenter: parent.horizontalCenter
-                y: 200
-                width: 900
-                visible: !root.showTabs
-                kind: root.statusKind
-                title: root.resolvedTitle
-                description: root.resolvedDescription
-                actionText: root.statusActionText
-                pointerMode: root.pointerMode
-                hoverFocusEnabled: root.hoverFocusEnabled
-                onActionRequested: root.retryRequested()
-                onDpadRequested: root.pointerMode = false
-                Keys.priority: Keys.BeforeItem
-                Keys.onPressed: event => root.localKey(event)
+            Rectangle {
+                z: 2
+                x: 96
+                y: 236
+                width: 1548
+                height: 60
+                visible: root.listOverflow
+                gradient: Gradient {
+                    GradientStop { position: 0.0; color: Ui.Theme.background }
+                    GradientStop { position: 1.0; color: "transparent" }
+                }
+            }
+            Rectangle {
+                z: 2
+                x: 96
+                y: 236 + 694 - 90
+                width: 1548
+                height: 90
+                visible: root.listOverflow
+                gradient: Gradient {
+                    GradientStop { position: 0.0; color: "transparent" }
+                    GradientStop { position: 1.0; color: Ui.Theme.background }
+                }
+            }
+
+            Row {
+                x: 120
+                anchors.bottom: parent.bottom
+                anchors.bottomMargin: 64
+                spacing: 44
+                visible: root.showTabs
+                Row {
+                    spacing: 12
+                    Rectangle {
+                        radius: 10
+                        color: Qt.rgba(1, 1, 1, 0.1)
+                        width: okKey.implicitWidth + 24
+                        height: 36
+                        Ui.UiText {
+                            id: okKey
+                            anchors.centerIn: parent
+                            text: qsTr("OK")
+                            role: "caption"
+                            font.weight: 600
+                            color: Ui.Theme.textPrimary
+                        }
+                    }
+                    Ui.UiText {
+                        text: qsTr("Go")
+                        role: "caption"
+                        color: Ui.Theme.textHint
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+                }
+                Row {
+                    spacing: 12
+                    Rectangle {
+                        radius: 10
+                        color: Qt.rgba(1, 1, 1, 0.1)
+                        width: arrowKey.implicitWidth + 24
+                        height: 36
+                        Ui.UiText {
+                            id: arrowKey
+                            anchors.centerIn: parent
+                            text: "→"
+                            role: "caption"
+                            font.weight: 600
+                            color: Ui.Theme.textPrimary
+                        }
+                    }
+                    Ui.UiText {
+                        text: qsTr("Close")
+                        role: "caption"
+                        color: Ui.Theme.textHint
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+                }
+                Row {
+                    spacing: 12
+                    Rectangle {
+                        radius: 10
+                        color: Qt.rgba(1, 1, 1, 0.1)
+                        width: backKey.implicitWidth + 24
+                        height: 36
+                        Ui.UiText {
+                            id: backKey
+                            anchors.centerIn: parent
+                            text: qsTr("Back")
+                            role: "caption"
+                            font.weight: 600
+                            color: Ui.Theme.textPrimary
+                        }
+                    }
+                    Ui.UiText {
+                        text: qsTr("Exit")
+                        role: "caption"
+                        color: Ui.Theme.textHint
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+                }
             }
 
             Column {
-                x: Ui.Theme.safeLeft
-                y: 860
-                width: parent.width - Ui.Theme.safeLeft - Ui.Theme.safeRight
-                spacing: 12
-                visible: root.shortcutEntries.length > 0 && root.browserState !== "loading"
-                Ui.UiText { width: parent.width; role: "section"; text: qsTr("Shortcuts"); maximumLineCount: 1 }
-                Row {
-                    spacing: 24
-                    Repeater {
-                        id: shortcutRepeater
-                        model: root.browserState === "loading" ? [] : root.shortcutEntries
-                        delegate: Ui.ActionButton {
-                            required property var modelData
-                            required property int index
-                            objectName: "shortcut-" + modelData.id
-                            text: modelData.title
-                            activeFocusOnTab: false
-                            pointerMode: root.pointerMode
-                            hoverFocusEnabled: root.hoverFocusEnabled
-                            Keys.priority: Keys.BeforeItem
-                            Keys.onPressed: event => root.localKey(event)
-                            onActiveFocusChanged: if (activeFocus) {
-                                root.focusRow = "shortcuts";
-                                root.shortcutIndex = index;
-                            }
-                            onActivated: root.requestOpen(modelData.id)
-                            onDpadRequested: root.pointerMode = false
+                id: messagePane
+                objectName: "browserStatus"
+                property string kind: root.statusKind
+                property string title: root.resolvedTitle
+                property string description: root.resolvedDescription
+                x: 120
+                y: 360
+                width: 980
+                spacing: 24
+                visible: !root.showTabs
+                Item {
+                    objectName: "statusIcon"
+                    width: 88
+                    height: 88
+                    Column {
+                        visible: root.statusKind === "empty"
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: 10
+                        Rectangle { width: 72; height: 18; radius: 4; color: Ui.Theme.textHint }
+                        Rectangle { width: 56; height: 18; radius: 4; color: Ui.Theme.textHint }
+                        Rectangle { width: 40; height: 18; radius: 4; color: Ui.Theme.textHint }
+                    }
+                    Item {
+                        anchors.fill: parent
+                        visible: root.statusKind === "loading"
+                        RotationAnimation on rotation {
+                            from: 0; to: 360; duration: 900; loops: Animation.Infinite
+                            running: root.statusKind === "loading"
+                        }
+                        Rectangle {
+                            anchors.fill: parent
+                            radius: 44
+                            color: "transparent"
+                            border.width: 6
+                            border.color: Qt.rgba(1, 1, 1, 0.18)
                         }
                     }
+                    Item {
+                        anchors.fill: parent
+                        visible: root.statusKind === "error" || root.statusKind === "unavailable"
+                        Rectangle {
+                            anchors.fill: parent
+                            radius: 44
+                            color: "transparent"
+                            border.width: 6
+                            border.color: Ui.Theme.error
+                        }
+                        Rectangle {
+                            width: 6
+                            height: 78
+                            radius: 3
+                            anchors.centerIn: parent
+                            rotation: -35
+                            color: Ui.Theme.error
+                        }
+                    }
+                }
+                Ui.UiText {
+                    objectName: "statusTitle"
+                    width: parent.width
+                    text: messagePane.title
+                    font.pixelSize: 48
+                    font.weight: 700
+                    font.letterSpacing: -0.96
+                    wrapMode: Text.WordWrap
+                }
+                Ui.UiText {
+                    objectName: "statusBody"
+                    width: parent.width
+                    text: messagePane.description
+                    role: "body"
+                    lineHeight: 1.45
+                    lineHeightMode: Text.ProportionalHeight
+                    color: Ui.Theme.textSecondary
+                }
+                Item { width: 1; height: 16; visible: statusButton.visible }
+                Item {
+                    id: statusButton
+                    objectName: "statusAction"
+                    width: statusLabel.implicitWidth + 88
+                    height: 88
+                    visible: root.statusActionText.length > 0
+                    scale: activeFocus ? 1.06 : 1
+                    transformOrigin: Item.Left
+                    activeFocusOnTab: false
+                    property bool pressed: false
+                    Behavior on scale {
+                        NumberAnimation { duration: statusButton.pressed ? Ui.Theme.pressDuration : Ui.Theme.focusDuration }
+                    }
+                    Rectangle {
+                        anchors.fill: parent
+                        anchors.topMargin: 12
+                        radius: height / 2
+                        color: Qt.rgba(0, 0, 0, statusButton.activeFocus ? 0.45 : 0)
+                        z: -1
+                    }
+                    Rectangle {
+                        anchors.fill: parent
+                        radius: height / 2
+                        color: Ui.Theme.textPrimary
+                    }
+                    Ui.UiText {
+                        id: statusLabel
+                        anchors.centerIn: parent
+                        text: root.statusActionText
+                        role: "control"
+                        color: Ui.Theme.ink
+                    }
+                    Keys.priority: Keys.BeforeItem
+                    Keys.onPressed: event => {
+                        if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                            if (!event.isAutoRepeat)
+                                pressed = true;
+                            event.accepted = true;
+                            return;
+                        }
+                        root.localKey(event);
+                    }
+                    Keys.onReleased: event => {
+                        if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                            const go = pressed && !event.isAutoRepeat;
+                            pressed = false;
+                            if (go)
+                                root.activateStatus();
+                            event.accepted = true;
+                        }
+                    }
+                    TapHandler { onTapped: root.activateStatus() }
                 }
             }
         }

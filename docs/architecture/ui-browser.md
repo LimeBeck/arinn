@@ -4,8 +4,8 @@
 # Browser tab screen
 
 Presentation for [specification §7.1](../specifications/arinn-specification.md#71-browser-chromechromium).
-The screen lists windows and tabs from `org.arinn.Browser1` and sends activate
-and close through that interface. `BrowserCatalog`
+The screen is the Open services list: every tab from `org.arinn.Browser1` is one
+row. It sends activate and close through that interface. `BrowserCatalog`
 (`apps/arinn-shell/browser_catalog.cpp`) is the only D-Bus client. The QML does
 not import a bus type and does not call a provider.
 
@@ -40,16 +40,18 @@ Local D-pad focus stays on the current window when a later snapshot still
 contains it. Focus movement does not call the daemon
 ([specification §6.5](../specifications/arinn-specification.md#65-performance-principles)).
 
-Titles and addresses are properties of the tab cards. The catalog drops shortcut
-URLs after reading `WebShortcuts1.List` and does not log titles or addresses.
+Titles and addresses are properties of the service rows. The catalog drops
+shortcut URLs after reading `WebShortcuts1.List` and does not log titles or
+addresses.
 
 ## Creating a tab
 
-Creating a tab in this screen goes through a known shortcut id, which matches
-[specification §7.1](../specifications/arinn-specification.md#71-browser-chromechromium)
-for this fixture. `open(shortcutId)` is emitted only for an id in the shortcut
-list. `BrowserCatalog.openShortcut` calls `WebShortcuts1.Open` with that id and
-a request id, then observes the operation. The shell has no open-URL method
+Creating a tab goes through a known shortcut id, which matches
+[specification §7.1](../specifications/arinn-specification.md#71-browser-chromechromium).
+This list does not show shortcuts. `open(shortcutId)` is still emitted only for
+an id in the shortcut list. `BrowserCatalog.openShortcut` calls
+`WebShortcuts1.Open` with that id and a request id, then observes the operation.
+The shell has no open-URL method
 ([ADR-0048](../adr/0048-browser-wire-contract.md)).
 
 ## Screen model
@@ -59,29 +61,44 @@ a request id, then observes the operation. The shell has no open-URL method
 ids derived from the provider id, generation and provider-local id. The screen
 does not parse them.
 
+The list contains every tab. The active tab of the focused window is marked
+"On screen" and is placed first; the rest keep snapshot order. There is no
+last-use timestamp on the snapshot, so the screen does not invent one. An
+audible tab is marked "Sound". The chip is the first letter of the host, after
+`www.`, `m.` and `hd.` are stripped. An empty title uses the host as the title
+and the full address as the subline. There is no favicon and no per-product
+artwork.
+
 `shortcuts` entries have `id` and `title`. An `url` field on a shortcut is
 ignored. `browserState` is `populated`, `empty`, `loading`, `error` or
-`unavailable`. `populated` shows the window row, the focused window's tabs,
-Activate and Close. The other states show `StatusPane` and hide the tab list.
-Loading hides the status action and the shortcut row. Empty, error and
-unavailable keep the shortcut row so a known shortcut can still be opened.
+`unavailable`. `populated` shows the list. Empty, loading, error and unavailable
+use the same left-aligned message block and hide the list. Empty offers Home,
+which emits `backRequested()`. Error and unavailable offer Retry. Loading hides
+the action.
+
+OK on a row emits `activateTab`. OK on that row's close control emits
+`closeTab` with no confirmation, including when the tab is audible. The row
+then shows "Closing…" at half opacity until the snapshot drops it, and the row
+collapses. A failed operation clears that state while the tab remains. Moving
+focus does not call the daemon and does not change which window is focused.
 
 | Signal | When |
 | --- | --- |
-| `activateTab(tabId)` | OK on a tab card, or OK on Activate, for the focused tab |
-| `closeTab(tabId)` | OK on Close, for the focused tab |
-| `open(shortcutId)` | OK on a known shortcut |
-| `retryRequested()` | OK on the status action; the catalog refreshes |
-| `backRequested()` | Escape, Backspace or Back |
+| `activateTab(tabId)` | OK on a service row |
+| `closeTab(tabId)` | OK on that row's close control |
+| `open(shortcutId)` | A known shortcut id passed to `requestOpen` |
+| `retryRequested()` | OK on Retry; the catalog refreshes |
+| `backRequested()` | Escape, Backspace, Back, or OK on Home when nothing is open |
 
-Arrows, Tab and Backtab move inside the screen and stop at the ends of each
-row. Escape, Backspace and Back emit `backRequested()` and leave focus where
-it is. The rows are windows, tabs, Activate/Close, then shortcuts. Status
-replaces the first three rows when the list is hidden.
+Right moves from a row to its close control and Left returns. Up and Down move
+between rows and stay on the same side. Holding Up or Down moves farther.
+Tab and Backtab stay inside the screen. Escape, Backspace and Back emit
+`backRequested()` once, ignore auto-repeat, and leave focus where it is.
+When the list is taller than the viewport, the focused row stays about two
+row-heights above the bottom and the header shows the position as "n of m".
 
-The QML imports `Theme`, `StatusPane`, `ContentCard`, `LogicalCanvas`,
-`ActionButton` and `UiText` from `apps/arinn-shell/ui`. It has no
-product-specific conditions (R-01, R-03, AC-12).
+The QML imports `Theme`, `LogicalCanvas` and `UiText` from
+`apps/arinn-shell/ui`. It has no product-specific conditions (R-01, R-03, AC-12).
 
 ## Verification
 

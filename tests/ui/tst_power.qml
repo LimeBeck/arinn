@@ -239,4 +239,42 @@ TestCase {
         compare(menu.step, "menu");
         focused("restartButton");
     }
+
+    function test_panel_matches_handoff() {
+        const scrim = child("powerScrim");
+        compare(scrim.width, 1920);
+        compare(scrim.height, 1080);
+        verify(scrim.visible);
+        verify(Math.abs(scrim.color.a - 0.55) < 0.01);
+        const panel = child("powerPanel");
+        compare(panel.width, 800);
+        compare(panel.radius, 48);
+        verify(Math.abs(panel.x - 560) < 1);
+        verify(Math.abs(panel.y - (1080 - panel.height) / 2) < 1);
+        verify(Math.abs(panel.color.a - 0.82) < 0.02);
+        compare(panel.border.width, 1);
+        const title = child("powerTitle");
+        compare(title.text, "Power");
+        compare(title.font.pixelSize, 52);
+        compare(title.font.weight, 700);
+        const sleep = child("sleepButton");
+        compare(sleep.height, 112);
+        compare(sleep.cornerRadius, 30);
+        verify(sleep.focusedColor.r > 0.9);
+        compare(child("sleepIcon").width, 64);
+        compare(child("sleepIcon").height, 64);
+        compare(child("sleepLabel").font.pixelSize, 32);
+        compare(child("sleepDescription").font.pixelSize, 26);
+        verify(!child("powerConfirm").visible);
+        keyClick(Qt.Key_Down);
+        keyClick(Qt.Key_Return);
+        focused("cancelButton");
+        compare(child("cancelButton").height, 96);
+        compare(child("confirmButton").height, 96);
+        compare(child("cancelButton").cornerRadius, 48);
+        compare(child("confirmButton").cornerRadius, 48);
+        compare(child("powerConfirm").spacing, 20);
+        verify(child("cancelButton").activeFocus);
+        verify(!child("confirmButton").activeFocus);
+    }
 }

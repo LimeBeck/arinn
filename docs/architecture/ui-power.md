@@ -12,8 +12,18 @@ The existing `ui-components` CTest loads every `tests/ui/tst_*.qml` file, so
 this suite needs no CMake change. It is not wired into `HomeView` or
 `Main.qml`. `HomeView` still only emits `powerRequested()`.
 
-The overlay imports `ActionButton`, `Surface`, `StatusPane`, `UiText` and
-`Theme` from `apps/arinn-shell/ui`. It does not modify those components.
+The overlay imports `ActionButton`, `LogicalCanvas`, `Surface`, `StatusPane`,
+`UiText` and `Theme` from `apps/arinn-shell/ui`. It does not modify those
+components.
+
+The frame is a logical 1920×1080 canvas. A full-screen scrim at
+`rgba(0, 0, 0, 0.55)` covers the shell background. The menu is a centered
+glass panel, 800 wide with radius 48, a translucent dark fill and a light
+border. The title is 52 px at weight 700. Each row is 112 tall with radius
+30, a 64 px round icon plate, a 32 px label and a 26 px description. Focus
+is a light plate. Restart and Shut down replace the rows with two pills,
+96 tall and radius 48. Cancel keeps the default focus. Ambient remains a
+fourth row on that panel and still opens the full-screen ambient state.
 
 ## What the fixture does
 
@@ -46,10 +56,11 @@ QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
   build/apps/arinn-shell/arinn-ui-test -input tests/ui
 ```
 
-Local run on 2026-09-28, Qt 6.8.3, offscreen platform and the software scene
-graph: 58 passed, 0 failed. That includes `PowerMenu` (Cancel focused by
+Local run on 2026-09-29, Qt 6.8.3, offscreen platform and the software scene
+graph: 59 passed, 0 failed. That includes `PowerMenu` (Cancel focused by
 default for Restart and Shut down, sleep intent with no success state, an
-explicit refusal error, and a consumed ambient wake for both a key and a
-pointer move) and the existing component and Home cases in the same process.
+explicit refusal error, a consumed ambient wake for both a key and a
+pointer move, and the glass-panel geometry) and the existing component and
+Home cases in the same process.
 Operator tests were not run. This fixture does not lock the screen or suspend
 the machine. CI has not run for this change.

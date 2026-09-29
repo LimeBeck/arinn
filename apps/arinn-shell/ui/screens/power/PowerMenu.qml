@@ -32,10 +32,10 @@ FocusScope {
     // Restoring focus before that release would activate the control underneath.
     property bool waking: false
     readonly property var menuEntries: [
-        {id: "sleep", title: qsTr("Sleep"), description: qsTr("Request system suspend")},
-        {id: "restart", title: qsTr("Restart"), description: qsTr("Confirmation is required")},
-        {id: "shutdown", title: qsTr("Shut down"), description: qsTr("Confirmation is required")},
-        {id: "ambient", title: qsTr("Ambient"), description: qsTr("Show the ambient screen")}
+        {id: "sleep", glyph: "sleep", title: qsTr("Sleep"), description: qsTr("Request system suspend")},
+        {id: "restart", glyph: "restart", title: qsTr("Restart"), description: qsTr("Takes about a minute")},
+        {id: "shutdown", glyph: "shutdown", title: qsTr("Shut down"), description: qsTr("Turn the computer off completely")},
+        {id: "ambient", glyph: "ambient", title: qsTr("Ambient"), description: qsTr("Show the ambient screen")}
     ]
     readonly property string confirmTitle: pendingAction === "shutdown" ? qsTr("Shut down?") : qsTr("Restart?")
     readonly property string confirmActionText: pendingAction === "shutdown" ? qsTr("Shut down") : qsTr("Restart")
@@ -172,100 +172,227 @@ FocusScope {
         });
     }
 
-    Rectangle {
+    Ui.LogicalCanvas {
+        id: canvas
         anchors.fill: parent
-        color: Qt.rgba(0, 0, 0, 0.58)
-        visible: root.step !== "ambient"
-    }
-    MouseArea {
-        anchors.fill: parent
-        enabled: root.step !== "ambient"
-        z: 0
-        onClicked: root.goBack()
-    }
-    Rectangle {
-        id: panel
-        z: 1
-        width: 800
-        radius: 48
-        color: "#292b30"
-        anchors.centerIn: parent
-        visible: !root.refused && root.step !== "ambient"
-        height: column.implicitHeight + 96
-        Column {
-            id: column
-            x: 48
-            y: 48
-            width: 704
-            spacing: 16
-            Ui.UiText {
-                objectName: "powerTitle"
-                width: parent.width
-                role: "title"
-                text: root.step === "confirm" ? root.confirmTitle : qsTr("Power")
+        Rectangle {
+            anchors.fill: parent
+            color: Ui.Theme.background
+        }
+        Rectangle {
+            objectName: "powerScrim"
+            anchors.fill: parent
+            color: Qt.rgba(0, 0, 0, 0.55)
+            visible: root.step !== "ambient"
+        }
+        MouseArea {
+            anchors.fill: parent
+            enabled: root.step !== "ambient"
+            z: 0
+            onClicked: root.goBack()
+        }
+        Rectangle {
+            z: 1
+            width: panel.width + 48
+            height: panel.height * 0.92
+            radius: 70
+            color: Qt.rgba(0, 0, 0, 0.45)
+            anchors.horizontalCenter: panel.horizontalCenter
+            anchors.top: panel.top
+            anchors.topMargin: 36
+            visible: panel.visible
+        }
+        Rectangle {
+            id: panel
+            objectName: "powerPanel"
+            z: 2
+            width: 800
+            radius: 48
+            // Translucent dark glass over the dimmed field, with a light edge.
+            color: Qt.rgba(0.161, 0.165, 0.188, 0.82)
+            border.width: 1
+            border.color: Qt.rgba(1, 1, 1, 0.10)
+            anchors.centerIn: parent
+            visible: !root.refused && root.step !== "ambient"
+            height: column.implicitHeight + 96
+            Rectangle {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.leftMargin: 48
+                anchors.rightMargin: 48
+                height: 1
+                color: Qt.rgba(1, 1, 1, 0.10)
             }
-            Ui.UiText {
-                objectName: "closingList"
-                width: parent.width
-                visible: root.step === "confirm"
-                text: root.closingSummary
-                role: "body"
-                color: Ui.Theme.textSecondary
-            }
-            Repeater {
-                id: menuRows
-                model: root.menuEntries
-                delegate: Ui.Surface {
-                    id: row
-                    required property var modelData
-                    required property int index
-                    objectName: modelData.id + "Button"
+            Column {
+                id: column
+                x: 48
+                y: 52
+                width: 704
+                spacing: 0
+                Ui.UiText {
+                    objectName: "powerTitle"
+                    width: parent.width
+                    leftPadding: 8
+                    rightPadding: 8
+                    role: "title"
+                    font.pixelSize: 52
+                    font.weight: 700
+                    font.letterSpacing: -1.04
+                    text: root.step === "confirm" ? root.confirmTitle : qsTr("Power")
+                }
+                Item {
+                    width: 1
+                    height: 10
+                    visible: root.step === "confirm"
+                }
+                Ui.UiText {
+                    objectName: "closingList"
+                    width: parent.width
+                    leftPadding: 8
+                    rightPadding: 8
+                    visible: root.step === "confirm"
+                    text: root.closingSummary
+                    role: "body"
+                    color: Ui.Theme.textSecondary
+                }
+                Item {
+                    width: 1
+                    height: root.step === "menu" ? 22 : 16
+                    visible: root.step === "menu" || root.step === "confirm"
+                }
+                Column {
+                    width: parent.width
+                    spacing: 8
                     visible: root.step === "menu"
-                    width: 704
-                    height: 112
-                    text: modelData.title
-                    cornerRadius: 30
-                    focusScale: 1.02
-                    pointerMode: root.pointerMode
-                    hoverFocusEnabled: root.hoverFocusEnabled
-                    onDpadRequested: root.noteDpad()
-                    onActiveFocusChanged: if (activeFocus) root.menuFocus = modelData.id
-                    onActivated: {
-                        if (modelData.id === "sleep")
-                            root.sleepRequested();
-                        else if (modelData.id === "restart")
-                            root.openConfirm("restart");
-                        else if (modelData.id === "shutdown")
-                            root.openConfirm("shutdown");
-                        else
-                            root.startAmbient();
-                    }
-                    contentItem: Item {
-                        Column {
-                            anchors.left: parent.left
-                            anchors.right: parent.right
-                            anchors.verticalCenter: parent.verticalCenter
-                            spacing: 4
-                            Ui.UiText {
-                                x: 28
-                                width: parent.width - 56
-                                text: row.text
-                                role: "control"
-                                color: row.activeFocus ? Ui.Theme.textPrimary : Ui.Theme.textSecondary
-                                elide: Text.ElideRight
-                                maximumLineCount: 1
+                    Repeater {
+                        id: menuRows
+                        model: root.menuEntries
+                        delegate: Ui.Surface {
+                            id: row
+                            required property var modelData
+                            required property int index
+                            objectName: modelData.id + "Button"
+                            width: 704
+                            height: 112
+                            text: modelData.title
+                            cornerRadius: 30
+                            focusScale: 1.02
+                            restingColor: Qt.rgba(1, 1, 1, 0.05)
+                            focusedColor: Ui.Theme.textPrimary
+                            pointerMode: root.pointerMode
+                            hoverFocusEnabled: root.hoverFocusEnabled
+                            onDpadRequested: root.noteDpad()
+                            onActiveFocusChanged: if (activeFocus) root.menuFocus = modelData.id
+                            onActivated: {
+                                if (modelData.id === "sleep")
+                                    root.sleepRequested();
+                                else if (modelData.id === "restart")
+                                    root.openConfirm("restart");
+                                else if (modelData.id === "shutdown")
+                                    root.openConfirm("shutdown");
+                                else
+                                    root.startAmbient();
                             }
-                            Ui.UiText {
-                                x: 28
-                                width: parent.width - 56
-                                text: row.modelData.description
-                                role: "caption"
-                                color: Ui.Theme.textHint
-                                elide: Text.ElideRight
-                                maximumLineCount: 1
+                            contentItem: Item {
+                                Row {
+                                    anchors.left: parent.left
+                                    anchors.leftMargin: 28
+                                    anchors.right: parent.right
+                                    anchors.rightMargin: 28
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    spacing: 24
+                                    Rectangle {
+                                        objectName: row.modelData.id + "Icon"
+                                        width: 64
+                                        height: 64
+                                        radius: 32
+                                        color: row.activeFocus ? Qt.rgba(0, 0, 0, 0.08) : Qt.rgba(1, 1, 1, 0.08)
+                                        Canvas {
+                                            id: glyph
+                                            anchors.centerIn: parent
+                                            width: 38
+                                            height: 38
+                                            property color ink: row.activeFocus ? Ui.Theme.ink : Ui.Theme.textPrimary
+                                            onInkChanged: requestPaint()
+                                            onPaint: {
+                                                const ctx = getContext("2d");
+                                                ctx.clearRect(0, 0, width, height);
+                                                ctx.strokeStyle = ink;
+                                                ctx.fillStyle = ink;
+                                                ctx.lineWidth = 2.6;
+                                                ctx.lineCap = "round";
+                                                ctx.lineJoin = "round";
+                                                const cx = width / 2;
+                                                const cy = height / 2;
+                                                const kind = row.modelData.glyph;
+                                                if (kind === "sleep") {
+                                                    ctx.beginPath();
+                                                    ctx.arc(cx - 1, cy, 12, 0.7, 5.7);
+                                                    ctx.arc(cx + 7, cy - 3, 10, 4.6, 1.5, true);
+                                                    ctx.fill();
+                                                } else if (kind === "restart") {
+                                                    ctx.beginPath();
+                                                    ctx.arc(cx, cy, 11, 0.6, 5.3);
+                                                    ctx.stroke();
+                                                    ctx.beginPath();
+                                                    ctx.moveTo(cx + 12, cy - 8);
+                                                    ctx.lineTo(cx + 8, cy + 2);
+                                                    ctx.lineTo(cx + 2, cy - 6);
+                                                    ctx.closePath();
+                                                    ctx.fill();
+                                                } else if (kind === "shutdown") {
+                                                    ctx.beginPath();
+                                                    ctx.arc(cx, cy + 2, 11, 0.85, Math.PI - 0.85, true);
+                                                    ctx.stroke();
+                                                    ctx.beginPath();
+                                                    ctx.moveTo(cx, cy - 13);
+                                                    ctx.lineTo(cx, cy + 2);
+                                                    ctx.stroke();
+                                                } else {
+                                                    ctx.beginPath();
+                                                    ctx.arc(cx, cy, 6.5, 0, Math.PI * 2);
+                                                    ctx.stroke();
+                                                    for (let ray = 0; ray < 8; ++ray) {
+                                                        const angle = ray * Math.PI / 4;
+                                                        ctx.beginPath();
+                                                        ctx.moveTo(cx + Math.cos(angle) * 10, cy + Math.sin(angle) * 10);
+                                                        ctx.lineTo(cx + Math.cos(angle) * 15, cy + Math.sin(angle) * 15);
+                                                        ctx.stroke();
+                                                    }
+                                                }
+                                            }
+                                            Component.onCompleted: requestPaint()
+                                        }
+                                    }
+                                    Column {
+                                        width: parent.width - 88
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        spacing: 4
+                                        Ui.UiText {
+                                            objectName: row.modelData.id + "Label"
+                                            width: parent.width
+                                            text: row.text
+                                            role: "control"
+                                            font.pixelSize: 32
+                                            font.weight: 600
+                                            color: row.activeFocus ? Ui.Theme.ink : Ui.Theme.textPrimary
+                                            elide: Text.ElideRight
+                                            maximumLineCount: 1
+                                        }
+                                        Ui.UiText {
+                                            objectName: row.modelData.id + "Description"
+                                            width: parent.width
+                                            text: row.modelData.description
+                                            role: "meta"
+                                            font.pixelSize: 26
+                                            color: row.activeFocus ? "#5E6068" : Ui.Theme.textSecondary
+                                            elide: Text.ElideRight
+                                            maximumLineCount: 1
+                                        }
+                                    }
+                                }
                             }
-                        }
-                    }
                     Keys.onUpPressed: event => { event.accepted = true; root.noteDpad(); root.moveMenu(-1, false); }
                     Keys.onDownPressed: event => { event.accepted = true; root.noteDpad(); root.moveMenu(1, false); }
                     Keys.onLeftPressed: event => { event.accepted = true; root.noteDpad(); }
@@ -286,15 +413,18 @@ FocusScope {
                     }
                 }
             }
-            Row {
-                objectName: "powerConfirm"
-                visible: root.step === "confirm"
-                spacing: 16
-                Ui.ActionButton {
-                    id: cancelButton
-                    objectName: "cancelButton"
-                    width: 344
-                    text: qsTr("Cancel")
+        }
+                Row {
+                    objectName: "powerConfirm"
+                    visible: root.step === "confirm"
+                    spacing: 20
+                    Ui.ActionButton {
+                        id: cancelButton
+                        objectName: "cancelButton"
+                        width: 342
+                        height: 96
+                        restingColor: Qt.rgba(1, 1, 1, 0.13)
+                        text: qsTr("Cancel")
                     pointerMode: root.pointerMode
                     hoverFocusEnabled: root.hoverFocusEnabled
                     onDpadRequested: root.noteDpad()
@@ -321,7 +451,8 @@ FocusScope {
                 Ui.ActionButton {
                     id: confirmButton
                     objectName: "confirmButton"
-                    width: 344
+                    width: 342
+                    height: 96
                     text: root.confirmActionText
                     destructive: true
                     pointerMode: root.pointerMode
@@ -354,7 +485,7 @@ FocusScope {
     Ui.StatusPane {
         id: errorPane
         objectName: "powerError"
-        z: 2
+        z: 4
         anchors.centerIn: parent
         width: 820
         visible: root.refused && root.step !== "ambient"
@@ -449,4 +580,5 @@ FocusScope {
     }
 
     Component.onCompleted: Qt.callLater(restoreMenuFocus)
+    }
 }

@@ -6,6 +6,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QSet>
+#include <QTextBoundaryFinder>
 #include <QUuid>
 #include <QtDBus>
 namespace {
@@ -13,6 +14,26 @@ constexpr auto service = "org.arinn.Daemon1";
 constexpr auto path = "/org/arinn/Daemon1";
 QDBusMessage request(const char *method) {
   return QDBusMessage::createMethodCall(service, path, service, method);
+}
+// First grapheme, uppercased. A leading unpaired surrogate is not a letter:
+// the tile keeps the neutral placeholder.
+QString monogramFor(const QString &title) {
+  const auto trimmed = title.trimmed();
+  if (trimmed.isEmpty())
+    return {};
+  const auto first = trimmed.at(0);
+  if (first.isSurrogate() &&
+      !(first.isHighSurrogate() && trimmed.size() > 1 &&
+        trimmed.at(1).isLowSurrogate()))
+    return {};
+  QTextBoundaryFinder finder(QTextBoundaryFinder::Grapheme, trimmed);
+  const int end = finder.toNextBoundary();
+  if (end <= 0)
+    return {};
+  const auto grapheme = trimmed.left(end);
+  if (grapheme.size() == 1 && grapheme.at(0).isSurrogate())
+    return {};
+  return grapheme.toUpper();
 }
 } // namespace
 struct Backend::Catalog {
@@ -28,10 +49,16 @@ struct Backend::Catalog {
 };
 Backend::Backend(QObject *parent) : QObject(parent) {
   auto bus = QDBusConnection::sessionBus();
-  bus.connect(service, path, service, "Changed", this, SLOT(refresh()));
+  bus.connect(service, path, service, "Changed", this, SLOT(reloadCatalog()));
   bus.connect(service, path, service, "ProvidersChanged", this,
-              SLOT(refresh()));
-  bus.connect(service, path, service, "StateChanged", this, SLOT(refresh()));
+              SLOT(reloadCatalog()));
+  // Focus and provider StateChanged refresh the catalog only. Listing
+  // shortcuts here would repeat List on every focus change.
+  bus.connect(service, path, service, "StateChanged", this,
+              SLOT(reloadCatalog()));
+  // Subscribe before the first List. This signal re-reads shortcuts only.
+  bus.connect(service, path, "org.arinn.WebShortcuts1", "Changed", this,
+              SLOT(reloadShortcuts()));
   auto watcher = new QDBusServiceWatcher(
       service, bus, QDBusServiceWatcher::WatchForOwnerChange, this);
   connect(watcher, &QDBusServiceWatcher::serviceOwnerChanged, this,
@@ -47,10 +74,11 @@ Backend::Backend(QObject *parent) : QObject(parent) {
             m_return.clear();
             m_loaded = false;
             m_snapshotError = false;
+            clearShortcuts();
             publishState();
             refresh();
           });
-  connect(&m_timer, &QTimer::timeout, this, &Backend::refresh);
+  connect(&m_timer, &QTimer::timeout, this, &Backend::reloadCatalog);
   m_timer.start(1000);
   refresh();
 }
@@ -68,6 +96,10 @@ void Backend::publishState() {
     m_publishedApplications = m_applications;
     emit applicationsChanged();
   }
+  if (m_publishedShortcuts != m_webShortcuts) {
+    m_publishedShortcuts = m_webShortcuts;
+    emit webShortcutsChanged();
+  }
   emit changed();
 }
 QVariantList Backend::continueEntries() const {
@@ -78,16 +110,45 @@ QVariantList Backend::continueEntries() const {
                       {"subtitle", tr("Continue where you left off")},
                       {"running", true}}};
 }
+QVariantList Backend::favorites() const {
+  // Until pinned favorites exist, web shortcuts lead and application tiles
+  // (Steam, ES-DE, and the rest of the catalog) stay on the same Home row.
+  auto rows = m_webShortcuts;
+  rows += m_applications;
+  return rows;
+}
 QString Backend::homeState() const {
   if (!m_connected)
     return "unavailable";
-  if (!m_return.isEmpty() || !m_applications.isEmpty())
+  if (!m_return.isEmpty() || !m_webShortcuts.isEmpty() ||
+      !m_applications.isEmpty())
     return "ready";
+  if (m_shortcutsError || m_snapshotError)
+    return "error";
+  return m_shortcutsLoaded && m_loaded ? "empty" : "loading";
+}
+QString Backend::applicationsState() const {
+  if (!m_connected)
+    return "unavailable";
   if (m_snapshotError)
     return "error";
-  return m_loaded ? "empty" : "loading";
+  if (!m_loaded)
+    return "loading";
+  return m_applications.isEmpty() ? "empty" : "ready";
+}
+void Backend::clearShortcuts() {
+  ++m_shortcutTicket;
+  m_webShortcuts.clear();
+  m_shortcutsLoaded = false;
+  m_shortcutsError = false;
+  m_shortcutsRequested = false;
 }
 void Backend::refresh() {
+  m_forceShortcutReload = true;
+  reloadCatalog();
+}
+void Backend::reloadShortcuts() { readShortcuts(m_connectionEpoch); }
+void Backend::reloadCatalog() {
   if (m_refreshing) {
     m_dirty = true;
     return;
@@ -116,6 +177,8 @@ void Backend::refresh() {
               m_applications.clear();
               m_return.clear();
               m_loaded = false;
+              m_snapshotError = false;
+              clearShortcuts();
               m_message = tr("Daemon is unavailable · reconnecting");
               publishState();
               return;
@@ -135,10 +198,20 @@ void Backend::refresh() {
               m_items.clear();
               m_applications.clear();
               m_snapshotRevision = 0;
-              m_loaded = false;
             }
             emit screenRequested(homeOutput);
             m_connected = true;
+            // List once per connection, on an explicit refresh, and on
+            // WebShortcuts1.Changed. A focus StateChanged must not List.
+            // Defer List so Home can publish "loading" first; a same-thread
+            // bus would otherwise deliver it before that state.
+            if (m_forceShortcutReload || !m_shortcutsRequested) {
+              m_forceShortcutReload = false;
+              QTimer::singleShot(0, this, [this, epoch] {
+                if (epoch == m_connectionEpoch)
+                  readShortcuts(epoch);
+              });
+            }
             if (!platform)
               m_message = tr("KWin adapter is not connected");
             else if (!m_available)
@@ -343,7 +416,7 @@ void Backend::finishCatalog(const std::shared_ptr<Catalog> &catalog,
   m_items = success ? catalog->running : QVariantList{};
   publishState();
   if (m_dirty)
-    QTimer::singleShot(0, this, &Backend::refresh);
+    QTimer::singleShot(0, this, &Backend::reloadCatalog);
 }
 void Backend::back() {
   auto call = new QDBusPendingCallWatcher(
@@ -356,8 +429,80 @@ void Backend::back() {
     call->deleteLater();
   });
 }
+void Backend::readShortcuts(quint64 epoch) {
+  if (epoch != m_connectionEpoch)
+    return;
+  m_shortcutsRequested = true;
+  const auto ticket = ++m_shortcutTicket;
+  auto msg = QDBusMessage::createMethodCall(service, path,
+                                            "org.arinn.WebShortcuts1", "List");
+  auto pending = new QDBusPendingCallWatcher(
+      QDBusConnection::sessionBus().asyncCall(msg, 3000), this);
+  connect(
+      pending, &QDBusPendingCallWatcher::finished, this,
+      [this, epoch, ticket](auto *call) {
+        const auto reply = call->reply();
+        call->deleteLater();
+        if (epoch != m_connectionEpoch || ticket != m_shortcutTicket)
+          return;
+        auto fail = [this] {
+          m_webShortcuts.clear();
+          m_shortcutsLoaded = false;
+          m_shortcutsError = true;
+          publishState();
+        };
+        if (reply.type() == QDBusMessage::ErrorMessage ||
+            reply.arguments().isEmpty() || reply.signature() != "(ta(ssss))") {
+          fail();
+          return;
+        }
+        const auto arg = qvariant_cast<QDBusArgument>(reply.arguments().at(0));
+        qulonglong revision;
+        QVariantList entries;
+        arg.beginStructure();
+        arg >> revision;
+        arg.beginArray();
+        while (!arg.atEnd()) {
+          QString id, title, url, icon;
+          arg.beginStructure();
+          arg >> id >> title >> url >> icon;
+          arg.endStructure();
+          // The URL and icon reference are user configuration. Discard them
+          // after decoding; they are not stored, displayed or logged.
+          url.clear();
+          icon.clear();
+          entries.append(
+              QVariantMap{{"id", id},
+                          {"title", title},
+                          {"monogram", monogramFor(title)}});
+        }
+        arg.endArray();
+        arg.endStructure();
+        Q_UNUSED(revision);
+        m_webShortcuts = entries;
+        m_shortcutsLoaded = true;
+        m_shortcutsError = false;
+        publishState();
+      });
+}
 void Backend::launch(const QString &id) {
-  runApplication(id, m_applications, "Launch");
+  // Home favorites and Applications share entryRequested. Shortcut ids and
+  // application ids do not collide: a shortcut opens through WebShortcuts1,
+  // and any other known id is an application launch target.
+  for (const auto &item : m_webShortcuts) {
+    if (item.toMap().value("id").toString() == id) {
+      openShortcut(id);
+      return;
+    }
+  }
+  for (const auto &item : m_applications) {
+    if (item.toMap().value("id").toString() == id) {
+      runApplication(id, m_applications, "Launch");
+      return;
+    }
+  }
+  m_message = tr("Shortcut is no longer available");
+  publishState();
 }
 void Backend::activate(const QString &id) {
   runApplication(id, m_items, "Activate");
@@ -374,7 +519,8 @@ void Backend::runApplication(const QString &id, const QVariantList &entries,
     }
   }
   if (selected.isEmpty() || !selected.value("enabled", true).toBool()) {
-    m_message = selected.isEmpty() ? "NotFound" : "Unavailable";
+    m_message = selected.isEmpty() ? tr("Shortcut is no longer available")
+                                   : QStringLiteral("Unavailable");
     publishState();
     return;
   }
@@ -384,86 +530,116 @@ void Backend::runApplication(const QString &id, const QVariantList &entries,
   msg << selected.value("generation").toString()
       << selected.value("localId").toString()
       << QUuid::createUuid().toString(QUuid::WithoutBraces);
+  beginOperation(id, msg);
+}
+void Backend::openShortcut(const QString &id) {
+  if (m_pendingIds.contains(id))
+    return;
+  bool found = false;
+  for (const auto &item : m_webShortcuts) {
+    if (item.toMap().value("id").toString() == id) {
+      found = true;
+      break;
+    }
+  }
+  if (!found) {
+    m_message = tr("Shortcut is no longer available");
+    publishState();
+    return;
+  }
+  auto msg = QDBusMessage::createMethodCall(service, path,
+                                            "org.arinn.WebShortcuts1", "Open");
+  msg << id << QUuid::createUuid().toString(QUuid::WithoutBraces);
+  beginOperation(id, msg);
+}
+void Backend::beginOperation(const QString &id, const QDBusMessage &msg) {
+  if (m_pendingIds.contains(id))
+    return;
   const auto epoch = m_connectionEpoch;
   m_pendingIds.insert(id);
   m_message = tr("Working…");
   publishState();
   auto pending = new QDBusPendingCallWatcher(
       QDBusConnection::sessionBus().asyncCall(msg, 3000), this);
-  connect(
-      pending, &QDBusPendingCallWatcher::finished, this,
-      [this, id, epoch](auto *call) {
-        const auto reply = call->reply();
-        call->deleteLater();
-        if (epoch != m_connectionEpoch)
-          return;
-        if (reply.type() == QDBusMessage::ErrorMessage ||
-            reply.signature() != "o" || reply.arguments().isEmpty()) {
-          m_pendingIds.remove(id);
-          m_message = reply.type() == QDBusMessage::ErrorMessage
-                          ? reply.errorMessage()
-                          : tr("Operation is unavailable");
-          publishState();
-          return;
-        }
-        auto op =
-            qvariant_cast<QDBusObjectPath>(reply.arguments().at(0)).path();
-        auto timer = new QTimer(this);
-        timer->setInterval(100);
-        connect(timer, &QTimer::timeout, this, [this, timer, op, id, epoch] {
-          timer->stop();
-          if (epoch != m_connectionEpoch) {
-            timer->deleteLater();
-            return;
-          }
-          auto msg = QDBusMessage::createMethodCall(
-              service, op, "org.arinn.Operation1", "Get");
-          auto p = new QDBusPendingCallWatcher(
-              QDBusConnection::sessionBus().asyncCall(msg, 3000), this);
-          connect(p, &QDBusPendingCallWatcher::finished, this,
-                  [this, timer, id, epoch](auto *call) {
-                    const auto reply = call->reply();
-                    call->deleteLater();
-                    if (epoch != m_connectionEpoch) {
-                      timer->deleteLater();
-                      return;
-                    }
-                    if (reply.type() == QDBusMessage::ErrorMessage ||
-                        reply.signature() != "(ssbtta(sss)b)" ||
-                        reply.arguments().isEmpty()) {
+  connect(pending, &QDBusPendingCallWatcher::finished, this,
+          [this, id, epoch](auto *call) {
+            const auto reply = call->reply();
+            call->deleteLater();
+            if (epoch != m_connectionEpoch)
+              return;
+            if (reply.type() == QDBusMessage::ErrorMessage ||
+                reply.signature() != "o" || reply.arguments().isEmpty()) {
+              m_pendingIds.remove(id);
+              m_message = reply.type() == QDBusMessage::ErrorMessage
+                              ? reply.errorMessage()
+                              : tr("Operation is unavailable");
+              publishState();
+              return;
+            }
+            watchOperation(
+                id,
+                qvariant_cast<QDBusObjectPath>(reply.arguments().at(0)).path(),
+                epoch);
+          });
+}
+void Backend::watchOperation(const QString &id, const QString &operationPath,
+                             quint64 epoch) {
+  auto timer = new QTimer(this);
+  timer->setInterval(100);
+  connect(timer, &QTimer::timeout, this,
+          [this, timer, operationPath, id, epoch] {
+            timer->stop();
+            if (epoch != m_connectionEpoch) {
+              timer->deleteLater();
+              return;
+            }
+            auto msg = QDBusMessage::createMethodCall(
+                service, operationPath, "org.arinn.Operation1", "Get");
+            auto p = new QDBusPendingCallWatcher(
+                QDBusConnection::sessionBus().asyncCall(msg, 3000), this);
+            connect(p, &QDBusPendingCallWatcher::finished, this,
+                    [this, timer, id, epoch](auto *call) {
+                      const auto reply = call->reply();
+                      call->deleteLater();
+                      if (epoch != m_connectionEpoch) {
+                        timer->deleteLater();
+                        return;
+                      }
+                      if (reply.type() == QDBusMessage::ErrorMessage ||
+                          reply.signature() != "(ssbtta(sss)b)" ||
+                          reply.arguments().isEmpty()) {
+                        m_pendingIds.remove(id);
+                        m_message = tr("Operation is unavailable");
+                        timer->deleteLater();
+                        publishState();
+                        return;
+                      }
+                      const QDBusArgument arg =
+                          qvariant_cast<QDBusArgument>(reply.arguments().at(0));
+                      QString state, error;
+                      bool retryable, cancellable;
+                      qulonglong started, ended;
+                      arg.beginStructure();
+                      arg >> state >> error >> retryable >> started >> ended;
+                      arg.beginArray();
+                      while (!arg.atEnd()) {
+                        QString provider, capability, resultId;
+                        arg.beginStructure();
+                        arg >> provider >> capability >> resultId;
+                        arg.endStructure();
+                      }
+                      arg.endArray();
+                      arg >> cancellable;
+                      arg.endStructure();
+                      if (state == "running" || state == "queued") {
+                        timer->start();
+                        return;
+                      }
                       m_pendingIds.remove(id);
-                      m_message = tr("Operation is unavailable");
+                      m_message = state == "succeeded" ? tr("Done") : error;
                       timer->deleteLater();
                       publishState();
-                      return;
-                    }
-                    const QDBusArgument arg =
-                        qvariant_cast<QDBusArgument>(reply.arguments().at(0));
-                    QString state, error;
-                    bool retryable, cancellable;
-                    qulonglong started, ended;
-                    arg.beginStructure();
-                    arg >> state >> error >> retryable >> started >> ended;
-                    arg.beginArray();
-                    while (!arg.atEnd()) {
-                      QString provider, capability, id;
-                      arg.beginStructure();
-                      arg >> provider >> capability >> id;
-                      arg.endStructure();
-                    }
-                    arg.endArray();
-                    arg >> cancellable;
-                    arg.endStructure();
-                    if (state == "running" || state == "queued") {
-                      timer->start();
-                      return;
-                    }
-                    m_pendingIds.remove(id);
-                    m_message = state == "succeeded" ? tr("Done") : error;
-                    timer->deleteLater();
-                    publishState();
-                  });
-        });
-        timer->start();
-      });
+                    });
+          });
+  timer->start();
 }

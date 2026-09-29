@@ -11,6 +11,7 @@ Checks:
   * every ADR has a well-formed header and is listed in the ADR register;
   * Superseded/Deprecated ADRs name their successor;
   * every acceptance criterion of the specification is assigned in ROADMAP.md;
+  * the Agent task template offers exactly the ROADMAP.md phases;
   * living documents are written in English (no Cyrillic outside allowed files).
 
 Run from anywhere: python scripts/check-docs.py
@@ -25,6 +26,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SPEC = ROOT / "docs/specifications/arinn-specification.md"
 ROADMAP = ROOT / "ROADMAP.md"
 ADR_DIR = ROOT / "docs/adr"
+TASK_TEMPLATE = ROOT / ".github/ISSUE_TEMPLATE/agent_task.yml"
 
 # Historical sources are kept as delivered and never checked or edited.
 HISTORICAL = (
@@ -160,6 +162,40 @@ def check_acceptance_criteria() -> None:
         error(ROADMAP, f"{criterion} is not defined in the specification")
 
 
+def roadmap_phases(roadmap: str) -> list[str]:
+    """Phase choices for Agent tasks: every roadmap phase heading, the backlog and 'Not assigned'."""
+    phases = [f"Phase {number} — {name}" for number, name in re.findall(r"^## Phase (\d+) — (.+?)\s*$", roadmap, re.MULTILINE)]
+    if re.search(r"^## Backlog\s*$", roadmap, re.MULTILINE):
+        phases.append("Backlog")
+    return phases + ["Not assigned"]
+
+
+def template_phases(template: str) -> list[str]:
+    """Options of the `phase` dropdown in the Agent task issue form."""
+    lines = template.splitlines()
+    if "    id: phase" not in lines:
+        return []
+    options, collecting = [], False
+    for line in lines[lines.index("    id: phase") + 1:]:
+        if line.startswith("  - "):
+            break
+        if line.strip() == "options:":
+            collecting = True
+        elif collecting:
+            option = re.match(r"^\s+- (.+?)\s*$", line)
+            if not option:
+                break
+            options.append(option.group(1).strip("\"'"))
+    return options
+
+
+def check_task_template() -> None:
+    expected = roadmap_phases(ROADMAP.read_text(encoding="utf-8"))
+    found = template_phases(TASK_TEMPLATE.read_text(encoding="utf-8"))
+    if found != expected:
+        error(TASK_TEMPLATE, f"'Roadmap phase' options must be {expected} in this order (found {found})")
+
+
 def check_tools() -> None:
     """ADR register/numbering and changelog fragments (scripts/adr.py, scripts/release.py)."""
     sys.path.insert(0, str(ROOT / "scripts"))
@@ -178,6 +214,7 @@ def main() -> int:
         check_language(path)
     check_adrs()
     check_acceptance_criteria()
+    check_task_template()
     check_tools()
     if errors:
         print("\n".join(errors))

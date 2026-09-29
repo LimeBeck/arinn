@@ -8,6 +8,23 @@ body:
         One issue = one task = one branch = one pull request. Agents create these issues themselves from the roadmap (ADR-0037).
         Claim it with the label `agent:<name>` and a "claimed" comment naming the branch; a claim without activity for 48 hours may be taken over.
         Do not start while a dependency or an open question (OQ-xx) is unresolved; mark owner decisions with `needs-owner`.
+  - type: dropdown
+    id: phase
+    attributes:
+      label: Roadmap phase
+      description: The ROADMAP.md phase whose exit criteria this task serves. Choose "Not assigned" when the roadmap does not schedule the work; assigning it is an owner decision (`needs-owner`).
+      options:
+        - Phase 0 — Architecture spike
+        - Phase 1 — Core skeleton
+        - Phase 2 — Applications
+        - Phase 3 — Browser
+        - Phase 4 — Media
+        - Phase 5 — Product MVP
+        - Phase 6 — Rich integrations (post-MVP)
+        - Backlog
+        - Not assigned
+    validations:
+      required: true
   - type: textarea
     id: goal
     attributes:

@@ -65,7 +65,7 @@ You are expected to work on your own ([ADR-0037](docs/adr/0037-agent-autonomy-an
 
 **Do yourself:**
 
-- **Find or create the task.** Pick an open, unclaimed Agent task issue for the current or next roadmap phase. If none fits, create one from the roadmap scope and exit criteria (Agent task template): zone, dependencies, requirement IDs, reserved ADR number. Search open issues and pull requests first so tasks and zones do not overlap.
+- **Find or create the task.** Pick an open, unclaimed Agent task issue for the current or next roadmap phase. If none fits, create one from the roadmap scope and exit criteria (Agent task template): roadmap phase, zone, dependencies, requirement IDs, reserved ADR number. Search open issues and pull requests first so tasks and zones do not overlap.
 - **Claim it:** add `agent:<your name>` and comment "claimed" with your branch name. A claim with no activity for 48 hours may be taken over after commenting on the issue.
 - **Decide technical details** inside the specification and accepted ADRs; record significant technical choices as ADRs accepted under delegated authority.
 - **Finish the pull request:** merge `master` into it, fix CI (also failures inherited from `master`, by porting the fix), answer and resolve review threads, update your gate rows in `ROADMAP.md` with evidence, open follow-up issues for problems you find.

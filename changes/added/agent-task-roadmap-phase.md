@@ -1,0 +1,1 @@
+- The *Agent task* issue template asks for the roadmap phase of the task. `scripts/check-docs.py` checks that its choices match the phases in [ROADMAP.md](ROADMAP.md).

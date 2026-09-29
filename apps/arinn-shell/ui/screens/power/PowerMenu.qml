@@ -31,6 +31,11 @@ FocusScope {
     // Set on the ambient key press so the matching release performs the wake.
     // Restoring focus before that release would activate the control underneath.
     property bool waking: false
+    // The pointer position already inside the screen when it appears. A hover
+    // delivered for that same point is not a wake.
+    property bool ambientAnchorKnown: false
+    property real ambientAnchorX: 0
+    property real ambientAnchorY: 0
     readonly property var menuEntries: [
         {id: "sleep", glyph: "sleep", title: qsTr("Sleep"), description: qsTr("Request system suspend")},
         {id: "restart", glyph: "restart", title: qsTr("Restart"), description: qsTr("Takes about a minute")},
@@ -164,7 +169,16 @@ FocusScope {
             return;
         returnStep = step === "confirm" ? "confirm" : "menu";
         ambientRequested();
+        // The key or pointer that opened this screen is still in flight.
+        waking = false;
+        ambientArmed = false;
+        ambientAnchorKnown = false;
         step = "ambient";
+    }
+    function rememberAmbientPointer(x, y) {
+        ambientAnchorX = x;
+        ambientAnchorY = y;
+        ambientAnchorKnown = true;
     }
     function wakeFromAmbient() {
         if (step !== "ambient")
@@ -173,6 +187,7 @@ FocusScope {
         step = back;
         ambientArmed = false;
         waking = false;
+        ambientAnchorKnown = false;
         // The wake event itself must not move focus onto a control.
         hoverFocusEnabled = false;
         wakeRequested();
@@ -508,15 +523,23 @@ FocusScope {
         z: 3
         visible: root.step === "ambient"
         color: Ui.Theme.background
-        focus: visible
         onVisibleChanged: {
             root.ambientArmed = false;
-            if (!visible)
+            root.waking = false;
+            if (!visible) {
+                root.ambientAnchorKnown = false;
                 return;
-            forceActiveFocus();
+            }
+            // Take focus after the opening key release, so that release is not
+            // also the wake. Qt 6.11 delivers it to whatever is focused now.
             Qt.callLater(() => {
-                if (visible)
-                    root.ambientArmed = true;
+                if (!visible)
+                    return;
+                forceActiveFocus();
+                Qt.callLater(() => {
+                    if (visible)
+                        root.ambientArmed = true;
+                });
             });
         }
         Column {
@@ -542,14 +565,18 @@ FocusScope {
         }
         Keys.onPressed: event => {
             event.accepted = true;
-            root.waking = true;
+            if (root.ambientArmed)
+                root.waking = true;
         }
         Keys.onReleased: event => {
             event.accepted = true;
-            if (root.waking && root.step === "ambient")
+            if (root.waking && root.ambientArmed && root.step === "ambient")
                 root.wakeFromAmbient();
+            else
+                root.waking = false;
         }
         MouseArea {
+            id: ambientPointer
             anchors.fill: parent
             hoverEnabled: true
             onPressed: mouse => {
@@ -557,8 +584,13 @@ FocusScope {
                 if (root.ambientArmed)
                     root.wakeFromAmbient();
             }
-            onPositionChanged: {
-                if (root.ambientArmed)
+            onPositionChanged: mouse => {
+                // The first sample is the pointer already inside the screen.
+                if (!root.ambientAnchorKnown) {
+                    root.rememberAmbientPointer(mouse.x, mouse.y);
+                    return;
+                }
+                if (root.ambientArmed && (mouse.x !== root.ambientAnchorX || mouse.y !== root.ambientAnchorY))
                     root.wakeFromAmbient();
             }
         }

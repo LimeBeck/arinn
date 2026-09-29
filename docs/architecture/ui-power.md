@@ -34,7 +34,7 @@ fourth row on that panel and still opens the full-screen ambient state.
 | Closing applications | `closingApplications`, an explicit list of strings or `{title}` records. Empty means no running applications. This file does not read a live registry. |
 | Refusal | `refusalMessage` shows `StatusPane` kind `error`. The overlay never sets that property and has no timer that reports success. |
 | Ambient | `startAmbient()` and the Ambient row emit `ambientRequested()` and show a full-screen state. There is no idle timer. |
-| Wake | The first key or pointer event while ambient is armed is accepted, emits `wakeRequested()`, and does not activate Sleep, Restart, Shut down or Ambient again. |
+| Wake | The gesture that opens ambient is not a wake. The next key or a pointer move, once ambient is armed, is accepted, emits `wakeRequested()`, and does not activate Sleep, Restart, Shut down or Ambient again. |
 | Back, Home | Esc, Backspace and Back close a confirmation onto its opener and do not confirm a destructive action. Home closes a confirmation without a destructive intent and emits `homeRequested()`. Focus stays inside the overlay. |
 
 Local focus is trapped in this overlay (power above the screen): arrows and Tab
@@ -57,11 +57,14 @@ QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
 ```
 
 Local run on 2026-09-29, Qt 6.8.3, offscreen platform and the software scene
-graph: 62 passed, 0 failed. That includes `PowerMenu` (Cancel focused by
+graph: 138 passed, 0 failed. That includes `PowerMenu` (Cancel focused by
 default for Restart and Shut down, sleep intent with no success state, an
 explicit refusal error, a consumed ambient wake for both a key and a
 pointer move, the glass-panel geometry, and Esc, Backspace and Back closing
-Shut down confirmation without a shutdown intent) and the existing component
-and Home cases in the same process.
+Shut down confirmation without a shutdown intent) and the other UI cases
+loaded by the same binary. CI on `9ef6486` (Qt 6.11.2) failed
+`test_consumed_ambient_wake` because the opening key also woke the screen;
+this change keeps that test and does not count the opening gesture as a wake.
+That CI run has not been repeated yet.
 Operator tests were not run. This fixture does not lock the screen or suspend
 the machine. CI has not run for this change.

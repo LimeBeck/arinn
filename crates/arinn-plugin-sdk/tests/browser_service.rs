@@ -84,6 +84,26 @@ fn error_name(result: zbus::Result<impl std::fmt::Debug>) -> String {
         other => panic!("expected an Arinn error, got {other:?}"),
     }
 }
+/// The first `StateChanged` revision at or above `at_least`. The signal of
+/// an earlier revision (the registration's) may still be in flight when the
+/// test subscribes, so older revisions are skipped rather than failing.
+async fn next_revision(
+    changes: &mut (
+             impl futures_util::Stream<Item = arinn_protocol::browser::provider::StateChanged> + Unpin
+         ),
+    at_least: u64,
+) -> u64 {
+    tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            let revision = changes.next().await.unwrap().args().unwrap().revision;
+            if revision >= at_least {
+                return revision;
+            }
+        }
+    })
+    .await
+    .unwrap()
+}
 fn methods(xml: &str) -> Vec<String> {
     let start = xml.find("org.arinn.BrowserProvider1").expect("interface");
     let interface = &xml[start..xml[start..].find("</interface>").unwrap() + start];
@@ -150,11 +170,7 @@ async fn scenario() {
         )
         .await
         .unwrap();
-    let signal = tokio::time::timeout(Duration::from_secs(3), changes.next())
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(signal.args().unwrap().revision, 2);
+    assert_eq!(next_revision(&mut changes, 2).await, 2);
     let (page,) = proxy.get_tabs("").await.unwrap();
     page.validate().unwrap();
     assert_eq!((page.revision, page.tabs.len()), (2, 2));
@@ -169,11 +185,7 @@ async fn scenario() {
         )
         .await
         .unwrap();
-    let signal = tokio::time::timeout(Duration::from_secs(3), changes.next())
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(signal.args().unwrap().revision, 3);
+    assert_eq!(next_revision(&mut changes, 3).await, 3);
     service
         .replace(
             vec![window()],

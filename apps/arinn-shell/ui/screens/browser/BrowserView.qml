@@ -79,6 +79,16 @@ FocusScope {
         return host.length ? host.charAt(0).toUpperCase() : "";
     }
 
+    function chipLetter(tab) {
+        if (tab && tab.letter !== undefined && tab.letter !== null && String(tab.letter).length)
+            return String(tab.letter);
+        return letterOf(tab ? tab.url : "");
+    }
+
+    function chipIcon(tab) {
+        return tab && tab.icon ? String(tab.icon) : "";
+    }
+
     function displayTitle(tab) {
         const title = tab && tab.title ? String(tab.title) : "";
         return title.length ? title : hostOf(tab ? tab.url : "");
@@ -106,14 +116,19 @@ FocusScope {
             const active = !!tab.active && !activeWindows[windowId];
             if (active)
                 activeWindows[windowId] = true;
-            result.push({
+            const row = {
                 id: id,
                 windowId: windowId,
                 title: tab.title !== undefined && tab.title !== null ? String(tab.title) : "",
                 url: tab.url !== undefined && tab.url !== null ? String(tab.url) : "",
                 active: active,
                 audible: !!tab.audible
-            });
+            };
+            if (tab.letter !== undefined && tab.letter !== null)
+                row.letter = String(tab.letter);
+            if (tab.icon)
+                row.icon = String(tab.icon);
+            result.push(row);
         }
         return result;
     }
@@ -202,11 +217,12 @@ FocusScope {
         presentationTabs = nextTabs;
         windowIds = ids;
         shortcutEntries = normalizeShortcuts(shortcuts);
+        // The service on screen follows the focused window from the model.
+        // Moving the highlight does not change it; a later snapshot does.
         const fallback = marked && ids.indexOf(marked.id) >= 0 ? marked.id
                 : (active ? active.windowId : (ids.length ? ids[0] : ""));
-        const nextWindow = ids.indexOf(focusedWindowId) >= 0 ? focusedWindowId : fallback;
-        focusedWindowId = nextWindow;
-        const onScreen = onScreenTab(nextTabs, nextWindow);
+        focusedWindowId = fallback;
+        const onScreen = onScreenTab(nextTabs, fallback);
         activeTabId = onScreen ? onScreen.id : "";
         const ordered = orderTabs(nextTabs, activeTabId);
         orderedTabs = ordered;
@@ -601,17 +617,37 @@ FocusScope {
                             border.color: Ui.Theme.ring
                             opacity: plate.activeFocus ? 1 : 0
                         }
-                        Rectangle {
+                        Item {
+                            objectName: "chip-" + modelData.id
                             x: 28
                             width: 76
                             height: 76
-                            radius: 22
                             anchors.verticalCenter: parent.verticalCenter
-                            color: Qt.rgba(1, 1, 1, 0.12)
+                            readonly property string iconSource: root.chipIcon(modelData)
+                            Rectangle {
+                                anchors.fill: parent
+                                radius: 22
+                                color: Qt.rgba(1, 1, 1, 0.12)
+                            }
+                            Image {
+                                id: chipImage
+                                anchors.fill: parent
+                                anchors.margins: 8
+                                fillMode: Image.PreserveAspectFit
+                                asynchronous: true
+                                source: {
+                                    const icon = parent.iconSource;
+                                    if (icon.startsWith("/") || icon.startsWith("file:") || icon.startsWith("qrc:") || icon.startsWith("image:"))
+                                        return icon;
+                                    return "";
+                                }
+                                visible: status === Image.Ready
+                            }
                             Ui.UiText {
                                 objectName: "letter-" + modelData.id
                                 anchors.centerIn: parent
-                                text: root.letterOf(modelData.url)
+                                visible: !chipImage.visible
+                                text: root.chipLetter(modelData)
                                 font.pixelSize: 34
                                 font.weight: 700
                                 color: Ui.Theme.textPrimary

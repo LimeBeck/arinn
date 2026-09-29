@@ -27,6 +27,8 @@ TestCase {
     SignalSpy { id: returns; signalName: "returnRequested" }
     SignalSpy { id: entries; signalName: "entryRequested" }
     SignalSpy { id: retry; signalName: "retryRequested" }
+    SignalSpy { id: services; signalName: "openServicesRequested" }
+    SignalSpy { id: serviceCard; signalName: "serviceRequested" }
     function child(name) { const item = findChild(home, name); verify(item !== null, name); return item; }
     function focused(name) { tryCompare(child(name), "activeFocus", true, 5000, name); }
     function createHome() {
@@ -38,10 +40,15 @@ TestCase {
         returns.target = home; returns.clear();
         entries.target = home; entries.clear();
         retry.target = home; retry.clear();
+        services.target = home; services.clear();
+        serviceCard.target = home; serviceCard.clear();
         focused("entry-a");
     }
     function init() { createHome(); }
-    function cleanup() { returns.target = null; entries.target = null; retry.target = null; }
+    function cleanup() {
+        returns.target = null; entries.target = null; retry.target = null;
+        services.target = null; serviceCard.target = null;
+    }
 
     function test_fixture_resets_pointer_data() {
         return [{tag: "second", entry: "b"}, {tag: "third", entry: "c"}];
@@ -102,7 +109,7 @@ TestCase {
         focused("nav-0");
         keyClick(Qt.Key_Left); keyClick(Qt.Key_Right); focused("nav-0");
         for (let i = 0; i < 10; ++i) keyClick(Qt.Key_Tab);
-        focused("nav-6");
+        focused("nav-7");
         keyClick(Qt.Key_Escape); focused("entry-b");
     }
     function test_section_back_and_home_close_navigation() {
@@ -281,10 +288,10 @@ TestCase {
     function test_navigation_activity_removed() {
         home.returnActivityId = "a";
         keyClick(Qt.Key_Menu);
-        for (let i = 0; i < 5; ++i) keyClick(Qt.Key_Down);
-        focused("nav-5");
+        for (let i = 0; i < 6; ++i) keyClick(Qt.Key_Down);
+        focused("nav-6");
         home.returnActivityId = "";
-        focused("nav-4");
+        focused("nav-5");
     }
     function test_scrim_restores_focus() {
         keyClick(Qt.Key_Right); keyClick(Qt.Key_Menu); focused("nav-0");
@@ -297,5 +304,79 @@ TestCase {
         keyClick(Qt.Key_Backspace); compare(editor.text, "ab"); compare(home.navOpen, false);
         keyClick(Qt.Key_Escape); compare(home.navOpen, true);
         editor.destroy();
+    }
+    function test_continue_open_services_cards() {
+        home.currentServiceId = "tab-1";
+        home.currentServiceTitle = "Page";
+        home.currentServiceSubtitle = "example.test · Return";
+        home.openServiceCount = 1;
+        const current = child("entry-current-service");
+        compare(current.text, "Page");
+        verify(findChild(home, "entry-open-services-more") === null);
+        current.forceActiveFocus();
+        focused("entry-current-service");
+        keyClick(Qt.Key_Return);
+        compare(serviceCard.count, 1);
+        compare(serviceCard.signalArguments[0][0], "tab-1");
+        home.openServiceCount = 3;
+        const more = child("entry-open-services-more");
+        compare(more.text, "2 more open");
+        more.forceActiveFocus();
+        focused("entry-open-services-more");
+        keyClick(Qt.Key_Return);
+        compare(services.count, 1);
+        compare(entries.count, 0);
+        home.openServiceCount = 1;
+        verify(findChild(home, "entry-open-services-more") === null);
+    }
+    function test_open_services_navigation_item() {
+        keyClick(Qt.Key_Menu);
+        focused("nav-0");
+        for (let i = 0; i < 5; ++i) keyClick(Qt.Key_Down);
+        focused("nav-5");
+        compare(child("nav-5").text, "Open services");
+        const hiddenBadge = findChild(home, "openServicesBadge");
+        verify(hiddenBadge !== null);
+        compare(hiddenBadge.visible, false);
+        home.openServiceCount = 4;
+        home.currentServiceTitle = "Page";
+        compare(child("openServicesBadge").visible, true);
+        compare(child("openServicesCount").text, "4");
+        compare(child("openServicesSubline").text, "On screen: Page");
+        keyClick(Qt.Key_Return);
+        compare(services.count, 1);
+        compare(home.navOpen, false);
+        home.openServiceCount = 0;
+        home.currentServiceTitle = "";
+        keyClick(Qt.Key_Menu);
+        for (let i = 0; i < 5; ++i) keyClick(Qt.Key_Down);
+        focused("nav-5");
+        compare(child("openServicesBadge").visible, false);
+    }
+    function test_web_shortcut_open_dot_and_unavailable() {
+        home.favoriteEntries = [
+            {id: "f", title: "Favorite", monogram: "F", webShortcut: true},
+            {id: "g", title: "App", monogram: "A"}
+        ];
+        home.openShortcutIds = ["f"];
+        keyClick(Qt.Key_Down);
+        focused("entry-f");
+        const dot = findChild(child("entry-f"), "emberDot");
+        verify(dot !== null);
+        compare(dot.visible, true);
+        compare(findChild(child("entry-g"), "emberDot").visible, false);
+        home.browserUnavailable = true;
+        compare(child("browserStatusChip").visible, true);
+        compare(child("entry-f").opacity, 0.4);
+        compare(child("entry-f").subtitle, "Unavailable");
+        compare(child("entry-g").opacity, 1);
+        keyClick(Qt.Key_Return);
+        compare(services.count, 1);
+        compare(entries.count, 0);
+        keyClick(Qt.Key_Right);
+        focused("entry-g");
+        keyClick(Qt.Key_Return);
+        compare(entries.count, 1);
+        compare(entries.signalArguments[0][0], "g");
     }
 }

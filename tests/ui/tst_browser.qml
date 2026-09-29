@@ -300,4 +300,16 @@ TestCase {
         compare(retries.count, 1);
         focusInside();
     }
+
+    function test_model_letter_and_icon() {
+        view.tabs = [{
+            id: "matched", windowId: "w", title: "Matched",
+            url: "https://www.example.test/a", active: true, audible: false,
+            letter: "Z", icon: "packaged:mark"
+        }];
+        focused("row-matched");
+        compare(child("letter-matched").text, "Z");
+        compare(child("chip-matched").iconSource, "packaged:mark");
+        compare(child("letter-matched").visible, true);
+    }
 }

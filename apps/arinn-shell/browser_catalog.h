@@ -7,6 +7,7 @@
 #pragma once
 #include <QHash>
 #include <QObject>
+#include <QQmlParserStatus>
 #include <QSet>
 #include <QTimer>
 #include <QVariantList>
@@ -14,8 +15,9 @@
 
 // Reads org.arinn.Browser1 for the shell. The screen only sees presentation
 // properties; tab commands go back through this object.
-class BrowserCatalog : public QObject {
+class BrowserCatalog : public QObject, public QQmlParserStatus {
   Q_OBJECT
+  Q_INTERFACES(QQmlParserStatus)
   Q_PROPERTY(QVariantList tabs READ tabs NOTIFY tabsChanged)
   Q_PROPERTY(QVariantList windows READ windows NOTIFY windowsChanged)
   Q_PROPERTY(QVariantList shortcuts READ shortcuts NOTIFY shortcutsChanged)
@@ -49,6 +51,9 @@ public:
   Q_INVOKABLE void cancelOpen();
   Q_INVOKABLE void dismissOpenFailure();
   Q_INVOKABLE void retryOpen();
+  Q_INVOKABLE void addShortcut(const QString &id);
+  void classBegin() override {}
+  void componentComplete() override;
 public slots:
   void refresh();
 signals:
@@ -87,12 +92,14 @@ private:
                       quint64 epoch);
   void rememberFocus(const QVariantList &windows);
   void presentTabs(QVariantList tabs);
+  void markSaved(const QString &url);
   void clearUseOrder();
   QString m_operation;
   QVariantList m_tabs, m_windows, m_shortcuts;
   QHash<QString, TabRef> m_refs;
   QSet<QString> m_pending;
   QList<ShortcutOrigin> m_origins;
+  QSet<QString> m_pendingSaved;
   QHash<QString, qint64> m_lastUse;
   QString m_focusedWindow;
   qint64 m_useTick = 0;

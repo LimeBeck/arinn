@@ -382,6 +382,7 @@ FocusScope {
                     title: root.groupTitles[modelData]
                     visible: root.screen === "applications" && count > 0
                     entries: root.groupEntries(modelData); busyEntryIds: root.busyEntryIds
+                    browserUnavailable: root.browserUnavailable; openShortcutIds: root.openShortcutIds
                     pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled
                     onSelected: { root.applicationFocusRow = groupRow.objectName; root.revealRow(groupRow); }
                     onActivated: entryId => root.entryRequested(entryId)

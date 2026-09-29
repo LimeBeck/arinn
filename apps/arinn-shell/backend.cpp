@@ -99,6 +99,7 @@ void Backend::publishState() {
   if (m_publishedShortcuts != m_webShortcuts) {
     m_publishedShortcuts = m_webShortcuts;
     emit webShortcutsChanged();
+    emit applicationsChanged();
   }
   emit changed();
 }
@@ -109,6 +110,19 @@ QVariantList Backend::continueEntries() const {
                       {"title", tr("Return to activity")},
                       {"subtitle", tr("Continue where you left off")},
                       {"running", true}}};
+}
+QVariantList Backend::applications() const {
+  // Applications › Online is browsers and web shortcuts (spec §5.5). Shortcuts
+  // follow the catalog entries so provider indexes stay stable. The URL stays
+  // out of this model.
+  auto rows = m_applications;
+  for (const auto &item : m_webShortcuts) {
+    auto map = item.toMap();
+    map.insert(QStringLiteral("group"), QStringLiteral("online"));
+    map.insert(QStringLiteral("enabled"), true);
+    rows.append(map);
+  }
+  return rows;
 }
 QVariantList Backend::favorites() const {
   // Until pinned favorites exist, web shortcuts lead and application tiles

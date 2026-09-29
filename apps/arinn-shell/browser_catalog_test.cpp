@@ -88,8 +88,9 @@ public:
   QString runtime = "ready";
   QString activatedId, closedId, openedId, activateRequest, restartedId;
   int tabReads = 0, activates = 0, closes = 0, opens = 0, operationReads = 0,
-      openArgCount = 0, providerReads = 0, restarts = 0, cancels = 0;
-  bool scripted = false, holdOperation = false;
+      openArgCount = 0, providerReads = 0, restarts = 0, cancels = 0, adds = 0;
+  bool scripted = false, holdOperation = false, rejectAdd = false;
+  QString addedTitle, addedUrl, addedIcon, addedRequest;
   QList<WindowWire> scriptedWindows;
   QList<TabWire> scriptedTabs;
   QList<ShortcutWire> scriptedShortcuts;
@@ -176,6 +177,23 @@ public:
                         : QList<ShortcutWire>{
                               {"known", "Known", "https://example.test/s", {}}});
       body.endStructure();
+    } else if (message.member() == "Add") {
+      ++adds;
+      addedTitle = message.arguments().at(0).toString();
+      addedUrl = message.arguments().at(1).toString();
+      addedIcon = message.arguments().at(2).toString();
+      addedRequest = message.arguments().at(3).toString();
+      if (rejectAdd) {
+        bus.send(message.createErrorReply("org.arinn.Error1.InvalidArgument",
+                                          "InvalidArgument"));
+        return true;
+      }
+      if (scripted)
+        scriptedShortcuts.append(
+            ShortcutWire{QStringLiteral("added-%1").arg(adds), addedTitle,
+                         addedUrl, {}});
+      bus.send(message.createReply(QStringLiteral("new-shortcut")));
+      return true;
     } else if (message.member() == "Open") {
       ++opens;
       openArgCount = message.arguments().size();
@@ -316,6 +334,7 @@ private slots:
              QString("E"));
     QCOMPARE(catalog.tabs().at(0).toMap().value("icon").toString(),
              QString("packaged:mark"));
+    QCOMPARE(catalog.tabs().at(0).toMap().value("saved").toBool(), true);
     QCOMPARE(catalog.openShortcutIds(), QStringList{"port"});
     QCOMPARE(catalog.currentService().value("title").toString(),
              QString("First"));
@@ -327,6 +346,7 @@ private slots:
         idle = entry.toMap();
     }
     QCOMPARE(idle.value("letter").toString(), QString("V"));
+    QCOMPARE(idle.value("saved").toBool(), false);
     QVERIFY(!idle.contains(QStringLiteral("icon")));
     for (const auto &entry : catalog.shortcuts()) {
       const auto map = entry.toMap();
@@ -374,6 +394,78 @@ private slots:
     QTRY_COMPARE(daemon.restartedId, QString("browser"));
     QCOMPARE(daemon.restarts, 1);
     QCOMPARE(daemon.tabReads, reads);
+  }
+  void saveOpenPage() {
+    auto bus = QDBusConnection::sessionBus();
+    BrowserDaemon daemon;
+    daemon.scripted = true;
+    daemon.scriptedWindows = {WindowWire{"w1", {}, true}};
+    daemon.scriptedTabs = {
+        TabWire{"page", "w1", "Page", "https://pages.example/watch", true,
+                false},
+        TabWire{"kept", "w1", "Kept", "https://www.kept.example/a", false,
+                false},
+        TabWire{"blank", "w1", "", "https://blank.example/x", false, false},
+        TabWire{"bad", "w1", "Bad", "http://public.example/a", false, false}};
+    daemon.scriptedShortcuts = {
+        ShortcutWire{"kept-id", "Kept", "https://kept.example/home", {}}};
+    QVERIFY(bus.registerService("org.arinn.Daemon1"));
+    QVERIFY(bus.registerVirtualObject("/org/arinn", &daemon,
+                                      QDBusConnection::SubPath));
+    BrowserCatalog catalog;
+    QTRY_COMPARE(catalog.browserState(), QString("populated"));
+    auto findTab = [&](const QString &title) {
+      for (const auto &entry : catalog.tabs()) {
+        if (entry.toMap().value("title").toString() == title)
+          return entry.toMap();
+      }
+      return QVariantMap{};
+    };
+    const auto kept = findTab(QStringLiteral("Kept"));
+    const auto page = findTab(QStringLiteral("Page"));
+    QVERIFY(!kept.isEmpty());
+    QVERIFY(!page.isEmpty());
+    QCOMPARE(kept.value("saved").toBool(), true);
+    QCOMPARE(page.value("saved").toBool(), false);
+    for (const auto &entry : catalog.shortcuts())
+      QVERIFY(!entry.toMap().contains("url"));
+    catalog.addShortcut(kept.value("id").toString());
+    QTest::qWait(200);
+    QCOMPARE(daemon.adds, 0);
+
+    catalog.addShortcut(page.value("id").toString());
+    QTRY_COMPARE(daemon.adds, 1);
+    QCOMPARE(daemon.addedTitle, QString("Page"));
+    QCOMPARE(daemon.addedUrl, QString("https://pages.example/watch"));
+    QCOMPARE(daemon.addedIcon, QString());
+    QVERIFY(!QUuid::fromString(daemon.addedRequest).isNull());
+    QTRY_COMPARE(catalog.operationState(), QString("succeeded"));
+    QCOMPARE(findTab(QStringLiteral("Page")).value("saved").toBool(), true);
+    catalog.addShortcut(page.value("id").toString());
+    QTest::qWait(200);
+    QCOMPARE(daemon.adds, 1);
+
+    const auto blank = findTab(QString());
+    catalog.addShortcut(blank.value("id").toString());
+    QTRY_COMPARE(daemon.adds, 2);
+    QCOMPARE(daemon.addedTitle, QString("blank.example"));
+    QCOMPARE(daemon.addedUrl, QString("https://blank.example/x"));
+
+    daemon.rejectAdd = true;
+    const auto bad = findTab(QStringLiteral("Bad"));
+    QCOMPARE(bad.value("saved").toBool(), false);
+    catalog.addShortcut(bad.value("id").toString());
+    QTRY_COMPARE(daemon.adds, 3);
+    QTRY_COMPARE(catalog.operationState(), QString("InvalidArgument"));
+    QCOMPARE(findTab(QStringLiteral("Bad")).value("saved").toBool(), false);
+
+    daemon.mode = "unavailable";
+    catalog.refresh();
+    QTRY_COMPARE(catalog.browserState(), QString("unavailable"));
+    const auto adds = daemon.adds;
+    catalog.addShortcut(QStringLiteral("anything"));
+    QTRY_COMPARE(catalog.operationState(), QString("Unavailable"));
+    QCOMPARE(daemon.adds, adds);
   }
 };
 

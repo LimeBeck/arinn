@@ -18,6 +18,11 @@ FocusScope {
     property bool interactive: true
     property string browserState: "populated" // populated, empty, loading, error, unavailable
     property string operationState: ""
+    readonly property bool saveEnabled: browserState !== "unavailable"
+    readonly property bool saveFailed: {
+        const state = operationState;
+        return state.length > 0 && state !== "queued" && state !== "running" && state !== "succeeded";
+    }
     property string statusTitle: ""
     property string statusDescription: ""
     property bool pointerMode: false
@@ -63,6 +68,7 @@ FocusScope {
 
     signal activateTab(string tabId)
     signal closeTab(string tabId)
+    signal savePage(string tabId)
     signal open(string shortcutId)
     signal retryRequested()
     signal backRequested()
@@ -122,7 +128,8 @@ FocusScope {
                 title: tab.title !== undefined && tab.title !== null ? String(tab.title) : "",
                 url: tab.url !== undefined && tab.url !== null ? String(tab.url) : "",
                 active: active,
-                audible: !!tab.audible
+                audible: !!tab.audible,
+                saved: !!tab.saved
             };
             if (tab.letter !== undefined && tab.letter !== null)
                 row.letter = String(tab.letter);
@@ -266,7 +273,8 @@ FocusScope {
         if (!entry || index < 0 || index >= orderedTabs.length)
             return null;
         const id = orderedTabs[index].id;
-        return findNamed(entry, (side === "close" ? "close-" : "row-") + id);
+        const prefix = side === "close" ? "close-" : side === "bookmark" ? "bookmark-" : "row-";
+        return findNamed(entry, prefix + id);
     }
 
     function focusWhenReady(index, side, tries) {
@@ -284,7 +292,8 @@ FocusScope {
         if (!showTabs || !orderedTabs.length)
             return false;
         index = Math.max(0, Math.min(index, orderedTabs.length - 1));
-        side = side === "close" ? "close" : "row";
+        if (side !== "close" && side !== "bookmark")
+            side = "row";
         listIndex = index;
         listSide = side;
         focusRow = "list";
@@ -353,12 +362,16 @@ FocusScope {
                 forceActiveFocus();
             return;
         }
+        const order = ["row", "bookmark", "close"];
+        let at = order.indexOf(listSide);
+        if (at < 0)
+            at = 0;
         if (key === Qt.Key_Left) {
-            focusEntry(listIndex, "row");
+            focusEntry(listIndex, order[Math.max(0, at - 1)]);
             return;
         }
         if (key === Qt.Key_Right) {
-            focusEntry(listIndex, "close");
+            focusEntry(listIndex, order[Math.min(order.length - 1, at + 1)]);
             return;
         }
         const direction = key === Qt.Key_Up ? -1 : 1;
@@ -395,6 +408,23 @@ FocusScope {
         const kids = node.children || [];
         for (let i = 0; i < kids.length; ++i)
             muteTabStops(kids[i]);
+    }
+
+    function requestSave(tabId) {
+        if (!saveEnabled || !tabId)
+            return;
+        const tab = orderedTabs.find(entry => entry.id === tabId);
+        if (!tab || tab.saved)
+            return;
+        savePage(tabId);
+        let catalog = null;
+        try {
+            catalog = browserCatalog;
+        } catch (ignore) {
+            catalog = null;
+        }
+        if (catalog && catalog.addShortcut)
+            catalog.addShortcut(tabId);
     }
 
     function requestOpen(shortcutId) {
@@ -516,6 +546,17 @@ FocusScope {
                     role: "title"
                     maximumLineCount: 1
                 }
+                Ui.UiText {
+                    objectName: "saveError"
+                    visible: root.saveFailed
+                    anchors.baseline: screenTitle.baseline
+                    anchors.right: parent.right
+                    role: "meta"
+                    color: Ui.Theme.error
+                    text: root.operationState
+                    maximumLineCount: 1
+                    elide: Text.ElideRight
+                }
                 Text {
                     objectName: "serviceCount"
                     visible: root.showTabs
@@ -530,7 +571,7 @@ FocusScope {
                 }
                 Ui.UiText {
                     objectName: "listPosition"
-                    visible: root.listOverflow
+                    visible: root.listOverflow && !root.saveFailed
                     anchors.baseline: screenTitle.baseline
                     anchors.right: parent.right
                     role: "meta"
@@ -566,9 +607,9 @@ FocusScope {
                     required property int index
                     objectName: "entry-" + modelData.id
                     width: ListView.view.width - 48
-                    height: Math.max(plate.height, closeBtn.height)
+                    height: Math.max(plate.height, bookmarkBtn.height, closeBtn.height)
                     opacity: root.closingId === modelData.id ? 0.5 : 1
-                    z: plate.activeFocus || closeBtn.activeFocus ? 3 : 1
+                    z: plate.activeFocus || bookmarkBtn.activeFocus || closeBtn.activeFocus ? 3 : 1
                     Behavior on opacity { NumberAnimation { duration: Ui.Theme.focusDuration } }
 
                     ListView.onRemove: removeAnim.start()
@@ -585,7 +626,7 @@ FocusScope {
                     Item {
                         id: plate
                         objectName: "row-" + modelData.id
-                        width: entry.width - 144
+                        width: entry.width - 288
                         height: Math.max(128, textCol.implicitHeight + 44)
                         anchors.verticalCenter: parent.verticalCenter
                         scale: activeFocus ? (pressed ? 0.98 : 1.02) : 1
@@ -736,6 +777,14 @@ FocusScope {
                                         }
                                     }
                                     Ui.UiText {
+                                        objectName: "mark-" + modelData.id
+                                        visible: !!modelData.saved
+                                        text: qsTr("Shortcut")
+                                        role: "caption"
+                                        color: Ui.Theme.textPrimary
+                                        anchors.verticalCenter: parent.verticalCenter
+                                    }
+                                    Ui.UiText {
                                         objectName: "closing-" + modelData.id
                                         visible: root.closingId === modelData.id
                                         text: qsTr("Closing…")
@@ -773,9 +822,101 @@ FocusScope {
                     }
 
                     Item {
+                        id: bookmarkBtn
+                        objectName: "bookmark-" + modelData.id
+                        x: plate.width + 16
+                        width: 128
+                        height: 128
+                        anchors.verticalCenter: parent.verticalCenter
+                        enabled: root.saveEnabled
+                        scale: activeFocus ? (pressed ? 0.98 : 1.06) : 1
+                        activeFocusOnTab: false
+                        property bool pressed: false
+                        readonly property bool saved: !!modelData.saved
+                        readonly property string iconName: saved ? "bookmark_added" : "bookmark"
+
+                        Behavior on scale {
+                            NumberAnimation { duration: bookmarkBtn.pressed ? Ui.Theme.pressDuration : Ui.Theme.focusDuration }
+                        }
+                        Rectangle {
+                            anchors.fill: parent
+                            anchors.topMargin: 18
+                            radius: 26
+                            color: Qt.rgba(0, 0, 0, bookmarkBtn.activeFocus ? 0.45 : 0)
+                            z: -1
+                        }
+                        Rectangle {
+                            anchors.fill: parent
+                            radius: 26
+                            color: bookmarkBtn.activeFocus ? Ui.Theme.textPrimary : Ui.Theme.plate
+                            opacity: bookmarkBtn.enabled ? 1 : 0.4
+                            Behavior on color { ColorAnimation { duration: Ui.Theme.focusDuration } }
+                        }
+                        Item {
+                            anchors.centerIn: parent
+                            width: 28
+                            height: 36
+                            Rectangle {
+                                anchors.fill: parent
+                                radius: 3
+                                color: bookmarkBtn.saved ? Ui.Theme.ember : "transparent"
+                                border.width: bookmarkBtn.saved ? 0 : 3
+                                border.color: bookmarkBtn.activeFocus ? Ui.Theme.ink : Ui.Theme.textSecondary
+                            }
+                            Rectangle {
+                                visible: bookmarkBtn.saved
+                                width: 14
+                                height: 3
+                                radius: 1
+                                rotation: 40
+                                x: 4
+                                y: 18
+                                color: Ui.Theme.ink
+                            }
+                            Rectangle {
+                                visible: bookmarkBtn.saved
+                                width: 8
+                                height: 3
+                                radius: 1
+                                rotation: -40
+                                x: 12
+                                y: 20
+                                color: Ui.Theme.ink
+                            }
+                        }
+                        Keys.priority: Keys.BeforeItem
+                        Keys.onPressed: event => {
+                            if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                                if (!event.isAutoRepeat && bookmarkBtn.enabled && !bookmarkBtn.saved)
+                                    pressed = true;
+                                event.accepted = true;
+                                return;
+                            }
+                            root.localKey(event);
+                        }
+                        Keys.onReleased: event => {
+                            if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                                const go = pressed && !event.isAutoRepeat;
+                                pressed = false;
+                                if (go)
+                                    root.requestSave(modelData.id);
+                                event.accepted = true;
+                            }
+                        }
+                        onActiveFocusChanged: if (activeFocus) root.noteRowFocus(index, "bookmark")
+                        TapHandler {
+                            enabled: bookmarkBtn.enabled && !bookmarkBtn.saved
+                            onTapped: root.requestSave(modelData.id)
+                        }
+                        HoverHandler {
+                            onHoveredChanged: if (hovered && bookmarkBtn.enabled && root.pointerMode && root.hoverFocusEnabled) bookmarkBtn.forceActiveFocus()
+                        }
+                    }
+
+                    Item {
                         id: closeBtn
                         objectName: "close-" + modelData.id
-                        x: plate.width + 16
+                        x: plate.width + 160
                         width: 128
                         height: 128
                         anchors.verticalCenter: parent.verticalCenter

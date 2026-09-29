@@ -237,9 +237,9 @@ private slots:
         QCOMPARE(backend.applications()[1].toMap()["group"].toString(),
                  QString("other"));
         // Shortcuts lead the Home row; application tiles follow them.
+        // applications() appends the same shortcuts under Online.
         const auto shortcutCount = backend.webShortcuts().size();
-        QCOMPARE(backend.favorites().size(),
-                 shortcutCount + backend.applications().size());
+        QCOMPARE(backend.favorites().size(), backend.applications().size());
         QCOMPARE(backend.favorites()
                      .at(shortcutCount)
                      .toMap()
@@ -284,7 +284,13 @@ private slots:
         QTRY_COMPARE(backend.webShortcuts().size(), 1);
         QCOMPARE(backend.homeState(), QString("ready"));
         QCOMPARE(backend.applicationsState(), QString("error"));
-        QVERIFY(backend.applications().isEmpty());
+        QCOMPARE(backend.applications().size(), 1);
+        const auto online = backend.applications().at(0).toMap();
+        QCOMPARE(online.value("id").toString(), QString("keep"));
+        QCOMPARE(online.value("group").toString(), QString("online"));
+        QVERIFY(online.value("webShortcut").toBool());
+        QVERIFY(online.value("enabled").toBool());
+        QVERIFY(!online.contains("url"));
         QCOMPARE(backend.favorites().at(0).toMap().value("id").toString(),
                  QString("keep"));
         QCOMPARE(daemon.providerCalls, providersBefore);
@@ -295,6 +301,7 @@ private slots:
         cleared << qulonglong(4);
         QVERIFY(bus.send(cleared));
         QTRY_VERIFY(backend.webShortcuts().isEmpty());
+        QVERIFY(backend.applications().isEmpty());
         QCOMPARE(backend.homeState(), QString("error"));
       }
       daemon.mode = "empty";
@@ -349,6 +356,16 @@ private slots:
       signal << qulonglong(2);
       QVERIFY(bus.send(signal));
       QTRY_COMPARE(backend.webShortcuts().size(), 4);
+      QCOMPARE(backend.applications().size(), 4);
+      for (const auto &entry : backend.applications()) {
+        const auto map = entry.toMap();
+        QCOMPARE(map.value("group").toString(), QString("online"));
+        QVERIFY(map.value("webShortcut").toBool());
+        QVERIFY(!map.contains("url"));
+        QVERIFY(!map.contains("icon"));
+        for (const auto &value : map)
+          QVERIFY(!value.toString().contains(QStringLiteral("example.test")));
+      }
       QCOMPARE(daemon.lists, listsBefore + 1);
       QCOMPARE(daemon.providerCalls, providersBefore);
       const auto first = backend.webShortcuts().at(0).toMap();

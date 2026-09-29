@@ -101,9 +101,13 @@ TestCase {
         keyClick(Qt.Key_Left);
         focused("row-t2");
         keyClick(Qt.Key_Right);
+        focused("bookmark-t2");
+        keyClick(Qt.Key_Right);
         focused("close-t2");
         keyClick(Qt.Key_Right);
         focused("close-t2");
+        keyClick(Qt.Key_Left);
+        focused("bookmark-t2");
         keyClick(Qt.Key_Left);
         focused("row-t2");
         keyClick(Qt.Key_Down);
@@ -113,13 +117,13 @@ TestCase {
         keyClick(Qt.Key_Down);
         focused("row-t3");
         keyClick(Qt.Key_Right);
-        focused("close-t3");
+        focused("bookmark-t3");
         keyClick(Qt.Key_Up);
-        focused("close-t1");
+        focused("bookmark-t1");
         keyClick(Qt.Key_Tab);
         focused("close-t1");
         keyClick(Qt.Key_Backtab);
-        focused("row-t1");
+        focused("bookmark-t1");
         for (let i = 0; i < 6; ++i) {
             keyClick(Qt.Key_Up);
             keyClick(Qt.Key_Left);
@@ -149,6 +153,8 @@ TestCase {
         compare(activates.count, 1);
         compare(activates.signalArguments[0][0], "t2");
         keyClick(Qt.Key_Right);
+        focused("bookmark-t2");
+        keyClick(Qt.Key_Right);
         focused("close-t2");
         keyClick(Qt.Key_Return);
         compare(closes.count, 1);
@@ -158,6 +164,8 @@ TestCase {
         tryCompare(child("entry-t2"), "opacity", 0.5, 1000);
         keyClick(Qt.Key_Down);
         focused("row-t3");
+        keyClick(Qt.Key_Right);
+        focused("bookmark-t3");
         keyClick(Qt.Key_Right);
         focused("close-t3");
         keyClick(Qt.Key_Return);

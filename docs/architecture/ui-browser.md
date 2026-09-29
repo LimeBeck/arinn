@@ -5,8 +5,10 @@
 
 Fixture presentation for [specification §7.1](../specifications/arinn-specification.md#71-browser-chromechromium).
 The screen lists windows and tabs and emits browser intents. It is not bound to
-the daemon. Production data and commands stay behind `arinnd`; this increment
-does not call `Browser1` and does not wait for [issue #83](https://github.com/LimeBeck/arinn/issues/83).
+the daemon. Production data and commands stay behind `arinnd`. The daemon
+exports `org.arinn.Browser1`
+([issue #83](https://github.com/LimeBeck/arinn/issues/83)). Binding this fixture
+to `GetTabs`, `ActivateTab` and `CloseTab` is the follow-up.
 
 The QML is `apps/arinn-shell/ui/screens/browser/BrowserView.qml`. It imports
 `Theme`, `StatusPane`, `ContentCard`, `LogicalCanvas`, `ActionButton` and
@@ -29,7 +31,10 @@ follows D-pad focus along the window row.
 
 `shortcuts` is an explicit array of already-known shortcut ids and display
 titles. An `url` field on a shortcut is ignored. `open` is emitted only when
-the id is in that array. The screen never accepts a typed address.
+the id is in that array. The screen never accepts a typed address. Creating a
+tab in this screen goes through a known shortcut id, which matches
+[specification §7.1](../specifications/arinn-specification.md#71-browser-chromechromium)
+for this fixture.
 
 `browserState` is `populated`, `empty`, `loading`, `error` or `unavailable`.
 `unavailable` means no browser is connected. `populated` shows the window row,
@@ -47,9 +52,11 @@ replace the default copy.
 | `closeTab(tabId)` | OK on Close, for the focused tab |
 | `open(shortcutId)` | OK on a known shortcut |
 | `retryRequested()` | OK on the status action |
+| `backRequested()` | Escape, Backspace or Back |
 
 Arrows, Tab and Backtab move inside the screen and stop at the ends of each
-row. The rows are windows, tabs, Activate/Close, then shortcuts. Status
+row. Escape, Backspace and Back emit `backRequested()` and leave focus where
+it is. The rows are windows, tabs, Activate/Close, then shortcuts. Status
 replaces the first three rows when the list is hidden. Focus changes are local;
 nothing on this screen sends a provider request in order to move focus
 ([specification §6.5](../specifications/arinn-specification.md#65-performance-principles)).

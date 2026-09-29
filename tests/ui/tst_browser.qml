@@ -29,6 +29,7 @@ TestCase {
     SignalSpy { id: closes; signalName: "closeTab" }
     SignalSpy { id: opens; signalName: "open" }
     SignalSpy { id: retries; signalName: "retryRequested" }
+    SignalSpy { id: backs; signalName: "backRequested" }
 
     function child(name) {
         const item = findChild(view, name);
@@ -54,6 +55,7 @@ TestCase {
         closes.target = view; closes.clear();
         opens.target = view; opens.clear();
         retries.target = view; retries.clear();
+        backs.target = view; backs.clear();
     }
     function init() { createView(); }
     function cleanup() {
@@ -61,6 +63,7 @@ TestCase {
         closes.target = null;
         opens.target = null;
         retries.target = null;
+        backs.target = null;
     }
 
     function test_focus_move_stays_inside() {
@@ -109,6 +112,20 @@ TestCase {
             keyClick(Qt.Key_Down);
             keyClick(Qt.Key_Right);
         }
+        focusInside();
+    }
+
+    function test_back_requested() {
+        focused("tab-t2");
+        keyClick(Qt.Key_Escape);
+        compare(backs.count, 1);
+        focused("tab-t2");
+        keyClick(Qt.Key_Backspace);
+        compare(backs.count, 2);
+        focused("tab-t2");
+        keyClick(Qt.Key_Back);
+        compare(backs.count, 3);
+        focused("tab-t2");
         focusInside();
     }
 

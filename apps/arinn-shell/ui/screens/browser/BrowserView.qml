@@ -54,6 +54,7 @@ FocusScope {
     signal closeTab(string tabId)
     signal open(string shortcutId)
     signal retryRequested()
+    signal backRequested()
 
     function normalizeTabs(input) {
         const source = Array.isArray(input) ? input : [];
@@ -228,7 +229,17 @@ FocusScope {
         selectWindow(index);
     }
 
-    function trapTab(event) {
+    function isBackKey(key) {
+        return key === Qt.Key_Escape || key === Qt.Key_Backspace || key === Qt.Key_Back;
+    }
+
+    function localKey(event) {
+        if (isBackKey(event.key)) {
+            event.accepted = true;
+            if (!event.isAutoRepeat)
+                backRequested();
+            return;
+        }
         if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
             pointerMode = false;
             event.accepted = true;
@@ -347,6 +358,12 @@ FocusScope {
     }
 
     Keys.onPressed: event => {
+        if (isBackKey(event.key)) {
+            event.accepted = true;
+            if (!event.isAutoRepeat)
+                backRequested();
+            return;
+        }
         const arrows = [Qt.Key_Left, Qt.Key_Right, Qt.Key_Up, Qt.Key_Down];
         if (arrows.indexOf(event.key) < 0 && event.key !== Qt.Key_Tab && event.key !== Qt.Key_Backtab)
             return;
@@ -401,7 +418,7 @@ FocusScope {
                             pointerMode: root.pointerMode
                             hoverFocusEnabled: root.hoverFocusEnabled
                             Keys.priority: Keys.BeforeItem
-                            Keys.onPressed: event => root.trapTab(event)
+                            Keys.onPressed: event => root.localKey(event)
                             onActiveFocusChanged: if (activeFocus) root.noteWindowFocus(index)
                             onDpadRequested: root.pointerMode = false
                             Rectangle {
@@ -440,7 +457,7 @@ FocusScope {
                                 pointerMode: root.pointerMode
                                 hoverFocusEnabled: root.hoverFocusEnabled
                                 Keys.priority: Keys.BeforeItem
-                                Keys.onPressed: event => root.trapTab(event)
+                                Keys.onPressed: event => root.localKey(event)
                                 onActiveFocusChanged: if (activeFocus) {
                                     root.focusRow = "tabs";
                                     root.tabIndex = index;
@@ -485,7 +502,7 @@ FocusScope {
                         pointerMode: root.pointerMode
                         hoverFocusEnabled: root.hoverFocusEnabled
                         Keys.priority: Keys.BeforeItem
-                        Keys.onPressed: event => root.trapTab(event)
+                        Keys.onPressed: event => root.localKey(event)
                         onActiveFocusChanged: if (activeFocus) {
                             root.focusRow = "actions";
                             root.actionIndex = 0;
@@ -502,7 +519,7 @@ FocusScope {
                         pointerMode: root.pointerMode
                         hoverFocusEnabled: root.hoverFocusEnabled
                         Keys.priority: Keys.BeforeItem
-                        Keys.onPressed: event => root.trapTab(event)
+                        Keys.onPressed: event => root.localKey(event)
                         onActiveFocusChanged: if (activeFocus) {
                             root.focusRow = "actions";
                             root.actionIndex = 1;
@@ -529,7 +546,7 @@ FocusScope {
                 onActionRequested: root.retryRequested()
                 onDpadRequested: root.pointerMode = false
                 Keys.priority: Keys.BeforeItem
-                Keys.onPressed: event => root.trapTab(event)
+                Keys.onPressed: event => root.localKey(event)
             }
 
             Column {
@@ -553,7 +570,7 @@ FocusScope {
                             pointerMode: root.pointerMode
                             hoverFocusEnabled: root.hoverFocusEnabled
                             Keys.priority: Keys.BeforeItem
-                            Keys.onPressed: event => root.trapTab(event)
+                            Keys.onPressed: event => root.localKey(event)
                             onActiveFocusChanged: if (activeFocus) {
                                 root.focusRow = "shortcuts";
                                 root.shortcutIndex = index;

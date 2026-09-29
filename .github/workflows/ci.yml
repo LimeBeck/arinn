@@ -14,12 +14,17 @@ on:
 permissions:
   contents: read
 
+# A newer commit on the same pull request or on master supersedes the
+# running pipeline; the nightly and releases always finish (ADR-0049).
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/master') }}
 
 env:
   CARGO_TERM_COLOR: always
+
+# Every job runs on `vars.ARINN_RUNNER` when that repository variable is set
+# (for example `self-hosted`), else on GitHub-hosted Ubuntu (ADR-0049).
 
 jobs:
   # A pull request that changes only documentation skips the build jobs
@@ -28,9 +33,10 @@ jobs:
   # of this job falls back to the full pipeline instead of skipping it.
   scope:
     name: Change scope
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.ARINN_RUNNER || 'ubuntu-latest' }}
     outputs:
       docs_only: ${{ steps.scope.outputs.docs_only }}
+      package: ${{ steps.scope.outputs.package }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -42,7 +48,7 @@ jobs:
     name: Rust (fmt, clippy, test)
     needs: scope
     if: ${{ !cancelled() && needs.scope.outputs.docs_only != 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.ARINN_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -57,7 +63,7 @@ jobs:
     name: Qt shell and private-bus integration (Arch Linux)
     needs: scope
     if: ${{ !cancelled() && needs.scope.outputs.docs_only != 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.ARINN_RUNNER || 'ubuntu-latest' }}
     container: archlinux:latest
     steps:
       - name: Install dependencies
@@ -80,7 +86,7 @@ jobs:
 
   licenses:
     name: Licensing (REUSE, cargo-deny)
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.ARINN_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v7
       - uses: fsfe/reuse-action@v6
@@ -90,7 +96,7 @@ jobs:
 
   docs:
     name: Documentation consistency
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.ARINN_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -110,4 +116,6 @@ jobs:
     if: ${{ !cancelled() }}
     uses: ./.github/workflows/package.yml
     with:
-      skip: ${{ needs.scope.outputs.docs_only == 'true' }}
+      # Pull requests build the package only when they touch it (ADR-0049);
+      # run CI manually on the branch to force a package build.
+      skip: ${{ needs.scope.outputs.package != 'true' }}

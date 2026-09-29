@@ -1,0 +1,1 @@
+- CI spends fewer minutes: pull requests build the package only when they change packaging inputs, superseded master runs are cancelled, and jobs can run on a self-hosted runner.

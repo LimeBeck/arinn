@@ -6,8 +6,10 @@
 The production Home favorites row reads `org.arinn.WebShortcuts1` on the daemon
 service and root path ([web-shortcuts1.xml](../plugin-api/web-shortcuts1.xml),
 [ADR-0043](../adr/0043-web-shortcuts.md)). This is the shell binding for
-[specification §5.1](../specifications/arinn-specification.md#51-home). It does
-not add, edit or remove shortcuts, and it does not change the daemon.
+[specification §5.1](../specifications/arinn-specification.md#51-home). Home
+does not edit or remove shortcuts. Adding one is the Open services bookmark
+action, which calls `WebShortcuts1.Add` from `BrowserCatalog`
+([ui-browser.md](ui-browser.md)). The daemon is unchanged.
 
 ## What the shell shows
 
@@ -20,7 +22,10 @@ refresh, and on `WebShortcuts1.Changed`. `List` is one message,
 
 Until pinned favorites exist, the Home row is web shortcuts first and then the
 application entries. Steam and ES-DE stay on that row. The Applications route
-still lists the same application targets.
+lists those application targets and then the same web shortcuts in **Online**
+(`group` is `online` on the merged list only). A shortcut still has no URL in
+either model. `WebShortcuts1.Changed` refreshes the shortcut list, and that
+refresh updates the Online group.
 
 Each shortcut tile shows the **title** and a **monogram** (the first grapheme
 of the trimmed title, uppercased) inside the existing neutral tile plate. An

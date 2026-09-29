@@ -1,0 +1,1 @@
+- The Chrome extension opens every service in its own fullscreen window, focuses an already open service instead of opening it again, moves tabs opened from a service into their own window and keeps these windows fullscreen ([ADR-0050](docs/adr/0050-window-per-browser-activity.md)).

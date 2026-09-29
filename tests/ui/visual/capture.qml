@@ -12,7 +12,8 @@ import "../../../apps/arinn-shell/ui/screens/player" as Player
 import "../../../apps/arinn-shell/ui/screens/power" as Power
 import "../../../apps/arinn-shell/ui/screens/session" as Session
 import "../../../apps/arinn-shell/ui/screens/settings" as Settings
-import "capture-request.js" as Request
+// Generated under the output directory and supplied with arinn-ui-test -import.
+import CaptureRequest 1.0 as CaptureRequest
 
 // Offscreen capture of fixture-driven screens. Not part of the ui-components
 // CTest input: that runner only loads tst_*.qml from tests/ui.
@@ -25,9 +26,9 @@ TestCase {
     height: job.wide ? 2160 : 1080
 
     readonly property var job: ({
-        output: Request.output(),
-        scale: Request.scale(),
-        wide: Request.scale() === "4k-layout"
+        output: CaptureRequest.Request.output(),
+        scale: CaptureRequest.Request.scale(),
+        wide: CaptureRequest.Request.scale() === "4k-layout"
     })
     function readManifest() {
         const xhr = new XMLHttpRequest();
@@ -413,10 +414,11 @@ TestCase {
             wait(0);
             if (!shown.Window.window)
                 fail(state.id + " has no window (" + shown.width + "x" + shown.height + ")");
-            verify(waitForRendering(shown, 5000), state.id);
+            // A settled frame, such as a static player plate, never produces
+            // another frame, so waitForRendering returns false. That is not a
+            // failure: wait, then require the item to still be visible.
+            waitForRendering(shown, 5000);
             wait(plan.tune === "nav" ? 450 : 200);
-            // A settled animation can leave waitForRendering false even though the
-            // item is on screen. The grab below still needs a live item.
             if (!shown || !shown.visible)
                 fail("not visible: " + state.id);
             waitForRendering(shown, 1000);

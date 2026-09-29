@@ -6,9 +6,11 @@
 
 """Compare fixture-driven QML screens with the design handoff.
 
-Renders each manifest state offscreen at 1920×1080 and at 4K (logical
-1920×1080, device pixel ratio 2) and writes an HTML report. The report is
-evidence for layout review. It does not pass G-5.1, and it is not a CI gate.
+Renders each manifest state offscreen at 1920×1080 and at 3840×2160 and
+writes an HTML report. On the offscreen platform QT_SCALE_FACTOR is ignored,
+so the 3840×2160 image is a 2× scale of the logical canvas, not device pixel
+ratio 2. The report is evidence for layout review. It does not pass G-5.1,
+and it is not a CI gate.
 
     python scripts/ui-compare.py --check
     python scripts/ui-compare.py
@@ -29,7 +31,6 @@ ROOT = Path(__file__).resolve().parents[1]
 MANIFEST_PATH = ROOT / "tests/ui/visual/manifest.json"
 SCREENSHOTS = ROOT / "docs/design/handoff/screenshots"
 CAPTURE_QML = ROOT / "tests/ui/visual/capture.qml"
-REQUEST = ROOT / "tests/ui/visual/capture-request.js"
 MARKER = "ARINN_CAPTURE "
 
 
@@ -87,31 +88,34 @@ def parse_captures(output: str) -> list[dict]:
         if index < 0:
             continue
         payload = line[index + len(MARKER) :].strip()
-        if payload == "DONE" or payload.startswith("DONE"):
-            continue
         rows.append(json.loads(payload))
     return rows
 
 
-def write_request(stub: str, output: Path, scale: str) -> None:
+def write_request(module_root: Path, output: Path, scale: str) -> None:
+    """Write the capture request beside the output. Never touch the source tree."""
+    module = module_root / "CaptureRequest"
+    module.mkdir(parents=True, exist_ok=True)
     safe_output = json.dumps(str(output))
     safe_scale = json.dumps(scale)
-    lines = []
-    for line in stub.splitlines():
-        if line.startswith("function output"):
-            lines.append(f"function output() {{ return {safe_output} }}")
-        elif line.startswith("function scale"):
-            lines.append(f"function scale() {{ return {safe_scale} }}")
-        else:
-            lines.append(line)
-    REQUEST.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    (module / "request.js").write_text(
+        ".pragma library\n"
+        f"function output() {{ return {safe_output} }}\n"
+        f"function scale() {{ return {safe_scale} }}\n",
+        encoding="utf-8",
+    )
+    (module / "qmldir").write_text(
+        "module CaptureRequest\nRequest 1.0 request.js\n",
+        encoding="utf-8",
+    )
 
 
 def run_capture(
-    binary: Path, output: Path, scale: str, scale_factor: str | None, stub: str
+    binary: Path, output: Path, scale: str, scale_factor: str | None
 ) -> tuple[int, str, list[dict]]:
     output.mkdir(parents=True, exist_ok=True)
-    write_request(stub, output, scale)
+    module_root = output.parent / f".capture-request-{scale}"
+    write_request(module_root, output, scale)
     env = os.environ.copy()
     env["QT_QPA_PLATFORM"] = "offscreen"
     env["QT_QUICK_BACKEND"] = "software"
@@ -119,7 +123,7 @@ def run_capture(
     env.pop("QT_SCALE_FACTOR", None)
     if scale_factor:
         env["QT_SCALE_FACTOR"] = scale_factor
-    command = [str(binary), "-input", str(CAPTURE_QML)]
+    command = [str(binary), "-import", str(module_root), "-input", str(CAPTURE_QML)]
     try:
         result = subprocess.run(
             command, cwd=ROOT, env=env, text=True, capture_output=True, timeout=600
@@ -133,21 +137,25 @@ def run_capture(
 
 
 def require_capture(
-    binary: Path, output: Path, scale: str, scale_factor: str | None, stub: str
+    binary: Path, output: Path, scale: str, scale_factor: str | None
 ) -> list[dict]:
-    code, combined, rows = run_capture(binary, output, scale, scale_factor, stub)
+    code, combined, rows = run_capture(binary, output, scale, scale_factor)
     if code != 0 or not rows:
         sys.stderr.write(combined)
         raise SystemExit(f"capture failed for {scale} (exit {code})")
     return rows
 
 
-def four_k_captures(binary: Path, output: Path, stub: str) -> tuple[list[dict], str]:
-    """Prefer a real device pixel ratio of 2. Fall back to a 2× canvas scale."""
-    _code, _combined, rows = run_capture(binary, output, "4k", "2", stub)
+def four_k_captures(binary: Path, output: Path) -> tuple[list[dict], str]:
+    """Try device pixel ratio 2, then a 2× scale of the logical canvas.
+
+    The offscreen platform ignores QT_SCALE_FACTOR, so the second path is the
+    one that produces 3840×2160 here.
+    """
+    _code, _combined, rows = run_capture(binary, output, "4k", "2")
     if rows and rows[0].get("width") == 3840 and rows[0].get("height") == 2160:
         return rows, "device pixel ratio 2 (3840×2160 framebuffer, logical 1920×1080)"
-    rows = require_capture(binary, output, "4k-layout", None, stub)
+    rows = require_capture(binary, output, "4k-layout", None)
     if rows[0].get("width") != 3840 or rows[0].get("height") != 2160:
         raise SystemExit(
             f"4K capture was {rows[0].get('width')}×{rows[0].get('height')}, expected 3840×2160"
@@ -305,27 +313,24 @@ def main() -> int:
     if args.check:
         print(f"manifest matches {len(list(SCREENSHOTS.iterdir()))} handoff files")
         return 0
-    output = args.output or (args.build_dir / "ui-compare")
-    binary = args.build_dir / "apps/arinn-shell/arinn-ui-test"
+    build_dir = args.build_dir.expanduser().resolve()
+    output = (args.output or (build_dir / "ui-compare")).expanduser().resolve()
+    binary = (build_dir / "apps/arinn-shell/arinn-ui-test").resolve()
     if not binary.is_file():
         print(f"missing {binary}; build the arinn-ui-test target first", file=sys.stderr)
         return 1
-    stub = REQUEST.read_text(encoding="utf-8")
-    try:
-        rows_1080 = require_capture(binary, output / "1080", "1080", None, stub)
-        if rows_1080 and (rows_1080[0].get("width") != 1920 or rows_1080[0].get("height") != 1080):
-            raise SystemExit(
-                f"1080p capture was {rows_1080[0].get('width')}×{rows_1080[0].get('height')}"
-            )
-        rows_4k, method = four_k_captures(binary, output / "4k", stub)
-        expected = [state["id"] for state in manifest["states"] if state.get("render")]
-        for label, rows in ("1080", rows_1080), ("4k", rows_4k):
-            got = [row["id"] for row in rows]
-            if got != expected:
-                raise SystemExit(f"{label} rendered {got} but the manifest lists {expected}")
-        write_reports(output, manifest, {"1080": rows_1080, "4k": rows_4k}, method)
-    finally:
-        REQUEST.write_text(stub, encoding="utf-8")
+    rows_1080 = require_capture(binary, output / "1080", "1080", None)
+    if rows_1080 and (rows_1080[0].get("width") != 1920 or rows_1080[0].get("height") != 1080):
+        raise SystemExit(
+            f"1080p capture was {rows_1080[0].get('width')}×{rows_1080[0].get('height')}"
+        )
+    rows_4k, method = four_k_captures(binary, output / "4k")
+    expected = [state["id"] for state in manifest["states"] if state.get("render")]
+    for label, rows in ("1080", rows_1080), ("4k", rows_4k):
+        got = [row["id"] for row in rows]
+        if got != expected:
+            raise SystemExit(f"{label} rendered {got} but the manifest lists {expected}")
+    write_reports(output, manifest, {"1080": rows_1080, "4k": rows_4k}, method)
     print(f"wrote {output / 'report.html'}")
     return 0
 

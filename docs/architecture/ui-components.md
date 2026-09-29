@@ -259,17 +259,19 @@ python scripts/ui-compare.py
 same files. The full command renders every `render: true` state with
 `arinn-ui-test` and [`tests/ui/visual/capture.qml`](../../tests/ui/visual/capture.qml)
 on the offscreen platform and the software scene graph. It writes PNGs and
-`report.html` under `build/ui-compare/`. Those files are generated and are not
-committed. Nothing is added to CI.
+`report.html` under `build/ui-compare/`. The capture request is generated in
+that output directory. The tool does not rewrite a tracked file. Those files
+are generated and are not committed. Nothing is added to CI.
 
-1080p is a 1920×1080 framebuffer. 4K is the same logical canvas at device pixel
-ratio 2, so the framebuffer is 3840×2160. If the offscreen platform does not
-apply that ratio, the tool scales the logical canvas by 2 and says so in the
-report. The report places each render next to its handoff file and overlays
-them with a difference blend. A mean absolute channel error, sampled on a
-64×36 grid, is a drift hint. It is not a threshold: handoff artwork is
-placeholder, service marks in the product are monograms, and some references
-are not 1920×1080.
+1080p is a 1920×1080 framebuffer. The tool then sets `QT_SCALE_FACTOR=2` and
+renders again. The offscreen platform ignores that variable, so the grab stays
+1920×1080. The tool scales the logical 1920×1080 canvas by 2 and saves a
+3840×2160 image. That image is the 1080p layout scaled up. It is not a device
+pixel ratio of 2, and it does not exercise pixel-ratio effects. The report
+places each render next to its handoff file and overlays them with a difference
+blend. A mean absolute channel error, sampled on a 64×36 grid, is a drift hint.
+It is not a threshold: handoff artwork is placeholder, service marks in the
+product are monograms, and some references are not 1920×1080.
 
 The capture uses the same fixture screens as the Qt Quick tests. It does not
 launch applications, talk to the daemon, or drive a session. Operator tests

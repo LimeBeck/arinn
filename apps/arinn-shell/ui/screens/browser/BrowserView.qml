@@ -36,7 +36,7 @@ FocusScope {
     readonly property string statusActionText: {
         if (showTabs || statusKind === "loading")
             return "";
-        return statusKind === "empty" ? qsTr("Home") : qsTr("Retry");
+        return statusKind === "empty" ? qsTr("Go to Home") : qsTr("Retry");
     }
     readonly property var stateCopy: ({
         empty: [qsTr("Nothing open"), qsTr("Services you open from Home will appear here.")],
@@ -464,15 +464,6 @@ FocusScope {
                 anchors.fill: parent
                 color: Ui.Theme.background
             }
-            Rectangle {
-                visible: root.showTabs
-                x: -80
-                y: -220
-                width: 980
-                height: 680
-                radius: width / 2
-                color: Qt.rgba(0.337, 0.522, 0.831, 0.22)
-            }
 
             Text {
                 id: clock
@@ -499,7 +490,7 @@ FocusScope {
 
             Item {
                 x: 120
-                y: 136
+                y: 96
                 width: parent.width - 120 - 300
                 height: 72
                 Ui.UiText {
@@ -535,9 +526,9 @@ FocusScope {
             ListView {
                 id: services
                 x: 96
-                y: 236
+                y: 196
                 width: 1548
-                height: 694
+                height: 734
                 visible: root.showTabs
                 clip: true
                 interactive: false
@@ -587,14 +578,6 @@ FocusScope {
 
                         Behavior on scale {
                             NumberAnimation { duration: plate.pressed ? Ui.Theme.pressDuration : Ui.Theme.focusDuration }
-                        }
-                        Rectangle {
-                            z: -1
-                            anchors.centerIn: parent
-                            width: parent.width + 56
-                            height: parent.height + 40
-                            radius: 48
-                            color: Qt.rgba(0.337, 0.522, 0.831, plate.activeFocus ? 0.22 : 0)
                         }
                         Rectangle {
                             anchors.fill: parent
@@ -847,7 +830,7 @@ FocusScope {
             Rectangle {
                 z: 2
                 x: 96
-                y: 236
+                y: 196
                 width: 1548
                 height: 60
                 visible: root.listOverflow
@@ -859,7 +842,7 @@ FocusScope {
             Rectangle {
                 z: 2
                 x: 96
-                y: 236 + 694 - 90
+                y: 196 + 734 - 90
                 width: 1548
                 height: 90
                 visible: root.listOverflow
@@ -892,7 +875,7 @@ FocusScope {
                         }
                     }
                     Ui.UiText {
-                        text: qsTr("Go")
+                        text: qsTr("Go to")
                         role: "caption"
                         color: Ui.Theme.textHint
                         anchors.verticalCenter: parent.verticalCenter
@@ -1050,6 +1033,7 @@ FocusScope {
                     }
                     Ui.UiText {
                         id: statusLabel
+                        objectName: "statusActionLabel"
                         anchors.centerIn: parent
                         text: root.statusActionText
                         role: "control"

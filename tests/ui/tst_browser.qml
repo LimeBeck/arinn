@@ -249,6 +249,7 @@ TestCase {
         tryCompare(pane, "visible", true);
         compare(pane.kind, "empty");
         compare(pane.title, "Nothing open");
+        compare(child("statusActionLabel").text, "Go to Home");
         compare(pane.description, "Services you open from Home will appear here.");
         verify(findChild(view, "row-t2") === null);
         focused("statusAction");

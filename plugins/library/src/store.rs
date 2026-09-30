@@ -238,9 +238,10 @@ impl Store {
     }
 
     pub fn scan(&mut self, settings: &Settings) -> Result<(), ErrorCode> {
+        let baseline = self.item_ids()?;
         let mut discovered = discover(settings);
         attach_probes(self, settings, &mut discovered)?;
-        self.commit_discovered(settings, discovered)
+        self.commit_discovered(settings, discovered, &baseline)
     }
 
     pub fn snapshot(&self) -> Result<(Vec<Collection>, Vec<Item>), ErrorCode> {
@@ -433,6 +434,7 @@ impl Store {
         &mut self,
         settings: &Settings,
         discovered: Vec<RootScan>,
+        baseline: &HashSet<String>,
     ) -> Result<(), ErrorCode> {
         self.configured_roots = settings.roots.clone();
         let stored = self
@@ -453,7 +455,7 @@ impl Store {
         for root in discovered {
             let id = self.root_id(&root.path)?;
             if root.readable {
-                self.integrate_root(&id, &root.path, root.truncated, root.files)?;
+                self.integrate_root(&id, &root.path, root.truncated, root.files, baseline)?;
             } else {
                 self.mark_root_unavailable(&id)?;
             }
@@ -467,6 +469,7 @@ impl Store {
         root: &Path,
         truncated: bool,
         files: Vec<DiskFile>,
+        baseline: &HashSet<String>,
     ) -> Result<(), ErrorCode> {
         let existing = self.load_root(root_id)?;
         let paired = pair_files(&existing, files);
@@ -491,6 +494,12 @@ impl Store {
         if !truncated {
             for row in existing.iter().filter(|row| row.kind != "series") {
                 if !claimed.contains(&row.id) {
+                    // An import during discovery or ffprobe is not in the
+                    // discovery result. Keep that row instead of hiding it.
+                    if !baseline.contains(&row.id) {
+                        rows.push(row.clone());
+                        continue;
+                    }
                     let mut missing = row.clone();
                     missing.available = false;
                     rows.push(missing);
@@ -691,6 +700,17 @@ impl Store {
 
     fn load_root(&self, root_id: &str) -> Result<Vec<Row>, ErrorCode> {
         self.load_filtered(root_id)
+    }
+
+    fn item_ids(&self) -> Result<HashSet<String>, ErrorCode> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id FROM items")
+            .map_err(|_| ErrorCode::Internal)?;
+        stmt.query_map([], |row| row.get(0))
+            .map_err(|_| ErrorCode::Internal)?
+            .collect::<Result<HashSet<_>, _>>()
+            .map_err(|_| ErrorCode::Internal)
     }
 
     fn rows_for_path(&self, path: &Path) -> Result<Vec<Row>, ErrorCode> {
@@ -1078,7 +1098,13 @@ fn attach_probes(
 }
 
 /// Walks and probes without holding `store`, then locks only to write the catalogue.
+/// Item ids recorded before the walk are the baseline: a row created while the
+/// lock is released, such as an import during ffprobe, is kept.
 pub fn scan_shared(store: &std::sync::Mutex<Store>, settings: &Settings) -> Result<(), ErrorCode> {
+    let baseline = {
+        let guard = store.lock().map_err(|_| ErrorCode::Internal)?;
+        guard.item_ids()?
+    };
     let mut discovered = discover(settings);
     let probed = {
         let guard = store.lock().map_err(|_| ErrorCode::Internal)?;
@@ -1113,7 +1139,7 @@ pub fn scan_shared(store: &std::sync::Mutex<Store>, settings: &Settings) -> Resu
         }
     }
     let mut guard = store.lock().map_err(|_| ErrorCode::Internal)?;
-    guard.commit_discovered(settings, discovered)
+    guard.commit_discovered(settings, discovered, &baseline)
 }
 
 fn walk(

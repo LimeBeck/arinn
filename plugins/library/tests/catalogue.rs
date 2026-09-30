@@ -676,6 +676,70 @@ fn scan_does_not_hold_the_catalogue_during_ffprobe() {
     worker.join().unwrap();
 }
 
+#[test]
+fn import_during_ffprobe_stays_available() {
+    let scratch = Scratch::new();
+    let root = scratch.path().join("root");
+    fs::create_dir(&root).unwrap();
+    fs::write(root.join("Slow (2003).mkv"), b"film").unwrap();
+    let mut store = open(&scratch);
+    store
+        .scan(&settings(&root, false, PathBuf::from("ffprobe")))
+        .unwrap();
+    let marker = scratch.path().join("probe-started");
+    let probe = scratch.path().join("ffprobe");
+    fs::write(
+        &probe,
+        format!(
+            "#!/bin/sh\ntouch '{}'\nsleep 2\nprintf '%s\\n' '{{\"format\":{{\"duration\":\"1\"}}}}'\n",
+            marker.display()
+        ),
+    )
+    .unwrap();
+    fs::set_permissions(&probe, fs::Permissions::from_mode(0o755)).unwrap();
+    let store = Arc::new(Mutex::new(store));
+    let worker = {
+        let store = Arc::clone(&store);
+        let configured = settings(&root, true, probe);
+        std::thread::spawn(move || scan_shared(&store, &configured).unwrap())
+    };
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while !marker.exists() {
+        if Instant::now() > deadline {
+            panic!("ffprobe did not start");
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let imported = root.join("Imported (2011).mkv");
+    fs::write(&imported, b"imported").unwrap();
+    let candidate = ImportCandidate {
+        source: EntityRef {
+            provider_id: "downloads".into(),
+            capability: "download".into(),
+            local_id: "job-during-probe".into(),
+        },
+        file_uri: file_uri(&imported),
+        completion_id: "done-during-probe".into(),
+    };
+    let imported_id = {
+        let mut guard = store
+            .lock()
+            .expect("catalogue stayed locked during ffprobe");
+        guard.import(std::slice::from_ref(&candidate)).unwrap()
+    };
+    worker.join().unwrap();
+    let guard = store.lock().unwrap();
+    let item = guard
+        .snapshot()
+        .unwrap()
+        .1
+        .into_iter()
+        .find(|item| item.id == imported_id[0])
+        .expect("imported item missing after the scan");
+    assert!(item.available);
+    assert_eq!(item.title, "Imported");
+}
+
 struct ModeGuard(PathBuf);
 impl Drop for ModeGuard {
     fn drop(&mut self) {

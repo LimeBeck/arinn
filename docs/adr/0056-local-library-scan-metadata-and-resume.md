@@ -47,4 +47,4 @@ Putting roots in the daemon's `config.toml` was rejected: that file denies unkno
 
 ## Verification
 
-Provider tests on temporary folders cover film, series and episode names, a hostile NFO, a missing file, an unavailable root and its recovery, a rename that keeps the UUID, the resume rules, and import idempotency. A private-bus test drives `LibraryProvider1`, `LibraryResume1` and `LibraryImport1` through the SDK and checks that the title and root path are absent from stderr. No network share and no operator test.
+Provider tests on temporary folders cover film, series and episode names, a hostile NFO, a missing file, an unavailable root and its recovery, a rename that keeps the UUID, an in-root symlink that stays one item, the resume rules, import idempotency, and rejection of an import after its root leaves the configuration. A private-bus test drives `LibraryProvider1`, `LibraryResume1` and `LibraryImport1` through the SDK and checks that the title and root path are absent from stderr. No network share and no operator test.

@@ -221,9 +221,16 @@ impl LibraryImportHandler for Bridge {
     ) -> Pin<Box<dyn Future<Output = Result<Vec<String>, ErrorCode>> + Send + '_>> {
         let store = self.store.clone();
         let service = self.service.clone();
+        let settings = self.settings.clone();
         Box::pin(async move {
+            let roots = settings
+                .lock()
+                .map_err(|_| ErrorCode::Internal)?
+                .roots
+                .clone();
             let (ids, collections, items, resumes) = {
                 let mut store = store.lock().map_err(|_| ErrorCode::Internal)?;
+                store.set_configured_roots(&roots);
                 let ids = store.import(&candidates)?;
                 let (collections, items) = store.snapshot()?;
                 (ids, collections, items, store.resumes()?)

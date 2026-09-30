@@ -116,6 +116,9 @@ impl Settings {
 
 pub struct Store {
     conn: Connection,
+    /// Roots from the latest settings. Import uses this list, not every
+    /// historical row in `roots`.
+    configured_roots: Vec<PathBuf>,
 }
 
 #[derive(Clone)]
@@ -226,10 +229,18 @@ impl Store {
         )
         .map_err(|_| ErrorCode::Internal)?;
         seed_collections(&conn)?;
-        Ok(Self { conn })
+        Ok(Self {
+            conn,
+            configured_roots: Vec::new(),
+        })
+    }
+
+    pub(crate) fn set_configured_roots(&mut self, roots: &[PathBuf]) {
+        self.configured_roots = roots.to_vec();
     }
 
     pub fn scan(&mut self, settings: &Settings) -> Result<(), ErrorCode> {
+        self.configured_roots = settings.roots.clone();
         let mut known = HashMap::new();
         let configured = settings.roots.clone();
         for path in &configured {
@@ -445,11 +456,18 @@ impl Store {
         }
         let existing = self.load_root(root_id)?;
         let mut claimed = HashSet::new();
+        let mut seen_inodes = HashSet::new();
         let mut paired: Vec<(DiskFile, Option<Row>)> = Vec::new();
         for file in files {
             let by_path = existing.iter().find(|row| {
                 row.kind != "series" && row.rel_path == file.rel && !claimed.contains(&row.id)
             });
+            let inode_taken = file.inode.is_some_and(|inode| {
+                seen_inodes.contains(&inode) || claimed_inode(&existing, &claimed, Some(inode))
+            });
+            if by_path.is_none() && inode_taken {
+                continue;
+            }
             let by_fp = by_path.cloned().or_else(|| {
                 existing
                     .iter()
@@ -460,14 +478,11 @@ impl Store {
                     })
                     .cloned()
             });
-            if by_path.is_none()
-                && file.inode.is_some()
-                && claimed_inode(&existing, &claimed, file.inode)
-            {
-                continue;
-            }
             if let Some(row) = by_fp.clone() {
                 claimed.insert(row.id.clone());
+            }
+            if let Some(inode) = file.inode {
+                seen_inodes.insert(inode);
             }
             paired.push((file, by_fp));
         }
@@ -621,32 +636,22 @@ impl Store {
     }
 
     fn available_root_for(&self, path: &Path) -> Result<PathBuf, ErrorCode> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT path FROM roots")
-            .map_err(|_| ErrorCode::Internal)?;
-        let paths = stmt
-            .query_map([], |row| row.get::<_, String>(0))
-            .map_err(|_| ErrorCode::Internal)?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|_| ErrorCode::Internal)?;
         let mut best: Option<PathBuf> = None;
         let mut saw_unavailable = false;
-        for text in paths {
-            let root = PathBuf::from(text);
-            if !path.starts_with(&root) {
+        for root in &self.configured_roots {
+            if !path.starts_with(root) {
                 continue;
             }
-            if !root_readable(&root) {
+            if !root_readable(root) {
                 saw_unavailable = true;
                 continue;
             }
-            if contained(&root, path)
+            if contained(root, path)
                 && best
                     .as_ref()
                     .is_none_or(|current| root.as_os_str().len() > current.as_os_str().len())
             {
-                best = Some(root);
+                best = Some(root.clone());
             }
         }
         best.ok_or(if saw_unavailable {

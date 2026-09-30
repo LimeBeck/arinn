@@ -160,6 +160,29 @@ fn scans_films_series_artwork_and_hostile_nfo() {
 }
 
 #[test]
+fn in_root_symlink_is_one_catalogue_item() {
+    let scratch = Scratch::new();
+    let root = scratch.path().join("root");
+    fs::create_dir(&root).unwrap();
+    let video = root.join("Feature (2008).mkv");
+    fs::write(&video, b"film").unwrap();
+    std::os::unix::fs::symlink(&video, root.join("alias.mkv")).unwrap();
+    let mut store = open(&scratch);
+    store
+        .scan(&settings(&root, false, PathBuf::from("ffprobe")))
+        .unwrap();
+    let films: Vec<_> = store
+        .snapshot()
+        .unwrap()
+        .1
+        .into_iter()
+        .filter(|item| item.kind == "film")
+        .collect();
+    assert_eq!(films.len(), 1);
+    assert!(films[0].available);
+}
+
+#[test]
 fn missing_file_and_unavailable_root_keep_the_uuid() {
     let scratch = Scratch::new();
     let root = scratch.path().join("root");
@@ -379,6 +402,34 @@ fn import_is_idempotent_per_completion_id() {
     rejected.file_uri = file_uri(&outside);
     assert_eq!(
         store.import(std::slice::from_ref(&rejected)),
+        Err(ErrorCode::InvalidArgument)
+    );
+}
+
+#[test]
+fn import_rejects_a_root_removed_from_settings() {
+    let scratch = Scratch::new();
+    let root = scratch.path().join("root");
+    fs::create_dir(&root).unwrap();
+    let video = root.join("Kept (2011).mkv");
+    fs::write(&video, b"film").unwrap();
+    let mut store = open(&scratch);
+    let configured = settings(&root, false, PathBuf::from("ffprobe"));
+    store.scan(&configured).unwrap();
+    let mut cleared = configured;
+    cleared.roots.clear();
+    store.scan(&cleared).unwrap();
+    let candidate = ImportCandidate {
+        source: EntityRef {
+            provider_id: "downloads".into(),
+            capability: "download".into(),
+            local_id: "job-removed".into(),
+        },
+        file_uri: file_uri(&video),
+        completion_id: "done-removed".into(),
+    };
+    assert_eq!(
+        store.import(std::slice::from_ref(&candidate)),
         Err(ErrorCode::InvalidArgument)
     );
 }

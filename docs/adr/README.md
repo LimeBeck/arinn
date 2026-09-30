@@ -80,4 +80,5 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0061](0061-playback-progress-forwarding.md) | Forwarding playback progress to the library | Accepted | — |
 | [0062](0062-asset-contract.md) | Fetching assets by id | Accepted | — |
 | [0063](0063-ended-session-state.md) | The `ended` session state | Accepted | — |
+| [0064](0064-provider-settings-in-config.md) | Provider settings in config.toml and their delivery | Accepted | — |
 <!-- register:end -->

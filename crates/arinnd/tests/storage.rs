@@ -367,3 +367,59 @@ fn web_shortcuts_migrate_from_schema_two_and_reject_corrupted_rows() {
         Err(ErrorCode::Internal)
     );
 }
+
+#[test]
+fn provider_settings_round_trip_and_old_configs_stay_valid() {
+    let dir = std::env::temp_dir().join(format!("arinn-settings-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir(&dir).unwrap();
+    // An old file without settings still loads.
+    let mut config = arinnd::storage::Config::default();
+    config.providers.insert(
+        "library".into(),
+        toml::from_str("plugin_id = \"library\"").unwrap(),
+    );
+    config.save(&dir).unwrap();
+    let loaded = arinnd::storage::Config::load(&dir).unwrap();
+    assert!(loaded.providers["library"].settings.is_empty());
+    // Settings survive a save and load, and serialize as compact JSON.
+    let instance: arinnd::storage::InstanceConfig = toml::from_str(
+        "plugin_id = \"library\"\n[settings]\nroots = [\"/srv/films\", \"/mnt/nas/series\"]\nscan = true",
+    )
+    .unwrap();
+    config.providers.insert("library".into(), instance);
+    config.save(&dir).unwrap();
+    let loaded = arinnd::storage::Config::load(&dir).unwrap();
+    assert_eq!(loaded, config);
+    assert_eq!(
+        arinnd::storage::settings_json(&loaded.providers["library"].settings).unwrap(),
+        r#"{"roots":["/srv/films","/mnt/nas/series"],"scan":true}"#
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn provider_settings_without_a_json_form_or_too_large_are_rejected() {
+    let dated: toml::Table = toml::from_str("since = 2026-09-30T00:00:00Z").unwrap();
+    assert!(arinnd::storage::settings_json(&dated).is_err());
+    let mut large = toml::Table::new();
+    large.insert(
+        "blob".into(),
+        toml::Value::String("x".repeat(arinnd::storage::MAX_PROVIDER_SETTINGS_BYTES)),
+    );
+    assert!(arinnd::storage::settings_json(&large).is_err());
+    assert_eq!(
+        arinnd::storage::settings_json(&toml::Table::new()).unwrap(),
+        "{}"
+    );
+    // A config with invalid settings does not validate.
+    let mut config = arinnd::storage::Config::default();
+    config.providers.insert(
+        "library".into(),
+        arinnd::storage::InstanceConfig {
+            plugin_id: "library".into(),
+            enabled: true,
+            settings: dated,
+        },
+    );
+    assert!(config.validate().is_err());
+}

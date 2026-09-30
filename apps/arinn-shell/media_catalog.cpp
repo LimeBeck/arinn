@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "media_catalog.h"
+#include <QDeadlineTimer>
 #include <QUuid>
 #include <QtDBus>
 #include <QtQml>
@@ -15,6 +16,12 @@ constexpr auto service = "org.arinn.Daemon1";
 constexpr auto path = "/org/arinn/Daemon1";
 constexpr auto sessionPage =
     "(sta(sssssxxtasb(sss))s)";
+// StateChanged reloads the snapshot. This only reconciles a missed signal:
+// one pass is Status, Providers and every GetSessions page.
+constexpr int fallbackPollMs = 30000;
+// Controls time out at 5 s (ADR-0058). Wait one second past that so a
+// command that finishes on the deadline is still observed.
+constexpr int operationWaitMs = 6000;
 QDBusMessage daemonCall(const char *interface, const char *method) {
   return QDBusMessage::createMethodCall(service, path, interface, method);
 }
@@ -112,7 +119,7 @@ MediaCatalog::MediaCatalog(QObject *parent) : QObject(parent) {
             publish();
             refresh();
           });
-  m_timer.setInterval(1000);
+  m_timer.setInterval(fallbackPollMs);
   connect(&m_timer, &QTimer::timeout, this, &MediaCatalog::refresh);
   m_timer.start();
   m_clock.setInterval(200);
@@ -182,7 +189,10 @@ qint64 MediaCatalog::displayedPosition(const SessionRow &row) {
   auto position = row.positionUs;
   if (row.state == QLatin1String("playing")) {
     const auto now = monotonicUs();
-    if (now > row.anchorUs) {
+    // An anchor of 0 is not a sample: subtracting it adds the whole uptime
+    // and the position jumps to the duration or to the int64 limit. A sample
+    // ahead of this clock is not one either, so the published position stays.
+    if (row.anchorUs != 0 && now > row.anchorUs) {
       const auto elapsed = now - row.anchorUs;
       const auto room = std::numeric_limits<qint64>::max() - position;
       if (elapsed > static_cast<quint64>(room))
@@ -572,9 +582,16 @@ void MediaCatalog::watchOperation(const QString &objectPath, quint64 ticket,
                                   quint64 epoch) {
   auto timer = new QTimer(this);
   timer->setInterval(100);
-  connect(timer, &QTimer::timeout, this, [this, timer, objectPath, ticket, epoch] {
+  const auto deadline = QDeadlineTimer(operationWaitMs);
+  connect(timer, &QTimer::timeout, this,
+          [this, timer, objectPath, ticket, epoch, deadline] {
     timer->stop();
     if (ticket != m_commandTicket || epoch != m_epoch) {
+      timer->deleteLater();
+      return;
+    }
+    if (deadline.hasExpired()) {
+      setOperation(QStringLiteral("Timeout"));
       timer->deleteLater();
       return;
     }
@@ -583,7 +600,7 @@ void MediaCatalog::watchOperation(const QString &objectPath, quint64 ticket,
     auto pending = new QDBusPendingCallWatcher(
         QDBusConnection::sessionBus().asyncCall(msg, 3000), this);
     connect(pending, &QDBusPendingCallWatcher::finished, this,
-            [this, timer, ticket, epoch](auto *call) {
+            [this, timer, ticket, epoch, deadline](auto *call) {
               const auto reply = call->reply();
               call->deleteLater();
               if (ticket != m_commandTicket || epoch != m_epoch) {
@@ -616,6 +633,11 @@ void MediaCatalog::watchOperation(const QString &objectPath, quint64 ticket,
               arg.endStructure();
               if (state == QLatin1String("running") ||
                   state == QLatin1String("queued")) {
+                if (deadline.hasExpired()) {
+                  setOperation(QStringLiteral("Timeout"));
+                  timer->deleteLater();
+                  return;
+                }
                 timer->start();
                 return;
               }

@@ -25,9 +25,21 @@ FocusScope {
     // Neutral plate from the shared theme. Callers may override with a fixture hue.
     property color artworkHue: Ui.Theme.plate
     property var availableActions: ["play", "pause", "playPause", "seek", "next", "previous", "stop"]
+    // Empty until a command is sent. pending waits; succeeded is quiet;
+    // any other value is an error the banner shows.
+    property string operationState: ""
     property bool pointerMode: false
 
     readonly property bool hasSession: sessionState === "ready"
+    readonly property bool operationPending: operationState === "pending" || operationState === "queued" || operationState === "running"
+    readonly property bool operationFailed: operationState !== "" && operationState !== "succeeded" && !operationPending
+    readonly property string operationMessage: {
+        if (operationState === "Unsupported") return qsTr("That control is not available.");
+        if (operationState === "Timeout") return qsTr("The player did not answer in time.");
+        if (operationState === "InvalidArgument") return qsTr("That position is not valid.");
+        if (operationState === "Unavailable") return qsTr("The session is not available.");
+        return operationState;
+    }
     readonly property bool hoverFocusEnabled: !hoverDelay.running
     readonly property real progressFraction: {
         if (!(durationUs > 0) || !isFinite(positionUs)) return 0;
@@ -311,6 +323,7 @@ FocusScope {
                         text: qsTr("Previous")
                         visible: root.allows("previous")
                         enabled: root.allows("previous")
+                        busy: root.operationPending
                         pointerMode: root.pointerMode
                         hoverFocusEnabled: root.hoverFocusEnabled
                         Keys.onPressed: event => root.acceptBack(event)
@@ -322,6 +335,7 @@ FocusScope {
                         text: qsTr("Play")
                         visible: root.allows("play")
                         enabled: root.allows("play")
+                        busy: root.operationPending
                         pointerMode: root.pointerMode
                         hoverFocusEnabled: root.hoverFocusEnabled
                         Keys.onPressed: event => root.acceptBack(event)
@@ -333,6 +347,7 @@ FocusScope {
                         text: qsTr("Pause")
                         visible: root.allows("pause")
                         enabled: root.allows("pause")
+                        busy: root.operationPending
                         pointerMode: root.pointerMode
                         hoverFocusEnabled: root.hoverFocusEnabled
                         Keys.onPressed: event => root.acceptBack(event)
@@ -344,6 +359,7 @@ FocusScope {
                         text: qsTr("Play/Pause")
                         visible: root.allows("playPause")
                         enabled: root.allows("playPause")
+                        busy: root.operationPending
                         pointerMode: root.pointerMode
                         hoverFocusEnabled: root.hoverFocusEnabled
                         Keys.onPressed: event => root.acceptBack(event)
@@ -355,6 +371,7 @@ FocusScope {
                         text: qsTr("Seek")
                         visible: root.allows("seek")
                         enabled: root.allows("seek")
+                        busy: root.operationPending
                         pointerMode: root.pointerMode
                         hoverFocusEnabled: root.hoverFocusEnabled
                         Keys.onPressed: event => root.acceptBack(event)
@@ -366,6 +383,7 @@ FocusScope {
                         text: qsTr("Next")
                         visible: root.allows("next")
                         enabled: root.allows("next")
+                        busy: root.operationPending
                         pointerMode: root.pointerMode
                         hoverFocusEnabled: root.hoverFocusEnabled
                         Keys.onPressed: event => root.acceptBack(event)
@@ -377,10 +395,40 @@ FocusScope {
                         text: qsTr("Stop")
                         visible: root.allows("stop")
                         enabled: root.allows("stop")
+                        busy: root.operationPending
                         pointerMode: root.pointerMode
                         hoverFocusEnabled: root.hoverFocusEnabled
                         Keys.onPressed: event => root.acceptBack(event)
                         onActivated: root.request("stop")
+                    }
+                }
+
+                Ui.UiText {
+                    objectName: "operationPending"
+                    visible: root.hasSession && root.operationPending
+                    text: qsTr("Waiting…")
+                    role: "meta"
+                    color: Ui.Theme.textSecondary
+                }
+                Rectangle {
+                    id: operationBanner
+                    objectName: "operationBanner"
+                    visible: root.hasSession && root.operationFailed
+                    width: parent.width
+                    implicitHeight: operationBannerText.implicitHeight + 28
+                    height: implicitHeight
+                    radius: 18
+                    color: Qt.rgba(0.91, 0.28, 0.31, 0.16)
+                    Ui.UiText {
+                        id: operationBannerText
+                        objectName: "operationBannerText"
+                        width: parent.width - 28
+                        anchors.left: parent.left
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.leftMargin: 14
+                        text: root.operationMessage
+                        role: "body"
+                        color: Ui.Theme.error
                     }
                 }
             }

@@ -98,6 +98,7 @@ Window {
             durationUs: mediaCatalog.durationUs
             positionUs: mediaCatalog.positionUs
             availableActions: mediaCatalog.sessionActions
+            operationState: mediaCatalog.operationState
             onPlayRequested: mediaCatalog.play()
             onPauseRequested: mediaCatalog.pause()
             onPlayPauseRequested: mediaCatalog.playPause()

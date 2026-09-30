@@ -270,6 +270,32 @@ TestCase {
         compare(view.positionUs, 65000000);
     }
 
+    function test_operation_pending_and_error_banner() {
+        compare(child("operationPending").visible, false);
+        compare(child("operationBanner").visible, false);
+        view.operationState = "pending";
+        tryCompare(child("operationPending"), "visible", true);
+        compare(child("operationPending").text, "Waiting…");
+        compare(child("operationBanner").visible, false);
+        compare(child("action-play").busy, true);
+        keyClick(Qt.Key_Return);
+        compare(plays.count, 0);
+        view.operationState = "succeeded";
+        tryCompare(child("operationPending"), "visible", false);
+        compare(child("operationBanner").visible, false);
+        compare(child("action-play").busy, false);
+        view.operationState = "Unsupported";
+        tryCompare(child("operationBanner"), "visible", true);
+        compare(child("operationBannerText").text, "That control is not available.");
+        compare(child("operationPending").visible, false);
+        view.operationState = "Timeout";
+        compare(child("operationBanner").visible, true);
+        compare(child("operationBannerText").text, "The player did not answer in time.");
+        view.operationState = "";
+        tryCompare(child("operationBanner"), "visible", false);
+        compare(plays.count, 0);
+    }
+
     function test_default_artwork_uses_theme_plate() {
         mouseMove(suite, 10, 10);
         const plain = createTemporaryObject(plainFactory, suite);

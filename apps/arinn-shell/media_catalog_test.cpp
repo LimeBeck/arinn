@@ -575,6 +575,16 @@ private slots:
     play->forceActiveFocus();
     QTest::keyClick(window, Qt::Key_Return);
     QTRY_COMPARE(catalog->operationState(), QStringLiteral("pending"));
+    QCOMPARE(session->property("operationState").toString(),
+             QStringLiteral("pending"));
+    auto pending =
+        window->findChild<QQuickItem *>(QStringLiteral("operationPending"));
+    auto banner =
+        window->findChild<QQuickItem *>(QStringLiteral("operationBanner"));
+    QVERIFY(pending);
+    QVERIFY(banner);
+    QTRY_COMPARE(pending->property("visible").toBool(), true);
+    QCOMPARE(banner->property("visible").toBool(), false);
     QCOMPARE(daemon.commands, QStringList({QStringLiteral("Play")}));
     QCOMPARE(session->property("playbackState").toString(),
              QStringLiteral("paused"));
@@ -583,9 +593,106 @@ private slots:
     QCOMPARE(label->property("text").toString(), QStringLiteral("Paused"));
     daemon.holdOperation = false;
     QTRY_COMPARE(catalog->operationState(), QStringLiteral("succeeded"));
+    QCOMPARE(session->property("operationState").toString(),
+             QStringLiteral("succeeded"));
+    QTRY_COMPARE(pending->property("visible").toBool(), false);
+    QCOMPARE(banner->property("visible").toBool(), false);
     QCOMPARE(session->property("playbackState").toString(),
              QStringLiteral("paused"));
     QCOMPARE(label->property("text").toString(), QStringLiteral("Paused"));
+    catalog->next();
+    QCOMPARE(catalog->operationState(), QStringLiteral("Unsupported"));
+    QCOMPARE(session->property("operationState").toString(),
+             QStringLiteral("Unsupported"));
+    QTRY_COMPARE(banner->property("visible").toBool(), true);
+    auto bannerText =
+        window->findChild<QQuickItem *>(QStringLiteral("operationBannerText"));
+    QVERIFY(bannerText);
+    QCOMPARE(bannerText->property("text").toString(),
+             QStringLiteral("That control is not available."));
+  }
+  void stateChangedRefreshesWithoutAFastPoll() {
+    MediaDaemon daemon;
+    daemon.page1 = {session(QStringLiteral("live"), QStringLiteral("Before"),
+                            QStringLiteral("paused"), 10, monotonicUs(), -1,
+                            {QStringLiteral("play")})};
+    auto bus = QDBusConnection::sessionBus();
+    QVERIFY(bus.registerService(QStringLiteral("org.arinn.Daemon1")));
+    QVERIFY(bus.registerVirtualObject(QStringLiteral("/org/arinn"), &daemon,
+                                      QDBusConnection::SubPath));
+    MediaCatalog catalog;
+    QTRY_COMPARE(catalog.sessionTitle(), QStringLiteral("Before"));
+    QTest::qWait(100);
+    const auto reads = daemon.sessionReads;
+    QVERIFY(reads >= 1);
+    QTest::qWait(1500);
+    QCOMPARE(daemon.sessionReads, reads);
+    daemon.page1[0].title = QStringLiteral("After");
+    auto signal = QDBusMessage::createSignal(
+        QStringLiteral("/org/arinn/Daemon1"), QStringLiteral("org.arinn.Daemon1"),
+        QStringLiteral("StateChanged"));
+    signal << QStringLiteral("media-provider") << QStringLiteral("media")
+           << QStringLiteral("g-media") << qulonglong(2);
+    QVERIFY(bus.send(signal));
+    QTRY_COMPARE(catalog.sessionTitle(), QStringLiteral("After"));
+    QVERIFY(daemon.sessionReads > reads);
+  }
+  void zeroOrFutureAnchorDoesNotAdvance() {
+    {
+      MediaDaemon daemon;
+      daemon.page1 = {session(QStringLiteral("zero"), QStringLiteral("Zero"),
+                              QStringLiteral("playing"), 250000, 0, -1,
+                              {QStringLiteral("pause")})};
+      auto bus = QDBusConnection::sessionBus();
+      QVERIFY(bus.registerService(QStringLiteral("org.arinn.Daemon1")));
+      QVERIFY(bus.registerVirtualObject(QStringLiteral("/org/arinn"), &daemon,
+                                        QDBusConnection::SubPath));
+      MediaCatalog catalog;
+      QTRY_COMPARE(catalog.sessionTitle(), QStringLiteral("Zero"));
+      QCOMPARE(catalog.positionUs(), 250000);
+      QTest::qWait(300);
+      QCOMPARE(catalog.positionUs(), 250000);
+    }
+    cleanup();
+    {
+      MediaDaemon daemon;
+      const auto now = monotonicUs();
+      daemon.page1 = {session(QStringLiteral("future"), QStringLiteral("Future"),
+                              QStringLiteral("playing"), 250000,
+                              now + 60000000ull, -1, {QStringLiteral("pause")})};
+      auto bus = QDBusConnection::sessionBus();
+      QVERIFY(bus.registerService(QStringLiteral("org.arinn.Daemon1")));
+      QVERIFY(bus.registerVirtualObject(QStringLiteral("/org/arinn"), &daemon,
+                                        QDBusConnection::SubPath));
+      MediaCatalog catalog;
+      QTRY_COMPARE(catalog.sessionTitle(), QStringLiteral("Future"));
+      QCOMPARE(catalog.positionUs(), 250000);
+      QTest::qWait(300);
+      QCOMPARE(catalog.positionUs(), 250000);
+    }
+  }
+  void operationWaitIsBounded() {
+    MediaDaemon daemon;
+    daemon.holdOperation = true;
+    daemon.page1 = {session(QStringLiteral("live"), QStringLiteral("Playing"),
+                            QStringLiteral("paused"), 10, monotonicUs(), -1,
+                            {QStringLiteral("play")})};
+    auto bus = QDBusConnection::sessionBus();
+    QVERIFY(bus.registerService(QStringLiteral("org.arinn.Daemon1")));
+    QVERIFY(bus.registerVirtualObject(QStringLiteral("/org/arinn"), &daemon,
+                                      QDBusConnection::SubPath));
+    MediaCatalog catalog;
+    QTRY_COMPARE(catalog.sessionState(), QStringLiteral("ready"));
+    catalog.play();
+    QTRY_COMPARE(catalog.operationState(), QStringLiteral("pending"));
+    QTRY_COMPARE_WITH_TIMEOUT(catalog.operationState(),
+                              QStringLiteral("Timeout"), 10000);
+    QTest::qWait(400);
+    const auto reads = daemon.operationReads;
+    QVERIFY(reads > 0);
+    QVERIFY(reads < 100);
+    QTest::qWait(400);
+    QCOMPARE(daemon.operationReads, reads);
   }
 };
 

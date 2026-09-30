@@ -280,6 +280,7 @@ impl Fixture {
                 items: Vec::new(),
                 resume_cache: None,
                 resumes: Vec::new(),
+                settings_schema: None,
                 windows: Vec::new(),
                 tabs: Vec::new(),
                 started: Instant::now(),

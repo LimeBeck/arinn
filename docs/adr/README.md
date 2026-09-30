@@ -75,6 +75,9 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0054](0054-media-and-library-wire-contract.md) | Media and library wire contract | Accepted | — |
 | [0055](0055-launching-a-closed-browser.md) | Launching a closed browser before opening a URL | Accepted | — |
 | [0057](0057-mpv-ipc-and-process-scope.md) | mpv IPC, process scope and thumbnails | Accepted | — |
-| [0058](0058-media-routing.md) | Daemon routing for media providers | Accepted | — |
+| [0058](0058-media-routing.md) | Daemon routing for media providers | Accepted | 0060 |
 | [0059](0059-application-icon-references.md) | Application icon references | Accepted | — |
+| [0060](0060-library-routing.md) | Daemon routing for library providers and library launch | Accepted | 0061 |
+| [0061](0061-playback-progress-forwarding.md) | Forwarding playback progress to the library | Accepted | — |
+| [0062](0062-asset-contract.md) | Fetching assets by id | Accepted | — |
 <!-- register:end -->

@@ -1,0 +1,1 @@
+- The daemon routes `library` providers and starts a library item in a media provider with `MediaOpen1`; the file URI never reaches the shell ([ADR-0060](docs/adr/0060-library-routing.md)).

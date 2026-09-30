@@ -471,4 +471,60 @@ TestCase {
         keyClick(Qt.Key_Up);
         focused("detailPlay");
     }
+
+    function test_operation_waiting_and_failure() {
+        createLibrary(catalogue());
+        focused("tab-films");
+        keyClick(Qt.Key_Down);
+        focused("poster-a");
+        keyClick(Qt.Key_Return);
+        focused("detailPlay");
+        library.launchingId = "a";
+        library.operationState = "pending";
+        compare(child("detailPlay").busy, true);
+        compare(child("operationPending").visible, true);
+        compare(child("operationBanner").visible, false);
+        library.operationState = "Unavailable";
+        compare(child("operationPending").visible, false);
+        compare(child("operationBanner").visible, true);
+        compare(child("operationBannerText").text, "This title is not available.");
+        library.operationState = "succeeded";
+        compare(child("operationBanner").visible, false);
+        compare(child("operationPending").visible, false);
+    }
+
+    function test_episode_still_is_busy_while_its_launch_is_pending() {
+        createLibrary({
+            tabs: [{id: "series", title: "Series"}],
+            entries: [{
+                id: "show",
+                tabId: "series",
+                title: "Serial",
+                kind: "series",
+                seasons: [{id: "s1", title: "Season 1"}],
+                episodes: [
+                    {id: "p1", seasonId: "s1", title: "Pilot", number: 1},
+                    {id: "p2", seasonId: "s1", title: "Next", number: 2}
+                ]
+            }]
+        });
+        focused("tab-series");
+        keyClick(Qt.Key_Down);
+        keyClick(Qt.Key_Return);
+        focused("detailPlay");
+        keyClick(Qt.Key_Down);
+        focused("season-s1");
+        keyClick(Qt.Key_Down);
+        focused("episode-p1");
+        library.launchingId = "p2";
+        library.operationState = "pending";
+        compare(child("episode-p2").busy, true);
+        compare(child("episode-p1").busy, false);
+        compare(child("detailPlay").busy, true);
+        keyClick(Qt.Key_Right);
+        focused("episode-p2");
+        episodes.clear();
+        keyClick(Qt.Key_Return);
+        compare(episodes.count, 0);
+    }
 }

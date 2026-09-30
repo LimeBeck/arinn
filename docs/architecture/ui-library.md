@@ -1,22 +1,87 @@
 <!-- SPDX-FileCopyrightText: 2026 Arinn contributors -->
 <!-- SPDX-License-Identifier: CC-BY-SA-4.0 -->
 
-# Library fixture screen
+# Library screen
 
-Presentation-only Library view for [specification §5.3](../specifications/arinn-specification.md#53-library)
+Presentation for [specification §5.3](../specifications/arinn-specification.md#53-library)
 and [§7.4](../specifications/arinn-specification.md#74-local-library-and-mpv).
-It is not wired into Home, does not talk to a daemon or provider, and does not
-close AC-15 or any Phase 5 gate.
+`LibraryCatalog` in `apps/arinn-shell/library_catalog.cpp` reads `org.arinn.Library1`
+on each ready `library` provider path ([ADR-0060](../adr/0060-library-routing.md)).
+The screen does not talk to a plugin, and it never sees a file URI.
 
-`LibraryView` lives in `apps/arinn-shell/ui/screens/library/` and imports the
-existing presentation components. It does not modify them. Posters are
-`Surface` controls because `ContentCard` is the landscape card, not a poster.
-Loading uses `Skeleton`. Empty, error and unavailable states use `StatusPane`.
-Resume uses `ProgressTrack`. Detail actions use `ActionButton`.
+Posters stay the generic plate. Fetching artwork through Assets1 is
+[#162](https://github.com/LimeBeck/arinn/issues/162). This binding does not
+close AC-15: scanning a folder and playing a file on a real session are not
+part of it.
+
+## Model
+
+Reads are asynchronous. `GetLibrary` is paged. A repeated page token, a page
+generation other than the provider's, a revision that is not the first page's,
+an invalid item, or a parent that is missing or cyclic drops that provider. A
+revision starts at 1. If every ready library provider fails, the state is
+`error`. A library provider that is not `ready` makes the state `unavailable`.
+No library provider is `empty`. The daemon disappearing is `unavailable`.
+
+An unavailable backend is still read. Entries with `available` false stay in
+the catalogue as missing; they are not deleted. Unknown kinds display as
+`other`. Year, season and episode are shown only when their flag is set.
+Poster and fanart ids are discarded.
+
+`Features` decides whether `GetResumes` is called. Without `LibraryResume1`,
+or when that call fails, the catalogue stays and progress is zero. Resume
+revisions are independent of the catalogue revision. A position above zero
+that is not `completed` is Continue: the fraction is position over the resume
+duration, or over the item duration when the resume duration is unknown. A
+position with no duration is a small fraction so Continue still appears.
+`completed` stays Play. A series uses the resume of the episode Play would
+open, so Continue appears on the series when that episode has progress.
+
+Collections are the tabs. Items with an empty `parent_id` are the posters.
+Children are that parent's episodes, grouped into season pills when they
+carry a season. The shell does not invent a plot.
+
+The catalog subscribes to `Changed`, `ProvidersChanged` and `StateChanged`
+before the first read, and those signals reload the snapshot. A 30 s timer
+is only the fallback for a missed signal.
+
+`Launch` for a film is that film. `Launch` for a series is the episode with
+an unfinished resume, or, when none is in progress, the first available
+episode in season and episode order. The series id is not sent. A missing
+target, a series with no available episode, or a catalogue that is not
+`ready` sets the operation to `Unavailable` and does not call. A second
+launch while one is `pending`, `queued` or `running` is ignored. The call
+returns an operation. The shell polls `Operation1.Get` until it leaves
+`queued` or `running`, and stops after 31 s (the 30 s launch timeout plus one
+second). `succeeded` with a `media` result emits that session's presentation
+id. The URI is never a result. `RestartFromBeginning` is not on this screen.
+
+## Screen
+
+`LibraryView` lives in `apps/arinn-shell/ui/screens/library/`. Production
+`Main.qml` binds it to `LibraryCatalog` and shows it when Home is on the
+Library section. The view still does not call D-Bus. It reuses `Theme`,
+`UiText`, `Surface`, `Skeleton`, `StatusPane`, `ActionButton` and
+`ProgressTrack`.
+
+`libraryState` `ready` shows the grid. `empty`, `error` and `unavailable`
+show `StatusPane` with those kinds. `loading` shows skeletons and keeps the
+tabs focusable. `missing` draws the "No file" pill and, in detail, explains
+that the entry stays. `progress` greater than zero labels the primary action
+Continue. A missing entry's primary action is Remove from library; there is
+no hide method on `Library1`, so that signal is not sent to the daemon.
+
+While a launch is `pending`, `queued` or `running`, the action is busy and a
+"Waiting…" line is shown. The episode still whose id is `launchingId` is busy
+too, and the series action stays busy while that id is one of its episodes.
+`succeeded` and an empty state are quiet. Any other value shows an error
+banner. A successful launch opens the now-playing screen on the returned media
+session. Back from that screen returns focus to the library detail action.
+Back from Continue still returns Home.
 
 ## Fixture contract
 
-Callers pass immutable presentation data. Identifiers are opaque. The view
+Callers can still pass presentation data. Identifiers are opaque. The view
 filters `entries` by `tabId` against `currentTabId` and does not infer a group
 from titles. `kind` may be `film` or `series` for the detail eyebrow only.
 
@@ -24,18 +89,15 @@ from titles. `kind` may be `film` or `series` for the detail eyebrow only.
 | --- | --- |
 | `libraryState` | `ready`, `empty`, `loading`, `error` or `unavailable` |
 | `tabs` | `{id, title}` catalogue tabs |
-| `entries` | `{id, tabId, title, subtitle, year, description, artwork, kind, noArt, missing, enabled, busy, progress, seasons, episodes}` |
+| `entries` | `{id, tabId, title, subtitle, year, description, kind, noArt, missing, enabled, busy, progress, seasons, episodes}` |
 | `seasons` | `{id, title}` on an entry. Season pills are shown only when this list is non-empty |
 | `episodes` | `{id, seasonId, number, title, duration, missing, enabled, progress}` on an entry. `seasonId` filters the stills; an episode without one stays visible for every season |
+| `operationState` | Empty, `pending`, `succeeded`, or an error code |
+| `launchingId` | Presentation id of the item whose launch is in progress |
 | `columns` | Poster columns. `0` uses the seven-column frame; a positive value overrides it |
 
-`missing` draws a "No file" pill on the poster's bottom-left, not a second
-title, and in detail explains that the entry stays in the catalogue. `progress`
-greater than zero labels the primary action Continue and shows the progress
-track. A missing entry's primary action is Remove from library. `noArt` draws a
-plate with a film glyph and the title. Any other poster is a colored stand-in
-labeled `poster`. `year`, or `subtitle` when `year` is absent, sits under the
-title.
+`noArt` draws a plate with a film glyph and the title. The bound catalogue
+always sets it, so an asset id is never used as an image source.
 
 ## Frame
 
@@ -51,40 +113,43 @@ pills and episode stills at 420×236, labeled `still`.
 
 Signals are intents only: `tabRequested`, `entryRequested`, `playRequested`,
 `episodeRequested`, `removeRequested`, `retryRequested`, `backRequested` and
-`homeRequested`. Nothing is launched, hidden or deleted inside the view.
-`retryRequested` is the status action for empty, error and unavailable. Loading
-shows skeletons and keeps the tabs focusable; the status action stays hidden.
+`homeRequested`. Nothing is launched inside the view. `retryRequested` is the
+status action for empty, error and unavailable. Loading shows skeletons and
+keeps the tabs focusable; the status action stays hidden.
 
 ## Focus
 
-D-pad focus stays inside this screen. Tabs move horizontally and do not wrap
-past either end. Down enters the first poster, or the status action when the
-grid is absent. Posters move by column and skip disabled entries; the edges do
-not wrap to another screen. Up from the first row returns to the current tab.
-Opening a poster pushes detail and focuses Play, Continue or Remove. Down from
-that action reaches season pills when the entry has seasons, otherwise episodes
-when the entry has them. Down from a season pill reaches that season's stills.
-Up from a still returns to the season pills when they exist, otherwise to the
-action. Escape, Backspace and Back close detail and restore the opener. A
-further one of those keys emits `backRequested` and leaves focus on the poster.
-Home emits `homeRequested`, closes detail when it is open, and
-leaves focus inside the view. Tab does not leave the view.
+D-pad focus stays inside this screen while it is visible. The view takes
+focus only when it is visible and enabled, so a hidden library does not take
+Home keys. Tabs move horizontally and do not wrap past either end. Down enters
+the first poster, or the status action when the grid is absent. Posters move
+by column and skip disabled entries; the edges do not wrap to another screen.
+Up from the first row returns to the current tab. Opening a poster pushes
+detail and focuses Play, Continue or Remove. Down from that action reaches
+season pills when the entry has seasons, otherwise episodes when the entry
+has them. Down from a season pill reaches that season's stills. Up from a
+still returns to the season pills when they exist, otherwise to the action.
+Escape, Backspace and Back close detail and restore the opener. A further one
+of those keys emits `backRequested`. Home emits `homeRequested`, closes detail
+when it is open, and leaves focus inside the view. Tab does not leave the
+view.
 
 ## Verification
 
-`tests/ui/tst_library.qml` imports this directory from the filesystem. The
-existing `ui-components` CTest loads every `tests/ui/tst_*.qml`, so no build
-file change is required. The cases cover grid and detail focus, the four
-non-ready states plus a ready grid, the missing-file badge, focus after a
-poster disappears, and the handoff frame: column count, poster geometry, the
-ember tab underline, stand-in and no-art plates, and series season stills.
+`tests/ui/tst_library.qml` imports this directory from the filesystem and
+covers grid and detail focus, empty, error and unavailable, resume as
+Continue, the missing-file badge, and the operation line.
+`apps/arinn-shell/library_catalog_test.cpp` drives a fake `Library1`: paging,
+a dropped provider, resume, a missing file on an unavailable backend, Launch
+as an operation, and the bound screen's empty, unavailable and resume states.
 
 ```sh
 cmake -S . -B build -G Ninja
-cmake --build build --target arinn-ui-test
+cmake --build build --target arinn-ui-test arinn-library-catalog-test
 QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
   ./build/apps/arinn-shell/arinn-ui-test -input tests/ui tst_library
+dbus-run-session -- ./build/apps/arinn-shell/arinn-library-catalog-test
 ```
 
 Operator tests, television readability and the 22-screen design gate are not
-part of this increment. Connecting the view to Home is a follow-up.
+part of this increment.

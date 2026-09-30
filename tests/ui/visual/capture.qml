@@ -114,25 +114,19 @@ TestCase {
         return {
             width: 1920, height: 1080,
             categories: [
-                {id: "media", title: "Media", capability: "library", icon: "video_library"},
-                {id: "playback", title: "Playback", capability: "playback", icon: "play_circle"},
+                {id: "media", title: "Media", icon: "video_library"},
+                {id: "playback", title: "Playback", icon: "play_circle"},
                 {id: "sound", title: "Sound", icon: "volume_up"},
-                {id: "network", title: "Network", capability: "network", icon: "wifi"},
+                {id: "network", title: "Network", icon: "wifi"},
                 {id: "applications", title: "Applications", icon: "apps"},
                 {id: "appearance", title: "Appearance", icon: "palette"},
                 {id: "system", title: "System", icon: "memory"}
             ],
             rows: [
                 {id: "scan", categoryId: "media", title: "Scan folders", description: "Look for new files", type: "boolean", currentValue: false, constraints: {}, enabled: true},
-                {id: "autonext", categoryId: "playback", title: "Play next", description: "Continue to the next item", type: "boolean", currentValue: true, constraints: {}, enabled: true},
-                {id: "output", categoryId: "sound", title: "Output", description: "Audio output", type: "enum", currentValue: "stereo", constraints: {values: ["stereo", "surround"]}, enabled: true},
-                {id: "density", categoryId: "appearance", title: "Density", description: "Interface density", type: "enum", currentValue: "regular", constraints: {values: ["regular", "compact"]}, enabled: true},
-                {id: "idle", categoryId: "system", title: "Idle minutes", description: "Wait before the ambient screen", type: "integer", currentValue: 10, constraints: {minimum: 1, maximum: 60, step: 1}, enabled: true}
-            ],
-            capabilities: [
-                {id: "library", available: true},
-                {id: "playback", available: false, title: "Playback unavailable", description: "No playback capability is registered."},
-                {id: "network", available: false, title: "Network unavailable", description: "No network capability is registered."}
+                {id: "output", categoryId: "sound", title: "Output", description: "Audio output", type: "enum", currentValue: "stereo", constraints: {options: [{value: "stereo", title: "Stereo"}, {value: "surround", title: "Surround"}]}, enabled: true},
+                {id: "density", categoryId: "appearance", title: "Density", description: "Interface density", type: "enum", currentValue: "regular", constraints: {options: [{value: "regular", title: "Regular"}, {value: "compact", title: "Compact"}]}, enabled: true},
+                {id: "idle", categoryId: "system", title: "Idle minutes", description: "Wait before the ambient screen", type: "integer", currentValue: 10, constraints: {min: 1, max: 60}, enabled: true}
             ]
         };
     }

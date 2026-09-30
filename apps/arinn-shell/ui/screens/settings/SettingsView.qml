@@ -5,50 +5,42 @@ import QtQuick
 import QtQuick.Templates as T
 import "../../" as Ui
 
-// Fixture-driven settings. Categories, rows and capabilities are supplied by
-// the caller. A change emits valueChangeRequested and leaves the fixture as it
-// was: this view does not write daemon configuration.
+// Settings presentation. Categories and rows come from the caller (the shell
+// binds SettingsCatalog). This view does not call a daemon or a provider.
 FocusScope {
     id: root
     width: 1920
     height: 1080
+    property string screenState: "ready"
     property var categories: []
     property var rows: []
-    property var capabilities: []
     property bool pointerMode: false
     property int categoryIndex: 0
     property int rowFocusIndex: 0
+    property string partName: "main"
     property bool detailFocused: false
-    property string editingId: ""
+    property string editingKey: ""
+    property string editingPart: ""
     property string editingDraft: ""
-    signal valueChangeRequested(string settingId, var value)
+    property string choosingKey: ""
+    property int optionIndex: 0
+    signal valueChangeRequested(string providerId, string settingId, var value)
     signal dismissRequested()
+    signal retryRequested()
 
+    readonly property bool screenBlocked: screenState === "loading" || screenState === "error" || screenState === "unavailable"
     readonly property var activeRows: collectRows()
     readonly property string paneKind: paneFor(currentCategory())
+    readonly property var choosingRow: rowByKey(choosingKey)
+    readonly property var choosingOptions: choosingRow ? optionsOf(choosingRow) : []
 
     function currentCategory() {
         if (categoryIndex < 0 || categoryIndex >= categories.length) return null;
         return categories[categoryIndex];
     }
-    function registeredCapability(name) {
-        if (!name) return null;
-        for (let i = 0; i < capabilities.length; ++i) {
-            const entry = capabilities[i];
-            if (entry && entry.id === name) return entry;
-        }
-        return null;
-    }
-    // An empty name means the row does not depend on a provider capability.
-    // Anything else must be registered and available, or the UI is unavailable.
-    function capabilityReady(name) {
-        if (!name) return true;
-        const found = registeredCapability(name);
-        return !!found && found.available !== false;
-    }
     function collectRows() {
         const category = categories[categoryIndex];
-        if (!category || !capabilityReady(category.capability)) return [];
+        if (!category) return [];
         const result = [];
         for (let i = 0; i < rows.length; ++i) {
             const row = rows[i];
@@ -58,42 +50,235 @@ FocusScope {
     }
     function paneFor(category) {
         if (!category) return "empty";
-        if (!capabilityReady(category.capability)) return "unavailable";
         return collectRows().length === 0 ? "empty" : "ready";
     }
-    function rowBlocked(row) {
-        return !row || !capabilityReady(row.capability);
+    function rowKey(row) {
+        if (!row) return "";
+        const provider = row.providerId || "";
+        return provider.length ? provider + "-" + row.id : String(row.id || "");
     }
-    function constraintValues(row) {
-        return row && row.constraints && row.constraints.values ? row.constraints.values : [];
+    function rowByKey(key) {
+        for (let i = 0; i < rows.length; ++i)
+            if (rows[i] && rowKey(rows[i]) === key) return rows[i];
+        return null;
+    }
+    function canEdit(row) {
+        return !!row && row.enabled !== false && !row.pending;
+    }
+    function optionsOf(row) {
+        const options = row && row.constraints && row.constraints.options;
+        return options && options.length !== undefined ? options : [];
+    }
+    function isMultiple(row) {
+        return !!row && row.type === "path" && !!(row.constraints && row.constraints.multiple);
+    }
+    function pathList(row) {
+        if (!row || row.currentValue === undefined || row.currentValue === null) return [];
+        return row.currentValue.length !== undefined && row.type === "path" && isMultiple(row)
+               ? row.currentValue : [];
+    }
+    function hasBound(row, name) {
+        return !!(row && row.constraints && row.constraints[name] !== undefined && row.constraints[name] !== null
+                  && isFinite(Number(row.constraints[name])));
+    }
+    function integerValue(row) {
+        if (!row || row.currentValue === undefined || row.currentValue === null || row.currentValue === "")
+            return NaN;
+        const n = Number(row.currentValue);
+        if (!isFinite(n) || Math.trunc(n) !== n) return NaN;
+        return n;
     }
     function valueUnsupported(row) {
         if (!row) return true;
         if (row.type === "boolean") return row.currentValue !== true && row.currentValue !== false;
-        if (row.type === "enum") return constraintValues(row).indexOf(row.currentValue) < 0;
-        if (row.type === "integer") return !isFinite(Number(row.currentValue));
+        if (row.type === "enum") {
+            const options = optionsOf(row);
+            if (!options.length) return true;
+            for (let i = 0; i < options.length; ++i)
+                if (options[i] && options[i].value === row.currentValue) return false;
+            return true;
+        }
+        if (row.type === "integer") return !isFinite(integerValue(row));
         if (row.type === "string" || row.type === "path") return false;
         return true;
     }
     function displayValue(row) {
         if (!row) return "";
-        // A boolean is only the switch. Words would read as a second value.
+        if (row.pending) return qsTr("Saving…");
         if (row.type === "boolean")
-            return (row.currentValue === true || row.currentValue === false) ? "" : qsTr("Unsupported");
+            return valueUnsupported(row) ? qsTr("Unsupported") : "";
         if (row.type === "enum") {
             if (valueUnsupported(row)) return qsTr("Unsupported");
+            const options = optionsOf(row);
+            for (let i = 0; i < options.length; ++i)
+                if (options[i] && options[i].value === row.currentValue)
+                    return options[i].title || String(row.currentValue);
             return String(row.currentValue);
         }
         if (row.type === "integer") {
             if (valueUnsupported(row)) return qsTr("Unsupported");
-            return String(row.currentValue);
+            return String(integerValue(row));
         }
-        if (row.type === "string" || row.type === "path") {
+        if (row.type === "string" || (row.type === "path" && !isMultiple(row))) {
             if (row.currentValue === undefined || row.currentValue === null || row.currentValue === "")
                 return qsTr("Not set");
             return String(row.currentValue);
         }
         return qsTr("Unsupported");
+    }
+    function errorText(code) {
+        if (!code) return "";
+        if (code === "InvalidArgument") return qsTr("That value is not allowed.");
+        if (code === "Conflict") return qsTr("Settings changed. Try again.");
+        if (code === "Unavailable") return qsTr("Settings are unavailable.");
+        if (code === "Timeout") return qsTr("Settings did not answer in time.");
+        if (code === "Unsupported") return qsTr("That change is not available.");
+        if (code === "NotFound") return qsTr("That setting is not available.");
+        if (code === "PermissionDenied") return qsTr("Settings cannot be changed.");
+        return qsTr("The change did not save.");
+    }
+    function partsFor(row) {
+        if (!row) return [];
+        if (row.type === "integer" && !valueUnsupported(row)) return ["minus", "value", "plus"];
+        if (isMultiple(row)) {
+            const list = pathList(row);
+            const parts = [];
+            for (let i = 0; i < list.length; ++i) {
+                parts.push("path:" + i);
+                parts.push("remove:" + i);
+            }
+            parts.push("add");
+            return parts;
+        }
+        return ["main"];
+    }
+    function emitChange(row, value) {
+        if (!canEdit(row)) return;
+        valueChangeRequested(row.providerId || "", row.id, value);
+    }
+    function stepInteger(row, delta) {
+        const current = integerValue(row);
+        if (!isFinite(current)) return;
+        const next = current + delta;
+        if (hasBound(row, "min") && next < Number(row.constraints.min)) return;
+        if (hasBound(row, "max") && next > Number(row.constraints.max)) return;
+        emitChange(row, next);
+    }
+    function withinInteger(row, n) {
+        if (!isFinite(n) || Math.trunc(n) !== n) return false;
+        if (hasBound(row, "min") && n < Number(row.constraints.min)) return false;
+        if (hasBound(row, "max") && n > Number(row.constraints.max)) return false;
+        return true;
+    }
+    function openEditor(row, part, draft) {
+        if (!canEdit(row)) return;
+        choosingKey = "";
+        editingPart = part;
+        editingDraft = draft === undefined || draft === null ? "" : String(draft);
+        editingKey = rowKey(row);
+    }
+    function finishEdit(commit) {
+        if (!editingKey) return;
+        const row = rowByKey(editingKey);
+        const part = editingPart;
+        const draft = editingDraft;
+        const key = editingKey;
+        if (!commit || !row || !canEdit(row)) {
+            editingKey = "";
+            editingPart = "";
+            refocusKey(key);
+            return;
+        }
+        if (row.type === "string") {
+            const max = hasBound(row, "maxLength") ? Number(row.constraints.maxLength) : 1024;
+            if (draft.length > max) return;
+            if (/[\u0000-\u001F\u007F]/.test(draft)) return;
+            editingKey = "";
+            editingPart = "";
+            emitChange(row, draft);
+            refocusKey(key);
+            return;
+        }
+        if (row.type === "integer") {
+            if (!/^-?\d+$/.test(draft) || !withinInteger(row, Number(draft))) return;
+            editingKey = "";
+            editingPart = "";
+            emitChange(row, Number(draft));
+            refocusKey(key);
+            return;
+        }
+        if (row.type === "path" && !isMultiple(row)) {
+            editingKey = "";
+            editingPart = "";
+            emitChange(row, draft);
+            refocusKey(key);
+            return;
+        }
+        if (isMultiple(row)) {
+            const list = pathList(row).slice();
+            if (!draft.length) return;
+            if (part === "add") {
+                const maxItems = hasBound(row, "maxItems") ? Number(row.constraints.maxItems) : 64;
+                if (list.length >= maxItems) return;
+                list.push(draft);
+            } else if (part.indexOf("path:") === 0) {
+                list[Number(part.slice(5))] = draft;
+            } else return;
+            editingKey = "";
+            editingPart = "";
+            emitChange(row, list);
+            refocusKey(key);
+        }
+    }
+    function removePath(row, index) {
+        if (!canEdit(row)) return;
+        const list = pathList(row).slice();
+        if (index < 0 || index >= list.length) return;
+        list.splice(index, 1);
+        emitChange(row, list);
+    }
+    function openOptions(row) {
+        if (!canEdit(row) || row.type !== "enum" || valueUnsupported(row) && !optionsOf(row).length) return;
+        if (!optionsOf(row).length) return;
+        editingKey = "";
+        choosingKey = rowKey(row);
+        const options = optionsOf(row);
+        let index = 0;
+        for (let i = 0; i < options.length; ++i)
+            if (options[i] && options[i].value === row.currentValue) index = i;
+        optionIndex = index;
+        Qt.callLater(() => focusOption(optionIndex));
+    }
+    function focusOption(index) {
+        const item = optionRepeater.itemAt(index);
+        if (!item) return;
+        optionIndex = index;
+        item.forceActiveFocus();
+    }
+    function closeOptions() {
+        const key = choosingKey;
+        choosingKey = "";
+        refocusKey(key);
+    }
+    function chooseOption() {
+        const row = rowByKey(choosingKey);
+        const options = optionsOf(row);
+        const option = options[optionIndex];
+        const key = choosingKey;
+        choosingKey = "";
+        if (row && option && canEdit(row) && option.value !== row.currentValue)
+            emitChange(row, option.value);
+        refocusKey(key);
+    }
+    function activeRowIndex(key) {
+        for (let i = 0; i < activeRows.length; ++i)
+            if (rowKey(activeRows[i]) === key) return i;
+        return -1;
+    }
+    function refocusKey(key) {
+        const index = activeRowIndex(key);
+        if (index >= 0) focusPart(index, partsFor(activeRows[index])[0] || "main");
+        else if (categories.length) focusCategory(categoryIndex);
     }
     function paintIcon(ctx, name) {
         ctx.clearRect(0, 0, 38, 38);
@@ -162,96 +347,28 @@ FocusScope {
             stroke();
         }
     }
-    function proposedValue(row) {
-        const constraints = row.constraints || {};
-        if (row.type === "boolean") {
-            if (row.currentValue !== true && row.currentValue !== false) return undefined;
-            return !row.currentValue;
-        }
-        if (row.type === "enum") {
-            const values = constraintValues(row);
-            if (!values.length) return undefined;
-            const index = values.indexOf(row.currentValue);
-            return values[index < 0 ? 0 : (index + 1) % values.length];
-        }
-        if (row.type === "integer") {
-            const current = Number(row.currentValue);
-            if (!isFinite(current)) return undefined;
-            const step = Number(constraints.step);
-            const delta = isFinite(step) && step !== 0 ? step : 1;
-            const next = current + delta;
-            if (constraints.minimum !== undefined && next < Number(constraints.minimum)) return undefined;
-            if (constraints.maximum !== undefined && next > Number(constraints.maximum)) return undefined;
-            return next;
-        }
-        return undefined;
-    }
-    function commitRow(row) {
-        if (!row || row.enabled === false || rowBlocked(row)) return;
-        if (row.type === "string" || row.type === "path") {
-            editingDraft = row.currentValue === undefined || row.currentValue === null ? "" : String(row.currentValue);
-            editingId = row.id;
-            return;
-        }
-        const next = proposedValue(row);
-        if (next === undefined) return;
-        valueChangeRequested(row.id, next);
-    }
-    function finishEdit(commit) {
-        if (!editingId) return;
-        const id = editingId;
-        const draft = editingDraft;
-        const row = rowById(id);
-        if (commit && row && row.type === "string") {
-            const max = row.constraints ? Number(row.constraints.maximumLength) : NaN;
-            if (isFinite(max) && max >= 0 && draft.length > max) return;
-        }
-        editingId = "";
-        if (commit) valueChangeRequested(id, draft);
-        const index = activeRowIndex(id);
-        if (index >= 0) focusRow(index);
-    }
-    function rowById(id) {
-        for (let i = 0; i < rows.length; ++i) if (rows[i] && rows[i].id === id) return rows[i];
-        return null;
-    }
-    function activeRowIndex(id) {
-        for (let i = 0; i < activeRows.length; ++i) if (activeRows[i].id === id) return i;
-        return -1;
-    }
-    function unavailableTitle(category) {
-        const found = category ? registeredCapability(category.capability) : null;
-        return found && found.title ? found.title : qsTr("Unavailable");
-    }
-    function unavailableDescription(category) {
-        const found = category ? registeredCapability(category.capability) : null;
-        return found && found.description ? found.description : qsTr("This capability is not registered.");
-    }
     function focusCategory(index) {
-        if (!categories.length) return;
+        if (!categories.length || screenBlocked) return;
         const next = Math.max(0, Math.min(index, categories.length - 1));
-        editingId = "";
+        editingKey = "";
+        choosingKey = "";
         detailFocused = false;
         categoryIndex = next;
         const item = categoryRepeater.itemAt(next);
         if (item) item.forceActiveFocus();
     }
     function rowScopeAt(index) { return rowRepeater.itemAt(index); }
-    function focusRow(index) {
-        const scope = rowScopeAt(index);
-        if (!scope || !scope.canFocus) return false;
+    function focusPart(rowIndex, name) {
+        const scope = rowScopeAt(rowIndex);
+        if (!scope) return false;
+        const item = scope.itemFor(name);
+        if (!item || !item.visible) return false;
         detailFocused = true;
-        rowFocusIndex = index;
-        scope.focusTarget.forceActiveFocus();
+        rowFocusIndex = rowIndex;
+        partName = name;
+        item.forceActiveFocus();
         revealRow(scope);
         return true;
-    }
-    function firstFocusableRow() {
-        for (let i = 0; i < rowRepeater.count; ++i) {
-            const scope = rowScopeAt(i);
-            if (scope && scope.canFocus) return i;
-        }
-        return -1;
     }
     function revealRow(scope) {
         const top = scope.y;
@@ -265,8 +382,8 @@ FocusScope {
         if (detailFocused) {
             let index = rowFocusIndex + step;
             while (index >= 0 && index < rowRepeater.count) {
-                const scope = rowScopeAt(index);
-                if (scope && scope.canFocus) { focusRow(index); return; }
+                const parts = partsFor(activeRows[index]);
+                if (parts.length && focusPart(index, parts[0])) return;
                 index += step;
             }
             return;
@@ -275,37 +392,35 @@ FocusScope {
         if (next < 0 || next >= categories.length) return;
         focusCategory(next);
     }
-    function moveToRows() {
+    function moveHorizontal(step) {
         pointerMode = false;
-        if (detailFocused) return;
-        const index = firstFocusableRow();
-        if (index >= 0) focusRow(index);
-    }
-    function moveToCategories() {
-        pointerMode = false;
-        if (!detailFocused) return;
-        focusCategory(categoryIndex);
-    }
-
-    Keys.onPressed: event => {
-        if (editingId.length > 0) return;
-        const arrows = [Qt.Key_Left, Qt.Key_Right, Qt.Key_Up, Qt.Key_Down];
-        if (arrows.includes(event.key)) pointerMode = false;
-        if (event.key === Qt.Key_Up) { moveVertical(-1); event.accepted = true; }
-        else if (event.key === Qt.Key_Down) { moveVertical(1); event.accepted = true; }
-        else if (event.key === Qt.Key_Left) { moveToCategories(); event.accepted = true; }
-        else if (event.key === Qt.Key_Right) { moveToRows(); event.accepted = true; }
-        else if (event.key === Qt.Key_Tab) { moveVertical(1); event.accepted = true; }
-        else if (event.key === Qt.Key_Backtab) { moveVertical(-1); event.accepted = true; }
-        else if (event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace || event.key === Qt.Key_Back) {
-            if (detailFocused) moveToCategories();
-            else dismissRequested();
-            event.accepted = true;
+        if (!detailFocused) {
+            if (step > 0) {
+                const parts = partsFor(activeRows[0]);
+                if (parts.length) focusPart(0, parts[0]);
+            }
+            return;
         }
+        const parts = partsFor(activeRows[rowFocusIndex]);
+        let index = parts.indexOf(partName);
+        if (index < 0) index = 0;
+        const next = index + step;
+        if (next >= 0 && next < parts.length) {
+            focusPart(rowFocusIndex, parts[next]);
+            return;
+        }
+        if (step < 0) focusCategory(categoryIndex);
     }
-    Component.onCompleted: Qt.callLater(() => { if (categories.length) focusCategory(0); })
-    onCategoryIndexChanged: rowFlick.contentY = 0
-
+    function focusInitial() {
+        if (!visible) return;
+        if (screenBlocked) {
+            screenStatus.forceActiveFocus();
+            return;
+        }
+        if (!categories.length) return;
+        if (detailFocused) focusPart(rowFocusIndex, partName);
+        else focusCategory(categoryIndex);
+    }
     function selectKey(button, event, release) {
         if (event.key !== Qt.Key_Return && event.key !== Qt.Key_Enter) return false;
         if (!release) {
@@ -319,6 +434,38 @@ FocusScope {
         return true;
     }
 
+    Keys.onPressed: event => {
+        if (editingKey.length > 0) return;
+        if (choosingKey.length > 0) {
+            if (event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace || event.key === Qt.Key_Back)
+                closeOptions();
+            event.accepted = true;
+            return;
+        }
+        if (screenBlocked) {
+            if (event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace || event.key === Qt.Key_Back)
+                dismissRequested();
+            event.accepted = true;
+            return;
+        }
+        const arrows = [Qt.Key_Left, Qt.Key_Right, Qt.Key_Up, Qt.Key_Down];
+        if (arrows.includes(event.key)) pointerMode = false;
+        if (event.key === Qt.Key_Up) { moveVertical(-1); event.accepted = true; }
+        else if (event.key === Qt.Key_Down) { moveVertical(1); event.accepted = true; }
+        else if (event.key === Qt.Key_Left) { moveHorizontal(-1); event.accepted = true; }
+        else if (event.key === Qt.Key_Right) { moveHorizontal(1); event.accepted = true; }
+        else if (event.key === Qt.Key_Tab) { moveVertical(1); event.accepted = true; }
+        else if (event.key === Qt.Key_Backtab) { moveVertical(-1); event.accepted = true; }
+        else if (event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace || event.key === Qt.Key_Back) {
+            if (detailFocused) focusCategory(categoryIndex);
+            else dismissRequested();
+            event.accepted = true;
+        }
+    }
+    Component.onCompleted: Qt.callLater(focusInitial)
+    onVisibleChanged: if (visible) Qt.callLater(focusInitial)
+    onCategoryIndexChanged: rowFlick.contentY = 0
+
     Rectangle { anchors.fill: parent; color: Ui.Theme.background }
     Ui.UiText {
         x: 120
@@ -326,12 +473,29 @@ FocusScope {
         text: qsTr("Settings")
         role: "title"
     }
+    Ui.StatusPane {
+        id: screenStatus
+        objectName: "screenStatus"
+        x: 550
+        y: 280
+        width: 820
+        visible: root.screenBlocked
+        kind: root.screenState === "loading" ? "loading" : root.screenState === "error" ? "error" : "unavailable"
+        title: root.screenState === "loading" ? qsTr("Loading settings…")
+               : root.screenState === "error" ? qsTr("Settings could not be loaded")
+               : qsTr("Settings are unavailable")
+        description: root.screenState === "loading" ? qsTr("Settings reconnect automatically.")
+                     : qsTr("Nothing here can be changed until settings are available.")
+        actionText: root.screenState === "loading" ? "" : qsTr("Retry")
+        onActionRequested: root.retryRequested()
+    }
     Column {
         id: categoryColumn
         x: 120
         y: 220
         width: 540
         spacing: 8
+        visible: !root.screenBlocked
         Repeater {
             id: categoryRepeater
             model: root.categories
@@ -347,8 +511,11 @@ FocusScope {
                 focusPolicy: Qt.StrongFocus
                 activeFocusOnTab: false
                 text: modelData.title || ""
-                focus: index === root.categoryIndex && !root.detailFocused
-                onClicked: root.moveToRows()
+                focus: index === root.categoryIndex && !root.detailFocused && !root.screenBlocked
+                onClicked: {
+                    root.focusCategory(index);
+                    root.moveHorizontal(1);
+                }
                 Keys.onPressed: event => root.selectKey(categoryButton, event, false)
                 Keys.onReleased: event => root.selectKey(categoryButton, event, true)
                 background: Rectangle {
@@ -410,6 +577,7 @@ FocusScope {
         y: 220
         width: 1920 - 740 - 96
         height: 1080 - 220 - 48
+        visible: !root.screenBlocked
         Ui.UiText {
             id: eyebrow
             width: parent.width
@@ -425,20 +593,16 @@ FocusScope {
         }
         Ui.StatusPane {
             id: statusPane
-            objectName: root.paneKind === "unavailable" ? "unavailablePane" : "emptyPane"
+            objectName: "emptyPane"
             anchors.top: eyebrow.bottom
             anchors.topMargin: 10
             anchors.horizontalCenter: parent.horizontalCenter
             width: Math.min(820, parent.width)
             visible: root.paneKind !== "ready"
-            kind: root.paneKind === "unavailable" ? "unavailable" : "empty"
-            title: root.paneKind === "unavailable" ? root.unavailableTitle(root.currentCategory()) : qsTr("Nothing to show")
-            description: root.paneKind === "unavailable"
-                         ? root.unavailableDescription(root.currentCategory())
-                         : qsTr("No settings are registered for this category.")
+            kind: "empty"
+            title: qsTr("Nothing to show")
+            description: qsTr("No settings are registered for this category.")
             actionText: ""
-            pointerMode: root.pointerMode
-            hoverFocusEnabled: true
         }
         Flickable {
             id: rowFlick
@@ -463,192 +627,488 @@ FocusScope {
                         id: rowScope
                         required property var modelData
                         required property int index
-                        readonly property bool blocked: root.rowBlocked(modelData)
-                        readonly property Item focusTarget: blocked ? blockedButton : settingButton
-                        readonly property bool canFocus: focusTarget.visible && focusTarget.enabled
-                        readonly property bool switchRow: !blocked && modelData.type === "boolean" && !root.valueUnsupported(modelData)
+                        readonly property var row: modelData
+                        readonly property string key: root.rowKey(row)
+                        readonly property bool multiple: root.isMultiple(row)
+                        readonly property bool integerRow: row.type === "integer" && !root.valueUnsupported(row)
+                        readonly property bool simpleRow: !multiple && !integerRow
+                        readonly property bool switchRow: simpleRow && row.type === "boolean" && !root.valueUnsupported(row)
                         width: rowColumn.width
-                        height: blocked ? blockedButton.height : settingButton.height
-
-                        T.AbstractButton {
-                            id: blockedButton
-                            visible: rowScope.blocked
-                            enabled: rowScope.blocked
-                            width: rowScope.width
-                            height: Math.max(112, blockedText.implicitHeight + 40)
-                            padding: 0
-                            focusPolicy: Qt.StrongFocus
-                            activeFocusOnTab: false
-                            text: modelData.title || ""
-                            objectName: rowScope.blocked ? "unavailable-" + modelData.id : ""
-                            focus: root.detailFocused && rowScope.index === root.rowFocusIndex && rowScope.blocked
-                            background: Rectangle {
-                                radius: 28
-                                color: blockedButton.activeFocus ? Qt.rgba(1, 1, 1, 0.20) : Qt.rgba(1, 1, 1, 0.06)
+                        height: rowBody.implicitHeight
+                        function itemFor(name) {
+                            if (name === "main") return settingButton;
+                            if (name === "minus") return minusButton;
+                            if (name === "value") return valueButton;
+                            if (name === "plus") return plusButton;
+                            if (name === "add") return addButton;
+                            if (name.indexOf("path:") === 0) {
+                                const item = pathRepeater.itemAt(Number(name.slice(5)));
+                                return item ? item.pathButton : null;
                             }
-                            contentItem: Item {
-                                Column {
-                                    id: blockedText
-                                    x: 32
-                                    y: 20
-                                    width: parent.width - 32 - 220 - 32
-                                    spacing: 6
-                                    Ui.UiText {
-                                        width: parent.width
-                                        text: modelData.title || ""
-                                        role: "control"
-                                    }
-                                    Ui.UiText {
-                                        width: parent.width
-                                        text: modelData.description || ""
-                                        role: "meta"
-                                        color: Ui.Theme.textSecondary
-                                        visible: text.length > 0
-                                    }
-                                }
-                                Ui.UiText {
-                                    objectName: rowScope.blocked ? "state-" + modelData.id : ""
-                                    width: 220
-                                    anchors.right: parent.right
-                                    anchors.rightMargin: 32
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    horizontalAlignment: Text.AlignRight
-                                    role: "meta"
-                                    color: Ui.Theme.error
-                                    text: qsTr("Unavailable")
-                                }
+                            if (name.indexOf("remove:") === 0) {
+                                const item = pathRepeater.itemAt(Number(name.slice(5)));
+                                return item ? item.removeButton : null;
                             }
+                            return null;
                         }
-
-                        T.AbstractButton {
-                            id: settingButton
-                            visible: !rowScope.blocked
-                            enabled: !rowScope.blocked && modelData.enabled !== false
-                            width: rowScope.width
-                            height: Math.max(112, settingText.implicitHeight + 40)
-                            padding: 0
-                            focusPolicy: Qt.StrongFocus
-                            activeFocusOnTab: false
-                            text: modelData.title || ""
-                            objectName: rowScope.blocked ? "" : "setting-" + modelData.id
-                            focus: root.detailFocused && rowScope.index === root.rowFocusIndex && !rowScope.blocked
-                            onClicked: root.commitRow(modelData)
-                            Keys.onPressed: event => root.selectKey(settingButton, event, false)
-                            Keys.onReleased: event => root.selectKey(settingButton, event, true)
-                            background: Rectangle {
-                                radius: 28
-                                color: settingButton.activeFocus ? Qt.rgba(1, 1, 1, 0.20) : Qt.rgba(1, 1, 1, 0.06)
+                        Column {
+                            id: rowBody
+                            width: parent.width
+                            spacing: 8
+                            T.AbstractButton {
+                                id: settingButton
+                                visible: rowScope.simpleRow
+                                width: rowScope.width
+                                height: Math.max(112, simpleText.implicitHeight + 40)
+                                padding: 0
+                                focusPolicy: Qt.StrongFocus
+                                activeFocusOnTab: false
+                                opacity: row.enabled === false || row.pending ? 0.45 : 1
+                                text: row.title || ""
+                                objectName: rowScope.simpleRow ? "setting-" + rowScope.key : ""
+                                onClicked: {
+                                    if (!root.canEdit(row)) return;
+                                    if (row.type === "boolean" && !root.valueUnsupported(row))
+                                        root.emitChange(row, !row.currentValue);
+                                    else if (row.type === "enum")
+                                        root.openOptions(row);
+                                    else if (row.type === "string" || row.type === "path")
+                                        root.openEditor(row, "main", row.currentValue || "");
+                                }
+                                Keys.onPressed: event => root.selectKey(settingButton, event, false)
+                                Keys.onReleased: event => root.selectKey(settingButton, event, true)
+                                background: Rectangle {
+                                    radius: 28
+                                    color: settingButton.activeFocus ? Qt.rgba(1, 1, 1, 0.20) : Qt.rgba(1, 1, 1, 0.06)
+                                }
+                                contentItem: Item {
+                                    Column {
+                                        id: simpleText
+                                        x: 32
+                                        y: 20
+                                        width: parent.width - 64 - (rowScope.switchRow ? 88 : 280)
+                                        spacing: 6
+                                        Ui.UiText { width: parent.width; text: row.title || ""; role: "control" }
+                                        Ui.UiText {
+                                            width: parent.width
+                                            text: row.description || ""
+                                            role: "meta"
+                                            color: Ui.Theme.textSecondary
+                                            visible: text.length > 0
+                                        }
+                                        Ui.UiText {
+                                            objectName: rowScope.simpleRow && row.providerName ? "provider-" + rowScope.key : ""
+                                            width: parent.width
+                                            text: row.providerName || ""
+                                            role: "meta"
+                                            color: Ui.Theme.textHint
+                                            visible: text.length > 0
+                                        }
+                                        Ui.UiText {
+                                            objectName: rowScope.simpleRow && row.error ? "error-" + rowScope.key : ""
+                                            width: parent.width
+                                            text: root.errorText(row.error || "")
+                                            role: "meta"
+                                            color: Ui.Theme.error
+                                            visible: text.length > 0
+                                        }
+                                        Ui.UiText {
+                                            objectName: rowScope.simpleRow && row.pending ? "pending-" + rowScope.key : ""
+                                            width: parent.width
+                                            text: row.pending ? qsTr("Saving…") : ""
+                                            role: "meta"
+                                            color: Ui.Theme.textSecondary
+                                            visible: text.length > 0
+                                        }
+                                    }
+                                    Item {
+                                        id: toggle
+                                        objectName: rowScope.switchRow ? "toggle-" + rowScope.key : ""
+                                        visible: rowScope.switchRow && root.editingKey !== rowScope.key
+                                        width: 88
+                                        height: 50
+                                        anchors.right: parent.right
+                                        anchors.rightMargin: 32
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        Rectangle {
+                                            objectName: rowScope.switchRow ? "track-" + rowScope.key : ""
+                                            anchors.fill: parent
+                                            radius: 25
+                                            color: row.currentValue === true ? Ui.Theme.ember : Qt.rgba(1, 1, 1, 0.20)
+                                        }
+                                        Rectangle {
+                                            objectName: rowScope.switchRow ? "knob-" + rowScope.key : ""
+                                            y: 5
+                                            x: row.currentValue === true ? 43 : 5
+                                            width: 40
+                                            height: 40
+                                            radius: 20
+                                            color: row.currentValue === true ? Ui.Theme.ink : Ui.Theme.textPrimary
+                                        }
+                                    }
+                                    Row {
+                                        visible: !rowScope.switchRow
+                                        anchors.right: parent.right
+                                        anchors.rightMargin: 32
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        spacing: 8
+                                        Ui.UiText {
+                                            objectName: rowScope.simpleRow && !rowScope.switchRow && root.editingKey !== rowScope.key ? "value-" + rowScope.key : ""
+                                            visible: root.editingKey !== rowScope.key
+                                            width: Math.min(240, implicitWidth)
+                                            horizontalAlignment: Text.AlignRight
+                                            role: "meta"
+                                            color: root.valueUnsupported(row) ? Ui.Theme.error : Ui.Theme.textSecondary
+                                            text: root.displayValue(row)
+                                        }
+                                        TextInput {
+                                            id: simpleEditor
+                                            objectName: rowScope.simpleRow ? "editor-" + rowScope.key : ""
+                                            visible: rowScope.simpleRow && root.editingKey === rowScope.key && root.editingPart === "main"
+                                            width: 220
+                                            horizontalAlignment: Text.AlignRight
+                                            color: Ui.Theme.textPrimary
+                                            font.family: Ui.Theme.fontFamily
+                                            font.pixelSize: 26
+                                            clip: true
+                                            onVisibleChanged: if (visible) {
+                                                text = root.editingDraft;
+                                                cursorPosition = text.length;
+                                                forceActiveFocus();
+                                            }
+                                            onTextChanged: if (visible && activeFocus) root.editingDraft = text
+                                            Keys.onPressed: event => root.editorKeys(event)
+                                        }
+                                        Canvas {
+                                            objectName: rowScope.simpleRow && !rowScope.switchRow && root.editingKey !== rowScope.key ? "chevron-" + rowScope.key : ""
+                                            visible: rowScope.simpleRow && root.editingKey !== rowScope.key
+                                            width: 28
+                                            height: 36
+                                            onPaint: {
+                                                const ctx = getContext("2d");
+                                                ctx.reset();
+                                                ctx.strokeStyle = Ui.Theme.textSecondary;
+                                                ctx.lineWidth = 2.4;
+                                                ctx.lineCap = "round";
+                                                ctx.lineJoin = "round";
+                                                ctx.beginPath();
+                                                ctx.moveTo(8, 8);
+                                                ctx.lineTo(16, 18);
+                                                ctx.lineTo(8, 28);
+                                                ctx.stroke();
+                                            }
+                                            Component.onCompleted: requestPaint()
+                                        }
+                                    }
+                                }
                             }
-                            contentItem: Item {
+                            Item {
+                                id: integerPlate
+                                visible: rowScope.integerRow
+                                width: rowScope.width
+                                height: Math.max(112, integerText.implicitHeight + 40)
+                                Rectangle {
+                                    anchors.fill: parent
+                                    radius: 28
+                                    color: rowScope.activeFocus && rowScope.integerRow ? Qt.rgba(1, 1, 1, 0.08) : Qt.rgba(1, 1, 1, 0.06)
+                                }
                                 Column {
-                                    id: settingText
+                                    id: integerText
                                     x: 32
                                     y: 20
-                                    width: parent.width - 64 - (rowScope.switchRow ? 88 : 240)
+                                    width: parent.width - 64 - 320
                                     spacing: 6
+                                    Ui.UiText { width: parent.width; text: row.title || ""; role: "control"; opacity: row.enabled === false || row.pending ? 0.45 : 1 }
                                     Ui.UiText {
                                         width: parent.width
-                                        text: modelData.title || ""
-                                        role: "control"
-                                    }
-                                    Ui.UiText {
-                                        width: parent.width
-                                        text: modelData.description || ""
+                                        text: row.description || ""
                                         role: "meta"
                                         color: Ui.Theme.textSecondary
                                         visible: text.length > 0
                                     }
-                                }
-                                Item {
-                                    id: toggle
-                                    objectName: rowScope.switchRow ? "toggle-" + modelData.id : ""
-                                    visible: rowScope.switchRow
-                                    width: 88
-                                    height: 50
-                                    anchors.right: parent.right
-                                    anchors.rightMargin: 32
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    Rectangle {
-                                        objectName: rowScope.switchRow ? "track-" + modelData.id : ""
-                                        anchors.fill: parent
-                                        radius: 25
-                                        color: modelData.currentValue === true ? Ui.Theme.ember : Qt.rgba(1, 1, 1, 0.20)
+                                    Ui.UiText {
+                                        objectName: row.providerName && rowScope.integerRow ? "provider-" + rowScope.key : ""
+                                        width: parent.width
+                                        text: row.providerName || ""
+                                        role: "meta"
+                                        color: Ui.Theme.textHint
+                                        visible: text.length > 0
                                     }
-                                    Rectangle {
-                                        objectName: rowScope.switchRow ? "knob-" + modelData.id : ""
-                                        y: 5
-                                        x: modelData.currentValue === true ? 43 : 5
-                                        width: 40
-                                        height: 40
-                                        radius: 20
-                                        color: modelData.currentValue === true ? Ui.Theme.ink : Ui.Theme.textPrimary
+                                    Ui.UiText {
+                                        objectName: row.error && rowScope.integerRow ? "error-" + rowScope.key : ""
+                                        width: parent.width
+                                        text: root.errorText(row.error || "")
+                                        role: "meta"
+                                        color: Ui.Theme.error
+                                        visible: text.length > 0
+                                    }
+                                    Ui.UiText {
+                                        objectName: row.pending && rowScope.integerRow ? "pending-" + rowScope.key : ""
+                                        width: parent.width
+                                        text: row.pending ? qsTr("Saving…") : ""
+                                        role: "meta"
+                                        color: Ui.Theme.textSecondary
+                                        visible: text.length > 0
                                     }
                                 }
                                 Row {
-                                    visible: !rowScope.switchRow
                                     anchors.right: parent.right
                                     anchors.rightMargin: 32
                                     anchors.verticalCenter: parent.verticalCenter
-                                    spacing: 8
-                                    Ui.UiText {
-                                        objectName: rowScope.blocked || rowScope.switchRow || root.editingId === modelData.id ? "" : "value-" + modelData.id
-                                        visible: root.editingId !== modelData.id
-                                        width: Math.min(220, implicitWidth)
-                                        horizontalAlignment: Text.AlignRight
-                                        role: "meta"
-                                        color: root.valueUnsupported(modelData) ? Ui.Theme.error : Ui.Theme.textSecondary
-                                        text: root.displayValue(modelData)
+                                    spacing: 12
+                                    T.AbstractButton {
+                                        id: minusButton
+                                        objectName: rowScope.integerRow ? "minus-" + rowScope.key : ""
+                                        visible: rowScope.integerRow
+                                        width: 64
+                                        height: 64
+                                        padding: 0
+                                        focusPolicy: Qt.StrongFocus
+                                        activeFocusOnTab: false
+                                        opacity: !root.canEdit(row) || (root.hasBound(row, "min") && root.integerValue(row) <= Number(row.constraints.min)) ? 0.45 : 1
+                                        text: "−"
+                                        onClicked: root.stepInteger(row, -1)
+                                        Keys.onPressed: event => root.selectKey(minusButton, event, false)
+                                        Keys.onReleased: event => root.selectKey(minusButton, event, true)
+                                        background: Rectangle { radius: 18; color: minusButton.activeFocus ? Qt.rgba(1, 1, 1, 0.20) : Qt.rgba(1, 1, 1, 0.08) }
+                                        contentItem: Ui.UiText { text: minusButton.text; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
                                     }
-                                    TextInput {
-                                        id: editor
-                                        objectName: "editor-" + modelData.id
-                                        visible: root.editingId === modelData.id
-                                        width: 180
-                                        horizontalAlignment: Text.AlignRight
-                                        color: Ui.Theme.textPrimary
-                                        font.family: Ui.Theme.fontFamily
-                                        font.pixelSize: 26
-                                        clip: true
-                                        onVisibleChanged: if (visible) {
-                                            text = root.editingDraft;
-                                            cursorPosition = text.length;
-                                            forceActiveFocus();
-                                        }
-                                        onTextChanged: if (visible && activeFocus) root.editingDraft = text
-                                        Keys.onPressed: event => {
-                                            if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                                                if (!event.isAutoRepeat) root.finishEdit(true);
-                                                event.accepted = true;
-                                            } else if (event.key === Qt.Key_Escape) {
-                                                root.finishEdit(false);
-                                                event.accepted = true;
-                                            } else if (event.key === Qt.Key_Up || event.key === Qt.Key_Down) {
-                                                const step = event.key === Qt.Key_Up ? -1 : 1;
-                                                root.finishEdit(false);
-                                                root.moveVertical(step);
-                                                event.accepted = true;
+                                    T.AbstractButton {
+                                        id: valueButton
+                                        objectName: rowScope.integerRow ? "setting-" + rowScope.key : ""
+                                        visible: rowScope.integerRow
+                                        width: 140
+                                        height: 64
+                                        padding: 0
+                                        focusPolicy: Qt.StrongFocus
+                                        activeFocusOnTab: false
+                                        opacity: row.enabled === false || row.pending ? 0.45 : 1
+                                        onClicked: root.openEditor(row, "value", String(root.integerValue(row)))
+                                        Keys.onPressed: event => root.selectKey(valueButton, event, false)
+                                        Keys.onReleased: event => root.selectKey(valueButton, event, true)
+                                        background: Rectangle { radius: 18; color: valueButton.activeFocus ? Qt.rgba(1, 1, 1, 0.20) : "transparent" }
+                                        contentItem: Item {
+                                            Ui.UiText {
+                                                anchors.fill: parent
+                                                visible: root.editingKey !== rowScope.key
+                                                objectName: rowScope.integerRow && root.editingKey !== rowScope.key ? "value-" + rowScope.key : ""
+                                                text: root.displayValue(row)
+                                                horizontalAlignment: Text.AlignHCenter
+                                                verticalAlignment: Text.AlignVCenter
+                                                role: "control"
+                                            }
+                                            TextInput {
+                                                id: numberEditor
+                                                objectName: rowScope.integerRow ? "editor-" + rowScope.key : ""
+                                                anchors.fill: parent
+                                                visible: root.editingKey === rowScope.key && root.editingPart === "value"
+                                                horizontalAlignment: Text.AlignHCenter
+                                                verticalAlignment: Text.AlignVCenter
+                                                color: Ui.Theme.textPrimary
+                                                font.family: Ui.Theme.fontFamily
+                                                font.pixelSize: 26
+                                                clip: true
+                                                inputMethodHints: Qt.ImhFormattedNumbersOnly
+                                                onVisibleChanged: if (visible) {
+                                                    text = root.editingDraft;
+                                                    cursorPosition = text.length;
+                                                    forceActiveFocus();
+                                                }
+                                                onTextChanged: if (visible && activeFocus) root.editingDraft = text
+                                                Keys.onPressed: event => root.editorKeys(event)
                                             }
                                         }
                                     }
-                                    Canvas {
-                                        objectName: rowScope.switchRow || root.editingId === modelData.id ? "" : "chevron-" + modelData.id
-                                        visible: root.editingId !== modelData.id
-                                        width: 28
-                                        height: 36
-                                        onPaint: {
-                                            const ctx = getContext("2d");
-                                            ctx.reset();
-                                            ctx.strokeStyle = Ui.Theme.textSecondary;
-                                            ctx.lineWidth = 2.4;
-                                            ctx.lineCap = "round";
-                                            ctx.lineJoin = "round";
-                                            ctx.beginPath();
-                                            ctx.moveTo(8, 8);
-                                            ctx.lineTo(16, 18);
-                                            ctx.lineTo(8, 28);
-                                            ctx.stroke();
+                                    T.AbstractButton {
+                                        id: plusButton
+                                        objectName: rowScope.integerRow ? "plus-" + rowScope.key : ""
+                                        visible: rowScope.integerRow
+                                        width: 64
+                                        height: 64
+                                        padding: 0
+                                        focusPolicy: Qt.StrongFocus
+                                        activeFocusOnTab: false
+                                        opacity: !root.canEdit(row) || (root.hasBound(row, "max") && root.integerValue(row) >= Number(row.constraints.max)) ? 0.45 : 1
+                                        text: "+"
+                                        onClicked: root.stepInteger(row, 1)
+                                        Keys.onPressed: event => root.selectKey(plusButton, event, false)
+                                        Keys.onReleased: event => root.selectKey(plusButton, event, true)
+                                        background: Rectangle { radius: 18; color: plusButton.activeFocus ? Qt.rgba(1, 1, 1, 0.20) : Qt.rgba(1, 1, 1, 0.08) }
+                                        contentItem: Ui.UiText { text: plusButton.text; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
+                                    }
+                                }
+                            }
+                            Column {
+                                id: pathColumn
+                                visible: rowScope.multiple
+                                width: parent.width
+                                spacing: 8
+                                Rectangle {
+                                    width: parent.width
+                                    height: pathIntro.implicitHeight + 28
+                                    radius: 28
+                                    color: Qt.rgba(1, 1, 1, 0.06)
+                                    Column {
+                                        id: pathIntro
+                                        x: 32
+                                        y: 14
+                                        width: parent.width - 64
+                                        spacing: 6
+                                        Ui.UiText { width: parent.width; text: row.title || ""; role: "control"; opacity: row.enabled === false || row.pending ? 0.45 : 1 }
+                                        Ui.UiText {
+                                            width: parent.width
+                                            text: row.description || ""
+                                            role: "meta"
+                                            color: Ui.Theme.textSecondary
+                                            visible: text.length > 0
                                         }
-                                        Component.onCompleted: requestPaint()
+                                        Ui.UiText {
+                                            objectName: row.providerName && rowScope.multiple ? "provider-" + rowScope.key : ""
+                                            width: parent.width
+                                            text: row.providerName || ""
+                                            role: "meta"
+                                            color: Ui.Theme.textHint
+                                            visible: text.length > 0
+                                        }
+                                        Ui.UiText {
+                                            objectName: row.error && rowScope.multiple ? "error-" + rowScope.key : ""
+                                            width: parent.width
+                                            text: root.errorText(row.error || "")
+                                            role: "meta"
+                                            color: Ui.Theme.error
+                                            visible: text.length > 0
+                                        }
+                                        Ui.UiText {
+                                            objectName: row.pending && rowScope.multiple ? "pending-" + rowScope.key : ""
+                                            width: parent.width
+                                            text: row.pending ? qsTr("Saving…") : ""
+                                            role: "meta"
+                                            color: Ui.Theme.textSecondary
+                                            visible: text.length > 0
+                                        }
+                                    }
+                                }
+                                Repeater {
+                                    id: pathRepeater
+                                    model: rowScope.multiple ? root.pathList(row).length : 0
+                                    delegate: Row {
+                                        id: pathRow
+                                        required property int index
+                                        property alias pathButton: pathButton
+                                        property alias removeButton: removeButton
+                                        width: pathColumn.width
+                                        spacing: 8
+                                        T.AbstractButton {
+                                            id: pathButton
+                                            objectName: "path-" + rowScope.key + "-" + index
+                                            width: parent.width - 160
+                                            height: 72
+                                            padding: 0
+                                            focusPolicy: Qt.StrongFocus
+                                            activeFocusOnTab: false
+                                            opacity: row.enabled === false || row.pending ? 0.45 : 1
+                                            onClicked: root.openEditor(row, "path:" + index, root.pathList(row)[index] || "")
+                                            Keys.onPressed: event => root.selectKey(pathButton, event, false)
+                                            Keys.onReleased: event => root.selectKey(pathButton, event, true)
+                                            background: Rectangle { radius: 18; color: pathButton.activeFocus ? Qt.rgba(1, 1, 1, 0.20) : Qt.rgba(1, 1, 1, 0.06) }
+                                            contentItem: Item {
+                                                Ui.UiText {
+                                                    anchors.fill: parent
+                                                    anchors.leftMargin: 20
+                                                    anchors.rightMargin: 20
+                                                    visible: !(root.editingKey === rowScope.key && root.editingPart === "path:" + index)
+                                                    text: String(root.pathList(row)[index] || "")
+                                                    verticalAlignment: Text.AlignVCenter
+                                                    elide: Text.ElideRight
+                                                    role: "meta"
+                                                }
+                                                TextInput {
+                                                    anchors.fill: parent
+                                                    anchors.leftMargin: 20
+                                                    anchors.rightMargin: 20
+                                                    objectName: "editor-" + rowScope.key + "-" + index
+                                                    visible: root.editingKey === rowScope.key && root.editingPart === "path:" + index
+                                                    color: Ui.Theme.textPrimary
+                                                    font.family: Ui.Theme.fontFamily
+                                                    font.pixelSize: 26
+                                                    clip: true
+                                                    verticalAlignment: Text.AlignVCenter
+                                                    onVisibleChanged: if (visible) {
+                                                        text = root.editingDraft;
+                                                        cursorPosition = text.length;
+                                                        forceActiveFocus();
+                                                    }
+                                                    onTextChanged: if (visible && activeFocus) root.editingDraft = text
+                                                    Keys.onPressed: event => root.editorKeys(event)
+                                                }
+                                            }
+                                        }
+                                        T.AbstractButton {
+                                            id: removeButton
+                                            objectName: "remove-" + rowScope.key + "-" + index
+                                            width: 152
+                                            height: 72
+                                            padding: 0
+                                            focusPolicy: Qt.StrongFocus
+                                            activeFocusOnTab: false
+                                            opacity: root.canEdit(row) ? 1 : 0.45
+                                            text: qsTr("Remove")
+                                            onClicked: root.removePath(row, index)
+                                            Keys.onPressed: event => root.selectKey(removeButton, event, false)
+                                            Keys.onReleased: event => root.selectKey(removeButton, event, true)
+                                            background: Rectangle { radius: 18; color: removeButton.activeFocus ? Qt.rgba(1, 1, 1, 0.20) : Qt.rgba(1, 1, 1, 0.06) }
+                                            contentItem: Ui.UiText {
+                                                text: removeButton.text
+                                                horizontalAlignment: Text.AlignHCenter
+                                                verticalAlignment: Text.AlignVCenter
+                                                role: "meta"
+                                            }
+                                        }
+                                    }
+                                }
+                                T.AbstractButton {
+                                    id: addButton
+                                    objectName: rowScope.multiple ? "add-" + rowScope.key : ""
+                                    visible: rowScope.multiple
+                                    width: parent.width
+                                    height: 72
+                                    padding: 0
+                                    focusPolicy: Qt.StrongFocus
+                                    activeFocusOnTab: false
+                                    readonly property bool full: root.hasBound(row, "maxItems") && root.pathList(row).length >= Number(row.constraints.maxItems)
+                                    opacity: !root.canEdit(row) || full ? 0.45 : 1
+                                    text: qsTr("Add path")
+                                    onClicked: if (!full) root.openEditor(row, "add", "")
+                                    Keys.onPressed: event => root.selectKey(addButton, event, false)
+                                    Keys.onReleased: event => root.selectKey(addButton, event, true)
+                                    background: Rectangle { radius: 18; color: addButton.activeFocus ? Qt.rgba(1, 1, 1, 0.20) : Qt.rgba(1, 1, 1, 0.06) }
+                                    contentItem: Item {
+                                        Ui.UiText {
+                                            anchors.fill: parent
+                                            visible: !(root.editingKey === rowScope.key && root.editingPart === "add")
+                                            text: addButton.text
+                                            horizontalAlignment: Text.AlignHCenter
+                                            verticalAlignment: Text.AlignVCenter
+                                            role: "meta"
+                                        }
+                                        TextInput {
+                                            anchors.centerIn: parent
+                                            width: parent.width - 40
+                                            objectName: rowScope.multiple ? "editor-" + rowScope.key + "-add" : ""
+                                            visible: root.editingKey === rowScope.key && root.editingPart === "add"
+                                            horizontalAlignment: Text.AlignHCenter
+                                            color: Ui.Theme.textPrimary
+                                            font.family: Ui.Theme.fontFamily
+                                            font.pixelSize: 26
+                                            clip: true
+                                            onVisibleChanged: if (visible) {
+                                                text = root.editingDraft;
+                                                cursorPosition = text.length;
+                                                forceActiveFocus();
+                                            }
+                                            onTextChanged: if (visible && activeFocus) root.editingDraft = text
+                                            Keys.onPressed: event => root.editorKeys(event)
+                                        }
                                     }
                                 }
                             }
@@ -656,6 +1116,85 @@ FocusScope {
                     }
                 }
             }
+        }
+    }
+
+    Item {
+        id: optionSheet
+        anchors.fill: parent
+        visible: root.choosingKey.length > 0
+        z: 10
+        Rectangle { anchors.fill: parent; color: Qt.rgba(0, 0, 0, 0.45) }
+        Column {
+            x: 740
+            y: 220
+            width: Math.min(720, parent.width - 836)
+            spacing: 8
+            Repeater {
+                id: optionRepeater
+                model: root.choosingOptions
+                delegate: T.AbstractButton {
+                    id: optionButton
+                    required property var modelData
+                    required property int index
+                    objectName: "option-" + index
+                    width: parent.width
+                    height: 88
+                    padding: 0
+                    focusPolicy: Qt.StrongFocus
+                    activeFocusOnTab: false
+                    text: modelData.title || modelData.value || ""
+                    onClicked: {
+                        root.optionIndex = index;
+                        root.chooseOption();
+                    }
+                    Keys.onPressed: event => {
+                        if (event.key === Qt.Key_Up) {
+                            if (index > 0) root.focusOption(index - 1);
+                            event.accepted = true;
+                        } else if (event.key === Qt.Key_Down) {
+                            if (index + 1 < root.choosingOptions.length) root.focusOption(index + 1);
+                            event.accepted = true;
+                        } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                            if (!event.isAutoRepeat) {
+                                root.optionIndex = index;
+                                root.chooseOption();
+                            }
+                            event.accepted = true;
+                        } else if (event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace || event.key === Qt.Key_Back || event.key === Qt.Key_Left) {
+                            root.closeOptions();
+                            event.accepted = true;
+                        } else if (event.key === Qt.Key_Right) {
+                            event.accepted = true;
+                        }
+                    }
+                    background: Rectangle {
+                        radius: 26
+                        color: optionButton.activeFocus ? Qt.rgba(1, 1, 1, 0.20) : "#292b30"
+                    }
+                    contentItem: Ui.UiText {
+                        text: optionButton.text
+                        role: "control"
+                        leftPadding: 28
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                }
+            }
+        }
+    }
+
+    function editorKeys(event) {
+        if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+            if (!event.isAutoRepeat) finishEdit(true);
+            event.accepted = true;
+        } else if (event.key === Qt.Key_Escape) {
+            finishEdit(false);
+            event.accepted = true;
+        } else if (event.key === Qt.Key_Up || event.key === Qt.Key_Down) {
+            const step = event.key === Qt.Key_Up ? -1 : 1;
+            finishEdit(false);
+            moveVertical(step);
+            event.accepted = true;
         }
     }
 }

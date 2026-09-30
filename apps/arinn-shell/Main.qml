@@ -8,6 +8,7 @@ import "ui" as Ui
 import "ui/screens/browser" as Browser
 import "ui/screens/library" as Library
 import "ui/screens/session" as Session
+import "ui/screens/settings" as Settings
 
 Window {
     id: root
@@ -24,6 +25,7 @@ Window {
     BrowserCatalog { id: browserCatalog }
     MediaCatalog { id: mediaCatalog; objectName: "mediaCatalog" }
     LibraryCatalog { id: libraryCatalog; objectName: "libraryCatalog" }
+    SettingsCatalog { id: settingsCatalog; objectName: "settingsCatalog" }
     Ui.LogicalCanvas {
         anchors.fill: parent
         Ui.HomeView {
@@ -125,6 +127,19 @@ Window {
                     Qt.callLater(home.showHome);
                 }
             }
+        }
+        Settings.SettingsView {
+            id: settingsView
+            objectName: "productionSettings"
+            visible: home.screen === "settings"
+            enabled: visible
+            z: 4
+            screenState: settingsCatalog.screenState
+            categories: settingsCatalog.categories
+            rows: settingsCatalog.rows
+            onValueChangeRequested: (providerId, settingId, value) => settingsCatalog.setValue(providerId, settingId, value)
+            onDismissRequested: home.back()
+            onRetryRequested: settingsCatalog.refresh()
         }
         Library.LibraryView {
             id: libraryView

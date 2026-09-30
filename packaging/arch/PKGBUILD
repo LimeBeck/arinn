@@ -14,6 +14,7 @@ arch=('x86_64')
 url='https://github.com/LimeBeck/arinn'
 license=('GPL-3.0-or-later' 'MIT OR Apache-2.0' 'CC-BY-SA-4.0')
 depends=('gcc-libs' 'glibc' 'glib2>=2.86' 'dbus' 'systemd' 'qt6-base' 'qt6-declarative' 'qt6-svg')
+optdepends=('ffmpeg: video duration and audio/subtitle languages for the library provider')
 makedepends=('cargo' 'cmake' 'ninja')
 checkdepends=('python')
 options=('!lto')
@@ -57,6 +58,8 @@ package() {
   install -Dm644 plugins/demo/demo.toml "${pkgdir}/usr/share/arinn/plugins/demo.toml"
   install -Dm755 "${target}"/release/arinn-plugin-mpris "${pkgdir}/usr/lib/arinn/plugins/arinn-plugin-mpris"
   install -Dm644 plugins/mpris/mpris.toml "${pkgdir}/usr/share/arinn/plugins/mpris.toml"
+  install -Dm755 "${target}"/release/arinn-plugin-library "${pkgdir}/usr/lib/arinn/plugins/arinn-plugin-library"
+  install -Dm644 plugins/library/library.toml "${pkgdir}/usr/share/arinn/plugins/library.toml"
   # Chrome/Chromium integration (ADR-0048): provider, native host, the host
   # manifest for both browsers and the unpacked extension.
   install -Dm755 "${target}"/release/arinn-plugin-chrome "${pkgdir}/usr/lib/arinn/plugins/arinn-plugin-chrome"

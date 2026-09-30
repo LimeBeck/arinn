@@ -74,6 +74,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0053](0053-release-and-label-workflows-on-the-runner.md) | Release and label workflows use the switchable runner | Accepted | — |
 | [0054](0054-media-and-library-wire-contract.md) | Media and library wire contract | Accepted | 0062, 0063 |
 | [0055](0055-launching-a-closed-browser.md) | Launching a closed browser before opening a URL | Accepted | — |
+| [0056](0056-local-library-scan-metadata-and-resume.md) | Local library scan, metadata and resume | Accepted | — |
 | [0058](0058-media-routing.md) | Daemon routing for media providers | Accepted | 0060 |
 | [0059](0059-application-icon-references.md) | Application icon references | Accepted | — |
 | [0060](0060-library-routing.md) | Daemon routing for library providers and library launch | Accepted | 0061 |

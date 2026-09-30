@@ -42,7 +42,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0021](0021-plugin-runtime-ownership.md) | Transient systemd services and a separate Chrome native bridge | Accepted | 0038, 0042 |
 | [0022](0022-state-and-interaction-baseline.md) | Activity ownership, persistence and interaction state | Accepted | 0034, 0043 |
 | [0023](0023-mvp-product-clarifications.md) | Back, system sleep and the target HTPC | Accepted | 0030 |
-| [0024](0024-local-library-mpv.md) | Local library and external mpv with a rich media API | Accepted | 0046, 0054 |
+| [0024](0024-local-library-mpv.md) | Local library and external mpv with a rich media API | Accepted | 0046, 0054, 0057 |
 | [0025](0025-downloads-mvp.md) | DownloadProvider and Transmission in the MVP | Accepted | — |
 | [0026](0026-multiple-monitors.md) | Home on the screen of the active Activity | Accepted | 0031 |
 | [0027](0027-activity-background-snapshot.md) | Compositor snapshot of the Activity for a separate Qt shell | Accepted | — |
@@ -75,6 +75,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0054](0054-media-and-library-wire-contract.md) | Media and library wire contract | Accepted | 0062, 0063 |
 | [0055](0055-launching-a-closed-browser.md) | Launching a closed browser before opening a URL | Accepted | — |
 | [0056](0056-local-library-scan-metadata-and-resume.md) | Local library scan, metadata and resume | Accepted | — |
+| [0057](0057-mpv-ipc-and-process-scope.md) | mpv IPC, process scope and thumbnails | Accepted | — |
 | [0058](0058-media-routing.md) | Daemon routing for media providers | Accepted | 0060 |
 | [0059](0059-application-icon-references.md) | Application icon references | Accepted | — |
 | [0060](0060-library-routing.md) | Daemon routing for library providers and library launch | Accepted | 0061 |

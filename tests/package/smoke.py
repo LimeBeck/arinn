@@ -28,6 +28,7 @@ DEMO = PREFIX / "lib/arinn/plugins/arinn-plugin-demo"
 DESKTOP = PREFIX / "lib/arinn/plugins/arinn-plugin-desktop"
 MPRIS = PREFIX / "lib/arinn/plugins/arinn-plugin-mpris"
 LIBRARY = PREFIX / "lib/arinn/plugins/arinn-plugin-library"
+MPV = PREFIX / "lib/arinn/plugins/arinn-plugin-mpv"
 assert (PREFIX / "share/arinn/plugins/desktop.toml").is_file()
 mpris_manifest = (PREFIX / "share/arinn/plugins/mpris.toml").read_text()
 for line in (
@@ -43,6 +44,13 @@ for line in (
     'executable = "/usr/lib/arinn/plugins/arinn-plugin-library"',
 ):
     assert line in library_manifest, library_manifest
+mpv_manifest = (PREFIX / "share/arinn/plugins/mpv.toml").read_text()
+for line in (
+    'id = "mpv"',
+    'capabilities = ["media"]',
+    'executable = "/usr/lib/arinn/plugins/arinn-plugin-mpv"',
+):
+    assert line in mpv_manifest, mpv_manifest
 assert (PREFIX / "share/arinn/web-shortcuts.toml").is_file()
 assert (PREFIX / "share/arinn/browser-applications.toml").is_file()
 
@@ -66,7 +74,7 @@ def wait(predicate, timeout=10):
     raise AssertionError("condition timed out")
 
 
-for path in (BIN / "arinnd", BIN / "arinnctl", BIN / "arinn-shell", DEMO, DESKTOP, MPRIS, LIBRARY):
+for path in (BIN / "arinnd", BIN / "arinnctl", BIN / "arinn-shell", DEMO, DESKTOP, MPRIS, LIBRARY, MPV):
     assert path.is_file() and os.access(path, os.X_OK), f"missing executable {path}"
 
 with tempfile.TemporaryDirectory(prefix="arinn-smoke-") as folder:

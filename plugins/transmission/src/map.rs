@@ -70,8 +70,10 @@ fn job_from_torrent(torrent: &Value, mappings: &[Mapping]) -> Option<Job> {
     } else {
         (true, total, true, completed as f64 / total as f64)
     };
+    // Transmission reports the time until the seed ratio once the data is
+    // done. That countdown is not a download ETA.
     let mut eta = int_field(torrent, "eta").unwrap_or(-1);
-    if eta < -1 || state == download::STATE_VERIFYING {
+    if state != download::STATE_DOWNLOADING || eta < -1 {
         eta = -1;
     }
     let title = display_title(torrent.get("name").and_then(Value::as_str).unwrap_or(""));
@@ -101,20 +103,11 @@ fn job_from_torrent(torrent: &Value, mappings: &[Mapping]) -> Option<Job> {
 }
 
 fn classify(status: i64, error: i64, finished: bool) -> (&'static str, &'static str, &'static str) {
-    if error == 3 || (error == 2 && status == 0) {
-        return (
-            download::STATE_ERROR,
-            if error == 3 {
-                "Internal"
-            } else {
-                "Unavailable"
-            },
-            if error == 3 {
-                "The download stopped."
-            } else {
-                "The download could not reach its source."
-            },
-        );
+    // A tracker error (`error` 2), including a failed announce on a finished
+    // or paused torrent, does not replace the job state. Only a local error
+    // (`error` 3) is `error`.
+    if error == 3 {
+        return (download::STATE_ERROR, "Internal", "The download stopped.");
     }
     let state = match status {
         3 => download::STATE_QUEUED,
@@ -135,18 +128,19 @@ fn classify(status: i64, error: i64, finished: bool) -> (&'static str, &'static 
 }
 
 fn actions_for(state: &str, status: i64) -> Vec<String> {
-    let names: &[&str] = if state == download::STATE_ERROR {
+    let names: &[&str] = if state == download::STATE_COMPLETED {
+        // Seeding, waiting to seed, and stopped after finish only start or
+        // stop seeding. The default UI does not expose those controls.
+        &[]
+    } else if state == download::STATE_ERROR {
         &[download::ACTION_RETRY]
     } else if state == download::STATE_VERIFYING && status == 2 {
         &[download::ACTION_PAUSE]
     } else if matches!(state, download::STATE_QUEUED | download::STATE_VERIFYING) {
         &[download::ACTION_PAUSE, download::ACTION_START_NOW]
-    } else if state == download::STATE_DOWNLOADING || status == 6 {
+    } else if state == download::STATE_DOWNLOADING {
         &[download::ACTION_PAUSE]
-    } else if state == download::STATE_COMPLETED && status == 5 {
-        &[download::ACTION_PAUSE, download::ACTION_START_NOW]
     } else {
-        // Paused, or completed and stopped.
         &[download::ACTION_RESUME, download::ACTION_START_NOW]
     };
     names.iter().map(|name| (*name).to_string()).collect()
@@ -345,7 +339,7 @@ mod tests {
             (4, 0, download::STATE_DOWNLOADING, vec!["pause"]),
             (0, 0, download::STATE_PAUSED, vec!["resume", "start-now"]),
             (2, 0, download::STATE_VERIFYING, vec!["pause"]),
-            (6, 0, download::STATE_COMPLETED, vec!["pause"]),
+            (6, 0, download::STATE_COMPLETED, vec![]),
             (0, 3, download::STATE_ERROR, vec!["retry"]),
         ];
         for (status, error, state, actions) in cases {
@@ -368,8 +362,64 @@ mod tests {
         let (jobs, active) = jobs_from_list(&[torrent(6, 0)], &[]);
         assert!(active);
         assert_eq!(jobs[0].state, download::STATE_COMPLETED);
+        assert!(jobs[0].actions.is_empty());
+        assert_eq!(jobs[0].eta_seconds, -1);
         assert_eq!(jobs[0].completed_bytes, 1000);
         assert!((jobs[0].progress - 1.0).abs() < f64::EPSILON);
+        let (jobs, _) = jobs_from_list(&[torrent(4, 0)], &[]);
+        assert_eq!(jobs[0].eta_seconds, 40);
+    }
+
+    #[test]
+    fn finished_downloads_hide_seeding_controls_and_countdown() {
+        for status in [5, 6] {
+            let mut value = torrent(status, 0);
+            value["eta"] = json!(3600);
+            value["leftUntilDone"] = json!(0);
+            let (jobs, _) = jobs_from_list(&[value], &[]);
+            let job = &jobs[0];
+            assert_eq!(job.state, download::STATE_COMPLETED, "status {status}");
+            assert!(
+                job.actions.is_empty(),
+                "status {status} advertised {:?}",
+                job.actions
+            );
+            assert_eq!(job.eta_seconds, -1, "status {status}");
+        }
+        let mut stopped = torrent(0, 0);
+        stopped["eta"] = json!(3600);
+        stopped["leftUntilDone"] = json!(0);
+        let (jobs, _) = jobs_from_list(&[stopped], &[]);
+        assert_eq!(jobs[0].state, download::STATE_COMPLETED);
+        assert!(jobs[0].actions.is_empty(), "{:?}", jobs[0].actions);
+        assert_eq!(jobs[0].eta_seconds, -1);
+    }
+
+    #[test]
+    fn tracker_error_does_not_reclassify_a_finished_or_paused_torrent() {
+        let mut finished = torrent(0, 2);
+        finished["leftUntilDone"] = json!(0);
+        finished["eta"] = json!(3600);
+        let (jobs, _) = jobs_from_list(&[finished], &[]);
+        let job = &jobs[0];
+        assert_eq!(job.state, download::STATE_COMPLETED);
+        assert!(job.actions.is_empty(), "{:?}", job.actions);
+        assert_eq!(job.error_code, "");
+        assert_eq!(job.error_message, "");
+        assert_eq!(job.eta_seconds, -1);
+
+        let (jobs, _) = jobs_from_list(&[torrent(0, 2)], &[]);
+        let job = &jobs[0];
+        assert_eq!(job.state, download::STATE_PAUSED);
+        assert_eq!(
+            job.actions,
+            vec![
+                download::ACTION_RESUME.to_string(),
+                download::ACTION_START_NOW.to_string()
+            ]
+        );
+        assert_eq!(job.error_code, "");
+        assert_eq!(job.error_message, "");
     }
 
     #[test]

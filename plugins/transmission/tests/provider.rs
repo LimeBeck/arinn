@@ -408,6 +408,14 @@ async fn scenario() {
     let job = wait_job(&proxy, download::STATE_DOWNLOADING).await;
     assert_eq!(job.actions, vec!["pause".to_string()]);
     assert!(job.outputs.is_empty());
+
+    fake.hang_stop.store(true, Ordering::Release);
+    assert_eq!(
+        error_name(proxy.pause(GENERATION, HASH).await),
+        "org.arinn.Error1.Timeout"
+    );
+    assert_eq!(fake.hangs.load(Ordering::Acquire), 1);
+    fake.hang_stop.store(false, Ordering::Release);
     assert!(fake.challenges.load(Ordering::Acquire) >= 1);
     let rendered = format!("{job:?}");
     assert!(!rendered.contains("secret-path"));
@@ -466,6 +474,8 @@ async fn scenario() {
         torrents[0]["files"][1]["bytesCompleted"] = json!(20);
     }
     let job = wait_job(&proxy, download::STATE_COMPLETED).await;
+    assert!(job.actions.is_empty(), "{:?}", job.actions);
+    assert_eq!(job.eta_seconds, -1);
     assert_eq!(job.outputs.len(), 2);
     assert!(job.outputs.iter().all(|output| output.file_uri.is_empty()));
     let output_ids: Vec<_> = job.outputs.iter().map(|output| output.id.clone()).collect();
@@ -512,14 +522,6 @@ async fn scenario() {
         "file:///mnt/media/Film/movie.mkv"
     );
     assert_eq!(mapped.outputs[1].title, "note.txt");
-
-    fake.hang_stop.store(true, Ordering::Release);
-    assert_eq!(
-        error_name(proxy.pause(GENERATION, HASH).await),
-        "org.arinn.Error1.Timeout"
-    );
-    assert_eq!(fake.hangs.load(Ordering::Acquire), 1);
-    fake.hang_stop.store(false, Ordering::Release);
 
     fake.refuse.store(true, Ordering::Release);
     let deadline = Instant::now() + Duration::from_secs(3);

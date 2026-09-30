@@ -27,17 +27,17 @@ Integration tests cover RPC version 17 (integer `status`, the 409 session challe
 | 3 | `queued` |
 | 4 | `downloading` |
 | 0, while data remains and the torrent has not failed | `paused` |
-| 1 and 2 | `verifying` (`eta_seconds` is −1) |
+| 1 and 2 | `verifying` |
 | 5, 6, or 0 when the selected data is complete | `completed` |
-| local error (`error` 3), or tracker error (`error` 2) while stopped | `error` |
+| local error (`error` 3) | `error` |
 
-Peers, seeds, ratio, trackers and the backend error string are not copied into the job. A failed job carries a fixed safe message.
+A tracker error (`error` 2) does not change the job state. A finished torrent stays `completed`, and a paused torrent with data remaining stays `paused`. Peers, seeds, ratio, trackers and the backend error string are not copied into the job. A failed job carries a fixed safe message. `eta_seconds` is the backend estimate only while `downloading`; every other state publishes −1. A finished row publishes no actions, so pause, resume and start-now never start or stop seeding and the seed-ratio countdown is not shown.
 
 | Action | RPC | When |
 | --- | --- | --- |
-| `pause` | `torrent-stop` | queued, downloading, verifying, seeding |
-| `resume` | `torrent-start` | paused, or completed and stopped |
-| `start-now` | `torrent-start-now` | queued, paused, or completed and stopped |
+| `pause` | `torrent-stop` | queued, downloading, verifying |
+| `resume` | `torrent-start` | paused |
+| `start-now` | `torrent-start-now` | queued or paused |
 | `retry` | `torrent-verify`, then `torrent-start` | `error` only |
 
 `retry` never calls `torrent-add`. A timed-out mutation is not sent again; the following poll is a read.

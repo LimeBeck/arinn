@@ -3,6 +3,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "backend.h"
+#include <algorithm>
+#include <QUrl>
+#include <arpa/inet.h>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QSet>
@@ -34,6 +37,31 @@ QString monogramFor(const QString &title) {
   if (grapheme.size() == 1 && grapheme.at(0).isSurrogate())
     return {};
   return grapheme.toUpper();
+}
+bool shortcutUrlValid(const QString &value) {
+  if (std::any_of(value.begin(), value.end(), [](QChar c) { return c.isSpace() || c == '\\' || c.category() == QChar::Other_Control; }))
+    return false;
+  const QUrl url(value, QUrl::StrictMode);
+  if (!url.isValid() || url.host().isEmpty() || !url.userInfo().isEmpty() || value.section('/', 2, 2).contains('@') || url.port() == 0 || value.section('/', 2, 2).endsWith(':'))
+    return false;
+  if (url.scheme() == "https") return true;
+  if (url.scheme() != "http") return false;
+  const auto host = url.host().toLower();
+  in_addr v4{};
+  const auto bytes = host.toLatin1();
+  if (inet_pton(AF_INET, bytes.constData(), &v4) == 1) {
+    const auto address = ntohl(v4.s_addr);
+    return (address >> 24) == 10 || (address >> 24) == 127 ||
+        (address >> 20) == 0xac1 || (address >> 16) == 0xc0a8 || (address >> 16) == 0xa9fe;
+  }
+  in6_addr v6{};
+  if (inet_pton(AF_INET6, bytes.constData(), &v6) == 1)
+    return IN6_IS_ADDR_LOOPBACK(&v6) || (v6.s6_addr[0] & 0xfe) == 0xfc ||
+        (v6.s6_addr[0] == 0xfe && (v6.s6_addr[1] & 0xc0) == 0x80);
+  if (host.contains(':')) return false;
+  if (std::all_of(host.begin(), host.end(), [](QChar c) { return c.isDigit() || c == '.'; })) return false;
+  return !host.contains('.') || host.endsWith(".local") || host.endsWith(".lan") ||
+      host.endsWith(".home.arpa") || host.endsWith(".internal");
 }
 } // namespace
 struct Backend::Catalog {
@@ -153,6 +181,10 @@ QString Backend::applicationsState() const {
 void Backend::clearShortcuts() {
   ++m_shortcutTicket;
   m_webShortcuts.clear();
+  m_shortcutRecords.clear();
+  m_shortcutRevision = 0;
+  m_shortcutSaving = false;
+  closeShortcutEditor();
   m_shortcutsLoaded = false;
   m_shortcutsError = false;
   m_shortcutsRequested = false;
@@ -201,7 +233,7 @@ void Backend::reloadCatalog() {
                 qvariant_cast<QDBusArgument>(reply.arguments().at(0));
             const auto previousGeneration = m_generation;
             QString daemonEpoch, active, klass, homeOutput, activeOutput;
-            qulonglong revision;
+            qulonglong revision = 0;
             bool full, platform;
             arg.beginStructure();
             arg >> daemonEpoch >> m_available >> m_generation >> revision >>
@@ -354,7 +386,7 @@ void Backend::readApplications(const std::shared_ptr<Catalog> &catalog,
         }
         const auto arg = qvariant_cast<QDBusArgument>(reply.arguments().at(0));
         QString generation, next;
-        qulonglong revision;
+        qulonglong revision = 0;
         arg.beginStructure();
         arg >> generation >> revision;
         if (generation != provider.value("generation").toString() ||
@@ -485,8 +517,10 @@ void Backend::readShortcuts(quint64 epoch) {
           return;
         }
         const auto arg = qvariant_cast<QDBusArgument>(reply.arguments().at(0));
-        qulonglong revision;
+        qulonglong revision = 0;
         QVariantList entries;
+        QHash<QString, QVariantMap> records;
+        bool valid = true;
         arg.beginStructure();
         arg >> revision;
         arg.beginArray();
@@ -495,10 +529,24 @@ void Backend::readShortcuts(quint64 epoch) {
           arg.beginStructure();
           arg >> id >> title >> url >> icon;
           arg.endStructure();
-          // The URL and icon reference are user configuration. Discard them
-          // after decoding; they are not stored, displayed or logged.
-          url.clear();
-          icon.clear();
+          // Full user configuration stays private to C++, except the selected
+          // editor draft. Tile models never carry URLs or icon references.
+          auto bounded = [](const QString &value, int limit, bool empty) {
+            return (empty || !value.trimmed().isEmpty()) &&
+                   value.toUtf8().size() <= limit &&
+                   std::none_of(value.begin(), value.end(), [](QChar c) {
+                     return c.category() == QChar::Other_Control;
+                   });
+          };
+          valid = valid && bounded(id, 256, false) && bounded(title, 256, false) &&
+                  bounded(url, 2048, false) && bounded(icon, 256, true) &&
+                  shortcutUrlValid(url) && !records.contains(id) && records.size() < 64;
+          if (!valid) {
+            fail();
+            return;
+          }
+          records.insert(id, {{"id", id}, {"title", title},
+                              {"url", url}, {"icon", icon}});
           entries.append(QVariantMap{{"id", id},
                                       {"title", title},
                                       {"monogram", monogramFor(title)},
@@ -506,7 +554,13 @@ void Backend::readShortcuts(quint64 epoch) {
         }
         arg.endArray();
         arg.endStructure();
-        Q_UNUSED(revision);
+        if (!valid || revision == 0 || revision < m_shortcutRevision ||
+            (revision == m_shortcutRevision && records != m_shortcutRecords)) {
+          fail();
+          return;
+        }
+        m_shortcutRevision = revision;
+        m_shortcutRecords = records;
         m_webShortcuts = entries;
         m_shortcutsLoaded = true;
         m_shortcutsError = false;
@@ -670,4 +724,87 @@ void Backend::watchOperation(const QString &id, const QString &operationPath,
                     });
           });
   timer->start();
+}
+
+void Backend::editShortcut(const QString &id) {
+  if (m_shortcutSaving)
+    return;
+  if (!m_connected || !m_shortcutsLoaded || m_shortcutsError ||
+      (!id.isEmpty() && !m_shortcutRecords.contains(id))) {
+    m_message = tr("Shortcuts are unavailable. Refresh and try again.");
+    publishState();
+    return;
+  }
+  ++m_editorTicket;
+  m_shortcutError.clear();
+  m_editorRevision = m_shortcutRevision;
+  m_shortcutEditor = id.isEmpty()
+      ? QVariantMap{{"id", QString()}, {"title", QString()}, {"url", QString()}, {"icon", QString()}}
+      : m_shortcutRecords.value(id);
+  publishState();
+}
+void Backend::closeShortcutEditor() {
+  ++m_editorTicket;
+  m_shortcutEditor.clear();
+  m_shortcutError.clear();
+  publishState();
+}
+void Backend::saveShortcut(const QString &title, const QString &url) {
+  if (m_shortcutEditor.isEmpty() || m_shortcutSaving)
+    return;
+  // Preserve the draft on errors. URL policy belongs to the daemon.
+  m_shortcutEditor["title"] = title;
+  m_shortcutEditor["url"] = url;
+  const auto id = m_shortcutEditor.value("id").toString();
+  const auto icon = m_shortcutEditor.value("icon").toString();
+  if (id.isEmpty())
+    mutateShortcut("Add", {title, url, icon, QUuid::createUuid().toString(QUuid::WithoutBraces)});
+  else
+    mutateShortcut("Update", {id, QVariant::fromValue<qulonglong>(m_editorRevision), title, url, icon});
+}
+void Backend::removeShortcut() {
+  const auto id = m_shortcutEditor.value("id").toString();
+  if (!id.isEmpty())
+    mutateShortcut("Remove", {id, QVariant::fromValue<qulonglong>(m_editorRevision)});
+}
+void Backend::mutateShortcut(const char *method, const QVariantList &args) {
+  if (m_shortcutSaving || m_shortcutEditor.isEmpty() || !m_connected)
+    return;
+  auto msg = QDBusMessage::createMethodCall(service, path, "org.arinn.WebShortcuts1", method);
+  msg.setArguments(args);
+  const auto epoch = m_connectionEpoch;
+  const auto ticket = m_editorTicket;
+  const bool adding = QByteArray(method) == "Add";
+  m_shortcutSaving = true;
+  m_shortcutError.clear();
+  publishState();
+  auto call = new QDBusPendingCallWatcher(QDBusConnection::sessionBus().asyncCall(msg, 3000), this);
+  connect(call, &QDBusPendingCallWatcher::finished, this, [this, epoch, ticket, adding](auto *call) {
+    const auto reply = call->reply();
+    call->deleteLater();
+    if (epoch != m_connectionEpoch)
+      return;
+    m_shortcutSaving = false;
+    if (ticket != m_editorTicket) {
+      readShortcuts(epoch);
+      publishState();
+      return;
+    }
+    if (reply.type() == QDBusMessage::ErrorMessage) {
+      const auto code = reply.errorName().section('.', -1);
+      // Never display arbitrary remote messages that may contain user URLs.
+      m_shortcutError = code == "Conflict" ? tr("Shortcuts changed. Close and reopen the editor before saving.")
+          : code == "InvalidArgument" ? tr("Check the title and address. Use HTTPS, or HTTP for a local service.")
+          : code == "NoReply" || code == "Timeout" ? tr("No reply. Check the shortcut list before trying again.")
+          : tr("The shortcut could not be saved (%1).").arg(code);
+    } else if ((adding && (reply.signature() != "s" || reply.arguments().at(0).toString().isEmpty())) ||
+               (!adding && !reply.signature().isEmpty())) {
+      m_shortcutError = tr("Invalid reply. Check the shortcut list before trying again.");
+    } else {
+      closeShortcutEditor();
+    }
+    // No mutation is retried automatically, including uncertain Add replies.
+    readShortcuts(epoch);
+    publishState();
+  });
 }

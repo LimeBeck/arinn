@@ -6,6 +6,7 @@
 
 #pragma once
 #include <QDBusMessage>
+#include <QHash>
 #include <QObject>
 #include <QSet>
 #include <QTimer>
@@ -30,6 +31,9 @@ class Backend : public QObject {
   Q_PROPERTY(QString applicationsState READ applicationsState NOTIFY changed)
   Q_PROPERTY(QStringList busyEntryIds READ busyEntryIds NOTIFY changed)
   Q_PROPERTY(QString message READ message NOTIFY changed)
+  Q_PROPERTY(QVariantMap shortcutEditor READ shortcutEditor NOTIFY changed)
+  Q_PROPERTY(bool shortcutSaving READ shortcutSaving NOTIFY changed)
+  Q_PROPERTY(QString shortcutError READ shortcutError NOTIFY changed)
 public:
   explicit Backend(QObject *parent = nullptr);
   bool connected() const { return m_connected; }
@@ -45,6 +49,13 @@ public:
   QString applicationsState() const;
   QStringList busyEntryIds() const { return m_pendingIds.values(); }
   QString message() const { return m_message; }
+  QVariantMap shortcutEditor() const { return m_shortcutEditor; }
+  bool shortcutSaving() const { return m_shortcutSaving; }
+  QString shortcutError() const { return m_shortcutError; }
+  Q_INVOKABLE void editShortcut(const QString &id = {});
+  Q_INVOKABLE void closeShortcutEditor();
+  Q_INVOKABLE void saveShortcut(const QString &title, const QString &url);
+  Q_INVOKABLE void removeShortcut();
   Q_INVOKABLE void back();
   Q_INVOKABLE void launch(const QString &id);
   Q_INVOKABLE void activate(const QString &id);
@@ -62,6 +73,12 @@ signals:
   void screenRequested(const QString &name);
 
 private:
+  void mutateShortcut(const char *method, const QVariantList &args);
+  QHash<QString, QVariantMap> m_shortcutRecords;
+  QVariantMap m_shortcutEditor;
+  QString m_shortcutError;
+  bool m_shortcutSaving = false;
+  quint64 m_shortcutRevision = 0, m_editorRevision = 0, m_editorTicket = 0;
   QSet<QString> m_pendingIds;
   struct Catalog;
   void readProviders(const std::shared_ptr<Catalog> &catalog,

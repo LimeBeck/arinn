@@ -16,7 +16,7 @@ FocusScope {
     property string selectedId: ""
     property int selectedIndex: 0
     readonly property int count: entries.length
-    readonly property real cellWidth: variant === "app" ? 264 : variant === "poster" ? 180 : 400
+    property real cellWidth: variant === "app" ? 264 : variant === "poster" ? 180 : 400
     readonly property real cellHeight: variant === "app" ? 132 : variant === "poster" ? 270 : 225
     readonly property real gap: variant === "content" ? 32 : 24
     signal selected(var entry)

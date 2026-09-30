@@ -70,6 +70,15 @@ Window {
             id: home
             objectName: "productionHome"
             visible: !root.playerOpen
+            shortcutManagement: true
+            keyboardAvailable: keyboardMonitor.available
+            shortcutEditor: backend.shortcutEditor || ({})
+            shortcutSaving: backend.shortcutSaving === true
+            shortcutError: backend.shortcutError || ""
+            onEditShortcutRequested: entryId => backend.editShortcut(entryId)
+            onCloseShortcutEditorRequested: backend.closeShortcutEditor()
+            onSaveShortcutRequested: (title, url) => backend.saveShortcut(title, url)
+            onRemoveShortcutRequested: backend.removeShortcut()
             busyEntryIds: backend.busyEntryIds
             continueEntries: backend.continueEntries.concat(mediaCatalog.continueEntries)
             favoriteEntries: backend.favorites

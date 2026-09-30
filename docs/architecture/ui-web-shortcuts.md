@@ -6,9 +6,8 @@
 The production Home favorites row reads `org.arinn.WebShortcuts1` on the daemon
 service and root path ([web-shortcuts1.xml](../plugin-api/web-shortcuts1.xml),
 [ADR-0043](../adr/0043-web-shortcuts.md)). This is the shell binding for
-[specification §5.1](../specifications/arinn-specification.md#51-home). Home
-does not edit or remove shortcuts. Adding one is the Open services bookmark
-action, which calls `WebShortcuts1.Add` from `BrowserCatalog`
+[specification §5.1](../specifications/arinn-specification.md#51-home). Home tiles retain their launch behavior. Applications supplies the hardware-keyboard
+editor below. The Open services bookmark action also calls `WebShortcuts1.Add` from `BrowserCatalog`
 ([ui-browser.md](ui-browser.md)). The daemon is unchanged.
 
 ## What the shell shows
@@ -33,8 +32,8 @@ empty title, or a title whose first unit is an unpaired surrogate, keeps an
 empty monogram, which is the neutral placeholder. The favorites model sets
 `webShortcut: true` so Home can tell these tiles from application tiles. The
 `icon` field is an opaque packaged reference; the favorites row does not load
-it and does not draw third-party logos. The URL is discarded after the D-Bus
-decode. Neither the URL nor the title is written to a log. Open-services
+it and does not draw third-party logos. The URL remains in the private C++ configuration cache for editing. It is
+exposed only in the selected editor draft, never in the tile models. Neither the URL nor the title is written to a log. Open-services
 matching of that URL is described in [ui-browser.md](ui-browser.md); the
 favorites model still has no URL and no icon.
 
@@ -75,7 +74,7 @@ the tile and it does not open the URL itself.
 `apps/arinn-shell/catalog_test.cpp` (`webShortcuts`, private bus) covers loading
 (recorded from `changed` when the daemon appears), an empty list, `Changed`
 refreshing the shortcut list without re-reading the application catalog,
-monograms (including a surrogate-pair grapheme and an unpaired surrogate),
+monograms (including a surrogate-pair grapheme and a neutral glyph),
 absence of the URL and icon in the presentation model, `Open` deduplicated
 while the operation is running, a failed operation whose error is `Unavailable`,
 a succeeded operation, an unknown id ("Shortcut is no longer available"), a
@@ -102,3 +101,44 @@ private session bus: `dbus-run-session -- arinn-catalog-test` passed (the
 catalog cases and `webShortcuts`, 10 passed). The same Qt build then ran
 `arinn-shell-test` against `arinnd` and the delayed demo provider:
 `BackendTest::typedWireAndLocalFocus` passed. Operator tests were not run.
+
+
+## Applications shortcut editor (#68)
+
+Applications → Other includes **Add application — Any site as an application**.
+On a shortcut tile, Menu opens its editor; the **Edit shortcut** button supplies a
+pointer-accessible action as well. Title and address are standard text fields for
+a hardware keyboard. Down/Up move between fields and actions; Backspace edits
+text, Esc cancels, and Home discards the draft and returns Home. Without a detected
+keyboard the sheet explains the `arinnctl shortcuts` fallback. No on-screen
+keyboard is implemented. Remove has a confirmation whose initial focus is Cancel.
+Closing restores the invoking tile or an available neighboring row.
+
+`Backend` retains a private configuration cache, validates bounded unique rows and
+nonzero/nonregressing revisions, and publishes complete lists only. An unchanged
+revision cannot replace the current data. The editor captures the list revision
+when opened; Update and Remove use that captured revision, so concurrent writes
+produce Conflict instead of overwriting newer configuration. Existing opaque icon
+references survive edits; the shell does not fetch images. Add uses a request UUID.
+Only one editor mutation runs at a time. Closing the sheet hides its draft but
+does not cancel a write already sent; another edit waits for that reply. No
+mutation is retried automatically.
+A rejected write keeps the draft and displays a normalized error; conflict asks
+the user to close and reopen, and an uncertain reply asks them to check the list.
+Daemon loss clears configuration and editor state and invalidates pending replies.
+URLs and titles are never logged. URL acceptance remains enforced by the daemon.
+
+Private-bus `CatalogTest::shortcutEditorAndRevisionValidation` covers captured
+revisions, Conflict, duplicate submissions, Add identity, Remove, retained icons,
+invalid lists and daemon loss. `tests/ui/tst_shortcut_editor.qml` covers D-pad
+entry, text Backspace, modal focus, cancellation, remove confirmation and the
+keyboard-unavailable state. The catalog fixture uses a valid neutral glyph rather
+than an unpaired UTF-16 surrogate: D-Bus strings are UTF-8, so the latter cannot
+round-trip consistently across Qt versions.
+
+**Remaining dependency:** #68 also requests explicit pin/unpin of Favorites.
+The current public daemon contracts expose no Favorites mutation API. This shell
+increment does not invent client-side persistence or extend that contract; the
+existing default Home row remains. #68 must remain open for the separately
+coordinated Favorites contract and its shell binding. This work does not qualify
+AC-02/AC-03 or full G-5.1 on a real KDE/TV session.

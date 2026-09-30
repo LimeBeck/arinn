@@ -14,6 +14,42 @@ FocusScope {
     property var newEntries: []
     property var applicationEntries: []
     property var runningEntries: []
+    property bool shortcutManagement: false
+    property bool keyboardAvailable: true
+    property var shortcutEditor: ({})
+    property bool shortcutSaving: false
+    property string shortcutError: ""
+    onShortcutErrorChanged: {
+        if (shortcutError.length && removeConfirmation.visible) {
+            removeConfirmation.visible = false;
+            shortcutDelete.forceActiveFocus();
+        }
+    }
+    readonly property bool shortcutEditorOpen: shortcutEditor.id !== undefined
+    property var shortcutOpener: null
+    signal editShortcutRequested(string entryId)
+    signal closeShortcutEditorRequested()
+    signal saveShortcutRequested(string title, string url)
+    signal removeShortcutRequested()
+    function editShortcut(entryId) {
+        shortcutOpener = root.Window.window ? root.Window.window.activeFocusItem : null;
+        editShortcutRequested(entryId);
+    }
+    onShortcutEditorOpenChanged: {
+        if (shortcutEditorOpen) {
+            shortcutTitle.text = shortcutEditor.title || "";
+            shortcutUrl.text = shortcutEditor.url || "";
+            removeConfirmation.visible = false;
+            Qt.callLater(() => keyboardAvailable ? shortcutTitle.forceActiveFocus() : shortcutCancel.forceActiveFocus());
+        } else {
+            shortcutTitle.text = "";
+            shortcutUrl.text = "";
+            if (shortcutOpener && shortcutOpener.visible && shortcutOpener.enabled)
+                shortcutOpener.forceActiveFocus();
+            else Qt.callLater(restoreScreen);
+            shortcutOpener = null;
+        }
+    }
     property string applicationFocusRow: "group-online"
     // Applications-screen groups in display order (spec §5.5). Providers set
     // `group`; the C++ model maps unknown groups to "other" before QML.
@@ -96,7 +132,10 @@ FocusScope {
         menuButton.forceActiveFocus();
     }
     function groupEntries(group) {
-        return applicationEntries.filter(entry => (entry.group || "other") === group);
+        const entries = applicationEntries.filter(entry => (entry.group || "other") === group);
+        if (group === "other" && shortcutManagement)
+            entries.push({id: "shortcut-add", title: qsTr("Add application"), subtitle: qsTr("Any site as an application"), shortcutAdd: true, enabled: true});
+        return entries;
     }
     // Visible application rows, top to bottom: groups, then open windows.
     function applicationRows() {
@@ -117,6 +156,7 @@ FocusScope {
             if (rows[i].focusIndex(row.selectedIndex) || rows[i].restore()) return;
         }
         if (key === Qt.Key_Up) { sectionOffset = 0; menuButton.forceActiveFocus(); }
+        else if (shortcutEditButton.visible) shortcutEditButton.forceActiveFocus();
         else sectionBack.forceActiveFocus();
     }
     function applicationFocusLost(row) {
@@ -152,6 +192,7 @@ FocusScope {
         navigationOpener = null;
     }
     function showHome() {
+        if (shortcutEditorOpen) closeShortcutEditorRequested();
         navOpen = false;
         screen = "home";
         if (returnActivityId && homeState === "ready") {
@@ -210,7 +251,7 @@ FocusScope {
         if (entryId === returnActivityId) returnRequested(entryId);
         else entryRequested(entryId);
     }
-    onHomeStateChanged: Qt.callLater(() => { if (!navOpen && screen === "home") restoreHome(); })
+    onHomeStateChanged: Qt.callLater(() => { if (!navOpen && !shortcutEditorOpen && screen === "home") restoreHome(); })
     onReturnActivityIdChanged: {
         if (!returnActivityId) {
             activityNotice.visible = true;
@@ -219,7 +260,7 @@ FocusScope {
                 navItems.itemAt(5).forceActiveFocus();
         }
     }
-    Component.onCompleted: Qt.callLater(restoreHome)
+    Component.onCompleted: Qt.callLater(restoreScreen)
     Timer { id: hoverDelay; interval: 500 }
     Timer { id: noticeTimer; interval: 2600; onTriggered: activityNotice.visible = false }
     HoverHandler {
@@ -236,7 +277,9 @@ FocusScope {
         if ([Qt.Key_Left, Qt.Key_Right, Qt.Key_Up, Qt.Key_Down].includes(event.key)) root.pointerMode = false;
         if (event.key === Qt.Key_Home) { showHome(); event.accepted = true; }
         else if (event.key === Qt.Key_Menu) {
-            if (navOpen) closeNavigation(); else openNavigation();
+            if (shortcutManagement && !navOpen && screen === "applications" && focusedEntry.webShortcut)
+                editShortcut(focusedEntry.id);
+            else if (navOpen) closeNavigation(); else openNavigation();
             event.accepted = true;
         } else if (event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace) {
             // Editable controls consume Backspace before it bubbles to this scope.
@@ -381,13 +424,18 @@ FocusScope {
                     required property string modelData
                     objectName: "group-" + modelData
                     width: 1704; variant: "app"
+                    cellWidth: modelData === "other" && root.shortcutManagement ? 480 : 264
                     title: root.groupTitles[modelData]
                     visible: root.screen === "applications" && count > 0
                     entries: root.groupEntries(modelData); busyEntryIds: root.busyEntryIds
                     browserUnavailable: root.browserUnavailable; openShortcutIds: root.openShortcutIds
                     pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled
-                    onSelected: { root.applicationFocusRow = groupRow.objectName; root.revealRow(groupRow); }
-                    onActivated: entryId => root.entryRequested(entryId)
+                    onSelected: entry => { root.focusedEntry = entry; root.applicationFocusRow = groupRow.objectName; root.revealRow(groupRow); }
+                    onActivated: entryId => {
+                        const entry = groupRow.entries.find(e => e.id === entryId);
+                        if (entry && entry.shortcutAdd) root.editShortcut("");
+                        else root.entryRequested(entryId);
+                    }
                     onEdge: key => root.applicationEdge(groupRow, key)
                     onFocusLost: root.applicationFocusLost(groupRow)
                     onScrolled: hoverDelay.restart()
@@ -406,6 +454,14 @@ FocusScope {
                 onFocusLost: root.applicationFocusLost(runningRow)
                 onScrolled: hoverDelay.restart()
                 onDpadRequested: root.pointerMode = false
+            }
+            ActionButton {
+                id: shortcutEditButton; objectName: "editShortcutButton"
+                text: qsTr("Edit shortcut")
+                visible: root.shortcutManagement && root.screen === "applications" && !!root.focusedEntry.webShortcut
+                onActivated: root.editShortcut(root.focusedEntry.id)
+                Keys.onUpPressed: root.restoreScreen()
+                Keys.onDownPressed: sectionBack.forceActiveFocus()
             }
             ActionButton {
                 id: sectionBack; objectName: "sectionBack"
@@ -543,4 +599,123 @@ FocusScope {
             }
         }
     }
+    // Modal user-configuration editor. QML only edits text; the daemon owns
+    // address policy and C++ owns revisions, transport and mutation state.
+    FocusScope {
+        id: shortcutSheet
+        objectName: "shortcutSheet"
+        anchors.fill: parent
+        z: 100
+        visible: root.shortcutEditorOpen
+        enabled: visible
+        Keys.onPressed: event => {
+            event.accepted = true;
+            if (event.key === Qt.Key_Home) root.showHome();
+            else if (event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace) {
+                if (removeConfirmation.visible) {
+                    removeConfirmation.visible = false;
+                    shortcutDelete.forceActiveFocus();
+                } else root.closeShortcutEditorRequested();
+            }
+        }
+        Rectangle { anchors.fill: parent; color: "#E6131416"; MouseArea { anchors.fill: parent } }
+        Rectangle {
+            x: 410; y: 155; width: 1100; height: 770; radius: 40; color: Theme.background
+            border.color: Theme.ring
+            Column {
+                x: 50; y: 38; width: 1000; spacing: 22
+                enabled: !removeConfirmation.visible
+                UiText { role: "title"; text: root.shortcutEditor.id ? qsTr("Edit shortcut") : qsTr("Add application") }
+                UiText { text: qsTr("Title"); color: Theme.textSecondary }
+                Rectangle {
+                    width: 1000; height: 100; radius: 30; color: Theme.plate
+                    border.width: 2; border.color: shortcutTitle.activeFocus ? Theme.ember : "transparent"
+                    TextInput {
+                        id: shortcutTitle; objectName: "shortcutTitle"
+                        anchors.fill: parent; anchors.margins: 24
+                        font.family: Theme.fontFamily; font.pixelSize: 36; color: Theme.textPrimary
+                        selectByMouse: true; clip: true
+                        readOnly: root.shortcutSaving || !root.keyboardAvailable
+                        maximumLength: 256
+                        Keys.onDownPressed: shortcutUrl.forceActiveFocus()
+                        Keys.onReturnPressed: shortcutUrl.forceActiveFocus()
+                        Keys.onEnterPressed: shortcutUrl.forceActiveFocus()
+                        Keys.onEscapePressed: root.closeShortcutEditorRequested()
+                        Keys.onPressed: event => { if (event.key === Qt.Key_Home) { root.showHome(); event.accepted = true; } }
+                    }
+                }
+                UiText { text: qsTr("Address"); color: Theme.textSecondary }
+                Rectangle {
+                    width: 1000; height: 100; radius: 30; color: Theme.plate
+                    border.width: 2; border.color: shortcutUrl.activeFocus ? Theme.ember : "transparent"
+                    TextInput {
+                        id: shortcutUrl; objectName: "shortcutUrl"
+                        anchors.fill: parent; anchors.margins: 24
+                        font.family: Theme.fontFamily; font.pixelSize: 36; color: Theme.textPrimary
+                        selectByMouse: true; clip: true
+                        readOnly: root.shortcutSaving || !root.keyboardAvailable
+                        maximumLength: 2048
+                        Keys.onUpPressed: shortcutTitle.forceActiveFocus()
+                        Keys.onDownPressed: shortcutSave.forceActiveFocus()
+                        Keys.onReturnPressed: shortcutSave.forceActiveFocus()
+                        Keys.onEnterPressed: shortcutSave.forceActiveFocus()
+                        Keys.onEscapePressed: root.closeShortcutEditorRequested()
+                        Keys.onPressed: event => { if (event.key === Qt.Key_Home) { root.showHome(); event.accepted = true; } }
+                    }
+                }
+                UiText {
+                    width: parent.width; height: 80; font.pixelSize: 28
+                    text: !root.keyboardAvailable ? qsTr("A keyboard is needed to type. Without a keyboard, use arinnctl shortcuts.") : root.shortcutError
+                    color: root.shortcutError.length ? Theme.error : Theme.textSecondary
+                }
+                Row {
+                    spacing: 24
+                    ActionButton {
+                        id: shortcutSave; objectName: "shortcutSave"; text: qsTr("Save")
+                        visible: root.keyboardAvailable; busy: root.shortcutSaving
+                        onActivated: if (!root.shortcutSaving) root.saveShortcutRequested(shortcutTitle.text, shortcutUrl.text)
+                        Keys.onUpPressed: shortcutUrl.forceActiveFocus()
+                        Keys.onRightPressed: shortcutCancel.forceActiveFocus()
+                    }
+                    ActionButton {
+                        id: shortcutCancel; objectName: "shortcutCancel"; text: qsTr("Cancel")
+                        onActivated: root.closeShortcutEditorRequested()
+                        Keys.onLeftPressed: if (shortcutSave.visible) shortcutSave.forceActiveFocus()
+                        Keys.onRightPressed: if (shortcutDelete.visible) shortcutDelete.forceActiveFocus()
+                        Keys.onUpPressed: if (root.keyboardAvailable) shortcutUrl.forceActiveFocus()
+                    }
+                    ActionButton {
+                        id: shortcutDelete; objectName: "shortcutDelete"; text: qsTr("Remove"); destructive: true
+                        visible: !!root.shortcutEditor.id
+                        onActivated: if (!root.shortcutSaving) { removeConfirmation.visible = true; confirmCancel.forceActiveFocus(); }
+                        Keys.onLeftPressed: shortcutCancel.forceActiveFocus()
+                    }
+                }
+            }
+        }
+        Rectangle {
+            id: removeConfirmation; objectName: "shortcutRemoveConfirmation"
+            anchors.centerIn: parent; width: 1000; height: 380; radius: 40
+            color: Theme.background; border.color: Theme.ring; visible: false
+            Column {
+                anchors.centerIn: parent; spacing: 40
+                UiText { text: qsTr("Remove this shortcut?"); role: "section" }
+                Row {
+                    spacing: 28
+                    ActionButton {
+                        id: confirmCancel; objectName: "shortcutKeep"; text: qsTr("Cancel")
+                        onActivated: { removeConfirmation.visible = false; shortcutDelete.forceActiveFocus(); }
+                        Keys.onRightPressed: confirmRemove.forceActiveFocus()
+                    }
+                    ActionButton {
+                        id: confirmRemove; objectName: "shortcutRemove"; text: qsTr("Remove"); destructive: true
+                        busy: root.shortcutSaving
+                        onActivated: if (!root.shortcutSaving) root.removeShortcutRequested()
+                        Keys.onLeftPressed: confirmCancel.forceActiveFocus()
+                    }
+                }
+            }
+        }
+    }
+
 }

@@ -56,6 +56,17 @@ pub enum Launch {
     Missing,
 }
 
+/// `Systemd` when `binary` exists, otherwise `Missing`.
+pub(crate) fn launch_for(binary: &Path) -> Launch {
+    if binary.is_file() {
+        Launch::Systemd {
+            binary: binary.to_path_buf(),
+        }
+    } else {
+        Launch::Missing
+    }
+}
+
 pub struct Settings {
     pub socket: PathBuf,
     pub state_path: PathBuf,
@@ -1094,4 +1105,20 @@ fn monotonic_us() -> u64 {
         return 0;
     }
     (time.tv_sec as u64).saturating_mul(1_000_000) + (time.tv_nsec as u64) / 1_000
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_missing_binary_does_not_launch() {
+        let dir = std::env::temp_dir().join(format!("arinn-mpv-bin-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let binary = dir.join("mpv");
+        std::fs::write(&binary, b"x").unwrap();
+        assert!(matches!(launch_for(&binary), Launch::Systemd { .. }));
+        assert!(matches!(launch_for(&dir.join("absent")), Launch::Missing));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

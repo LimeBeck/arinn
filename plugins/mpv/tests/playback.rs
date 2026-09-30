@@ -586,6 +586,32 @@ async fn peer_crash_does_not_replay_loadfile_or_the_failed_seek() {
 }
 
 #[tokio::test]
+async fn missing_mpv_stays_unavailable_and_does_not_open() {
+    let dir = std::env::temp_dir().join(format!("arinn-mpv-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let player = Player::start(Settings {
+        socket: dir.join("ipc"),
+        state_path: dir.join("session"),
+        launch: Launch::Missing,
+        publish_interval: Duration::from_secs(3600),
+        ffmpeg: None,
+        thumb_dir: dir.join("cache"),
+        backend: "unavailable".into(),
+    })
+    .unwrap();
+    assert_eq!(player.view().await.unwrap().backend, "unavailable");
+    assert!(player.view().await.unwrap().sessions.is_empty());
+    assert_eq!(player.open(source(&dir)).await, Err(ErrorCode::Unavailable));
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let view = player.view().await.unwrap();
+    assert_eq!(view.backend, "unavailable");
+    assert!(view.sessions.is_empty());
+    assert!(!dir.join("session").exists());
+    drop(player);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
 async fn bad_uri_is_rejected() {
     let dir = std::env::temp_dir().join(format!("arinn-mpv-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();

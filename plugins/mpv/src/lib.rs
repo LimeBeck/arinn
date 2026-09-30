@@ -41,11 +41,7 @@ pub async fn serve(connection: Connection) -> Result<(), ErrorCode> {
         .parent()
         .map(|dir| dir.join("session"))
         .ok_or(ErrorCode::Unavailable)?;
-    let launch = match scope::mpv_binary() {
-        Ok(binary) => Launch::Systemd { binary },
-        Err(ErrorCode::Unavailable) => Launch::Missing,
-        Err(error) => return Err(error),
-    };
+    let launch = player::launch_for(std::path::Path::new("/usr/bin/mpv"));
     let backend = if matches!(launch, Launch::Missing) {
         "unavailable"
     } else {

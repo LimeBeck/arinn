@@ -1,1 +1,1 @@
-- `arinn-plugin-mpv` plays local files in an external mpv process and exposes tracks, chapters and seek thumbnails (`MediaOpen1`, `MediaTracks1`, `MediaTimeline1`). The player runs in its own user unit ([ADR-0057](docs/adr/0057-mpv-ipc-and-process-scope.md)).
+- `arinn-plugin-mpv` plays local files in an external mpv process and exposes tracks, chapters and seek thumbnails (`MediaOpen1`, `MediaTracks1`, `MediaTimeline1`). The player runs in its own user unit ([ADR-0057](docs/adr/0057-mpv-ipc-and-process-scope.md)). mpv is optional; without it the backend is `unavailable`.

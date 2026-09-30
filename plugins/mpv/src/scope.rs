@@ -16,15 +16,6 @@ use zbus::{
 pub const UNIT: &str = "app-arinn-mpv.service";
 const DEADLINE: Duration = Duration::from_secs(5);
 
-pub fn mpv_binary() -> Result<std::path::PathBuf, ErrorCode> {
-    let path = Path::new("/usr/bin/mpv");
-    if path.is_file() {
-        Ok(path.to_path_buf())
-    } else {
-        Err(ErrorCode::Unavailable)
-    }
-}
-
 /// argv after the executable. Key bindings, the OSC and watch-later are off.
 pub fn arguments(socket: &Path) -> Vec<String> {
     vec![

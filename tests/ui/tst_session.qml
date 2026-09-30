@@ -66,6 +66,10 @@ TestCase {
         view = createTemporaryObject(factory, suite, props || {});
         verify(view);
         arm(view);
+        // The view is created under the cursor. Deliver that hover before the
+        // test, then leave D-pad mode so a repeat of the same point is not a move.
+        mouseMove(view, 8, 8);
+        view.pointerMode = false;
     }
     function init() { createView(); }
     function cleanup() { arm(null); }
@@ -164,6 +168,15 @@ TestCase {
         compare(seeks.count, 0);
         compare(nexts.count, 0);
         verify(insideView(view.Window.window.activeFocusItem));
+        compare(view.pointerMode, false);
+    }
+
+    function test_repeat_hover_keeps_dpad_mode() {
+        const button = child("action-play");
+        mouseMove(button, 30, 20);
+        tryCompare(view, "pointerMode", true);
+        // keyClick delivers the same hover point again. That must not undo D-pad.
+        keyClick(Qt.Key_Left);
         compare(view.pointerMode, false);
     }
 

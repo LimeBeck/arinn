@@ -153,6 +153,8 @@ FocusScope {
         return true;
     }
     function moveFocus(key, wrap) {
+        if (hoverPoint.hovered)
+            hoverPoint.previousPosition = hoverPoint.point.scenePosition;
         pointerMode = false;
         if (!queueVisible) return;
         if (key !== Qt.Key_Up && key !== Qt.Key_Down) return;
@@ -213,7 +215,17 @@ FocusScope {
     onJobsChanged: Qt.callLater(() => { syncImports(); restore(); })
     Timer { id: hoverDelay; interval: hoverSuppressMs }
     Timer { id: toastTimer; interval: toastDurationMs; onTriggered: root.toastMessage = "" }
-    HoverHandler { onPointChanged: root.pointerMode = true }
+    HoverHandler {
+        id: hoverPoint
+        property point previousPosition: Qt.point(-1, -1)
+        onPointChanged: {
+            const next = point.scenePosition;
+            if (next.x === previousPosition.x && next.y === previousPosition.y)
+                return;
+            previousPosition = next;
+            root.pointerMode = true;
+        }
+    }
     Keys.onPressed: event => root.acceptKey(event)
 
     Rectangle { anchors.fill: parent; color: Ui.Theme.background }

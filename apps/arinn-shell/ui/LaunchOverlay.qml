@@ -31,11 +31,20 @@ FocusScope {
         revealed = false;
         slow = false;
         timedOut = false;
+        slowTimer.stop();
+        timeoutTimer.stop();
         revealTimer.interval = Math.max(0, revealDelay);
-        slowTimer.interval = Math.max(0, slowDelay);
-        timeoutTimer.interval = Math.max(0, timeoutDelay);
         revealTimer.restart();
+    }
+    // One stage at a time. QML timers share the animation clock, so a stalled
+    // process would otherwise finish every deadline in the same turn and the
+    // timeout dialog would hide the slow message before it could appear.
+    function scheduleSlow() {
+        slowTimer.interval = Math.max(0, slowDelay - revealDelay);
         slowTimer.restart();
+    }
+    function scheduleTimeout() {
+        timeoutTimer.interval = Math.max(0, timeoutDelay - slowDelay);
         timeoutTimer.restart();
     }
     function disarm() {
@@ -69,8 +78,24 @@ FocusScope {
     onSlowChanged: if (slow && showOverlay && !showDialog) Qt.callLater(() => cancelButton.forceActiveFocus())
     function focusDialog() { if (retryButton.visible) retryButton.forceActiveFocus(); }
     visible: showOverlay
-    Timer { id: revealTimer; onTriggered: if (root.active && !root.showDialog) root.revealed = true }
-    Timer { id: slowTimer; onTriggered: if (root.active && !root.showDialog) root.slow = true }
+    Timer {
+        id: revealTimer
+        onTriggered: {
+            if (!root.active || root.showDialog)
+                return;
+            root.revealed = true;
+            root.scheduleSlow();
+        }
+    }
+    Timer {
+        id: slowTimer
+        onTriggered: {
+            if (!root.active || root.showDialog)
+                return;
+            root.slow = true;
+            root.scheduleTimeout();
+        }
+    }
     Timer { id: timeoutTimer; onTriggered: if (root.active && !root.failure.length) root.timedOut = true }
 
     Rectangle {

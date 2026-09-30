@@ -64,6 +64,8 @@ TestCase {
         view = createTemporaryObject(factory, suite, props || {});
         verify(view);
         arm(view);
+        mouseMove(view, 8, 8);
+        view.pointerMode = false;
     }
     function init() { createView(); }
     function cleanup() { arm(null); }
@@ -193,6 +195,14 @@ TestCase {
         compare(view.pointerMode, false);
     }
 
+    function test_repeat_hover_keeps_dpad_mode() {
+        const row = child("job-active");
+        mouseMove(row, 40, 30);
+        tryCompare(view, "pointerMode", true);
+        keyClick(Qt.Key_Down);
+        compare(view.pointerMode, false);
+    }
+
     function test_removal_and_reorder() {
         keyClick(Qt.Key_Down); keyClick(Qt.Key_Down); focused("job-held");
         view.jobs = [
@@ -250,9 +260,10 @@ TestCase {
         view.jobs = [{id: "extra", title: "Extra file", state: "completed", importState: "unsupported"}];
         focused("job-extra");
         compare(view.toastMessage, "Ready item is ready to watch");
-        wait(2700);
-        compare(view.toastMessage, "");
-        verify(!child("completionToast").visible);
+        // The toast timer follows the animation clock, which can run past a
+        // fixed 2700 ms wait when the process is busy.
+        tryCompare(view, "toastMessage", "");
+        tryCompare(child("completionToast"), "visible", false);
     }
 
     function test_non_media_completion_has_no_toast() {

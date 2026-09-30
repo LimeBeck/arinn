@@ -339,7 +339,7 @@ void Backend::readApplications(const std::shared_ptr<Catalog> &catalog,
           readApplications(catalog, index + 1);
         };
         if (reply.type() == QDBusMessage::ErrorMessage ||
-            reply.signature() != "(sta(ssbs)a(ssssbb)s)") {
+            reply.signature() != "(sta(ssbss)a(ssssbb)s)") {
           unavailable();
           return;
         }
@@ -358,11 +358,16 @@ void Backend::readApplications(const std::shared_ptr<Catalog> &catalog,
         catalog->revision = revision;
         arg.beginArray();
         while (!arg.atEnd()) {
-          QString id, title, group;
+          QString id, title, group, icon;
           bool launchable;
           arg.beginStructure();
-          arg >> id >> title >> launchable >> group;
+          arg >> id >> title >> launchable >> group >> icon;
           arg.endStructure();
+          // ADR-0059: decode the reference so the stream stays aligned, then
+          // drop it. Loading a theme name or a local file is a later task.
+          // The tile keeps the neutral placeholder. Do not call the provider,
+          // and do not put the reference (it may be a path) into the QML model.
+          icon.clear();
           // Providers choose the group; unknown groups display as "other".
           static const QStringList groups{"online", "games", "media", "other"};
           if (!groups.contains(group))

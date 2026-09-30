@@ -79,6 +79,9 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             } else {
                 arinn_protocol::application::GROUPS[i % 4].into()
             },
+            // Icon discovery is a later task (ADR-0059). Empty keeps the
+            // neutral placeholder.
+            icon: String::new(),
         })
         .collect();
     let running = if count == 0 {
@@ -119,6 +122,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                         title: format!("Revision {counter}, application {i}"),
                         can_launch: true,
                         group: arinn_protocol::application::GROUPS[i % 4].into(),
+                        icon: String::new(),
                     })
                     .collect();
                 let running = vec![RunningApplication {

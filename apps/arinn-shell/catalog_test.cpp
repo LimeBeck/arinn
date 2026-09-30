@@ -13,6 +13,7 @@ struct AppWire {
   QString id;
   bool enabled = true;
   QString group = "games";
+  QString icon;
 };
 struct RunningWire {
   QString id;
@@ -42,7 +43,7 @@ QDBusArgument &operator<<(QDBusArgument &a, const ProviderWire &p) {
 }
 QDBusArgument &operator<<(QDBusArgument &a, const AppWire &p) {
   a.beginStructure();
-  a << p.id << QString("Application") << p.enabled << p.group;
+  a << p.id << QString("Application") << p.enabled << p.group << p.icon;
   a.endStructure();
   return a;
 }
@@ -141,8 +142,11 @@ public:
       a << (mode == "generation" && !first ? QString("stale")
                                            : QString("generation"))
         << qulonglong(mode == "revision" && !first ? 2 : 1)
-        << QList<AppWire>{{first ? "first" : "second", first,
-                           first ? "games" : "future-group"}}
+        << QList<AppWire>{
+               {first ? "first" : "second", first,
+                first ? "games" : "future-group",
+                first ? QStringLiteral("applications-games")
+                      : QStringLiteral("/usr/share/icons/hicolor/48x48/apps/fixture.png")}}
         << QList<RunningWire>{{first ? "window-first" : "window-second"}}
         << (first || mode == "cycle" ? QString("next") : QString());
       a.endStructure();
@@ -236,6 +240,18 @@ private slots:
                  QString("games"));
         QCOMPARE(backend.applications()[1].toMap()["group"].toString(),
                  QString("other"));
+        // ADR-0059: a theme name and a file path are decoded and discarded.
+        // The neutral placeholder stays, and neither reference reaches QML.
+        for (const auto &entry : backend.applications()) {
+          const auto map = entry.toMap();
+          QVERIFY(!map.contains("icon"));
+          for (const auto &value : map) {
+            QVERIFY(!value.toString().contains(QStringLiteral("applications-games")));
+            QVERIFY(!value.toString().contains(QStringLiteral("fixture.png")));
+          }
+        }
+        QCOMPARE(daemon.launches, 0);
+        QCOMPARE(daemon.opens, 0);
         // Shortcuts lead the Home row; application tiles follow them.
         // applications() appends the same shortcuts under Online.
         const auto shortcutCount = backend.webShortcuts().size();

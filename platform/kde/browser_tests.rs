@@ -353,6 +353,7 @@ impl Fixture {
                 title: "Browser".into(),
                 can_launch: true,
                 group: "online".into(),
+                icon: String::new(),
             }],
             running: Vec::new(),
             tab_cache: None,

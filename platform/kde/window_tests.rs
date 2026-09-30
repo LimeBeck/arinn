@@ -427,6 +427,7 @@ async fn successful_launch_dismisses_home() {
             title: "App".into(),
             can_launch: true,
             group: "other".into(),
+            icon: String::new(),
         }];
         p.info.generation.clone()
     };

@@ -42,7 +42,7 @@ Every integration is a separate plugin process talking to a small core over D-Bu
 
 ## Interface preview
 
-These are screenshots of the **current Qt/QML interface**, rendered by the development gallery with fictional fixture data, placeholder artwork and neutral application icons. Home and navigation share their components with the production shell. Media, favorites and service integrations shown by the fixtures are not completed integrations. See the [UI implementation status](docs/architecture/ui-components.md).
+These are screenshots of the **current Qt/QML interface**, rendered by the development gallery with fictional fixture data, placeholder artwork and neutral application icons. Home, navigation, Library, Applications, Open services and Now playing use the same components as the production shell. Media, favorites and service integrations shown by the fixtures are not completed integrations. See the [UI implementation status](docs/architecture/ui-components.md).
 
 **Home** — the Arinn brand mark, Continue cards and application tiles, with visible remote-control focus.
 
@@ -54,6 +54,42 @@ These are screenshots of the **current Qt/QML interface**, rendered by the devel
 **Navigation** — the shared brand lockup and section menu over a dimmed Home, with the current selection highlighted.
 
 ![Current Arinn Qt navigation with the brand mark and Home selected](docs/design/current-ui/navigation.png)
+
+</details>
+
+<details>
+<summary>Library screenshot</summary>
+
+**Library** — films and series on placeholder plates, with the current catalogue tab highlighted.
+
+![Current Arinn Qt Library with placeholder film plates and Films selected](docs/design/current-ui/library.png)
+
+</details>
+
+<details>
+<summary>Applications screenshot</summary>
+
+**Applications** — tiles grouped into Online, Games and Media, with remote-control focus.
+
+![Current Arinn Qt Applications with grouped tiles and Online focused](docs/design/current-ui/applications.png)
+
+</details>
+
+<details>
+<summary>Open services screenshot</summary>
+
+**Open services** — open pages, with the on-screen page marked.
+
+![Current Arinn Qt Open services list with the on-screen page focused](docs/design/current-ui/open-services.png)
+
+</details>
+
+<details>
+<summary>Now playing screenshot</summary>
+
+**Now playing** — the current media session, with progress and transport controls.
+
+![Current Arinn Qt Now playing screen with progress and transport controls](docs/design/current-ui/now-playing.png)
 
 </details>
 

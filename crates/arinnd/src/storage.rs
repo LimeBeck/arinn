@@ -295,6 +295,15 @@ impl Target {
     }
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct DownloadImport {
+    pub fingerprint: String,
+    /// Pin retries to the original library so a default change cannot duplicate an import.
+    pub library: String,
+    pub state: String,
+    pub refs: Vec<arinn_protocol::production::EntityRef>,
+}
+
 pub struct Store {
     connection: Connection,
 }
@@ -337,7 +346,7 @@ impl Store {
         let version: u32 = transaction
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .map_err(|_| ErrorCode::Internal)?;
-        if version > 4 {
+        if version > 5 {
             return Err(ErrorCode::Unsupported);
         }
         if version == 0 {
@@ -361,6 +370,64 @@ impl Store {
             // Recent typed addresses and searches (ADR-0066), newest = highest seq.
             transaction.execute_batch("CREATE TABLE browse_recent (text TEXT PRIMARY KEY, seq INTEGER NOT NULL UNIQUE);
                 PRAGMA user_version = 4;").map_err(|_| ErrorCode::Internal)?;
+        }
+        if version <= 4 {
+            transaction.execute_batch("CREATE TABLE download_imports (provider_id TEXT NOT NULL, job_id TEXT NOT NULL, record TEXT NOT NULL, PRIMARY KEY(provider_id, job_id)); PRAGMA user_version = 5;").map_err(|_| ErrorCode::Internal)?;
+        }
+        transaction.commit().map_err(|_| ErrorCode::Internal)
+    }
+    /// Daemon import checkpoints contain identities and results, never file URIs.
+    pub fn download_imports(
+        &self,
+        provider: &str,
+    ) -> Result<BTreeMap<String, DownloadImport>, ErrorCode> {
+        let mut query = self
+            .connection
+            .prepare("SELECT job_id, record FROM download_imports WHERE provider_id=?1")
+            .map_err(|_| ErrorCode::Internal)?;
+        let rows = query
+            .query_map([provider], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|_| ErrorCode::Internal)?;
+        let mut records = BTreeMap::new();
+        for row in rows {
+            let (id, json) = row.map_err(|_| ErrorCode::Internal)?;
+            records.insert(
+                id,
+                serde_json::from_str(&json).map_err(|_| ErrorCode::InvalidArgument)?,
+            );
+        }
+        Ok(records)
+    }
+    pub fn save_download_import(
+        &self,
+        provider: &str,
+        job: &str,
+        record: &DownloadImport,
+    ) -> Result<(), ErrorCode> {
+        let json = serde_json::to_string(record).map_err(|_| ErrorCode::Internal)?;
+        self.connection.execute("INSERT INTO download_imports VALUES (?1, ?2, ?3) ON CONFLICT(provider_id, job_id) DO UPDATE SET record=excluded.record", params![provider, job, json]).map_err(|_| ErrorCode::Internal)?;
+        Ok(())
+    }
+    pub fn prune_download_imports(
+        &mut self,
+        provider: &str,
+        jobs: &[String],
+    ) -> Result<(), ErrorCode> {
+        let records = self.download_imports(provider)?;
+        let transaction = self
+            .connection
+            .transaction()
+            .map_err(|_| ErrorCode::Internal)?;
+        let keep: BTreeSet<_> = jobs.iter().collect();
+        for job in records.keys().filter(|job| !keep.contains(job)) {
+            transaction
+                .execute(
+                    "DELETE FROM download_imports WHERE provider_id=?1 AND job_id=?2",
+                    params![provider, job],
+                )
+                .map_err(|_| ErrorCode::Internal)?;
         }
         transaction.commit().map_err(|_| ErrorCode::Internal)
     }

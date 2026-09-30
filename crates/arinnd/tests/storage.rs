@@ -346,7 +346,7 @@ fn web_shortcuts_migrate_from_schema_two_and_reject_corrupted_rows() {
         let connection = rusqlite::Connection::open(&database).unwrap();
         connection
             .execute_batch(
-                "DROP TABLE web_shortcuts; DROP TABLE web_shortcut_state; DROP TABLE browse_recent; PRAGMA user_version=2;
+                "DROP TABLE web_shortcuts; DROP TABLE web_shortcut_state; DROP TABLE browse_recent; DROP TABLE download_imports; PRAGMA user_version=2;
                  INSERT INTO providers (provider_id, registry_uuid) VALUES ('kept', 'uuid-1');",
             )
             .unwrap();
@@ -433,7 +433,9 @@ fn browse_recent_migrates_from_schema_three_and_keeps_five() {
         // Recreate a schema-3 database.
         let connection = rusqlite::Connection::open(state.join("state.sqlite3")).unwrap();
         connection
-            .execute_batch("DROP TABLE browse_recent; PRAGMA user_version=3;")
+            .execute_batch(
+                "DROP TABLE browse_recent; DROP TABLE download_imports; PRAGMA user_version=3;",
+            )
             .unwrap();
     }
     let mut store = Store::open(&state).unwrap();
@@ -447,4 +449,45 @@ fn browse_recent_migrates_from_schema_three_and_keeps_five() {
     assert_eq!(store.browse_recent().unwrap().len(), 5);
     store.clear_browse_recent().unwrap();
     assert!(store.browse_recent().unwrap().is_empty());
+}
+
+#[test]
+fn download_checkpoints_migrate_from_four_and_prune_only_the_selected_provider() {
+    use arinnd::storage::DownloadImport;
+    let fixture = Fixture::new();
+    let state = fixture.paths().state;
+    {
+        let mut store = Store::open(&state).unwrap();
+        store.push_browse_recent("synthetic search").unwrap();
+    }
+    {
+        let connection = rusqlite::Connection::open(state.join("state.sqlite3")).unwrap();
+        connection
+            .execute_batch("DROP TABLE download_imports; PRAGMA user_version=4;")
+            .unwrap();
+    }
+    let mut store = Store::open(&state).unwrap();
+    assert_eq!(store.browse_recent().unwrap(), ["synthetic search"]);
+    let record = DownloadImport {
+        fingerprint: "digest".into(),
+        library: "library".into(),
+        state: "pending".into(),
+        refs: vec![],
+    };
+    store.save_download_import("one", "keep", &record).unwrap();
+    store.save_download_import("one", "gone", &record).unwrap();
+    store.save_download_import("two", "gone", &record).unwrap();
+    store
+        .prune_download_imports("one", &["keep".into()])
+        .unwrap();
+    drop(store);
+    let store = Store::open(&state).unwrap();
+    assert_eq!(
+        store.download_imports("one").unwrap(),
+        [("keep".into(), record.clone())].into()
+    );
+    assert_eq!(
+        store.download_imports("two").unwrap(),
+        [("gone".into(), record)].into()
+    );
 }

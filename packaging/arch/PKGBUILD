@@ -55,6 +55,8 @@ package() {
   install -Dm755 "${target}"/release/arinn-plugin-desktop "${pkgdir}/usr/lib/arinn/plugins/arinn-plugin-desktop"
   install -Dm644 plugins/desktop/desktop.toml "${pkgdir}/usr/share/arinn/plugins/desktop.toml"
   install -Dm644 plugins/demo/demo.toml "${pkgdir}/usr/share/arinn/plugins/demo.toml"
+  install -Dm755 "${target}"/release/arinn-plugin-mpris "${pkgdir}/usr/lib/arinn/plugins/arinn-plugin-mpris"
+  install -Dm644 plugins/mpris/mpris.toml "${pkgdir}/usr/share/arinn/plugins/mpris.toml"
   # Chrome/Chromium integration (ADR-0048): provider, native host, the host
   # manifest for both browsers and the unpacked extension.
   install -Dm755 "${target}"/release/arinn-plugin-chrome "${pkgdir}/usr/lib/arinn/plugins/arinn-plugin-chrome"

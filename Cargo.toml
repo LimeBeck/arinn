@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 [workspace]
-members = ["crates/arinn-protocol", "crates/arinn-plugin-sdk", "crates/arinnd", "plugins/chrome", "plugins/demo", "plugins/desktop", "tools/arinnctl"]
+members = ["crates/arinn-protocol", "crates/arinn-plugin-sdk", "crates/arinnd", "plugins/chrome", "plugins/demo", "plugins/desktop", "plugins/mpris", "tools/arinnctl"]
 resolver = "2"
 
 [workspace.package]

@@ -50,6 +50,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "arinn-plugin-mpris"
+version = "0.1.0"
+dependencies = [
+ "arinn-plugin-sdk",
+ "arinn-protocol",
+ "futures-util",
+ "libc",
+ "tokio",
+ "zbus",
+]
+
+[[package]]
 name = "arinn-plugin-sdk"
 version = "0.1.0"
 dependencies = [

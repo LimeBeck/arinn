@@ -384,4 +384,46 @@ TestCase {
         compare(pauses.count, 2)
         compare(plays.count, 1)
     }
+
+    function test_missing_track_flag_hides_sheets() {
+        player.tracksSupported = false
+        player.chapters = [10, 40]
+        player.buffered = 20
+        compare(child("subtitlePill").visible, false)
+        compare(child("audioPill").visible, false)
+        compare(child("morePill").visible, true)
+        compare(child("timelineThumb").visible, true)
+        compare(player.chapterCount, 2)
+        keyClick(Qt.Key_Down)
+        compare(player.osdFocus, "more")
+        compare(player.sheetKind, "")
+        keyClick(Qt.Key_Return)
+        compare(player.sheetKind, "")
+        compare(audioPicks.count, 0)
+        compare(subtitlePicks.count, 0)
+        keyClick(Qt.Key_Left)
+        compare(seeks.count, 0)
+        compare(player.osdFocus, "more")
+        keyClick(Qt.Key_Up)
+        compare(player.osdFocus, "timeline")
+        keyClick(Qt.Key_Right)
+        compare(seeks.count, 1)
+        compare(player.sheetKind, "")
+    }
+
+    function test_missing_timeline_flag_hides_plate_and_keeps_seek() {
+        player.timelineSupported = false
+        player.chapters = [10]
+        player.buffered = 40
+        compare(player.chapterCount, 0)
+        compare(player.bufferFraction, 0)
+        compare(child("timelineThumb").visible, false)
+        compare(child("timelineKnob").visible, true)
+        compare(child("audioPill").visible, true)
+        keyClick(Qt.Key_Right)
+        compare(seeks.count, 1)
+        verify(Math.abs(seekTarget(0) - 40) < 0.001)
+        compare(audioPicks.count, 0)
+        compare(subtitlePicks.count, 0)
+    }
 }

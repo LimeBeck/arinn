@@ -60,7 +60,9 @@ The picture is not decoded in QML.
 
 `SessionView` lives in `apps/arinn-shell/ui/screens/session/`. Production
 `Main.qml` binds it to `MediaCatalog` and opens it from a Continue card whose
-`kind` is `media`. The view still does not call D-Bus. It reuses `Theme`,
+`kind` is `media` when that provider lists none of `MediaOpen1`,
+`MediaTracks1` or `MediaTimeline1`. A session with one of those flags opens
+the [player OSD](ui-player.md) instead. The view still does not call D-Bus. It reuses `Theme`,
 `UiText`, `LogicalCanvas`, `ProgressTrack`, `ActionButton` and `StatusPane`.
 
 `sessionState` `ready` shows the session. `empty` and `loading` show

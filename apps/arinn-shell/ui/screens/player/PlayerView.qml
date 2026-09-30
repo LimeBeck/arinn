@@ -29,6 +29,10 @@ FocusScope {
     property string audioTrackId: ""
     property string subtitleTrackId: ""
     property string playbackState: "ready" // ready, loading, error, unavailable
+    // Missing MediaTracks1 / MediaTimeline1 hides those controls (ADR-0054).
+    // Defaults keep the fixture OSD, including an empty list labelled unavailable.
+    property bool tracksSupported: true
+    property bool timelineSupported: true
     // Fixture picture. False leaves this layer transparent for a video window.
     property bool pictureStandIn: true
     property string statusTitle: ""
@@ -47,12 +51,12 @@ FocusScope {
     readonly property bool timelineFocused: osdFocus === "timeline" && sheetKind === ""
     readonly property int audioCount: audioTracks && audioTracks.length !== undefined ? audioTracks.length : 0
     readonly property int subtitleCount: subtitleTracks && subtitleTracks.length !== undefined ? subtitleTracks.length : 0
-    readonly property int chapterCount: chapters && chapters.length !== undefined ? chapters.length : 0
+    readonly property int chapterCount: timelineSupported && chapters && chapters.length !== undefined ? chapters.length : 0
     readonly property int openSheetCount: sheetKind === "audio" ? audioCount : (sheetKind === "subtitles" ? subtitleCount : 0)
     readonly property bool audioListAvailable: audioCount > 0
     readonly property bool subtitleListAvailable: subtitleCount > 0
     readonly property real progressFraction: duration > 0 ? Math.max(0, Math.min(1, position / duration)) : 0
-    readonly property real bufferFraction: duration > 0 && buffered > 0 ? Math.max(0, Math.min(1, buffered / duration)) : 0
+    readonly property real bufferFraction: timelineSupported && duration > 0 && buffered > 0 ? Math.max(0, Math.min(1, buffered / duration)) : 0
     readonly property string audioCaption: selectedCaption(audioTracks, audioCount, audioTrackId, qsTr("Audio unavailable"))
     readonly property string subtitleCaption: selectedCaption(subtitleTracks, subtitleCount, subtitleTrackId, qsTr("Subtitles unavailable"))
     readonly property string audioPillText: audioListAvailable ? qsTr("Audio") + " · " + audioCaption : audioCaption
@@ -174,8 +178,18 @@ FocusScope {
         armIdle()
     }
 
+    function visiblePills() {
+        const order = []
+        if (tracksSupported) {
+            order.push("subtitles")
+            order.push("audio")
+        }
+        order.push("more")
+        return order
+    }
+
     function movePill(delta) {
-        const order = ["subtitles", "audio", "more"]
+        const order = visiblePills()
         let index = order.indexOf(osdFocus)
         if (index < 0)
             index = 0
@@ -245,10 +259,10 @@ FocusScope {
                 pause()
             else
                 play()
-        } else if (osdFocus === "audio" && audioListAvailable) {
+        } else if (tracksSupported && osdFocus === "audio" && audioListAvailable) {
             audioIndex = selectedIndex(audioTracks, audioCount, audioTrackId)
             sheetKind = "audio"
-        } else if (osdFocus === "subtitles" && subtitleListAvailable) {
+        } else if (tracksSupported && osdFocus === "subtitles" && subtitleListAvailable) {
             subtitleIndex = selectedIndex(subtitleTracks, subtitleCount, subtitleTrackId)
             sheetKind = "subtitles"
         }
@@ -289,8 +303,11 @@ FocusScope {
             return
         }
         if (osdFocus === "timeline") {
-            if (delta > 0)
-                osdFocus = "subtitles"
+            if (delta > 0) {
+                const order = visiblePills()
+                if (order.length > 0)
+                    osdFocus = order[0]
+            }
         } else if (delta < 0) {
             osdFocus = "timeline"
         }
@@ -367,6 +384,14 @@ FocusScope {
     onPlaybackStateChanged: armIdle()
     onOsdIdleMsChanged: armIdle()
     onSheetKindChanged: armIdle()
+    onTracksSupportedChanged: {
+        if (tracksSupported)
+            return
+        if (sheetKind === "audio" || sheetKind === "subtitles")
+            sheetKind = ""
+        if (osdFocus === "audio" || osdFocus === "subtitles")
+            osdFocus = "more"
+    }
     Component.onCompleted: armIdle()
 
     Timer {
@@ -627,7 +652,7 @@ FocusScope {
                         }
                         Item {
                             objectName: "timelineThumb"
-                            visible: track.focused
+                            visible: track.focused && root.timelineSupported
                             width: 336
                             height: 249
                             y: -height - 20
@@ -713,6 +738,7 @@ FocusScope {
                         spacing: 16
                         Rectangle {
                             objectName: "subtitlePill"
+                            visible: root.tracksSupported
                             height: 76
                             radius: 38
                             width: subtitlePillLabel.implicitWidth + 64
@@ -729,6 +755,7 @@ FocusScope {
                         }
                         Rectangle {
                             objectName: "audioPill"
+                            visible: root.tracksSupported
                             height: 76
                             radius: 38
                             width: audioPillLabel.implicitWidth + 64

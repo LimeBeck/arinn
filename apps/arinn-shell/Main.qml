@@ -7,6 +7,7 @@ import Arinn.Shell 1.0
 import "ui" as Ui
 import "ui/screens/browser" as Browser
 import "ui/screens/library" as Library
+import "ui/screens/player" as Player
 import "ui/screens/session" as Session
 import "ui/screens/settings" as Settings
 
@@ -14,13 +15,49 @@ Window {
     id: root
     width: 1920; height: 1080
     visibility: backend.homeVisible && !sessionGuard.blocked ? Window.FullScreen : Window.Hidden
-    color: Ui.Theme.background
+    color: playerOpen ? "transparent" : Ui.Theme.background
     title: "Arinn"
     flags: Qt.Window | Qt.FramelessWindowHint
     readonly property bool navOpen: home.navOpen
     property bool browserOpen: false
     property bool sessionOpen: false
+    property bool playerOpen: false
     property bool sessionFromLibrary: false
+    function openSession(entryId, fromLibrary) {
+        sessionFromLibrary = fromLibrary;
+        mediaCatalog.select(entryId);
+        applyMediaSurface();
+    }
+    function applyMediaSurface() {
+        // Rich flags select the OSD. A library launch whose session is not
+        // in the snapshot yet is managed playback, so the OSD is shown until
+        // the row arrives. A row without those flags uses the session screen.
+        let player = mediaCatalog.playerSession;
+        if (sessionFromLibrary && mediaCatalog.sessionState !== "ready")
+            player = true;
+        playerOpen = player;
+        sessionOpen = !player;
+        Qt.callLater(() => {
+            if (player)
+                playerView.forceActiveFocus();
+            else
+                sessionView.forceActiveFocus();
+        });
+    }
+    function closePlayer() {
+        playerOpen = false;
+        if (sessionFromLibrary) {
+            sessionFromLibrary = false;
+            Qt.callLater(() => {
+                if (libraryView.detailOpen)
+                    libraryView.focusDetailAction();
+                else
+                    libraryView.forceActiveFocus();
+            });
+        } else {
+            Qt.callLater(home.showHome);
+        }
+    }
     onVisibleChanged: if (visible) Qt.callLater(home.showHome)
     BrowserCatalog { id: browserCatalog }
     MediaCatalog { id: mediaCatalog; objectName: "mediaCatalog" }
@@ -32,6 +69,7 @@ Window {
         Ui.HomeView {
             id: home
             objectName: "productionHome"
+            visible: !root.playerOpen
             busyEntryIds: backend.busyEntryIds
             continueEntries: backend.continueEntries.concat(mediaCatalog.continueEntries)
             favoriteEntries: backend.favorites
@@ -64,20 +102,15 @@ Window {
                     browserCatalog.activateTab(serviceId);
                 backend.back();
             }
-            onSessionRequested: entryId => {
-                root.sessionFromLibrary = false;
-                mediaCatalog.select(entryId);
-                root.sessionOpen = true;
-                Qt.callLater(() => sessionView.forceActiveFocus());
-            }
+            onSessionRequested: entryId => root.openSession(entryId, false)
             onPowerRequested: { feedback.text = qsTr("Power controls are not available yet."); feedbackTimer.restart(); }
         }
         Browser.BrowserView {
             id: browserView
             objectName: "productionBrowser"
-            visible: root.browserOpen
-            enabled: root.browserOpen
-            interactive: root.browserOpen
+            visible: root.browserOpen && !root.playerOpen
+            enabled: root.browserOpen && !root.playerOpen
+            interactive: root.browserOpen && !root.playerOpen
             tabs: browserCatalog.tabs
             windows: browserCatalog.windows
             shortcuts: browserCatalog.shortcuts
@@ -95,8 +128,8 @@ Window {
         Session.SessionView {
             id: sessionView
             objectName: "productionSession"
-            visible: root.sessionOpen
-            enabled: root.sessionOpen
+            visible: root.sessionOpen && !root.playerOpen
+            enabled: root.sessionOpen && !root.playerOpen
             z: 5
             sessionState: mediaCatalog.sessionState
             artwork: mediaCatalog.sessionArtwork
@@ -132,7 +165,7 @@ Window {
         Settings.SettingsView {
             id: settingsView
             objectName: "productionSettings"
-            visible: home.screen === "settings"
+            visible: home.screen === "settings" && !root.playerOpen
             enabled: visible
             z: 4
             screenState: settingsCatalog.screenState
@@ -147,7 +180,7 @@ Window {
         Library.LibraryView {
             id: libraryView
             objectName: "productionLibrary"
-            visible: home.screen === "library"
+            visible: home.screen === "library" && !root.playerOpen
             enabled: visible
             z: 4
             libraryState: libraryCatalog.libraryState
@@ -164,13 +197,84 @@ Window {
                 home.showHome();
             }
         }
+        Player.PlayerView {
+            id: playerView
+            objectName: "productionPlayer"
+            focus: root.playerOpen
+            visible: root.playerOpen
+            enabled: root.playerOpen
+            z: 6
+            pictureStandIn: false
+            title: mediaCatalog.sessionTitle
+            episodeLine: mediaCatalog.sessionSubtitle
+            position: mediaCatalog.positionUs / 1000000
+            duration: mediaCatalog.durationUs < 0 ? 0 : mediaCatalog.durationUs / 1000000
+            buffered: mediaCatalog.bufferedSeconds
+            chapters: mediaCatalog.chapters
+            playing: mediaCatalog.playbackState === "playing"
+            seekSupported: {
+                const actions = mediaCatalog.sessionActions;
+                if (!actions || actions.length === undefined)
+                    return false;
+                for (let i = 0; i < actions.length; i++)
+                    if (actions[i] === "seek")
+                        return true;
+                return false;
+            }
+            tracksSupported: mediaCatalog.tracksAvailable
+            timelineSupported: mediaCatalog.timelineAvailable
+            audioTracks: mediaCatalog.audioTracks
+            subtitleTracks: mediaCatalog.subtitleTracks
+            audioTrackId: mediaCatalog.audioTrackId
+            subtitleTrackId: mediaCatalog.subtitleTrackId
+            thumbnail: mediaCatalog.thumbnail
+            playbackState: {
+                const state = mediaCatalog.sessionState;
+                if (state === "ready")
+                    return "ready";
+                if (state === "loading")
+                    return "loading";
+                return "unavailable";
+            }
+            onPlay: mediaCatalog.play()
+            onPause: mediaCatalog.pause()
+            onSeek: targetSeconds => mediaCatalog.seek(targetSeconds * 1000000)
+            onSelectAudio: trackId => mediaCatalog.selectAudio(trackId)
+            onSelectSubtitle: trackId => mediaCatalog.selectSubtitle(trackId)
+            onStop: mediaCatalog.stop()
+            onLeave: {
+                if (mediaCatalog.sessionState === "ready")
+                    mediaCatalog.stop();
+                root.closePlayer();
+            }
+            onHomeRequested: {
+                root.playerOpen = false;
+                root.sessionFromLibrary = false;
+                home.showHome();
+            }
+        }
+        Binding {
+            target: mediaCatalog
+            property: "thumbnailWanted"
+            value: root.playerOpen && playerView.timelineFocused && mediaCatalog.timelineAvailable
+        }
+        Connections {
+            target: mediaCatalog
+            function onSessionChanged() {
+                if (!root.sessionFromLibrary || (!root.playerOpen && !root.sessionOpen))
+                    return;
+                const player = mediaCatalog.playerSession;
+                if (root.playerOpen === player && root.sessionOpen === !player)
+                    return;
+                if (mediaCatalog.sessionState !== "ready" && root.playerOpen)
+                    return;
+                root.applyMediaSurface();
+            }
+        }
         Connections {
             target: libraryCatalog
             function onSessionLaunched(presentationId) {
-                root.sessionFromLibrary = true;
-                mediaCatalog.select(presentationId);
-                root.sessionOpen = true;
-                Qt.callLater(() => sessionView.forceActiveFocus());
+                root.openSession(presentationId, true);
             }
         }
         Ui.LaunchOverlay {

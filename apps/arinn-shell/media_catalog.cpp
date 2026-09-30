@@ -5,6 +5,7 @@
 #include "media_catalog.h"
 #include "asset_images.h"
 #include <QDeadlineTimer>
+#include <QSet>
 #include <QUuid>
 #include <QtDBus>
 #include <QtQml>
@@ -23,6 +24,13 @@ constexpr int fallbackPollMs = 30000;
 // Controls time out at 5 s (ADR-0058). Wait one second past that so a
 // command that finishes on the deadline is still observed.
 constexpr int operationWaitMs = 6000;
+// Extension reads wait 5 s (ADR-0058). The thumbnail follows the timeline
+// focus without a second seek; a short quiet period collapses a scrub.
+constexpr int extensionReadMs = 5000;
+constexpr int thumbnailDebounceMs = 400;
+constexpr int maxTracks = 64;
+constexpr int maxChapters = 256;
+constexpr int maxRanges = 64;
 QDBusMessage daemonCall(const char *interface, const char *method) {
   return QDBusMessage::createMethodCall(service, path, interface, method);
 }
@@ -67,6 +75,16 @@ const char *methodFor(const QString &action) {
   if (action == QLatin1String("stop"))
     return "Stop";
   return nullptr;
+}
+QStringList knownFeatures(const QStringList &reported) {
+  QStringList kept;
+  for (const auto &flag : {QStringLiteral("MediaOpen1"),
+                           QStringLiteral("MediaTracks1"),
+                           QStringLiteral("MediaTimeline1")}) {
+    if (reported.contains(flag))
+      kept.append(flag);
+  }
+  return kept;
 }
 QString errorCode(const QDBusMessage &reply) {
   auto name = reply.errorName();
@@ -130,7 +148,11 @@ MediaCatalog::MediaCatalog(QObject *parent) : QObject(parent) {
       return;
     }
     emit positionChanged();
+    requestDisplayedThumbnail();
   });
+  m_thumbnailTimer.setSingleShot(true);
+  m_thumbnailTimer.setInterval(thumbnailDebounceMs);
+  connect(&m_thumbnailTimer, &QTimer::timeout, this, &MediaCatalog::sendThumbnail);
   refresh();
 }
 
@@ -182,6 +204,89 @@ QString MediaCatalog::sessionArtwork() const {
   return AssetImages::imageUrl(row->providerId, row->path, row->generation,
                                row->artworkId);
 }
+bool MediaCatalog::featureOn(const QString &flag) const {
+  const auto *row = selected();
+  return row && sessionState() == QLatin1String("ready") &&
+         row->features.contains(flag);
+}
+bool MediaCatalog::playerSession() const {
+  return featureOn(QStringLiteral("MediaOpen1")) ||
+         featureOn(QStringLiteral("MediaTracks1")) ||
+         featureOn(QStringLiteral("MediaTimeline1"));
+}
+bool MediaCatalog::tracksAvailable() const {
+  return featureOn(QStringLiteral("MediaTracks1"));
+}
+bool MediaCatalog::timelineAvailable() const {
+  return featureOn(QStringLiteral("MediaTimeline1"));
+}
+QVariantMap MediaCatalog::trackMap(const TrackRow &track) const {
+  QStringList parts;
+  if (!track.language.isEmpty())
+    parts.append(track.language);
+  if (!track.codec.isEmpty())
+    parts.append(track.codec);
+  if (track.channels > 0)
+    parts.append(QString::number(track.channels));
+  auto label = track.label;
+  if (label.isEmpty())
+    label = track.language.isEmpty() ? track.id : track.language;
+  return QVariantMap{{QStringLiteral("id"), track.id},
+                     {QStringLiteral("label"), label},
+                     {QStringLiteral("detail"), parts.join(QStringLiteral(" · "))}};
+}
+QVariantList MediaCatalog::audioTracks() const {
+  QVariantList list;
+  if (!tracksAvailable())
+    return list;
+  for (const auto &track : m_tracks)
+    if (track.kind == QLatin1String("audio"))
+      list.append(trackMap(track));
+  return list;
+}
+QVariantList MediaCatalog::subtitleTracks() const {
+  QVariantList list;
+  if (!tracksAvailable() || m_subtitleOffId.isEmpty())
+    return list;
+  list.append(QVariantMap{{QStringLiteral("id"), m_subtitleOffId},
+                          {QStringLiteral("label"), tr("Off")}});
+  for (const auto &track : m_tracks)
+    if (track.kind == QLatin1String("subtitle"))
+      list.append(trackMap(track));
+  return list;
+}
+QString MediaCatalog::audioTrackId() const {
+  if (!tracksAvailable())
+    return {};
+  for (const auto &track : m_tracks)
+    if (track.kind == QLatin1String("audio") && track.selected)
+      return track.id;
+  return {};
+}
+QString MediaCatalog::subtitleTrackId() const {
+  if (!tracksAvailable())
+    return {};
+  for (const auto &track : m_tracks)
+    if (track.kind == QLatin1String("subtitle") && track.selected)
+      return track.id;
+  return m_subtitleOffId;
+}
+double MediaCatalog::bufferedSeconds() const {
+  if (!timelineAvailable())
+    return 0;
+  const auto *row = selected();
+  if (!row || m_ranges.isEmpty())
+    return 0;
+  const auto position = displayedPosition(*row);
+  qint64 end = -1;
+  for (const auto &range : m_ranges) {
+    if (position >= range.startUs && position <= range.endUs && range.endUs > end)
+      end = range.endUs;
+  }
+  if (end < 0)
+    return 0;
+  return static_cast<double>(end) / 1000000.0;
+}
 const MediaCatalog::SessionRow *MediaCatalog::findId(const QString &id) const {
   for (const auto &row : m_sessions)
     if (row.id == id)
@@ -226,6 +331,43 @@ void MediaCatalog::pause() { command(QStringLiteral("pause")); }
 void MediaCatalog::playPause() { command(QStringLiteral("playPause")); }
 void MediaCatalog::seek(double targetUs) {
   command(QStringLiteral("seek"), targetUs, true);
+  // The thumbnail is a separate read. It must not send another Seek.
+  if (m_operation == QLatin1String("pending") && timelineAvailable() &&
+      std::isfinite(targetUs) && targetUs >= 0 &&
+      targetUs <= static_cast<double>(std::numeric_limits<qint64>::max())) {
+    m_thumbFromSeek = true;
+    requestThumbnailAt(static_cast<qint64>(targetUs));
+  }
+}
+void MediaCatalog::selectAudio(const QString &trackId) {
+  if (!tracksAvailable()) {
+    setOperation(QStringLiteral("Unsupported"));
+    return;
+  }
+  for (const auto &track : m_tracks) {
+    if (track.kind == QLatin1String("audio") && track.id == trackId) {
+      extensionCommand("SelectTrack", {QStringLiteral("audio"), trackId});
+      return;
+    }
+  }
+  setOperation(QStringLiteral("InvalidArgument"));
+}
+void MediaCatalog::selectSubtitle(const QString &trackId) {
+  if (!tracksAvailable()) {
+    setOperation(QStringLiteral("Unsupported"));
+    return;
+  }
+  if (!m_subtitleOffId.isEmpty() && trackId == m_subtitleOffId) {
+    extensionCommand("DisableSubtitles", {});
+    return;
+  }
+  for (const auto &track : m_tracks) {
+    if (track.kind == QLatin1String("subtitle") && track.id == trackId) {
+      extensionCommand("SelectTrack", {QStringLiteral("subtitle"), trackId});
+      return;
+    }
+  }
+  setOperation(QStringLiteral("InvalidArgument"));
 }
 void MediaCatalog::next() { command(QStringLiteral("next")); }
 void MediaCatalog::previous() { command(QStringLiteral("previous")); }
@@ -268,6 +410,8 @@ void MediaCatalog::publish() {
   emit sessionChanged();
   emit positionChanged();
   syncClock();
+  loadExtensions();
+  requestDisplayedThumbnail();
 }
 void MediaCatalog::refresh() {
   if (m_refreshing) {
@@ -372,9 +516,44 @@ void MediaCatalog::readProviders(const std::shared_ptr<Catalog> &catalog,
           finishCatalog(catalog, true);
         else {
           catalog->tokens.clear();
-          readSessions(catalog, 0);
+          readFeatures(catalog, 0);
         }
       });
+}
+void MediaCatalog::readFeatures(const std::shared_ptr<Catalog> &catalog,
+                                int index) {
+  if (catalog->epoch != m_epoch) {
+    finishCatalog(catalog, false);
+    return;
+  }
+  if (index >= catalog->providers.size()) {
+    readSessions(catalog, 0);
+    return;
+  }
+  const auto provider = catalog->providers.at(index).toMap();
+  auto msg = QDBusMessage::createMethodCall(
+      service, provider.value(QStringLiteral("path")).toString(),
+      "org.arinn.Media1", "Features");
+  auto pending = new QDBusPendingCallWatcher(
+      QDBusConnection::sessionBus().asyncCall(msg, extensionReadMs), this);
+  connect(pending, &QDBusPendingCallWatcher::finished, this,
+          [this, catalog, index](auto *call) {
+            const auto reply = call->reply();
+            call->deleteLater();
+            if (catalog->epoch != m_epoch) {
+              finishCatalog(catalog, false);
+              return;
+            }
+            QStringList features;
+            if (reply.type() != QDBusMessage::ErrorMessage &&
+                reply.signature() == QLatin1String("as") &&
+                !reply.arguments().isEmpty())
+              features = knownFeatures(reply.arguments().at(0).toStringList());
+            auto map = catalog->providers.at(index).toMap();
+            map.insert(QStringLiteral("features"), features);
+            catalog->providers[index] = map;
+            readFeatures(catalog, index + 1);
+          });
 }
 void MediaCatalog::failProvider(const std::shared_ptr<Catalog> &catalog,
                                 int index) {
@@ -478,6 +657,8 @@ void MediaCatalog::readSessions(const std::shared_ptr<Catalog> &catalog,
           row.durationUs = duration;
           row.positionUs = position;
           row.anchorUs = anchor;
+          row.revision = revision;
+          row.features = provider.value(QStringLiteral("features")).toStringList();
           row.id = presentationId(row.providerId, row.localId);
           for (const auto &token : tokens) {
             const auto name = qmlAction(token);
@@ -571,6 +752,27 @@ void MediaCatalog::command(const QString &action, double seekTarget,
   if (seeking)
     msg << static_cast<qlonglong>(position);
   msg << QUuid::createUuid().toString(QUuid::WithoutBraces);
+  dispatch(msg, ticket, epoch);
+}
+void MediaCatalog::extensionCommand(const char *method, const QStringList &middle) {
+  ++m_commandTicket;
+  const auto ticket = m_commandTicket;
+  const auto epoch = m_epoch;
+  const auto *row = selected();
+  if (!row || sessionState() != QLatin1String("ready")) {
+    setOperation(QStringLiteral("Unavailable"));
+    return;
+  }
+  setOperation(QStringLiteral("pending"));
+  auto msg = QDBusMessage::createMethodCall(service, row->path,
+                                            "org.arinn.Media1", method);
+  msg << row->generation << row->localId;
+  for (const auto &part : middle)
+    msg << part;
+  msg << QUuid::createUuid().toString(QUuid::WithoutBraces);
+  dispatch(msg, ticket, epoch);
+}
+void MediaCatalog::dispatch(const QDBusMessage &msg, quint64 ticket, quint64 epoch) {
   auto pending = new QDBusPendingCallWatcher(
       QDBusConnection::sessionBus().asyncCall(msg, 3000), this);
   connect(pending, &QDBusPendingCallWatcher::finished, this,
@@ -661,5 +863,402 @@ void MediaCatalog::watchOperation(const QString &objectPath, quint64 ticket,
               timer->deleteLater();
             });
   });
+  timer->start();
+}
+void MediaCatalog::loadExtensions() {
+  const auto *row = selected();
+  if (!row || sessionState() != QLatin1String("ready")) {
+    clearExtensions();
+    return;
+  }
+  const auto wantTracks = row->features.contains(QLatin1String("MediaTracks1"));
+  const auto wantTimeline = row->features.contains(QLatin1String("MediaTimeline1"));
+  if (!wantTracks && !wantTimeline) {
+    clearExtensions();
+    return;
+  }
+  if (row->id != m_boundSessionId) {
+    clearExtensions();
+    m_boundSessionId = row->id;
+  }
+  if (m_extensionLoading)
+    return;
+  if (m_extensionsLoaded && row->revision == m_loadedRevision)
+    return;
+  m_extensionLoading = true;
+  m_extensionsLoaded = false;
+  m_loadingRevision = row->revision;
+  m_tracksDone = !wantTracks;
+  m_timelineDone = !wantTimeline;
+  if (!wantTracks && !m_tracks.isEmpty()) {
+    m_tracks.clear();
+    m_subtitleOffId.clear();
+    emit tracksChanged();
+  }
+  if (!wantTimeline && (!m_chapters.isEmpty() || !m_ranges.isEmpty())) {
+    m_chapters.clear();
+    m_ranges.clear();
+    emit timelineChanged();
+    emit positionChanged();
+  }
+  const auto epoch = ++m_extensionEpoch;
+  if (wantTracks)
+    readTracks(epoch, *row);
+  if (wantTimeline)
+    readTimeline(epoch, *row);
+}
+void MediaCatalog::finishExtensionLoad() {
+  if (!m_tracksDone || !m_timelineDone)
+    return;
+  m_extensionLoading = false;
+  m_extensionsLoaded = true;
+  m_loadedRevision = m_loadingRevision;
+  const auto *row = selected();
+  if (!row || sessionState() != QLatin1String("ready")) {
+    clearExtensions();
+    return;
+  }
+  if (row->id != m_boundSessionId || row->revision != m_loadedRevision)
+    loadExtensions();
+}
+void MediaCatalog::readTracks(quint64 epoch, const SessionRow &row) {
+  auto msg = QDBusMessage::createMethodCall(service, row.path, "org.arinn.Media1",
+                                            "ListTracks");
+  msg << row.generation << row.localId;
+  const auto sessionId = row.id;
+  auto pending = new QDBusPendingCallWatcher(
+      QDBusConnection::sessionBus().asyncCall(msg, extensionReadMs), this);
+  connect(pending, &QDBusPendingCallWatcher::finished, this,
+          [this, epoch, sessionId](auto *call) {
+            const auto reply = call->reply();
+            call->deleteLater();
+            if (epoch != m_extensionEpoch)
+              return;
+            QList<TrackRow> tracks;
+            auto accepted = false;
+            const auto *row = selected();
+            if (row && row->id == sessionId &&
+                reply.type() != QDBusMessage::ErrorMessage &&
+                reply.signature() == QLatin1String("a(sssssubb)") &&
+                !reply.arguments().isEmpty()) {
+              accepted = true;
+              const auto arg = qvariant_cast<QDBusArgument>(reply.arguments().at(0));
+              arg.beginArray();
+              while (!arg.atEnd()) {
+                TrackRow track;
+                quint32 channels = 0;
+                bool selected = false, external = false;
+                arg.beginStructure();
+                arg >> track.id >> track.kind >> track.language >> track.label >>
+                    track.codec >> channels >> selected >> external;
+                arg.endStructure();
+                track.channels = channels;
+                track.selected = selected;
+                Q_UNUSED(external);
+                tracks.append(track);
+              }
+              arg.endArray();
+            }
+            if (epoch != m_extensionEpoch)
+              return;
+            if (accepted)
+              applyTracks(tracks);
+            else {
+              m_tracks.clear();
+              m_subtitleOffId.clear();
+              emit tracksChanged();
+            }
+            m_tracksDone = true;
+            finishExtensionLoad();
+          });
+}
+void MediaCatalog::applyTracks(const QList<TrackRow> &tracks) {
+  QSet<QString> ids;
+  QList<TrackRow> kept;
+  bool audioSelected = false, subtitleSelected = false;
+  for (auto track : tracks) {
+    if (track.id.isEmpty() || ids.contains(track.id))
+      continue;
+    if (track.kind != QLatin1String("audio") &&
+        track.kind != QLatin1String("subtitle"))
+      continue;
+    if (kept.size() >= maxTracks)
+      break;
+    if (track.selected && track.kind == QLatin1String("audio")) {
+      if (audioSelected)
+        track.selected = false;
+      else
+        audioSelected = true;
+    }
+    if (track.selected && track.kind == QLatin1String("subtitle")) {
+      if (subtitleSelected)
+        track.selected = false;
+      else
+        subtitleSelected = true;
+    }
+    ids.insert(track.id);
+    kept.append(track);
+  }
+  auto off = QStringLiteral("arinn:subtitles-off");
+  while (ids.contains(off))
+    off += QLatin1Char('-');
+  m_tracks = kept;
+  m_subtitleOffId = off;
+  emit tracksChanged();
+}
+void MediaCatalog::readTimeline(quint64 epoch, const SessionRow &row) {
+  auto msg = QDBusMessage::createMethodCall(service, row.path, "org.arinn.Media1",
+                                            "GetTimeline");
+  msg << row.generation << row.localId;
+  const auto sessionId = row.id;
+  auto pending = new QDBusPendingCallWatcher(
+      QDBusConnection::sessionBus().asyncCall(msg, extensionReadMs), this);
+  connect(pending, &QDBusPendingCallWatcher::finished, this,
+          [this, epoch, sessionId](auto *call) {
+            const auto reply = call->reply();
+            call->deleteLater();
+            if (epoch != m_extensionEpoch)
+              return;
+            QVariantList chapters;
+            QList<RangeRow> ranges;
+            const auto *row = selected();
+            if (row && row->id == sessionId &&
+                reply.type() != QDBusMessage::ErrorMessage &&
+                reply.signature() == QLatin1String("(a(sxs)a(xx))") &&
+                !reply.arguments().isEmpty()) {
+              const auto arg = qvariant_cast<QDBusArgument>(reply.arguments().at(0));
+              arg.beginStructure();
+              arg.beginArray();
+              auto tooManyChapters = false;
+              while (!arg.atEnd()) {
+                QString id, title;
+                qlonglong start = 0;
+                arg.beginStructure();
+                arg >> id >> start >> title;
+                arg.endStructure();
+                Q_UNUSED(id);
+                Q_UNUSED(title);
+                if (chapters.size() >= maxChapters)
+                  tooManyChapters = true;
+                else if (start >= 0)
+                  chapters.append(static_cast<double>(start) / 1000000.0);
+              }
+              arg.endArray();
+              if (tooManyChapters)
+                chapters.clear();
+              arg.beginArray();
+              auto tooManyRanges = false;
+              while (!arg.atEnd()) {
+                qlonglong start = 0, end = 0;
+                arg.beginStructure();
+                arg >> start >> end;
+                arg.endStructure();
+                if (ranges.size() >= maxRanges)
+                  tooManyRanges = true;
+                else if (start >= 0 && end >= start)
+                  ranges.append(RangeRow{start, end});
+              }
+              arg.endArray();
+              if (tooManyRanges)
+                ranges.clear();
+              arg.endStructure();
+            }
+            if (epoch != m_extensionEpoch)
+              return;
+            m_chapters = chapters;
+            m_ranges = ranges;
+            emit timelineChanged();
+            emit positionChanged();
+            m_timelineDone = true;
+            finishExtensionLoad();
+          });
+}
+void MediaCatalog::clearExtensions() {
+  m_thumbnailTimer.stop();
+  ++m_extensionEpoch;
+  ++m_thumbnailTicket;
+  m_extensionLoading = false;
+  m_extensionsLoaded = false;
+  m_tracksDone = true;
+  m_timelineDone = true;
+  m_loadedRevision = 0;
+  m_boundSessionId.clear();
+  m_thumbFromSeek = false;
+  m_thumbnailInFlight = false;
+  m_pendingThumb = -1;
+  m_thumbnailInFlightAt = -1;
+  const auto tracks = !m_tracks.isEmpty() || !m_subtitleOffId.isEmpty();
+  const auto timeline = !m_chapters.isEmpty() || !m_ranges.isEmpty();
+  const auto thumb = !m_thumbnail.isEmpty() || m_thumbnailPosition >= 0;
+  m_tracks.clear();
+  m_subtitleOffId.clear();
+  m_chapters.clear();
+  m_ranges.clear();
+  m_thumbnail.clear();
+  m_thumbnailPosition = -1;
+  if (tracks)
+    emit tracksChanged();
+  if (timeline) {
+    emit timelineChanged();
+    emit positionChanged();
+  }
+  if (thumb)
+    emit thumbnailChanged();
+}
+void MediaCatalog::setThumbnailWanted(bool wanted) {
+  if (m_thumbnailWanted == wanted)
+    return;
+  m_thumbnailWanted = wanted;
+  emit thumbnailWantedChanged();
+  if (wanted)
+    requestDisplayedThumbnail();
+  else
+    m_thumbnailTimer.stop();
+}
+void MediaCatalog::requestDisplayedThumbnail() {
+  if (m_thumbFromSeek || !m_thumbnailWanted || !timelineAvailable())
+    return;
+  const auto *row = selected();
+  if (!row)
+    return;
+  requestThumbnailAt(displayedPosition(*row));
+}
+void MediaCatalog::requestThumbnailAt(qint64 positionUs) {
+  if (!timelineAvailable() || positionUs < 0)
+    return;
+  m_pendingThumb = (positionUs / 1000000) * 1000000;
+  m_thumbnailTimer.start();
+}
+void MediaCatalog::sendThumbnail() {
+  m_thumbFromSeek = false;
+  if (!timelineAvailable())
+    return;
+  const auto *row = selected();
+  if (!row || sessionState() != QLatin1String("ready"))
+    return;
+  const auto position = m_pendingThumb;
+  if (position < 0)
+    return;
+  if (position == m_thumbnailPosition && !m_thumbnail.isEmpty())
+    return;
+  if (m_thumbnailInFlight && position == m_thumbnailInFlightAt)
+    return;
+  ++m_thumbnailTicket;
+  const auto ticket = m_thumbnailTicket;
+  const auto epoch = m_epoch;
+  m_thumbnailInFlight = true;
+  m_thumbnailInFlightAt = position;
+  auto msg = QDBusMessage::createMethodCall(service, row->path, "org.arinn.Media1",
+                                            "RequestThumbnail");
+  msg << row->generation << row->localId << static_cast<qlonglong>(position)
+      << QUuid::createUuid().toString(QUuid::WithoutBraces);
+  auto pending = new QDBusPendingCallWatcher(
+      QDBusConnection::sessionBus().asyncCall(msg, 3000), this);
+  connect(pending, &QDBusPendingCallWatcher::finished, this,
+          [this, ticket, epoch, position](auto *call) {
+            const auto reply = call->reply();
+            call->deleteLater();
+            if (ticket != m_thumbnailTicket || epoch != m_epoch) {
+              if (ticket == m_thumbnailTicket)
+                m_thumbnailInFlight = false;
+              return;
+            }
+            if (reply.type() == QDBusMessage::ErrorMessage || reply.signature() != "o" ||
+                reply.arguments().isEmpty()) {
+              m_thumbnailInFlight = false;
+              return;
+            }
+            watchThumbnail(
+                qvariant_cast<QDBusObjectPath>(reply.arguments().at(0)).path(),
+                ticket, epoch, position);
+          });
+}
+void MediaCatalog::watchThumbnail(const QString &objectPath, quint64 ticket,
+                                  quint64 epoch, qint64 positionUs) {
+  auto timer = new QTimer(this);
+  timer->setInterval(100);
+  const auto deadline = QDeadlineTimer(operationWaitMs);
+  connect(timer, &QTimer::timeout, this,
+          [this, timer, objectPath, ticket, epoch, positionUs, deadline] {
+            timer->stop();
+            if (ticket != m_thumbnailTicket || epoch != m_epoch) {
+              timer->deleteLater();
+              return;
+            }
+            if (deadline.hasExpired()) {
+              m_thumbnailInFlight = false;
+              timer->deleteLater();
+              return;
+            }
+            auto msg = QDBusMessage::createMethodCall(
+                service, objectPath, "org.arinn.Operation1", "Get");
+            auto pending = new QDBusPendingCallWatcher(
+                QDBusConnection::sessionBus().asyncCall(msg, 3000), this);
+            connect(pending, &QDBusPendingCallWatcher::finished, this,
+                    [this, timer, ticket, epoch, positionUs, deadline](auto *call) {
+                      const auto reply = call->reply();
+                      call->deleteLater();
+                      if (ticket != m_thumbnailTicket || epoch != m_epoch) {
+                        timer->deleteLater();
+                        return;
+                      }
+                      if (reply.type() == QDBusMessage::ErrorMessage ||
+                          reply.signature() != "(ssbtta(sss)b)" ||
+                          reply.arguments().isEmpty()) {
+                        m_thumbnailInFlight = false;
+                        timer->deleteLater();
+                        return;
+                      }
+                      const auto arg =
+                          qvariant_cast<QDBusArgument>(reply.arguments().at(0));
+                      QString state, error, asset, assetProvider;
+                      bool retryable = false, cancellable = false;
+                      qulonglong started = 0, ended = 0;
+                      arg.beginStructure();
+                      arg >> state >> error >> retryable >> started >> ended;
+                      arg.beginArray();
+                      while (!arg.atEnd()) {
+                        QString provider, capability, entity;
+                        arg.beginStructure();
+                        arg >> provider >> capability >> entity;
+                        arg.endStructure();
+                        if (asset.isEmpty() && capability == QLatin1String("media") &&
+                            !entity.isEmpty()) {
+                          asset = entity;
+                          assetProvider = provider;
+                        }
+                      }
+                      arg.endArray();
+                      arg >> cancellable;
+                      arg.endStructure();
+                      Q_UNUSED(error);
+                      Q_UNUSED(retryable);
+                      Q_UNUSED(cancellable);
+                      if (state == QLatin1String("running") ||
+                          state == QLatin1String("queued")) {
+                        if (deadline.hasExpired()) {
+                          m_thumbnailInFlight = false;
+                          timer->deleteLater();
+                          return;
+                        }
+                        timer->start();
+                        return;
+                      }
+                      m_thumbnailInFlight = false;
+                      timer->deleteLater();
+                      if (state != QLatin1String("succeeded") || asset.isEmpty())
+                        return;
+                      const auto *row = selected();
+                      if (!row || row->providerId != assetProvider)
+                        return;
+                      const auto url = AssetImages::imageUrl(
+                          row->providerId, row->path, row->generation, asset);
+                      if (url.isEmpty())
+                        return;
+                      m_thumbnail = url;
+                      m_thumbnailPosition = positionUs;
+                      emit thumbnailChanged();
+                    });
+          });
   timer->start();
 }

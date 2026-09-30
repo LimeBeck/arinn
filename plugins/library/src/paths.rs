@@ -16,13 +16,6 @@ pub fn provider_digest(provider_id: &str) -> Result<String, ErrorCode> {
     Ok(format!("{:x}", Sha256::digest(provider_id.as_bytes())))
 }
 
-pub fn config_file(provider_id: &str) -> Result<PathBuf, ErrorCode> {
-    Ok(arinn_root("XDG_CONFIG_HOME", ".config")?
-        .join("providers")
-        .join(provider_digest(provider_id)?)
-        .join("library.toml"))
-}
-
 pub fn state_database(provider_id: &str) -> Result<PathBuf, ErrorCode> {
     let dir = arinn_root("XDG_STATE_HOME", ".local/state")?
         .join("providers")

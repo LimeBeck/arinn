@@ -54,7 +54,7 @@ impl Default for Settings {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ConfigFile {
+struct SettingsJson {
     #[serde(default = "yes")]
     autoscan: bool,
     #[serde(default = "yes")]
@@ -62,13 +62,7 @@ struct ConfigFile {
     #[serde(default)]
     ffprobe: Option<String>,
     #[serde(default)]
-    roots: Vec<RootFile>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RootFile {
-    path: String,
+    roots: Vec<String>,
 }
 
 fn yes() -> bool {
@@ -76,24 +70,27 @@ fn yes() -> bool {
 }
 
 impl Settings {
-    pub fn load(path: &Path) -> Result<Self, ErrorCode> {
-        let text = match fs::read_to_string(path) {
-            Ok(text) => text,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                return Ok(Self::default());
-            }
-            Err(_) => return Err(ErrorCode::Unavailable),
-        };
-        if text.len() > 256 * 1024 {
+    /// Reads `ARINN_PROVIDER_SETTINGS`. An unset variable is `{}` (no roots).
+    pub fn from_environment() -> Result<Self, ErrorCode> {
+        match std::env::var("ARINN_PROVIDER_SETTINGS") {
+            Ok(text) => Self::parse(&text),
+            Err(std::env::VarError::NotPresent) => Self::parse("{}"),
+            Err(std::env::VarError::NotUnicode(_)) => Err(ErrorCode::InvalidArgument),
+        }
+    }
+
+    pub fn parse(text: &str) -> Result<Self, ErrorCode> {
+        if text.len() > 64 * 1024 {
             return Err(ErrorCode::InvalidArgument);
         }
-        let file: ConfigFile = toml::from_str(&text).map_err(|_| ErrorCode::InvalidArgument)?;
+        let file: SettingsJson =
+            serde_json::from_str(text).map_err(|_| ErrorCode::InvalidArgument)?;
         if file.roots.len() > MAX_ROOTS {
             return Err(ErrorCode::InvalidArgument);
         }
         let mut roots = Vec::new();
         for root in file.roots {
-            let path = normalize_root(Path::new(&root.path))?;
+            let path = normalize_root(Path::new(&root))?;
             if !roots.contains(&path) {
                 roots.push(path);
             }
@@ -149,6 +146,7 @@ struct Row {
     probed: bool,
 }
 
+#[derive(Clone)]
 struct DiskFile {
     rel: String,
     absolute: PathBuf,
@@ -240,36 +238,9 @@ impl Store {
     }
 
     pub fn scan(&mut self, settings: &Settings) -> Result<(), ErrorCode> {
-        self.configured_roots = settings.roots.clone();
-        let mut known = HashMap::new();
-        let configured = settings.roots.clone();
-        for path in &configured {
-            let id = self.root_id(path)?;
-            known.insert(id, path.clone());
-        }
-        let stored = self
-            .conn
-            .prepare("SELECT id, path FROM roots")
-            .map_err(|_| ErrorCode::Internal)?
-            .query_map([], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-            })
-            .map_err(|_| ErrorCode::Internal)?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|_| ErrorCode::Internal)?;
-        for (id, path) in &stored {
-            if !configured.iter().any(|root| root == Path::new(path)) {
-                self.mark_root_unavailable(id)?;
-            }
-        }
-        for (id, path) in known {
-            if root_readable(&path) {
-                self.scan_root(&id, &path, settings, &configured)?;
-            } else {
-                self.mark_root_unavailable(&id)?;
-            }
-        }
-        Ok(())
+        let mut discovered = discover(settings);
+        attach_probes(self, settings, &mut discovered)?;
+        self.commit_discovered(settings, discovered)
     }
 
     pub fn snapshot(&self) -> Result<(Vec<Collection>, Vec<Item>), ErrorCode> {
@@ -368,9 +339,29 @@ impl Store {
     }
 
     pub fn import(&mut self, candidates: &[ImportCandidate]) -> Result<Vec<String>, ErrorCode> {
+        self.conn
+            .execute_batch("SAVEPOINT arinn_import")
+            .map_err(|_| ErrorCode::Internal)?;
+        let result = self.import_inner(candidates);
+        if result.is_ok() {
+            self.conn
+                .execute_batch("RELEASE SAVEPOINT arinn_import")
+                .map_err(|_| ErrorCode::Internal)?;
+        } else {
+            let _ = self.conn.execute_batch(
+                "ROLLBACK TO SAVEPOINT arinn_import; RELEASE SAVEPOINT arinn_import",
+            );
+        }
+        result
+    }
+
+    fn import_inner(&mut self, candidates: &[ImportCandidate]) -> Result<Vec<String>, ErrorCode> {
         let mut ids = Vec::with_capacity(candidates.len());
         for candidate in candidates {
             if let Some(existing) = self.completion(&candidate.completion_id)? {
+                if ids.iter().any(|id| id == &existing) {
+                    return Err(ErrorCode::InvalidArgument);
+                }
                 ids.push(existing);
                 continue;
             }
@@ -392,6 +383,9 @@ impl Store {
                     ..Settings::default()
                 },
             )?;
+            if ids.iter().any(|seen| seen == &id) {
+                return Err(ErrorCode::InvalidArgument);
+            }
             self.conn
                 .execute(
                     "INSERT INTO imports (completion_id, item_id) VALUES (?1, ?2)",
@@ -399,9 +393,6 @@ impl Store {
                 )
                 .map_err(|_| ErrorCode::Internal)?;
             ids.push(id);
-        }
-        if ids.len() != ids.iter().collect::<HashSet<_>>().len() {
-            return Err(ErrorCode::InvalidArgument);
         }
         Ok(ids)
     }
@@ -438,72 +429,51 @@ impl Store {
         Ok(())
     }
 
-    fn scan_root(
+    fn commit_discovered(
+        &mut self,
+        settings: &Settings,
+        discovered: Vec<RootScan>,
+    ) -> Result<(), ErrorCode> {
+        self.configured_roots = settings.roots.clone();
+        let stored = self
+            .conn
+            .prepare("SELECT id, path FROM roots")
+            .map_err(|_| ErrorCode::Internal)?
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|_| ErrorCode::Internal)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| ErrorCode::Internal)?;
+        for (id, path) in &stored {
+            if !settings.roots.iter().any(|root| root == Path::new(path)) {
+                self.mark_root_unavailable(id)?;
+            }
+        }
+        for root in discovered {
+            let id = self.root_id(&root.path)?;
+            if root.readable {
+                self.integrate_root(&id, &root.path, root.truncated, root.files)?;
+            } else {
+                self.mark_root_unavailable(&id)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn integrate_root(
         &mut self,
         root_id: &str,
         root: &Path,
-        settings: &Settings,
-        configured: &[PathBuf],
+        truncated: bool,
+        files: Vec<DiskFile>,
     ) -> Result<(), ErrorCode> {
-        let mut truncated = false;
-        let mut paths = Vec::new();
-        walk(root, root, 0, configured, &mut paths, &mut truncated)?;
-        let mut files = Vec::new();
-        for path in paths {
-            if let Some(file) = disk_file(root, &path)? {
-                files.push(file);
-            }
-        }
         let existing = self.load_root(root_id)?;
-        let mut claimed = HashSet::new();
-        let mut seen_inodes = HashSet::new();
-        let mut paired: Vec<(DiskFile, Option<Row>)> = Vec::new();
-        for file in files {
-            let by_path = existing.iter().find(|row| {
-                row.kind != "series" && row.rel_path == file.rel && !claimed.contains(&row.id)
-            });
-            let inode_taken = file.inode.is_some_and(|inode| {
-                seen_inodes.contains(&inode) || claimed_inode(&existing, &claimed, Some(inode))
-            });
-            if by_path.is_none() && inode_taken {
-                continue;
-            }
-            let by_fp = by_path.cloned().or_else(|| {
-                existing
-                    .iter()
-                    .find(|row| {
-                        row.kind != "series"
-                            && !claimed.contains(&row.id)
-                            && same_fingerprint(row, &file)
-                    })
-                    .cloned()
-            });
-            if let Some(row) = by_fp.clone() {
-                claimed.insert(row.id.clone());
-            }
-            if let Some(inode) = file.inode {
-                seen_inodes.insert(inode);
-            }
-            paired.push((file, by_fp));
-        }
-        if settings.probe {
-            let need: Vec<usize> = paired
-                .iter()
-                .enumerate()
-                .filter(|(_, (file, old))| needs_probe(file, old.as_ref()))
-                .map(|(index, _)| index)
-                .collect();
-            let probed = probe_many(
-                &settings.ffprobe,
-                &need
-                    .iter()
-                    .map(|index| paired[*index].0.absolute.clone())
-                    .collect::<Vec<_>>(),
-            );
-            for (index, result) in need.into_iter().zip(probed) {
-                paired[index].0.fresh_probe = result;
-            }
-        }
+        let paired = pair_files(&existing, files);
+        let claimed: HashSet<String> = paired
+            .iter()
+            .filter_map(|(_, old)| old.as_ref().map(|row| row.id.clone()))
+            .collect();
         let mut rows = Vec::new();
         let mut metas = HashMap::new();
         for (file, old) in paired {
@@ -591,11 +561,31 @@ impl Store {
     }
 
     fn replace_root(&mut self, root_id: &str, rows: &[Row]) -> Result<(), ErrorCode> {
-        let tx = self.conn.transaction().map_err(|_| ErrorCode::Internal)?;
-        tx.execute("DELETE FROM items WHERE root_id = ?1", [root_id])
+        self.conn
+            .execute_batch("SAVEPOINT arinn_replace")
+            .map_err(|_| ErrorCode::Internal)?;
+        let saved = (|| {
+            self.write_root(root_id, rows)?;
+            self.conn
+                .execute_batch("RELEASE SAVEPOINT arinn_replace")
+                .map_err(|_| ErrorCode::Internal)?;
+            Ok(())
+        })();
+        if let Err(error) = saved {
+            let _ = self.conn.execute_batch(
+                "ROLLBACK TO SAVEPOINT arinn_replace; RELEASE SAVEPOINT arinn_replace",
+            );
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    fn write_root(&self, root_id: &str, rows: &[Row]) -> Result<(), ErrorCode> {
+        self.conn
+            .execute("DELETE FROM items WHERE root_id = ?1", [root_id])
             .map_err(|_| ErrorCode::Internal)?;
         for row in rows {
-            tx.execute(
+            self.conn.execute(
                 "INSERT INTO items (
                     id, root_id, rel_path, kind, series_key, parent_id, title,
                     has_year, year, has_season, season, has_episode, episode,
@@ -631,7 +621,6 @@ impl Store {
             )
             .map_err(|_| ErrorCode::Internal)?;
         }
-        tx.commit().map_err(|_| ErrorCode::Internal)?;
         Ok(())
     }
 
@@ -704,6 +693,21 @@ impl Store {
         self.load_filtered(root_id)
     }
 
+    fn rows_for_path(&self, path: &Path) -> Result<Vec<Row>, ErrorCode> {
+        let text = path.to_str().ok_or(ErrorCode::InvalidArgument)?;
+        let id: Option<String> = self
+            .conn
+            .query_row("SELECT id FROM roots WHERE path = ?1", [text], |row| {
+                row.get(0)
+            })
+            .optional()
+            .map_err(|_| ErrorCode::Internal)?;
+        match id {
+            Some(id) => self.load_root(&id),
+            None => Ok(Vec::new()),
+        }
+    }
+
     fn load_filtered(&self, root_id: &str) -> Result<Vec<Row>, ErrorCode> {
         let (sql, one) = if root_id.is_empty() {
             (
@@ -725,34 +729,7 @@ impl Store {
             )
         };
         let mut stmt = self.conn.prepare(sql).map_err(|_| ErrorCode::Internal)?;
-        let map = |row: &rusqlite::Row<'_>| {
-            Ok(Row {
-                root_id: row.get(23)?,
-                id: row.get(0)?,
-                rel_path: row.get(1)?,
-                kind: row.get(2)?,
-                series_key: row.get(3)?,
-                parent_id: row.get(4)?,
-                title: row.get(5)?,
-                has_year: row.get::<_, i64>(6)? != 0,
-                year: row.get(7)?,
-                has_season: row.get::<_, i64>(8)? != 0,
-                season: row.get(9)?,
-                has_episode: row.get::<_, i64>(10)? != 0,
-                episode: row.get(11)?,
-                duration_us: row.get(12)?,
-                audio: row.get(13)?,
-                subtitle: row.get(14)?,
-                poster_id: row.get(15)?,
-                fanart_id: row.get(16)?,
-                available: row.get::<_, i64>(17)? != 0,
-                inode: row.get(18)?,
-                size: row.get(19)?,
-                mtime_sec: row.get(20)?,
-                mtime_nsec: row.get(21)?,
-                probed: row.get::<_, i64>(22)? != 0,
-            })
-        };
+        let map = row_from;
         let collected = if one {
             stmt.query_map([root_id], map)
                 .map_err(|_| ErrorCode::Internal)?
@@ -766,7 +743,18 @@ impl Store {
     }
 
     fn item_row(&self, id: &str) -> Result<Option<Row>, ErrorCode> {
-        Ok(self.load_all()?.into_iter().find(|row| row.id == id))
+        self.conn
+            .query_row(
+                "SELECT id, rel_path, kind, series_key, parent_id, title, has_year, year,
+                        has_season, season, has_episode, episode, duration_us, audio_language,
+                        subtitle_language, poster_id, fanart_id, available, inode, size,
+                        mtime_sec, mtime_nsec, probed, root_id
+                 FROM items WHERE id = ?1",
+                [id],
+                row_from,
+            )
+            .optional()
+            .map_err(|_| ErrorCode::Internal)
     }
 
     fn root_path_of(&self, row: &Row) -> Result<PathBuf, ErrorCode> {
@@ -782,10 +770,23 @@ impl Store {
     }
 
     fn resume_row(&self, id: &str) -> Result<Option<Resume>, ErrorCode> {
-        Ok(self
-            .resumes()?
-            .into_iter()
-            .find(|resume| resume.content_id == id))
+        self.conn
+            .query_row(
+                "SELECT content_id, position_us, duration_us, completed, observed_at_us
+                 FROM resumes WHERE content_id = ?1",
+                [id],
+                |row| {
+                    Ok(Resume {
+                        content_id: row.get(0)?,
+                        position_us: row.get(1)?,
+                        duration_us: row.get(2)?,
+                        completed: row.get::<_, i64>(3)? != 0,
+                        observed_at_us: row.get::<_, i64>(4)? as u64,
+                    })
+                },
+            )
+            .optional()
+            .map_err(|_| ErrorCode::Internal)
     }
 
     fn progress_of(&self, id: &str) -> Result<Progress, ErrorCode> {
@@ -891,6 +892,35 @@ fn flag(value: bool) -> i64 {
     i64::from(value)
 }
 
+fn row_from(row: &rusqlite::Row<'_>) -> rusqlite::Result<Row> {
+    Ok(Row {
+        root_id: row.get(23)?,
+        id: row.get(0)?,
+        rel_path: row.get(1)?,
+        kind: row.get(2)?,
+        series_key: row.get(3)?,
+        parent_id: row.get(4)?,
+        title: row.get(5)?,
+        has_year: row.get::<_, i64>(6)? != 0,
+        year: row.get(7)?,
+        has_season: row.get::<_, i64>(8)? != 0,
+        season: row.get(9)?,
+        has_episode: row.get::<_, i64>(10)? != 0,
+        episode: row.get(11)?,
+        duration_us: row.get(12)?,
+        audio: row.get(13)?,
+        subtitle: row.get(14)?,
+        poster_id: row.get(15)?,
+        fanart_id: row.get(16)?,
+        available: row.get::<_, i64>(17)? != 0,
+        inode: row.get(18)?,
+        size: row.get(19)?,
+        mtime_sec: row.get(20)?,
+        mtime_nsec: row.get(21)?,
+        probed: row.get::<_, i64>(22)? != 0,
+    })
+}
+
 fn now_us() -> u64 {
     u64::try_from(
         SystemTime::now()
@@ -939,6 +969,153 @@ fn contained(root: &Path, path: &Path) -> bool {
     path.starts_with(root)
 }
 
+struct RootScan {
+    path: PathBuf,
+    readable: bool,
+    truncated: bool,
+    files: Vec<DiskFile>,
+}
+
+fn discover(settings: &Settings) -> Vec<RootScan> {
+    settings
+        .roots
+        .iter()
+        .map(|path| {
+            if !root_readable(path) {
+                return RootScan {
+                    path: path.clone(),
+                    readable: false,
+                    truncated: false,
+                    files: Vec::new(),
+                };
+            }
+            let mut truncated = false;
+            let mut paths = Vec::new();
+            walk(path, path, 0, &settings.roots, &mut paths, &mut truncated);
+            let files = paths
+                .iter()
+                .filter_map(|file| disk_file(path, file).ok().flatten())
+                .collect();
+            RootScan {
+                path: path.clone(),
+                readable: true,
+                truncated,
+                files,
+            }
+        })
+        .collect()
+}
+
+fn pair_files(existing: &[Row], files: Vec<DiskFile>) -> Vec<(DiskFile, Option<Row>)> {
+    let mut claimed = HashSet::new();
+    let mut seen_inodes = HashSet::new();
+    let mut paired = Vec::new();
+    for file in files {
+        let by_path = existing.iter().find(|row| {
+            row.kind != "series" && row.rel_path == file.rel && !claimed.contains(&row.id)
+        });
+        let inode_taken = file.inode.is_some_and(|inode| {
+            seen_inodes.contains(&inode) || claimed_inode(existing, &claimed, Some(inode))
+        });
+        if by_path.is_none() && inode_taken {
+            continue;
+        }
+        let by_fp = by_path.cloned().or_else(|| {
+            existing
+                .iter()
+                .find(|row| {
+                    row.kind != "series"
+                        && !claimed.contains(&row.id)
+                        && same_fingerprint(row, &file)
+                })
+                .cloned()
+        });
+        if let Some(row) = by_fp.clone() {
+            claimed.insert(row.id.clone());
+        }
+        if let Some(inode) = file.inode {
+            seen_inodes.insert(inode);
+        }
+        paired.push((file, by_fp));
+    }
+    paired
+}
+
+fn attach_probes(
+    store: &Store,
+    settings: &Settings,
+    discovered: &mut [RootScan],
+) -> Result<(), ErrorCode> {
+    if !settings.probe {
+        return Ok(());
+    }
+    let mut jobs = Vec::new();
+    let mut targets = Vec::new();
+    for (root_index, root) in discovered.iter().enumerate() {
+        if !root.readable {
+            continue;
+        }
+        let existing = store.rows_for_path(&root.path)?;
+        let paired = pair_files(&existing, root.files.clone());
+        for (file, old) in &paired {
+            if !needs_probe(file, old.as_ref()) {
+                continue;
+            }
+            let Some(file_index) = root.files.iter().position(|candidate| {
+                candidate.absolute == file.absolute && candidate.rel == file.rel
+            }) else {
+                continue;
+            };
+            targets.push(file.absolute.clone());
+            jobs.push((root_index, file_index));
+        }
+    }
+    let probed = probe_many(&settings.ffprobe, &targets);
+    for ((root_index, file_index), result) in jobs.into_iter().zip(probed) {
+        discovered[root_index].files[file_index].fresh_probe = result;
+    }
+    Ok(())
+}
+
+/// Walks and probes without holding `store`, then locks only to write the catalogue.
+pub fn scan_shared(store: &std::sync::Mutex<Store>, settings: &Settings) -> Result<(), ErrorCode> {
+    let mut discovered = discover(settings);
+    let probed = {
+        let guard = store.lock().map_err(|_| ErrorCode::Internal)?;
+        let mut jobs = Vec::new();
+        if settings.probe {
+            for (root_index, root) in discovered.iter().enumerate() {
+                if !root.readable {
+                    continue;
+                }
+                let existing = guard.rows_for_path(&root.path)?;
+                let paired = pair_files(&existing, root.files.clone());
+                for (file, old) in &paired {
+                    if !needs_probe(file, old.as_ref()) {
+                        continue;
+                    }
+                    let Some(file_index) = root.files.iter().position(|candidate| {
+                        candidate.absolute == file.absolute && candidate.rel == file.rel
+                    }) else {
+                        continue;
+                    };
+                    jobs.push((root_index, file_index, file.absolute.clone()));
+                }
+            }
+        }
+        jobs
+    };
+    if settings.probe {
+        let targets: Vec<PathBuf> = probed.iter().map(|(_, _, path)| path.clone()).collect();
+        let results = probe_many(&settings.ffprobe, &targets);
+        for ((root_index, file_index, _), result) in probed.into_iter().zip(results) {
+            discovered[root_index].files[file_index].fresh_probe = result;
+        }
+    }
+    let mut guard = store.lock().map_err(|_| ErrorCode::Internal)?;
+    guard.commit_discovered(settings, discovered)
+}
+
 fn walk(
     root: &Path,
     dir: &Path,
@@ -946,16 +1123,18 @@ fn walk(
     configured: &[PathBuf],
     out: &mut Vec<PathBuf>,
     truncated: &mut bool,
-) -> Result<(), ErrorCode> {
+) {
     if *truncated || depth > MAX_DEPTH {
         *truncated = true;
-        return Ok(());
+        return;
     }
-    let entries = fs::read_dir(dir).map_err(|_| ErrorCode::Unavailable)?;
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
     for entry in entries.flatten() {
         if out.len() >= MAX_FILES {
             *truncated = true;
-            return Ok(());
+            return;
         }
         let path = entry.path();
         let name = entry.file_name();
@@ -969,7 +1148,7 @@ fn walk(
             continue;
         };
         if meta.file_type().is_symlink() {
-            if parse::is_video(&path) && contained(root, &path) {
+            if parse::is_video(&path) && regular_file_inside(root, &path) {
                 out.push(path);
             }
             continue;
@@ -978,12 +1157,15 @@ fn walk(
             if configured.iter().any(|other| other == &path) && path != root {
                 continue;
             }
-            walk(root, &path, depth + 1, configured, out, truncated)?;
+            walk(root, &path, depth + 1, configured, out, truncated);
         } else if meta.is_file() && parse::is_video(&path) {
             out.push(path);
         }
     }
-    Ok(())
+}
+
+fn regular_file_inside(root: &Path, path: &Path) -> bool {
+    fs::metadata(path).is_ok_and(|meta| meta.is_file()) && contained(root, path)
 }
 
 fn disk_file(root: &Path, path: &Path) -> Result<Option<DiskFile>, ErrorCode> {
@@ -994,15 +1176,20 @@ fn disk_file(root: &Path, path: &Path) -> Result<Option<DiskFile>, ErrorCode> {
         return Ok(None);
     };
     let nfo_path = path.with_extension("nfo");
-    let nfo = parse::read_nfo(&nfo_path).unwrap_or_default();
+    let nfo = parse::read_nfo(&nfo_path, root).unwrap_or_default();
     parse::apply_nfo(&mut parsed, &nfo);
-    let meta = fs::metadata(path).map_err(|_| ErrorCode::Unavailable)?;
+    let Ok(meta) = fs::metadata(path) else {
+        return Ok(None);
+    };
+    if !meta.is_file() {
+        return Ok(None);
+    }
     let stem = path
         .file_stem()
         .and_then(|stem| stem.to_str())
         .unwrap_or_default();
     let directory = path.parent().unwrap_or(root);
-    let (poster, fanart) = parse::artwork(directory, stem);
+    let (poster, fanart) = parse::artwork(root, directory, stem);
     Ok(Some(DiskFile {
         rel,
         absolute: path.to_path_buf(),
@@ -1185,7 +1372,7 @@ fn link_series(
             }
         }
         if !dir.is_empty() {
-            if let Some(nfo) = parse::read_nfo(&root.join(&dir).join("tvshow.nfo")) {
+            if let Some(nfo) = parse::read_nfo(&root.join(&dir).join("tvshow.nfo"), root) {
                 if let Some(title) = nfo.title {
                     series.title = title;
                 }
@@ -1194,7 +1381,7 @@ fn link_series(
                     series.year = year;
                 }
             }
-            let (poster, fanart) = parse::artwork(&root.join(&dir), "*");
+            let (poster, fanart) = parse::artwork(root, &root.join(&dir), "*");
             series.poster_id = art_id(poster.is_some(), &series.poster_id);
             series.fanart_id = art_id(fanart.is_some(), &series.fanart_id);
         }
@@ -1375,4 +1562,115 @@ fn stream_language(streams: Option<&serde_json::Value>, kind: &str) -> String {
         }
     }
     String::new()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+    use std::sync::{LazyLock, Mutex};
+
+    static PROGRESS_SQL: LazyLock<Mutex<Vec<String>>> = LazyLock::new(|| Mutex::new(Vec::new()));
+
+    fn capture_progress_sql(event: rusqlite::trace::TraceEvent<'_>) {
+        if let rusqlite::trace::TraceEvent::Stmt(_, sql) = event {
+            PROGRESS_SQL.lock().unwrap().push(sql.to_string());
+        }
+    }
+
+    #[test]
+    fn settings_json_reads_roots_and_rejects_the_filesystem_root() {
+        let settings = Settings::parse(r#"{"roots":["/srv/films"]}"#).unwrap();
+        assert_eq!(settings.roots, vec![PathBuf::from("/srv/films")]);
+        assert!(settings.autoscan);
+        assert!(settings.probe);
+        assert_eq!(settings.ffprobe, PathBuf::from("ffprobe"));
+        assert!(Settings::parse("{}").unwrap().roots.is_empty());
+        assert!(Settings::parse(r#"{"roots":["/"]}"#).is_err());
+        assert!(Settings::parse(r#"{"roots":["films"]}"#).is_err());
+        assert!(Settings::parse(r#"{"extra":true}"#).is_err());
+    }
+
+    #[test]
+    fn a_file_that_vanishes_before_stat_does_not_fail_the_scan() {
+        let dir = std::env::temp_dir().join(format!(
+            "arinn-library-vanish-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        fs::create_dir_all(dir.join("root")).unwrap();
+        let root = dir.join("root");
+        let gone = root.join("Gone (2001).mkv");
+        fs::write(&gone, b"gone").unwrap();
+        fs::remove_file(&gone).unwrap();
+        assert!(disk_file(&root, &gone).unwrap().is_none());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn set_progress_does_not_load_every_row() {
+        let dir = std::env::temp_dir().join(format!(
+            "arinn-library-progress-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        fs::create_dir_all(dir.join("root")).unwrap();
+        let root = dir.join("root");
+        fs::write(root.join("One (2001).mkv"), b"a").unwrap();
+        fs::write(root.join("Two (2002).mkv"), b"b").unwrap();
+        let mut store = Store::open(&dir.join("library.sqlite3")).unwrap();
+        store
+            .scan(&Settings {
+                autoscan: false,
+                roots: vec![root],
+                probe: false,
+                ffprobe: PathBuf::from("ffprobe"),
+            })
+            .unwrap();
+        let id = store
+            .snapshot()
+            .unwrap()
+            .1
+            .into_iter()
+            .find(|item| item.kind == "film")
+            .unwrap()
+            .id;
+        PROGRESS_SQL.lock().unwrap().clear();
+        store.conn.trace_v2(
+            rusqlite::trace::TraceEventCodes::SQLITE_TRACE_STMT,
+            Some(capture_progress_sql),
+        );
+        store.set_progress(&id, 1_000, -1, false).unwrap();
+        let queries = PROGRESS_SQL.lock().unwrap();
+        assert!(
+            queries
+                .iter()
+                .any(|sql| sql.contains("FROM items") && sql.contains("WHERE id"))
+        );
+        assert!(
+            queries
+                .iter()
+                .any(|sql| sql.contains("FROM resumes") && sql.contains("WHERE content_id"))
+        );
+        assert!(
+            queries
+                .iter()
+                .all(|sql| !sql.contains("FROM items") || sql.contains("WHERE")),
+            "{queries:?}"
+        );
+        assert!(
+            queries
+                .iter()
+                .all(|sql| !sql.contains("FROM resumes") || sql.contains("WHERE")),
+            "{queries:?}"
+        );
+        let _ = fs::set_permissions(&dir, fs::Permissions::from_mode(0o755));
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

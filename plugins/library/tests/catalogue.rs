@@ -4,13 +4,14 @@
 //! Catalogue scans on temporary folders: names, NFO, availability, rename,
 //! resume and import. No network mounts.
 
-use arinn_plugin_library::{Settings, Store, to_file_uri};
+use arinn_plugin_library::{Settings, Store, scan_shared, to_file_uri};
 use arinn_protocol::{library::ImportCandidate, production::EntityRef, validation::ErrorCode};
 use std::{
     fs,
     os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
-    time::{SystemTime, UNIX_EPOCH},
+    sync::{Arc, Mutex},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 struct Scratch(PathBuf);
@@ -491,6 +492,238 @@ fn missing_ffprobe_keeps_the_catalogue_and_unknown_duration() {
     assert_eq!(source.audio_language, "");
     assert_eq!(source.subtitle_language, "");
     assert_eq!(source.start_position_us, 0);
+}
+
+#[test]
+fn an_unreadable_subdirectory_does_not_fail_the_scan() {
+    if !run_without_root("an_unreadable_subdirectory_does_not_fail_the_scan") {
+        return;
+    }
+    let scratch = Scratch::new();
+    let root = scratch.path().join("root");
+    let locked = root.join("locked");
+    fs::create_dir_all(&locked).unwrap();
+    fs::write(root.join("Visible (2001).mkv"), b"visible").unwrap();
+    fs::write(locked.join("Hidden (2002).mkv"), b"hidden").unwrap();
+    let mut store = open(&scratch);
+    let configured = settings(&root, false, PathBuf::from("ffprobe"));
+    store.scan(&configured).unwrap();
+    let hidden_id = store
+        .snapshot()
+        .unwrap()
+        .1
+        .into_iter()
+        .find(|item| item.title == "Hidden")
+        .unwrap()
+        .id;
+    let _restore = ModeGuard(locked.clone());
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+    store.scan(&configured).unwrap();
+    let items = store.snapshot().unwrap().1;
+    let visible = items.iter().find(|item| item.title == "Visible").unwrap();
+    assert!(visible.available);
+    let hidden = items.iter().find(|item| item.id == hidden_id).unwrap();
+    assert!(!hidden.available);
+}
+
+#[test]
+fn a_fifo_reached_through_a_symlink_is_not_catalogued() {
+    let scratch = Scratch::new();
+    let root = scratch.path().join("root");
+    fs::create_dir(&root).unwrap();
+    let fifo = root.join("payload");
+    assert!(
+        std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .unwrap()
+            .success()
+    );
+    std::os::unix::fs::symlink(&fifo, root.join("Clip (1998).mkv")).unwrap();
+    fs::write(root.join("Real (1999).mkv"), b"film").unwrap();
+    let mut store = open(&scratch);
+    store
+        .scan(&settings(&root, false, PathBuf::from("ffprobe")))
+        .unwrap();
+    let items = store.snapshot().unwrap().1;
+    assert!(items.iter().all(|item| item.title != "Clip"));
+    assert!(
+        items
+            .iter()
+            .any(|item| item.title == "Real" && item.available)
+    );
+}
+
+#[test]
+fn sidecar_symlinks_outside_the_root_are_ignored() {
+    let scratch = Scratch::new();
+    let root = scratch.path().join("root");
+    fs::create_dir(&root).unwrap();
+    fs::write(root.join("Feature (2004).mkv"), b"film").unwrap();
+    let outside = scratch.path().join("outside");
+    fs::create_dir(&outside).unwrap();
+    fs::write(
+        outside.join("leak.nfo"),
+        b"<movie><title>LEAKED TITLE</title><year>1991</year></movie>",
+    )
+    .unwrap();
+    fs::write(outside.join("poster.jpg"), b"jpg").unwrap();
+    std::os::unix::fs::symlink(outside.join("leak.nfo"), root.join("Feature (2004).nfo")).unwrap();
+    std::os::unix::fs::symlink(outside.join("poster.jpg"), root.join("poster.jpg")).unwrap();
+    let mut store = open(&scratch);
+    store
+        .scan(&settings(&root, false, PathBuf::from("ffprobe")))
+        .unwrap();
+    let film = store
+        .snapshot()
+        .unwrap()
+        .1
+        .into_iter()
+        .find(|item| item.kind == "film")
+        .unwrap();
+    assert_eq!(film.title, "Feature");
+    assert_eq!(film.year, 2004);
+    assert!(film.poster.is_empty());
+    assert!(film.fanart.is_empty());
+}
+
+#[test]
+fn a_duplicate_import_batch_writes_nothing() {
+    let scratch = Scratch::new();
+    let root = scratch.path().join("root");
+    fs::create_dir(&root).unwrap();
+    let video = root.join("Batch (2014).mkv");
+    let mut store = open(&scratch);
+    store
+        .scan(&settings(&root, false, PathBuf::from("ffprobe")))
+        .unwrap();
+    fs::write(&video, b"film").unwrap();
+    let candidate = |completion_id: &str| ImportCandidate {
+        source: EntityRef {
+            provider_id: "downloads".into(),
+            capability: "download".into(),
+            local_id: "job-batch".into(),
+        },
+        file_uri: file_uri(&video),
+        completion_id: completion_id.into(),
+    };
+    let first = candidate("done-a");
+    let second = candidate("done-b");
+    assert_eq!(
+        store.import(&[first.clone(), second.clone()]),
+        Err(ErrorCode::InvalidArgument)
+    );
+    assert_eq!(
+        store
+            .snapshot()
+            .unwrap()
+            .1
+            .iter()
+            .filter(|item| item.kind == "film")
+            .count(),
+        0
+    );
+    let once = store.import(std::slice::from_ref(&first)).unwrap();
+    assert_eq!(once.len(), 1);
+    assert_eq!(
+        store
+            .snapshot()
+            .unwrap()
+            .1
+            .iter()
+            .filter(|item| item.kind == "film")
+            .count(),
+        1
+    );
+    assert_eq!(store.import(std::slice::from_ref(&second)).unwrap(), once);
+}
+
+#[test]
+fn scan_does_not_hold_the_catalogue_during_ffprobe() {
+    let scratch = Scratch::new();
+    let root = scratch.path().join("root");
+    fs::create_dir(&root).unwrap();
+    fs::write(root.join("Slow (2003).mkv"), b"film").unwrap();
+    let marker = scratch.path().join("probe-started");
+    let probe = scratch.path().join("ffprobe");
+    fs::write(
+        &probe,
+        format!(
+            "#!/bin/sh\ntouch '{}'\nsleep 2\nprintf '%s\\n' '{{\"format\":{{\"duration\":\"1\"}}}}'\n",
+            marker.display()
+        ),
+    )
+    .unwrap();
+    fs::set_permissions(&probe, fs::Permissions::from_mode(0o755)).unwrap();
+    let store = Arc::new(Mutex::new(open(&scratch)));
+    let worker = {
+        let store = Arc::clone(&store);
+        let configured = settings(&root, true, probe);
+        std::thread::spawn(move || scan_shared(&store, &configured).unwrap())
+    };
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while !marker.exists() {
+        if Instant::now() > deadline {
+            panic!("ffprobe did not start");
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let guard = store
+        .try_lock()
+        .expect("scan held the catalogue lock during ffprobe");
+    assert!(guard.snapshot().is_ok());
+    drop(guard);
+    worker.join().unwrap();
+}
+
+struct ModeGuard(PathBuf);
+impl Drop for ModeGuard {
+    fn drop(&mut self) {
+        let _ = fs::set_permissions(&self.0, fs::Permissions::from_mode(0o755));
+    }
+}
+
+fn run_without_root(test: &str) -> bool {
+    let uid = std::process::Command::new("id")
+        .arg("-u")
+        .output()
+        .ok()
+        .and_then(|output| String::from_utf8(output.stdout).ok())
+        .unwrap_or_default();
+    if uid.trim() != "0" {
+        return true;
+    }
+    if std::env::var_os("ARINN_LIBRARY_UNPRIVILEGED").is_some() {
+        unsafe {
+            assert_eq!(libc_setuid(), 0);
+        }
+        return true;
+    }
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", test, "--nocapture"])
+        .env("ARINN_LIBRARY_UNPRIVILEGED", "1")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    false
+}
+
+unsafe fn libc_setuid() -> i32 {
+    unsafe extern "C" {
+        fn setgid(gid: u32) -> i32;
+        fn setuid(uid: u32) -> i32;
+    }
+    unsafe {
+        if setgid(65534) != 0 {
+            return -1;
+        }
+        setuid(65534)
+    }
 }
 
 #[test]

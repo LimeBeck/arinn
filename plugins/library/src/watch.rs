@@ -11,12 +11,13 @@ use arinn_plugin_sdk::runtime::{
 };
 use arinn_protocol::{library::ImportCandidate, media::PlaybackSource, validation::ErrorCode};
 use std::{
+    collections::HashSet,
     future::Future,
     os::fd::{AsRawFd, FromRawFd, OwnedFd},
     path::PathBuf,
     pin::Pin,
     sync::Arc,
-    time::{Duration, SystemTime},
+    time::Duration,
 };
 use tokio::{
     io::unix::AsyncFd,
@@ -33,8 +34,7 @@ struct Bridge {
 pub async fn serve(connection: zbus::Connection) -> Result<(), ErrorCode> {
     let provider_id = std::env::var("ARINN_PROVIDER_ID").unwrap_or_else(|_| "library".into());
     let database = crate::paths::state_database(&provider_id)?;
-    let config = crate::paths::config_file(&provider_id)?;
-    let loaded = Settings::load(&config);
+    let loaded = Settings::from_environment();
     let backend_ok = loaded.is_ok();
     let settings = loaded.unwrap_or_default();
     let store = Store::open(&database)?;
@@ -64,12 +64,11 @@ pub async fn serve(connection: zbus::Connection) -> Result<(), ErrorCode> {
     *bridge.service.lock().await = Some(service.clone());
     service.replace_resumes(resumes).await?;
     let scanner = bridge.clone();
-    let config_path = config.clone();
     let running = tokio::spawn(async move {
         if backend_ok {
-            scanner.scan_and_publish().await?;
+            let _ = scanner.scan_and_publish().await;
         }
-        scanner.scan_loop(config_path).await
+        scanner.scan_loop().await
     });
     tokio::select! {
         result = running => result.map_err(|_| ErrorCode::Internal)?,
@@ -85,27 +84,25 @@ impl Bridge {
             .unwrap_or_default()
     }
 
-    fn reload(&self, config: &std::path::Path) -> Result<(), ErrorCode> {
-        let settings = Settings::load(config)?;
-        *self.settings.lock().map_err(|_| ErrorCode::Internal)? = settings;
-        Ok(())
-    }
-
     async fn scan_and_publish(&self) -> Result<(), ErrorCode> {
-        let settings = self
-            .settings
-            .lock()
-            .map_err(|_| ErrorCode::Internal)?
-            .clone();
         let store = self.store.clone();
-        let (collections, items, resumes) = tokio::task::spawn_blocking(move || {
-            let mut store = store.lock().map_err(|_| ErrorCode::Internal)?;
-            store.scan(&settings)?;
+        let settings = self.settings.clone();
+        let published = tokio::task::spawn_blocking(move || {
+            let settings = settings.lock().map_err(|_| ErrorCode::Internal)?.clone();
+            crate::store::scan_shared(&store, &settings)?;
+            let store = store.lock().map_err(|_| ErrorCode::Internal)?;
             let (collections, items) = store.snapshot()?;
             Ok::<_, ErrorCode>((collections, items, store.resumes()?))
         })
         .await
-        .map_err(|_| ErrorCode::Internal)??;
+        .map_err(|_| ErrorCode::Internal)?;
+        let (collections, items, resumes) = match published {
+            Ok(published) => published,
+            Err(error) => {
+                log_error("scan", error);
+                return Ok(());
+            }
+        };
         let service = self
             .service
             .lock()
@@ -117,14 +114,13 @@ impl Bridge {
         Ok(())
     }
 
-    async fn scan_loop(self, config: PathBuf) -> Result<(), ErrorCode> {
+    async fn scan_loop(self) -> Result<(), ErrorCode> {
         let mut hup = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup())
             .map_err(|_| ErrorCode::Unavailable)?;
         let mut interval = tokio::time::interval(scan_interval());
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         interval.tick().await;
         let hints = HintWatch::spawn(self.roots());
-        let mut seen = mtime(&config);
         loop {
             let autoscan = self
                 .settings
@@ -133,31 +129,25 @@ impl Bridge {
                 .autoscan;
             tokio::select! {
                 _ = hup.recv() => {
-                    if self.reload(&config).is_ok() {
-                        hints.rewatch(self.roots());
-                        self.scan_and_publish().await?;
-                    }
+                    hints.rewatch(self.roots());
+                    let _ = self.scan_and_publish().await;
                 }
                 _ = interval.tick(), if autoscan => {
-                    self.scan_and_publish().await?;
+                    let _ = self.scan_and_publish().await;
                 }
                 _ = hints.notified() => {
                     tokio::time::sleep(hint_debounce()).await;
-                    self.scan_and_publish().await?;
-                }
-                _ = tokio::time::sleep(Duration::from_secs(2)) => {
-                    let now = mtime(&config);
-                    if now != seen {
-                        seen = now;
-                        if self.reload(&config).is_ok() {
-                            hints.rewatch(self.roots());
-                            self.scan_and_publish().await?;
-                        }
-                    }
+                    let _ = self.scan_and_publish().await;
                 }
             }
         }
     }
+}
+
+fn log_error(operation: &str, error: ErrorCode) {
+    eprintln!(
+        "{{\"level\":\"error\",\"component\":\"arinn-plugin-library\",\"operation\":\"{operation}\",\"error\":\"{error}\"}}"
+    );
 }
 
 impl LibraryHandler for Bridge {
@@ -167,8 +157,12 @@ impl LibraryHandler for Bridge {
     ) -> Pin<Box<dyn Future<Output = Result<PlaybackSource, ErrorCode>> + Send + '_>> {
         let store = self.store.clone();
         Box::pin(async move {
-            let store = store.lock().map_err(|_| ErrorCode::Internal)?;
-            store.launch(&id)
+            tokio::task::spawn_blocking(move || {
+                let store = store.lock().map_err(|_| ErrorCode::Internal)?;
+                store.launch(&id)
+            })
+            .await
+            .map_err(|_| ErrorCode::Internal)?
         })
     }
 }
@@ -184,11 +178,13 @@ impl LibraryResumeHandler for Bridge {
         let store = self.store.clone();
         let service = self.service.clone();
         Box::pin(async move {
-            let resumes = {
+            let resumes = tokio::task::spawn_blocking(move || {
                 let mut store = store.lock().map_err(|_| ErrorCode::Internal)?;
                 store.set_progress(&id, position_us, duration_us, ended)?;
-                store.resumes()?
-            };
+                store.resumes()
+            })
+            .await
+            .map_err(|_| ErrorCode::Internal)??;
             let service = service.lock().await.clone().ok_or(ErrorCode::Unavailable)?;
             service.replace_resumes(resumes).await?;
             Ok(())
@@ -202,11 +198,13 @@ impl LibraryResumeHandler for Bridge {
         let store = self.store.clone();
         let service = self.service.clone();
         Box::pin(async move {
-            let resumes = {
+            let resumes = tokio::task::spawn_blocking(move || {
                 let mut store = store.lock().map_err(|_| ErrorCode::Internal)?;
                 store.restart(&id)?;
-                store.resumes()?
-            };
+                store.resumes()
+            })
+            .await
+            .map_err(|_| ErrorCode::Internal)??;
             let service = service.lock().await.clone().ok_or(ErrorCode::Unavailable)?;
             service.replace_resumes(resumes).await?;
             Ok(())
@@ -223,18 +221,20 @@ impl LibraryImportHandler for Bridge {
         let service = self.service.clone();
         let settings = self.settings.clone();
         Box::pin(async move {
-            let roots = settings
-                .lock()
-                .map_err(|_| ErrorCode::Internal)?
-                .roots
-                .clone();
-            let (ids, collections, items, resumes) = {
+            let (ids, collections, items, resumes) = tokio::task::spawn_blocking(move || {
+                let roots = settings
+                    .lock()
+                    .map_err(|_| ErrorCode::Internal)?
+                    .roots
+                    .clone();
                 let mut store = store.lock().map_err(|_| ErrorCode::Internal)?;
                 store.set_configured_roots(&roots);
                 let ids = store.import(&candidates)?;
                 let (collections, items) = store.snapshot()?;
-                (ids, collections, items, store.resumes()?)
-            };
+                Ok::<_, ErrorCode>((ids, collections, items, store.resumes()?))
+            })
+            .await
+            .map_err(|_| ErrorCode::Internal)??;
             let service = service.lock().await.clone().ok_or(ErrorCode::Unavailable)?;
             service.replace(collections, items, "available").await?;
             service.replace_resumes(resumes).await?;
@@ -257,12 +257,6 @@ fn hint_debounce() -> Duration {
         .and_then(|value| value.parse().ok())
         .map(Duration::from_millis)
         .unwrap_or(Duration::from_secs(2))
-}
-
-fn mtime(path: &std::path::Path) -> Option<SystemTime> {
-    std::fs::metadata(path)
-        .and_then(|meta| meta.modified())
-        .ok()
 }
 
 struct HintWatch {
@@ -291,7 +285,7 @@ impl HintWatch {
 async fn hint_loop(mut roots: tokio::sync::watch::Receiver<Vec<PathBuf>>, notify: Arc<Notify>) {
     loop {
         let current = roots.borrow().clone();
-        let Some(watch) = Inotify::open(&current) else {
+        let Some(mut watch) = Inotify::open(&current) else {
             if roots.changed().await.is_err() {
                 return;
             }
@@ -313,6 +307,9 @@ async fn hint_loop(mut roots: tokio::sync::watch::Receiver<Vec<PathBuf>>, notify
 
 struct Inotify {
     fd: AsyncFd<OwnedFd>,
+    roots: Vec<PathBuf>,
+    seen: HashSet<PathBuf>,
+    left: usize,
 }
 
 impl Inotify {
@@ -321,15 +318,28 @@ impl Inotify {
         if raw < 0 {
             return None;
         }
+        let mut seen = HashSet::new();
         let mut left = 4096usize;
         for root in roots {
-            add_tree(raw, root, &mut left);
+            add_tree(raw, root, &mut left, &mut seen);
         }
         let owned = unsafe { OwnedFd::from_raw_fd(raw) };
-        AsyncFd::new(owned).ok().map(|fd| Self { fd })
+        AsyncFd::new(owned).ok().map(|fd| Self {
+            fd,
+            roots: roots.to_vec(),
+            seen,
+            left,
+        })
     }
 
-    async fn ready(&self) {
+    fn rewalk(&mut self) {
+        let fd = self.fd.get_ref().as_raw_fd();
+        for root in self.roots.clone() {
+            add_tree(fd, &root, &mut self.left, &mut self.seen);
+        }
+    }
+
+    async fn ready(&mut self) {
         loop {
             let Ok(mut guard) = self.fd.readable().await else {
                 return;
@@ -349,38 +359,43 @@ impl Inotify {
                 guard.clear_ready();
                 return;
             }
+            self.rewalk();
             return;
         }
     }
 }
 
-fn add_tree(fd: i32, dir: &std::path::Path, left: &mut usize) {
-    if *left == 0 {
-        return;
-    }
+fn add_tree(fd: i32, dir: &std::path::Path, left: &mut usize, seen: &mut HashSet<PathBuf>) {
     let Ok(meta) = std::fs::symlink_metadata(dir) else {
         return;
     };
     if !meta.is_dir() || meta.file_type().is_symlink() {
         return;
     }
-    let Ok(name) = std::ffi::CString::new(std::os::unix::ffi::OsStrExt::as_bytes(dir.as_os_str()))
-    else {
-        return;
-    };
-    let mask = libc::IN_CREATE
-        | libc::IN_DELETE
-        | libc::IN_MOVED_FROM
-        | libc::IN_MOVED_TO
-        | libc::IN_CLOSE_WRITE
-        | libc::IN_ATTRIB
-        | libc::IN_DELETE_SELF
-        | libc::IN_MOVE_SELF
-        | libc::IN_UNMOUNT;
-    if unsafe { libc::inotify_add_watch(fd, name.as_ptr(), mask) } < 0 {
-        return;
+    if !seen.contains(dir) {
+        if *left == 0 {
+            return;
+        }
+        let Ok(name) =
+            std::ffi::CString::new(std::os::unix::ffi::OsStrExt::as_bytes(dir.as_os_str()))
+        else {
+            return;
+        };
+        let mask = libc::IN_CREATE
+            | libc::IN_DELETE
+            | libc::IN_MOVED_FROM
+            | libc::IN_MOVED_TO
+            | libc::IN_CLOSE_WRITE
+            | libc::IN_ATTRIB
+            | libc::IN_DELETE_SELF
+            | libc::IN_MOVE_SELF
+            | libc::IN_UNMOUNT;
+        if unsafe { libc::inotify_add_watch(fd, name.as_ptr(), mask) } < 0 {
+            return;
+        }
+        seen.insert(dir.to_path_buf());
+        *left -= 1;
     }
-    *left -= 1;
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
@@ -389,7 +404,99 @@ fn add_tree(fd: i32, dir: &std::path::Path, left: &mut usize) {
         if std::fs::symlink_metadata(&path)
             .is_ok_and(|meta| meta.is_dir() && !meta.file_type().is_symlink())
         {
-            add_tree(fd, &path, left);
+            add_tree(fd, &path, left, seen);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    #[test]
+    fn library_methods_do_not_block_the_async_runtime() {
+        let scratch = std::env::temp_dir().join(format!(
+            "arinn-library-runtime-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&scratch).unwrap();
+        let store = Store::open(&scratch.join("library.sqlite3")).unwrap();
+        let bridge = Bridge {
+            store: Arc::new(std::sync::Mutex::new(store)),
+            service: Arc::new(Mutex::new(None)),
+            settings: Arc::new(std::sync::Mutex::new(Settings::default())),
+        };
+        let hold = bridge.store.lock().unwrap();
+        let progressed = Arc::new(AtomicBool::new(false));
+        let flag = Arc::clone(&progressed);
+        let bridge = bridge.clone();
+        let worker = std::thread::spawn(move || {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_time()
+                .build()
+                .unwrap();
+            runtime.block_on(async move {
+                let launch = bridge.launch("missing".into());
+                let progress = bridge.set_progress("missing".into(), 0, -1, false);
+                let restart = bridge.restart("missing".into());
+                let import = bridge.import(vec![arinn_protocol::library::ImportCandidate {
+                    source: arinn_protocol::production::EntityRef {
+                        provider_id: "downloads".into(),
+                        capability: "download".into(),
+                        local_id: "job".into(),
+                    },
+                    file_uri: "file:///tmp/arinn-library-missing.mkv".into(),
+                    completion_id: "done".into(),
+                }]);
+                tokio::pin!(launch, progress, restart, import);
+                let pause = tokio::time::sleep(Duration::from_millis(200));
+                tokio::pin!(pause);
+                tokio::select! {
+                    _ = &mut pause => flag.store(true, Ordering::SeqCst),
+                    _ = &mut launch => {}
+                    _ = &mut progress => {}
+                    _ = &mut restart => {}
+                    _ = &mut import => {}
+                }
+                if flag.load(Ordering::SeqCst) {
+                    let _ = tokio::join!(launch, progress, restart, import);
+                }
+            });
+        });
+        std::thread::sleep(Duration::from_millis(800));
+        let saw_progress = progressed.load(Ordering::SeqCst);
+        drop(hold);
+        worker.join().unwrap();
+        let _ = std::fs::remove_dir_all(&scratch);
+        assert!(saw_progress, "async runtime blocked on the catalogue mutex");
+    }
+
+    #[tokio::test]
+    async fn a_new_subdirectory_is_watched() {
+        let scratch = std::env::temp_dir().join(format!(
+            "arinn-library-inotify-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        let root = scratch.join("root");
+        std::fs::create_dir_all(&root).unwrap();
+        let mut watch = Inotify::open(std::slice::from_ref(&root)).expect("inotify");
+        std::fs::create_dir(root.join("extra")).unwrap();
+        tokio::time::timeout(Duration::from_secs(2), watch.ready())
+            .await
+            .expect("directory create");
+        std::fs::write(root.join("extra/Clip (2001).mkv"), b"x").unwrap();
+        tokio::time::timeout(Duration::from_secs(2), watch.ready())
+            .await
+            .expect("file in a new subdirectory was not watched");
+        let _ = std::fs::remove_dir_all(&scratch);
     }
 }

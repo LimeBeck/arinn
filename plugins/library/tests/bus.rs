@@ -4,7 +4,7 @@
 //! Private-bus library provider through the SDK. Titles and file URIs are not
 //! logged. No network share and no operator session.
 
-use arinn_plugin_library::{config_file, serve};
+use arinn_plugin_library::serve;
 use arinn_protocol::{
     library::{ImportCandidate, LibraryImportProxy, LibraryProviderProxy, LibraryResumeProxy},
     production::{self, EntityRef, Registration, RegistrationReply},
@@ -91,22 +91,17 @@ async fn scenario() {
     let state_home = scratch.join("state");
     fs::create_dir_all(&home).unwrap();
     // SAFETY: the re-exec child is the only thread setting these variables.
+    let settings = format!(
+        "{{\"roots\":[\"{}\"],\"autoscan\":false,\"probe\":false}}",
+        root.display()
+    );
     unsafe {
         std::env::set_var("HOME", &home);
         std::env::set_var("XDG_CONFIG_HOME", &config_home);
         std::env::set_var("XDG_STATE_HOME", &state_home);
         std::env::set_var("ARINN_LIBRARY_DEBOUNCE_MS", "200");
+        std::env::set_var("ARINN_PROVIDER_SETTINGS", &settings);
     }
-    let config = config_file("library").unwrap();
-    fs::create_dir_all(config.parent().unwrap()).unwrap();
-    fs::write(
-        &config,
-        format!(
-            "autoscan = false\nprobe = false\n\n[[roots]]\npath = \"{}\"\n",
-            root.display()
-        ),
-    )
-    .unwrap();
 
     let bus = Bus::start();
     let server = bus.connection().await;

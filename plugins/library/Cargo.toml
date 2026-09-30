@@ -13,11 +13,10 @@ repository.workspace = true
 arinn-plugin-sdk.workspace = true
 arinn-protocol.workspace = true
 libc.workspace = true
-rusqlite.workspace = true
+rusqlite = { workspace = true, features = ["trace"] }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 tokio.workspace = true
-toml.workspace = true
 uuid.workspace = true
 zbus.workspace = true

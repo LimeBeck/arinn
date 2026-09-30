@@ -11,7 +11,7 @@ mod store;
 mod uri;
 mod watch;
 
-pub use paths::{config_file, provider_digest, state_database};
-pub use store::{Settings, Store};
+pub use paths::{provider_digest, state_database};
+pub use store::{Settings, Store, scan_shared};
 pub use uri::to_file_uri;
 pub use watch::serve;

@@ -163,12 +163,17 @@ fn season_dir(name: &str) -> Option<u32> {
     index_token(rest)
 }
 
-pub fn read_nfo(path: &Path) -> Option<Nfo> {
-    let metadata = fs::metadata(path).ok()?;
+pub fn read_nfo(path: &Path, root: &Path) -> Option<Nfo> {
+    let root = root.canonicalize().ok()?;
+    let canon = path.canonicalize().ok()?;
+    if !canon.starts_with(&root) {
+        return None;
+    }
+    let metadata = fs::metadata(&canon).ok()?;
     if !metadata.is_file() || metadata.len() > NFO_LIMIT {
         return None;
     }
-    let text = fs::read_to_string(path).ok()?;
+    let text = fs::read_to_string(&canon).ok()?;
     parse_nfo(&text)
 }
 
@@ -212,15 +217,17 @@ pub fn apply_nfo(parsed: &mut Parsed, nfo: &Nfo) {
     }
 }
 
-pub fn artwork(directory: &Path, stem: &str) -> (Option<PathBuf>, Option<PathBuf>) {
+pub fn artwork(root: &Path, directory: &Path, stem: &str) -> (Option<PathBuf>, Option<PathBuf>) {
     (
         find_art(
+            root,
             directory,
             stem,
             &["-poster.jpg", "-poster.png"],
             &["poster.jpg", "poster.png", "folder.jpg", "cover.jpg"],
         ),
         find_art(
+            root,
             directory,
             stem,
             &["-fanart.jpg", "-fanart.png"],
@@ -229,7 +236,13 @@ pub fn artwork(directory: &Path, stem: &str) -> (Option<PathBuf>, Option<PathBuf
     )
 }
 
-fn find_art(directory: &Path, stem: &str, prefixed: &[&str], plain: &[&str]) -> Option<PathBuf> {
+fn find_art(
+    root: &Path,
+    directory: &Path,
+    stem: &str,
+    prefixed: &[&str],
+    plain: &[&str],
+) -> Option<PathBuf> {
     let entries = fs::read_dir(directory).ok()?;
     let mut names = Vec::new();
     for entry in entries.flatten() {
@@ -240,16 +253,33 @@ fn find_art(directory: &Path, stem: &str, prefixed: &[&str], plain: &[&str]) -> 
     }
     for suffix in prefixed {
         let want = format!("{}{suffix}", stem.to_ascii_lowercase());
-        if let Some((_, path)) = names.iter().find(|(name, _)| name == &want) {
+        if let Some((_, path)) = names.iter().find(|(name, _)| name == &want)
+            && art_inside(root, path)
+        {
             return Some(path.clone());
         }
     }
     for candidate in plain {
-        if let Some((_, path)) = names.iter().find(|(name, _)| name == candidate) {
+        if let Some((_, path)) = names.iter().find(|(name, _)| name == candidate)
+            && art_inside(root, path)
+        {
             return Some(path.clone());
         }
     }
     None
+}
+
+fn art_inside(root: &Path, path: &Path) -> bool {
+    let Ok(root) = root.canonicalize() else {
+        return false;
+    };
+    let Ok(canon) = path.canonicalize() else {
+        return false;
+    };
+    if !canon.starts_with(root) {
+        return false;
+    }
+    fs::metadata(canon).is_ok_and(|meta| meta.is_file())
 }
 
 fn extension(path: &Path) -> Option<String> {

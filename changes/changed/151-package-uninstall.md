@@ -1,0 +1,1 @@
+- CI removes the Arch package and fails if a systemd unit, manifest or any other packaged file is left behind (G-5.3).

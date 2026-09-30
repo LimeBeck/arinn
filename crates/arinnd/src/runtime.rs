@@ -59,6 +59,8 @@ struct Provider {
     items: Vec<arinn_protocol::library::Item>,
     resume_cache: Option<arinn_plugin_sdk::snapshots::ResumeSnapshots>,
     resumes: Vec<arinn_protocol::library::Resume>,
+    /// The provider's settings schema for one generation (ADR-0065).
+    settings_schema: Option<(String, Vec<arinn_protocol::settings::Setting>)>,
     started: Instant,
     enabled: bool,
 }
@@ -77,6 +79,7 @@ mod assets;
 mod library_routing;
 mod media_routing;
 mod progress;
+mod settings_routing;
 
 /// Capability sets the daemon routes; anything else is incompatible.
 const ROUTED: &[&str] = &["application", "browser", "media", "library"];
@@ -97,6 +100,8 @@ pub struct Core {
     browser_launch: Arc<Mutex<()>>,
     /// Last forwarded playback progress per media session (ADR-0061).
     progress: Arc<Mutex<progress::Progress>>,
+    /// Serializes settings writes to config.toml (ADR-0065).
+    settings_lock: Arc<Mutex<()>>,
     pub operations: Operations,
     pub connection: Connection,
     pub epoch: String,
@@ -128,6 +133,7 @@ impl Core {
             rotation: Arc::new(Mutex::new(())),
             browser_launch: Arc::new(Mutex::new(())),
             progress: Arc::default(),
+            settings_lock: Arc::default(),
             operations: Operations::default(),
             connection: connection.clone(),
             epoch: Uuid::new_v4().to_string(),
@@ -293,6 +299,7 @@ impl Core {
                         items: Vec::new(),
                         resume_cache: None,
                         resumes: Vec::new(),
+                        settings_schema: None,
                         windows: Vec::new(),
                         tabs: Vec::new(),
                         started: Instant::now(),
@@ -530,6 +537,7 @@ impl Core {
                 p.items.clear();
                 p.resume_cache = None;
                 p.resumes.clear();
+                p.settings_schema = None;
                 p.info.revision = 0;
                 p.info.backend_state = "unavailable".into();
                 p.info.runtime_state = "restarting".into();
@@ -2023,6 +2031,7 @@ mod token_tests {
                 items: Vec::new(),
                 resume_cache: None,
                 resumes: Vec::new(),
+                settings_schema: None,
                 windows: Vec::new(),
                 tabs: Vec::new(),
                 started: Instant::now(),

@@ -25,6 +25,8 @@ capability, but **has not been released as a stable Plugin API**. Requirements:
 | `org.arinn.LibraryProvider1` | Provider unique bus owner, `/org/arinn/Provider1`; [library-provider1.xml](library-provider1.xml) |
 | `org.arinn.LibraryResume1` | Optional provider interface; [library-resume1.xml](library-resume1.xml) |
 | `org.arinn.LibraryImport1` | Optional provider interface; [library-import1.xml](library-import1.xml) |
+| `org.arinn.AssetProvider1` | Optional interface of `media` and `library` providers; [asset-provider1.xml](asset-provider1.xml) ([ADR-0062](../adr/0062-asset-contract.md)) |
+| `org.arinn.Assets1` | Daemon-owned provider path of a provider that lists `AssetProvider1`; [assets1.xml](assets1.xml). Exported by the daemon ([ADR-0062](../adr/0062-asset-contract.md)) |
 
 The private-bus suite compares the implemented daemon exports to live
 introspection. Provider XML for browser, media and library is compared by the
@@ -71,7 +73,9 @@ are in [ADR-0054](../adr/0054-media-and-library-wire-contract.md). `Media1` and
 
 - A session is `(id, title, subtitle, artwork, state, duration_us, position_us,
   anchor_us, actions, has_content, content)`. `artwork` is an asset id or empty.
-  `anchor_us` is `CLOCK_MONOTONIC` microseconds. Only state `playing` advances.
+  `anchor_us` is `CLOCK_MONOTONIC` microseconds. Known states are `playing`,
+  `paused`, `stopped` and `ended` (a confirmed end of file, never inferred from
+  the position; [ADR-0063](../adr/0063-ended-session-state.md)). Only `playing` advances.
   Unknown duration is −1. Position and seek are microseconds.
 - `Features` lists `MediaOpen1`, `MediaTracks1` and `MediaTimeline1` when those
   interfaces are exported. An MPRIS provider returns an empty list. A missing
@@ -84,6 +88,12 @@ are in [ADR-0054](../adr/0054-media-and-library-wire-contract.md). `Media1` and
 - `LibraryResume1` and `LibraryImport1` are optional. `SetProgress` and
   `ImportCompleted` are daemon-to-provider methods. Resume revisions do not
   bump the catalogue revision.
+- Asset ids (session `artwork`, thumbnails, item `poster` and `fanart`) are
+  fetched with the optional `AssetProvider1.GetAsset(generation, id) → (mime,
+  bytes)`, which the provider lists as `AssetProvider1` in `Features`. The
+  daemon serves the shell through `Assets1` on the provider's daemon path.
+  Assets are JPEG, PNG or WebP of at most 8 MiB whose bytes match the declared
+  type. There are no paths, URLs or logs ([ADR-0062](../adr/0062-asset-contract.md)).
 
 The SDK serves the provider side with `runtime::MediaService` and
 `runtime::LibraryService` (`run_media` / `run_library`). Private-bus tests

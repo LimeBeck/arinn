@@ -13,7 +13,12 @@ use arinn_protocol::media::{
 };
 
 /// Feature flags the daemon knows; others are ignored.
-const KNOWN_FEATURES: &[&str] = &[FEATURE_OPEN, FEATURE_TRACKS, FEATURE_TIMELINE];
+const KNOWN_FEATURES: &[&str] = &[
+    FEATURE_OPEN,
+    FEATURE_TRACKS,
+    FEATURE_TIMELINE,
+    arinn_protocol::assets::FEATURE_ASSETS,
+];
 /// Command timeout for playback controls (spec §9.5).
 const MEDIA_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -186,6 +191,8 @@ impl Core {
                 }
                 Err(error) => failed(&mut p.info, error),
             }
+            let sessions = (!p.sessions.is_empty() || p.info.runtime_state == "ready")
+                .then(|| p.sessions.clone());
             drop(state);
             if let Some(revision) = signal {
                 if let Ok(emitter) = SignalEmitter::new(&self.connection, production::PATH) {
@@ -193,6 +200,11 @@ impl Core {
                         Daemon::state_changed(&emitter, &id, "media", &generation, revision).await;
                 }
                 self.changed().await;
+            }
+            // Library-linked sessions report progress on every import and
+            // tick (ADR-0061).
+            if let Some(sessions) = sessions {
+                self.forward_progress(&id, &sessions).await;
             }
         }
     }

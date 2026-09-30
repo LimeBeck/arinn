@@ -75,6 +75,7 @@ package() {
     -t "${pkgdir}/usr/share/arinn/chrome-extension/"
   install -Dm644 packaging/web-shortcuts/web-shortcuts.toml "${pkgdir}/usr/share/arinn/web-shortcuts.toml"
   install -Dm644 packaging/browser/browser-applications.toml "${pkgdir}/usr/share/arinn/browser-applications.toml"
+  install -Dm644 packaging/browser/search-engines.toml "${pkgdir}/usr/share/arinn/search-engines.toml"
   install -Dm644 platform/kde/phase0.js "${pkgdir}/usr/share/arinn/kwin/phase0.js"
   install -Dm755 platform/kde/arinn-kwin-adapter "${pkgdir}/usr/lib/arinn/arinn-kwin-adapter"
   # Session units are installed but never enabled by the package (ADR-0042).

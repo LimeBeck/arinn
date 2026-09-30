@@ -346,7 +346,7 @@ fn web_shortcuts_migrate_from_schema_two_and_reject_corrupted_rows() {
         let connection = rusqlite::Connection::open(&database).unwrap();
         connection
             .execute_batch(
-                "DROP TABLE web_shortcuts; DROP TABLE web_shortcut_state; PRAGMA user_version=2;
+                "DROP TABLE web_shortcuts; DROP TABLE web_shortcut_state; DROP TABLE browse_recent; PRAGMA user_version=2;
                  INSERT INTO providers (provider_id, registry_uuid) VALUES ('kept', 'uuid-1');",
             )
             .unwrap();
@@ -422,4 +422,29 @@ fn provider_settings_without_a_json_form_or_too_large_are_rejected() {
         },
     );
     assert!(config.validate().is_err());
+}
+
+#[test]
+fn browse_recent_migrates_from_schema_three_and_keeps_five() {
+    let fixture = Fixture::new();
+    let state = fixture.paths().state;
+    drop(Store::open(&state).unwrap());
+    {
+        // Recreate a schema-3 database.
+        let connection = rusqlite::Connection::open(state.join("state.sqlite3")).unwrap();
+        connection
+            .execute_batch("DROP TABLE browse_recent; PRAGMA user_version=3;")
+            .unwrap();
+    }
+    let mut store = Store::open(&state).unwrap();
+    assert!(store.browse_recent().unwrap().is_empty());
+    for text in ["a", "b", "a", "c", "d", "e", "f"] {
+        store.push_browse_recent(text).unwrap();
+    }
+    assert_eq!(store.browse_recent().unwrap(), ["f", "e", "d", "c", "a"]);
+    drop(store);
+    let mut store = Store::open(&state).unwrap();
+    assert_eq!(store.browse_recent().unwrap().len(), 5);
+    store.clear_browse_recent().unwrap();
+    assert!(store.browse_recent().unwrap().is_empty());
 }

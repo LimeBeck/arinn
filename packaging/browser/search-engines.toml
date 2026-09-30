@@ -1,0 +1,22 @@
+# SPDX-FileCopyrightText: 2026 Arinn contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Search engines for text typed on the Site or search screen, installed as
+# /usr/share/arinn/search-engines.toml (ADR-0066). The first entry is the
+# default (ADR-0051); users pick another with the `search_engine` setting.
+# A template is an https URL with {query} exactly once.
+
+[[engine]]
+id = "google"
+title = "Google"
+template = "https://www.google.com/search?q={query}"
+
+[[engine]]
+id = "duckduckgo"
+title = "DuckDuckGo"
+template = "https://duckduckgo.com/?q={query}"
+
+[[engine]]
+id = "yandex"
+title = "Yandex"
+template = "https://yandex.ru/search/?text={query}"

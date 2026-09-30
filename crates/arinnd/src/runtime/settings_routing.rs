@@ -14,9 +14,10 @@ use serde_json::{Map, Value};
 const SCHEMA_TIMEOUT: Duration = Duration::from_secs(2);
 const APPLY_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// The daemon's own settings.
-fn daemon_schema() -> Vec<Setting> {
-    vec![Setting {
+/// The daemon's own settings. `search_engine` is listed only when engines
+/// are packaged (ADR-0066); its default is the first one.
+fn daemon_schema(engines: &[crate::browse::Engine]) -> Vec<Setting> {
+    let mut schema = vec![Setting {
         id: "browser_application".into(),
         category: "applications".into(),
         title: "Browser application".into(),
@@ -25,7 +26,24 @@ fn daemon_schema() -> Vec<Setting> {
         value: "\"\"".into(),
         constraints: r#"{"max_length":255}"#.into(),
         enabled: true,
-    }]
+    }];
+    if let Some(first) = engines.first() {
+        let options: Vec<Value> = engines
+            .iter()
+            .map(|e| serde_json::json!({"value": e.id, "title": e.title}))
+            .collect();
+        schema.push(Setting {
+            id: "search_engine".into(),
+            category: "browser".into(),
+            title: "Search engine".into(),
+            description: "Used when typed text is not an address".into(),
+            kind: settings::KIND_ENUM.into(),
+            value: Value::String(first.id.clone()).to_string(),
+            constraints: serde_json::json!({ "options": options }).to_string(),
+            enabled: true,
+        });
+    }
+    schema
 }
 
 /// Stored values of one provider as a JSON object.
@@ -36,6 +54,12 @@ fn stored_values(config: &Config, provider: &str) -> Map<String, Value> {
             "browser_application".into(),
             Value::String(config.browser_application.clone()),
         );
+        if !config.search_engine.is_empty() {
+            map.insert(
+                "search_engine".into(),
+                Value::String(config.search_engine.clone()),
+            );
+        }
         return map;
     }
     config
@@ -79,7 +103,7 @@ impl Core {
     /// provider has no settings. Cached per registration generation.
     async fn settings_schema(&self, id: &str) -> Result<(String, Vec<Setting>), ErrorCode> {
         if id == DAEMON_PROVIDER_ID {
-            return Ok((self.epoch.clone(), daemon_schema()));
+            return Ok((self.epoch.clone(), daemon_schema(&self.search_engines)));
         }
         let (owner, generation) = {
             let state = self.state.lock().await;
@@ -262,7 +286,11 @@ impl Core {
         let mut config = Config::load(&directory)?;
         let previous = config.clone();
         if id == DAEMON_PROVIDER_ID {
-            config.browser_application = value.as_str().unwrap_or_default().to_owned();
+            let value = value.as_str().unwrap_or_default().to_owned();
+            match setting {
+                "search_engine" => config.search_engine = value,
+                _ => config.browser_application = value,
+            }
             return config.save(&directory);
         }
         let entry = config

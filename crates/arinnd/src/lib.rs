@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! Production core components, independently testable before wire API migration.
+pub mod browse;
 mod listings;
 pub mod operations;
 #[path = "../../../platform/kde/bridge.rs"]

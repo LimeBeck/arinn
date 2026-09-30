@@ -140,6 +140,10 @@ The desktop ApplicationProvider owns browser application launch. The Chrome prov
   - `WebShortcuts1.Open` opens the URL in the first ready provider with a connected browser. It then waits up to 2 s for the provider's next snapshot. If the URL opened a new window, the daemon only hides Home. Otherwise it activates the focused window's token (ADR-0052);
   - `browser` providers may read platform windows, for window association;
   - with no browser connected, `WebShortcuts1.Open` first launches the browser application through the ApplicationProvider ([ADR-0055](../adr/0055-launching-a-closed-browser.md)). The application is `browser_application` in `config.toml`, or else the first launchable entry of the packaged `/usr/share/arinn/browser-applications.toml`. Launch, connection and open share one 30 s deadline.
+  - `Browse1` ([ADR-0066](../adr/0066-address-and-search-contract.md), [#177](https://github.com/LimeBeck/arinn/issues/177)):
+    - resolves typed text with `browse::resolve_input` and the selected engine, then opens the URL through the same path as `WebShortcuts1.Open`;
+    - engines come from the packaged `/usr/share/arinn/search-engines.toml`, read once at start. The daemon setting `search_engine` (provider `arinn`) is an enum over them, and an empty or unknown value uses the first engine. With no engines, the setting is not listed and every search is `invalid`;
+    - an accepted `Open` records the trimmed text in `browse_recent` in `state.sqlite3` (schema version 4), newest first, deduplicated, keeping five, and emits `RecentChanged`. Typed text and URLs are never logged.
 
 Verification:
 

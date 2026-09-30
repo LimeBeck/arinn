@@ -1,4 +1,4 @@
-/target/
+target/
 /build/
 /.phase0/
 *.user

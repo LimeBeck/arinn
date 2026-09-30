@@ -13,6 +13,7 @@ Window {
     Session.SessionView {
         anchors.fill: parent
         sessionState: "ready"
+        artwork: Qt.resolvedUrl("fixture-artwork.svg")
         title: "Northern light"
         subtitle: "42 minutes remaining"
         playbackState: "playing"

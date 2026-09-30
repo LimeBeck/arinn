@@ -8,6 +8,7 @@ pub mod application;
 pub mod assets;
 pub mod browse;
 pub mod browser;
+pub mod download;
 pub mod kwin;
 pub mod library;
 pub mod media;

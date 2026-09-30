@@ -25,6 +25,8 @@ capability, but **has not been released as a stable Plugin API**. Requirements:
 | `org.arinn.LibraryProvider1` | Provider unique bus owner, `/org/arinn/Provider1`; [library-provider1.xml](library-provider1.xml) |
 | `org.arinn.LibraryResume1` | Optional provider interface; [library-resume1.xml](library-resume1.xml) |
 | `org.arinn.LibraryImport1` | Optional provider interface; [library-import1.xml](library-import1.xml) |
+| `org.arinn.DownloadProvider1` | Provider unique bus owner, `/org/arinn/Provider1`; [download-provider1.xml](download-provider1.xml) ([ADR-0067](../adr/0067-download-wire-contract.md)) |
+| `org.arinn.Downloads1` | Daemon-owned provider path of a `download` provider; [downloads1.xml](downloads1.xml) ([ADR-0067](../adr/0067-download-wire-contract.md)). Daemon export is not implemented yet ([#144](https://github.com/LimeBeck/arinn/issues/144)) |
 | `org.arinn.Browse1` | Daemon, `/org/arinn/Daemon1`; [browse1.xml](browse1.xml) ([ADR-0066](../adr/0066-address-and-search-contract.md)) |
 | `org.arinn.ProviderSettings1` | Optional interface of any provider; [provider-settings1.xml](provider-settings1.xml) ([ADR-0065](../adr/0065-provider-settings-contract.md)) |
 | `org.arinn.Settings1` | Daemon, `/org/arinn/Daemon1`; [settings1.xml](settings1.xml). Exported by the daemon ([ADR-0065](../adr/0065-provider-settings-contract.md)) |
@@ -102,6 +104,38 @@ The SDK serves the provider side with `runtime::MediaService` and
 `runtime::LibraryService` (`run_media` / `run_library`). Private-bus tests
 compare the live provider export with the XML. File URIs and titles are not
 logged.
+
+### Download contract
+
+`download` providers export `org.arinn.DownloadProvider1`
+([download-provider1.xml](download-provider1.xml)); the daemon serves their jobs to
+the shell through `org.arinn.Downloads1` ([downloads1.xml](downloads1.xml)). Types
+are in `arinn-protocol::download`, the SDK service is `DownloadService`; decisions
+are in [ADR-0025](../adr/0025-downloads-mvp.md) and
+[ADR-0067](../adr/0067-download-wire-contract.md).
+
+- A job is `(id, title, state, completed_bytes, has_total, total_bytes,
+  rate_bytes_per_second, eta_seconds, has_progress, progress, actions,
+  error_code, error_message, outputs)`. States are `queued`, `downloading`,
+  `paused`, `verifying`, `completed` and `error`; actions are `pause`, `resume`,
+  `start-now` and `retry`. Without a total or a progress value, the number is 0
+  and the flag is false. `eta_seconds` is −1 when unknown. `error_code` is an
+  `Error1` name exactly when the state is `error`.
+- An output is `(id, title, file_uri)`. The id is the stable output identity for
+  the library's completion ledger. `file_uri` is a local `file:///` URI the
+  provider mapped, or empty when no mapping covers it.
+- Provider methods: `GetJobs`, `GetJob`, `BackendState`, `Features` (empty in
+  version 1), `Pause`, `Resume`, `StartNow`, `Retry` and the
+  `StateChanged(generation, revision)` signal. Only the daemon may call them. A
+  command the job does not list is `Unsupported`; with the backend
+  `unavailable`, cached rows stay readable and commands are `Unavailable`.
+- Daemon methods: `GetDownloads`, `GetDownload`, and the four commands with a
+  request ID, returning `Operation1` objects. A download is the job with
+  outputs reduced to `(id, title)`, plus `import_state` (`none`, `pending`,
+  `imported`, `unavailable`, `unsupported`) and `library_refs`, which are set
+  only when imported. Changes arrive as `Daemon1.StateChanged` with the
+  capability `download`.
+- There is no method to add, delete or move data.
 
 ### Platform window contract (production implementation pending)
 

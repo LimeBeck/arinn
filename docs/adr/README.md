@@ -43,7 +43,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0022](0022-state-and-interaction-baseline.md) | Activity ownership, persistence and interaction state | Accepted | 0034, 0043 |
 | [0023](0023-mvp-product-clarifications.md) | Back, system sleep and the target HTPC | Accepted | 0030 |
 | [0024](0024-local-library-mpv.md) | Local library and external mpv with a rich media API | Accepted | 0046, 0054, 0057 |
-| [0025](0025-downloads-mvp.md) | DownloadProvider and Transmission in the MVP | Accepted | — |
+| [0025](0025-downloads-mvp.md) | DownloadProvider and Transmission in the MVP | Accepted | 0067 |
 | [0026](0026-multiple-monitors.md) | Home on the screen of the active Activity | Accepted | 0031 |
 | [0027](0027-activity-background-snapshot.md) | Compositor snapshot of the Activity for a separate Qt shell | Accepted | — |
 | [0028](0028-documentation-governance.md) | Documentation governance, living specification and English docs | Accepted | 0036 |
@@ -85,4 +85,5 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0064](0064-provider-settings-in-config.md) | Provider settings in config.toml and their delivery | Accepted | — |
 | [0065](0065-provider-settings-contract.md) | Provider settings contract (ProviderSettings1, Settings1) | Accepted | — |
 | [0066](0066-address-and-search-contract.md) | Address and search wire contract (Browse1) | Accepted | — |
+| [0067](0067-download-wire-contract.md) | Download wire contract | Accepted | — |
 <!-- register:end -->

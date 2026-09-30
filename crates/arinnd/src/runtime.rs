@@ -73,6 +73,7 @@ impl Provider {
             .unwrap_or("")
     }
 }
+mod assets;
 mod library_routing;
 mod media_routing;
 mod progress;
@@ -135,6 +136,22 @@ impl Core {
             platform: crate::platform::Platform::default(),
             windows: crate::windows::Windows::default(),
         }
+    }
+    /// Remove every daemon interface a provider path can carry, whatever the
+    /// provider's capability was.
+    async fn remove_endpoints(&self, path: &OwnedObjectPath) {
+        let server = self.connection.object_server();
+        let _ = server.remove::<ApplicationEndpoint, _>(path.clone()).await;
+        let _ = server.remove::<BrowserEndpoint, _>(path.clone()).await;
+        let _ = server
+            .remove::<media_routing::MediaEndpoint, _>(path.clone())
+            .await;
+        let _ = server
+            .remove::<library_routing::LibraryEndpoint, _>(path.clone())
+            .await;
+        let _ = server
+            .remove::<assets::AssetsEndpoint, _>(path.clone())
+            .await;
     }
     pub async fn export_platform(&self) -> Result<(), ErrorCode> {
         self.windows.start(&self.connection).await?;
@@ -309,16 +326,7 @@ impl Core {
             supervisor.stop(&unit).await?;
             self.unavailable(id, &owner).await;
             self.state.lock().await.providers.remove(id);
-            let _ = self
-                .connection
-                .object_server()
-                .remove::<ApplicationEndpoint, _>(path.clone())
-                .await;
-            let _ = self
-                .connection
-                .object_server()
-                .remove::<BrowserEndpoint, _>(path)
-                .await;
+            self.remove_endpoints(&path).await;
         }
         for (id, new) in next.iter_mut() {
             let old = {
@@ -393,6 +401,19 @@ impl Core {
                     .await
             };
             exported.map_err(|_| ErrorCode::Internal)?;
+            // Media and library asset ids resolve through Assets1 (ADR-0062).
+            if ["media", "library"].contains(&new.capability()) {
+                server
+                    .at(
+                        new.info.path.clone(),
+                        assets::AssetsEndpoint {
+                            core: self.clone(),
+                            id: id.clone(),
+                        },
+                    )
+                    .await
+                    .map_err(|_| ErrorCode::Internal)?;
+            }
         }
         for (id, new) in next {
             let replace = {

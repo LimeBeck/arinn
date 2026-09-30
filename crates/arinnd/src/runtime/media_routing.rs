@@ -13,7 +13,12 @@ use arinn_protocol::media::{
 };
 
 /// Feature flags the daemon knows; others are ignored.
-const KNOWN_FEATURES: &[&str] = &[FEATURE_OPEN, FEATURE_TRACKS, FEATURE_TIMELINE];
+const KNOWN_FEATURES: &[&str] = &[
+    FEATURE_OPEN,
+    FEATURE_TRACKS,
+    FEATURE_TIMELINE,
+    arinn_protocol::assets::FEATURE_ASSETS,
+];
 /// Command timeout for playback controls (spec §9.5).
 const MEDIA_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
 

@@ -26,7 +26,7 @@ capability, but **has not been released as a stable Plugin API**. Requirements:
 | `org.arinn.LibraryResume1` | Optional provider interface; [library-resume1.xml](library-resume1.xml) |
 | `org.arinn.LibraryImport1` | Optional provider interface; [library-import1.xml](library-import1.xml) |
 | `org.arinn.AssetProvider1` | Optional interface of `media` and `library` providers; [asset-provider1.xml](asset-provider1.xml) ([ADR-0062](../adr/0062-asset-contract.md)) |
-| `org.arinn.Assets1` | Daemon-owned provider path of a provider that lists `AssetProvider1`; [assets1.xml](assets1.xml). Daemon export is not implemented yet |
+| `org.arinn.Assets1` | Daemon-owned provider path of a provider that lists `AssetProvider1`; [assets1.xml](assets1.xml). Exported by the daemon ([ADR-0062](../adr/0062-asset-contract.md)) |
 
 The private-bus suite compares the implemented daemon exports to live
 introspection. Provider XML for browser, media and library is compared by the

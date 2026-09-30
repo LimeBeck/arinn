@@ -16,7 +16,11 @@ use arinn_protocol::{
     media::{FEATURE_OPEN, MediaOpenProxy, MediaSource},
 };
 
-const KNOWN_FEATURES: &[&str] = &[FEATURE_RESUME, FEATURE_IMPORT];
+const KNOWN_FEATURES: &[&str] = &[
+    FEATURE_RESUME,
+    FEATURE_IMPORT,
+    arinn_protocol::assets::FEATURE_ASSETS,
+];
 /// Library launch includes starting the player: the launch timeout of spec §9.5.
 const LIBRARY_LAUNCH_TIMEOUT: Duration = Duration::from_secs(30);
 const RESUME_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);

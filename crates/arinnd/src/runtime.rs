@@ -53,12 +53,18 @@ struct Provider {
     session_cache: Option<arinn_plugin_sdk::snapshots::SessionSnapshots>,
     sessions: Vec<arinn_protocol::media::Session>,
     features: Vec<String>,
+    /// `library` providers: catalogue and resume caches and entries.
+    library_cache: Option<arinn_plugin_sdk::snapshots::LibrarySnapshots>,
+    collections: Vec<arinn_protocol::library::Collection>,
+    items: Vec<arinn_protocol::library::Item>,
+    resume_cache: Option<arinn_plugin_sdk::snapshots::ResumeSnapshots>,
+    resumes: Vec<arinn_protocol::library::Resume>,
     started: Instant,
     enabled: bool,
 }
 impl Provider {
-    /// The single capability a provider serves: `application`, `browser` or
-    /// `media`.
+    /// The single capability a provider serves: `application`, `browser`,
+    /// `media` or `library`.
     fn capability(&self) -> &str {
         self.info
             .capabilities
@@ -67,10 +73,13 @@ impl Provider {
             .unwrap_or("")
     }
 }
+mod assets;
+mod library_routing;
 mod media_routing;
+mod progress;
 
 /// Capability sets the daemon routes; anything else is incompatible.
-const ROUTED: &[&str] = &["application", "browser", "media"];
+const ROUTED: &[&str] = &["application", "browser", "media", "library"];
 struct State {
     providers: BTreeMap<String, Provider>,
     error: String,
@@ -86,6 +95,8 @@ pub struct Core {
     rotation: Arc<Mutex<()>>,
     // One browser launch at a time: concurrent opens wait for it (ADR-0055).
     browser_launch: Arc<Mutex<()>>,
+    /// Last forwarded playback progress per media session (ADR-0061).
+    progress: Arc<Mutex<progress::Progress>>,
     pub operations: Operations,
     pub connection: Connection,
     pub epoch: String,
@@ -116,6 +127,7 @@ impl Core {
             maintenance: Arc::new(Mutex::new(())),
             rotation: Arc::new(Mutex::new(())),
             browser_launch: Arc::new(Mutex::new(())),
+            progress: Arc::default(),
             operations: Operations::default(),
             connection: connection.clone(),
             epoch: Uuid::new_v4().to_string(),
@@ -124,6 +136,22 @@ impl Core {
             platform: crate::platform::Platform::default(),
             windows: crate::windows::Windows::default(),
         }
+    }
+    /// Remove every daemon interface a provider path can carry, whatever the
+    /// provider's capability was.
+    async fn remove_endpoints(&self, path: &OwnedObjectPath) {
+        let server = self.connection.object_server();
+        let _ = server.remove::<ApplicationEndpoint, _>(path.clone()).await;
+        let _ = server.remove::<BrowserEndpoint, _>(path.clone()).await;
+        let _ = server
+            .remove::<media_routing::MediaEndpoint, _>(path.clone())
+            .await;
+        let _ = server
+            .remove::<library_routing::LibraryEndpoint, _>(path.clone())
+            .await;
+        let _ = server
+            .remove::<assets::AssetsEndpoint, _>(path.clone())
+            .await;
     }
     pub async fn export_platform(&self) -> Result<(), ErrorCode> {
         self.windows.start(&self.connection).await?;
@@ -260,6 +288,11 @@ impl Core {
                         session_cache: None,
                         sessions: Vec::new(),
                         features: Vec::new(),
+                        library_cache: None,
+                        collections: Vec::new(),
+                        items: Vec::new(),
+                        resume_cache: None,
+                        resumes: Vec::new(),
                         windows: Vec::new(),
                         tabs: Vec::new(),
                         started: Instant::now(),
@@ -293,16 +326,7 @@ impl Core {
             supervisor.stop(&unit).await?;
             self.unavailable(id, &owner).await;
             self.state.lock().await.providers.remove(id);
-            let _ = self
-                .connection
-                .object_server()
-                .remove::<ApplicationEndpoint, _>(path.clone())
-                .await;
-            let _ = self
-                .connection
-                .object_server()
-                .remove::<BrowserEndpoint, _>(path)
-                .await;
+            self.remove_endpoints(&path).await;
         }
         for (id, new) in next.iter_mut() {
             let old = {
@@ -335,7 +359,17 @@ impl Core {
                 self.unavailable(id, &owner).await;
             }
             let server = self.connection.object_server();
-            let exported = if new.capability() == "media" {
+            let exported = if new.capability() == "library" {
+                server
+                    .at(
+                        new.info.path.clone(),
+                        library_routing::LibraryEndpoint {
+                            core: self.clone(),
+                            id: id.clone(),
+                        },
+                    )
+                    .await
+            } else if new.capability() == "media" {
                 server
                     .at(
                         new.info.path.clone(),
@@ -367,6 +401,19 @@ impl Core {
                     .await
             };
             exported.map_err(|_| ErrorCode::Internal)?;
+            // Media and library asset ids resolve through Assets1 (ADR-0062).
+            if ["media", "library"].contains(&new.capability()) {
+                server
+                    .at(
+                        new.info.path.clone(),
+                        assets::AssetsEndpoint {
+                            core: self.clone(),
+                            id: id.clone(),
+                        },
+                    )
+                    .await
+                    .map_err(|_| ErrorCode::Internal)?;
+            }
         }
         for (id, new) in next {
             let replace = {
@@ -437,14 +484,13 @@ impl Core {
         let (data, state) = tokio::task::spawn_blocking(move || paths.provider_dirs(&provider_id))
             .await
             .map_err(|_| ErrorCode::Internal)??;
-        let env = vec![
-            format!("ARINN_PROVIDER_ID={id}"),
-            format!("ARINN_PLUGIN_ID={}", manifest.id),
-            format!("ARINN_PLUGIN_VERSION={}", manifest.version),
-            format!("ARINN_TOKEN_FILE={}", token_file.display()),
-            format!("ARINN_PROVIDER_DATA_DIR={}", data.display()),
-            format!("ARINN_PROVIDER_STATE_DIR={}", state.display()),
-        ];
+        // Settings are read at each start: a changed config.toml reaches the
+        // provider on its next start (ADR-0064).
+        let settings = Config::load(&self.paths.config)
+            .ok()
+            .and_then(|c| c.providers.get(id).map(|i| i.settings.clone()))
+            .unwrap_or_default();
+        let env = provider_env(id, &manifest, &token_file, &data, &state, &settings)?;
         let created = Supervisor::new(&self.connection)
             .start(&unit, &manifest, env)
             .await?;
@@ -479,6 +525,11 @@ impl Core {
                 p.session_cache = None;
                 p.sessions.clear();
                 p.features.clear();
+                p.library_cache = None;
+                p.collections.clear();
+                p.items.clear();
+                p.resume_cache = None;
+                p.resumes.clear();
                 p.info.revision = 0;
                 p.info.backend_state = "unavailable".into();
                 p.info.runtime_state = "restarting".into();
@@ -584,7 +635,9 @@ impl Core {
             .get(&id)
             .map(|p| p.capability().to_owned())
             .unwrap_or_default();
-        if capability == "media" {
+        if capability == "library" {
+            self.watch_library(id, owner, generation).await;
+        } else if capability == "media" {
             self.watch_media(id, owner, generation).await;
         } else if capability == "browser" {
             self.watch_browser(id, owner, generation).await;
@@ -1128,6 +1181,30 @@ impl Core {
         });
         Ok(path)
     }
+}
+
+/// The environment a provider unit starts with (spec §9.9, ADR-0034,
+/// ADR-0064). `ARINN_PROVIDER_SETTINGS` is always set, `{}` without settings.
+fn provider_env(
+    id: &str,
+    manifest: &Manifest,
+    token_file: &std::path::Path,
+    data: &std::path::Path,
+    state: &std::path::Path,
+    settings: &toml::Table,
+) -> Result<Vec<String>, ErrorCode> {
+    Ok(vec![
+        format!("ARINN_PROVIDER_ID={id}"),
+        format!("ARINN_PLUGIN_ID={}", manifest.id),
+        format!("ARINN_PLUGIN_VERSION={}", manifest.version),
+        format!("ARINN_TOKEN_FILE={}", token_file.display()),
+        format!("ARINN_PROVIDER_DATA_DIR={}", data.display()),
+        format!("ARINN_PROVIDER_STATE_DIR={}", state.display()),
+        format!(
+            "ARINN_PROVIDER_SETTINGS={}",
+            crate::storage::settings_json(settings)?
+        ),
+    ])
 }
 
 fn normalize_error(error: zbus::Error) -> ErrorCode {
@@ -1941,6 +2018,11 @@ mod token_tests {
                 session_cache: None,
                 sessions: Vec::new(),
                 features: Vec::new(),
+                library_cache: None,
+                collections: Vec::new(),
+                items: Vec::new(),
+                resume_cache: None,
+                resumes: Vec::new(),
                 windows: Vec::new(),
                 tabs: Vec::new(),
                 started: Instant::now(),
@@ -1964,5 +2046,49 @@ mod token_tests {
                 "round {round}: token file and memory diverged"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod provider_env_tests {
+    use super::*;
+
+    fn manifest() -> Manifest {
+        Manifest {
+            id: "library".into(),
+            name: "Library".into(),
+            version: "0.1.0".into(),
+            api_version: 1,
+            executable: "/usr/lib/arinn/plugins/arinn-plugin-library".into(),
+            args: Vec::new(),
+            capabilities: vec!["library".into()],
+        }
+    }
+
+    #[test]
+    fn settings_reach_the_provider_as_json() {
+        let settings: toml::Table = toml::from_str("roots = [\"/srv/films\"]").unwrap();
+        let env = provider_env(
+            "library",
+            &manifest(),
+            std::path::Path::new("/run/token"),
+            std::path::Path::new("/data"),
+            std::path::Path::new("/state"),
+            &settings,
+        )
+        .unwrap();
+        assert!(env.contains(&r#"ARINN_PROVIDER_SETTINGS={"roots":["/srv/films"]}"#.to_string()));
+        assert!(env.contains(&"ARINN_PROVIDER_ID=library".to_string()));
+        // Without settings the variable is still set, to an empty object.
+        let env = provider_env(
+            "library",
+            &manifest(),
+            std::path::Path::new("/run/token"),
+            std::path::Path::new("/data"),
+            std::path::Path::new("/state"),
+            &toml::Table::new(),
+        )
+        .unwrap();
+        assert!(env.contains(&"ARINN_PROVIDER_SETTINGS={}".to_string()));
     }
 }

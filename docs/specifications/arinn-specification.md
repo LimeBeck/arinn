@@ -371,8 +371,8 @@ and the [versioned XML](../plugin-api/README.md). Installed and running applicat
 entries share one paged snapshot. Public commands return daemon-owned operations;
 private provider replies complete those operations. Media and library wire
 bindings are fixed by [ADR-0054](../adr/0054-media-and-library-wire-contract.md);
-the daemon routes `media` ([ADR-0058](../adr/0058-media-routing.md)) and does not
-route `library` yet. Action and download still
+the daemon routes `media` and `library` ([ADR-0058](../adr/0058-media-routing.md),
+[ADR-0060](../adr/0060-library-routing.md)). Action and download still
 receive concrete XML before their first provider. Plugin API major 1 remains pre-stable.
 
 Plugin API v1 is not yet stable; wire XML, SDK and the contract suite are produced per capability before its first provider ([plugin API](../plugin-api/README.md)).
@@ -385,8 +385,8 @@ A plugin declares capabilities, never a product type. One plugin may implement s
 | --- | --- | --- |
 | ApplicationProvider | `application` | listApplications, getApplication, launch, activate, terminate, listRunning |
 | BrowserProvider | `browser` | getTabs (windows and tabs in one snapshot), open (a new tab), activateTab, closeTab; Window = id, window token, focused; Tab = id, windowId, title, url, active, audible ([ADR-0048](../adr/0048-browser-wire-contract.md)) |
-| MediaProvider | `media` | listSessions, getSession, play, pause, playPause, seek, next, previous, stop; extensions `MediaOpen1`, `MediaTracks1`, `MediaTimeline1` ([ADR-0054](../adr/0054-media-and-library-wire-contract.md)) |
-| LibraryProvider | `library` | listCollections, listItems, getItem, launch; extensions `LibraryResume1`, `LibraryImport1` ([ADR-0054](../adr/0054-media-and-library-wire-contract.md)) |
+| MediaProvider | `media` | listSessions, getSession, play, pause, playPause, seek, next, previous, stop; extensions `MediaOpen1`, `MediaTracks1`, `MediaTimeline1`, `AssetProvider1` ([ADR-0054](../adr/0054-media-and-library-wire-contract.md), [ADR-0062](../adr/0062-asset-contract.md)) |
+| LibraryProvider | `library` | listCollections, listItems, getItem, launch; extensions `LibraryResume1`, `LibraryImport1`, `AssetProvider1` ([ADR-0054](../adr/0054-media-and-library-wire-contract.md), [ADR-0062](../adr/0062-asset-contract.md)) |
 | ActionProvider | `action` | generic actions with a machine-readable id, title, icon and enabled flag (for example TV power, TV input, custom system actions) |
 | DownloadProvider | `download` | GetSnapshot, GetJob, Pause, Resume, StartNow, Retry ([API review](../plugin-api/mvp-extensions.md)) |
 

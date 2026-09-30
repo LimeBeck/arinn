@@ -33,9 +33,16 @@ pub const ACTION_NEXT: &str = "next";
 pub const ACTION_PREVIOUS: &str = "previous";
 pub const ACTION_STOP: &str = "stop";
 
-/// Playback states the shell interpolates. Any other token is shown as
-/// unsupported and does not advance the position (spec §9.8).
-pub const STATES: &[&str] = &["playing", "paused", "stopped"];
+pub const STATE_PLAYING: &str = "playing";
+pub const STATE_PAUSED: &str = "paused";
+pub const STATE_STOPPED: &str = "stopped";
+/// Playback reached the end of the content and the player confirmed it (an
+/// end-of-file, not a seek to the end). Like `paused`, it does not advance.
+/// A provider that cannot confirm an end (MPRIS) never reports it (ADR-0063).
+pub const STATE_ENDED: &str = "ended";
+/// Playback states the shell knows. Any other token is shown as unsupported
+/// and does not advance the position (spec §9.8).
+pub const STATES: &[&str] = &[STATE_PLAYING, STATE_PAUSED, STATE_STOPPED, STATE_ENDED];
 pub const TRACK_AUDIO: &str = "audio";
 pub const TRACK_SUBTITLE: &str = "subtitle";
 pub const MAX_ACTIONS: usize = 16;
@@ -44,9 +51,14 @@ pub const MAX_CHAPTERS: usize = 256;
 pub const MAX_RANGES: usize = 64;
 const MAX_TOKEN: usize = 32;
 
-/// True only for `playing`. Paused, stopped and unknown states stay put.
+/// True only for `playing`. Paused, stopped, ended and unknown states stay put.
 pub fn advances(state: &str) -> bool {
-    state == "playing"
+    state == STATE_PLAYING
+}
+
+/// True only for a confirmed end of the content (ADR-0063).
+pub fn ended(state: &str) -> bool {
+    state == STATE_ENDED
 }
 
 fn token(value: &str) -> Result<(), ErrorCode> {
@@ -674,6 +686,13 @@ mod tests {
         assert_eq!(item.validate(), Ok(()));
         assert!(!advances("paused"));
         assert!(advances("playing"));
+        // A confirmed end is a valid state that does not advance.
+        item.state = STATE_ENDED.into();
+        assert_eq!(item.validate(), Ok(()));
+        assert!(!advances(STATE_ENDED));
+        assert!(ended(STATE_ENDED));
+        assert!(!ended("paused") && !ended("stopped") && !ended("finished"));
+        assert!(STATES.contains(&"ended"));
         assert_eq!(
             validate_sessions(&[session(), session()]),
             Err(ErrorCode::InvalidArgument)

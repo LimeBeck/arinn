@@ -34,6 +34,8 @@ FocusScope {
     property string statusTitle: ""
     property string statusDescription: ""
     property bool osdVisible: true
+    // Assets1 image URL for the focused timeline. Empty leaves the plate.
+    property url thumbnail: ""
     // Local hide delay from specification §6.4. Not a provider result.
     property int osdIdleMs: 4000
     property string osdFocus: "timeline" // timeline, subtitles, audio, more
@@ -637,8 +639,21 @@ FocusScope {
                                 color: "#1a1c20"
                                 border.width: 3
                                 border.color: Ui.Theme.textPrimary
+                                clip: true
+                                Image {
+                                    id: thumbImage
+                                    objectName: "thumbnailImage"
+                                    anchors.fill: parent
+                                    anchors.margins: 3
+                                    fillMode: Image.PreserveAspectCrop
+                                    asynchronous: true
+                                    cache: false
+                                    source: root.thumbnail
+                                    visible: status === Image.Ready
+                                }
                                 Text {
                                     objectName: "thumbnailLabel"
+                                    visible: thumbImage.status !== Image.Ready
                                     x: 14
                                     y: 12
                                     text: qsTr("thumbnail")

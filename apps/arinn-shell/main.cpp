@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include "asset_images.h"
 #include "backend.h"
 #include "sessionlifecycle.h"
 #include <QDBusConnection>
@@ -38,6 +39,7 @@ int main(int argc, char **argv) {
   bus.registerObject("/org/arinn/Session1", sessionGuard,
                      QDBusConnection::ExportAllProperties);
   QQmlApplicationEngine engine;
+  installAssetImageProvider(&engine);
   engine.rootContext()->setContextProperty("backend", &backend);
   engine.rootContext()->setContextProperty("sessionGuard", sessionGuard);
   engine.load(QUrl("qrc:/Main.qml"));

@@ -96,6 +96,7 @@ Window {
             enabled: root.sessionOpen
             z: 5
             sessionState: mediaCatalog.sessionState
+            artwork: mediaCatalog.sessionArtwork
             title: mediaCatalog.sessionTitle
             subtitle: mediaCatalog.sessionSubtitle
             playbackState: mediaCatalog.playbackState

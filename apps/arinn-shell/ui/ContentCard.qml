@@ -10,42 +10,40 @@ Surface {
     property bool running: false
     property bool showProgress: false
     property real progress: 0
-    readonly property bool artworkReady: picture.ready
+    readonly property bool artworkReady: picture.status === Image.Ready
     implicitWidth: 400
     implicitHeight: 225
     contentItem: Item {
         Rectangle {
+            objectName: "cardPlate"
             anchors.fill: parent
             radius: root.cornerRadius
             color: "#25282e"
-            visible: !picture.ready
+            visible: picture.status !== Image.Ready
+        }
+        Image {
+            id: picture
+            objectName: "cardArtwork"
+            anchors.fill: parent
+            asynchronous: true
+            fillMode: Image.PreserveAspectCrop
+            source: root.artwork
+            visible: false
+            onStatusChanged: {
+                if (status === Image.Ready)
+                    frame.loadImage(source);
+                frame.requestPaint();
+            }
         }
         Canvas {
-            id: picture
+            id: frame
             anchors.fill: parent
-            property bool ready: false
-            property url source: root.artwork
-            property url cachedSource: ""
-            onSourceChanged: {
-                if (cachedSource.toString().length) unloadImage(cachedSource);
-                cachedSource = source;
-                ready = false;
-                if (source.toString().length) loadImage(source);
-                requestPaint();
-            }
-            Component.onCompleted: {
-                if (source.toString().length) loadImage(source);
-            }
-            onImageLoaded: {
-                ready = isImageLoaded(source);
-                requestPaint();
-            }
-            onWidthChanged: requestPaint()
-            onHeightChanged: requestPaint()
+            onImageLoaded: requestPaint()
             onPaint: {
                 const ctx = getContext("2d");
                 ctx.reset();
-                if (!ready) return;
+                if (picture.status !== Image.Ready || !isImageLoaded(picture.source))
+                    return;
                 const w = width, h = height, r = root.cornerRadius;
                 ctx.beginPath();
                 ctx.moveTo(r, 0);
@@ -55,7 +53,7 @@ Surface {
                 ctx.lineTo(0, r); ctx.quadraticCurveTo(0, 0, r, 0);
                 ctx.closePath();
                 ctx.clip();
-                ctx.drawImage(source, 0, 0, w, h);
+                ctx.drawImage(picture.source, 0, 0, w, h);
             }
         }
         Rectangle {

@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include "asset_images.h"
 #include "media_catalog.h"
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
@@ -308,6 +309,7 @@ private slots:
     daemon.page2 = {session(QStringLiteral("paged"), QStringLiteral("Paged"),
                             QStringLiteral("paused"), 10, 90, -1,
                             {QStringLiteral("play")})};
+    daemon.page1.last().artwork.clear();
     auto bus = QDBusConnection::sessionBus();
     QVERIFY(bus.registerService(QStringLiteral("org.arinn.Daemon1")));
     QVERIFY(bus.registerVirtualObject(QStringLiteral("/org/arinn"), &daemon,
@@ -324,11 +326,24 @@ private slots:
              QStringLiteral("Paged"));
     QCOMPARE(entries.at(3).toMap().value(QStringLiteral("title")).toString(),
              QStringLiteral("Stopped"));
+    QVERIFY(catalog.sessionArtwork().startsWith(
+        QStringLiteral("image://arinn-assets/")));
+    bool sawEmptyArtwork = false;
     for (const auto &entry : entries) {
-      QVERIFY(entry.toMap().value(QStringLiteral("kind")).toString() ==
+      const auto map = entry.toMap();
+      QVERIFY(map.value(QStringLiteral("kind")).toString() ==
               QLatin1String("media"));
-      QVERIFY(!entry.toMap().contains(QStringLiteral("artwork")));
+      if (map.value(QStringLiteral("title")).toString() ==
+          QLatin1String("Stopped")) {
+        QVERIFY(!map.contains(QStringLiteral("artwork")));
+        sawEmptyArtwork = true;
+      } else {
+        QVERIFY(map.value(QStringLiteral("artwork"))
+                    .toString()
+                    .startsWith(QStringLiteral("image://arinn-assets/")));
+      }
     }
+    QVERIFY(sawEmptyArtwork);
     QCOMPARE(entries.at(0).toMap().value(QStringLiteral("running")).toBool(),
              true);
     QVERIFY(catalog.positionUs() >= 1500000);
@@ -347,6 +362,9 @@ private slots:
     catalog.next();
     QCOMPARE(catalog.operationState(), QStringLiteral("Unsupported"));
     QVERIFY(!daemon.commands.contains(QStringLiteral("Next")));
+    catalog.select(entries.at(3).toMap().value(QStringLiteral("id")).toString());
+    QCOMPARE(catalog.sessionTitle(), QStringLiteral("Stopped"));
+    QCOMPARE(catalog.sessionArtwork(), QString());
   }
   void pausedDoesNotAdvanceAndDurationClamps() {
     MediaDaemon daemon;
@@ -532,6 +550,7 @@ private slots:
                 problems.append(text);
               }
             });
+    installAssetImageProvider(&engine);
     engine.rootContext()->setContextProperty(QStringLiteral("backend"), &backend);
     engine.rootContext()->setContextProperty(QStringLiteral("sessionGuard"),
                                              &guard);

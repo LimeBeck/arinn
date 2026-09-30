@@ -10,9 +10,8 @@ and [§5.1](../specifications/arinn-specification.md#51-home) Continue.
 The screen and Home do not talk to MPRIS, and they do not send a file URI.
 
 This is the shell half of AC-09. Operator playback on a real session is not
-part of this change. Artwork stays the generic plate. Fetching those bytes
-through Assets1 is
-[#162](https://github.com/LimeBeck/arinn/issues/162).
+part of this change. Session artwork is an asset id. The shell loads those
+bytes through `Assets1` ([#162](https://github.com/LimeBeck/arinn/issues/162)).
 
 ## Model
 
@@ -50,7 +49,12 @@ A returned object path stays `pending` until `Operation1.Get` reports
 the 5 s control timeout, and the operation state is then `Timeout`. Playback
 on screen changes only when a later snapshot says so.
 
-Artwork ids are discarded. The plate stays the generic theme colour.
+A non-empty artwork id becomes an `image://arinn-assets/` URL for the
+selected session and for each Continue card. `AssetImages` calls
+`Assets1.GetAsset` off the UI thread and caches the compressed bytes by
+(provider, generation, id), up to 64 MiB. An empty id, `NotFound`,
+`Unsupported`, a bad image or any other error leaves the generic plate.
+The picture is not decoded in QML.
 
 ## Screen
 
@@ -114,13 +118,32 @@ QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
 `productionSaveWiring` presses Backspace while the session screen is closed
 and expects Home navigation to open.
 
+Artwork bytes are covered by `apps/arinn-shell/asset_images_test.cpp`
+(`asset-images`, private bus): URL round trip, a cache hit, a budget
+eviction, separate keys for provider and generation, and the empty,
+`NotFound`, `Unsupported` and bad-image fallbacks. That test loads
+`tests/ui/asset_placeholder.qml`. A held reply keeps the generic plate
+until the image is ready, and the Continue card's pixels are then the
+loaded artwork. A missing asset ends as `Image.Error` with a fixed
+message, and the plates and labels stay. The file is not named
+`tst_*.qml`, so `arinn-ui-test` does not load it on its own.
+
+```sh
+QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
+  dbus-run-session -- build/apps/arinn-shell/arinn-asset-images-test
+```
+
 Local verification on 2026-09-30, Qt 6.11.2, offscreen platform, software
-renderer: `arinn-media-catalog-test` reported 14 passed,
-`arinn-browser-catalog-test` reported 8 passed,
-`arinn-catalog-test` reported 11 passed (including
-`operationResultSurvivesStatusRefresh`),
-`arinn-ui-test -input tests/ui/tst_session.qml` reported 14 passed (including
-`test_operation_pending_and_error_banner`), and
-`arinn-ui-test -input tests/ui/tst_media_continue.qml` passed. The full
-`tests/ui` suite and `tests/integration/phase1.py` were not re-run. This is
-not the Arch CI Qt. Operator tests were not run. AC-09 is not marked passed.
+renderer, on this change: `arinn-asset-images-test` reported 7 passed
+(including `placeholderStaysUntilTheImageArrives` and
+`missingAssetKeepsThePlate`),
+`arinn-media-catalog-test` reported 14 passed,
+`arinn-library-catalog-test` reported 14 passed (including
+`emptyPosterAndFanartStayGeneric`),
+`arinn-browser-catalog-test` reported 10 passed,
+`arinn-session-lifecycle-test` reported 9 passed, and
+`arinn-ui-test -input tests/ui` reported 187 passed.
+`python scripts/check-docs.py` and `python scripts/adr.py check` passed.
+`arinn-catalog-test` and `tests/integration/phase1.py` were not re-run. This
+is not the Arch CI Qt. Operator tests were not run. AC-09, AC-12 and G-5.1
+are not marked passed.

@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include "asset_images.h"
 #include "library_catalog.h"
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
@@ -504,8 +505,13 @@ private slots:
     const auto north = catalog.entries().at(0).toMap();
     QCOMPARE(north.value(QStringLiteral("title")).toString(),
              QStringLiteral("North"));
-    QCOMPARE(north.value(QStringLiteral("noArt")).toBool(), true);
-    QVERIFY(!north.contains(QStringLiteral("artwork")));
+    QCOMPARE(north.value(QStringLiteral("noArt")).toBool(), false);
+    QVERIFY(north.value(QStringLiteral("artwork"))
+                .toString()
+                .startsWith(QStringLiteral("image://arinn-assets/")));
+    QVERIFY(north.value(QStringLiteral("fanart"))
+                .toString()
+                .startsWith(QStringLiteral("image://arinn-assets/")));
     QCOMPARE(north.value(QStringLiteral("missing")).toBool(), false);
     QCOMPARE(north.value(QStringLiteral("year")).toInt(), 1999);
     QCOMPARE(north.value(QStringLiteral("progress")).toDouble(), 0.5);
@@ -768,6 +774,7 @@ private slots:
                 problems.append(text);
               }
             });
+    installAssetImageProvider(&engine);
     engine.rootContext()->setContextProperty(QStringLiteral("backend"), &backend);
     engine.rootContext()->setContextProperty(QStringLiteral("sessionGuard"),
                                              &guard);
@@ -794,7 +801,10 @@ private slots:
     QCOMPARE(entries.size(), 2);
     const auto north = entries.at(0).toMap();
     QCOMPARE(north.value(QStringLiteral("progress")).toDouble(), 0.5);
-    QCOMPARE(north.value(QStringLiteral("noArt")).toBool(), true);
+    QCOMPARE(north.value(QStringLiteral("noArt")).toBool(), false);
+    QVERIFY(north.value(QStringLiteral("artwork"))
+                .toString()
+                .startsWith(QStringLiteral("image://arinn-assets/")));
     QCOMPARE(entries.at(1).toMap().value(QStringLiteral("missing")).toBool(), true);
     library->setProperty("detailEntryId", north.value(QStringLiteral("id")));
     auto play = window->findChild<QQuickItem *>(QStringLiteral("detailPlay"));
@@ -1022,6 +1032,7 @@ private slots:
                 problems.append(text);
               }
             });
+    installAssetImageProvider(&engine);
     engine.rootContext()->setContextProperty(QStringLiteral("backend"), &backend);
     engine.rootContext()->setContextProperty(QStringLiteral("sessionGuard"),
                                              &guard);
@@ -1110,6 +1121,22 @@ private slots:
     QCOMPARE(home->property("screen").toString(), QStringLiteral("home"));
     QTRY_VERIFY(focusInside(window->activeFocusItem(), home));
     QVERIFY(!focusInside(window->activeFocusItem(), library));
+  }
+  void emptyPosterAndFanartStayGeneric() {
+    LibraryDaemon daemon;
+    daemon.collections = {{QStringLiteral("films"), QStringLiteral("Films"),
+                           QStringLiteral("film")}};
+    auto row = film(QStringLiteral("plain"), QStringLiteral("Plain"));
+    row.poster.clear();
+    row.fanart.clear();
+    daemon.page1 = {row};
+    QVERIFY(registerBus(daemon));
+    LibraryCatalog catalog;
+    QTRY_COMPARE(catalog.libraryState(), QStringLiteral("ready"));
+    const auto entry = catalog.entries().at(0).toMap();
+    QCOMPARE(entry.value(QStringLiteral("noArt")).toBool(), true);
+    QVERIFY(!entry.contains(QStringLiteral("artwork")));
+    QVERIFY(!entry.contains(QStringLiteral("fanart")));
   }
 };
 

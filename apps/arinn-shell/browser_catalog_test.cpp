@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Arinn contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include "asset_images.h"
 #include "browser_catalog.h"
 #include <fcntl.h>
 #include <unistd.h>
@@ -759,6 +760,7 @@ private slots:
                                              &backend);
     engine.rootContext()->setContextProperty(QStringLiteral("sessionGuard"),
                                              &guard);
+    installAssetImageProvider(&engine);
     engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
     QVERIFY2(problems.isEmpty(), qPrintable(problems.join('\n')));
     QVERIFY(!engine.rootObjects().isEmpty());
@@ -826,6 +828,7 @@ private slots:
                                              &backend);
     engine.rootContext()->setContextProperty(QStringLiteral("sessionGuard"),
                                              &guard);
+    installAssetImageProvider(&engine);
     engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
     QVERIFY2(problems.isEmpty(), qPrintable(problems.join('\n')));
     QVERIFY(!engine.rootObjects().isEmpty());
@@ -909,6 +912,7 @@ private slots:
                                              &backend);
     engine.rootContext()->setContextProperty(QStringLiteral("sessionGuard"),
                                              &guard);
+    installAssetImageProvider(&engine);
     engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
     QVERIFY2(problems.isEmpty(), qPrintable(problems.join('\n')));
     QVERIFY(!engine.rootObjects().isEmpty());

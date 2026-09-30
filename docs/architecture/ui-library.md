@@ -9,8 +9,8 @@ and [§7.4](../specifications/arinn-specification.md#74-local-library-and-mpv).
 on each ready `library` provider path ([ADR-0060](../adr/0060-library-routing.md)).
 The screen does not talk to a plugin, and it never sees a file URI.
 
-Posters stay the generic plate. Fetching artwork through Assets1 is
-[#162](https://github.com/LimeBeck/arinn/issues/162). This binding does not
+Poster and fanart ids are loaded through `Assets1`
+([#162](https://github.com/LimeBeck/arinn/issues/162)). This binding does not
 close AC-15: scanning a folder and playing a file on a real session are not
 part of it.
 
@@ -26,7 +26,13 @@ No library provider is `empty`. The daemon disappearing is `unavailable`.
 An unavailable backend is still read. Entries with `available` false stay in
 the catalogue as missing; they are not deleted. Unknown kinds display as
 `other`. Year, season and episode are shown only when their flag is set.
-Poster and fanart ids are discarded.
+A non-empty poster or fanart id becomes an `image://arinn-assets/` URL.
+The same cache as session artwork applies: `Assets1.GetAsset` off the UI
+thread, keyed by (provider, generation, id), within 64 MiB of compressed
+bytes. An empty poster id sets `noArt`. A fetch that is still running, or
+that returns `NotFound`, `Unsupported` or any other error, keeps the
+generic plate. Episode stills use the episode poster id the same way.
+Fanart is the detail backdrop; the stand-in stays until that image is ready.
 
 `Features` decides whether `GetResumes` is called. Without `LibraryResume1`,
 or when that call fails, the catalogue stays and progress is zero. Resume
@@ -89,15 +95,18 @@ from titles. `kind` may be `film` or `series` for the detail eyebrow only.
 | --- | --- |
 | `libraryState` | `ready`, `empty`, `loading`, `error` or `unavailable` |
 | `tabs` | `{id, title}` catalogue tabs |
-| `entries` | `{id, tabId, title, subtitle, year, description, kind, noArt, missing, enabled, busy, progress, seasons, episodes}` |
+| `entries` | `{id, tabId, title, subtitle, year, description, artwork, fanart, kind, noArt, missing, enabled, busy, progress, seasons, episodes}` |
 | `seasons` | `{id, title}` on an entry. Season pills are shown only when this list is non-empty |
-| `episodes` | `{id, seasonId, number, title, duration, missing, enabled, progress}` on an entry. `seasonId` filters the stills; an episode without one stays visible for every season |
+| `episodes` | `{id, seasonId, number, title, duration, missing, enabled, progress, artwork}` on an entry. `seasonId` filters the stills; an episode without one stays visible for every season. `artwork` is optional |
 | `operationState` | Empty, `pending`, `succeeded`, or an error code |
 | `launchingId` | Presentation id of the item whose launch is in progress |
 | `columns` | Poster columns. `0` uses the seven-column frame; a positive value overrides it |
 
 `noArt` draws a plate with a film glyph and the title. The bound catalogue
-always sets it, so an asset id is never used as an image source.
+sets it when the poster id is empty. A poster URL still shows that plate
+until the image is ready, and leaves it there when the image does not arrive.
+`fanart` is the detail backdrop URL. Without one, the coloured stand-in and
+the backdrop label stay.
 
 ## Frame
 
@@ -142,6 +151,9 @@ Continue, the missing-file badge, and the operation line.
 `apps/arinn-shell/library_catalog_test.cpp` drives a fake `Library1`: paging,
 a dropped provider, resume, a missing file on an unavailable backend, Launch
 as an operation, and the bound screen's empty, unavailable and resume states.
+An empty poster or fanart id leaves `noArt` and omits the image URL.
+Image bytes and the plate that stays until a poster is ready are the
+`asset-images` test described in the session screen.
 
 ```sh
 cmake -S . -B build -G Ninja

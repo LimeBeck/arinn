@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "media_catalog.h"
+#include "asset_images.h"
 #include <QDeadlineTimer>
 #include <QUuid>
 #include <QtDBus>
@@ -174,6 +175,13 @@ QString MediaCatalog::selectedId() const {
   const auto *row = selected();
   return row ? row->id : QString();
 }
+QString MediaCatalog::sessionArtwork() const {
+  const auto *row = selected();
+  if (!row)
+    return {};
+  return AssetImages::imageUrl(row->providerId, row->path, row->generation,
+                               row->artworkId);
+}
 const MediaCatalog::SessionRow *MediaCatalog::findId(const QString &id) const {
   for (const auto &row : m_sessions)
     if (row.id == id)
@@ -241,12 +249,17 @@ void MediaCatalog::publish() {
   QVariantList entries;
   entries.reserve(m_sessions.size());
   for (const auto &row : m_sessions) {
-    entries.append(QVariantMap{{QStringLiteral("id"), row.id},
-                               {QStringLiteral("title"), row.title},
-                               {QStringLiteral("subtitle"), row.subtitle},
-                               {QStringLiteral("kind"), QStringLiteral("media")},
-                               {QStringLiteral("running"),
-                                row.state == QLatin1String("playing")}});
+    QVariantMap entry{{QStringLiteral("id"), row.id},
+                      {QStringLiteral("title"), row.title},
+                      {QStringLiteral("subtitle"), row.subtitle},
+                      {QStringLiteral("kind"), QStringLiteral("media")},
+                      {QStringLiteral("running"),
+                       row.state == QLatin1String("playing")}};
+    const auto artwork = AssetImages::imageUrl(row.providerId, row.path,
+                                               row.generation, row.artworkId);
+    if (!artwork.isEmpty())
+      entry.insert(QStringLiteral("artwork"), artwork);
+    entries.append(entry);
   }
   if (m_continue != entries) {
     m_continue = entries;
@@ -447,12 +460,12 @@ void MediaCatalog::readSessions(const std::shared_ptr<Catalog> &catalog,
           arg >> row.localId >> row.title >> row.subtitle >> artwork >>
               row.state >> duration >> position >> anchor >> tokens >>
               hasContent;
+          row.artworkId = artwork;
           arg.beginStructure();
           QString contentProvider, contentCapability, contentLocal;
           arg >> contentProvider >> contentCapability >> contentLocal;
           arg.endStructure();
           arg.endStructure();
-          artwork.clear();
           contentProvider.clear();
           contentCapability.clear();
           contentLocal.clear();

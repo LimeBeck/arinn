@@ -124,6 +124,10 @@ pub struct Config {
     /// list decides.
     #[serde(default)]
     pub browser_application: String,
+    /// Packaged search engine ID for typed searches (ADR-0066). Empty or
+    /// unknown: the first packaged engine.
+    #[serde(default)]
+    pub search_engine: String,
 }
 fn home_shortcut() -> String {
     "Meta+F12".into()
@@ -138,6 +142,7 @@ impl Default for Config {
             home_output: String::new(),
             animations: true,
             browser_application: String::new(),
+            search_engine: String::new(),
         }
     }
 }
@@ -153,6 +158,9 @@ impl Config {
         validation::text(&self.home_output)?;
         if !self.browser_application.is_empty() {
             validation::id(&self.browser_application)?;
+        }
+        if !self.search_engine.is_empty() {
+            validation::id(&self.search_engine)?;
         }
         for (id, instance) in &self.providers {
             validation::id(id)?;
@@ -329,7 +337,7 @@ impl Store {
         let version: u32 = transaction
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .map_err(|_| ErrorCode::Internal)?;
-        if version > 3 {
+        if version > 4 {
             return Err(ErrorCode::Unsupported);
         }
         if version == 0 {
@@ -349,7 +357,54 @@ impl Store {
                 INSERT INTO web_shortcut_state VALUES (0, 1, 0);
                 PRAGMA user_version = 3;").map_err(|_| ErrorCode::Internal)?;
         }
+        if version <= 3 {
+            // Recent typed addresses and searches (ADR-0066), newest = highest seq.
+            transaction.execute_batch("CREATE TABLE browse_recent (text TEXT PRIMARY KEY, seq INTEGER NOT NULL UNIQUE);
+                PRAGMA user_version = 4;").map_err(|_| ErrorCode::Internal)?;
+        }
         transaction.commit().map_err(|_| ErrorCode::Internal)
+    }
+    /// Recent typed entries, newest first (ADR-0066).
+    pub fn browse_recent(&self) -> Result<Vec<String>, ErrorCode> {
+        let mut statement = self
+            .connection
+            .prepare("SELECT text FROM browse_recent ORDER BY seq DESC LIMIT ?1")
+            .map_err(|_| ErrorCode::Internal)?;
+        statement
+            .query_map([arinn_protocol::browse::MAX_RECENT as i64], |row| {
+                row.get(0)
+            })
+            .map_err(|_| ErrorCode::Internal)?
+            .collect::<Result<_, _>>()
+            .map_err(|_| ErrorCode::Internal)
+    }
+    /// Make `text` the newest entry and keep the last
+    /// [`arinn_protocol::browse::MAX_RECENT`].
+    pub fn push_browse_recent(&mut self, text: &str) -> Result<(), ErrorCode> {
+        let transaction = self
+            .connection
+            .transaction()
+            .map_err(|_| ErrorCode::Unavailable)?;
+        transaction
+            .execute(
+                "INSERT INTO browse_recent (text, seq) VALUES (?1, (SELECT COALESCE(MAX(seq), 0) + 1 FROM browse_recent))
+                 ON CONFLICT(text) DO UPDATE SET seq = excluded.seq",
+                [text],
+            )
+            .map_err(|_| ErrorCode::Internal)?;
+        transaction
+            .execute(
+                "DELETE FROM browse_recent WHERE seq NOT IN (SELECT seq FROM browse_recent ORDER BY seq DESC LIMIT ?1)",
+                [arinn_protocol::browse::MAX_RECENT as i64],
+            )
+            .map_err(|_| ErrorCode::Internal)?;
+        transaction.commit().map_err(|_| ErrorCode::Internal)
+    }
+    pub fn clear_browse_recent(&mut self) -> Result<(), ErrorCode> {
+        self.connection
+            .execute("DELETE FROM browse_recent", [])
+            .map(|_| ())
+            .map_err(|_| ErrorCode::Internal)
     }
     pub fn observe_restarts(
         &mut self,

@@ -53,6 +53,7 @@ for line in (
     assert line in mpv_manifest, mpv_manifest
 assert (PREFIX / "share/arinn/web-shortcuts.toml").is_file()
 assert (PREFIX / "share/arinn/browser-applications.toml").is_file()
+assert (PREFIX / "share/arinn/search-engines.toml").is_file()
 
 
 def cli(*args):

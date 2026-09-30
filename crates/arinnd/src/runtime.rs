@@ -76,6 +76,7 @@ impl Provider {
     }
 }
 mod assets;
+mod browse_routing;
 mod library_routing;
 mod media_routing;
 mod progress;
@@ -102,6 +103,8 @@ pub struct Core {
     progress: Arc<Mutex<progress::Progress>>,
     /// Serializes settings writes to config.toml (ADR-0065).
     settings_lock: Arc<Mutex<()>>,
+    /// Packaged search engines for `Browse1` (ADR-0066).
+    search_engines: Arc<Vec<crate::browse::Engine>>,
     pub operations: Operations,
     pub connection: Connection,
     pub epoch: String,
@@ -134,6 +137,7 @@ impl Core {
             browser_launch: Arc::new(Mutex::new(())),
             progress: Arc::default(),
             settings_lock: Arc::default(),
+            search_engines: Arc::default(),
             operations: Operations::default(),
             connection: connection.clone(),
             epoch: Uuid::new_v4().to_string(),

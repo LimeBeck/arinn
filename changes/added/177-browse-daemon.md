@@ -1,0 +1,1 @@
+- The daemon serves `Browse1`: typed addresses and searches open in the browser, the last five entries are kept, and the search engine is a setting over the packaged `search-engines.toml` (Google by default).

@@ -58,7 +58,12 @@ async fn run() -> Result<(), ErrorCode> {
         .await
         .map_err(|_| ErrorCode::Unavailable)?;
     let paths_state = paths.state.clone();
-    let core = Core::new(&connection, paths, runtime);
+    let engines = tokio::task::spawn_blocking(|| {
+        arinnd::browse::load_engines(&arinnd::shortcuts::data_roots())
+    })
+    .await
+    .map_err(|_| ErrorCode::Internal)?;
+    let core = Core::new(&connection, paths, runtime).with_search_engines(engines);
     connection
         .object_server()
         .at(PATH, Daemon { core: core.clone() })
@@ -66,6 +71,7 @@ async fn run() -> Result<(), ErrorCode> {
         .map_err(|_| ErrorCode::Internal)?;
     core.export_platform().await?;
     core.export_settings().await?;
+    core.export_browse().await?;
     let shortcuts = arinnd::shortcuts::WebShortcuts::new(&paths_state, core.operations.clone())
         .with_browser(core.clone());
     let defaults = tokio::task::spawn_blocking(|| {

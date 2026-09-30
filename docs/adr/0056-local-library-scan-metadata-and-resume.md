@@ -27,7 +27,7 @@ Arinn uses the following rules in `arinn-plugin-library`.
 
 **NFO.** `<stem>.nfo` beside the video, and `tvshow.nfo` in the series directory, may set title, year, season and episode. A document that contains `<!DOCTYPE` or `<!ENTITY`, is not UTF-8, or is over 1 MiB is ignored. Only `&amp; &lt; &gt; &quot; &apos;` are decoded. No network and no external entity.
 
-**Duration and languages.** Duration is ffprobe's `format.duration` in microseconds, or −1. It is not taken from the NFO. The first audio and subtitle stream languages are kept only when they are language tags. Launch returns them, or empty strings.
+**Duration and languages.** Duration is ffprobe's `format.duration` in microseconds, or −1. It is not taken from the NFO. The first audio and subtitle stream languages are kept only when they are language tags. Launch returns them, or empty strings. ffprobe is optional: a missing binary, a non-zero exit or a timeout leaves duration −1 and empty languages, and the scan still publishes the item. The Arch package lists `ffmpeg` as an optional dependency.
 
 **Artwork.** Poster candidates, in order, are `{stem}-poster.jpg/png`, `poster.jpg/png`, `folder.jpg` and `cover.jpg`. Fanart candidates are `{stem}-fanart.jpg/png`, `fanart.jpg/png`, `backdrop.jpg/png`. The asset id is a UUID stored in the database while a file is present, and empty when it is not. Bytes are not on the wire.
 
@@ -47,4 +47,4 @@ Putting roots in the daemon's `config.toml` was rejected: that file denies unkno
 
 ## Verification
 
-Provider tests on temporary folders cover film, series and episode names, a hostile NFO, a missing file, an unavailable root and its recovery, a rename that keeps the UUID, an in-root symlink that stays one item, the resume rules, import idempotency, and rejection of an import after its root leaves the configuration. A private-bus test drives `LibraryProvider1`, `LibraryResume1` and `LibraryImport1` through the SDK and checks that the title and root path are absent from stderr. No network share and no operator test.
+Provider tests on temporary folders cover film, series and episode names, a hostile NFO, a missing file, an unavailable root and its recovery, a rename that keeps the UUID, an in-root symlink that stays one item, the resume rules, import idempotency, rejection of an import after its root leaves the configuration, and a scan when ffprobe is missing. A private-bus test drives `LibraryProvider1`, `LibraryResume1` and `LibraryImport1` through the SDK and checks that the title and root path are absent from stderr. No network share and no operator test.

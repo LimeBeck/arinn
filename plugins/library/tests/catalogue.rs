@@ -464,6 +464,36 @@ fn ffprobe_supplies_duration_and_languages() {
 }
 
 #[test]
+fn missing_ffprobe_keeps_the_catalogue_and_unknown_duration() {
+    let scratch = Scratch::new();
+    let root = scratch.path().join("root");
+    fs::create_dir(&root).unwrap();
+    fs::write(root.join("Feature (2016).mkv"), b"film").unwrap();
+    let mut store = open(&scratch);
+    store
+        .scan(&settings(
+            &root,
+            true,
+            scratch.path().join("no-such-ffprobe"),
+        ))
+        .unwrap();
+    let film = store
+        .snapshot()
+        .unwrap()
+        .1
+        .into_iter()
+        .find(|item| item.kind == "film")
+        .unwrap();
+    assert!(film.available);
+    assert_eq!(film.title, "Feature");
+    assert_eq!(film.duration_us, -1);
+    let source = store.launch(&film.id).unwrap();
+    assert_eq!(source.audio_language, "");
+    assert_eq!(source.subtitle_language, "");
+    assert_eq!(source.start_position_us, 0);
+}
+
+#[test]
 fn collections_exist_before_a_scan() {
     let scratch = Scratch::new();
     let store = open(&scratch);

@@ -1,0 +1,1 @@
+- Media sessions can report the state `ended` for a confirmed end of file ([ADR-0063](docs/adr/0063-ended-session-state.md)).

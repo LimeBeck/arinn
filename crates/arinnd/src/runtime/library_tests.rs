@@ -319,6 +319,17 @@ impl Fixture {
             )
             .await
             .unwrap();
+        server
+            .object_server()
+            .at(
+                path.clone(),
+                super::super::assets::AssetsEndpoint {
+                    core: core.clone(),
+                    id: "library".into(),
+                },
+            )
+            .await
+            .unwrap();
         {
             let mut state = core.state.lock().await;
             state.providers.insert(
@@ -518,4 +529,19 @@ async fn the_daemon_export_matches_the_published_library1_xml() {
     file.sort();
     assert_eq!(live, file);
     assert!(file.len() >= 6);
+}
+
+#[tokio::test]
+async fn assets_are_unsupported_without_the_flag() {
+    let f = Fixture::new(true, true).await;
+    let assets = arinn_protocol::assets::AssetsApiProxy::builder(&f.client)
+        .path(f.path.clone())
+        .unwrap()
+        .build()
+        .await
+        .unwrap();
+    assert_eq!(
+        error_name(assets.get_asset(&f.generation, "poster-1").await),
+        "org.arinn.Error1.Unsupported"
+    );
 }

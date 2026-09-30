@@ -53,7 +53,11 @@ impl FakeMedia {
     }
     fn features(&self) -> Vec<String> {
         // An unknown flag is ignored by the daemon.
-        vec![FEATURE_TRACKS.into(), "FutureFlag9".into()]
+        vec![
+            FEATURE_TRACKS.into(),
+            arinn_protocol::assets::FEATURE_ASSETS.into(),
+            "FutureFlag9".into(),
+        ]
     }
     fn play(&self, _generation: &str, id: &str) -> production::Result<()> {
         self.calls.lock().unwrap().push(format!("play {id}"));
@@ -72,6 +76,30 @@ impl FakeMedia {
         generation: &str,
         revision: u64,
     ) -> zbus::Result<()>;
+}
+/// Serves one PNG and one image that is not what it declares.
+#[derive(Clone)]
+struct FakeAssets;
+#[zbus::interface(name = "org.arinn.AssetProvider1")]
+impl FakeAssets {
+    fn get_asset(
+        &self,
+        _generation: &str,
+        id: &str,
+    ) -> production::Result<(arinn_protocol::assets::Asset,)> {
+        let png = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0, 0];
+        match id {
+            "art-1" => Ok((arinn_protocol::assets::Asset {
+                mime: "image/png".into(),
+                data: png,
+            },)),
+            "art-bad" => Ok((arinn_protocol::assets::Asset {
+                mime: "image/jpeg".into(),
+                data: png,
+            },)),
+            _ => Err(ErrorCode::NotFound.into()),
+        }
+    }
 }
 #[derive(Clone)]
 struct FakeTracks {
@@ -186,7 +214,23 @@ impl Fixture {
             )
             .await
             .unwrap();
+        provider
+            .object_server()
+            .at(production::PROVIDER_PATH, FakeAssets)
+            .await
+            .unwrap();
         let path: OwnedObjectPath = "/org/arinn/Daemon1/providers/p_media".try_into().unwrap();
+        server
+            .object_server()
+            .at(
+                path.clone(),
+                super::super::assets::AssetsEndpoint {
+                    core: core.clone(),
+                    id: "mpv".into(),
+                },
+            )
+            .await
+            .unwrap();
         server
             .object_server()
             .at(
@@ -313,7 +357,10 @@ async fn sessions_are_served_and_commands_reach_the_provider() {
     let (page,) = api.get_sessions("").await.unwrap();
     assert_eq!(page.sessions.len(), 1);
     assert_eq!(page.generation, f.generation);
-    assert_eq!(api.features().await.unwrap(), vec![FEATURE_TRACKS]);
+    assert_eq!(
+        api.features().await.unwrap(),
+        vec![FEATURE_TRACKS, arinn_protocol::assets::FEATURE_ASSETS]
+    );
     let (one,) = api.get_session(&f.generation, "s1").await.unwrap();
     assert_eq!(one.actions, ["play", "pause", "seek"]);
 
@@ -465,4 +512,89 @@ async fn the_daemon_export_matches_the_published_media1_xml() {
     file.sort();
     assert_eq!(live, file);
     assert!(file.len() >= 14);
+}
+
+async fn assets_api(f: &Fixture) -> arinn_protocol::assets::AssetsApiProxy<'static> {
+    arinn_protocol::assets::AssetsApiProxy::builder(&f.client)
+        .path(f.path.clone())
+        .unwrap()
+        .build()
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn assets_are_served_and_validated_again() {
+    let f = Fixture::new().await;
+    let assets = assets_api(&f).await;
+    let (asset,) = assets.get_asset(&f.generation, "art-1").await.unwrap();
+    assert_eq!(asset.mime, "image/png");
+    assert_eq!(
+        error_name(assets.get_asset(&f.generation, "art-404").await),
+        "org.arinn.Error1.NotFound"
+    );
+    // A provider not built on the SDK could send this; the daemon stops it.
+    assert_eq!(
+        error_name(assets.get_asset(&f.generation, "art-bad").await),
+        "org.arinn.Error1.Internal"
+    );
+    assert_eq!(
+        error_name(assets.get_asset("stale", "art-1").await),
+        "org.arinn.Error1.Conflict"
+    );
+    assert_eq!(
+        error_name(assets.get_asset(&f.generation, "").await),
+        "org.arinn.Error1.InvalidArgument"
+    );
+}
+
+#[tokio::test]
+async fn the_daemon_export_matches_the_published_assets1_xml() {
+    let f = Fixture::new().await;
+    let live = zbus::fdo::IntrospectableProxy::builder(&f.client)
+        .destination(production::SERVICE)
+        .unwrap()
+        .path(f.path.clone())
+        .unwrap()
+        .build()
+        .await
+        .unwrap()
+        .introspect()
+        .await
+        .unwrap();
+    let file = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../docs/plugin-api/assets1.xml"
+    ))
+    .unwrap();
+    assert_eq!(
+        methods(&live, "org.arinn.Assets1"),
+        methods(&file, "org.arinn.Assets1")
+    );
+}
+
+#[tokio::test]
+async fn removing_a_provider_path_removes_every_daemon_interface() {
+    let f = Fixture::new().await;
+    f.core.remove_endpoints(&f.path).await;
+    let live = zbus::fdo::IntrospectableProxy::builder(&f.client)
+        .destination(production::SERVICE)
+        .unwrap()
+        .path(f.path.clone())
+        .unwrap()
+        .build()
+        .await
+        .unwrap()
+        .introspect()
+        .await;
+    // With every interface gone the object itself disappears.
+    match live {
+        Err(zbus::fdo::Error::UnknownObject(_)) => {}
+        Ok(xml) => {
+            for interface in ["org.arinn.Media1", "org.arinn.Assets1"] {
+                assert!(!xml.contains(interface), "{interface} still exported");
+            }
+        }
+        Err(other) => panic!("{other:?}"),
+    }
 }

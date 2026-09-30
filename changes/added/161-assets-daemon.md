@@ -1,0 +1,1 @@
+- The daemon serves artwork, posters and thumbnails to the shell through `org.arinn.Assets1` and validates every image again ([ADR-0062](docs/adr/0062-asset-contract.md)).

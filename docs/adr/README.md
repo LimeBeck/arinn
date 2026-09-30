@@ -72,7 +72,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0051](0051-address-and-search-entry.md) | Address and search entry for free browsing | Accepted | — |
 | [0052](0052-browser-window-association.md) | Browser windows are linked to platform windows by focus agreement | Accepted | — |
 | [0053](0053-release-and-label-workflows-on-the-runner.md) | Release and label workflows use the switchable runner | Accepted | — |
-| [0054](0054-media-and-library-wire-contract.md) | Media and library wire contract | Accepted | — |
+| [0054](0054-media-and-library-wire-contract.md) | Media and library wire contract | Accepted | 0062, 0063 |
 | [0055](0055-launching-a-closed-browser.md) | Launching a closed browser before opening a URL | Accepted | — |
 | [0057](0057-mpv-ipc-and-process-scope.md) | mpv IPC, process scope and thumbnails | Accepted | — |
 | [0058](0058-media-routing.md) | Daemon routing for media providers | Accepted | 0060 |
@@ -80,4 +80,5 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0060](0060-library-routing.md) | Daemon routing for library providers and library launch | Accepted | 0061 |
 | [0061](0061-playback-progress-forwarding.md) | Forwarding playback progress to the library | Accepted | — |
 | [0062](0062-asset-contract.md) | Fetching assets by id | Accepted | — |
+| [0063](0063-ended-session-state.md) | The `ended` session state | Accepted | — |
 <!-- register:end -->

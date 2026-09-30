@@ -78,4 +78,5 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0059](0059-application-icon-references.md) | Application icon references | Accepted | — |
 | [0060](0060-library-routing.md) | Daemon routing for library providers and library launch | Accepted | 0061 |
 | [0061](0061-playback-progress-forwarding.md) | Forwarding playback progress to the library | Accepted | — |
+| [0062](0062-asset-contract.md) | Fetching assets by id | Accepted | — |
 <!-- register:end -->

@@ -702,8 +702,10 @@ impl Endpoint for BrowserService {
     }
 }
 
+mod assets;
 mod library;
 mod media;
+pub use assets::AssetHandler;
 pub use library::{
     LibraryExtensions, LibraryHandler, LibraryImportHandler, LibraryResumeHandler, LibraryService,
     run_library, run_library_on,

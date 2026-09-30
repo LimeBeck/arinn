@@ -93,11 +93,17 @@ pub trait MediaTimelineHandler: Send + Sync + 'static {
 
 #[derive(Clone, Default)]
 pub struct MediaExtensions {
+    assets: Option<Arc<dyn super::assets::AssetHandler>>,
     open: Option<Arc<dyn MediaOpenHandler>>,
     tracks: Option<Arc<dyn MediaTracksHandler>>,
     timeline: Option<Arc<dyn MediaTimelineHandler>>,
 }
 impl MediaExtensions {
+    /// Serve asset bytes for the provider's asset ids (ADR-0062).
+    pub fn assets(mut self, handler: impl super::assets::AssetHandler) -> Self {
+        self.assets = Some(Arc::new(handler));
+        self
+    }
     pub fn open(mut self, handler: impl MediaOpenHandler) -> Self {
         self.open = Some(Arc::new(handler));
         self
@@ -227,6 +233,9 @@ impl MediaService {
         }
         if self.extensions.timeline.is_some() {
             names.push(FEATURE_TIMELINE.into());
+        }
+        if self.extensions.assets.is_some() {
+            names.push(arinn_protocol::assets::FEATURE_ASSETS.into());
         }
         names
     }
@@ -556,6 +565,27 @@ impl TimelineIface {
     }
 }
 
+#[derive(Clone)]
+struct AssetsIface(MediaService);
+#[zbus::interface(name = "org.arinn.AssetProvider1")]
+impl AssetsIface {
+    async fn get_asset(
+        &self,
+        generation: &str,
+        id: &str,
+        #[zbus(header)] header: Header<'_>,
+    ) -> production::Result<(arinn_protocol::assets::Asset,)> {
+        self.0.ready(generation, &header).await?;
+        let handler = self
+            .0
+            .extensions
+            .assets
+            .as_ref()
+            .ok_or(ErrorCode::Unsupported)?;
+        super::assets::serve(handler, id).await
+    }
+}
+
 impl Endpoint for MediaService {
     const CAPABILITY: &'static str = "media";
     fn registrations(&self) -> &tokio::sync::watch::Sender<Option<RegistrationContext>> {
@@ -609,6 +639,12 @@ impl Endpoint for MediaService {
             .await?
         {
             return Err("provider endpoint already exported".into());
+        }
+        if self.extensions.assets.is_some() {
+            connection
+                .object_server()
+                .at(PROVIDER_PATH, AssetsIface(self.clone()))
+                .await?;
         }
         if self.extensions.open.is_some() {
             connection

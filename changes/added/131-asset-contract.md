@@ -1,0 +1,1 @@
+- The plugin API defines how artwork, posters, fanart and thumbnails are fetched by id: the optional `AssetProvider1` interface and the daemon's `Assets1` ([ADR-0062](docs/adr/0062-asset-contract.md)).

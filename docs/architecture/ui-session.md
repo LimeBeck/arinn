@@ -87,7 +87,11 @@ QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
   build/apps/arinn-shell/arinn-ui-test -input tests/ui/tst_media_continue.qml
 ```
 
+`arinn-browser-catalog-test` also loads `Main.qml`, so that executable links
+`media_catalog.cpp` and registers `MediaCatalog` the same way the shell does.
+
 Local verification on 2026-09-30, Qt 6.11.2, offscreen platform, software
-renderer: `arinn-media-catalog-test` reported 11 passed, and
+renderer: `arinn-media-catalog-test` reported 11 passed,
+`arinn-browser-catalog-test` reported 8 passed, and
 `arinn-ui-test -input tests/ui` reported 176 passed. This is not the Arch CI
 Qt. Operator tests were not run. AC-09 is not marked passed.

@@ -624,4 +624,4 @@ impl MediaEndpoint {
 
 #[cfg(test)]
 #[path = "media_tests.rs"]
-mod tests;
+pub(super) mod tests;

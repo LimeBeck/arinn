@@ -96,8 +96,7 @@ TestCase {
         compare(toggles.count, 1);
         compare(plays.count, 1);
         view.availableActions = ["pause"];
-        tryCompare(child("action-play"), "enabled", false);
-        mouseClick(child("action-play"), child("action-play").width / 2, child("action-play").height / 2);
+        tryCompare(child("action-play"), "visible", false);
         compare(plays.count, 1);
         focused("action-pause");
         keyClick(Qt.Key_Return);
@@ -112,11 +111,8 @@ TestCase {
 
     function test_disabled_next_does_not_emit() {
         const next = child("action-next");
-        verify(next.visible);
-        compare(next.enabled, false);
-        compare(next.opacity, 0.4);
+        compare(next.visible, false);
         focused("action-play");
-        mouseClick(next, next.width / 2, next.height / 2);
         compare(nexts.count, 0);
         compare(plays.count, 0);
         focused("action-play");
@@ -150,7 +146,7 @@ TestCase {
         keyClick(Qt.Key_Right);
         keyClick(Qt.Key_Return);
         compare(seeks.count, 2);
-        compare(child("action-seek").visible, true);
+        compare(child("action-seek").visible, false);
     }
 
     function test_dpad_stays_inside() {
@@ -243,6 +239,35 @@ TestCase {
         keyClick(Qt.Key_Back);
         compare(backs.count, 1);
         compare(seeks.count, 0);
+    }
+
+    function test_loading_shows_no_session() {
+        view.sessionState = "loading";
+        tryCompare(child("sessionBody"), "visible", false);
+        tryCompare(child("sessionStatus"), "visible", true);
+        compare(child("sessionStatus").kind, "loading");
+        compare(child("sessionStatus").title, "Loading the session…");
+        keyClick(Qt.Key_Return);
+        keyClick(Qt.Key_Right);
+        compare(plays.count, 0);
+        compare(stops.count, 0);
+        verify(insideView(view.Window.window.activeFocusItem));
+    }
+
+    function test_view_does_not_advance_the_clock() {
+        compare(child("positionLabel").text, "1:05");
+        wait(250);
+        compare(view.positionUs, 65000000);
+        compare(child("positionLabel").text, "1:05");
+        view.playbackState = "paused";
+        compare(child("playbackLabel").text, "Paused");
+        wait(200);
+        compare(view.positionUs, 65000000);
+        view.playbackState = "stopped";
+        compare(child("playbackLabel").text, "Stopped");
+        view.playbackState = "buffering";
+        compare(child("playbackLabel").text, "Unsupported");
+        compare(view.positionUs, 65000000);
     }
 
     function test_default_artwork_uses_theme_plate() {

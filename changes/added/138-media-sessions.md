@@ -1,0 +1,1 @@
+- Continue and the now-playing screen read media sessions from `org.arinn.Media1`. Position follows the anchor clock only while `playing`, and a command is an operation ([ADR-0054](docs/adr/0054-media-and-library-wire-contract.md), [ADR-0058](docs/adr/0058-media-routing.md)).

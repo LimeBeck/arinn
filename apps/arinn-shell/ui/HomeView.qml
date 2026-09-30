@@ -54,6 +54,7 @@ FocusScope {
     signal powerRequested()
     signal openServicesRequested()
     signal serviceRequested(string serviceId)
+    signal sessionRequested(string entryId)
     readonly property var continuePresentation: {
         if (openServiceCount <= 1 && !currentServiceTitle.length)
             return continueEntries;
@@ -204,6 +205,7 @@ FocusScope {
         const entry = entryById(entryId);
         if (entry && entry.kind === "more") { openServicesRequested(); return; }
         if (entry && entry.kind === "service") { serviceRequested(entry.serviceId || ""); return; }
+        if (entry && entry.kind === "media") { sessionRequested(entryId); return; }
         if (browserUnavailable && entry && entry.webShortcut) { openServicesRequested(); return; }
         if (entryId === returnActivityId) returnRequested(entryId);
         else entryRequested(entryId);

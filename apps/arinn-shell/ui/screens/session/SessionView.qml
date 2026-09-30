@@ -4,8 +4,8 @@
 import QtQuick
 import "../.." as Ui
 
-// One media session, drawn from fixture properties. Signals are intents only:
-// this screen does not talk to MPRIS, D-Bus or a daemon, and it does not log titles.
+// One media session. Properties are a presentation snapshot. Signals are intents
+// only: this screen does not talk to D-Bus and it does not log titles.
 FocusScope {
     id: root
     width: 1920
@@ -303,6 +303,7 @@ FocusScope {
                         id: previousButton
                         objectName: "action-previous"
                         text: qsTr("Previous")
+                        visible: root.allows("previous")
                         enabled: root.allows("previous")
                         pointerMode: root.pointerMode
                         hoverFocusEnabled: root.hoverFocusEnabled
@@ -313,6 +314,7 @@ FocusScope {
                         id: playButton
                         objectName: "action-play"
                         text: qsTr("Play")
+                        visible: root.allows("play")
                         enabled: root.allows("play")
                         pointerMode: root.pointerMode
                         hoverFocusEnabled: root.hoverFocusEnabled
@@ -323,6 +325,7 @@ FocusScope {
                         id: pauseButton
                         objectName: "action-pause"
                         text: qsTr("Pause")
+                        visible: root.allows("pause")
                         enabled: root.allows("pause")
                         pointerMode: root.pointerMode
                         hoverFocusEnabled: root.hoverFocusEnabled
@@ -333,6 +336,7 @@ FocusScope {
                         id: playPauseButton
                         objectName: "action-playPause"
                         text: qsTr("Play/Pause")
+                        visible: root.allows("playPause")
                         enabled: root.allows("playPause")
                         pointerMode: root.pointerMode
                         hoverFocusEnabled: root.hoverFocusEnabled
@@ -343,6 +347,7 @@ FocusScope {
                         id: seekButton
                         objectName: "action-seek"
                         text: qsTr("Seek")
+                        visible: root.allows("seek")
                         enabled: root.allows("seek")
                         pointerMode: root.pointerMode
                         hoverFocusEnabled: root.hoverFocusEnabled
@@ -353,6 +358,7 @@ FocusScope {
                         id: nextButton
                         objectName: "action-next"
                         text: qsTr("Next")
+                        visible: root.allows("next")
                         enabled: root.allows("next")
                         pointerMode: root.pointerMode
                         hoverFocusEnabled: root.hoverFocusEnabled
@@ -363,6 +369,7 @@ FocusScope {
                         id: stopButton
                         objectName: "action-stop"
                         text: qsTr("Stop")
+                        visible: root.allows("stop")
                         enabled: root.allows("stop")
                         pointerMode: root.pointerMode
                         hoverFocusEnabled: root.hoverFocusEnabled
@@ -378,11 +385,16 @@ FocusScope {
                 anchors.centerIn: parent
                 width: 820
                 visible: !root.hasSession
-                kind: root.sessionState === "empty" ? "empty" : "unavailable"
-                title: root.sessionState === "empty" ? qsTr("Nothing playing") : qsTr("Session unavailable")
+                kind: root.sessionState === "empty" ? "empty"
+                      : root.sessionState === "loading" ? "loading" : "unavailable"
+                title: root.sessionState === "empty" ? qsTr("Nothing playing")
+                       : root.sessionState === "loading" ? qsTr("Loading the session…")
+                       : qsTr("Session unavailable")
                 description: root.sessionState === "empty"
                              ? qsTr("No media session is active.")
-                             : qsTr("The media session cannot be shown.")
+                             : root.sessionState === "loading"
+                               ? qsTr("The media session is being read.")
+                               : qsTr("The media session cannot be shown.")
                 actionText: ""
             }
         }

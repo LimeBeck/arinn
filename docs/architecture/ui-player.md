@@ -48,7 +48,15 @@ and a row of Subtitles, Audio and More pills. Pill and sheet fills use
 `thumbnail` is an Assets1 image URL from the shell image cache. The plate,
 labelled thumbnail, stays until that image is ready. An empty URL, `NotFound`,
 `Unsupported` or any other error leaves the plate. Requesting the thumbnail
-id from `MediaTimeline1` is the player binding, not this screen.
+id is `MediaCatalog`, not this screen.
+
+`tracksSupported` and `timelineSupported` default to true so this fixture
+still draws the pills, chapters, buffer and thumbnail plate. A production
+binding sets them from the provider flags. When `tracksSupported` is false
+the audio and subtitle pills are hidden, focus skips them, and OK does not
+open a sheet. When `timelineSupported` is false the chapter marks, buffer
+and thumbnail plate are hidden. The position timeline and seek stay; base
+seek does not depend on `MediaTimeline1`.
 `loading`, `error` and `unavailable` show a status message and ignore transport
 keys. An empty audio or subtitle list labels that pill
 unavailable. OK on it does not open a sheet and does not emit a select signal.
@@ -71,7 +79,7 @@ shell, Plasma does (OQ-04).
 | Visible | OK on the timeline | `pause` when `playing` is true, otherwise `play` |
 | Visible | Up/Down | Move between the timeline and the pill row. No seek and no toggle |
 | Visible | Left/Right on the timeline | Same seek rule. The OSD stays open |
-| Visible | Left/Right on the pills | Move among Subtitles, Audio and More. No seek |
+| Visible | Left/Right on the pills | Move among the visible pills. With tracks supported, those are Subtitles, Audio and More. No seek |
 | Visible | OK on Subtitles or Audio | Open that sheet when the list is non-empty. No select signal yet |
 | Sheet | Up/Down or Left/Right | Move the highlight. No select signal |
 | Sheet | OK | `selectAudio` or `selectSubtitle`, then close the sheet onto its pill |
@@ -95,8 +103,36 @@ Back, Esc, arrows and OK go through `keyClick`. Qt Test aborts on media-key
 codes, so those codes call the same key handler directly. No operator test
 is involved.
 
-This does not pass AC-16 or the media integration gate. There is no provider,
-resume store or video window. A thumbnail URL is drawn by the same Assets1
-cache as session artwork. Requesting that id from `MediaTimeline1` is the
-player binding, not this screen. The plate that stays until the image is
-ready is checked by `asset-images`.
+This does not pass AC-16 or the media integration gate. There is no video
+window in these tests. The plate that stays until the image is ready is
+checked by `asset-images`.
+
+## Production binding
+
+`MediaCatalog` reads `org.arinn.Media1` for the selected session
+([ADR-0058](../adr/0058-media-routing.md)). `Features` is read with the
+provider list. Unknown flags are dropped. A read error is an empty flag
+list, so the session itself still loads.
+
+| Flag | Binding |
+| --- | --- |
+| none of `MediaOpen1`, `MediaTracks1`, `MediaTimeline1` | Continue opens `SessionView`. Track and timeline reads are not called |
+| `MediaOpen1`, `MediaTracks1` or `MediaTimeline1` | Continue opens this screen. `pictureStandIn` is false |
+| `MediaTracks1` | `ListTracks`, `SelectTrack` and `DisableSubtitles`. The subtitle sheet starts with Off, a shell-only id. Choosing it calls `DisableSubtitles` and never `SelectTrack` |
+| `MediaTimeline1` | `GetTimeline` supplies chapter positions and the buffered range that contains the playhead. `RequestThumbnail` runs when the timeline is focused and again for a seek target. The operation result's `local_id` becomes the `thumbnail` URL. A failure leaves the previous URL |
+
+A library launch opens this screen when the provider lists one of those
+flags, and also while the new session is not in the snapshot yet. When that
+row arrives without the flags, production uses `SessionView` instead. The
+shell never sends a URI.
+
+Transport keys stay in this screen ([ADR-0046](../adr/0046-shell-input-layer-during-playback.md)).
+Each seek emits one `seek` and `MediaCatalog` sends one `Seek`. The
+thumbnail request is a different method. Back hides the OSD, and the next
+Back emits `leave`; production then sends one `Stop` and returns to Home or
+the library detail. Home emits `homeRequested` and does not stop playback.
+
+`apps/arinn-shell/media_catalog_test.cpp` drives a fake `Media1` with and
+without the flags, including one `Seek` beside `RequestThumbnail`. The
+focus and sheet cases above cover a missing flag. Neither is the media
+integration gate.

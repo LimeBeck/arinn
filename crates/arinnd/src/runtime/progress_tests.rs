@@ -352,8 +352,22 @@ async fn pause_seek_and_stop_are_forwarded_and_ended_is_never_claimed() {
     f.set(Vec::new());
     let calls = f.wait_calls(3).await;
     assert_eq!(calls[2].1, 600 * S);
-    assert!(calls.iter().all(|c| !c.3), "ended is never claimed");
+    assert!(calls.iter().all(|c| !c.3), "a pause or stop is never ended");
     assert_eq!(calls.len(), 3);
+}
+
+#[tokio::test]
+async fn a_confirmed_end_is_forwarded_as_ended() {
+    let f = Fixture::new(vec![session("s1", "playing", 5_390 * S, true)]).await;
+    let calls = f.wait_calls(1).await;
+    assert!(!calls[0].3);
+    // The player confirms the end of the file.
+    f.set(vec![session("s1", "ended", 5_400 * S, true)]);
+    let calls = f.wait_calls(2).await;
+    assert_eq!(calls[1], ("film-1".into(), 5_400 * S, 5_400 * S, true));
+    // Staying ended sends nothing more.
+    tokio::time::sleep(Duration::from_millis(2_300)).await;
+    assert_eq!(f.calls.lock().unwrap().len(), 2);
 }
 
 #[tokio::test]

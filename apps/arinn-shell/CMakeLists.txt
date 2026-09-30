@@ -101,7 +101,7 @@ set_tests_properties(library-catalog PROPERTIES ENVIRONMENT
     "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software")
 
 qt_add_executable(arinn-settings-catalog-test settings_catalog_test.cpp settings_catalog.cpp settings_catalog.h)
-target_link_libraries(arinn-settings-catalog-test PRIVATE Qt6::DBus Qt6::Qml Qt6::Test)
+target_link_libraries(arinn-settings-catalog-test PRIVATE Qt6::DBus Qt6::Gui Qt6::Qml Qt6::Test)
 add_test(NAME settings-catalog COMMAND dbus-run-session -- $<TARGET_FILE:arinn-settings-catalog-test>)
 
 qt_add_executable(arinn-asset-images-test asset_images_test.cpp asset_images.cpp asset_images.h)

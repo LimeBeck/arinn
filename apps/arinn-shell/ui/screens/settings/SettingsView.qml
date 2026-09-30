@@ -25,7 +25,28 @@ FocusScope {
     property string editingDraft: ""
     property string choosingKey: ""
     property int optionIndex: 0
+    property string awaitingKey: ""
+    property var awaitingValue: null
+    property string awaitingLabel: ""
+    property bool saveSlow: false
+    property string suppressedError: ""
+    property string toastTitle: ""
+    property string toastDetail: ""
+    property bool toastIsError: false
+    property string dismissedError: ""
+    property string hiddenStringError: ""
+    property bool keyboardAvailable: true
+    property bool keyboardSeen: false
+    readonly property bool keyboardReady: keyboardAvailable || keyboardSeen
+    property int integerDraft: 0
+    property int integerWas: 0
+    property string integerNote: ""
+    property double holdMark: 0
+    property bool integerFresh: true
+    property string stringPart: "field"
+    property string enumClosingKey: ""
     signal valueChangeRequested(string providerId, string settingId, var value)
+    signal errorDismissRequested(string providerId, string settingId)
     signal dismissRequested()
     signal retryRequested()
 
@@ -35,6 +56,11 @@ FocusScope {
     readonly property string paneKind: paneFor(currentCategory())
     readonly property var choosingRow: rowByKey(choosingKey)
     readonly property var choosingOptions: choosingRow ? optionsOf(choosingRow) : []
+    readonly property bool stringSheet: sheetRowIs("string")
+    readonly property bool integerSheet: sheetRowIs("integer")
+    readonly property bool sheetOpen: choosingKey.length > 0 || stringSheet || integerSheet
+    readonly property var integerRowData: integerSheet ? rowByKey(editingKey) : null
+    readonly property var stringRowData: stringSheet ? rowByKey(editingKey) : null
 
     function currentCategory() {
         if (categoryIndex < 0 || categoryIndex >= categories.length) return null;
@@ -63,6 +89,36 @@ FocusScope {
         for (let i = 0; i < rows.length; ++i)
             if (rows[i] && rowKey(rows[i]) === key) return rows[i];
         return null;
+    }
+    function sheetRowIs(kind) {
+        if (!editingKey.length) return false;
+        const row = rowByKey(editingKey);
+        return !!row && row.type === kind && (kind !== "string" || editingPart === "main");
+    }
+    function unitOf(row) {
+        const unit = row && row.constraints ? row.constraints.unit : "";
+        return unit ? String(unit) : "";
+    }
+    function integerStepOf(row) {
+        const step = row && row.constraints ? Number(row.constraints.step) : 1;
+        return isFinite(step) && step >= 1 ? step : 1;
+    }
+    function daemonErrorText(code) {
+        if (!code) return "";
+        if (code === "Timeout") return qsTr("Arinn did not reply. Try again.");
+        return String(code);
+    }
+    function detailLine(row) {
+        if (!row) return "";
+        if (row.enabled === false) return qsTr("Cannot be changed now");
+        if (row.deferred) return qsTr("Applies after Arinn restarts");
+        if (row.type === "boolean" && row.error && dismissedError !== rowKey(row) + "\n" + row.error)
+            return daemonErrorText(row.error);
+        return row.description || "";
+    }
+    function showRowError(row) {
+        if (!row || !row.error || row.type === "boolean") return false;
+        return suppressedError !== rowKey(row) + "\n" + row.error;
     }
     function canEdit(row) {
         return !!row && row.enabled !== false && !row.pending;
@@ -119,7 +175,9 @@ FocusScope {
         }
         if (row.type === "integer") {
             if (valueUnsupported(row)) return qsTr("Unsupported");
-            return String(integerValue(row));
+            const number = String(integerValue(row));
+            const unit = unitOf(row);
+            return unit.length ? number + " " + unit : number;
         }
         if (row.type === "string" || (row.type === "path" && !isMultiple(row))) {
             if (row.currentValue === undefined || row.currentValue === null || row.currentValue === "")
@@ -128,20 +186,8 @@ FocusScope {
         }
         return qsTr("Unsupported");
     }
-    function errorText(code) {
-        if (!code) return "";
-        if (code === "InvalidArgument") return qsTr("That value is not allowed.");
-        if (code === "Conflict") return qsTr("Settings changed. Try again.");
-        if (code === "Unavailable") return qsTr("Settings are unavailable.");
-        if (code === "Timeout") return qsTr("Settings did not answer in time.");
-        if (code === "Unsupported") return qsTr("That change is not available.");
-        if (code === "NotFound") return qsTr("That setting is not available.");
-        if (code === "PermissionDenied") return qsTr("Settings cannot be changed.");
-        return qsTr("The change did not save.");
-    }
     function partsFor(row) {
         if (!row) return [];
-        if (row.type === "integer" && !valueUnsupported(row)) return ["minus", "value", "plus"];
         if (isMultiple(row)) {
             const list = pathList(row);
             const parts = [];
@@ -157,6 +203,82 @@ FocusScope {
     function emitChange(row, value) {
         if (!canEdit(row)) return;
         valueChangeRequested(row.providerId || "", row.id, value);
+    }
+    function showToast(title, detail, isError) {
+        toastTitle = title;
+        toastDetail = detail;
+        toastIsError = !!isError;
+        toastTimer.restart();
+    }
+    function beginSave(row, value, label) {
+        if (!canEdit(row)) return;
+        awaitingKey = rowKey(row);
+        awaitingValue = value;
+        awaitingLabel = label === undefined || label === null ? String(value) : String(label);
+        saveSlow = false;
+        suppressedError = row.error ? rowKey(row) + "\n" + row.error : "";
+        slowTimer.restart();
+        emitChange(row, value);
+    }
+    function watchRows() {
+        if (awaitingKey) {
+            const row = rowByKey(awaitingKey);
+            if (row && row.pending) suppressedError = "";
+        }
+        settleAwaiting();
+    }
+    function settleAwaiting() {
+        if (!awaitingKey.length) return;
+        const row = rowByKey(awaitingKey);
+        if (!row || row.pending) return;
+        slowTimer.stop();
+        saveSlow = false;
+        const key = awaitingKey;
+        const label = awaitingLabel;
+        const kind = row.type;
+        const failed = !!(row.error && String(row.error).length);
+        const deferred = !!row.deferred;
+        const open = choosingKey === key || editingKey === key;
+        awaitingKey = "";
+        awaitingValue = null;
+        awaitingLabel = "";
+        if (failed) {
+            if (!open)
+                showToast(qsTr("Could not save"), daemonErrorText(row.error), true);
+            return;
+        }
+        if (open) closeSheet(key);
+        if (kind === "boolean") return;
+        if (deferred)
+            showToast(qsTr("Saved"), qsTr("Applies after Arinn restarts"), false);
+        else
+            showToast(qsTr("Saved"), (row.title || "") + ": " + label, false);
+    }
+    function closeSheet(key) {
+        if (choosingKey === key) {
+            enumClosingKey = key;
+            enumCloseTimer.restart();
+            return;
+        }
+        if (editingKey === key) {
+            editingKey = "";
+            editingPart = "";
+            stringPart = "field";
+            integerNote = "";
+            refocusKey(key);
+        }
+    }
+    function finishEnumClose() {
+        const key = enumClosingKey || choosingKey;
+        enumCloseTimer.stop();
+        choosingKey = "";
+        enumClosingKey = "";
+        refocusKey(key);
+    }
+    function rememberBooleanError(row) {
+        if (!row || row.type !== "boolean" || !row.error) return;
+        dismissedError = rowKey(row) + "\n" + row.error;
+        errorDismissRequested(row.providerId || "", row.id);
     }
     function stepInteger(row, delta) {
         const current = integerValue(row);
@@ -193,20 +315,9 @@ FocusScope {
         }
         if (row.type === "string") {
             const max = hasBound(row, "maxLength") ? Number(row.constraints.maxLength) : 1024;
-            if (draft.length > max) return;
+            if ([...draft].length > max) return;
             if (/[\u0000-\u001F\u007F]/.test(draft)) return;
-            editingKey = "";
-            editingPart = "";
-            emitChange(row, draft);
-            refocusKey(key);
-            return;
-        }
-        if (row.type === "integer") {
-            if (!/^-?\d+$/.test(draft) || !withinInteger(row, Number(draft))) return;
-            editingKey = "";
-            editingPart = "";
-            emitChange(row, Number(draft));
-            refocusKey(key);
+            beginSave(row, draft, draft);
             return;
         }
         if (row.type === "path" && !isMultiple(row)) {
@@ -243,6 +354,9 @@ FocusScope {
         if (!canEdit(row) || row.type !== "enum" || valueUnsupported(row) && !optionsOf(row).length) return;
         if (!optionsOf(row).length) return;
         editingKey = "";
+        editingPart = "";
+        enumCloseTimer.stop();
+        enumClosingKey = "";
         choosingKey = rowKey(row);
         const options = optionsOf(row);
         let index = 0;
@@ -251,11 +365,144 @@ FocusScope {
         optionIndex = index;
         Qt.callLater(() => focusOption(optionIndex));
     }
+    function openInteger(row) {
+        if (!canEdit(row) || row.type !== "integer" || valueUnsupported(row)) return;
+        choosingKey = "";
+        const current = integerValue(row);
+        integerWas = current;
+        integerDraft = current;
+        integerNote = "";
+        integerFresh = true;
+        holdMark = 0;
+        editingPart = "integer";
+        editingDraft = String(current);
+        editingKey = rowKey(row);
+        Qt.callLater(() => { if (integerStepper) integerStepper.forceActiveFocus(); });
+    }
+    function openString(row) {
+        if (!canEdit(row) || row.type !== "string") return;
+        choosingKey = "";
+        stringPart = keyboardReady ? "field" : "back";
+        hiddenStringError = "";
+        editingPart = "main";
+        editingDraft = row.currentValue === undefined || row.currentValue === null ? "" : String(row.currentValue);
+        editingKey = rowKey(row);
+        Qt.callLater(() => focusString());
+    }
+    function focusString() {
+        if (!stringSheet) return;
+        if (!keyboardReady) {
+            if (keyboardBack) keyboardBack.forceActiveFocus();
+            return;
+        }
+        if (stringPart === "save" && stringSave) stringSave.forceActiveFocus();
+        else if (stringPart === "cancel" && stringCancel) stringCancel.forceActiveFocus();
+        else if (stringField) stringField.forceActiveFocus();
+    }
+    function nudgeInteger(direction, autoRepeat) {
+        const row = integerRowData;
+        if (!row) return;
+        const step = integerStepOf(row);
+        if (!autoRepeat) holdMark = Date.now();
+        const factor = autoRepeat && holdMark > 0 && (Date.now() - holdMark) >= 1000 ? 10 : 1;
+        const min = hasBound(row, "min") ? Number(row.constraints.min) : -Infinity;
+        const max = hasBound(row, "max") ? Number(row.constraints.max) : Infinity;
+        if ((direction < 0 && integerDraft <= min) || (direction > 0 && integerDraft >= max)) {
+            integerNote = direction > 0 ? qsTr("This is the maximum") : qsTr("This is the minimum");
+            return;
+        }
+        let next = integerDraft + direction * step * factor;
+        if (next < min) next = min;
+        if (next > max) next = max;
+        integerDraft = next;
+        integerFresh = true;
+        editingDraft = String(next);
+        integerNote = "";
+        if (next <= min) integerNote = qsTr("This is the minimum");
+        if (next >= max) integerNote = qsTr("This is the maximum");
+    }
+    function typeInteger(text) {
+        const row = integerRowData;
+        if (!row || text !== "-" && !/^\d$/.test(text)) return;
+        let digits = integerFresh || editingDraft === String(integerWas) && integerFresh ? "" : String(integerDraft);
+        if (integerFresh) digits = "";
+        integerFresh = false;
+        if (text === "-") {
+            if (digits.indexOf("-") === 0) return;
+            digits = "-" + digits;
+        } else digits += text;
+        if (digits === "-" || digits === "") return;
+        const number = Number(digits);
+        if (!withinInteger(row, number)) {
+            integerNote = text === "-" ? "" : (number > integerDraft ? qsTr("This is the maximum") : qsTr("This is the minimum"));
+            return;
+        }
+        integerDraft = number;
+        editingDraft = String(number);
+        integerNote = "";
+        const min = hasBound(row, "min") ? Number(row.constraints.min) : -Infinity;
+        const max = hasBound(row, "max") ? Number(row.constraints.max) : Infinity;
+        if (number <= min) integerNote = qsTr("This is the minimum");
+        if (number >= max) integerNote = qsTr("This is the maximum");
+    }
+    function commitInteger() {
+        const row = integerRowData;
+        if (!row || !withinInteger(row, integerDraft)) return;
+        const unit = unitOf(row);
+        const label = unit.length ? String(integerDraft) + " " + unit : String(integerDraft);
+        beginSave(row, integerDraft, label);
+    }
+    function commitString() {
+        finishEdit(true);
+    }
+    function cancelEditor() {
+        const key = editingKey;
+        if (!key) return;
+        editingKey = "";
+        editingPart = "";
+        stringPart = "field";
+        integerNote = "";
+        refocusKey(key);
+    }
+    function noteStringEdit() {
+        const row = stringRowData;
+        if (!row || !row.error) return;
+        hiddenStringError = rowKey(row) + "\n" + row.error;
+        errorDismissRequested(row.providerId || "", row.id);
+    }
+    function wakeKeyboard(text) {
+        keyboardSeen = true;
+        stringPart = "field";
+        if (text && text.length === 1 && text >= " ") {
+            editingDraft = (editingDraft || "") + text;
+            noteStringEdit();
+        }
+        Qt.callLater(() => {
+            if (stringField) {
+                stringField.text = editingDraft;
+                stringField.cursorPosition = stringField.text.length;
+            }
+            focusString();
+        });
+    }
+    function pageOptions(delta) {
+        if (!choosingOptions.length) return;
+        const next = Math.max(0, Math.min(choosingOptions.length - 1, optionIndex + delta * 6));
+        focusOption(next);
+    }
+    function optionPositionText() {
+        if (choosingOptions.length <= 6) return "";
+        return qsTr("%1 of %2").arg(optionIndex + 1).arg(choosingOptions.length);
+    }
     function focusOption(index) {
         const item = optionRepeater.itemAt(index);
         if (!item) return;
         optionIndex = index;
         item.forceActiveFocus();
+        if (choosingOptions.length > 6 && optionFlick) {
+            const y = Math.max(0, item.y + item.height / 2 - optionFlick.height / 2);
+            optionFlick.contentY = Math.min(y, Math.max(0, optionFlick.contentHeight - optionFlick.height));
+        }
     }
     function closeOptions() {
         const key = choosingKey;
@@ -266,11 +513,12 @@ FocusScope {
         const row = rowByKey(choosingKey);
         const options = optionsOf(row);
         const option = options[optionIndex];
-        const key = choosingKey;
-        choosingKey = "";
-        if (row && option && canEdit(row) && option.value !== row.currentValue)
-            emitChange(row, option.value);
-        refocusKey(key);
+        if (!row || !option || !canEdit(row)) return;
+        if (option.value === row.currentValue) {
+            closeSheet(choosingKey);
+            return;
+        }
+        beginSave(row, option.value, option.title || String(option.value));
     }
     function activeRowIndex(key) {
         for (let i = 0; i < activeRows.length; ++i)
@@ -351,9 +599,13 @@ FocusScope {
     }
     function focusCategory(index) {
         if (!categories.length || screenBlocked) return;
+        const leaving = rowByKey(focusedRowKey);
+        rememberBooleanError(leaving);
         const next = Math.max(0, Math.min(index, categories.length - 1));
         editingKey = "";
         choosingKey = "";
+        enumCloseTimer.stop();
+        enumClosingKey = "";
         detailFocused = false;
         focusedRowKey = "";
         categoryIndex = next;
@@ -378,12 +630,20 @@ FocusScope {
     // The row repeater builds new buttons whenever rows are replaced. Without
     // this, focus falls back to the view and Select does nothing (AC-02).
     function queueRowFocusRestore() {
-        if (!detailFocused || editingKey.length || choosingKey.length || !focusedRowKey.length)
+        if (stringSheet || integerSheet || choosingKey.length) {
+            Qt.callLater(() => {
+                if (stringSheet) focusString();
+                else if (integerSheet && integerStepper) integerStepper.forceActiveFocus();
+                else if (choosingKey.length) focusOption(optionIndex);
+            });
+            return;
+        }
+        if (!detailFocused || editingKey.length || enumClosingKey.length || !focusedRowKey.length)
             return;
         Qt.callLater(() => restoreRowFocus(0));
     }
     function restoreRowFocus(attempt) {
-        if (!detailFocused || editingKey.length || choosingKey.length || !focusedRowKey.length)
+        if (!detailFocused || editingKey.length || choosingKey.length || enumClosingKey.length || !focusedRowKey.length)
             return;
         const index = activeRowIndex(focusedRowKey);
         const parts = index >= 0 ? partsFor(activeRows[index]) : [];
@@ -403,6 +663,7 @@ FocusScope {
     function moveVertical(step) {
         pointerMode = false;
         if (detailFocused) {
+            rememberBooleanError(activeRows[rowFocusIndex]);
             let index = rowFocusIndex + step;
             while (index >= 0 && index < rowRepeater.count) {
                 const parts = partsFor(activeRows[index]);
@@ -432,7 +693,10 @@ FocusScope {
             focusPart(rowFocusIndex, parts[next]);
             return;
         }
-        if (step < 0) focusCategory(categoryIndex);
+        if (step < 0) {
+            rememberBooleanError(activeRows[rowFocusIndex]);
+            focusCategory(categoryIndex);
+        }
     }
     function focusInitial() {
         if (!visible) return;
@@ -457,6 +721,7 @@ FocusScope {
         return true;
     }
 
+    onRowsChanged: watchRows()
     Keys.onPressed: event => {
         if (editingKey.length > 0) return;
         if (choosingKey.length > 0) {
@@ -514,6 +779,7 @@ FocusScope {
     }
     Column {
         id: categoryColumn
+        opacity: root.sheetOpen ? 0.55 : 1
         x: 120
         y: 220
         width: 540
@@ -596,6 +862,7 @@ FocusScope {
 
     Item {
         id: detail
+        opacity: root.sheetOpen ? 0.55 : 1
         x: 740
         y: 220
         width: 1920 - 740 - 96
@@ -662,16 +929,13 @@ FocusScope {
                             return focus && !root.editingKey && root.partName === name;
                         }
                         readonly property bool multiple: root.isMultiple(row)
-                        readonly property bool integerRow: row.type === "integer" && !root.valueUnsupported(row)
-                        readonly property bool simpleRow: !multiple && !integerRow
+                        readonly property bool simpleRow: !multiple
                         readonly property bool switchRow: simpleRow && row.type === "boolean" && !root.valueUnsupported(row)
+                        readonly property bool locked: row.enabled === false
                         width: rowColumn.width
                         height: rowBody.implicitHeight
-                        function itemFor(name) {
+                            function itemFor(name) {
                             if (name === "main") return settingButton;
-                            if (name === "minus") return minusButton;
-                            if (name === "value") return valueButton;
-                            if (name === "plus") return plusButton;
                             if (name === "add") return addButton;
                             if (name.indexOf("path:") === 0) {
                                 const item = pathRepeater.itemAt(Number(name.slice(5)));
@@ -696,23 +960,29 @@ FocusScope {
                                 focusPolicy: Qt.StrongFocus
                                 focus: rowScope.wants("main")
                                 activeFocusOnTab: false
-                                opacity: row.enabled === false || row.pending ? 0.45 : 1
+                                opacity: row.pending && !rowScope.locked ? 0.72 : 1
                                 text: row.title || ""
                                 objectName: rowScope.simpleRow ? "setting-" + rowScope.key : ""
                                 onClicked: {
                                     if (!root.canEdit(row)) return;
                                     if (row.type === "boolean" && !root.valueUnsupported(row))
-                                        root.emitChange(row, !row.currentValue);
+                                        root.beginSave(row, !row.currentValue, row.currentValue ? qsTr("Off") : qsTr("On"));
                                     else if (row.type === "enum")
                                         root.openOptions(row);
-                                    else if (row.type === "string" || row.type === "path")
+                                    else if (row.type === "integer")
+                                        root.openInteger(row);
+                                    else if (row.type === "string")
+                                        root.openString(row);
+                                    else if (row.type === "path")
                                         root.openEditor(row, "main", row.currentValue || "");
                                 }
                                 Keys.onPressed: event => root.selectKey(settingButton, event, false)
                                 Keys.onReleased: event => root.selectKey(settingButton, event, true)
                                 background: Rectangle {
                                     radius: 28
-                                    color: settingButton.activeFocus ? Qt.rgba(1, 1, 1, 0.20) : Qt.rgba(1, 1, 1, 0.06)
+                                    color: settingButton.activeFocus
+                                           ? (rowScope.locked ? Qt.rgba(1, 1, 1, 0.12) : Qt.rgba(1, 1, 1, 0.20))
+                                           : Qt.rgba(1, 1, 1, 0.06)
                                 }
                                 contentItem: Item {
                                     Column {
@@ -721,12 +991,20 @@ FocusScope {
                                         y: 20
                                         width: parent.width - 64 - (rowScope.switchRow ? 88 : 280)
                                         spacing: 6
-                                        Ui.UiText { width: parent.width; text: row.title || ""; role: "control" }
                                         Ui.UiText {
                                             width: parent.width
-                                            text: row.description || ""
+                                            text: row.title || ""
+                                            role: "control"
+                                            color: rowScope.locked ? Ui.Theme.textHint : Ui.Theme.textPrimary
+                                        }
+                                        Ui.UiText {
+                                            objectName: rowScope.simpleRow ? "detail-" + rowScope.key : ""
+                                            width: parent.width
+                                            text: root.detailLine(row)
                                             role: "meta"
-                                            color: Ui.Theme.textSecondary
+                                            color: row.deferred ? Ui.Theme.textPrimary
+                                                   : (row.type === "boolean" && row.error && root.dismissedError !== root.rowKey(row) + "\n" + row.error
+                                                      ? Ui.Theme.error : (rowScope.locked ? Ui.Theme.textHint : Ui.Theme.textSecondary))
                                             visible: text.length > 0
                                         }
                                         Ui.UiText {
@@ -738,9 +1016,9 @@ FocusScope {
                                             visible: text.length > 0
                                         }
                                         Ui.UiText {
-                                            objectName: rowScope.simpleRow && row.error ? "error-" + rowScope.key : ""
+                                            objectName: rowScope.simpleRow && root.showRowError(row) ? "error-" + rowScope.key : ""
                                             width: parent.width
-                                            text: root.errorText(row.error || "")
+                                            text: root.showRowError(row) ? root.daemonErrorText(row.error || "") : ""
                                             role: "meta"
                                             color: Ui.Theme.error
                                             visible: text.length > 0
@@ -787,17 +1065,18 @@ FocusScope {
                                         spacing: 8
                                         Ui.UiText {
                                             objectName: rowScope.simpleRow && !rowScope.switchRow && root.editingKey !== rowScope.key ? "value-" + rowScope.key : ""
-                                            visible: root.editingKey !== rowScope.key
-                                            width: Math.min(240, implicitWidth)
+                                            visible: root.editingKey !== rowScope.key || row.type !== "path"
+                                            width: Math.min(280, implicitWidth)
                                             horizontalAlignment: Text.AlignRight
                                             role: "meta"
-                                            color: root.valueUnsupported(row) ? Ui.Theme.error : Ui.Theme.textSecondary
+                                            color: rowScope.locked ? Ui.Theme.textHint
+                                                   : (root.valueUnsupported(row) ? Ui.Theme.error : Ui.Theme.textSecondary)
                                             text: root.displayValue(row)
                                         }
                                         TextInput {
                                             id: simpleEditor
-                                            objectName: rowScope.simpleRow ? "editor-" + rowScope.key : ""
-                                            visible: rowScope.simpleRow && root.editingKey === rowScope.key && root.editingPart === "main"
+                                            objectName: rowScope.simpleRow && row.type === "path" ? "editor-" + rowScope.key : ""
+                                            visible: row.type === "path" && root.editingKey === rowScope.key && root.editingPart === "main"
                                             width: 220
                                             horizontalAlignment: Text.AlignRight
                                             color: Ui.Theme.textPrimary
@@ -813,8 +1092,29 @@ FocusScope {
                                             Keys.onPressed: event => root.editorKeys(event)
                                         }
                                         Canvas {
-                                            objectName: rowScope.simpleRow && !rowScope.switchRow && root.editingKey !== rowScope.key ? "chevron-" + rowScope.key : ""
-                                            visible: rowScope.simpleRow && root.editingKey !== rowScope.key
+                                            objectName: rowScope.locked ? "lock-" + rowScope.key : ""
+                                            visible: rowScope.locked && root.editingKey !== rowScope.key
+                                            width: 28
+                                            height: 36
+                                            onPaint: {
+                                                const ctx = getContext("2d");
+                                                ctx.reset();
+                                                ctx.strokeStyle = Ui.Theme.textHint;
+                                                ctx.fillStyle = Ui.Theme.textHint;
+                                                ctx.lineWidth = 2.2;
+                                                ctx.lineJoin = "round";
+                                                ctx.beginPath();
+                                                ctx.arc(14, 14, 6, Math.PI, 0);
+                                                ctx.stroke();
+                                                ctx.beginPath();
+                                                ctx.rect(7, 14, 14, 12);
+                                                ctx.fill();
+                                            }
+                                            Component.onCompleted: requestPaint()
+                                        }
+                                        Canvas {
+                                            objectName: rowScope.simpleRow && !rowScope.switchRow && !rowScope.locked && root.editingKey !== rowScope.key ? "chevron-" + rowScope.key : ""
+                                            visible: rowScope.simpleRow && !rowScope.locked && root.editingKey !== rowScope.key
                                             width: 28
                                             height: 36
                                             onPaint: {
@@ -832,145 +1132,6 @@ FocusScope {
                                             }
                                             Component.onCompleted: requestPaint()
                                         }
-                                    }
-                                }
-                            }
-                            Item {
-                                id: integerPlate
-                                visible: rowScope.integerRow
-                                width: rowScope.width
-                                height: Math.max(112, integerText.implicitHeight + 40)
-                                Rectangle {
-                                    anchors.fill: parent
-                                    radius: 28
-                                    color: rowScope.activeFocus && rowScope.integerRow ? Qt.rgba(1, 1, 1, 0.08) : Qt.rgba(1, 1, 1, 0.06)
-                                }
-                                Column {
-                                    id: integerText
-                                    x: 32
-                                    y: 20
-                                    width: parent.width - 64 - 320
-                                    spacing: 6
-                                    Ui.UiText { width: parent.width; text: row.title || ""; role: "control"; opacity: row.enabled === false || row.pending ? 0.45 : 1 }
-                                    Ui.UiText {
-                                        width: parent.width
-                                        text: row.description || ""
-                                        role: "meta"
-                                        color: Ui.Theme.textSecondary
-                                        visible: text.length > 0
-                                    }
-                                    Ui.UiText {
-                                        objectName: row.providerName && rowScope.integerRow ? "provider-" + rowScope.key : ""
-                                        width: parent.width
-                                        text: row.providerName || ""
-                                        role: "meta"
-                                        color: Ui.Theme.textHint
-                                        visible: text.length > 0
-                                    }
-                                    Ui.UiText {
-                                        objectName: row.error && rowScope.integerRow ? "error-" + rowScope.key : ""
-                                        width: parent.width
-                                        text: root.errorText(row.error || "")
-                                        role: "meta"
-                                        color: Ui.Theme.error
-                                        visible: text.length > 0
-                                    }
-                                    Ui.UiText {
-                                        objectName: row.pending && rowScope.integerRow ? "pending-" + rowScope.key : ""
-                                        width: parent.width
-                                        text: row.pending ? qsTr("Saving…") : ""
-                                        role: "meta"
-                                        color: Ui.Theme.textSecondary
-                                        visible: text.length > 0
-                                    }
-                                }
-                                Row {
-                                    anchors.right: parent.right
-                                    anchors.rightMargin: 32
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    spacing: 12
-                                    T.AbstractButton {
-                                        id: minusButton
-                                        objectName: rowScope.integerRow ? "minus-" + rowScope.key : ""
-                                        visible: rowScope.integerRow
-                                        width: 64
-                                        height: 64
-                                        padding: 0
-                                        focusPolicy: Qt.StrongFocus
-                                        focus: rowScope.wants("minus")
-                                        activeFocusOnTab: false
-                                        opacity: !root.canEdit(row) || (root.hasBound(row, "min") && root.integerValue(row) <= Number(row.constraints.min)) ? 0.45 : 1
-                                        text: "−"
-                                        onClicked: root.stepInteger(row, -1)
-                                        Keys.onPressed: event => root.selectKey(minusButton, event, false)
-                                        Keys.onReleased: event => root.selectKey(minusButton, event, true)
-                                        background: Rectangle { radius: 18; color: minusButton.activeFocus ? Qt.rgba(1, 1, 1, 0.20) : Qt.rgba(1, 1, 1, 0.08) }
-                                        contentItem: Ui.UiText { text: minusButton.text; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
-                                    }
-                                    T.AbstractButton {
-                                        id: valueButton
-                                        objectName: rowScope.integerRow ? "setting-" + rowScope.key : ""
-                                        visible: rowScope.integerRow
-                                        width: 140
-                                        height: 64
-                                        padding: 0
-                                        focusPolicy: Qt.StrongFocus
-                                        focus: rowScope.wants("value")
-                                        activeFocusOnTab: false
-                                        opacity: row.enabled === false || row.pending ? 0.45 : 1
-                                        onClicked: root.openEditor(row, "value", String(root.integerValue(row)))
-                                        Keys.onPressed: event => root.selectKey(valueButton, event, false)
-                                        Keys.onReleased: event => root.selectKey(valueButton, event, true)
-                                        background: Rectangle { radius: 18; color: valueButton.activeFocus ? Qt.rgba(1, 1, 1, 0.20) : "transparent" }
-                                        contentItem: Item {
-                                            Ui.UiText {
-                                                anchors.fill: parent
-                                                visible: root.editingKey !== rowScope.key
-                                                objectName: rowScope.integerRow && root.editingKey !== rowScope.key ? "value-" + rowScope.key : ""
-                                                text: root.displayValue(row)
-                                                horizontalAlignment: Text.AlignHCenter
-                                                verticalAlignment: Text.AlignVCenter
-                                                role: "control"
-                                            }
-                                            TextInput {
-                                                id: numberEditor
-                                                objectName: rowScope.integerRow ? "editor-" + rowScope.key : ""
-                                                anchors.fill: parent
-                                                visible: root.editingKey === rowScope.key && root.editingPart === "value"
-                                                horizontalAlignment: Text.AlignHCenter
-                                                verticalAlignment: Text.AlignVCenter
-                                                color: Ui.Theme.textPrimary
-                                                font.family: Ui.Theme.fontFamily
-                                                font.pixelSize: 26
-                                                clip: true
-                                                inputMethodHints: Qt.ImhFormattedNumbersOnly
-                                                onVisibleChanged: if (visible) {
-                                                    text = root.editingDraft;
-                                                    cursorPosition = text.length;
-                                                    forceActiveFocus();
-                                                }
-                                                onTextChanged: if (visible && activeFocus) root.editingDraft = text
-                                                Keys.onPressed: event => root.editorKeys(event)
-                                            }
-                                        }
-                                    }
-                                    T.AbstractButton {
-                                        id: plusButton
-                                        objectName: rowScope.integerRow ? "plus-" + rowScope.key : ""
-                                        visible: rowScope.integerRow
-                                        width: 64
-                                        height: 64
-                                        padding: 0
-                                        focusPolicy: Qt.StrongFocus
-                                        focus: rowScope.wants("plus")
-                                        activeFocusOnTab: false
-                                        opacity: !root.canEdit(row) || (root.hasBound(row, "max") && root.integerValue(row) >= Number(row.constraints.max)) ? 0.45 : 1
-                                        text: "+"
-                                        onClicked: root.stepInteger(row, 1)
-                                        Keys.onPressed: event => root.selectKey(plusButton, event, false)
-                                        Keys.onReleased: event => root.selectKey(plusButton, event, true)
-                                        background: Rectangle { radius: 18; color: plusButton.activeFocus ? Qt.rgba(1, 1, 1, 0.20) : Qt.rgba(1, 1, 1, 0.08) }
-                                        contentItem: Ui.UiText { text: plusButton.text; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
                                     }
                                 }
                             }
@@ -1009,7 +1170,7 @@ FocusScope {
                                         Ui.UiText {
                                             objectName: row.error && rowScope.multiple ? "error-" + rowScope.key : ""
                                             width: parent.width
-                                            text: root.errorText(row.error || "")
+                                            text: root.daemonErrorText(row.error || "")
                                             role: "meta"
                                             color: Ui.Theme.error
                                             visible: text.length > 0
@@ -1161,64 +1322,615 @@ FocusScope {
     Item {
         id: optionSheet
         anchors.fill: parent
-        visible: root.choosingKey.length > 0
+        visible: root.sheetOpen
         z: 10
         Rectangle { anchors.fill: parent; color: Qt.rgba(0, 0, 0, 0.45) }
-        Column {
-            x: 740
-            y: 220
-            width: Math.min(720, parent.width - 836)
-            spacing: 8
-            Repeater {
-                id: optionRepeater
-                model: root.choosingOptions
-                delegate: T.AbstractButton {
-                    id: optionButton
-                    required property var modelData
-                    required property int index
-                    objectName: "option-" + index
+        Rectangle {
+            x: 1920 - 720 - 48
+            y: 72
+            width: 720
+            height: 1080 - 144
+            radius: 44
+            color: Qt.rgba(0.09, 0.09, 0.1, 0.96)
+            Column {
+                x: 56
+                y: 64
+                width: parent.width - 112
+                spacing: 16
+                Row {
                     width: parent.width
-                    height: 88
-                    padding: 0
-                    focusPolicy: Qt.StrongFocus
-                    activeFocusOnTab: false
-                    text: modelData.title || modelData.value || ""
-                    onClicked: {
-                        root.optionIndex = index;
-                        root.chooseOption();
-                    }
-                    Keys.onPressed: event => {
-                        if (event.key === Qt.Key_Up) {
-                            if (index > 0) root.focusOption(index - 1);
-                            event.accepted = true;
-                        } else if (event.key === Qt.Key_Down) {
-                            if (index + 1 < root.choosingOptions.length) root.focusOption(index + 1);
-                            event.accepted = true;
-                        } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                            if (!event.isAutoRepeat) {
-                                root.optionIndex = index;
-                                root.chooseOption();
-                            }
-                            event.accepted = true;
-                        } else if (event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace || event.key === Qt.Key_Back || event.key === Qt.Key_Left) {
-                            root.closeOptions();
-                            event.accepted = true;
-                        } else if (event.key === Qt.Key_Right) {
-                            event.accepted = true;
+                    spacing: 16
+                    Ui.UiText {
+                        width: parent.width - optionPosition.implicitWidth - 16
+                        role: "eyebrow"
+                        font.capitalization: Font.AllUppercase
+                        color: Ui.Theme.textSecondary
+                        text: {
+                            const row = root.choosingRow || root.integerRowData || root.stringRowData;
+                            if (!row) return "";
+                            for (let i = 0; i < root.categories.length; ++i)
+                                if (root.categories[i] && root.categories[i].id === row.categoryId)
+                                    return root.categories[i].title || "";
+                            return "";
                         }
                     }
-                    background: Rectangle {
-                        radius: 26
-                        color: optionButton.activeFocus ? Qt.rgba(1, 1, 1, 0.20) : "#292b30"
+                    Ui.UiText {
+                        id: optionPosition
+                        objectName: "optionPosition"
+                        visible: root.choosingKey.length > 0 && text.length > 0
+                        role: "eyebrow"
+                        color: Ui.Theme.textSecondary
+                        text: root.optionPositionText()
                     }
-                    contentItem: Ui.UiText {
-                        text: optionButton.text
-                        role: "control"
-                        leftPadding: 28
-                        verticalAlignment: Text.AlignVCenter
+                }
+                Ui.UiText {
+                    width: parent.width
+                    role: "title"
+                    text: {
+                        const row = root.choosingRow || root.integerRowData || root.stringRowData;
+                        return row && row.title ? row.title : "";
+                    }
+                }
+                Ui.UiText {
+                    width: parent.width
+                    role: "meta"
+                    color: Ui.Theme.textSecondary
+                    visible: {
+                        const row = root.choosingRow || root.integerRowData || root.stringRowData;
+                        return !!(row && row.description);
+                    }
+                    text: {
+                        const row = root.choosingRow || root.integerRowData || root.stringRowData;
+                        return row && row.description ? row.description : "";
+                    }
+                }
+                Rectangle {
+                    objectName: "enumError"
+                    visible: root.choosingRow && root.showRowError(root.choosingRow) && !root.choosingRow.pending
+                    width: parent.width
+                    height: enumErrorText.implicitHeight + 28
+                    radius: 22
+                    color: Qt.rgba(0.91, 0.28, 0.31, 0.18)
+                    Ui.UiText {
+                        id: enumErrorText
+                        x: 20
+                        y: 14
+                        width: parent.width - 40
+                        role: "meta"
+                        color: Ui.Theme.error
+                        text: root.choosingRow ? root.daemonErrorText(root.choosingRow.error || "") : ""
+                    }
+                }
+                Flickable {
+                    id: optionFlick
+                    visible: root.choosingKey.length > 0
+                    width: parent.width
+                    height: root.choosingOptions.length > 6 ? 672 : optionColumn.height
+                    contentWidth: width
+                    contentHeight: optionColumn.height
+                    clip: true
+                    boundsBehavior: Flickable.StopAtBounds
+                    Column {
+                        id: optionColumn
+                        width: optionFlick.width
+                        spacing: 8
+                        Repeater {
+                            id: optionRepeater
+                            model: root.choosingOptions
+                            delegate: T.AbstractButton {
+                                id: optionButton
+                                required property var modelData
+                                required property int index
+                                readonly property bool current: root.choosingRow && modelData.value === root.choosingRow.currentValue
+                                readonly property bool busy: root.saveSlow && root.awaitingKey === root.choosingKey
+                                                          && modelData.value === root.awaitingValue
+                                objectName: "option-" + index
+                                width: parent.width
+                                height: Math.max(104, optionLabel.implicitHeight + 36)
+                                padding: 0
+                                focusPolicy: Qt.StrongFocus
+                                activeFocusOnTab: false
+                                text: modelData.title || modelData.value || ""
+                                onClicked: {
+                                    root.optionIndex = index;
+                                    root.chooseOption();
+                                }
+                                Keys.onPressed: event => {
+                                    if (event.key === Qt.Key_Up) {
+                                        if (index > 0) root.focusOption(index - 1);
+                                        event.accepted = true;
+                                    } else if (event.key === Qt.Key_Down) {
+                                        if (index + 1 < root.choosingOptions.length) root.focusOption(index + 1);
+                                        event.accepted = true;
+                                    } else if (event.key === Qt.Key_PageUp || event.key === Qt.Key_ChannelUp) {
+                                        root.pageOptions(-1);
+                                        event.accepted = true;
+                                    } else if (event.key === Qt.Key_PageDown || event.key === Qt.Key_ChannelDown) {
+                                        root.pageOptions(1);
+                                        event.accepted = true;
+                                    } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                                        if (!event.isAutoRepeat) {
+                                            root.optionIndex = index;
+                                            root.chooseOption();
+                                        }
+                                        event.accepted = true;
+                                    } else if (event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace || event.key === Qt.Key_Back || event.key === Qt.Key_Left) {
+                                        root.closeOptions();
+                                        event.accepted = true;
+                                    } else if (event.key === Qt.Key_Right) {
+                                        event.accepted = true;
+                                    }
+                                }
+                                background: Rectangle {
+                                    radius: 28
+                                    color: optionButton.activeFocus ? Ui.Theme.textPrimary : Qt.rgba(1, 1, 1, 0.06)
+                                }
+                                contentItem: Item {
+                                    Ui.UiText {
+                                        id: optionLabel
+                                        x: 28
+                                        width: parent.width - 100
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: optionButton.text
+                                        role: "control"
+                                        wrapMode: Text.WordWrap
+                                        color: optionButton.activeFocus ? Ui.Theme.ink : Ui.Theme.textPrimary
+                                    }
+                                    Canvas {
+                                        objectName: optionButton.current && !optionButton.busy ? "optionCheck-" + index : ""
+                                        visible: optionButton.current && !optionButton.busy
+                                        anchors.right: parent.right
+                                        anchors.rightMargin: 28
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        width: 36
+                                        height: 36
+                                        onPaint: {
+                                            const ctx = getContext("2d");
+                                            ctx.reset();
+                                            ctx.strokeStyle = optionButton.activeFocus ? Ui.Theme.ink : Ui.Theme.ember;
+                                            ctx.lineWidth = 3;
+                                            ctx.lineCap = "round";
+                                            ctx.beginPath();
+                                            ctx.moveTo(8, 18);
+                                            ctx.lineTo(15, 26);
+                                            ctx.lineTo(28, 10);
+                                            ctx.stroke();
+                                        }
+                                        Component.onCompleted: requestPaint()
+                                    }
+                                    Canvas {
+                                        objectName: optionButton.busy ? "optionSpinner" : ""
+                                        visible: optionButton.busy
+                                        anchors.right: parent.right
+                                        anchors.rightMargin: 28
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        width: 36
+                                        height: 36
+                                        onPaint: {
+                                            const ctx = getContext("2d");
+                                            ctx.reset();
+                                            ctx.strokeStyle = optionButton.activeFocus ? Ui.Theme.ink : Ui.Theme.ember;
+                                            ctx.lineWidth = 3;
+                                            ctx.beginPath();
+                                            ctx.arc(18, 18, 12, 0, Math.PI * 1.4);
+                                            ctx.stroke();
+                                        }
+                                        RotationAnimation on rotation {
+                                            running: optionButton.busy
+                                            from: 0
+                                            to: 360
+                                            duration: 800
+                                            loops: Animation.Infinite
+                                        }
+                                        Component.onCompleted: requestPaint()
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Rectangle {
+                    objectName: "integerError"
+                    visible: root.integerSheet && root.integerRowData && root.showRowError(root.integerRowData) && !root.integerRowData.pending
+                    width: parent.width
+                    height: integerErrorText.implicitHeight + 28
+                    radius: 22
+                    color: Qt.rgba(0.91, 0.28, 0.31, 0.18)
+                    Ui.UiText {
+                        id: integerErrorText
+                        x: 20
+                        y: 14
+                        width: parent.width - 40
+                        role: "meta"
+                        color: Ui.Theme.error
+                        text: root.integerRowData ? root.daemonErrorText(root.integerRowData.error || "") : ""
+                    }
+                }
+                FocusScope {
+                    id: integerStepper
+                    objectName: "integerStepper"
+                    visible: root.integerSheet
+                    width: parent.width
+                    height: 280
+                    focus: root.integerSheet
+                    Column {
+                        width: parent.width
+                        spacing: 18
+                        Rectangle {
+                            width: parent.width
+                            height: 200
+                            radius: 36
+                            color: Qt.rgba(1, 1, 1, 0.08)
+                            Row {
+                                anchors.centerIn: parent
+                                spacing: 28
+                                Rectangle {
+                                    objectName: "integerMinus"
+                                    width: 96
+                                    height: 96
+                                    radius: 48
+                                    color: Qt.rgba(1, 1, 1, 0.14)
+                                    opacity: {
+                                        const row = root.integerRowData;
+                                        return row && root.hasBound(row, "min") && root.integerDraft <= Number(row.constraints.min) ? 0.3 : 1;
+                                    }
+                                    Ui.UiText { anchors.centerIn: parent; text: "−"; role: "title" }
+                                }
+                                Row {
+                                    spacing: 14
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    Ui.UiText {
+                                        id: integerReadout
+                                        objectName: "integerValue"
+                                        text: String(root.integerDraft)
+                                        role: "display"
+                                        anchors.verticalCenter: parent.verticalCenter
+                                    }
+                                    Ui.UiText {
+                                        objectName: "integerUnit"
+                                        visible: root.integerRowData && root.unitOf(root.integerRowData).length > 0
+                                        text: root.integerRowData ? root.unitOf(root.integerRowData) : ""
+                                        role: "title"
+                                        color: Ui.Theme.textSecondary
+                                        anchors.verticalCenter: parent.verticalCenter
+                                    }
+                                }
+                                Rectangle {
+                                    objectName: "integerPlus"
+                                    width: 96
+                                    height: 96
+                                    radius: 48
+                                    color: Qt.rgba(1, 1, 1, 0.14)
+                                    opacity: {
+                                        const row = root.integerRowData;
+                                        return row && root.hasBound(row, "max") && root.integerDraft >= Number(row.constraints.max) ? 0.3 : 1;
+                                    }
+                                    Ui.UiText { anchors.centerIn: parent; text: "+"; role: "title" }
+                                }
+                            }
+                        }
+                        Ui.UiText {
+                            objectName: "integerBounds"
+                            width: parent.width
+                            horizontalAlignment: Text.AlignHCenter
+                            role: "meta"
+                            color: Ui.Theme.textSecondary
+                            text: {
+                                const row = root.integerRowData;
+                                if (!row) return "";
+                                const min = root.hasBound(row, "min") ? String(row.constraints.min) : "—";
+                                const max = root.hasBound(row, "max") ? String(row.constraints.max) : "—";
+                                return qsTr("min. %1 · was %2 · max. %3").arg(min).arg(root.integerWas).arg(max);
+                            }
+                        }
+                        Ui.UiText {
+                            objectName: "integerNote"
+                            width: parent.width
+                            horizontalAlignment: Text.AlignHCenter
+                            role: "meta"
+                            color: Ui.Theme.textSecondary
+                            visible: root.integerNote.length > 0
+                            text: root.integerNote
+                        }
+                    }
+                    Keys.onPressed: event => {
+                        if (event.key === Qt.Key_Left || event.key === Qt.Key_Down)
+                            root.nudgeInteger(-1, event.isAutoRepeat);
+                        else if (event.key === Qt.Key_Right || event.key === Qt.Key_Up)
+                            root.nudgeInteger(1, event.isAutoRepeat);
+                        else if (event.key === Qt.Key_Backspace) {
+                            const text = String(root.integerDraft);
+                            if (text.length > 1 && text !== String(root.integerWas)) {
+                                const next = Number(text.slice(0, -1));
+                                if (root.withinInteger(root.integerRowData, next)) {
+                                    root.integerDraft = next;
+                                    root.integerFresh = false;
+                                }
+                            }
+                        } else if (event.key === Qt.Key_Minus || event.text === "-")
+                            root.typeInteger("-");
+                        else if (event.text && event.text.length === 1 && event.text >= "0" && event.text <= "9")
+                            root.typeInteger(event.text);
+                        else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                            if (!event.isAutoRepeat) root.commitInteger();
+                        } else if (event.key === Qt.Key_Escape || event.key === Qt.Key_Back)
+                            root.cancelEditor();
+                        else {
+                            event.accepted = false;
+                            return;
+                        }
+                        event.accepted = true;
+                    }
+                }
+                Column {
+                    visible: root.stringSheet
+                    width: parent.width
+                    spacing: 16
+                    Rectangle {
+                        width: parent.width
+                        height: 112
+                        radius: 30
+                        opacity: root.keyboardReady ? 1 : 0.6
+                        color: Qt.rgba(1, 1, 1, 0.1)
+                        TextInput {
+                            id: stringField
+                            objectName: root.stringSheet ? "editor-" + root.editingKey : ""
+                            anchors.fill: parent
+                            anchors.leftMargin: 28
+                            anchors.rightMargin: 28
+                            verticalAlignment: Text.AlignVCenter
+                            color: Ui.Theme.textPrimary
+                            font.family: Ui.Theme.fontFamily
+                            font.pixelSize: 36
+                            clip: true
+                            enabled: root.keyboardReady
+                            onVisibleChanged: if (visible) {
+                                text = root.editingDraft;
+                                cursorPosition = text.length;
+                                if (root.keyboardReady) forceActiveFocus();
+                            }
+                            onTextChanged: if (activeFocus) {
+                                root.editingDraft = text;
+                                root.noteStringEdit();
+                            }
+                            Keys.onPressed: event => {
+                                if (!root.keyboardReady) {
+                                    event.accepted = true;
+                                    return;
+                                }
+                                if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                                    if (!event.isAutoRepeat) root.commitString();
+                                    event.accepted = true;
+                                } else if (event.key === Qt.Key_Escape) {
+                                    root.cancelEditor();
+                                    event.accepted = true;
+                                } else if (event.key === Qt.Key_Down) {
+                                    root.stringPart = "save";
+                                    stringSave.forceActiveFocus();
+                                    event.accepted = true;
+                                } else if (event.key === Qt.Key_Up) {
+                                    event.accepted = true;
+                                } else root.noteStringEdit();
+                            }
+                        }
+                    }
+                    Ui.UiText {
+                        objectName: "stringCounter"
+                        visible: root.stringRowData !== null && root.hasBound(root.stringRowData, "maxLength")
+                        width: parent.width
+                        role: "meta"
+                        color: Ui.Theme.textSecondary
+                        text: {
+                            const row = root.stringRowData;
+                            if (!row || !root.hasBound(row, "maxLength")) return "";
+                            return qsTr("%1 of %2 characters").arg([...(root.editingDraft || "")].length).arg(row.constraints.maxLength);
+                        }
+                    }
+                    Ui.UiText {
+                        objectName: "stringError"
+                        visible: root.stringRowData !== null && !!root.stringRowData.error
+                                 && root.hiddenStringError !== root.rowKey(root.stringRowData) + "\n" + root.stringRowData.error
+                                 && !root.stringRowData.pending
+                        width: parent.width
+                        role: "meta"
+                        color: Ui.Theme.error
+                        text: visible ? root.daemonErrorText(root.stringRowData.error) : ""
+                    }
+                    Column {
+                        objectName: "keyboardPrompt"
+                        visible: root.stringSheet && !root.keyboardReady
+                        width: parent.width
+                        spacing: 12
+                        Ui.UiText {
+                            objectName: "keyboardOff"
+                            width: parent.width
+                            role: "control"
+                            text: qsTr("A keyboard is needed to type")
+                        }
+                        Ui.UiText {
+                            width: parent.width
+                            role: "meta"
+                            color: Ui.Theme.textSecondary
+                            text: qsTr("Connect a USB or Bluetooth keyboard, or change it from a computer:")
+                        }
+                        Rectangle {
+                            width: commandText.implicitWidth + 36
+                            height: 56
+                            radius: 18
+                            color: Qt.rgba(1, 1, 1, 0.08)
+                            Ui.UiText {
+                                id: commandText
+                                objectName: "settingsCommand"
+                                anchors.centerIn: parent
+                                role: "meta"
+                                text: "arinnctl settings set"
+                            }
+                        }
+                    }
+                    Row {
+                        spacing: 16
+                        visible: root.keyboardReady
+                        T.AbstractButton {
+                            id: stringSave
+                            objectName: "stringSave"
+                            height: 88
+                            width: Math.max(180, saveLabel.implicitWidth + 48)
+                            padding: 0
+                            focusPolicy: Qt.StrongFocus
+                            activeFocusOnTab: false
+                            onClicked: root.commitString()
+                            Keys.onPressed: event => {
+                                if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                                    if (!event.isAutoRepeat) root.commitString();
+                                    event.accepted = true;
+                                } else if (event.key === Qt.Key_Right || event.key === Qt.Key_Down) {
+                                    root.stringPart = "cancel";
+                                    stringCancel.forceActiveFocus();
+                                    event.accepted = true;
+                                } else if (event.key === Qt.Key_Up || event.key === Qt.Key_Left) {
+                                    root.stringPart = "field";
+                                    stringField.forceActiveFocus();
+                                    event.accepted = true;
+                                } else if (event.key === Qt.Key_Escape || event.key === Qt.Key_Back) {
+                                    root.cancelEditor();
+                                    event.accepted = true;
+                                }
+                            }
+                            background: Rectangle {
+                                radius: height / 2
+                                color: stringSave.activeFocus ? Ui.Theme.textPrimary : Qt.rgba(1, 1, 1, 0.14)
+                            }
+                            contentItem: Ui.UiText {
+                                id: saveLabel
+                                text: qsTr("Save")
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                                color: stringSave.activeFocus ? Ui.Theme.ink : Ui.Theme.textPrimary
+                            }
+                        }
+                        T.AbstractButton {
+                            id: stringCancel
+                            objectName: "stringCancel"
+                            height: 88
+                            width: Math.max(180, cancelLabel.implicitWidth + 48)
+                            padding: 0
+                            focusPolicy: Qt.StrongFocus
+                            activeFocusOnTab: false
+                            onClicked: root.cancelEditor()
+                            Keys.onPressed: event => {
+                                if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Escape || event.key === Qt.Key_Back) {
+                                    if (!event.isAutoRepeat) root.cancelEditor();
+                                    event.accepted = true;
+                                } else if (event.key === Qt.Key_Left || event.key === Qt.Key_Up) {
+                                    root.stringPart = "save";
+                                    stringSave.forceActiveFocus();
+                                    event.accepted = true;
+                                }
+                            }
+                            background: Rectangle {
+                                radius: height / 2
+                                color: stringCancel.activeFocus ? Ui.Theme.textPrimary : Qt.rgba(1, 1, 1, 0.08)
+                            }
+                            contentItem: Ui.UiText {
+                                id: cancelLabel
+                                text: qsTr("Cancel")
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                                color: stringCancel.activeFocus ? Ui.Theme.ink : Ui.Theme.textPrimary
+                            }
+                        }
+                    }
+                    T.AbstractButton {
+                        id: keyboardBack
+                        objectName: "keyboardBack"
+                        visible: root.stringSheet && !root.keyboardReady
+                        height: 88
+                        width: Math.max(180, backLabel.implicitWidth + 48)
+                        padding: 0
+                        focusPolicy: Qt.StrongFocus
+                        activeFocusOnTab: false
+                        onClicked: root.cancelEditor()
+                        Keys.onPressed: event => {
+                            if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Escape || event.key === Qt.Key_Back) {
+                                if (!event.isAutoRepeat) root.cancelEditor();
+                                event.accepted = true;
+                            } else if (event.text && event.text.length === 1) {
+                                root.wakeKeyboard(event.text);
+                                event.accepted = true;
+                            }
+                        }
+                        background: Rectangle {
+                            radius: height / 2
+                            color: keyboardBack.activeFocus ? Ui.Theme.textPrimary : Qt.rgba(1, 1, 1, 0.14)
+                        }
+                        contentItem: Ui.UiText {
+                            id: backLabel
+                            text: qsTr("Back")
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                            color: keyboardBack.activeFocus ? Ui.Theme.ink : Ui.Theme.textPrimary
+                        }
                     }
                 }
             }
+        }
+    }
+
+    Rectangle {
+        objectName: "settingsToast"
+        visible: root.toastTitle.length > 0
+        z: 20
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: 48
+        height: toastColumn.implicitHeight + 36
+        width: Math.min(parent.width - 240, Math.max(420, toastColumn.implicitWidth + 64))
+        radius: 28
+        color: root.toastIsError ? Qt.rgba(0.91, 0.28, 0.31, 0.22) : Qt.rgba(1, 1, 1, 0.12)
+        Column {
+            id: toastColumn
+            anchors.centerIn: parent
+            width: parent.width - 64
+            spacing: 4
+            Ui.UiText {
+                objectName: "settingsToastTitle"
+                width: parent.width
+                horizontalAlignment: Text.AlignHCenter
+                role: "control"
+                text: root.toastTitle
+            }
+            Ui.UiText {
+                objectName: "settingsToastDetail"
+                width: parent.width
+                horizontalAlignment: Text.AlignHCenter
+                role: "meta"
+                color: Ui.Theme.textSecondary
+                visible: root.toastDetail.length > 0
+                text: root.toastDetail
+            }
+        }
+    }
+    Timer {
+        id: slowTimer
+        interval: 300
+        onTriggered: {
+            if (!root.awaitingKey) return;
+            const row = root.rowByKey(root.awaitingKey);
+            if (row && row.pending) root.saveSlow = true;
+            else root.settleAwaiting();
+        }
+    }
+    Timer {
+        id: enumCloseTimer
+        interval: 180
+        onTriggered: root.finishEnumClose()
+    }
+    Timer {
+        id: toastTimer
+        interval: 3000
+        onTriggered: {
+            root.toastTitle = "";
+            root.toastDetail = "";
         }
     }
 

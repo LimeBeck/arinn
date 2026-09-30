@@ -1,0 +1,1 @@
+- `arinn-plugin-library` scans configured folders into a `library` catalogue with resume and idempotent import ([ADR-0056](docs/adr/0056-local-library-scan-metadata-and-resume.md)). File names and NFO supply metadata; duration comes from ffprobe. An unavailable folder keeps entries and does not log paths or titles.

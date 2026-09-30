@@ -6,6 +6,7 @@ import QtQuick.Window
 import Arinn.Shell 1.0
 import "ui" as Ui
 import "ui/screens/browser" as Browser
+import "ui/screens/library" as Library
 import "ui/screens/session" as Session
 
 Window {
@@ -18,9 +19,11 @@ Window {
     readonly property bool navOpen: home.navOpen
     property bool browserOpen: false
     property bool sessionOpen: false
+    property bool sessionFromLibrary: false
     onVisibleChanged: if (visible) Qt.callLater(home.showHome)
     BrowserCatalog { id: browserCatalog }
     MediaCatalog { id: mediaCatalog; objectName: "mediaCatalog" }
+    LibraryCatalog { id: libraryCatalog; objectName: "libraryCatalog" }
     Ui.LogicalCanvas {
         anchors.fill: parent
         Ui.HomeView {
@@ -59,6 +62,7 @@ Window {
                 backend.back();
             }
             onSessionRequested: entryId => {
+                root.sessionFromLibrary = false;
                 mediaCatalog.select(entryId);
                 root.sessionOpen = true;
                 Qt.callLater(() => sessionView.forceActiveFocus());
@@ -108,7 +112,41 @@ Window {
             onStopRequested: mediaCatalog.stop()
             onBackRequested: {
                 root.sessionOpen = false;
-                Qt.callLater(home.showHome);
+                if (root.sessionFromLibrary) {
+                    root.sessionFromLibrary = false;
+                    Qt.callLater(() => libraryView.forceActiveFocus());
+                } else {
+                    Qt.callLater(home.showHome);
+                }
+            }
+        }
+        Library.LibraryView {
+            id: libraryView
+            objectName: "productionLibrary"
+            visible: home.screen === "library"
+            enabled: visible
+            z: 4
+            libraryState: libraryCatalog.libraryState
+            tabs: libraryCatalog.tabs
+            entries: libraryCatalog.entries
+            operationState: libraryCatalog.operationState
+            launchingId: libraryCatalog.launchingId
+            onPlayRequested: entryId => libraryCatalog.launch(entryId)
+            onEpisodeRequested: (entryId, episodeId) => libraryCatalog.launch(episodeId)
+            onRetryRequested: libraryCatalog.refresh()
+            onBackRequested: home.back()
+            onHomeRequested: {
+                root.sessionFromLibrary = false;
+                home.showHome();
+            }
+        }
+        Connections {
+            target: libraryCatalog
+            function onSessionLaunched(presentationId) {
+                root.sessionFromLibrary = true;
+                mediaCatalog.select(presentationId);
+                root.sessionOpen = true;
+                Qt.callLater(() => sessionView.forceActiveFocus());
             }
         }
         Ui.LaunchOverlay {

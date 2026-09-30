@@ -5,7 +5,7 @@ import QtQuick
 import QtQuick.Window
 import "../.." as Ui
 
-// Fixture-driven catalogue. Properties are presentation data; signals are
+// Catalogue presentation. Properties are presentation data; signals are
 // intents. This screen does not call a daemon, a bus or a provider.
 FocusScope {
     id: root
@@ -22,7 +22,26 @@ FocusScope {
     property var entries: []
     property int columns: 0
     property string detailEntryId: ""
+    property string operationState: ""
+    property string launchingId: ""
     property bool pointerMode: false
+    readonly property bool operationPending: operationState === "pending" || operationState === "queued" || operationState === "running"
+    readonly property bool operationFailed: operationState !== "" && operationState !== "succeeded" && !operationPending
+    readonly property string operationMessage: {
+        if (operationState === "Unsupported")
+            return qsTr("That action is not available.");
+        if (operationState === "Timeout")
+            return qsTr("The library did not answer in time.");
+        if (operationState === "Unavailable")
+            return qsTr("This title is not available.");
+        if (operationState === "InvalidArgument")
+            return qsTr("That title cannot be started.");
+        if (operationState === "NotFound")
+            return qsTr("That title is not in the library.");
+        if (operationState === "Conflict")
+            return qsTr("The library changed. Try again.");
+        return operationState;
+    }
     // Suppresses hover focus while the grid is scrolling. Local to this screen.
     readonly property int hoverDelayMs: 500
     readonly property bool hoverFocusEnabled: !hoverDelay.running
@@ -121,6 +140,17 @@ FocusScope {
     signal backRequested()
     signal homeRequested()
 
+    function adoptTab() {
+        if (!tabs || !tabs.length) {
+            if (currentTabId.length)
+                currentTabId = "";
+            return;
+        }
+        for (let i = 0; i < tabs.length; ++i)
+            if (tabs[i].id === currentTabId)
+                return;
+        currentTabId = tabs[0].id;
+    }
     function standInColor(id) {
         let hash = 0;
         const text = String(id || "");
@@ -398,11 +428,13 @@ FocusScope {
     onShowGridChanged: Qt.callLater(refocusAfterState)
     onEntriesChanged: Qt.callLater(reconcilePoster)
     onVisibleEntriesChanged: Qt.callLater(reconcilePoster)
+    onTabsChanged: adoptTab()
     Component.onCompleted: {
-        if (!currentTabId.length && tabs && tabs.length)
-            currentTabId = tabs[0].id;
-        Qt.callLater(focusInitial);
+        adoptTab();
+        if (visible && enabled)
+            Qt.callLater(focusInitial);
     }
+    onVisibleChanged: if (visible && enabled) Qt.callLater(focusInitial)
 
     Timer {
         id: hoverDelay
@@ -636,7 +668,7 @@ FocusScope {
                             focusScale: 1.06
                             text: modelData.title || ""
                             enabled: modelData.enabled !== false
-                            busy: !!modelData.busy
+                            busy: !!modelData.busy || (root.operationPending && root.launchingId === modelData.id)
                             restingColor: modelData.noArt ? Qt.rgba(0.21, 0.21, 0.23, 1) : root.standInColor(modelData.id)
                             focusedColor: restingColor
                             pointerMode: root.pointerMode
@@ -980,6 +1012,7 @@ FocusScope {
                         id: detailPlay
                         objectName: "detailPlay"
                         visible: !!(root.detailEntry && !root.detailEntry.missing)
+                        busy: root.operationPending && root.launchingId === root.detailEntryId
                         text: root.detailEntry && root.detailEntry.progress > 0 ? qsTr("Continue") : qsTr("Play")
                         pointerMode: root.pointerMode
                         hoverFocusEnabled: root.hoverFocusEnabled
@@ -1209,6 +1242,42 @@ FocusScope {
                         }
                     }
                 }
+            }
+        }
+    }
+    Column {
+        z: 6
+        x: root.marginLeft
+        y: 960
+        width: 900
+        spacing: 12
+        visible: root.detailOpen && (root.operationPending || root.operationFailed)
+        Ui.UiText {
+            objectName: "operationPending"
+            visible: root.operationPending
+            text: qsTr("Waiting…")
+            role: "meta"
+            color: Ui.Theme.textSecondary
+        }
+        Rectangle {
+            id: operationBanner
+            objectName: "operationBanner"
+            visible: root.operationFailed
+            width: parent.width
+            implicitHeight: operationBannerText.implicitHeight + 28
+            height: implicitHeight
+            radius: 18
+            color: Qt.rgba(0.91, 0.28, 0.31, 0.16)
+            Ui.UiText {
+                id: operationBannerText
+                objectName: "operationBannerText"
+                width: parent.width - 28
+                anchors.left: parent.left
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.leftMargin: 14
+                text: root.operationMessage
+                role: "body"
+                color: Ui.Theme.error
             }
         }
     }

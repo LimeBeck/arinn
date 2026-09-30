@@ -1,0 +1,1 @@
+- The Library screen reads collections, films, series and episodes from `org.arinn.Library1`, keeps a missing file in the catalogue, and shows Continue from resume. Launch is an operation whose result is the new media session ([ADR-0054](docs/adr/0054-media-and-library-wire-contract.md), [ADR-0060](docs/adr/0060-library-routing.md)).

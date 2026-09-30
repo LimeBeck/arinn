@@ -471,4 +471,25 @@ TestCase {
         keyClick(Qt.Key_Up);
         focused("detailPlay");
     }
+
+    function test_operation_waiting_and_failure() {
+        createLibrary(catalogue());
+        focused("tab-films");
+        keyClick(Qt.Key_Down);
+        focused("poster-a");
+        keyClick(Qt.Key_Return);
+        focused("detailPlay");
+        library.launchingId = "a";
+        library.operationState = "pending";
+        compare(child("detailPlay").busy, true);
+        compare(child("operationPending").visible, true);
+        compare(child("operationBanner").visible, false);
+        library.operationState = "Unavailable";
+        compare(child("operationPending").visible, false);
+        compare(child("operationBanner").visible, true);
+        compare(child("operationBannerText").text, "This title is not available.");
+        library.operationState = "succeeded";
+        compare(child("operationBanner").visible, false);
+        compare(child("operationPending").visible, false);
+    }
 }

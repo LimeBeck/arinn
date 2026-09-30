@@ -90,6 +90,7 @@ struct MediaCatalog::Catalog {
   int pages = 0;
   int failed = 0;
   QString pageGeneration;
+  quint64 pageRevision = 0;
 };
 
 MediaCatalog::MediaCatalog(QObject *parent) : QObject(parent) {
@@ -358,6 +359,7 @@ void MediaCatalog::failProvider(const std::shared_ptr<Catalog> &catalog,
   catalog->rows.resize(catalog->providerStart);
   catalog->tokens.clear();
   catalog->pageGeneration.clear();
+  catalog->pageRevision = 0;
   readSessions(catalog, index + 1);
 }
 void MediaCatalog::readSessions(const std::shared_ptr<Catalog> &catalog,
@@ -378,6 +380,7 @@ void MediaCatalog::readSessions(const std::shared_ptr<Catalog> &catalog,
   if (token.isEmpty()) {
     catalog->providerStart = catalog->rows.size();
     catalog->pageGeneration.clear();
+    catalog->pageRevision = 0;
   }
   const auto provider = catalog->providers.at(index).toMap();
   auto msg = QDBusMessage::createMethodCall(
@@ -388,7 +391,7 @@ void MediaCatalog::readSessions(const std::shared_ptr<Catalog> &catalog,
       QDBusConnection::sessionBus().asyncCall(msg, 3000), this);
   connect(
       pending, &QDBusPendingCallWatcher::finished, this,
-      [this, catalog, provider, index](auto *call) {
+      [this, catalog, provider, index, token](auto *call) {
         const auto reply = call->reply();
         call->deleteLater();
         if (catalog->epoch != m_epoch) {
@@ -406,13 +409,19 @@ void MediaCatalog::readSessions(const std::shared_ptr<Catalog> &catalog,
         QList<SessionRow> page;
         arg.beginStructure();
         arg >> generation >> revision;
-        if (generation.isEmpty() ||
-            (!catalog->pageGeneration.isEmpty() &&
-             catalog->pageGeneration != generation)) {
+        // One snapshot is (generation, revision). The generation is the
+        // provider's, and every page of the snapshot carries that same pair.
+        if (generation !=
+                provider.value(QStringLiteral("generation")).toString() ||
+            revision == 0 ||
+            (!token.isEmpty() &&
+             (generation != catalog->pageGeneration ||
+              revision != catalog->pageRevision))) {
           failProvider(catalog, index);
           return;
         }
         catalog->pageGeneration = generation;
+        catalog->pageRevision = revision;
         arg.beginArray();
         while (!arg.atEnd()) {
           SessionRow row;
@@ -472,6 +481,7 @@ void MediaCatalog::readSessions(const std::shared_ptr<Catalog> &catalog,
         else {
           catalog->tokens.clear();
           catalog->pageGeneration.clear();
+          catalog->pageRevision = 0;
           readSessions(catalog, index + 1);
         }
       });

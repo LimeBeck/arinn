@@ -16,8 +16,8 @@ part of this change. Asset bytes stay out of the shell until
 ## Model
 
 Reads are asynchronous. `GetSessions` is paged. A repeated page token, a
-generation change inside one snapshot, or an invalid session drops that
-provider. If every media provider fails, the session state is `unavailable`.
+page generation other than the provider's, a revision that is not the first
+page's, or an invalid session drops that provider. A revision starts at 1. If every media provider fails, the session state is `unavailable`.
 No media provider is `empty`. The daemon disappearing is `unavailable`.
 
 Sessions are ordered for Continue: `playing`, then `paused`, then any other
@@ -72,7 +72,8 @@ do not change playback.
 C++ model tests are `apps/arinn-shell/media_catalog_test.cpp` (`media-catalog`,
 private bus): paging, anchor interpolation, a paused clock, duration clamp,
 `Unsupported` without a call, success only after `Operation1.Get`, a repeated
-page token, and the production Continue and session binding.
+page token, a revision or generation that breaks the snapshot, and the
+production Continue and session binding.
 
 Qt Quick tests are `tests/ui/tst_session.qml` (`Session`) and
 `tests/ui/tst_media_continue.qml` (`MediaContinue`). Run offscreen:
@@ -87,6 +88,6 @@ QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
 ```
 
 Local verification on 2026-09-30, Qt 6.11.2, offscreen platform, software
-renderer: `arinn-media-catalog-test` reported 9 passed, and
+renderer: `arinn-media-catalog-test` reported 11 passed, and
 `arinn-ui-test -input tests/ui` reported 176 passed. This is not the Arch CI
 Qt. Operator tests were not run. AC-09 is not marked passed.

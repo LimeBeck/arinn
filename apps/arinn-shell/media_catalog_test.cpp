@@ -127,6 +127,9 @@ public:
   QList<SessionWire> page1;
   QList<SessionWire> page2;
   QString page2Token = QStringLiteral("p2");
+  QString pageGeneration = QStringLiteral("g-media");
+  qulonglong page1Revision = 1;
+  qulonglong page2Revision = 1;
   bool loopSecond = false;
   bool rejectCommand = false;
   bool holdOperation = false;
@@ -181,7 +184,8 @@ public:
         return true;
       }
       body.beginStructure();
-      body << QStringLiteral("g-media") << qulonglong(1);
+      body << pageGeneration
+           << (token.isEmpty() ? page1Revision : page2Revision);
       body.beginArray(QMetaType::fromType<SessionWire>());
       for (const auto &row : rows)
         body << row;
@@ -432,6 +436,39 @@ private slots:
     QTRY_COMPARE(catalog.operationState(), QStringLiteral("Unavailable"));
     for (int i = atPlay; i < states.size(); ++i)
       QVERIFY(states.at(i) != QStringLiteral("succeeded"));
+  }
+  void mixedRevisionIsUnavailable() {
+    MediaDaemon daemon;
+    daemon.page2Revision = 2;
+    daemon.page1 = {session(QStringLiteral("one"), QStringLiteral("First"),
+                            QStringLiteral("paused"), 1, 1, -1,
+                            {QStringLiteral("play")})};
+    daemon.page2 = {session(QStringLiteral("two"), QStringLiteral("Second"),
+                            QStringLiteral("paused"), 1, 2, -1,
+                            {QStringLiteral("play")})};
+    auto bus = QDBusConnection::sessionBus();
+    QVERIFY(bus.registerService(QStringLiteral("org.arinn.Daemon1")));
+    QVERIFY(bus.registerVirtualObject(QStringLiteral("/org/arinn"), &daemon,
+                                      QDBusConnection::SubPath));
+    MediaCatalog catalog;
+    QTRY_VERIFY(daemon.sessionReads >= 2);
+    QTRY_COMPARE(catalog.sessionState(), QStringLiteral("unavailable"));
+    QCOMPARE(catalog.continueEntries().size(), 0);
+  }
+  void pageGenerationMustMatchProvider() {
+    MediaDaemon daemon;
+    daemon.pageGeneration = QStringLiteral("other-generation");
+    daemon.page1 = {session(QStringLiteral("one"), QStringLiteral("First"),
+                            QStringLiteral("paused"), 1, 1, -1,
+                            {QStringLiteral("play")})};
+    auto bus = QDBusConnection::sessionBus();
+    QVERIFY(bus.registerService(QStringLiteral("org.arinn.Daemon1")));
+    QVERIFY(bus.registerVirtualObject(QStringLiteral("/org/arinn"), &daemon,
+                                      QDBusConnection::SubPath));
+    MediaCatalog catalog;
+    QTRY_VERIFY(daemon.sessionReads >= 1);
+    QTRY_COMPARE(catalog.sessionState(), QStringLiteral("unavailable"));
+    QCOMPARE(catalog.continueEntries().size(), 0);
   }
   void repeatedPageTokenFailsClosed() {
     MediaDaemon daemon;

@@ -484,14 +484,13 @@ impl Core {
         let (data, state) = tokio::task::spawn_blocking(move || paths.provider_dirs(&provider_id))
             .await
             .map_err(|_| ErrorCode::Internal)??;
-        let env = vec![
-            format!("ARINN_PROVIDER_ID={id}"),
-            format!("ARINN_PLUGIN_ID={}", manifest.id),
-            format!("ARINN_PLUGIN_VERSION={}", manifest.version),
-            format!("ARINN_TOKEN_FILE={}", token_file.display()),
-            format!("ARINN_PROVIDER_DATA_DIR={}", data.display()),
-            format!("ARINN_PROVIDER_STATE_DIR={}", state.display()),
-        ];
+        // Settings are read at each start: a changed config.toml reaches the
+        // provider on its next start (ADR-0064).
+        let settings = Config::load(&self.paths.config)
+            .ok()
+            .and_then(|c| c.providers.get(id).map(|i| i.settings.clone()))
+            .unwrap_or_default();
+        let env = provider_env(id, &manifest, &token_file, &data, &state, &settings)?;
         let created = Supervisor::new(&self.connection)
             .start(&unit, &manifest, env)
             .await?;
@@ -1182,6 +1181,30 @@ impl Core {
         });
         Ok(path)
     }
+}
+
+/// The environment a provider unit starts with (spec §9.9, ADR-0034,
+/// ADR-0064). `ARINN_PROVIDER_SETTINGS` is always set, `{}` without settings.
+fn provider_env(
+    id: &str,
+    manifest: &Manifest,
+    token_file: &std::path::Path,
+    data: &std::path::Path,
+    state: &std::path::Path,
+    settings: &toml::Table,
+) -> Result<Vec<String>, ErrorCode> {
+    Ok(vec![
+        format!("ARINN_PROVIDER_ID={id}"),
+        format!("ARINN_PLUGIN_ID={}", manifest.id),
+        format!("ARINN_PLUGIN_VERSION={}", manifest.version),
+        format!("ARINN_TOKEN_FILE={}", token_file.display()),
+        format!("ARINN_PROVIDER_DATA_DIR={}", data.display()),
+        format!("ARINN_PROVIDER_STATE_DIR={}", state.display()),
+        format!(
+            "ARINN_PROVIDER_SETTINGS={}",
+            crate::storage::settings_json(settings)?
+        ),
+    ])
 }
 
 fn normalize_error(error: zbus::Error) -> ErrorCode {
@@ -2023,5 +2046,49 @@ mod token_tests {
                 "round {round}: token file and memory diverged"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod provider_env_tests {
+    use super::*;
+
+    fn manifest() -> Manifest {
+        Manifest {
+            id: "library".into(),
+            name: "Library".into(),
+            version: "0.1.0".into(),
+            api_version: 1,
+            executable: "/usr/lib/arinn/plugins/arinn-plugin-library".into(),
+            args: Vec::new(),
+            capabilities: vec!["library".into()],
+        }
+    }
+
+    #[test]
+    fn settings_reach_the_provider_as_json() {
+        let settings: toml::Table = toml::from_str("roots = [\"/srv/films\"]").unwrap();
+        let env = provider_env(
+            "library",
+            &manifest(),
+            std::path::Path::new("/run/token"),
+            std::path::Path::new("/data"),
+            std::path::Path::new("/state"),
+            &settings,
+        )
+        .unwrap();
+        assert!(env.contains(&r#"ARINN_PROVIDER_SETTINGS={"roots":["/srv/films"]}"#.to_string()));
+        assert!(env.contains(&"ARINN_PROVIDER_ID=library".to_string()));
+        // Without settings the variable is still set, to an empty object.
+        let env = provider_env(
+            "library",
+            &manifest(),
+            std::path::Path::new("/run/token"),
+            std::path::Path::new("/data"),
+            std::path::Path::new("/state"),
+            &toml::Table::new(),
+        )
+        .unwrap();
+        assert!(env.contains(&"ARINN_PROVIDER_SETTINGS={}".to_string()));
     }
 }

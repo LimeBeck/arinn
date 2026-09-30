@@ -1,0 +1,1 @@
+- Providers can have settings in `config.toml` (`[providers.<id>.settings]`), which the daemon passes to them as `ARINN_PROVIDER_SETTINGS` at start ([ADR-0064](docs/adr/0064-provider-settings-in-config.md)).

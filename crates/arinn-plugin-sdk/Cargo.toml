@@ -10,6 +10,7 @@ repository.workspace = true
 
 [dependencies]
 arinn-protocol.workspace = true
+serde_json.workspace = true
 uuid.workspace = true
 futures-util.workspace = true
 tokio.workspace = true

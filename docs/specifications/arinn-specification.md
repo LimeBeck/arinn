@@ -176,7 +176,7 @@ An application record may include an icon reference ([ADR-0059](../adr/0059-appl
 
 ### 5.6. Settings
 
-Categories as in the design: Media, Playback, Sound, Network, Applications, Appearance, System. UI preferences belong to the daemon configuration. Provider settings use a typed schema (id, title, description, type, current value, constraints, enabled; types boolean, enum, string, integer, path reference); plugins MUST NOT supply QML widgets or raw RPC. The core settings UI shows only registered capabilities; a missing playback, download or network function never pretends to succeed. Details: [Activity and interaction](../architecture/activity-and-interaction.md).
+Categories as in the design: Media, Playback, Sound, Network, Applications, Appearance, System. UI preferences belong to the daemon configuration. Provider settings use a typed schema (id, title, description, type, current value, constraints, enabled; types boolean, enum, string, integer, path reference); plugins MUST NOT supply QML widgets or raw RPC. The wire contract is [ADR-0065](../adr/0065-provider-settings-contract.md); values are stored in `config.toml` ([ADR-0064](../adr/0064-provider-settings-in-config.md)). The core settings UI shows only registered capabilities; a missing playback, download or network function never pretends to succeed. Details: [Activity and interaction](../architecture/activity-and-interaction.md).
 
 ### 5.7. System UI, power and ambient
 

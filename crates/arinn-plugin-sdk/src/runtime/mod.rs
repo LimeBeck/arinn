@@ -705,6 +705,7 @@ impl Endpoint for BrowserService {
 mod assets;
 mod library;
 mod media;
+mod settings;
 pub use assets::AssetHandler;
 pub use library::{
     LibraryExtensions, LibraryHandler, LibraryImportHandler, LibraryResumeHandler, LibraryService,
@@ -714,3 +715,4 @@ pub use media::{
     MediaAction, MediaExtensions, MediaHandler, MediaOpenHandler, MediaService,
     MediaTimelineHandler, MediaTracksHandler, run_media, run_media_on,
 };
+pub use settings::{SettingsHandler, serve_settings, settings_from_json, startup_settings};

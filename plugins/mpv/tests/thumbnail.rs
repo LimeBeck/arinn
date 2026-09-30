@@ -3,7 +3,7 @@
 
 //! ffmpeg thumbnails are cancellable and absent when no frame can be made.
 
-use arinn_plugin_mpv::Extractor;
+use arinn_plugin_mpv::{Extractor, KEPT_THUMBNAILS};
 use arinn_protocol::validation::ErrorCode;
 use std::{os::unix::fs::PermissionsExt, path::PathBuf, sync::Arc, time::Duration};
 
@@ -117,5 +117,61 @@ async fn ffmpeg_writes_a_jpeg_without_seeking_a_player() {
     assert_eq!(thumbnail.timestamp_us, 200_000);
     let bytes = std::fs::read(folder.join(format!("{}.jpg", thumbnail.asset))).unwrap();
     assert!(bytes.starts_with(&[0xff, 0xd8]), "jpeg");
+    let _ = std::fs::remove_dir_all(&folder);
+}
+
+#[tokio::test]
+async fn cache_keeps_only_the_newest_frames_and_ffmpeg_reads_a_local_file() {
+    let folder = dir();
+    let script = folder.join("fake-ffmpeg");
+    std::fs::write(
+        &script,
+        "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$(dirname \"$0\")/args\"\nout=\nfor arg in \"$@\"; do out=\"$arg\"; done\nprintf '\\377\\330' > \"$out\"\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let oldest = (0..KEPT_THUMBNAILS + 3)
+        .map(|index| {
+            let path = folder.join(format!("old-{index}.jpg"));
+            std::fs::write(&path, b"old").unwrap();
+            let file = std::fs::File::options().write(true).open(&path).unwrap();
+            file.set_modified(
+                std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(index as u64),
+            )
+            .unwrap();
+            path
+        })
+        .collect::<Vec<_>>();
+    let source = folder.join("clip.mkv");
+    std::fs::write(&source, b"video").unwrap();
+    let extractor = Extractor::default();
+    let thumbnail = extractor
+        .extract(&script, &folder, &source, 200_000)
+        .await
+        .unwrap();
+    let kept: Vec<_> = std::fs::read_dir(&folder)
+        .unwrap()
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("jpg"))
+        .collect();
+    assert_eq!(kept.len(), KEPT_THUMBNAILS);
+    assert!(
+        kept.iter()
+            .any(|path| path.ends_with(format!("{}.jpg", thumbnail.asset)))
+    );
+    for path in oldest.iter().take(3) {
+        assert!(!path.exists(), "{}", path.display());
+    }
+    let args = std::fs::read_to_string(folder.join("args")).unwrap();
+    let lines: Vec<_> = args.lines().collect();
+    let whitelist = lines
+        .iter()
+        .position(|line| *line == "-protocol_whitelist")
+        .unwrap();
+    assert_eq!(lines[whitelist + 1], "file");
+    let input = lines.iter().position(|line| *line == "-i").unwrap();
+    assert!(input > whitelist);
+    assert_eq!(lines[input + 1], format!("file:{}", source.display()));
     let _ = std::fs::remove_dir_all(&folder);
 }

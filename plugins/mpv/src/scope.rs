@@ -21,6 +21,10 @@ pub fn arguments(socket: &Path) -> Vec<String> {
     vec![
         "--no-config".into(),
         "--load-scripts=no".into(),
+        "--ytdl=no".into(),
+        "--load-stats-overlay=no".into(),
+        "--load-osd-console=no".into(),
+        "--load-auto-profiles=no".into(),
         "--idle=yes".into(),
         "--keep-open=yes".into(),
         "--force-window=yes".into(),

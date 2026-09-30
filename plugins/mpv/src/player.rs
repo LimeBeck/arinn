@@ -34,6 +34,7 @@ use zbus::Connection;
 const SEEK_SLACK_US: i64 = 1_500_000;
 const RECONNECT: Duration = Duration::from_millis(200);
 const FILE_WAIT: Duration = Duration::from_secs(1);
+const CONFIRM_WAIT: Duration = Duration::from_secs(1);
 const PROPS: &[(i64, &str)] = &[
     (1, "pause"),
     (2, "time-pos"),
@@ -158,6 +159,7 @@ struct Core {
     snapshot: u64,
     touch: u64,
     file_loaded: bool,
+    load_fault: Option<ErrorCode>,
     seen: HashSet<String>,
     force_anchor: bool,
     anchor: Option<Anchor>,
@@ -215,6 +217,7 @@ impl Player {
             snapshot: 0,
             touch: 0,
             file_loaded: false,
+            load_fault: None,
             seen: HashSet::new(),
             force_anchor: false,
             anchor: None,
@@ -434,6 +437,7 @@ impl Core {
             &source.audio_language,
             &source.subtitle_language,
         );
+        self.load_fault = None;
         let modern = self
             .request(parse::loadfile(path, &options, true), incoming)
             .await?;
@@ -446,8 +450,16 @@ impl Core {
                 .await?;
             ipc::map_error(&legacy.error)?;
         }
-        self.pump(incoming, FILE_WAIT, |core| core.file_loaded)
-            .await;
+        self.pump(incoming, FILE_WAIT, |core| {
+            core.file_loaded || core.load_fault.is_some()
+        })
+        .await;
+        if let Some(error) = self.load_fault.take() {
+            return Err(error);
+        }
+        if !self.file_loaded {
+            return Err(ErrorCode::Unavailable);
+        }
         Ok(())
     }
 
@@ -627,15 +639,7 @@ impl Core {
             .request(json!(["set_property", property, number]), incoming)
             .await?;
         ipc::map_error(&reply.error)?;
-        if let Some(live) = self.live.as_mut() {
-            for track in &mut live.tracks {
-                if track.kind == kind {
-                    track.selected = track.id == track_id;
-                }
-            }
-        }
-        self.sync();
-        Ok(())
+        self.confirm_tracks(incoming, kind, Some(track_id)).await
     }
 
     async fn disable_subtitles(
@@ -650,15 +654,25 @@ impl Core {
             .request(json!(["set_property", "sid", "no"]), incoming)
             .await?;
         ipc::map_error(&reply.error)?;
-        if let Some(live) = self.live.as_mut() {
-            for track in &mut live.tracks {
-                if track.kind == media::TRACK_SUBTITLE {
-                    track.selected = false;
-                }
-            }
+        self.confirm_tracks(incoming, media::TRACK_SUBTITLE, None)
+            .await
+    }
+
+    async fn confirm_tracks(
+        &mut self,
+        incoming: &mut mpsc::UnboundedReceiver<Incoming>,
+        kind: &str,
+        track_id: Option<&str>,
+    ) -> Result<(), ErrorCode> {
+        self.pump(incoming, CONFIRM_WAIT, |core| {
+            tracks_match(core, kind, track_id)
+        })
+        .await;
+        if tracks_match(self, kind, track_id) {
+            Ok(())
+        } else {
+            Err(ErrorCode::Unavailable)
         }
-        self.sync();
-        Ok(())
     }
 
     fn tracks(&self, id: &str) -> Result<Vec<Track>, ErrorCode> {
@@ -744,6 +758,12 @@ impl Core {
                     if let Some(live) = self.live.as_mut() {
                         live.eof = true;
                     }
+                }
+                Some("error") => {
+                    if !self.file_loaded && self.load_fault.is_none() {
+                        self.load_fault = Some(open_failure(event.file_error.as_deref()));
+                    }
+                    self.mark_idle();
                 }
                 _ => self.mark_idle(),
             },
@@ -864,14 +884,16 @@ impl Core {
 
     fn phase(&self) -> &'static str {
         let Some(live) = self.live.as_ref() else {
-            return "stopped";
+            return media::STATE_STOPPED;
         };
         if live.stopped || self.idle {
-            "stopped"
-        } else if live.pause || live.eof {
-            "paused"
+            media::STATE_STOPPED
+        } else if live.eof {
+            media::STATE_ENDED
+        } else if live.pause {
+            media::STATE_PAUSED
         } else {
-            "playing"
+            media::STATE_PLAYING
         }
     }
 
@@ -1052,11 +1074,42 @@ fn empty_entity() -> EntityRef {
 
 fn actions(state: &str) -> Vec<String> {
     match state {
-        "playing" | "paused" => ["play", "pause", "play-pause", "seek", "stop"]
-            .into_iter()
-            .map(str::to_string)
-            .collect(),
+        media::STATE_PLAYING | media::STATE_PAUSED | media::STATE_ENDED => {
+            ["play", "pause", "play-pause", "seek", "stop"]
+                .into_iter()
+                .map(str::to_string)
+                .collect()
+        }
         _ => Vec::new(),
+    }
+}
+
+fn tracks_match(core: &Core, kind: &str, track_id: Option<&str>) -> bool {
+    let Some(live) = core.live.as_ref() else {
+        return false;
+    };
+    match track_id {
+        Some(id) => live
+            .tracks
+            .iter()
+            .any(|track| track.kind == kind && track.id == id && track.selected),
+        None => live
+            .tracks
+            .iter()
+            .filter(|track| track.kind == kind)
+            .all(|track| !track.selected),
+    }
+}
+
+fn open_failure(file_error: Option<&str>) -> ErrorCode {
+    let text = file_error.unwrap_or("").to_ascii_lowercase();
+    if text.contains("not found")
+        || text.contains("no such file")
+        || text.contains("nothing to play")
+    {
+        ErrorCode::NotFound
+    } else {
+        ErrorCode::Unavailable
     }
 }
 
@@ -1083,7 +1136,7 @@ fn refresh_anchor(
     if force || anchor.state != state {
         return true;
     }
-    if state != "playing" {
+    if state != media::STATE_PLAYING {
         return anchor.position_us != position_us;
     }
     let elapsed = now.saturating_duration_since(anchor.at);

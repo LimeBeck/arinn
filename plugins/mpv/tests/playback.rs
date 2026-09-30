@@ -5,7 +5,11 @@
 
 use arinn_plugin_mpv::{Launch, Player, Settings, log_line};
 use arinn_plugin_sdk::runtime::MediaAction;
-use arinn_protocol::{media::MediaSource, production::EntityRef, validation::ErrorCode};
+use arinn_protocol::{
+    media::{MediaSource, STATE_ENDED},
+    production::EntityRef,
+    validation::ErrorCode,
+};
 use serde_json::{Value, json};
 use std::{
     path::PathBuf,
@@ -32,6 +36,16 @@ struct Peer {
 
 impl Peer {
     async fn spawn(dir: PathBuf, has_video: bool, legacy_only: bool) -> Self {
+        Self::spawn_configured(dir, has_video, legacy_only, None, false).await
+    }
+
+    async fn spawn_configured(
+        dir: PathBuf,
+        has_video: bool,
+        legacy_only: bool,
+        open_error: Option<String>,
+        ignore_select: bool,
+    ) -> Self {
         let _ = std::fs::remove_file(dir.join("ipc"));
         std::fs::create_dir_all(&dir).unwrap();
         let listener = UnixListener::bind(dir.join("ipc")).unwrap();
@@ -45,8 +59,12 @@ impl Peer {
             Arc::clone(&hold_seek),
             Arc::clone(&stop),
             extra_rx,
-            has_video,
-            legacy_only,
+            PeerScript {
+                has_video,
+                legacy_only,
+                open_error,
+                ignore_select,
+            },
         ));
         Self {
             dir,
@@ -79,21 +97,27 @@ impl Drop for Peer {
     }
 }
 
+struct PeerScript {
+    has_video: bool,
+    legacy_only: bool,
+    open_error: Option<String>,
+    ignore_select: bool,
+}
+
 async fn serve(
     listener: UnixListener,
     commands: Arc<Mutex<Vec<Value>>>,
     hold_seek: Arc<AtomicBool>,
     stop: Arc<AtomicBool>,
     mut extra: mpsc::UnboundedReceiver<Value>,
-    has_video: bool,
-    legacy_only: bool,
+    script: PeerScript,
 ) {
     let Ok((stream, _)) = listener.accept().await else {
         return;
     };
     let (read, mut write) = stream.into_split();
     let mut lines = BufReader::new(read).lines();
-    let mut state = Fake::new(has_video);
+    let mut state = Fake::new(script.has_video, script.open_error, script.ignore_select);
     let mut observed: Vec<(i64, String)> = Vec::new();
     loop {
         if stop.load(Ordering::SeqCst) {
@@ -110,7 +134,7 @@ async fn serve(
                 if name == "seek" && hold_seek.load(Ordering::SeqCst) {
                     std::future::pending::<()>().await;
                 }
-                if name == "loadfile" && legacy_only && command.get(3).and_then(|v| v.as_i64()).is_some() {
+                if name == "loadfile" && script.legacy_only && command.get(3).and_then(|v| v.as_i64()).is_some() {
                     send(&mut write, &json!({"request_id": id, "error": "invalid parameter"})).await;
                     continue;
                 }
@@ -146,10 +170,12 @@ struct Fake {
     chapters: Value,
     cache: Value,
     has_video: bool,
+    open_error: Option<String>,
+    ignore_select: bool,
 }
 
 impl Fake {
-    fn new(has_video: bool) -> Self {
+    fn new(has_video: bool, open_error: Option<String>, ignore_select: bool) -> Self {
         Self {
             pause: true,
             time: None,
@@ -161,6 +187,8 @@ impl Fake {
             chapters: json!([]),
             cache: json!({"seekable-ranges": []}),
             has_video,
+            open_error,
+            ignore_select,
         }
     }
 
@@ -178,6 +206,13 @@ impl Fake {
                 vec![self.change(id, &property)]
             }
             "loadfile" => {
+                if let Some(file_error) = self.open_error.clone() {
+                    return vec![json!({
+                        "event": "end-file",
+                        "reason": "error",
+                        "file_error": file_error
+                    })];
+                }
                 let options = command
                     .get(4)
                     .cloned()
@@ -213,6 +248,7 @@ impl Fake {
                         self.pause = value.as_bool().unwrap_or(self.pause);
                         self.snapshot_one(observed, "pause")
                     }
+                    "aid" | "sid" if self.ignore_select => Vec::new(),
                     "aid" | "sid" => {
                         self.select(property, &value);
                         self.snapshot_one(observed, "track-list")
@@ -620,5 +656,108 @@ async fn bad_uri_is_rejected() {
     item.uri = "https://example.org/a.mkv".into();
     assert_eq!(player.open(item).await, Err(ErrorCode::InvalidArgument));
     drop(player);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn open_of_a_missing_or_unreadable_file_is_not_success() {
+    for (file_error, expected) in [
+        ("file not found", ErrorCode::NotFound),
+        ("permission denied", ErrorCode::Unavailable),
+    ] {
+        let dir = std::env::temp_dir().join(format!("arinn-mpv-{}", uuid::Uuid::new_v4()));
+        let peer =
+            Peer::spawn_configured(dir.clone(), true, false, Some(file_error.into()), false).await;
+        let player = player(&dir, peer.socket());
+        assert_eq!(player.open(source(&dir)).await, Err(expected));
+        let view = player.view().await.unwrap();
+        assert!(view.sessions.is_empty());
+        assert!(!dir.join("session").exists());
+        drop(player);
+        drop(peer);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[tokio::test]
+async fn ignored_track_selection_is_not_applied_locally() {
+    let dir = std::env::temp_dir().join(format!("arinn-mpv-{}", uuid::Uuid::new_v4()));
+    let peer = Peer::spawn_configured(dir.clone(), true, false, None, true).await;
+    let player = player(&dir, peer.socket());
+    let id = player.open(source(&dir)).await.unwrap();
+    assert_eq!(
+        player.select(id.clone(), "audio".into(), "a2".into()).await,
+        Err(ErrorCode::Unavailable)
+    );
+    let tracks = player.tracks(id.clone()).await.unwrap();
+    assert!(
+        tracks
+            .iter()
+            .any(|track| track.id == "a1" && track.selected)
+    );
+    assert!(
+        tracks
+            .iter()
+            .any(|track| track.id == "a2" && !track.selected)
+    );
+    assert_eq!(
+        player.disable_subtitles(id.clone()).await,
+        Err(ErrorCode::Unavailable)
+    );
+    let tracks = player.tracks(id).await.unwrap();
+    assert!(
+        tracks
+            .iter()
+            .any(|track| track.id == "s1" && track.selected)
+    );
+    drop(player);
+    drop(peer);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+async fn wait_for_state(player: &Player, expected: &str) {
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            let state = player.view().await.unwrap().sessions[0].state.clone();
+            if state == expected {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("state did not become {expected}"));
+}
+
+#[tokio::test]
+async fn confirmed_eof_is_ended_and_a_seek_is_not() {
+    let dir = std::env::temp_dir().join(format!("arinn-mpv-{}", uuid::Uuid::new_v4()));
+    let peer = Peer::spawn(dir.clone(), true, false).await;
+    let player = player(&dir, peer.socket());
+    let id = player.open(source(&dir)).await.unwrap();
+    player
+        .control(MediaAction::Seek, id.clone(), 120_000_000)
+        .await
+        .unwrap();
+    let sought = &player.view().await.unwrap().sessions[0];
+    assert_ne!(sought.state, STATE_ENDED);
+    assert_eq!(sought.position_us, 120_000_000);
+
+    peer.emit(json!({"event":"property-change","name":"eof-reached","data":true}));
+    wait_for_state(&player, STATE_ENDED).await;
+    peer.emit(json!({"event":"property-change","name":"eof-reached","data":false}));
+    wait_for_state(&player, "playing").await;
+
+    peer.emit(json!({"event":"end-file","reason":"eof"}));
+    wait_for_state(&player, STATE_ENDED).await;
+    player
+        .control(MediaAction::Seek, id, 5_000_000)
+        .await
+        .unwrap();
+    let after = &player.view().await.unwrap().sessions[0];
+    assert_ne!(after.state, STATE_ENDED);
+    assert_eq!(after.position_us, 5_000_000);
+    drop(player);
+    drop(peer);
     let _ = std::fs::remove_dir_all(&dir);
 }

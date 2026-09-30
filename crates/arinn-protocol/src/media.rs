@@ -117,7 +117,9 @@ pub fn file_uri(value: &str) -> Result<(), ErrorCode> {
     Ok(())
 }
 
-fn decode_percent(value: &str) -> Result<String, ErrorCode> {
+/// Percent-decoding used by [`file_uri`]. A truncated escape, a NUL byte or
+/// bytes that are not UTF-8 are rejected.
+pub fn decode_percent(value: &str) -> Result<String, ErrorCode> {
     let bytes = value.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut index = 0;

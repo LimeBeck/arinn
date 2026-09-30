@@ -38,6 +38,7 @@ pub(crate) struct Event {
     pub property: Option<String>,
     pub data: Value,
     pub reason: Option<String>,
+    pub file_error: Option<String>,
 }
 
 pub(crate) enum Incoming {
@@ -183,6 +184,10 @@ async fn read_loop(
                 data: value.get("data").cloned().unwrap_or(Value::Null),
                 reason: value
                     .get("reason")
+                    .and_then(|item| item.as_str())
+                    .map(str::to_string),
+                file_error: value
+                    .get("file_error")
                     .and_then(|item| item.as_str())
                     .map(str::to_string),
             };

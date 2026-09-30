@@ -195,6 +195,10 @@ fn arguments_disable_player_input() {
     for flag in [
         "--no-config",
         "--load-scripts=no",
+        "--ytdl=no",
+        "--load-stats-overlay=no",
+        "--load-osd-console=no",
+        "--load-auto-profiles=no",
         "--input-default-bindings=no",
         "--input-vo-keyboard=no",
         "--input-media-keys=no",

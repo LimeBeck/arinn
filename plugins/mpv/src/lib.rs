@@ -14,7 +14,7 @@ mod thumbnail;
 pub use paths::{ensure_private_dir, file_path, validate_runtime};
 pub use player::{Launch, Player, Settings, View};
 pub use scope::{UNIT, arguments, ensure_unit, socket_is_private};
-pub use thumbnail::Extractor;
+pub use thumbnail::{Extractor, KEPT_THUMBNAILS};
 
 use arinn_plugin_sdk::runtime::{
     MediaAction, MediaExtensions, MediaHandler, MediaOpenHandler, MediaService,

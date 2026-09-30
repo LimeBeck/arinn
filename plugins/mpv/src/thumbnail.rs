@@ -15,6 +15,8 @@ use tokio::{process::Command, sync::Mutex};
 
 const INTERVAL: Duration = Duration::from_millis(200);
 const DEADLINE: Duration = Duration::from_secs(4);
+/// Successful frames kept in the cache. Older JPEGs are removed.
+pub const KEPT_THUMBNAILS: usize = 8;
 
 struct Slot {
     cancel: tokio::sync::watch::Sender<bool>,
@@ -71,10 +73,12 @@ impl Extractor {
             .arg("-hide_banner")
             .arg("-loglevel")
             .arg("error")
+            .arg("-protocol_whitelist")
+            .arg("file")
             .arg("-ss")
             .arg(crate::parse::format_seconds(position_us))
             .arg("-i")
-            .arg(source)
+            .arg(format!("file:{}", source.display()))
             .arg("-frames:v")
             .arg("1")
             .arg("-vf")
@@ -112,10 +116,34 @@ impl Extractor {
             return Err(ErrorCode::Unsupported);
         }
         let _ = std::fs::set_permissions(&output, std::fs::Permissions::from_mode(0o600));
+        prune(directory, KEPT_THUMBNAILS);
         Ok(Thumbnail {
             asset,
             timestamp_us: position_us,
         })
+    }
+}
+
+fn prune(directory: &Path, keep: usize) {
+    let mut frames = Vec::new();
+    let Ok(entries) = std::fs::read_dir(directory) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("jpg") {
+            continue;
+        }
+        let modified = entry
+            .metadata()
+            .and_then(|metadata| metadata.modified())
+            .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+        frames.push((modified, path));
+    }
+    frames.sort_by_key(|(modified, _)| *modified);
+    let extra = frames.len().saturating_sub(keep);
+    for (_, path) in frames.into_iter().take(extra) {
+        let _ = std::fs::remove_file(path);
     }
 }
 

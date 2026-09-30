@@ -4,7 +4,7 @@
 - **Date:** 2026-09-30
 - **Deciders:** delegated technical choice ([ADR-0037](0037-agent-autonomy-and-owner-gated-decisions.md)) within [ADR-0054](0054-media-and-library-wire-contract.md) and the [media MVP](../architecture/media-mvp.md)
 - **Amends / Supersedes:** amends [ADR-0060](0060-library-routing.md) (step 3 of the media and library routing)
-- **Amended by / Superseded by:** —
+- **Amended by / Superseded by:** [ADR-0063](0063-ended-session-state.md) — `ended` is forwarded for the `ended` session state (#167)
 - **Specification:** [§7.4](../specifications/arinn-specification.md#74-local-library-and-mpv), [§11](../specifications/arinn-specification.md#11-state-ownership-and-persistence)
 
 ## Context

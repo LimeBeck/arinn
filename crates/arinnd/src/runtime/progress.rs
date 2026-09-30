@@ -8,7 +8,7 @@
 use super::*;
 use arinn_protocol::{
     library::{FEATURE_RESUME, LibraryResumeProxy},
-    media::Session,
+    media::{self, Session},
 };
 use std::collections::HashMap;
 
@@ -25,6 +25,8 @@ pub(super) struct Sent {
     position_us: i64,
     duration_us: i64,
     playing: bool,
+    /// A confirmed end of the content (ADR-0063).
+    ended: bool,
     library: String,
     content: String,
 }
@@ -89,10 +91,12 @@ impl Core {
                 let key = (media.to_owned(), session.id.clone());
                 let position = current_position(session);
                 let playing = session.state == "playing";
+                let ended = media::ended(&session.state);
                 let send = match progress.get(&key) {
                     None => true,
                     Some(sent) => {
                         sent.playing != playing
+                            || sent.ended != ended
                             || sent.content != session.content.local_id
                             || (position - sent.expected(now)).abs() > SEEK_THRESHOLD_US
                             || (playing && now.duration_since(sent.at) >= PROGRESS_INTERVAL)
@@ -104,6 +108,7 @@ impl Core {
                         position_us: position,
                         duration_us: session.duration_us,
                         playing,
+                        ended,
                         library: session.content.provider_id.clone(),
                         content: session.content.local_id.clone(),
                     };
@@ -155,8 +160,8 @@ impl Core {
         let Ok(proxy) = builder.build().await else {
             return;
         };
-        // No confirmed end-of-file signal exists in the session contract yet
-        // (ADR-0061), so `ended` is never claimed.
+        // `ended` only for a player-confirmed end of file (ADR-0063), never
+        // inferred from the position.
         let _ = tokio::time::timeout(
             SET_PROGRESS_TIMEOUT,
             proxy.set_progress(
@@ -164,7 +169,7 @@ impl Core {
                 &sent.content,
                 sent.position_us,
                 sent.duration_us,
-                false,
+                sent.ended,
             ),
         )
         .await;

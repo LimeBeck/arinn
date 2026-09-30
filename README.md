@@ -21,37 +21,39 @@
 ---
 
 > [!WARNING]
-> **Arinn is pre-alpha.** Phase 1 implements the production core and plugin SDK; the minimal UI remains a technical prototype. It is not yet usable as an everyday HTPC shell. See the [roadmap](ROADMAP.md).
+> **Arinn is pre-alpha.** Phase 1 implements the production core and plugin SDK. The shell binds several screens to the daemon and is still a technical prototype. It is not yet usable as an everyday HTPC shell. See the [roadmap](ROADMAP.md).
 
 ## What is Arinn?
 
 Arinn (Old Norse for *hearth*) turns a Linux computer behind the TV into something that feels like a TV: you pick up the remote and ask *"what do we want to do now?"* instead of *"which app do I start?"*.
 
-Arinn does **not** replace your browser, player or game launcher. It orchestrates the applications you already have and stays on top of them:
+Arinn does **not** replace your browser, player or game launcher. It orchestrates the applications you already have and stays on top of them. What follows is what the shell on `master` mounts:
 
-- **Home over everything.** Press Home in Chrome, Steam or a game and Arinn appears over it; press Back and you are exactly where you were.
-- **One Continue row** for the film you did not finish, the browser tab you were watching and the running game.
-- **Streaming services as tiles** — Kinopoisk, IVI or YouTube open directly, not through bookmarks.
-- **Steam and EmulationStation** as first-class entry points.
-- **Local library** of films and series from local or mounted network folders, played in mpv with Arinn's on-screen controls, audio and subtitle selection and resume.
-- **Downloads** from Transmission, with finished films appearing in the library.
+- **Home over everything.** Press Home in another application and Arinn appears over it; press Back and you are where you were.
+- **Continue and Now playing** read media sessions from `Media1`, with progress and transport controls. The mpv plugin is the playback provider. The local library plugin is the catalogue.
+- **Library** reads `Library1`. Posters and fanart load through `Assets1`. A missing image stays a plate.
+- **Open services** lists managed browser windows. The packaged web shortcuts include YouTube, Kinopoisk and IVI.
+- **Applications** come from the desktop provider, grouped into Online, Games, Media and Other.
+- **Settings** reads `Settings1`. Controls are grouped and typed: a toggle, a stepper, text, an option list or a path. A path is plain text. There is no folder browser.
 - **Made for a remote:** everything works with arrows, OK and Back from three metres away; an air mouse works too.
 - **Shared household:** no accounts, no profiles, no login.
+
+Downloads, the player on-screen display and the power menu are specified and are not mounted. Choosing Downloads shows that the section is not available. Choosing Power reports that power controls are not available. The daemon serves `Browse1`. The shell has no address or search screen. Timeline thumbnails stay with the player binding and are not part of the artwork above.
 
 Every integration is a separate plugin process talking to a small core over D-Bus, so new services can be added without touching Arinn itself.
 
 ## Interface preview
 
-These are screenshots of the **current Qt/QML interface**, rendered by the development gallery with fictional fixture data, placeholder artwork and neutral application icons. Home, navigation, Library, Applications, Open services and Now playing use the same components as the production shell. Media, favorites and service integrations shown by the fixtures are not completed integrations. See the [UI implementation status](docs/architecture/ui-components.md).
+These are screenshots of the **current Qt/QML interface**, rendered by the development gallery at 1920×1080 with fictional fixture data, one shared placeholder image and neutral application monograms. Home, navigation, Library, Applications, Open services, Now playing and Settings use the same views the production shell mounts. The gallery does not connect to a daemon. Names, favorites and settings rows in the fixtures are not a catalogue of finished integrations. See the [UI components](docs/architecture/ui-components.md).
 
-**Home** — the Arinn brand mark, Continue cards and application tiles, with visible remote-control focus.
+**Home** — the Arinn mark, Continue cards and favorite tiles, with remote-control focus on the return card. The other Continue cards show the placeholder landscape and a progress bar.
 
-![Current Arinn Qt Home with the brand mark, Continue cards and neutral application tiles](docs/design/current-ui/home.png)
+![Current Arinn Qt Home with Continue cards, the placeholder landscape and favorite tiles](docs/design/current-ui/home.png)
 
 <details>
 <summary>Navigation screenshot</summary>
 
-**Navigation** — the shared brand lockup and section menu over a dimmed Home, with the current selection highlighted.
+**Navigation** — the brand lockup and section menu over a dimmed Home, with Home selected.
 
 ![Current Arinn Qt navigation with the brand mark and Home selected](docs/design/current-ui/navigation.png)
 
@@ -60,9 +62,9 @@ These are screenshots of the **current Qt/QML interface**, rendered by the devel
 <details>
 <summary>Library screenshot</summary>
 
-**Library** — films and series on placeholder plates, with the current catalogue tab highlighted.
+**Library** — Films selected, with the Series tab beside it. Six posters show the placeholder landscape. Late light is the plate drawn when a poster is missing.
 
-![Current Arinn Qt Library with placeholder film plates and Films selected](docs/design/current-ui/library.png)
+![Current Arinn Qt Library with Films selected, placeholder landscapes and one plate](docs/design/current-ui/library.png)
 
 </details>
 
@@ -87,9 +89,18 @@ These are screenshots of the **current Qt/QML interface**, rendered by the devel
 <details>
 <summary>Now playing screenshot</summary>
 
-**Now playing** — the current media session, with progress and transport controls.
+**Now playing** — the current media session on the placeholder landscape, with progress and transport controls.
 
-![Current Arinn Qt Now playing screen with progress and transport controls](docs/design/current-ui/now-playing.png)
+![Current Arinn Qt Now playing screen with the placeholder landscape, progress and transport controls](docs/design/current-ui/now-playing.png)
+
+</details>
+
+<details>
+<summary>Settings screenshot</summary>
+
+**Settings** — Media selected. The group shows a toggle, an option (Title), a stepper (10), and the path `/media/films` as text.
+
+![Current Arinn Qt Settings with Media selected, a toggle, an option, a stepper and one path as text](docs/design/current-ui/settings.png)
 
 </details>
 
@@ -104,7 +115,7 @@ These are screenshots of the **current Qt/QML interface**, rendered by the devel
 | 2–4 | Applications, browser, media | Planned |
 | 5 | MVP: downloads, full UI, packaging | Planned |
 
-What works today: the Rust daemon, a demo plugin, the CLI and a minimal Qt shell; production manifest discovery, paged application state, asynchronous commands and recovery after plugin and daemon crashes. Global Home and focus return were verified in Phase 0 (20/20 cycles on two monitors); the migrated runtime also passed 20/20 Home/Back cycles over Chrome and real systemd restart/reload checks ([evidence](docs/architecture/phase-1-live-evidence.json)). There is no finished UI, no browser, media or download integration and no published release yet. Details: [ROADMAP.md](ROADMAP.md) and the [Phase 0 report](docs/architecture/phase-0-report.md).
+What works today: the Rust daemon, the CLI and the Qt shell; production manifest discovery, paged application state, asynchronous commands and recovery after plugin and daemon crashes. The shell mounts Home, navigation, Applications, Open services, Library (`Library1`), Continue and Now playing (`Media1`), and Settings (`Settings1`). Artwork, posters and fanart load through `Assets1`. Providers on `master` include demo, desktop, Chrome, MPRIS, the local library and mpv. The daemon serves `Browse1`; the shell has no address or search screen. Downloads, the player on-screen display and the power menu are not mounted. Global Home and focus return were verified in Phase 0 (20/20 cycles on two monitors); the migrated runtime also passed 20/20 Home/Back cycles over Chrome and real systemd restart/reload checks ([evidence](docs/architecture/phase-1-live-evidence.json)). There is no stable release yet. Details: [ROADMAP.md](ROADMAP.md) and the [Phase 0 report](docs/architecture/phase-0-report.md).
 
 ## Requirements
 
@@ -170,8 +181,8 @@ Remote controls such as the G60S Pro air mouse send these same keys; no driver i
 
 ```text
 arinn-shell (Qt 6/QML) ──D-Bus──▶ arinnd (Rust) ──D-Bus──▶ plugins (separate processes)
-                                     │                     demo · desktop · chrome · mpris
-                                     ▼                     library · mpv · transmission …
+                                     │                     demo · desktop · chrome
+                                     ▼                     mpris · library · mpv
                            KDE platform adapter (KWin)
 ```
 

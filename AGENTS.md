@@ -2,6 +2,16 @@
 
 This file is for AI coding agents (Codex, Claude Code and others). Everything in [CONTRIBUTING.md](CONTRIBUTING.md) applies to you as well; this file adds the rules that matter most for autonomous work.
 
+## Task scope
+
+Start from the user's request and stay within its scope:
+
+- **Review or explanation:** inspect and report findings. Do not edit files, claim development tasks, or publish issues or pull requests unless requested.
+- **Directed change:** implement the requested change. Use its existing issue or create a scoped Agent task issue after checking for overlap. Finish that task without selecting unrelated roadmap work.
+- **Autonomous roadmap work:** select an open, unclaimed task for the current or next phase only when the user asks you to choose or continue roadmap work.
+
+Honor an explicit local-only request: prepare and verify local changes without publishing them. If GitHub is unavailable, continue independent local work, record the intended zone and dependencies, and report the missing coordination before publishing or merging. Never claim that an issue was reserved, claimed or checked when it was not.
+
 ## Read first
 
 1. [Specification](docs/specifications/arinn-specification.md) — current requirements; the only source of truth for behaviour.
@@ -26,23 +36,13 @@ This file is for AI coding agents (Codex, Claude Code and others). Everything in
 | `tests/integration` | Private-bus suite (`phase0.py`), JS adapter tests, operator tests (`kwin_*.py`) |
 | `docs/` | Specification, ADRs, architecture, plugin API, design |
 
-## Commands
+## Verification
 
-```sh
-cargo build --locked
-cargo fmt --all --check
-cargo clippy --locked --all-targets -- -D warnings
-cargo test --locked
-cmake -S . -B build -G Ninja && cmake --build build
-dbus-run-session -- python tests/integration/phase0.py
-node --test tests/integration/kwin_adapter.test.cjs
-python scripts/check-docs.py
-python scripts/adr.py check
-python scripts/release.py check
-python -m unittest discover -s tests/ci
-reuse lint
-cargo deny check licenses
-```
+[CONTRIBUTING.md — Required checks](CONTRIBUTING.md#required-checks) is the canonical list of commands and their scope. Use the documentation-only checks for Markdown/changelog changes and the full checks for code changes. Record failures, skipped checks and environmental limitations; a failed check is not a pass because an isolated rerun passed. Real-desktop operator tests always require explicit permission.
+
+## Code discovery
+
+Prefer codebase-memory-mcp graph tools for code discovery when available: `search_graph`, `trace_path`, `get_code_snippet`, then `query_graph` or `get_architecture`. Index an unindexed repository first. Check relevant snippets against the current checkout before editing; the graph may be stale. Use `rg` and file reads for strings, configuration and documentation, or when graph tools are unavailable, stale or insufficient. Report a tool limitation only when it affects the result; it does not block independent work.
 
 ## Hard rules
 
@@ -56,8 +56,8 @@ cargo deny check licenses
 - **English** for code, comments, commits, pull requests and documentation. Answer the user in the language they write in.
 - **Never create release tags or publish releases**; only the maintainer releases (CONTRIBUTING.md, *Releases*).
 - **Every bug fix needs a regression test** that fails without the fix.
-- **SPDX header** on every new file (`GPL-3.0-or-later`; `MIT OR Apache-2.0` in the protocol crate, SDK and interface XML).
-- **Secrets and privacy:** never log or commit URLs, tab titles, tokens, credentials or personal paths; never commit `.phase0/`, `build/` or `target/`.
+- **SPDX coverage** on every new file according to [CONTRIBUTING.md](CONTRIBUTING.md#code-conventions) and the existing `REUSE.toml` policy: GPL for implementation code, permissive protocol/SDK/XML, CC-BY-SA for documentation. A file already covered by REUSE annotations does not need a conflicting header.
+- **Secrets and privacy:** never log or commit real user URLs, tab titles, tokens, credentials or personal paths. Synthetic fixtures and public documentation links are allowed; runtime logging still follows specification §13. Never commit `.phase0/`, `build/` or `target/`.
 
 ## Autonomy
 
@@ -65,22 +65,24 @@ You are expected to work on your own ([ADR-0037](docs/adr/0037-agent-autonomy-an
 
 **Do yourself:**
 
-- **Find or create the task.** Pick an open, unclaimed Agent task issue for the current or next roadmap phase. If none fits, create one from the roadmap scope and exit criteria (Agent task template): zone, dependencies, requirement IDs, reserved ADR number. Search open issues and pull requests first so tasks and zones do not overlap.
+- **Find or create the task within the authorized scope.** Follow *Task scope* above. Search open issues and pull requests before claiming or creating a task; record its zone, dependencies, requirement IDs and reserved ADR number in the Agent task template.
 - **Claim it:** add `agent:<your name>` and comment "claimed" with your branch name. A claim with no activity for 48 hours may be taken over after commenting on the issue.
 - **Decide technical details** inside the specification and accepted ADRs; record significant technical choices as ADRs accepted under delegated authority.
-- **Finish the pull request:** merge `master` into it, fix CI (also failures inherited from `master`, by porting the fix), answer and resolve review threads, update your gate rows in `ROADMAP.md` with evidence, open follow-up issues for problems you find.
+- **Finish the pull request:** merge `master` into it, fix CI within the task's zone, answer and resolve review threads, and update your gate rows in `ROADMAP.md` with evidence. For inherited or unrelated failures outside the zone, follow the scope procedure in *Parallel work* before editing. Record unresolved failures as blockers; do not silently enlarge the change or mark it done.
 - **Merge it yourself** (squash, then delete the branch and close the issue) when every CI, changelog and CLA check is green on a branch up to date with `master`, no review thread is unresolved, there is no `needs-owner` label, and the pull request touches no owner-gated area.
 
 **Owner-gated — label `needs-owner`, explain, recommend, move on:** open questions and product scope (acceptance criteria, MVP, product behaviour in the specification); marking a phase Done; non-technical ADRs (product, licensing, security posture, process); licensing files and policy (`LICENSE*`, `REUSE.toml`, `CLA.md`, `deny.toml` license policy); releases, version bumps and tags; operator tests on a real desktop, HTPC or TV; repository settings, branch protection, secrets and history rewrites on `master`; the rules for agents themselves (`AGENTS.md`, `CONTRIBUTING.md`, `CODEOWNERS`, merge/release/CLA workflows). The owner merges those pull requests.
+
+Fixing implementation to meet an existing requirement is delegated work; changing the intended product behaviour or acceptance criterion needs the owner. Update technical documentation and implementation evidence as needed. If the specification already describes the intended behaviour accurately, reference it rather than rewriting it for a bug fix. A correction inside a product-behaviour section of the specification still receives owner review. An explicit owner request authorizes preparing the requested owner-gated change, but does not waive owner-only merging or authorize unrelated decisions.
 
 ## Parallel work
 
 Other agents work on this repository at the same time. Follow *Parallel work* in [CONTRIBUTING.md](CONTRIBUTING.md#parallel-work) ([ADR-0036](docs/adr/0036-parallel-development.md)). In short:
 
 - **One claimed issue, one branch, one pull request.**
-- **Change only paths in the issue's zone.** If you must touch something else, create a separate task or widen the zone in the issue with a comment before editing.
+- **Change only paths in the issue's zone.** For a necessary dependency or CI fix outside it, check open issues and pull requests first. Widen the zone with a recorded rationale before editing if there is no active overlap and no contract/owner boundary is crossed. Otherwise create or reuse a separate task, integrate its fix after it lands, and record the dependency. An active overlapping claim or owner-gated decision is not bypassed by widening a zone.
 - **Contracts** (`crates/arinn-protocol`, SDK, `docs/plugin-api/`) change only in a `contract-change` task; never alongside other work, and only one such pull request is open at a time.
-- **ADR numbers** come from the issue (`python scripts/adr.py next` when reserving, after checking other open tasks); run `python scripts/adr.py register` after adding or amending an ADR.
+- **ADR numbers** come from the issue. Follow the reservation and collision procedure in [CONTRIBUTING.md](CONTRIBUTING.md#parallel-work); `python scripts/adr.py next` suggests a number but does not reserve it. Run `python scripts/adr.py register` after adding or amending an ADR.
 - **Do not bump the specification version, edit other tasks' gates in `ROADMAP.md`, or resolve `Cargo.lock` by hand.**
 - **Never push to another agent's branch.** Take over an issue only through the stale-claim rule.
 - **Labels** come from `.github/labels.yml`; add new ones there, never by hand.
@@ -88,6 +90,6 @@ Other agents work on this repository at the same time. Follow *Parallel work* in
 ## Working style
 
 - Prefer small, reviewable commits that each build and pass tests.
-- When a requirement is ambiguous or two documents disagree, stop and report the conflict with file and line references instead of guessing.
+- When a requirement is ambiguous or two documents disagree, report the conflict with file and line references and pause only the affected work. Continue independent work within the authorized task; do not choose unrelated tasks automatically.
 - Reference requirement IDs (AC-xx, G-x.y, R-xx, OQ-xx) in commit bodies and pull request descriptions.
 - Add a `Co-Authored-By:` trailer naming the agent to your commits.

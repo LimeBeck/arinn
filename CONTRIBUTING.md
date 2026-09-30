@@ -5,7 +5,7 @@ Thank you for helping build Arinn. These rules apply to everyone — human contr
 ## Before you start
 
 1. Read the [specification](docs/specifications/arinn-specification.md) (what Arinn must do) and the [roadmap](ROADMAP.md) (what is being built now).
-2. For anything larger than a small fix, open an issue first and agree on the approach. Changes to architecture, the Plugin API or product scope need an [ADR](docs/adr/README.md).
+2. For implementation work, use a scoped issue and check for overlapping open issues and pull requests first. Contributors agree on the approach; agents decide delegated technical details themselves and bring owner-gated decisions to the owner ([ADR-0037](docs/adr/0037-agent-autonomy-and-owner-gated-decisions.md)). A review or explanation does not require claiming a development task. Changes to architecture, the Plugin API or product scope need an [ADR](docs/adr/README.md).
 3. Check the [open questions](docs/specifications/arinn-specification.md#21-open-questions): work that depends on an undecided question waits for the decision.
 
 ## Development setup
@@ -22,23 +22,43 @@ Running Arinn and the operator tests is described in the [Phase 0 runbook](docs/
 
 ## Required checks
 
-Run these before opening a pull request; CI runs the same checks.
+This section is the canonical local check list. Choose the scope below from the actual diff, following the CI scope rules ([ADR-0044](docs/adr/0044-docs-only-ci-scope.md), [ADR-0049](docs/adr/0049-ci-minutes.md)).
+
+For changes consisting only of Markdown files and changelog fragments, run:
 
 ```sh
-cargo fmt --all --check
-cargo clippy --locked --all-targets -- -D warnings
-cargo test --locked
-cargo build --locked --examples
-ctest --test-dir build --output-on-failure
-cmake --build build && dbus-run-session -- python tests/integration/phase1.py
-node --test tests/integration/kwin_adapter.test.cjs
 python scripts/check-docs.py
+python scripts/adr.py check
 python scripts/check-architecture.py
 python scripts/release.py check
 python -m unittest discover -s tests/ci
 reuse lint
 cargo deny check licenses
 ```
+
+For code, tests, configuration, issue templates or build changes, run the full list before marking the pull request ready:
+
+```sh
+cargo fmt --all --check
+cargo clippy --locked --all-targets -- -D warnings
+cargo test --locked
+cargo build --locked
+cargo build --locked --examples
+cmake -S . -B build -G Ninja
+cmake --build build
+ctest --test-dir build --output-on-failure
+dbus-run-session -- python tests/integration/phase1.py
+node --test tests/integration/kwin_adapter.test.cjs tests/integration/chrome_extension.test.cjs
+python scripts/check-docs.py
+python scripts/adr.py check
+python scripts/check-architecture.py
+python scripts/release.py check
+python -m unittest discover -s tests/ci
+reuse lint
+cargo deny check licenses
+```
+
+During development, run focused checks first. A draft pull request may record outstanding checks or blockers; it is not ready to merge until the applicable local checks and required CI checks pass. Report the exact command and reason for an unavailable or failed check. Record an initial failure and any rerun separately instead of treating a passing rerun as proof of a clean full run. These lists exclude operator tests, which always require explicit owner permission.
 
 To test packaging locally on Arch: `git archive --prefix=arinn-$(python scripts/release.py version)/ -o packaging/arch/arinn-$(python scripts/release.py version).tar.gz HEAD && (cd packaging/arch && makepkg -f)`, then install the package and run `ARINN_TEST_MANAGER=/absolute/path/to/private-systemd dbus-run-session -- python tests/package/smoke.py`. Use the test helper built under the package source tree at `target/release/examples/private-systemd`; it is not installed as a production service.
 
@@ -62,11 +82,11 @@ Only the maintainer releases. To release version `X.Y.Z`:
 Several agents and people work on Arinn at the same time. These rules keep them out of each other's way ([ADR-0036](docs/adr/0036-parallel-development.md)):
 
 1. **One issue per task.** Work starts from an issue created with the *Agent task* template: goal, requirement IDs, **zone** (paths the task may change), shared files, dependencies and a reserved ADR number if needed. Anyone may create such issues from the roadmap; agents do so themselves ([ADR-0037](docs/adr/0037-agent-autonomy-and-owner-gated-decisions.md)). Claim an issue with the label `agent:<name>` (for example `agent:claude`, `agent:codex`) or by assigning yourself, and comment which branch you use; never take an active claim. A claim without any activity for 48 hours may be taken over after a comment. One issue = one branch = one pull request.
-2. **Stay in your zone.** A change outside the zone goes into a separate issue, or is agreed in the issue first.
+2. **Stay in your zone.** Before editing outside it, check for active overlapping work. Record a zone expansion with its rationale in the issue when the change is a necessary part of the task and crosses no active claim, contract boundary or owner-gated decision. Otherwise create or reuse a separate task and record the dependency. Apply this procedure to CI failures inherited from `master` too; do not silently port an unrelated fix outside the zone or merge while required CI is red.
 3. **Contracts first, one at a time.** Changes to `crates/arinn-protocol`, the plugin SDK or `docs/plugin-api/` are separate pull requests labelled `contract-change`; only one is open at a time, and dependent tasks start after it merges.
 4. **Shared files without conflicts:**
    - changelog: add a fragment under [`changes/`](changes/README.md), never edit `CHANGELOG.md`;
-   - ADRs: use the number reserved in the issue; regenerate the register with `python scripts/adr.py register`;
+   - ADRs: `python scripts/adr.py next` is a suggestion, not a lock. Check the current register and reservations in open issues and pull requests, record the number in the task issue, then recheck before writing and before publishing. An existing registered ADR keeps its number. For competing unpublished reservations, the lower issue number keeps it; the other task records a new free number and updates its draft links. Never renumber an accepted ADR. This procedure resolves collisions; it is not an atomic reservation service. Regenerate the register with `python scripts/adr.py register`;
    - specification: change text only; the version is bumped at release;
    - roadmap: change only the rows of your own gates;
    - `Cargo.lock`: on a conflict, take `master`'s version and let `cargo build` regenerate it; never merge it by hand.
@@ -102,7 +122,8 @@ The full rules are [ADR-0028](docs/adr/0028-documentation-governance.md). In pra
 
 | When you… | Update in the same pull request |
 | --- | --- |
-| change behaviour a user or plugin author can observe | the [specification](docs/specifications/arinn-specification.md) (text only; the version is bumped at release) and a [changelog fragment](changes/README.md) |
+| change intended behaviour a user or plugin author can observe | the [specification](docs/specifications/arinn-specification.md) (text only; the version is bumped at release) and a [changelog fragment](changes/README.md); product requirements need owner review |
+| fix implementation to meet an existing requirement | a regression test and a changelog fragment; update affected technical documentation or implementation evidence, and reference the existing requirement if the specification is already accurate |
 | make or change an architectural decision | a new ADR (never edit an accepted one) and the specification |
 | complete a gate, move an item or change a phase status | [ROADMAP.md](ROADMAP.md) with evidence links |
 | change a technical contract (IPC, runtime, persistence) | the matching document in `docs/architecture/` or `docs/plugin-api/` |
@@ -124,13 +145,13 @@ The full rules are [ADR-0028](docs/adr/0028-documentation-governance.md). In pra
   SPDX-License-Identifier: GPL-3.0-or-later
   ```
 
-  Use `MIT OR Apache-2.0` in `crates/arinn-protocol`, the plugin SDK and interface XML. Files that cannot carry a header are covered in [REUSE.toml](REUSE.toml).
+  Use `MIT OR Apache-2.0` in `crates/arinn-protocol`, the plugin SDK and interface XML, and `CC-BY-SA-4.0` for documentation. Existing [REUSE.toml](REUSE.toml) annotations cover documentation and other designated files; do not add a conflicting license header to them. License policy changes remain owner-gated.
 
 ## Tests
 
 - Unit tests for daemon logic, parsing and routing; the shared contract suite for every provider; integration tests on a private D-Bus (`dbus-run-session`); Qt Quick Test for focus and navigation.
 - A bug fix comes with a test that fails without the fix.
-- Tests never depend on the developer's real desktop, browser profile or media files.
+- Automated tests never depend on the developer's real desktop, browser profile or media files. Operator tests are the explicit exception described above and require owner permission.
 
 ## Licensing and the CLA
 
@@ -151,10 +172,10 @@ Code, comments, commit messages, pull requests and documentation are written in 
 A change is done when:
 
 - [ ] it implements what the issue or roadmap item asks, and nothing unrelated;
-- [ ] all required checks pass locally and in CI;
+- [ ] all checks applicable under *Required checks* pass locally and all required CI checks pass;
 - [ ] tests cover the new behaviour; a bug fix has a regression test that fails without the fix;
 - [ ] the specification, ADRs, roadmap and technical documents are updated as the table above requires, and a changelog fragment is added (or the pull request is labelled `skip-changelog`);
-- [ ] new files have SPDX headers;
+- [ ] new files have SPDX coverage under the existing license policy (headers or REUSE annotations);
 - [ ] the CLA is signed.
 
 ## Repository settings (maintainer)

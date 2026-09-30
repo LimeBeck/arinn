@@ -16,7 +16,7 @@
 
 ## Documentation
 
-- [ ] Specification updated (and version bumped) — or not needed
+- [ ] Specification text updated or existing requirements referenced; no version bump outside a maintainer release
 - [ ] ADR added for an architectural decision — or not needed
 - [ ] `ROADMAP.md` updated for gate or phase changes — or not needed
 - [ ] Technical documents in `docs/architecture` / `docs/plugin-api` updated — or not needed
@@ -24,7 +24,8 @@
 
 ## Checklist
 
-- [ ] Required checks from `CONTRIBUTING.md` pass locally
-- [ ] New files have SPDX headers
+- [ ] Applicable checks from `CONTRIBUTING.md` pass locally; failures and unrun checks are recorded above
+- [ ] New files have SPDX coverage through headers or existing REUSE annotations
 - [ ] No product-specific logic in the core or shell (R-01, AC-12)
-- [ ] No URLs, titles, tokens or personal data in logs, fixtures or commits
+- [ ] No real user URLs, tab titles, tokens, credentials or personal paths in logs, fixtures or commits; synthetic fixtures and public documentation links are allowed
+- [ ] Owner-gated changes carry `needs-owner` and are left for the owner to merge

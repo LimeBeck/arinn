@@ -29,6 +29,14 @@ The key words **MUST**, **MUST NOT**, **SHOULD**, **SHOULD NOT** and **MAY** are
 - Pull requests change the text but not the version, so parallel pull requests do not conflict ([ADR-0036](../adr/0036-parallel-development.md)). Each change is recorded in a changelog fragment (`changes/`).
 - The maintainer bumps the version when preparing a release: **minor** (0.4 → 0.5) if requirements were added or changed since the last version, **patch** (0.4 → 0.4.1) for clarifications and errata only, and summarises the changes in [§22](#22-changes-from-v03) or its successor change log. Version 1.0 is declared together with a stable Plugin API v1.
 
+Implementation fixes that restore an existing requirement reference that requirement;
+they do not rewrite an already accurate specification. Changes to intended product
+behaviour and corrections within product-behaviour sections receive owner review.
+Agent task scope, verification and coordination are defined in
+[AGENTS.md](../../AGENTS.md) and [CONTRIBUTING.md](../../CONTRIBUTING.md);
+[ADR-0067](../adr/0067-agent-instruction-clarifications.md) records the proposed
+process clarification. This does not change product requirements or phase status.
+
 ### 1.3. Requirement identifiers
 
 | Prefix | Meaning | Defined in |

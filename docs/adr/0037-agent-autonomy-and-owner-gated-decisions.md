@@ -4,7 +4,7 @@
 - **Date:** 2026-09-28
 - **Deciders:** project owner
 - **Amends / Supersedes:** amends [ADR-0036](0036-parallel-development.md) (who creates tasks, who merges)
-- **Amended by / Superseded by:** —
+- **Amended by / Superseded by:** [ADR-0067](0067-agent-instruction-clarifications.md) — proposed task-scope and coordination clarification (#187)
 - **Specification:** [§1.2, §17.1](../specifications/arinn-specification.md)
 
 ## Context

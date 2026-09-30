@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        One issue = one task = one branch = one pull request. Agents create these issues themselves from the roadmap (ADR-0037).
+        One issue = one task = one branch = one pull request. Agents create scoped issues for directed changes, or select roadmap work when the user authorizes it (AGENTS.md). Reviews do not require claiming a development task.
         Claim it with the label `agent:<name>` and a "claimed" comment naming the branch; a claim without activity for 48 hours may be taken over.
         Do not start while a dependency or an open question (OQ-xx) is unresolved; mark owner decisions with `needs-owner`.
   - type: textarea
@@ -27,7 +27,7 @@ body:
     id: zone
     attributes:
       label: Zone
-      description: Paths this task may change. Anything outside needs a separate task or an explicit note below.
+      description: Paths this task may change. Before expanding the zone, check active issues and PRs and record the reason. An active claim, contract boundary or owner-gated decision requires separate coordination (CONTRIBUTING.md).
       placeholder: |
         plugins/desktop/**
         docs/architecture/plugin-runtime.md
@@ -43,7 +43,7 @@ body:
     id: adr
     attributes:
       label: Reserved ADR number
-      description: If the task records a decision, reserve the next free number (`python scripts/adr.py next`, also checking other open tasks).
+      description: If needed, record a free ADR number after checking the register and open issues/PRs. `python scripts/adr.py next` is not a lock; recheck before writing and publishing. Follow CONTRIBUTING.md for collisions.
       placeholder: none
   - type: textarea
     id: dependencies

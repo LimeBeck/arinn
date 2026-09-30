@@ -59,11 +59,43 @@ pub fn file_path(uri: &str) -> Result<PathBuf, ErrorCode> {
     let encoded = uri
         .strip_prefix("file://")
         .ok_or(ErrorCode::InvalidArgument)?;
-    let decoded = media::decode_percent(encoded)?;
+    let decoded = decode_percent(encoded)?;
     if !decoded.starts_with('/') {
         return Err(ErrorCode::InvalidArgument);
     }
     Ok(PathBuf::from(decoded))
+}
+
+fn decode_percent(value: &str) -> Result<String, ErrorCode> {
+    let bytes = value.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' {
+            if index + 2 >= bytes.len() {
+                return Err(ErrorCode::InvalidArgument);
+            }
+            let byte = (hex(bytes[index + 1])? << 4) | hex(bytes[index + 2])?;
+            if byte == 0 {
+                return Err(ErrorCode::InvalidArgument);
+            }
+            out.push(byte);
+            index += 3;
+        } else {
+            out.push(bytes[index]);
+            index += 1;
+        }
+    }
+    String::from_utf8(out).map_err(|_| ErrorCode::InvalidArgument)
+}
+
+fn hex(byte: u8) -> Result<u8, ErrorCode> {
+    match byte {
+        b'0'..=b'9' => Ok(byte - b'0'),
+        b'a'..=b'f' => Ok(byte - b'a' + 10),
+        b'A'..=b'F' => Ok(byte - b'A' + 10),
+        _ => Err(ErrorCode::InvalidArgument),
+    }
 }
 
 #[cfg(test)]

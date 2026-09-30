@@ -3,7 +3,7 @@
 
 //! Fake mpv JSON IPC peer: open, anchors, tracks, chapters and reconnect.
 
-use arinn_plugin_mpv::{Launch, Player, Settings, log_line};
+use arinn_plugin_mpv::{Launch, OPEN_LOAD_WAIT, Player, Settings, log_line};
 use arinn_plugin_sdk::runtime::MediaAction;
 use arinn_protocol::{
     media::{MediaSource, STATE_ENDED},
@@ -36,7 +36,7 @@ struct Peer {
 
 impl Peer {
     async fn spawn(dir: PathBuf, has_video: bool, legacy_only: bool) -> Self {
-        Self::spawn_configured(dir, has_video, legacy_only, None, false).await
+        Self::spawn_configured(dir, has_video, legacy_only, None, false, None, false).await
     }
 
     async fn spawn_configured(
@@ -45,6 +45,8 @@ impl Peer {
         legacy_only: bool,
         open_error: Option<String>,
         ignore_select: bool,
+        load_delay: Option<Duration>,
+        ignore_unpause: bool,
     ) -> Self {
         let _ = std::fs::remove_file(dir.join("ipc"));
         std::fs::create_dir_all(&dir).unwrap();
@@ -64,6 +66,8 @@ impl Peer {
                 legacy_only,
                 open_error,
                 ignore_select,
+                load_delay,
+                ignore_unpause,
             },
         ));
         Self {
@@ -102,6 +106,8 @@ struct PeerScript {
     legacy_only: bool,
     open_error: Option<String>,
     ignore_select: bool,
+    load_delay: Option<Duration>,
+    ignore_unpause: bool,
 }
 
 async fn serve(
@@ -117,12 +123,19 @@ async fn serve(
     };
     let (read, mut write) = stream.into_split();
     let mut lines = BufReader::new(read).lines();
-    let mut state = Fake::new(script.has_video, script.open_error, script.ignore_select);
+    let mut state = Fake::new(
+        script.has_video,
+        script.open_error,
+        script.ignore_select,
+        script.ignore_unpause,
+    );
     let mut observed: Vec<(i64, String)> = Vec::new();
+    let mut delayed_load: Option<tokio::time::Instant> = None;
     loop {
         if stop.load(Ordering::SeqCst) {
             break;
         }
+        let loaded_at = delayed_load;
         tokio::select! {
             line = lines.next_line() => {
                 let Ok(Some(line)) = line else { break };
@@ -138,11 +151,29 @@ async fn serve(
                     send(&mut write, &json!({"request_id": id, "error": "invalid parameter"})).await;
                     continue;
                 }
-                let events = state.handle(&command, &mut observed);
+                let mut events = state.handle(&command, &mut observed);
+                if name == "loadfile"
+                    && let Some(delay) = script.load_delay
+                {
+                    events.retain(|event| {
+                        event.get("event").and_then(|value| value.as_str()) != Some("file-loaded")
+                    });
+                    delayed_load = Some(tokio::time::Instant::now() + delay);
+                }
                 send(&mut write, &json!({"request_id": id, "error": "success", "data": null})).await;
                 for event in events {
                     send(&mut write, &event).await;
                 }
+            }
+            _ = async {
+                if let Some(at) = loaded_at {
+                    tokio::time::sleep_until(at).await;
+                } else {
+                    std::future::pending::<()>().await;
+                }
+            } => {
+                delayed_load = None;
+                send(&mut write, &json!({"event": "file-loaded"})).await;
             }
             extra = extra.recv() => {
                 let Some(event) = extra else { break };
@@ -172,10 +203,16 @@ struct Fake {
     has_video: bool,
     open_error: Option<String>,
     ignore_select: bool,
+    ignore_unpause: bool,
 }
 
 impl Fake {
-    fn new(has_video: bool, open_error: Option<String>, ignore_select: bool) -> Self {
+    fn new(
+        has_video: bool,
+        open_error: Option<String>,
+        ignore_select: bool,
+        ignore_unpause: bool,
+    ) -> Self {
         Self {
             pause: true,
             time: None,
@@ -189,6 +226,7 @@ impl Fake {
             has_video,
             open_error,
             ignore_select,
+            ignore_unpause,
         }
     }
 
@@ -244,6 +282,7 @@ impl Fake {
                 let property = command.get(1).and_then(|v| v.as_str()).unwrap_or("");
                 let value = command.get(2).cloned().unwrap_or(Value::Null);
                 match property {
+                    "pause" if self.ignore_unpause && value.as_bool() == Some(false) => Vec::new(),
                     "pause" => {
                         self.pause = value.as_bool().unwrap_or(self.pause);
                         self.snapshot_one(observed, "pause")
@@ -666,8 +705,16 @@ async fn open_of_a_missing_or_unreadable_file_is_not_success() {
         ("permission denied", ErrorCode::Unavailable),
     ] {
         let dir = std::env::temp_dir().join(format!("arinn-mpv-{}", uuid::Uuid::new_v4()));
-        let peer =
-            Peer::spawn_configured(dir.clone(), true, false, Some(file_error.into()), false).await;
+        let peer = Peer::spawn_configured(
+            dir.clone(),
+            true,
+            false,
+            Some(file_error.into()),
+            false,
+            None,
+            false,
+        )
+        .await;
         let player = player(&dir, peer.socket());
         assert_eq!(player.open(source(&dir)).await, Err(expected));
         let view = player.view().await.unwrap();
@@ -682,7 +729,7 @@ async fn open_of_a_missing_or_unreadable_file_is_not_success() {
 #[tokio::test]
 async fn ignored_track_selection_is_not_applied_locally() {
     let dir = std::env::temp_dir().join(format!("arinn-mpv-{}", uuid::Uuid::new_v4()));
-    let peer = Peer::spawn_configured(dir.clone(), true, false, None, true).await;
+    let peer = Peer::spawn_configured(dir.clone(), true, false, None, true, None, false).await;
     let player = player(&dir, peer.socket());
     let id = player.open(source(&dir)).await.unwrap();
     assert_eq!(
@@ -757,6 +804,87 @@ async fn confirmed_eof_is_ended_and_a_seek_is_not() {
     let after = &player.view().await.unwrap().sessions[0];
     assert_ne!(after.state, STATE_ENDED);
     assert_eq!(after.position_us, 5_000_000);
+    drop(player);
+    drop(peer);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn slow_open_stops_the_player_and_drops_the_session() {
+    let dir = std::env::temp_dir().join(format!("arinn-mpv-{}", uuid::Uuid::new_v4()));
+    let peer = Peer::spawn_configured(
+        dir.clone(),
+        true,
+        false,
+        None,
+        false,
+        Some(OPEN_LOAD_WAIT + Duration::from_secs(2)),
+        false,
+    )
+    .await;
+    let player = player(&dir, peer.socket());
+    let started = std::time::Instant::now();
+    assert_eq!(player.open(source(&dir)).await, Err(ErrorCode::Unavailable));
+    let elapsed = started.elapsed();
+    assert!(elapsed >= OPEN_LOAD_WAIT, "{elapsed:?}");
+    assert!(
+        elapsed < OPEN_LOAD_WAIT + Duration::from_secs(5),
+        "{elapsed:?}"
+    );
+    let commands = peer.commands().await;
+    assert!(
+        commands
+            .iter()
+            .any(|message| message.pointer("/command") == Some(&json!(["stop"]))),
+        "{commands:?}"
+    );
+    assert!(player.view().await.unwrap().sessions.is_empty());
+    assert!(!dir.join("session").exists());
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    assert!(player.view().await.unwrap().sessions.is_empty());
+    drop(player);
+    drop(peer);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn ended_advertises_seek_and_stop_only() {
+    let dir = std::env::temp_dir().join(format!("arinn-mpv-{}", uuid::Uuid::new_v4()));
+    let peer = Peer::spawn_configured(dir.clone(), true, false, None, false, None, true).await;
+    let player = player(&dir, peer.socket());
+    let id = player.open(source(&dir)).await.unwrap();
+    peer.emit(json!({"event":"end-file","reason":"eof"}));
+    wait_for_state(&player, STATE_ENDED).await;
+    let session = player.view().await.unwrap().sessions[0].clone();
+    assert_eq!(
+        session.actions,
+        vec!["seek".to_string(), "stop".to_string()]
+    );
+    let position = session.position_us;
+    let pauses_before = peer
+        .commands()
+        .await
+        .into_iter()
+        .filter(|message| message.pointer("/command/1").and_then(|v| v.as_str()) == Some("pause"))
+        .count();
+    assert_eq!(
+        player.control(MediaAction::Play, id.clone(), 0).await,
+        Err(ErrorCode::Unsupported)
+    );
+    assert_eq!(
+        player.control(MediaAction::PlayPause, id.clone(), 0).await,
+        Err(ErrorCode::Unsupported)
+    );
+    let session = &player.view().await.unwrap().sessions[0];
+    assert_eq!(session.state, STATE_ENDED);
+    assert_eq!(session.position_us, position);
+    let pauses_after = peer
+        .commands()
+        .await
+        .into_iter()
+        .filter(|message| message.pointer("/command/1").and_then(|v| v.as_str()) == Some("pause"))
+        .count();
+    assert_eq!(pauses_before, pauses_after);
     drop(player);
     drop(peer);
     let _ = std::fs::remove_dir_all(&dir);

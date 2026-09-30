@@ -12,7 +12,7 @@ mod scope;
 mod thumbnail;
 
 pub use paths::{ensure_private_dir, file_path, validate_runtime};
-pub use player::{Launch, Player, Settings, View};
+pub use player::{Launch, OPEN_LOAD_WAIT, Player, Settings, View};
 pub use scope::{UNIT, arguments, ensure_unit, socket_is_private};
 pub use thumbnail::{Extractor, KEPT_THUMBNAILS};
 

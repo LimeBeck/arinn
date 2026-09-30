@@ -33,7 +33,10 @@ use zbus::Connection;
 
 const SEEK_SLACK_US: i64 = 1_500_000;
 const RECONNECT: Duration = Duration::from_millis(200);
-const FILE_WAIT: Duration = Duration::from_secs(1);
+/// `Open` waits this long for `file-loaded` once the player is reachable.
+/// The daemon allows 30 s for a library launch. Unit and socket waits are
+/// already finished, so this budget stays inside that limit.
+pub const OPEN_LOAD_WAIT: Duration = Duration::from_secs(20);
 const CONFIRM_WAIT: Duration = Duration::from_secs(1);
 const PROPS: &[(i64, &str)] = &[
     (1, "pause"),
@@ -450,7 +453,7 @@ impl Core {
                 .await?;
             ipc::map_error(&legacy.error)?;
         }
-        self.pump(incoming, FILE_WAIT, |core| {
+        self.pump(incoming, OPEN_LOAD_WAIT, |core| {
             core.file_loaded || core.load_fault.is_some()
         })
         .await;
@@ -458,6 +461,7 @@ impl Core {
             return Err(error);
         }
         if !self.file_loaded {
+            let _ = self.request(json!(["stop"]), incoming).await;
             return Err(ErrorCode::Unavailable);
         }
         Ok(())
@@ -1074,12 +1078,14 @@ fn empty_entity() -> EntityRef {
 
 fn actions(state: &str) -> Vec<String> {
     match state {
-        media::STATE_PLAYING | media::STATE_PAUSED | media::STATE_ENDED => {
+        media::STATE_PLAYING | media::STATE_PAUSED => {
             ["play", "pause", "play-pause", "seek", "stop"]
                 .into_iter()
                 .map(str::to_string)
                 .collect()
         }
+        // Unpause at end of file succeeds in mpv and changes nothing.
+        media::STATE_ENDED => ["seek", "stop"].into_iter().map(str::to_string).collect(),
         _ => Vec::new(),
     }
 }

@@ -1,0 +1,1 @@
+- The Open services screen no longer freezes with many tabs: snapshot updates change rows in place instead of rebuilding the whole list, and the focused row keeps its focus.

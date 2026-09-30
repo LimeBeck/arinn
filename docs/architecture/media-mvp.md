@@ -10,7 +10,7 @@ The library metadata and resume database is the provider's own state, not the co
 
 MVP metadata: title, year, season and episode from the file name and sidecar NFO; duration and track info from ffprobe; local poster and fanart next to the video. When data is missing: the file name, generic artwork and unknown fields — never an invented plot or year. NFO XML is parsed without external entities or network DTDs. Online enrichment is not required for a usable MVP and may be added later through provider configuration. This fallback works with any folder and needs no API key.
 
-`arinn-plugin-mpv` implements MediaProvider plus additional typed playback interfaces. mpv is a separate player process with a regular video window. Commands and events go through a private Unix JSON IPC socket in `XDG_RUNTIME_DIR` (directory 0700, no public `/tmp` endpoint). The shell never touches the socket and embeds no media engine. mpv offers JSON IPC and a track list, which is why it was chosen ([mpv manual](https://mpv.io/manual/stable/)).
+`arinn-plugin-mpv` implements MediaProvider plus additional typed playback interfaces. mpv is a separate player process with a regular video window. Commands and events go through a private Unix JSON IPC socket in `XDG_RUNTIME_DIR` (directory 0700, no public `/tmp` endpoint). The shell never touches the socket and embeds no media engine. mpv offers JSON IPC and a track list, which is why it was chosen ([mpv manual](https://mpv.io/manual/stable/)). The process, the command shapes and the thumbnail extractor are [ADR-0057](../adr/0057-mpv-ipc-and-process-scope.md) and [below](#mpv).
 
 ## Shell OSD and platform
 
@@ -35,6 +35,20 @@ Chapters and buffered ranges are shown only when data exists. Seek thumbnails co
 AC-15, AC-16: local file, mounted network file, missing file, mount loss and recovery, two audio tracks, external and embedded subtitles, pause/seek/restart resume, end of film and episode advance. A provider crash does not close the shell; the player runs in its own application scope and reconnecting to an Arinn-owned player never kills other mpv instances.
 
 Codecs, hardware decoding, HDR and passthrough are not guaranteed by documentation; they are checked on the target HTPC. Library/parser and IPC contract tests run on the development machine.
+
+## mpv
+
+`arinn-plugin-mpv` is the `media` provider for one Arinn-owned player (AC-16, [ADR-0057](../adr/0057-mpv-ipc-and-process-scope.md)). `Features` lists `MediaOpen1`, `MediaTracks1` and `MediaTimeline1`.
+
+The player is the transient user unit `app-arinn-mpv.service` in `app.slice`, without `AddRef`, so it is not in the plugin cgroup and a provider crash does not stop it. An active unit is left running. The socket is `$XDG_RUNTIME_DIR/arinn/mpv/ipc` in a `0700` directory. `/tmp` is refused. Reconnecting observes mpv and does not send `loadfile` again, and it does not signal any other mpv.
+
+`Open` accepts a `file:///` URI, a start position and preferred audio and subtitle languages. It returns one session id. A later open replaces that session. The session carries the content `EntityRef`. Play, pause, play-pause, seek and stop are the actions while a file is loaded. After stop the session stays, with state `stopped` and no actions. `anchor_us` is `CLOCK_MONOTONIC` in microseconds, published on the first sample, on a state change, on a seek, and at most once per second while `playing`.
+
+The shipped mpv arguments disable configuration, scripts, default bindings, the on-screen controller, the OSD, media keys and watch-later. `loadfile` uses the mpv 0.38 argument order, and if that command is rejected, the pre-0.38 order once.
+
+Audio and subtitle tracks come from mpv's `track-list`. Subtitles off sets `sid` to `no`. Chapters come from `chapter-list` and buffered ranges from `demuxer-cache-state`. A seek thumbnail is one frame from a separate ffmpeg process. It never seeks the playback mpv. A newer request cancels the one in flight. No video track, no ffmpeg, or a failed extract is `Unsupported`.
+
+The runtime file that remembers the session id and the content reference does not contain the file path or the title. Neither is logged.
 
 ## MPRIS
 

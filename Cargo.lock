@@ -62,6 +62,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "arinn-plugin-mpv"
+version = "0.1.0"
+dependencies = [
+ "arinn-plugin-sdk",
+ "arinn-protocol",
+ "libc",
+ "serde",
+ "serde_json",
+ "tokio",
+ "uuid",
+ "zbus",
+]
+
+[[package]]
 name = "arinn-plugin-sdk"
 version = "0.1.0"
 dependencies = [

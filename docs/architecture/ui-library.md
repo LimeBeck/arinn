@@ -34,7 +34,8 @@ revisions are independent of the catalogue revision. A position above zero
 that is not `completed` is Continue: the fraction is position over the resume
 duration, or over the item duration when the resume duration is unknown. A
 position with no duration is a small fraction so Continue still appears.
-`completed` stays Play.
+`completed` stays Play. A series uses the resume of the episode Play would
+open, so Continue appears on the series when that episode has progress.
 
 Collections are the tabs. Items with an empty `parent_id` are the posters.
 Children are that parent's episodes, grouped into season pills when they
@@ -44,8 +45,12 @@ The catalog subscribes to `Changed`, `ProvidersChanged` and `StateChanged`
 before the first read, and those signals reload the snapshot. A 30 s timer
 is only the fallback for a missed signal.
 
-`Launch` is sent for an available item. A missing item or a catalogue that is
-not `ready` sets the operation to `Unavailable` and does not call. The call
+`Launch` for a film is that film. `Launch` for a series is the episode with
+an unfinished resume, or, when none is in progress, the first available
+episode in season and episode order. The series id is not sent. A missing
+target, a series with no available episode, or a catalogue that is not
+`ready` sets the operation to `Unavailable` and does not call. A second
+launch while one is `pending`, `queued` or `running` is ignored. The call
 returns an operation. The shell polls `Operation1.Get` until it leaves
 `queued` or `running`, and stops after 31 s (the 30 s launch timeout plus one
 second). `succeeded` with a `media` result emits that session's presentation
@@ -67,10 +72,12 @@ Continue. A missing entry's primary action is Remove from library; there is
 no hide method on `Library1`, so that signal is not sent to the daemon.
 
 While a launch is `pending`, `queued` or `running`, the action is busy and a
-"Waiting…" line is shown. `succeeded` and an empty state are quiet. Any other
-value shows an error banner. A successful launch opens the now-playing screen
-on the returned media session. Back from that screen returns to the library
-detail. Back from Continue still returns Home.
+"Waiting…" line is shown. The episode still whose id is `launchingId` is busy
+too, and the series action stays busy while that id is one of its episodes.
+`succeeded` and an empty state are quiet. Any other value shows an error
+banner. A successful launch opens the now-playing screen on the returned media
+session. Back from that screen returns focus to the library detail action.
+Back from Continue still returns Home.
 
 ## Fixture contract
 

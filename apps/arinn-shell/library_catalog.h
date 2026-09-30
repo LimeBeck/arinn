@@ -59,6 +59,7 @@ private:
     qint64 resumePosition = 0;
     qint64 resumeDuration = -1;
     bool resumeCompleted = false;
+    quint64 resumeObserved = 0;
     QString backend;
   };
   struct CollectionRow {
@@ -73,6 +74,7 @@ private:
     qint64 position = 0;
     qint64 duration = -1;
     bool completed = false;
+    quint64 observed = 0;
   };
   struct Catalog;
   void readProviders(const std::shared_ptr<Catalog> &catalog,
@@ -92,6 +94,8 @@ private:
   void setOperation(const QString &state);
   void watchOperation(const QString &objectPath, quint64 ticket, quint64 epoch);
   const ItemRow *findId(const QString &id) const;
+  const ItemRow *seriesTarget(const ItemRow &series) const;
+  const ItemRow *launchTarget(const ItemRow &row) const;
   QVariantList m_tabs;
   QVariantList m_entries;
   QList<ItemRow> m_items;

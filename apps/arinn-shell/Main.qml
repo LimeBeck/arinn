@@ -114,7 +114,12 @@ Window {
                 root.sessionOpen = false;
                 if (root.sessionFromLibrary) {
                     root.sessionFromLibrary = false;
-                    Qt.callLater(() => libraryView.forceActiveFocus());
+                    Qt.callLater(() => {
+                        if (libraryView.detailOpen)
+                            libraryView.focusDetailAction();
+                        else
+                            libraryView.forceActiveFocus();
+                    });
                 } else {
                     Qt.callLater(home.showHome);
                 }

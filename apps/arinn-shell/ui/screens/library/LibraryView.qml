@@ -73,6 +73,17 @@ FocusScope {
                 return source[i];
         return null;
     }
+    readonly property bool launchingDetail: {
+        if (!operationPending || !launchingId || !detailEntry)
+            return false;
+        if (launchingId === detailEntryId)
+            return true;
+        const episodes = detailEntry.episodes || [];
+        for (let i = 0; i < episodes.length; ++i)
+            if (episodes[i] && episodes[i].id === launchingId)
+                return true;
+        return false;
+    }
     readonly property bool showGrid: libraryState === "ready" && visibleEntries.length > 0 && !detailOpen
     readonly property bool showStatus: !detailOpen && (libraryState === "empty" || libraryState === "error"
             || libraryState === "unavailable" || (libraryState === "ready" && visibleEntries.length === 0))
@@ -1012,7 +1023,7 @@ FocusScope {
                         id: detailPlay
                         objectName: "detailPlay"
                         visible: !!(root.detailEntry && !root.detailEntry.missing)
-                        busy: root.operationPending && root.launchingId === root.detailEntryId
+                        busy: root.launchingDetail
                         text: root.detailEntry && root.detailEntry.progress > 0 ? qsTr("Continue") : qsTr("Play")
                         pointerMode: root.pointerMode
                         hoverFocusEnabled: root.hoverFocusEnabled
@@ -1144,6 +1155,7 @@ FocusScope {
                                     focusScale: 1.06
                                     text: modelData.title || ""
                                     enabled: modelData.enabled !== false
+                                    busy: root.operationPending && root.launchingId === modelData.id
                                     restingColor: root.standInColor(modelData.id)
                                     focusedColor: restingColor
                                     pointerMode: root.pointerMode

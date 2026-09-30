@@ -1,1 +1,2 @@
 - The Library screen reads collections, films, series and episodes from `org.arinn.Library1`, keeps a missing file in the catalogue, and shows Continue from resume. Launch is an operation whose result is the new media session ([ADR-0054](docs/adr/0054-media-and-library-wire-contract.md), [ADR-0060](docs/adr/0060-library-routing.md)).
+- Play on a series resumes the in-progress episode, or starts the first available episode, and Continue follows that episode. A launch that is already waiting does not start another, and the episode still shows busy.

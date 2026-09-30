@@ -10,6 +10,7 @@
 #include <QtDBus>
 #include <QtQml>
 #include <algorithm>
+#include <limits>
 namespace {
 constexpr auto service = "org.arinn.Daemon1";
 constexpr auto path = "/org/arinn/Daemon1";
@@ -204,6 +205,17 @@ void LibraryCatalog::publish() {
           {QStringLiteral("id"), QStringLiteral("s") + QString::number(season)},
           {QStringLiteral("title"), tr("Season %1").arg(season)}});
     }
+    auto progress = resumeFraction(item.resumePosition, item.resumeDuration,
+                                   item.durationUs, item.resumeCompleted,
+                                   item.hasResume);
+    if (item.kind == QLatin1String("series") || !kids.isEmpty()) {
+      if (const auto *target = seriesTarget(item))
+        progress = resumeFraction(target->resumePosition, target->resumeDuration,
+                                  target->durationUs, target->resumeCompleted,
+                                  target->hasResume);
+      else
+        progress = 0;
+    }
     QVariantMap entry{{QStringLiteral("id"), item.id},
                       {QStringLiteral("tabId"), item.tabId},
                       {QStringLiteral("title"), item.title},
@@ -211,10 +223,7 @@ void LibraryCatalog::publish() {
                       {QStringLiteral("noArt"), true},
                       {QStringLiteral("missing"), !item.available},
                       {QStringLiteral("enabled"), true},
-                      {QStringLiteral("progress"),
-                       resumeFraction(item.resumePosition, item.resumeDuration,
-                                      item.durationUs, item.resumeCompleted,
-                                      item.hasResume)}};
+                      {QStringLiteral("progress"), progress}};
     if (item.hasYear)
       entry.insert(QStringLiteral("year"), item.year);
     if (!seasons.isEmpty())
@@ -412,6 +421,7 @@ void LibraryCatalog::applyResumes(const std::shared_ptr<Catalog> &catalog,
       item.resumePosition = resume.position;
       item.resumeDuration = resume.duration;
       item.resumeCompleted = resume.completed;
+      item.resumeObserved = resume.observed;
     }
   }
   catalog->resumes.clear();
@@ -643,7 +653,7 @@ void LibraryCatalog::readResumes(const std::shared_ptr<Catalog> &catalog,
           arg.beginStructure();
           arg >> row.localId >> position >> duration >> completed >> observed;
           arg.endStructure();
-          Q_UNUSED(observed);
+          row.observed = observed;
           if (row.localId.isEmpty() || position < 0 || duration < -1 ||
               (duration >= 0 && position > duration)) {
             dropResumes(catalog, index);
@@ -705,7 +715,64 @@ void LibraryCatalog::finishCatalog(const std::shared_ptr<Catalog> &catalog,
   if (m_dirty)
     QTimer::singleShot(0, this, &LibraryCatalog::refresh);
 }
+const LibraryCatalog::ItemRow *
+LibraryCatalog::seriesTarget(const ItemRow &series) const {
+  QList<const ItemRow *> kids;
+  kids.reserve(m_items.size());
+  for (const auto &item : m_items) {
+    if (item.providerId == series.providerId && item.parentLocal == series.localId)
+      kids.append(&item);
+  }
+  std::stable_sort(
+      kids.begin(), kids.end(), [](const ItemRow *left, const ItemRow *right) {
+        const auto seasonLeft =
+            left->hasSeason ? left->season : std::numeric_limits<quint32>::max();
+        const auto seasonRight = right->hasSeason
+                                     ? right->season
+                                     : std::numeric_limits<quint32>::max();
+        if (seasonLeft != seasonRight)
+          return seasonLeft < seasonRight;
+        const auto episodeLeft = left->hasEpisode
+                                     ? left->episode
+                                     : std::numeric_limits<quint32>::max();
+        const auto episodeRight = right->hasEpisode
+                                      ? right->episode
+                                      : std::numeric_limits<quint32>::max();
+        return episodeLeft < episodeRight;
+      });
+  const ItemRow *resume = nullptr;
+  const ItemRow *firstAvailable = nullptr;
+  for (const auto *kid : kids) {
+    if (!kid->available)
+      continue;
+    if (!firstAvailable)
+      firstAvailable = kid;
+    if (kid->hasResume && !kid->resumeCompleted && kid->resumePosition > 0 &&
+        (!resume || kid->resumeObserved > resume->resumeObserved))
+      resume = kid;
+  }
+  return resume ? resume : firstAvailable;
+}
+const LibraryCatalog::ItemRow *
+LibraryCatalog::launchTarget(const ItemRow &row) const {
+  auto series = row.kind == QLatin1String("series");
+  if (!series) {
+    for (const auto &item : m_items) {
+      if (item.providerId == row.providerId && item.parentLocal == row.localId) {
+        series = true;
+        break;
+      }
+    }
+  }
+  if (series)
+    return seriesTarget(row);
+  return &row;
+}
 void LibraryCatalog::launch(const QString &id) {
+  if (m_operation == QLatin1String("pending") ||
+      m_operation == QLatin1String("queued") ||
+      m_operation == QLatin1String("running"))
+    return;
   ++m_commandTicket;
   const auto ticket = m_commandTicket;
   const auto epoch = m_epoch;
@@ -715,19 +782,21 @@ void LibraryCatalog::launch(const QString &id) {
     setOperation(row ? QStringLiteral("Unavailable") : QStringLiteral("NotFound"));
     return;
   }
-  if (!row->available) {
+  const auto *target = launchTarget(*row);
+  if (!target || !target->available) {
     m_launchingId.clear();
     setOperation(QStringLiteral("Unavailable"));
     return;
   }
-  m_launchingId = id;
-  if (m_operation == QLatin1String("pending"))
-    emit operationChanged();
-  else
-    setOperation(QStringLiteral("pending"));
-  auto msg = QDBusMessage::createMethodCall(service, row->path,
+  const auto targetId = target->id;
+  const auto targetPath = target->path;
+  const auto generation = target->generation;
+  const auto localId = target->localId;
+  m_launchingId = targetId;
+  setOperation(QStringLiteral("pending"));
+  auto msg = QDBusMessage::createMethodCall(service, targetPath,
                                             "org.arinn.Library1", "Launch");
-  msg << row->generation << row->localId
+  msg << generation << localId
       << QUuid::createUuid().toString(QUuid::WithoutBraces);
   auto pending = new QDBusPendingCallWatcher(
       QDBusConnection::sessionBus().asyncCall(msg, 3000), this);

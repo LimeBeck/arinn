@@ -354,6 +354,24 @@ class SessionGuardStandIn : public QObject {
 public:
   bool m_blocked = false;
 };
+bool focusInside(QQuickItem *item, QQuickItem *root) {
+  for (auto cursor = item; cursor; cursor = cursor->parentItem())
+    if (cursor == root)
+      return true;
+  return false;
+}
+QQuickItem *findItem(QQuickItem *root, const QString &name) {
+  if (!root)
+    return nullptr;
+  if (root->objectName() == name)
+    return root;
+  const auto children = root->childItems();
+  for (auto *child : children) {
+    if (auto *found = findItem(child, name))
+      return found;
+  }
+  return nullptr;
+}
 ItemWire film(const QString &id, const QString &title, bool available = true) {
   ItemWire row;
   row.id = id;
@@ -367,6 +385,47 @@ ItemWire film(const QString &id, const QString &title, bool available = true) {
   row.fanart = QStringLiteral("fanart-not-fetched");
   row.available = available;
   return row;
+}
+ItemWire showItem() {
+  auto show = film(QStringLiteral("show"), QStringLiteral("Serial"));
+  show.collectionId = QStringLiteral("shows");
+  show.kind = QStringLiteral("series");
+  return show;
+}
+ItemWire episodeItem(const QString &id, const QString &title, quint32 season,
+                     quint32 number, bool available = true) {
+  ItemWire row;
+  row.id = id;
+  row.collectionId = QStringLiteral("shows");
+  row.parentId = QStringLiteral("show");
+  row.title = title;
+  row.kind = QStringLiteral("episode");
+  row.hasSeason = true;
+  row.season = season;
+  row.hasEpisode = true;
+  row.episode = number;
+  row.duration = 100000000;
+  row.available = available;
+  return row;
+}
+ResumeWire resumeOn(const QString &id, qlonglong position, qlonglong duration,
+                    bool completed, qulonglong observed) {
+  ResumeWire resume;
+  resume.contentId = id;
+  resume.position = position;
+  resume.duration = duration;
+  resume.completed = completed;
+  resume.observed = observed;
+  return resume;
+}
+QString episodePresentation(const QVariantMap &entry, int number) {
+  const auto episodes = entry.value(QStringLiteral("episodes")).toList();
+  for (const auto &value : episodes) {
+    const auto episode = value.toMap();
+    if (episode.value(QStringLiteral("number")).toInt() == number)
+      return episode.value(QStringLiteral("id")).toString();
+  }
+  return {};
 }
 bool registerBus(LibraryDaemon &daemon) {
   auto bus = QDBusConnection::sessionBus();
@@ -776,6 +835,281 @@ private slots:
     QTRY_COMPARE(library->property("libraryState").toString(),
                  QStringLiteral("unavailable"));
     QCOMPARE(status->property("kind").toString(), QStringLiteral("unavailable"));
+  }
+  void seriesLaunchResolvesToAnEpisode() {
+    {
+      LibraryDaemon daemon;
+      daemon.holdOperation = true;
+      daemon.collections = {{QStringLiteral("shows"), QStringLiteral("Series"),
+                             QStringLiteral("series")}};
+      daemon.page1 = {showItem(),
+                      episodeItem(QStringLiteral("ep4"), QStringLiteral("Fourth"), 1, 4),
+                      episodeItem(QStringLiteral("ep1"), QStringLiteral("Pilot"), 1, 1)};
+      daemon.resumes = {resumeOn(QStringLiteral("ep4"), 50000000, 100000000, false, 20)};
+      QVERIFY(registerBus(daemon));
+      LibraryCatalog catalog;
+      QTRY_COMPARE(catalog.libraryState(), QStringLiteral("ready"));
+      const auto serial = catalog.entries().at(0).toMap();
+      QCOMPARE(serial.value(QStringLiteral("progress")).toDouble(), 0.5);
+      const auto seriesId = serial.value(QStringLiteral("id")).toString();
+      const auto fourth = episodePresentation(serial, 4);
+      catalog.launch(seriesId);
+      QTRY_COMPARE(daemon.commands.size(), 1);
+      QCOMPARE(daemon.lastLocal, QStringLiteral("ep4"));
+      QCOMPARE(catalog.launchingId(), fourth);
+      QCOMPARE(catalog.operationState(), QStringLiteral("pending"));
+      catalog.launch(seriesId);
+      catalog.launch(fourth);
+      QTest::qWait(200);
+      QCOMPARE(daemon.commands.size(), 1);
+      QCOMPARE(daemon.lastLocal, QStringLiteral("ep4"));
+      QCOMPARE(catalog.launchingId(), fourth);
+    }
+    cleanup();
+    {
+      LibraryDaemon daemon;
+      daemon.holdOperation = true;
+      daemon.collections = {{QStringLiteral("shows"), QStringLiteral("Series"),
+                             QStringLiteral("series")}};
+      daemon.page1 = {showItem(),
+                      episodeItem(QStringLiteral("ep4"), QStringLiteral("Fourth"), 1, 4),
+                      episodeItem(QStringLiteral("ep1"), QStringLiteral("Pilot"), 1, 1)};
+      QVERIFY(registerBus(daemon));
+      LibraryCatalog catalog;
+      QTRY_COMPARE(catalog.libraryState(), QStringLiteral("ready"));
+      const auto serial = catalog.entries().at(0).toMap();
+      QCOMPARE(serial.value(QStringLiteral("progress")).toDouble(), 0);
+      catalog.launch(serial.value(QStringLiteral("id")).toString());
+      QTRY_COMPARE(daemon.lastLocal, QStringLiteral("ep1"));
+      daemon.holdOperation = false;
+      QTRY_COMPARE(catalog.operationState(), QStringLiteral("succeeded"));
+      const auto second = episodePresentation(serial, 4);
+      catalog.launch(second);
+      QTRY_COMPARE(daemon.lastLocal, QStringLiteral("ep4"));
+      QCOMPARE(daemon.commands.size(), 2);
+    }
+    cleanup();
+    {
+      LibraryDaemon daemon;
+      daemon.collections = {{QStringLiteral("shows"), QStringLiteral("Series"),
+                             QStringLiteral("series")}};
+      daemon.page1 = {showItem(),
+                      episodeItem(QStringLiteral("ep2"), QStringLiteral("Second"), 1, 2),
+                      episodeItem(QStringLiteral("ep1"), QStringLiteral("Pilot"), 1, 1, false),
+                      episodeItem(QStringLiteral("ep3"), QStringLiteral("Later"), 2, 1)};
+      QVERIFY(registerBus(daemon));
+      LibraryCatalog catalog;
+      QTRY_COMPARE(catalog.libraryState(), QStringLiteral("ready"));
+      catalog.launch(catalog.entries().at(0).toMap().value(QStringLiteral("id")).toString());
+      QTRY_COMPARE(daemon.lastLocal, QStringLiteral("ep2"));
+    }
+    cleanup();
+    {
+      LibraryDaemon daemon;
+      daemon.collections = {{QStringLiteral("shows"), QStringLiteral("Series"),
+                             QStringLiteral("series")}};
+      daemon.page1 = {showItem()};
+      QVERIFY(registerBus(daemon));
+      LibraryCatalog catalog;
+      QTRY_COMPARE(catalog.libraryState(), QStringLiteral("ready"));
+      catalog.launch(catalog.entries().at(0).toMap().value(QStringLiteral("id")).toString());
+      QCOMPARE(catalog.operationState(), QStringLiteral("Unavailable"));
+      QCOMPARE(daemon.commands.size(), 0);
+    }
+    cleanup();
+    {
+      LibraryDaemon daemon;
+      daemon.collections = {{QStringLiteral("shows"), QStringLiteral("Series"),
+                             QStringLiteral("series")}};
+      daemon.page1 = {showItem(),
+                      episodeItem(QStringLiteral("ep4"), QStringLiteral("Fourth"), 1, 4),
+                      episodeItem(QStringLiteral("ep1"), QStringLiteral("Pilot"), 1, 1)};
+      daemon.resumes = {resumeOn(QStringLiteral("ep4"), 50000000, 100000000, true, 20)};
+      QVERIFY(registerBus(daemon));
+      LibraryCatalog catalog;
+      QTRY_COMPARE(catalog.libraryState(), QStringLiteral("ready"));
+      const auto serial = catalog.entries().at(0).toMap();
+      QCOMPARE(serial.value(QStringLiteral("progress")).toDouble(), 0);
+      catalog.launch(serial.value(QStringLiteral("id")).toString());
+      QTRY_COMPARE(daemon.lastLocal, QStringLiteral("ep1"));
+    }
+    cleanup();
+    {
+      LibraryDaemon daemon;
+      daemon.collections = {{QStringLiteral("shows"), QStringLiteral("Series"),
+                             QStringLiteral("series")}};
+      daemon.page1 = {showItem(),
+                      episodeItem(QStringLiteral("ep4"), QStringLiteral("Fourth"), 1, 4),
+                      episodeItem(QStringLiteral("ep1"), QStringLiteral("Pilot"), 1, 1)};
+      daemon.resumes = {resumeOn(QStringLiteral("ep1"), 10000000, 100000000, false, 5),
+                        resumeOn(QStringLiteral("ep4"), 50000000, 100000000, false, 40)};
+      QVERIFY(registerBus(daemon));
+      LibraryCatalog catalog;
+      QTRY_COMPARE(catalog.libraryState(), QStringLiteral("ready"));
+      const auto serial = catalog.entries().at(0).toMap();
+      QCOMPARE(serial.value(QStringLiteral("progress")).toDouble(), 0.5);
+      catalog.launch(serial.value(QStringLiteral("id")).toString());
+      QTRY_COMPARE(daemon.lastLocal, QStringLiteral("ep4"));
+    }
+    cleanup();
+    {
+      LibraryDaemon daemon;
+      daemon.collections = {{QStringLiteral("shows"), QStringLiteral("Series"),
+                             QStringLiteral("series")}};
+      daemon.page1 = {showItem(),
+                      episodeItem(QStringLiteral("ep4"), QStringLiteral("Fourth"), 1, 4),
+                      episodeItem(QStringLiteral("ep1"), QStringLiteral("Pilot"), 1, 1)};
+      daemon.resumes = {resumeOn(QStringLiteral("ep1"), 80000000, 100000000, false, 80),
+                        resumeOn(QStringLiteral("ep4"), 10000000, 100000000, false, 10)};
+      QVERIFY(registerBus(daemon));
+      LibraryCatalog catalog;
+      QTRY_COMPARE(catalog.libraryState(), QStringLiteral("ready"));
+      catalog.launch(catalog.entries().at(0).toMap().value(QStringLiteral("id")).toString());
+      QTRY_COMPARE(daemon.lastLocal, QStringLiteral("ep1"));
+    }
+    cleanup();
+    {
+      LibraryDaemon daemon;
+      daemon.collections = {{QStringLiteral("shows"), QStringLiteral("Series"),
+                             QStringLiteral("series")}};
+      daemon.page1 = {showItem(),
+                      episodeItem(QStringLiteral("ep4"), QStringLiteral("Fourth"), 1, 4),
+                      episodeItem(QStringLiteral("ep1"), QStringLiteral("Pilot"), 1, 1)};
+      daemon.resumes = {resumeOn(QStringLiteral("ep1"), 10000000, 100000000, false, 10),
+                        resumeOn(QStringLiteral("ep4"), 20000000, 100000000, false, 10)};
+      QVERIFY(registerBus(daemon));
+      LibraryCatalog catalog;
+      QTRY_COMPARE(catalog.libraryState(), QStringLiteral("ready"));
+      catalog.launch(catalog.entries().at(0).toMap().value(QStringLiteral("id")).toString());
+      QTRY_COMPARE(daemon.lastLocal, QStringLiteral("ep1"));
+    }
+  }
+  void episodeLaunchReturnsToTheLibrary() {
+    LibraryDaemon daemon;
+    daemon.holdOperation = true;
+    daemon.collections = {{QStringLiteral("shows"), QStringLiteral("Series"),
+                           QStringLiteral("series")}};
+    daemon.page1 = {showItem(),
+                    episodeItem(QStringLiteral("ep1"), QStringLiteral("Pilot"), 1, 1),
+                    episodeItem(QStringLiteral("ep2"), QStringLiteral("Second"), 1, 2)};
+    ProviderWire media;
+    media.id = QStringLiteral("media-provider");
+    media.name = QStringLiteral("media");
+    media.path = QDBusObjectPath(QStringLiteral("/org/arinn/Daemon1/providers/p_media"));
+    media.capabilities = {QStringLiteral("media")};
+    media.generation = QStringLiteral("g-media");
+    daemon.providers.append(media);
+    SessionWire session;
+    session.id = QStringLiteral("sess");
+    session.title = QStringLiteral("North");
+    session.state = QStringLiteral("paused");
+    session.actions = {QStringLiteral("play")};
+    daemon.sessions = {session};
+    daemon.operationEntities = {{QStringLiteral("media-provider"),
+                                 QStringLiteral("media"),
+                                 QStringLiteral("sess")}};
+    QVERIFY(registerBus(daemon));
+    ShellStandIn backend;
+    SessionGuardStandIn guard;
+    QQmlApplicationEngine engine;
+    QStringList problems;
+    connect(&engine, &QQmlEngine::warnings, &engine,
+            [&](const QList<QQmlError> &warnings) {
+              for (const auto &warning : warnings) {
+                const auto text = warning.toString();
+                if (text.contains(QStringLiteral("qrc:/brand/")))
+                  continue;
+                problems.append(text);
+              }
+            });
+    engine.rootContext()->setContextProperty(QStringLiteral("backend"), &backend);
+    engine.rootContext()->setContextProperty(QStringLiteral("sessionGuard"),
+                                             &guard);
+    engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
+    QVERIFY2(problems.isEmpty(), qPrintable(problems.join(QLatin1Char('\n'))));
+    auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().value(0));
+    QVERIFY(window);
+    window->show();
+    window->requestActivate();
+    auto home = window->findChild<QQuickItem *>(QStringLiteral("productionHome"));
+    auto library =
+        window->findChild<QQuickItem *>(QStringLiteral("productionLibrary"));
+    auto sessionView =
+        window->findChild<QQuickItem *>(QStringLiteral("productionSession"));
+    QVERIFY(home);
+    QVERIFY(library);
+    QVERIFY(sessionView);
+    QTRY_COMPARE(library->property("libraryState").toString(),
+                 QStringLiteral("ready"));
+    home->setProperty("screen", QStringLiteral("library"));
+    QTRY_COMPARE(library->property("visible").toBool(), true);
+    QTest::qWait(50);
+    const auto entries = library->property("entries").toList();
+    QCOMPARE(entries.size(), 1);
+    const auto serial = entries.at(0).toMap();
+    const auto first = episodePresentation(serial, 1);
+    const auto second = episodePresentation(serial, 2);
+    QVERIFY(!first.isEmpty());
+    QVERIFY(!second.isEmpty());
+    const auto posterName =
+        QStringLiteral("poster-") + serial.value(QStringLiteral("id")).toString();
+    QTRY_VERIFY(findItem(library, posterName));
+    auto poster = findItem(library, posterName);
+    poster->forceActiveFocus();
+    QTest::keyClick(window, Qt::Key_Return);
+    auto play = library->findChild<QQuickItem *>(QStringLiteral("detailPlay"));
+    QVERIFY(play);
+    QTRY_VERIFY(play->hasActiveFocus());
+    QCOMPARE(play->property("text").toString(), QStringLiteral("Play"));
+    QTest::keyClick(window, Qt::Key_Down);
+    QTest::keyClick(window, Qt::Key_Down);
+    QTest::keyClick(window, Qt::Key_Right);
+    auto still = findItem(library, QStringLiteral("episode-") + second);
+    auto other = findItem(library, QStringLiteral("episode-") + first);
+    QVERIFY(still);
+    QVERIFY(other);
+    QTRY_VERIFY(still->hasActiveFocus());
+    QTest::keyClick(window, Qt::Key_Return);
+    QTRY_COMPARE(daemon.commands.size(), 1);
+    QCOMPARE(daemon.lastLocal, QStringLiteral("ep2"));
+    QTRY_COMPARE(still->property("busy").toBool(), true);
+    QCOMPARE(other->property("busy").toBool(), false);
+    QTRY_COMPARE(play->property("busy").toBool(), true);
+    QTest::keyClick(window, Qt::Key_Return);
+    QTest::qWait(300);
+    QCOMPARE(daemon.commands.size(), 1);
+    QCOMPARE(daemon.lastLocal, QStringLiteral("ep2"));
+    daemon.holdOperation = false;
+    QTRY_COMPARE(window->property("sessionOpen").toBool(), true);
+    QTRY_COMPARE(sessionView->property("title").toString(), QStringLiteral("North"));
+    auto sessionPlay = window->findChild<QQuickItem *>(QStringLiteral("action-play"));
+    QVERIFY(sessionPlay);
+    QTRY_VERIFY(sessionPlay->hasActiveFocus());
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_COMPARE(window->property("sessionOpen").toBool(), false);
+    QCOMPARE(home->property("screen").toString(), QStringLiteral("library"));
+    QCOMPARE(library->property("visible").toBool(), true);
+    QCOMPARE(library->property("detailOpen").toBool(), true);
+    QTRY_VERIFY(play->hasActiveFocus());
+    QVERIFY(focusInside(window->activeFocusItem(), library));
+
+    home->setProperty("screen", QStringLiteral("home"));
+    const auto mediaId = presentationId(QStringLiteral("media-provider"),
+                                        QStringLiteral("sess"));
+    QTRY_VERIFY(findItem(home, QStringLiteral("entry-") + mediaId));
+    auto card = findItem(home, QStringLiteral("entry-") + mediaId);
+    card->forceActiveFocus();
+    QTest::keyClick(window, Qt::Key_Return);
+    QTRY_COMPARE(window->property("sessionOpen").toBool(), true);
+    home->setProperty("screen", QStringLiteral("library"));
+    QTest::qWait(50);
+    sessionPlay->forceActiveFocus();
+    QVERIFY(sessionPlay->hasActiveFocus());
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_COMPARE(window->property("sessionOpen").toBool(), false);
+    QCOMPARE(home->property("screen").toString(), QStringLiteral("home"));
+    QTRY_VERIFY(focusInside(window->activeFocusItem(), home));
+    QVERIFY(!focusInside(window->activeFocusItem(), library));
   }
 };
 

@@ -1,0 +1,1 @@
+- Qt Quick tests walk each row of the Home and Back table, including Backspace in a text field and Esc closing the topmost scope.

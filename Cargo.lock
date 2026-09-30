@@ -50,6 +50,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "arinn-plugin-library"
+version = "0.1.0"
+dependencies = [
+ "arinn-plugin-sdk",
+ "arinn-protocol",
+ "libc",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokio",
+ "toml",
+ "uuid",
+ "zbus",
+]
+
+[[package]]
 name = "arinn-plugin-mpris"
 version = "0.1.0"
 dependencies = [

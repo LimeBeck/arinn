@@ -25,7 +25,12 @@ endforeach()
 # Development-only gallery: no backend, bus registration or platform actions.
 qt_add_executable(arinn-ui-gallery gallery/main.cpp)
 qt_add_resources(arinn-ui-gallery gallery_ui PREFIX "/" FILES
-    gallery/Gallery.qml gallery/HomeGallery.qml gallery/fixture-artwork.svg
+    gallery/Gallery.qml gallery/HomeGallery.qml gallery/BrowserGallery.qml
+    gallery/SessionGallery.qml gallery/LibraryGallery.qml
+    gallery/fixture-artwork.svg
+    ui/screens/browser/qmldir ui/screens/browser/BrowserView.qml
+    ui/screens/session/qmldir ui/screens/session/SessionView.qml
+    ui/screens/library/qmldir ui/screens/library/LibraryView.qml
     ${ARINN_PRESENTATION_FILES})
 target_link_libraries(arinn-ui-gallery PRIVATE Qt6::Quick)
 

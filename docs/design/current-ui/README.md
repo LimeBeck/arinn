@@ -3,13 +3,15 @@
 
 # Current Qt interface captures
 
-Captured on 2026-09-28 at 1920 × 1080 using Qt 6.11.2, the offscreen platform
-and software Qt Quick renderer. These images show the shared Home/navigation
-components after the Arinn brand-mark fix, not the historical HTML prototype.
-The gallery uses fixed fictional content, original placeholder artwork and neutral
-application monograms. It does not connect to a daemon or control the desktop.
-Favorites, media and service entries here are fixture data, not evidence of
-completed integrations. See [UI status](../../architecture/ui-components.md).
+Captured on 2026-09-30 at 1920 × 1080 using Qt 6.11.2, the offscreen platform
+and software Qt Quick renderer. These images show the screens the production
+shell actually mounts: Home, navigation, Library, Applications, Open services
+and Now playing. They are not the historical HTML prototype. The gallery uses
+fixed fictional content, original placeholder artwork and neutral application
+monograms. Library plates are the same generic plates the shell draws, because
+the catalogue does not supply poster images. It does not connect to a daemon
+or control the desktop. Favorites, media and service entries here are fixture
+data, not evidence of completed integrations. See [UI status](../../architecture/ui-components.md).
 
 The mark is the unchanged [approved SVG](../handoff/assets/arinn-mark.svg),
 embedded as a Qt resource. The screenshots are documentation under CC-BY-SA-4.0,
@@ -26,7 +28,20 @@ QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
 QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
   build/apps/arinn-shell/arinn-ui-gallery --home --nav \
   --capture docs/design/current-ui/navigation.png
+QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
+  build/apps/arinn-shell/arinn-ui-gallery --library \
+  --capture docs/design/current-ui/library.png
+QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
+  build/apps/arinn-shell/arinn-ui-gallery --applications \
+  --capture docs/design/current-ui/applications.png
+QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
+  build/apps/arinn-shell/arinn-ui-gallery --browser \
+  --capture docs/design/current-ui/open-services.png
+QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
+  build/apps/arinn-shell/arinn-ui-gallery --now-playing \
+  --capture docs/design/current-ui/now-playing.png
 ```
 
-Inspect both images before committing regenerated captures. Historical handoff
-and archive screenshots remain unchanged.
+`--now-playing` is the flag name because Qt treats `--session` as its own
+session-restore option. Inspect the images before committing regenerated
+captures. Historical handoff and archive screenshots remain unchanged.

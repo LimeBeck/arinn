@@ -12,6 +12,7 @@ Window {
     color: Ui.Theme.background
     property string fixture: "populated"
     property bool showNavigation: false
+    property string previewScreen: "home"
     property string lastIntent: ""
     readonly property var content: [
         { id: "activity", title: "Workspace", subtitle: "Return to activity", running: true },
@@ -38,6 +39,18 @@ Window {
                 { id: "new1", title: "Open skies", subtitle: "2026", artwork: Qt.resolvedUrl("fixture-artwork.svg") },
                 { id: "new2", title: "Far away", subtitle: "2026", artwork: Qt.resolvedUrl("fixture-artwork.svg") }
             ] : []
+            applicationEntries: window.fixture === "populated" ? [
+                { id: "explore", title: "Explore", monogram: "E", group: "online" },
+                { id: "listen", title: "Listen", monogram: "L", group: "online" },
+                { id: "discover", title: "Discover", monogram: "D", group: "online" },
+                { id: "play", title: "Play", monogram: "P", group: "games" },
+                { id: "watch", title: "Watch", monogram: "W", group: "media" },
+                { id: "create", title: "Create", monogram: "C", group: "other" }
+            ] : []
+            runningEntries: window.fixture === "populated" ? [
+                { id: "workspace", title: "Workspace", monogram: "W", running: true }
+            ] : []
+            sectionDescription: window.previewScreen === "applications" ? qsTr("Choose an application or an open window.") : qsTr("This section is not connected in the Home preview.")
             returnActivityId: window.fixture === "populated" ? "activity" : ""
             homeState: window.fixture === "populated" ? "ready" : window.fixture
             statusTitle: ({empty: "Your Home starts here", loading: "Loading Home…", error: "Home could not be loaded", unavailable: "Home is unavailable"})[homeState] || ""
@@ -47,7 +60,13 @@ Window {
             onReturnRequested: window.lastIntent = "Return requested · fixture only"
             onRetryRequested: window.lastIntent = "Retry requested · fixture only"
             onPowerRequested: window.lastIntent = "Power is not connected in this preview"
-            Component.onCompleted: if (window.showNavigation) Qt.callLater(openNavigation)
+            Component.onCompleted: {
+                if (window.previewScreen === "applications") {
+                    screen = "applications";
+                    Qt.callLater(restoreScreen);
+                }
+                if (window.showNavigation) Qt.callLater(openNavigation);
+            }
         }
         Rectangle {
             x: 1000; y: 1000; width: 824; height: 64; radius: 32

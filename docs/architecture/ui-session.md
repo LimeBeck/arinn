@@ -122,9 +122,11 @@ Artwork bytes are covered by `apps/arinn-shell/asset_images_test.cpp`
 (`asset-images`, private bus): URL round trip, a cache hit, a budget
 eviction, separate keys for provider and generation, and the empty,
 `NotFound`, `Unsupported` and bad-image fallbacks. That test loads
-`tests/ui/asset_placeholder.qml` and checks the generic plate stays until
-the image is ready. The file is not named `tst_*.qml`, so `arinn-ui-test`
-does not load it on its own.
+`tests/ui/asset_placeholder.qml`. A held reply keeps the generic plate
+until the image is ready, and the Continue card's pixels are then the
+loaded artwork. A missing asset ends as `Image.Error` with a fixed
+message, and the plates and labels stay. The file is not named
+`tst_*.qml`, so `arinn-ui-test` does not load it on its own.
 
 ```sh
 QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
@@ -132,8 +134,9 @@ QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
 ```
 
 Local verification on 2026-09-30, Qt 6.11.2, offscreen platform, software
-renderer, on this change: `arinn-asset-images-test` reported 6 passed
-(including `placeholderStaysUntilTheImageArrives`),
+renderer, on this change: `arinn-asset-images-test` reported 7 passed
+(including `placeholderStaysUntilTheImageArrives` and
+`missingAssetKeepsThePlate`),
 `arinn-media-catalog-test` reported 14 passed,
 `arinn-library-catalog-test` reported 14 passed (including
 `emptyPosterAndFanartStayGeneric`),

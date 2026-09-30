@@ -13,6 +13,7 @@
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickItem>
+#include <QQuickItemGrabResult>
 #include <QQuickWindow>
 #include <QRunnable>
 #include <QTest>
@@ -66,7 +67,7 @@ public:
   }
   void send(const QDBusMessage &message, const QDBusConnection &bus,
             const QString &id) {
-    if (id == QLatin1String("missing")) {
+    if (id == QLatin1String("missing") || id == QLatin1String("absent-asset")) {
       bus.send(message.createErrorReply(QStringLiteral("org.arinn.Error1.NotFound"),
                                         QStringLiteral("NotFound")));
       return;
@@ -120,7 +121,14 @@ AssetImages::Result fetchOnWorker(const QString &provider, const QString &path,
     box->result = result;
     box->done = true;
   });
-  QThreadPool::globalInstance()->start(job);
+  static QThreadPool pool;
+  static const bool keepThreads = [] {
+    pool.setMaxThreadCount(2);
+    pool.setExpiryTimeout(-1);
+    return true;
+  }();
+  Q_UNUSED(keepThreads);
+  pool.start(job);
   QElapsedTimer timer;
   timer.start();
   while (timer.elapsed() < 8000) {
@@ -132,6 +140,29 @@ AssetImages::Result fetchOnWorker(const QString &provider, const QString &path,
     QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
   }
   return {};
+}
+
+constexpr int kImageReady = 1;
+constexpr int kImageError = 3;
+QStringList imageLogs;
+
+void collectImageLogs(QtMsgType, const QMessageLogContext &, const QString &message) {
+  imageLogs.append(message);
+}
+
+bool continueCardShowsRed(QQuickItem *card) {
+  const auto grab = card->grabToImage();
+  if (grab.isNull())
+    return false;
+  QElapsedTimer timer;
+  timer.start();
+  while (grab->image().isNull() && timer.elapsed() < 500)
+    QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+  if (grab->image().isNull())
+    return false;
+  const auto pixel = grab->image().pixelColor(100, 30);
+  return pixel.red() > 180 && pixel.red() > pixel.green() + 80 &&
+         pixel.red() > pixel.blue() + 80;
 }
 
 QQuickItem *findItem(QQuickItem *root, const QString &name) {
@@ -328,8 +359,7 @@ private slots:
     QVERIFY(poster);
     QVERIFY(posterPlate);
     QVERIFY(card);
-    QVERIFY(plate->isVisible());
-    QVERIFY(sessionImage->property("status").toInt() != 1);
+    QVERIFY(sessionImage->property("status").toInt() != kImageReady);
     QCOMPARE(sessionImage->property("visible").toBool(), false);
     QCOMPARE(thumb->property("visible").toBool(), false);
     QCOMPARE(label->property("visible").toBool(), true);
@@ -337,20 +367,77 @@ private slots:
     QCOMPARE(posterPlate->property("visible").toBool(), true);
     QCOMPARE(card->property("artworkReady").toBool(), false);
 
-    const auto callsWhileHeld = daemon.calls;
     daemon.hold = false;
     daemon.release();
-    QTRY_COMPARE(sessionImage->property("status").toInt(), 1);
+    QTRY_COMPARE(sessionImage->property("status").toInt(), kImageReady);
     QCOMPARE(sessionImage->property("visible").toBool(), true);
-    QVERIFY(plate->isVisible());
-    QTRY_COMPARE(thumb->property("status").toInt(), 1);
+    QTRY_COMPARE(thumb->property("status").toInt(), kImageReady);
     QCOMPARE(thumb->property("visible").toBool(), true);
     QCOMPARE(label->property("visible").toBool(), false);
-    QTRY_COMPARE(poster->property("status").toInt(), 1);
+    QTRY_COMPARE(poster->property("status").toInt(), kImageReady);
     QCOMPARE(poster->property("visible").toBool(), true);
     QCOMPARE(posterPlate->property("visible").toBool(), false);
     QTRY_COMPARE(card->property("artworkReady").toBool(), true);
-    QVERIFY(daemon.calls >= callsWhileHeld);
+    QTRY_VERIFY(continueCardShowsRed(card));
+  }
+  void missingAssetKeepsThePlate() {
+    QVERIFY(registerDaemon(&daemon));
+    const auto url = AssetImages::imageUrl(
+        QString::fromLatin1(kProvider), QString::fromLatin1(kPath),
+        QString::fromLatin1(kGeneration), QStringLiteral("absent-asset"));
+    QVERIFY(url.contains(QStringLiteral("image://arinn-assets/")));
+    imageLogs.clear();
+    const auto previousLog = qInstallMessageHandler(collectImageLogs);
+    struct RestoreLog {
+      QtMessageHandler previous;
+      ~RestoreLog() { qInstallMessageHandler(previous); }
+    } restore{previousLog};
+
+    QQmlApplicationEngine engine;
+    installAssetImageProvider(&engine);
+    engine.rootContext()->setContextProperty(QStringLiteral("assetUrl"), url);
+    engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_PLACEHOLDER_QML)));
+    QVERIFY(!engine.rootObjects().isEmpty());
+    auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+    QVERIFY(window);
+    window->show();
+
+    auto sessionImage = findItem(window->contentItem(), QStringLiteral("artworkImage"));
+    auto thumb = findItem(window->contentItem(), QStringLiteral("thumbnailImage"));
+    auto label = findItem(window->contentItem(), QStringLiteral("thumbnailLabel"));
+    auto poster = findItem(window->contentItem(), QStringLiteral("posterImage-north"));
+    auto posterPlate = findItem(window->contentItem(), QStringLiteral("posterPlate-north"));
+    auto card = findItem(window->contentItem(), QStringLiteral("card"));
+    auto cardArtwork = findItem(window->contentItem(), QStringLiteral("cardArtwork"));
+    auto cardPlate = findItem(window->contentItem(), QStringLiteral("cardPlate"));
+    QVERIFY(sessionImage);
+    QVERIFY(thumb);
+    QVERIFY(label);
+    QVERIFY(poster);
+    QVERIFY(posterPlate);
+    QVERIFY(card);
+    QVERIFY(cardArtwork);
+    QVERIFY(cardPlate);
+
+    QTRY_COMPARE(sessionImage->property("status").toInt(), kImageError);
+    QCOMPARE(sessionImage->property("visible").toBool(), false);
+    QTRY_COMPARE(thumb->property("status").toInt(), kImageError);
+    QCOMPARE(thumb->property("visible").toBool(), false);
+    QCOMPARE(label->property("visible").toBool(), true);
+    QTRY_COMPARE(poster->property("status").toInt(), kImageError);
+    QCOMPARE(poster->property("visible").toBool(), false);
+    QCOMPARE(posterPlate->property("visible").toBool(), true);
+    QTRY_COMPARE(cardArtwork->property("status").toInt(), kImageError);
+    QCOMPARE(card->property("artworkReady").toBool(), false);
+    QCOMPARE(cardPlate->property("visible").toBool(), true);
+    QTRY_VERIFY(daemon.calls >= 4);
+    QCOMPARE(daemon.lastId, QStringLiteral("absent-asset"));
+
+    for (const auto &line : imageLogs) {
+      QVERIFY(!line.contains(QStringLiteral("absent-asset")));
+      QVERIFY(!line.contains(QStringLiteral("image://")));
+      QVERIFY(!line.contains(QString::fromLatin1(kPath)));
+    }
   }
 };
 

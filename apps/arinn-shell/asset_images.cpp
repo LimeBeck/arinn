@@ -112,12 +112,27 @@ AssetImages::Status statusFromError(const QString &name) {
   return AssetImages::Status::Error;
 }
 
+// One connection per pool thread. The pool does not retire threads, so a long
+// session does not open a new bus connection for every fetch. The connection
+// is not the session bus: a blocking call cannot invoke a local object on the
+// same connection, and the tests register Assets1 there.
+QThreadPool &assetPool() {
+  static struct Holder {
+    QThreadPool pool;
+    Holder() {
+      pool.setMaxThreadCount(4);
+      pool.setExpiryTimeout(-1);
+    }
+  } holder;
+  return holder.pool;
+}
+
 QDBusConnection workerBus() {
-  const auto name =
+  thread_local QDBusConnection bus = QDBusConnection::connectToBus(
+      QDBusConnection::SessionBus,
       QStringLiteral("arinn-assets-%1")
-          .arg(reinterpret_cast<quintptr>(QThread::currentThreadId()));
-  auto bus = QDBusConnection::connectToBus(QDBusConnection::SessionBus, name);
-  return bus.isConnected() ? bus : QDBusConnection(QString());
+          .arg(reinterpret_cast<quintptr>(QThread::currentThreadId())));
+  return bus;
 }
 
 class AssetResponse : public QQuickImageResponse {
@@ -136,12 +151,18 @@ public:
           },
           Qt::QueuedConnection);
     });
-    QThreadPool::globalInstance()->start(job);
+    assetPool().start(job);
   }
   QQuickTextureFactory *textureFactory() const override {
     if (m_image.isNull())
       return nullptr;
     return QQuickTextureFactory::textureFactoryForImage(m_image);
+  }
+  // A null texture with an empty error is a successful 0×0 load, which hides
+  // the plate. The text stays fixed so a missing id or URL is not logged.
+  QString errorString() const override {
+    return m_image.isNull() ? QStringLiteral("Artwork is unavailable")
+                            : QString();
   }
 
 private:
@@ -245,6 +266,9 @@ AssetImages::Result AssetImages::fetch(const QString &providerId,
   }
   const auto key = providerId + QLatin1Char('\n') + generation +
                    QLatin1Char('\n') + assetId;
+  QString cachedMime;
+  QByteArray cachedBytes;
+  bool cached = false;
   {
     QMutexLocker lock(&m_cache->mutex);
     for (int i = 0; i < m_cache->entries.size(); ++i) {
@@ -252,16 +276,28 @@ AssetImages::Result AssetImages::fetch(const QString &providerId,
         continue;
       auto entry = m_cache->entries.takeAt(i);
       m_cache->entries.prepend(entry);
-      auto image = decodeImage(entry.mime, entry.bytes);
-      if (image.isNull()) {
-        m_cache->used -= entry.bytes.size();
-        m_cache->entries.removeFirst();
-        break;
-      }
+      cachedMime = entry.mime;
+      cachedBytes = entry.bytes;
+      cached = true;
+      break;
+    }
+  }
+  if (cached) {
+    auto image = decodeImage(cachedMime, cachedBytes);
+    if (!image.isNull()) {
       result.status = Status::Ready;
       result.cacheHit = true;
       result.image = image;
       return result;
+    }
+    QMutexLocker lock(&m_cache->mutex);
+    for (int i = 0; i < m_cache->entries.size(); ++i) {
+      if (m_cache->entries.at(i).key == key &&
+          m_cache->entries.at(i).bytes == cachedBytes) {
+        m_cache->used -= m_cache->entries.at(i).bytes.size();
+        m_cache->entries.removeAt(i);
+        break;
+      }
     }
   }
   auto bus = workerBus();

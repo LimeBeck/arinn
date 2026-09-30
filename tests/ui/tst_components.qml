@@ -69,10 +69,11 @@ TestCase {
             artwork: Qt.resolvedUrl("../../apps/arinn-shell/gallery/fixture-artwork.svg")
         });
         tryCompare(card, "artworkReady", true);
-        waitForRendering(card);
-        const rendered = grabImage(card);
-        // Original fixture sky is blue-green; verifies pixels, not just loading.
-        verify(rendered.blue(100, 30) > rendered.red(100, 30));
+        // The canvas paints after the image is ready. Wait for those pixels.
+        tryVerify(() => {
+            const rendered = grabImage(card);
+            return rendered.blue(100, 30) > rendered.red(100, 30);
+        });
         card.artwork = "";
         tryCompare(card, "artworkReady", false);
     }

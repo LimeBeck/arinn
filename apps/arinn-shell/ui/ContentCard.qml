@@ -15,6 +15,7 @@ Surface {
     implicitHeight: 225
     contentItem: Item {
         Rectangle {
+            objectName: "cardPlate"
             anchors.fill: parent
             radius: root.cornerRadius
             color: "#25282e"
@@ -22,19 +23,26 @@ Surface {
         }
         Image {
             id: picture
+            objectName: "cardArtwork"
             anchors.fill: parent
             asynchronous: true
             fillMode: Image.PreserveAspectCrop
             source: root.artwork
             visible: false
+            onStatusChanged: {
+                if (status === Image.Ready)
+                    frame.loadImage(source);
+                frame.requestPaint();
+            }
         }
         Canvas {
             id: frame
             anchors.fill: parent
+            onImageLoaded: requestPaint()
             onPaint: {
                 const ctx = getContext("2d");
                 ctx.reset();
-                if (picture.status !== Image.Ready)
+                if (picture.status !== Image.Ready || !isImageLoaded(picture.source))
                     return;
                 const w = width, h = height, r = root.cornerRadius;
                 ctx.beginPath();
@@ -45,11 +53,7 @@ Surface {
                 ctx.lineTo(0, r); ctx.quadraticCurveTo(0, 0, r, 0);
                 ctx.closePath();
                 ctx.clip();
-                ctx.drawImage(picture, 0, 0, w, h);
-            }
-            Connections {
-                target: picture
-                function onStatusChanged() { frame.requestPaint(); }
+                ctx.drawImage(picture.source, 0, 0, w, h);
             }
         }
         Rectangle {

@@ -14,7 +14,7 @@ arch=('x86_64')
 url='https://github.com/LimeBeck/arinn'
 license=('GPL-3.0-or-later' 'MIT OR Apache-2.0' 'CC-BY-SA-4.0')
 depends=('gcc-libs' 'glibc' 'glib2>=2.86' 'dbus' 'systemd' 'qt6-base' 'qt6-declarative' 'qt6-svg')
-optdepends=('mpv: local file playback' 'ffmpeg: seek thumbnails for the mpv provider; video duration and audio/subtitle languages for the library provider')
+optdepends=('mpv: local file playback' 'ffmpeg: seek thumbnails for the mpv provider; video duration and audio/subtitle languages for the library provider' 'transmission-cli: local Transmission daemon for the download provider')
 makedepends=('cargo' 'cmake' 'ninja')
 checkdepends=('python')
 options=('!lto')
@@ -62,6 +62,8 @@ package() {
   install -Dm644 plugins/library/library.toml "${pkgdir}/usr/share/arinn/plugins/library.toml"
   install -Dm755 "${target}"/release/arinn-plugin-mpv "${pkgdir}/usr/lib/arinn/plugins/arinn-plugin-mpv"
   install -Dm644 plugins/mpv/mpv.toml "${pkgdir}/usr/share/arinn/plugins/mpv.toml"
+  install -Dm755 "${target}"/release/arinn-plugin-transmission "${pkgdir}/usr/lib/arinn/plugins/arinn-plugin-transmission"
+  install -Dm644 plugins/transmission/transmission.toml "${pkgdir}/usr/share/arinn/plugins/transmission.toml"
   # Chrome/Chromium integration (ADR-0048): provider, native host, the host
   # manifest for both browsers and the unpacked extension.
   install -Dm755 "${target}"/release/arinn-plugin-chrome "${pkgdir}/usr/lib/arinn/plugins/arinn-plugin-chrome"

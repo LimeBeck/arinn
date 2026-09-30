@@ -4,13 +4,15 @@
 import QtQuick
 import "../.." as Ui
 
-// One media session, drawn from fixture properties. Signals are intents only:
-// this screen does not talk to MPRIS, D-Bus or a daemon, and it does not log titles.
+// One media session. Properties are a presentation snapshot. Signals are intents
+// only: this screen does not talk to D-Bus and it does not log titles.
 FocusScope {
     id: root
     width: 1920
     height: 1080
-    focus: true
+    // A closed session stays in the shell tree. It must not become the window's
+    // focus item, or Home never sees Backspace.
+    focus: visible && enabled
 
     // ready shows the session. empty and unavailable (and anything else) do not.
     property string sessionState: "ready"
@@ -23,9 +25,21 @@ FocusScope {
     // Neutral plate from the shared theme. Callers may override with a fixture hue.
     property color artworkHue: Ui.Theme.plate
     property var availableActions: ["play", "pause", "playPause", "seek", "next", "previous", "stop"]
+    // Empty until a command is sent. pending waits; succeeded is quiet;
+    // any other value is an error the banner shows.
+    property string operationState: ""
     property bool pointerMode: false
 
     readonly property bool hasSession: sessionState === "ready"
+    readonly property bool operationPending: operationState === "pending" || operationState === "queued" || operationState === "running"
+    readonly property bool operationFailed: operationState !== "" && operationState !== "succeeded" && !operationPending
+    readonly property string operationMessage: {
+        if (operationState === "Unsupported") return qsTr("That control is not available.");
+        if (operationState === "Timeout") return qsTr("The player did not answer in time.");
+        if (operationState === "InvalidArgument") return qsTr("That position is not valid.");
+        if (operationState === "Unavailable") return qsTr("The session is not available.");
+        return operationState;
+    }
     readonly property bool hoverFocusEnabled: !hoverDelay.running
     readonly property real progressFraction: {
         if (!(durationUs > 0) || !isFinite(positionUs)) return 0;
@@ -99,6 +113,8 @@ FocusScope {
         seekRequested(target);
     }
     function restore() {
+        if (!visible || !enabled)
+            return;
         if (!hasSession) {
             forceActiveFocus();
             return;
@@ -162,9 +178,11 @@ FocusScope {
         if (key === Qt.Key_Right && index + 1 < row.length) row[index + 1].forceActiveFocus();
     }
 
-    Component.onCompleted: Qt.callLater(restore)
-    onSessionStateChanged: Qt.callLater(restore)
-    onAvailableActionsChanged: Qt.callLater(keepFocus)
+    Component.onCompleted: if (visible && enabled) Qt.callLater(restore)
+    onVisibleChanged: if (visible && enabled) Qt.callLater(restore)
+    onEnabledChanged: if (visible && enabled) Qt.callLater(restore)
+    onSessionStateChanged: if (visible && enabled) Qt.callLater(restore)
+    onAvailableActionsChanged: if (visible && enabled) Qt.callLater(keepFocus)
     Timer { id: hoverDelay; interval: 500 }
     HoverHandler {
         id: hoverPoint
@@ -303,7 +321,9 @@ FocusScope {
                         id: previousButton
                         objectName: "action-previous"
                         text: qsTr("Previous")
+                        visible: root.allows("previous")
                         enabled: root.allows("previous")
+                        busy: root.operationPending
                         pointerMode: root.pointerMode
                         hoverFocusEnabled: root.hoverFocusEnabled
                         Keys.onPressed: event => root.acceptBack(event)
@@ -313,7 +333,9 @@ FocusScope {
                         id: playButton
                         objectName: "action-play"
                         text: qsTr("Play")
+                        visible: root.allows("play")
                         enabled: root.allows("play")
+                        busy: root.operationPending
                         pointerMode: root.pointerMode
                         hoverFocusEnabled: root.hoverFocusEnabled
                         Keys.onPressed: event => root.acceptBack(event)
@@ -323,7 +345,9 @@ FocusScope {
                         id: pauseButton
                         objectName: "action-pause"
                         text: qsTr("Pause")
+                        visible: root.allows("pause")
                         enabled: root.allows("pause")
+                        busy: root.operationPending
                         pointerMode: root.pointerMode
                         hoverFocusEnabled: root.hoverFocusEnabled
                         Keys.onPressed: event => root.acceptBack(event)
@@ -333,7 +357,9 @@ FocusScope {
                         id: playPauseButton
                         objectName: "action-playPause"
                         text: qsTr("Play/Pause")
+                        visible: root.allows("playPause")
                         enabled: root.allows("playPause")
+                        busy: root.operationPending
                         pointerMode: root.pointerMode
                         hoverFocusEnabled: root.hoverFocusEnabled
                         Keys.onPressed: event => root.acceptBack(event)
@@ -343,7 +369,9 @@ FocusScope {
                         id: seekButton
                         objectName: "action-seek"
                         text: qsTr("Seek")
+                        visible: root.allows("seek")
                         enabled: root.allows("seek")
+                        busy: root.operationPending
                         pointerMode: root.pointerMode
                         hoverFocusEnabled: root.hoverFocusEnabled
                         Keys.onPressed: event => root.acceptBack(event)
@@ -353,7 +381,9 @@ FocusScope {
                         id: nextButton
                         objectName: "action-next"
                         text: qsTr("Next")
+                        visible: root.allows("next")
                         enabled: root.allows("next")
+                        busy: root.operationPending
                         pointerMode: root.pointerMode
                         hoverFocusEnabled: root.hoverFocusEnabled
                         Keys.onPressed: event => root.acceptBack(event)
@@ -363,11 +393,42 @@ FocusScope {
                         id: stopButton
                         objectName: "action-stop"
                         text: qsTr("Stop")
+                        visible: root.allows("stop")
                         enabled: root.allows("stop")
+                        busy: root.operationPending
                         pointerMode: root.pointerMode
                         hoverFocusEnabled: root.hoverFocusEnabled
                         Keys.onPressed: event => root.acceptBack(event)
                         onActivated: root.request("stop")
+                    }
+                }
+
+                Ui.UiText {
+                    objectName: "operationPending"
+                    visible: root.hasSession && root.operationPending
+                    text: qsTr("Waiting…")
+                    role: "meta"
+                    color: Ui.Theme.textSecondary
+                }
+                Rectangle {
+                    id: operationBanner
+                    objectName: "operationBanner"
+                    visible: root.hasSession && root.operationFailed
+                    width: parent.width
+                    implicitHeight: operationBannerText.implicitHeight + 28
+                    height: implicitHeight
+                    radius: 18
+                    color: Qt.rgba(0.91, 0.28, 0.31, 0.16)
+                    Ui.UiText {
+                        id: operationBannerText
+                        objectName: "operationBannerText"
+                        width: parent.width - 28
+                        anchors.left: parent.left
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.leftMargin: 14
+                        text: root.operationMessage
+                        role: "body"
+                        color: Ui.Theme.error
                     }
                 }
             }
@@ -378,11 +439,16 @@ FocusScope {
                 anchors.centerIn: parent
                 width: 820
                 visible: !root.hasSession
-                kind: root.sessionState === "empty" ? "empty" : "unavailable"
-                title: root.sessionState === "empty" ? qsTr("Nothing playing") : qsTr("Session unavailable")
+                kind: root.sessionState === "empty" ? "empty"
+                      : root.sessionState === "loading" ? "loading" : "unavailable"
+                title: root.sessionState === "empty" ? qsTr("Nothing playing")
+                       : root.sessionState === "loading" ? qsTr("Loading the session…")
+                       : qsTr("Session unavailable")
                 description: root.sessionState === "empty"
                              ? qsTr("No media session is active.")
-                             : qsTr("The media session cannot be shown.")
+                             : root.sessionState === "loading"
+                               ? qsTr("The media session is being read.")
+                               : qsTr("The media session cannot be shown.")
                 actionText: ""
             }
         }

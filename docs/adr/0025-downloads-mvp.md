@@ -4,7 +4,7 @@
 - **Date:** 2026-09-27
 - **Deciders:** project owner (Transmission in MVP, P-03); API by delegated choice
 - **Amends / Supersedes:** amends [ADR-0001](0001-product-scope.md), [ADR-0004](0004-capability-contracts.md)
-- **Amended by / Superseded by:** —
+- **Amended by / Superseded by:** [ADR-0067](0067-download-wire-contract.md) — the wire contract
 - **Specification:** [§7.5, §9.1](../specifications/arinn-specification.md)
 
 ## Context

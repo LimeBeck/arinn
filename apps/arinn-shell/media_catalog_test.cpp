@@ -1053,6 +1053,135 @@ private slots:
     QTRY_COMPARE(player->property("visible").toBool(), false);
     QCOMPARE(daemon.commands, QStringList({QStringLiteral("Seek"), QStringLiteral("Stop")}));
   }
+  void thumbnailRequestWhilePlaying() {
+    MediaDaemon daemon;
+    daemon.features = {QStringLiteral("MediaTimeline1")};
+    const auto anchor = monotonicUs();
+    daemon.page1 = {session(QStringLiteral("live"), QStringLiteral("Moving"),
+                            QStringLiteral("playing"), 0, anchor, 120000000,
+                            {QStringLiteral("pause"), QStringLiteral("seek")})};
+    auto bus = QDBusConnection::sessionBus();
+    QVERIFY(bus.registerService(QStringLiteral("org.arinn.Daemon1")));
+    QVERIFY(bus.registerVirtualObject(QStringLiteral("/org/arinn"), &daemon,
+                                      QDBusConnection::SubPath));
+    MediaCatalog catalog;
+    QTRY_COMPARE(catalog.sessionState(), QStringLiteral("ready"));
+    QVERIFY(catalog.timelineAvailable());
+    const auto start = catalog.positionUs();
+    catalog.setThumbnailWanted(true);
+    QTRY_VERIFY_WITH_TIMEOUT(daemon.thumbnailReads >= 1, 3000);
+    QTest::qWait(250);
+    QVERIFY(catalog.positionUs() > start);
+    QCOMPARE(daemon.commands, QStringList());
+  }
+  void thumbnailResumesAfterTimelineFocusReturns() {
+    MediaDaemon daemon;
+    daemon.features = {QStringLiteral("MediaTimeline1")};
+    daemon.page1 = {session(QStringLiteral("live"), QStringLiteral("Paused"),
+                            QStringLiteral("paused"), 1000000, monotonicUs(),
+                            20000000, {QStringLiteral("seek")})};
+    auto bus = QDBusConnection::sessionBus();
+    QVERIFY(bus.registerService(QStringLiteral("org.arinn.Daemon1")));
+    QVERIFY(bus.registerVirtualObject(QStringLiteral("/org/arinn"), &daemon,
+                                      QDBusConnection::SubPath));
+    MediaCatalog catalog;
+    QTRY_COMPARE(catalog.sessionState(), QStringLiteral("ready"));
+    catalog.setThumbnailWanted(true);
+    QTRY_VERIFY(daemon.thumbnailReads >= 1);
+    const auto before = daemon.thumbnailReads;
+    catalog.seek(8000000);
+    catalog.setThumbnailWanted(false);
+    QTest::qWait(500);
+    QCOMPARE(daemon.thumbnailReads, before);
+    catalog.setThumbnailWanted(true);
+    QTRY_VERIFY(daemon.thumbnailReads > before);
+    QCOMPARE(daemon.commands, QStringList({QStringLiteral("Seek")}));
+  }
+  void shellHidesMissingFlagControls() {
+    const auto show = [](const QStringList &features, bool tracksOn, bool timelineOn) {
+      MediaDaemon daemon;
+      daemon.features = features;
+      if (tracksOn) {
+        daemon.tracks = {TrackWire{QStringLiteral("a1"), QStringLiteral("audio"),
+                                   QStringLiteral("eng"), QStringLiteral("English"),
+                                   QStringLiteral("aac"), 2, true, false}};
+      }
+      daemon.chapters = {ChapterWire{QStringLiteral("c1"), QStringLiteral("Open"),
+                                     1000000}};
+      daemon.page1 = {session(QStringLiteral("live"), QStringLiteral("Piece"),
+                              QStringLiteral("paused"), 1000000, monotonicUs(),
+                              9000000, {QStringLiteral("seek")})};
+      auto bus = QDBusConnection::sessionBus();
+      if (!bus.registerService(QStringLiteral("org.arinn.Daemon1")) ||
+          !bus.registerVirtualObject(QStringLiteral("/org/arinn"), &daemon,
+                                     QDBusConnection::SubPath))
+        return QStringLiteral("bus");
+      ShellStandIn backend;
+      SessionGuardStandIn guard;
+      QQmlApplicationEngine engine;
+      QStringList problems;
+      QObject::connect(&engine, &QQmlEngine::warnings, &engine,
+                       [&](const QList<QQmlError> &warnings) {
+                         for (const auto &warning : warnings) {
+                           const auto text = warning.toString();
+                           if (text.contains(QStringLiteral("qrc:/brand/")))
+                             continue;
+                           problems.append(text);
+                         }
+                       });
+      installAssetImageProvider(&engine);
+      engine.rootContext()->setContextProperty(QStringLiteral("backend"), &backend);
+      engine.rootContext()->setContextProperty(QStringLiteral("sessionGuard"),
+                                               &guard);
+      engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
+      if (!problems.isEmpty())
+        return problems.join(QLatin1Char('\n'));
+      auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().value(0));
+      if (!window)
+        return QStringLiteral("window");
+      window->show();
+      window->requestActivate();
+      auto catalog = window->findChild<MediaCatalog *>(QStringLiteral("mediaCatalog"));
+      auto player = window->findChild<QQuickItem *>(QStringLiteral("productionPlayer"));
+      if (!catalog || !player)
+        return QStringLiteral("player");
+      if (!QTest::qWaitFor([&] { return catalog->playerSession(); }, 5000))
+        return QStringLiteral("session");
+      const auto entryId = catalog->continueEntries()
+                               .value(0)
+                               .toMap()
+                               .value(QStringLiteral("id"))
+                               .toString();
+      if (!QMetaObject::invokeMethod(window, "openSession", Q_ARG(QVariant, entryId),
+                                     Q_ARG(QVariant, false)))
+        return QStringLiteral("open");
+      if (!QTest::qWaitFor(
+              [&] { return player->property("visible").toBool(); }, 5000))
+        return QStringLiteral("visible");
+      if (player->property("tracksSupported").toBool() != tracksOn)
+        return QStringLiteral("tracksSupported");
+      if (player->property("timelineSupported").toBool() != timelineOn)
+        return QStringLiteral("timelineSupported");
+      auto audio = window->findChild<QQuickItem *>(QStringLiteral("audioPill"));
+      auto subtitles = window->findChild<QQuickItem *>(QStringLiteral("subtitlePill"));
+      auto thumb = window->findChild<QQuickItem *>(QStringLiteral("timelineThumb"));
+      auto more = window->findChild<QQuickItem *>(QStringLiteral("morePill"));
+      if (!audio || !subtitles || !thumb || !more)
+        return QStringLiteral("controls");
+      if (audio->isVisible() != tracksOn || subtitles->isVisible() != tracksOn)
+        return QStringLiteral("pills");
+      if (thumb->isVisible() != timelineOn)
+        return QStringLiteral("thumbnail");
+      if (!more->isVisible())
+        return QStringLiteral("more");
+      return QString();
+    };
+    const auto tracksOnly = show({QStringLiteral("MediaTracks1")}, true, false);
+    QVERIFY2(tracksOnly.isEmpty(), qPrintable(tracksOnly));
+    cleanup();
+    const auto timelineOnly = show({QStringLiteral("MediaTimeline1")}, false, true);
+    QVERIFY2(timelineOnly.isEmpty(), qPrintable(timelineOnly));
+  }
 };
 
 int main(int argc, char **argv) {

@@ -336,7 +336,7 @@ void MediaCatalog::seek(double targetUs) {
       std::isfinite(targetUs) && targetUs >= 0 &&
       targetUs <= static_cast<double>(std::numeric_limits<qint64>::max())) {
     m_thumbFromSeek = true;
-    requestThumbnailAt(static_cast<qint64>(targetUs));
+    requestThumbnailAt(static_cast<qint64>(targetUs), true);
   }
 }
 void MediaCatalog::selectAudio(const QString &trackId) {
@@ -1112,8 +1112,12 @@ void MediaCatalog::setThumbnailWanted(bool wanted) {
   emit thumbnailWantedChanged();
   if (wanted)
     requestDisplayedThumbnail();
-  else
+  else {
     m_thumbnailTimer.stop();
+    // A seek arms one thumbnail. Leaving the timeline before it is sent
+    // must drop that arm, or the next focus never requests one.
+    m_thumbFromSeek = false;
+  }
 }
 void MediaCatalog::requestDisplayedThumbnail() {
   if (m_thumbFromSeek || !m_thumbnailWanted || !timelineAvailable())
@@ -1121,10 +1125,15 @@ void MediaCatalog::requestDisplayedThumbnail() {
   const auto *row = selected();
   if (!row)
     return;
-  requestThumbnailAt(displayedPosition(*row));
+  requestThumbnailAt(displayedPosition(*row), false);
 }
-void MediaCatalog::requestThumbnailAt(qint64 positionUs) {
+void MediaCatalog::requestThumbnailAt(qint64 positionUs, bool restart) {
   if (!timelineAvailable() || positionUs < 0)
+    return;
+  // The position clock ticks faster than this delay. Restarting on every
+  // tick would never send a thumbnail while playback is moving. A seek
+  // still restarts so its target replaces the position already waiting.
+  if (!restart && m_thumbnailTimer.isActive())
     return;
   m_pendingThumb = (positionUs / 1000000) * 1000000;
   m_thumbnailTimer.start();

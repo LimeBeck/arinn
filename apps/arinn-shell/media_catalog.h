@@ -141,7 +141,7 @@ private:
   void applyTracks(const QList<TrackRow> &tracks);
   void clearExtensions();
   void requestDisplayedThumbnail();
-  void requestThumbnailAt(qint64 positionUs);
+  void requestThumbnailAt(qint64 positionUs, bool restart);
   void sendThumbnail();
   void watchThumbnail(const QString &objectPath, quint64 ticket, quint64 epoch,
                       qint64 positionUs);

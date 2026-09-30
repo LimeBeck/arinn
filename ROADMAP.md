@@ -214,7 +214,7 @@ and accepts the full UI; early component work does not close its criteria.
 | G-5.1 UI matches the design handoff states and the 22 screenshots | Design review |
 | G-5.2 Activity background capture lifecycle and budget (carried over G-0.7) | Measurement report |
 | G-5.3 Arch/EndeavourOS package installs, starts and uninstalls cleanly | Packaging test |
-| G-5.4 Performance budgets of spec §6.5 measured on the target device | Measurement report |
+| G-5.4 Performance budgets of spec §6.5 measured on the target device | [Measurement harness](docs/architecture/performance-harness.md) with offscreen/private-bus smoke checks; target-device measurement report remains pending |
 
 ## Phase 6 — Rich integrations (post-MVP)
 

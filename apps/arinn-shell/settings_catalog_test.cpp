@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "settings_catalog.h"
+#include <QInputDevice>
+#include <QKeyEvent>
 #include <QtDBus>
 #include <QtTest>
 namespace {
@@ -527,6 +529,75 @@ private slots:
                      .toString(),
                  QStringLiteral("InvalidArgument"));
     QCOMPARE(daemon.sets.size(), 4);
+  }
+  void unsupportedDefersOnSucceededAndFailed() {
+    SettingsDaemon daemon;
+    daemon.providers = {{QStringLiteral("alpha"), QStringLiteral("Alpha")}};
+    daemon.settings.insert(
+        QStringLiteral("alpha"),
+        {setting(QStringLiteral("idle"), QStringLiteral("system"),
+                 QStringLiteral("integer"), QStringLiteral("10"),
+                 QStringLiteral(R"({"min":1,"max":60})"), true),
+         setting(QStringLiteral("delay"), QStringLiteral("system"),
+                 QStringLiteral("integer"), QStringLiteral("2"),
+                 QStringLiteral(R"({"min":1,"max":30})"), true)});
+    QVERIFY(registerBus(daemon));
+    SettingsCatalog catalog;
+    QTRY_COMPARE(catalog.screenState(), QStringLiteral("ready"));
+
+    daemon.operationState = QStringLiteral("succeeded");
+    daemon.operationError = QStringLiteral("Unsupported");
+    catalog.setValue(QStringLiteral("alpha"), QStringLiteral("idle"), 15);
+    QTRY_COMPARE(rowAt(catalog, QStringLiteral("alpha"), QStringLiteral("idle"))
+                     .value(QStringLiteral("deferred"))
+                     .toBool(),
+                 true);
+    QCOMPARE(rowAt(catalog, QStringLiteral("alpha"), QStringLiteral("idle"))
+                 .value(QStringLiteral("error"))
+                 .toString(),
+             QString());
+    QCOMPARE(rowAt(catalog, QStringLiteral("alpha"), QStringLiteral("idle"))
+                 .value(QStringLiteral("currentValue"))
+                 .toLongLong(),
+             15);
+
+    daemon.operationState = QStringLiteral("failed");
+    daemon.operationError = QStringLiteral("Unsupported");
+    catalog.setValue(QStringLiteral("alpha"), QStringLiteral("delay"), 8);
+    QTRY_COMPARE(rowAt(catalog, QStringLiteral("alpha"), QStringLiteral("delay"))
+                     .value(QStringLiteral("deferred"))
+                     .toBool(),
+                 true);
+    QCOMPARE(rowAt(catalog, QStringLiteral("alpha"), QStringLiteral("delay"))
+                 .value(QStringLiteral("error"))
+                 .toString(),
+             QString());
+    QCOMPARE(rowAt(catalog, QStringLiteral("alpha"), QStringLiteral("delay"))
+                 .value(QStringLiteral("currentValue"))
+                 .toLongLong(),
+             8);
+    QCOMPARE(rowAt(catalog, QStringLiteral("alpha"), QStringLiteral("idle"))
+                 .value(QStringLiteral("deferred"))
+                 .toBool(),
+             true);
+  }
+  void navigationKeysDoNotMarkAKeyboard() {
+    for (const auto *device : QInputDevice::devices()) {
+      if (device && device->type() == QInputDevice::DeviceType::Keyboard)
+        QSKIP("This process already has a keyboard device");
+    }
+    KeyboardMonitor monitor;
+    QCOMPARE(monitor.available(), false);
+    const Qt::Key keys[] = {
+        Qt::Key_Left,     Qt::Key_Right,      Qt::Key_Up,       Qt::Key_Down,
+        Qt::Key_Return,   Qt::Key_Enter,      Qt::Key_Backspace, Qt::Key_Escape,
+        Qt::Key_Back,     Qt::Key_Select,     Qt::Key_Home,     Qt::Key_PageUp,
+        Qt::Key_PageDown, Qt::Key_ChannelUp,  Qt::Key_ChannelDown};
+    for (const auto key : keys) {
+      QKeyEvent event(QEvent::KeyPress, key, Qt::NoModifier);
+      QCoreApplication::sendEvent(QCoreApplication::instance(), &event);
+      QCOMPARE(monitor.available(), false);
+    }
   }
   void missingServiceIsUnavailable() {
     SettingsCatalog catalog;

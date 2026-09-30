@@ -36,7 +36,7 @@ control.
 | Row `constraints` | `options` (`value`, `title`) for an enum; `min`, `max`, and when present `step` and `unit`, for an integer; `maxLength` for a string; `directory`, `multiple` and `maxItems` for a path |
 | Row `enabled` | When false, the row is shown and cannot be edited. The detail line is the generic "Cannot be changed now"; the contract carries no reason |
 | Row `pending` | A `SetValue` operation is still running |
-| Row `deferred` | The last successful change applies at the provider's next start. The note stays until that provider's generation changes, and it is forgotten when the shell restarts |
+| Row `deferred` | The operation error was `Unsupported`. The value is stored and applies at the provider's next start, whether the operation finished as succeeded or failed. The note stays until that provider's generation changes, and it is forgotten when the shell restarts |
 | Row `error` | The daemon's error text, or empty. `Timeout` is the shell's own deadline and is shown as "Arinn did not reply. Try again." |
 | `screenState` | `loading`, `ready`, `error` or `unavailable` |
 
@@ -66,7 +66,9 @@ keyboard replace the draft. Select saves the draft. A string sheet prefills
 the current value. Enter or Save sends it; the counter uses `maxLength` when
 that constraint is present. Without a keyboard the field is dimmed, the sheet
 explains that a keyboard is required, and shows the command `arinnctl settings set`
-with no value in it. The first character key enables the field.
+with no value in it. `KeyboardMonitor` reports a keyboard only when an input
+device of that type is present. Arrow keys and other remote navigation do not
+mark one. The first character key enables the field.
 
 A single path, and a path with `multiple`, stay plain text fields with Add and
 Remove. The folder list and the folder picker in specification §5.6 wait on
@@ -83,20 +85,22 @@ signal is `valueChangeRequested(providerId, settingId, value)`.
 
 The view does not write the proposed value back. The catalog marks the row
 pending, calls `SetValue`, and clears pending when the operation finishes. A
-failure sets `error` to the daemon's text and leaves the previous value. There
+failure sets `error` to the daemon's text and leaves the previous value, except
+an operation error of `Unsupported`, which is the next-start note below. There
 is no timer that turns a proposal into a saved setting.
 
 While the sheet is still open and the operation is still pending after 300 ms,
 the chosen enum option shows a spinner. Back closes the sheet anyway; the
 result arrives as a toast. A success that applied now closes the sheet and, for
 anything except a boolean, shows "Saved" with the setting title and the new
-value for 3 seconds. A success whose operation error is `Unsupported` is stored
-for the provider's next start: the same toast says it applies after Arinn
-restarts, and the row keeps that note until `GetSettings` returns a new
-generation. There is no Restart action. The daemon currently reports that
-provider answer as an ordinary success with an empty error, so a live
-next-start change is shown as applied until the daemon keeps `Unsupported` on
-the succeeded operation. A rejection leaves the sheet open with the daemon's
+value for 3 seconds. An operation whose error is `Unsupported` is stored for
+the provider's next start, whether that operation finished as succeeded or
+failed: the same toast says it applies after Arinn restarts, and the row keeps
+that note until `GetSettings` returns a new generation. There is no Restart
+action. The daemon currently turns the provider's `Unsupported` into an
+ordinary success with an empty error, so a live next-start change is shown as
+applied until the daemon keeps that code on the operation (#196). A rejection with
+any other error leaves the sheet open with the daemon's
 text; a string error clears on the next key. A rejected boolean springs back,
 shows an error toast, and keeps the text on the row until focus leaves it. A
 shell deadline (`Timeout`) uses "Arinn did not reply. Try again."
@@ -127,11 +131,12 @@ string, saving toasts, a deferred row note, Back, the unavailable screen,
 focus kept across a row republish, and Select on a pending boolean.
 `apps/arinn-shell/settings_catalog_test.cpp` drives a fake `Settings1`:
 grouping, each value kind, `SetValue` pending, applied, deferred (`Unsupported`
-on a succeeded operation, cleared when the generation changes) and rejected
-with the daemon's text, a second `SetValue` ignored while that operation is
-still running, a disabled setting, string and path JSON, an integer `unit` and
-`step` when the JSON already contains them, `SettingsChanged`, and a missing
-service.
+on both a succeeded and a failed operation, cleared when the generation
+changes) and rejected with the daemon's text, a second `SetValue` ignored while
+that operation is still running, a disabled setting, string and path JSON, an
+integer `unit` and `step` when the JSON already contains them,
+`SettingsChanged`, a missing service, and `KeyboardMonitor` ignoring remote
+navigation keys.
 
 Offscreen run on 2026-09-30, Qt 6.11.2:
 
@@ -145,4 +150,4 @@ QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
 python scripts/check-docs.py
 ```
 
-`arinn-shell` linked. The catalog test passed 11 cases. `arinn-ui-test -input tests/ui` passed 196 cases, including every `SettingsView` case in `tst_settings.qml` (the same suite as `ctest -R '^ui-components$'`, which also passed). `arinn-browser-catalog-test` passed 10 cases; it loads `Main.qml`, which binds `KeyboardMonitor`. `python scripts/check-docs.py` passed. Operator tests were not run. This does not close AC-02, AC-12 or AC-18.
+`arinn-shell` linked. The catalog test passed 13 cases, including `Unsupported` on a succeeded operation and on a failed one, and `KeyboardMonitor` staying unavailable after remote navigation keys. `arinn-ui-test -input tests/ui` passed 196 cases, including every `SettingsView` case in `tst_settings.qml` (the same suite as `ctest -R '^ui-components$'`, which also passed). `arinn-browser-catalog-test` passed 10 cases; it loads `Main.qml`, which binds `KeyboardMonitor`. `python scripts/check-docs.py` passed. Operator tests were not run. This does not close AC-02, AC-12 or AC-18. The catalog test and `check-docs.py` were run again after the next-start and keyboard fixes; the UI and browser-catalog counts above are from the earlier run of this change.

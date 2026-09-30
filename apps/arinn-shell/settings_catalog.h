@@ -13,8 +13,9 @@
 #include <memory>
 #include <QtGlobal>
 
-// Whether a hardware keyboard is attached. The string editor uses this for
-// the no-keyboard state. It is not constructed by the catalog unit test.
+// Whether a hardware keyboard is attached. Arrow keys and other remote
+// navigation do not count. The string editor uses this for the no-keyboard
+// state; the first character typed there enables the field on its own.
 class KeyboardMonitor : public QObject {
   Q_OBJECT
   Q_PROPERTY(bool available READ available NOTIFY availableChanged)
@@ -23,9 +24,6 @@ public:
   bool available() const { return m_available; }
 signals:
   void availableChanged();
-
-protected:
-  bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
   void scan();

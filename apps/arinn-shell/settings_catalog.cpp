@@ -3,9 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "settings_catalog.h"
-#include <QCoreApplication>
 #include <QDeadlineTimer>
-#include <QEvent>
 #include <QInputDevice>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -188,15 +186,6 @@ Q_COREAPP_STARTUP_FUNCTION(registerSettingsCatalog)
 
 KeyboardMonitor::KeyboardMonitor(QObject *parent) : QObject(parent) {
   scan();
-  if (auto *app = QCoreApplication::instance())
-    app->installEventFilter(this);
-}
-bool KeyboardMonitor::eventFilter(QObject *watched, QEvent *event) {
-  if (event->type() == QEvent::KeyPress && !m_available) {
-    m_available = true;
-    emit availableChanged();
-  }
-  return QObject::eventFilter(watched, event);
 }
 void KeyboardMonitor::scan() {
   bool found = false;
@@ -712,16 +701,19 @@ void SettingsCatalog::watchOperation(const QString &key, const QString &objectPa
                         timer->start();
                         return;
                       }
-                      if (state == QLatin1String("succeeded")) {
-                        // A succeeded operation whose error is Unsupported is
-                        // the daemon's "applies at next start" answer. Any
-                        // other success applied now. A failure keeps the
-                        // daemon's error text.
-                        settle(key, ticket, epoch, QString(),
-                               error == QLatin1String("Unsupported"));
-                      } else
+                      if (error == QLatin1String("Unsupported")) {
+                        // The provider stored the value and applies it at its
+                        // next start. Operation1 puts an error only on a
+                        // failed operation, so this code can arrive as either
+                        // succeeded or failed. Both are the next-start note,
+                        // not a rejection.
+                        settle(key, ticket, epoch, QString(), true);
+                      } else if (state == QLatin1String("succeeded")) {
+                        settle(key, ticket, epoch, QString());
+                      } else {
                         settle(key, ticket, epoch,
                                error.isEmpty() ? state : error);
+                      }
                       timer->deleteLater();
                     });
           });

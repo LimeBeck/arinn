@@ -54,10 +54,16 @@ pub trait LibraryImportHandler: Send + Sync + 'static {
 
 #[derive(Clone, Default)]
 pub struct LibraryExtensions {
+    assets: Option<Arc<dyn super::assets::AssetHandler>>,
     resume: Option<Arc<dyn LibraryResumeHandler>>,
     import: Option<Arc<dyn LibraryImportHandler>>,
 }
 impl LibraryExtensions {
+    /// Serve asset bytes for the provider's asset ids (ADR-0062).
+    pub fn assets(mut self, handler: impl super::assets::AssetHandler) -> Self {
+        self.assets = Some(Arc::new(handler));
+        self
+    }
     pub fn resume(mut self, handler: impl LibraryResumeHandler) -> Self {
         self.resume = Some(Arc::new(handler));
         self
@@ -211,6 +217,9 @@ impl LibraryService {
         }
         if self.extensions.import.is_some() {
             names.push(FEATURE_IMPORT.into());
+        }
+        if self.extensions.assets.is_some() {
+            names.push(arinn_protocol::assets::FEATURE_ASSETS.into());
         }
         names
     }
@@ -429,6 +438,27 @@ impl ImportIface {
     }
 }
 
+#[derive(Clone)]
+struct AssetsIface(LibraryService);
+#[zbus::interface(name = "org.arinn.AssetProvider1")]
+impl AssetsIface {
+    async fn get_asset(
+        &self,
+        generation: &str,
+        id: &str,
+        #[zbus(header)] header: Header<'_>,
+    ) -> production::Result<(arinn_protocol::assets::Asset,)> {
+        self.0.ready(generation, &header).await?;
+        let handler = self
+            .0
+            .extensions
+            .assets
+            .as_ref()
+            .ok_or(ErrorCode::Unsupported)?;
+        super::assets::serve(handler, id).await
+    }
+}
+
 impl Endpoint for LibraryService {
     const CAPABILITY: &'static str = "library";
     fn registrations(&self) -> &tokio::sync::watch::Sender<Option<RegistrationContext>> {
@@ -493,6 +523,12 @@ impl Endpoint for LibraryService {
             .await?
         {
             return Err("provider endpoint already exported".into());
+        }
+        if self.extensions.assets.is_some() {
+            connection
+                .object_server()
+                .at(PROVIDER_PATH, AssetsIface(self.clone()))
+                .await?;
         }
         if self.extensions.resume.is_some() {
             connection

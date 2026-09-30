@@ -5,10 +5,11 @@
 //! daemon, and exports rich interfaces only when asked (ADR-0054).
 mod common;
 use arinn_plugin_sdk::runtime::{
-    self, MediaAction, MediaExtensions, MediaHandler, MediaOpenHandler, MediaService,
+    self, AssetHandler, MediaAction, MediaExtensions, MediaHandler, MediaOpenHandler, MediaService,
     MediaTimelineHandler, MediaTracksHandler,
 };
 use arinn_protocol::{
+    assets::{Asset, AssetProviderProxy},
     media::{
         self, MediaOpenProxy, MediaProviderProxy, MediaSource, MediaTimelineProxy,
         MediaTracksProxy, Session, Thumbnail, Timeline, Track,
@@ -41,6 +42,30 @@ impl MediaHandler for Handler {
     }
 }
 #[derive(Clone, Default)]
+/// Serves one valid PNG, one image whose bytes are not what it declares,
+/// and nothing else.
+struct Assets;
+impl AssetHandler for Assets {
+    fn asset(
+        &self,
+        id: String,
+    ) -> Pin<Box<dyn Future<Output = Result<Asset, ErrorCode>> + Send + '_>> {
+        let png = [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0, 0].to_vec();
+        Box::pin(async move {
+            match id.as_str() {
+                "art-1" => Ok(Asset {
+                    mime: "image/png".into(),
+                    data: png,
+                }),
+                "art-disguised" => Ok(Asset {
+                    mime: "image/jpeg".into(),
+                    data: png,
+                }),
+                _ => Err(ErrorCode::NotFound),
+            }
+        })
+    }
+}
 struct Open;
 impl MediaOpenHandler for Open {
     fn open(
@@ -281,6 +306,7 @@ async fn base_scenario() {
     assert!(!live.contains("org.arinn.MediaOpen1"));
     assert!(!live.contains("org.arinn.MediaTracks1"));
     assert!(!live.contains("org.arinn.MediaTimeline1"));
+    assert!(!live.contains("org.arinn.AssetProvider1"));
     runner.abort();
 }
 
@@ -298,7 +324,8 @@ async fn rich_scenario() {
     let extensions = MediaExtensions::default()
         .open(Open)
         .tracks(Tracks::default())
-        .timeline(TimelineHandler::default());
+        .timeline(TimelineHandler::default())
+        .assets(Assets);
     let service = MediaService::with_extensions(
         Handler::default(),
         vec![session(&["play"])],
@@ -328,7 +355,37 @@ async fn rich_scenario() {
     let generation = base.get_sessions("").await.unwrap().0.generation;
     assert_eq!(
         base.features().await.unwrap(),
-        vec!["MediaOpen1", "MediaTracks1", "MediaTimeline1"]
+        vec![
+            "MediaOpen1",
+            "MediaTracks1",
+            "MediaTimeline1",
+            "AssetProvider1"
+        ]
+    );
+    let assets = AssetProviderProxy::builder(&server)
+        .destination(destination.clone())
+        .unwrap()
+        .build()
+        .await
+        .unwrap();
+    let (asset,) = assets.get_asset(&generation, "art-1").await.unwrap();
+    assert_eq!(asset.mime, "image/png");
+    assert_eq!(
+        error_name(assets.get_asset(&generation, "art-404").await),
+        "org.arinn.Error1.NotFound"
+    );
+    // The provider's own bad image never reaches the daemon.
+    assert_eq!(
+        error_name(assets.get_asset(&generation, "art-disguised").await),
+        "org.arinn.Error1.Internal"
+    );
+    assert_eq!(
+        error_name(assets.get_asset(&generation, "").await),
+        "org.arinn.Error1.InvalidArgument"
+    );
+    assert_eq!(
+        error_name(assets.get_asset("stale", "art-1").await),
+        "org.arinn.Error1.Conflict"
     );
     let open = MediaOpenProxy::builder(&server)
         .destination(destination.clone())
@@ -409,6 +466,7 @@ async fn rich_scenario() {
         ("org.arinn.MediaOpen1", "media-open1.xml"),
         ("org.arinn.MediaTracks1", "media-tracks1.xml"),
         ("org.arinn.MediaTimeline1", "media-timeline1.xml"),
+        ("org.arinn.AssetProvider1", "asset-provider1.xml"),
     ] {
         let xml = std::fs::read_to_string(format!(
             "{}/../../docs/plugin-api/{file}",

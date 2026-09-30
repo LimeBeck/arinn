@@ -5,10 +5,11 @@
 //! (ADR-0054). Launch's file URI is not logged.
 mod common;
 use arinn_plugin_sdk::runtime::{
-    self, LibraryExtensions, LibraryHandler, LibraryImportHandler, LibraryResumeHandler,
-    LibraryService,
+    self, AssetHandler, LibraryExtensions, LibraryHandler, LibraryImportHandler,
+    LibraryResumeHandler, LibraryService,
 };
 use arinn_protocol::{
+    assets::{Asset, AssetProviderProxy},
     library::{
         Collection, ImportCandidate, Item, LibraryImportProxy, LibraryProviderProxy,
         LibraryResumeProxy,
@@ -153,6 +154,27 @@ fn interface_methods(xml: &str, interface: &str) -> Vec<String> {
     names
 }
 
+/// One JPEG poster.
+struct Posters;
+impl AssetHandler for Posters {
+    fn asset(
+        &self,
+        id: String,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Asset, ErrorCode>> + Send + '_>>
+    {
+        Box::pin(async move {
+            if id == "poster-1" {
+                Ok(Asset {
+                    mime: "image/jpeg".into(),
+                    data: vec![0xFF, 0xD8, 0xFF, 0xE0],
+                })
+            } else {
+                Err(ErrorCode::NotFound)
+            }
+        })
+    }
+}
+
 async fn scenario() {
     let bus = common::Bus::start();
     let server = bus.connection().await;
@@ -169,7 +191,8 @@ async fn scenario() {
     let import = Import::default();
     let extensions = LibraryExtensions::default()
         .resume(resume.clone())
-        .import(import.clone());
+        .import(import.clone())
+        .assets(Posters);
     let service = LibraryService::with_extensions(
         handler.clone(),
         vec![collection()],
@@ -207,8 +230,23 @@ async fn scenario() {
     assert_eq!(page.items.len(), 2);
     assert_eq!(
         proxy.features().await.unwrap(),
-        vec!["LibraryResume1".to_string(), "LibraryImport1".to_string()]
+        vec![
+            "LibraryResume1".to_string(),
+            "LibraryImport1".to_string(),
+            "AssetProvider1".to_string()
+        ]
     );
+    let posters = AssetProviderProxy::builder(&server)
+        .destination(destination.clone())
+        .unwrap()
+        .build()
+        .await
+        .unwrap();
+    let (poster,) = posters
+        .get_asset(&context.generation, "poster-1")
+        .await
+        .unwrap();
+    assert_eq!(poster.mime, "image/jpeg");
     let (item,) = proxy.get_item(&context.generation, "film-1").await.unwrap();
     assert!(item.available);
     let (source,) = proxy.launch(&context.generation, "film-1").await.unwrap();

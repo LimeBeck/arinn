@@ -69,7 +69,7 @@ These are screenshots of the **current Qt/QML interface**, rendered by the devel
 <details>
 <summary>Applications screenshot</summary>
 
-**Applications** — tiles grouped into Online, Games, Media and Other, with remote-control focus.
+**Applications** — tiles grouped into Online, Games and Media, with remote-control focus.
 
 ![Current Arinn Qt Applications with grouped tiles and Online focused](docs/design/current-ui/applications.png)
 

@@ -60,7 +60,7 @@ Arinn не заменяет браузер, плеер или игровой л�
 <details>
 <summary>Скриншот приложений</summary>
 
-**Приложения** — плитки по группам Online, Games, Media и Other, с заметным фокусом для пульта.
+**Приложения** — плитки по группам Online, Games и Media, с заметным фокусом для пульта.
 
 ![Текущие приложения Arinn в Qt: группы плиток и фокус на Online](docs/design/current-ui/applications.png)
 

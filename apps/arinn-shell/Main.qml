@@ -86,6 +86,7 @@ Window {
             onCancelRequested: browserCatalog.cancelOpen()
             onRetryRequested: browserCatalog.retryOpen()
             onDismissRequested: browserCatalog.dismissOpenFailure()
+            onHomeRequested: Qt.callLater(home.showHome)
         }
         Rectangle {
             x: 420; y: 970; width: 1080; height: 72; radius: 36

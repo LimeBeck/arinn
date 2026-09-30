@@ -27,6 +27,7 @@ TestCase {
     SignalSpy { id: cancels; signalName: "cancelRequested" }
     SignalSpy { id: retries; signalName: "retryRequested" }
     SignalSpy { id: dismisses; signalName: "dismissRequested" }
+    SignalSpy { id: homes; signalName: "homeRequested" }
 
     function init() {
         mouseMove(suite, 10, 10);
@@ -35,11 +36,13 @@ TestCase {
         cancels.target = overlay; cancels.clear();
         retries.target = overlay; retries.clear();
         dismisses.target = overlay; dismisses.clear();
+        homes.target = overlay; homes.clear();
     }
     function cleanup() {
         cancels.target = null;
         retries.target = null;
         dismisses.target = null;
+        homes.target = null;
     }
 
     function test_skip_when_fast() {
@@ -65,6 +68,22 @@ TestCase {
         focused("launchCancel");
         keyClick(Qt.Key_Escape);
         compare(cancels.count, 2);
+    }
+
+    function test_home_hides_slow_open_without_cancel() {
+        // Main.qml maps cancelRequested to browserCatalog.cancelOpen().
+        overlay.active = true;
+        tryCompare(overlay, "slow", true);
+        compare(overlay.visible, true);
+        focused("launchCancel");
+        keyClick(Qt.Key_Home);
+        compare(cancels.count, 0);
+        compare(retries.count, 0);
+        compare(dismisses.count, 0);
+        compare(homes.count, 1);
+        compare(overlay.visible, false);
+        compare(overlay.active, true);
+        compare(overlay.showDialog, false);
     }
 
     function test_stall_keeps_slow_message_visible() {

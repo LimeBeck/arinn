@@ -81,6 +81,8 @@ FocusScope {
     signal selectSubtitle(string trackId)
     signal stop()
     signal leave()
+    // Home shows the shell Home. It is not leave, and it does not stop playback.
+    signal homeRequested()
 
     function selectedCaption(tracks, count, selectedId, unavailable) {
         if (count <= 0)
@@ -202,6 +204,15 @@ FocusScope {
         sheetKind = ""
     }
 
+    function onHome() {
+        // Close the sheet without selecting a track. Opening Home never
+        // pauses or stops playback (specification §6.3).
+        if (sheetKind !== "")
+            sheetKind = ""
+        homeRequested()
+        armIdle()
+    }
+
     function onBack() {
         if (sheetKind !== "") {
             sheetKind = ""
@@ -308,11 +319,12 @@ FocusScope {
         const key = event.key
         const ok = key === Qt.Key_Return || key === Qt.Key_Enter || key === Qt.Key_Select
         const back = key === Qt.Key_Escape || key === Qt.Key_Back || key === Qt.Key_Backspace
+        const home = key === Qt.Key_Home
         const horizontal = key === Qt.Key_Left || key === Qt.Key_Right
         const vertical = key === Qt.Key_Up || key === Qt.Key_Down
         const media = key === Qt.Key_MediaPlay || key === Qt.Key_MediaPause
                 || key === Qt.Key_MediaTogglePlayPause || key === Qt.Key_MediaStop
-        if (!ok && !back && !horizontal && !vertical && !media)
+        if (!ok && !back && !home && !horizontal && !vertical && !media)
             return
         if (event.isAutoRepeat && !horizontal && !vertical) {
             event.accepted = true
@@ -320,6 +332,8 @@ FocusScope {
         }
         if (back)
             onBack()
+        else if (home)
+            onHome()
         else if (ok)
             onOk()
         else if (key === Qt.Key_Left)

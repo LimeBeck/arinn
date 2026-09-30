@@ -39,6 +39,7 @@ function fixture() {
     const home = window('shell-id', 'org.arinn.Shell');
     let windows = [activity, home];
     let shortcut, takeCommand, report, tick, control;
+    const shortcuts = [];
     let locked = false, generation = randomUUID(), stage = [];
     const snapshots = [], acknowledgements = [], controls = [];
     let owner = ":1.10"; const polls = [];
@@ -53,7 +54,7 @@ function fixture() {
         windowActivated: signal(), sendClientToScreen: (w, o) => { w.output = o; } };
     const context = vm.createContext({ workspace,
         QTimer: class { constructor() { this.timeout = { connect: fn => { tick = fn; } }; } start() {} },
-        registerShortcut: (_id, _label, _keys, fn) => { shortcut = fn; },
+        registerShortcut: (id, _label, keys, fn) => { shortcuts.push({ id, keys }); shortcut = fn; },
         print: () => {},
         callDBus: (_service, _path, _interface, method, ...args) => {
             if (_interface === 'org.arinn.KWinBridge1') {
@@ -82,10 +83,26 @@ function fixture() {
         command(action, token) { control([randomUUID(), action, token]); },
         reconnect(value) { owner = value; tick(); },
         show: () => shortcut(), back: () => takeCommand('return'),
+        shortcuts,
         dismiss: () => takeCommand('dismiss'), report: () => report,
         remove(w) { windows = windows.filter(x => x !== w); workspace.windowRemoved.emit(w); },
         add(w) { windows.push(w); workspace.windowAdded.emit(w); } };
 }
+
+test('an external window keeps Back until Home opens the overlay on that window', () => {
+    const f = fixture();
+    assert.deepEqual(f.shortcuts, [{ id: 'ArinnPhase0Home', keys: 'Meta+F12' }]);
+    assert.equal(f.workspace.activeWindow, f.activity);
+    assert.deepEqual(f.report(), [false, '', '']);
+    f.back();
+    assert.equal(f.workspace.activeWindow, f.activity);
+    assert.equal(f.home.keepAbove, false);
+    assert.deepEqual(f.report(), [false, '', '']);
+    f.show();
+    assert.deepEqual(f.report(), [true, 'original-id', 'second-screen']);
+    assert.equal(f.workspace.activeWindow, f.home);
+    assert.equal(f.home.keepAbove, true);
+});
 
 test('same KWin identity remaps and remains the Return target on its output', () => {
     const f = fixture();

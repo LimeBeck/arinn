@@ -60,12 +60,13 @@ to that track. The view never writes `positionUs` or `playbackState`.
 
 ## Focus
 
-The view is its own focus scope. While a session is ready, Left and Right move
-among the listed actions and stop at the ends. Up opens the seek track and
-Down returns to the action that opened it. On the seek track, Left and Right
-are the seek step. Empty, loading and unavailable focus the screen itself.
-Escape, Backspace and the remote Back key each emit `backRequested()` once and
-do not change playback.
+The view is its own focus scope. It takes focus only while it is visible and
+enabled, so a closed session in `Main.qml` does not consume Home keys.
+While a session is ready, Left and Right move among the listed actions and
+stop at the ends. Up opens the seek track and Down returns to the action that
+opened it. On the seek track, Left and Right are the seek step. Empty, loading
+and unavailable focus the screen itself. Escape, Backspace and the remote Back
+key each emit `backRequested()` once and do not change playback.
 
 ## Verification
 
@@ -89,9 +90,13 @@ QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
 
 `arinn-browser-catalog-test` also loads `Main.qml`, so that executable links
 `media_catalog.cpp` and registers `MediaCatalog` the same way the shell does.
+`productionSaveWiring` presses Backspace while the session screen is closed
+and expects Home navigation to open.
 
 Local verification on 2026-09-30, Qt 6.11.2, offscreen platform, software
 renderer: `arinn-media-catalog-test` reported 11 passed,
-`arinn-browser-catalog-test` reported 8 passed, and
-`arinn-ui-test -input tests/ui` reported 176 passed. This is not the Arch CI
-Qt. Operator tests were not run. AC-09 is not marked passed.
+`arinn-browser-catalog-test` reported 8 passed,
+`arinn-ui-test -input tests/ui` reported 176 passed, and
+`dbus-run-session -- python tests/integration/phase1.py` passed, including
+`BackendTest::typedWireAndLocalFocus`. This is not the Arch CI Qt. Operator
+tests were not run. AC-09 is not marked passed.

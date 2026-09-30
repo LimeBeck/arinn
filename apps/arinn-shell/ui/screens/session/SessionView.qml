@@ -10,7 +10,9 @@ FocusScope {
     id: root
     width: 1920
     height: 1080
-    focus: true
+    // A closed session stays in the shell tree. It must not become the window's
+    // focus item, or Home never sees Backspace.
+    focus: visible && enabled
 
     // ready shows the session. empty and unavailable (and anything else) do not.
     property string sessionState: "ready"
@@ -99,6 +101,8 @@ FocusScope {
         seekRequested(target);
     }
     function restore() {
+        if (!visible || !enabled)
+            return;
         if (!hasSession) {
             forceActiveFocus();
             return;
@@ -162,9 +166,11 @@ FocusScope {
         if (key === Qt.Key_Right && index + 1 < row.length) row[index + 1].forceActiveFocus();
     }
 
-    Component.onCompleted: Qt.callLater(restore)
-    onSessionStateChanged: Qt.callLater(restore)
-    onAvailableActionsChanged: Qt.callLater(keepFocus)
+    Component.onCompleted: if (visible && enabled) Qt.callLater(restore)
+    onVisibleChanged: if (visible && enabled) Qt.callLater(restore)
+    onEnabledChanged: if (visible && enabled) Qt.callLater(restore)
+    onSessionStateChanged: if (visible && enabled) Qt.callLater(restore)
+    onAvailableActionsChanged: if (visible && enabled) Qt.callLater(keepFocus)
     Timer { id: hoverDelay; interval: 500 }
     HoverHandler {
         id: hoverPoint

@@ -730,6 +730,13 @@ private slots:
     QVERIFY(window);
     window->show();
     window->requestActivate();
+    // A closed Media1 session stays in this window. Backspace still opens Home
+    // navigation; the hidden session must not take the key.
+    QTest::qWait(100);
+    QTest::keyClick(window, Qt::Key_Backspace);
+    QTRY_VERIFY(window->property("navOpen").toBool());
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_VERIFY(!window->property("navOpen").toBool());
     window->setProperty("browserOpen", true);
     auto browser =
         window->findChild<QQuickItem *>(QStringLiteral("productionBrowser"));

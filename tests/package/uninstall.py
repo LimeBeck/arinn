@@ -77,6 +77,8 @@ SAMPLE_FILES = [
     "usr/lib/systemd/user/arinn-kwin.service",
     "usr/share/arinn/plugins/demo.toml",
     "usr/share/arinn/plugins/mpris.toml",
+    "usr/lib/arinn/plugins/arinn-plugin-transmission",
+    "usr/share/arinn/plugins/transmission.toml",
     "usr/share/arinn/kwin/phase0.js",
     "usr/share/arinn/chrome-extension/manifest.json",
     "etc/opt/chrome/native-messaging-hosts/org.arinn.chrome_host.json",

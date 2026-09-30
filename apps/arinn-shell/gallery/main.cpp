@@ -19,6 +19,8 @@ int main(int argc, char **argv) {
     qml = QStringLiteral("qrc:/gallery/SessionGallery.qml");
   } else if (args.contains("--library")) {
     qml = QStringLiteral("qrc:/gallery/LibraryGallery.qml");
+  } else if (args.contains("--settings")) {
+    qml = QStringLiteral("qrc:/gallery/SettingsGallery.qml");
   } else if (args.contains("--home") || args.contains("--applications")) {
     qml = QStringLiteral("qrc:/gallery/HomeGallery.qml");
     engine.setInitialProperties({

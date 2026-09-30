@@ -54,6 +54,8 @@ private:
     bool hasEpisode = false;
     quint32 episode = 0;
     qint64 durationUs = -1;
+    QString poster;
+    QString fanart;
     bool available = false;
     bool hasResume = false;
     qint64 resumePosition = 0;

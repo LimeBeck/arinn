@@ -664,6 +664,7 @@ FocusScope {
                         id: cell
                         required property var modelData
                         required property int index
+                        readonly property bool posterHasSource: !!(modelData.artwork && String(modelData.artwork).length)
                         width: root.posterWidth
                         height: 427
                         z: poster.activeFocus ? 2 : 0
@@ -697,22 +698,25 @@ FocusScope {
                                 Rectangle {
                                     anchors.fill: parent
                                     radius: 20
-                                    visible: !!modelData.noArt
+                                    visible: !!modelData.noArt || (cell.posterHasSource && posterImage.status !== Image.Ready)
                                     gradient: Gradient {
                                         GradientStop { position: 0.0; color: Qt.rgba(0.29, 0.29, 0.31, 1) }
                                         GradientStop { position: 1.0; color: Qt.rgba(0.21, 0.21, 0.23, 1) }
                                     }
                                 }
                                 Image {
+                                    id: posterImage
+                                    objectName: "posterImage-" + modelData.id
                                     anchors.fill: parent
                                     fillMode: Image.PreserveAspectCrop
                                     asynchronous: true
-                                    source: modelData.artwork ? modelData.artwork : ""
-                                    visible: !modelData.noArt && status === Image.Ready
+                                    cache: false
+                                    source: cell.posterHasSource ? modelData.artwork : ""
+                                    visible: status === Image.Ready
                                 }
                                 Text {
                                     objectName: "posterMark-" + modelData.id
-                                    visible: !modelData.noArt
+                                    visible: !modelData.noArt && !cell.posterHasSource
                                     x: 14
                                     y: 12
                                     text: "poster"
@@ -727,7 +731,7 @@ FocusScope {
                                     anchors.rightMargin: 20
                                     anchors.topMargin: 22
                                     anchors.bottomMargin: 22
-                                    visible: !!modelData.noArt
+                                    visible: !!modelData.noArt || (cell.posterHasSource && posterImage.status !== Image.Ready)
                                     Item {
                                         id: filmGlyph
                                         objectName: "posterGlyph-" + modelData.id
@@ -890,8 +894,20 @@ FocusScope {
         visible: root.detailOpen
         color: root.detailEntry ? root.standInColor(root.detailEntry.id) : Ui.Theme.background
         z: 5
+        Image {
+            id: detailFanart
+            objectName: "detailFanart"
+            anchors.fill: parent
+            z: 0
+            fillMode: Image.PreserveAspectCrop
+            asynchronous: true
+            cache: false
+            source: root.detailEntry && root.detailEntry.fanart ? root.detailEntry.fanart : ""
+            visible: status === Image.Ready
+        }
         Text {
             objectName: "detailBackdropMark"
+            visible: detailFanart.status !== Image.Ready
             z: 1
             anchors.right: parent.right
             anchors.rightMargin: 96
@@ -1174,8 +1190,19 @@ FocusScope {
                                     }
                                     onActivated: root.episodeRequested(root.detailEntryId, modelData.id)
                                     contentItem: Item {
+                                        Image {
+                                            id: stillImage
+                                            objectName: "episodeImage-" + modelData.id
+                                            anchors.fill: parent
+                                            fillMode: Image.PreserveAspectCrop
+                                            asynchronous: true
+                                            cache: false
+                                            source: modelData.artwork ? modelData.artwork : ""
+                                            visible: status === Image.Ready
+                                        }
                                         Text {
                                             objectName: "episodeMark-" + modelData.id
+                                            visible: stillImage.status !== Image.Ready
                                             x: 18
                                             y: 14
                                             text: "still"

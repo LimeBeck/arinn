@@ -10,7 +10,7 @@ Surface {
     property bool running: false
     property bool showProgress: false
     property real progress: 0
-    readonly property bool artworkReady: picture.ready
+    readonly property bool artworkReady: picture.status === Image.Ready
     implicitWidth: 400
     implicitHeight: 225
     contentItem: Item {
@@ -18,34 +18,24 @@ Surface {
             anchors.fill: parent
             radius: root.cornerRadius
             color: "#25282e"
-            visible: !picture.ready
+            visible: picture.status !== Image.Ready
         }
-        Canvas {
+        Image {
             id: picture
             anchors.fill: parent
-            property bool ready: false
-            property url source: root.artwork
-            property url cachedSource: ""
-            onSourceChanged: {
-                if (cachedSource.toString().length) unloadImage(cachedSource);
-                cachedSource = source;
-                ready = false;
-                if (source.toString().length) loadImage(source);
-                requestPaint();
-            }
-            Component.onCompleted: {
-                if (source.toString().length) loadImage(source);
-            }
-            onImageLoaded: {
-                ready = isImageLoaded(source);
-                requestPaint();
-            }
-            onWidthChanged: requestPaint()
-            onHeightChanged: requestPaint()
+            asynchronous: true
+            fillMode: Image.PreserveAspectCrop
+            source: root.artwork
+            visible: false
+        }
+        Canvas {
+            id: frame
+            anchors.fill: parent
             onPaint: {
                 const ctx = getContext("2d");
                 ctx.reset();
-                if (!ready) return;
+                if (picture.status !== Image.Ready)
+                    return;
                 const w = width, h = height, r = root.cornerRadius;
                 ctx.beginPath();
                 ctx.moveTo(r, 0);
@@ -55,7 +45,11 @@ Surface {
                 ctx.lineTo(0, r); ctx.quadraticCurveTo(0, 0, r, 0);
                 ctx.closePath();
                 ctx.clip();
-                ctx.drawImage(source, 0, 0, w, h);
+                ctx.drawImage(picture, 0, 0, w, h);
+            }
+            Connections {
+                target: picture
+                function onStatusChanged() { frame.requestPaint(); }
             }
         }
         Rectangle {

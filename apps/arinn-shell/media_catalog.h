@@ -27,6 +27,7 @@ class MediaCatalog : public QObject {
   Q_PROPERTY(QStringList sessionActions READ sessionActions NOTIFY sessionChanged)
   Q_PROPERTY(QString operationState READ operationState NOTIFY operationChanged)
   Q_PROPERTY(QString selectedId READ selectedId NOTIFY sessionChanged)
+  Q_PROPERTY(QString sessionArtwork READ sessionArtwork NOTIFY sessionChanged)
 public:
   explicit MediaCatalog(QObject *parent = nullptr);
   QVariantList continueEntries() const { return m_continue; }
@@ -39,6 +40,7 @@ public:
   QStringList sessionActions() const;
   QString operationState() const { return m_operation; }
   QString selectedId() const;
+  QString sessionArtwork() const;
   Q_INVOKABLE void select(const QString &id);
   Q_INVOKABLE void play();
   Q_INVOKABLE void pause();
@@ -64,6 +66,7 @@ private:
     QString localId;
     QString title;
     QString subtitle;
+    QString artworkId;
     QString state;
     qint64 durationUs = -1;
     qint64 positionUs = 0;

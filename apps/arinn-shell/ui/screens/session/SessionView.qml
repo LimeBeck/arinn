@@ -24,6 +24,8 @@ FocusScope {
     property real positionUs: 0
     // Neutral plate from the shared theme. Callers may override with a fixture hue.
     property color artworkHue: Ui.Theme.plate
+    // Assets1 image URL. Empty, or a fetch that fails, leaves the plate.
+    property url artwork: ""
     property var availableActions: ["play", "pause", "playPause", "seek", "next", "previous", "stop"]
     // Empty until a command is sent. pending waits; succeeded is quiet;
     // any other value is an error the banner shows.
@@ -236,6 +238,17 @@ FocusScope {
                         height: 360
                         radius: Ui.Theme.cardRadius
                         color: root.artworkHue
+                        clip: true
+                        Image {
+                            id: artworkImage
+                            objectName: "artworkImage"
+                            anchors.fill: parent
+                            fillMode: Image.PreserveAspectCrop
+                            asynchronous: true
+                            cache: false
+                            source: root.artwork
+                            visible: status === Image.Ready
+                        }
                     }
                     Column {
                         width: sessionBody.width - artworkPlate.width - 48

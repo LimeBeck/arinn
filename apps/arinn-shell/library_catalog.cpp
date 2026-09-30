@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "library_catalog.h"
+#include "asset_images.h"
 #include <QDeadlineTimer>
 #include <QHash>
 #include <QSet>
@@ -191,6 +192,10 @@ void LibraryCatalog::publish() {
                            resumeFraction(kid.resumePosition, kid.resumeDuration,
                                           kid.durationUs, kid.resumeCompleted,
                                           kid.hasResume)}};
+      const auto still = AssetImages::imageUrl(kid.providerId, kid.path,
+                                               kid.generation, kid.poster);
+      if (!still.isEmpty())
+        episode.insert(QStringLiteral("artwork"), still);
       episode.insert(QStringLiteral("seasonId"),
                      kid.hasSeason ? QStringLiteral("s") + QString::number(kid.season)
                                    : QString());
@@ -216,14 +221,22 @@ void LibraryCatalog::publish() {
       else
         progress = 0;
     }
+    const auto poster = AssetImages::imageUrl(item.providerId, item.path,
+                                              item.generation, item.poster);
+    const auto fanart = AssetImages::imageUrl(item.providerId, item.path,
+                                              item.generation, item.fanart);
     QVariantMap entry{{QStringLiteral("id"), item.id},
                       {QStringLiteral("tabId"), item.tabId},
                       {QStringLiteral("title"), item.title},
                       {QStringLiteral("kind"), item.kind},
-                      {QStringLiteral("noArt"), true},
+                      {QStringLiteral("noArt"), poster.isEmpty()},
                       {QStringLiteral("missing"), !item.available},
                       {QStringLiteral("enabled"), true},
                       {QStringLiteral("progress"), progress}};
+    if (!poster.isEmpty())
+      entry.insert(QStringLiteral("artwork"), poster);
+    if (!fanart.isEmpty())
+      entry.insert(QStringLiteral("fanart"), fanart);
     if (item.hasYear)
       entry.insert(QStringLiteral("year"), item.year);
     if (!seasons.isEmpty())
@@ -522,8 +535,8 @@ void LibraryCatalog::readLibrary(const std::shared_ptr<Catalog> &catalog,
               row.title >> kind >> hasYear >> year >> hasSeason >> season >>
               hasEpisode >> episode >> duration >> poster >> fanart >> available;
           arg.endStructure();
-          poster.clear();
-          fanart.clear();
+          row.poster = poster;
+          row.fanart = fanart;
           if (row.localId.isEmpty() || row.collectionLocal.isEmpty() ||
               !optionalYear(hasYear, year) || !optionalIndex(hasSeason, season) ||
               !optionalIndex(hasEpisode, episode) || duration < -1) {

@@ -31,6 +31,7 @@ video. Resume, watched state and the real track list stay with the providers.
 | `audioTrackId`, `subtitleTrackId` | Selected ids supplied by the fixture. The pills show those names |
 | `playbackState` | `ready`, `loading`, `error` or `unavailable` |
 | `pictureStandIn` | Defaults to true. The full-bleed stand-in. False leaves that layer transparent so a later binding can sit over the video window ([ADR-0046](../adr/0046-shell-input-layer-during-playback.md)) |
+| `thumbnail` | Optional `image://arinn-assets/` URL. The timeline plate and its label stay until that image is ready, and stay when the URL is empty or the fetch fails |
 | `osdVisible` | Local chrome. Hiding the OSD does not change the picture stand-in |
 | `osdIdleMs` | Defaults to 4000. Local hide delay, not a provider timeout |
 
@@ -43,8 +44,11 @@ local chrome and emits `homeRequested`; it does not pause or stop playback.
 The ready surface is the handoff OSD: a full-bleed picture stand-in when
 `pictureStandIn` is true, top and bottom scrims, the timeline along the bottom,
 and a row of Subtitles, Audio and More pills. Pill and sheet fills use
-`Theme.plate` and `Theme.plateFocus`. A focused timeline shows a seek stand-in
-labelled thumbnail.
+`Theme.plate` and `Theme.plateFocus`. A focused timeline shows a seek plate.
+`thumbnail` is an Assets1 image URL from the shell image cache. The plate,
+labelled thumbnail, stays until that image is ready. An empty URL, `NotFound`,
+`Unsupported` or any other error leaves the plate. Requesting the thumbnail
+id from `MediaTimeline1` is the player binding, not this screen.
 `loading`, `error` and `unavailable` show a status message and ignore transport
 keys. An empty audio or subtitle list labels that pill
 unavailable. OK on it does not open a sheet and does not emit a select signal.
@@ -92,4 +96,7 @@ codes, so those codes call the same key handler directly. No operator test
 is involved.
 
 This does not pass AC-16 or the media integration gate. There is no provider,
-resume store or video window.
+resume store or video window. A thumbnail URL is drawn by the same Assets1
+cache as session artwork. Requesting that id from `MediaTimeline1` is the
+player binding, not this screen. The plate that stays until the image is
+ready is checked by `asset-images`.

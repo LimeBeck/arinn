@@ -10,9 +10,8 @@ and [§5.1](../specifications/arinn-specification.md#51-home) Continue.
 The screen and Home do not talk to MPRIS, and they do not send a file URI.
 
 This is the shell half of AC-09. Operator playback on a real session is not
-part of this change. Artwork stays the generic plate. Fetching those bytes
-through Assets1 is
-[#162](https://github.com/LimeBeck/arinn/issues/162).
+part of this change. Session artwork is an asset id. The shell loads those
+bytes through `Assets1` ([#162](https://github.com/LimeBeck/arinn/issues/162)).
 
 ## Model
 
@@ -50,7 +49,12 @@ A returned object path stays `pending` until `Operation1.Get` reports
 the 5 s control timeout, and the operation state is then `Timeout`. Playback
 on screen changes only when a later snapshot says so.
 
-Artwork ids are discarded. The plate stays the generic theme colour.
+A non-empty artwork id becomes an `image://arinn-assets/` URL for the
+selected session and for each Continue card. `AssetImages` calls
+`Assets1.GetAsset` off the UI thread and caches the compressed bytes by
+(provider, generation, id), up to 64 MiB. An empty id, `NotFound`,
+`Unsupported`, a bad image or any other error leaves the generic plate.
+The picture is not decoded in QML.
 
 ## Screen
 
@@ -113,6 +117,19 @@ QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
 `media_catalog.cpp` and registers `MediaCatalog` the same way the shell does.
 `productionSaveWiring` presses Backspace while the session screen is closed
 and expects Home navigation to open.
+
+Artwork bytes are covered by `apps/arinn-shell/asset_images_test.cpp`
+(`asset-images`, private bus): URL round trip, a cache hit, a budget
+eviction, separate keys for provider and generation, and the empty,
+`NotFound`, `Unsupported` and bad-image fallbacks. That test loads
+`tests/ui/asset_placeholder.qml` and checks the generic plate stays until
+the image is ready. The file is not named `tst_*.qml`, so `arinn-ui-test`
+does not load it on its own.
+
+```sh
+QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
+  dbus-run-session -- build/apps/arinn-shell/arinn-asset-images-test
+```
 
 Local verification on 2026-09-30, Qt 6.11.2, offscreen platform, software
 renderer: `arinn-media-catalog-test` reported 14 passed,

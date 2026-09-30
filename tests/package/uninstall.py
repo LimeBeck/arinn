@@ -345,6 +345,16 @@ def self_check() -> None:
     finally:
         shutil.rmtree(root.parent)
 
+    # A packaged file outside the unit, manifest and private trees fails the check.
+    # Those other detectors do not see usr/bin, so this fails only because the
+    # pacman -Qlq file list still names the binary.
+    binary = "usr/bin/arinnd"
+    result, root = run_scenario(SAMPLE_FILES, keep=binary)
+    try:
+        expect_fail(result, binary)
+    finally:
+        shutil.rmtree(root.parent)
+
     # A session unit that pacman does not list is still a leftover.
     hidden_unit = "usr/lib/systemd/user/arinn-kwin.service"
     owned = [item for item in SAMPLE_FILES if item != hidden_unit]

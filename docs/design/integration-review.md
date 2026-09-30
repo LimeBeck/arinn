@@ -2,6 +2,23 @@
 
 Sources: [developer specification v0.3](../specifications/developer-specification-v0.3.md) (historical), the current [specification](../specifications/arinn-specification.md) and the [design handoff](handoff/README.md). No source was edited except the logo removal described in the [design README](README.md#licensing). The original conflicts are kept below as history; decisions come from explicit answers of the project owner and delegated technical choices on 2026-09-27.
 
+## Handoff update of 2026-09-30 (settings editors)
+
+The package answers the [#172](https://github.com/LimeBeck/arinn/issues/172) brief:
+- it adds `design/arinn Settings Editors.dc.html`, the *Settings editors* section of the README and 22 `se-*.png` screenshots;
+- every other listed design file is unchanged;
+- the previous package is in the [archive](archive/2026-09-30-before-settings-editors/README.md).
+
+| ID | Point | Resolution / remaining check |
+| --- | --- | --- |
+| DR-24 | The handoff leaves four questions to the owner: a reason for `enabled = false`, a unit for integers, a *Restart now* action, and how folder availability is reported. | Closed by the owner on 2026-09-30 ([specification §5.6](../specifications/arinn-specification.md#56-settings)): a generic text without a reason; an optional unit in the integer constraints; a toast only, with no restart action; the library provider reports folder availability itself. |
+| DR-25 | An integer unit is not in the settings contract: `Constraints` rejects unknown keys (ADR-0065). | Open: a `contract-change` task adds an optional `unit`. |
+| DR-26 | *Library folders* shows a folder as unavailable (LF-4) and the library still lists its items as unavailable. No contract carries root availability. | Open: a `contract-change` task, in which the library provider publishes root availability. Until then LF-4 is not shown. |
+| DR-27 | The folder picker (PK) lists local directories and mount points. The shell talks only to the daemon; listing directories is new daemon behaviour. | Open, technical: the contract task defines a bounded daemon method that lists folders only. It returns no files, no hidden entries and no contents. |
+| DR-28 | *Library folders* is a full screen with library wording, and OK on a row opens the library filtered to that folder. Providers supply no UI (R-04). | Technical: it is the generic editor for a `path` setting with `directory` and `multiple`, with labels taken from the setting. The filter by folder needs a library filter that does not exist yet; it stays out of the first shell task. |
+| DR-29 | "Applies at next start" stays on the row until the restart (SV-3). | Technical: the shell keeps the mark until the provider's generation changes. It is lost when the shell restarts. |
+| DR-30 | The package carried third-party service logos again. | Replaced with the existing monograms before adding. The `se-*` screenshots contain none; see the [design README](README.md#licensing). |
+
 ## Handoff update of 2026-09-29 (address and search)
 
 The package answers the [#106](https://github.com/LimeBeck/arinn/issues/106) brief ([issue #107](https://github.com/LimeBeck/arinn/issues/107)). It adds `design/arinn Browser Input.dc.html` and 18 `in-*.png` screenshots. It also updates the prototype and the Open services file: the Open services screen joins the prototype, the navigation panel spans y72–1008, the Open services item has no divider, and the opening overlay reuses the launch overlay. The previous package is in the [archive](archive/2026-09-29-before-address-search/README.md).
@@ -9,7 +26,7 @@ The package answers the [#106](https://github.com/LimeBeck/arinn/issues/106) bri
 | ID | Point | Resolution / remaining check |
 | --- | --- | --- |
 | DR-18 | The handoff leaves V-1 (ordinary Chrome window), V-2 (recent entries), V-3 (save as shortcut), T-1 (tile name) and the search engine to the owner. | Closed by the owner on 2026-09-29: V-1b, V-2b, V-3b, T-1b, and a selectable engine with default Google ([ADR-0051](../adr/0051-address-and-search-entry.md)). |
-| DR-19 | Opening a typed address or search needs a shell-facing method; ADR-0048 allows only web shortcuts. | Open: a separate `contract-change` task. |
+| DR-19 | Opening a typed address or search needs a shell-facing method; ADR-0048 allows only web shortcuts. | Closed by `Browse1` ([ADR-0066](../adr/0066-address-and-search-contract.md)), served by the daemon since [#177](https://github.com/LimeBeck/arinn/issues/177). |
 | DR-20 | Recent entries contradict "web shortcuts are the only stored URLs" (ADR-0043, §11). | Closed by ADR-0051 and [specification §11](../specifications/arinn-specification.md#11-state-ownership-and-persistence). |
 | DR-21 | The Open services navigation item lost its divider; §5 said "after a divider". | Specification §5 updated. |
 | DR-22 | The input rules and the search engine name must not become QML business logic (R-01, R-05). | Technical: the rules live in the daemon or the shell's C++ layer; engine names come from configuration. |

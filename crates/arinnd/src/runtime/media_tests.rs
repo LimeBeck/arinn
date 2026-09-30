@@ -231,6 +231,11 @@ impl Fixture {
                 session_cache: None,
                 sessions: Vec::new(),
                 features: Vec::new(),
+                library_cache: None,
+                collections: Vec::new(),
+                items: Vec::new(),
+                resume_cache: None,
+                resumes: Vec::new(),
                 windows: Vec::new(),
                 tabs: Vec::new(),
                 started: Instant::now(),
@@ -406,7 +411,7 @@ async fn a_lost_provider_makes_media_unavailable() {
 }
 
 /// Methods of one interface as `name(direction:type, …)`, in document order.
-fn methods(xml: &str, interface: &str) -> Vec<String> {
+pub(crate) fn methods(xml: &str, interface: &str) -> Vec<String> {
     let start = xml
         .find(&format!("<interface name=\"{interface}\">"))
         .expect("interface present");

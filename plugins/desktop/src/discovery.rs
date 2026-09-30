@@ -256,10 +256,12 @@ fn collect(
     }
     Ok(())
 }
+/// The `[Desktop Entry]` keys. A repeated key keeps its last value, as GLib
+/// (and so the session launcher) reads it; packaged files such as Google
+/// Chrome's repeat `StartupWMClass`. A repeated group is still malformed.
 fn parse(text: &str) -> Option<BTreeMap<String, String>> {
     let mut group = "";
     let mut groups = BTreeSet::new();
-    let mut keys = BTreeSet::new();
     let mut values = BTreeMap::new();
     for raw in text.lines() {
         let line = raw.trim();
@@ -271,14 +273,13 @@ fn parse(text: &str) -> Option<BTreeMap<String, String>> {
             if group.is_empty() || !groups.insert(group) {
                 return None;
             }
-            keys.clear();
         } else {
             if group.is_empty() {
                 return None;
             }
             let (key, value) = line.split_once('=')?;
             let key = key.trim();
-            if key.is_empty() || !keys.insert(key) {
+            if key.is_empty() {
                 return None;
             }
             if group == "Desktop Entry" {
@@ -397,7 +398,7 @@ mod tests {
             "OnlyShowIn=GNOME;",
             "Hidden=invalid",
             "TryExec=/does-not-exist",
-            "Name=duplicate",
+            "Hidden=false\nHidden=true",
         ] {
             put(
                 &s.roots[0],
@@ -406,6 +407,25 @@ mod tests {
             );
             assert!(s.discover().unwrap().is_empty(), "{extra}");
         }
+    }
+    #[test]
+    fn a_repeated_key_keeps_its_last_value_as_in_glib() {
+        let (_tree, s) = setup();
+        // As shipped by the google-chrome package (#201).
+        put(
+            &s.roots[0],
+            "google-chrome.desktop",
+            "[Desktop Entry]\nName=First\nStartupWMClass=Google-chrome\nExec=fixture %U\nStartupWMClass=google-chrome\nName=Browser\nType=Application\n[Desktop Action new-window]\nName=New Window\nExec=fixture\n",
+        );
+        let found = s.discover().unwrap();
+        assert_eq!(found["google-chrome.desktop"].application.title, "Browser");
+        // A repeated group is still malformed.
+        put(
+            &s.roots[0],
+            "google-chrome.desktop",
+            &format!("{ENTRY}[Desktop Entry]\nName=Again\n"),
+        );
+        assert!(s.discover().unwrap().is_empty());
     }
     #[test]
     fn nested_ids_duplicates_dbus_and_untrusted_files() {

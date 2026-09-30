@@ -103,7 +103,7 @@ def main(argv=None):
             measured = subprocess.run(
                 ["dbus-run-session", "--", str(executable), "--samples", str(args.samples)],
                 env=env, check=True, capture_output=True, text=True,
-                timeout=20 + args.samples * 0.1,
+                timeout=20 + args.samples * 0.25,
             )
             result = report(json.loads(measured.stdout), args.samples)
             result["requested_backend"] = args.backend

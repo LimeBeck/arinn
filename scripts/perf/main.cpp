@@ -92,6 +92,7 @@ int main(int argc, char **argv) {
   QString failure;
   int scenario = 0, step = 0;
   qint64 inputStart = 0;
+  QString expectedFocus;
   bool inputPending = false, slowPending = false;
   int pendingSamples = 0, completedReads = 0;
 
@@ -120,8 +121,7 @@ int main(int argc, char **argv) {
     if (!inputPending)
       return;
     auto *item = view.activeFocusItem();
-    const QString expected = step % 2 ? "entry-first" : "entry-second";
-    if (!item || item->objectName() != expected)
+    if (!item || item->objectName() != expectedFocus)
       return;
     focus[scenario].append(double(clock.nsecsElapsed() - inputStart) / 1e6);
     if (scenario == 1 && slowPending)
@@ -191,6 +191,15 @@ int main(int argc, char **argv) {
   QTimer driver;
   driver.setInterval(32);
   QObject::connect(&driver, &QTimer::timeout, &view, [&] {
+    if (inputPending) {
+      // Keep delayed focus samples, including budget misses. A missing target
+      // is an invalid measurement only after the bounded three-second wait.
+      if (clock.nsecsElapsed() - inputStart > 3000000000LL) {
+        failure = "focus_did_not_move";
+        app.exit(2);
+      }
+      return;
+    }
     if (step == samples) {
       // Exclude idle time while awaiting the final read.
       measuringFrames = false;
@@ -216,14 +225,10 @@ int main(int argc, char **argv) {
       }
       return;
     }
-    if (inputPending) {
-      failure = "focus_did_not_move";
-      app.exit(2);
-      return;
-    }
     if (scenario == 1 && !slowPending)
       startRead();
     inputPending = true;
+    expectedFocus = step % 2 ? "entry-first" : "entry-second";
     inputStart = clock.nsecsElapsed();
     key(step % 2 ? Qt::Key_Left : Qt::Key_Right);
     ++step;

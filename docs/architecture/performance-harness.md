@@ -41,8 +41,10 @@ local evidence storage; never commit host-specific logs or paths.
 
 - Loads the actual `Ui.HomeView` and its production components with neutral
   populated fixtures, then warms them for two seconds. Moves focus between two
-  cards every 32 ms. Each input must reach the expected card; a missing change
-  fails the run rather than silently reducing the sample count.
+  cards at least 32 ms apart, waiting for each change before issuing another
+  input. Each input must reach the expected card within three seconds; a missing
+  change fails the run rather than silently reducing the sample count. Focus
+  changes exceeding the 50 ms budget remain in the report.
 - `input_to_focus_ms` uses a monotonic nanosecond clock from Qt key-event dispatch
   until `activeFocusItemChanged` identifies the expected target. It measures
   local handling, excluding physical input and compositor delivery and excluding

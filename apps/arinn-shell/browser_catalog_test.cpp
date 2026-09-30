@@ -877,6 +877,67 @@ private slots:
         Q_ARG(QVariant, QVariant(QStringLiteral("bookmark")))));
     QTRY_COMPARE(error->property("text").toString(), QString());
   }
+  void homeDuringSlowOpenDoesNotCancel() {
+    auto bus = QDBusConnection::sessionBus();
+    BrowserDaemon daemon;
+    daemon.holdOperation = true;
+    QVERIFY(bus.registerService("org.arinn.Daemon1"));
+    QVERIFY(bus.registerVirtualObject("/org/arinn", &daemon,
+                                      QDBusConnection::SubPath));
+    ShellStandIn backend;
+    SessionGuardStandIn guard;
+    QQmlApplicationEngine engine;
+    QStringList problems;
+    QObject::connect(
+        &engine, &QQmlEngine::warnings, &engine,
+        [&](const QList<QQmlError> &warnings) {
+          for (const auto &warning : warnings) {
+            const auto text = warning.toString();
+            if (text.contains(QStringLiteral("qrc:/brand/")))
+              continue;
+            problems.append(text);
+          }
+        });
+    engine.rootContext()->setContextProperty(QStringLiteral("backend"),
+                                             &backend);
+    engine.rootContext()->setContextProperty(QStringLiteral("sessionGuard"),
+                                             &guard);
+    engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
+    QVERIFY2(problems.isEmpty(), qPrintable(problems.join('\n')));
+    QVERIFY(!engine.rootObjects().isEmpty());
+    auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+    QVERIFY(window);
+    window->show();
+    window->requestActivate();
+    auto catalog = window->findChild<BrowserCatalog *>();
+    QVERIFY(catalog);
+    QTRY_VERIFY(!catalog->shortcuts().isEmpty());
+    auto cancelButton =
+        window->findChild<QQuickItem *>(QStringLiteral("launchCancel"));
+    QVERIFY(cancelButton);
+    QQuickItem *overlay = cancelButton;
+    while (overlay && overlay->metaObject()->indexOfProperty("revealDelay") < 0)
+      overlay = overlay->parentItem();
+    QVERIFY(overlay);
+    overlay->setProperty("revealDelay", 20);
+    overlay->setProperty("slowDelay", 40);
+    overlay->setProperty("timeoutDelay", 5000);
+    catalog->openShortcut(QStringLiteral("known"));
+    QTRY_VERIFY(catalog->opening());
+    QTRY_VERIFY(overlay->property("slow").toBool());
+    QVERIFY(overlay->isVisible());
+    cancelButton->forceActiveFocus();
+    QTRY_VERIFY(cancelButton->hasActiveFocus());
+    QCOMPARE(daemon.cancels, 0);
+    QTest::keyClick(window, Qt::Key_Home);
+    QTRY_VERIFY(!overlay->isVisible());
+    QCOMPARE(daemon.cancels, 0);
+    QVERIFY(catalog->opening());
+    QCOMPARE(catalog->openingError(), QString());
+    QTest::qWait(200);
+    QCOMPARE(daemon.cancels, 0);
+    QVERIFY(catalog->opening());
+  }
 };
 
 int runShortcutFixture(int argc, char **argv) {

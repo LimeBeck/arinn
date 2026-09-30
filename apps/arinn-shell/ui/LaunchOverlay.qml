@@ -17,8 +17,10 @@ FocusScope {
     property bool revealed: false
     property bool slow: false
     property bool timedOut: false
+    // Home hides the progress overlay while the open keeps running.
+    property bool homeHidden: false
     readonly property bool showDialog: failure.length > 0 || timedOut
-    readonly property bool showOverlay: showDialog || (revealed && active)
+    readonly property bool showOverlay: showDialog || (!homeHidden && revealed && active)
     readonly property string dialogTitle: qsTr("%1 did not open").arg(serviceTitle.length ? serviceTitle : qsTr("The service"))
     readonly property string dialogBody: timedOut && !failure.length
             ? qsTr("The browser did not respond within 30 seconds. Try again.")
@@ -29,6 +31,7 @@ FocusScope {
     signal homeRequested()
 
     function arm() {
+        homeHidden = false;
         revealed = false;
         slow = false;
         timedOut = false;
@@ -52,9 +55,18 @@ FocusScope {
         revealTimer.stop();
         slowTimer.stop();
         timeoutTimer.stop();
+        homeHidden = false;
         revealed = false;
         slow = false;
         timedOut = false;
+    }
+    // Specification §6.3: opening Home never pauses or stops the operation.
+    // Cancel and Back remain the ways to cancel.
+    function hideForHome() {
+        revealTimer.stop();
+        slowTimer.stop();
+        timeoutTimer.stop();
+        homeHidden = true;
     }
     onActiveChanged: {
         if (active)
@@ -67,6 +79,8 @@ FocusScope {
             timeoutTimer.stop();
         }
     }
+    // A later open keeps `active` true, so the title change is what shows it again.
+    onServiceTitleChanged: if (active && homeHidden) arm()
     onFailureChanged: {
         if (failure.length) {
             revealTimer.stop();
@@ -212,11 +226,11 @@ FocusScope {
             event.accepted = true;
             if (event.isAutoRepeat)
                 return;
-            // Close the dialog or the slow open. Do not retry.
+            // Close the dialog, or hide a slow open, without retrying or cancelling.
             if (root.showDialog)
                 root.dismissRequested();
             else
-                root.cancelRequested();
+                root.hideForHome();
             root.homeRequested();
             return;
         }

@@ -186,6 +186,19 @@ An application record may include an icon reference ([ADR-0059](../adr/0059-appl
 
 Categories as in the design: Media, Playback, Sound, Network, Applications, Appearance, System. UI preferences belong to the daemon configuration. Provider settings use a typed schema (id, title, description, type, current value, constraints, enabled; types boolean, enum, string, integer, path reference); plugins MUST NOT supply QML widgets or raw RPC. The wire contract is [ADR-0065](../adr/0065-provider-settings-contract.md); values are stored in `config.toml` ([ADR-0064](../adr/0064-provider-settings-in-config.md)). The core settings UI shows only registered capabilities; a missing playback, download or network function never pretends to succeed. Details: [Activity and interaction](../architecture/activity-and-interaction.md).
 
+**Value editors.** Every kind has one generic editor, drawn by the shell from the design handoff (*Settings editors*):
+- a toggle in place for `boolean`;
+- a sheet with options for `enum`, a stepper for `integer` and a text field for `string`;
+- a full list with add and remove for a `path` setting with several folders, and a folder picker that shows folders only.
+
+Owner decisions of 2026-09-30:
+- A setting with `enabled = false` stays visible and focusable. It shows a generic "cannot be changed now" text; the contract carries no reason.
+- An integer may declare a short unit in its constraints, and the shell shows it next to the value.
+- A value that applies at the next start shows a toast and a row note until the provider restarts. There is no *Restart now* action.
+- A library folder that is unavailable is shown as unavailable only when the library provider reports it.
+
+Removing a folder removes its items from the library and never deletes files. Arinn never mounts or browses network shares; mounted folders appear as start points in the picker.
+
 ### 5.7. System UI, power and ambient
 
 Arinn provides one system overlay for Home, Back, Play/Pause, volume, mute, the power menu and Settings. Each action is executed by the platform layer or the matching provider. CEC is not part of the architecture; TV control (for example webOS) is added later through the same plugin mechanism, never in the core.

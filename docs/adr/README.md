@@ -76,5 +76,6 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0055](0055-launching-a-closed-browser.md) | Launching a closed browser before opening a URL | Accepted | — |
 | [0058](0058-media-routing.md) | Daemon routing for media providers | Accepted | 0060 |
 | [0059](0059-application-icon-references.md) | Application icon references | Accepted | — |
-| [0060](0060-library-routing.md) | Daemon routing for library providers and library launch | Accepted | — |
+| [0060](0060-library-routing.md) | Daemon routing for library providers and library launch | Accepted | 0061 |
+| [0061](0061-playback-progress-forwarding.md) | Forwarding playback progress to the library | Accepted | — |
 <!-- register:end -->

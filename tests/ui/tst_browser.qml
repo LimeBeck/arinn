@@ -251,6 +251,62 @@ TestCase {
         focusInside();
     }
 
+    // #200: snapshot updates change rows in place. Delegates and focus
+    // survive, so many tabs with frequent title changes do not freeze the
+    // screen by rebuilding every row.
+    function test_update_keeps_the_row_and_its_focus() {
+        focused("row-t2");
+        const entry = child("entry-t2");
+        const row = child("row-t2");
+        view.tabs = [
+            {id: "t1", windowId: "w1", title: "First", url: "loc-1", active: false, audible: false},
+            {id: "t2", windowId: "w1", title: "Renamed", url: "loc-2", active: true, audible: false},
+            {id: "t3", windowId: "w2", title: "Third", url: "loc-3", active: false, audible: false}
+        ];
+        verify(child("entry-t2") === entry, "the delegate was recreated");
+        compare(child("title-t2").text, "Renamed");
+        verify(!child("sound-t2").visible);
+        verify(row.activeFocus);
+    }
+
+    function test_many_tabs_with_frequent_updates() {
+        const make = round => {
+            const tabs = [];
+            for (let i = 0; i < 72; ++i)
+                tabs.push({id: "n" + i, windowId: "w", title: "Service " + i + " (" + round + ")", url: "svc" + i + ".example/a", active: i === 0, audible: round % 2 === 1 && i === 40});
+            return tabs;
+        };
+        view.tabs = make(0);
+        focused("row-n0");
+        for (let i = 0; i < 40; ++i)
+            view.move(Qt.Key_Down, false);
+        focused("row-n40");
+        const entry = child("entry-n40");
+        const row = child("row-n40");
+        for (let round = 1; round <= 20; ++round) {
+            view.tabs = make(round);
+            verify(child("entry-n40") === entry, "round " + round);
+            verify(row.activeFocus, "round " + round);
+        }
+        compare(child("title-n40").text, "Service 40 (20)");
+        compare(child("listPosition").text, "41 of 72");
+    }
+
+    function test_reorder_moves_rows() {
+        focused("row-t2");
+        const first = child("entry-t1");
+        const third = child("entry-t3");
+        view.windows = [{id: "w1", focused: false}, {id: "w2", focused: true}];
+        view.tabs = [
+            {id: "t1", windowId: "w1", title: "First", url: "loc-1", active: false, audible: false},
+            {id: "t2", windowId: "w1", title: "Second", url: "loc-2", active: true, audible: true},
+            {id: "t3", windowId: "w2", title: "Third", url: "loc-3", active: true, audible: false}
+        ];
+        compare(view.orderedTabs[0].id, "t3");
+        verify(child("entry-t1") === first);
+        verify(child("entry-t3") === third);
+    }
+
     function test_empty() {
         view.browserState = "empty";
         const pane = child("browserStatus");

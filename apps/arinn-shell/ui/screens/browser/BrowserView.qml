@@ -264,11 +264,56 @@ FocusScope {
             listSide = "row";
         }
         listIndex = Math.max(0, ordered.findIndex(tab => tab.id === focusedEntryId));
+        syncRows();
+    }
+
+    // Update the list model in place, keyed by tab id: a changed field updates
+    // its row and a reorder moves rows, so delegates and their focus survive
+    // snapshot updates. Replacing the whole model rebuilt every row on each
+    // update and froze the screen with many tabs (#200).
+    function syncRows() {
+        const next = showTabs ? orderedTabs : [];
+        const wanted = {};
+        for (let i = 0; i < next.length; ++i)
+            wanted[next[i].id] = true;
+        for (let i = serviceRows.count - 1; i >= 0; --i) {
+            if (!wanted[serviceRows.get(i).rowId])
+                serviceRows.remove(i);
+        }
+        for (let i = 0; i < next.length; ++i) {
+            const id = next[i].id;
+            const json = JSON.stringify(next[i]);
+            if (i >= serviceRows.count || serviceRows.get(i).rowId !== id) {
+                let from = -1;
+                for (let k = i + 1; k < serviceRows.count; ++k) {
+                    if (serviceRows.get(k).rowId === id) {
+                        from = k;
+                        break;
+                    }
+                }
+                if (from < 0) {
+                    serviceRows.insert(i, { rowId: id, rowJson: json });
+                    continue;
+                }
+                serviceRows.move(from, i, 1);
+            }
+            if (serviceRows.get(i).rowJson !== json)
+                serviceRows.setProperty(i, "rowJson", json);
+        }
+        // Create delegates for inserted rows now, as a model reset did, so
+        // focus can move to them in the same turn.
+        services.forceLayout();
     }
 
     function settleFocus() {
         if (!interactive)
             return;
+        // Nothing to do when the focused row is still the one to focus.
+        if (showTabs && focusRow === "list") {
+            const current = itemFor(listIndex, listSide);
+            if (current && current.activeFocus)
+                return;
+        }
         muteTabStops(root);
         if (showTabs)
             focusEntry(listIndex, listSide);
@@ -507,6 +552,7 @@ FocusScope {
             Qt.callLater(settleFocus);
     }
     onBrowserStateChanged: Qt.callLater(settleFocus)
+    onShowTabsChanged: syncRows()
     onInteractiveChanged: if (interactive) Qt.callLater(settleFocus)
     onOperationStateChanged: {
         if (!closingId.length)
@@ -617,7 +663,7 @@ FocusScope {
                 keyNavigationEnabled: false
                 highlightFollowsCurrentItem: false
                 reuseItems: false
-                model: root.showTabs ? root.orderedTabs : []
+                model: ListModel { id: serviceRows }
                 spacing: 16
                 topMargin: 14
                 bottomMargin: 14
@@ -628,16 +674,20 @@ FocusScope {
                 }
                 delegate: Item {
                     id: entry
-                    required property var modelData
+                    required property string rowJson
                     required property int index
+                    readonly property var modelData: JSON.parse(rowJson)
                     objectName: "entry-" + modelData.id
+                    Component.onCompleted: root.muteTabStops(entry)
                     width: ListView.view.width - 48
                     height: Math.max(plate.height, bookmarkBtn.height, closeBtn.height)
                     opacity: root.closingId === modelData.id ? 0.5 : 1
                     z: plate.activeFocus || bookmarkBtn.activeFocus || closeBtn.activeFocus ? 3 : 1
                     Behavior on opacity { NumberAnimation { duration: Ui.Theme.focusDuration } }
 
-                    ListView.onRemove: removeAnim.start()
+                    // Only a visible list animates a removed row; leaving the
+                    // list (empty, error) drops the rows at once.
+                    ListView.onRemove: if (root.showTabs) removeAnim.start()
                     SequentialAnimation {
                         id: removeAnim
                         PropertyAction { target: entry; property: "ListView.delayRemove"; value: true }

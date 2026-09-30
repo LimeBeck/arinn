@@ -34,7 +34,7 @@ they do not rewrite an already accurate specification. Changes to intended produ
 behaviour and corrections within product-behaviour sections receive owner review.
 Agent task scope, verification and coordination are defined in
 [AGENTS.md](../../AGENTS.md) and [CONTRIBUTING.md](../../CONTRIBUTING.md);
-[ADR-0067](../adr/0067-agent-instruction-clarifications.md) records the proposed
+[ADR-0068](../adr/0068-agent-instruction-clarifications.md) records the proposed
 process clarification. This does not change product requirements or phase status.
 
 ### 1.3. Requirement identifiers

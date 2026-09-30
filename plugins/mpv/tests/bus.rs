@@ -114,6 +114,7 @@ fn serve_exports_features_and_a_restart_restores_the_session() {
 async fn scenario() {
     let root = runtime_root();
     std::fs::create_dir_all(&root).unwrap();
+    let _cleanup = RemoveOnDrop(root.clone());
     // SAFETY: this child process runs only this test. The directory is a
     // private runtime root, not `/tmp`, and it is set before `serve` reads it.
     unsafe { std::env::set_var("XDG_RUNTIME_DIR", &root) };
@@ -192,7 +193,6 @@ async fn scenario() {
     second.runner.abort();
     peer.abort();
     drop(bus);
-    let _ = std::fs::remove_dir_all(&root);
 }
 
 struct Provider {
@@ -258,11 +258,32 @@ async fn wait_session(proxy: &MediaProviderProxy<'_>) -> (arinn_protocol::media:
     }
 }
 
+/// A private runtime root under Cargo's target tmp directory (`/tmp` is
+/// refused by the provider). `CARGO_TARGET_TMPDIR` exists only at compile
+/// time. The name is short so the `ipc` socket path fits in `sun_path`.
 fn runtime_root() -> PathBuf {
-    let base = std::env::var_os("CARGO_TARGET_TMPDIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| std::env::current_dir().unwrap().join("target/tmp"));
-    base.join(format!("mpv-bus-{}", uuid::Uuid::new_v4()))
+    let id = uuid::Uuid::new_v4().simple().to_string();
+    PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!("mpv-{}", &id[..8]))
+}
+
+/// Removes the runtime root even when an assertion fails.
+struct RemoveOnDrop(PathBuf);
+impl Drop for RemoveOnDrop {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+#[test]
+fn the_runtime_root_is_ignored_and_fits_a_socket_path() {
+    let root = runtime_root();
+    assert!(
+        !root.starts_with(env!("CARGO_MANIFEST_DIR")),
+        "{root:?} is inside the plugin directory, which Git and REUSE do not ignore"
+    );
+    // `sun_path` holds 108 bytes including the terminating NUL.
+    let socket = root.join("arinn/mpv/ipc");
+    assert!(socket.as_os_str().len() < 108, "{socket:?} is too long");
 }
 
 fn names(commands: &Arc<Mutex<Vec<Value>>>) -> Vec<String> {

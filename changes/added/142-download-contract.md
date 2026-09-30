@@ -1,0 +1,1 @@
+- The plugin API defines the download contract: `DownloadProvider1` for providers, `Downloads1` for the shell, and the SDK `DownloadService` ([ADR-0067](docs/adr/0067-download-wire-contract.md)).

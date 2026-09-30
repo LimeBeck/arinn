@@ -1,4 +1,4 @@
-# ADR-0067: Agent task scope, verification and coordination
+# ADR-0068: Agent task scope, verification and coordination
 
 - **Status:** Proposed
 - **Date:** 2026-09-30

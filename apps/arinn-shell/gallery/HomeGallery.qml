@@ -14,6 +14,8 @@ Window {
     property bool showNavigation: false
     property string previewScreen: "home"
     property string lastIntent: ""
+    // Continue artwork is the same placeholder file the card paints. Production
+    // Home does not bind a New row, so this fixture does not add one.
     readonly property var content: [
         { id: "activity", title: "Workspace", subtitle: "Return to activity", running: true },
         { id: "film", title: "Northern light", subtitle: "42 minutes remaining", progress: 0.58, artwork: Qt.resolvedUrl("fixture-artwork.svg") },
@@ -34,10 +36,6 @@ Window {
                 { id: "favorite5", title: "Create", monogram: "C" },
                 { id: "favorite6", title: "Discover", monogram: "D" },
                 { id: "favorite7", title: "Relax", monogram: "R" }
-            ] : []
-            newEntries: window.fixture === "populated" ? [
-                { id: "new1", title: "Open skies", subtitle: "2026", artwork: Qt.resolvedUrl("fixture-artwork.svg") },
-                { id: "new2", title: "Far away", subtitle: "2026", artwork: Qt.resolvedUrl("fixture-artwork.svg") }
             ] : []
             applicationEntries: window.fixture === "populated" ? [
                 { id: "explore", title: "Explore", monogram: "E", group: "online" },

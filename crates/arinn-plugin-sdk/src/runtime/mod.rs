@@ -703,10 +703,14 @@ impl Endpoint for BrowserService {
 }
 
 mod assets;
+mod download;
 mod library;
 mod media;
 mod settings;
 pub use assets::AssetHandler;
+pub use download::{
+    DownloadAction, DownloadHandler, DownloadService, run_download, run_download_on,
+};
 pub use library::{
     LibraryExtensions, LibraryHandler, LibraryImportHandler, LibraryResumeHandler, LibraryService,
     run_library, run_library_on,

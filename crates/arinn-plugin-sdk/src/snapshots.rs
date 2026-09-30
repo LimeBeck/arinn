@@ -4,6 +4,7 @@
 use arinn_protocol::{
     application::{self, Application, ApplicationPage, RunningApplication},
     browser::{self, BrowserWindow, Tab, TabPage},
+    download::{self, Job, JobPage},
     library::{self, Collection, Item, LibraryPage, Resume, ResumePage},
     media::{self, Session, SessionPage},
     validation::{self, ErrorCode, MAX_BODY_BYTES, MAX_PAGE_ENTRIES},
@@ -280,7 +281,58 @@ impl Row for ResumeRows {
     }
 }
 
+pub struct JobRows;
+impl Row for JobRows {
+    type Entry = Job;
+    type Page = JobPage;
+    fn validate(entries: &[Job]) -> Result<(), ErrorCode> {
+        download::validate_jobs(entries)
+    }
+    fn text_bytes(entries: &[Job]) -> usize {
+        entries
+            .iter()
+            .map(|job| {
+                job.id.len()
+                    + job.title.len()
+                    + job.state.len()
+                    + job.actions.iter().map(String::len).sum::<usize>()
+                    + job.error_code.len()
+                    + job.error_message.len()
+                    + job
+                        .outputs
+                        .iter()
+                        .map(|o| o.id.len() + o.title.len() + o.file_uri.len())
+                        .sum::<usize>()
+            })
+            .sum()
+    }
+    fn empty_page(generation: &str, revision: u64) -> JobPage {
+        JobPage {
+            generation: generation.into(),
+            revision,
+            jobs: Vec::new(),
+            next_token: String::new(),
+        }
+    }
+    fn entries(page: &JobPage) -> &[Job] {
+        &page.jobs
+    }
+    fn entries_mut(page: &mut JobPage) -> &mut Vec<Job> {
+        &mut page.jobs
+    }
+    fn set_revision(page: &mut JobPage, revision: u64) {
+        page.revision = revision;
+    }
+    fn next_token(page: &mut JobPage) -> &mut String {
+        &mut page.next_token
+    }
+    fn encoded_len(page: &JobPage) -> Result<usize, ErrorCode> {
+        page.encoded_len()
+    }
+}
+
 pub type LibrarySnapshots = Store<LibraryCatalog>;
+pub type JobSnapshots = RowStore<JobRows>;
 pub type SessionSnapshots = RowStore<SessionRows>;
 pub type ResumeSnapshots = RowStore<ResumeRows>;
 

@@ -488,3 +488,172 @@ async fn successful_launch_dismisses_home() {
     }
     assert_eq!(state, "succeeded");
 }
+
+/// AC-18: presentation intent is distinct from Home state synchronization.
+#[tokio::test]
+async fn explicit_home_requests_repeat_but_state_refreshes_do_not() {
+    use arinn_protocol::production::ProductionDaemonProxy;
+    let f = Fixture::new().await;
+    f.core
+        .connection
+        .object_server()
+        .at(
+            production::PATH,
+            Daemon {
+                core: f.core.clone(),
+            },
+        )
+        .await
+        .unwrap();
+    let shell = ProductionDaemonProxy::new(&f.stranger).await.unwrap();
+    let adapter = ProductionDaemonProxy::new(&f.kwin).await.unwrap();
+    let mut requests = shell.receive_home_requested().await.unwrap();
+    let daemon = zbus::Proxy::new(
+        &f.stranger,
+        production::SERVICE,
+        production::PATH,
+        production::SERVICE,
+    )
+    .await
+    .unwrap();
+    let mut changes = daemon.receive_signal("Changed").await.unwrap();
+    for _ in 0..2 {
+        adapter
+            .report_home_request("activity", "screen")
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(2), changes.next())
+            .await
+            .unwrap()
+            .unwrap();
+        let event = tokio::time::timeout(Duration::from_secs(2), requests.next())
+            .await
+            .unwrap()
+            .unwrap();
+        let args = event.args().unwrap();
+        assert_eq!(args.epoch, f.core.epoch);
+        assert_eq!(args.target, "activity");
+        assert_eq!(args.output, "screen");
+        let (status,) = shell.status().await.unwrap();
+        assert!(status.home_visible);
+        assert_eq!(status.return_window, "activity");
+        assert_eq!(status.home_output, "screen");
+    }
+    // Disappearance, remap, reconnect state restoration, and dismissal all
+    // publish Changed, but none may steal focus through HomeRequested.
+    for (visible, target) in [
+        (true, ""),
+        (true, "activity"),
+        (true, "activity"),
+        (false, ""),
+    ] {
+        f.kwin
+            .call_method(
+                Some(production::SERVICE),
+                production::PATH,
+                Some(production::SERVICE),
+                "ReportHome",
+                &(visible, target, "screen"),
+            )
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(2), changes.next())
+            .await
+            .unwrap()
+            .unwrap();
+        shell.status().await.unwrap();
+    }
+    assert!(
+        tokio::time::timeout(Duration::from_millis(50), requests.next())
+            .await
+            .is_err()
+    );
+    // A late subscriber receives no historical intent. A new Home without a
+    // return Activity is nevertheless an explicit, separately delivered event.
+    let mut late = shell.receive_home_requested().await.unwrap();
+    assert!(
+        tokio::time::timeout(Duration::from_millis(50), late.next())
+            .await
+            .is_err()
+    );
+    adapter.report_home_request("", "screen").await.unwrap();
+    let event = tokio::time::timeout(Duration::from_secs(2), late.next())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(event.args().unwrap().target, "");
+    assert!(shell.status().await.unwrap().0.home_visible);
+}
+
+#[tokio::test]
+async fn home_requests_reject_untrusted_invalid_and_obsolete_adapter_calls() {
+    use arinn_protocol::production::ProductionDaemonProxy;
+    let f = Fixture::new().await;
+    f.core
+        .connection
+        .object_server()
+        .at(
+            production::PATH,
+            Daemon {
+                core: f.core.clone(),
+            },
+        )
+        .await
+        .unwrap();
+    let shell = ProductionDaemonProxy::new(&f.stranger).await.unwrap();
+    let adapter = ProductionDaemonProxy::new(&f.kwin).await.unwrap();
+    let mut requests = shell.receive_home_requested().await.unwrap();
+    assert_eq!(
+        normalize_error(
+            shell
+                .report_home_request("activity", "screen")
+                .await
+                .unwrap_err()
+        ),
+        ErrorCode::PermissionDenied
+    );
+    for (target, output) in [
+        ("x".repeat(8193), "screen".into()),
+        ("activity".into(), "x".repeat(8193)),
+    ] {
+        assert_eq!(
+            normalize_error(
+                adapter
+                    .report_home_request(&target, &output)
+                    .await
+                    .unwrap_err()
+            ),
+            ErrorCode::InvalidArgument
+        );
+    }
+    // Authentication follows the actual org.kde.KWin unique owner, not a
+    // connection that used to own the trusted name.
+    f.kwin.release_name("org.kde.KWin").await.unwrap();
+    f.provider.request_name("org.kde.KWin").await.unwrap();
+    assert_eq!(
+        normalize_error(
+            adapter
+                .report_home_request("activity", "screen")
+                .await
+                .unwrap_err()
+        ),
+        ErrorCode::PermissionDenied
+    );
+    let status = shell.status().await.unwrap().0;
+    assert!(!status.home_visible);
+    assert!(status.return_window.is_empty());
+    assert!(
+        tokio::time::timeout(Duration::from_millis(50), requests.next())
+            .await
+            .is_err()
+    );
+    let replacement = ProductionDaemonProxy::new(&f.provider).await.unwrap();
+    replacement
+        .report_home_request("activity", "screen")
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(2), requests.next())
+        .await
+        .unwrap()
+        .unwrap();
+}

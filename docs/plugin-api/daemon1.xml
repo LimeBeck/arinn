@@ -28,6 +28,15 @@ SPDX-License-Identifier: MIT OR Apache-2.0 -->
     </method>
     <signal name="Changed">
     </signal>
+    <method name="ReportHomeRequest">
+      <arg name="target" type="s" direction="in" />
+      <arg name="output" type="s" direction="in" />
+    </method>
+    <signal name="HomeRequested">
+      <arg name="epoch" type="s" />
+      <arg name="target" type="s" />
+      <arg name="output" type="s" />
+    </signal>
     <method name="Providers">
       <arg name="token" type="s" direction="in" />
       <arg type="(sa(sssssoasssststttt)s)" direction="out" />

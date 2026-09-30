@@ -73,7 +73,9 @@ are in [ADR-0054](../adr/0054-media-and-library-wire-contract.md). `Media1` and
 
 - A session is `(id, title, subtitle, artwork, state, duration_us, position_us,
   anchor_us, actions, has_content, content)`. `artwork` is an asset id or empty.
-  `anchor_us` is `CLOCK_MONOTONIC` microseconds. Only state `playing` advances.
+  `anchor_us` is `CLOCK_MONOTONIC` microseconds. Known states are `playing`,
+  `paused`, `stopped` and `ended` (a confirmed end of file, never inferred from
+  the position; [ADR-0063](../adr/0063-ended-session-state.md)). Only `playing` advances.
   Unknown duration is −1. Position and seek are microseconds.
 - `Features` lists `MediaOpen1`, `MediaTracks1` and `MediaTimeline1` when those
   interfaces are exported. An MPRIS provider returns an empty list. A missing

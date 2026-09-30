@@ -4,7 +4,7 @@
 - **Date:** 2026-09-29
 - **Deciders:** delegated technical choice ([ADR-0037](0037-agent-autonomy-and-owner-gated-decisions.md)) within [ADR-0013](0013-mpris-media.md), [ADR-0024](0024-local-library-mpv.md) and specification §7.3, §7.4 and §9.1
 - **Amends / Supersedes:** amends [ADR-0013](0013-mpris-media.md), [ADR-0024](0024-local-library-mpv.md)
-- **Amended by / Superseded by:** —
+- **Amended by / Superseded by:** [ADR-0062](0062-asset-contract.md) — fetching assets by id; [ADR-0063](0063-ended-session-state.md) — the `ended` session state
 - **Specification:** [§7.3](../specifications/arinn-specification.md#73-media-sessions-mpris), [§7.4](../specifications/arinn-specification.md#74-local-library-and-mpv), [§9.1](../specifications/arinn-specification.md#91-capabilities), [§9.7](../specifications/arinn-specification.md#97-limits-and-validation)
 
 ## Context

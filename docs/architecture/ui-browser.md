@@ -160,7 +160,9 @@ infer it from a window class (R-01); the compositor link is still open
 After 8 s it adds "The browser is taking longer than usual" and Cancel. Cancel
 calls `Operation1.Cancel` when the operation path is known (best effort) and
 hides the overlay. After 30 s, or when `openingError` is set, a dialog offers
-Retry and Close. Retry calls `Open` again for the same shortcut id. The scrim
+Retry and Close. Retry calls `Open` again for the same shortcut id. Home
+closes that dialog without Retry, or cancels a slow open, and emits
+`homeRequested`; the shell then shows Home. The scrim
 is a fixed neutral tint; icon hues are not read. The overlay is skipped for tab
 activate and close, which share `operationState` but not `opening`.
 

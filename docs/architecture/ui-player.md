@@ -36,8 +36,9 @@ video. Resume, watched state and the real track list stay with the providers.
 
 Signals, and only these, leave the screen: `play`, `pause`,
 `seek(targetSeconds)`, `selectAudio(trackId)`, `selectSubtitle(trackId)`,
-`stop`, `leave`. Emitting one does not change the fixture. The caller applies
-a provider result by writing the properties.
+`stop`, `leave`, `homeRequested`. Emitting one does not change the fixture.
+The caller applies a provider result by writing the properties. Home closes
+local chrome and emits `homeRequested`; it does not pause or stop playback.
 
 The ready surface is the handoff OSD: a full-bleed picture stand-in when
 `pictureStandIn` is true, top and bottom scrims, the timeline along the bottom,
@@ -71,6 +72,7 @@ shell, Plasma does (OQ-04).
 | Sheet | Up/Down or Left/Right | Move the highlight. No select signal |
 | Sheet | OK | `selectAudio` or `selectSubtitle`, then close the sheet onto its pill |
 | Sheet | Back, Esc, Backspace | Close the sheet onto its pill. The OSD stays. No `leave` and no `stop` |
+| Sheet or OSD | Home | Close an open sheet without selecting a track, then `homeRequested`. No `leave`, `stop`, `play` or `pause`. Playback stays as it is |
 | Visible, no sheet | Back, Esc, Backspace | Hide the OSD. No `leave` and no `stop` |
 | Hidden | Back, Esc, Backspace | `leave`. Playback properties stay as they are. No `stop` |
 | Either, `ready` | Media play, pause, play/pause, stop | The matching signal, then show the OSD if it was hidden |

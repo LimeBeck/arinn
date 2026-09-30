@@ -26,6 +26,7 @@ FocusScope {
     signal cancelRequested()
     signal retryRequested()
     signal dismissRequested()
+    signal homeRequested()
 
     function arm() {
         revealed = false;
@@ -203,6 +204,22 @@ FocusScope {
     Keys.onLeftPressed: if (showDialog) retryButton.forceActiveFocus()
     Keys.onRightPressed: if (showDialog) closeButton.forceActiveFocus()
     Keys.onPressed: event => {
+        if (event.key === Qt.Key_Home) {
+            if (!root.showOverlay) {
+                event.accepted = false;
+                return;
+            }
+            event.accepted = true;
+            if (event.isAutoRepeat)
+                return;
+            // Close the dialog or the slow open. Do not retry.
+            if (root.showDialog)
+                root.dismissRequested();
+            else
+                root.cancelRequested();
+            root.homeRequested();
+            return;
+        }
         if (event.key !== Qt.Key_Escape && event.key !== Qt.Key_Backspace && event.key !== Qt.Key_Back)
             return;
         event.accepted = true;

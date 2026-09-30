@@ -9,9 +9,8 @@ import "../../apps/arinn-shell/ui/screens/player" as Player
 import "../../apps/arinn-shell/ui/screens/power" as Power
 import "../../apps/arinn-shell/ui/screens/settings" as Settings
 
-// One case per row of specification §6.3, plus the §6.2 text-field exception.
-// Keys are Esc, Backspace and Home. Each case uses the fixture that already
-// implements that row.
+// Specification §6.3 rows that the shell fixtures own, plus the §6.2 text-field
+// exception. The external-application row is the platform shortcut and Main.qml.
 TestCase {
     id: suite
     name: "HomeBackTable"
@@ -85,61 +84,6 @@ TestCase {
             }]
         }
     }
-    // The shell stays out of the keyboard while an external application is in
-    // front. Home is the platform shortcut that opens the overlay and remembers
-    // the activity; this fixture applies that result when Home is pressed.
-    Component {
-        id: externalStage
-        Item {
-            id: stage
-            width: 1920
-            height: 1080
-            property bool overlay: false
-            property int escapes: 0
-            Ui.HomeView {
-                id: homeView
-                objectName: "rememberedHome"
-                anchors.fill: parent
-                visible: stage.overlay
-                enabled: stage.overlay
-                focus: stage.overlay
-                returnActivityId: ""
-                continueEntries: [
-                    {id: "a", title: "Earlier", subtitle: "Not the return"},
-                    {id: "b", title: "Activity", subtitle: "Return", running: true}
-                ]
-                favoriteEntries: [{id: "f", title: "Favorite", monogram: "F"}]
-                newEntries: [{id: "n", title: "New"}]
-            }
-            TextInput {
-                objectName: "externalField"
-                width: 240
-                height: 48
-                text: "stay"
-                focus: !stage.overlay
-                enabled: !stage.overlay
-                visible: enabled
-                Component.onCompleted: {
-                    cursorPosition = text.length
-                    forceActiveFocus()
-                }
-                Keys.onPressed: event => {
-                    if (event.key === Qt.Key_Escape) {
-                        stage.escapes += 1
-                        event.accepted = true
-                    } else if (event.key === Qt.Key_Home) {
-                        homeView.returnActivityId = "b"
-                        stage.overlay = true
-                        event.accepted = true
-                        Qt.callLater(() => homeView.showHome())
-                    } else {
-                        event.accepted = false
-                    }
-                }
-            }
-        }
-    }
-
     function init() {
         // Qt Quick Test keeps the pointer between fixtures. Park it before a
         // view exists so a queued hover cannot steal the first focus.
@@ -261,6 +205,7 @@ TestCase {
         const audios = watch(player, "selectAudio")
         const leaves = watch(player, "leave")
         const stops = watch(player, "stop")
+        const playerHomes = watch(player, "homeRequested")
         player.forceActiveFocus()
         keyClick(Qt.Key_Down)
         compare(player.osdFocus, "subtitles")
@@ -283,7 +228,14 @@ TestCase {
         compare(leaves.count, 0)
         keyClick(Qt.Key_Return)
         compare(player.sheetKind, "subtitles")
+        compare(player.subtitleTrackId, "s1")
         keyClick(Qt.Key_Home)
+        compare(player.sheetKind, "")
+        compare(player.osdVisible, true)
+        compare(player.osdFocus, "subtitles")
+        compare(player.playing, false)
+        compare(player.subtitleTrackId, "s1")
+        compare(playerHomes.count, 1)
         compare(subtitles.count, 0)
         compare(audios.count, 0)
         compare(leaves.count, 0)
@@ -293,18 +245,36 @@ TestCase {
         const launch = make(launchFactory)
         const retries = watch(launch, "retryRequested")
         const dismisses = watch(launch, "dismissRequested")
+        const launchHomes = watch(launch, "homeRequested")
+        const cancels = watch(launch, "cancelRequested")
         focused(launch, "launchRetry")
         keyClick(Qt.Key_Backspace)
         compare(dismisses.count, 1)
         compare(retries.count, 0)
+        compare(cancels.count, 0)
+        compare(launchHomes.count, 0)
         releaseAll()
         const launchAgain = make(launchFactory)
         const retriesAgain = watch(launchAgain, "retryRequested")
         const dismissesAgain = watch(launchAgain, "dismissRequested")
+        const homesAgain = watch(launchAgain, "homeRequested")
         focused(launchAgain, "launchRetry")
         keyClick(Qt.Key_Escape)
         compare(dismissesAgain.count, 1)
         compare(retriesAgain.count, 0)
+        compare(homesAgain.count, 0)
+        releaseAll()
+        const launchHome = make(launchFactory)
+        const retriesHome = watch(launchHome, "retryRequested")
+        const dismissesHome = watch(launchHome, "dismissRequested")
+        const homesHome = watch(launchHome, "homeRequested")
+        const cancelsHome = watch(launchHome, "cancelRequested")
+        focused(launchHome, "launchRetry")
+        keyClick(Qt.Key_Home)
+        compare(dismissesHome.count, 1)
+        compare(retriesHome.count, 0)
+        compare(cancelsHome.count, 0)
+        compare(homesHome.count, 1)
     }
 
     function test_row_nested_screen() {
@@ -417,45 +387,6 @@ TestCase {
         compare(home.navOpen, true)
         focused(home, "nav-0")
         compare(returns.count, 0)
-    }
-
-    function test_row_external_application() {
-        const stage = make(externalStage)
-        const field = childOf(stage, "externalField")
-        const home = childOf(stage, "rememberedHome")
-        const returns = watch(home, "returnRequested")
-        // Home restores its row on a deferred call. Let that finish, then give
-        // the keyboard back to the external field. The shell is not visible.
-        wait(0)
-        field.forceActiveFocus()
-        tryCompare(field, "activeFocus", true)
-        compare(stage.overlay, false)
-        compare(home.visible, false)
-        compare(home.returnActivityId, "")
-        keyClick(Qt.Key_Backspace)
-        compare(field.text, "sta")
-        compare(field.activeFocus, true)
-        compare(stage.escapes, 0)
-        compare(stage.overlay, false)
-        compare(home.navOpen, false)
-        compare(returns.count, 0)
-        keyClick(Qt.Key_Escape)
-        compare(stage.escapes, 1)
-        compare(field.text, "sta")
-        compare(stage.overlay, false)
-        compare(home.navOpen, false)
-        compare(returns.count, 0)
-        keyClick(Qt.Key_Home)
-        compare(stage.overlay, true)
-        compare(home.returnActivityId, "b")
-        compare(home.screen, "home")
-        compare(home.navOpen, false)
-        focused(stage, "entry-b")
-        compare(returns.count, 0)
-        keyClick(Qt.Key_Backspace)
-        compare(returns.count, 1)
-        compare(returns.signalArguments[0][0], "b")
-        compare(home.navOpen, false)
     }
 
     function test_backspace_deletes_and_escape_closes_scope() {

@@ -18,6 +18,7 @@ FocusScope {
     property int categoryIndex: 0
     property int rowFocusIndex: 0
     property string partName: "main"
+    property string focusedRowKey: ""
     property bool detailFocused: false
     property string editingKey: ""
     property string editingPart: ""
@@ -30,6 +31,7 @@ FocusScope {
 
     readonly property bool screenBlocked: screenState === "loading" || screenState === "error" || screenState === "unavailable"
     readonly property var activeRows: collectRows()
+    onActiveRowsChanged: queueRowFocusRestore()
     readonly property string paneKind: paneFor(currentCategory())
     readonly property var choosingRow: rowByKey(choosingKey)
     readonly property var choosingOptions: choosingRow ? optionsOf(choosingRow) : []
@@ -353,6 +355,7 @@ FocusScope {
         editingKey = "";
         choosingKey = "";
         detailFocused = false;
+        focusedRowKey = "";
         categoryIndex = next;
         const item = categoryRepeater.itemAt(next);
         if (item) item.forceActiveFocus();
@@ -366,9 +369,29 @@ FocusScope {
         detailFocused = true;
         rowFocusIndex = rowIndex;
         partName = name;
+        const row = activeRows[rowIndex];
+        focusedRowKey = row ? rowKey(row) : focusedRowKey;
         item.forceActiveFocus();
         revealRow(scope);
         return true;
+    }
+    // The row repeater builds new buttons whenever rows are replaced. Without
+    // this, focus falls back to the view and Select does nothing (AC-02).
+    function queueRowFocusRestore() {
+        if (!detailFocused || editingKey.length || choosingKey.length || !focusedRowKey.length)
+            return;
+        Qt.callLater(() => restoreRowFocus(0));
+    }
+    function restoreRowFocus(attempt) {
+        if (!detailFocused || editingKey.length || choosingKey.length || !focusedRowKey.length)
+            return;
+        const index = activeRowIndex(focusedRowKey);
+        const parts = index >= 0 ? partsFor(activeRows[index]) : [];
+        const part = parts.indexOf(partName) >= 0 ? partName : (parts[0] || "");
+        if (index >= 0 && part && focusPart(index, part))
+            return;
+        if (attempt < 2)
+            Qt.callLater(() => restoreRowFocus(attempt + 1));
     }
     function revealRow(scope) {
         const top = scope.y;
@@ -623,12 +646,21 @@ FocusScope {
                 Repeater {
                     id: rowRepeater
                     model: root.activeRows
+                    onItemAdded: root.queueRowFocusRestore()
                     delegate: FocusScope {
                         id: rowScope
                         required property var modelData
                         required property int index
                         readonly property var row: modelData
                         readonly property string key: root.rowKey(row)
+                        // Keeps the focused row when the repeater recreates it. Stay
+                        // focused while this row's editor is open so the field
+                        // can hold active focus inside the scope.
+                        focus: root.detailFocused && root.focusedRowKey === key && !root.choosingKey
+                               && (!root.editingKey || root.editingKey === key)
+                        function wants(name) {
+                            return focus && !root.editingKey && root.partName === name;
+                        }
                         readonly property bool multiple: root.isMultiple(row)
                         readonly property bool integerRow: row.type === "integer" && !root.valueUnsupported(row)
                         readonly property bool simpleRow: !multiple && !integerRow
@@ -662,6 +694,7 @@ FocusScope {
                                 height: Math.max(112, simpleText.implicitHeight + 40)
                                 padding: 0
                                 focusPolicy: Qt.StrongFocus
+                                focus: rowScope.wants("main")
                                 activeFocusOnTab: false
                                 opacity: row.enabled === false || row.pending ? 0.45 : 1
                                 text: row.title || ""
@@ -864,6 +897,7 @@ FocusScope {
                                         height: 64
                                         padding: 0
                                         focusPolicy: Qt.StrongFocus
+                                        focus: rowScope.wants("minus")
                                         activeFocusOnTab: false
                                         opacity: !root.canEdit(row) || (root.hasBound(row, "min") && root.integerValue(row) <= Number(row.constraints.min)) ? 0.45 : 1
                                         text: "−"
@@ -881,6 +915,7 @@ FocusScope {
                                         height: 64
                                         padding: 0
                                         focusPolicy: Qt.StrongFocus
+                                        focus: rowScope.wants("value")
                                         activeFocusOnTab: false
                                         opacity: row.enabled === false || row.pending ? 0.45 : 1
                                         onClicked: root.openEditor(row, "value", String(root.integerValue(row)))
@@ -927,6 +962,7 @@ FocusScope {
                                         height: 64
                                         padding: 0
                                         focusPolicy: Qt.StrongFocus
+                                        focus: rowScope.wants("plus")
                                         activeFocusOnTab: false
                                         opacity: !root.canEdit(row) || (root.hasBound(row, "max") && root.integerValue(row) >= Number(row.constraints.max)) ? 0.45 : 1
                                         text: "+"
@@ -1005,6 +1041,7 @@ FocusScope {
                                             height: 72
                                             padding: 0
                                             focusPolicy: Qt.StrongFocus
+                                            focus: rowScope.wants("path:" + index)
                                             activeFocusOnTab: false
                                             opacity: row.enabled === false || row.pending ? 0.45 : 1
                                             onClicked: root.openEditor(row, "path:" + index, root.pathList(row)[index] || "")
@@ -1050,6 +1087,7 @@ FocusScope {
                                             height: 72
                                             padding: 0
                                             focusPolicy: Qt.StrongFocus
+                                            focus: rowScope.wants("remove:" + index)
                                             activeFocusOnTab: false
                                             opacity: root.canEdit(row) ? 1 : 0.45
                                             text: qsTr("Remove")
@@ -1074,6 +1112,7 @@ FocusScope {
                                     height: 72
                                     padding: 0
                                     focusPolicy: Qt.StrongFocus
+                                    focus: rowScope.wants("add")
                                     activeFocusOnTab: false
                                     readonly property bool full: root.hasBound(row, "maxItems") && root.pathList(row).length >= Number(row.constraints.maxItems)
                                     opacity: !root.canEdit(row) || full ? 0.45 : 1

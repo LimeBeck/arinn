@@ -78,16 +78,20 @@ that category. The ends of each list do not move focus further. Esc, Backspace
 and Back leave the row list for the categories, and on the category list emit
 `dismissRequested`. Editable text consumes Backspace itself and does not leave
 the field (specification §6.2, AC-18). The option list is the top scope: Esc
-closes it and returns focus to the row.
+closes it and returns focus to the row. Replacing the row list (a catalog
+publish) puts focus back on the same row control, so Select still reaches it
+(AC-02). A pending row is not editable until that change settles.
 
 ## Verification
 
 `tests/ui/tst_settings.qml` covers D-pad focus, the boolean, integer, enum,
 string, single-path and multiple-path controls, a disabled row, pending and
-error, an over-long string, Back, and the unavailable screen.
+error, an over-long string, Back, the unavailable screen, focus kept across a
+row republish, and Select on a pending boolean.
 `apps/arinn-shell/settings_catalog_test.cpp` drives a fake `Settings1`:
-grouping, `SetValue` pending and failure, a disabled setting, string and path
-JSON, `SettingsChanged`, and a missing service.
+grouping, `SetValue` pending and failure, a second `SetValue` ignored while
+that operation is still running, a disabled setting, string and path JSON,
+`SettingsChanged`, and a missing service.
 
 Offscreen run on 2026-09-30, Qt 6.11.2:
 
@@ -95,11 +99,9 @@ Offscreen run on 2026-09-30, Qt 6.11.2:
 dbus-run-session -- build/apps/arinn-shell/arinn-settings-catalog-test
 QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
   ctest --test-dir build -R '^ui-components$'
-QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
-  dbus-run-session -- build/apps/arinn-shell/arinn-browser-catalog-test
 ```
 
-The catalog test passed 9 cases. `ui-components` passed, including
+The catalog test passed 10 cases. `ui-components` passed, including
 `tst_settings.qml` and the Home/Back text-field case. The browser catalog
-test passed, so `Main.qml` loads with `SettingsCatalog`. Operator tests were
-not run. This does not close AC-02, AC-12 or AC-18.
+test passed on the earlier revision of this screen (`Main.qml` unchanged
+here). Operator tests were not run. This does not close AC-02, AC-12 or AC-18.

@@ -301,6 +301,30 @@ private slots:
                  .toString(),
              QString());
   }
+  void secondSetValueWhilePendingIsIgnored() {
+    SettingsDaemon daemon;
+    daemon.providers = {{QStringLiteral("alpha"), QStringLiteral("Alpha")}};
+    daemon.settings.insert(
+        QStringLiteral("alpha"),
+        {setting(QStringLiteral("scan"), QStringLiteral("media"),
+                 QStringLiteral("boolean"), QStringLiteral("false"), QString(),
+                 true)});
+    daemon.holdOperation = true;
+    QVERIFY(registerBus(daemon));
+    SettingsCatalog catalog;
+    QTRY_COMPARE(catalog.screenState(), QStringLiteral("ready"));
+    catalog.setValue(QStringLiteral("alpha"), QStringLiteral("scan"), true);
+    QTRY_COMPARE(daemon.sets.size(), 1);
+    QTRY_COMPARE(rowAt(catalog, QStringLiteral("alpha"), QStringLiteral("scan"))
+                     .value(QStringLiteral("pending"))
+                     .toBool(),
+                 true);
+    QTRY_VERIFY(daemon.operationReads > 0);
+    catalog.setValue(QStringLiteral("alpha"), QStringLiteral("scan"), false);
+    QTest::qWait(200);
+    QCOMPARE(daemon.sets.size(), 1);
+    QCOMPARE(daemon.sets.at(0).value, QStringLiteral("true"));
+  }
   void setValueFailureKeepsTheValue() {
     SettingsDaemon daemon;
     daemon.providers = {{QStringLiteral("alpha"), QStringLiteral("Alpha")}};

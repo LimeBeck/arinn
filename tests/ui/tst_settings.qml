@@ -105,6 +105,15 @@ TestCase {
     function down(steps) {
         for (let i = 0; i < steps; ++i) keyClick(Qt.Key_Down);
     }
+    function copyRows(mutate) {
+        const next = [];
+        for (let i = 0; i < view.rows.length; ++i) {
+            const row = Object.assign({}, view.rows[i]);
+            if (mutate) mutate(row);
+            next.push(row);
+        }
+        return next;
+    }
 
     function test_category_focus() {
         focused("category-media");
@@ -372,6 +381,31 @@ TestCase {
         focused("category-media");
         compare(dismissals.count, 0);
         verify(insideView(windowFocus()));
+    }
+
+    function test_focus_survives_row_republish() {
+        keyClick(Qt.Key_Right);
+        focused("setting-library-scan");
+        keyClick(Qt.Key_Return);
+        compare(changes.count, 1);
+        view.rows = copyRows(row => { if (row.id === "scan") row.pending = true; });
+        focused("setting-library-scan");
+        verify(windowFocus() !== view);
+        view.rows = copyRows(row => { if (row.id === "scan") row.pending = false; });
+        focused("setting-library-scan");
+        verify(windowFocus() !== view);
+        keyClick(Qt.Key_Return);
+        compare(changes.count, 2);
+    }
+
+    function test_pending_boolean_select_does_nothing() {
+        view.rows = copyRows(row => { if (row.id === "scan") row.pending = true; });
+        focused("category-media");
+        keyClick(Qt.Key_Right);
+        focused("setting-library-scan");
+        compare(child("pending-library-scan").text, "Saving…");
+        keyClick(Qt.Key_Return);
+        compare(changes.count, 0);
     }
 
     function test_unavailable_screen() {

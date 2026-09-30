@@ -26,6 +26,7 @@ Window {
     MediaCatalog { id: mediaCatalog; objectName: "mediaCatalog" }
     LibraryCatalog { id: libraryCatalog; objectName: "libraryCatalog" }
     SettingsCatalog { id: settingsCatalog; objectName: "settingsCatalog" }
+    KeyboardMonitor { id: keyboardMonitor }
     Ui.LogicalCanvas {
         anchors.fill: parent
         Ui.HomeView {
@@ -137,7 +138,9 @@ Window {
             screenState: settingsCatalog.screenState
             categories: settingsCatalog.categories
             rows: settingsCatalog.rows
+            keyboardAvailable: keyboardMonitor.available
             onValueChangeRequested: (providerId, settingId, value) => settingsCatalog.setValue(providerId, settingId, value)
+            onErrorDismissRequested: (providerId, settingId) => settingsCatalog.dismissError(providerId, settingId)
             onDismissRequested: home.back()
             onRetryRequested: settingsCatalog.refresh()
         }

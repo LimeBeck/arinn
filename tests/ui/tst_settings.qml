@@ -138,17 +138,11 @@ TestCase {
         keyClick(Qt.Key_Down);
         focused("category-system");
         keyClick(Qt.Key_Right);
-        focused("minus-shell-idle");
-        keyClick(Qt.Key_Right);
         focused("setting-shell-idle");
         keyClick(Qt.Key_Right);
-        focused("plus-shell-idle");
-        keyClick(Qt.Key_Right);
-        focused("plus-shell-idle");
+        focused("setting-shell-idle");
         keyClick(Qt.Key_Down);
-        focused("plus-shell-idle");
-        keyClick(Qt.Key_Left);
-        keyClick(Qt.Key_Left);
+        focused("setting-shell-idle");
         keyClick(Qt.Key_Left);
         focused("category-system");
         for (let step = 0; step < 8; ++step) keyClick(Qt.Key_Up);
@@ -173,51 +167,47 @@ TestCase {
         compare(view.rows[0].currentValue, false);
     }
 
-    function test_integer_stepper_and_number() {
+    function test_integer_sheet_bounds_unit_and_hold() {
         down(6);
         focused("category-system");
         keyClick(Qt.Key_Right);
-        focused("minus-shell-idle");
+        focused("setting-shell-idle");
+        compare(child("value-shell-idle").text, "10");
+        keyClick(Qt.Key_Return);
+        focused("integerStepper");
+        compare(child("integerValue").text, "10");
+        compare(child("integerBounds").text, "min. 1 · was 10 · max. 60");
+        compare(child("integerUnit").visible, false);
+        keyClick(Qt.Key_Left);
+        compare(child("integerValue").text, "9");
+        compare(changes.count, 0);
+        keyClick(Qt.Key_1);
+        keyClick(Qt.Key_5);
+        compare(child("integerValue").text, "15");
         keyClick(Qt.Key_Return);
         compare(changes.count, 1);
         compare(changes.signalArguments[0][0], "shell");
         compare(changes.signalArguments[0][1], "idle");
-        compare(changes.signalArguments[0][2], 9);
-        changes.clear();
-        keyClick(Qt.Key_Right);
-        keyClick(Qt.Key_Right);
-        focused("plus-shell-idle");
-        keyClick(Qt.Key_Return);
-        compare(changes.signalArguments[0][2], 11);
-        changes.clear();
-        keyClick(Qt.Key_Left);
-        focused("setting-shell-idle");
-        keyClick(Qt.Key_Return);
-        const editor = child("editor-shell-idle");
-        tryCompare(editor, "visible", true);
-        tryCompare(editor, "activeFocus", true);
-        keyClick(Qt.Key_Backspace);
-        keyClick(Qt.Key_Backspace);
-        keyClick(Qt.Key_1);
-        keyClick(Qt.Key_5);
-        keyClick(Qt.Key_Return);
-        compare(changes.count, 1);
         compare(changes.signalArguments[0][2], 15);
-        focused("minus-shell-idle");
-        changes.clear();
-        keyClick(Qt.Key_Right);
         focused("setting-shell-idle");
+        changes.clear();
+        view.rows = copyRows(row => {
+            if (row.id === "idle") row.constraints = { min: 1, max: 60, unit: "min", step: 5 };
+        });
+        compare(child("value-shell-idle").text, "10 min");
         keyClick(Qt.Key_Return);
-        tryCompare(editor, "activeFocus", true);
-        keyClick(Qt.Key_Backspace);
-        keyClick(Qt.Key_Backspace);
-        keyClick(Qt.Key_6);
-        keyClick(Qt.Key_1);
-        keyClick(Qt.Key_Return);
+        focused("integerStepper");
+        compare(child("integerUnit").text, "min");
+        view.holdMark = Date.now() - 1100;
+        view.nudgeInteger(1, true);
+        compare(child("integerValue").text, "60");
+        compare(child("integerNote").text, "This is the maximum");
+        compare(child("integerPlus").opacity, 0.3);
+        view.nudgeInteger(1, false);
+        compare(child("integerValue").text, "60");
         compare(changes.count, 0);
-        tryCompare(editor, "activeFocus", true);
         keyClick(Qt.Key_Escape);
-        focused("minus-shell-idle");
+        focused("setting-shell-idle");
         compare(changes.count, 0);
         verify(insideView(windowFocus()));
     }
@@ -333,6 +323,9 @@ TestCase {
         keyClick(Qt.Key_Down);
         focused("setting-shell-locked");
         compare(child("value-shell-locked").text, "fixed");
+        compare(child("detail-shell-locked").text, "Cannot be changed now");
+        compare(child("lock-shell-locked").visible, true);
+        verify(findChild(view, "chevron-shell-locked") === null);
         keyClick(Qt.Key_Return);
         compare(changes.count, 0);
         keyClick(Qt.Key_Left);
@@ -345,8 +338,8 @@ TestCase {
         keyClick(Qt.Key_Return);
         compare(changes.count, 0);
         keyClick(Qt.Key_Down);
-        focused("minus-shell-broken");
-        compare(child("error-shell-broken").text, "That value is not allowed.");
+        focused("setting-shell-broken");
+        compare(child("error-shell-broken").text, "InvalidArgument");
         keyClick(Qt.Key_Return);
         compare(changes.count, 0);
         compare(child("error-shell-broken").color, Ui.Theme.error);
@@ -418,6 +411,138 @@ TestCase {
         compare(action.visible, true);
         keyClick(Qt.Key_Back);
         compare(dismissals.count, 1);
+        verify(insideView(windowFocus()));
+    }
+
+    function test_enum_paging() {
+        down(2);
+        focused("category-sound");
+        keyClick(Qt.Key_Right);
+        const options = [];
+        for (let i = 0; i < 8; ++i)
+            options.push({
+                value: "o" + i,
+                title: i === 2 ? "A long option title that wraps onto a second line instead of being cut off" : ("Option " + i)
+            });
+        view.rows = copyRows(row => {
+            if (row.id === "output") {
+                row.currentValue = "o0";
+                row.constraints = { options: options };
+            }
+        });
+        focused("setting-audio-output");
+        keyClick(Qt.Key_Return);
+        focused("option-0");
+        compare(child("optionPosition").text, "1 of 8");
+        verify(child("option-2").height > 104);
+        keyClick(Qt.Key_PageDown);
+        focused("option-6");
+        compare(child("optionPosition").text, "7 of 8");
+        keyClick(Qt.Key_ChannelUp);
+        focused("option-0");
+        keyClick(Qt.Key_Escape);
+        compare(changes.count, 0);
+        focused("setting-audio-output");
+        verify(insideView(windowFocus()));
+    }
+
+    function test_string_without_keyboard() {
+        view.keyboardAvailable = false;
+        down(4);
+        focused("category-applications");
+        keyClick(Qt.Key_Right);
+        focused("setting-shell-label");
+        keyClick(Qt.Key_Return);
+        focused("keyboardBack");
+        compare(child("keyboardPrompt").visible, true);
+        compare(child("keyboardOff").text, "A keyboard is needed to type");
+        compare(child("settingsCommand").text, "arinnctl settings set");
+        keyClick(Qt.Key_Return);
+        compare(changes.count, 0);
+        focused("setting-shell-label");
+        keyClick(Qt.Key_Return);
+        focused("keyboardBack");
+        keyClick(Qt.Key_A);
+        focused("editor-shell-label");
+        compare(child("editor-shell-label").text, "notea");
+        verify(insideView(windowFocus()));
+    }
+
+    function test_saving_feedback() {
+        down(2);
+        focused("category-sound");
+        keyClick(Qt.Key_Right);
+        focused("setting-audio-output");
+        keyClick(Qt.Key_Return);
+        focused("option-0");
+        keyClick(Qt.Key_Down);
+        focused("option-1");
+        keyClick(Qt.Key_Return);
+        compare(changes.count, 1);
+        compare(changes.signalArguments[0][2], "surround");
+        view.rows = copyRows(row => { if (row.id === "output") row.pending = true; });
+        tryVerify(() => {
+            const spinner = findChild(view, "optionSpinner");
+            return spinner !== null && spinner.visible;
+        });
+        keyClick(Qt.Key_Escape);
+        focused("setting-audio-output");
+        view.rows = copyRows(row => {
+            if (row.id === "output") {
+                row.pending = false;
+                row.currentValue = "surround";
+                row.deferred = true;
+            }
+        });
+        tryCompare(child("settingsToastTitle"), "text", "Saved");
+        compare(child("settingsToastDetail").text, "Applies after Arinn restarts");
+        compare(child("detail-audio-output").text, "Applies after Arinn restarts");
+        compare(child("value-audio-output").text, "Surround");
+        verify(insideView(windowFocus()));
+    }
+
+    function test_rejected_text_stays_in_the_sheet() {
+        down(4);
+        focused("category-applications");
+        keyClick(Qt.Key_Right);
+        focused("setting-shell-label");
+        keyClick(Qt.Key_Return);
+        focused("editor-shell-label");
+        keyClick(Qt.Key_Return);
+        compare(changes.count, 1);
+        view.rows = copyRows(row => { if (row.id === "label") row.pending = true; });
+        view.rows = copyRows(row => {
+            if (row.id === "label") {
+                row.pending = false;
+                row.error = "Name is not allowed";
+            }
+        });
+        tryCompare(child("stringError"), "text", "Name is not allowed");
+        compare(view.editingKey, "shell-label");
+        focused("editor-shell-label");
+        keyClick(Qt.Key_X);
+        tryCompare(child("stringError"), "visible", false);
+        compare(changes.count, 1);
+        verify(insideView(windowFocus()));
+    }
+
+    function test_boolean_rejection_until_focus_leaves() {
+        keyClick(Qt.Key_Right);
+        focused("setting-library-scan");
+        keyClick(Qt.Key_Return);
+        compare(changes.count, 1);
+        view.rows = copyRows(row => { if (row.id === "scan") row.pending = true; });
+        view.rows = copyRows(row => {
+            if (row.id === "scan") {
+                row.pending = false;
+                row.error = "HDMI is off";
+            }
+        });
+        tryCompare(child("settingsToastDetail"), "text", "HDMI is off");
+        compare(child("settingsToastTitle").text, "Could not save");
+        compare(child("detail-library-scan").text, "HDMI is off");
+        keyClick(Qt.Key_Down);
+        tryCompare(child("detail-library-scan"), "text", "Look for new files");
         verify(insideView(windowFocus()));
     }
 }

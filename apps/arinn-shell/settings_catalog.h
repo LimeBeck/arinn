@@ -13,6 +13,25 @@
 #include <memory>
 #include <QtGlobal>
 
+// Whether a hardware keyboard is attached. The string editor uses this for
+// the no-keyboard state. It is not constructed by the catalog unit test.
+class KeyboardMonitor : public QObject {
+  Q_OBJECT
+  Q_PROPERTY(bool available READ available NOTIFY availableChanged)
+public:
+  explicit KeyboardMonitor(QObject *parent = nullptr);
+  bool available() const { return m_available; }
+signals:
+  void availableChanged();
+
+protected:
+  bool eventFilter(QObject *watched, QEvent *event) override;
+
+private:
+  void scan();
+  bool m_available = false;
+};
+
 // Reads org.arinn.Settings1 for the shell. The screen sees categories and
 // typed rows only. SetValue is an operation; provider values are not logged.
 class SettingsCatalog : public QObject {
@@ -27,6 +46,8 @@ public:
   QVariantList rows() const { return m_rows; }
   Q_INVOKABLE void setValue(const QString &providerId, const QString &settingId,
                             const QVariant &value);
+  Q_INVOKABLE void dismissError(const QString &providerId,
+                                const QString &settingId);
 public slots:
   void refresh();
   void onSettingsChanged(const QString &providerId);
@@ -63,12 +84,16 @@ private:
   void watchOperation(const QString &key, const QString &objectPath,
                       quint64 ticket, quint64 epoch);
   void settle(const QString &key, quint64 ticket, quint64 epoch,
-              const QString &error);
+              const QString &error, bool deferred = false);
+  void syncDeferred();
   QVariantList m_categories;
   QVariantList m_rows;
   QList<ProviderRecord> m_providers;
   QSet<QString> m_pending;
+  QSet<QString> m_deferred;
   QHash<QString, QString> m_errors;
+  QHash<QString, QString> m_deferredGeneration;
+  QHash<QString, QString> m_saveGeneration;
   QHash<QString, quint64> m_tickets;
   bool m_loaded = false;
   bool m_error = false;

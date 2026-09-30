@@ -3,7 +3,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "settings_catalog.h"
+#include <QCoreApplication>
 #include <QDeadlineTimer>
+#include <QEvent>
+#include <QInputDevice>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -128,6 +131,21 @@ QVariantMap constraintsFor(const QString &kind, const QString &json) {
       map.insert(QStringLiteral("min"), object.value(QStringLiteral("min")).toInteger());
     if (object.value(QStringLiteral("max")).isDouble())
       map.insert(QStringLiteral("max"), object.value(QStringLiteral("max")).toInteger());
+    // `unit` and `step` are display hints. The contract task adds `unit`;
+    // until then a missing key leaves the unit blank. `step` defaults to 1.
+    const auto unit = object.value(QStringLiteral("unit"));
+    if (unit.isString()) {
+      const auto text = unit.toString();
+      if (!text.isEmpty() && text.toUtf8().size() <= 16 && !controlCharacter(text))
+        map.insert(QStringLiteral("unit"), text);
+    }
+    const auto stepValue = object.value(QStringLiteral("step"));
+    if (stepValue.isDouble()) {
+      const auto number = stepValue.toDouble();
+      if (std::isfinite(number) && number >= 1.0 && number == std::trunc(number) &&
+          number <= static_cast<double>(std::numeric_limits<int>::max()))
+        map.insert(QStringLiteral("step"), static_cast<int>(number));
+    }
   } else if (kind == QLatin1String("string")) {
     if (object.value(QStringLiteral("max_length")).isDouble())
       map.insert(QStringLiteral("maxLength"),
@@ -163,9 +181,37 @@ bool categoryKnown(const QString &id) {
 }
 void registerSettingsCatalog() {
   qmlRegisterType<SettingsCatalog>("Arinn.Shell", 1, 0, "SettingsCatalog");
+  qmlRegisterType<KeyboardMonitor>("Arinn.Shell", 1, 0, "KeyboardMonitor");
 }
 Q_COREAPP_STARTUP_FUNCTION(registerSettingsCatalog)
 } // namespace
+
+KeyboardMonitor::KeyboardMonitor(QObject *parent) : QObject(parent) {
+  scan();
+  if (auto *app = QCoreApplication::instance())
+    app->installEventFilter(this);
+}
+bool KeyboardMonitor::eventFilter(QObject *watched, QEvent *event) {
+  if (event->type() == QEvent::KeyPress && !m_available) {
+    m_available = true;
+    emit availableChanged();
+  }
+  return QObject::eventFilter(watched, event);
+}
+void KeyboardMonitor::scan() {
+  bool found = false;
+  const auto devices = QInputDevice::devices();
+  for (const auto *device : devices) {
+    if (device && device->type() == QInputDevice::DeviceType::Keyboard) {
+      found = true;
+      break;
+    }
+  }
+  if (found == m_available)
+    return;
+  m_available = found;
+  emit availableChanged();
+}
 
 struct SettingsCatalog::Load {
   quint64 epoch = 0;
@@ -189,7 +235,10 @@ SettingsCatalog::SettingsCatalog(QObject *parent) : QObject(parent) {
           [this](const QString &, const QString &, const QString &) {
             ++m_epoch;
             m_pending.clear();
+            m_deferred.clear();
             m_errors.clear();
+            m_deferredGeneration.clear();
+            m_saveGeneration.clear();
             m_tickets.clear();
             m_providers.clear();
             m_loaded = false;
@@ -348,6 +397,7 @@ void SettingsCatalog::finishLoad(const std::shared_ptr<Load> &load) {
   }
 }
 void SettingsCatalog::publish() {
+  syncDeferred();
   QVariantList categories;
   QVariantList rows;
   QSet<QString> live;
@@ -385,6 +435,7 @@ void SettingsCatalog::publish() {
               {QStringLiteral("constraints"), constraints},
               {QStringLiteral("enabled"), setting.enabled},
               {QStringLiteral("pending"), m_pending.contains(key)},
+              {QStringLiteral("deferred"), m_deferred.contains(key)},
               {QStringLiteral("error"), m_errors.value(key)}});
         }
       }
@@ -402,6 +453,14 @@ void SettingsCatalog::publish() {
       staleErrors.append(it.key());
   for (const auto &key : staleErrors)
     m_errors.remove(key);
+  QStringList staleDeferred;
+  for (const auto &key : m_deferred)
+    if (!live.contains(key))
+      staleDeferred.append(key);
+  for (const auto &key : staleDeferred) {
+    m_deferred.remove(key);
+    m_deferredGeneration.remove(key);
+  }
   m_categories = categories;
   m_rows = rows;
   emit catalogChanged();
@@ -513,6 +572,7 @@ void SettingsCatalog::setValue(const QString &providerId, const QString &setting
   const auto ticket = ++m_tickets[key];
   const auto epoch = m_epoch;
   const auto generation = provider->generation;
+  m_saveGeneration.insert(key, generation);
   publish();
   auto msg = settingsCall("SetValue");
   msg << providerId << generation << settingId << json
@@ -539,15 +599,51 @@ void SettingsCatalog::setValue(const QString &providerId, const QString &setting
                 ticket, epoch);
           });
 }
+void SettingsCatalog::dismissError(const QString &providerId,
+                                   const QString &settingId) {
+  const auto key = keyFor(providerId, settingId);
+  if (!m_errors.remove(key))
+    return;
+  publish();
+}
+void SettingsCatalog::syncDeferred() {
+  QStringList drop;
+  for (const auto &key : m_deferred) {
+    const auto providerId = key.section(QLatin1Char('\n'), 0, 0);
+    const QString *generation = nullptr;
+    for (const auto &provider : m_providers) {
+      if (provider.ok && provider.id == providerId) {
+        generation = &provider.generation;
+        break;
+      }
+    }
+    if (!generation || *generation != m_deferredGeneration.value(key))
+      drop.append(key);
+  }
+  for (const auto &key : drop) {
+    m_deferred.remove(key);
+    m_deferredGeneration.remove(key);
+  }
+}
 void SettingsCatalog::settle(const QString &key, quint64 ticket, quint64 epoch,
-                             const QString &error) {
+                             const QString &error, bool deferred) {
   if (ticket != m_tickets.value(key) || epoch != m_epoch)
     return;
   m_pending.remove(key);
-  if (error.isEmpty())
+  if (deferred && error.isEmpty()) {
+    // Provider answered Unsupported: the value is stored and applies at its
+    // next start. The note stays until that provider's generation changes.
     m_errors.remove(key);
-  else
+    m_deferred.insert(key);
+    m_deferredGeneration.insert(key, m_saveGeneration.value(key));
+  } else if (error.isEmpty()) {
+    m_errors.remove(key);
+    m_deferred.remove(key);
+    m_deferredGeneration.remove(key);
+  } else {
     m_errors.insert(key, error);
+  }
+  m_saveGeneration.remove(key);
   publish();
   if (error.isEmpty())
     refresh();
@@ -616,9 +712,14 @@ void SettingsCatalog::watchOperation(const QString &key, const QString &objectPa
                         timer->start();
                         return;
                       }
-                      if (state == QLatin1String("succeeded"))
-                        settle(key, ticket, epoch, QString());
-                      else
+                      if (state == QLatin1String("succeeded")) {
+                        // A succeeded operation whose error is Unsupported is
+                        // the daemon's "applies at next start" answer. Any
+                        // other success applied now. A failure keeps the
+                        // daemon's error text.
+                        settle(key, ticket, epoch, QString(),
+                               error == QLatin1String("Unsupported"));
+                      } else
                         settle(key, ticket, epoch,
                                error.isEmpty() ? state : error);
                       timer->deleteLater();

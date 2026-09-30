@@ -53,12 +53,18 @@ struct Provider {
     session_cache: Option<arinn_plugin_sdk::snapshots::SessionSnapshots>,
     sessions: Vec<arinn_protocol::media::Session>,
     features: Vec<String>,
+    /// `library` providers: catalogue and resume caches and entries.
+    library_cache: Option<arinn_plugin_sdk::snapshots::LibrarySnapshots>,
+    collections: Vec<arinn_protocol::library::Collection>,
+    items: Vec<arinn_protocol::library::Item>,
+    resume_cache: Option<arinn_plugin_sdk::snapshots::ResumeSnapshots>,
+    resumes: Vec<arinn_protocol::library::Resume>,
     started: Instant,
     enabled: bool,
 }
 impl Provider {
-    /// The single capability a provider serves: `application`, `browser` or
-    /// `media`.
+    /// The single capability a provider serves: `application`, `browser`,
+    /// `media` or `library`.
     fn capability(&self) -> &str {
         self.info
             .capabilities
@@ -67,10 +73,11 @@ impl Provider {
             .unwrap_or("")
     }
 }
+mod library_routing;
 mod media_routing;
 
 /// Capability sets the daemon routes; anything else is incompatible.
-const ROUTED: &[&str] = &["application", "browser", "media"];
+const ROUTED: &[&str] = &["application", "browser", "media", "library"];
 struct State {
     providers: BTreeMap<String, Provider>,
     error: String,
@@ -260,6 +267,11 @@ impl Core {
                         session_cache: None,
                         sessions: Vec::new(),
                         features: Vec::new(),
+                        library_cache: None,
+                        collections: Vec::new(),
+                        items: Vec::new(),
+                        resume_cache: None,
+                        resumes: Vec::new(),
                         windows: Vec::new(),
                         tabs: Vec::new(),
                         started: Instant::now(),
@@ -335,7 +347,17 @@ impl Core {
                 self.unavailable(id, &owner).await;
             }
             let server = self.connection.object_server();
-            let exported = if new.capability() == "media" {
+            let exported = if new.capability() == "library" {
+                server
+                    .at(
+                        new.info.path.clone(),
+                        library_routing::LibraryEndpoint {
+                            core: self.clone(),
+                            id: id.clone(),
+                        },
+                    )
+                    .await
+            } else if new.capability() == "media" {
                 server
                     .at(
                         new.info.path.clone(),
@@ -479,6 +501,11 @@ impl Core {
                 p.session_cache = None;
                 p.sessions.clear();
                 p.features.clear();
+                p.library_cache = None;
+                p.collections.clear();
+                p.items.clear();
+                p.resume_cache = None;
+                p.resumes.clear();
                 p.info.revision = 0;
                 p.info.backend_state = "unavailable".into();
                 p.info.runtime_state = "restarting".into();
@@ -584,7 +611,9 @@ impl Core {
             .get(&id)
             .map(|p| p.capability().to_owned())
             .unwrap_or_default();
-        if capability == "media" {
+        if capability == "library" {
+            self.watch_library(id, owner, generation).await;
+        } else if capability == "media" {
             self.watch_media(id, owner, generation).await;
         } else if capability == "browser" {
             self.watch_browser(id, owner, generation).await;
@@ -1941,6 +1970,11 @@ mod token_tests {
                 session_cache: None,
                 sessions: Vec::new(),
                 features: Vec::new(),
+                library_cache: None,
+                collections: Vec::new(),
+                items: Vec::new(),
+                resume_cache: None,
+                resumes: Vec::new(),
                 windows: Vec::new(),
                 tabs: Vec::new(),
                 started: Instant::now(),

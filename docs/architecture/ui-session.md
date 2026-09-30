@@ -132,12 +132,15 @@ QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
 ```
 
 Local verification on 2026-09-30, Qt 6.11.2, offscreen platform, software
-renderer: `arinn-media-catalog-test` reported 14 passed,
-`arinn-browser-catalog-test` reported 8 passed,
-`arinn-catalog-test` reported 11 passed (including
-`operationResultSurvivesStatusRefresh`),
-`arinn-ui-test -input tests/ui/tst_session.qml` reported 14 passed (including
-`test_operation_pending_and_error_banner`), and
-`arinn-ui-test -input tests/ui/tst_media_continue.qml` passed. The full
-`tests/ui` suite and `tests/integration/phase1.py` were not re-run. This is
-not the Arch CI Qt. Operator tests were not run. AC-09 is not marked passed.
+renderer, on this change: `arinn-asset-images-test` reported 6 passed
+(including `placeholderStaysUntilTheImageArrives`),
+`arinn-media-catalog-test` reported 14 passed,
+`arinn-library-catalog-test` reported 14 passed (including
+`emptyPosterAndFanartStayGeneric`),
+`arinn-browser-catalog-test` reported 10 passed,
+`arinn-session-lifecycle-test` reported 9 passed, and
+`arinn-ui-test -input tests/ui` reported 187 passed.
+`python scripts/check-docs.py` and `python scripts/adr.py check` passed.
+`arinn-catalog-test` and `tests/integration/phase1.py` were not re-run. This
+is not the Arch CI Qt. Operator tests were not run. AC-09, AC-12 and G-5.1
+are not marked passed.

@@ -1,0 +1,1 @@
+- Route download snapshots and controls through the daemon, and checkpoint completed-output imports into the library across retries and restarts. Shell-facing download rows omit file URIs and distinguish download completion from library import.

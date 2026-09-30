@@ -77,13 +77,14 @@ impl Provider {
 }
 mod assets;
 mod browse_routing;
+mod download_routing;
 mod library_routing;
 mod media_routing;
 mod progress;
 mod settings_routing;
 
 /// Capability sets the daemon routes; anything else is incompatible.
-const ROUTED: &[&str] = &["application", "browser", "media", "library"];
+const ROUTED: &[&str] = &["application", "browser", "media", "library", "download"];
 struct State {
     providers: BTreeMap<String, Provider>,
     error: String,
@@ -103,6 +104,8 @@ pub struct Core {
     progress: Arc<Mutex<progress::Progress>>,
     /// Serializes settings writes to config.toml (ADR-0065).
     settings_lock: Arc<Mutex<()>>,
+    download_import_lock: Arc<Mutex<()>>,
+    downloads: Arc<Mutex<BTreeMap<String, download_routing::DownloadState>>>,
     /// Packaged search engines for `Browse1` (ADR-0066).
     search_engines: Arc<Vec<crate::browse::Engine>>,
     pub operations: Operations,
@@ -137,6 +140,8 @@ impl Core {
             browser_launch: Arc::new(Mutex::new(())),
             progress: Arc::default(),
             settings_lock: Arc::default(),
+            download_import_lock: Arc::default(),
+            downloads: Arc::default(),
             search_engines: Arc::default(),
             operations: Operations::default(),
             connection: connection.clone(),
@@ -153,6 +158,9 @@ impl Core {
         let server = self.connection.object_server();
         let _ = server.remove::<ApplicationEndpoint, _>(path.clone()).await;
         let _ = server.remove::<BrowserEndpoint, _>(path.clone()).await;
+        let _ = server
+            .remove::<download_routing::DownloadsEndpoint, _>(path.clone())
+            .await;
         let _ = server
             .remove::<media_routing::MediaEndpoint, _>(path.clone())
             .await;
@@ -370,7 +378,17 @@ impl Core {
                 self.unavailable(id, &owner).await;
             }
             let server = self.connection.object_server();
-            let exported = if new.capability() == "library" {
+            let exported = if new.capability() == "download" {
+                server
+                    .at(
+                        new.info.path.clone(),
+                        download_routing::DownloadsEndpoint {
+                            core: self.clone(),
+                            id: id.clone(),
+                        },
+                    )
+                    .await
+            } else if new.capability() == "library" {
                 server
                     .at(
                         new.info.path.clone(),
@@ -535,6 +553,7 @@ impl Core {
                 p.tabs.clear();
                 p.session_cache = None;
                 p.sessions.clear();
+                self.downloads.lock().await.remove(id);
                 p.features.clear();
                 p.library_cache = None;
                 p.collections.clear();
@@ -647,7 +666,9 @@ impl Core {
             .get(&id)
             .map(|p| p.capability().to_owned())
             .unwrap_or_default();
-        if capability == "library" {
+        if capability == "download" {
+            self.watch_downloads(id, owner, generation).await;
+        } else if capability == "library" {
             self.watch_library(id, owner, generation).await;
         } else if capability == "media" {
             self.watch_media(id, owner, generation).await;

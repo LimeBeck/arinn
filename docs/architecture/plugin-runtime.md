@@ -143,7 +143,7 @@ The desktop ApplicationProvider owns browser application launch. The Chrome prov
   - `Browse1` ([ADR-0066](../adr/0066-address-and-search-contract.md), [#177](https://github.com/LimeBeck/arinn/issues/177)):
     - resolves typed text with `browse::resolve_input` and the selected engine, then opens the URL through the same path as `WebShortcuts1.Open`;
     - engines come from the packaged `/usr/share/arinn/search-engines.toml`, read once at start. The daemon setting `search_engine` (provider `arinn`) is an enum over them, and an empty or unknown value uses the first engine. With no engines, the setting is not listed and every search is `invalid`;
-    - an accepted `Open` records the trimmed text in `browse_recent` in `state.sqlite3` (schema version 4), newest first, deduplicated, keeping five, and emits `RecentChanged`. Typed text and URLs are never logged.
+    - an accepted `Open` records the trimmed text in `browse_recent` in `state.sqlite3` (introduced in schema version 4), newest first, deduplicated, keeping five, and emits `RecentChanged`. Typed text and URLs are never logged.
 
 Verification:
 
@@ -168,3 +168,45 @@ qualification is outstanding. See the [implementation record](desktop-provider.m
 The desktop provider reports installed entries and running instances. Window identity comes from PlatformService. Closing an application first requests a graceful close of its windows; if that is impossible, `Unsupported` — never a kill by process name. Force kill is not a regular MVP terminate. Several windows are separate instances; activate picks the most recently used available window.
 
 Media session selection: a session explicitly chosen by the user; then a session explicitly linked to the foreground Activity; then the playing session with the most recent observed state change; then the most recent paused one. Never by product name. Position, duration and absolute seek are signed int64 microseconds; unknown duration is −1; position is non-negative. The provider publishes a position anchor (`CLOCK_MONOTONIC` microseconds) on state change or seek and at most once per second while playing; the shell interpolates locally on that clock only while the state is `playing`, and reconciles with anchors. Actions are filtered by the session's action tokens. The wire schema is [ADR-0054](../adr/0054-media-and-library-wire-contract.md).
+
+
+## Download routing and library import
+
+The daemon routes the single `download` capability through `DownloadProvider1`
+and exports `Downloads1` on that provider's daemon path (ADR-0067, AC-17).
+Complete provider snapshots are validated before publication, including generation,
+revision, duplicate identities, paging bounds and backend state. The shell receives
+`DownloadPage`, never provider `JobPage`: output file URIs stay inside the daemon.
+Its snapshot revision belongs to the daemon, so a later import result emits
+`Daemon1.StateChanged` even when the provider job revision has not changed.
+Cached rows remain readable when the backend is unavailable; commands are refused.
+Pause, Resume, StartNow and Retry require the current generation and advertised
+job action and return `Operation1`. Request identity prevents duplicate execution;
+a mutation timeout is reported without replaying the command.
+
+Completed jobs with mapped outputs are submitted to a ready library advertising
+`LibraryImport1`, preferring the configured library and otherwise the first eligible
+provider. Each candidate identifies the download provider, job and stable output;
+requests contain at most `MAX_IMPORTS` candidates and at most 256 KiB of encoded
+D-Bus body, including the repeated source identities. Before dispatch the daemon
+checkpoints the selected library and a digest of the output identities/mappings in
+`state.sqlite3` schema 5. Neither file URIs nor titles are checkpointed or logged.
+Retries remain pinned to that library, including after a default change or daemon
+restart, so replay uses the same library completion ledger. The library provides
+the exactly-once effect; transport delivery itself can repeat after a timeout or
+crash. A changed output set is re-evaluated with the same stable completion IDs.
+
+The shell distinguishes `none` (not completed), `pending` (waiting for import),
+`imported` with library entity references, `unsupported` (no media results or an
+Unsupported reply), and `unavailable` (no mapped outputs). Pending attempts are
+throttled to at most one pass per five seconds per download provider. Checkpoints
+are pruned only against a complete snapshot with backend `available`, never an
+unavailable or degraded snapshot. Import and snapshot work runs asynchronously;
+SQLite work runs on blocking workers. Provider generations are checked before and
+after import work, and imports are serialized across generation watchers.
+
+Verification is in `runtime/download_tests.rs` (private buses, synthetic providers)
+and the storage migration tests. It covers duplicates, restart after an ambiguous
+completion, delayed library availability, shell revision changes, bounded batches,
+URI exclusion, missing mappings, unsupported content, command guards and XML parity.
+This does not qualify AC-17 on a real Transmission/KDE desktop or bind Downloads UI.

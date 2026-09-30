@@ -98,9 +98,9 @@ These are screenshots of the **current Qt/QML interface**, rendered by the devel
 <details>
 <summary>Settings screenshot</summary>
 
-**Settings** — Media focused in the category list. The group shows a toggle, an option, a stepper, the path `/media/films` as text, and a path list with `/media/shows` and Add path.
+**Settings** — Media selected. The group shows a toggle, an option (Title), a stepper (10), and the path `/media/films` as text.
 
-![Current Arinn Qt Settings with Media focused and paths shown as text](docs/design/current-ui/settings.png)
+![Current Arinn Qt Settings with Media selected, a toggle, an option, a stepper and one path as text](docs/design/current-ui/settings.png)
 
 </details>
 

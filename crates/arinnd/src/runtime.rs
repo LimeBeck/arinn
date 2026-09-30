@@ -75,6 +75,7 @@ impl Provider {
 }
 mod library_routing;
 mod media_routing;
+mod progress;
 
 /// Capability sets the daemon routes; anything else is incompatible.
 const ROUTED: &[&str] = &["application", "browser", "media", "library"];
@@ -93,6 +94,8 @@ pub struct Core {
     rotation: Arc<Mutex<()>>,
     // One browser launch at a time: concurrent opens wait for it (ADR-0055).
     browser_launch: Arc<Mutex<()>>,
+    /// Last forwarded playback progress per media session (ADR-0061).
+    progress: Arc<Mutex<progress::Progress>>,
     pub operations: Operations,
     pub connection: Connection,
     pub epoch: String,
@@ -123,6 +126,7 @@ impl Core {
             maintenance: Arc::new(Mutex::new(())),
             rotation: Arc::new(Mutex::new(())),
             browser_launch: Arc::new(Mutex::new(())),
+            progress: Arc::default(),
             operations: Operations::default(),
             connection: connection.clone(),
             epoch: Uuid::new_v4().to_string(),

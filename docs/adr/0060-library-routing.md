@@ -4,7 +4,7 @@
 - **Date:** 2026-09-30
 - **Deciders:** delegated technical choice ([ADR-0037](0037-agent-autonomy-and-owner-gated-decisions.md)) within [ADR-0054](0054-media-and-library-wire-contract.md)
 - **Amends / Supersedes:** amends [ADR-0058](0058-media-routing.md) (step 2 of the media and library routing)
-- **Amended by / Superseded by:** —
+- **Amended by / Superseded by:** [ADR-0061](0061-playback-progress-forwarding.md) — playback progress forwarding (step 3)
 - **Specification:** [§5.3](../specifications/arinn-specification.md#53-library), [§7.4](../specifications/arinn-specification.md#74-local-library-and-mpv), [§9.5](../specifications/arinn-specification.md#95-operations), [§13](../specifications/arinn-specification.md#13-security)
 
 ## Context

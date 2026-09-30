@@ -66,17 +66,46 @@ pub fn provider_digest(provider_id: &str) -> Result<String, ErrorCode> {
     Ok(format!("{:x}", Sha256::digest(provider_id.as_bytes())))
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct InstanceConfig {
     pub plugin_id: String,
     #[serde(default = "yes")]
     pub enabled: bool,
+    /// Provider-defined settings, opaque to the daemon. They reach the
+    /// provider as `ARINN_PROVIDER_SETTINGS` (JSON) at its next start
+    /// (ADR-0064).
+    #[serde(default, skip_serializing_if = "toml::Table::is_empty")]
+    pub settings: toml::Table,
+}
+/// Largest `ARINN_PROVIDER_SETTINGS` value in bytes.
+pub const MAX_PROVIDER_SETTINGS_BYTES: usize = 64 * 1024;
+
+/// The settings of one provider as the compact JSON the provider receives.
+/// TOML datetimes have no JSON form and are rejected, as are settings over
+/// [`MAX_PROVIDER_SETTINGS_BYTES`].
+pub fn settings_json(settings: &toml::Table) -> Result<String, ErrorCode> {
+    fn plain(value: &toml::Value) -> bool {
+        match value {
+            toml::Value::Datetime(_) => false,
+            toml::Value::Array(items) => items.iter().all(plain),
+            toml::Value::Table(table) => table.values().all(plain),
+            _ => true,
+        }
+    }
+    if !settings.values().all(plain) {
+        return Err(ErrorCode::InvalidArgument);
+    }
+    let json = serde_json::to_string(settings).map_err(|_| ErrorCode::InvalidArgument)?;
+    if json.len() > MAX_PROVIDER_SETTINGS_BYTES || json.contains('\0') {
+        return Err(ErrorCode::InvalidArgument);
+    }
+    Ok(json)
 }
 fn yes() -> bool {
     true
 }
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
     pub schema_version: u32,
@@ -128,6 +157,7 @@ impl Config {
         for (id, instance) in &self.providers {
             validation::id(id)?;
             validation::id(&instance.plugin_id)?;
+            settings_json(&instance.settings)?;
         }
         for (capability, id) in &self.defaults {
             validation::capability(capability)?;

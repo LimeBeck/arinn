@@ -12,6 +12,7 @@ pub mod library;
 pub mod media;
 pub mod platform;
 pub mod production;
+pub mod settings;
 pub mod validation;
 pub mod web;
 

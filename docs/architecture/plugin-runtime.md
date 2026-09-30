@@ -59,6 +59,22 @@ Running external applications are not in the plugin service cgroup: a desktop ap
 
 systemd documents the transient service settings ([transient settings](https://systemd.io/TRANSIENT-SETTINGS/)); the defaults above are Arinn's choice. Restart semantics are checked against the installed `systemd.service(5)` and `systemd.unit(5)` during implementation.
 
+## Provider environment and settings
+
+A provider unit starts with these variables:
+- `ARINN_PROVIDER_ID`, `ARINN_PLUGIN_ID` and `ARINN_PLUGIN_VERSION`;
+- `ARINN_TOKEN_FILE` (the registration token);
+- `ARINN_PROVIDER_DATA_DIR` and `ARINN_PROVIDER_STATE_DIR` (ADR-0034);
+- `ARINN_PROVIDER_SETTINGS`: the provider's settings from
+  `[providers.<id>.settings]` in `config.toml`, as compact JSON, at most 64 KiB.
+  It is `{}` without settings.
+
+The settings table is opaque to the daemon. A value without a JSON form, such
+as a TOML datetime, makes the configuration invalid. Settings are read at each
+start, so a change reaches the provider at its next start or restart
+([ADR-0064](../adr/0064-provider-settings-in-config.md)). A typed schema and
+editing from the TV are [#145](https://github.com/LimeBeck/arinn/issues/145).
+
 ## Handshake and recovery
 
 1. The registry validates the manifest and creates a unit with the `provider_id` and a one-time registration token in runtime credentials or a file (mode 0600, never logged).

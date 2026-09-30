@@ -323,6 +323,41 @@ class SessionGuardStandIn : public QObject {
 public:
   bool m_blocked = false;
 };
+// Drives Main.qml the way the daemon's Home report does: the shell stays
+// hidden until Home is visible, then showHome focuses returnWindow.
+class ExternalHomeBackend : public QObject {
+  Q_OBJECT
+  Q_PROPERTY(bool homeVisible READ homeVisible NOTIFY changed)
+  Q_PROPERTY(QString returnWindow READ returnWindow NOTIFY changed)
+  Q_PROPERTY(QVariantList items MEMBER m_items CONSTANT)
+  Q_PROPERTY(QVariantList continueEntries MEMBER m_continue CONSTANT)
+  Q_PROPERTY(QVariantList applications MEMBER m_applications CONSTANT)
+  Q_PROPERTY(QVariantList favorites MEMBER m_favorites CONSTANT)
+  Q_PROPERTY(QString homeState MEMBER m_homeState CONSTANT)
+  Q_PROPERTY(QStringList busyEntryIds MEMBER m_busy CONSTANT)
+  Q_PROPERTY(QString message MEMBER m_message CONSTANT)
+public:
+  bool homeVisible() const { return m_home; }
+  QString returnWindow() const { return m_return; }
+  void openOverlay(const QString &activity) {
+    m_return = activity;
+    m_home = true;
+    emit changed();
+  }
+  Q_INVOKABLE void back() { ++backs; }
+  Q_INVOKABLE void launch(const QString &) {}
+  Q_INVOKABLE void activate(const QString &) {}
+  Q_INVOKABLE void refresh() {}
+  int backs = 0;
+  bool m_home = false;
+  QString m_return;
+  QString m_homeState = QStringLiteral("ready");
+  QString m_message;
+  QVariantList m_items, m_continue, m_applications, m_favorites;
+  QStringList m_busy;
+signals:
+  void changed();
+};
 class BrowserCatalogTest : public QObject {
   Q_OBJECT
 private slots:
@@ -693,6 +728,74 @@ private slots:
     QCOMPARE(catalog.operationState(), QString());
     QTRY_COMPARE_WITH_TIMEOUT(catalog.saveError(), QString(), 6000);
   }
+  void externalActivityOpensRememberedHome() {
+    auto bus = QDBusConnection::sessionBus();
+    BrowserDaemon daemon;
+    QVERIFY(bus.registerService("org.arinn.Daemon1"));
+    QVERIFY(bus.registerVirtualObject("/org/arinn", &daemon,
+                                      QDBusConnection::SubPath));
+    ExternalHomeBackend backend;
+    backend.m_continue = {
+        QVariantMap{{QStringLiteral("id"), QStringLiteral("a")},
+                    {QStringLiteral("title"), QStringLiteral("Earlier")}},
+        QVariantMap{{QStringLiteral("id"), QStringLiteral("b")},
+                    {QStringLiteral("title"), QStringLiteral("Activity")},
+                    {QStringLiteral("subtitle"), QStringLiteral("Return")},
+                    {QStringLiteral("running"), true}}};
+    SessionGuardStandIn guard;
+    QQmlApplicationEngine engine;
+    QStringList problems;
+    QObject::connect(
+        &engine, &QQmlEngine::warnings, &engine,
+        [&](const QList<QQmlError> &warnings) {
+          for (const auto &warning : warnings) {
+            const auto text = warning.toString();
+            if (text.contains(QStringLiteral("qrc:/brand/")))
+              continue;
+            problems.append(text);
+          }
+        });
+    engine.rootContext()->setContextProperty(QStringLiteral("backend"),
+                                             &backend);
+    engine.rootContext()->setContextProperty(QStringLiteral("sessionGuard"),
+                                             &guard);
+    engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
+    QVERIFY2(problems.isEmpty(), qPrintable(problems.join('\n')));
+    QVERIFY(!engine.rootObjects().isEmpty());
+    auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+    QVERIFY(window);
+    QVERIFY(!window->isVisible());
+    QCOMPARE(backend.backs, 0);
+    backend.openOverlay(QStringLiteral("b"));
+    QTRY_VERIFY(window->isVisible());
+    window->requestActivate();
+    auto home =
+        window->findChild<QQuickItem *>(QStringLiteral("productionHome"));
+    QVERIFY(home);
+    QTRY_COMPARE(home->property("returnActivityId").toString(),
+                 QStringLiteral("b"));
+    QCOMPARE(home->property("screen").toString(), QStringLiteral("home"));
+    QVERIFY(!home->property("navOpen").toBool());
+    // Loader delegates are visual children. QObject::findChild misses them.
+    const auto findVisual = [](QQuickItem *root, const QString &name,
+                               auto &&self) -> QQuickItem * {
+      if (!root)
+        return nullptr;
+      if (root->objectName() == name)
+        return root;
+      for (auto *child : root->childItems())
+        if (auto *found = self(child, name, self))
+          return found;
+      return nullptr;
+    };
+    QQuickItem *entry = nullptr;
+    QTRY_VERIFY(entry = findVisual(window->contentItem(),
+                                   QStringLiteral("entry-b"), findVisual));
+    QTRY_VERIFY(entry->hasActiveFocus());
+    QTest::keyClick(window, Qt::Key_Backspace);
+    QTRY_COMPARE(backend.backs, 1);
+    QVERIFY(!home->property("navOpen").toBool());
+  }
   void productionSaveWiring() {
     auto bus = QDBusConnection::sessionBus();
     BrowserDaemon daemon;
@@ -730,6 +833,13 @@ private slots:
     QVERIFY(window);
     window->show();
     window->requestActivate();
+    // A closed Media1 session stays in this window. Backspace still opens Home
+    // navigation; the hidden session must not take the key.
+    QTest::qWait(100);
+    QTest::keyClick(window, Qt::Key_Backspace);
+    QTRY_VERIFY(window->property("navOpen").toBool());
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_VERIFY(!window->property("navOpen").toBool());
     window->setProperty("browserOpen", true);
     auto browser =
         window->findChild<QQuickItem *>(QStringLiteral("productionBrowser"));
@@ -773,6 +883,67 @@ private slots:
         browser, "noteRowFocus", Q_ARG(QVariant, QVariant(0)),
         Q_ARG(QVariant, QVariant(QStringLiteral("bookmark")))));
     QTRY_COMPARE(error->property("text").toString(), QString());
+  }
+  void homeDuringSlowOpenDoesNotCancel() {
+    auto bus = QDBusConnection::sessionBus();
+    BrowserDaemon daemon;
+    daemon.holdOperation = true;
+    QVERIFY(bus.registerService("org.arinn.Daemon1"));
+    QVERIFY(bus.registerVirtualObject("/org/arinn", &daemon,
+                                      QDBusConnection::SubPath));
+    ShellStandIn backend;
+    SessionGuardStandIn guard;
+    QQmlApplicationEngine engine;
+    QStringList problems;
+    QObject::connect(
+        &engine, &QQmlEngine::warnings, &engine,
+        [&](const QList<QQmlError> &warnings) {
+          for (const auto &warning : warnings) {
+            const auto text = warning.toString();
+            if (text.contains(QStringLiteral("qrc:/brand/")))
+              continue;
+            problems.append(text);
+          }
+        });
+    engine.rootContext()->setContextProperty(QStringLiteral("backend"),
+                                             &backend);
+    engine.rootContext()->setContextProperty(QStringLiteral("sessionGuard"),
+                                             &guard);
+    engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
+    QVERIFY2(problems.isEmpty(), qPrintable(problems.join('\n')));
+    QVERIFY(!engine.rootObjects().isEmpty());
+    auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+    QVERIFY(window);
+    window->show();
+    window->requestActivate();
+    auto catalog = window->findChild<BrowserCatalog *>();
+    QVERIFY(catalog);
+    QTRY_VERIFY(!catalog->shortcuts().isEmpty());
+    auto cancelButton =
+        window->findChild<QQuickItem *>(QStringLiteral("launchCancel"));
+    QVERIFY(cancelButton);
+    QQuickItem *overlay = cancelButton;
+    while (overlay && overlay->metaObject()->indexOfProperty("revealDelay") < 0)
+      overlay = overlay->parentItem();
+    QVERIFY(overlay);
+    overlay->setProperty("revealDelay", 20);
+    overlay->setProperty("slowDelay", 40);
+    overlay->setProperty("timeoutDelay", 5000);
+    catalog->openShortcut(QStringLiteral("known"));
+    QTRY_VERIFY(catalog->opening());
+    QTRY_VERIFY(overlay->property("slow").toBool());
+    QVERIFY(overlay->isVisible());
+    cancelButton->forceActiveFocus();
+    QTRY_VERIFY(cancelButton->hasActiveFocus());
+    QCOMPARE(daemon.cancels, 0);
+    QTest::keyClick(window, Qt::Key_Home);
+    QTRY_VERIFY(!overlay->isVisible());
+    QCOMPARE(daemon.cancels, 0);
+    QVERIFY(catalog->opening());
+    QCOMPARE(catalog->openingError(), QString());
+    QTest::qWait(200);
+    QCOMPARE(daemon.cancels, 0);
+    QVERIFY(catalog->opening());
   }
 };
 

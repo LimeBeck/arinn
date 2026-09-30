@@ -1,0 +1,1 @@
+- A Home operation result such as `Timeout` stays on screen when status is refreshed. A connection banner no longer replaces it.

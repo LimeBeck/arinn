@@ -100,6 +100,8 @@ public:
   bool listError = false;
   bool operationDone = true;
   bool operationSuccess = false;
+  bool platform = true;
+  QString operationError = QStringLiteral("Unavailable");
   int pages = 0;
   int launches = 0;
   int opens = 0;
@@ -112,7 +114,7 @@ public:
     if (m.member() == "Status") {
       a.beginStructure();
       a << QString("epoch") << true << QString("generation") << qulonglong(1)
-        << true << returnedWindow << QString() << QString() << false << true
+        << true << returnedWindow << QString() << QString() << false << platform
         << QString() << QString();
       a.endStructure();
     } else if (m.member() == "HomeItems") {
@@ -150,6 +152,12 @@ public:
         << QList<RunningWire>{{first ? "window-first" : "window-second"}}
         << (first || mode == "cycle" ? QString("next") : QString());
       a.endStructure();
+    } else if (m.member() == "Activate") {
+      invokedMethod = m.member();
+      invokedId = m.arguments().at(1).toString();
+      bus.send(m.createReply(QVariant::fromValue(
+          QDBusObjectPath("/org/arinn/Daemon1/operations/1"))));
+      return true;
     } else if (m.member() == "Launch") {
       ++launches;
       invokedMethod = m.member();
@@ -180,7 +188,7 @@ public:
       a.beginStructure();
       a << (done ? (operationSuccess ? QString("succeeded") : QString("failed"))
                  : QString("running"))
-        << (done && !operationSuccess ? QString("Unavailable") : QString())
+        << (done && !operationSuccess ? operationError : QString())
         << (done && !operationSuccess) << qulonglong(1)
         << qulonglong(done ? 2 : 0) << QList<TargetWire>{} << false;
       a.endStructure();
@@ -457,6 +465,27 @@ private slots:
       QTRY_COMPARE(backend.homeState(), QString("unavailable"));
       QVERIFY(backend.webShortcuts().isEmpty());
     }
+    bus.unregisterObject("/org/arinn", QDBusConnection::UnregisterTree);
+    bus.unregisterService("org.arinn.Daemon1");
+  }
+  void operationResultSurvivesStatusRefresh() {
+    auto bus = QDBusConnection::sessionBus();
+    CatalogDaemon daemon;
+    daemon.platform = false;
+    daemon.operationError = QStringLiteral("Timeout");
+    QVERIFY(bus.registerService("org.arinn.Daemon1"));
+    QVERIFY(bus.registerVirtualObject("/org/arinn", &daemon,
+                                      QDBusConnection::SubPath));
+    Backend backend;
+    QTRY_COMPARE(backend.message(), QString("KWin adapter is not connected"));
+    QTRY_VERIFY(!backend.items().isEmpty());
+    backend.activate(backend.items().at(0).toMap().value("id").toString());
+    QTRY_COMPARE(backend.message(), QString("Timeout"));
+    const auto polls = daemon.providerCalls;
+    backend.refresh();
+    QTRY_VERIFY(daemon.providerCalls > polls);
+    QTest::qWait(200);
+    QCOMPARE(backend.message(), QString("Timeout"));
     bus.unregisterObject("/org/arinn", QDBusConnection::UnregisterTree);
     bus.unregisterService("org.arinn.Daemon1");
   }

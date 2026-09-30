@@ -176,7 +176,7 @@ An application record may include an icon reference ([ADR-0059](../adr/0059-appl
 
 ### 5.6. Settings
 
-Categories as in the design: Media, Playback, Sound, Network, Applications, Appearance, System. UI preferences belong to the daemon configuration. Provider settings use a typed schema (id, title, description, type, current value, constraints, enabled; types boolean, enum, string, integer, path reference); plugins MUST NOT supply QML widgets or raw RPC. The core settings UI shows only registered capabilities; a missing playback, download or network function never pretends to succeed. Details: [Activity and interaction](../architecture/activity-and-interaction.md).
+Categories as in the design: Media, Playback, Sound, Network, Applications, Appearance, System. UI preferences belong to the daemon configuration. Provider settings use a typed schema (id, title, description, type, current value, constraints, enabled; types boolean, enum, string, integer, path reference); plugins MUST NOT supply QML widgets or raw RPC. The wire contract is [ADR-0065](../adr/0065-provider-settings-contract.md); values are stored in `config.toml` ([ADR-0064](../adr/0064-provider-settings-in-config.md)). The core settings UI shows only registered capabilities; a missing playback, download or network function never pretends to succeed. Details: [Activity and interaction](../architecture/activity-and-interaction.md).
 
 ### 5.7. System UI, power and ambient
 
@@ -292,7 +292,7 @@ Steam and EmulationStation MUST be available in the MVP as dedicated Home tiles,
 
 ([ADR-0024](../adr/0024-local-library-mpv.md), [media MVP](../architecture/media-mvp.md))
 
-- `arinn-plugin-library` (LibraryProvider) scans configured local folders and already-mounted network folders. No SMB/NFS client, mount management or Jellyfin server. Scanning is asynchronous: initial, explicit rescan, filesystem hints and a periodic check every 10 minutes with autoscan.
+- `arinn-plugin-library` (LibraryProvider) scans configured local folders and already-mounted network folders. No SMB/NFS client, mount management or Jellyfin server. Scanning is asynchronous: initial, explicit rescan, filesystem hints and a periodic check every 10 minutes with autoscan. File-name parsing, the scan schedule, artwork ids and the provider's own configuration file are [ADR-0056](../adr/0056-local-library-scan-metadata-and-resume.md).
 - Metadata comes from file names, NFO sidecars, ffprobe and local artwork, with an honest fallback (file name, generic artwork, unknown fields). Online enrichment is optional.
 - An unavailable mount marks the root unavailable and never deletes entries or resume. "Remove from library" hides the entry and never deletes the file.
 - `arinn-plugin-mpv` (MediaProvider plus `MediaOpen1`, `MediaTracks1`, `MediaTimeline1`) controls an external mpv process over a private JSON IPC socket. The shell draws the OSD and track sheets; mpv draws video.

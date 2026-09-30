@@ -1,0 +1,1 @@
+- Home during a slow open hides the opening overlay and leaves the operation running. Cancel and Back still cancel it.

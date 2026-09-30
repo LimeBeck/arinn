@@ -6,6 +6,7 @@ import QtQuick.Window
 import Arinn.Shell 1.0
 import "ui" as Ui
 import "ui/screens/browser" as Browser
+import "ui/screens/session" as Session
 
 Window {
     id: root
@@ -16,15 +17,17 @@ Window {
     flags: Qt.Window | Qt.FramelessWindowHint
     readonly property bool navOpen: home.navOpen
     property bool browserOpen: false
+    property bool sessionOpen: false
     onVisibleChanged: if (visible) Qt.callLater(home.showHome)
     BrowserCatalog { id: browserCatalog }
+    MediaCatalog { id: mediaCatalog; objectName: "mediaCatalog" }
     Ui.LogicalCanvas {
         anchors.fill: parent
         Ui.HomeView {
             id: home
             objectName: "productionHome"
             busyEntryIds: backend.busyEntryIds
-            continueEntries: backend.continueEntries
+            continueEntries: backend.continueEntries.concat(mediaCatalog.continueEntries)
             favoriteEntries: backend.favorites
             applicationEntries: backend.applications
             runningEntries: backend.items
@@ -55,6 +58,11 @@ Window {
                     browserCatalog.activateTab(serviceId);
                 backend.back();
             }
+            onSessionRequested: entryId => {
+                mediaCatalog.select(entryId);
+                root.sessionOpen = true;
+                Qt.callLater(() => sessionView.forceActiveFocus());
+            }
             onPowerRequested: { feedback.text = qsTr("Power controls are not available yet."); feedbackTimer.restart(); }
         }
         Browser.BrowserView {
@@ -77,6 +85,32 @@ Window {
             onRetryRequested: browserCatalog.retry()
             onBackRequested: { root.browserOpen = false; Qt.callLater(home.showHome); }
         }
+        Session.SessionView {
+            id: sessionView
+            objectName: "productionSession"
+            visible: root.sessionOpen
+            enabled: root.sessionOpen
+            z: 5
+            sessionState: mediaCatalog.sessionState
+            title: mediaCatalog.sessionTitle
+            subtitle: mediaCatalog.sessionSubtitle
+            playbackState: mediaCatalog.playbackState
+            durationUs: mediaCatalog.durationUs
+            positionUs: mediaCatalog.positionUs
+            availableActions: mediaCatalog.sessionActions
+            operationState: mediaCatalog.operationState
+            onPlayRequested: mediaCatalog.play()
+            onPauseRequested: mediaCatalog.pause()
+            onPlayPauseRequested: mediaCatalog.playPause()
+            onSeekRequested: targetUs => mediaCatalog.seek(targetUs)
+            onNextRequested: mediaCatalog.next()
+            onPreviousRequested: mediaCatalog.previous()
+            onStopRequested: mediaCatalog.stop()
+            onBackRequested: {
+                root.sessionOpen = false;
+                Qt.callLater(home.showHome);
+            }
+        }
         Ui.LaunchOverlay {
             anchors.fill: parent
             z: 20
@@ -86,6 +120,7 @@ Window {
             onCancelRequested: browserCatalog.cancelOpen()
             onRetryRequested: browserCatalog.retryOpen()
             onDismissRequested: browserCatalog.dismissOpenFailure()
+            onHomeRequested: Qt.callLater(home.showHome)
         }
         Rectangle {
             x: 420; y: 970; width: 1080; height: 72; radius: 36

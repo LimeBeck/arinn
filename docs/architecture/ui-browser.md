@@ -160,7 +160,10 @@ infer it from a window class (R-01); the compositor link is still open
 After 8 s it adds "The browser is taking longer than usual" and Cancel. Cancel
 calls `Operation1.Cancel` when the operation path is known (best effort) and
 hides the overlay. After 30 s, or when `openingError` is set, a dialog offers
-Retry and Close. Retry calls `Open` again for the same shortcut id. The scrim
+Retry and Close. Retry calls `Open` again for the same shortcut id. Home
+closes that dialog without Retry. During a slow open, Home hides the overlay
+without calling `cancelOpen` (`Operation1.Cancel`); Cancel and Back still
+cancel. Either way Home emits `homeRequested` and the shell shows Home. The scrim
 is a fixed neutral tint; icon hues are not read. The overlay is skipped for tab
 activate and close, which share `operationState` but not `opening`.
 
@@ -183,11 +186,13 @@ clear. The browser-catalog test loads the shell window, so it runs with
 `QT_QPA_PLATFORM=offscreen`.
 `tests/ui/tst_home.qml` covers the Continue card rules, the navigation item and
 the unavailable shortcut tile. `tests/ui/tst_launch.qml` covers the overlay
-delays with shortened timers. `browser_catalog_test.cpp` is the private-bus
+delays with shortened timers, including that Home during a slow open hides the
+overlay without `cancelRequested`. `browser_catalog_test.cpp` is the private-bus
 test `browser-catalog`: a tab snapshot reaches the model, one window is
 focused, activate, close and a known-shortcut open are observed, and a second
 case checks last-use order, origin matching (scheme, port, `www.`), cancel and
-the two retry paths.
+the two retry paths. `homeDuringSlowOpenDoesNotCancel` loads `Main.qml` and
+checks that Home in the slow-open state does not call `cancelOpen`.
 
 ```sh
 cmake -S . -B build -G Ninja && cmake --build build --target arinn-ui-test arinn-browser-catalog-test

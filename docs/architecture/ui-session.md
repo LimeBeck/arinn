@@ -1,95 +1,126 @@
 <!-- SPDX-FileCopyrightText: 2026 Arinn contributors -->
 <!-- SPDX-License-Identifier: CC-BY-SA-4.0 -->
 
-# Now-playing session fixture
+# Now-playing session
 
-Fixture presentation for [specification §7.3](../specifications/arinn-specification.md#73-media-sessions-mpris).
-The screen draws one media session supplied by the caller. It does not talk to
-MPRIS, D-Bus or `arinnd`, and it is not mounted from Home. Wiring a provider
-snapshot into these properties is a separate change.
+Presentation for [specification §7.3](../specifications/arinn-specification.md#73-media-sessions-mpris)
+and [§5.1](../specifications/arinn-specification.md#51-home) Continue.
+`MediaCatalog` in `apps/arinn-shell/media_catalog.cpp` reads
+`org.arinn.Media1` on each ready `media` provider path ([ADR-0058](../adr/0058-media-routing.md)).
+The screen and Home do not talk to MPRIS, and they do not send a file URI.
 
-This is not AC-09. That criterion needs a discovered session and control through
-the daemon. Here the caller supplies the snapshot and receives intents.
-Session selection, microsecond units and position anchors stay with the
-provider ([plugin runtime](plugin-runtime.md#desktop-and-media-edge-cases)).
-The player OSD for a managed mpv session is a different screen
-([specification §6.4](../specifications/arinn-specification.md#64-player)).
+This is the shell half of AC-09. Operator playback on a real session is not
+part of this change. Artwork stays the generic plate. Fetching those bytes
+through Assets1 is
+[#162](https://github.com/LimeBeck/arinn/issues/162).
 
-## Boundary
+## Model
 
-`SessionView` lives in `apps/arinn-shell/ui/screens/session/` and is loaded by a
-filesystem import (`tests/ui/tst_session.qml`). It reuses `Theme`, `UiText`,
-`LogicalCanvas`, `ProgressTrack`, `ActionButton` and `StatusPane` from
-`apps/arinn-shell/ui`. Those types are not modified.
+Reads are asynchronous. `GetSessions` is paged. A repeated page token, a
+page generation other than the provider's, a revision that is not the first
+page's, or an invalid session drops that provider. A revision starts at 1. If every media provider fails, the session state is `unavailable`.
+No media provider is `empty`. The daemon disappearing is `unavailable`.
 
-QML knows the action names `play`, `pause`, `playPause`, `seek`, `next`,
-`previous` and `stop`, and the playback words `playing`, `paused` and `stopped`.
-Anything else is shown as unsupported. It does not know product names. Title and
-subtitle are opaque strings. The screen never writes them to a log. Artwork is a
-flat fixture hue (`artworkHue`) or the shared `Theme.plate` colour. There is no image
-element and no download.
+Sessions are ordered for Continue: `playing`, then `paused`, then any other
+state. Within a state, the newer `anchor_us` comes first. The first session is
+selected until the user picks a Continue card. A picked session that leaves
+the snapshot is `unavailable`; the model does not switch to another one.
 
-## Properties
+The catalog subscribes to `Changed`, `ProvidersChanged` and `StateChanged`
+before the first read, and those signals reload the snapshot. A 30 s timer
+is only the fallback for a missed signal. One pass reads `Status`, `Providers`
+and every `GetSessions` page, so it is not repeated every second. Position
+between snapshots is the local clock.
 
-| Property | Role |
-| --- | --- |
-| `sessionState` | `ready` shows the session. `empty` and `unavailable`, and any other value, show no session |
-| `title`, `subtitle` | Session title and artist line. Shown only while `ready` |
-| `playbackState` | `playing`, `paused`, `stopped`, or unsupported |
-| `durationUs`, `positionUs` | Signed microseconds. Unknown duration is −1. A negative or non-finite position displays as `0:00` |
-| `artworkHue` | Plate colour. Defaults to `Theme.plate`; a caller may set a fixture hue |
-| `availableActions` | Names of actions that may emit. Missing names stay visible and disabled |
-| `pointerMode` | Set when the pointer moves; cleared on an arrow key |
+`position_us` is shown as published for every state except `playing`. While
+`playing`, the model adds the elapsed `CLOCK_MONOTONIC` time since `anchor_us`
+and clamps to a known duration. An anchor of 0 is not a sample: using it would
+add the whole uptime and jump the position to the duration or to the int64
+limit. An anchor ahead of the clock is not a sample either, so the published
+position stays. `paused`, `stopped` and any other token do not advance.
+Unknown actions are ignored. `play-pause` is presented as `playPause`.
+An action is listed only when the session carries that token.
 
-The progress fraction is `position / duration` when duration is greater than
-zero, clamped to 0..1. Otherwise the track is empty. The view never writes
-`positionUs` or `durationUs`.
+Commands (`Play`, `Pause`, `PlayPause`, `Seek`, `Next`, `Previous`, `Stop`)
+are sent only when the selected session lists them. Otherwise the operation
+state is `Unsupported` and nothing is called. A negative seek is
+`InvalidArgument`. A method error, including `Unsupported`, is not success.
+A returned object path stays `pending` until `Operation1.Get` reports
+`succeeded`. The shell stops polling that object after 6 s, one second past
+the 5 s control timeout, and the operation state is then `Timeout`. Playback
+on screen changes only when a later snapshot says so.
 
-## Signals
+Artwork ids are discarded. The plate stays the generic theme colour.
 
-`playRequested()`, `pauseRequested()`, `playPauseRequested()`,
-`seekRequested(targetUs)`, `nextRequested()`, `previousRequested()`,
-`stopRequested()` and `backRequested()`. Nothing in the view applies those
-intents to its properties.
+## Screen
+
+`SessionView` lives in `apps/arinn-shell/ui/screens/session/`. Production
+`Main.qml` binds it to `MediaCatalog` and opens it from a Continue card whose
+`kind` is `media`. The view still does not call D-Bus. It reuses `Theme`,
+`UiText`, `LogicalCanvas`, `ProgressTrack`, `ActionButton` and `StatusPane`.
+
+`sessionState` `ready` shows the session. `empty` and `loading` show
+`StatusPane` with those kinds. Any other value, including `unavailable`, shows
+the unavailable pane. Buttons are visible only when `availableActions` lists
+them. The progress track stays visible while a session is ready so the
+position can be read; without `seek` it is dimmed and does not emit.
+
+`Main.qml` binds `operationState`. While it is `pending`, `queued` or
+`running`, the transport is busy and a "Waiting…" line is shown. `succeeded`
+and an empty state are quiet. Any other value shows an error banner:
+`Unsupported`, `Timeout`, `InvalidArgument` and `Unavailable` use a short
+sentence, and any other code is shown as itself.
 
 `seekRequested` carries an absolute microsecond target. Left or Right on the
 focused seek track steps 10 seconds, clamped to `0..duration` when duration is
-known, and only when `seek` is listed. At the ends the step is not emitted.
-Activating the Seek button moves focus to that track; it does not emit.
-Disabled actions use the shared unavailable opacity and do not emit, including
-after a click or Return.
+known, and only when `seek` is listed. Activating the Seek button moves focus
+to that track. The view never writes `positionUs` or `playbackState`.
 
 ## Focus
 
-The view is its own focus scope. While a session is ready, Left and Right move
-among enabled actions and stop at the ends. Up opens the seek track and Down
-returns to the action that opened it. On the seek track, Left and Right are the
-seek step and do not leave the track. Empty and unavailable focus the screen
-itself and show `StatusPane` with no action. Arrow keys, Tab and Return stay
-inside the view and do not emit a transport intent. Escape, Backspace and the
-remote Back key each emit `backRequested()` once and do not change playback.
-The check lives in this screen; it does not add a shared key helper.
-
-## Known presentation gaps
-
-There is no light field, no scrub thumbnail and no material icon. The seven
-actions share `ActionButton`. Full handoff fidelity, 3-metre TV review and
-AC-09 are not claimed.
+The view is its own focus scope. It takes focus only while it is visible and
+enabled, so a closed session in `Main.qml` does not consume Home keys.
+While a session is ready, Left and Right move among the listed actions and
+stop at the ends. Up opens the seek track and Down returns to the action that
+opened it. On the seek track, Left and Right are the seek step. Empty, loading
+and unavailable focus the screen itself. Escape, Backspace and the remote Back
+key each emit `backRequested()` once and do not change playback.
 
 ## Verification
 
-The Qt Quick case is `tests/ui/tst_session.qml` (`Session`). The existing
-`ui-components` CTest loads every `tests/ui/tst_*.qml`; this screen does not add
-a CMake target. Run offscreen:
+C++ model tests are `apps/arinn-shell/media_catalog_test.cpp` (`media-catalog`,
+private bus): paging, anchor interpolation, a paused clock, duration clamp,
+an anchor of 0 and an anchor in the future (the position stays), `Unsupported`
+without a call, success only after `Operation1.Get`, a poll that becomes
+`Timeout` and then stops, a repeated page token, a revision or generation
+that breaks the snapshot, a `StateChanged` refresh with no one-second re-read,
+and the production Continue and session binding, including the pending line
+and the error banner.
+
+Qt Quick tests are `tests/ui/tst_session.qml` (`Session`) and
+`tests/ui/tst_media_continue.qml` (`MediaContinue`). Run offscreen:
 
 ```sh
 QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
-  build/apps/arinn-shell/arinn-ui-test -input tests/ui
+  dbus-run-session -- build/apps/arinn-shell/arinn-media-catalog-test
+QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
+  build/apps/arinn-shell/arinn-ui-test -input tests/ui/tst_session.qml
+QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
+  build/apps/arinn-shell/arinn-ui-test -input tests/ui/tst_media_continue.qml
 ```
 
-Local verification on 2026-09-29 (Qt 6.8.3, offscreen platform, software
-renderer): `arinn-ui-test -input tests/ui/tst_session.qml` reported 10 passed
-and 0 failed. That includes play/pause, disabled next, seek, D-pad focus, empty,
-unavailable, the `Theme.plate` artwork default, and Back matching Escape.
-This is not the Arch CI Qt. Operator tests were not run. CI has not run for
-this change.
+`arinn-browser-catalog-test` also loads `Main.qml`, so that executable links
+`media_catalog.cpp` and registers `MediaCatalog` the same way the shell does.
+`productionSaveWiring` presses Backspace while the session screen is closed
+and expects Home navigation to open.
+
+Local verification on 2026-09-30, Qt 6.11.2, offscreen platform, software
+renderer: `arinn-media-catalog-test` reported 14 passed,
+`arinn-browser-catalog-test` reported 8 passed,
+`arinn-catalog-test` reported 11 passed (including
+`operationResultSurvivesStatusRefresh`),
+`arinn-ui-test -input tests/ui/tst_session.qml` reported 14 passed (including
+`test_operation_pending_and_error_banner`), and
+`arinn-ui-test -input tests/ui/tst_media_continue.qml` passed. The full
+`tests/ui` suite and `tests/integration/phase1.py` were not re-run. This is
+not the Arch CI Qt. Operator tests were not run. AC-09 is not marked passed.

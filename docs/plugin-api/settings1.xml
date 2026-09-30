@@ -1,0 +1,25 @@
+<!-- SPDX-FileCopyrightText: 2026 Arinn contributors
+SPDX-License-Identifier: MIT OR Apache-2.0 -->
+<node>
+  <interface name="org.arinn.Settings1">
+    <method name="ListProviders">
+      <arg type="a(ss)" direction="out" />
+    </method>
+    <method name="GetSettings">
+      <arg name="provider_id" type="s" direction="in" />
+      <arg type="s" direction="out" />
+      <arg type="a(sssssssb)" direction="out" />
+    </method>
+    <method name="SetValue">
+      <arg name="provider_id" type="s" direction="in" />
+      <arg name="generation" type="s" direction="in" />
+      <arg name="setting_id" type="s" direction="in" />
+      <arg name="value" type="s" direction="in" />
+      <arg name="request_id" type="s" direction="in" />
+      <arg type="o" direction="out" />
+    </method>
+    <signal name="SettingsChanged">
+      <arg name="provider_id" type="s" />
+    </signal>
+  </interface>
+</node>

@@ -226,13 +226,22 @@ void Backend::reloadCatalog() {
                   readShortcuts(epoch);
               });
             }
-            if (!platform)
-              m_message = tr("KWin adapter is not connected");
-            else if (!m_available)
-              m_message = tr("Provider is unavailable");
-            else if (m_message.startsWith("Daemon") ||
-                     m_message.startsWith("Provider") ||
-                     m_message.startsWith("KWin"))
+            // Status is polled every second. It may replace a connection
+            // banner, and only a connection banner: an operation result has to
+            // stay visible when that poll's reply arrives in the same turn.
+            const auto connectionBanner =
+                m_message.isEmpty() || m_message.startsWith(QLatin1String("Daemon")) ||
+                m_message.startsWith(QLatin1String("Provider")) ||
+                m_message.startsWith(QLatin1String("KWin"));
+            if (!platform) {
+              if (connectionBanner)
+                m_message = tr("KWin adapter is not connected");
+            } else if (!m_available) {
+              if (connectionBanner)
+                m_message = tr("Provider is unavailable");
+            } else if (m_message.startsWith(QLatin1String("Daemon")) ||
+                       m_message.startsWith(QLatin1String("Provider")) ||
+                       m_message.startsWith(QLatin1String("KWin")))
               m_message.clear();
             publishState();
             auto catalog = std::make_shared<Catalog>();

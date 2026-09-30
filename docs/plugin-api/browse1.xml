@@ -1,0 +1,20 @@
+<!-- SPDX-FileCopyrightText: 2026 Arinn contributors
+SPDX-License-Identifier: MIT OR Apache-2.0 -->
+<node>
+  <interface name="org.arinn.Browse1">
+    <method name="Resolve">
+      <arg name="text" type="s" direction="in" />
+      <arg type="(sss)" direction="out" />
+    </method>
+    <method name="Open">
+      <arg name="text" type="s" direction="in" />
+      <arg name="request_id" type="s" direction="in" />
+      <arg type="o" direction="out" />
+    </method>
+    <method name="GetRecent">
+      <arg type="as" direction="out" />
+    </method>
+    <method name="ClearRecent" />
+    <signal name="RecentChanged" />
+  </interface>
+</node>

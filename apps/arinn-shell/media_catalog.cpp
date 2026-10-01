@@ -1448,7 +1448,7 @@ void MediaCatalog::failRelease() {
     setPresentation(QStringLiteral("ReleaseFailed"));
 }
 void MediaCatalog::windowCommand(const SessionRow &row, bool presenting,
-                                 quint64 ticket, quint64 epoch) {
+                                 quint64 ticket, quint64 epoch, bool detachedRelease) {
   auto msg = QDBusMessage::createMethodCall(m_daemonOwner, row.path,
                                             "org.arinn.MediaWindow1",
                                             presenting ? "Present" : "Release");
@@ -1458,7 +1458,7 @@ void MediaCatalog::windowCommand(const SessionRow &row, bool presenting,
       QDBusConnection::sessionBus().asyncCall(msg, 3000), this);
   connect(
       pending, &QDBusPendingCallWatcher::finished, this,
-      [this, row, presenting, ticket, epoch](auto *call) {
+      [this, row, presenting, ticket, epoch, detachedRelease](auto *call) {
         const auto reply = call->reply();
         call->deleteLater();
         if (epoch != m_epoch)
@@ -1467,7 +1467,7 @@ void MediaCatalog::windowCommand(const SessionRow &row, bool presenting,
           // Admission may have completed after Back. Fence that exact session;
           // never release a newer presentation of the same session.
           if (presenting && m_presentRow.id != row.id)
-            windowCommand(row, false, m_presentationTicket, epoch);
+            windowCommand(row, false, m_presentationTicket, epoch, true);
           return;
         }
         if (reply.type() == QDBusMessage::ErrorMessage ||
@@ -1476,9 +1476,13 @@ void MediaCatalog::windowCommand(const SessionRow &row, bool presenting,
             failPresentation(reply.type() == QDBusMessage::ErrorMessage
                                 ? errorCode(reply)
                                 : QStringLiteral("Unavailable"));
-          else failRelease();
+          else if (!detachedRelease) failRelease();
           return;
         }
+        // Cleanup for an obsolete admission is independent of the current
+        // session's acknowledged Release and retry bookkeeping.
+        if (detachedRelease)
+          return;
         watchWindowOperation(
             qvariant_cast<QDBusObjectPath>(reply.arguments().first()).path(),
             presenting, ticket, epoch, monotonicUs() + 6000000);

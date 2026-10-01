@@ -14,6 +14,7 @@
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QSignalSpy>
+#include <QScopeGuard>
 #include <QTest>
 #include <QtDBus>
 #include <time.h>
@@ -210,6 +211,8 @@ public:
   QStringList features;
   bool windowReady = true;
   bool rejectRelease = false;
+  bool delayPresentAdmission = false;
+  QDBusMessage delayedPresent;
   int windowReads = 0;
   QStringList windowCommands;
   int homeCommands = 0;
@@ -310,6 +313,11 @@ public:
     } else if (message.member() == QLatin1String("Present") ||
                message.member() == QLatin1String("Release")) {
       windowCommands.append(message.member());
+      if (message.member() == QLatin1String("Present") && delayPresentAdmission) {
+        message.setDelayedReply(true);
+        delayedPresent = message;
+        return true;
+      }
       if (message.member() == QLatin1String("Release") && rejectRelease) {
         bus.send(message.createErrorReply(QStringLiteral("org.arinn.Error1.Unavailable"), QStringLiteral("Unavailable")));
         return true;
@@ -1347,6 +1355,43 @@ private slots:
     QCOMPARE(daemon.lastLocal, QStringLiteral("new"));
     QTest::qWait(300); catalog.release(); QTest::qWait(150);
     QCOMPARE(daemon.windowCommands.count(QStringLiteral("Release")), 2);
+    QVERIFY(daemon.commands.isEmpty());
+  }
+  void oldPresentationCleanupDoesNotEraseAnotherReleaseRetry() {
+    MediaDaemon daemon;
+    daemon.features = {QStringLiteral("MediaWindow1")};
+    daemon.page1 = {session(QStringLiteral("old"), QStringLiteral("Old"), QStringLiteral("paused"), 0, monotonicUs(), 9000000, {QStringLiteral("stop")}), session(QStringLiteral("new"), QStringLiteral("New"), QStringLiteral("paused"), 0, monotonicUs(), 9000000, {QStringLiteral("stop")})};
+    auto bus = QDBusConnection::connectToBus(QDBusConnection::SessionBus, QStringLiteral("delayed-media-provider"));
+    const auto disconnect = qScopeGuard([] { QDBusConnection::disconnectFromBus(QStringLiteral("delayed-media-provider")); });
+    QVERIFY(bus.registerService(QStringLiteral("org.arinn.Daemon1")));
+    QVERIFY(bus.registerVirtualObject(QStringLiteral("/org/arinn"), &daemon, QDBusConnection::SubPath));
+    MediaCatalog catalog; QTRY_VERIFY(catalog.windowAvailable());
+    for (const auto &entry : catalog.continueEntries()) {
+      const auto row = entry.toMap();
+      if (row.value(QStringLiteral("title")).toString() == QLatin1String("Old"))
+        catalog.select(row.value(QStringLiteral("id")).toString());
+    }
+    QTRY_VERIFY(catalog.windowAvailable());
+    daemon.delayPresentAdmission = true;
+    catalog.present(); QTRY_COMPARE(daemon.windowCommands.count(QStringLiteral("Present")), 1);
+    daemon.delayPresentAdmission = false;
+    for (const auto &entry : catalog.continueEntries()) {
+      const auto row = entry.toMap();
+      if (row.value(QStringLiteral("title")).toString() == QLatin1String("New"))
+        catalog.select(row.value(QStringLiteral("id")).toString());
+    }
+    QTRY_VERIFY(catalog.windowAvailable());
+    catalog.present(); QTRY_COMPARE(daemon.windowCommands.count(QStringLiteral("Present")), 2);
+    QTRY_COMPARE(catalog.presentationState(), QStringLiteral("active"));
+    daemon.rejectOperationRead = true;
+    catalog.release(); QTRY_COMPARE(catalog.presentationState(), QStringLiteral("ReleaseFailed"));
+    daemon.rejectOperationRead = false;
+    bus.send(daemon.delayedPresent.createReply(QVariant::fromValue(QDBusObjectPath(QStringLiteral("/org/arinn/Daemon1/ops/media")))));
+    QTRY_COMPARE(daemon.windowCommands.count(QStringLiteral("Release")), 3);
+    QTest::qWait(300);
+    QCOMPARE(daemon.lastLocal, QStringLiteral("old"));
+    catalog.release(); QTRY_COMPARE(daemon.windowCommands.count(QStringLiteral("Release")), 4);
+    QCOMPARE(daemon.lastLocal, QStringLiteral("new"));
     QVERIFY(daemon.commands.isEmpty());
   }
   void thumbnailRequestWhilePlaying() {

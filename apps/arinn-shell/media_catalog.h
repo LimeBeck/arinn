@@ -150,7 +150,7 @@ private:
   void failRelease();
   void checkPresentedWindow(quint64 ticket, quint64 epoch, quint64 deadline);
   void resolveWindow(SessionRow row, quint64 ticket, quint64 epoch, quint64 deadline);
-  void windowCommand(const SessionRow &row, bool presenting, quint64 ticket, quint64 epoch);
+  void windowCommand(const SessionRow &row, bool presenting, quint64 ticket, quint64 epoch, bool detachedRelease = false);
   void watchWindowOperation(const QString &objectPath, bool presenting, quint64 ticket, quint64 epoch, quint64 deadline);
   void setOperation(const QString &state);
   void command(const QString &action, double seekTarget = 0, bool seeking = false);

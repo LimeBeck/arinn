@@ -191,3 +191,5 @@ are for the owner, not an agent-run test.
    detail. Check another application's ordinary window flags/focus remain usable.
 5. Record KDE/Qt versions, output layout and results for #141/G-4.1. Qualification
    is pending until this owner-run evidence exists.
+
+Late Present admission cleanup is detached from the current session's Release acknowledgement and retry state; its outcome cannot erase another session's remembered cleanup.

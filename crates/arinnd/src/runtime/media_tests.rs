@@ -803,7 +803,11 @@ async fn managed_playback_routes_only_complete_exact_inventory_and_tears_down_af
             f.core
                 .playback_command("mpv", &f.generation, "s1", &request, &caller, true),
         );
-    assert!(futures_util::poll!(delayed.as_mut()).is_pending());
+    std::future::poll_fn(|cx| {
+        assert!(std::future::Future::poll(delayed.as_mut(), cx).is_pending());
+        std::task::Poll::Ready(())
+    })
+    .await;
     {
         let mut exits = f.core.playback_exits.lock().await;
         *exits

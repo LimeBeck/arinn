@@ -316,3 +316,7 @@ license ([ADR-0029](../adr/0029-licensing.md)).
 define trusted adapter inventory/control transport. This is not a provider capability.
 SDK registration contexts expose the registered connection for authenticated platform
 access. Production daemon/KDE implementation remains in issue #20.
+
+Managed playback window association: [contract](../architecture/managed-playback.md),
+[MediaWindow1](media-window1.xml), [MediaWindowProvider1](media-window-provider1.xml)
+and [KWinMedia1](kwin-media1.xml). These optional bindings do not yet imply production support.

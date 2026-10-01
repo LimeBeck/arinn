@@ -717,6 +717,6 @@ pub use library::{
 };
 pub use media::{
     MediaAction, MediaExtensions, MediaHandler, MediaOpenHandler, MediaService,
-    MediaTimelineHandler, MediaTracksHandler, run_media, run_media_on,
+    MediaTimelineHandler, MediaTracksHandler, MediaWindowHandler, run_media, run_media_on,
 };
 pub use settings::{SettingsHandler, serve_settings, settings_from_json, startup_settings};

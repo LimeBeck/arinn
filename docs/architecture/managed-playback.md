@@ -100,7 +100,10 @@ Late replies never raise a surface after cancellation or lifetime invalidation.
 
 ## Delivery and verification
 
-#189 supplies typed bindings, validation, XML and private-bus contract fixtures.
+#189 supplies typed bindings, validation, XML, the optional SDK
+MediaExtensions.window handler and private-bus contract fixtures. SDK authorization,
+stale registration/session checks and handler-result validation apply to launch
+identity reads; MPRIS/base services export no window extension.
 A separate producer task implements provider/daemon association and routing.
 #141 implements adapter stacking and shell integration after that producer lands.
 Private-bus tests cover authentication, stale revision/generation, wrong session,

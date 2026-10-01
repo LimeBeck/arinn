@@ -259,7 +259,7 @@ def canonical(node):
     children=[canonical(c) for c in node]
     if node.tag in ('node','interface'): children.sort()
     return node.tag,tuple(sorted(node.attrib.items())),tuple(children)
-for filename,interface in [('platform-windows1.xml','org.arinn.PlatformWindows1'),('kwin-bridge1.xml','org.arinn.KWinBridge1')]:
+for filename,interface in [('platform-windows1.xml','org.arinn.PlatformWindows1'),('kwin-bridge1.xml','org.arinn.KWinBridge1'),('return-association1.xml','org.arinn.ReturnAssociation1'),('kwin-return1.xml','org.arinn.KWinReturn1')]:
     expected=E.parse('../../docs/plugin-api/'+filename).getroot().find('interface')
     assert canonical(expected)==canonical(actual.find("interface[@name='%s']"%interface)), filename
 "#]).stdin(Stdio::piped()).spawn().unwrap();
@@ -656,4 +656,314 @@ async fn home_requests_reject_untrusted_invalid_and_obsolete_adapter_calls() {
         .await
         .unwrap()
         .unwrap();
+}
+
+/// ADR-0073 producer: authenticate before validation, publish only exact live
+/// context, and never let a rejected report erase an established association.
+#[tokio::test]
+async fn return_association_production_context_and_invalidation() {
+    use arinn_protocol::{
+        production::ProductionDaemonProxy,
+        return_association::{KWinReturnProxy, ReturnAssociationApiProxy},
+    };
+    let f = Fixture::new().await;
+    f.core
+        .connection
+        .object_server()
+        .at(
+            production::PATH,
+            Daemon {
+                core: f.core.clone(),
+            },
+        )
+        .await
+        .unwrap();
+    let home = ProductionDaemonProxy::new(&f.kwin).await.unwrap();
+    let report = KWinReturnProxy::new(&f.kwin).await.unwrap();
+    let api = ReturnAssociationApiProxy::new(&f.stranger).await.unwrap();
+    let initial = api.get().await.unwrap().0;
+    assert_eq!(initial.epoch, f.core.epoch);
+    assert_eq!(initial.revision, 1);
+    error(
+        KWinReturnProxy::new(&f.stranger)
+            .await
+            .unwrap()
+            .report("bad", 0, "", "")
+            .await,
+        "PermissionDenied",
+    );
+    error(report.report("bad", 0, "", "").await, "PermissionDenied");
+    let generation = f.generation().await;
+    error(report.report("bad", 0, "", "").await, "InvalidArgument");
+    home.report_home_request("opaque-return", "screen")
+        .await
+        .unwrap();
+    error(
+        report
+            .report(&generation, 1, "opaque-return", "token-0")
+            .await,
+        "Unavailable",
+    );
+    f.publish(&generation, 1, 2).await;
+    report
+        .report(&generation, 1, "opaque-return", "token-0")
+        .await
+        .unwrap();
+    let good = api.get().await.unwrap().0;
+    good.validate().unwrap();
+    assert_eq!(good.window[0].generation, generation);
+    assert_eq!(good.window[0].token, "token-0");
+    assert_ne!(good.target, good.window[0].token);
+    let mut signals = api.receive_changed().await.unwrap();
+    for (g, r, t, w, e) in [
+        (generation.as_str(), 2, "opaque-return", "", "Conflict"),
+        (generation.as_str(), 1, "old-target", "", "Conflict"),
+        (initial.epoch.as_str(), 1, "opaque-return", "", "Conflict"),
+        (
+            generation.as_str(),
+            1,
+            "opaque-return",
+            "unknown",
+            "NotFound",
+        ),
+    ] {
+        error(report.report(g, r, t, w).await, e);
+        assert_eq!(api.get().await.unwrap().0, good);
+    }
+    report
+        .report(&generation, 1, "opaque-return", "token-0")
+        .await
+        .unwrap();
+    assert!(
+        tokio::time::timeout(Duration::from_millis(80), signals.next())
+            .await
+            .is_err()
+    );
+    // Focus-only inventory updates preserve exact identity and public revision.
+    let bridge = KWinBridgeProxy::new(&f.kwin).await.unwrap();
+    bridge.begin_inventory(&generation, 2, 2).await.unwrap();
+    for i in 0..2 {
+        bridge
+            .put_window(
+                &generation,
+                2,
+                i,
+                &format!("token-{i}"),
+                "fixture.desktop",
+                "",
+                12,
+            )
+            .await
+            .unwrap();
+    }
+    bridge.commit_inventory(&generation, 2).await.unwrap();
+    assert_eq!(api.get().await.unwrap().0, good);
+    // Same-target Home refresh revokes evidence before its acknowledgement.
+    home.inner()
+        .call::<_, _, ()>("ReportHome", &(true, "opaque-return", "screen"))
+        .await
+        .unwrap();
+    let cleared = api.get().await.unwrap().0;
+    assert!(cleared.window.is_empty());
+    assert_eq!(cleared.target, good.target);
+    let changed = tokio::time::timeout(Duration::from_secs(2), signals.next())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(changed.args().unwrap().revision, cleared.revision);
+    report
+        .report(&generation, 2, "opaque-return", "token-0")
+        .await
+        .unwrap();
+    home.report_home_request("opaque-return", "screen")
+        .await
+        .unwrap();
+    assert!(api.get().await.unwrap().0.window.is_empty());
+    report
+        .report(&generation, 2, "opaque-return", "token-0")
+        .await
+        .unwrap();
+    home.inner()
+        .call::<_, _, ()>("ReportHome", &(false, "", "screen"))
+        .await
+        .unwrap();
+    error(
+        report
+            .report(&initial.epoch, 99, "old-target", "token-0")
+            .await,
+        "Unavailable",
+    );
+    home.inner()
+        .call::<_, _, ()>("ReportHome", &(true, "opaque-return", "screen"))
+        .await
+        .unwrap();
+    report
+        .report(&generation, 2, "opaque-return", "token-0")
+        .await
+        .unwrap();
+    f.publish(&generation, 3, 0).await;
+    assert!(api.get().await.unwrap().0.window.is_empty());
+    assert_eq!(api.get().await.unwrap().0.target, "opaque-return");
+    error(
+        report
+            .report(&generation, 3, "opaque-return", "token-0")
+            .await,
+        "NotFound",
+    );
+    // Remap/session replacement requires new generation and explicit evidence.
+    let replacement = f.generation().await;
+    f.publish(&replacement, 1, 1).await;
+    error(
+        report
+            .report(&generation, 3, "opaque-return", "token-0")
+            .await,
+        "Conflict",
+    );
+    report
+        .report(&replacement, 1, "opaque-return", "token-0")
+        .await
+        .unwrap();
+    f.kwin.release_name("org.kde.KWin").await.unwrap();
+    f.provider.request_name("org.kde.KWin").await.unwrap();
+    error(
+        report
+            .report(&replacement, 1, "opaque-return", "token-0")
+            .await,
+        "PermissionDenied",
+    );
+    error(
+        KWinReturnProxy::new(&f.provider)
+            .await
+            .unwrap()
+            .report(&replacement, 1, "opaque-return", "token-0")
+            .await,
+        "PermissionDenied",
+    );
+    assert!(api.get().await.unwrap().0.window.is_empty());
+    assert_eq!(api.get().await.unwrap().0.target, "opaque-return");
+}
+
+#[tokio::test]
+async fn return_association_heartbeat_expiry_clears_without_erasing_return() {
+    use arinn_protocol::{
+        production::ProductionDaemonProxy,
+        return_association::{KWinReturnProxy, ReturnAssociationApiProxy},
+    };
+    let f = Fixture::new().await;
+    f.core
+        .connection
+        .object_server()
+        .at(
+            production::PATH,
+            Daemon {
+                core: f.core.clone(),
+            },
+        )
+        .await
+        .unwrap();
+    let generation = f.generation().await;
+    f.publish(&generation, 1, 1).await;
+    ProductionDaemonProxy::new(&f.kwin)
+        .await
+        .unwrap()
+        .inner()
+        .call::<_, _, ()>("ReportHome", &(true, "target", ""))
+        .await
+        .unwrap();
+    KWinReturnProxy::new(&f.kwin)
+        .await
+        .unwrap()
+        .report(&generation, 1, "target", "token-0")
+        .await
+        .unwrap();
+    let api = ReturnAssociationApiProxy::new(&f.stranger).await.unwrap();
+    let mut signals = api.receive_changed().await.unwrap();
+    tokio::time::timeout(Duration::from_secs(7), signals.next())
+        .await
+        .unwrap()
+        .unwrap();
+    let value = api.get().await.unwrap().0;
+    assert!(value.window.is_empty());
+    assert_eq!(value.target, "target");
+}
+
+#[tokio::test]
+async fn exported_browser_links_require_live_inventory_and_current_registration() {
+    use arinn_protocol::browser::BrowserApiProxy;
+    let f = Fixture::new().await;
+    let generation = f.generation().await;
+    f.publish(&generation, 1, 1).await;
+    let path = "/org/arinn/Daemon1/providers/fixture";
+    f.core
+        .connection
+        .object_server()
+        .at(
+            path,
+            BrowserEndpoint {
+                core: f.core.clone(),
+                id: "fixture".into(),
+            },
+        )
+        .await
+        .unwrap();
+    {
+        let mut state = f.core.state.lock().await;
+        let p = state.providers.get_mut("fixture").unwrap();
+        p.windows = vec![BrowserWindow {
+            id: "browser-window".into(),
+            window_token: "token-0".into(),
+            focused: false,
+        }];
+        let mut cache = TabSnapshots::new(&p.info.generation).unwrap();
+        cache.import(1, p.windows.clone(), vec![]).unwrap();
+        p.tab_cache = Some(cache);
+    }
+    let api = BrowserApiProxy::builder(&f.stranger)
+        .destination(production::SERVICE)
+        .unwrap()
+        .path(path)
+        .unwrap()
+        .build()
+        .await
+        .unwrap();
+    assert_eq!(
+        api.get_tabs("").await.unwrap().0.windows[0].window_token,
+        "token-0"
+    );
+    f.publish(&generation, 2, 0).await;
+    error(api.get_tabs("").await, "Unavailable");
+    // An incomplete refresh cannot turn cached links into current evidence.
+    {
+        let mut state = f.core.state.lock().await;
+        let p = state.providers.get_mut("fixture").unwrap();
+        p.windows[0].window_token.clear();
+        p.info.revision = 2;
+        p.tab_cache
+            .as_mut()
+            .unwrap()
+            .import(2, p.windows.clone(), vec![])
+            .unwrap();
+        failed(&mut p.info, ErrorCode::Timeout);
+    }
+    error(api.get_tabs("").await, "Unavailable");
+    {
+        let mut state = f.core.state.lock().await;
+        let p = state.providers.get_mut("fixture").unwrap();
+        p.info.last_error.clear();
+    }
+    assert!(
+        api.get_tabs("").await.unwrap().0.windows[0]
+            .window_token
+            .is_empty()
+    );
+    f.core
+        .state
+        .lock()
+        .await
+        .providers
+        .get_mut("fixture")
+        .unwrap()
+        .info
+        .generation = Uuid::new_v4().to_string();
+    error(api.get_tabs("").await, "Conflict");
 }

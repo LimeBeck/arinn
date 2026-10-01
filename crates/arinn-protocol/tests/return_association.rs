@@ -107,14 +107,14 @@ impl State {
         token: &str,
     ) -> production::Result<()> {
         validate_report(generation, revision, target, token)?;
+        if !self.home {
+            return Err(ErrorCode::Unavailable.into());
+        }
         if generation != self.platform
             || revision != self.inventory_revision
             || target != self.snapshot.target
         {
             return Err(ErrorCode::Conflict.into());
-        }
-        if !self.home {
-            return Err(ErrorCode::Unavailable.into());
         }
         if !token.is_empty() && !self.tokens.iter().any(|t| t == token) {
             return Err(ErrorCode::NotFound.into());
@@ -366,6 +366,7 @@ async fn live_contract() {
         bridge.report(PLATFORM, 2, TARGET, "").await.unwrap_err(),
         "Conflict",
     );
+    assert_eq!(api.get().await.unwrap().0, value);
     bridge.report(PLATFORM, 1, TARGET, "").await.unwrap();
     assert!(api.get().await.unwrap().0.window.is_empty());
     assert_eq!(api.get().await.unwrap().0.target, TARGET);
@@ -597,4 +598,16 @@ fn context_refresh_dismissal_and_cross_provider_ambiguity_never_remove_return() 
     state.home_report(true, "different-return");
     assert!(state.report(PLATFORM, 1, TARGET, TOKEN).is_err());
     assert_eq!(state.snapshot.target, "different-return");
+}
+
+#[test]
+fn hidden_home_precedes_obsolete_context_in_reference_report() {
+    let mut state = State::new(":1.2");
+    state.home_report(false, "");
+    let before = state.snapshot.clone();
+    assert!(matches!(
+        state.report(EPOCH, 99, TARGET, TOKEN),
+        Err(production::Error::Unavailable(_))
+    ));
+    assert_eq!(state.snapshot, before);
 }

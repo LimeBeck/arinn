@@ -14,7 +14,7 @@ function signal() {
     const handlers = [];
     return { connect: fn => handlers.push(fn), emit: w => handlers.forEach(fn => fn(w)) };
 }
-function fixture() {
+function fixture(options = {}) {
     const output = { name: 'second-screen' };
     const trace = [];
     function window(uuid, klass) {
@@ -41,7 +41,9 @@ function fixture() {
     let shortcut, takeCommand, report, tick, control;
     const shortcuts = [];
     let locked = false, generation = randomUUID(), stage = [];
-    let deferLock = false;
+    let deferLock = false, deferHome = false;
+    const homeReplies = [], commitReplies = [], returnReports = [], discoveryReplies = [];
+    const acknowledgeHome = callback => { if (deferHome) homeReplies.push(callback); else callback(); };
     const lockReplies = [], homeRequests = [];
     const snapshots = [], acknowledgements = [], controls = [];
     let owner = ":1.10"; const polls = [];
@@ -59,13 +61,26 @@ function fixture() {
         registerShortcut: (id, _label, keys, fn) => { shortcuts.push({ id, keys }); shortcut = fn; },
         print: () => {},
         callDBus: (_service, _path, _interface, method, ...args) => {
+            if (method === 'Introspect') {
+                const reply = () => args[0](options.unsupported ? '<node/>' : '<node><interface name="org.arinn.KWinReturn1"/></node>');
+                if (options.deferDiscovery) discoveryReplies.push(reply); else reply();
+            }
+            if (_interface === 'org.arinn.KWinReturn1') {
+                assert.equal(method, 'Report');
+                assert.equal(args.length, 5);
+                returnReports.push({ owner: _service, generation: args[0], revision: args[1], target: args[2], token: args[3], reply: args[4] });
+            }
             if (_interface === 'org.arinn.KWinBridge1') {
                 assert.ok(args.length <= 9);
                 const callback = args.at(-1);
                 if (method === 'Connect') { generation = randomUUID(); callback(generation); }
                 if (method === 'BeginInventory') { stage = []; callback(); }
                 if (method === 'PutWindow') { stage[args[2]] = args.slice(3, 7); callback(); }
-                if (method === 'CommitInventory') { snapshots.push({generation: args[0], revision: args[1], rows: stage}); callback(); }
+                if (method === 'CommitInventory') {
+                    const committed = {generation: args[0], revision: args[1], rows: stage};
+                    const reply = () => { snapshots.push(committed); callback(); };
+                    if (options.deferInventory) commitReplies.push(reply); else reply();
+                }
                 if (method === 'NextControl') { control = callback; controls.push(callback); }
                 if (method === 'CompleteControl') { acknowledgements.push(args.slice(0, 3)); callback(); }
             }
@@ -79,12 +94,12 @@ function fixture() {
             if (method === 'ReportHome') {
                 report = args.slice(0, 3);
                 trace.push({ kind: 'ReportHome', visible: args[0] });
-                if (typeof args[3] === 'function') args[3]();
+                if (typeof args[3] === 'function') acknowledgeHome(args[3]);
             }
             if (method === 'ReportHomeRequest') {
                 homeRequests.push({ owner: _service, args: args.slice(0, 2) });
                 report = [true, ...args.slice(0, 2)];
-                args[2]();
+                acknowledgeHome(args[2]);
             }
         } });
     vm.runInContext(fs.readFileSync(path.join(__dirname, '../../platform/kde/phase0.js'), 'utf8'), context);
@@ -93,7 +108,8 @@ function fixture() {
         command(action, token) { control([randomUUID(), action, token]); },
         reconnect(value) { owner = value; tick(); },
         show: () => shortcut(), back: () => takeCommand('return'),
-        shortcuts, homeRequests, lockReplies,
+        shortcuts, homeRequests, lockReplies, returnReports, homeReplies, commitReplies, discoveryReplies,
+        deferHome() { deferHome = true; },
         deferLock() { deferLock = true; },
         daemonHome: () => takeCommand('home'),
         dismiss: () => takeCommand('dismiss'), report: () => report,
@@ -332,4 +348,85 @@ test('Return and activate cover the panel before the shell steps down', () => {
     assert.equal(f.workspace.activeWindow, f.activity);
     assert.equal(f.acknowledgements.at(-1)[2], '');
     assert.equal(f.report()[0], false);
+});
+
+
+test('ADR-0073: exact saved object is linked after committed inventory and Home, despite focus loss', () => {
+    const f = fixture();
+    const other = f.window('other-id', 'game');
+    f.add(other);
+    f.refresh();
+    f.show();
+    assert.equal(f.workspace.activeWindow, f.home);
+    const link = f.returnReports.at(-1);
+    const committed = f.snapshots.at(-1);
+    assert.equal(link.owner, ':1.10');
+    assert.equal(link.target, 'original-id');
+    assert.equal(link.generation, committed.generation);
+    assert.equal(link.revision, committed.revision);
+    assert.equal(link.token, committed.rows[0][0]);
+    assert.notEqual(link.token, link.target);
+    const count = f.returnReports.length;
+    f.refresh();
+    assert.equal(f.returnReports.length, count, 'unchanged evidence is not replayed');
+    f.show();
+    assert.equal(f.returnReports.length, count + 1, 'same-target Home requires fresh evidence');
+    f.remove(f.activity);
+    assert.equal(f.returnReports.at(-1).token, '');
+    f.add(f.activity);
+    assert.notEqual(f.returnReports.at(-1).token, link.token, 'remap mints a new token');
+    assert.equal(f.returnReports.at(-1).target, link.target);
+    f.back();
+    const dismissedCount = f.returnReports.length;
+    link.reply();
+    assert.equal(f.returnReports.length, dismissedCount, 'old callback cannot restore dismissed mapping');
+});
+
+test('ADR-0073: no mapping before inventory/Home acknowledgements or on an old daemon', () => {
+    const f = fixture({ deferInventory: true });
+    f.show();
+    assert.equal(f.workspace.activeWindow, f.home, 'Home does not wait for metadata');
+    assert.equal(f.returnReports.length, 0);
+    f.commitReplies.shift()();
+    f.refresh();
+    f.commitReplies.shift()();
+    assert.equal(f.returnReports.length, 1);
+    f.deferHome();
+    f.show();
+    f.refresh();
+    assert.equal(f.returnReports.length, 1);
+    f.homeReplies.shift()();
+    assert.equal(f.returnReports.length, 2);
+    const old = fixture({ unsupported: true });
+    old.show();
+    assert.equal(old.workspace.activeWindow, old.home);
+    assert.equal(old.returnReports.length, 0);
+    old.back();
+    assert.equal(old.workspace.activeWindow, old.activity);
+});
+
+test('ADR-0073: ambiguous identities and callbacks from old contexts cannot assert a match', () => {
+    const f = fixture();
+    f.add(f.window('original-id', 'game'));
+    f.show();
+    assert.equal(f.returnReports.at(-1).token, '', 'duplicate compositor identities are unresolved');
+    f.deferHome();
+    f.show();
+    f.dismiss();
+    const before = f.returnReports.length;
+    f.homeReplies.shift()();
+    assert.equal(f.returnReports.length, before, 'late visible-Home acknowledgement is obsolete');
+    f.homeReplies.shift()();
+    const g = fixture({ deferDiscovery: true });
+    g.show();
+    g.reconnect(':1.20');
+    g.discoveryReplies.shift()();
+    assert.equal(g.returnReports.length, 0, 'old owner discovery must not enable the new owner');
+    g.discoveryReplies.shift()();
+    assert.equal(g.returnReports.at(-1).owner, ':1.20');
+    const oldReport = g.returnReports.at(-1);
+    g.reconnect(':1.30');
+    const count = g.returnReports.length;
+    oldReport.reply();
+    assert.equal(g.returnReports.length, count);
 });

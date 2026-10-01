@@ -6,6 +6,7 @@ use arinn_protocol::{
     kwin,
     platform::{self, Window, WindowPage},
     production,
+    return_association::{self, ReturnAssociation, WindowRef},
     validation::{self, ErrorCode},
 };
 use futures_util::StreamExt;
@@ -61,6 +62,9 @@ struct State {
     queued: VecDeque<Control>,
     pending: Option<Control>,
     polling: bool,
+    home: bool,
+    association: ReturnAssociation,
+    exhausted: bool,
 }
 impl Default for State {
     fn default() -> Self {
@@ -78,6 +82,14 @@ impl Default for State {
             queued: VecDeque::new(),
             pending: None,
             polling: false,
+            home: false,
+            association: ReturnAssociation {
+                epoch: String::new(),
+                revision: 1,
+                target: String::new(),
+                window: Vec::new(),
+            },
+            exhausted: false,
         }
     }
 }
@@ -86,7 +98,41 @@ impl State {
         for command in self.queued.drain(..).chain(self.pending.take()) {
             let _ = command.reply.send(Err(ErrorCode::Unavailable));
         }
+        let home = self.home;
+        let association = self.association.clone();
+        let exhausted = self.exhausted;
         *self = Self::default();
+        self.home = home;
+        self.association = association;
+        self.exhausted = exhausted;
+        self.publish(self.association.target.clone(), Vec::new());
+    }
+    // Exhaustion fails this optional API closed until a fresh daemon epoch.
+    fn publish(&mut self, target: String, window: Vec<WindowRef>) -> bool {
+        if self.association.target == target && self.association.window == window {
+            return false;
+        }
+        let Some(revision) = self.association.revision.checked_add(1) else {
+            self.exhausted = true;
+            return false;
+        };
+        self.association.target = target;
+        self.association.window = window;
+        self.association.revision = revision;
+        true
+    }
+    async fn announce_return(&self, c: &Connection, previous: u64) {
+        if !self.exhausted && previous != self.association.revision {
+            let _ = c
+                .emit_signal(
+                    None::<&str>,
+                    production::PATH,
+                    return_association::INTERFACE,
+                    "Changed",
+                    &(&self.association.epoch, self.association.revision),
+                )
+                .await;
+        }
     }
     fn live(&self, owner: &str) -> Result<(), ErrorCode> {
         if self.owner != owner
@@ -174,6 +220,44 @@ async fn announce(c: &Connection, generation: &str, revision: u64) {
         .await;
 }
 impl Windows {
+    pub fn new(epoch: &str) -> Self {
+        let mut state = State::default();
+        state.association.epoch = epoch.into();
+        Self {
+            state: Arc::new(Mutex::new(state)),
+            notify: Arc::default(),
+        }
+    }
+    // Lock order: inventory, then Home bridge. Every production Home write goes
+    // through here; association reports and inventory commits use the same lock.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn report_home(
+        &self,
+        platform: &crate::platform::Platform,
+        c: &Connection,
+        h: Header<'_>,
+        visible: bool,
+        target: &str,
+        output: &str,
+    ) -> production::Result<()> {
+        let mut s = self.state.lock().await;
+        platform.report_home(c, h, visible, target, output).await?;
+        let previous = s.association.revision;
+        s.home = visible;
+        s.publish(target.into(), Vec::new());
+        s.announce_return(c, previous).await;
+        Ok(())
+    }
+    pub async fn live_tokens(&self, c: &Connection) -> HashSet<String> {
+        let Ok(current) = owner(c).await else {
+            return HashSet::new();
+        };
+        let s = self.state.lock().await;
+        if s.live(&current).is_err() {
+            return HashSet::new();
+        }
+        s.windows.iter().map(|w| w.token.clone()).collect()
+    }
     pub async fn start(&self, c: &Connection) -> Result<(), ErrorCode> {
         let bus = zbus::fdo::DBusProxy::new(c)
             .await
@@ -197,7 +281,9 @@ impl Windows {
                     || s.seen
                         .is_some_and(|t| t.elapsed() >= Duration::from_secs(5))
                 {
+                    let previous = s.association.revision;
                     s.reset();
+                    s.announce_return(&connection, previous).await;
                     let generation_id = s.generation.clone();
                     drop(s);
                     backend.notify.notify_waiters();
@@ -406,7 +492,9 @@ impl Windows {
             s.seen = Some(Instant::now());
             return Ok(s.generation.clone());
         }
+        let previous = s.association.revision;
         s.reset();
+        s.announce_return(c, previous).await;
         s.instance = instance.into();
         s.owner = current;
         s.seen = Some(Instant::now());
@@ -534,16 +622,28 @@ impl Windows {
             .map(|w| w.token.clone())
             .collect();
         if s.retired.len() + removed.len() > platform::MAX_SNAPSHOT_ENTRIES {
+            let previous = s.association.revision;
             s.reset();
+            s.announce_return(c, previous).await;
             let generation_id = s.generation.clone();
             drop(s);
             announce(c, &generation_id, 1).await;
             return Err(ErrorCode::Unavailable.into());
         }
+        let previous = s.association.revision;
+        if s.association
+            .window
+            .iter()
+            .any(|w| !live.contains(&w.token))
+        {
+            let target = s.association.target.clone();
+            s.publish(target, Vec::new());
+        }
         s.retired.extend(removed);
         s.windows = windows;
         s.snapshot = Some(Arc::new(next));
         s.revision = revision;
+        s.announce_return(c, previous).await;
         drop(s);
         announce(c, generation, revision as u64).await;
         Ok(())
@@ -618,6 +718,83 @@ impl Windows {
             })
         };
         let _ = p.reply.send(result);
+        Ok(())
+    }
+}
+
+// Separate interfaces preserve the existing KWinBridge1 wire surface.
+pub struct ReturnEndpoint(pub Windows);
+#[zbus::interface(name = "org.arinn.ReturnAssociation1")]
+impl ReturnEndpoint {
+    async fn get(
+        &self,
+        #[zbus(connection)] c: &Connection,
+    ) -> production::Result<(ReturnAssociation,)> {
+        let current = owner(c).await;
+        let mut s = self.0.state.lock().await;
+        if current.as_ref().map_or(true, |o| s.live(o).is_err()) {
+            let previous = s.association.revision;
+            let target = s.association.target.clone();
+            s.publish(target, Vec::new());
+            s.announce_return(c, previous).await;
+        }
+        if s.exhausted {
+            return Err(ErrorCode::Unavailable.into());
+        }
+        Ok((s.association.clone(),))
+    }
+    #[zbus(signal)]
+    async fn changed(
+        emitter: &zbus::object_server::SignalEmitter<'_>,
+        epoch: &str,
+        revision: u64,
+    ) -> zbus::Result<()>;
+}
+pub struct ReturnBridge(pub Windows);
+#[zbus::interface(name = "org.arinn.KWinReturn1")]
+impl ReturnBridge {
+    async fn report(
+        &self,
+        generation: &str,
+        inventory_revision: i32,
+        target: &str,
+        token: &str,
+        #[zbus(connection)] c: &Connection,
+        #[zbus(header)] h: Header<'_>,
+    ) -> production::Result<()> {
+        let current = trusted(c, &h).await?;
+        let mut s = self.0.state.lock().await;
+        if s.owner != current {
+            return Err(ErrorCode::PermissionDenied.into());
+        }
+        return_association::validate_report(generation, inventory_revision, target, token)?;
+        s.live(&current)?;
+        if !s.home || s.snapshot.is_none() || s.exhausted {
+            return Err(ErrorCode::Unavailable.into());
+        }
+        if s.generation != generation
+            || s.revision != inventory_revision
+            || s.association.target != target
+        {
+            return Err(ErrorCode::Conflict.into());
+        }
+        if !token.is_empty() && !s.windows.iter().any(|w| w.token == token) {
+            return Err(ErrorCode::NotFound.into());
+        }
+        let window = if token.is_empty() {
+            Vec::new()
+        } else {
+            vec![WindowRef {
+                generation: generation.into(),
+                token: token.into(),
+            }]
+        };
+        let previous = s.association.revision;
+        s.publish(target.into(), window);
+        s.announce_return(c, previous).await;
+        if s.exhausted {
+            return Err(ErrorCode::Unavailable.into());
+        }
         Ok(())
     }
 }

@@ -4,11 +4,11 @@
 [#212](https://github.com/LimeBeck/arinn/issues/212). Requirements: specification
 §9 and §12; AC-02, AC-12, G-5.1 (partial), R-01, R-03, R-05, R-09, R-10.
 
-**Status:** bindings, structural validation, XML and reference fixtures only.
-Neither interface is exported by the production daemon yet. No adapter, provider
-or shell implementation is included. This contract does not finish the deferred
-Home deduplication in #207; Return remains visible until the follow-ups below
-establish a current, unambiguous match. No acceptance criterion or gate is closed.
+**Status:** production daemon/KDE producer implemented in
+[#217](https://github.com/LimeBeck/arinn/issues/217), following contract #212.
+Both optional interfaces are exported at the daemon root. The shell consumer
+remains separate: this does not enable #207 deduplication or close an acceptance
+criterion/gate. Private-bus and mocked adapter tests are not real KDE qualification.
 
 ## Identity and ownership
 
@@ -180,3 +180,42 @@ to follow #207 and the accepted Home behaviour.
 
 The producer precedes enabling the consumer. These are requirements for future
 issues, not claims or authorization to implement additional tasks in #212.
+
+
+## Production implementation notes
+
+The inventory mutex serializes association reports, inventory replacement and
+Home commits. Home state still lives in the existing bridge; the lock order is
+inventory then Home. Every daemon Home report enters that serialized path.
+Association notifications are emitted under the same inventory lock after commit,
+so their revisions remain ordered. Inventory reset keeps the opaque Home target
+and daemon epoch while invalidating the optional mapping. The owner monitor and
+five-second heartbeat expiry clear it; `Get` also checks current owner/liveness.
+Revision exhaustion fails this optional API closed until daemon restart supplies
+a fresh epoch; it never wraps or resets the revision within one epoch.
+
+The adapter discovers `KWinReturn1` per unique daemon owner and pins reports to
+that owner. It requires the current Home acknowledgement, committed inventory,
+and exactly one live object identical to the saved Return object. A duplicate
+identity, pending inventory, stale callback or absent interface supplies no
+positive evidence. Remap obtains a fresh token and needs a fresh report. Home
+raising and Return continue without waiting for optional metadata acknowledgements.
+
+`Browser1.GetTabs` validates registration/owner, refresh health and live platform
+links before returning cached evidence. A revoked, nonexistent or unavailable
+link fails the read with `Unavailable`; a page from an obsolete registration
+fails with `Conflict`. Leased pages keep their original contents and revision:
+previous links must still agree with the current registered browser snapshot.
+The daemon does not rewrite immutable pages or invent provider revisions.
+A failed read keeps Return in the future consumer, and may temporarily make the
+browser snapshot unavailable until its provider publishes fresh links. Multiple
+valid claims are not resolved by order; the consumer must still require one
+unambiguous candidate across complete current provider snapshots.
+
+The producer tests cover real daemon exports on a private bus, XML equality,
+report authentication, hidden-Home precedence, rejected-report preservation,
+Home invalidation, focus-only inventory changes, removal/session/owner loss,
+heartbeat expiry and browser-link validation. Mocked JavaScript tests cover
+exact objects, two windows, duplicate identities, remap, delayed Home/inventory/
+discovery callbacks and old-daemon compatibility. These tests do not prove
+compositor behavior or shell deduplication.

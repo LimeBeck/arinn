@@ -128,6 +128,8 @@ fn failed(info: &mut ProviderInfo, error: ErrorCode) {
 }
 impl Core {
     pub fn new(connection: &Connection, paths: Paths, runtime_dir: PathBuf) -> Self {
+        let epoch = Uuid::new_v4().to_string();
+        let windows = crate::windows::Windows::new(&epoch);
         Self {
             state: Arc::new(Mutex::new(State {
                 providers: BTreeMap::new(),
@@ -145,11 +147,11 @@ impl Core {
             search_engines: Arc::default(),
             operations: Operations::default(),
             connection: connection.clone(),
-            epoch: Uuid::new_v4().to_string(),
+            epoch,
             paths,
             runtime_dir,
             platform: crate::platform::Platform::default(),
-            windows: crate::windows::Windows::default(),
+            windows,
         }
     }
     /// Remove every daemon interface a provider path can carry, whatever the
@@ -173,6 +175,22 @@ impl Core {
     }
     pub async fn export_platform(&self) -> Result<(), ErrorCode> {
         self.windows.start(&self.connection).await?;
+        self.connection
+            .object_server()
+            .at(
+                production::PATH,
+                crate::windows::ReturnEndpoint(self.windows.clone()),
+            )
+            .await
+            .map_err(|_| ErrorCode::Internal)?;
+        self.connection
+            .object_server()
+            .at(
+                production::PATH,
+                crate::windows::ReturnBridge(self.windows.clone()),
+            )
+            .await
+            .map_err(|_| ErrorCode::Internal)?;
         self.connection
             .object_server()
             .at(production::PATH, self.windows.clone())
@@ -1401,8 +1419,15 @@ impl Daemon {
         #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
     ) -> production::Result<()> {
         self.core
-            .platform
-            .report_home(&self.core.connection, h, visible, target, output)
+            .windows
+            .report_home(
+                &self.core.platform,
+                &self.core.connection,
+                h,
+                visible,
+                target,
+                output,
+            )
             .await?;
         Self::changed(&emitter).await?;
         Ok(())
@@ -1430,8 +1455,15 @@ impl Daemon {
         // Use the same platform authentication/validation as state reports.
         // Only this explicit request path emits presentation intent.
         self.core
-            .platform
-            .report_home(&self.core.connection, h, true, target, output)
+            .windows
+            .report_home(
+                &self.core.platform,
+                &self.core.connection,
+                h,
+                true,
+                target,
+                output,
+            )
             .await?;
         Self::changed(&emitter).await?;
         Self::home_requested(&emitter, &self.core.epoch, target, output).await?;
@@ -1688,11 +1720,53 @@ impl BrowserEndpoint {
             .providers
             .get_mut(&self.id)
             .ok_or(ErrorCode::NotFound)?;
-        Ok((p.tab_cache.as_mut().ok_or(ErrorCode::Unavailable)?.page(
+        // Optional identity evidence must not outlive its registration or a
+        // failed/incomplete refresh. Reject stale snapshots rather than mutate
+        // immutable pages under an unchanged provider revision.
+        if p.owner.is_empty()
+            || p.info.runtime_state != "ready"
+            || p.info.backend_state != "available"
+            || (!p.info.last_error.is_empty() && p.info.recovered_at == 0)
+        {
+            return Err(ErrorCode::Unavailable.into());
+        }
+        let alive = zbus::fdo::DBusProxy::new(&self.core.connection)
+            .await
+            .map_err(|_| ErrorCode::Unavailable)?
+            .name_has_owner(
+                p.owner
+                    .as_str()
+                    .try_into()
+                    .map_err(|_| ErrorCode::Unavailable)?,
+            )
+            .await
+            .map_err(|_| ErrorCode::Unavailable)?;
+        if !alive {
+            return Err(ErrorCode::Unavailable.into());
+        }
+        let page = p.tab_cache.as_mut().ok_or(ErrorCode::Unavailable)?.page(
             &owner,
             token,
             Instant::now(),
-        )?,))
+        )?;
+        if page.generation != p.info.generation {
+            return Err(ErrorCode::Conflict.into());
+        }
+        let live = self.core.windows.live_tokens(&self.core.connection).await;
+        if p.windows
+            .iter()
+            .any(|w| !w.window_token.is_empty() && !live.contains(&w.window_token))
+            || page.windows.iter().any(|w| {
+                !w.window_token.is_empty()
+                    && (!live.contains(&w.window_token)
+                        || !p.windows.iter().any(|current| {
+                            current.id == w.id && current.window_token == w.window_token
+                        }))
+            })
+        {
+            return Err(ErrorCode::Unavailable.into());
+        }
+        Ok((page,))
     }
     async fn activate_tab(
         &self,

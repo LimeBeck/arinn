@@ -1,0 +1,1 @@
+- Add the design brief for closing running applications from the tile menu, the Continue card and a running list, with draft frames in the handoff `.dc.html` format and open questions for the owner ([brief](docs/design/briefs/closing-running-applications/README.md)).

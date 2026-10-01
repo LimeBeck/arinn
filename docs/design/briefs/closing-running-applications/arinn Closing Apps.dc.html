@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,400..600,0..1,0&display=block">
+<style>
+html,body{margin:0;background:oklch(0.13 0.005 260)}
+*{box-sizing:border-box}
+a{color:oklch(0.75 0.17 50)} a:hover{color:oklch(0.97 0.004 260)}
+.ms{font-family:'Material Symbols Rounded';line-height:1;font-feature-settings:'liga';font-variation-settings:'FILL' 1}
+</style>
+</helmet>
+<div style="min-height:100vh;padding:{{ pagePad }};background:oklch(0.13 0.005 260);font-family:'Onest',sans-serif;color:oklch(0.97 0.004 260);-webkit-font-smoothing:antialiased;display:flex;flex-direction:column;gap:88px">
+
+<sc-if value="{{ showDoc }}">
+<div style="display:flex;flex-direction:column;gap:20px;max-width:1300px">
+  <div style="font-size:20px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:oklch(0.75 0.17 50)">Arinn · design brief · #205 · Application1.Terminate</div>
+  <div style="font-size:64px;font-weight:700;letter-spacing:-0.025em;line-height:1.05">Закрытие приложений</div>
+  <div style="font-size:22px;line-height:1.55;color:oklch(0.82 0.006 260);text-wrap:pretty">{{ intro }}</div>
+  <div style="align-self:flex-start;margin-top:8px;padding:14px 22px;border-radius:16px;background:oklch(0.66 0.21 22 / .16);font-size:20px;line-height:1.5;color:oklch(0.92 0.005 260);text-wrap:pretty">{{ status }}</div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:28px">
+  <div style="font-size:36px;font-weight:700;letter-spacing:-0.015em">Owner decisions (2026-10-01)</div>
+  <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:20px;max-width:1968px">
+    <sc-for list="{{ decisions }}" as="a" hint-placeholder-count="4">
+      <div style="border-radius:20px;padding:28px 30px;background:rgba(255,255,255,.05);box-shadow:inset 0 1px 0 rgba(255,255,255,.07);display:flex;flex-direction:column;gap:12px">
+        <div style="font-size:18px;font-weight:500;color:oklch(0.72 0.008 260);line-height:1.4">{{ a.q }}</div>
+        <div style="font-size:24px;font-weight:600;line-height:1.3">{{ a.a }}</div>
+        <div style="font-size:18px;line-height:1.5;color:oklch(0.82 0.006 260);text-wrap:pretty">{{ a.why }}</div>
+      </div>
+    </sc-for>
+  </div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:28px">
+  <div style="font-size:36px;font-weight:700;letter-spacing:-0.015em">Open questions · agent recommendations, not decisions</div>
+  <div style="font-size:20px;line-height:1.55;color:oklch(0.82 0.006 260);max-width:1300px;text-wrap:pretty">{{ questionsNote }}</div>
+  <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px;max-width:1968px">
+    <sc-for list="{{ questions }}" as="a" hint-placeholder-count="6">
+      <div style="border-radius:20px;padding:28px 30px;background:rgba(255,255,255,.05);box-shadow:inset 0 1px 0 rgba(255,255,255,.07);display:flex;flex-direction:column;gap:12px">
+        <div style="display:flex;align-items:center;gap:12px"><span style="font-family:'JetBrains Mono',monospace;font-size:16px;color:oklch(0.75 0.17 50)">{{ a.n }}</span><span style="padding:3px 10px;border-radius:6px;font-size:15px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;background:{{ a.tagBg }};color:{{ a.tagFg }}">{{ a.tag }}</span></div>
+        <div style="font-size:18px;font-weight:500;color:oklch(0.72 0.008 260);line-height:1.4">{{ a.q }}</div>
+        <div style="font-size:22px;font-weight:600;line-height:1.3"><span style="color:oklch(0.72 0.008 260);font-weight:500">Recommendation: </span>{{ a.a }}</div>
+        <div style="font-size:18px;line-height:1.5;color:oklch(0.82 0.006 260);text-wrap:pretty">{{ a.why }}</div>
+      </div>
+    </sc-for>
+  </div>
+</div>
+</sc-if>
+
+<sc-for list="{{ sections }}" as="sec" hint-placeholder-count="4">
+<div style="display:flex;flex-direction:column;gap:28px">
+  <sc-if value="{{ showDoc }}">
+    <div style="font-size:36px;font-weight:700;letter-spacing:-0.015em">{{ sec.title }}</div>
+    <div style="font-size:20px;line-height:1.55;color:oklch(0.82 0.006 260);max-width:1300px;text-wrap:pretty">{{ sec.note }}</div>
+  </sc-if>
+  <div style="display:flex;flex-wrap:wrap;gap:56px 48px">
+    <sc-for list="{{ sec.frames }}" as="f" hint-placeholder-count="3">
+      <div id="{{ f.id }}" style="display:flex;flex-direction:column;gap:14px;width:{{ fw }}px">
+        <sc-if value="{{ showDoc }}">
+          <div style="display:flex;align-items:baseline;gap:14px"><div style="padding:4px 10px;border-radius:6px;background:oklch(0.75 0.17 50);color:#111;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:500">{{ f.id }}</div><div style="font-size:24px;font-weight:600">{{ f.label }}</div><sc-if value="{{ f.variant }}"><div style="padding:3px 10px;border-radius:6px;font-size:15px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;background:oklch(0.66 0.21 22 / .22);color:oklch(0.86 0.08 22)">{{ f.variant }}</div></sc-if></div>
+        </sc-if>
+        <div data-screen-label="{{ f.id }}" style="position:relative;width:{{ fw }}px;height:{{ fh }}px;border-radius:{{ frameR }};overflow:hidden;box-shadow:{{ frameSh }}">
+          <div style="position:absolute;left:0;top:0;width:1920px;height:1080px;transform:scale({{ sc }});transform-origin:0 0;overflow:hidden;background:oklch(0.17 0.005 260)">
+
+            <div style="position:absolute;inset:0;transform:{{ f.baseTf }};filter:{{ f.baseFl }};transform-origin:center">
+              <div style="position:absolute;inset:0;background:{{ f.light }}"></div>
+              <div style="position:absolute;top:44px;right:96px;height:64px;display:flex;align-items:center;gap:24px;color:oklch(0.88 0.005 260)"><span class="ms" style="font-size:32px">wifi</span><span style="font-size:30px;font-weight:500;font-variant-numeric:tabular-nums">21:47</span></div>
+
+              <sc-if value="{{ f.isApps }}">
+                <div style="position:absolute;left:120px;top:96px;font-size:56px;font-weight:700;letter-spacing:-0.02em">Приложения</div>
+                <div style="position:absolute;left:120px;top:190px;display:flex;flex-direction:column;gap:24px">
+                  <sc-for list="{{ f.groups }}" as="g" hint-placeholder-count="3">
+                    <div style="display:flex;flex-direction:column;gap:16px">
+                      <div style="height:36px;font-size:30px;font-weight:600;color:oklch(0.9 0.005 260)">{{ g.label }}</div>
+                      <div style="display:flex;gap:32px">
+                        <sc-for list="{{ g.tiles }}" as="c" hint-placeholder-count="4">
+                          <div style="position:relative;flex:none;width:{{ c.w }}px;height:196px;border-radius:30px;padding:26px 28px;display:flex;flex-direction:column;justify-content:space-between;background:{{ c.bg }};transform:{{ c.tf }};box-shadow:{{ c.sh }};z-index:{{ c.z }}">
+                            <div style="display:flex;justify-content:space-between;align-items:flex-start">
+                              <div style="width:76px;height:76px;border-radius:22px;display:flex;align-items:center;justify-content:center;font-size:32px;font-weight:700;background:rgba(255,255,255,.12)"><sc-if value="{{ c.icon }}"><span class="ms" style="font-size:40px">{{ c.icon }}</span></sc-if>{{ c.letter }}</div>
+                              <div style="display:flex;align-items:center;gap:12px;font-size:22px;font-weight:600;color:oklch(0.84 0.006 260)">
+                                <sc-if value="{{ c.running }}"><div style="display:flex;align-items:center;gap:8px"><div style="width:12px;height:12px;border-radius:6px;background:oklch(0.75 0.17 50)"></div>Запущено</div></sc-if>
+                                <sc-if value="{{ c.pinned }}"><span class="ms" style="font-size:28px;color:oklch(0.68 0.008 260)">keep</span></sc-if>
+                              </div>
+                            </div>
+                            <div style="font-size:32px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ c.name }}</div>
+                            <div style="position:absolute;inset:-1px;border-radius:30px;box-shadow:{{ c.kant }};pointer-events:none"></div>
+                          </div>
+                        </sc-for>
+                      </div>
+                    </div>
+                  </sc-for>
+                </div>
+              </sc-if>
+
+              <sc-if value="{{ f.isHome }}">
+                <div style="position:absolute;left:120px;top:48px;height:56px;display:flex;align-items:center;gap:14px;font-size:28px;font-weight:600;color:oklch(0.9 0.005 260)"><svg viewBox="0 0 100 100" width="36" height="36" style="flex:none;display:block;overflow:visible"><path d="M14 86 L50 18 L86 86" fill="none" stroke="#EDEDED" stroke-width="15" stroke-linejoin="round"></path><circle cx="50" cy="70" r="10" fill="#FF8A3D"></circle></svg>Arinn</div>
+                <div style="position:absolute;left:120px;top:136px;width:1300px;display:flex;flex-direction:column;gap:14px">
+                  <div style="display:flex;align-items:center;gap:12px;font-size:24px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:oklch(0.84 0.008 260)"><sc-if value="{{ f.heroLive }}"><div style="width:12px;height:12px;border-radius:6px;background:oklch(0.75 0.17 50)"></div></sc-if><span>{{ f.heroEyebrow }}</span></div>
+                  <div style="font-size:84px;line-height:1.02;font-weight:700;letter-spacing:-0.025em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ f.heroTitle }}</div>
+                  <div style="font-size:28px;font-weight:500;color:oklch(0.86 0.006 260);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ f.heroMeta }}</div>
+                </div>
+                <div style="position:absolute;left:0;right:0;top:372px">
+                  <div style="padding-left:120px;height:50px;font-size:30px;font-weight:600;color:oklch(0.9 0.005 260)">Продолжить</div>
+                  <div style="display:flex;gap:{{ f.contGap }};padding-left:120px">
+                    <sc-for list="{{ f.cont }}" as="c" hint-placeholder-count="4">
+                      <div style="position:relative;flex:none;width:{{ c.w }}px;height:225px;border-radius:26px;overflow:hidden;background:{{ c.bg }};color:{{ c.fg }};transform:{{ c.tf }};box-shadow:{{ c.sh }};z-index:{{ c.z }};margin-left:{{ c.ml }}">
+                        <sc-if value="{{ c.isAct }}">
+                          <div style="position:absolute;inset:0;padding:24px 26px;display:flex;flex-direction:column;justify-content:space-between">
+                            <div style="display:flex;align-items:center;justify-content:space-between">
+                              <div style="display:flex;align-items:center;gap:10px;font-size:24px;font-weight:600"><div style="width:12px;height:12px;border-radius:6px;background:oklch(0.75 0.17 50)"></div>Сейчас запущено</div>
+                              <div style="width:64px;height:64px;border-radius:20px;display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:700;background:rgba(255,255,255,.12)">{{ c.letter }}</div>
+                            </div>
+                            <div style="display:flex;flex-direction:column;gap:4px;min-width:0"><div style="font-size:34px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ c.title }}</div><div style="font-size:26px;font-weight:500;color:oklch(0.84 0.006 260)">Вернуться</div></div>
+                          </div>
+                        </sc-if>
+                        <sc-if value="{{ c.isClose }}">
+                          <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px"><span class="ms" style="font-size:44px;font-variation-settings:'FILL' 0">close</span><span style="font-size:24px;font-weight:600">Закрыть</span></div>
+                        </sc-if>
+                        <sc-if value="{{ c.isMedia }}">
+                          <div style="position:absolute;inset:0;background:{{ c.art }};filter:brightness(.82)"></div>
+                          <div style="position:absolute;left:22px;top:18px;font-family:'JetBrains Mono',monospace;font-size:15px;color:rgba(255,255,255,.45)">backdrop</div>
+                          <div style="position:absolute;inset:0;background:linear-gradient(0deg, rgba(10,11,13,.9) 0%, rgba(10,11,13,.4) 45%, rgba(10,11,13,0) 70%)"></div>
+                          <div style="position:absolute;left:24px;right:24px;bottom:22px;display:flex;flex-direction:column;gap:6px">
+                            <div style="font-size:30px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ c.title }}</div>
+                            <div style="font-size:24px;font-weight:500;color:oklch(0.86 0.006 260);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ c.sub }}</div>
+                            <div style="height:6px;margin-top:8px;border-radius:3px;background:rgba(255,255,255,.25);overflow:hidden"><div style="height:100%;width:{{ c.pct }}%;border-radius:3px;background:oklch(0.75 0.17 50)"></div></div>
+                          </div>
+                        </sc-if>
+                        <div style="position:absolute;inset:0;border-radius:26px;box-shadow:{{ c.kant }};pointer-events:none"></div>
+                      </div>
+                    </sc-for>
+                  </div>
+                </div>
+                <div style="position:absolute;left:0;right:0;top:700px">
+                  <div style="padding-left:120px;height:50px;font-size:30px;font-weight:600;color:oklch(0.9 0.005 260)">Избранное</div>
+                  <div style="display:flex;gap:24px;padding-left:120px">
+                    <sc-for list="{{ f.favs }}" as="c" hint-placeholder-count="6">
+                      <div style="position:relative;flex:none;width:264px;height:132px;border-radius:26px;padding:0 22px;display:flex;align-items:center;gap:18px;background:{{ c.bg }};transform:{{ c.tf }};box-shadow:{{ c.sh }};z-index:{{ c.z }}">
+                        <div style="flex:none;width:60px;height:60px;border-radius:18px;display:flex;align-items:center;justify-content:center;font-size:26px;font-weight:700;background:rgba(255,255,255,.12)"><sc-if value="{{ c.icon }}"><span class="ms" style="font-size:34px">{{ c.icon }}</span></sc-if>{{ c.letter }}</div>
+                        <div style="min-width:0;font-size:28px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ c.name }}</div>
+                        <sc-if value="{{ c.running }}"><div style="position:absolute;right:16px;top:16px;width:12px;height:12px;border-radius:6px;background:oklch(0.75 0.17 50)"></div></sc-if>
+                        <div style="position:absolute;inset:0;border-radius:26px;box-shadow:{{ c.kant }};pointer-events:none"></div>
+                      </div>
+                    </sc-for>
+                  </div>
+                </div>
+              </sc-if>
+
+              <sc-if value="{{ f.isList }}">
+                <div style="position:absolute;left:120px;right:300px;top:96px;display:flex;align-items:baseline;gap:20px">
+                  <div style="font-size:56px;font-weight:700;letter-spacing:-0.02em">{{ f.title }}</div>
+                  <div style="font-size:40px;font-weight:600;color:oklch(0.68 0.008 260);font-variant-numeric:tabular-nums">{{ f.count }}</div>
+                </div>
+                <div style="position:absolute;left:96px;width:1548px;top:196px;bottom:150px;overflow:hidden">
+                  <div style="padding:14px 24px;display:flex;flex-direction:column;gap:16px">
+                    <sc-for list="{{ f.rows }}" as="r" hint-placeholder-count="4">
+                      <sc-if value="{{ r.isHead }}"><div style="padding:14px 0 0 4px;font-size:30px;font-weight:600;color:oklch(0.9 0.005 260)">{{ r.head }}</div></sc-if>
+                      <sc-if value="{{ r.isRow }}">
+                        <div style="display:flex;gap:16px;align-items:center;opacity:{{ r.op }}">
+                          <div style="position:relative;flex:1;min-width:0;min-height:128px;border-radius:26px;padding:22px 28px;display:flex;align-items:center;gap:24px;background:{{ r.bg }};transform:{{ r.tf }};box-shadow:{{ r.sh }};z-index:{{ r.z }}">
+                            <div style="flex:none;width:76px;height:76px;border-radius:22px;display:flex;align-items:center;justify-content:center;font-size:32px;font-weight:700;color:oklch(0.9 0.005 260);background:rgba(255,255,255,.12)">{{ r.letter }}</div>
+                            <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:8px">
+                              <div style="font-size:30px;font-weight:600;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.title }}</div>
+                              <div style="display:flex;align-items:center;gap:24px;font-size:24px;font-weight:500;color:oklch(0.84 0.006 260);min-width:0">
+                                <sc-if value="{{ r.sub }}"><span style="min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.sub }}</span></sc-if>
+                                <sc-if value="{{ r.onScreen }}"><span style="flex:none;display:flex;align-items:center;gap:10px;color:oklch(0.97 0.004 260)"><span style="width:12px;height:12px;border-radius:6px;background:oklch(0.75 0.17 50)"></span>На экране</span></sc-if>
+                                <sc-if value="{{ r.bg2 }}"><span style="flex:none">В фоне</span></sc-if>
+                                <sc-if value="{{ r.note }}"><span style="flex:none;color:{{ r.noteC }}">{{ r.note }}</span></sc-if>
+                              </div>
+                            </div>
+                            <div style="position:absolute;inset:0;border-radius:26px;box-shadow:{{ r.kant }};pointer-events:none"></div>
+                          </div>
+                          <div style="flex:none;width:128px;height:128px;border-radius:26px;display:flex;align-items:center;justify-content:center;background:{{ r.closeBg }};color:{{ r.closeFg }};transform:{{ r.closeTf }};box-shadow:{{ r.closeSh }};opacity:{{ r.closeOp }}"><span class="ms" style="font-size:44px;font-variation-settings:'FILL' 0">{{ r.closeIcon }}</span></div>
+                        </div>
+                      </sc-if>
+                    </sc-for>
+                  </div>
+                </div>
+              </sc-if>
+
+              <sc-if value="{{ f.isEmpty }}">
+                <div style="position:absolute;left:120px;top:96px;font-size:56px;font-weight:700;letter-spacing:-0.02em">{{ f.title }}</div>
+                <div style="position:absolute;left:120px;top:360px;width:980px;display:flex;flex-direction:column;align-items:flex-start;gap:24px">
+                  <span class="ms" style="font-size:88px;color:oklch(0.68 0.008 260);font-variation-settings:'FILL' 0">{{ f.emIcon }}</span>
+                  <div style="font-size:48px;font-weight:700;letter-spacing:-0.02em">{{ f.emTitle }}</div>
+                  <div style="font-size:30px;line-height:1.45;color:oklch(0.84 0.006 260);text-wrap:pretty">{{ f.emBody }}</div>
+                  <div style="margin-top:16px;height:88px;padding:0 44px;border-radius:44px;display:flex;align-items:center;gap:14px;font-size:30px;font-weight:600;background:oklch(0.97 0.004 260);color:oklch(0.17 0.006 260);transform:scale(1.06);transform-origin:left center;box-shadow:0 18px 40px -12px rgba(0,0,0,.7)"><span class="ms" style="font-size:36px">home</span>На главную</div>
+                </div>
+              </sc-if>
+
+              <div style="position:absolute;left:120px;bottom:64px;display:flex;gap:44px;font-size:24px;font-weight:500;color:oklch(0.72 0.008 260)">
+                <sc-for list="{{ f.hints }}" as="h" hint-placeholder-count="3"><span style="display:flex;align-items:center;gap:12px"><sc-if value="{{ h.arrow }}"><span class="ms" style="font-size:30px;padding:2px 6px;border-radius:10px;background:rgba(255,255,255,.1);color:oklch(0.92 0.005 260);font-variation-settings:'FILL' 0">{{ h.arrow }}</span></sc-if><sc-if value="{{ h.k }}"><span style="padding:2px 12px;border-radius:10px;background:rgba(255,255,255,.1);color:oklch(0.92 0.005 260);font-weight:600">{{ h.k }}</span></sc-if>{{ h.v }}</span></sc-for>
+              </div>
+            </div>
+
+            <sc-if value="{{ f.hasNav }}">
+              <div style="position:absolute;inset:0;background:linear-gradient(90deg, rgba(0,0,0,.45), rgba(0,0,0,.1))"></div>
+              <div style="position:absolute;left:72px;top:72px;bottom:72px;width:500px;border-radius:44px;padding:40px 28px 28px;display:flex;flex-direction:column;gap:8px;background:oklch(0.22 0.006 260 / .82);backdrop-filter:blur(40px);box-shadow:inset 0 1px 0 rgba(255,255,255,.1), 0 40px 100px rgba(0,0,0,.6)">
+                <div style="display:flex;align-items:center;gap:14px;padding:0 22px 26px;font-size:28px;font-weight:600"><svg viewBox="0 0 100 100" width="38" height="38" style="flex:none;display:block;overflow:visible"><path d="M14 86 L50 18 L86 86" fill="none" stroke="#EDEDED" stroke-width="15" stroke-linejoin="round"></path><circle cx="50" cy="70" r="10" fill="#FF8A3D"></circle></svg>Arinn</div>
+                <sc-for list="{{ f.navItems }}" as="n" hint-placeholder-count="7">
+                  <div style="position:relative;min-height:88px;border-radius:28px;padding:12px 24px;display:flex;align-items:center;gap:16px;background:{{ n.bg }};transform:{{ n.tf }};box-shadow:{{ n.sh }};color:{{ n.fg }}">
+                    <span class="ms" style="font-size:40px">{{ n.icon }}</span>
+                    <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px"><div style="font-size:30px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ n.label }}</div><sc-if value="{{ n.sub }}"><div style="font-size:22px;font-weight:500;color:oklch(0.84 0.006 260);display:flex;align-items:center;gap:8px;white-space:nowrap;overflow:hidden"><span style="flex:none;width:10px;height:10px;border-radius:5px;background:oklch(0.75 0.17 50)"></span><span style="min-width:0;overflow:hidden;text-overflow:ellipsis">{{ n.sub }}</span></div></sc-if></div>
+                    <sc-if value="{{ n.count }}"><span style="flex:none;font-size:24px;font-weight:600;color:oklch(0.75 0.17 50);font-variant-numeric:tabular-nums">{{ n.count }}</span></sc-if>
+                    <div style="position:absolute;inset:0;border-radius:28px;box-shadow:{{ n.kant }};pointer-events:none"></div>
+                  </div>
+                </sc-for>
+                <div style="margin-top:auto;height:1px;background:rgba(255,255,255,.1);margin-bottom:12px"></div>
+                <div style="height:80px;border-radius:28px;padding:0 24px;display:flex;align-items:center;gap:20px;font-size:28px;font-weight:600;color:oklch(0.84 0.006 260)"><span class="ms" style="font-size:36px;font-variation-settings:'FILL' 0">power_settings_new</span>Питание</div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ f.hasSheet }}">
+              <div style="position:absolute;top:0;right:0;bottom:0;width:720px;padding:112px 56px 64px;display:flex;flex-direction:column;background:oklch(0.22 0.006 260 / .95);box-shadow:-40px 0 120px rgba(0,0,0,.5), inset 1px 0 0 rgba(255,255,255,.08);z-index:8">
+                <div style="font-size:24px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:oklch(0.84 0.008 260)">{{ f.sh.eyebrow }}</div>
+                <div style="margin-top:14px;display:flex;align-items:center;gap:22px"><div style="flex:none;width:76px;height:76px;border-radius:22px;display:flex;align-items:center;justify-content:center;font-size:32px;font-weight:700;background:rgba(255,255,255,.12)">{{ f.sh.letter }}</div><div style="font-size:52px;font-weight:700;letter-spacing:-0.02em;line-height:1.1;text-wrap:pretty">{{ f.sh.title }}</div></div>
+                <div style="margin-top:18px;display:flex;align-items:center;gap:10px;font-size:26px;line-height:1.4;color:oklch(0.84 0.006 260)"><sc-if value="{{ f.sh.live }}"><span style="width:12px;height:12px;border-radius:6px;background:oklch(0.75 0.17 50)"></span></sc-if>{{ f.sh.desc }}</div>
+                <div style="margin-top:36px;display:flex;flex-direction:column;gap:12px">
+                  <sc-for list="{{ f.sh.opts }}" as="o" hint-placeholder-count="2">
+                    <div style="min-height:104px;border-radius:28px;padding:18px 28px;display:flex;align-items:center;gap:22px;background:{{ o.bg }};color:{{ o.fg }};transform:{{ o.tf }};box-shadow:{{ o.sh }}">
+                      <span class="ms" style="flex:none;font-size:40px;color:{{ o.ic }};font-variation-settings:'FILL' 0,'wght' 500">{{ o.icon }}</span>
+                      <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:4px"><div style="font-size:30px;font-weight:600;line-height:1.25;text-wrap:pretty">{{ o.label }}</div><sc-if value="{{ o.sub }}"><div style="font-size:26px;line-height:1.3;color:{{ o.subC }};text-wrap:pretty">{{ o.sub }}</div></sc-if></div>
+                    </div>
+                  </sc-for>
+                </div>
+                <div style="margin-top:auto;display:flex;gap:36px;font-size:24px;font-weight:500;color:oklch(0.72 0.008 260)">
+                  <span style="display:flex;align-items:center;gap:12px"><span style="padding:2px 12px;border-radius:10px;background:rgba(255,255,255,.1);color:oklch(0.92 0.005 260);font-weight:600">OK</span>Выбрать</span>
+                  <span style="display:flex;align-items:center;gap:12px"><span style="padding:2px 12px;border-radius:10px;background:rgba(255,255,255,.1);color:oklch(0.92 0.005 260);font-weight:600">Назад</span>Отмена</span>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ f.hasToast }}">
+              <div style="position:absolute;left:50%;bottom:72px;transform:translateX(-50%);height:84px;padding:0 36px 0 28px;border-radius:42px;display:flex;align-items:center;gap:16px;white-space:nowrap;font-size:28px;font-weight:500;background:oklch(0.24 0.006 260 / .9);backdrop-filter:blur(40px);border:1px solid rgba(255,255,255,.08);box-shadow:0 20px 50px rgba(0,0,0,.5);z-index:12">
+                <span class="ms" style="font-size:36px;color:oklch(0.75 0.17 50)">{{ f.toastIcon }}</span><span>{{ f.toastText }}</span>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ f.hasDlg }}">
+              <div style="position:absolute;inset:0;background:rgba(0,0,0,.58);z-index:20"></div>
+              <div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:900px;border-radius:48px;padding:52px 48px 44px;display:flex;flex-direction:column;gap:18px;background:oklch(0.22 0.006 260 / .97);box-shadow:0 60px 160px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,255,255,.1);z-index:21">
+                <sc-if value="{{ f.dlgIcon }}"><span class="ms" style="font-size:64px;color:{{ f.dlgIconC }}">{{ f.dlgIcon }}</span></sc-if>
+                <div style="font-size:48px;font-weight:700;letter-spacing:-0.02em;line-height:1.15;text-wrap:pretty">{{ f.dlgT }}</div>
+                <div style="font-size:30px;line-height:1.45;color:oklch(0.84 0.006 260);text-wrap:pretty">{{ f.dlgB }}</div>
+                <div style="margin-top:22px;display:flex;gap:20px">
+                  <sc-for list="{{ f.dlgBtns }}" as="b" hint-placeholder-count="2">
+                    <div style="flex:1;height:96px;padding:0 28px;border-radius:48px;display:flex;align-items:center;justify-content:center;gap:14px;font-size:30px;font-weight:600;white-space:nowrap;background:{{ b.bg }};color:{{ b.fg }};transform:{{ b.tf }};box-shadow:{{ b.sh }}"><sc-if value="{{ b.icon }}"><span class="ms" style="font-size:36px;color:{{ b.ic }};font-variation-settings:'FILL' 0">{{ b.icon }}</span></sc-if>{{ b.label }}</div>
+                  </sc-for>
+                </div>
+              </div>
+            </sc-if>
+          </div>
+        </div>
+        <sc-if value="{{ showDoc }}"><div style="font-size:16px;line-height:1.5;color:oklch(0.72 0.008 260);text-wrap:pretty">{{ f.caption }}</div></sc-if>
+      </div>
+    </sc-for>
+  </div>
+</div>
+</sc-for>
+
+<sc-if value="{{ showDoc }}">
+<div style="display:flex;flex-direction:column;gap:28px;max-width:1968px">
+  <div style="font-size:36px;font-weight:700;letter-spacing:-0.015em">Rules carried over from the handoff</div>
+  <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px">
+    <sc-for list="{{ rules }}" as="m" hint-placeholder-count="6">
+      <div style="border-radius:20px;padding:26px 30px;background:rgba(255,255,255,.05);box-shadow:inset 0 1px 0 rgba(255,255,255,.07);display:flex;flex-direction:column;gap:10px">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:18px;color:oklch(0.75 0.17 50)">{{ m.t }}</div>
+        <div style="font-size:22px;font-weight:600;line-height:1.35">{{ m.h }}</div>
+        <div style="font-size:18px;line-height:1.5;color:oklch(0.82 0.006 260);text-wrap:pretty">{{ m.d }}</div>
+      </div>
+    </sc-for>
+  </div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:20px;max-width:1300px">
+  <div style="font-size:36px;font-weight:700;letter-spacing:-0.015em">What the handoff package should contain</div>
+  <sc-for list="{{ checklist }}" as="q" hint-placeholder-count="6">
+    <div style="display:flex;gap:18px;font-size:20px;line-height:1.55;color:oklch(0.88 0.006 260)"><span style="flex:none;font-family:'JetBrains Mono',monospace;font-size:18px;color:oklch(0.75 0.17 50);padding-top:2px">{{ q.n }}</span><span style="text-wrap:pretty">{{ q.t }}</span></div>
+  </sc-for>
+</div>
+</sc-if>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+const C={tx:'oklch(0.97 0.004 260)',tx2:'oklch(0.84 0.006 260)',tx3:'oklch(0.68 0.008 260)',ink:'oklch(0.17 0.006 260)',amber:'oklch(0.75 0.17 50)',err:'oklch(0.66 0.21 22)'};
+const RING='inset 0 0 0 3px rgba(255,255,255,.45)',EDGE='inset 0 1px 0 rgba(255,255,255,.08)',LIFT='0 50px 80px -30px rgba(0,0,0,.9)';
+const glow=h=>`0 0 60px 0 oklch(0.62 0.13 ${h} / .22), ${LIFT}`;
+const light=h=>`radial-gradient(ellipse 70% 60% at 18% 0%, oklch(0.5 0.12 ${h} / .3) 0%, oklch(0.5 0.12 ${h} / 0) 70%)`;
+const mediaLight=h=>`radial-gradient(55% 70% at 74% 22%, oklch(0.48 0.10 ${h} / .8), transparent 70%), radial-gradient(38% 45% at 36% 58%, oklch(0.42 0.09 ${h-7} / .4), transparent 70%), radial-gradient(40% 40% at 100% 90%, oklch(0.32 0.06 ${h+18} / .45), transparent 70%)`;
+const art=h=>`linear-gradient(155deg, oklch(0.5 0.09 ${h} / .5) 0%, oklch(0.5 0.09 ${h} / 0) 55%), repeating-linear-gradient(135deg, oklch(0.3 0.05 ${h}) 0 16px, oklch(0.27 0.05 ${h}) 16px 32px)`;
+const RECEDE={baseTf:'scale(.98)',baseFl:'brightness(.55)'};
+const K=(k,v)=>({k,v,arrow:''}),A=(arrow,v)=>({k:'',v,arrow});
+const LIST_HINTS=[K('OK','Перейти'),A('arrow_forward','Закрыть'),K('Назад','Выйти')];
+const DEF={isApps:false,isHome:false,isList:false,isEmpty:false,hasNav:false,hasSheet:false,hasToast:false,hasDlg:false,
+  hints:[],baseTf:'none',baseFl:'none',light:light(260),variant:'',caption:'',
+  groups:[],cont:[],favs:[],contGap:'32px',rows:[],navItems:[],sh:{opts:[]},dlgBtns:[],dlgIcon:'',dlgIconC:C.tx2,title:'',count:''};
+
+class Component extends DCLogic {
+  frame(o){return{...DEF,...o}}
+  plate(f,o={}){return{bg:f?'rgba(255,255,255,.2)':'rgba(255,255,255,.06)',tf:f?(o.tf||'scale(1.06) translateY(-6px)'):'none',sh:f?glow(o.hue||260):'none',kant:f?RING:EDGE,z:f?3:1}}
+  tile(name,letter,o={}){return{name,letter,icon:o.icon||'',w:o.w||380,running:!!o.run,pinned:!!o.pin,...this.plate(o.f,{tf:'scale(1.08) translateY(-6px)'})}}
+  fav(name,letter,o={}){return{name,letter,icon:o.icon||'',running:!!o.run,...this.plate(o.f)}}
+  act(title,letter,f){return{isAct:true,w:400,title,letter,fg:C.tx,ml:'0',...this.plate(f)}}
+  closeCol(f){return{isClose:true,w:128,fg:f?C.ink:C.tx2,ml:'-16px',bg:f?C.tx:'rgba(255,255,255,.06)',tf:f?'scale(1.06)':'none',sh:f?'0 18px 40px -12px rgba(0,0,0,.7)':'none',kant:f?'none':EDGE,z:f?3:1}}
+  media(title,sub,pct,h,f){return{isMedia:true,w:400,title,sub,pct,art:art(h),fg:C.tx,ml:'0',...this.plate(f,{hue:h})}}
+  row(o){const on=o.focus==='row',cOn=o.focus==='close',noClose=!!o.noClose;
+    return{isRow:true,isHead:false,letter:o.letter,title:o.title,sub:o.sub||'',onScreen:!!o.onScreen,bg2:!!o.background,note:o.note||'',noteC:o.noteC||C.tx,
+      op:o.closing?.5:1,bg:on?'rgba(255,255,255,.2)':'rgba(255,255,255,.06)',tf:on?'scale(1.02)':'none',z:on?3:1,sh:on?glow(260):'none',kant:on?RING:EDGE,
+      closeBg:cOn?C.tx:'rgba(255,255,255,.06)',closeFg:cOn?C.ink:C.tx2,closeTf:cOn?'scale(1.06)':'none',closeSh:cOn?'0 18px 40px -12px rgba(0,0,0,.7)':'none',
+      closeIcon:o.closing?'progress_activity':(noClose?'block':'close'),closeOp:noClose?.4:1}}
+  head(t){return{isHead:true,isRow:false,head:t}}
+  opt(icon,label,o={}){const f=!!o.f;return{icon,label,sub:o.sub||'',bg:f?C.tx:'rgba(255,255,255,.06)',fg:f?C.ink:C.tx,subC:f?'oklch(0.36 0.006 260)':C.tx2,ic:o.danger&&!f?'oklch(0.8 0.12 22)':'inherit',tf:f?'scale(1.02)':'none',sh:f?'0 30px 60px -24px rgba(0,0,0,.8)':'none'}}
+  btn(label,icon,o={}){const f=!!o.f,d=!!o.danger;return{label,icon,bg:f?C.tx:(d?'oklch(0.66 0.21 22 / .22)':'rgba(255,255,255,.1)'),fg:f?C.ink:C.tx,ic:d?(f?C.err:'oklch(0.8 0.12 22)'):'inherit',tf:f?'scale(1.06)':'none',sh:f?'0 18px 40px -12px rgba(0,0,0,.7)':'none'}}
+  nav(focusRunning){const it=(icon,label,o={})=>{const f=!!o.f;return{icon,label,sub:o.sub||'',count:o.count||'',fg:f?C.tx:C.tx2,bg:f?'rgba(255,255,255,.2)':'transparent',tf:f?'scale(1.02)':'none',sh:f?'0 30px 60px -24px rgba(0,0,0,.9)':'none',kant:f?RING:'none'}};
+    return[it('home','Главная'),it('video_library','Медиатека'),it('download','Загрузки'),it('apps','Приложения'),it('settings','Настройки'),
+      it('stacks','Открытые сервисы',{count:'2'}),it('desktop_windows','Запущенные',{f:focusRunning,sub:'На экране: Steam',count:'4'})]}
+  favRow(o={}){return[this.fav('Steam','S',{run:o.steamRun!==false}),this.fav('EmulationStation','ES',{f:o.esFocus}),this.fav('Сайт или поиск','',{icon:'travel_explore'}),this.fav('Кинопоиск','К'),this.fav('YouTube','Y'),this.fav('Текстовый редактор','Т')]}
+  mediaRow(focusFirst){return[this.media('Дюна: Часть вторая','Осталось 1 ч 32 мин',45,55,focusFirst),this.media('Сёгун','С1 Э4 · Восьмикратная ограда',42,20,false),this.media('Фоллаут','С1 Э2 · Цель',66,140,false)]}
+  appsRows(o){
+    const f=i=>o.focus&&o.focus[0]===i?o.focus[1]:null;
+    return[
+      this.row({letter:'S',title:'Steam',onScreen:true,focus:f(0),closing:o.closing,note:o.closing?'Закрывается…':(o.failed?'Не закрылся':''),noteC:o.closing?C.tx:C.tx2}),
+      this.row({letter:'ES',title:'EmulationStation',background:true,focus:f(1)}),
+      this.row({letter:'Т',title:'Текстовый редактор',background:true,focus:f(2)}),
+      this.row({letter:'М',title:'Системный монитор',background:true,note:'Закрыть из Arinn нельзя',noteC:C.tx3,noClose:true,focus:f(3)})]}
+  list(o){return this.frame({isList:true,title:'Запущенные приложения',count:'4',rows:this.appsRows(o),hints:LIST_HINTS,...o.extra})}
+
+  renderVals(){
+    const apps=(sheet)=>this.frame({isApps:true,...RECEDE,hasSheet:true,sh:sheet,
+      groups:[
+        {label:'Онлайн',tiles:[this.tile('Сайт или поиск','',{icon:'travel_explore',pin:true}),this.tile('Кинопоиск','К',{pin:true}),this.tile('IVI','I'),this.tile('YouTube','Y',{pin:true})]},
+        {label:'Игры',tiles:[this.tile('Steam','S',{w:480,run:true,pin:true,f:true}),this.tile('EmulationStation','ES',{w:480,pin:true})]},
+        {label:'Другое',tiles:[this.tile('Текстовый редактор','Т',{run:true,pin:true}),this.tile('Системный монитор','М',{run:true})]}]});
+    const home=o=>this.frame({isHome:true,heroLive:true,heroEyebrow:'Сейчас запущено',heroTitle:'Steam',heroMeta:'Вернуться',favs:this.favRow(),...o});
+
+    const tileMenu=[
+      {...apps({eyebrow:'Игры',letter:'S',title:'Steam',live:true,desc:'Запущено',opts:[this.opt('keep_off','Убрать с главной'),this.opt('close','Закрыть',{f:true,danger:true,sub:'Arinn попросит Steam закрыться'})]}),
+        id:'CL-1',label:'Tile menu, running app (Apps)',caption:'Menu on a running tile opens the right sheet from 10/11 (w720). The Apps screen recedes (scale .98, brightness .55); the focused tile stays visible on the left. Pin or unpin keeps the first position; Close is added below it only while the app runs. Focus opens on the first option; this frame shows it after ↓. OK on Close opens the confirmation (CL-8). Back closes the sheet and returns focus to the tile. Proposed tile hint: «OK — открыть · Меню — действия».'},
+      {...home({heroLive:false,heroEyebrow:'Избранное · Игры',heroTitle:'EmulationStation',heroMeta:'Откроется на весь экран',cont:[this.act('Steam','S',false),...this.mediaRow(false)],favs:this.favRow({esFocus:true}),...RECEDE,hasSheet:true,
+        sh:{eyebrow:'Избранное',letter:'ES',title:'EmulationStation',live:false,desc:'Не запущено',opts:[this.opt('keep_off','Убрать с главной',{f:true})]}}),
+        id:'CL-2',label:'Tile menu, not running (Home favorites)',caption:'The same sheet from a Home favorite. The app is not running, so only pin/unpin is offered and nothing is disabled or greyed out. Web-shortcut tiles are a separate question (Q5): today Menu on them opens the shortcut editor.'}
+    ];
+
+    const card=[
+      {...home({heroMeta:'Закрыть Steam',cont:[this.act('Steam','S',false),this.closeCol(true),...this.mediaRow(false).slice(0,2)]}),
+        id:'CL-3a',label:'Continue card: → to a Close button',variant:'Variant a · recommended',caption:'A Close button (128×225, r26) sits directly right of the activity card, gap 16, as on Open services rows. → from the card moves to it, the next → to the first media card. It is visible at rest (plate 6%, text-2) so the row never jumps. The hero describes what OK will do. OK opens the confirmation (CL-8).'},
+      {...home({cont:[this.act('Steam','S',true),...this.mediaRow(false)],...RECEDE,hasSheet:true,
+        sh:{eyebrow:'Продолжить',letter:'S',title:'Steam',live:true,desc:'Сейчас запущено',opts:[this.opt('arrow_forward','Вернуться',{f:true}),this.opt('close','Закрыть',{danger:true,sub:'Arinn попросит Steam закрыться'})]}}),
+        id:'CL-3b',label:'Continue card: Menu opens the tile sheet',variant:'Variant b',caption:'No new target in the row: Menu on the activity card opens the same sheet as the tiles, with Return and Close. Consistent with CL-1, but hidden behind a key; a hint line on Home would be needed.'}
+    ];
+
+    const running=[
+      {...this.list({focus:[0,'row']}),id:'CL-4',label:'Running list, focus on a row',caption:'One row per running window, the app on screen first, then by last use (as OS-1). Row from Open services: chip 76 (neutral monogram), name 30/600, status «На экране» with an Ember dot or «В фоне». OK switches to the app. An app Arinn cannot close (no terminate capability) keeps its row; its button is at 40% with a block icon, stays focusable and explains itself with a toast (LF-5 pattern).'},
+      {...this.list({focus:[0,'close']}),id:'CL-5',label:'Focus on Close',caption:'→ moves to the row’s Close button (white fill + ink, ×1.06), ← returns. Unlike Open services, OK here asks for confirmation (CL-8), because a game or unsaved work can be lost.'},
+      {...this.frame({isEmpty:true,title:'Запущенные приложения',emIcon:'desktop_windows',emTitle:'Ничего не запущено',emBody:'Здесь появятся приложения и игры, которые вы откроете. Онлайн-сервисы — в «Открытых сервисах».'}),id:'CL-6',label:'Nothing running',caption:'Empty state in the OS-6 layout with one focused button. The navigation item stays; its count is hidden.'},
+      {...home({cont:[this.act('Steam','S',false),...this.mediaRow(false)],hasNav:true,...RECEDE,navItems:this.nav(true)}),id:'CL-7',label:'Entry from navigation',caption:'Recommended entry: an item directly below «Открытые сервисы», icon desktop_windows (stacks is taken), short label «Запущенные» because the full screen title does not fit 30/600 next to a count in the 500 px panel, with the H-2 subline «На экране: {name}» and the Downloads-style count. It replaces the bottom activity row, as the Open services item already does for web services, so the panel keeps its y72–1008 height. No second summary card in Continue (specification §5.1 defines only the browser «Ещё N открыто» entry).'}
+    ];
+
+    const feedback=[
+      {...this.list({focus:[0,'close'],extra:{...RECEDE,hasDlg:true,dlgT:'Закрыть Steam?',dlgB:'Arinn попросит Steam закрыться. Несохранённые изменения и прогресс в игре могут пропасть.',dlgBtns:[this.btn('Отмена','close',{f:true}),this.btn('Закрыть','logout',{danger:true})]}}),
+        id:'CL-8',label:'Confirmation',caption:'The power confirm (15b) and the folder remove dialog (LF-6): w900, r48, scrim .58. Focus starts on «Отмена»; the action has the 22% error tint. Back = Cancel, focus returns to the opener. Home closes the dialog without closing the app. Same dialog from all three entry points.'},
+      {...this.list({focus:[1,'row'],closing:true}),id:'CL-9',label:'Closing',caption:'As OS-3: the row dims to 50%, a spinner replaces the close icon, the status reads «Закрывается…» and focus moves to the next row straight away. On the Continue card and on a tile the same spinner replaces the close icon or the running dot.'},
+      {...home({heroLive:false,heroEyebrow:'Продолжить',heroTitle:'Дюна: Часть вторая',heroMeta:'1:13:42 из 2:46:00 · Осталось 1 ч 32 мин',light:mediaLight(55),cont:this.mediaRow(true),favs:this.favRow({steamRun:false}),hasToast:true,toastIcon:'check_circle',toastText:'Steam закрыт'}),
+        id:'CL-10',label:'Closed (from the Continue card)',caption:'The app left the running list: the activity card collapses (220 ms), the media cards close the gap and focus moves to the neighbour. The running dot leaves the Steam tile. A short toast confirms it (Q7). If another app is still running, the card shows that app instead.'},
+      {...this.list({focus:[1,'row'],failed:true,extra:{...RECEDE,hasDlg:true,dlgIcon:'info',dlgIconC:C.tx2,dlgT:'Steam не закрылся',dlgB:'Возможно, он ждёт ответа на своём экране — например, просит сохранить изменения. Перейдите в Steam и ответьте там.',dlgBtns:[this.btn('Перейти в Steam','arrow_forward',{f:true}),this.btn('Остаться','')]}}),
+        id:'CL-11',label:'Did not close',caption:'The app ignored the request, refused, or is asking its own question. Dialog in the 18b / H-6 layout, informational rather than an error. The default action switches to the app; «Остаться» keeps the user in Arinn. The row returns to full opacity with «Не закрылся». There is no force-close button (not in the MVP).'}
+    ];
+
+    const variants=[
+      {...this.frame({isList:true,title:'Открыто',count:'4',hints:LIST_HINTS,rows:[
+        this.head('Приложения'),
+        this.row({letter:'S',title:'Steam',onScreen:true,focus:'row'}),
+        this.row({letter:'ES',title:'EmulationStation',background:true}),
+        this.head('Онлайн-сервисы'),
+        this.row({letter:'К',title:'Дюна: Часть вторая — смотреть онлайн',sub:'hd.kinopoisk.ru'}),
+        this.row({letter:'Y',title:'Как снимали «Сёгун»: за кадром',sub:'youtube.com'})]}),
+        id:'CL-12',label:'Merged with Open services',variant:'Variant · not recommended',caption:'One screen for everything open, grouped. One navigation item, but two close rules side by side (services without confirmation per ADR-0050, apps with it), and the browser-unavailable state (OS-7) would cover only half the screen. Shown so the owner can compare.'}
+    ];
+
+    const sections=[
+      {title:'Tile menu',note:'Menu on an app tile in Apps or in Home favorites opens an action sheet: pin or unpin as today, plus Close while the app runs.',frames:tileMenu},
+      {title:'Continue card «Сейчас запущено»',note:'Its own close action. Two ways to reach it are drawn; the designer chooses (Q3).',frames:card},
+      {title:'Running list',note:'A separate screen like Open services: every running application with its own Close button.',frames:running},
+      {title:'Confirmation and result',note:'The same confirmation and feedback for all three entry points. Arinn only asks the app to close; it never kills a process.',frames:feedback},
+      {title:'For comparison',note:'The main open question for the owner (Q1).',frames:variants}
+    ];
+
+    const decisions=[
+      {q:'Where can a running app be closed?',a:'In three places',why:'The tile menu (Apps and Home favorites), the Continue card «Сейчас запущено», and a running list on its own screen like Open services.'},
+      {q:'Ask before closing?',a:'Yes, like the power confirm',why:'«Закрыть Steam?» with focus on «Отмена»: a game or unsaved work can be lost.'},
+      {q:'How does Arinn close an app?',a:'Graceful close only',why:'Application1.Terminate asks the app to close (specification §7.2). Force kill is not part of the MVP; the app may refuse or ask its own question.'},
+      {q:'What about browser services?',a:'Unchanged',why:'Web services keep closing on Open services without confirmation (ADR-0050). This brief covers Steam, games, ES-DE and desktop apps.'}
+    ];
+
+    const NO={tag:'Needs owner',tagBg:'oklch(0.66 0.21 22 / .22)',tagFg:'oklch(0.86 0.08 22)'},DS={tag:'Designer',tagBg:'rgba(255,255,255,.1)',tagFg:C.tx2};
+    const questions=[
+      {n:'Q1',...NO,q:'Merge the running list with Open services, or keep a separate screen?',a:'Separate screen',why:'Each list keeps one close rule (services: none; apps: confirm), Open services and ADR-0050 stay as decided, and the designer already reserved «Запущено» for apps and games. CL-12 shows the merged option.'},
+      {n:'Q2',...NO,q:'How is the running list reached?',a:'A navigation item below «Открытые сервисы» that replaces the activity row',why:'Same pattern as H-2, keeps the panel height. Continue gets no second summary card: specification §5.1 defines only the browser «Ещё N открыто» entry and rules out competing “Now running” sections. This changes the navigation list in §5, so the owner decides.'},
+      {n:'Q3',...DS,q:'How is Close reached from the Continue card?',a:'Variant a: → to a Close button next to the card',why:'Visible without a hidden key and matches Open services rows. Variant b (Menu → sheet) is consistent with tiles but undiscoverable on Home.'},
+      {n:'Q4',...NO,q:'Which input opens the tile sheet?',a:'The input that pins today (long-press Menu in Apps; specification §6.2), also on Home favorites',why:'The sheet replaces the direct pin toggle; today the shell opens the shortcut editor with Menu on a web-shortcut tile (#68). Menu still toggles navigation elsewhere. §6.2 must then be updated, which is a product change.'},
+      {n:'Q5',...NO,q:'Do web-shortcut tiles and a web-service activity card get Close?',a:'No; services close only in Open services',why:'Keeps ADR-0050 unchanged and avoids a confirmation for services in one place but not another. Menu on a web-shortcut tile keeps opening its editor (#68), or the sheet gets «Изменить ярлык».'},
+      {n:'Q6',...DS,q:'Screen name and sheet order',a:'Screen «Запущенные приложения», nav item «Запущенные»; pin/unpin first, Close second, focus on the first',why:'«Запущено» alone is the running badge, and the full title does not fit the nav item. A stable position for pin means the sheet looks the same whether or not the app runs.'},
+      {n:'Q7',...DS,q:'Feedback after a successful close',a:'The row or card collapses and a short toast «{name} закрыт»',why:'On a tile or Home the only other sign is a dot disappearing, which is easy to miss from 3 m.'},
+      {n:'Q8',...DS,q:'Did not close: dialog or inline?',a:'Dialog (CL-11) with «Перейти в {name}» as default',why:'The app is waiting on its own screen; the user must act there. No retry and no force close in the MVP; a later «Попросить ещё раз» stays possible.'},
+      {n:'Q9',...DS,q:'Several windows of one app; apps Arinn cannot close',a:'One row per window; no-close rows stay with a dimmed button',why:'The daemon reports windows as separate instances, each with its own terminate capability. Draw the duplicate-name case and the dimmed button.'}
+    ];
+
+    const rules=[
+      {t:'3 m · 1920×1080',h:'Readable from the sofa',d:'Nothing below 24; anything an action depends on at 26 or more. Frames on the 1920×1080 canvas, ×2 for 4K.'},
+      {t:'D-pad',h:'Arrows, OK, Back, Home only',d:'Every state reachable without a pointer. Focus scopes: dialog › power › sheet › nav › screen. After a row or card disappears, focus moves to the neighbour (specification §6.1).'},
+      {t:'RU +30%',h:'Russian labels are longer',d:'Buttons hug their content; long app names ellipsize at one line. Russian strings are the product UI.'},
+      {t:'Design System v2',h:'Tokens only',d:'plate / plate-focus, glass, text-1…3, error tint 22% for the destructive action. Ember marks “running”, never focus.'},
+      {t:'Reuse',h:'Existing patterns',d:'Sheet 10/11, dialog 15b and LF-6, row and close button OS-1…3, empty state OS-6, nav item H-2, toast. No new component types.'},
+      {t:'Neutral',h:'No third-party logos',d:'Monograms on a white-12% chip. Production icons come from the application record (ADR-0059).'}
+    ];
+
+    const checklist=[
+      {n:'1',t:'A .dc.html canvas in the handoff format: design answers to Q1–Q9, numbered frames, captions with D-pad paths and the focus target after each transition.'},
+      {n:'2',t:'Frames: tile sheet running / not running from Apps and Home; the chosen Continue close; running list (focus row, focus close, many with scroll position, long names, cannot close, two windows of one app, empty); navigation entry; confirmation; closing; closed in the list and on the card; did not close.'},
+      {n:'3',t:'1920×1080 PNG screenshots of every frame with neutral monograms only.'},
+      {n:'4',t:'Final Russian strings for every label, status, dialog and toast; an English toggle as in Open services is welcome.'},
+      {n:'5',t:'Motion: sheet in/out, closing spinner, row and card collapse, toast; existing durations unless stated.'},
+      {n:'6',t:'A README section in the handoff README style, plus any remaining open questions listed explicitly.'}
+    ];
+
+    const intro='Brief for the designer, prepared from the owner decisions in issue #205. It follows the Open services and Settings editors canvases: owner decisions, open questions with recommendations, and draft frames on the real 1920×1080 grid built only from existing handoff components. Russian UI strings, neutral monograms. Frames show 50% scale.';
+    const status='Draft frames by an agent, not a design handoff. Variant tags and every “Recommendation” are proposals; the owner and the designer decide. Nothing in docs/design/handoff/ was changed.';
+    const questionsNote='“Needs owner” items change product behaviour or the specification and are decided by the owner (ADR-0037). “Designer” items are layout choices; the recommendation is a starting point.';
+
+    const only=this.state.only;
+    const page={pagePad:'96px 96px 160px',showDoc:true,fw:960,fh:540,sc:.5,frameR:'10px',frameSh:'0 20px 60px rgba(0,0,0,.5)'};
+    if(only){const fr=sections.flatMap(s=>s.frames).find(f=>f.id===only);
+      if(fr)return{...page,pagePad:'0',showDoc:false,fw:1920,fh:1080,sc:1,frameR:'0',frameSh:'none',sections:[{title:'',note:'',frames:[fr]}],decisions:[],questions:[],rules:[],checklist:[],intro,status,questionsNote}}
+    return{...page,sections,decisions,questions,rules,checklist,intro,status,questionsNote};
+  }
+  state={only:(location.hash.match(/only=([\w-]+)/)||[])[1]||null};
+  componentDidMount(){this._h=()=>this.setState({only:(location.hash.match(/only=([\w-]+)/)||[])[1]||null});window.addEventListener('hashchange',this._h)}
+  componentWillUnmount(){window.removeEventListener('hashchange',this._h)}
+}
+</script>
+</body>
+</html>

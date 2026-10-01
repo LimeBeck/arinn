@@ -32,6 +32,12 @@ To view the prototype, open `handoff/design/arinn.dc.html` in a browser and clic
 
 The handoff declares colours, typography, sizes, radii, focus and motion timings final. Artwork is placeholder.
 
+## Design briefs
+
+Briefs prepared for the designer live in [`briefs/`](briefs/). They are not part of the handoff and decide nothing on their own; the designer's answer comes back as a new handoff package.
+
+- [Closing running applications](briefs/closing-running-applications/README.md) ([#205](https://github.com/LimeBeck/arinn/issues/205)): tile menu, Continue card, running list, confirmation and closing feedback. Draft frames in the handoff `.dc.html` format, with open questions for the owner.
+
 ## Relation to development
 
 The [specification](../specifications/arinn-specification.md) defines architecture and MVP; [ADR-0019](../adr/0019-design-handoff-contract.md) links the visual contract to the Qt/QML presentation layer. The [integration review](integration-review.md) records conflicts between the handoff and the specification, their resolutions and remaining runtime gates.

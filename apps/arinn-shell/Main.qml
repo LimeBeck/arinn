@@ -116,7 +116,7 @@ Window {
     SettingsCatalog { id: settingsCatalog; objectName: "settingsCatalog" }
     KeyboardMonitor { id: keyboardMonitor }
     Shortcut {
-        sequences: ["Esc", "Backspace"]
+        sequences: ["Esc", "Backspace", "Back"]
         context: Qt.WindowShortcut
         autoRepeat: false
         enabled: root.active && mediaCatalog.presentationState === "ReleaseFailed"

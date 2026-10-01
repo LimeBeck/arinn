@@ -1397,7 +1397,14 @@ private slots:
     QCOMPARE(daemon.lastLocal, QStringLiteral("new"));
     QVERIFY(daemon.commands.isEmpty());
   }
+  void homeBackRetriesFailedReleaseWithoutReturnTarget_data() {
+    QTest::addColumn<int>("retryKey");
+    QTest::newRow("escape") << int(Qt::Key_Escape);
+    QTest::newRow("backspace") << int(Qt::Key_Backspace);
+    QTest::newRow("native-back") << int(Qt::Key_Back);
+  }
   void homeBackRetriesFailedReleaseWithoutReturnTarget() {
+    QFETCH(int, retryKey);
     MediaDaemon daemon;
     daemon.features = {QStringLiteral("MediaWindow1")};
     daemon.page1 = {session(QStringLiteral("live"), QStringLiteral("Piece"), QStringLiteral("paused"), 0, monotonicUs(), 9000000, {QStringLiteral("stop")})};
@@ -1431,7 +1438,7 @@ private slots:
     QTest::keyClick(window, Qt::Key_Escape);
     QTRY_VERIFY(!home->property("navOpen").toBool());
     QCOMPARE(daemon.windowCommands.count(QStringLiteral("Release")), 1);
-    QTest::keyClick(window, Qt::Key_Escape);
+    QTest::keyClick(window, Qt::Key(retryKey));
     QTRY_COMPARE_WITH_TIMEOUT(daemon.windowCommands.count(QStringLiteral("Release")), 2, 2000);
     QVERIFY(daemon.lastRequest != originalRequest);
     QCOMPARE(daemon.lastLocal, QStringLiteral("live"));

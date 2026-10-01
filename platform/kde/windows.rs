@@ -1165,12 +1165,11 @@ impl Windows {
                 .pending
                 .iter()
                 .chain(s.media.queued.iter())
-                .filter(|p| {
+                .rfind(|p| {
                     p.command.action == "present"
                         && p.command.scope == scope
                         && p.session == session
                 })
-                .next_back()
                 .map(|p| p.command.token.clone());
             let Some(token) = admitted.or(stored) else {
                 return Ok(None);

@@ -1723,11 +1723,7 @@ impl BrowserEndpoint {
         // Optional identity evidence must not outlive its registration or a
         // failed/incomplete refresh. Reject stale snapshots rather than mutate
         // immutable pages under an unchanged provider revision.
-        if p.owner.is_empty()
-            || p.info.runtime_state != "ready"
-            || p.info.backend_state != "available"
-            || (!p.info.last_error.is_empty() && p.info.recovered_at == 0)
-        {
+        if p.owner.is_empty() {
             return Err(ErrorCode::Unavailable.into());
         }
         let alive = zbus::fdo::DBusProxy::new(&self.core.connection)
@@ -1751,6 +1747,23 @@ impl BrowserEndpoint {
         )?;
         if page.generation != p.info.generation {
             return Err(ErrorCode::Conflict.into());
+        }
+        // Unlinked snapshots remain readable, including the normal empty
+        // snapshot of a closed browser. Only positive identity evidence needs
+        // current refresh health and platform availability.
+        if !p
+            .windows
+            .iter()
+            .chain(page.windows.iter())
+            .any(|w| !w.window_token.is_empty())
+        {
+            return Ok((page,));
+        }
+        if p.info.runtime_state != "ready"
+            || p.info.backend_state != "available"
+            || (!p.info.last_error.is_empty() && p.info.recovered_at == 0)
+        {
+            return Err(ErrorCode::Unavailable.into());
         }
         let live = self.core.windows.live_tokens(&self.core.connection).await;
         if p.windows

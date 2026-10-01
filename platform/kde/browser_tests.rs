@@ -438,6 +438,10 @@ async fn browser_snapshot_is_served_and_tab_commands_raise_the_window() {
         .build()
         .await
         .unwrap();
+    // Cached provider links are not identity evidence before inventory exists.
+    assert!(matches!(api.get_tabs("").await,
+        Err(zbus::Error::MethodError(ref name, _, _)) if name.as_str() == "org.arinn.Error1.Unavailable"));
+    let platform = f.platform().await;
     let (page,) = api.get_tabs("").await.unwrap();
     assert_eq!(page.generation, f.generation);
     assert_eq!(page.tabs.len(), 2);
@@ -452,7 +456,6 @@ async fn browser_snapshot_is_served_and_tab_commands_raise_the_window() {
 
     // A tab in a linked window: the browser selects it, then the platform
     // activates exactly that compositor window.
-    let platform = f.platform().await;
     let bridge = KWinBridgeProxy::new(&f.kwin).await.unwrap();
     let path = api
         .activate_tab(&f.generation, "t1", &Uuid::new_v4().to_string())

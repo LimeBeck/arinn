@@ -274,10 +274,11 @@ after #45 merges. This contract alone does not complete AC-18.
 
 [ADR-0073](../adr/0073-return-window-association.md) defines optional
 [ReturnAssociation1](return-association1.xml) and trusted
-[KWinReturn1](kwin-return1.xml) at the daemon root. They are **contract-only**, not
-production exports. The [association contract](../architecture/return-association.md)
-specifies typed optional values, ownership, lifetime invalidation, conservative
-provider joins and separate producer/consumer follow-ups. Existing Status,
+[KWinReturn1](kwin-return1.xml) at the daemon root. The production daemon/KDE
+producer is implemented in [#217](https://github.com/LimeBeck/arinn/issues/217);
+asynchronous shell consumption and real KDE qualification remain pending.
+The [association contract](../architecture/return-association.md) specifies typed
+optional values, ownership, lifetime invalidation and conservative provider joins. Existing Status,
 HomeRequested, BrowserWindow, PlatformWindows1 and KWinBridge1 signatures remain
 unchanged. Missing association always preserves opaque Return; it does not finish
 #207's deduplication.

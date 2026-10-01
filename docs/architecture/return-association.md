@@ -207,6 +207,8 @@ link fails the read with `Unavailable`; a page from an obsolete registration
 fails with `Conflict`. Leased pages keep their original contents and revision:
 previous links must still agree with the current registered browser snapshot.
 The daemon does not rewrite immutable pages or invent provider revisions.
+Unlinked snapshots, including normal empty offline browser snapshots, remain
+readable without platform evidence.
 A failed read keeps Return in the future consumer, and may temporarily make the
 browser snapshot unavailable until its provider publishes fresh links. Multiple
 valid claims are not resolved by order; the consumer must still require one

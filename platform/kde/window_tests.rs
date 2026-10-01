@@ -930,9 +930,27 @@ async fn exported_browser_links_require_live_inventory_and_current_registration(
         api.get_tabs("").await.unwrap().0.windows[0].window_token,
         "token-0"
     );
+    {
+        let mut state = f.core.state.lock().await;
+        failed(
+            &mut state.providers.get_mut("fixture").unwrap().info,
+            ErrorCode::Timeout,
+        );
+    }
+    error(api.get_tabs("").await, "Unavailable");
+    f.core
+        .state
+        .lock()
+        .await
+        .providers
+        .get_mut("fixture")
+        .unwrap()
+        .info
+        .last_error
+        .clear();
     f.publish(&generation, 2, 0).await;
     error(api.get_tabs("").await, "Unavailable");
-    // An incomplete refresh cannot turn cached links into current evidence.
+    // Unlinked/offline browser snapshots still work without platform evidence.
     {
         let mut state = f.core.state.lock().await;
         let p = state.providers.get_mut("fixture").unwrap();
@@ -943,13 +961,8 @@ async fn exported_browser_links_require_live_inventory_and_current_registration(
             .unwrap()
             .import(2, p.windows.clone(), vec![])
             .unwrap();
+        p.info.backend_state = "unavailable".into();
         failed(&mut p.info, ErrorCode::Timeout);
-    }
-    error(api.get_tabs("").await, "Unavailable");
-    {
-        let mut state = f.core.state.lock().await;
-        let p = state.providers.get_mut("fixture").unwrap();
-        p.info.last_error.clear();
     }
     assert!(
         api.get_tabs("").await.unwrap().0.windows[0]

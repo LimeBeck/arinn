@@ -132,18 +132,10 @@ void Backend::publishState() {
   }
   emit changed();
 }
-QVariantList Backend::continueWithoutWindow(const QVariantMap &service) const {
-  if (!m_return.isEmpty() && !m_generation.isEmpty() &&
-      service.value("platformGeneration").toString() == m_generation &&
-      service.value("windowToken").toString() == m_return)
-    return {};
-  return continueEntries();
-}
 QVariantList Backend::continueEntries() const {
   if (!m_connected || m_return.isEmpty())
     return {};
   return {QVariantMap{{"id", m_return},
-                      {"platformGeneration", m_generation},
                       {"title", tr("Return to activity")},
                       {"subtitle", tr("Continue where you left off")},
                       {"running", true}}};

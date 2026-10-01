@@ -23,7 +23,11 @@
 #include <QRunnable>
 #include <QTest>
 #include <QSignalSpy>
+#include <QQuickImageProvider>
+#include <QQmlExpression>
+#include <atomic>
 #include <QThreadPool>
+#include <QThread>
 #include <QUrl>
 #include <QtDBus>
 #include <memory>
@@ -189,12 +193,104 @@ bool registerDaemon(AssetDaemon *daemon) {
 }
 } // namespace
 
+namespace {
+struct IconPixelGate {
+  std::atomic<bool> hold{true}, fail{false};
+  std::atomic<int> pixelCalls{0};
+};
+class GatedIconProvider : public QQuickImageProvider {
+public:
+  explicit GatedIconProvider(std::shared_ptr<IconPixelGate> gate)
+      : QQuickImageProvider(Image, ForceAsynchronousImageLoading), m_gate(gate) {}
+  QImage requestImage(const QString &, QSize *size, const QSize &requestedSize) override {
+    if (!requestedSize.isValid()) {
+      ++m_gate->pixelCalls;
+      QElapsedTimer timeout;
+      timeout.start();
+      while (m_gate->hold && timeout.elapsed() < 3000) QThread::msleep(1);
+      if (m_gate->hold || m_gate->fail) return {};
+    }
+    QImage image(32, 32, QImage::Format_ARGB32);
+    image.fill(Qt::red);
+    if (size) *size = image.size();
+    return image;
+  }
+private:
+  std::shared_ptr<IconPixelGate> m_gate;
+};
+}
+
 class AssetImagesTest : public QObject {
   Q_OBJECT
   AssetDaemon daemon;
   QByteArray redPng;
   QByteArray bluePng;
 private slots:
+  void iconFallbackWaitsForCanvasAndReleasesPreviousSource() {
+    auto gate = std::make_shared<IconPixelGate>();
+    QQmlApplicationEngine engine;
+    engine.addImageProvider("controlled-icons", new GatedIconProvider(gate));
+    const QString first = "image://controlled-icons/first";
+    const QString second = "image://controlled-icons/second";
+    engine.rootContext()->setContextProperty("iconUrl", first);
+    engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_PLACEHOLDER_QML))
+                    .resolved(QUrl("icon_tile_fixture.qml")));
+    QVERIFY(!engine.rootObjects().isEmpty());
+    auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+    QVERIFY(window);
+    auto tile = findItem(window->contentItem(), "iconTile");
+    auto picture = findItem(window->contentItem(), "applicationIcon");
+    auto frame = findItem(window->contentItem(), "applicationIconCanvas");
+    auto fallback = findItem(window->contentItem(), "applicationFallback");
+    QVERIFY(tile && picture && frame && fallback);
+    QTRY_COMPARE(picture->property("status").toInt(), kImageReady);
+    QTRY_COMPARE(gate->pixelCalls.load(), 1);
+    QVERIFY(!tile->property("iconReady").toBool());
+    QVERIFY(fallback->isVisible());
+    gate->hold = false;
+    QTRY_VERIFY(tile->property("iconReady").toBool());
+    QVERIFY(!fallback->isVisible());
+    const auto cached = [&](const QString &source) {
+      QQmlExpression expression(engine.rootContext(), frame,
+          "isImageLoaded('" + source + "')");
+      return expression.evaluate().toBool();
+    };
+    QVERIFY(cached(first));
+    gate->hold = true;
+    gate->fail = true;
+    engine.rootContext()->setContextProperty("iconUrl", second);
+    QTRY_COMPARE(gate->pixelCalls.load(), 2);
+    QCOMPARE(picture->property("status").toInt(), kImageReady);
+    QVERIFY(!tile->property("iconReady").toBool());
+    QVERIFY(fallback->isVisible());
+    QVERIFY(!cached(first));
+    gate->hold = false;
+    QQmlExpression failed(engine.rootContext(), frame,
+        "isImageError('" + second + "')");
+    QTRY_VERIFY(failed.evaluate().toBool());
+    QVERIFY(!tile->property("iconReady").toBool());
+    QVERIFY(fallback->isVisible());
+    gate->fail = false;
+    engine.rootContext()->setContextProperty("iconUrl", QString("image://controlled-icons/third"));
+    QTRY_VERIFY(tile->property("iconReady").toBool());
+    QVERIFY(!cached(first));
+    engine.rootContext()->setContextProperty("iconUrl", QString());
+    QTRY_VERIFY(!tile->property("iconReady").toBool());
+    QVERIFY(fallback->isVisible());
+    QVERIFY(!cached("image://controlled-icons/third"));
+    // Changing source while a Canvas request is pending must not resurrect it.
+    gate->hold = true;
+    const int before = gate->pixelCalls.load();
+    engine.rootContext()->setContextProperty("iconUrl", QString("image://controlled-icons/obsolete"));
+    QTRY_COMPARE(gate->pixelCalls.load(), before + 1);
+    engine.rootContext()->setContextProperty("iconUrl", QString("image://controlled-icons/latest"));
+    QTRY_COMPARE(frame->property("requestedSource").toString(), QString("image://controlled-icons/latest"));
+    QVERIFY(!tile->property("iconReady").toBool());
+    gate->hold = false;
+    QTRY_VERIFY(tile->property("iconReady").toBool());
+    QVERIFY(!cached("image://controlled-icons/obsolete"));
+    QVERIFY(cached("image://controlled-icons/latest"));
+  }
   void localIconsAreBoundedAndPrivate() {
     QTemporaryDir dir;
     QVERIFY(dir.isValid());
@@ -241,15 +337,15 @@ private slots:
     auto tile = findItem(window->contentItem(), "iconTile");
     QVERIFY(tile);
     QTRY_VERIFY(([&] {
-      const auto grab = tile->grabToImage();
+      const auto grab = tile->grabToImage(QSize(528, 264));
       if (grab.isNull()) return false;
       QSignalSpy ready(grab.data(), &QQuickItemGrabResult::ready);
       if (grab->image().isNull() && !ready.wait(500)) return false;
       const auto image = grab->image();
       if (image.isNull()) return false;
-      const auto edge = image.pixelColor(28, 66);
-      const auto corner = image.pixelColor(24, 36);
-      const auto outside = image.pixelColor(88, 66);
+      const auto edge = image.pixelColor(56, 132);
+      const auto corner = image.pixelColor(57, 81);
+      const auto outside = image.pixelColor(176, 132);
       return edge.red() > 200 && edge.green() < 40 &&
           !(corner.red() > 200 && corner.green() < 40) &&
           !(outside.red() > 200 && outside.green() < 40);

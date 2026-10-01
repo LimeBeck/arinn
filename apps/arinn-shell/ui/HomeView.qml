@@ -114,8 +114,6 @@ FocusScope {
         const rest = shown ? continueEntries : continueEntries.slice(1);
         const further = more.slice();
         for (let i = 0; i < rest.length && further.length < 4; ++i) {
-            if (shown && rest[i].id === currentServiceId)
-                continue;
             further.push(rest[i]);
         }
         return service.concat(activity).concat(further.slice(0, 4));

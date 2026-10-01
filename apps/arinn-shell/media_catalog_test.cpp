@@ -372,7 +372,6 @@ public:
   QString m_message;
   QVariantList m_items, m_continue, m_applications, m_favorites;
   QStringList m_busy;
-  Q_INVOKABLE QVariantList continueWithoutWindow(const QVariantMap &) const { return m_continue; }
   Q_INVOKABLE void back() {}
   Q_INVOKABLE void launch(const QString &) {}
   Q_INVOKABLE void activate(const QString &) {}

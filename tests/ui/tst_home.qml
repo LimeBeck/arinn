@@ -103,6 +103,15 @@ TestCase {
         verify(ids.includes("session-a"));
         verify(ids.includes("session-b"));
     }
+    function test_return_is_not_suppressed_by_a_browser_presentation() {
+        const returned = "{aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa}";
+        home.currentServiceId = "{bbbbbbbb-bbbb-5bbb-8bbb-bbbbbbbbbbbb}";
+        home.currentServiceTitle = "Page";
+        home.continueEntries = [{id: returned, title: "Return to activity"}];
+        verify(home.continuePresentation.some(entry => entry.id === returned));
+        home.currentServiceTitle = "";
+        compare(home.continuePresentation[0].id, returned);
+    }
     function test_home_back_activity() {
         home.returnActivityId = "a";
         keyClick(Qt.Key_Right); focused("entry-b");

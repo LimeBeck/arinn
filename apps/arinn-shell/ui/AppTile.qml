@@ -8,7 +8,8 @@ Surface {
     identityGlow: true
     property string monogram: text.trim().slice(0, 1).toUpperCase()
     property url iconSource: ""
-    readonly property bool iconReady: icon.status === Image.Ready
+    readonly property bool iconReady: iconFrame.pixelsReady
+    onIconSourceChanged: if (iconFrame) iconFrame.syncSource()
     property string subtitle: ""
     property bool running: false
     property bool serviceOpen: false
@@ -32,18 +33,41 @@ Surface {
                 asynchronous: true
                 fillMode: Image.PreserveAspectFit
                 visible: false
-                onStatusChanged: {
-                    if (status === Image.Ready) iconFrame.loadImage(source);
-                    iconFrame.requestPaint();
-                }
+                onStatusChanged: iconFrame.syncSource()
             }
             Canvas {
                 id: iconFrame
+                objectName: "applicationIconCanvas"
+                property string requestedSource: ""
+                property bool pixelsReady: false
+                function updateReady() {
+                    pixelsReady = available && requestedSource.length > 0
+                        && requestedSource === root.iconSource.toString()
+                        && requestedSource === icon.source.toString()
+                        && icon.status === Image.Ready && isImageLoaded(requestedSource);
+                    requestPaint();
+                }
+                function syncSource() {
+                    const next = root.iconSource.toString();
+                    if (requestedSource !== next) {
+                        const previous = requestedSource;
+                        requestedSource = next;
+                        pixelsReady = false;
+                        if (previous.length) unloadImage(previous);
+                        requestPaint();
+                    }
+                    if (available && next.length && icon.source.toString() === next
+                            && icon.status === Image.Ready && !isImageLoaded(next)
+                            && !isImageLoading(next) && !isImageError(next))
+                        loadImage(next);
+                    updateReady();
+                }
+                onAvailableChanged: syncSource()
                 // Rasterize at 2x for the 4K logical canvas, then fit the chip.
                 width: parent.width * 2; height: parent.height * 2
                 scale: 0.5
                 transformOrigin: Item.TopLeft
-                onImageLoaded: requestPaint()
+                onImageLoaded: updateReady()
                 onPaint: {
                     const ctx = getContext("2d");
                     ctx.reset();
@@ -51,12 +75,8 @@ Surface {
                     ctx.scale(2, 2);
                     const w = parent.width, h = parent.height, r = parent.radius;
                     ctx.beginPath();
-                    ctx.moveTo(r, 0);
-                    ctx.lineTo(w-r, 0); ctx.quadraticCurveTo(w, 0, w, r);
-                    ctx.lineTo(w, h-r); ctx.quadraticCurveTo(w, h, w-r, h);
-                    ctx.lineTo(r, h); ctx.quadraticCurveTo(0, h, 0, h-r);
-                    ctx.lineTo(0, r); ctx.quadraticCurveTo(0, 0, r, 0);
-                    ctx.closePath(); ctx.clip();
+                    ctx.roundedRect(0, 0, w, h, r, r);
+                    ctx.clip();
                     ctx.drawImage(icon.source, (w-icon.paintedWidth)/2,
                                   (h-icon.paintedHeight)/2,
                                   icon.paintedWidth, icon.paintedHeight);

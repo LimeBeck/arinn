@@ -77,7 +77,7 @@ Release names the remembered token, or empty when only shell teardown remains.
 CompleteControl(generation, request_id, error) acknowledges dispatch using the
 existing normalized error set. Unknown/completed/obsolete requests are Conflict.
 Commands expire after five seconds and are never redelivered. The total queue
-limit is 1024 and shares per-provider operation admission limits. Polling does not
+limit is 1024 and shares per-provider operation admission limits. Client admission reserves one slot for owner/session-loss teardown. Polling does not
 replace the existing inventory heartbeat. Old adapters without this optional
 interface never receive these commands and presentation is Unsupported.
 Daemon interface introspection alone does not prove adapter support: the first

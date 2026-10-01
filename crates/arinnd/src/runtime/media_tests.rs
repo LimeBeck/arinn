@@ -151,6 +151,7 @@ struct Fixture {
     calls: Arc<StdMutex<Vec<String>>>,
     generation: String,
     path: OwnedObjectPath,
+    window_gate: Arc<WindowGate>,
 }
 impl Drop for Fixture {
     fn drop(&mut self) {
@@ -220,9 +221,10 @@ impl Fixture {
             .at(production::PROVIDER_PATH, FakeAssets)
             .await
             .unwrap();
+        let window_gate = Arc::new(WindowGate::default());
         provider
             .object_server()
-            .at(production::PROVIDER_PATH, FakeWindow)
+            .at(production::PROVIDER_PATH, FakeWindow(window_gate.clone()))
             .await
             .unwrap();
         core.export_platform().await.unwrap();
@@ -324,6 +326,7 @@ impl Fixture {
             calls,
             generation,
             path,
+            window_gate,
         };
         for _ in 0..100 {
             if f.core.state.lock().await.providers["mpv"].sessions.len() == 1 {
@@ -622,11 +625,21 @@ async fn removing_a_provider_path_removes_every_daemon_interface() {
     }
 }
 
-struct FakeWindow;
+#[derive(Default)]
+struct WindowGate {
+    blocked: std::sync::atomic::AtomicBool,
+    entered: tokio::sync::Notify,
+    resume: tokio::sync::Notify,
+}
+struct FakeWindow(Arc<WindowGate>);
 const LAUNCH: &str = "aaaaaaaa-0000-4000-8000-000000000001";
 #[zbus::interface(name = "org.arinn.MediaWindowProvider1")]
 impl FakeWindow {
-    fn get_launch_id(&self, _generation: &str, _id: &str) -> String {
+    async fn get_launch_id(&self, _generation: &str, _id: &str) -> String {
+        if self.0.blocked.load(std::sync::atomic::Ordering::SeqCst) {
+            self.0.entered.notify_one();
+            self.0.resume.notified().await;
+        }
         LAUNCH.into()
     }
 }
@@ -704,9 +717,24 @@ async fn managed_playback_routes_only_complete_exact_inventory_and_tears_down_af
         .await
         .unwrap();
     bridge.commit_inventory(&g, 2).await.unwrap();
-    media.report(&g, 2, "video", LAUNCH).await.unwrap();
-    media.report(&g, 2, "other", "").await.unwrap();
-    media.complete_control(&g, &command[0], "").await.unwrap();
+    let acknowledged = std::sync::atomic::AtomicBool::new(false);
+    let (ack, ()) = tokio::join!(
+        async {
+            let result = media.complete_control(&g, &command[0], "").await;
+            acknowledged.store(true, std::sync::atomic::Ordering::SeqCst);
+            result
+        },
+        async {
+            tokio::time::sleep(Duration::from_millis(30)).await;
+            assert!(
+                !acknowledged.load(std::sync::atomic::Ordering::SeqCst),
+                "success cannot bypass the new identity barrier"
+            );
+            media.report(&g, 2, "video", LAUNCH).await.unwrap();
+            media.report(&g, 2, "other", "").await.unwrap();
+        }
+    );
+    ack.unwrap();
     f.wait(op).await.unwrap();
     // Stop is independent of presentation; a cleared launch still releases
     // the remembered scope. Do not request the provider identity on teardown.
@@ -735,6 +763,84 @@ async fn managed_playback_routes_only_complete_exact_inventory_and_tears_down_af
     assert!(media.next_control(&g).await.unwrap().is_empty());
     assert!(media.report(&g, 1, "video", LAUNCH).await.is_err());
     assert!(media.report(&g, 2, "missing", LAUNCH).await.is_err());
+    // Exit can be admitted before Present reaches the adapter; preserve order.
+    f.core
+        .state
+        .lock()
+        .await
+        .providers
+        .get_mut("mpv")
+        .unwrap()
+        .sessions[0]
+        .state = "playing".into();
+    let show = api
+        .present(&f.generation, "s1", &Uuid::new_v4().to_string())
+        .await
+        .unwrap();
+    let hide = api
+        .release(&f.generation, "s1", &Uuid::new_v4().to_string())
+        .await
+        .unwrap();
+    let command = media.next_control(&g).await.unwrap();
+    assert_eq!(command[1], "present");
+    media.complete_control(&g, &command[0], "").await.unwrap();
+    f.wait(show).await.unwrap();
+    let command = media.next_control(&g).await.unwrap();
+    assert_eq!(command[1], "release");
+    media.complete_control(&g, &command[0], "").await.unwrap();
+    f.wait(hide).await.unwrap();
+    // A stopped/removed imported session fences delivery and acknowledgement.
+    let show = api
+        .present(&f.generation, "s1", &Uuid::new_v4().to_string())
+        .await
+        .unwrap();
+    let command = media.next_control(&g).await.unwrap();
+    assert_eq!(command[1], "present");
+    f.core
+        .windows
+        .sync_media_sessions(
+            &crate::windows::Scope {
+                provider: "mpv".into(),
+                owner: f
+                    .provider
+                    .as_ref()
+                    .unwrap()
+                    .unique_name()
+                    .unwrap()
+                    .to_string(),
+                registration: f.generation.clone(),
+            },
+            &[],
+        )
+        .await;
+    assert_eq!(f.wait(show).await.unwrap_err(), "Unavailable");
+    assert!(media.complete_control(&g, &command[0], "").await.is_err());
+    let command = media.next_control(&g).await.unwrap();
+    assert_eq!(command[1], "release");
+    media.complete_control(&g, &command[0], "").await.unwrap();
+    // Stall the final provider-lifetime check while the same generation's
+    // inventory removes the resolved video. An obsolete read must not escape.
+    f.window_gate
+        .blocked
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    let (result, ()) = tokio::join!(api.get_window(&f.generation, "s1"), async {
+        f.window_gate.entered.notified().await;
+        let fence = f.core.state.lock().await;
+        f.window_gate.resume.notify_one();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        bridge.begin_inventory(&g, 3, 1).await.unwrap();
+        bridge
+            .put_window(&g, 3, 0, "other", "", "screen", 4)
+            .await
+            .unwrap();
+        bridge.commit_inventory(&g, 3).await.unwrap();
+        media.report(&g, 3, "other", "").await.unwrap();
+        drop(fence);
+    });
+    assert!(
+        result.unwrap().is_empty(),
+        "GetWindow must read the authoritative inventory after its last lifetime wait"
+    );
     // A connection that is not the current KWin owner cannot forge reports.
     let stranger = KWinMediaProxy::new(f.provider.as_ref().unwrap())
         .await

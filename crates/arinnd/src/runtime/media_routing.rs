@@ -178,6 +178,21 @@ impl Core {
                             if revision != p.info.revision {
                                 signal = Some(revision);
                             }
+                            let valid_sessions = if backend == "unavailable" {
+                                &[][..]
+                            } else {
+                                sessions.as_slice()
+                            };
+                            self.windows
+                                .sync_media_sessions(
+                                    &crate::windows::Scope {
+                                        provider: id.clone(),
+                                        owner: owner.clone(),
+                                        registration: generation.clone(),
+                                    },
+                                    valid_sessions,
+                                )
+                                .await;
                             p.sessions = sessions;
                             p.features = features;
                             p.info.revision = revision;
@@ -679,15 +694,28 @@ impl Core {
             .await
             .map_err(normalize_error)?;
         media_window::validate_launch(&launch)?;
-        let windows = self.windows.media_window(&self.connection, &launch).await?;
         if self
             .media_target(id, generation, session, media_window::FEATURE)
             .await?
             != owner
-            || self.windows.current_generation().await != platform
         {
             return Err(ErrorCode::Conflict);
         }
+        // Hold the provider lifetime fence through the final authoritative
+        // inventory read. No later await may return a cached window reference.
+        let state = self.state.lock().await;
+        let p = state.providers.get(id).ok_or(ErrorCode::NotFound)?;
+        if p.owner != owner
+            || p.info.generation != generation
+            || !p.sessions.iter().any(|s| s.id == session)
+        {
+            return Err(ErrorCode::Conflict);
+        }
+        let windows = self
+            .windows
+            .media_window(&self.connection, &launch, &platform)
+            .await?;
+        drop(state);
         Ok((owner, launch, windows))
     }
     async fn playback_command(
@@ -874,5 +902,5 @@ impl MediaWindowEndpoint {
             .await?)
     }
     #[zbus(signal)]
-    async fn changed(emitter: &SignalEmitter<'_>, generation: &str) -> zbus::Result<()>;
+    pub(super) async fn changed(emitter: &SignalEmitter<'_>, generation: &str) -> zbus::Result<()>;
 }

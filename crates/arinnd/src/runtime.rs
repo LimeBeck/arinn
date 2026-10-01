@@ -178,6 +178,27 @@ impl Core {
     }
     pub async fn export_platform(&self) -> Result<(), ErrorCode> {
         self.windows.start(&self.connection).await?;
+        let core = self.clone();
+        tokio::spawn(async move {
+            loop {
+                core.windows.media_changed().await;
+                let rows: Vec<_> = core
+                    .state
+                    .lock()
+                    .await
+                    .providers
+                    .values()
+                    .filter(|p| p.capability() == "media")
+                    .map(|p| (p.info.path.clone(), p.info.generation.clone()))
+                    .collect();
+                for (path, generation) in rows {
+                    if let Ok(emitter) = SignalEmitter::new(&core.connection, path) {
+                        let _ = media_routing::MediaWindowEndpoint::changed(&emitter, &generation)
+                            .await;
+                    }
+                }
+            }
+        });
         self.connection
             .object_server()
             .at(

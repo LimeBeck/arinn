@@ -169,7 +169,15 @@ impl State {
         }
     }
     fn prune(&mut self) {
+        let expired_present = self.media.pending.as_ref().is_some_and(|p| {
+            p.command.action == "present"
+                && (p.command.deadline <= Instant::now() || p.command.reply.is_closed())
+        });
         self.media.prune();
+        if expired_present {
+            let capacity = 1024 - self.queued.len() - usize::from(self.pending.is_some());
+            self.media.teardown(capacity);
+        }
         self.leases
             .retain(|_, l| l.created.elapsed() < Duration::from_secs(30));
         if self
@@ -203,6 +211,7 @@ impl State {
 pub struct Windows {
     state: Arc<Mutex<State>>,
     notify: Arc<Notify>,
+    media_changed: Arc<Notify>,
 }
 async fn owner_lookup(c: &Connection) -> Result<Option<String>, ErrorCode> {
     tokio::time::timeout(Duration::from_secs(3), async {
@@ -248,6 +257,7 @@ impl Windows {
         Self {
             state: Arc::new(Mutex::new(state)),
             notify: Arc::default(),
+            media_changed: Arc::default(),
         }
     }
     // Lock order: inventory, then Home bridge. Every production Home write goes
@@ -347,6 +357,7 @@ impl Windows {
                     let generation_id = s.generation.clone();
                     drop(s);
                     backend.notify.notify_waiters();
+                    backend.media_changed.notify_waiters();
                     announce(&connection, &generation_id, 1).await;
                 }
             }
@@ -355,7 +366,8 @@ impl Windows {
     }
     pub async fn disconnect(&self, owner: &str) {
         let mut s = self.state.lock().await;
-        s.media.disconnect(owner);
+        let capacity = 1024 - s.queued.len() - usize::from(s.pending.is_some());
+        s.media.disconnect(owner, capacity);
         s.leases.retain(|_, l| l.scope.owner != owner);
         let mut keep = VecDeque::new();
         for p in s.queued.drain(..) {
@@ -448,7 +460,7 @@ impl Windows {
             s.generation(generation)?;
             s.prune();
             check(&s, token, action)?;
-            if s.queued.len() + usize::from(s.pending.is_some()) + s.media.count() >= 1024 {
+            if s.queued.len() + usize::from(s.pending.is_some()) + s.media.count() >= 1023 {
                 return Err(ErrorCode::Unavailable);
             }
             s.queued.push_back(Control {
@@ -562,6 +574,7 @@ impl Windows {
         let generation_id = s.generation.clone();
         drop(s);
         self.notify.notify_waiters();
+        self.media_changed.notify_waiters();
         announce(c, &generation_id, 1).await;
         Ok(generation_id)
     }
@@ -707,6 +720,7 @@ impl Windows {
         s.revision = revision;
         s.announce_return(c, previous).await;
         drop(s);
+        self.media_changed.notify_waiters();
         announce(c, generation, revision as u64).await;
         Ok(())
     }
@@ -915,6 +929,7 @@ struct MediaState {
     queued: VecDeque<MediaControl>,
     pending: Option<MediaControl>,
     presentation: Option<(Scope, String, String)>,
+    presentation_launch: String,
 }
 impl MediaState {
     fn count(&self) -> usize {
@@ -945,7 +960,7 @@ impl MediaState {
         }
         self.queued = keep;
     }
-    fn disconnect(&mut self, owner: &str) {
+    fn disconnect(&mut self, owner: &str, capacity: usize) {
         let mut keep = VecDeque::new();
         for p in self.queued.drain(..) {
             if p.command.scope.owner == owner {
@@ -963,27 +978,41 @@ impl MediaState {
             let p = self.pending.take().unwrap();
             let _ = p.command.reply.send(Err(ErrorCode::Unavailable));
         }
-        if let Some((scope, session, token)) = self.presentation.clone()
-            && scope.owner == owner
+        if self
+            .presentation
+            .as_ref()
+            .is_some_and(|(scope, _, _)| scope.owner == owner)
         {
-            let (reply, receive) = oneshot::channel();
-            self.queued.push_back(MediaControl {
-                command: Control {
-                    id: uuid::Uuid::new_v4().to_string(),
-                    action: "release".into(),
-                    token,
-                    scope,
-                    deadline: Instant::now() + Duration::from_secs(5),
-                    reply,
-                },
-                session,
-                launch: String::new(),
-            });
-            // Retain the receiver until teardown is acknowledged or expires.
-            tokio::spawn(async move {
-                let _ = tokio::time::timeout(Duration::from_secs(5), receive).await;
-            });
+            self.teardown(capacity);
         }
+    }
+    fn teardown(&mut self, capacity: usize) {
+        let Some((scope, session, token)) = self.presentation.clone() else {
+            return;
+        };
+        if self.count() >= capacity
+            || self.queued.iter().any(|p| {
+                p.command.action == "release" && p.command.scope == scope && p.session == session
+            })
+        {
+            return;
+        }
+        let (reply, receive) = oneshot::channel();
+        self.queued.push_back(MediaControl {
+            command: Control {
+                id: uuid::Uuid::new_v4().to_string(),
+                action: "release".into(),
+                token,
+                scope,
+                deadline: Instant::now() + Duration::from_secs(5),
+                reply,
+            },
+            session,
+            launch: String::new(),
+        });
+        tokio::spawn(async move {
+            let _ = tokio::time::timeout(Duration::from_secs(5), receive).await;
+        });
     }
     fn inventory(&mut self, windows: &[Window]) {
         self.reports.clear();
@@ -1014,15 +1043,64 @@ impl MediaState {
     }
 }
 impl Windows {
+    pub async fn media_changed(&self) {
+        self.media_changed.notified().await;
+    }
+    pub async fn sync_media_sessions(
+        &self,
+        scope: &Scope,
+        sessions: &[arinn_protocol::media::Session],
+    ) {
+        let mut s = self.state.lock().await;
+        let valid = |p: &MediaControl| {
+            p.command.scope.provider != scope.provider
+                || p.command.action != "present"
+                || (p.command.scope == *scope
+                    && sessions.iter().any(|entry| {
+                        entry.id == p.session
+                            && ["playing", "paused", "ended"].contains(&entry.state.as_str())
+                    }))
+        };
+        let mut keep = VecDeque::new();
+        for p in s.media.queued.drain(..) {
+            if valid(&p) {
+                keep.push_back(p);
+            } else {
+                let _ = p.command.reply.send(Err(ErrorCode::Unavailable));
+            }
+        }
+        s.media.queued = keep;
+        if s.media.pending.as_ref().is_some_and(|p| !valid(p)) {
+            let p = s.media.pending.take().unwrap();
+            let _ = p.command.reply.send(Err(ErrorCode::Unavailable));
+        }
+        if s.media
+            .presentation
+            .as_ref()
+            .is_some_and(|(previous, session, _)| {
+                previous.provider == scope.provider
+                    && (previous != scope
+                        || !sessions.iter().any(|entry| {
+                            entry.id == *session
+                                && ["playing", "paused", "ended"].contains(&entry.state.as_str())
+                        }))
+            })
+        {
+            let capacity = 1024 - s.queued.len() - usize::from(s.pending.is_some());
+            s.media.teardown(capacity);
+        }
+    }
     pub async fn media_window(
         &self,
         c: &Connection,
         launch: &str,
+        expected_generation: &str,
     ) -> Result<Vec<WindowRef>, ErrorCode> {
         media_window::validate_launch(launch)?;
         let current = owner(c).await?;
         let s = self.state.lock().await;
         s.live(&current)?;
+        s.generation(expected_generation)?;
         Ok(s.media
             .resolve(&s.windows, launch)
             .map(|token| {
@@ -1068,19 +1146,34 @@ impl Windows {
             }
             window.token.clone()
         } else {
-            let Some((previous, id, token)) = &s.media.presentation else {
+            let stored = s
+                .media
+                .presentation
+                .as_ref()
+                .filter(|(previous, id, _)| previous == &scope && id == session)
+                .map(|(_, _, token)| token.clone());
+            let admitted = s
+                .media
+                .queued
+                .iter()
+                .chain(s.media.pending.iter())
+                .filter(|p| {
+                    p.command.action == "present"
+                        && p.command.scope == scope
+                        && p.session == session
+                })
+                .last()
+                .map(|p| p.command.token.clone());
+            let Some(token) = admitted.or(stored) else {
                 return Ok(None);
             };
-            if previous != &scope || id != session {
-                return Ok(None);
-            }
-            if s.windows.iter().any(|w| w.token == *token) {
-                token.clone()
+            if s.windows.iter().any(|w| w.token == token) {
+                token
             } else {
                 String::new()
             }
         };
-        if s.queued.len() + usize::from(s.pending.is_some()) + s.media.count() >= 1024 {
+        if s.queued.len() + usize::from(s.pending.is_some()) + s.media.count() >= 1023 {
             return Err(ErrorCode::Unavailable);
         }
         let (send, receive) = oneshot::channel();
@@ -1123,6 +1216,22 @@ impl MediaBridge {
             return Err(ErrorCode::NotFound.into());
         }
         s.media.reports.insert(token.into(), launch.into());
+        if s.media
+            .presentation
+            .as_ref()
+            .is_some_and(|(_, _, presented)| {
+                (presented == token && s.media.presentation_launch != launch)
+                    || (s.media.reports.len() == s.windows.len()
+                        && s.media
+                            .resolve(&s.windows, &s.media.presentation_launch)
+                            .as_deref()
+                            != Some(presented.as_str()))
+            })
+        {
+            let capacity = 1024 - s.queued.len() - usize::from(s.pending.is_some());
+            s.media.teardown(capacity);
+        }
+        self.0.media_changed.notify_waiters();
         if s.media.pending.as_ref().is_some_and(|p| {
             p.command.action == "present"
                 && ((p.command.token == token && p.launch != launch)
@@ -1184,6 +1293,7 @@ impl MediaBridge {
                 p.command.token.clone(),
             ];
             if p.command.action == "present" {
+                s.media.presentation_launch = p.launch.clone();
                 s.media.presentation = Some((
                     p.command.scope.clone(),
                     p.session.clone(),
@@ -1205,17 +1315,37 @@ impl MediaBridge {
     ) -> production::Result<()> {
         let current = trusted(c, &h).await?;
         kwin::validate_completion(request_id, error)?;
-        let mut s = self.0.state.lock().await;
-        s.live(&current)?;
-        s.generation(generation)?;
-        s.prune();
-        if s.media
-            .pending
-            .as_ref()
-            .is_none_or(|p| p.command.id != request_id)
-        {
-            return Err(ErrorCode::Conflict.into());
-        }
+        let mut s = loop {
+            let notified = self.0.media_changed.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            let mut s = self.0.state.lock().await;
+            s.live(&current)?;
+            s.generation(generation)?;
+            s.prune();
+            let pending = s
+                .media
+                .pending
+                .as_ref()
+                .filter(|p| p.command.id == request_id)
+                .ok_or(ErrorCode::Conflict)?;
+            if !error.is_empty() || pending.command.action == "release" {
+                break s;
+            }
+            let deadline = pending.command.deadline;
+            if s.media.reports.len() == s.windows.len() {
+                if s.media.resolve(&s.windows, &pending.launch).as_deref()
+                    != Some(pending.command.token.as_str())
+                {
+                    return Err(ErrorCode::Conflict.into());
+                }
+                break s;
+            }
+            drop(s);
+            tokio::time::timeout_at(tokio::time::Instant::from_std(deadline), notified)
+                .await
+                .map_err(|_| ErrorCode::Timeout)?;
+        };
         let p = s.media.pending.take().unwrap();
         let result = if error.is_empty() {
             if p.command.action == "present" {
@@ -1293,9 +1423,34 @@ mod media_lifetime_tests {
         assert_eq!(s.count(), 0);
         let (p, r) = command(scope(), "present");
         s.pending = Some(p);
-        s.disconnect(":1.4");
+        s.disconnect(":1.4", 1024);
         assert_eq!(r.await.unwrap(), Err(ErrorCode::Unavailable));
         assert_eq!(s.count(), 0);
+    }
+    #[tokio::test]
+    async fn loss_teardown_obeys_shared_capacity() {
+        let mut s = MediaState::default();
+        let previous = scope();
+        s.presentation = Some((previous, "session".into(), "window".into()));
+        let mut receivers = Vec::new();
+        for _ in 0..1024 {
+            let mut other = scope();
+            other.owner = ":1.9".into();
+            let (p, receive) = command(other, "present");
+            s.queued.push_back(p);
+            receivers.push(receive);
+        }
+        s.disconnect(":1.4", 1024);
+        assert_eq!(
+            s.count(),
+            1024,
+            "internal cleanup must also obey the total bound"
+        );
+        s.queued.pop_back();
+        receivers.pop();
+        s.disconnect(":1.4", 1024);
+        assert_eq!(s.count(), 1024, "the reserved slot admits teardown");
+        assert_eq!(s.queued.back().unwrap().command.action, "release");
     }
     #[test]
     fn reset_removes_adapter_support_and_observations() {

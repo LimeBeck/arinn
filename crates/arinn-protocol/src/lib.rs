@@ -14,6 +14,7 @@ pub mod library;
 pub mod media;
 pub mod platform;
 pub mod production;
+pub mod return_association;
 pub mod settings;
 pub mod validation;
 pub mod web;

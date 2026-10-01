@@ -89,4 +89,5 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0068](0068-agent-instruction-clarifications.md) | Agent task scope, verification and coordination | Proposed | — |
 | [0069](0069-explicit-home-presentation-requests.md) | Explicit Home presentation requests | Accepted | — |
 | [0072](0072-cross-agent-code-review.md) | Cross-agent code review before merging | Accepted | — |
+| [0073](0073-return-window-association.md) | Optional Return-to-platform-window association | Accepted | — |
 <!-- register:end -->

@@ -270,6 +270,18 @@ signal and keep their existing status path; old adapters cannot report explicit
 intent. Production shell consumption and QML focus regression are a follow-up
 after #45 merges. This contract alone does not complete AC-18.
 
+### Optional Return/window association
+
+[ADR-0073](../adr/0073-return-window-association.md) defines optional
+[ReturnAssociation1](return-association1.xml) and trusted
+[KWinReturn1](kwin-return1.xml) at the daemon root. They are **contract-only**, not
+production exports. The [association contract](../architecture/return-association.md)
+specifies typed optional values, ownership, lifetime invalidation, conservative
+provider joins and separate producer/consumer follow-ups. Existing Status,
+HomeRequested, BrowserWindow, PlatformWindows1 and KWinBridge1 signatures remain
+unchanged. Missing association always preserves opaque Return; it does not finish
+#207's deduplication.
+
 ## SDK and fixtures
 
 `arinn-plugin-sdk::runtime` exports `ApplicationService`, `ApplicationHandler` and

@@ -1190,3 +1190,33 @@ async fn feature_removal_cleans_pending_and_active_presentation() {
         );
     }
 }
+
+#[tokio::test]
+async fn rejected_release_does_not_advance_the_present_exit_fence() {
+    use arinn_protocol::{kwin::KWinBridgeProxy, media_window::KWinMediaProxy};
+    let f = Fixture::new().await;
+    f.client.request_name("org.kde.KWin").await.unwrap();
+    let bridge = KWinBridgeProxy::new(&f.client).await.unwrap();
+    let media = KWinMediaProxy::new(&f.client).await.unwrap();
+    let g = bridge.connect(&rid()).await.unwrap();
+    assert!(media.next_control(&g).await.unwrap().is_empty());
+    let caller = f.client.unique_name().unwrap().to_string();
+    for _ in 0..32 {
+        f.core
+            .operations
+            .admit(&f.core.connection, &caller, &rid(), "occupied", "mpv")
+            .await
+            .unwrap();
+    }
+    assert_eq!(
+        f.core
+            .playback_command("mpv", &f.generation, "s1", &rid(), &caller, false)
+            .await
+            .unwrap_err(),
+        ErrorCode::Unavailable
+    );
+    assert!(
+        f.core.playback_exits.lock().await.is_empty(),
+        "rejected Release must not cancel a waiting Present"
+    );
+}

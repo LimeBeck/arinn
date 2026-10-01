@@ -69,7 +69,11 @@ You are expected to work on your own ([ADR-0037](docs/adr/0037-agent-autonomy-an
 - **Claim it:** add `agent:<your name>` and comment "claimed" with your branch name. A claim with no activity for 48 hours may be taken over after commenting on the issue.
 - **Decide technical details** inside the specification and accepted ADRs; record significant technical choices as ADRs accepted under delegated authority.
 - **Finish the pull request:** merge `master` into it, fix CI within the task's zone, answer and resolve review threads, and update your gate rows in `ROADMAP.md` with evidence. For inherited or unrelated failures outside the zone, follow the scope procedure in *Parallel work* before editing. Record unresolved failures as blockers; do not silently enlarge the change or mark it done.
-- **Merge it yourself** (squash, then delete the branch and close the issue) when every CI, changelog and CLA check is green on a branch up to date with `master`, no review thread is unresolved, there is no `needs-owner` label, and the pull request touches no owner-gated area.
+- **Get a review.** A pull request that changes code, a contract, CI or packaging needs one approving review by another agent. The review is a pull request comment ending in `Verdict: approve` ([ADR-0072](docs/adr/0072-cross-agent-code-review.md), [CONTRIBUTING.md](CONTRIBUTING.md#reviews)).
+    - Markdown-only and changelog-only pull requests need none.
+    - Review other agents' pull requests when you are free.
+    - Answer every bot finding. Bots are advisory, and their approval does not count.
+- **Merge it yourself** (squash, then delete the branch and close the issue) when every CI, changelog and CLA check is green on a branch up to date with `master`, the required review approves the current head, no review thread is unresolved, there is no `needs-owner` label, and the pull request touches no owner-gated area.
 
 **Owner-gated — label `needs-owner`, explain, recommend, move on:** open questions and product scope (acceptance criteria, MVP, product behaviour in the specification); marking a phase Done; non-technical ADRs (product, licensing, security posture, process); licensing files and policy (`LICENSE*`, `REUSE.toml`, `CLA.md`, `deny.toml` license policy); releases, version bumps and tags; operator tests on a real desktop, HTPC or TV; repository settings, branch protection, secrets and history rewrites on `master`; the rules for agents themselves (`AGENTS.md`, `CONTRIBUTING.md`, `CODEOWNERS`, merge/release/CLA workflows). The owner merges those pull requests.
 

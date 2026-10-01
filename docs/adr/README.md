@@ -55,7 +55,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0034](0034-provider-data-directory-identity.md) | Provider data directories independent of registry state | Accepted | — |
 | [0035](0035-phase1-application-wire-contract.md) | Phase 1 application wire contract | Accepted | 0059 |
 | [0036](0036-parallel-development.md) | Parallel development by several agents | Accepted | 0037 |
-| [0037](0037-agent-autonomy-and-owner-gated-decisions.md) | Agent autonomy and owner-gated decisions | Accepted | 0068 |
+| [0037](0037-agent-autonomy-and-owner-gated-decisions.md) | Agent autonomy and owner-gated decisions | Accepted | 0068, 0072 |
 | [0038](0038-browser-launch-ownership.md) | Browser launch ownership | Accepted | 0043 |
 | [0039](0039-platform-window-contract.md) | Platform window snapshot and control contract | Accepted | — |
 | [0040](0040-kwin-inventory-transport.md) | Trusted KWin inventory transport and SDK registration context | Accepted | — |
@@ -88,4 +88,5 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0067](0067-download-wire-contract.md) | Download wire contract | Accepted | — |
 | [0068](0068-agent-instruction-clarifications.md) | Agent task scope, verification and coordination | Proposed | — |
 | [0069](0069-explicit-home-presentation-requests.md) | Explicit Home presentation requests | Accepted | — |
+| [0072](0072-cross-agent-code-review.md) | Cross-agent code review before merging | Accepted | — |
 <!-- register:end -->

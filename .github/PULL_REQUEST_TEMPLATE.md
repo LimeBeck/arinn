@@ -29,3 +29,4 @@
 - [ ] No product-specific logic in the core or shell (R-01, AC-12)
 - [ ] No real user URLs, tab titles, tokens, credentials or personal paths in logs, fixtures or commits; synthetic fixtures and public documentation links are allowed
 - [ ] Owner-gated changes carry `needs-owner` and are left for the owner to merge
+- [ ] Code changes have an approving review by another agent (`Verdict: approve`) before merging, and every bot finding is answered (ADR-0072)

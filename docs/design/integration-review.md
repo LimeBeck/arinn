@@ -2,6 +2,25 @@
 
 Sources: [developer specification v0.3](../specifications/developer-specification-v0.3.md) (historical), the current [specification](../specifications/arinn-specification.md) and the [design handoff](handoff/README.md). No source was edited except the logo removal described in the [design README](README.md#licensing). The original conflicts are kept below as history; decisions come from explicit answers of the project owner and delegated technical choices on 2026-09-27.
 
+## Handoff update of 2026-10-01 (closing applications)
+
+The package answers the [#205](https://github.com/LimeBeck/arinn/issues/205) brief:
+- it adds `design/arinn Closing Apps.dc.html`, the *Closing applications* section of the README and 15 `cl-*.png` screenshots;
+- the frames come from the agent brief, and the owner accepted them as the handoff on 2026-10-01;
+- every other listed design file is unchanged; the README also gains notes on the Menu key and the Apps hint;
+- the previous package is in the [archive](archive/2026-10-01-before-closing-apps/README.md).
+
+| ID | Point | Resolution / remaining check |
+| --- | --- | --- |
+| DR-31 | The brief left Q1 (separate screen), Q2 (navigation entry), Q4 (input for the tile sheet) and Q5 (Close for web services) to the owner. | Closed by the owner on 2026-10-01: a separate screen; a navigation item below Open services and no second Continue card; long-press Menu opens the sheet on app tiles in Applications and Home favorites; no Close for web shortcuts or web-service cards ([specification §5, §5.1, §5.5, §6.2](../specifications/arinn-specification.md#55-applications)). |
+| DR-32 | The handoff navigation (04, H-2) kept a bottom activity row for external applications. The Running item now replaces it. | Specification §5 updated: navigation has no separate activity row. Item 04 in the handoff README is superseded by *Closing applications* for this point. |
+| DR-33 | The tile sheet's first option is pin/unpin, and Home favorites pin/unpin has no public contract yet ([web shortcuts UI](../architecture/ui-web-shortcuts.md)). | Open: the shell task for the sheet depends on a pinned-favorites contract, which is a `contract-change` task. |
+| DR-34 | `Terminate` completes when the close request is delivered, not when the application exits. *Closed* and *did not close* (CL-10, CL-11, CL-16) must be inferred. | Open, technical: the shell treats the instance disappearing from the catalogue as closed, and a failed operation or a still-present instance after a bounded wait as not closed. It matches by instance ID, never by title. The wait is chosen in the implementation task. |
+| DR-35 | The running list never shows browser windows (Q5), but the browser application is an ordinary application instance ([ADR-0038](../adr/0038-browser-launch-ownership.md)). | Open, technical: the application that backs the browser provider is excluded through the validated window link, never by product name (R-01). |
+| DR-36 | One row per window with its own close capability (CL-14, CL-15). | Technical, no contract change: instances are already separate entries with their own terminate capability, and titles come from the catalogue ([desktop provider](../architecture/desktop-provider.md)). |
+| DR-37 | Menu on a web-shortcut tile opens the shortcut editor ([#68](https://github.com/LimeBeck/arinn/issues/68)). The brief offered moving it into the sheet as *Edit shortcut*. | Open, owner: not decided on 2026-10-01. Until decided, the existing binding stays and web-shortcut tiles get no Close. |
+| DR-38 | Third-party logos. | None: the canvas has no image slots, and every frame uses neutral monograms. |
+
 ## Handoff update of 2026-09-30 (settings editors)
 
 The package answers the [#172](https://github.com/LimeBeck/arinn/issues/172) brief:

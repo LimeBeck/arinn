@@ -5,7 +5,7 @@
 
 A brief for the designer, prepared from the owner decisions in [issue #205](https://github.com/LimeBeck/arinn/issues/205). It plays the same role as the earlier briefs that came back as the *Open services*, *Address and search* and *Settings editors* handoffs ([design README](../../README.md)): the owner passes it to the designer, and the answer returns as a handoff package.
 
-**Status:** draft by an agent, not a design handoff. The frames are proposals built only from existing handoff components. Every item marked *recommendation* or *variant* is open until the owner or the designer decides it. Nothing in [`handoff/`](../../handoff/README.md) or `archive/` was changed.
+**Status:** answered on 2026-10-01. The owner accepted these frames as the handoff, together with his answers to Q1, Q2, Q4 and Q5 and the recommendations for the designer items Q3 and Q6–Q9. The live package is the *Closing applications* section of the [handoff README](../../handoff/README.md) and [`handoff/design/arinn Closing Apps.dc.html`](<../../handoff/design/arinn Closing Apps.dc.html>), which keep the CL numbering. They drop CL-3b and CL-12, which were not chosen, and add CL-13…16. The owner answers are recorded in [specification §5, §5.1, §5.5 and §6.2](../../../specifications/arinn-specification.md#5-information-architecture). This brief is kept as the record of the proposals. Its canvas, screenshots and the text below are unchanged since the brief was written.
 
 ## Package
 

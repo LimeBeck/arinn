@@ -1,11 +1,12 @@
 # Arinn design
 
-The current design handoff was delivered by the project owner on 2026-09-30 and copied to [`handoff/`](handoff/README.md) with the one deliberate change described under *Licensing*. It answers:
+The current design handoff dates from 2026-10-01 and lives in [`handoff/`](handoff/README.md). The packages delivered by the project owner were copied with the one deliberate change described under *Licensing*; the 2026-10-01 addition was accepted by the owner from an agent brief (see *Licensing*). It answers:
 - the [ADR-0050](../adr/0050-window-per-browser-activity.md) design brief with the *Open services* screen;
 - the [#106](https://github.com/LimeBeck/arinn/issues/106) brief with the *address and search* screen;
-- the [#172](https://github.com/LimeBeck/arinn/issues/172) brief with the Settings value editors, *Library folders* and the folder picker.
+- the [#172](https://github.com/LimeBeck/arinn/issues/172) brief with the Settings value editors, *Library folders* and the folder picker;
+- the [#205](https://github.com/LimeBeck/arinn/issues/205) brief with *closing running applications*: the tile sheet, the Continue Close button and the running applications screen.
 
-Earlier packages are kept in the archive: [before settings editors](archive/2026-09-30-before-settings-editors/README.md) (2026-09-29 to 2026-09-30), [before address and search](archive/2026-09-29-before-address-search/README.md) (earlier on 2026-09-29), [before Open services](archive/2026-09-29-before-open-services/README.md) (2026-09-27 to 2026-09-29) and [before the brand](archive/2026-09-27-before-brand/README.md). The handoff has no version number; "v2" is part of the design system file name.
+Earlier packages are kept in the archive: [before closing applications](archive/2026-10-01-before-closing-apps/README.md) (2026-09-30 to 2026-10-01), [before settings editors](archive/2026-09-30-before-settings-editors/README.md) (2026-09-29 to 2026-09-30), [before address and search](archive/2026-09-29-before-address-search/README.md) (earlier on 2026-09-29), [before Open services](archive/2026-09-29-before-open-services/README.md) (2026-09-27 to 2026-09-29) and [before the brand](archive/2026-09-27-before-brand/README.md). The handoff has no version number; "v2" is part of the design system file name.
 
 ## Source materials (historical, not edited)
 
@@ -24,8 +25,14 @@ Earlier packages are kept in the archive: [before settings editors](archive/2026
     - Library folders LF-1…8;
     - folder picker PK-1…10;
     - the contract-to-UI map.
+- [Closing applications](<handoff/design/arinn Closing Apps.dc.html>) ([#205](https://github.com/LimeBeck/arinn/issues/205)):
+    - owner decisions and design answers Q1–Q9;
+    - the tile sheet CL-1…2 and the Continue Close button CL-3a;
+    - the running applications screen CL-4…7 and CL-13…15;
+    - confirmation and feedback CL-8…11 and CL-16;
+    - strings, motion and open questions.
 - [Direction study](<handoff/design/arinn Directions.dc.html>).
-- [Screenshots of screen states](handoff/screenshots/): 22 main screens, 13 Open services states (`os-*.png`), 18 address and search states (`in-*.png`) and 22 settings editor states (`se-*.png`; the folder picker has frames in the HTML only).
+- [Screenshots of screen states](handoff/screenshots/): 22 main screens, 13 Open services states (`os-*.png`), 18 address and search states (`in-*.png`), 22 settings editor states (`se-*.png`; the folder picker has frames in the HTML only) and 15 closing applications states (`cl-*.png`).
 - [Logos in image slots](handoff/design/.image-slots.state.json); `support.js` and `image-slot.js` are kept next to the HTML.
 
 To view the prototype, open `handoff/design/arinn.dc.html` in a browser and click it once to give it keyboard focus. The HTML is a design reference, not the production shell. External font and runtime dependencies may need network access; offline use is not confirmed.
@@ -36,7 +43,7 @@ The handoff declares colours, typography, sizes, radii, focus and motion timings
 
 Briefs prepared for the designer live in [`briefs/`](briefs/). They are not part of the handoff and decide nothing on their own; the designer's answer comes back as a new handoff package.
 
-- [Closing running applications](briefs/closing-running-applications/README.md) ([#205](https://github.com/LimeBeck/arinn/issues/205)): tile menu, Continue card, running list, confirmation and closing feedback. Draft frames in the handoff `.dc.html` format, with open questions for the owner.
+- [Closing running applications](briefs/closing-running-applications/README.md) ([#205](https://github.com/LimeBeck/arinn/issues/205)): tile menu, Continue card, running list, confirmation and closing feedback. Answered by the 2026-10-01 handoff (*Closing applications*); the brief is kept unchanged except for its status line, with the variants that were not chosen.
 
 ## Relation to development
 
@@ -59,3 +66,9 @@ Design materials are licensed CC-BY-SA-4.0 ([ADR-0029](../adr/0029-licensing.md)
 - Every design file except `arinn Settings Editors.dc.html` is byte-identical to the previous package. The sanitized main, `os-*` and `in-*` screenshots were therefore kept.
 - The 22 new `se-*.png` screenshots show no third-party logos and are added as delivered. The package README is unchanged.
 - Designer working files that the package README does not list were not added: the prototype and design-system drafts, the shortcut editor draft, uploads and capture helpers.
+
+**The 2026-10-01 addition** (closing applications) is not a designer delivery. The frames were drawn by an agent for the [#205 brief](briefs/closing-running-applications/README.md), and the owner accepted them as the handoff on 2026-10-01 together with his answers to the brief's questions:
+- The previous package was archived unchanged, and every existing handoff file stays byte-identical except the README.
+- `design/arinn Closing Apps.dc.html` is the brief canvas with the answers locked in. The rejected variants CL-3b and CL-12 are removed, CL-13…16 are added, and English strings, motion and open questions are included. It uses the unchanged `support.js`.
+- It uses neutral monograms only and has no image slots. Eleven `cl-*.png` screenshots are the brief renders, whose frames are unchanged. The four new ones (CL-13…16) were rendered at 1920×1080 with headless Chrome, as described in the brief.
+- The handoff README gains the *Closing applications* section, a file entry, and notes on the Menu key and the Apps hint.

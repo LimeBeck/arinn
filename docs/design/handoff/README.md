@@ -123,7 +123,7 @@ The focus ring must be drawn as an **overlay element on top of the artwork** (a 
 | OK / Enter | Select. In the player: show OSD; on the timeline, play/pause |
 | Back / Esc | Up the hierarchy. On Home root: open global nav |
 | Home (H) | Always show Arinn. From an activity: Arinn over it, focus on “Return” |
-| Menu (M) | Toggle global nav. In Apps (long-press Menu / O): pin/unpin to Home |
+| Menu (M) | Toggle global nav. On an app tile in Apps or Home favorites (long-press Menu / O): the tile sheet with pin/unpin and Close (see *Closing applications*) |
 | + / − | Volume HUD (non-modal) |
 | Space | Play/pause in the player |
 
@@ -208,7 +208,7 @@ Same as movie with padTop 180. The primary is “Продолжить · С1 Э4
   - Игры: Steam, EmulationStation, tiles 480×196 (wider for character).
   - Другое: “Добавить приложение” (480×120, 2 px dashed white 18%, desc “Любой сайт как приложение”).
 - Tile: r30, padding 26/28, logo chip 76 (88 on large tiles) top-left, “Запущено” + ember dot and a pin icon (`keep`, when on Home) top-right, name 32/600 bottom-left.
-- The bottom hint shows only while an app tile has focus: “OK — открыть · Меню — закрепить на главной”.
+- The bottom hint shows only while an app tile has focus: “OK — открыть · Меню — закрепить на главной”. With the tile sheet (*Closing applications*) it reads “OK — открыть · Меню — действия”.
 
 ### 14 · Settings
 - Title 56. Left category list x120 w540: rows h88 r26, icon 38 + label 30/600. The selected category has an ember dot; it gets plate 8% while focus is in the right pane. Focusing a category selects it.
@@ -302,6 +302,25 @@ What opens behind a Settings row chevron. One generic editor per setting kind; p
   - Rejected (PK-10): an error plate above the list with the daemon text (“Эта папка уже в медиатеке”, limit reached); the picker stays open.
 - **Open questions**: whether `enabled = false` carries a reason; whether integer has a unit; whether “applies at next start” should offer “Перезапустить сейчас”; whether the library provider reports folder availability as an event.
 
+### Closing applications (#205) · CL-1…11, CL-13…16
+Closing a running ordinary application (Steam, a game, ES-DE, a desktop app) from the TV with the D-pad only. Arinn only asks the app to close (`Application1.Terminate`); it never kills a process. Web services are not part of this: they keep closing on Open services without confirmation. The live canvas is `design/arinn Closing Apps.dc.html` (add `#only=CL-4` etc. to render one frame), and the screenshots are `screenshots/cl-*.png`. The frames come from the agent brief and keep its numbering; the owner accepted them as the handoff on 2026-10-01. The interactive prototype `arinn.dc.html` is not updated for these states; the canvas is authoritative.
+- **Three entry points, one flow**: the tile sheet, the Continue card and the running list all lead to the same confirmation (CL-8), closing state (CL-9) and result (CL-10, CL-11, CL-16).
+- **Tile sheet (CL-1, CL-2)**: long-press Menu on an app tile in Apps or in Home favorites opens the right sheet from 10/11 instead of toggling the pin directly. Eyebrow = group (or “Избранное”), chip 76 + name 52/700, and a status line: “Запущено” with an ember dot, or “Не запущено”. Options: “Закрепить на главной” / “Убрать с главной” first, then “Закрыть” with the sub “Arinn попросит {name} закрыться” and the error-tinted icon, only while the app runs. Focus opens on the first option. OK on pin/unpin applies it and closes the sheet after 180 ms. Back returns focus to the tile. The tile hint becomes “OK — открыть · Меню — действия”. Web-shortcut tiles get no Close, and Menu on them still opens the shortcut editor.
+- **Continue card (CL-3a)**: a Close button 128×225 r26 sits right of the “Сейчас запущено” card, gap 16, as on Open services rows. It is visible at rest (plate 6%, text-2). → from the card moves to it and the next → goes to the first media card. With focus on it, the hero meta reads “Закрыть {name}”. Only an application card has it; a web-service card does not.
+- **Screen “Запущенные приложения” (CL-4, CL-5)**: separate from Open services, with the same geometry. Title 56/700 + count 40/600 text-3; flat list x120 y210; rows min-h128 r26 with chip 76 (monogram), name 30/600 on one line with ellipsis, and the status “На экране” (ember dot) or “В фоне”. A Close button 128×128 sits right of the row. One row per running window, the one on screen first, then by last use. Browser windows are never listed. OK on the row switches to the app, → moves to Close, ← returns. OK on Close asks for confirmation. Hint: “OK Перейти · → Закрыть · Назад Выйти”.
+- **Many (CL-13)**: as OS-4. Scroll keeps focus 2–3 rows from the bottom, with 72 px fade masks and the position “5 из 9” 26/500 at top-right. Long names ellipsize on one line, also in focus.
+- **Two windows (CL-14)**: names come from the catalogue, so both rows read the same. Each row of an app with several windows gets “Одно из {M} окон” before its status. There is no window number, because the order changes with use. Each row closes only its own window.
+- **Cannot close (CL-15)**: a window without the terminate capability keeps its row, with the status “Закрыть из Arinn нельзя” (text-3) and a Close button at 40% with a `block` icon. The button stays focusable. OK shows the toast “Arinn не может закрыть «{name}». Закройте его в самом приложении” (LF-5 pattern) and opens no dialog.
+- **Nothing running (CL-6)**: the OS-6 layout: `desktop_windows` 88 text-3, “Ничего не запущено”, the body “Здесь появятся приложения и игры, которые вы откроете. Онлайн-сервисы — в «Открытых сервисах».”, and the focused button “На главную”. It replaces the list when the last row closes.
+- **Nav (CL-7)**: a new item directly below “Открытые сервисы”, in the H-2 style. It has `desktop_windows` 40, the short label “Запущенные” 30/600, the subline “На экране: {name}” 22/500 with an ember dot (only while an app is on screen), and the Downloads-style count. When nothing runs, the item stays and the count is hidden. It **replaces the bottom activity row** for applications, as the Open services item does for web services, so no activity row remains and the panel keeps y72–1008. Continue gets no second summary card.
+- **Confirm (CL-8)**: the power-confirm dialog (w900 r48, scrim .58). Title “Закрыть {name}?” and body “Arinn попросит {name} закрыться. Несохранённые изменения и прогресс в игре могут пропасть.”. Buttons “Отмена” (default focus) and “Закрыть” (22% error tint). Back = Cancel; Home closes the dialog without closing the app.
+- **Closing (CL-9)**: as OS-3, the row drops to 50%, a spinner replaces the close icon, the status reads “Закрывается…”, and focus moves to the next row at once. On the Continue card the spinner replaces the close icon; on a tile it replaces the running dot.
+- **Closed (CL-10, CL-16)**: when the window disappears, the row, or the card with its Close button, collapses in 220 ms. Focus goes to the neighbour, the running dot leaves the tile, and the toast “{name} закрыт” shows for 2.6 s. If another app still runs, the Continue card shows that app instead.
+- **Did not close (CL-11)**: when the request fails or the window is still there after the wait, a dialog in the 18b / H-6 layout opens. It is informational, not an error: `info` 64, “{name} не закрылся”, and the body “Возможно, он ждёт ответа на своём экране — например, просит сохранить изменения. Перейдите в {name} и ответьте там.”. Buttons: “Перейти в {name}” (default, switches to the app) and “Остаться”. The row returns to full opacity with “Не закрылся”. There is no retry and no force close.
+- **Motion**: sheet 320 ms (translateX 64→0 + fade), selection closes it after 180 ms; collapse 220 ms; toast 2.6 s; list scroll 400–450 ms; dialogs as 15b. No new durations.
+- **Not drawn**: the brief variants CL-3b (Close behind Menu on the Continue card) and CL-12 (one list merged with Open services) were not chosen.
+- **Open questions**: whether the tile sheet gains “Изменить ярлык” for web-shortcut tiles instead of the direct Menu binding to the editor; how long Arinn waits before a window counts as “did not close”. Strings in English are in the canvas.
+
 ### 20 · Ambient / screensaver
 - Background bg-deep. Clock 160/500 in `oklch(0.60 0.004 260)`, date 32 in `oklch(0.45…)`, optional line “Кинопоиск на паузе” with a dim ember dot.
 - The whole block moves to a random position every 8 s with a 4 s ease-in-out move, so no static high-contrast pixels remain.
@@ -346,6 +365,7 @@ Integration points: a browser extension (`tabs` + `nativeMessaging`) that expose
 - `design/arinn Browser Input.dc.html`: the address and search screen (#106): design answers, input states IN-1…9, tile T-1a/b, OS-8, owner-decision variants V-1…3, and input rules. Screenshots are in `screenshots/in-*.png`.
 - `design/arinn Open Services.dc.html`: open services (ADR-0050), switchable RU/EN through the `lang` prop: design answers, the list screen OS-1…7, Home/nav/launch states H-1…6, and the transition spec. Screenshots are in `screenshots/os-*.png`.
 - `design/arinn Settings Editors.dc.html`: Settings value editors per kind (ADR-0065, #169): design answers, editors ED/EN/IN/STR, saving SV-1…6, Library folders LF-1…8, folder picker PK-1…10, the contract-to-UI map and open questions. Add `#only={ID}` to the URL to render one frame.
+- `design/arinn Closing Apps.dc.html`: closing running applications (#205): owner decisions, design answers Q1–Q9, the tile sheet, the Continue Close button, the running list, confirmation and feedback (CL-1…11, CL-13…16), strings in Russian and English, motion and open questions. Add `#only={ID}` to the URL to render one frame. Screenshots are in `screenshots/cl-*.png`.
 - `design/arinn Design System v2.dc.html`: tokens, the 3 m viewing-distance check, logo treatments, component state matrix, focus rules, motion, map and keys.
 - `design/arinn Directions.dc.html`: the concept exploration (1a/1b/1c and the chosen 2a).
 - `design/support.js`, `design/image-slot.js`, `design/.image-slots.state.json`: runtime needed to open the files locally.

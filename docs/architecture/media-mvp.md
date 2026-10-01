@@ -38,7 +38,7 @@ Codecs, hardware decoding, HDR and passthrough are not guaranteed by documentati
 
 ## mpv
 
-`arinn-plugin-mpv` is the `media` provider for one Arinn-owned player (AC-16, [ADR-0057](../adr/0057-mpv-ipc-and-process-scope.md)). `Features` lists `MediaOpen1`, `MediaTracks1`, `MediaTimeline1` and `MediaWindow1`. mpv is an optional install. When `/usr/bin/mpv` is missing, the backend is `unavailable` and `Open` returns `Unavailable`.
+`arinn-plugin-mpv` is the `media` provider for one Arinn-owned player (AC-16, [ADR-0057](../adr/0057-mpv-ipc-and-process-scope.md)). `Features` lists `MediaOpen1`, `MediaTracks1`, `MediaTimeline1` and `MediaWindow1`. mpv is an optional install. When `/usr/bin/mpv` is missing and no live IPC player is reachable, the backend is `unavailable` and `Open` returns `Unavailable`. Successfully observing an existing player restores availability even if the launcher executable is now absent; reconnect does not launch or reload it.
 
 The player is the transient user unit `app-arinn-mpv.service` in `app.slice`, without `AddRef`, so it is not in the plugin cgroup and a provider crash does not stop it. An active unit is left running. The socket is `$XDG_RUNTIME_DIR/arinn/mpv/ipc` in a `0700` directory. `/tmp` is refused. Reconnecting observes mpv and does not send `loadfile` again, and it does not signal any other mpv.
 

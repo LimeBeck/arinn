@@ -19,19 +19,48 @@ Surface {
     opacity: !enabled || unavailable ? 0.4 : 1
     contentItem: Item {
         Rectangle {
+            objectName: "applicationChip"
             x: 24; y: (parent.height - height) / 2
             width: 60; height: 60; radius: 18
-            color: root.unavailable ? Qt.rgba(1, 1, 1, 0.06) : root.accentColor
+            color: root.iconReady ? Qt.rgba(1, 1, 1, 0.1) : root.unavailable ? Qt.rgba(1, 1, 1, 0.06) : root.accentColor
             Image {
                 id: icon
                 objectName: "applicationIcon"
-                anchors.centerIn: parent
-                width: 44; height: 44
+                anchors.fill: parent
                 sourceSize: Qt.size(128, 128)
                 source: root.iconSource
                 asynchronous: true
                 fillMode: Image.PreserveAspectFit
-                visible: status === Image.Ready
+                visible: false
+                onStatusChanged: {
+                    if (status === Image.Ready) iconFrame.loadImage(source);
+                    iconFrame.requestPaint();
+                }
+            }
+            Canvas {
+                id: iconFrame
+                // Rasterize at 2x for the 4K logical canvas, then fit the chip.
+                width: parent.width * 2; height: parent.height * 2
+                scale: 0.5
+                transformOrigin: Item.TopLeft
+                onImageLoaded: requestPaint()
+                onPaint: {
+                    const ctx = getContext("2d");
+                    ctx.reset();
+                    if (!root.iconReady || !isImageLoaded(icon.source)) return;
+                    ctx.scale(2, 2);
+                    const w = parent.width, h = parent.height, r = parent.radius;
+                    ctx.beginPath();
+                    ctx.moveTo(r, 0);
+                    ctx.lineTo(w-r, 0); ctx.quadraticCurveTo(w, 0, w, r);
+                    ctx.lineTo(w, h-r); ctx.quadraticCurveTo(w, h, w-r, h);
+                    ctx.lineTo(r, h); ctx.quadraticCurveTo(0, h, 0, h-r);
+                    ctx.lineTo(0, r); ctx.quadraticCurveTo(0, 0, r, 0);
+                    ctx.closePath(); ctx.clip();
+                    ctx.drawImage(icon.source, (w-icon.paintedWidth)/2,
+                                  (h-icon.paintedHeight)/2,
+                                  icon.paintedWidth, icon.paintedHeight);
+                }
             }
             UiText {
                 objectName: "applicationFallback"

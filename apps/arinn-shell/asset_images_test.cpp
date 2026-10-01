@@ -22,6 +22,7 @@
 #include <QQuickWindow>
 #include <QRunnable>
 #include <QTest>
+#include <QSignalSpy>
 #include <QThreadPool>
 #include <QUrl>
 #include <QtDBus>
@@ -229,13 +230,30 @@ private slots:
     QQmlApplicationEngine engine;
     installAssetImageProvider(&engine);
     engine.rootContext()->setContextProperty("iconUrl", IconReferences::imageUrl(svg));
-    engine.loadData("import QtQuick; Window { visible: true; width: 64; height: 64; Image { objectName: 'icon'; anchors.fill: parent; source: iconUrl; asynchronous: true } }");
+    engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_PLACEHOLDER_QML))
+                    .resolved(QUrl("icon_tile_fixture.qml")));
     QVERIFY(!engine.rootObjects().isEmpty());
     auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
     QVERIFY(window);
-    auto picture = findItem(window->contentItem(), "icon");
+    auto picture = findItem(window->contentItem(), "applicationIcon");
     QVERIFY(picture);
     QTRY_COMPARE(picture->property("status").toInt(), kImageReady);
+    auto tile = findItem(window->contentItem(), "iconTile");
+    QVERIFY(tile);
+    QTRY_VERIFY(([&] {
+      const auto grab = tile->grabToImage();
+      if (grab.isNull()) return false;
+      QSignalSpy ready(grab.data(), &QQuickItemGrabResult::ready);
+      if (grab->image().isNull() && !ready.wait(500)) return false;
+      const auto image = grab->image();
+      if (image.isNull()) return false;
+      const auto edge = image.pixelColor(28, 66);
+      const auto corner = image.pixelColor(24, 36);
+      const auto outside = image.pixelColor(88, 66);
+      return edge.red() > 200 && edge.green() < 40 &&
+          !(corner.red() > 200 && corner.green() < 40) &&
+          !(outside.red() > 200 && outside.green() < 40);
+    })());
     QVERIFY(loadLocalIcon("unknown-theme-icon", {dir.path()}, "fixture").isNull());
   }
   void localThemeInheritance() {

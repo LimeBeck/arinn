@@ -238,7 +238,10 @@ Theme search is bounded (16 themes, 16 roots, 512 directories per index list,
 4096 candidates and 4 MiB candidate image bytes), prefers scalable/128px entries, follows declared inheritance and falls back to hicolor and
 local pixmaps. SVG external references, embedded images, CSS and DTDs are rejected.
 Unreadable, unsupported or missing icons retain a monogram on a deterministic
-muted color chip. Application color identity excludes the provider generation.
+muted color chip. Loaded icons occupy the full chip bounds with preserved aspect
+ratio and a rounded software-compatible mask; transparent marks reveal a neutral
+white-10% backing, never the fallback identity color. Application color identity
+excludes the provider generation.
 No logos are bundled and no icon request goes to a provider or network.
 
 Focused surfaces retain their white overlay ring and existing lift/scale. Layered

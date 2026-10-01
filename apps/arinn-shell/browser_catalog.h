@@ -114,7 +114,8 @@ private:
   bool m_connected = false, m_loaded = false, m_noBrowser = false,
        m_snapshotError = false, m_refreshing = false, m_dirty = false;
   quint64 m_epoch = 0;
-  QString m_generation;
+  QString m_generation, m_returnWindow;
+  bool m_home = false, m_activityAvailable = false;
   QTimer m_timer;
   QTimer m_saveErrorTimer;
 };

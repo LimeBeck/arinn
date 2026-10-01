@@ -146,7 +146,12 @@ AC-02/AC-03 or full G-5.1 on a real KDE/TV session.
 ### Home activity identity and visual treatment
 
 Home suppresses the generic Return card only when the current browser service
-reports the exact same platform window token and platform generation. The browser
+reports the exact same platform window token and platform generation. While Home
+is visible, `currentService` is selected by the daemon Status Return-window token
+among the current browser snapshot windows, even after browser focus is lost.
+Outside Home it follows current browser focus. Missing/ambiguous associations,
+window removal, generation changes, failed Status and daemon owner loss clear the
+service presentation; old titles, URLs and focus history are not used. The browser
 snapshot already carries that token; the shell preserves it instead of guessing
 from tab titles or service names. Different windows, missing tokens and old
 generations retain Return. Independent media sessions are preserved: the current

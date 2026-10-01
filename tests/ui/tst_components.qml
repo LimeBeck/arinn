@@ -32,9 +32,24 @@ TestCase {
         tile.iconSource = Qt.resolvedUrl("../../apps/arinn-shell/gallery/fixture-artwork.svg");
         tryCompare(tile, "iconReady", true);
         compare(findChild(tile, "applicationFallback").visible, false);
+        const chip = findChild(tile, "applicationChip");
+        const icon = findChild(tile, "applicationIcon");
+        compare(chip.color, Qt.rgba(1, 1, 1, 0.1));
+        compare(icon.width, chip.width);
+        compare(icon.height, chip.height);
+        // The loaded artwork reaches the chip edge: no invented 8px mat.
+        tryVerify(() => {
+            const pixels = grabImage(tile);
+            const edge = chip.mapToItem(tile, 4, 30);
+            return pixels.blue(edge.x, edge.y) > pixels.red(edge.x, edge.y);
+        });
+        tile.iconSource = Qt.resolvedUrl("../../docs/design/handoff/assets/arinn-mark.svg");
+        tryCompare(tile, "iconReady", true);
+        compare(chip.color, Qt.rgba(1, 1, 1, 0.1));
         tile.iconSource = "";
         tryCompare(tile, "iconReady", false);
         compare(findChild(tile, "applicationFallback").visible, true);
+        compare(chip.color, tile.accentColor);
         tile.forceActiveFocus();
         tryCompare(findChild(tile, "focusRing"), "opacity", 1);
     }

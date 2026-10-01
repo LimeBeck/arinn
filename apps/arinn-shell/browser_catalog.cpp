@@ -125,6 +125,9 @@ BrowserCatalog::BrowserCatalog(QObject *parent) : QObject(parent) {
             m_noBrowser = false;
             m_snapshotError = false;
             m_generation.clear();
+            m_returnWindow.clear();
+            m_home = false;
+            m_activityAvailable = false;
             m_tabs.clear();
             m_windows.clear();
             m_refs.clear();
@@ -134,6 +137,7 @@ BrowserCatalog::BrowserCatalog(QObject *parent) : QObject(parent) {
             m_saveError.clear();
             m_saveErrorTimer.stop();
             clearUseOrder();
+            presentTabs({});
             m_opening = false;
             m_openingError.clear();
             m_openOperationPath.clear();
@@ -196,6 +200,9 @@ void BrowserCatalog::refresh() {
               m_loaded = false;
               m_noBrowser = false;
               m_snapshotError = false;
+              m_returnWindow.clear();
+              m_home = false;
+              m_activityAvailable = false;
               if (!m_tabs.isEmpty() || !m_windows.isEmpty()) {
                 m_tabs.clear();
                 m_windows.clear();
@@ -207,6 +214,7 @@ void BrowserCatalog::refresh() {
                 m_shortcuts.clear();
                 emit shortcutsChanged();
               }
+              presentTabs({});
               publish();
               return;
             }
@@ -235,7 +243,11 @@ void BrowserCatalog::refresh() {
               }
             }
             m_generation = generation;
+            m_home = home;
+            m_activityAvailable = available && platform && !generation.isEmpty();
+            m_returnWindow = m_activityAvailable ? returnWindow : QString();
             m_connected = true;
+            presentTabs(m_tabs);
             publish();
             readShortcuts(epoch);
             auto catalog = std::make_shared<Catalog>();
@@ -892,11 +904,23 @@ void BrowserCatalog::rememberFocus(const QVariantList &windows) {
 void BrowserCatalog::presentTabs(QVariantList tabs) {
   QString onScreen, platformWindow;
   for (const auto &entry : m_windows) {
-    const auto map = entry.toMap();
-    if (map.value(QStringLiteral("focused")).toBool()) {
-      onScreen = map.value(QStringLiteral("id")).toString();
-      platformWindow = map.value(QStringLiteral("windowToken")).toString();
+    if (!m_activityAvailable)
       break;
+    const auto map = entry.toMap();
+    const auto token = map.value(QStringLiteral("windowToken")).toString();
+    // Showing Home removes browser focus. Its verified Return target, not a
+    // remembered title/origin/focus flag, identifies the underlying activity.
+    const bool selected = m_home
+        ? !m_returnWindow.isEmpty() && token == m_returnWindow
+        : map.value(QStringLiteral("focused")).toBool();
+    if (selected) {
+      if (!onScreen.isEmpty()) {
+        onScreen.clear();
+        platformWindow.clear();
+        break; // Ambiguous association: do not guess which service to show.
+      }
+      onScreen = map.value(QStringLiteral("id")).toString();
+      platformWindow = token;
     }
   }
   QStringList openIds;

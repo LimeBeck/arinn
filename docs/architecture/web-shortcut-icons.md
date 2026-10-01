@@ -4,11 +4,11 @@
 [#224](https://github.com/LimeBeck/arinn/issues/224). Requirements: AC-03, AC-12;
 R-01–R-05, R-09, R-10; specification §5.1, §7.1, §9.7, §11, §13, §18.
 
-**Status:** production implementation in progress in
-[#226](https://github.com/LimeBeck/arinn/issues/226). The provider, preset migration
-and asynchronous shell binding are implemented on that branch. Daemon routing
-integration is pending shared-file coordination; end-to-end completion and real
-KDE/TV qualification are not claimed.
+**Status:** production implementation in
+[#226](https://github.com/LimeBeck/arinn/issues/226). Provider discovery/cache,
+daemon routing, preset migration and asynchronous shell binding are implemented.
+Private-bus and offscreen tests are implementation evidence; real KDE/TV
+qualification is not claimed.
 
 ## Ownership and optional transport
 
@@ -167,6 +167,16 @@ no-follow file operations retain a directory descriptor across reads and atomic
 replacement. Startup and later pruning inspect at most 256 directory entries;
 unexpected directory contents disable caching. Cache errors leave downloading
 and the monogram fallback independent of persistence.
+
+`crates/arinnd/src/runtime/web_icons.rs` exports the optional root endpoint.
+It snapshots the first ready browser's ID, unique owner and registration,
+introspects the optional interface once per selected owner, and checks shortcut
+revision and selected registration again after the call. Browser backend
+connectivity does not affect selection. Four semaphore slots and a six-second
+deadline bound calls; neither registry nor shortcut locks span provider I/O.
+An initial request may wait for provider registration within that same deadline,
+so first paint does not permanently miss icons merely because supervision is
+still starting. This does not launch a browser or retry a selected provider.
 
 The shell keeps private lookup records in `WebIconReferences`; the actual
 `Backend::readShortcuts` model exposes only their opaque image-provider tokens.

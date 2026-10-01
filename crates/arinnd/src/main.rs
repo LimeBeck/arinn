@@ -91,6 +91,7 @@ async fn run() -> Result<(), ErrorCode> {
             serde_json::json!({"level":"warn","component":"arinnd","provider_id":null,"request_id":null,"operation":"seed-web-shortcuts","error":"Internal","duration_ms":0})
         );
     }
+    core.export_web_icons(shortcuts.clone()).await?;
     connection
         .object_server()
         .at(PATH, shortcuts)

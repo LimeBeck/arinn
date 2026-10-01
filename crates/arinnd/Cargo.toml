@@ -23,4 +23,5 @@ sha2.workspace = true
 rusqlite.workspace = true
 futures-util.workspace = true
 url = "2"
+roxmltree = "0.21"
 arinn-plugin-sdk.workspace = true

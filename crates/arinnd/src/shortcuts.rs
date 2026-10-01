@@ -191,6 +191,25 @@ impl WebShortcuts {
             .await
             .map(|_| ())
     }
+    /// Snapshot lookup for the optional icon route. No caller-supplied URL.
+    pub(crate) async fn icon_shortcut(
+        &self,
+        revision: u64,
+        id: &str,
+    ) -> Result<WebShortcut, ErrorCode> {
+        let id = id.to_owned();
+        self.store(move |store| {
+            let list = store.web_shortcuts()?;
+            if list.revision != revision {
+                return Err(ErrorCode::Conflict);
+            }
+            list.shortcuts
+                .into_iter()
+                .find(|s| s.id == id)
+                .ok_or(ErrorCode::NotFound)
+        })
+        .await
+    }
     pub async fn migrate_presets(&self, migrations: Vec<PresetMigration>) -> Result<(), ErrorCode> {
         self.store(move |store| store.migrate_web_presets(&migrations))
             .await

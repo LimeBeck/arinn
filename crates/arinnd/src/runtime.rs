@@ -1420,6 +1420,30 @@ impl Daemon {
             .report_window(&self.core.connection, h, id, class, fullscreen, output)
             .await
     }
+    async fn report_home_request(
+        &self,
+        target: &str,
+        output: &str,
+        #[zbus(header)] h: Header<'_>,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+    ) -> production::Result<()> {
+        // Use the same platform authentication/validation as state reports.
+        // Only this explicit request path emits presentation intent.
+        self.core
+            .platform
+            .report_home(&self.core.connection, h, true, target, output)
+            .await?;
+        Self::changed(&emitter).await?;
+        Self::home_requested(&emitter, &self.core.epoch, target, output).await?;
+        Ok(())
+    }
+    #[zbus(signal)]
+    async fn home_requested(
+        emitter: &SignalEmitter<'_>,
+        epoch: &str,
+        target: &str,
+        output: &str,
+    ) -> zbus::Result<()>;
     #[zbus(signal)]
     async fn changed(emitter: &SignalEmitter<'_>) -> zbus::Result<()>;
 

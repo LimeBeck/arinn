@@ -234,6 +234,42 @@ not create a second public operation tree. Cancellation is currently unsupported
 not a complete catalogue. `Status.generation` contains the daemon epoch;
 provider generations and revisions come from provider/application pages.
 
+### Explicit Home presentation
+
+[ADR-0069](../adr/0069-explicit-home-presentation-requests.md) adds two members to
+[Daemon1](daemon1.xml), preserving every existing signature:
+
+- `ReportHomeRequest(target: s, output: s)` is restricted to the current
+  `org.kde.KWin` unique owner. Both strings follow the existing ordinary-text
+  validation (at most 8 KiB, no NUL); either may be empty. It commits Home visible
+  with that Return target/output, emits `Changed`, then emits one
+  `HomeRequested(epoch: s, target: s, output: s)`, including for identical repeats.
+  Unauthorized callers receive `PermissionDenied`; invalid text receives
+  `InvalidArgument`. Neither failure publishes state or presentation intent.
+- `HomeRequested` carries the daemon epoch from `Status.epoch` and the request's
+  opaque target/output. It requests the existing §6.3 Home action locally: close
+  transient UI, navigate Home, focus Return when available, never toggle or
+  confirm an action. It is neither provider state nor an operation result.
+
+`Home()` still queues a platform command; its reply only acknowledges admission.
+The platform reports explicit intent after its unlocked-session check, just as
+for the global shortcut. `ReportHome(visible, target, output)` and `Changed`
+remain state-only: reconnect, disappearance, remap, dismissal and ordinary
+provider updates never synthesize `HomeRequested`.
+
+A consumer subscribes against the current daemon unique owner before reading
+status, validates the epoch and payload, and discards queued events on owner
+loss. The signal's context avoids a status round trip in local navigation;
+subsequent state reports independently update Return availability. Each received
+request is handled, including identical repeats. This is a transient signal,
+with no persistence, retry, historical replay or catch-up after reconnect.
+Do not infer missed intent from `Status` or `Changed` on an older daemon.
+
+The matching adapter/daemon must be installed together. Old shells ignore the
+signal and keep their existing status path; old adapters cannot report explicit
+intent. Production shell consumption and QML focus regression are a follow-up
+after #45 merges. This contract alone does not complete AC-18.
+
 ## SDK and fixtures
 
 `arinn-plugin-sdk::runtime` exports `ApplicationService`, `ApplicationHandler` and

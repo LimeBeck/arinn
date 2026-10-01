@@ -516,6 +516,12 @@ and the [KWin transport contract](../architecture/kwin-transport.md).
 
 The platform layer registers the global Home shortcut, which MUST work while focus is in Chrome, Steam, a game or ES-DE. The shell MUST NOT rely on receiving ordinary key events while unfocused. The first mechanism is a packaged KWin script with a typed bridge to the daemon ([ADR-0032](../adr/0032-kwin-script-platform-adapter.md)); plugins can never submit scripts.
 
+The explicit presentation transport is `Daemon1.ReportHomeRequest` →
+`HomeRequested(epoch, target, output)` ([ADR-0069](../adr/0069-explicit-home-presentation-requests.md)).
+Ordinary `ReportHome`/`Changed` updates remain state-only, including reconnect and
+window remap. This implements the existing §6.3 distinction between Home intent
+and state recovery; production shell consumption follows the contract separately.
+
 ### 12.2. Overlay and output selection
 
 When Home opens, the platform remembers the Activity window and its output; the single shell window is shown fullscreen on that output (the only screen on the target HTPC). Without an Activity the active KWin screen is used. Return activates the same window without moving it. Arinn MUST NOT change resolution, scale, the primary screen or layout ([ADR-0026](../adr/0026-multiple-monitors.md), [ADR-0031](../adr/0031-single-screen-target.md)).

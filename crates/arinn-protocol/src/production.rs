@@ -115,6 +115,12 @@ pub trait ProductionDaemon {
     fn home(&self) -> zbus::Result<()>;
     fn back(&self) -> zbus::Result<()>;
 
+    /// Trusted platform input: present Home, even when already visible.
+    fn report_home_request(&self, target: &str, output: &str) -> zbus::Result<()>;
+    /// An explicit presentation intent, never a state refresh or replay.
+    #[zbus(signal)]
+    fn home_requested(&self, epoch: &str, target: &str, output: &str) -> zbus::Result<()>;
+
     #[zbus(name = "Providers")]
     fn provider_page(&self, token: &str) -> zbus::Result<(ProviderPage,)>;
     fn diagnostics(&self) -> zbus::Result<String>;

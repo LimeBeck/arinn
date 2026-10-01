@@ -34,9 +34,11 @@ function raiseShell() {
     workspace.activeWindow = w;
 }
 function showHome() {
+    const owner = daemonOwner;
+    if (!owner) return;
     // Do not surface over a locked session. ScreenSaver owns lock state.
     callDBus("org.freedesktop.ScreenSaver", "/ScreenSaver", "org.freedesktop.ScreenSaver", "GetActive", locked => {
-        if (locked !== false) return;
+        if (locked !== false || owner !== daemonOwner) return;
         const active = workspace.activeWindow;
         if (!homeVisible) {
             detachedTarget = "";
@@ -44,7 +46,11 @@ function showHome() {
         }
         if (!homeVisible) homeOutput = active && !isShell(active) && active.output ? active.output.name : workspace.activeScreen.name;
         homeVisible = true;
-        rpc("ReportHome", true, target, homeOutput, raiseShell);
+        // Pin a transient request to its daemon owner; reconnect only restores
+        // state through ReportHome and must never replay presentation intent.
+        callDBus(owner, path, service, "ReportHomeRequest", target, homeOutput, () => {
+            if (owner === daemonOwner) raiseShell();
+        });
     });
 }
 // Give the Activity the screen before the shell stops covering it. Clearing

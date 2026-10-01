@@ -41,6 +41,8 @@ function fixture() {
     let shortcut, takeCommand, report, tick, control;
     const shortcuts = [];
     let locked = false, generation = randomUUID(), stage = [];
+    let deferLock = false;
+    const lockReplies = [], homeRequests = [];
     const snapshots = [], acknowledgements = [], controls = [];
     let owner = ":1.10"; const polls = [];
     let activeWindow = activity;
@@ -67,7 +69,10 @@ function fixture() {
                 if (method === 'NextControl') { control = callback; controls.push(callback); }
                 if (method === 'CompleteControl') { acknowledgements.push(args.slice(0, 3)); callback(); }
             }
-            if (method === 'GetActive') args[0](locked);
+            if (method === 'GetActive') {
+                if (deferLock) lockReplies.push(args[0]);
+                else args[0](locked);
+            }
             if (method === 'NameHasOwner') args[1](!!owner);
             if (method === 'GetNameOwner') args[1](owner);
             if (method === 'TakeCommand') { takeCommand = args[0]; polls.push(takeCommand); }
@@ -76,6 +81,11 @@ function fixture() {
                 trace.push({ kind: 'ReportHome', visible: args[0] });
                 if (typeof args[3] === 'function') args[3]();
             }
+            if (method === 'ReportHomeRequest') {
+                homeRequests.push({ owner: _service, args: args.slice(0, 2) });
+                report = [true, ...args.slice(0, 2)];
+                args[2]();
+            }
         } });
     vm.runInContext(fs.readFileSync(path.join(__dirname, '../../platform/kde/phase0.js'), 'utf8'), context);
     return { activity, home, workspace, window, polls, snapshots, acknowledgements, controls, trace,
@@ -83,11 +93,55 @@ function fixture() {
         command(action, token) { control([randomUUID(), action, token]); },
         reconnect(value) { owner = value; tick(); },
         show: () => shortcut(), back: () => takeCommand('return'),
-        shortcuts,
+        shortcuts, homeRequests, lockReplies,
+        deferLock() { deferLock = true; },
+        daemonHome: () => takeCommand('home'),
         dismiss: () => takeCommand('dismiss'), report: () => report,
         remove(w) { windows = windows.filter(x => x !== w); workspace.windowRemoved.emit(w); },
         add(w) { windows.push(w); workspace.windowAdded.emit(w); } };
 }
+
+test('AC-18: each global or daemon Home emits one explicit presentation request', () => {
+    const f = fixture();
+    assert.equal(f.homeRequests.length, 0, 'initial state synchronization is not Home');
+    f.show();
+    f.show();
+    f.daemonHome();
+    assert.deepEqual(f.homeRequests, Array.from({ length: 3 }, () => ({
+        owner: ':1.10', args: ['original-id', 'second-screen'],
+    })));
+    f.remove(f.activity);
+    f.add(f.activity);
+    f.refresh();
+    f.reconnect('');
+    f.reconnect(':1.20');
+    assert.equal(f.homeRequests.length, 3, 'remap and reconnect only restore state');
+    f.remove(f.activity);
+    f.back();
+    assert.equal(f.homeRequests.length, 3, 'missing Return target is not Home');
+    f.show();
+    assert.deepEqual(f.homeRequests.at(-1), { owner: ':1.20', args: ['', 'second-screen'] });
+});
+
+test('Home requests are not replayed after lock checks or queued commands outlive the owner', () => {
+    const f = fixture();
+    f.lock(true);
+    f.show();
+    assert.equal(f.homeRequests.length, 0);
+    f.lock(false);
+    f.deferLock();
+    f.show();
+    const oldPoll = f.polls.at(-1);
+    f.reconnect('');
+    f.reconnect(':1.20');
+    f.lockReplies[0](false);
+    oldPoll('home');
+    assert.equal(f.homeRequests.length, 0);
+    assert.equal(f.workspace.activeWindow, f.activity);
+    f.reconnect('');
+    f.show();
+    assert.equal(f.lockReplies.length, 1, 'no pending Home intent while disconnected');
+});
 
 test('an external window keeps Back until Home opens the overlay on that window', () => {
     const f = fixture();

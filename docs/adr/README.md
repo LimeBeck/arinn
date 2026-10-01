@@ -87,4 +87,5 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0066](0066-address-and-search-contract.md) | Address and search wire contract (Browse1) | Accepted | — |
 | [0067](0067-download-wire-contract.md) | Download wire contract | Accepted | — |
 | [0068](0068-agent-instruction-clarifications.md) | Agent task scope, verification and coordination | Proposed | — |
+| [0069](0069-explicit-home-presentation-requests.md) | Explicit Home presentation requests | Accepted | — |
 <!-- register:end -->

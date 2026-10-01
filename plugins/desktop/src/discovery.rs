@@ -87,7 +87,10 @@ impl Settings {
                 if let Some(entry) = self.entry(&id, &paths[0]) {
                     // Conservative allowance includes D-Bus strings, structure
                     // alignment and per-page generation/token overhead.
-                    bytes += entry.application.id.len() + entry.application.title.len() + 64;
+                    bytes += entry.application.id.len()
+                        + entry.application.title.len()
+                        + entry.application.icon.len()
+                        + 64;
                     if bytes > 16 * 1024 * 1024 {
                         return Err(ErrorCode::InvalidArgument);
                     }
@@ -178,10 +181,12 @@ impl Settings {
             title,
             can_launch: true,
             group: group(values.get("Categories").map(String::as_str)).into(),
-            // The desktop Icon key is not read here. Discovery of that
-            // reference is a later task (ADR-0059); empty keeps the neutral
-            // placeholder.
-            icon: String::new(),
+            // A malformed optional icon must not hide an otherwise usable app.
+            icon: values
+                .get("Icon")
+                .and_then(|s| unescape(s))
+                .filter(|s| arinn_protocol::application::icon_reference(s).is_ok())
+                .unwrap_or_default(),
         };
         application.validate().ok()?;
         Some(Entry {
@@ -367,6 +372,26 @@ mod tests {
         fs::write(path, body).unwrap();
     }
     const ENTRY: &str = "[Desktop Entry]\nType=Application\nName=Base\nExec=fixture %U\n";
+    #[test]
+    fn optional_icon_references_are_discovered_without_hiding_apps() {
+        let (_tree, s) = setup();
+        for (value, expected) in [
+            ("fixture-app", "fixture-app"),
+            ("/opt/fixture/icon.png", "/opt/fixture/icon.png"),
+            ("https://example.test/icon.png", ""),
+            ("../icon.png", ""),
+            ("/tmp/../icon.png", ""),
+        ] {
+            put(
+                &s.roots[0],
+                "fixture.desktop",
+                &format!("{ENTRY}Icon={value}\n"),
+            );
+            let entries = s.discover().unwrap();
+            assert_eq!(entries.len(), 1);
+            assert_eq!(entries.values().next().unwrap().application.icon, expected);
+        }
+    }
     #[test]
     fn precedence_visibility_locale_and_deletion() {
         let (_tree, s) = setup();

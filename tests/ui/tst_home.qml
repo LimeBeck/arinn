@@ -91,6 +91,18 @@ TestCase {
         keyClick(Qt.Key_Escape); focused("menuButton");
     }
 
+    function test_distinct_sessions_keep_identical_titles() {
+        home.currentServiceId = "service";
+        home.currentServiceTitle = "Same title";
+        home.continueEntries = [
+            {id: "session-a", title: "Same title", kind: "media"},
+            {id: "session-b", title: "Same title", kind: "media"}
+        ];
+        const ids = home.continuePresentation.map(entry => entry.id);
+        verify(ids.includes("current-service"));
+        verify(ids.includes("session-a"));
+        verify(ids.includes("session-b"));
+    }
     function test_home_back_activity() {
         home.returnActivityId = "a";
         keyClick(Qt.Key_Right); focused("entry-b");

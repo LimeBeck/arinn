@@ -52,3 +52,7 @@ private:
 };
 
 void installAssetImageProvider(QQmlEngine *engine);
+
+// Bounded image-only local/theme loading; call off the UI thread.
+QImage loadLocalIcon(const QString &reference, const QStringList &roots,
+                     const QString &theme);

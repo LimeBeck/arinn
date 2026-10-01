@@ -104,6 +104,8 @@ public:
       lists = 0;
   bool scripted = false, holdOperation = false, rejectAdd = false,
        holdAdd = false, holdList = false, recordAdded = true;
+  bool homeVisible = false, statusError = false;
+  QString returnWindow, platformGeneration = QStringLiteral("generation");
   QString rejectCode = QStringLiteral("InvalidArgument");
   QString addedTitle, addedUrl, addedIcon, addedRequest;
   QList<QDBusMessage> heldAdds, heldLists, staleLists;
@@ -159,9 +161,13 @@ public:
                      const QDBusConnection &bus) override {
     QDBusArgument body;
     if (message.member() == "Status") {
+      if (statusError) {
+        bus.send(message.createErrorReply(QDBusError::Failed, "Unavailable"));
+        return true;
+      }
       body.beginStructure();
-      body << QString("epoch") << true << QString("generation") << qulonglong(1)
-           << true << QString() << QString() << QString() << false << true
+      body << QString("epoch") << true << platformGeneration << qulonglong(1)
+           << homeVisible << returnWindow << QString() << QString() << false << true
            << QString() << QString();
       body.endStructure();
     } else if (message.member() == "Providers") {
@@ -313,6 +319,7 @@ public:
   QString m_message;
   QVariantList m_items, m_continue, m_applications, m_favorites;
   QStringList m_busy;
+  Q_INVOKABLE QVariantList continueWithoutWindow(const QVariantMap &) const { return m_continue; }
   Q_INVOKABLE void back() {}
   Q_INVOKABLE void launch(const QString &) {}
   Q_INVOKABLE void activate(const QString &) {}
@@ -345,6 +352,7 @@ public:
     m_home = true;
     emit changed();
   }
+  Q_INVOKABLE QVariantList continueWithoutWindow(const QVariantMap &) const { return m_continue; }
   Q_INVOKABLE void back() { ++backs; }
   Q_INVOKABLE void launch(const QString &) {}
   Q_INVOKABLE void activate(const QString &) {}
@@ -444,11 +452,75 @@ private slots:
     QTRY_COMPARE(catalog.browserState(), QString("unavailable"));
     QVERIFY(catalog.tabs().isEmpty());
   }
+  void currentServiceSurvivesHomeFocusLossByWindowIdentity() {
+    auto bus = QDBusConnection::sessionBus();
+    BrowserDaemon daemon;
+    daemon.scripted = true;
+    daemon.scriptedWindows = {WindowWire{"w1", "platform-one", true},
+                              WindowWire{"w2", "platform-two", false}};
+    daemon.scriptedTabs = {
+        TabWire{"t1", "w1", "First", "https://first.example/", true, false},
+        TabWire{"t2", "w2", "Second", "https://second.example/", true, false}};
+    QVERIFY(bus.registerService("org.arinn.Daemon1"));
+    QVERIFY(bus.registerVirtualObject("/org/arinn", &daemon,
+                                      QDBusConnection::SubPath));
+    BrowserCatalog catalog;
+    QTRY_COMPARE(catalog.currentService().value("windowToken").toString(),
+                 QString("platform-one"));
+    const auto first = catalog.currentService().value("id");
+    daemon.homeVisible = true;
+    daemon.returnWindow = "platform-one";
+    daemon.scriptedWindows[0].focused = false;
+    catalog.refresh();
+    QTRY_VERIFY(!catalog.windows().at(0).toMap().value("focused").toBool());
+    QCOMPARE(catalog.currentService().value("id"), first);
+    QCOMPARE(catalog.currentService().value("windowToken").toString(),
+             QString("platform-one"));
+    // A different verified Return target wins even if an old browser still
+    // reports focus. No title/origin/last-focus inference is used.
+    daemon.returnWindow = "platform-two";
+    daemon.scriptedWindows[0].focused = true;
+    catalog.refresh();
+    QTRY_COMPARE(catalog.currentService().value("windowToken").toString(),
+                 QString("platform-two"));
+    QVERIFY(catalog.currentService().value("id") != first);
+    daemon.returnWindow = "unlinked-window";
+    catalog.refresh();
+    QTRY_VERIFY(catalog.currentService().isEmpty());
+    daemon.returnWindow = "platform-one";
+    catalog.refresh();
+    QTRY_COMPARE(catalog.currentService().value("id"), first);
+    daemon.platformGeneration = "next-generation";
+    daemon.scriptedWindows[0].token.clear();
+    daemon.scriptedWindows[1].token.clear();
+    catalog.refresh();
+    QTRY_VERIFY(catalog.currentService().isEmpty());
+    daemon.scriptedWindows[0].token = "platform-one";
+    catalog.refresh();
+    QTRY_COMPARE(catalog.currentService().value("platformGeneration").toString(),
+                 QString("next-generation"));
+    daemon.statusError = true;
+    catalog.refresh();
+    QTRY_VERIFY(catalog.currentService().isEmpty());
+    daemon.statusError = false;
+    catalog.refresh();
+    QTRY_COMPARE(catalog.currentService().value("id"), first);
+    daemon.scriptedWindows.clear();
+    daemon.scriptedTabs.clear();
+    catalog.refresh();
+    QTRY_VERIFY(catalog.currentService().isEmpty());
+    daemon.scriptedWindows = {WindowWire{"w1", "platform-one", false}};
+    daemon.scriptedTabs = {TabWire{"t1", "w1", "First", "https://first.example/", true, false}};
+    catalog.refresh();
+    QTRY_COMPARE(catalog.currentService().value("id"), first);
+    bus.unregisterService("org.arinn.Daemon1");
+    QTRY_VERIFY(catalog.currentService().isEmpty());
+  }
   void orderOriginAndRetry() {
     auto bus = QDBusConnection::sessionBus();
     BrowserDaemon daemon;
     daemon.scripted = true;
-    daemon.scriptedWindows = {WindowWire{"w1", {}, true},
+    daemon.scriptedWindows = {WindowWire{"w1", "platform-window", true},
                               WindowWire{"w2", {}, false},
                               WindowWire{"w3", {}, false}};
     daemon.scriptedTabs = {
@@ -476,6 +548,8 @@ private slots:
              QString("packaged:mark"));
     QCOMPARE(catalog.tabs().at(0).toMap().value("saved").toBool(), true);
     QCOMPARE(catalog.openShortcutIds(), QStringList{"port"});
+    QCOMPARE(catalog.currentService().value("windowToken").toString(), QString("platform-window"));
+    QCOMPARE(catalog.currentService().value("platformGeneration").toString(), QString("generation"));
     QCOMPARE(catalog.currentService().value("title").toString(),
              QString("First"));
     QCOMPARE(catalog.currentService().value("subtitle").toString(),

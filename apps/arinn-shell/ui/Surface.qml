@@ -6,6 +6,15 @@ import QtQuick.Templates as T
 
 T.AbstractButton {
     id: root
+    property string visualIdentity: text
+    property bool identityGlow: false
+    readonly property color accentColor: {
+        const colors = ["#536fa6", "#487b69", "#80649c", "#9a625f", "#857541", "#477f8c"];
+        let hash = 0;
+        for (let i = 0; i < visualIdentity.length; ++i)
+            hash = (hash * 31 + visualIdentity.charCodeAt(i)) >>> 0;
+        return colors[hash % colors.length];
+    }
     property bool busy: false
     // The enclosing focus/input scope owns these, including scroll suppression.
     property bool pointerMode: false
@@ -49,6 +58,32 @@ T.AbstractButton {
     scale: (activeFocus ? (pointerMode ? 1 + (focusScale - 1) / 2 : focusScale) : 1) - (down && !busy ? 0.04 : 0)
     transform: Translate { y: root.lift }
     z: activeFocus ? 2 : 0
+    // Layered translucent rounded plates work with the software renderer too.
+    // Their bounds are fixed; no offscreen blur textures or invented artwork.
+    Repeater {
+        model: root.activeFocus ? 12 : 0
+        Rectangle {
+            required property int index
+            z: -2
+            x: -24 + index * 2; y: 16 - 24 + index * 2
+            width: root.width + 48 - index * 4
+            height: root.height + 48 - index * 4
+            radius: root.cornerRadius + 24 - index * 2
+            color: "#10000000"
+        }
+    }
+    Repeater {
+        model: root.activeFocus && root.identityGlow ? 12 : 0
+        Rectangle {
+            required property int index
+            z: -1
+            x: -24 + index * 2; y: -24 + index * 2
+            width: root.width + 48 - index * 4
+            height: root.height + 48 - index * 4
+            radius: root.cornerRadius + 24 - index * 2
+            color: Qt.rgba(root.accentColor.r, root.accentColor.g, root.accentColor.b, 0.02)
+        }
+    }
     background: Rectangle {
         radius: root.cornerRadius
         color: root.activeFocus ? root.focusedColor : root.restingColor

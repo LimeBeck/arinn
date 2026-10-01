@@ -1,0 +1,1 @@
+- Show bounded local application icons with colored monogram fallbacks, restore light focus plates and soft focus glow/shadows, render loaded icons across their rounded chip with a neutral backing, and omit a redundant Home Return card using the verified browser window even after Home removes browser focus.

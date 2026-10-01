@@ -5,6 +5,7 @@ import QtQuick
 
 Surface {
     id: root
+    identityGlow: true
     property string subtitle: ""
     property url artwork: ""
     property bool running: false
@@ -18,7 +19,7 @@ Surface {
             objectName: "cardPlate"
             anchors.fill: parent
             radius: root.cornerRadius
-            color: "#25282e"
+            color: "transparent"
             visible: picture.status !== Image.Ready
         }
         Image {
@@ -59,17 +60,30 @@ Surface {
         Rectangle {
             anchors.fill: parent
             radius: root.cornerRadius
+            visible: root.artworkReady
             gradient: Gradient {
                 GradientStop { position: 0; color: "#10131416" }
                 GradientStop { position: 1; color: "#ee0a0b0d" }
             }
         }
+        Rectangle {
+            visible: !root.artworkReady
+            anchors.right: parent.right; anchors.top: parent.top
+            anchors.margins: 24
+            width: 60; height: 60; radius: 18
+            color: root.accentColor
+            UiText { anchors.centerIn: parent; text: root.text.trim().slice(0, 1).toUpperCase(); role: "control" }
+        }
+        Rectangle {
+            x: 24; y: 34; width: 10; height: 10; radius: 5
+            color: Theme.ember; visible: root.running && !root.busy
+        }
         UiText {
-            x: 24; y: 20
-            width: parent.width - 48
+            x: root.running && !root.busy ? 44 : 24; y: 20
+            width: parent.width - 108
             role: "caption"
             text: root.busy ? qsTr("Loading…") : root.running ? qsTr("Now running") : ""
-            color: root.running && !root.busy ? Theme.ember : Theme.textSecondary
+            color: Theme.textSecondary
         }
         Column {
             x: 24

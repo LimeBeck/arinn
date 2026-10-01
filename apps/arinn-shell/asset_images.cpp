@@ -3,6 +3,18 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "asset_images.h"
+#include "icon_references.h"
+#include <algorithm>
+#include <QBuffer>
+#include <QFile>
+#include <QIcon>
+#include <QImageReader>
+#include <QSet>
+#include <QStandardPaths>
+#include <QXmlStreamReader>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
 #include <QList>
 #include <QMetaObject>
 #include <QMutex>
@@ -360,8 +372,165 @@ AssetImages::Result AssetImages::fetch(const QString &providerId,
   return result;
 }
 
+namespace {
+QByteArray localIconBytes(const QString &path, int limit) {
+  const auto native = QFile::encodeName(path);
+  const int fd = ::open(native.constData(), O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+  if (fd < 0) return {};
+  struct stat info {};
+  if (::fstat(fd, &info) != 0 || !S_ISREG(info.st_mode) || info.st_size > limit) {
+    ::close(fd); return {};
+  }
+  QFile file;
+  if (!file.open(fd, QIODevice::ReadOnly, QFileDevice::AutoCloseHandle)) {
+    ::close(fd); return {};
+  }
+  auto bytes = file.read(limit + 1);
+  return bytes.size() > limit ? QByteArray() : bytes;
+}
+bool localSvg(const QByteArray &bytes) {
+  QXmlStreamReader xml(bytes);
+  while (!xml.atEnd()) {
+    const auto type = xml.readNext();
+    if (type == QXmlStreamReader::DTD || type == QXmlStreamReader::EntityReference)
+      return false;
+    if (xml.isStartElement()) {
+      // Disallow embedded images, external resource references and CSS. This
+      // still supports the path/gradient icons shipped by desktop themes.
+      if (xml.name() == QLatin1String("image") || xml.name() == QLatin1String("style")) return false;
+      for (const auto &attr : xml.attributes()) {
+        const auto value = attr.value().toString().trimmed();
+        if (attr.name() == QLatin1String("href") && !value.startsWith('#')) return false;
+        if (value.contains("url", Qt::CaseInsensitive) &&
+            !QRegularExpression("^url\\(#[A-Za-z0-9_.:-]+\\)$").match(value).hasMatch()) return false;
+      }
+    }
+  }
+  return !xml.hasError();
+}
+}
+
+QImage loadLocalIcon(const QString &reference, const QStringList &roots,
+                     const QString &theme) {
+  if (!IconReferences::valid(reference)) return {};
+  QStringList paths;
+  if (reference.startsWith('/')) paths.append(reference);
+  else {
+    QStringList pending{theme, QStringLiteral("hicolor")};
+    QSet<QString> seen;
+    for (int t = 0; t < pending.size() && t < 16; ++t) {
+      const auto name = pending.at(t);
+      if (!IconReferences::valid(name) || name.contains('/') || seen.contains(name)) continue;
+      seen.insert(name);
+      for (const auto &root : roots.mid(0, 16)) {
+        const auto base = root + '/' + name + '/';
+        const auto index = localIconBytes(base + "index.theme", 64 * 1024);
+        QString section;
+        QStringList directories;
+        QHash<QString, int> sizes;
+        QSet<QString> scalable;
+        for (const auto &lineBytes : index.split('\n')) {
+          const auto line = QString::fromUtf8(lineBytes).trimmed();
+          if (line.startsWith('[') && line.endsWith(']')) {
+            section = line.mid(1, line.size() - 2);
+            continue;
+          }
+          const auto equals = line.indexOf('=');
+          if (equals < 0 || line.startsWith('#')) continue;
+          const auto key = line.left(equals).trimmed();
+          const auto value = line.mid(equals + 1).trimmed();
+          if (section != "Icon Theme") {
+            if (key == "Size") sizes.insert(section, value.toInt());
+            if (key == "Type" && value == "Scalable") scalable.insert(section);
+            continue;
+          }
+          const auto values = value.split(',', Qt::SkipEmptyParts);
+          if (key == "Inherits") {
+            // Insert parents before the final hicolor fallback.
+            int position = t + 1;
+            for (const auto &parent : values.mid(0, 16))
+              if (pending.size() < 32 && !pending.contains(parent.trimmed()))
+                pending.insert(position++, parent.trimmed());
+          }
+          if (key == "Directories" || key == "ScaledDirectories")
+            for (const auto &dir : values.mid(0, 512))
+              if (IconReferences::valid('/' + dir.trimmed()))
+                directories.append(dir.trimmed());
+        }
+        std::stable_sort(directories.begin(), directories.end(),
+                         [&](const QString &a, const QString &b) {
+          const auto distance = [&](const QString &dir) {
+            const auto size = sizes.value(dir);
+            return scalable.contains(dir) ? 0 :
+                size > 0 && size <= 4096 ? qAbs(size - 128) : 4096;
+          };
+          return distance(a) < distance(b);
+        });
+        for (const auto &folder : directories)
+          for (const auto &extension : {".png", ".svg", ".xpm"})
+            if (paths.size() < 4096)
+              paths.append(base + folder + '/' + reference + extension);
+      }
+    }
+    for (const auto &root : roots.mid(0, 16))
+      for (const auto &extension : {".png", ".svg", ".xpm"})
+        paths.append(root + '/' + reference + extension);
+  }
+  int consumed = 0;
+  for (const auto &path : paths) {
+    if (consumed >= 4 * 1024 * 1024) return {};
+    auto bytes = localIconBytes(path, qMin(2 * 1024 * 1024, 4 * 1024 * 1024 - consumed));
+    if (bytes.isEmpty()) continue;
+    consumed += bytes.size();
+    QBuffer buffer(&bytes); buffer.open(QIODevice::ReadOnly);
+    QImageReader reader(&buffer);
+    const auto format = reader.format().toLower();
+    if (!QList<QByteArray>{"png", "jpeg", "webp", "svg", "xpm"}.contains(format)) continue;
+    if (format == "svg" && !localSvg(bytes)) continue;
+    const auto size = reader.size();
+    if (!size.isValid() || size.width() > 4096 || size.height() > 4096) continue;
+    reader.setScaledSize(size.scaled(256, 256, Qt::KeepAspectRatio));
+    const auto image = reader.read();
+    if (!image.isNull()) return image;
+  }
+  return {};
+}
+
+namespace {
+class IconResponse : public QQuickImageResponse {
+public:
+  IconResponse(const QString &reference, const QStringList &roots, const QString &theme) {
+    assetPool().start(QRunnable::create([this, reference, roots, theme] {
+      const auto image = loadLocalIcon(reference, roots, theme);
+      QMetaObject::invokeMethod(this, [this, image] { m_image = image; emit finished(); }, Qt::QueuedConnection);
+    }));
+  }
+  QQuickTextureFactory *textureFactory() const override {
+    return m_image.isNull() ? nullptr : QQuickTextureFactory::textureFactoryForImage(m_image);
+  }
+  QString errorString() const override {
+    return m_image.isNull() ? QStringLiteral("Icon is unavailable") : QString();
+  }
+private:
+  QImage m_image;
+};
+class IconProvider : public QQuickAsyncImageProvider {
+public:
+  IconProvider() : m_roots(QIcon::themeSearchPaths()), m_theme(QIcon::themeName()) {
+    m_roots.append(QStandardPaths::locateAll(QStandardPaths::GenericDataLocation, "pixmaps", QStandardPaths::LocateDirectory));
+  }
+  QQuickImageResponse *requestImageResponse(const QString &id, const QSize &) override {
+    return new IconResponse(IconReferences::lookup(id), m_roots, m_theme);
+  }
+private:
+  QStringList m_roots;
+  QString m_theme;
+};
+}
+
 void installAssetImageProvider(QQmlEngine *engine) {
   if (!engine)
     return;
   engine->addImageProvider(QStringLiteral("arinn-assets"), new AssetProvider);
+  engine->addImageProvider(QStringLiteral("arinn-icons"), new IconProvider);
 }

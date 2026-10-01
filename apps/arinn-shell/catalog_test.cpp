@@ -263,11 +263,12 @@ private slots:
                  QString("games"));
         QCOMPARE(backend.applications()[1].toMap()["group"].toString(),
                  QString("other"));
-        // ADR-0059: a theme name and a file path are decoded and discarded.
-        // The neutral placeholder stays, and neither reference reaches QML.
+        // ADR-0059: QML gets opaque image handles, never local references.
         for (const auto &entry : backend.applications()) {
           const auto map = entry.toMap();
           QVERIFY(!map.contains("icon"));
+          QVERIFY(map.value("iconSource").toString().startsWith("image://arinn-icons/"));
+          QVERIFY(!map.value("visualIdentity").toString().isEmpty());
           for (const auto &value : map) {
             QVERIFY(!value.toString().contains(QStringLiteral("applications-games")));
             QVERIFY(!value.toString().contains(QStringLiteral("fixture.png")));
@@ -300,6 +301,10 @@ private slots:
         daemon.returnedWindow = "opaque-window";
         backend.refresh();
         QTRY_COMPARE(backend.continueEntries().size(), 1);
+        QVERIFY(backend.continueWithoutWindow({{"platformGeneration", "generation"}, {"windowToken", "opaque-window"}}).isEmpty());
+        QCOMPARE(backend.continueWithoutWindow({{"platformGeneration", "old"}, {"windowToken", "opaque-window"}}).size(), 1);
+        QCOMPARE(backend.continueWithoutWindow({{"platformGeneration", "generation"}, {"windowToken", "different"}}).size(), 1);
+        QCOMPARE(backend.continueWithoutWindow({}).size(), 1);
         daemon.returnedWindow.clear();
         backend.refresh();
         QTRY_VERIFY(backend.continueEntries().isEmpty());

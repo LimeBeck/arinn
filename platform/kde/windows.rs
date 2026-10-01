@@ -715,6 +715,14 @@ impl Windows {
         }
         s.retired.extend(removed);
         s.media.inventory(&windows);
+        if s.media
+            .presentation
+            .as_ref()
+            .is_some_and(|(_, _, token)| !windows.iter().any(|w| w.token == *token))
+        {
+            let capacity = 1024 - s.queued.len() - usize::from(s.pending.is_some());
+            s.media.teardown(capacity);
+        }
         s.windows = windows;
         s.snapshot = Some(Arc::new(next));
         s.revision = revision;
@@ -1267,7 +1275,7 @@ impl MediaBridge {
         {
             return Ok(Vec::new());
         }
-        while let Some(p) = s.media.queued.pop_front() {
+        while let Some(mut p) = s.media.queued.pop_front() {
             if p.command.action == "present"
                 && s.media.resolve(&s.windows, &p.launch).as_deref()
                     != Some(p.command.token.as_str())
@@ -1286,6 +1294,11 @@ impl MediaBridge {
             {
                 let _ = p.command.reply.send(Ok(()));
                 continue;
+            }
+            if p.command.action == "release"
+                && !s.windows.iter().any(|w| w.token == p.command.token)
+            {
+                p.command.token.clear();
             }
             let record = vec![
                 p.command.id.clone(),

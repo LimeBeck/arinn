@@ -853,4 +853,29 @@ async fn managed_playback_routes_only_complete_exact_inventory_and_tears_down_af
             .to_string()
             .contains("PermissionDenied")
     );
+    // A delivered presentation loses its window into an empty inventory:
+    // no later Report exists to trigger cleanup, so commit must schedule it.
+    f.window_gate
+        .blocked
+        .store(false, std::sync::atomic::Ordering::SeqCst);
+    bridge.begin_inventory(&g, 4, 1).await.unwrap();
+    bridge
+        .put_window(&g, 4, 0, "new-video", "", "screen", 6)
+        .await
+        .unwrap();
+    bridge.commit_inventory(&g, 4).await.unwrap();
+    media.report(&g, 4, "new-video", LAUNCH).await.unwrap();
+    let show = api
+        .present(&f.generation, "s1", &Uuid::new_v4().to_string())
+        .await
+        .unwrap();
+    let command = media.next_control(&g).await.unwrap();
+    assert_eq!(command[1], "present");
+    bridge.begin_inventory(&g, 5, 0).await.unwrap();
+    bridge.commit_inventory(&g, 5).await.unwrap();
+    assert_eq!(f.wait(show).await.unwrap_err(), "NotFound");
+    assert!(media.complete_control(&g, &command[0], "").await.is_err());
+    let cleanup = media.next_control(&g).await.unwrap();
+    assert_eq!(&cleanup[1..], &["release", ""]);
+    media.complete_control(&g, &cleanup[0], "").await.unwrap();
 }

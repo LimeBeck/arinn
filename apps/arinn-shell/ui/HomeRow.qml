@@ -79,16 +79,16 @@ FocusScope {
     Flickable {
         id: viewport
         objectName: root.objectName + "Viewport"
-        x: -18; y: 40; width: parent.width + 36; height: root.cellHeight + 44
+        x: -48; y: 10; width: parent.width + 96; height: root.cellHeight + 104
         clip: true
-        contentWidth: cardsRow.width + 36
+        contentWidth: cardsRow.width + 96
         contentHeight: height
         boundsBehavior: Flickable.StopAtBounds
         flickableDirection: Flickable.HorizontalFlick
         onContentXChanged: root.scrolled()
         Row {
             id: cardsRow
-            x: 18; y: 18
+            x: 48; y: 48
             spacing: root.gap
             Repeater {
                 id: cards
@@ -111,7 +111,9 @@ FocusScope {
                             objectName: "entry-" + entryLoader.modelData.id
                             width: entryLoader.width; height: entryLoader.height
                             text: entryLoader.modelData.title
-                            monogram: entryLoader.modelData.monogram || ""
+                            visualIdentity: entryLoader.modelData.visualIdentity || entryLoader.modelData.id
+                            monogram: entryLoader.modelData.monogram || entryLoader.modelData.title.trim().slice(0, 1).toUpperCase()
+                            iconSource: entryLoader.modelData.iconSource || ""
                             subtitle: (root.browserUnavailable && entryLoader.modelData.webShortcut) ? qsTr("Unavailable") : (entryLoader.modelData.subtitle || "")
                             running: entryLoader.modelData.running || false
                             serviceOpen: root.openShortcutIds.indexOf(entryLoader.modelData.id) >= 0
@@ -131,6 +133,7 @@ FocusScope {
                             objectName: "entry-" + entryLoader.modelData.id
                             width: entryLoader.width; height: entryLoader.height
                             text: entryLoader.modelData.title
+                            visualIdentity: entryLoader.modelData.visualIdentity || entryLoader.modelData.id
                             subtitle: entryLoader.modelData.subtitle || ""
                             artwork: entryLoader.modelData.artwork || ""
                             running: entryLoader.modelData.running || false

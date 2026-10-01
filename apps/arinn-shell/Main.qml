@@ -80,7 +80,8 @@ Window {
             onSaveShortcutRequested: (title, url) => backend.saveShortcut(title, url)
             onRemoveShortcutRequested: backend.removeShortcut()
             busyEntryIds: backend.busyEntryIds
-            continueEntries: backend.continueEntries.concat(mediaCatalog.continueEntries)
+            // Read the property to track asynchronous Return snapshot changes.
+            continueEntries: (backend.continueEntries, backend.continueWithoutWindow(browserCatalog.currentService)).concat(mediaCatalog.continueEntries)
             favoriteEntries: backend.favorites
             applicationEntries: backend.applications
             runningEntries: backend.items

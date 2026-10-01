@@ -42,6 +42,7 @@ public:
   QString returnWindow() const { return m_return; }
   QVariantList items() const { return m_items; }
   QVariantList continueEntries() const;
+  Q_INVOKABLE QVariantList continueWithoutWindow(const QVariantMap &service) const;
   QVariantList applications() const;
   QVariantList webShortcuts() const { return m_webShortcuts; }
   QVariantList favorites() const;

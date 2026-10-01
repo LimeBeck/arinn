@@ -388,8 +388,7 @@ void BrowserCatalog::readTabs(const std::shared_ptr<Catalog> &catalog,
           arg.beginStructure();
           arg >> id >> windowToken >> focused;
           arg.endStructure();
-          (void)windowToken;
-          pageWindows.append(QVariantMap{{"localId", id}, {"focused", focused}});
+          pageWindows.append(QVariantMap{{"localId", id}, {"focused", focused}, {"windowToken", windowToken}});
         }
         arg.endArray();
         arg.beginArray();
@@ -446,6 +445,7 @@ void BrowserCatalog::readTabs(const std::shared_ptr<Catalog> &catalog,
           catalog->windows.append(QVariantMap{
               {"id", key},
               {"focused", map.value("focused").toBool()},
+              {"windowToken", map.value("windowToken")},
               {"provider", providerId},
               {"localId", map.value("localId").toString()}});
         }
@@ -510,7 +510,9 @@ void BrowserCatalog::finishCatalog(const std::shared_ptr<Catalog> &catalog,
       const auto mark = map.value("focused").toBool() && !focused;
       if (mark)
         focused = true;
-      windows.append(QVariantMap{{"id", map.value("id")}, {"focused", mark}});
+      windows.append(QVariantMap{{"id", map.value("id")},
+                                 {"focused", mark},
+                                 {"windowToken", map.value("windowToken")}});
     }
     tabs = catalog->tabs;
     refs = catalog->refs;
@@ -888,11 +890,12 @@ void BrowserCatalog::rememberFocus(const QVariantList &windows) {
   }
 }
 void BrowserCatalog::presentTabs(QVariantList tabs) {
-  QString onScreen;
+  QString onScreen, platformWindow;
   for (const auto &entry : m_windows) {
     const auto map = entry.toMap();
     if (map.value(QStringLiteral("focused")).toBool()) {
       onScreen = map.value(QStringLiteral("id")).toString();
+      platformWindow = map.value(QStringLiteral("windowToken")).toString();
       break;
     }
   }
@@ -932,6 +935,8 @@ void BrowserCatalog::presentTabs(QVariantList tabs) {
       const auto domain = map.value(QStringLiteral("domain")).toString();
       const auto title = map.value(QStringLiteral("title")).toString();
       current = QVariantMap{
+          {QStringLiteral("platformGeneration"), m_generation},
+          {QStringLiteral("windowToken"), platformWindow},
           {QStringLiteral("id"), map.value(QStringLiteral("id"))},
           {QStringLiteral("title"), title.isEmpty() ? domain : title},
           {QStringLiteral("subtitle"),

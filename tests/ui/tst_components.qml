@@ -23,6 +23,21 @@ TestCase {
     function init() { activated.clear(); }
     function cleanup() { activated.target = null; }
 
+    function test_icon_fallback_and_identity_color() {
+        const tile = createTemporaryObject(tileFactory, suite, {visualIdentity: "provider:fixture"});
+        const color = tile.accentColor;
+        compare(findChild(tile, "applicationFallback").visible, true);
+        tile.text = "Renamed";
+        compare(tile.accentColor, color);
+        tile.iconSource = Qt.resolvedUrl("../../apps/arinn-shell/gallery/fixture-artwork.svg");
+        tryCompare(tile, "iconReady", true);
+        compare(findChild(tile, "applicationFallback").visible, false);
+        tile.iconSource = "";
+        tryCompare(tile, "iconReady", false);
+        compare(findChild(tile, "applicationFallback").visible, true);
+        tile.forceActiveFocus();
+        tryCompare(findChild(tile, "focusRing"), "opacity", 1);
+    }
     function test_activation_data() {
         return [ { tag: "button", factory: buttonFactory },
                  { tag: "card", factory: cardFactory },

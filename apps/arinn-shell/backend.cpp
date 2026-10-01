@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "backend.h"
+#include "icon_references.h"
 #include <algorithm>
 #include <QUrl>
 #include <arpa/inet.h>
@@ -131,10 +132,18 @@ void Backend::publishState() {
   }
   emit changed();
 }
+QVariantList Backend::continueWithoutWindow(const QVariantMap &service) const {
+  if (!m_return.isEmpty() && !m_generation.isEmpty() &&
+      service.value("platformGeneration").toString() == m_generation &&
+      service.value("windowToken").toString() == m_return)
+    return {};
+  return continueEntries();
+}
 QVariantList Backend::continueEntries() const {
   if (!m_connected || m_return.isEmpty())
     return {};
   return {QVariantMap{{"id", m_return},
+                      {"platformGeneration", m_generation},
                       {"title", tr("Return to activity")},
                       {"subtitle", tr("Continue where you left off")},
                       {"running", true}}};
@@ -404,11 +413,6 @@ void Backend::readApplications(const std::shared_ptr<Catalog> &catalog,
           arg.beginStructure();
           arg >> id >> title >> launchable >> group >> icon;
           arg.endStructure();
-          // ADR-0059: decode the reference so the stream stays aligned, then
-          // drop it. Loading a theme name or a local file is a later task.
-          // The tile keeps the neutral placeholder. Do not call the provider,
-          // and do not put the reference (it may be a path) into the QML model.
-          icon.clear();
           // Providers choose the group; unknown groups display as "other".
           static const QStringList groups{"online", "games", "media", "other"};
           if (!groups.contains(group))
@@ -423,6 +427,9 @@ void Backend::readApplications(const std::shared_ptr<Catalog> &catalog,
           catalog->applications.append(
               QVariantMap{{"id", key},
                           {"title", title},
+                          {"iconSource", IconReferences::imageUrl(icon)},
+                          {"visualIdentity", provider.value("id").toString() + ":" + id},
+                          {"monogram", monogramFor(title)},
                           {"enabled", launchable},
                           {"group", group},
                           {"path", provider.value("path")},

@@ -142,3 +142,13 @@ increment does not invent client-side persistence or extend that contract; the
 existing default Home row remains. #68 must remain open for the separately
 coordinated Favorites contract and its shell binding. This work does not qualify
 AC-02/AC-03 or full G-5.1 on a real KDE/TV session.
+
+### Home activity identity and visual treatment
+
+Home suppresses the generic Return card only when the current browser service
+reports the exact same platform window token and platform generation. The browser
+snapshot already carries that token; the shell preserves it instead of guessing
+from tab titles or service names. Different windows, missing tokens and old
+generations retain Return. Independent media sessions are preserved: the current
+media contract does not provide an exact browser-session/window association.
+Actual Activity capture/blur remains task #149.

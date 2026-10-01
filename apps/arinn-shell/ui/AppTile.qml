@@ -5,7 +5,10 @@ import QtQuick
 
 Surface {
     id: root
-    property string monogram: ""
+    identityGlow: true
+    property string monogram: text.trim().slice(0, 1).toUpperCase()
+    property url iconSource: ""
+    readonly property bool iconReady: icon.status === Image.Ready
     property string subtitle: ""
     property bool running: false
     property bool serviceOpen: false
@@ -18,8 +21,21 @@ Surface {
         Rectangle {
             x: 24; y: (parent.height - height) / 2
             width: 60; height: 60; radius: 18
-            color: root.unavailable ? Qt.rgba(1, 1, 1, 0.06) : Qt.rgba(1, 1, 1, 0.1)
+            color: root.unavailable ? Qt.rgba(1, 1, 1, 0.06) : root.accentColor
+            Image {
+                id: icon
+                objectName: "applicationIcon"
+                anchors.centerIn: parent
+                width: 44; height: 44
+                sourceSize: Qt.size(128, 128)
+                source: root.iconSource
+                asynchronous: true
+                fillMode: Image.PreserveAspectFit
+                visible: status === Image.Ready
+            }
             UiText {
+                objectName: "applicationFallback"
+                visible: !root.iconReady
                 anchors.centerIn: parent
                 text: root.monogram
                 role: "control"

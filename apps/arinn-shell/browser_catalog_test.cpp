@@ -313,6 +313,7 @@ public:
   QString m_message;
   QVariantList m_items, m_continue, m_applications, m_favorites;
   QStringList m_busy;
+  Q_INVOKABLE QVariantList continueWithoutWindow(const QVariantMap &) const { return m_continue; }
   Q_INVOKABLE void back() {}
   Q_INVOKABLE void launch(const QString &) {}
   Q_INVOKABLE void activate(const QString &) {}
@@ -345,6 +346,7 @@ public:
     m_home = true;
     emit changed();
   }
+  Q_INVOKABLE QVariantList continueWithoutWindow(const QVariantMap &) const { return m_continue; }
   Q_INVOKABLE void back() { ++backs; }
   Q_INVOKABLE void launch(const QString &) {}
   Q_INVOKABLE void activate(const QString &) {}
@@ -448,7 +450,7 @@ private slots:
     auto bus = QDBusConnection::sessionBus();
     BrowserDaemon daemon;
     daemon.scripted = true;
-    daemon.scriptedWindows = {WindowWire{"w1", {}, true},
+    daemon.scriptedWindows = {WindowWire{"w1", "platform-window", true},
                               WindowWire{"w2", {}, false},
                               WindowWire{"w3", {}, false}};
     daemon.scriptedTabs = {
@@ -476,6 +478,8 @@ private slots:
              QString("packaged:mark"));
     QCOMPARE(catalog.tabs().at(0).toMap().value("saved").toBool(), true);
     QCOMPARE(catalog.openShortcutIds(), QStringList{"port"});
+    QCOMPARE(catalog.currentService().value("windowToken").toString(), QString("platform-window"));
+    QCOMPARE(catalog.currentService().value("platformGeneration").toString(), QString("generation"));
     QCOMPARE(catalog.currentService().value("title").toString(),
              QString("First"));
     QCOMPARE(catalog.currentService().value("subtitle").toString(),

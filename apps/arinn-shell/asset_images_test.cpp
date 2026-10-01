@@ -3,6 +3,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "asset_images.h"
+#include "icon_references.h"
+#include <QTemporaryDir>
+#include <QDir>
+#include <QFile>
+#include <sys/stat.h>
 #include <QBuffer>
 #include <QCoreApplication>
 #include <QElapsedTimer>
@@ -189,6 +194,72 @@ class AssetImagesTest : public QObject {
   QByteArray redPng;
   QByteArray bluePng;
 private slots:
+  void localIconsAreBoundedAndPrivate() {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const auto icon = dir.path() + "/fixture.png";
+    QImage fixture(32, 32, QImage::Format_RGB32);
+    fixture.fill(Qt::blue);
+    QVERIFY(fixture.save(icon));
+    const auto url = IconReferences::imageUrl(icon);
+    QVERIFY(url.startsWith("image://arinn-icons/"));
+    QVERIFY(!url.contains(dir.path()));
+    QCOMPARE(IconReferences::lookup(url.mid(QString("image://arinn-icons/").size())), icon);
+    QVERIFY(!loadLocalIcon(icon, {}, {}).isNull());
+    for (const auto &bad : {QString("https://example.test/icon.png"), QString("../icon.png"), dir.path() + "/../icon.png"}) {
+      QVERIFY(IconReferences::imageUrl(bad).isEmpty());
+      QVERIFY(loadLocalIcon(bad, {}, {}).isNull());
+    }
+    const auto fifo = dir.path() + "/pipe";
+    QCOMPARE(::mkfifo(QFile::encodeName(fifo).constData(), 0600), 0);
+    QVERIFY(loadLocalIcon(fifo, {}, {}).isNull());
+    QFile file(dir.path() + "/bad.png");
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write(QByteArray(2 * 1024 * 1024 + 1, 'x')); file.close();
+    QVERIFY(loadLocalIcon(file.fileName(), {}, {}).isNull());
+    QVERIFY(QImage(4097, 1, QImage::Format_RGB32).save(icon));
+    QVERIFY(loadLocalIcon(icon, {}, {}).isNull());
+    const auto svg = dir.path() + "/external.svg";
+    QFile external(svg); QVERIFY(external.open(QIODevice::WriteOnly));
+    external.write("<svg xmlns='http://www.w3.org/2000/svg' width='32' height='32'><image href='file:///tmp/fixture.png'/></svg>"); external.close();
+    QVERIFY(loadLocalIcon(svg, {}, {}).isNull());
+    QVERIFY(external.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    external.write("<svg xmlns='http://www.w3.org/2000/svg' width='32' height='32'><rect width='32' height='32' fill='#ff0000'/></svg>"); external.close();
+    QCOMPARE(loadLocalIcon(svg, {}, {}).pixelColor(0, 0), QColor(Qt::red));
+    QQmlApplicationEngine engine;
+    installAssetImageProvider(&engine);
+    engine.rootContext()->setContextProperty("iconUrl", IconReferences::imageUrl(svg));
+    engine.loadData("import QtQuick; Window { visible: true; width: 64; height: 64; Image { objectName: 'icon'; anchors.fill: parent; source: iconUrl; asynchronous: true } }");
+    QVERIFY(!engine.rootObjects().isEmpty());
+    auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+    QVERIFY(window);
+    auto picture = findItem(window->contentItem(), "icon");
+    QVERIFY(picture);
+    QTRY_COMPARE(picture->property("status").toInt(), kImageReady);
+    QVERIFY(loadLocalIcon("unknown-theme-icon", {dir.path()}, "fixture").isNull());
+  }
+  void localThemeInheritance() {
+    QTemporaryDir dir; QVERIFY(dir.isValid());
+    QVERIFY(QDir().mkpath(dir.path() + "/child"));
+    QVERIFY(QDir().mkpath(dir.path() + "/parent/48x48/apps"));
+    QVERIFY(QDir().mkpath(dir.path() + "/parent/128x128/apps"));
+    QVERIFY(QDir().mkpath(dir.path() + "/hicolor"));
+    QFile child(dir.path() + "/child/index.theme"); QVERIFY(child.open(QIODevice::WriteOnly));
+    child.write("[Icon Theme]\nInherits=parent\n"); child.close();
+    QFile parent(dir.path() + "/parent/index.theme"); QVERIFY(parent.open(QIODevice::WriteOnly));
+    parent.write("[Icon Theme]\nDirectories=48x48/apps,128x128/apps\nInherits=child\n[48x48/apps]\nSize=48\n[128x128/apps]\nSize=128\n"); parent.close();
+    QImage image(48, 48, QImage::Format_RGB32); image.fill(Qt::red);
+    QVERIFY(image.save(dir.path() + "/parent/48x48/apps/fixture.png"));
+    QVERIFY(image.save(dir.path() + "/parent/128x128/apps/fixture.png"));
+    image.fill(Qt::blue);
+    QVERIFY(image.save(dir.path() + "/parent/48x48/apps/fixture.png"));
+    QFile fallback(dir.path() + "/hicolor/index.theme"); QVERIFY(fallback.open(QIODevice::WriteOnly));
+    fallback.write("[Icon Theme]\nDirectories=apps\n"); fallback.close();
+    QVERIFY(QDir().mkpath(dir.path() + "/hicolor/apps"));
+    QVERIFY(image.save(dir.path() + "/hicolor/apps/fixture.png"));
+    const auto loaded = loadLocalIcon("fixture", {dir.path()}, "child");
+    QVERIFY(!loaded.isNull()); QCOMPARE(loaded.pixelColor(0, 0), QColor(Qt::red));
+  }
   void init() {
     redPng = pngBytes(Qt::red);
     bluePng = pngBytes(Qt::blue);

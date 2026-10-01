@@ -15,6 +15,7 @@ function signal() {
     return { connect: fn => handlers.push(fn), emit: w => handlers.forEach(fn => fn(w)) };
 }
 function fixture(options = {}) {
+    let now = Date.now();
     const output = { name: 'second-screen' };
     const trace = [];
     function window(uuid, klass) {
@@ -56,7 +57,7 @@ function fixture(options = {}) {
         },
         windowList: () => windows, windowAdded: signal(), windowRemoved: signal(),
         windowActivated: signal(), sendClientToScreen: (w, o) => { w.output = o; } };
-    const context = vm.createContext({ workspace,
+    const context = vm.createContext({ workspace, Date: { now: () => now },
         QTimer: class { constructor() { this.timeout = { connect: fn => { tick = fn; } }; } start() {} },
         registerShortcut: (id, _label, keys, fn) => { shortcuts.push({ id, keys }); shortcut = fn; },
         print: () => {},
@@ -104,6 +105,7 @@ function fixture(options = {}) {
         } });
     vm.runInContext(fs.readFileSync(path.join(__dirname, '../../platform/kde/phase0.js'), 'utf8'), context);
     return { activity, home, workspace, window, polls, snapshots, acknowledgements, controls, trace,
+        advance(ms) { now += ms; },
         refresh() { tick(); }, lock(value) { locked = value; },
         command(action, token) { control([randomUUID(), action, token]); },
         reconnect(value) { owner = value; tick(); },
@@ -429,4 +431,40 @@ test('ADR-0073: ambiguous identities and callbacks from old contexts cannot asse
     const count = g.returnReports.length;
     oldReport.reply();
     assert.equal(g.returnReports.length, count);
+});
+
+
+test('ADR-0073: unacknowledged reports recover at a bounded rate using fresh evidence', () => {
+    const f = fixture();
+    f.show();
+    const first = f.returnReports.at(-1);
+    const count = f.returnReports.length;
+    for (let i = 0; i < 4; ++i) { f.advance(1000); f.controls.at(-1)([]); f.refresh(); }
+    assert.equal(f.returnReports.length, count, 'no tight retry loop');
+    f.advance(1000);
+    // Keep the inventory heartbeat current in this synthetic transport.
+    f.controls.at(-1)([]);
+    f.refresh();
+    const retried = f.returnReports.at(-1);
+    assert.equal(f.returnReports.length, count + 1);
+    assert.equal(retried.token, first.token);
+    first.reply(); // obsolete attempt acknowledgement cannot stop recovery
+    f.advance(5000);
+    f.controls.at(-1)([]);
+    f.refresh();
+    assert.equal(f.returnReports.length, count + 2);
+    f.returnReports.at(-1).reply();
+    f.advance(5000);
+    f.controls.at(-1)([]);
+    f.refresh();
+    assert.equal(f.returnReports.length, count + 2, 'accepted stable evidence is not replayed');
+    const g = fixture();
+    g.show();
+    const stale = g.returnReports.at(-1);
+    g.remove(g.activity);
+    g.advance(5000);
+    g.controls.at(-1)([]);
+    g.refresh();
+    stale.reply();
+    assert.equal(g.returnReports.at(-1).token, '', 'timeout recomputes instead of replaying the removed token');
 });

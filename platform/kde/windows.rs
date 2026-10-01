@@ -134,6 +134,16 @@ impl State {
                 .await;
         }
     }
+    fn reconcile_owner(
+        &mut self,
+        current: Result<Option<&str>, ErrorCode>,
+    ) -> Result<(), ErrorCode> {
+        let current = current?;
+        if current.is_none_or(|owner| self.live(owner).is_err()) {
+            self.publish(self.association.target.clone(), Vec::new());
+        }
+        Ok(())
+    }
     fn live(&self, owner: &str) -> Result<(), ErrorCode> {
         if self.owner != owner
             || self
@@ -188,18 +198,24 @@ pub struct Windows {
     state: Arc<Mutex<State>>,
     notify: Arc<Notify>,
 }
-async fn owner(c: &Connection) -> Result<String, ErrorCode> {
+async fn owner_lookup(c: &Connection) -> Result<Option<String>, ErrorCode> {
     tokio::time::timeout(Duration::from_secs(3), async {
-        zbus::fdo::DBusProxy::new(c)
+        match zbus::fdo::DBusProxy::new(c)
             .await
             .map_err(|_| ErrorCode::Unavailable)?
             .get_name_owner("org.kde.KWin".try_into().unwrap())
             .await
-            .map(|o| o.to_string())
-            .map_err(|_| ErrorCode::Unavailable)
+        {
+            Ok(owner) => Ok(Some(owner.to_string())),
+            Err(zbus::fdo::Error::NameHasNoOwner(_)) => Ok(None),
+            Err(_) => Err(ErrorCode::Unavailable),
+        }
     })
     .await
     .unwrap_or(Err(ErrorCode::Unavailable))
+}
+async fn owner(c: &Connection) -> Result<String, ErrorCode> {
+    owner_lookup(c).await?.ok_or(ErrorCode::Unavailable)
 }
 async fn trusted(c: &Connection, h: &Header<'_>) -> production::Result<String> {
     let current = owner(c).await.map_err(|_| ErrorCode::PermissionDenied)?;
@@ -240,8 +256,31 @@ impl Windows {
         target: &str,
         output: &str,
     ) -> production::Result<()> {
+        self.commit_home_after(
+            platform,
+            c,
+            visible,
+            target,
+            output,
+            crate::platform::Platform::authorize(c, &h),
+        )
+        .await
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn commit_home_after(
+        &self,
+        platform: &crate::platform::Platform,
+        c: &Connection,
+        visible: bool,
+        target: &str,
+        output: &str,
+        authorization: impl std::future::Future<Output = production::Result<()>>,
+    ) -> production::Result<()> {
+        authorization.await?;
+        validation::text(target)?;
+        validation::text(output)?;
         let mut s = self.state.lock().await;
-        platform.report_home(c, h, visible, target, output).await?;
+        platform.commit_home(visible, target, output).await;
         let previous = s.association.revision;
         s.home = visible;
         s.publish(target.into(), Vec::new());
@@ -730,14 +769,16 @@ impl ReturnEndpoint {
         &self,
         #[zbus(connection)] c: &Connection,
     ) -> production::Result<(ReturnAssociation,)> {
-        let current = owner(c).await;
+        let current = owner_lookup(c).await;
         let mut s = self.0.state.lock().await;
-        if current.as_ref().map_or(true, |o| s.live(o).is_err()) {
-            let previous = s.association.revision;
-            let target = s.association.target.clone();
-            s.publish(target, Vec::new());
-            s.announce_return(c, previous).await;
-        }
+        let previous = s.association.revision;
+        s.reconcile_owner(
+            current
+                .as_ref()
+                .map(|owner| owner.as_deref())
+                .map_err(|e| *e),
+        )?;
+        s.announce_return(c, previous).await;
         if s.exhausted {
             return Err(ErrorCode::Unavailable.into());
         }
@@ -796,5 +837,44 @@ impl ReturnBridge {
             return Err(ErrorCode::Unavailable.into());
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod return_owner_tests {
+    use super::*;
+    #[test]
+    fn transient_owner_failure_is_not_published_as_identity_loss() {
+        let mut s = State {
+            owner: ":1.2".into(),
+            seen: Some(Instant::now()),
+            ..State::default()
+        };
+        s.association.epoch = uuid::Uuid::new_v4().to_string();
+        s.publish(
+            "opaque-return".into(),
+            vec![WindowRef {
+                generation: s.generation.clone(),
+                token: "token".into(),
+            }],
+        );
+        let good = s.association.clone();
+        assert_eq!(
+            s.reconcile_owner(Err(ErrorCode::Unavailable)),
+            Err(ErrorCode::Unavailable)
+        );
+        assert_eq!(
+            s.association, good,
+            "a failed read must not publish a destructive clear"
+        );
+        s.reconcile_owner(Ok(Some(":1.2"))).unwrap();
+        assert_eq!(
+            s.association, good,
+            "the next verified read recovers without another adapter report"
+        );
+        s.reconcile_owner(Ok(None)).unwrap();
+        assert!(s.association.window.is_empty());
+        assert_eq!(s.association.target, good.target);
+        assert_eq!(s.association.revision, good.revision + 1);
     }
 }

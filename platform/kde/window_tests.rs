@@ -980,3 +980,98 @@ async fn exported_browser_links_require_live_inventory_and_current_registration(
         .generation = Uuid::new_v4().to_string();
     error(api.get_tabs("").await, "Conflict");
 }
+
+#[tokio::test]
+async fn slow_home_authorization_does_not_hold_inventory_lock() {
+    let f = Fixture::new().await;
+    let windows = f.core.windows.clone();
+    let platform = f.core.platform.clone();
+    let connection = f.core.connection.clone();
+    let (started, ready) = tokio::sync::oneshot::channel();
+    let (release, delayed) = tokio::sync::oneshot::channel();
+    let task = tokio::spawn(async move {
+        windows
+            .commit_home_after(&platform, &connection, true, "target", "", async {
+                started.send(()).unwrap();
+                delayed.await.unwrap();
+                Err(ErrorCode::PermissionDenied.into())
+            })
+            .await
+    });
+    ready.await.unwrap();
+    let result = tokio::time::timeout(
+        Duration::from_millis(200),
+        f.core.windows.current_generation(),
+    )
+    .await;
+    release.send(()).unwrap();
+    assert!(
+        result.is_ok(),
+        "inventory must remain responsive during authorization"
+    );
+    assert!(matches!(
+        task.await.unwrap(),
+        Err(production::Error::PermissionDenied(_))
+    ));
+    assert!(
+        !f.core
+            .platform
+            .status(&f.core.epoch, true)
+            .await
+            .home_visible
+    );
+}
+
+#[tokio::test]
+async fn slow_browser_checks_release_registry_and_revalidate_identity() {
+    for replace_registration in [true, false] {
+        let f = Fixture::new().await;
+        {
+            let mut state = f.core.state.lock().await;
+            let p = state.providers.get_mut("fixture").unwrap();
+            p.windows = vec![BrowserWindow {
+                id: "w".into(),
+                window_token: "token".into(),
+                focused: false,
+            }];
+            let mut cache = TabSnapshots::new(&p.info.generation).unwrap();
+            cache.import(1, p.windows.clone(), vec![]).unwrap();
+            p.tab_cache = Some(cache);
+        }
+        let endpoint = BrowserEndpoint {
+            core: f.core.clone(),
+            id: "fixture".into(),
+        };
+        let (started, ready) = tokio::sync::oneshot::channel();
+        let (release, delayed) = tokio::sync::oneshot::channel();
+        let task = tokio::spawn(async move {
+            endpoint
+                .checked_tabs(":fixture", "", |_, linked| async move {
+                    assert!(linked);
+                    started.send(()).unwrap();
+                    delayed.await.unwrap();
+                    Ok(HashSet::from(["token".into()]))
+                })
+                .await
+        });
+        ready.await.unwrap();
+        {
+            let mut state = tokio::time::timeout(Duration::from_millis(200), f.core.state.lock())
+                .await
+                .expect("unrelated provider operations must not wait for the bus lookup");
+            let p = state.providers.get_mut("fixture").unwrap();
+            if replace_registration {
+                p.info.generation = Uuid::new_v4().to_string();
+            } else {
+                p.windows[0].window_token.clear();
+            }
+        }
+        release.send(()).unwrap();
+        let result = task.await.unwrap();
+        if replace_registration {
+            assert!(matches!(result, Err(production::Error::Conflict(_))));
+        } else {
+            assert!(matches!(result, Err(production::Error::Unavailable(_))));
+        }
+    }
+}

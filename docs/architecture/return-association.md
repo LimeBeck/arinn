@@ -186,11 +186,16 @@ issues, not claims or authorization to implement additional tasks in #212.
 
 The inventory mutex serializes association reports, inventory replacement and
 Home commits. Home state still lives in the existing bridge; the lock order is
-inventory then Home. Every daemon Home report enters that serialized path.
+inventory then Home. Authorization is awaited before acquiring the inventory
+lock; every accepted daemon Home report then enters that serialized commit path.
 Association notifications are emitted under the same inventory lock after commit,
 so their revisions remain ordered. Inventory reset keeps the opaque Home target
 and daemon epoch while invalidating the optional mapping. The owner monitor and
 five-second heartbeat expiry clear it; `Get` also checks current owner/liveness.
+A transient owner lookup failure fails the read with `Unavailable` without
+publishing an identity loss. The last verified link stays private until a later
+successful read verifies the owner/liveness again. Confirmed absence, replacement
+or heartbeat expiry still clears the link; lookup uncertainty never exposes it.
 Revision exhaustion fails this optional API closed until daemon restart supplies
 a fresh epoch; it never wraps or resets the revision within one epoch.
 
@@ -200,8 +205,17 @@ and exactly one live object identical to the saved Return object. A duplicate
 identity, pending inventory, stale callback or absent interface supplies no
 positive evidence. Remap obtains a fresh token and needs a fresh report. Home
 raising and Return continue without waiting for optional metadata acknowledgements.
+The adapter records a report as accepted only after its acknowledgement. If KWin
+drops an error/timeout callback, the watchdog may retry at most once every five
+seconds for the same context, after recomputing the current object, inventory and
+Home evidence. Old attempt acknowledgements cannot suppress a newer retry;
+accepted unchanged evidence is not replayed.
 
-`Browser1.GetTabs` validates registration/owner, refresh health and live platform
+`Browser1.GetTabs` copies its page and registration under the registry lock,
+performs bounded bus/liveness lookups without that lock, then rechecks the current
+registration and link evidence before returning. Concurrent owner/generation
+replacement rejects the pending read; concurrent link revocation is revalidated.
+It validates registration/owner, refresh health and live platform
 links before returning cached evidence. A revoked, nonexistent or unavailable
 link fails the read with `Unavailable`; a page from an obsolete registration
 fails with `Conflict`. Leased pages keep their original contents and revision:

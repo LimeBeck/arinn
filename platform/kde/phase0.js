@@ -11,6 +11,9 @@ let homeSerial = 0;
 let homeAcknowledged = false;
 let returnSupported = false;
 let lastReturnReport = "";
+let returnAttempt = 0;
+let returnAttemptKey = "";
+let returnAttemptAt = 0;
 let detachedTarget = "";
 let homeVisible = false;
 let homeOutput = "";
@@ -75,9 +78,15 @@ function publishReturn() {
     const generation = platformGeneration, revision = inventoryRevision;
     const key = JSON.stringify([owner, serial, home, generation, revision, target, token]);
     if (key === lastReturnReport) return;
-    lastReturnReport = key;
+    // KWin drops error callbacks. Retry only after a bounded interval and
+    // after recomputing the exact current object/inventory/Home evidence above.
+    if (key === returnAttemptKey && Date.now() - returnAttemptAt < 5000) return;
+    const attempt = ++returnAttempt;
+    returnAttemptKey = key;
+    returnAttemptAt = Date.now();
     callDBus(owner, path, "org.arinn.KWinReturn1", "Report", generation, revision, target, token, () => {
-        if (owner !== daemonOwner || serial !== inventorySerial || home !== homeSerial) return;
+        if (attempt !== returnAttempt || owner !== daemonOwner || serial !== inventorySerial || home !== homeSerial) return;
+        if (revision === inventoryRevision) lastReturnReport = key;
         // A late acknowledgement never installs cached evidence or replays a
         // mutation. Recompute only from the current committed inventory.
         if (revision !== inventoryRevision) publishReturn();

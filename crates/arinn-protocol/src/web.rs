@@ -17,7 +17,7 @@ pub const MAX_URL_BYTES: usize = 2048;
 pub const MAX_TITLE_BYTES: usize = 256;
 
 /// A user-visible web shortcut. `icon` is an opaque packaged icon reference or
-/// empty; Arinn never fetches icons. `url` is user configuration and MUST NOT
+/// empty; optional site discovery is separate (ADR-0075). `url` is user configuration and MUST NOT
 /// appear in logs or diagnostics.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 pub struct WebShortcut {

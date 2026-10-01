@@ -1,0 +1,1 @@
+- Define optional provider-owned web shortcut icon APIs and bounded public-HTTPS discovery/cache policy, with monogram fallback and an exact-match packaged preset migration plan. Production download, Kinopoisk correction and tile rendering follow after this contract merges.

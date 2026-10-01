@@ -4,7 +4,7 @@
 - **Date:** 2026-09-28
 - **Deciders:** delegated technical choice ([ADR-0037](0037-agent-autonomy-and-owner-gated-decisions.md)) within the owner decisions of 2026-09-28: support Google Chrome and Chromium, an unpacked extension with a fixed ID for now, and the extension permissions `tabs` and `nativeMessaging` only
 - **Amends / Supersedes:** amends [ADR-0011](0011-chrome-integration.md) (no favicon in version 1)
-- **Amended by / Superseded by:** [ADR-0050](0050-window-per-browser-activity.md) — `OpenUrl` focuses or creates a fullscreen window; [ADR-0051](0051-address-and-search-entry.md) — the shell opens typed addresses and searches through a daemon method
+- **Amended by / Superseded by:** [ADR-0050](0050-window-per-browser-activity.md) — `OpenUrl` focuses or creates a fullscreen window; [ADR-0051](0051-address-and-search-entry.md) — the shell opens typed addresses and searches through a daemon method; [ADR-0075](0075-web-shortcut-site-icons.md) — optional provider-owned web shortcut site icons
 - **Specification:** [§7.1](../specifications/arinn-specification.md#71-browser-chromechromium), [§9.1](../specifications/arinn-specification.md#91-capabilities), [§9.7](../specifications/arinn-specification.md#97-limits-and-validation), [§13](../specifications/arinn-specification.md#13-security)
 
 ## Context

@@ -16,6 +16,8 @@ capability, but **has not been released as a stable Plugin API**. Requirements:
 | `org.arinn.Operation1` | Daemon-owned operation path returned by a command; [operation1.xml](operation1.xml) |
 | `org.arinn.Browser1` | Daemon-owned `/org/arinn/Daemon1/providers/p_<uuid_hex>` of a `browser` provider; [browser1.xml](browser1.xml) |
 | `org.arinn.BrowserProvider1` | Provider unique bus owner, `/org/arinn/Provider1`; [browser-provider1.xml](browser-provider1.xml) |
+| `org.arinn.WebShortcutIcons1` | Optional daemon-root site icons; [web-shortcut-icons1.xml](web-shortcut-icons1.xml). Contract only, production implementation pending |
+| `org.arinn.WebIconProvider1` | Optional browser-provider site discovery; [web-icon-provider1.xml](web-icon-provider1.xml). Contract only, production implementation pending |
 | `org.arinn.Media1` | Daemon-owned `/org/arinn/Daemon1/providers/p_<uuid_hex>` of a `media` provider; [media1.xml](media1.xml). Exported by the daemon ([ADR-0058](../adr/0058-media-routing.md)) |
 | `org.arinn.MediaProvider1` | Provider unique bus owner, `/org/arinn/Provider1`; [media-provider1.xml](media-provider1.xml) |
 | `org.arinn.MediaOpen1` | Optional provider interface; [media-open1.xml](media-open1.xml) |
@@ -51,8 +53,8 @@ the shell through `org.arinn.Browser1` ([browser1.xml](browser1.xml)). Types are
   application snapshot. Every tab belongs to a listed window; a window has at
   most one active tab; at most one window is focused. `window_token` is a
   validated PlatformWindows1 token or empty. Tab URLs are single-line, at most
-  16 KiB and may use any scheme the browser shows. There is no favicon in
-  version 1.
+  16 KiB and may use any scheme the browser shows. Tab records carry no favicon in
+  version 1; saved-shortcut site icons use the separate optional API below.
 - Provider methods: `GetTabs`, `BackendState`, `OpenUrl(generation, url)`
   (`http`/`https` only), `ActivateTab(generation, id)`, `CloseTab(generation, id)`
   and the `StateChanged(generation, revision)` signal; a backend-state change
@@ -320,3 +322,15 @@ access. Production daemon/KDE implementation remains in issue #20.
 Managed playback window association: [contract](../architecture/managed-playback.md),
 [MediaWindow1](media-window1.xml), [MediaWindowProvider1](media-window-provider1.xml)
 and [KWinMedia1](kwin-media1.xml). These optional bindings do not yet imply production support.
+
+### Optional saved-shortcut site icons
+
+[ADR-0075](../adr/0075-web-shortcut-site-icons.md) defines
+[WebShortcutIcons1](web-shortcut-icons1.xml) on the daemon root and
+[WebIconProvider1](web-icon-provider1.xml) on a browser provider. These optional
+interfaces leave existing shortcut/tab records unchanged. See the
+[site-icon contract](../architecture/web-shortcut-icons.md) for caller/lifetime
+checks, bounded public-HTTPS discovery, local cache and raster-image limits.
+Contract-only preparation: production fetching, routing and rendering remain
+dependent work. Missing support retains the monogram; installed-app icons remain
+under ADR-0059.

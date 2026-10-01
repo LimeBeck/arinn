@@ -776,22 +776,6 @@ impl Core {
             .media_target(id, generation, session, media_window::FEATURE)
             .await?;
         self.windows.media_supported(&self.connection).await?;
-        // A Release also fences an older Present still waiting for provider
-        // identity, before that request has reached operation admission.
-        let fence = if present {
-            present_fence
-        } else {
-            let mut exits = self.playback_exits.lock().await;
-            let current = exits.get(&fence_key).copied().unwrap_or(0);
-            {
-                if !exits.contains_key(&fence_key) && exits.len() >= 100_000 {
-                    return Err(ErrorCode::Unavailable);
-                }
-                let next = current.checked_add(1).ok_or(ErrorCode::Unavailable)?;
-                exits.insert(fence_key.clone(), next);
-                next
-            }
-        };
         let (launch, window) = if present {
             {
                 let state = self.state.lock().await;
@@ -837,16 +821,36 @@ impl Core {
         if present && !["playing", "paused", "ended"].contains(&entry.state.as_str()) {
             return Err(ErrorCode::Unsupported);
         }
-        let exits = self.playback_exits.lock().await;
-        if present && exits.get(&fence_key).copied().unwrap_or(0) != fence {
+        let mut exits = self.playback_exits.lock().await;
+        if present && exits.get(&fence_key).copied().unwrap_or(0) != present_fence {
             return Err(ErrorCode::Conflict);
         }
+        let release_fence = if present {
+            None
+        } else {
+            if !exits.contains_key(&fence_key) && exits.len() >= 100_000 {
+                return Err(ErrorCode::Unavailable);
+            }
+            Some(
+                exits
+                    .get(&fence_key)
+                    .copied()
+                    .unwrap_or(0)
+                    .checked_add(1)
+                    .ok_or(ErrorCode::Unavailable)?,
+            )
+        };
         let (path, op, fresh) = self
             .operations
             .admit(&self.connection, caller, request_id, &fingerprint, id)
             .await?;
         if !fresh {
             return Ok(path);
+        }
+        // Only an admitted Release cancels an older Present still waiting
+        // for identity. Hold the same fence lock through admission and enqueue.
+        if let Some(next) = release_fence {
+            exits.insert(fence_key, next);
         }
         let scope = crate::windows::Scope {
             provider: id.into(),

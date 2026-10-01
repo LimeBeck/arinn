@@ -5,3 +5,4 @@
 - Bound automatic cleanup to each exact presentation, retain admitted cleanup on provider loss, and preserve the report barrier after skipped controls.
 - Retain coalesced media-window invalidations during signal emission and suppress unchanged provider polling signals.
 - Release pending and active presentation when the provider removes negotiated media-window support.
+- Advance the Present cancellation fence only for an admitted Release.

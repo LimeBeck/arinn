@@ -182,7 +182,7 @@ Online services, games and other applications as tiles; pin/unpin to Home ([§7.
 
 Tiles are grouped, in this order: **Online** (browsers and web shortcuts), **Games**, **Media** and **Other**; empty groups are hidden. This extends the handoff's Online · Games · Other layout with Media, by owner decision on 2026-09-28 ([#62](https://github.com/LimeBeck/arinn/issues/62)). The provider sets each application's group; the core and the shell never infer it from titles, IDs or product names, and an unknown group is shown as Other.
 
-An application record may include an icon reference ([ADR-0059](../adr/0059-application-icon-references.md)): empty, a theme icon name, or an absolute local file path. It is not image bytes and not a remote address. An empty reference, or one the shell cannot load as a local image, keeps the existing neutral placeholder. The shell does not call the provider to obtain an icon (R-03). Web-shortcut icons and service defaults are a separate field and are unchanged.
+An application record may include an icon reference ([ADR-0059](../adr/0059-application-icon-references.md)): empty, a theme icon name, or an absolute local file path. It is not image bytes and not a remote address. An empty reference, or one the shell cannot load as a local image, keeps the existing neutral placeholder. The shell does not call the provider to obtain an icon (R-03). Web-shortcut icons use a separate optional provider-owned discovery path ([ADR-0075](../adr/0075-web-shortcut-site-icons.md)); this does not alter installed-application icon loading.
 
 **Closing applications.** A running application can be closed from three places:
 - the **tile action sheet** on an application tile in Applications or in Home favorites. It offers pin/unpin first and, while the application runs, Close. It replaces the direct pin toggle ([§6.2](#62-keys));
@@ -300,7 +300,7 @@ Chrome ──Extension API──▶ Arinn Chrome extension (Manifest V3)
        ──Plugin API──▶ arinnd
 ```
 
-The extension requests only `tabs` and `nativeMessaging`; no content scripts and no host permissions. Version 1 needs no page scraping, DOM automation, arbitrary JavaScript or content analysis. The plugin works only with windows, tabs, URL, title and active/audible state; version 1 transfers no favicon, because reading one would need a further extension permission ([ADR-0048](../adr/0048-browser-wire-contract.md)). Incognito is not connected by default. Several browser profiles may produce several connections without creating Arinn profiles.
+The extension requests only `tabs` and `nativeMessaging`; no content scripts and no host permissions. Version 1 needs no page scraping, DOM automation, arbitrary JavaScript or content analysis. The plugin works only with windows, tabs, URL, title and active/audible state; version 1 transfers no favicon, because reading one would need a further extension permission ([ADR-0048](../adr/0048-browser-wire-contract.md)). Saved web shortcuts may independently obtain site icons through the browser provider, without extension permission changes, authenticated browser data or shell-side network access. Public HTTPS origins, redirects, DNS pinning, timeouts, image/request limits and a bounded local cache follow [ADR-0075](../adr/0075-web-shortcut-site-icons.md) and the [site-icon contract](../architecture/web-shortcut-icons.md). Manifest and apple-touch icons may supply higher-resolution raster candidates. Unsupported, missing or rejected images preserve the monogram. The owner authorized this exception to ADR-0043/0048 on 2026-10-01. Incognito is not connected by default. Several browser profiles may produce several connections without creating Arinn profiles.
 
 Generic `open` accepts only `http` and `https`. The desktop ApplicationProvider launches the browser application; `arinn-plugin-chrome` declares only `browser`, not `application`. The application and browser entities are linked through a validated platform window token, never through titles or product-specific core logic. This resolves OQ-03 by owner decision on 2026-09-28 ([ADR-0038](../adr/0038-browser-launch-ownership.md)). Details: [plugin runtime](../architecture/plugin-runtime.md).
 
@@ -446,7 +446,7 @@ Errors are normalized by the core in the namespace `org.arinn.Error1.*`: `NotFou
 
 ### 9.7. Limits and validation
 
-Message body ≤ 256 KiB; ID ≤ 256 bytes; text ≤ 8 KiB; URL ≤ 16 KiB; an application icon reference ≤ 1024 bytes; optional metadata ≤ 32 keys; ≤ 32 concurrent operations per provider. Artwork and application icons are passed as typed references, never inline. Every message is validated for type, length, provider ownership and command permission before use.
+Message body ≤ 256 KiB; ID ≤ 256 bytes; text ≤ 8 KiB; URL ≤ 16 KiB; an application icon reference ≤ 1024 bytes; optional metadata ≤ 32 keys; ≤ 32 concurrent operations per provider. Artwork and application icons are passed as typed references, never inline in catalog records. The optional saved-shortcut icon method returns a separate PNG envelope of at most 128 KiB and 256×256 pixels ([ADR-0075](../adr/0075-web-shortcut-site-icons.md)); its body stays below the message limit. Every message is validated for type, length, provider ownership and command permission before use.
 
 ### 9.8. Extensibility and versioning
 

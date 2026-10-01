@@ -105,6 +105,10 @@ public:
   int pages = 0;
   int launches = 0;
   int opens = 0;
+  int mutations = 0;
+  QString mutationError;
+  QString mutationMethod;
+  QVariantList mutationArgs;
   int lists = 0;
   int providerCalls = 0;
   QString introspect(const QString &) const override { return {}; }
@@ -174,6 +178,17 @@ public:
       a.beginStructure();
       a << shortcutRevision << shortcuts;
       a.endStructure();
+    } else if (m.member() == "Add" || m.member() == "Update" || m.member() == "Remove") {
+      ++mutations;
+      mutationMethod = m.member();
+      mutationArgs = m.arguments();
+      if (!mutationError.isEmpty())
+        bus.send(m.createErrorReply("org.arinn.Error." + mutationError, "synthetic private payload"));
+      else if (m.member() == "Add")
+        bus.send(m.createReply(QString("new-shortcut")));
+      else
+        bus.send(m.createReply());
+      return true;
     } else if (m.member() == "Open") {
       ++opens;
       openInterface = m.interface();
@@ -341,6 +356,95 @@ private slots:
     bus.unregisterObject("/org/arinn", QDBusConnection::UnregisterTree);
     bus.unregisterService("org.arinn.Daemon1");
   }
+  void shortcutEditorAndRevisionValidation() {
+    auto bus = QDBusConnection::sessionBus();
+    CatalogDaemon daemon;
+    daemon.mode = "empty";
+    daemon.shortcuts = {{"one", "Original", "https://example.test/one", "packaged"}};
+    QVERIFY(bus.registerVirtualObject("/org/arinn", &daemon, QDBusConnection::SubPath));
+    QVERIFY(bus.registerService("org.arinn.Daemon1"));
+    {
+      Backend backend;
+      QTRY_COMPARE(backend.webShortcuts().size(), 1);
+      backend.editShortcut("one");
+      QCOMPARE(backend.shortcutEditor().value("url").toString(), QString("https://example.test/one"));
+      daemon.shortcutRevision = 2;
+      QMetaObject::invokeMethod(&backend, "reloadShortcuts");
+      QTest::qWait(100);
+      daemon.mutationError = "Conflict";
+      backend.saveShortcut("Edited", "http://nas.local/item");
+      backend.saveShortcut("Duplicate", "https://example.test/duplicate");
+      QTRY_COMPARE(daemon.mutations, 1);
+      QTRY_VERIFY(!backend.shortcutSaving());
+      QCOMPARE(daemon.mutationMethod, QString("Update"));
+      QCOMPARE(daemon.mutationArgs.at(1).toULongLong(), qulonglong(1));
+      QCOMPARE(daemon.mutationArgs.at(4).toString(), QString("packaged"));
+      QCOMPARE(backend.shortcutEditor().value("title").toString(), QString("Edited"));
+      QVERIFY(backend.shortcutError().contains("changed"));
+      QVERIFY(!backend.shortcutError().contains("payload"));
+      backend.closeShortcutEditor();
+      backend.editShortcut("one");
+      // Remove must use the editor's captured revision even after a newer
+      // complete snapshot is published. Observe its data, not a fixed delay.
+      daemon.shortcutRevision = 3;
+      daemon.shortcuts[0].title = "Changed elsewhere";
+      auto changed = QDBusMessage::createSignal(
+          "/org/arinn/Daemon1", "org.arinn.WebShortcuts1", "Changed");
+      changed << qulonglong(3);
+      QVERIFY(bus.send(changed));
+      QTRY_COMPARE(backend.webShortcuts().at(0).toMap().value("title").toString(),
+                   QString("Changed elsewhere"));
+      backend.removeShortcut();
+      QTRY_COMPARE(daemon.mutations, 2);
+      QTRY_VERIFY(!backend.shortcutSaving());
+      QCOMPARE(daemon.mutationMethod, QString("Remove"));
+      QCOMPARE(daemon.mutationArgs.at(1).toULongLong(), qulonglong(2));
+      QCOMPARE(backend.shortcutEditor().value("title").toString(), QString("Original"));
+      QVERIFY(backend.shortcutError().contains("changed"));
+      QVERIFY(!backend.shortcutError().contains("payload"));
+      backend.closeShortcutEditor();
+      backend.editShortcut("one");
+      daemon.mutationError.clear();
+      backend.removeShortcut();
+      QTRY_COMPARE(daemon.mutations, 3);
+      QTRY_VERIFY(backend.shortcutEditor().isEmpty());
+      QCOMPARE(daemon.mutationArgs.at(1).toULongLong(), qulonglong(3));
+      backend.editShortcut();
+      backend.saveShortcut("New", "https://example.test/new");
+      QTRY_COMPARE(daemon.mutations, 4);
+      QTRY_VERIFY(backend.shortcutEditor().isEmpty());
+      QCOMPARE(daemon.mutationMethod, QString("Add"));
+      QVERIFY(!QUuid(daemon.mutationArgs.at(3).toString()).isNull());
+      // A duplicate or regressing snapshot cannot publish a partial list.
+      daemon.shortcutRevision = 4;
+      daemon.shortcuts.append(daemon.shortcuts.first());
+      QMetaObject::invokeMethod(&backend, "reloadShortcuts");
+      QTRY_VERIFY(backend.webShortcuts().isEmpty());
+      backend.editShortcut("one");
+      QVERIFY(backend.shortcutEditor().isEmpty());
+      daemon.shortcuts.removeLast();
+      daemon.shortcutRevision = 1;
+      QMetaObject::invokeMethod(&backend, "reloadShortcuts");
+      QTest::qWait(100);
+      QVERIFY(backend.webShortcuts().isEmpty());
+      daemon.shortcutRevision = 5;
+      QMetaObject::invokeMethod(&backend, "reloadShortcuts");
+      QTRY_COMPARE(backend.webShortcuts().size(), 1);
+      backend.editShortcut("one");
+      QVERIFY(!backend.shortcutEditor().isEmpty());
+      backend.saveShortcut("Pending", "https://example.test/pending");
+      backend.closeShortcutEditor();
+      backend.editShortcut("one");
+      QVERIFY(backend.shortcutEditor().isEmpty());
+      QTRY_VERIFY(!backend.shortcutSaving());
+      backend.editShortcut("one");
+      bus.unregisterService("org.arinn.Daemon1");
+      QTRY_VERIFY(backend.shortcutEditor().isEmpty());
+      QVERIFY(!backend.shortcutSaving());
+    }
+    bus.unregisterObject("/org/arinn", QDBusConnection::UnregisterTree);
+    bus.unregisterService("org.arinn.Daemon1");
+  }
   void webShortcuts() {
     auto bus = QDBusConnection::sessionBus();
     CatalogDaemon daemon;
@@ -360,7 +464,7 @@ private slots:
 
       const auto north = QStringLiteral("https://example.test/north");
       const QString emoji = QString(QChar(0xD83C)) + QChar(0xDFAE);
-      const QString broken(QChar(0xD800));
+      const QString broken = QStringLiteral("?");
       daemon.shortcuts = {{QStringLiteral("north"), QStringLiteral("north"),
                            north, QStringLiteral("packaged-mark")},
                           {QStringLiteral("south"), QStringLiteral("South"),
@@ -405,7 +509,7 @@ private slots:
               QString(emoji.at(0)));
       QCOMPARE(
           backend.webShortcuts().at(3).toMap().value("monogram").toString(),
-          QString());
+          QString("?"));
       for (const auto &entry : backend.webShortcuts()) {
         const auto map = entry.toMap();
         QVERIFY(!map.contains("url"));

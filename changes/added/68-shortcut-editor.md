@@ -1,0 +1,1 @@
+- Add a hardware-keyboard web-shortcut editor in Applications with revision-guarded updates, removal confirmation and private-bus/UI coverage. Favorites pinning remains pending its public contract.

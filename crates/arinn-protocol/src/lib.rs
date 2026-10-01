@@ -35,3 +35,4 @@ pub struct Status {
     pub home_output: String,
     pub active_output: String,
 }
+pub mod web_icons;

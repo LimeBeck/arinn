@@ -689,6 +689,69 @@ async fn managed_playback_routes_only_complete_exact_inventory_and_tears_down_af
     let refs = api.get_window(&f.generation, "s1").await.unwrap();
     assert_eq!(refs[0].token, "video");
     assert_eq!(refs[0].generation, g);
+    // Tokio's FIFO state mutex puts this mutation after the second validated
+    // read, but before the final association fence. Retained sessions alone
+    // cannot authorize an unavailable or no-longer-negotiated provider.
+    for (change, expected) in [
+        ("backend", ErrorCode::Unavailable),
+        ("runtime", ErrorCode::Unavailable),
+        ("feature", ErrorCode::Unsupported),
+    ] {
+        assert_eq!(bridge.connect(&instance).await.unwrap(), g);
+        f.window_gate
+            .blocked
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        let mut read = Box::pin(f.core.playback_window("mpv", &f.generation, "s1"));
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), &mut read)
+                .await
+                .is_err()
+        );
+        f.window_gate.entered.notified().await;
+        let held = f.core.state.lock().await;
+        f.window_gate.resume.notify_one();
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), &mut read)
+                .await
+                .is_err()
+        );
+        let mut mutation = Box::pin(f.core.state.lock());
+        std::future::poll_fn(|cx| {
+            assert!(std::future::Future::poll(mutation.as_mut(), cx).is_pending());
+            std::task::Poll::Ready(())
+        })
+        .await;
+        drop(held);
+        std::future::poll_fn(|cx| {
+            assert!(std::future::Future::poll(read.as_mut(), cx).is_pending());
+            std::task::Poll::Ready(())
+        })
+        .await;
+        let mut state = mutation.await;
+        let provider = state.providers.get_mut("mpv").unwrap();
+        match change {
+            "backend" => provider.info.backend_state = "unavailable".into(),
+            "runtime" => provider.info.runtime_state = "restarting".into(),
+            _ => provider
+                .features
+                .retain(|f| f != arinn_protocol::media_window::FEATURE),
+        }
+        drop(state);
+        assert_eq!(read.await.unwrap_err(), expected, "final fence: {change}");
+        let mut state = f.core.state.lock().await;
+        let provider = state.providers.get_mut("mpv").unwrap();
+        provider.info.backend_state = "available".into();
+        provider.info.runtime_state = "ready".into();
+        if change == "feature" {
+            provider
+                .features
+                .push(arinn_protocol::media_window::FEATURE.into());
+        }
+        drop(state);
+        f.window_gate
+            .blocked
+            .store(false, std::sync::atomic::Ordering::SeqCst);
+    }
     assert!(api.get_window(&f.generation, "missing").await.is_err());
     assert!(
         api.present(&f.generation, "s1", &Uuid::new_v4().to_string())
@@ -698,6 +761,7 @@ async fn managed_playback_routes_only_complete_exact_inventory_and_tears_down_af
             .contains("Unsupported")
     );
     let idle_at = tokio::time::Instant::now();
+    assert_eq!(bridge.connect(&instance).await.unwrap(), g);
     assert!(media.next_control(&g).await.unwrap().is_empty());
     assert!(
         idle_at.elapsed() >= Duration::from_millis(900),
@@ -708,6 +772,13 @@ async fn managed_playback_routes_only_complete_exact_inventory_and_tears_down_af
         tokio::time::timeout(Duration::from_millis(50), &mut poll)
             .await
             .is_err()
+    );
+    media.report(&g, 1, "other", "").await.unwrap();
+    assert!(
+        tokio::time::timeout(Duration::from_millis(50), &mut poll)
+            .await
+            .is_err(),
+        "association-only wake must retain the idle poll"
     );
     assert!(
         media
@@ -783,6 +854,7 @@ async fn managed_playback_routes_only_complete_exact_inventory_and_tears_down_af
         .await
         .unwrap();
     f.wait(release).await.unwrap();
+    assert_eq!(bridge.connect(&instance).await.unwrap(), g);
     assert!(media.next_control(&g).await.unwrap().is_empty());
     assert!(media.report(&g, 1, "video", LAUNCH).await.is_err());
     assert!(media.report(&g, 2, "missing", LAUNCH).await.is_err());
@@ -811,6 +883,7 @@ async fn managed_playback_routes_only_complete_exact_inventory_and_tears_down_af
         f.window_gate.resume.notify_one();
     });
     assert!(late_show.unwrap_err().to_string().contains("Conflict"));
+    assert_eq!(bridge.connect(&instance).await.unwrap(), g);
     assert!(media.next_control(&g).await.unwrap().is_empty());
     f.window_gate
         .blocked
@@ -839,6 +912,7 @@ async fn managed_playback_routes_only_complete_exact_inventory_and_tears_down_af
     }
     drop(admission_lock);
     assert_eq!(delayed.await.unwrap_err(), ErrorCode::Conflict);
+    assert_eq!(bridge.connect(&instance).await.unwrap(), g);
     assert!(media.next_control(&g).await.unwrap().is_empty());
     // Exit can be admitted before Present reaches the adapter; preserve order.
     f.core
@@ -982,6 +1056,7 @@ async fn managed_playback_routes_only_complete_exact_inventory_and_tears_down_af
         .await
         .unwrap();
     f.wait(hide).await.unwrap();
+    assert_eq!(bridge.connect(&instance).await.unwrap(), g);
     assert!(media.next_control(&g).await.unwrap().is_empty());
     assert_eq!(bridge.connect(&instance).await.unwrap(), g);
     // Provider loss must wake the independently held media poll immediately.

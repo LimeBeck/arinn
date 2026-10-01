@@ -129,6 +129,28 @@ pub(super) async fn read_sessions(
     Ok((revision, sessions, backend, features))
 }
 
+// Shared by asynchronous discovery and the final locked admission fence.
+fn checked_media_target(
+    p: &Provider,
+    generation: &str,
+    session: &str,
+    feature: &str,
+) -> Result<String, ErrorCode> {
+    if p.info.generation != generation {
+        return Err(ErrorCode::Conflict);
+    }
+    if p.info.runtime_state != "ready" || p.info.backend_state == "unavailable" {
+        return Err(ErrorCode::Unavailable);
+    }
+    if !p.features.iter().any(|f| f == feature) {
+        return Err(ErrorCode::Unsupported);
+    }
+    if !p.sessions.iter().any(|s| s.id == session) {
+        return Err(ErrorCode::NotFound);
+    }
+    Ok(p.owner.clone())
+}
+
 impl Core {
     pub(super) async fn watch_media(&self, id: String, owner: String, generation: String) {
         let Ok(proxy) = MediaProviderProxy::builder(&self.connection)
@@ -242,19 +264,7 @@ impl Core {
         validation::id(session)?;
         let state = self.state.lock().await;
         let p = state.providers.get(id).ok_or(ErrorCode::NotFound)?;
-        if p.info.generation != generation {
-            return Err(ErrorCode::Conflict);
-        }
-        if p.info.runtime_state != "ready" || p.info.backend_state == "unavailable" {
-            return Err(ErrorCode::Unavailable);
-        }
-        if !p.features.iter().any(|f| f == feature) {
-            return Err(ErrorCode::Unsupported);
-        }
-        if !p.sessions.iter().any(|s| s.id == session) {
-            return Err(ErrorCode::NotFound);
-        }
-        Ok(p.owner.clone())
+        checked_media_target(p, generation, session, feature)
     }
 
     pub(super) async fn media_tracks(
@@ -707,10 +717,7 @@ impl Core {
         // inventory read. No later await may return a cached window reference.
         let state = self.state.lock().await;
         let p = state.providers.get(id).ok_or(ErrorCode::NotFound)?;
-        if p.owner != owner
-            || p.info.generation != generation
-            || !p.sessions.iter().any(|s| s.id == session)
-        {
+        if checked_media_target(p, generation, session, media_window::FEATURE)? != owner {
             return Err(ErrorCode::Conflict);
         }
         let windows = self
@@ -806,6 +813,9 @@ impl Core {
         let p = state.providers.get(id).ok_or(ErrorCode::NotFound)?;
         if p.owner != owner || p.info.generation != generation {
             return Err(ErrorCode::Conflict);
+        }
+        if present {
+            checked_media_target(p, generation, session, media_window::FEATURE)?;
         }
         let entry = p
             .sessions

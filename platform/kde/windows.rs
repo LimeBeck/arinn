@@ -1317,31 +1317,37 @@ impl MediaBridge {
         #[zbus(header)] h: Header<'_>,
     ) -> production::Result<Vec<String>> {
         let current = trusted(c, &h).await?;
-        let notified = self.0.media_changed.notified();
-        tokio::pin!(notified);
-        notified.as_mut().enable();
-        {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(1);
+        let mut admitted = false;
+        loop {
+            let notified = self.0.media_changed.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
             let mut s = self.0.state.lock().await;
-            s.live(&current)?;
             s.generation(generation)?;
-            s.prune();
-            if s.media.polling {
+            if admitted {
+                s.media.polling = false;
+            } else if s.media.polling {
                 return Err(ErrorCode::Conflict.into());
             }
+            s.live(&current)?;
+            s.prune();
             s.media.supported = true;
             if let Some(record) = take_media_control(&mut s) {
                 return Ok(record);
             }
+            if tokio::time::Instant::now() >= deadline {
+                return Ok(Vec::new());
+            }
             s.media.polling = true;
+            admitted = true;
+            drop(s);
+            // Inventory/association notifications can wake a poll without
+            // admitting a command. Keep the original bounded idle deadline.
+            let _ = tokio::time::timeout_at(deadline, notified).await;
         }
-        let _ = tokio::time::timeout(Duration::from_secs(1), notified).await;
-        let mut s = self.0.state.lock().await;
-        s.generation(generation)?;
-        s.media.polling = false;
-        s.live(&current)?;
-        s.prune();
-        Ok(take_media_control(&mut s).unwrap_or_default())
     }
+
     async fn complete_control(
         &self,
         generation: &str,

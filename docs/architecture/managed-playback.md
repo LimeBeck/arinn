@@ -62,7 +62,9 @@ Request UUID deduplication, per-provider 32-operation limits, owner fencing and
 5-second command timeout follow the existing operation contract. The fingerprint
 includes method, provider, registration and session. Admission checks the current
 registration and session; Present requires playing, paused or ended and a resolved
-association. Store that exact presentation reference and its original flags.
+association. Recheck runtime readiness, backend availability and negotiated
+MediaWindow1 support under the final provider lock before returning an
+association or admitting Present. Store that exact presentation reference and its original flags.
 Release is idempotent teardown of the presentation stored for that registration
 and session, even after Stop clears the provider launch ID or the window vanishes.
 No stored presentation means successful teardown with no compositor mutation.
@@ -71,7 +73,9 @@ are rejected before dispatch. Missing support never reports success.
 
 Commands use optional KWinMedia1.NextControl(generation), separate from the
 unchanged KWinBridge1 queue. It waits at most one second; at most one poll may be
-pending. Empty is idle; otherwise the record is [request UUID, action, token],
+pending. Association-only notifications re-arm that poll within its original
+deadline rather than returning idle on every inventory or session update.
+Empty is idle; otherwise the record is [request UUID, action, token],
 where action is `present` or `release`. Present names an exact live window.
 Release names the remembered token, or empty when only shell teardown remains.
 CompleteControl(generation, request_id, error) acknowledges dispatch using the

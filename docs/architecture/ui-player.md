@@ -136,3 +136,29 @@ the library detail. Home emits `homeRequested` and does not stop playback.
 without the flags, including one `Seek` beside `RequestThumbnail`. The
 focus and sheet cases above cover a missing flag. Neither is the media
 integration gate.
+
+## Managed input layer
+
+`MediaWindow1` adds the native video presentation binding from
+[ADR-0074](../adr/0074-managed-playback-window.md).
+`MediaCatalog` waits up to five seconds for `GetWindow`, then submits one
+`Present` and observes its Operation1 acknowledgement. Presentation has its own
+request ticket, separate from transport and thumbnail requests. Calls use the
+current unique daemon owner and the original provider registration/session.
+Cancelled reads do not submit a late Present. Back sends one Stop and a separate
+Release, retaining the session reference even if Stop removes the session.
+
+The shell remains fullscreen and transparent with PlayerView focused while
+playing, including when the OSD hides. Home calls the daemon Home intent and
+shows an opaque Home over the same player without stopping it. The global
+HomeRequested signal also closes playback chrome, scoped to the current daemon
+epoch. Return reopens the same PlayerView. The library origin survives Home and
+Return so Back can restore its detail. Focus outside managed playback, window
+loss, provider replacement, lock or unknown lock state relinquishes presentation;
+SessionLifecycle remains an independent visibility guard.
+
+`media-catalog` exercises Present acknowledgement, cancellation before window
+mapping, epoch-scoped Home, Home/Return without Stop, and Back's independent
+Stop/Release. The adapter suite checks exact native identity, temporary flags,
+output placement, focus loss and lock/late-callback fencing. These are synthetic
+checks; G-4.1 still needs owner-run KDE Wayland/TV qualification.

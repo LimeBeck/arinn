@@ -1,0 +1,1 @@
+- Connect managed playback controls to the native Wayland video window, keep shell input over hidden OSD, and preserve playback across Home/Return (AC-16, G-4.1, ADR-0074).

@@ -14,7 +14,7 @@ import "ui/screens/settings" as Settings
 Window {
     id: root
     width: 1920; height: 1080
-    visibility: backend.homeVisible && !sessionGuard.blocked ? Window.FullScreen : Window.Hidden
+    visibility: (backend.homeVisible || mediaCatalog.inputLayerActive) && !sessionGuard.blocked ? Window.FullScreen : Window.Hidden
     color: playerOpen ? "transparent" : Ui.Theme.background
     title: "Arinn"
     flags: Qt.Window | Qt.FramelessWindowHint
@@ -23,7 +23,23 @@ Window {
     property bool sessionOpen: false
     property bool playerOpen: false
     property bool sessionFromLibrary: false
+    property bool presentationAtHome: false
+    function showPlaybackHome() {
+        if (!mediaCatalog.inputLayerActive)
+            return;
+        playerView.sheetKind = "";
+        presentationAtHome = true;
+        playerOpen = false;
+        sessionOpen = false;
+        browserOpen = false;
+        home.showHome();
+    }
+    onActiveChanged: {
+        if (!active && mediaCatalog.presentationState === "active" && !backend.homeVisible && !presentationAtHome)
+            mediaCatalog.abandonPresentation();
+    }
     function openSession(entryId, fromLibrary) {
+        presentationAtHome = false;
         sessionFromLibrary = fromLibrary;
         mediaCatalog.select(entryId);
         applyMediaSurface();
@@ -36,6 +52,8 @@ Window {
         if (sessionFromLibrary && mediaCatalog.sessionState !== "ready")
             player = true;
         playerOpen = player;
+        if (player && mediaCatalog.windowAvailable)
+            mediaCatalog.present();
         sessionOpen = !player;
         Qt.callLater(() => {
             if (player)
@@ -48,6 +66,7 @@ Window {
         playerOpen = false;
         if (sessionFromLibrary) {
             sessionFromLibrary = false;
+            home.screen = "library";
             Qt.callLater(() => {
                 if (libraryView.detailOpen)
                     libraryView.focusDetailAction();
@@ -58,7 +77,31 @@ Window {
             Qt.callLater(home.showHome);
         }
     }
-    onVisibleChanged: if (visible) Qt.callLater(home.showHome)
+    onVisibleChanged: if (visible) Qt.callLater(() => {
+        if (playerOpen) playerView.forceActiveFocus();
+        else if (home.screen === "library") libraryView.focusDetailAction();
+        else home.showHome();
+    })
+    Connections {
+        target: backend
+        ignoreUnknownSignals: true
+        function onChanged() {
+            if (!mediaCatalog.inputLayerActive) return;
+            if (backend.homeVisible) root.showPlaybackHome();
+            else if (root.presentationAtHome) {
+                root.presentationAtHome = false;
+                root.playerOpen = true;
+                Qt.callLater(() => playerView.forceActiveFocus());
+            }
+        }
+    }
+    Connections {
+        target: sessionGuard
+        ignoreUnknownSignals: true
+        function onChanged() {
+            if (sessionGuard.blocked) mediaCatalog.abandonPresentation();
+        }
+    }
     BrowserCatalog { id: browserCatalog }
     MediaCatalog { id: mediaCatalog; objectName: "mediaCatalog" }
     LibraryCatalog { id: libraryCatalog; objectName: "libraryCatalog" }
@@ -239,6 +282,8 @@ Window {
             thumbnail: mediaCatalog.thumbnail
             playbackState: {
                 const state = mediaCatalog.sessionState;
+                if (mediaCatalog.windowAvailable && mediaCatalog.presentationState !== "active")
+                    return mediaCatalog.presentationState === "pending" ? "loading" : "unavailable";
                 if (state === "ready")
                     return "ready";
                 if (state === "loading")
@@ -254,12 +299,19 @@ Window {
             onLeave: {
                 if (mediaCatalog.sessionState === "ready")
                     mediaCatalog.stop();
+                mediaCatalog.release();
+                root.presentationAtHome = false;
                 root.closePlayer();
             }
             onHomeRequested: {
-                root.playerOpen = false;
-                root.sessionFromLibrary = false;
-                home.showHome();
+                if (mediaCatalog.inputLayerActive) {
+                    root.showPlaybackHome();
+                    mediaCatalog.requestHome();
+                } else {
+                    root.playerOpen = false;
+                    root.sessionFromLibrary = false;
+                    home.showHome();
+                }
             }
         }
         Binding {
@@ -269,7 +321,10 @@ Window {
         }
         Connections {
             target: mediaCatalog
+            function onPresentationHomeRequested() { root.showPlaybackHome(); }
             function onSessionChanged() {
+                if (root.playerOpen && mediaCatalog.windowAvailable && !root.presentationAtHome)
+                    mediaCatalog.present();
                 if (!root.sessionFromLibrary || (!root.playerOpen && !root.sessionOpen))
                     return;
                 const player = mediaCatalog.playerSession;

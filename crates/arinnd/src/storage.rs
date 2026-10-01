@@ -346,7 +346,7 @@ impl Store {
         let version: u32 = transaction
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .map_err(|_| ErrorCode::Internal)?;
-        if version > 5 {
+        if version > 6 {
             return Err(ErrorCode::Unsupported);
         }
         if version == 0 {
@@ -373,6 +373,9 @@ impl Store {
         }
         if version <= 4 {
             transaction.execute_batch("CREATE TABLE download_imports (provider_id TEXT NOT NULL, job_id TEXT NOT NULL, record TEXT NOT NULL, PRIMARY KEY(provider_id, job_id)); PRAGMA user_version = 5;").map_err(|_| ErrorCode::Internal)?;
+        }
+        if version <= 5 {
+            transaction.execute_batch("CREATE TABLE web_preset_migrations (id TEXT PRIMARY KEY); PRAGMA user_version = 6;").map_err(|_| ErrorCode::Internal)?;
         }
         transaction.commit().map_err(|_| ErrorCode::Internal)
     }
@@ -766,6 +769,44 @@ impl Store {
             .map_err(|_| ErrorCode::Internal)?;
         transaction.commit().map_err(|_| ErrorCode::Internal)?;
         Ok(added.then_some(revision as u64))
+    }
+    /// Apply each packaged exact-match correction once, without recreating rows.
+    /// Must run before seeding: fresh databases record the migration but only
+    /// existing seeded databases are eligible for updates (ADR-0075).
+    pub fn migrate_web_presets(
+        &mut self,
+        migrations: &[crate::shortcuts::PresetMigration],
+    ) -> Result<(), ErrorCode> {
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| ErrorCode::Unavailable)?;
+        let (revision, seeded): (i64, bool) = tx
+            .query_row(
+                "SELECT revision,defaults_seeded FROM web_shortcut_state",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .map_err(|_| ErrorCode::Internal)?;
+        let mut changed = false;
+        for m in migrations {
+            m.validate()?;
+            let new = tx
+                .execute(
+                    "INSERT OR IGNORE INTO web_preset_migrations VALUES (?1)",
+                    [&m.id],
+                )
+                .map_err(|_| ErrorCode::Internal)?;
+            if new != 0 && seeded {
+                changed |= tx.execute("UPDATE web_shortcuts SET url=?4 WHERE title=?1 AND url=?2 AND icon=?3 AND url<>?4", rusqlite::params![m.title, m.url, m.icon, m.replacement_url]).map_err(|_| ErrorCode::Internal)? != 0;
+            }
+        }
+        if changed {
+            let next = revision.checked_add(1).ok_or(ErrorCode::Internal)?;
+            tx.execute("UPDATE web_shortcut_state SET revision=?1", [next])
+                .map_err(|_| ErrorCode::Internal)?;
+        }
+        tx.commit().map_err(|_| ErrorCode::Internal)
     }
     fn mutate_web_shortcuts(
         &mut self,

@@ -106,7 +106,7 @@ private:
        m_shortcutsError = false, m_shortcutsRequested = false,
        m_forceShortcutReload = false;
   quint64 m_connectionEpoch = 0, m_snapshotRevision = 0, m_shortcutTicket = 0;
-  QString m_generation, m_return, m_message, m_daemonEpoch;
+  QString m_generation, m_return, m_message, m_daemonEpoch, m_daemonOwner;
   QVariantList m_items;
   QTimer m_timer;
 };

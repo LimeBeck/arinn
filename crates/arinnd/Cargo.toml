@@ -22,4 +22,5 @@ libc.workspace = true
 sha2.workspace = true
 rusqlite.workspace = true
 futures-util.workspace = true
+url = "2"
 arinn-plugin-sdk.workspace = true

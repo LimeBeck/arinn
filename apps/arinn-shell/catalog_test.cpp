@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "backend.h"
+#include "web_icon_references.h"
 #include <QUuid>
 #include <QtDBus>
 #include <QtTest>
@@ -503,6 +504,13 @@ private slots:
       QCOMPARE(daemon.lists, listsBefore + 1);
       QCOMPARE(daemon.providerCalls, providersBefore);
       const auto first = backend.webShortcuts().at(0).toMap();
+      QVERIFY(first.value("iconSource").toString().isEmpty());
+      const auto siteIcon=backend.webShortcuts().at(1).toMap().value("iconSource").toString();
+      QVERIFY(siteIcon.startsWith("image://arinn-web-icons/"));
+      const auto request=WebIconReferences::lookup(siteIcon.mid(QString("image://arinn-web-icons/").size()));
+      QCOMPARE(request.owner,bus.baseService());
+      QCOMPARE(request.revision,quint64(2));
+      QCOMPARE(request.id,QString("south"));
       QCOMPARE(first.value("id").toString(), QString("north"));
       QCOMPARE(first.value("title").toString(), QString("north"));
       QCOMPARE(first.value("monogram").toString(), QString("N"));

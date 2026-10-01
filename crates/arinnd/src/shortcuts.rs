@@ -30,6 +30,8 @@ const MAX_REQUESTS: usize = 1024;
 struct DefaultsFile {
     #[serde(default)]
     shortcut: Vec<DefaultShortcut>,
+    #[serde(default)]
+    migration: Vec<PresetMigration>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -40,16 +42,37 @@ struct DefaultShortcut {
     icon: String,
 }
 
-/// The packaged default set: the first `arinn/web-shortcuts.toml` in the XDG
-/// data home, then the data directories. `None` when there is none, so the
-/// seed still happens once a package later provides it. Entries get fresh IDs.
-pub fn load_defaults(roots: &[PathBuf]) -> Option<Vec<WebShortcut>> {
+/// Versioned packaging data; core code has no product-specific matching.
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PresetMigration {
+    pub id: String,
+    pub title: String,
+    pub url: String,
+    #[serde(default)]
+    pub icon: String,
+    pub replacement_url: String,
+}
+impl PresetMigration {
+    pub fn validate(&self) -> Result<(), ErrorCode> {
+        arinn_protocol::validation::id(&self.id)?;
+        WebShortcut {
+            id: self.id.clone(),
+            title: self.title.clone(),
+            url: self.url.clone(),
+            icon: self.icon.clone(),
+        }
+        .validate()?;
+        arinn_protocol::web::url(&self.replacement_url)
+    }
+}
+fn load_file(roots: &[PathBuf]) -> Option<DefaultsFile> {
     let path = roots
         .iter()
         .map(|root| root.join(DEFAULTS_FILE))
         .find(|path| path.is_file())?;
     let mut text = String::new();
-    std::fs::File::open(&path)
+    std::fs::File::open(path)
         .ok()?
         .take(MAX_DEFAULTS_BYTES + 1)
         .read_to_string(&mut text)
@@ -57,7 +80,16 @@ pub fn load_defaults(roots: &[PathBuf]) -> Option<Vec<WebShortcut>> {
     if text.len() as u64 > MAX_DEFAULTS_BYTES {
         return None;
     }
-    let file: DefaultsFile = toml::from_str(&text).ok()?;
+    toml::from_str(&text).ok()
+}
+pub fn load_migrations(roots: &[PathBuf]) -> Vec<PresetMigration> {
+    load_file(roots).map(|f| f.migration).unwrap_or_default()
+}
+/// The packaged default set: the first `arinn/web-shortcuts.toml` in the XDG
+/// data home, then the data directories. `None` when there is none, so the
+/// seed still happens once a package later provides it. Entries get fresh IDs.
+pub fn load_defaults(roots: &[PathBuf]) -> Option<Vec<WebShortcut>> {
+    let file = load_file(roots)?;
     Some(
         file.shortcut
             .into_iter()
@@ -158,6 +190,10 @@ impl WebShortcuts {
         self.store(move |store| store.seed_web_shortcuts(&defaults))
             .await
             .map(|_| ())
+    }
+    pub async fn migrate_presets(&self, migrations: Vec<PresetMigration>) -> Result<(), ErrorCode> {
+        self.store(move |store| store.migrate_web_presets(&migrations))
+            .await
     }
     async fn store<T: Send + 'static>(
         &self,

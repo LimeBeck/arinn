@@ -1,0 +1,2 @@
+- Add bounded provider-owned site icon discovery/cache and asynchronous web tile image loading under [ADR-0075](docs/adr/0075-web-shortcut-site-icons.md); daemon routing integration remains in progress in #226.
+- Correct the packaged Kinopoisk URL to `https://hd.kinopoisk.ru` and migrate exact unmodified old presets once without recreating removed entries.

@@ -12,6 +12,7 @@ pub mod association;
 pub mod bridge;
 pub mod framing;
 pub mod host;
+pub mod icons;
 pub mod messages;
 
 /// Well-known bus name and path the provider exports for hosts.

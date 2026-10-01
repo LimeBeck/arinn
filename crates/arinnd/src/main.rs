@@ -74,6 +74,12 @@ async fn run() -> Result<(), ErrorCode> {
     core.export_browse().await?;
     let shortcuts = arinnd::shortcuts::WebShortcuts::new(&paths_state, core.operations.clone())
         .with_browser(core.clone());
+    let migrations = tokio::task::spawn_blocking(|| {
+        arinnd::shortcuts::load_migrations(&arinnd::shortcuts::data_roots())
+    })
+    .await
+    .map_err(|_| ErrorCode::Internal)?;
+    shortcuts.migrate_presets(migrations).await?;
     let defaults = tokio::task::spawn_blocking(|| {
         arinnd::shortcuts::load_defaults(&arinnd::shortcuts::data_roots())
     })

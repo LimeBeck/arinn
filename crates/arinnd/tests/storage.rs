@@ -346,7 +346,7 @@ fn web_shortcuts_migrate_from_schema_two_and_reject_corrupted_rows() {
         let connection = rusqlite::Connection::open(&database).unwrap();
         connection
             .execute_batch(
-                "DROP TABLE web_shortcuts; DROP TABLE web_shortcut_state; DROP TABLE browse_recent; DROP TABLE download_imports; PRAGMA user_version=2;
+                "DROP TABLE web_shortcuts; DROP TABLE web_shortcut_state; DROP TABLE browse_recent; DROP TABLE download_imports; DROP TABLE web_preset_migrations; PRAGMA user_version=2;
                  INSERT INTO providers (provider_id, registry_uuid) VALUES ('kept', 'uuid-1');",
             )
             .unwrap();
@@ -434,7 +434,7 @@ fn browse_recent_migrates_from_schema_three_and_keeps_five() {
         let connection = rusqlite::Connection::open(state.join("state.sqlite3")).unwrap();
         connection
             .execute_batch(
-                "DROP TABLE browse_recent; DROP TABLE download_imports; PRAGMA user_version=3;",
+                "DROP TABLE browse_recent; DROP TABLE download_imports; DROP TABLE web_preset_migrations; PRAGMA user_version=3;",
             )
             .unwrap();
     }
@@ -463,7 +463,7 @@ fn download_checkpoints_migrate_from_four_and_prune_only_the_selected_provider()
     {
         let connection = rusqlite::Connection::open(state.join("state.sqlite3")).unwrap();
         connection
-            .execute_batch("DROP TABLE download_imports; PRAGMA user_version=4;")
+            .execute_batch("DROP TABLE download_imports; DROP TABLE web_preset_migrations; PRAGMA user_version=4;")
             .unwrap();
     }
     let mut store = Store::open(&state).unwrap();

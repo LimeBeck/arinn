@@ -67,6 +67,13 @@ async fn main() -> anyhow::Result<()> {
         Vec::new(),
         "unavailable",
     )?;
+    connection
+        .object_server()
+        .at(
+            "/org/arinn/Provider1",
+            arinn_plugin_chrome::icons::WebIcons::new(service.registrations()).await?,
+        )
+        .await?;
     let publisher = tokio::spawn(publish(service.clone(), bridge.clone()));
     let result = runtime::run_browser_on(connection, service).await;
     publisher.abort();

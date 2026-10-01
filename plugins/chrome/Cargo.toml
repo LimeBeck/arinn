@@ -23,6 +23,12 @@ serde.workspace = true
 serde_json.workspace = true
 tokio = { workspace = true, features = ["io-std", "io-util"] }
 zbus.workspace = true
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots", "stream"] }
+url = "2"
+html5ever = "0.35"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "ico"] }
+sha2.workspace = true
+libc.workspace = true
 
 [dev-dependencies]
 arinnd = { path = "../../crates/arinnd" }

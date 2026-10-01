@@ -4,6 +4,7 @@
 
 #include "asset_images.h"
 #include "icon_references.h"
+#include "web_icon_references.h"
 #include <algorithm>
 #include <QBuffer>
 #include <QFile>
@@ -528,9 +529,94 @@ private:
 };
 }
 
+namespace {
+QThreadPool &webIconPool() {
+  static QThreadPool pool;
+  static const bool configured = [] { pool.setMaxThreadCount(4); pool.setExpiryTimeout(-1); return true; }();
+  Q_UNUSED(configured);
+  return pool;
+}
+QImage fetchWebIcon(const QString &token) {
+  struct Cache { QMutex mutex; QList<QPair<QString,QImage>> entries; qint64 bytes = 0; };
+  static Cache cache;
+  const auto request = WebIconReferences::lookup(token);
+  if (request.owner.isEmpty()) return {};
+  {
+    QMutexLocker lock(&cache.mutex);
+    for (auto it = cache.entries.begin(); it != cache.entries.end();) {
+      if (!WebIconReferences::current(it->first)) {
+        cache.bytes -= it->second.sizeInBytes(); it = cache.entries.erase(it);
+      } else {
+        if (it->first == token) return it->second;
+        ++it;
+      }
+    }
+  }
+  auto call = QDBusMessage::createMethodCall(request.owner, "/org/arinn/Daemon1",
+      "org.arinn.WebShortcutIcons1", "Get");
+  call << request.epoch << QVariant::fromValue<qulonglong>(request.revision) << request.id;
+  const auto reply = workerBus().call(call, QDBus::Block, 7000);
+  if (reply.type() == QDBusMessage::ErrorMessage || reply.signature() != "(say)" ||
+      reply.arguments().size() != 1) return {};
+  const auto arg = qvariant_cast<QDBusArgument>(reply.arguments().first());
+  QString mime; QByteArray bytes;
+  arg.beginStructure(); arg >> mime >> bytes; arg.endStructure();
+  if (mime != "image/png" || bytes.size() > 128*1024 ||
+      !signatureMatches(mime,bytes)) return {};
+  QBuffer buffer(&bytes); buffer.open(QIODevice::ReadOnly);
+  QImageReader reader(&buffer, "PNG");
+  const auto size = reader.size();
+  if (!size.isValid() || size.isEmpty() || size.width() > 256 || size.height() > 256 ||
+      reader.supportsAnimation()) return {};
+  const auto image = reader.read();
+  if (image.isNull() || !WebIconReferences::current(token)) return {};
+  {
+    QMutexLocker lock(&cache.mutex);
+    if (!WebIconReferences::current(token)) return {};
+    while (!cache.entries.isEmpty() && (cache.entries.size() >= 64 ||
+        cache.bytes + image.sizeInBytes() > 8*1024*1024)) {
+      cache.bytes -= cache.entries.last().second.sizeInBytes(); cache.entries.removeLast();
+    }
+    cache.entries.prepend({token,image}); cache.bytes += image.sizeInBytes();
+  }
+  return image;
+}
+class WebIconResponse : public QQuickImageResponse {
+public:
+  explicit WebIconResponse(QString token) : m_token(std::move(token)) {
+    auto *job = QRunnable::create([this] {
+      const auto image = fetchWebIcon(m_token);
+      QMetaObject::invokeMethod(this, [this,image] {
+        if (WebIconReferences::current(m_token)) m_image=image;
+        emit finished();
+      }, Qt::QueuedConnection);
+    });
+    // tryStart refuses work immediately when all four slots are occupied.
+    if (!webIconPool().tryStart(job)) {
+      delete job;
+      QMetaObject::invokeMethod(this, [this] { emit finished(); }, Qt::QueuedConnection);
+    }
+  }
+  QQuickTextureFactory *textureFactory() const override {
+    return m_image.isNull() || !WebIconReferences::current(m_token) ? nullptr : QQuickTextureFactory::textureFactoryForImage(m_image);
+  }
+  QString errorString() const override {
+    return m_image.isNull() || !WebIconReferences::current(m_token) ? QStringLiteral("Site icon is unavailable") : QString();
+  }
+private:
+  QString m_token;
+  QImage m_image;
+};
+class WebIconProvider : public QQuickAsyncImageProvider {
+public:
+  QQuickImageResponse *requestImageResponse(const QString &id, const QSize &) override { return new WebIconResponse(id); }
+};
+}
+
 void installAssetImageProvider(QQmlEngine *engine) {
   if (!engine)
     return;
+  engine->addImageProvider(QStringLiteral("arinn-web-icons"), new WebIconProvider);
   engine->addImageProvider(QStringLiteral("arinn-assets"), new AssetProvider);
   engine->addImageProvider(QStringLiteral("arinn-icons"), new IconProvider);
 }

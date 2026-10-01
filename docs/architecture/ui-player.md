@@ -193,3 +193,5 @@ are for the owner, not an agent-run test.
    is pending until this owner-run evidence exists.
 
 Late Present admission cleanup is detached from the current session's Release acknowledgement and retry state; its outcome cannot erase another session's remembered cleanup.
+
+A failed Release exposes an explicit Back retry on Home even without a Return target. The retry uses a fresh request ID and the remembered cleanup scope; it sends no Stop. Home navigation and the shortcut editor consume their normal Back action before cleanup retry becomes available. Successful cleanup restores ordinary Home Back behavior.

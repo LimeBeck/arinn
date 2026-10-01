@@ -115,6 +115,16 @@ Window {
     LibraryCatalog { id: libraryCatalog; objectName: "libraryCatalog" }
     SettingsCatalog { id: settingsCatalog; objectName: "settingsCatalog" }
     KeyboardMonitor { id: keyboardMonitor }
+    Shortcut {
+        sequences: ["Esc", "Backspace"]
+        context: Qt.WindowShortcut
+        autoRepeat: false
+        enabled: root.active && mediaCatalog.presentationState === "ReleaseFailed"
+                 && !root.playerOpen && !root.sessionOpen && !root.browserOpen
+                 && home.screen === "home" && !home.navOpen
+                 && !home.shortcutEditorOpen && !sessionGuard.blocked
+        onActivated: mediaCatalog.release()
+    }
     Ui.LogicalCanvas {
         anchors.fill: parent
         Ui.HomeView {
@@ -338,7 +348,9 @@ Window {
                         home.showHome();
                         mediaCatalog.requestHome();
                     }
-                    feedback.text = qsTr("Playback controls are unavailable.");
+                    feedback.text = mediaCatalog.presentationState === "ReleaseFailed"
+                        ? qsTr("Unable to exit playback controls. Press Back to retry.")
+                        : qsTr("Playback controls are unavailable.");
                     feedbackTimer.restart();
                 }
                 if (mediaCatalog.presentationState === "active" && !root.active && !backend.homeVisible && !root.presentationAtHome)

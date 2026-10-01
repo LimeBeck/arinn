@@ -421,6 +421,7 @@ public:
 class ShellStandIn : public QObject {
   Q_OBJECT
   Q_PROPERTY(bool homeVisible MEMBER m_home NOTIFY changed)
+  Q_PROPERTY(QVariantMap shortcutEditor MEMBER m_editor NOTIFY changed)
   Q_PROPERTY(QString returnWindow MEMBER m_return CONSTANT)
   Q_PROPERTY(QVariantList items MEMBER m_items CONSTANT)
   Q_PROPERTY(QVariantList continueEntries MEMBER m_continue CONSTANT)
@@ -431,6 +432,7 @@ class ShellStandIn : public QObject {
   Q_PROPERTY(QString message MEMBER m_message CONSTANT)
 public:
   bool m_home = true;
+  QVariantMap m_editor;
   QString m_return;
   QString m_homeState = QStringLiteral("ready");
   QString m_message;
@@ -440,6 +442,7 @@ signals:
   void changed();
 public:
   Q_INVOKABLE void back() {}
+  Q_INVOKABLE void closeShortcutEditor() { m_editor.clear(); emit changed(); }
   Q_INVOKABLE void launch(const QString &) {}
   Q_INVOKABLE void activate(const QString &) {}
   Q_INVOKABLE void refresh() {}
@@ -1392,6 +1395,53 @@ private slots:
     QCOMPARE(daemon.lastLocal, QStringLiteral("old"));
     catalog.release(); QTRY_COMPARE(daemon.windowCommands.count(QStringLiteral("Release")), 4);
     QCOMPARE(daemon.lastLocal, QStringLiteral("new"));
+    QVERIFY(daemon.commands.isEmpty());
+  }
+  void homeBackRetriesFailedReleaseWithoutReturnTarget() {
+    MediaDaemon daemon;
+    daemon.features = {QStringLiteral("MediaWindow1")};
+    daemon.page1 = {session(QStringLiteral("live"), QStringLiteral("Piece"), QStringLiteral("paused"), 0, monotonicUs(), 9000000, {QStringLiteral("stop")})};
+    auto bus = QDBusConnection::sessionBus();
+    QVERIFY(bus.registerService(QStringLiteral("org.arinn.Daemon1")));
+    QVERIFY(bus.registerVirtualObject(QStringLiteral("/org/arinn"), &daemon, QDBusConnection::SubPath));
+    ShellStandIn backend; SessionGuardStandIn guard;
+    QQmlApplicationEngine engine; installAssetImageProvider(&engine);
+    engine.rootContext()->setContextProperty(QStringLiteral("backend"), &backend);
+    engine.rootContext()->setContextProperty(QStringLiteral("sessionGuard"), &guard);
+    engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
+    auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().value(0));
+    QVERIFY(window); window->show(); window->requestActivate(); QTRY_VERIFY(window->isActive());
+    auto catalog = window->findChild<MediaCatalog *>(QStringLiteral("mediaCatalog"));
+    auto home = window->findChild<QQuickItem *>(QStringLiteral("productionHome"));
+    QVERIFY(catalog); QVERIFY(home); QTRY_VERIFY(catalog->windowAvailable());
+    catalog->present(); QTRY_COMPARE(catalog->presentationState(), QStringLiteral("active"));
+    daemon.rejectOperationRead = true;
+    catalog->release(); QTRY_COMPARE(catalog->presentationState(), QStringLiteral("ReleaseFailed"));
+    const auto originalRequest = daemon.lastRequest;
+    daemon.rejectOperationRead = false;
+    backend.m_editor = {{QStringLiteral("id"), QStringLiteral("fixture")}, {QStringLiteral("title"), QStringLiteral("Fixture")}, {QStringLiteral("url"), QStringLiteral("https://example.test/")}};
+    emit backend.changed(); QTRY_VERIFY(home->property("shortcutEditorOpen").toBool());
+    auto sheet = home->findChild<QQuickItem *>(QStringLiteral("shortcutSheet"));
+    QVERIFY(sheet); QTRY_VERIFY(sheet->hasActiveFocus());
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_VERIFY(!home->property("shortcutEditorOpen").toBool());
+    QCOMPARE(daemon.windowCommands.count(QStringLiteral("Release")), 1);
+    QVERIFY(QMetaObject::invokeMethod(home, "openNavigation"));
+    QTRY_VERIFY(home->property("navOpen").toBool());
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_VERIFY(!home->property("navOpen").toBool());
+    QCOMPARE(daemon.windowCommands.count(QStringLiteral("Release")), 1);
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_COMPARE_WITH_TIMEOUT(daemon.windowCommands.count(QStringLiteral("Release")), 2, 2000);
+    QVERIFY(daemon.lastRequest != originalRequest);
+    QCOMPARE(daemon.lastLocal, QStringLiteral("live"));
+    QCOMPARE(daemon.lastGeneration, daemon.pageGeneration);
+    QTRY_COMPARE(catalog->presentationState(), QString());
+    QCOMPARE(home->property("navOpen").toBool(), false);
+    QTest::qWait(300);
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_VERIFY(home->property("navOpen").toBool());
+    QCOMPARE(daemon.windowCommands.count(QStringLiteral("Release")), 2);
     QVERIFY(daemon.commands.isEmpty());
   }
   void thumbnailRequestWhilePlaying() {

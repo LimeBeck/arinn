@@ -1,7 +1,7 @@
 # Managed playback window association
 
 [ADR-0074](../adr/0074-managed-playback-window.md) implements existing specification
-§6.4 and ADR-0046. This increment is a contract, not production support.
+§6.4 and ADR-0046. The contract is implemented by the mpv producer and daemon routing; adapter stacking and shell integration are delivered separately in #141.
 
 ## Identity
 
@@ -62,22 +62,37 @@ Request UUID deduplication, per-provider 32-operation limits, owner fencing and
 5-second command timeout follow the existing operation contract. The fingerprint
 includes method, provider, registration and session. Admission checks the current
 registration and session; Present requires playing, paused or ended and a resolved
-association. Store that exact presentation reference and its original flags.
+association. Recheck runtime readiness, backend availability and negotiated
+MediaWindow1 support under the final provider lock before returning an
+association or admitting Present. Store that exact presentation reference and its original flags.
 Release is idempotent teardown of the presentation stored for that registration
 and session, even after Stop clears the provider launch ID or the window vanishes.
 No stored presentation means successful teardown with no compositor mutation.
-Release never looks up a replacement window or changes another session. Known errors
+Release never looks up a replacement window or changes another session. A per-registration/session exit fence rejects an older Present still awaiting provider identity when Release completes first. Exit records are bounded to 100,000 and cleared on provider loss. Known errors
 are rejected before dispatch. Missing support never reports success.
 
 Commands use optional KWinMedia1.NextControl(generation), separate from the
 unchanged KWinBridge1 queue. It waits at most one second; at most one poll may be
-pending. Empty is idle; otherwise the record is [request UUID, action, token],
+pending. Association-only notifications re-arm that poll within its original
+deadline rather than returning idle on every inventory or session update.
+Empty is idle; otherwise the record is [request UUID, action, token],
 where action is `present` or `release`. Present names an exact live window.
 Release names the remembered token, or empty when only shell teardown remains.
 CompleteControl(generation, request_id, error) acknowledges dispatch using the
 existing normalized error set. Unknown/completed/obsolete requests are Conflict.
+A failed dispatched Present keeps its tentative exact scope for one bounded internal
+Release, because compositor flags may have changed before the error. An adapter
+with no stored presentation treats that cleanup as a no-op; successful cleanup
+clears remembrance. Each dispatched Present has one automatic cleanup attempt,
+bound to that exact presentation request. Failed or expired Release does not
+reopen the attempt on later invalidations; an explicit Release can still retry
+using the remembered scope. A replacement Present starts a new attempt, and old
+internal cleanup cannot tear it down even for the same session. Provider loss
+preserves already-admitted Release cleanup. Provider and session loss wake the
+media lane after invalidation. Skipping a stale Release still leaves the next
+Present behind the current complete-report barrier.
 Commands expire after five seconds and are never redelivered. The total queue
-limit is 1024 and shares per-provider operation admission limits. Polling does not
+limit is 1024 and shares per-provider operation admission limits. Client admission reserves one slot for owner/session-loss teardown. Polling does not
 replace the existing inventory heartbeat. Old adapters without this optional
 interface never receive these commands and presentation is Unsupported.
 Daemon interface introspection alone does not prove adapter support: the first
@@ -104,8 +119,12 @@ Late replies never raise a surface after cancellation or lifetime invalidation.
 MediaExtensions.window handler and private-bus contract fixtures. SDK authorization,
 stale registration/session checks and handler-result validation apply to launch
 identity reads; MPRIS/base services export no window extension.
-A separate producer task implements provider/daemon association and routing.
+#221 implements provider/daemon association and routing: mpv launch identity, authoritative complete-inventory matching, authenticated optional KWin control lane, request deduplication and remembered session teardown.
 #141 implements adapter stacking and shell integration after that producer lands.
 Private-bus tests cover authentication, stale revision/generation, wrong session,
 ambiguity, remap, restart and absent-interface compatibility. Actual KDE input,
 video transparency, Home/Return and performance remain G-4.1 owner qualification.
+
+Provider polling invalidates media-window consumers only when the imported revision, backend, runtime readiness or negotiated features change. Platform invalidations use a separate retained, coalesced signal relay so a change during signal emission is delivered on the next iteration; control waiters retain their broadcast notification semantics.
+
+Removing negotiated MediaWindow1 support invalidates pending and active presentation like an unavailable backend, retaining exact bounded compositor cleanup without a transport Stop.

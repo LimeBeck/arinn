@@ -70,6 +70,11 @@ pub async fn ensure_unit(
     let binary_text = binary.to_str().ok_or(ErrorCode::InvalidArgument)?;
     let mut argv = vec![binary_text.to_string()];
     argv.extend(arguments(socket));
+    let launch = uuid::Uuid::new_v4().to_string();
+    argv.push(format!(
+        "--wayland-app-id={}",
+        arinn_protocol::media_window::app_id(&launch)?
+    ));
     let command = vec![(
         binary_text.to_string(),
         argv,

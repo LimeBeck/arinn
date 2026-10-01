@@ -25,6 +25,7 @@ use tokio::{
 use zbus::{Connection, message::Header};
 
 const SESSION_ID: &str = "sess-restored";
+const LAUNCH_ID: &str = "aaaaaaaa-0000-4000-8000-000000000001";
 const LOCAL_ID: &str = "item-1";
 
 struct Bus(Child, String);
@@ -161,13 +162,20 @@ async fn scenario() {
     assert_eq!(session.title, "Clip");
     assert_eq!(
         proxy.features().await.unwrap(),
-        vec!["MediaOpen1", "MediaTracks1", "MediaTimeline1"]
+        vec![
+            "MediaOpen1",
+            "MediaTracks1",
+            "MediaTimeline1",
+            "MediaWindow1"
+        ]
     );
     let xml = introspect(&daemon, &first.destination).await;
     assert!(xml.contains("org.arinn.MediaProvider1"));
     assert!(xml.contains("org.arinn.MediaOpen1"));
     assert!(xml.contains("org.arinn.MediaTracks1"));
     assert!(xml.contains("org.arinn.MediaTimeline1"));
+    assert!(xml.contains("org.arinn.MediaWindowProvider1"));
+    assert_launch(&daemon, &first.destination).await;
     assert!(!names(&commands).iter().any(|name| name == "loadfile"));
     assert_eq!(std::fs::read_to_string(&state).unwrap(), before);
     assert!(!before.contains("Clip"), "{before}");
@@ -180,6 +188,7 @@ async fn scenario() {
     assert_eq!(session.id, SESSION_ID);
     assert_eq!(session.content.local_id, LOCAL_ID);
     assert_eq!(session.position_us, 5_000_000);
+    assert_launch(&daemon, &second.destination).await;
     assert!(
         names(&commands)
             .iter()
@@ -335,7 +344,18 @@ async fn speak(
             .first()
             .and_then(|value| value.as_str())
             .unwrap_or("");
-        send(&mut write, &json!({"request_id": id, "error": "success"})).await?;
+        let reply_data = if name == "get_property"
+            && command.get(1).and_then(Value::as_str) == Some("options/wayland-app-id")
+        {
+            json!(format!("org.arinn.Playback.{LAUNCH_ID}"))
+        } else {
+            Value::Null
+        };
+        send(
+            &mut write,
+            &json!({"request_id": id, "error": "success", "data": reply_data}),
+        )
+        .await?;
         if name != "observe_property" {
             continue;
         }
@@ -377,4 +397,26 @@ async fn send(write: &mut tokio::net::unix::OwnedWriteHalf, value: &Value) -> st
     line.push('\n');
     write.write_all(line.as_bytes()).await?;
     write.flush().await
+}
+
+async fn assert_launch(daemon: &Connection, destination: &zbus::names::OwnedUniqueName) {
+    let proxy = arinn_protocol::media_window::MediaWindowProviderProxy::builder(daemon)
+        .destination(destination)
+        .unwrap()
+        .build()
+        .await
+        .unwrap();
+    assert_eq!(
+        proxy
+            .get_launch_id("00000000-0000-4000-8000-000000000002", SESSION_ID)
+            .await
+            .unwrap(),
+        LAUNCH_ID
+    );
+    assert!(
+        proxy
+            .get_launch_id("00000000-0000-4000-8000-000000000003", SESSION_ID)
+            .await
+            .is_err()
+    );
 }

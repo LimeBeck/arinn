@@ -209,6 +209,7 @@ public:
   bool thumbnailUnsupported = false;
   QStringList features;
   bool windowReady = true;
+  bool rejectRelease = false;
   int windowReads = 0;
   QStringList windowCommands;
   int homeCommands = 0;
@@ -309,6 +310,10 @@ public:
     } else if (message.member() == QLatin1String("Present") ||
                message.member() == QLatin1String("Release")) {
       windowCommands.append(message.member());
+      if (message.member() == QLatin1String("Release") && rejectRelease) {
+        bus.send(message.createErrorReply(QStringLiteral("org.arinn.Error1.Unavailable"), QStringLiteral("Unavailable")));
+        return true;
+      }
       lastGeneration = message.arguments().value(0).toString();
       lastLocal = message.arguments().value(1).toString();
       lastRequest = message.arguments().value(2).toString();
@@ -1281,6 +1286,67 @@ private slots:
     QCOMPARE(daemon.lastGeneration, daemon.pageGeneration);
     catalog.refresh(); QTest::qWait(300);
     QCOMPARE(daemon.windowCommands.size(), 2);
+    QVERIFY(daemon.commands.isEmpty());
+  }
+  void failedReleaseRetainsScopeForExplicitRetry_data() {
+    QTest::addColumn<QString>("failure");
+    for (const auto *value : {"unobservable", "timeout", "operation", "admission"})
+      QTest::newRow(value) << QString::fromLatin1(value);
+  }
+  void failedReleaseRetainsScopeForExplicitRetry() {
+    QFETCH(QString, failure);
+    MediaDaemon daemon;
+    daemon.features = {QStringLiteral("MediaWindow1")};
+    daemon.page1 = {session(QStringLiteral("live"), QStringLiteral("Piece"), QStringLiteral("paused"), 0, monotonicUs(), 9000000, {QStringLiteral("stop")})};
+    auto bus = QDBusConnection::sessionBus();
+    QVERIFY(bus.registerService(QStringLiteral("org.arinn.Daemon1")));
+    QVERIFY(bus.registerVirtualObject(QStringLiteral("/org/arinn"), &daemon, QDBusConnection::SubPath));
+    MediaCatalog catalog;
+    QTRY_VERIFY(catalog.windowAvailable());
+    catalog.present(); QTRY_COMPARE(catalog.presentationState(), QStringLiteral("active"));
+    daemon.rejectOperationRead = failure == QLatin1String("unobservable");
+    daemon.holdOperation = failure == QLatin1String("timeout");
+    daemon.rejectRelease = failure == QLatin1String("admission");
+    daemon.operationState = failure == QLatin1String("operation") ? QStringLiteral("failed") : QStringLiteral("succeeded");
+    catalog.release();
+    QTRY_COMPARE_WITH_TIMEOUT(catalog.presentationState(), QStringLiteral("ReleaseFailed"), 8000);
+    QVERIFY(!catalog.inputLayerActive());
+    QCOMPARE(daemon.windowCommands, QStringList({QStringLiteral("Present"), QStringLiteral("Release")}));
+    const auto originalRequest = daemon.lastRequest;
+    daemon.rejectOperationRead = false; daemon.holdOperation = false; daemon.rejectRelease = false; daemon.operationState = QStringLiteral("succeeded");
+    catalog.release();
+    QTRY_COMPARE(daemon.windowCommands.count(QStringLiteral("Release")), 2);
+    QVERIFY(daemon.lastRequest != originalRequest);
+    QTRY_COMPARE(catalog.presentationState(), QString());
+    QTest::qWait(300);
+    catalog.release(); QTest::qWait(150);
+    QCOMPARE(daemon.windowCommands.count(QStringLiteral("Release")), 2);
+    QCOMPARE(daemon.lastLocal, QStringLiteral("live"));
+    QVERIFY(daemon.commands.isEmpty());
+  }
+  void newPresentationSupersedesFailedReleaseScope() {
+    MediaDaemon daemon;
+    daemon.features = {QStringLiteral("MediaWindow1")};
+    daemon.page1 = {session(QStringLiteral("old"), QStringLiteral("Old"), QStringLiteral("paused"), 0, monotonicUs(), 9000000, {QStringLiteral("stop")}), session(QStringLiteral("new"), QStringLiteral("New"), QStringLiteral("paused"), 0, monotonicUs(), 9000000, {QStringLiteral("stop")})};
+    auto bus = QDBusConnection::sessionBus();
+    QVERIFY(bus.registerService(QStringLiteral("org.arinn.Daemon1")));
+    QVERIFY(bus.registerVirtualObject(QStringLiteral("/org/arinn"), &daemon, QDBusConnection::SubPath));
+    MediaCatalog catalog; QTRY_VERIFY(catalog.windowAvailable());
+    catalog.present(); QTRY_COMPARE(catalog.presentationState(), QStringLiteral("active"));
+    daemon.rejectOperationRead = true;
+    catalog.release(); QTRY_COMPARE(catalog.presentationState(), QStringLiteral("ReleaseFailed"));
+    daemon.rejectOperationRead = false;
+    for (const auto &entry : catalog.continueEntries()) {
+      const auto row = entry.toMap();
+      if (row.value(QStringLiteral("title")).toString() == QLatin1String("New"))
+        catalog.select(row.value(QStringLiteral("id")).toString());
+    }
+    catalog.present(); QTRY_COMPARE(catalog.presentationState(), QStringLiteral("active"));
+    QCOMPARE(daemon.lastLocal, QStringLiteral("new"));
+    catalog.release(); QTRY_COMPARE(daemon.windowCommands.count(QStringLiteral("Release")), 2);
+    QCOMPARE(daemon.lastLocal, QStringLiteral("new"));
+    QTest::qWait(300); catalog.release(); QTest::qWait(150);
+    QCOMPARE(daemon.windowCommands.count(QStringLiteral("Release")), 2);
     QVERIFY(daemon.commands.isEmpty());
   }
   void thumbnailRequestWhilePlaying() {

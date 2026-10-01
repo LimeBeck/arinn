@@ -147,6 +147,7 @@ private:
   void publish();
   void setPresentation(const QString &state);
   void failPresentation(const QString &state);
+  void failRelease();
   void checkPresentedWindow(quint64 ticket, quint64 epoch, quint64 deadline);
   void resolveWindow(SessionRow row, quint64 ticket, quint64 epoch, quint64 deadline);
   void windowCommand(const SessionRow &row, bool presenting, quint64 ticket, quint64 epoch);
@@ -183,6 +184,8 @@ private:
   QString m_windowGeneration, m_windowToken;
   bool m_windowCheckInFlight = false;
   SessionRow m_presentRow;
+  SessionRow m_releaseRow;
+  quint64 m_releaseEpoch = 0;
   quint64 m_presentationTicket = 0;
   bool m_connected = false, m_loaded = false, m_snapshotError = false,
        m_refreshing = false, m_dirty = false;

@@ -139,6 +139,7 @@ MediaCatalog::MediaCatalog(QObject *parent) : QObject(parent) {
             m_connected = false;
             abandonPresentation();
             m_presentRow = {};
+            m_releaseRow = {};
             m_daemonEpoch.clear();
             m_daemonOwner.clear();
             m_loaded = false;
@@ -401,6 +402,9 @@ void MediaCatalog::syncClock() {
   }
 }
 void MediaCatalog::publish() {
+  if (const auto *row = findId(m_releaseRow.id);
+      row && row->generation != m_releaseRow.generation)
+    m_releaseRow = {};
   if (inputLayerActive()) {
     const auto *row = findId(m_presentRow.id);
     if (!m_connected || !row || row->generation != m_presentRow.generation ||
@@ -1343,8 +1347,11 @@ void MediaCatalog::abandonPresentation() {
   m_presentRow = {};
   m_windowCheckInFlight = false;
   setPresentation({});
-  if (m_connected && !row.path.isEmpty())
+  if (m_connected && !row.path.isEmpty()) {
+    m_releaseRow = row;
+    m_releaseEpoch = m_epoch;
     windowCommand(row, false, ticket, m_epoch);
+  }
 }
 void MediaCatalog::homeRequested(const QString &epoch, const QString &,
                                  const QString &) {
@@ -1365,6 +1372,8 @@ void MediaCatalog::present() {
   if (inputLayerActive() && m_presentRow.id == row->id &&
       m_presentRow.generation == row->generation)
     return;
+  // A new explicit intent supersedes retry state for the previous scope.
+  m_releaseRow = {};
   m_presentRow = *row;
   m_windowCheckInFlight = false;
   const auto ticket = ++m_presentationTicket;
@@ -1421,13 +1430,22 @@ void MediaCatalog::resolveWindow(SessionRow row, quint64 ticket, quint64 epoch,
           });
 }
 void MediaCatalog::release() {
-  const auto row = m_presentRow;
+  const auto row = !m_presentRow.path.isEmpty() ? m_presentRow
+      : (m_releaseEpoch == m_epoch ? m_releaseRow : SessionRow{});
   const auto ticket = ++m_presentationTicket;
   setPresentation({});
   m_presentRow = {};
   m_windowCheckInFlight = false;
-  if (!row.path.isEmpty())
+  if (m_connected && !row.path.isEmpty()) {
+    m_releaseRow = row;
+    m_releaseEpoch = m_epoch;
     windowCommand(row, false, ticket, m_epoch);
+  }
+}
+void MediaCatalog::failRelease() {
+  if (!m_releaseRow.path.isEmpty() && m_releaseEpoch == m_epoch &&
+      (m_presentation.isEmpty() || m_presentation == QLatin1String("ReleaseFailed")))
+    setPresentation(QStringLiteral("ReleaseFailed"));
 }
 void MediaCatalog::windowCommand(const SessionRow &row, bool presenting,
                                  quint64 ticket, quint64 epoch) {
@@ -1458,6 +1476,7 @@ void MediaCatalog::windowCommand(const SessionRow &row, bool presenting,
             failPresentation(reply.type() == QDBusMessage::ErrorMessage
                                 ? errorCode(reply)
                                 : QStringLiteral("Unavailable"));
+          else failRelease();
           return;
         }
         watchWindowOperation(
@@ -1473,6 +1492,7 @@ void MediaCatalog::watchWindowOperation(const QString &objectPath,
   if (monotonicUs() >= deadline) {
     if (presenting)
       failPresentation(QStringLiteral("Timeout"));
+    else failRelease();
     return;
   }
   auto msg = QDBusMessage::createMethodCall(m_daemonOwner, objectPath,
@@ -1488,6 +1508,7 @@ void MediaCatalog::watchWindowOperation(const QString &objectPath,
             if (monotonicUs() >= deadline) {
               if (presenting)
                 failPresentation(QStringLiteral("Timeout"));
+              else failRelease();
               return;
             }
             if (reply.type() == QDBusMessage::ErrorMessage ||
@@ -1495,6 +1516,7 @@ void MediaCatalog::watchWindowOperation(const QString &objectPath,
                 reply.arguments().isEmpty()) {
               if (presenting)
                 failPresentation(QStringLiteral("Unavailable"));
+              else failRelease();
               return;
             }
             const auto arg =
@@ -1527,6 +1549,10 @@ void MediaCatalog::watchWindowOperation(const QString &objectPath,
               else failPresentation(error.isEmpty() ? state : error);
               if (m_presentation == QLatin1String("active"))
                 checkPresentedWindow(ticket, epoch, monotonicUs() + 1000000);
+            } else if (state == QLatin1String("succeeded")) {
+              m_releaseRow = {};
+            } else {
+              failRelease();
             }
           });
 }

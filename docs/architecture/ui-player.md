@@ -150,6 +150,11 @@ once per explicit open; ordinary snapshots cannot retry a failed or abandoned
 presentation. Operation observation failure/timeout tears down the remembered
 scope, even when compositor dispatch may have already occurred. Back sends one Stop and a separate
 Release, retaining the session reference even if Stop removes the session.
+Release cleanup has separate remembered scope until acknowledgement succeeds.
+Admission errors, failed/unobservable operations and timeouts retain that scope
+for an explicit retry with a fresh request ID and surface cleanup failure. There
+is no automatic retry loop; new Present intent or daemon/provider replacement
+invalidates stale retry state.
 
 The shell remains fullscreen and transparent with PlayerView focused while
 playing, including when the OSD hides. Home calls the daemon Home intent and

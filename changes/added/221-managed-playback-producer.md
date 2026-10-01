@@ -2,3 +2,4 @@
 
 - Clean up failed presentation dispatches by exact scope and wake media invalidation on provider or session loss.
 - Recheck provider readiness and negotiated support at the final association and Present admission fence.
+- Bound automatic cleanup to each exact presentation, retain admitted cleanup on provider loss, and preserve the report barrier after skipped controls.

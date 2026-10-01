@@ -83,8 +83,14 @@ existing normalized error set. Unknown/completed/obsolete requests are Conflict.
 A failed dispatched Present keeps its tentative exact scope for one bounded internal
 Release, because compositor flags may have changed before the error. An adapter
 with no stored presentation treats that cleanup as a no-op; successful cleanup
-clears remembrance. Failed Release does not start an automatic retry loop. Provider
-and session loss wake the media lane after invalidation.
+clears remembrance. Each dispatched Present has one automatic cleanup attempt,
+bound to that exact presentation request. Failed or expired Release does not
+reopen the attempt on later invalidations; an explicit Release can still retry
+using the remembered scope. A replacement Present starts a new attempt, and old
+internal cleanup cannot tear it down even for the same session. Provider loss
+preserves already-admitted Release cleanup. Provider and session loss wake the
+media lane after invalidation. Skipping a stale Release still leaves the next
+Present behind the current complete-report barrier.
 Commands expire after five seconds and are never redelivered. The total queue
 limit is 1024 and shares per-provider operation admission limits. Client admission reserves one slot for owner/session-loss teardown. Polling does not
 replace the existing inventory heartbeat. Old adapters without this optional

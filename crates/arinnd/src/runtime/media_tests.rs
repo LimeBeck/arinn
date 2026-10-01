@@ -1094,3 +1094,25 @@ async fn managed_playback_routes_only_complete_exact_inventory_and_tears_down_af
         .expect("signal stream remains live");
     media.complete_control(&g, &cleanup[0], "").await.unwrap();
 }
+
+#[tokio::test]
+async fn unchanged_media_poll_does_not_invalidate_window() {
+    let f = Fixture::new().await;
+    let api = arinn_protocol::media_window::MediaWindowProxy::builder(&f.client)
+        .path(f.path.clone())
+        .unwrap()
+        .build()
+        .await
+        .unwrap();
+    let mut changes = api.receive_changed().await.unwrap();
+    while tokio::time::timeout(Duration::from_millis(30), changes.next())
+        .await
+        .is_ok()
+    {}
+    assert!(
+        tokio::time::timeout(Duration::from_millis(2200), changes.next())
+            .await
+            .is_err(),
+        "unchanged provider polling must not invalidate the window"
+    );
+}

@@ -212,6 +212,7 @@ pub struct Windows {
     state: Arc<Mutex<State>>,
     notify: Arc<Notify>,
     media_changed: Arc<Notify>,
+    media_invalidated: Arc<Notify>,
 }
 async fn owner_lookup(c: &Connection) -> Result<Option<String>, ErrorCode> {
     tokio::time::timeout(Duration::from_secs(3), async {
@@ -258,6 +259,7 @@ impl Windows {
             state: Arc::new(Mutex::new(state)),
             notify: Arc::default(),
             media_changed: Arc::default(),
+            media_invalidated: Arc::default(),
         }
     }
     // Lock order: inventory, then Home bridge. Every production Home write goes
@@ -357,7 +359,7 @@ impl Windows {
                     let generation_id = s.generation.clone();
                     drop(s);
                     backend.notify.notify_waiters();
-                    backend.media_changed.notify_waiters();
+                    backend.invalidate_media();
                     announce(&connection, &generation_id, 1).await;
                 }
             }
@@ -384,7 +386,7 @@ impl Windows {
             let _ = p.reply.send(Err(ErrorCode::Unavailable));
         }
         drop(s);
-        self.media_changed.notify_waiters();
+        self.invalidate_media();
     }
     pub async fn page(
         &self,
@@ -576,7 +578,7 @@ impl Windows {
         let generation_id = s.generation.clone();
         drop(s);
         self.notify.notify_waiters();
-        self.media_changed.notify_waiters();
+        self.invalidate_media();
         announce(c, &generation_id, 1).await;
         Ok(generation_id)
     }
@@ -730,7 +732,7 @@ impl Windows {
         s.revision = revision;
         s.announce_return(c, previous).await;
         drop(s);
-        self.media_changed.notify_waiters();
+        self.invalidate_media();
         announce(c, generation, revision as u64).await;
         Ok(())
     }
@@ -1071,8 +1073,14 @@ impl MediaState {
     }
 }
 impl Windows {
+    fn invalidate_media(&self) {
+        self.media_changed.notify_waiters();
+        // The single signal relay can be busy emitting when another change
+        // arrives. Retain one coalesced invalidation for its next iteration.
+        self.media_invalidated.notify_one();
+    }
     pub async fn media_changed(&self) {
-        self.media_changed.notified().await;
+        self.media_invalidated.notified().await;
     }
     pub async fn sync_media_sessions(
         &self,
@@ -1118,7 +1126,7 @@ impl Windows {
             s.media.teardown(capacity);
         }
         drop(s);
-        self.media_changed.notify_waiters();
+        self.invalidate_media();
     }
     pub async fn media_window(
         &self,
@@ -1220,7 +1228,7 @@ impl Windows {
             cleanup_of: None,
         });
         drop(s);
-        self.media_changed.notify_waiters();
+        self.invalidate_media();
         Ok(Some(receive))
     }
 }
@@ -1324,7 +1332,7 @@ impl MediaBridge {
             let capacity = 1024 - s.queued.len() - usize::from(s.pending.is_some());
             s.media.teardown(capacity);
         }
-        self.0.media_changed.notify_waiters();
+        self.0.invalidate_media();
         if s.media.pending.as_ref().is_some_and(|p| {
             p.command.action == "present"
                 && ((p.command.token == token && p.launch != launch)
@@ -1438,7 +1446,7 @@ impl MediaBridge {
         };
         let _ = p.command.reply.send(result);
         drop(s);
-        self.0.media_changed.notify_waiters();
+        self.0.invalidate_media();
         Ok(())
     }
 }
@@ -1459,6 +1467,24 @@ fn media_error(error: &str) -> ErrorCode {
 #[cfg(test)]
 mod media_lifetime_tests {
     use super::*;
+    #[tokio::test]
+    async fn media_relay_retains_invalidation_during_processing() {
+        let windows = Windows::default();
+        let first = windows.media_changed();
+        tokio::pin!(first);
+        assert!(
+            tokio::time::timeout(Duration::from_millis(10), &mut first)
+                .await
+                .is_err()
+        );
+        windows.disconnect(":1.4").await;
+        first.await;
+        // The relay is processing its first signal, without an active waiter.
+        windows.disconnect(":1.5").await;
+        tokio::time::timeout(Duration::from_millis(100), windows.media_changed())
+            .await
+            .expect("second invalidation must be retained");
+    }
     fn scope() -> Scope {
         Scope {
             provider: "video".into(),

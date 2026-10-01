@@ -1208,7 +1208,13 @@ private slots:
     QTRY_VERIFY(!catalog.inputLayerActive());
     QCOMPARE(daemon.commands.size(), 0);
   }
-  void pendingFocusLossDoesNotRestoreHomeOnLateFailure() {
+  void pendingPresentationFailureRespectsFocus_data() {
+    QTest::addColumn<bool>("loseFocus");
+    QTest::newRow("lost-focus") << true;
+    QTest::newRow("retained-focus") << false;
+  }
+  void pendingPresentationFailureRespectsFocus() {
+    QFETCH(bool, loseFocus);
     MediaDaemon daemon;
     daemon.features = {QStringLiteral("MediaWindow1")};
     daemon.holdOperation = true;
@@ -1234,16 +1240,21 @@ private slots:
     QVERIFY(QMetaObject::invokeMethod(window, "openSession", Q_ARG(QVariant, entryId), Q_ARG(QVariant, false)));
     QTRY_COMPARE(daemon.windowCommands, QStringList({QStringLiteral("Present")}));
     QCOMPARE(catalog->presentationState(), QStringLiteral("pending"));
+    backend.m_home = false; emit backend.changed();
     QQuickWindow other;
-    other.show(); other.requestActivate();
-    QTRY_VERIFY(other.isActive());
-    QTRY_VERIFY(!window->isActive());
+    if (loseFocus) {
+      other.show(); other.requestActivate();
+      QTRY_VERIFY(other.isActive());
+      QTRY_VERIFY(!window->isActive());
+    } else {
+      QTRY_VERIFY(window->isActive());
+    }
     daemon.rejectOperationRead = true;
     QTRY_COMPARE(catalog->presentationState(), QStringLiteral("Unavailable"));
     QTRY_COMPARE(daemon.windowCommands, QStringList({QStringLiteral("Present"), QStringLiteral("Release")}));
-    QCOMPARE(daemon.homeCommands, 0);
+    QCOMPARE(daemon.homeCommands, loseFocus ? 0 : 1);
     QVERIFY(daemon.commands.isEmpty());
-    QVERIFY(other.isActive());
+    if (loseFocus) QVERIFY(other.isActive());
   }
   void failedPresentationOperationReleasesItsOriginalScope_data() {
     QTest::addColumn<bool>("readFailure");

@@ -35,6 +35,7 @@ fn session(id: &str, actions: &[&str]) -> Session {
 
 #[derive(Clone)]
 struct FakeMedia {
+    window_feature: Arc<std::sync::atomic::AtomicBool>,
     generation: String,
     calls: Arc<StdMutex<Vec<String>>>,
 }
@@ -53,12 +54,18 @@ impl FakeMedia {
     }
     fn features(&self) -> Vec<String> {
         // An unknown flag is ignored by the daemon.
-        vec![
+        let mut features = vec![
             FEATURE_TRACKS.into(),
-            arinn_protocol::media_window::FEATURE.into(),
             arinn_protocol::assets::FEATURE_ASSETS.into(),
             "FutureFlag9".into(),
-        ]
+        ];
+        if self
+            .window_feature
+            .load(std::sync::atomic::Ordering::SeqCst)
+        {
+            features.push(arinn_protocol::media_window::FEATURE.into());
+        }
+        features
     }
     fn play(&self, _generation: &str, id: &str) -> production::Result<()> {
         self.calls.lock().unwrap().push(format!("play {id}"));
@@ -143,6 +150,7 @@ impl FakeTracks {
 }
 
 struct Fixture {
+    window_feature: Arc<std::sync::atomic::AtomicBool>,
     bus: Child,
     folder: PathBuf,
     core: Core,
@@ -195,11 +203,13 @@ impl Fixture {
         );
         let generation = Uuid::new_v4().to_string();
         let calls: Arc<StdMutex<Vec<String>>> = Arc::default();
+        let window_feature = Arc::new(std::sync::atomic::AtomicBool::new(true));
         provider
             .object_server()
             .at(
                 production::PROVIDER_PATH,
                 FakeMedia {
+                    window_feature: window_feature.clone(),
                     generation: generation.clone(),
                     calls: calls.clone(),
                 },
@@ -318,6 +328,7 @@ impl Fixture {
                 .await
         });
         let f = Self {
+            window_feature,
             bus,
             folder,
             core,
@@ -1115,4 +1126,67 @@ async fn unchanged_media_poll_does_not_invalidate_window() {
             .is_err(),
         "unchanged provider polling must not invalidate the window"
     );
+}
+
+#[tokio::test]
+async fn feature_removal_cleans_pending_and_active_presentation() {
+    use arinn_protocol::{
+        kwin::KWinBridgeProxy,
+        media_window::{KWinMediaProxy, MediaWindowProxy},
+    };
+    for acknowledged in [false, true] {
+        let f = Fixture::new().await;
+        f.client.request_name("org.kde.KWin").await.unwrap();
+        let bridge = KWinBridgeProxy::new(&f.client).await.unwrap();
+        let media = KWinMediaProxy::new(&f.client).await.unwrap();
+        let api = MediaWindowProxy::builder(&f.client)
+            .path(f.path.clone())
+            .unwrap()
+            .build()
+            .await
+            .unwrap();
+        let g = bridge.connect(&rid()).await.unwrap();
+        bridge.begin_inventory(&g, 1, 1).await.unwrap();
+        bridge
+            .put_window(&g, 1, 0, "video", "", "screen", 6)
+            .await
+            .unwrap();
+        bridge.commit_inventory(&g, 1).await.unwrap();
+        media.report(&g, 1, "video", LAUNCH).await.unwrap();
+        assert!(media.next_control(&g).await.unwrap().is_empty());
+        let operation = api.present(&f.generation, "s1", &rid()).await.unwrap();
+        let present = media.next_control(&g).await.unwrap();
+        assert_eq!(present[1], "present");
+        if acknowledged {
+            media.complete_control(&g, &present[0], "").await.unwrap();
+            f.wait(operation.clone()).await.unwrap();
+        }
+        f.window_feature
+            .store(false, std::sync::atomic::Ordering::SeqCst);
+        for _ in 0..100 {
+            if !f.core.state.lock().await.providers["mpv"]
+                .features
+                .iter()
+                .any(|v| v == arinn_protocol::media_window::FEATURE)
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        let cleanup = media.next_control(&g).await.unwrap();
+        assert_eq!(
+            cleanup.len(),
+            3,
+            "feature removal must release exact presentation"
+        );
+        assert_eq!(&cleanup[1..], &["release", "video"]);
+        media.complete_control(&g, &cleanup[0], "").await.unwrap();
+        if !acknowledged {
+            assert_eq!(f.wait(operation).await.unwrap_err(), "Unavailable");
+        }
+        assert!(
+            f.calls.lock().unwrap().is_empty(),
+            "cleanup must not send Stop"
+        );
+    }
 }

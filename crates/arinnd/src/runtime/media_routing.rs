@@ -205,7 +205,11 @@ impl Core {
                                 || backend != p.info.backend_state
                                 || features != p.features
                                 || p.info.runtime_state != "ready";
-                            let valid_sessions = if backend == "unavailable" {
+                            let valid_sessions = if backend == "unavailable"
+                                || !features
+                                    .iter()
+                                    .any(|f| f == arinn_protocol::media_window::FEATURE)
+                            {
                                 &[][..]
                             } else {
                                 sessions.as_slice()

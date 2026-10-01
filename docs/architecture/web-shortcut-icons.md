@@ -29,17 +29,19 @@ Two optional interfaces preserve existing WebShortcuts1 and BrowserProvider1:
   runtime check, not a property guaranteed by syntactic validation.
 
 The daemon discovers provider support per unique owner through introspection,
-then pins calls to that owner. Choose the configured default registered browser
-provider using the existing selection policy, not a product name or the first
-successful downloader. Unsupported selection does not trigger fallback to a
-second provider or browser launch. A browser backend being disconnected does
-not itself prevent this provider-owned network service from working.
+then pins calls to that owner. Select the first registered, runtime-ready browser provider in the same registry
+ordering used by ordinary default-browser selection, without filtering out a
+disconnected browser backend. There is no new default-browser configuration.
+Do not probe successive providers for a successful download or choose by product
+name. Missing optional support on the selected provider keeps the monogram; it
+does not trigger a second provider or browser launch. The provider-owned network
+service can work while the browser itself is closed.
 
 Provider calls authenticate the registered daemon unique name and current
 registration generation before work and recheck that context before returning.
 The daemon checks the epoch, shortcut list revision, entry presence and default
 provider registration before work, releases shared locks during I/O, and checks
-again after the reply. An edited/removed shortcut, changed default provider or
+again after the reply. An edited/removed shortcut, changed selected provider or
 owner/generation change discards the pending result. No requested URL is accepted
 from the shell: the daemon derives the origin from the stored shortcut URL.
 

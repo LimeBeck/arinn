@@ -933,6 +933,7 @@ struct MediaControl {
 #[derive(Default)]
 struct MediaState {
     supported: bool,
+    polling: bool,
     reports: HashMap<String, String>,
     queued: VecDeque<MediaControl>,
     pending: Option<MediaControl>,
@@ -1196,8 +1197,62 @@ impl Windows {
             session: session.into(),
             launch: launch.into(),
         });
+        drop(s);
+        self.media_changed.notify_waiters();
         Ok(Some(receive))
     }
+}
+fn take_media_control(s: &mut State) -> Option<Vec<String>> {
+    if s.media.pending.is_some() {
+        return None;
+    }
+    if s.media.reports.len() != s.windows.len()
+        && s.media
+            .queued
+            .front()
+            .is_some_and(|p| p.command.action == "present")
+    {
+        return None;
+    }
+    while let Some(mut p) = s.media.queued.pop_front() {
+        if p.command.action == "present"
+            && s.media.resolve(&s.windows, &p.launch).as_deref() != Some(p.command.token.as_str())
+        {
+            let _ = p.command.reply.send(Err(ErrorCode::Conflict));
+            continue;
+        }
+        // An older session's release must not tear down a newer presentation.
+        if p.command.action == "release"
+            && s.media
+                .presentation
+                .as_ref()
+                .is_none_or(|(scope, session, _)| {
+                    scope != &p.command.scope || session != &p.session
+                })
+        {
+            let _ = p.command.reply.send(Ok(()));
+            continue;
+        }
+        if p.command.action == "release" && !s.windows.iter().any(|w| w.token == p.command.token) {
+            p.command.token.clear();
+        }
+        let record = vec![
+            p.command.id.clone(),
+            p.command.action.clone(),
+            p.command.token.clone(),
+        ];
+        if p.command.action == "present" {
+            s.media.presentation_launch = p.launch.clone();
+            s.media.presentation = Some((
+                p.command.scope.clone(),
+                p.session.clone(),
+                p.command.token.clone(),
+            ));
+        }
+        s.media.pending = Some(p);
+        return Some(record);
+    }
+    None
 }
 pub struct MediaBridge(pub Windows);
 #[zbus::interface(name = "org.arinn.KWinMedia1")]
@@ -1258,64 +1313,30 @@ impl MediaBridge {
         #[zbus(header)] h: Header<'_>,
     ) -> production::Result<Vec<String>> {
         let current = trusted(c, &h).await?;
-        let mut s = self.0.state.lock().await;
-        s.live(&current)?;
-        s.generation(generation)?;
-        s.prune();
-        s.media.supported = true;
-        if s.media.pending.is_some() {
-            return Ok(Vec::new());
-        }
-        if s.media.reports.len() != s.windows.len()
-            && s.media
-                .queued
-                .front()
-                .is_some_and(|p| p.command.action == "present")
+        let notified = self.0.media_changed.notified();
+        tokio::pin!(notified);
+        notified.as_mut().enable();
         {
-            return Ok(Vec::new());
+            let mut s = self.0.state.lock().await;
+            s.live(&current)?;
+            s.generation(generation)?;
+            s.prune();
+            if s.media.polling {
+                return Err(ErrorCode::Conflict.into());
+            }
+            s.media.supported = true;
+            if let Some(record) = take_media_control(&mut s) {
+                return Ok(record);
+            }
+            s.media.polling = true;
         }
-        while let Some(mut p) = s.media.queued.pop_front() {
-            if p.command.action == "present"
-                && s.media.resolve(&s.windows, &p.launch).as_deref()
-                    != Some(p.command.token.as_str())
-            {
-                let _ = p.command.reply.send(Err(ErrorCode::Conflict));
-                continue;
-            }
-            // An older session's release must not tear down a newer presentation.
-            if p.command.action == "release"
-                && s.media
-                    .presentation
-                    .as_ref()
-                    .is_none_or(|(scope, session, _)| {
-                        scope != &p.command.scope || session != &p.session
-                    })
-            {
-                let _ = p.command.reply.send(Ok(()));
-                continue;
-            }
-            if p.command.action == "release"
-                && !s.windows.iter().any(|w| w.token == p.command.token)
-            {
-                p.command.token.clear();
-            }
-            let record = vec![
-                p.command.id.clone(),
-                p.command.action.clone(),
-                p.command.token.clone(),
-            ];
-            if p.command.action == "present" {
-                s.media.presentation_launch = p.launch.clone();
-                s.media.presentation = Some((
-                    p.command.scope.clone(),
-                    p.session.clone(),
-                    p.command.token.clone(),
-                ));
-            }
-            s.media.pending = Some(p);
-            return Ok(record);
-        }
-        Ok(Vec::new())
+        let _ = tokio::time::timeout(Duration::from_secs(1), notified).await;
+        let mut s = self.0.state.lock().await;
+        s.generation(generation)?;
+        s.media.polling = false;
+        s.live(&current)?;
+        s.prune();
+        Ok(take_media_control(&mut s).unwrap_or_default())
     }
     async fn complete_control(
         &self,

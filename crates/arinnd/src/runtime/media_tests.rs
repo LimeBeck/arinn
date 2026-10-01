@@ -696,14 +696,36 @@ async fn managed_playback_routes_only_complete_exact_inventory_and_tears_down_af
             .to_string()
             .contains("Unsupported")
     );
+    let idle_at = tokio::time::Instant::now();
     assert!(media.next_control(&g).await.unwrap().is_empty());
+    assert!(
+        idle_at.elapsed() >= Duration::from_millis(900),
+        "idle poll must not spin"
+    );
+    let mut poll = Box::pin(media.next_control(&g));
+    assert!(
+        tokio::time::timeout(Duration::from_millis(50), &mut poll)
+            .await
+            .is_err()
+    );
+    assert!(
+        media
+            .next_control(&g)
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("Conflict")
+    );
     let request = Uuid::new_v4().to_string();
     let op = api.present(&f.generation, "s1", &request).await.unwrap();
     assert_eq!(
         api.present(&f.generation, "s1", &request).await.unwrap(),
         op
     );
-    let command = media.next_control(&g).await.unwrap();
+    let command = tokio::time::timeout(Duration::from_millis(500), poll)
+        .await
+        .expect("enqueue wakes pending poll")
+        .unwrap();
     assert_eq!(&command[1..], &["present", "video"]);
     // Present itself changes fullscreen/focus inventory. The same identity
     // must remain acknowledged rather than invalidating its own operation.

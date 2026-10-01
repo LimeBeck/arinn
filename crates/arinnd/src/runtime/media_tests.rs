@@ -63,7 +63,7 @@ impl FakeMedia {
             .window_feature
             .load(std::sync::atomic::Ordering::SeqCst)
         {
-            features.push(arinn_protocol::media_window::FEATURE.into());
+            features.insert(1, arinn_protocol::media_window::FEATURE.into());
         }
         features
     }

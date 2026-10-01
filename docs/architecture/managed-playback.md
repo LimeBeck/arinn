@@ -124,3 +124,5 @@ identity reads; MPRIS/base services export no window extension.
 Private-bus tests cover authentication, stale revision/generation, wrong session,
 ambiguity, remap, restart and absent-interface compatibility. Actual KDE input,
 video transparency, Home/Return and performance remain G-4.1 owner qualification.
+
+Provider polling invalidates media-window consumers only when the imported revision, backend, runtime readiness or negotiated features change. Platform invalidations use a separate retained, coalesced signal relay so a change during signal emission is delivered on the next iteration; control waiters retain their broadcast notification semantics.

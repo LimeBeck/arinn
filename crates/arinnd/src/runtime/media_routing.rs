@@ -190,6 +190,7 @@ impl Core {
                 return;
             }
             let mut signal = None;
+            let mut window_changed = false;
             match result {
                 Ok((revision, sessions, backend, features)) => {
                     let cache = p
@@ -200,21 +201,27 @@ impl Core {
                             if revision != p.info.revision {
                                 signal = Some(revision);
                             }
+                            window_changed = revision != p.info.revision
+                                || backend != p.info.backend_state
+                                || features != p.features
+                                || p.info.runtime_state != "ready";
                             let valid_sessions = if backend == "unavailable" {
                                 &[][..]
                             } else {
                                 sessions.as_slice()
                             };
-                            self.windows
-                                .sync_media_sessions(
-                                    &crate::windows::Scope {
-                                        provider: id.clone(),
-                                        owner: owner.clone(),
-                                        registration: generation.clone(),
-                                    },
-                                    valid_sessions,
-                                )
-                                .await;
+                            if window_changed {
+                                self.windows
+                                    .sync_media_sessions(
+                                        &crate::windows::Scope {
+                                            provider: id.clone(),
+                                            owner: owner.clone(),
+                                            registration: generation.clone(),
+                                        },
+                                        valid_sessions,
+                                    )
+                                    .await;
+                            }
                             p.sessions = sessions;
                             p.features = features;
                             p.info.revision = revision;
@@ -239,7 +246,8 @@ impl Core {
                 }
                 self.changed().await;
             }
-            if let Some(p) = self.state.lock().await.providers.get(&id)
+            if window_changed
+                && let Some(p) = self.state.lock().await.providers.get(&id)
                 && let Ok(emitter) = SignalEmitter::new(&self.connection, p.info.path.clone())
             {
                 let _ = MediaWindowEndpoint::changed(&emitter, &generation).await;

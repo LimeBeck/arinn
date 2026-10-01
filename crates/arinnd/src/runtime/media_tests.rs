@@ -763,6 +763,35 @@ async fn managed_playback_routes_only_complete_exact_inventory_and_tears_down_af
     assert!(media.next_control(&g).await.unwrap().is_empty());
     assert!(media.report(&g, 1, "video", LAUNCH).await.is_err());
     assert!(media.report(&g, 2, "missing", LAUNCH).await.is_err());
+    // Release must fence Present while its provider identity read is still
+    // blocked, even before it has any queued compositor command to tear down.
+    f.window_gate
+        .blocked
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    f.core
+        .state
+        .lock()
+        .await
+        .providers
+        .get_mut("mpv")
+        .unwrap()
+        .sessions[0]
+        .state = "playing".into();
+    let show_request = Uuid::new_v4().to_string();
+    let (late_show, ()) = tokio::join!(api.present(&f.generation, "s1", &show_request), async {
+        f.window_gate.entered.notified().await;
+        let hide = api
+            .release(&f.generation, "s1", &Uuid::new_v4().to_string())
+            .await
+            .unwrap();
+        f.wait(hide).await.unwrap();
+        f.window_gate.resume.notify_one();
+    });
+    assert!(late_show.unwrap_err().to_string().contains("Conflict"));
+    assert!(media.next_control(&g).await.unwrap().is_empty());
+    f.window_gate
+        .blocked
+        .store(false, std::sync::atomic::Ordering::SeqCst);
     // Exit can be admitted before Present reaches the adapter; preserve order.
     f.core
         .state

@@ -115,6 +115,7 @@ pub struct Core {
     runtime_dir: PathBuf,
     platform: crate::platform::Platform,
     windows: crate::windows::Windows,
+    playback_exits: Arc<Mutex<media_routing::ExitFences>>,
 }
 fn sender(h: &Header<'_>) -> Result<String, ErrorCode> {
     h.sender()
@@ -152,6 +153,7 @@ impl Core {
             runtime_dir,
             platform: crate::platform::Platform::default(),
             windows,
+            playback_exits: Arc::default(),
         }
     }
     /// Remove every daemon interface a provider path can carry, whatever the
@@ -630,6 +632,10 @@ impl Core {
             }
         }
         self.windows.disconnect(owner).await;
+        self.playback_exits
+            .lock()
+            .await
+            .retain(|(provider, _, _), _| provider != id);
         self.operations
             .invalidate(&self.connection, Some(id), None)
             .await;

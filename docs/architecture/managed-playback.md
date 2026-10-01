@@ -66,7 +66,7 @@ association. Store that exact presentation reference and its original flags.
 Release is idempotent teardown of the presentation stored for that registration
 and session, even after Stop clears the provider launch ID or the window vanishes.
 No stored presentation means successful teardown with no compositor mutation.
-Release never looks up a replacement window or changes another session. Known errors
+Release never looks up a replacement window or changes another session. A per-registration/session exit fence rejects an older Present still awaiting provider identity when Release completes first. Exit records are bounded to 100,000 and cleared on provider loss. Known errors
 are rejected before dispatch. Missing support never reports success.
 
 Commands use optional KWinMedia1.NextControl(generation), separate from the

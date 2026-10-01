@@ -63,6 +63,7 @@ struct State {
     pending: Option<Control>,
     polling: bool,
     home: bool,
+    home_revision: u64,
     association: ReturnAssociation,
     exhausted: bool,
 }
@@ -83,6 +84,7 @@ impl Default for State {
             pending: None,
             polling: false,
             home: false,
+            home_revision: 0,
             association: ReturnAssociation {
                 epoch: String::new(),
                 revision: 1,
@@ -276,11 +278,26 @@ impl Windows {
         output: &str,
         authorization: impl std::future::Future<Output = production::Result<()>>,
     ) -> production::Result<()> {
+        // Snapshot before the lookup and recheck after it: another owner's
+        // Home commit (even identical content), or a session reset, invalidates
+        // this continuation without holding a shared lock over authorization.
+        let fence = {
+            let s = self.state.lock().await;
+            (s.generation.clone(), s.home_revision)
+        };
         authorization.await?;
         validation::text(target)?;
         validation::text(output)?;
         let mut s = self.state.lock().await;
+        if s.generation != fence.0 || s.home_revision != fence.1 {
+            return Err(ErrorCode::Conflict.into());
+        }
+        let next = s
+            .home_revision
+            .checked_add(1)
+            .ok_or(ErrorCode::Unavailable)?;
         platform.commit_home(visible, target, output).await;
+        s.home_revision = next;
         let previous = s.association.revision;
         s.home = visible;
         s.publish(target.into(), Vec::new());

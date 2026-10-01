@@ -1075,3 +1075,81 @@ async fn slow_browser_checks_release_registry_and_revalidate_identity() {
         }
     }
 }
+
+#[tokio::test]
+async fn late_authorized_home_cannot_overwrite_a_new_owners_commit() {
+    use arinn_protocol::production::ProductionDaemonProxy;
+    // Include identical content: public association revision is not a sufficient
+    // fence because an accepted identical Home report need not change it.
+    for newest_target in ["current", "new-target"] {
+        let f = Fixture::new().await;
+        f.core
+            .connection
+            .object_server()
+            .at(
+                production::PATH,
+                Daemon {
+                    core: f.core.clone(),
+                },
+            )
+            .await
+            .unwrap();
+        let a = ProductionDaemonProxy::new(&f.kwin).await.unwrap();
+        a.inner()
+            .call::<_, _, ()>("ReportHome", &(true, "current", "new-output"))
+            .await
+            .unwrap();
+        let windows = f.core.windows.clone();
+        let platform = f.core.platform.clone();
+        let connection = f.core.connection.clone();
+        let (authorized, ready) = tokio::sync::oneshot::channel();
+        let (release, delayed) = tokio::sync::oneshot::channel();
+        let pending = tokio::spawn(async move {
+            windows
+                .commit_home_after(
+                    &platform,
+                    &connection,
+                    false,
+                    "stale-a",
+                    "old-output",
+                    async {
+                        // A's authorization succeeded before losing the name; delay its
+                        // continuation until B has really committed through Daemon1.
+                        authorized.send(()).unwrap();
+                        delayed.await.unwrap();
+                        Ok(())
+                    },
+                )
+                .await
+        });
+        ready.await.unwrap();
+        f.kwin.release_name("org.kde.KWin").await.unwrap();
+        f.provider.request_name("org.kde.KWin").await.unwrap();
+        // No inventory session: Home must work before Connect. This isolates
+        // the Home revision fence from inventory-generation reset protection.
+        let b = ProductionDaemonProxy::new(&f.provider).await.unwrap();
+        b.inner()
+            .call::<_, _, ()>("ReportHome", &(true, newest_target, "new-output"))
+            .await
+            .unwrap();
+        release.send(()).unwrap();
+        assert!(matches!(
+            pending.await.unwrap(),
+            Err(production::Error::Conflict(_))
+        ));
+        let status = f.core.platform.status(&f.core.epoch, true).await;
+        assert!(status.home_visible);
+        assert_eq!(status.return_window, newest_target);
+        assert_eq!(status.home_output, "new-output");
+        let association =
+            arinn_protocol::return_association::ReturnAssociationApiProxy::new(&f.stranger)
+                .await
+                .unwrap()
+                .get()
+                .await
+                .unwrap()
+                .0;
+        assert_eq!(association.target, newest_target);
+        assert!(association.window.is_empty());
+    }
+}

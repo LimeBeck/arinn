@@ -188,6 +188,12 @@ The inventory mutex serializes association reports, inventory replacement and
 Home commits. Home state still lives in the existing bridge; the lock order is
 inventory then Home. Authorization is awaited before acquiring the inventory
 lock; every accepted daemon Home report then enters that serialized commit path.
+A private Home commit revision and inventory generation fence are captured before
+that lookup and rechecked under the lock. Every accepted Home report advances
+the private revision, even if its public association content is identical. A
+stale continuation returns `Conflict` without touching Home or association state;
+a session reset invalidates the captured generation as well. This fence is not
+a wire revision or a new contract field.
 Association notifications are emitted under the same inventory lock after commit,
 so their revisions remain ordered. Inventory reset keeps the opaque Home target
 and daemon epoch while invalidating the optional mapping. The owner monitor and

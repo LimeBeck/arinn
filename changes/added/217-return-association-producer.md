@@ -5,3 +5,5 @@
 - Recover from transient owner lookups and unacknowledged association reports
   without exposing unverified identity, and keep bus round-trips outside the
   provider/inventory locks (PR #218 review follow-up).
+- Fence delayed Home authorization so an obsolete owner cannot overwrite a newer
+  Home commit, including one with identical public association content.

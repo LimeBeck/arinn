@@ -1154,15 +1154,15 @@ impl Windows {
                 .map(|(_, _, token)| token.clone());
             let admitted = s
                 .media
-                .queued
+                .pending
                 .iter()
-                .chain(s.media.pending.iter())
+                .chain(s.media.queued.iter())
                 .filter(|p| {
                     p.command.action == "present"
                         && p.command.scope == scope
                         && p.session == session
                 })
-                .last()
+                .next_back()
                 .map(|p| p.command.token.clone());
             let Some(token) = admitted.or(stored) else {
                 return Ok(None);

@@ -4,11 +4,11 @@
 [#212](https://github.com/LimeBeck/arinn/issues/212). Requirements: specification
 §9 and §12; AC-02, AC-12, G-5.1 (partial), R-01, R-03, R-05, R-09, R-10.
 
-**Status:** bindings, structural validation, XML and reference fixtures only.
-Neither interface is exported by the production daemon yet. No adapter, provider
-or shell implementation is included. This contract does not finish the deferred
-Home deduplication in #207; Return remains visible until the follow-ups below
-establish a current, unambiguous match. No acceptance criterion or gate is closed.
+**Status:** production daemon/KDE producer implemented in
+[#217](https://github.com/LimeBeck/arinn/issues/217), following contract #212.
+Both optional interfaces are exported at the daemon root. The shell consumer
+remains separate: this does not enable #207 deduplication or close an acceptance
+criterion/gate. Private-bus and mocked adapter tests are not real KDE qualification.
 
 ## Identity and ownership
 
@@ -180,3 +180,64 @@ to follow #207 and the accepted Home behaviour.
 
 The producer precedes enabling the consumer. These are requirements for future
 issues, not claims or authorization to implement additional tasks in #212.
+
+
+## Production implementation notes
+
+The inventory mutex serializes association reports, inventory replacement and
+Home commits. Home state still lives in the existing bridge; the lock order is
+inventory then Home. Authorization is awaited before acquiring the inventory
+lock; every accepted daemon Home report then enters that serialized commit path.
+A private Home commit revision and inventory generation fence are captured before
+that lookup and rechecked under the lock. Every accepted Home report advances
+the private revision, even if its public association content is identical. A
+stale continuation returns `Conflict` without touching Home or association state;
+a session reset invalidates the captured generation as well. This fence is not
+a wire revision or a new contract field.
+Association notifications are emitted under the same inventory lock after commit,
+so their revisions remain ordered. Inventory reset keeps the opaque Home target
+and daemon epoch while invalidating the optional mapping. The owner monitor and
+five-second heartbeat expiry clear it; `Get` also checks current owner/liveness.
+A transient owner lookup failure fails the read with `Unavailable` without
+publishing an identity loss. The last verified link stays private until a later
+successful read verifies the owner/liveness again. Confirmed absence, replacement
+or heartbeat expiry still clears the link; lookup uncertainty never exposes it.
+Revision exhaustion fails this optional API closed until daemon restart supplies
+a fresh epoch; it never wraps or resets the revision within one epoch.
+
+The adapter discovers `KWinReturn1` per unique daemon owner and pins reports to
+that owner. It requires the current Home acknowledgement, committed inventory,
+and exactly one live object identical to the saved Return object. A duplicate
+identity, pending inventory, stale callback or absent interface supplies no
+positive evidence. Remap obtains a fresh token and needs a fresh report. Home
+raising and Return continue without waiting for optional metadata acknowledgements.
+The adapter records a report as accepted only after its acknowledgement. If KWin
+drops an error/timeout callback, the watchdog may retry at most once every five
+seconds for the same context, after recomputing the current object, inventory and
+Home evidence. Old attempt acknowledgements cannot suppress a newer retry;
+accepted unchanged evidence is not replayed.
+
+`Browser1.GetTabs` copies its page and registration under the registry lock,
+performs bounded bus/liveness lookups without that lock, then rechecks the current
+registration and link evidence before returning. Concurrent owner/generation
+replacement rejects the pending read; concurrent link revocation is revalidated.
+It validates registration/owner, refresh health and live platform
+links before returning cached evidence. A revoked, nonexistent or unavailable
+link fails the read with `Unavailable`; a page from an obsolete registration
+fails with `Conflict`. Leased pages keep their original contents and revision:
+previous links must still agree with the current registered browser snapshot.
+The daemon does not rewrite immutable pages or invent provider revisions.
+Unlinked snapshots, including normal empty offline browser snapshots, remain
+readable without platform evidence.
+A failed read keeps Return in the future consumer, and may temporarily make the
+browser snapshot unavailable until its provider publishes fresh links. Multiple
+valid claims are not resolved by order; the consumer must still require one
+unambiguous candidate across complete current provider snapshots.
+
+The producer tests cover real daemon exports on a private bus, XML equality,
+report authentication, hidden-Home precedence, rejected-report preservation,
+Home invalidation, focus-only inventory changes, removal/session/owner loss,
+heartbeat expiry and browser-link validation. Mocked JavaScript tests cover
+exact objects, two windows, duplicate identities, remap, delayed Home/inventory/
+discovery callbacks and old-daemon compatibility. These tests do not prove
+compositor behavior or shell deduplication.

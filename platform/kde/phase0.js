@@ -6,6 +6,14 @@
 const service = "org.arinn.Daemon1";
 const path = "/org/arinn/Daemon1";
 let target = "";
+let returnObject = null;
+let homeSerial = 0;
+let homeAcknowledged = false;
+let returnSupported = false;
+let lastReturnReport = "";
+let returnAttempt = 0;
+let returnAttemptKey = "";
+let returnAttemptAt = 0;
 let detachedTarget = "";
 let homeVisible = false;
 let homeOutput = "";
@@ -33,6 +41,57 @@ function raiseShell() {
     w.onAllDesktops = true;
     workspace.activeWindow = w;
 }
+// Discovery and evidence are scoped to one unique daemon owner. Home never
+// waits for either optional interface or a mapping acknowledgement.
+function discoverReturn(owner) {
+    returnSupported = false;
+    lastReturnReport = "";
+    callDBus(owner, path, "org.freedesktop.DBus.Introspectable", "Introspect", xml => {
+        if (owner !== daemonOwner) return;
+        returnSupported = typeof xml === "string" && /<interface\s+name=["']org\.arinn\.KWinReturn1["']/.test(xml);
+        publishReturn();
+    });
+}
+function reportHome(explicit, done) {
+    const owner = daemonOwner, serial = ++homeSerial;
+    homeAcknowledged = false;
+    lastReturnReport = "";
+    if (!owner) return;
+    const args = explicit ? [target, homeOutput] : [homeVisible, target, homeOutput];
+    callDBus(owner, path, service, explicit ? "ReportHomeRequest" : "ReportHome", ...args, () => {
+        if (owner !== daemonOwner || serial !== homeSerial) return;
+        homeAcknowledged = true;
+        if (done) done();
+        publishInventory();
+        publishReturn();
+    });
+}
+function publishReturn() {
+    if (!returnSupported || !homeAcknowledged || !homeVisible || !platformGeneration ||
+        !inventoryRevision || publishingAt || inventoryOwner !== daemonOwner) return;
+    // Require the exact saved object and its committed token, never focus or
+    // class/title matching. Ambiguous/remapped objects need fresh Home evidence.
+    if (JSON.stringify(inventory()) !== inventoryFingerprint) return;
+    const matches = workspace.windowList().filter(w => applicationWindow(w) && id(w) === target);
+    const token = matches.length === 1 && matches[0] === returnObject ? (windowTokens.get(returnObject) || "") : "";
+    const owner = daemonOwner, serial = inventorySerial, home = homeSerial;
+    const generation = platformGeneration, revision = inventoryRevision;
+    const key = JSON.stringify([owner, serial, home, generation, revision, target, token]);
+    if (key === lastReturnReport) return;
+    // KWin drops error callbacks. Retry only after a bounded interval and
+    // after recomputing the exact current object/inventory/Home evidence above.
+    if (key === returnAttemptKey && Date.now() - returnAttemptAt < 5000) return;
+    const attempt = ++returnAttempt;
+    returnAttemptKey = key;
+    returnAttemptAt = Date.now();
+    callDBus(owner, path, "org.arinn.KWinReturn1", "Report", generation, revision, target, token, () => {
+        if (attempt !== returnAttempt || owner !== daemonOwner || serial !== inventorySerial || home !== homeSerial) return;
+        if (revision === inventoryRevision) lastReturnReport = key;
+        // A late acknowledgement never installs cached evidence or replays a
+        // mutation. Recompute only from the current committed inventory.
+        if (revision !== inventoryRevision) publishReturn();
+    });
+}
 function showHome() {
     const owner = daemonOwner;
     if (!owner) return;
@@ -42,15 +101,14 @@ function showHome() {
         const active = workspace.activeWindow;
         if (!homeVisible) {
             detachedTarget = "";
-            target = active && !isShell(active) && active.normalWindow ? id(active) : "";
+            returnObject = active && !isShell(active) && active.normalWindow ? active : null;
+            target = id(returnObject);
         }
         if (!homeVisible) homeOutput = active && !isShell(active) && active.output ? active.output.name : workspace.activeScreen.name;
         homeVisible = true;
         // Pin a transient request to its daemon owner; reconnect only restores
         // state through ReportHome and must never replay presentation intent.
-        callDBus(owner, path, service, "ReportHomeRequest", target, homeOutput, () => {
-            if (owner === daemonOwner) raiseShell();
-        });
+        reportHome(true, raiseShell);
     });
 }
 // Give the Activity the screen before the shell stops covering it. Clearing
@@ -62,14 +120,15 @@ function handOff(w) {
     if (home) home.keepAbove = false;
     homeVisible = false;
     target = "";
+    returnObject = null;
     detachedTarget = "";
 }
 function returnToActivity() {
     if (!homeVisible) return;
     const w = workspace.windowList().find(w => id(w) === (target || detachedTarget));
-    if (!w) { target = ""; rpc("ReportHome", true, "", homeOutput); return; }
+    if (!w) { target = ""; reportHome(false); return; }
     handOff(w);
-    rpc("ReportHome", false, "", homeOutput);
+    reportHome(false);
 }
 function dismissHome() {
     // A launched application replaces Home: hide it without activating the
@@ -78,8 +137,9 @@ function dismissHome() {
     const home = shell(); if (home) home.keepAbove = false;
     homeVisible = false;
     target = "";
+    returnObject = null;
     detachedTarget = "";
-    rpc("ReportHome", false, "", homeOutput);
+    reportHome(false);
 }
 function poll() {
     if (!daemonOwner) return;
@@ -105,6 +165,9 @@ function checkDaemon() {
         if (!exists) {
             probeStarted = 0;
             daemonOwner = "";
+            homeAcknowledged = false;
+            returnSupported = false;
+            ++homeSerial;
             resetInventory();
             ++pollSerial;
             pollStarted = 0;
@@ -117,7 +180,8 @@ function checkDaemon() {
                 daemonOwner = owner;
                 ++pollSerial;
                 // KWin retains the Activity context across daemon restarts.
-                rpc("ReportHome", homeVisible, target, homeOutput);
+                reportHome(false);
+                discoverReturn(owner);
                 report(workspace.activeWindow);
                 poll();
             } else if (!pollStarted || Date.now() - pollStarted > 26000) {
@@ -132,9 +196,10 @@ function watchWindow(w) {
     // SDL may unmap/remap its fullscreen window on focus loss. Recover only
     // the exact KWin identity, never another window with the same app class.
     if (homeVisible && detachedTarget && id(w) === detachedTarget) {
+        returnObject = w;
         target = detachedTarget;
         detachedTarget = "";
-        rpc("ReportHome", true, target, homeOutput);
+        reportHome(false);
     }
     w.outputChanged.connect(() => { if (workspace.activeWindow === w) report(w); });
     w.fullScreenChanged.connect(() => { if (workspace.activeWindow === w) report(w); });
@@ -145,7 +210,7 @@ workspace.windowAdded.connect(watchWindow);
 workspace.windowActivated.connect(report);
 workspace.windowRemoved.connect(w => {
     windowTokens.delete(w);
-    if (id(w) === target) { detachedTarget = target; target = ""; if (homeVisible) rpc("ReportHome", true, "", homeOutput); }
+    if (id(w) === target) { detachedTarget = target; target = ""; if (homeVisible) reportHome(false); }
 });
 
 // Versioned internal transport: bounded scalar callDBus arguments and explicit
@@ -167,9 +232,10 @@ function uuid() {
         return (c === "x" ? r : (r & 3) | 8).toString(16);
     });
 }
-function bridge(method, ...args) { callDBus(service, path, "org.arinn.KWinBridge1", method, ...args); }
+function bridge(method, ...args) { callDBus(inventoryOwner, path, "org.arinn.KWinBridge1", method, ...args); }
 function resetInventory() {
     ++inventorySerial;
+    lastReturnReport = "";
     inventoryOwner = "";
     inventoryInstance = uuid();
     platformGeneration = "";
@@ -209,7 +275,7 @@ function publishInventory() {
     if (!platformGeneration || publishingAt) return;
     const rows = inventory();
     const fingerprint = JSON.stringify(rows);
-    if (fingerprint === inventoryFingerprint) return;
+    if (fingerprint === inventoryFingerprint) { publishReturn(); return; }
     if (rows.length > 100000 || inventoryRevision >= 2147483647) { resetInventory(); return; }
     const serial = inventorySerial, generation = platformGeneration, revision = inventoryRevision + 1;
     publishingAt = Date.now();
@@ -222,6 +288,7 @@ function publishInventory() {
                     publishingAt = 0;
                     inventoryRevision = revision;
                     inventoryFingerprint = fingerprint;
+                    publishReturn();
                 });
                 return;
             }
@@ -275,7 +342,7 @@ function pollControl() {
                 } else {
                     if (w.wantsInput !== true) { complete("Unsupported"); return; }
                     handOff(w);
-                    rpc("ReportHome", false, "", homeOutput);
+                    reportHome(false);
                 }
                 complete("");
             } catch (_) { complete("Unavailable"); }

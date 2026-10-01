@@ -128,6 +128,8 @@ fn failed(info: &mut ProviderInfo, error: ErrorCode) {
 }
 impl Core {
     pub fn new(connection: &Connection, paths: Paths, runtime_dir: PathBuf) -> Self {
+        let epoch = Uuid::new_v4().to_string();
+        let windows = crate::windows::Windows::new(&epoch);
         Self {
             state: Arc::new(Mutex::new(State {
                 providers: BTreeMap::new(),
@@ -145,11 +147,11 @@ impl Core {
             search_engines: Arc::default(),
             operations: Operations::default(),
             connection: connection.clone(),
-            epoch: Uuid::new_v4().to_string(),
+            epoch,
             paths,
             runtime_dir,
             platform: crate::platform::Platform::default(),
-            windows: crate::windows::Windows::default(),
+            windows,
         }
     }
     /// Remove every daemon interface a provider path can carry, whatever the
@@ -173,6 +175,22 @@ impl Core {
     }
     pub async fn export_platform(&self) -> Result<(), ErrorCode> {
         self.windows.start(&self.connection).await?;
+        self.connection
+            .object_server()
+            .at(
+                production::PATH,
+                crate::windows::ReturnEndpoint(self.windows.clone()),
+            )
+            .await
+            .map_err(|_| ErrorCode::Internal)?;
+        self.connection
+            .object_server()
+            .at(
+                production::PATH,
+                crate::windows::ReturnBridge(self.windows.clone()),
+            )
+            .await
+            .map_err(|_| ErrorCode::Internal)?;
         self.connection
             .object_server()
             .at(production::PATH, self.windows.clone())
@@ -1401,8 +1419,15 @@ impl Daemon {
         #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
     ) -> production::Result<()> {
         self.core
-            .platform
-            .report_home(&self.core.connection, h, visible, target, output)
+            .windows
+            .report_home(
+                &self.core.platform,
+                &self.core.connection,
+                h,
+                visible,
+                target,
+                output,
+            )
             .await?;
         Self::changed(&emitter).await?;
         Ok(())
@@ -1430,8 +1455,15 @@ impl Daemon {
         // Use the same platform authentication/validation as state reports.
         // Only this explicit request path emits presentation intent.
         self.core
-            .platform
-            .report_home(&self.core.connection, h, true, target, output)
+            .windows
+            .report_home(
+                &self.core.platform,
+                &self.core.connection,
+                h,
+                true,
+                target,
+                output,
+            )
             .await?;
         Self::changed(&emitter).await?;
         Self::home_requested(&emitter, &self.core.epoch, target, output).await?;
@@ -1675,6 +1707,83 @@ struct BrowserEndpoint {
     core: Core,
     id: String,
 }
+impl BrowserEndpoint {
+    // Snapshot the registration under the lock, await external checks without
+    // it, then validate against current state. No stale owner/generation can
+    // install evidence after a concurrent reload or provider refresh.
+    async fn checked_tabs<F, Fut>(
+        &self,
+        caller: &str,
+        token: &str,
+        checks: F,
+    ) -> production::Result<TabPage>
+    where
+        F: FnOnce(String, bool) -> Fut,
+        Fut: std::future::Future<Output = Result<HashSet<String>, ErrorCode>>,
+    {
+        let (provider, registration, page, linked) = {
+            let mut state = self.core.state.lock().await;
+            let p = state
+                .providers
+                .get_mut(&self.id)
+                .ok_or(ErrorCode::NotFound)?;
+            if p.owner.is_empty() {
+                return Err(ErrorCode::Unavailable.into());
+            }
+            let page = p.tab_cache.as_mut().ok_or(ErrorCode::Unavailable)?.page(
+                caller,
+                token,
+                Instant::now(),
+            )?;
+            if page.generation != p.info.generation {
+                return Err(ErrorCode::Conflict.into());
+            }
+            let linked = p
+                .windows
+                .iter()
+                .chain(page.windows.iter())
+                .any(|w| !w.window_token.is_empty());
+            (p.owner.clone(), p.info.generation.clone(), page, linked)
+        };
+        let live = checks(provider.clone(), linked).await?;
+        let state = self.core.state.lock().await;
+        let p = state.providers.get(&self.id).ok_or(ErrorCode::NotFound)?;
+        if p.owner != provider || p.info.generation != registration {
+            return Err(ErrorCode::Conflict.into());
+        }
+        // Unlinked snapshots remain readable, including the normal empty
+        // snapshot of a closed browser. Only positive identity evidence needs
+        // current refresh health and platform availability.
+        if !p
+            .windows
+            .iter()
+            .chain(page.windows.iter())
+            .any(|w| !w.window_token.is_empty())
+        {
+            return Ok(page);
+        }
+        if p.info.runtime_state != "ready"
+            || p.info.backend_state != "available"
+            || (!p.info.last_error.is_empty() && p.info.recovered_at == 0)
+        {
+            return Err(ErrorCode::Unavailable.into());
+        }
+        if p.windows
+            .iter()
+            .any(|w| !w.window_token.is_empty() && !live.contains(&w.window_token))
+            || page.windows.iter().any(|w| {
+                !w.window_token.is_empty()
+                    && (!live.contains(&w.window_token)
+                        || !p.windows.iter().any(|current| {
+                            current.id == w.id && current.window_token == w.window_token
+                        }))
+            })
+        {
+            return Err(ErrorCode::Unavailable.into());
+        }
+        Ok(page)
+    }
+}
 #[zbus::interface(name = "org.arinn.Browser1")]
 impl BrowserEndpoint {
     async fn get_tabs(
@@ -1682,17 +1791,35 @@ impl BrowserEndpoint {
         token: &str,
         #[zbus(header)] h: Header<'_>,
     ) -> production::Result<(TabPage,)> {
-        let owner = sender(&h)?;
-        let mut state = self.core.state.lock().await;
-        let p = state
-            .providers
-            .get_mut(&self.id)
-            .ok_or(ErrorCode::NotFound)?;
-        Ok((p.tab_cache.as_mut().ok_or(ErrorCode::Unavailable)?.page(
-            &owner,
-            token,
-            Instant::now(),
-        )?,))
+        let caller = sender(&h)?;
+        let page = self
+            .checked_tabs(&caller, token, |provider, linked| async move {
+                let alive = tokio::time::timeout(Duration::from_secs(3), async {
+                    zbus::fdo::DBusProxy::new(&self.core.connection)
+                        .await
+                        .map_err(|_| ErrorCode::Unavailable)?
+                        .name_has_owner(
+                            provider
+                                .as_str()
+                                .try_into()
+                                .map_err(|_| ErrorCode::Unavailable)?,
+                        )
+                        .await
+                        .map_err(|_| ErrorCode::Unavailable)
+                })
+                .await
+                .unwrap_or(Err(ErrorCode::Unavailable))?;
+                if !alive {
+                    return Err(ErrorCode::Unavailable);
+                }
+                Ok(if linked {
+                    self.core.windows.live_tokens(&self.core.connection).await
+                } else {
+                    HashSet::new()
+                })
+            })
+            .await?;
+        Ok((page,))
     }
     async fn activate_tab(
         &self,

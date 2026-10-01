@@ -59,7 +59,7 @@ impl Platform {
             active_output: s.active_output.clone(),
         }
     }
-    async fn authorize(c: &Connection, h: &Header<'_>) -> production::Result<()> {
+    pub(crate) async fn authorize(c: &Connection, h: &Header<'_>) -> production::Result<()> {
         let dbus = zbus::fdo::DBusProxy::new(c)
             .await
             .map_err(|_| ErrorCode::Unavailable)?;
@@ -97,22 +97,12 @@ impl Platform {
                 .unwrap_or("idle".into()),
         )
     }
-    pub async fn report_home(
-        &self,
-        c: &Connection,
-        h: Header<'_>,
-        visible: bool,
-        target: &str,
-        output: &str,
-    ) -> production::Result<()> {
-        Self::authorize(c, &h).await?;
-        validation::text(target)?;
-        validation::text(output)?;
+    // Caller authenticates and validates before acquiring the inventory lock.
+    pub(crate) async fn commit_home(&self, visible: bool, target: &str, output: &str) {
         let mut s = self.state.lock().await;
         s.home = visible;
         s.target = target.into();
         s.home_output = output.into();
-        Ok(())
     }
     pub async fn report_window(
         &self,

@@ -1,0 +1,24 @@
+<!-- SPDX-FileCopyrightText: 2026 Arinn contributors
+SPDX-License-Identifier: MIT OR Apache-2.0 -->
+<node>
+  <interface name="org.arinn.MediaWindow1">
+    <method name="GetWindow">
+      <arg name="generation" type="s" direction="in" />
+      <arg name="id" type="s" direction="in" />
+      <arg type="a(ss)" direction="out" />
+    </method>
+    <method name="Present">
+      <arg name="generation" type="s" direction="in" />
+      <arg name="id" type="s" direction="in" />
+      <arg name="request_id" type="s" direction="in" />
+      <arg type="o" direction="out" />
+    </method>
+    <method name="Release">
+      <arg name="generation" type="s" direction="in" />
+      <arg name="id" type="s" direction="in" />
+      <arg name="request_id" type="s" direction="in" />
+      <arg type="o" direction="out" />
+    </method>
+    <signal name="Changed"><arg name="generation" type="s" /></signal>
+  </interface>
+</node>

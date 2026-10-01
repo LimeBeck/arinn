@@ -6,7 +6,7 @@
 mod common;
 use arinn_plugin_sdk::runtime::{
     self, AssetHandler, MediaAction, MediaExtensions, MediaHandler, MediaOpenHandler, MediaService,
-    MediaTimelineHandler, MediaTracksHandler,
+    MediaTimelineHandler, MediaTracksHandler, MediaWindowHandler,
 };
 use arinn_protocol::{
     assets::{Asset, AssetProviderProxy},
@@ -64,6 +64,17 @@ impl AssetHandler for Assets {
                 _ => Err(ErrorCode::NotFound),
             }
         })
+    }
+}
+#[derive(Clone)]
+struct WindowHandler(Arc<Mutex<String>>);
+impl MediaWindowHandler for WindowHandler {
+    fn launch_id(
+        &self,
+        _id: String,
+    ) -> Pin<Box<dyn Future<Output = Result<String, ErrorCode>> + Send + '_>> {
+        let value = self.0.lock().unwrap().clone();
+        Box::pin(async move { Ok(value) })
     }
 }
 struct Open;
@@ -321,7 +332,9 @@ async fn rich_scenario() {
         .unwrap();
     server.request_name(production::SERVICE).await.unwrap();
     let provider = bus.connection().await;
+    let launch = Arc::new(Mutex::new(uuid::Uuid::new_v4().to_string()));
     let extensions = MediaExtensions::default()
+        .window(WindowHandler(launch.clone()))
         .open(Open)
         .tracks(Tracks::default())
         .timeline(TimelineHandler::default())
@@ -359,8 +372,55 @@ async fn rich_scenario() {
             "MediaOpen1",
             "MediaTracks1",
             "MediaTimeline1",
-            "AssetProvider1"
+            "AssetProvider1",
+            "MediaWindow1"
         ]
+    );
+    let window = arinn_protocol::media_window::MediaWindowProviderProxy::builder(&server)
+        .destination(destination.clone())
+        .unwrap()
+        .build()
+        .await
+        .unwrap();
+    assert_eq!(
+        window.get_launch_id(&generation, "s1").await.unwrap(),
+        *launch.lock().unwrap()
+    );
+    assert_eq!(
+        error_name(window.get_launch_id(&generation, "absent").await),
+        "org.arinn.Error1.NotFound"
+    );
+    assert_eq!(
+        error_name(
+            window
+                .get_launch_id(&uuid::Uuid::new_v4().to_string(), "s1")
+                .await
+        ),
+        "org.arinn.Error1.Conflict"
+    );
+    *launch.lock().unwrap() = "bad-identity".into();
+    assert_eq!(
+        error_name(window.get_launch_id(&generation, "s1").await),
+        "org.arinn.Error1.Internal"
+    );
+    *launch.lock().unwrap() = String::new();
+    assert!(
+        window
+            .get_launch_id(&generation, "s1")
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    let outsider = bus.connection().await;
+    let untrusted = arinn_protocol::media_window::MediaWindowProviderProxy::builder(&outsider)
+        .destination(destination.clone())
+        .unwrap()
+        .build()
+        .await
+        .unwrap();
+    assert_eq!(
+        error_name(untrusted.get_launch_id(&generation, "s1").await),
+        "org.arinn.Error1.PermissionDenied"
     );
     let assets = AssetProviderProxy::builder(&server)
         .destination(destination.clone())
@@ -467,6 +527,10 @@ async fn rich_scenario() {
         ("org.arinn.MediaTracks1", "media-tracks1.xml"),
         ("org.arinn.MediaTimeline1", "media-timeline1.xml"),
         ("org.arinn.AssetProvider1", "asset-provider1.xml"),
+        (
+            "org.arinn.MediaWindowProvider1",
+            "media-window-provider1.xml",
+        ),
     ] {
         let xml = std::fs::read_to_string(format!(
             "{}/../../docs/plugin-api/{file}",

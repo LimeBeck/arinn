@@ -91,14 +91,28 @@ pub trait MediaTimelineHandler: Send + Sync + 'static {
     ) -> Pin<Box<dyn Future<Output = Result<Thumbnail, ErrorCode>> + Send + '_>>;
 }
 
+/// Exact launch identity for a managed player; not a platform token.
+pub trait MediaWindowHandler: Send + Sync + 'static {
+    fn launch_id(
+        &self,
+        id: String,
+    ) -> Pin<Box<dyn Future<Output = Result<String, ErrorCode>> + Send + '_>>;
+}
+
 #[derive(Clone, Default)]
 pub struct MediaExtensions {
     assets: Option<Arc<dyn super::assets::AssetHandler>>,
     open: Option<Arc<dyn MediaOpenHandler>>,
     tracks: Option<Arc<dyn MediaTracksHandler>>,
     timeline: Option<Arc<dyn MediaTimelineHandler>>,
+    window: Option<Arc<dyn MediaWindowHandler>>,
 }
 impl MediaExtensions {
+    pub fn window(mut self, handler: impl MediaWindowHandler) -> Self {
+        self.window = Some(Arc::new(handler));
+        self
+    }
+
     /// Serve asset bytes for the provider's asset ids (ADR-0062).
     pub fn assets(mut self, handler: impl super::assets::AssetHandler) -> Self {
         self.assets = Some(Arc::new(handler));
@@ -236,6 +250,9 @@ impl MediaService {
         }
         if self.extensions.assets.is_some() {
             names.push(arinn_protocol::assets::FEATURE_ASSETS.into());
+        }
+        if self.extensions.window.is_some() {
+            names.push(arinn_protocol::media_window::FEATURE.into());
         }
         names
     }
@@ -419,6 +436,41 @@ impl MediaService {
         generation: &str,
         revision: u64,
     ) -> zbus::Result<()>;
+}
+
+#[derive(Clone)]
+struct WindowIface(MediaService);
+#[zbus::interface(name = "org.arinn.MediaWindowProvider1")]
+impl WindowIface {
+    async fn get_launch_id(
+        &self,
+        generation: &str,
+        id: &str,
+        #[zbus(header)] header: Header<'_>,
+    ) -> production::Result<String> {
+        arinn_protocol::media_window::validate_session(generation, id)?;
+        self.0.ready(generation, &header).await?;
+        let session = self.0.session(generation, id).await?;
+        if session.state == media::STATE_STOPPED {
+            return Ok(String::new());
+        }
+        let launch = self
+            .0
+            .extensions
+            .window
+            .as_ref()
+            .ok_or(ErrorCode::Unsupported)?
+            .launch_id(id.into())
+            .await?;
+        arinn_protocol::media_window::validate_launch(&launch).map_err(|_| ErrorCode::Internal)?;
+        // A delayed handler must not publish a result after registration changes.
+        self.0.ready(generation, &header).await?;
+        let current = self.0.session(generation, id).await?;
+        if current.state == media::STATE_STOPPED {
+            return Ok(String::new());
+        }
+        Ok(launch)
+    }
 }
 
 #[derive(Clone)]
@@ -644,6 +696,12 @@ impl Endpoint for MediaService {
             connection
                 .object_server()
                 .at(PROVIDER_PATH, AssetsIface(self.clone()))
+                .await?;
+        }
+        if self.extensions.window.is_some() {
+            connection
+                .object_server()
+                .at(PROVIDER_PATH, WindowIface(self.clone()))
                 .await?;
         }
         if self.extensions.open.is_some() {

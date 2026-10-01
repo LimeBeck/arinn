@@ -90,4 +90,5 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0069](0069-explicit-home-presentation-requests.md) | Explicit Home presentation requests | Accepted | — |
 | [0072](0072-cross-agent-code-review.md) | Cross-agent code review before merging | Accepted | — |
 | [0073](0073-return-window-association.md) | Optional Return-to-platform-window association | Accepted | — |
+| [0074](0074-managed-playback-window.md) | Explicit managed playback window identity | Accepted | — |
 <!-- register:end -->

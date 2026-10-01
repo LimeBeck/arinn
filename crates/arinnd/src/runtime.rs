@@ -115,6 +115,7 @@ pub struct Core {
     runtime_dir: PathBuf,
     platform: crate::platform::Platform,
     windows: crate::windows::Windows,
+    playback_exits: Arc<Mutex<media_routing::ExitFences>>,
 }
 fn sender(h: &Header<'_>) -> Result<String, ErrorCode> {
     h.sender()
@@ -152,6 +153,7 @@ impl Core {
             runtime_dir,
             platform: crate::platform::Platform::default(),
             windows,
+            playback_exits: Arc::default(),
         }
     }
     /// Remove every daemon interface a provider path can carry, whatever the
@@ -162,6 +164,9 @@ impl Core {
         let _ = server.remove::<BrowserEndpoint, _>(path.clone()).await;
         let _ = server
             .remove::<download_routing::DownloadsEndpoint, _>(path.clone())
+            .await;
+        let _ = server
+            .remove::<media_routing::MediaWindowEndpoint, _>(path.clone())
             .await;
         let _ = server
             .remove::<media_routing::MediaEndpoint, _>(path.clone())
@@ -175,6 +180,35 @@ impl Core {
     }
     pub async fn export_platform(&self) -> Result<(), ErrorCode> {
         self.windows.start(&self.connection).await?;
+        let core = self.clone();
+        tokio::spawn(async move {
+            loop {
+                core.windows.media_changed().await;
+                let rows: Vec<_> = core
+                    .state
+                    .lock()
+                    .await
+                    .providers
+                    .values()
+                    .filter(|p| p.capability() == "media")
+                    .map(|p| (p.info.path.clone(), p.info.generation.clone()))
+                    .collect();
+                for (path, generation) in rows {
+                    if let Ok(emitter) = SignalEmitter::new(&core.connection, path) {
+                        let _ = media_routing::MediaWindowEndpoint::changed(&emitter, &generation)
+                            .await;
+                    }
+                }
+            }
+        });
+        self.connection
+            .object_server()
+            .at(
+                production::PATH,
+                crate::windows::MediaBridge(self.windows.clone()),
+            )
+            .await
+            .map_err(|_| ErrorCode::Internal)?;
         self.connection
             .object_server()
             .at(
@@ -420,6 +454,16 @@ impl Core {
                 server
                     .at(
                         new.info.path.clone(),
+                        media_routing::MediaWindowEndpoint {
+                            core: self.clone(),
+                            id: id.clone(),
+                        },
+                    )
+                    .await
+                    .map_err(|_| ErrorCode::Internal)?;
+                server
+                    .at(
+                        new.info.path.clone(),
                         media_routing::MediaEndpoint {
                             core: self.clone(),
                             id: id.clone(),
@@ -588,6 +632,10 @@ impl Core {
             }
         }
         self.windows.disconnect(owner).await;
+        self.playback_exits
+            .lock()
+            .await
+            .retain(|(provider, _, _), _| provider != id);
         self.operations
             .invalidate(&self.connection, Some(id), None)
             .await;

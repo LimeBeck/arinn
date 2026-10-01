@@ -30,6 +30,7 @@ pub(crate) const REQUEST_TIMEOUT: Duration = Duration::from_secs(4);
 #[derive(Clone, Debug)]
 pub(crate) struct Reply {
     pub error: String,
+    pub data: Value,
 }
 
 #[derive(Clone, Debug)]
@@ -204,6 +205,7 @@ async fn read_loop(
             .and_then(|v| v.as_i64())
             .unwrap_or(0);
         let reply = Reply {
+            data: value.get("data").cloned().unwrap_or(Value::Null),
             error: value
                 .get("error")
                 .and_then(|item| item.as_str())

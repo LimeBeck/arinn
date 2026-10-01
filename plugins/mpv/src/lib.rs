@@ -18,7 +18,7 @@ pub use thumbnail::{Extractor, KEPT_THUMBNAILS};
 
 use arinn_plugin_sdk::runtime::{
     MediaAction, MediaExtensions, MediaHandler, MediaOpenHandler, MediaService,
-    MediaTimelineHandler, MediaTracksHandler, run_media_on,
+    MediaTimelineHandler, MediaTracksHandler, MediaWindowHandler, run_media_on,
 };
 use arinn_protocol::{
     media::{MediaSource, Thumbnail, Timeline, Track},
@@ -66,7 +66,8 @@ pub async fn serve(connection: Connection) -> Result<(), ErrorCode> {
         MediaExtensions::default()
             .open(bridge.clone())
             .tracks(bridge.clone())
-            .timeline(bridge),
+            .timeline(bridge.clone())
+            .window(bridge),
     )?;
     let mut notes = player.subscribe();
     let publish = publish(service.clone(), &mut notes);
@@ -190,5 +191,15 @@ impl MediaTimelineHandler for Bridge {
     ) -> Pin<Box<dyn Future<Output = Result<Thumbnail, ErrorCode>> + Send + '_>> {
         let player = self.player().clone();
         Box::pin(async move { player.thumbnail(id, position_us).await })
+    }
+}
+
+impl MediaWindowHandler for Bridge {
+    fn launch_id(
+        &self,
+        id: String,
+    ) -> Pin<Box<dyn Future<Output = Result<String, ErrorCode>> + Send + '_>> {
+        let player = self.player();
+        Box::pin(async move { player.launch_id(id).await })
     }
 }

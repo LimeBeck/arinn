@@ -1,0 +1,13 @@
+<!-- SPDX-FileCopyrightText: 2026 Arinn contributors
+SPDX-License-Identifier: MIT OR Apache-2.0 -->
+<node>
+  <interface name="org.arinn.ReturnAssociation1">
+    <method name="Get">
+      <arg type="(stsa(ss))" direction="out" />
+    </method>
+    <signal name="Changed">
+      <arg name="epoch" type="s" />
+      <arg name="revision" type="t" />
+    </signal>
+  </interface>
+</node>

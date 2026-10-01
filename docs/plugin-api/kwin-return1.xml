@@ -1,0 +1,12 @@
+<!-- SPDX-FileCopyrightText: 2026 Arinn contributors
+SPDX-License-Identifier: MIT OR Apache-2.0 -->
+<node>
+  <interface name="org.arinn.KWinReturn1">
+    <method name="Report">
+      <arg name="generation" type="s" direction="in" />
+      <arg name="inventory_revision" type="i" direction="in" />
+      <arg name="target" type="s" direction="in" />
+      <arg name="token" type="s" direction="in" />
+    </method>
+  </interface>
+</node>

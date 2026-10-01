@@ -146,6 +146,7 @@ private:
   void finishCatalog(const std::shared_ptr<Catalog> &catalog, bool success);
   void publish();
   void setPresentation(const QString &state);
+  void failPresentation(const QString &state);
   void checkPresentedWindow(quint64 ticket, quint64 epoch, quint64 deadline);
   void resolveWindow(SessionRow row, quint64 ticket, quint64 epoch, quint64 deadline);
   void windowCommand(const SessionRow &row, bool presenting, quint64 ticket, quint64 epoch);

@@ -238,7 +238,7 @@ workspace.windowList().forEach(watchWindow);
 workspace.windowAdded.connect(watchWindow);
 workspace.windowActivated.connect(w => {
     report(w);
-    if (playback && !homeVisible && w && !isShell(w) && w !== playback.window) releasePlayback(false);
+    if (playback && w && !isShell(w)) releasePlayback(false);
 });
 workspace.windowRemoved.connect(w => {
     if (playback && (playback.window === w || playback.shell === w)) releasePlayback(false);

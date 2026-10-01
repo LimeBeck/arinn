@@ -196,6 +196,7 @@ public:
   bool loopSecond = false;
   bool rejectCommand = false;
   bool holdOperation = false;
+  bool rejectOperationRead = false;
   QString operationState = QStringLiteral("succeeded");
   QString operationError;
   int sessionReads = 0;
@@ -383,6 +384,9 @@ public:
     } else if (message.member() == QLatin1String("Get") &&
                message.interface() == QLatin1String("org.arinn.Operation1")) {
       ++operationReads;
+      if (rejectOperationRead) {
+        bus.send(message.createErrorReply(QStringLiteral("org.arinn.Error1.Unavailable"), QStringLiteral("Unavailable"))); return true;
+      }
       body.beginStructure();
       body << QString(holdOperation ? QStringLiteral("running") : operationState)
            << operationError << false << qulonglong(1) << qulonglong(2);
@@ -1203,6 +1207,33 @@ private slots:
     daemon.page1.clear(); catalog.refresh();
     QTRY_VERIFY(!catalog.inputLayerActive());
     QCOMPARE(daemon.commands.size(), 0);
+  }
+  void failedPresentationOperationReleasesItsOriginalScope_data() {
+    QTest::addColumn<bool>("readFailure");
+    QTest::newRow("unobservable-operation") << true;
+    QTest::newRow("operation-timeout") << false;
+  }
+  void failedPresentationOperationReleasesItsOriginalScope() {
+    QFETCH(bool, readFailure);
+    MediaDaemon daemon;
+    daemon.features = {QStringLiteral("MediaWindow1")};
+    daemon.rejectOperationRead = readFailure;
+    daemon.holdOperation = !readFailure;
+    daemon.page1 = {session(QStringLiteral("live"), QStringLiteral("Piece"), QStringLiteral("paused"), 0, monotonicUs(), 9000000, {QStringLiteral("stop")})};
+    auto bus = QDBusConnection::sessionBus();
+    QVERIFY(bus.registerService(QStringLiteral("org.arinn.Daemon1")));
+    QVERIFY(bus.registerVirtualObject(QStringLiteral("/org/arinn"), &daemon, QDBusConnection::SubPath));
+    MediaCatalog catalog;
+    QTRY_VERIFY(catalog.windowAvailable());
+    catalog.present();
+    QTRY_COMPARE_WITH_TIMEOUT(catalog.presentationState(), readFailure ? QStringLiteral("Unavailable") : QStringLiteral("Timeout"), 8000);
+    QTRY_COMPARE(daemon.windowCommands, QStringList({QStringLiteral("Present"), QStringLiteral("Release")}));
+    QVERIFY(!catalog.inputLayerActive());
+    QCOMPARE(daemon.lastLocal, QStringLiteral("live"));
+    QCOMPARE(daemon.lastGeneration, daemon.pageGeneration);
+    catalog.refresh(); QTest::qWait(300);
+    QCOMPARE(daemon.windowCommands.size(), 2);
+    QVERIFY(daemon.commands.isEmpty());
   }
   void thumbnailRequestWhilePlaying() {
     MediaDaemon daemon;

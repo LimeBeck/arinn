@@ -116,8 +116,8 @@ list, so the session itself still loads.
 
 | Flag | Binding |
 | --- | --- |
-| none of `MediaOpen1`, `MediaTracks1`, `MediaTimeline1` | Continue opens `SessionView`. Track and timeline reads are not called |
-| `MediaOpen1`, `MediaTracks1` or `MediaTimeline1` | Continue opens this screen. `pictureStandIn` is false |
+| none of `MediaOpen1`, `MediaTracks1`, `MediaTimeline1`, `MediaWindow1` | Continue opens `SessionView`. Track and timeline reads are not called |
+| `MediaOpen1`, `MediaTracks1`, `MediaTimeline1` or `MediaWindow1` | Continue opens this screen. `pictureStandIn` is false |
 | `MediaTracks1` | `ListTracks`, `SelectTrack` and `DisableSubtitles`. The subtitle sheet starts with Off, a shell-only id. Choosing it calls `DisableSubtitles` and never `SelectTrack` |
 | `MediaTimeline1` | `GetTimeline` supplies chapter positions and the buffered range that contains the playhead. `RequestThumbnail` runs when the timeline is focused and again for a seek target. The operation result's `local_id` becomes the `thumbnail` URL. A failure leaves the previous URL |
 
@@ -145,7 +145,10 @@ integration gate.
 `Present` and observes its Operation1 acknowledgement. Presentation has its own
 request ticket, separate from transport and thumbnail requests. Calls use the
 current unique daemon owner and the original provider registration/session.
-Cancelled reads do not submit a late Present. Back sends one Stop and a separate
+Cancelled reads do not submit a late Present. Presentation intent is consumed
+once per explicit open; ordinary snapshots cannot retry a failed or abandoned
+presentation. Operation observation failure/timeout tears down the remembered
+scope, even when compositor dispatch may have already occurred. Back sends one Stop and a separate
 Release, retaining the session reference even if Stop removes the session.
 
 The shell remains fullscreen and transparent with PlayerView focused while
@@ -155,10 +158,31 @@ HomeRequested signal also closes playback chrome, scoped to the current daemon
 epoch. Return reopens the same PlayerView. The library origin survives Home and
 Return so Back can restore its detail. Focus outside managed playback, window
 loss, provider replacement, lock or unknown lock state relinquishes presentation;
-SessionLifecycle remains an independent visibility guard.
+SessionLifecycle remains an independent visibility guard. MediaWindow1.Changed
+revalidates the original WindowRef without submitting another Present.
 
 `media-catalog` exercises Present acknowledgement, cancellation before window
 mapping, epoch-scoped Home, Home/Return without Stop, and Back's independent
 Stop/Release. The adapter suite checks exact native identity, temporary flags,
 output placement, focus loss and lock/late-callback fencing. These are synthetic
 checks; G-4.1 still needs owner-run KDE Wayland/TV qualification.
+
+## Owner TV trial
+
+Use a build/package containing the managed playback producer and #141 adapter
+and shell changes, on KDE Plasma Wayland with mpv installed. Restart the Arinn
+session after updating so daemon, shell and adapter use the same contract. An
+older running `app-arinn-mpv.service` has no launch app ID; stop that old Arinn
+player before launching the test film. Provider restart alone preserves its
+process and cannot retrofit an app ID. These steps change the real session and
+are for the owner, not an agent-run test.
+
+1. Open a local library film on the TV output. Check visible picture and OSD,
+   then pause, seek and choose audio/subtitles with arrows and OK.
+2. Let the OSD hide. Check arrows/OK still reach Arinn and reveal controls.
+3. Open global Home during playback. Check opaque Home covers video without
+   pause or restart, then Return restores controls over the same film/position.
+4. Back hides the OSD; another Back stops playback and returns to its library
+   detail. Check another application's ordinary window flags/focus remain usable.
+5. Record KDE/Qt versions, output layout and results for #141/G-4.1. Qualification
+   is pending until this owner-run evidence exists.

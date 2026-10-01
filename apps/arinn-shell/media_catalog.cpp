@@ -1375,6 +1375,7 @@ void MediaCatalog::resolveWindow(SessionRow row, quint64 ticket, quint64 epoch,
                                  quint64 deadline) {
   if (ticket != m_presentationTicket || epoch != m_epoch)
     return;
+  if (monotonicUs() >= deadline) { setPresentation(QStringLiteral("Timeout")); return; }
   auto msg = QDBusMessage::createMethodCall(
       m_daemonOwner, row.path, "org.arinn.MediaWindow1", "GetWindow");
   msg << row.generation << row.localId;
@@ -1454,7 +1455,7 @@ void MediaCatalog::windowCommand(const SessionRow &row, bool presenting,
         if (reply.type() == QDBusMessage::ErrorMessage ||
             reply.signature() != "o" || reply.arguments().isEmpty()) {
           if (presenting)
-            setPresentation(reply.type() == QDBusMessage::ErrorMessage
+            failPresentation(reply.type() == QDBusMessage::ErrorMessage
                                 ? errorCode(reply)
                                 : QStringLiteral("Unavailable"));
           return;
@@ -1471,7 +1472,7 @@ void MediaCatalog::watchWindowOperation(const QString &objectPath,
     return;
   if (monotonicUs() >= deadline) {
     if (presenting)
-      setPresentation(QStringLiteral("Timeout"));
+      failPresentation(QStringLiteral("Timeout"));
     return;
   }
   auto msg = QDBusMessage::createMethodCall(m_daemonOwner, objectPath,
@@ -1486,14 +1487,14 @@ void MediaCatalog::watchWindowOperation(const QString &objectPath,
               return;
             if (monotonicUs() >= deadline) {
               if (presenting)
-                setPresentation(QStringLiteral("Timeout"));
+                failPresentation(QStringLiteral("Timeout"));
               return;
             }
             if (reply.type() == QDBusMessage::ErrorMessage ||
                 reply.signature() != "(ssbtta(sss)b)" ||
                 reply.arguments().isEmpty()) {
               if (presenting)
-                setPresentation(QStringLiteral("Unavailable"));
+                failPresentation(QStringLiteral("Unavailable"));
               return;
             }
             const auto arg =
@@ -1522,10 +1523,8 @@ void MediaCatalog::watchWindowOperation(const QString &objectPath,
                                          deadline);
                   });
             } else if (presenting) {
-              setPresentation(state == QLatin1String("succeeded")
-                                  ? QStringLiteral("active")
-                              : error.isEmpty() ? state
-                                                : error);
+              if (state == QLatin1String("succeeded")) setPresentation(QStringLiteral("active"));
+              else failPresentation(error.isEmpty() ? state : error);
               if (m_presentation == QLatin1String("active"))
                 checkPresentedWindow(ticket, epoch, monotonicUs() + 1000000);
             }
@@ -1543,6 +1542,7 @@ void MediaCatalog::checkPresentedWindow(quint64 ticket, quint64 epoch,
   if (ticket != m_presentationTicket || epoch != m_epoch ||
       m_presentation != QLatin1String("active"))
     return;
+  if (monotonicUs() >= deadline) { abandonPresentation(); return; }
   if (m_windowCheckInFlight)
     return;
   m_windowCheckInFlight = true;
@@ -1560,6 +1560,7 @@ void MediaCatalog::checkPresentedWindow(quint64 ticket, quint64 epoch,
                 m_presentation != QLatin1String("active"))
               return;
             m_windowCheckInFlight = false;
+            if (monotonicUs() >= deadline) { abandonPresentation(); return; }
             if (reply.type() == QDBusMessage::ErrorMessage) {
               // A field-only inventory commit briefly closes the report
               // barrier.
@@ -1593,4 +1594,11 @@ void MediaCatalog::checkPresentedWindow(quint64 ticket, quint64 epoch,
             if (!matches)
               abandonPresentation();
           });
+}
+
+void MediaCatalog::failPresentation(const QString &state) {
+  // The compositor may have acted before the operation read failed. Fence and
+  // teardown the remembered scope even when its outcome is now unknown.
+  release();
+  setPresentation(state);
 }

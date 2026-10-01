@@ -36,8 +36,11 @@ Window {
         home.showHome();
     }
     onActiveChanged: {
-        if (!active && mediaCatalog.presentationState === "active" && !backend.homeVisible && !presentationAtHome)
-            mediaCatalog.abandonPresentation();
+        if (!active && mediaCatalog.presentationState === "active")
+            Qt.callLater(() => {
+                if (!root.active && mediaCatalog.presentationState === "active")
+                    mediaCatalog.abandonPresentation();
+            });
     }
     function openSession(entryId, fromLibrary) {
         presentationAtHome = false;
@@ -94,6 +97,7 @@ Window {
             if (backend.homeVisible) root.showPlaybackHome();
             else if (root.presentationAtHome) {
                 root.presentationAtHome = false;
+                if (!root.active) { mediaCatalog.abandonPresentation(); return; }
                 root.playerOpen = true;
                 Qt.callLater(() => playerView.forceActiveFocus());
             }
@@ -327,10 +331,20 @@ Window {
             target: mediaCatalog
             function onPresentationHomeRequested() { root.showPlaybackHome(); }
             function onPresentationChanged() {
+                if (mediaCatalog.presentationState !== "" && mediaCatalog.presentationState !== "pending" && mediaCatalog.presentationState !== "active") {
+                    root.playerOpen = false;
+                    root.presentationAtHome = false;
+                    home.showHome();
+                    mediaCatalog.requestHome();
+                    feedback.text = qsTr("Playback controls are unavailable.");
+                    feedbackTimer.restart();
+                }
                 if (mediaCatalog.presentationState === "active" && !root.active && !backend.homeVisible && !root.presentationAtHome)
                     mediaCatalog.abandonPresentation();
-                if (mediaCatalog.presentationState === "" && !backend.homeVisible && !root.presentationAtHome)
+                if (mediaCatalog.presentationState === "" && root.presentationRequested) {
                     root.playerOpen = false;
+                    root.presentationAtHome = false;
+                }
             }
             function onSessionChanged() {
                 if (root.playerOpen && mediaCatalog.windowAvailable && !root.presentationAtHome && !root.presentationRequested) {

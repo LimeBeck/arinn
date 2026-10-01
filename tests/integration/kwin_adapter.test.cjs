@@ -558,3 +558,15 @@ test('missing lock callback tears down managed flags after the bounded unknown-s
     f.lockReplies.at(-1)(false);
     assert.equal(f.home.keepAbove, false, 'late guard cannot revive the layer');
 });
+
+test('unrelated focus from playback Home and explicit video focus relinquish the layer', () => {
+    for (const fromHome of [false, true]) {
+        const {f, token} = managedFixture(); f.media('present', token);
+        if (fromHome) f.show();
+        const selected = fromHome ? f.window('other-home', 'editor') : f.activity;
+        if (fromHome) f.add(selected);
+        f.workspace.activeWindow = selected; f.workspace.windowActivated.emit(selected);
+        assert.equal(f.workspace.activeWindow, selected);
+        assert.equal(f.home.keepAbove, false);
+    }
+});

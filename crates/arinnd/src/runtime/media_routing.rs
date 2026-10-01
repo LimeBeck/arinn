@@ -731,6 +731,18 @@ impl Core {
     ) -> Result<OwnedObjectPath, ErrorCode> {
         use arinn_protocol::media_window;
         media_window::validate_session(generation, session)?;
+        let fence_key = (id.to_owned(), generation.to_owned(), session.to_owned());
+        // Capture ordering before any admission/provider/platform awaits.
+        let present_fence = if present {
+            self.playback_exits
+                .lock()
+                .await
+                .get(&fence_key)
+                .copied()
+                .unwrap_or(0)
+        } else {
+            0
+        };
         let fingerprint =
             serde_json::to_string(&("media-window", id, generation, session, present))
                 .map_err(|_| ErrorCode::Internal)?;
@@ -747,13 +759,12 @@ impl Core {
         self.windows.media_supported(&self.connection).await?;
         // A Release also fences an older Present still waiting for provider
         // identity, before that request has reached operation admission.
-        let fence_key = (id.to_owned(), generation.to_owned(), session.to_owned());
-        let fence = {
+        let fence = if present {
+            present_fence
+        } else {
             let mut exits = self.playback_exits.lock().await;
             let current = exits.get(&fence_key).copied().unwrap_or(0);
-            if present {
-                current
-            } else {
+            {
                 if !exits.contains_key(&fence_key) && exits.len() >= 100_000 {
                     return Err(ErrorCode::Unavailable);
                 }

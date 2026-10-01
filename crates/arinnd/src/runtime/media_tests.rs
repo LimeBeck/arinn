@@ -792,6 +792,27 @@ async fn managed_playback_routes_only_complete_exact_inventory_and_tears_down_af
     f.window_gate
         .blocked
         .store(false, std::sync::atomic::Ordering::SeqCst);
+    // A fence must also be captured before the first async admission check.
+    // Hold the provider lock so this continuation cannot reach GetLaunchId,
+    // then emulate the exit fence already advanced by a validated Release.
+    let admission_lock = f.core.state.lock().await;
+    let request = Uuid::new_v4().to_string();
+    let caller = f.client.unique_name().unwrap().to_string();
+    let mut delayed =
+        Box::pin(
+            f.core
+                .playback_command("mpv", &f.generation, "s1", &request, &caller, true),
+        );
+    assert!(futures_util::poll!(delayed.as_mut()).is_pending());
+    {
+        let mut exits = f.core.playback_exits.lock().await;
+        *exits
+            .entry(("mpv".into(), f.generation.clone(), "s1".into()))
+            .or_default() += 1;
+    }
+    drop(admission_lock);
+    assert_eq!(delayed.await.unwrap_err(), ErrorCode::Conflict);
+    assert!(media.next_control(&g).await.unwrap().is_empty());
     // Exit can be admitted before Present reaches the adapter; preserve order.
     f.core
         .state

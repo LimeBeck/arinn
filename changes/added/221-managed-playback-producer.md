@@ -1,1 +1,3 @@
 - Add managed player launch identity, daemon media-window association and acknowledged KWin presentation routing (AC-16, G-4.1, ADR-0074).
+
+- Clean up failed presentation dispatches by exact scope and wake media invalidation on provider or session loss.

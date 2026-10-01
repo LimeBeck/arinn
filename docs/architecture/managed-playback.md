@@ -76,6 +76,11 @@ where action is `present` or `release`. Present names an exact live window.
 Release names the remembered token, or empty when only shell teardown remains.
 CompleteControl(generation, request_id, error) acknowledges dispatch using the
 existing normalized error set. Unknown/completed/obsolete requests are Conflict.
+A failed dispatched Present keeps its tentative exact scope for one bounded internal
+Release, because compositor flags may have changed before the error. An adapter
+with no stored presentation treats that cleanup as a no-op; successful cleanup
+clears remembrance. Failed Release does not start an automatic retry loop. Provider
+and session loss wake the media lane after invalidation.
 Commands expire after five seconds and are never redelivered. The total queue
 limit is 1024 and shares per-provider operation admission limits. Client admission reserves one slot for owner/session-loss teardown. Polling does not
 replace the existing inventory heartbeat. Old adapters without this optional

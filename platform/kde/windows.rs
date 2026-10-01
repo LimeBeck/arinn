@@ -383,6 +383,8 @@ impl Windows {
         {
             let _ = p.reply.send(Err(ErrorCode::Unavailable));
         }
+        drop(s);
+        self.media_changed.notify_waiters();
     }
     pub async fn page(
         &self,
@@ -1098,6 +1100,8 @@ impl Windows {
             let capacity = 1024 - s.queued.len() - usize::from(s.pending.is_some());
             s.media.teardown(capacity);
         }
+        drop(s);
+        self.media_changed.notify_waiters();
     }
     pub async fn media_window(
         &self,
@@ -1389,9 +1393,17 @@ impl MediaBridge {
             }
             Ok(())
         } else {
+            if p.command.action == "present" {
+                // Dispatch may have partially changed compositor state. Keep
+                // the exact tentative scope until its cleanup is acknowledged.
+                let capacity = 1024 - s.queued.len() - usize::from(s.pending.is_some());
+                s.media.teardown(capacity);
+            }
             Err(media_error(error))
         };
         let _ = p.command.reply.send(result);
+        drop(s);
+        self.0.media_changed.notify_waiters();
         Ok(())
     }
 }

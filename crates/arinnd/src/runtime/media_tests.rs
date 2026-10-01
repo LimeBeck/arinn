@@ -659,7 +659,8 @@ async fn managed_playback_routes_only_complete_exact_inventory_and_tears_down_af
         .build()
         .await
         .unwrap();
-    let g = bridge.connect(&Uuid::new_v4().to_string()).await.unwrap();
+    let instance = Uuid::new_v4().to_string();
+    let g = bridge.connect(&instance).await.unwrap();
     bridge.begin_inventory(&g, 1, 2).await.unwrap();
     bridge
         .put_window(&g, 1, 0, "video", "", "screen", 6)
@@ -953,5 +954,68 @@ async fn managed_playback_routes_only_complete_exact_inventory_and_tears_down_af
     assert!(media.complete_control(&g, &command[0], "").await.is_err());
     let cleanup = media.next_control(&g).await.unwrap();
     assert_eq!(&cleanup[1..], &["release", ""]);
+    media.complete_control(&g, &cleanup[0], "").await.unwrap();
+    bridge.begin_inventory(&g, 6, 1).await.unwrap();
+    bridge
+        .put_window(&g, 6, 0, "final-video", "", "screen", 6)
+        .await
+        .unwrap();
+    bridge.commit_inventory(&g, 6).await.unwrap();
+    media.report(&g, 6, "final-video", LAUNCH).await.unwrap();
+    // A failed dispatch may have partially applied flags. Clean exactly that
+    // scope once, then leave subsequent explicit Release as a no-op.
+    let show = api
+        .present(&f.generation, "s1", &Uuid::new_v4().to_string())
+        .await
+        .unwrap();
+    let command = media.next_control(&g).await.unwrap();
+    media
+        .complete_control(&g, &command[0], "Unavailable")
+        .await
+        .unwrap();
+    assert_eq!(f.wait(show).await.unwrap_err(), "Unavailable");
+    let cleanup = media.next_control(&g).await.unwrap();
+    assert_eq!(&cleanup[1..], &["release", "final-video"]);
+    media.complete_control(&g, &cleanup[0], "").await.unwrap();
+    let hide = api
+        .release(&f.generation, "s1", &Uuid::new_v4().to_string())
+        .await
+        .unwrap();
+    f.wait(hide).await.unwrap();
+    assert!(media.next_control(&g).await.unwrap().is_empty());
+    assert_eq!(bridge.connect(&instance).await.unwrap(), g);
+    // Provider loss must wake the independently held media poll immediately.
+    let mut invalidations = api.receive_changed().await.unwrap();
+    let show = api
+        .present(&f.generation, "s1", &Uuid::new_v4().to_string())
+        .await
+        .unwrap();
+    let command = media.next_control(&g).await.unwrap();
+    media.complete_control(&g, &command[0], "").await.unwrap();
+    f.wait(show).await.unwrap();
+    // Drain earlier invalidations before observing only provider loss.
+    while tokio::time::timeout(Duration::from_millis(20), invalidations.next())
+        .await
+        .is_ok()
+    {}
+    let mut poll = Box::pin(media.next_control(&g));
+    assert!(
+        tokio::time::timeout(Duration::from_millis(50), &mut poll)
+            .await
+            .is_err()
+    );
+    f.core
+        .windows
+        .disconnect(f.provider.as_ref().unwrap().unique_name().unwrap().as_str())
+        .await;
+    let cleanup = tokio::time::timeout(Duration::from_millis(500), poll)
+        .await
+        .expect("provider loss wakes media poll")
+        .unwrap();
+    assert_eq!(&cleanup[1..], &["release", "final-video"]);
+    tokio::time::timeout(Duration::from_millis(500), invalidations.next())
+        .await
+        .expect("provider loss invalidates MediaWindow subscribers")
+        .expect("signal stream remains live");
     media.complete_control(&g, &cleanup[0], "").await.unwrap();
 }

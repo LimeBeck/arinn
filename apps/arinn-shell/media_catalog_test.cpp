@@ -1208,6 +1208,43 @@ private slots:
     QTRY_VERIFY(!catalog.inputLayerActive());
     QCOMPARE(daemon.commands.size(), 0);
   }
+  void pendingFocusLossDoesNotRestoreHomeOnLateFailure() {
+    MediaDaemon daemon;
+    daemon.features = {QStringLiteral("MediaWindow1")};
+    daemon.holdOperation = true;
+    daemon.page1 = {session(QStringLiteral("live"), QStringLiteral("Piece"), QStringLiteral("paused"), 0, monotonicUs(), 9000000, {QStringLiteral("stop")})};
+    auto bus = QDBusConnection::sessionBus();
+    QVERIFY(bus.registerService(QStringLiteral("org.arinn.Daemon1")));
+    QVERIFY(bus.registerVirtualObject(QStringLiteral("/org/arinn"), &daemon, QDBusConnection::SubPath));
+    ShellStandIn backend;
+    SessionGuardStandIn guard;
+    QQmlApplicationEngine engine;
+    installAssetImageProvider(&engine);
+    engine.rootContext()->setContextProperty(QStringLiteral("backend"), &backend);
+    engine.rootContext()->setContextProperty(QStringLiteral("sessionGuard"), &guard);
+    engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
+    auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().value(0));
+    QVERIFY(window);
+    window->show(); window->requestActivate();
+    QTRY_VERIFY(window->isActive());
+    auto catalog = window->findChild<MediaCatalog *>(QStringLiteral("mediaCatalog"));
+    QVERIFY(catalog);
+    QTRY_VERIFY(catalog->windowAvailable());
+    const auto entryId = catalog->continueEntries().at(0).toMap().value(QStringLiteral("id")).toString();
+    QVERIFY(QMetaObject::invokeMethod(window, "openSession", Q_ARG(QVariant, entryId), Q_ARG(QVariant, false)));
+    QTRY_COMPARE(daemon.windowCommands, QStringList({QStringLiteral("Present")}));
+    QCOMPARE(catalog->presentationState(), QStringLiteral("pending"));
+    QQuickWindow other;
+    other.show(); other.requestActivate();
+    QTRY_VERIFY(other.isActive());
+    QTRY_VERIFY(!window->isActive());
+    daemon.rejectOperationRead = true;
+    QTRY_COMPARE(catalog->presentationState(), QStringLiteral("Unavailable"));
+    QTRY_COMPARE(daemon.windowCommands, QStringList({QStringLiteral("Present"), QStringLiteral("Release")}));
+    QCOMPARE(daemon.homeCommands, 0);
+    QVERIFY(daemon.commands.isEmpty());
+    QVERIFY(other.isActive());
+  }
   void failedPresentationOperationReleasesItsOriginalScope_data() {
     QTest::addColumn<bool>("readFailure");
     QTest::newRow("unobservable-operation") << true;

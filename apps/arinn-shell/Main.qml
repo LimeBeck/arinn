@@ -334,8 +334,10 @@ Window {
                 if (mediaCatalog.presentationState !== "" && mediaCatalog.presentationState !== "pending" && mediaCatalog.presentationState !== "active") {
                     root.playerOpen = false;
                     root.presentationAtHome = false;
-                    home.showHome();
-                    mediaCatalog.requestHome();
+                    if (root.active) {
+                        home.showHome();
+                        mediaCatalog.requestHome();
+                    }
                     feedback.text = qsTr("Playback controls are unavailable.");
                     feedbackTimer.restart();
                 }

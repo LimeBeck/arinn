@@ -384,19 +384,39 @@ private slots:
       QVERIFY(!backend.shortcutError().contains("payload"));
       backend.closeShortcutEditor();
       backend.editShortcut("one");
-      daemon.mutationError.clear();
+      // Remove must use the editor's captured revision even after a newer
+      // complete snapshot is published. Observe its data, not a fixed delay.
+      daemon.shortcutRevision = 3;
+      daemon.shortcuts[0].title = "Changed elsewhere";
+      auto changed = QDBusMessage::createSignal(
+          "/org/arinn/Daemon1", "org.arinn.WebShortcuts1", "Changed");
+      changed << qulonglong(3);
+      QVERIFY(bus.send(changed));
+      QTRY_COMPARE(backend.webShortcuts().at(0).toMap().value("title").toString(),
+                   QString("Changed elsewhere"));
       backend.removeShortcut();
       QTRY_COMPARE(daemon.mutations, 2);
-      QTRY_VERIFY(backend.shortcutEditor().isEmpty());
+      QTRY_VERIFY(!backend.shortcutSaving());
+      QCOMPARE(daemon.mutationMethod, QString("Remove"));
       QCOMPARE(daemon.mutationArgs.at(1).toULongLong(), qulonglong(2));
+      QCOMPARE(backend.shortcutEditor().value("title").toString(), QString("Original"));
+      QVERIFY(backend.shortcutError().contains("changed"));
+      QVERIFY(!backend.shortcutError().contains("payload"));
+      backend.closeShortcutEditor();
+      backend.editShortcut("one");
+      daemon.mutationError.clear();
+      backend.removeShortcut();
+      QTRY_COMPARE(daemon.mutations, 3);
+      QTRY_VERIFY(backend.shortcutEditor().isEmpty());
+      QCOMPARE(daemon.mutationArgs.at(1).toULongLong(), qulonglong(3));
       backend.editShortcut();
       backend.saveShortcut("New", "https://example.test/new");
-      QTRY_COMPARE(daemon.mutations, 3);
+      QTRY_COMPARE(daemon.mutations, 4);
       QTRY_VERIFY(backend.shortcutEditor().isEmpty());
       QCOMPARE(daemon.mutationMethod, QString("Add"));
       QVERIFY(!QUuid(daemon.mutationArgs.at(3).toString()).isNull());
       // A duplicate or regressing snapshot cannot publish a partial list.
-      daemon.shortcutRevision = 3;
+      daemon.shortcutRevision = 4;
       daemon.shortcuts.append(daemon.shortcuts.first());
       QMetaObject::invokeMethod(&backend, "reloadShortcuts");
       QTRY_VERIFY(backend.webShortcuts().isEmpty());
@@ -407,7 +427,7 @@ private slots:
       QMetaObject::invokeMethod(&backend, "reloadShortcuts");
       QTest::qWait(100);
       QVERIFY(backend.webShortcuts().isEmpty());
-      daemon.shortcutRevision = 4;
+      daemon.shortcutRevision = 5;
       QMetaObject::invokeMethod(&backend, "reloadShortcuts");
       QTRY_COMPARE(backend.webShortcuts().size(), 1);
       backend.editShortcut("one");

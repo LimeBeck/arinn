@@ -5,10 +5,10 @@
 add_subdirectory("${PROJECT_SOURCE_DIR}/platform/session"
     "${CMAKE_CURRENT_BINARY_DIR}/platform-session")
 
-qt_add_executable(arinn-shell main.cpp backend.cpp backend.h browser_catalog.cpp browser_catalog.h media_catalog.cpp media_catalog.h library_catalog.cpp library_catalog.h settings_catalog.cpp settings_catalog.h asset_images.cpp asset_images.h)
+qt_add_executable(arinn-shell main.cpp backend.cpp backend.h browser_catalog.cpp browser_catalog.h return_association.cpp return_association.h media_catalog.cpp media_catalog.h library_catalog.cpp library_catalog.h settings_catalog.cpp settings_catalog.h asset_images.cpp asset_images.h)
 qt_add_resources(arinn-shell ui PREFIX "/" FILES Main.qml)
 target_link_libraries(arinn-shell PRIVATE arinn-session-lifecycle Qt6::Quick Qt6::Qml Qt6::DBus)
-qt_add_executable(arinn-shell-test backend_test.cpp backend.cpp backend.h browser_catalog.cpp browser_catalog.h media_catalog.cpp media_catalog.h library_catalog.cpp library_catalog.h settings_catalog.cpp settings_catalog.h asset_images.cpp asset_images.h)
+qt_add_executable(arinn-shell-test backend_test.cpp backend.cpp backend.h browser_catalog.cpp browser_catalog.h return_association.cpp return_association.h media_catalog.cpp media_catalog.h library_catalog.cpp library_catalog.h settings_catalog.cpp settings_catalog.h asset_images.cpp asset_images.h)
 qt_add_resources(arinn-shell-test test_ui PREFIX "/" FILES Main.qml)
 target_link_libraries(arinn-shell-test PRIVATE arinn-session-lifecycle Qt6::Quick Qt6::Qml Qt6::DBus Qt6::Test)
 
@@ -43,7 +43,7 @@ set_tests_properties(ui-components PROPERTIES ENVIRONMENT
     "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software")
 
 # Exercise the production window binding against isolated lifecycle/daemon doubles.
-target_sources(arinn-session-lifecycle-test PRIVATE backend.cpp backend.h browser_catalog.cpp browser_catalog.h media_catalog.cpp media_catalog.h library_catalog.cpp library_catalog.h settings_catalog.cpp settings_catalog.h asset_images.cpp asset_images.h)
+target_sources(arinn-session-lifecycle-test PRIVATE backend.cpp backend.h browser_catalog.cpp browser_catalog.h return_association.cpp return_association.h media_catalog.cpp media_catalog.h library_catalog.cpp library_catalog.h settings_catalog.cpp settings_catalog.h asset_images.cpp asset_images.h)
 target_include_directories(arinn-session-lifecycle-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 qt_add_resources(arinn-session-lifecycle-test lifecycle_test_ui PREFIX "/" FILES Main.qml)
 target_link_libraries(arinn-session-lifecycle-test PRIVATE Qt6::Quick Qt6::Qml)
@@ -54,7 +54,7 @@ qt_add_executable(arinn-catalog-test catalog_test.cpp backend.cpp backend.h)
 target_link_libraries(arinn-catalog-test PRIVATE Qt6::DBus Qt6::Test)
 add_test(NAME application-catalog COMMAND dbus-run-session -- $<TARGET_FILE:arinn-catalog-test>)
 
-qt_add_executable(arinn-browser-catalog-test browser_catalog_test.cpp browser_catalog.cpp browser_catalog.h media_catalog.cpp media_catalog.h library_catalog.cpp library_catalog.h settings_catalog.cpp settings_catalog.h asset_images.cpp asset_images.h)
+qt_add_executable(arinn-browser-catalog-test browser_catalog_test.cpp browser_catalog.cpp browser_catalog.h return_association.cpp return_association.h media_catalog.cpp media_catalog.h library_catalog.cpp library_catalog.h settings_catalog.cpp settings_catalog.h asset_images.cpp asset_images.h)
 target_link_libraries(arinn-browser-catalog-test PRIVATE Qt6::DBus Qt6::Qml Qt6::Quick Qt6::Test)
 target_compile_definitions(arinn-browser-catalog-test PRIVATE
     ARINN_MAIN_QML="${CMAKE_CURRENT_SOURCE_DIR}/Main.qml")
@@ -88,7 +88,7 @@ foreach(target arinn-shell arinn-shell-test arinn-session-lifecycle-test)
 endforeach()
 
 qt_add_executable(arinn-media-catalog-test media_catalog_test.cpp media_catalog.cpp media_catalog.h
-    browser_catalog.cpp browser_catalog.h library_catalog.cpp library_catalog.h settings_catalog.cpp settings_catalog.h asset_images.cpp asset_images.h)
+    browser_catalog.cpp browser_catalog.h return_association.cpp return_association.h library_catalog.cpp library_catalog.h settings_catalog.cpp settings_catalog.h asset_images.cpp asset_images.h)
 target_link_libraries(arinn-media-catalog-test PRIVATE Qt6::DBus Qt6::Qml Qt6::Quick Qt6::Test)
 target_compile_definitions(arinn-media-catalog-test PRIVATE
     ARINN_MAIN_QML="${CMAKE_CURRENT_SOURCE_DIR}/Main.qml")
@@ -97,7 +97,7 @@ set_tests_properties(media-catalog PROPERTIES ENVIRONMENT
     "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software")
 
 qt_add_executable(arinn-library-catalog-test library_catalog_test.cpp library_catalog.cpp library_catalog.h
-    media_catalog.cpp media_catalog.h browser_catalog.cpp browser_catalog.h settings_catalog.cpp settings_catalog.h asset_images.cpp asset_images.h)
+    media_catalog.cpp media_catalog.h browser_catalog.cpp browser_catalog.h return_association.cpp return_association.h settings_catalog.cpp settings_catalog.h asset_images.cpp asset_images.h)
 target_link_libraries(arinn-library-catalog-test PRIVATE Qt6::DBus Qt6::Qml Qt6::Quick Qt6::Test)
 target_compile_definitions(arinn-library-catalog-test PRIVATE
     ARINN_MAIN_QML="${CMAKE_CURRENT_SOURCE_DIR}/Main.qml")

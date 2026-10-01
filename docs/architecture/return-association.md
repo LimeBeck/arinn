@@ -6,9 +6,12 @@
 
 **Status:** production daemon/KDE producer implemented in
 [#217](https://github.com/LimeBeck/arinn/issues/217), following contract #212.
-Both optional interfaces are exported at the daemon root. The shell consumer
-remains separate: this does not enable #207 deduplication or close an acceptance
-criterion/gate. Private-bus and mocked adapter tests are not real KDE qualification.
+Both optional interfaces are exported at the daemon root. The asynchronous shell
+consumer is implemented in [#219](https://github.com/LimeBeck/arinn/issues/219):
+see [Home activity identity](ui-web-shortcuts.md#home-activity-identity-and-visual-treatment).
+This enables browser-only deduplication when all identity evidence agrees; it
+does not close an acceptance criterion/gate. Private-bus, offscreen and mocked
+adapter tests are not real KDE qualification.
 
 ## Identity and ownership
 
@@ -229,7 +232,7 @@ previous links must still agree with the current registered browser snapshot.
 The daemon does not rewrite immutable pages or invent provider revisions.
 Unlinked snapshots, including normal empty offline browser snapshots, remain
 readable without platform evidence.
-A failed read keeps Return in the future consumer, and may temporarily make the
+A failed read keeps Return in the shell consumer, and may temporarily make the
 browser snapshot unavailable until its provider publishes fresh links. Multiple
 valid claims are not resolved by order; the consumer must still require one
 unambiguous candidate across complete current provider snapshots.

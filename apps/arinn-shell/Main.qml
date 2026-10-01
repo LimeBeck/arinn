@@ -80,17 +80,20 @@ Window {
             onSaveShortcutRequested: (title, url) => backend.saveShortcut(title, url)
             onRemoveShortcutRequested: backend.removeShortcut()
             busyEntryIds: backend.busyEntryIds
-            // Return is opaque; cross-source association is deferred to #212.
-            continueEntries: backend.continueEntries.concat(mediaCatalog.continueEntries)
+            // Only explicit current evidence may replace the generic Return tile.
+            returnIsWebService: backend.connected === true && backend.homeVisible && browserCatalog.returnMatched
+                && backend.daemonEpoch === browserCatalog.returnEpoch
+                && backend.returnWindow === browserCatalog.returnTarget
+            continueEntries: (returnIsWebService ? [] : backend.continueEntries).concat(mediaCatalog.continueEntries)
             favoriteEntries: backend.favorites
             applicationEntries: backend.applications
             runningEntries: backend.items
             favoritesTitle: qsTr("Favorites")
             returnActivityId: backend.returnWindow
             openServiceCount: browserCatalog.tabs.length
-            currentServiceId: browserCatalog.currentService.id || ""
-            currentServiceTitle: browserCatalog.currentService.title || ""
-            currentServiceSubtitle: browserCatalog.currentService.subtitle || ""
+            currentServiceId: backend.homeVisible && !returnIsWebService ? "" : (browserCatalog.currentService.id || "")
+            currentServiceTitle: backend.homeVisible && !returnIsWebService ? "" : (browserCatalog.currentService.title || "")
+            currentServiceSubtitle: backend.homeVisible && !returnIsWebService ? "" : (browserCatalog.currentService.subtitle || "")
             browserUnavailable: browserCatalog.browserState === "unavailable"
             openShortcutIds: browserCatalog.openShortcutIds
             homeState: backend.homeState
@@ -107,11 +110,7 @@ Window {
                 root.browserOpen = true;
                 Qt.callLater(() => browserView.forceActiveFocus());
             }
-            onServiceRequested: serviceId => {
-                if (serviceId.length)
-                    browserCatalog.activateTab(serviceId);
-                backend.back();
-            }
+            onServiceRequested: backend.back()
             onSessionRequested: entryId => root.openSession(entryId, false)
             onPowerRequested: { feedback.text = qsTr("Power controls are not available yet."); feedbackTimer.restart(); }
         }

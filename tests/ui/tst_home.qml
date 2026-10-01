@@ -112,6 +112,26 @@ TestCase {
         home.currentServiceTitle = "";
         compare(home.continuePresentation[0].id, returned);
     }
+    function test_verified_service_replaces_return_without_losing_media_or_focus() {
+        home.returnActivityId = "a";
+        home.continueEntries = [{id: "a", title: "Return"}, {id: "media", title: "Page", kind: "media"}];
+        home.showHome(); focused("entry-a");
+        home.currentServiceId = "tab";
+        home.currentServiceTitle = "Page";
+        home.returnIsWebService = true;
+        home.continueEntries = [{id: "media", title: "Page", kind: "media"}];
+        focused("entry-current-service");
+        verify(!home.continuePresentation.some(entry => entry.id === "a"));
+        verify(home.continuePresentation.some(entry => entry.id === "media"));
+        keyClick(Qt.Key_Return); compare(serviceCard.count, 1);
+        keyClick(Qt.Key_Right); focused("entry-media");
+        home.currentServiceTitle = "";
+        home.returnIsWebService = false;
+        home.continueEntries = [{id: "a", title: "Return"}, {id: "media", title: "Page", kind: "media"}];
+        focused("entry-media");
+        keyClick(Qt.Key_Home); focused("entry-a");
+        keyClick(Qt.Key_Backspace); compare(returns.count, 1);
+    }
     function test_home_back_activity() {
         home.returnActivityId = "a";
         keyClick(Qt.Key_Right); focused("entry-b");

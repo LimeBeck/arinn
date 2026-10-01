@@ -94,7 +94,9 @@ QString letterOf(const QString &text) {
 }
 } // namespace
 struct BrowserCatalog::Catalog {
-  quint64 epoch = 0;
+  quint64 epoch = 0, evidenceVersion = 0;
+  QString owner;
+  QSet<QString> seenProviders;
   QString snapshot;
   QVariantList providers;
   QVariantList windows, tabs;
@@ -107,17 +109,19 @@ struct BrowserCatalog::Catalog {
   bool hadError = false, noBrowser = false;
   QStringList failedProviders;
 };
-BrowserCatalog::BrowserCatalog(QObject *parent) : QObject(parent) {
+BrowserCatalog::BrowserCatalog(QObject *parent) : QObject(parent), m_association(this) {
   auto bus = QDBusConnection::sessionBus();
-  bus.connect(service, path, service, "Changed", this, SLOT(refresh()));
-  bus.connect(service, path, service, "ProvidersChanged", this, SLOT(refresh()));
-  bus.connect(service, path, service, "StateChanged", this, SLOT(refresh()));
+  bus.connect(service, path, service, "Changed", this, SLOT(invalidateEvidence()));
+  bus.connect(service, path, service, "ProvidersChanged", this, SLOT(invalidateEvidence()));
+  bus.connect(service, path, service, "StateChanged", this, SLOT(invalidateEvidence()));
   bus.connect(service, path, "org.arinn.WebShortcuts1", "Changed", this,
               SLOT(refresh()));
-  auto watcher = new QDBusServiceWatcher(
-      service, bus, QDBusServiceWatcher::WatchForOwnerChange, this);
-  connect(watcher, &QDBusServiceWatcher::serviceOwnerChanged, this,
-          [this](const QString &, const QString &, const QString &) {
+  connect(&m_association, &ReturnAssociation::changed, this, [this] {
+    presentTabs(m_tabs);
+  });
+  connect(&m_association, &ReturnAssociation::ownerChanged, this, [this] {
+            m_completeEvidence = false;
+            ++m_evidenceVersion;
             ++m_epoch;
             m_pending.clear();
             m_connected = false;
@@ -169,7 +173,14 @@ void BrowserCatalog::setOperation(const QString &state) {
   m_operation = state;
   emit changed();
 }
+void BrowserCatalog::invalidateEvidence() {
+  ++m_evidenceVersion;
+  m_completeEvidence = false;
+  presentTabs(m_tabs);
+  refresh();
+}
 void BrowserCatalog::refresh() {
+  if (m_association.owner().isEmpty()) return;
   if (m_refreshing) {
     m_dirty = true;
     return;
@@ -178,7 +189,7 @@ void BrowserCatalog::refresh() {
   m_dirty = false;
   const auto epoch = m_epoch;
   auto pending = new QDBusPendingCallWatcher(
-      QDBusConnection::sessionBus().asyncCall(daemonCall(service, "Status"),
+      QDBusConnection::sessionBus().asyncCall(QDBusMessage::createMethodCall(m_association.owner(), path, service, "Status"),
                                               3000),
       this);
   connect(pending, &QDBusPendingCallWatcher::finished, this,
@@ -194,6 +205,7 @@ void BrowserCatalog::refresh() {
                 reply.arguments().isEmpty() ||
                 reply.signature() != "(sbstbsssbbss)") {
               m_refreshing = false;
+              m_completeEvidence = false;
               m_connected = false;
               m_loaded = false;
               m_noBrowser = false;
@@ -238,6 +250,8 @@ void BrowserCatalog::refresh() {
               }
             }
             m_generation = generation;
+            m_daemonEpoch = daemonEpoch;
+            m_returnTarget = returnWindow;
             m_home = home;
             m_connected = true;
             presentTabs(m_tabs);
@@ -245,6 +259,8 @@ void BrowserCatalog::refresh() {
             readShortcuts(epoch);
             auto catalog = std::make_shared<Catalog>();
             catalog->epoch = epoch;
+            catalog->owner = m_association.owner();
+            catalog->evidenceVersion = m_evidenceVersion;
             readProviders(catalog);
           },
           Qt::QueuedConnection);
@@ -256,7 +272,7 @@ void BrowserCatalog::readProviders(const std::shared_ptr<Catalog> &catalog,
     return;
   }
   catalog->tokens.insert(token);
-  auto msg = daemonCall(service, "Providers");
+  auto msg = QDBusMessage::createMethodCall(catalog->owner, path, service, "Providers");
   msg << token;
   auto pending = new QDBusPendingCallWatcher(
       QDBusConnection::sessionBus().asyncCall(msg, 3000), this);
@@ -294,6 +310,12 @@ void BrowserCatalog::readProviders(const std::shared_ptr<Catalog> &catalog,
               arg.endStructure();
               if (!capabilities.contains(QLatin1String("browser")))
                 continue;
+              if (id.isEmpty() || QUuid(generation).isNull() || catalog->seenProviders.contains(id)) {
+                finishCatalog(catalog, false); return;
+              }
+              catalog->seenProviders.insert(id);
+              if (runtime != QLatin1String("ready") || backend != QLatin1String("available") ||
+                  (!error.isEmpty() && recovered == 0)) catalog->hadError = true;
               if (runtime == QLatin1String("ready") &&
                   backend != QLatin1String("unavailable"))
                 catalog->providers.append(
@@ -339,7 +361,7 @@ void BrowserCatalog::readTabs(const std::shared_ptr<Catalog> &catalog,
   }
   const auto provider = catalog->providers.at(index).toMap();
   auto msg = QDBusMessage::createMethodCall(
-      service, provider.value("path").toString(), "org.arinn.Browser1",
+      catalog->owner, provider.value("path").toString(), "org.arinn.Browser1",
       "GetTabs");
   msg << token;
   auto pending = new QDBusPendingCallWatcher(
@@ -393,8 +415,10 @@ void BrowserCatalog::readTabs(const std::shared_ptr<Catalog> &catalog,
           arg.beginStructure();
           arg >> id >> windowToken >> focused;
           arg.endStructure();
-          (void)windowToken;
-          pageWindows.append(QVariantMap{{"localId", id}, {"focused", focused}});
+          if (windowToken.contains(QChar(0)) || windowToken.toUtf8().size() > 256) {
+            reject(); return;
+          }
+          pageWindows.append(QVariantMap{{"localId", id}, {"focused", focused}, {"windowToken", windowToken}});
         }
         arg.endArray();
         arg.beginArray();
@@ -452,6 +476,8 @@ void BrowserCatalog::readTabs(const std::shared_ptr<Catalog> &catalog,
               {"id", key},
               {"focused", map.value("focused").toBool()},
               {"provider", providerId},
+              {"generation", generation},
+              {"windowToken", map.value("windowToken")},
               {"localId", map.value("localId").toString()}});
         }
         for (const auto &entry : pageTabs) {
@@ -486,6 +512,9 @@ void BrowserCatalog::finishCatalog(const std::shared_ptr<Catalog> &catalog,
     refresh();
     return;
   }
+  m_completeEvidence = success && !catalog->hadError && catalog->evidenceVersion == m_evidenceVersion
+      && catalog->owner == m_association.owner();
+  m_snapshotOwner = catalog->owner;
   m_loaded = true;
   QVariantList windows, tabs;
   QHash<QString, TabRef> refs;
@@ -515,7 +544,9 @@ void BrowserCatalog::finishCatalog(const std::shared_ptr<Catalog> &catalog,
       const auto mark = map.value("focused").toBool() && !focused;
       if (mark)
         focused = true;
-      windows.append(QVariantMap{{"id", map.value("id")}, {"focused", mark}});
+      auto row = map;
+      row.insert("focused", mark);
+      windows.append(row);
     }
     tabs = catalog->tabs;
     refs = catalog->refs;
@@ -894,13 +925,30 @@ void BrowserCatalog::rememberFocus(const QVariantList &windows) {
 }
 void BrowserCatalog::presentTabs(QVariantList tabs) {
   QString onScreen;
-  for (const auto &entry : m_windows) {
-    const auto map = entry.toMap();
-    // Home's opaque Return target has no defined association with Browser1
-    // platform-window tokens (#212). Do not infer an underlying service.
-    if (!m_home && map.value(QStringLiteral("focused")).toBool()) {
-      onScreen = map.value(QStringLiteral("id")).toString();
-      break;
+  bool matched = false;
+  if (m_home && m_association.valid() && m_completeEvidence &&
+      m_snapshotOwner == m_association.owner() && m_daemonEpoch == m_association.epoch() &&
+      m_returnTarget == m_association.target()) {
+    int matches = 0;
+    for (const auto &entry : m_windows) {
+      const auto map = entry.toMap();
+      if (map.value("windowToken").toString() == m_association.token()) {
+        ++matches;
+        onScreen = map.value("id").toString();
+      }
+    }
+    if (matches != 1) onScreen.clear();
+    int active = 0;
+    for (const auto &entry : tabs) {
+      const auto map = entry.toMap();
+      if (!onScreen.isEmpty() && map.value("windowId").toString() == onScreen && map.value("active").toBool()) ++active;
+    }
+    matched = active == 1;
+    if (!matched) onScreen.clear();
+  } else if (!m_home && m_association.homeKnown() && !m_association.homeVisible()) {
+    for (const auto &entry : m_windows) {
+      const auto map = entry.toMap();
+      if (map.value("focused").toBool()) { onScreen = map.value("id").toString(); break; }
     }
   }
   QStringList openIds;
@@ -975,7 +1023,9 @@ void BrowserCatalog::presentTabs(QVariantList tabs) {
     m_openShortcutIds = openIds;
     emit openShortcutIdsChanged();
   }
-  if (m_currentService != current) {
+  if (current.value("title").toString().isEmpty()) matched = false;
+  if (m_currentService != current || m_returnMatched != matched) {
+    m_returnMatched = matched;
     m_currentService = current;
     emit currentServiceChanged();
   }

@@ -5,6 +5,7 @@
  */
 
 #pragma once
+#include "return_association.h"
 #include <QHash>
 #include <QObject>
 #include <QSet>
@@ -26,6 +27,9 @@ class BrowserCatalog : public QObject {
                  openShortcutIdsChanged)
   Q_PROPERTY(QVariantMap currentService READ currentService NOTIFY
                  currentServiceChanged)
+  Q_PROPERTY(bool returnMatched READ returnMatched NOTIFY currentServiceChanged)
+  Q_PROPERTY(QString returnEpoch READ returnEpoch NOTIFY currentServiceChanged)
+  Q_PROPERTY(QString returnTarget READ returnTarget NOTIFY currentServiceChanged)
   Q_PROPERTY(QString retryAction READ retryAction NOTIFY changed)
   Q_PROPERTY(bool opening READ opening NOTIFY changed)
   Q_PROPERTY(QString openingTitle READ openingTitle NOTIFY changed)
@@ -40,6 +44,9 @@ public:
   QString saveError() const { return m_saveError; }
   QStringList openShortcutIds() const { return m_openShortcutIds; }
   QVariantMap currentService() const { return m_currentService; }
+  bool returnMatched() const { return m_returnMatched; }
+  QString returnEpoch() const { return m_association.epoch(); }
+  QString returnTarget() const { return m_association.target(); }
   QString retryAction() const { return m_retryAction; }
   bool opening() const { return m_opening; }
   QString openingTitle() const { return m_openingTitle; }
@@ -55,6 +62,7 @@ public:
   Q_INVOKABLE void dismissSaveError();
 public slots:
   void refresh();
+  void invalidateEvidence();
 signals:
   void changed();
   void tabsChanged();
@@ -116,6 +124,10 @@ private:
   quint64 m_epoch = 0;
   QString m_generation;
   bool m_home = false;
+  ReturnAssociation m_association;
+  bool m_completeEvidence = false, m_returnMatched = false;
+  quint64 m_evidenceVersion = 0;
+  QString m_returnTarget, m_daemonEpoch, m_snapshotOwner;
   QTimer m_timer;
   QTimer m_saveErrorTimer;
 };

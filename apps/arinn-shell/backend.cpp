@@ -241,6 +241,7 @@ void Backend::reloadCatalog() {
                 m_home >> m_return >> active >> klass >> full >> platform >>
                 homeOutput >> activeOutput;
             arg.endStructure();
+            m_daemonEpoch = daemonEpoch;
             if (previousGeneration != m_generation) {
               m_items.clear();
               m_applications.clear();

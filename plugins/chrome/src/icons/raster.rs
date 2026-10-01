@@ -73,7 +73,7 @@ pub(super) fn normalize(bytes: &[u8]) -> Result<Asset, E> {
             if count == 0 || count > 32 || 6 + count * 16 > bytes.len() {
                 return Err(E::NotFound);
             }
-            for frame in bytes[6..6 + count * 16].chunks_exact(16) {
+            for frame in bytes[6..6 + count * 16].as_chunks::<16>().0 {
                 let len = u32::from_le_bytes(frame[8..12].try_into().unwrap()) as usize;
                 let start = u32::from_le_bytes(frame[12..16].try_into().unwrap()) as usize;
                 if start < 6 + count * 16 || start.checked_add(len).is_none_or(|n| n > bytes.len())

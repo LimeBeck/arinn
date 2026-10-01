@@ -1,1 +1,2 @@
-- Show bounded local application icons with colored monogram fallbacks, restore light focus plates and soft focus glow/shadows, render loaded icons across their rounded chip with a neutral backing, and omit a redundant Home Return card using the verified browser window even after Home removes browser focus.
+- Show bounded local application icons with colored monogram fallbacks, full-chip icons on neutral backing, and light focus plates with soft glow/shadows. Keep fallbacks until Canvas pixels are ready and release previous icon sources.
+- Preserve the opaque Return card: cross-source deduplication remains deferred to the explicit Return/platform-window association in [#212](https://github.com/LimeBeck/arinn/issues/212).

@@ -240,7 +240,11 @@ local pixmaps. SVG external references, embedded images, CSS and DTDs are reject
 Unreadable, unsupported or missing icons retain a monogram on a deterministic
 muted color chip. Loaded icons occupy the full chip bounds with preserved aspect
 ratio and a rounded software-compatible mask; transparent marks reveal a neutral
-white-10% backing, never the fallback identity color. Application color identity
+white-10% backing, never the fallback identity color. The circular rounded-rect
+clip matches the chip geometry. The fallback remains until the Canvas request
+has decoded pixels for the current source (the separate Image metadata request
+is insufficient); load failures retain it. Source changes unload the old Canvas
+image and reject obsolete readiness. Application color identity
 excludes the provider generation.
 No logos are bundled and no icon request goes to a provider or network.
 

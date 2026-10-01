@@ -117,7 +117,8 @@ public:
     QDBusArgument a;
     if (m.member() == "Status") {
       a.beginStructure();
-      a << QString("epoch") << true << QString("generation") << qulonglong(1)
+      const QString epoch = "77777777-7777-4777-8777-777777777777";
+      a << epoch << true << epoch << qulonglong(1)
         << true << returnedWindow << QString() << QString() << false << platform
         << QString() << QString();
       a.endStructure();
@@ -298,13 +299,13 @@ private slots:
         QCOMPARE(daemon.launches, 1);
         QCOMPARE(daemon.opens, 0);
         QTRY_COMPARE(backend.message(), QString("fixture operation failure"));
-        daemon.returnedWindow = "opaque-window";
+        // Return is a KWin internalId UUID, not an inventory generation:counter.
+        daemon.returnedWindow = "{aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa}";
         backend.refresh();
         QTRY_COMPARE(backend.continueEntries().size(), 1);
-        QVERIFY(backend.continueWithoutWindow({{"platformGeneration", "generation"}, {"windowToken", "opaque-window"}}).isEmpty());
-        QCOMPARE(backend.continueWithoutWindow({{"platformGeneration", "old"}, {"windowToken", "opaque-window"}}).size(), 1);
-        QCOMPARE(backend.continueWithoutWindow({{"platformGeneration", "generation"}, {"windowToken", "different"}}).size(), 1);
-        QCOMPARE(backend.continueWithoutWindow({}).size(), 1);
+        QCOMPARE(backend.continueEntries().first().toMap().value("id").toString(),
+                 daemon.returnedWindow);
+        QVERIFY(!backend.continueEntries().first().toMap().contains("platformGeneration"));
         daemon.returnedWindow.clear();
         backend.refresh();
         QTRY_VERIFY(backend.continueEntries().isEmpty());

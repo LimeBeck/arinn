@@ -5,8 +5,8 @@ import QtTest
 import "../../../apps/arinn-shell/ui" as Ui
 import CaptureRequest 1.0 as CaptureRequest
 
-// Optional focused evidence capture; the catalog tests verify composition by
-// window identity. These two same-title sessions must remain separate visually.
+// Optional focused evidence capture. Return stays opaque pending #212;
+// these two same-title sessions must remain separate visually.
 TestCase {
     id: suite
     name: "HomeIconCapture"
@@ -20,11 +20,9 @@ TestCase {
             id: home
             homeState: "ready"
             clockText: "20:42"
-            currentServiceId: "browser-tab"
-            currentServiceTitle: "Example service"
-            currentServiceSubtitle: "example.test · Return"
             openServiceCount: 2
             continueEntries: [
+                {id: "{aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa}", title: "Return", subtitle: "Previous activity"},
                 {id: "session-a", title: "Same title", subtitle: "Independent session A"},
                 {id: "session-b", title: "Same title", subtitle: "Independent session B"}
             ]
@@ -40,7 +38,7 @@ TestCase {
     }
     function test_capture() {
         mouseMove(suite, 5, 5);
-        const current = findChild(home, "entry-current-service");
+        const current = findChild(home, "entry-{aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa}");
         verify(current);
         current.forceActiveFocus();
         tryCompare(current, "activeFocus", true);

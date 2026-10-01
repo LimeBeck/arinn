@@ -125,9 +125,7 @@ BrowserCatalog::BrowserCatalog(QObject *parent) : QObject(parent) {
             m_noBrowser = false;
             m_snapshotError = false;
             m_generation.clear();
-            m_returnWindow.clear();
             m_home = false;
-            m_activityAvailable = false;
             m_tabs.clear();
             m_windows.clear();
             m_refs.clear();
@@ -200,9 +198,6 @@ void BrowserCatalog::refresh() {
               m_loaded = false;
               m_noBrowser = false;
               m_snapshotError = false;
-              m_returnWindow.clear();
-              m_home = false;
-              m_activityAvailable = false;
               if (!m_tabs.isEmpty() || !m_windows.isEmpty()) {
                 m_tabs.clear();
                 m_windows.clear();
@@ -244,8 +239,6 @@ void BrowserCatalog::refresh() {
             }
             m_generation = generation;
             m_home = home;
-            m_activityAvailable = available && platform && !generation.isEmpty();
-            m_returnWindow = m_activityAvailable ? returnWindow : QString();
             m_connected = true;
             presentTabs(m_tabs);
             publish();
@@ -400,7 +393,8 @@ void BrowserCatalog::readTabs(const std::shared_ptr<Catalog> &catalog,
           arg.beginStructure();
           arg >> id >> windowToken >> focused;
           arg.endStructure();
-          pageWindows.append(QVariantMap{{"localId", id}, {"focused", focused}, {"windowToken", windowToken}});
+          (void)windowToken;
+          pageWindows.append(QVariantMap{{"localId", id}, {"focused", focused}});
         }
         arg.endArray();
         arg.beginArray();
@@ -457,7 +451,6 @@ void BrowserCatalog::readTabs(const std::shared_ptr<Catalog> &catalog,
           catalog->windows.append(QVariantMap{
               {"id", key},
               {"focused", map.value("focused").toBool()},
-              {"windowToken", map.value("windowToken")},
               {"provider", providerId},
               {"localId", map.value("localId").toString()}});
         }
@@ -522,9 +515,7 @@ void BrowserCatalog::finishCatalog(const std::shared_ptr<Catalog> &catalog,
       const auto mark = map.value("focused").toBool() && !focused;
       if (mark)
         focused = true;
-      windows.append(QVariantMap{{"id", map.value("id")},
-                                 {"focused", mark},
-                                 {"windowToken", map.value("windowToken")}});
+      windows.append(QVariantMap{{"id", map.value("id")}, {"focused", mark}});
     }
     tabs = catalog->tabs;
     refs = catalog->refs;
@@ -902,25 +893,14 @@ void BrowserCatalog::rememberFocus(const QVariantList &windows) {
   }
 }
 void BrowserCatalog::presentTabs(QVariantList tabs) {
-  QString onScreen, platformWindow;
+  QString onScreen;
   for (const auto &entry : m_windows) {
-    if (!m_activityAvailable)
-      break;
     const auto map = entry.toMap();
-    const auto token = map.value(QStringLiteral("windowToken")).toString();
-    // Showing Home removes browser focus. Its verified Return target, not a
-    // remembered title/origin/focus flag, identifies the underlying activity.
-    const bool selected = m_home
-        ? !m_returnWindow.isEmpty() && token == m_returnWindow
-        : map.value(QStringLiteral("focused")).toBool();
-    if (selected) {
-      if (!onScreen.isEmpty()) {
-        onScreen.clear();
-        platformWindow.clear();
-        break; // Ambiguous association: do not guess which service to show.
-      }
+    // Home's opaque Return target has no defined association with Browser1
+    // platform-window tokens (#212). Do not infer an underlying service.
+    if (!m_home && map.value(QStringLiteral("focused")).toBool()) {
       onScreen = map.value(QStringLiteral("id")).toString();
-      platformWindow = token;
+      break;
     }
   }
   QStringList openIds;
@@ -959,8 +939,6 @@ void BrowserCatalog::presentTabs(QVariantList tabs) {
       const auto domain = map.value(QStringLiteral("domain")).toString();
       const auto title = map.value(QStringLiteral("title")).toString();
       current = QVariantMap{
-          {QStringLiteral("platformGeneration"), m_generation},
-          {QStringLiteral("windowToken"), platformWindow},
           {QStringLiteral("id"), map.value(QStringLiteral("id"))},
           {QStringLiteral("title"), title.isEmpty() ? domain : title},
           {QStringLiteral("subtitle"),

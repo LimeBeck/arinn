@@ -1,0 +1,1 @@
+- Retain Home's opaque Return activity without comparing unrelated window-token namespaces, and keep application-icon fallbacks visible until current Canvas pixels load; match rounded chip corners and release replaced image sources.

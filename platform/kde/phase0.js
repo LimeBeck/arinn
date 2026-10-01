@@ -19,6 +19,7 @@ let homeVisible = false;
 let homeOutput = "";
 let daemonOwner = "";
 let mediaSupported = false;
+let playbackGuardAt = 0, playbackGuardSerial = 0;
 let mediaSerial = 0;
 let mediaControllingAt = 0;
 let mediaReportingAt = 0;
@@ -417,7 +418,13 @@ function inventoryTick() {
 // Optional managed playback lane (ADR-0074). Identities are exact native
 // Wayland app IDs. No product, title, executable or focus-based association.
 function launchId(w) {
-    if (!w || w.waylandClient !== true) return "";
+    // Ordinary scripts expose Window, not EffectWindow.waylandClient.
+    // Qt's QObject wrapper exposes the compositor's actual meta-object type.
+    // Fail closed for X11, unknown classes and future incompatible wrappers.
+    if (!w) return "";
+    try {
+        if (!/^KWin::XdgToplevelWindow\(0x[0-9a-f]*[1-9a-f][0-9a-f]*(?:, "[\s\S]*")?\)$/.test(String(w))) return "";
+    } catch (_) { return ""; }
     const value = String(w.resourceClass || "");
     const prefix = "org.arinn.Playback.";
     if (!value.startsWith(prefix)) return "";
@@ -471,6 +478,7 @@ function releasePlayback(show) {
     const saved = playback;
     ++mediaSerial;
     playback = null;
+    playbackGuardAt = 0; ++playbackGuardSerial;
     if (!saved) return;
     const windows = workspace.windowList();
     if (windows.includes(saved.window)) restoreFlags(saved.window, saved.windowFlags);
@@ -481,10 +489,18 @@ function releasePlayback(show) {
 }
 function checkPlaybackLock() {
     if (!playback) return;
-    const saved = playback, owner = daemonOwner, serial = mediaSerial;
+    const now = Date.now();
+    if (playbackGuardAt) {
+        if (now - playbackGuardAt >= 1000) releasePlayback(false);
+        return;
+    }
+    const saved = playback, owner = daemonOwner, serial = ++playbackGuardSerial;
+    playbackGuardAt = now;
     callDBus("org.freedesktop.ScreenSaver", "/ScreenSaver", "org.freedesktop.ScreenSaver", "GetActive", locked => {
-        if (saved !== playback || owner !== daemonOwner || serial !== mediaSerial) return;
-        if (locked !== false) releasePlayback(false);
+        if (saved !== playback || owner !== daemonOwner || serial !== playbackGuardSerial) return;
+        const timely = Date.now() - playbackGuardAt < 1000;
+        playbackGuardAt = 0;
+        if (!timely || locked !== false) releasePlayback(false);
     });
 }
 function pollMediaControl() {

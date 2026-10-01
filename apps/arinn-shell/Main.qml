@@ -24,6 +24,7 @@ Window {
     property bool playerOpen: false
     property bool sessionFromLibrary: false
     property bool presentationAtHome: false
+    property bool presentationRequested: false
     function showPlaybackHome() {
         if (!mediaCatalog.inputLayerActive)
             return;
@@ -40,6 +41,7 @@ Window {
     }
     function openSession(entryId, fromLibrary) {
         presentationAtHome = false;
+        presentationRequested = false;
         sessionFromLibrary = fromLibrary;
         mediaCatalog.select(entryId);
         applyMediaSurface();
@@ -52,8 +54,10 @@ Window {
         if (sessionFromLibrary && mediaCatalog.sessionState !== "ready")
             player = true;
         playerOpen = player;
-        if (player && mediaCatalog.windowAvailable)
+        if (player && mediaCatalog.windowAvailable && !presentationRequested) {
+            presentationRequested = true;
             mediaCatalog.present();
+        }
         sessionOpen = !player;
         Qt.callLater(() => {
             if (player)
@@ -322,9 +326,17 @@ Window {
         Connections {
             target: mediaCatalog
             function onPresentationHomeRequested() { root.showPlaybackHome(); }
+            function onPresentationChanged() {
+                if (mediaCatalog.presentationState === "active" && !root.active && !backend.homeVisible && !root.presentationAtHome)
+                    mediaCatalog.abandonPresentation();
+                if (mediaCatalog.presentationState === "" && !backend.homeVisible && !root.presentationAtHome)
+                    root.playerOpen = false;
+            }
             function onSessionChanged() {
-                if (root.playerOpen && mediaCatalog.windowAvailable && !root.presentationAtHome)
+                if (root.playerOpen && mediaCatalog.windowAvailable && !root.presentationAtHome && !root.presentationRequested) {
+                    root.presentationRequested = true;
                     mediaCatalog.present();
+                }
                 if (!root.sessionFromLibrary || (!root.playerOpen && !root.sessionOpen))
                     return;
                 const player = mediaCatalog.playerSession;

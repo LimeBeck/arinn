@@ -4,6 +4,10 @@
 
 #include "asset_images.h"
 #include "media_catalog.h"
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QJSEngine>
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
@@ -13,6 +17,18 @@
 #include <QTest>
 #include <QtDBus>
 #include <time.h>
+// QObject wrappers exercise the actual Qt engine's native type observation.
+// The compositor classes have these Q_OBJECT names; no invented property.
+namespace KWin {
+class TestWindow : public QObject {
+  Q_OBJECT
+  Q_PROPERTY(QString resourceClass MEMBER appId)
+public:
+  QString appId = QStringLiteral("org.arinn.Playback.aaaaaaaa-0000-4000-8000-000000000001");
+};
+class XdgToplevelWindow final : public TestWindow { Q_OBJECT };
+class X11Window : public TestWindow { Q_OBJECT };
+}
 namespace {
 quint64 monotonicUs() {
   timespec ts{};
@@ -455,6 +471,33 @@ private slots:
     bus.unregisterObject(QStringLiteral("/org/arinn"),
                          QDBusConnection::UnregisterTree);
     bus.unregisterService(QStringLiteral("org.arinn.Daemon1"));
+  }
+  void nativeIdentityUsesRealQtQObjectTypeObservation() {
+    QFile adapter(QDir(QFileInfo(QStringLiteral(ARINN_MAIN_QML)).absolutePath()).filePath(QStringLiteral("../../platform/kde/phase0.js")));
+    QVERIFY(adapter.open(QIODevice::ReadOnly));
+    const auto source = QString::fromUtf8(adapter.readAll());
+    const auto start = source.indexOf(QStringLiteral("function launchId(w)"));
+    const auto end = source.indexOf(QStringLiteral("function mediaRows()"), start);
+    QVERIFY(start >= 0 && end > start);
+    QJSEngine engine;
+    QVERIFY(!engine.evaluate(source.mid(start, end - start)).isError());
+    KWin::XdgToplevelWindow native;
+    KWin::X11Window x11;
+    const auto wrapped = engine.newQObject(&native);
+    QVERIFY(wrapped.property(QStringLiteral("waylandClient")).isUndefined());
+    const auto launch = engine.globalObject().property(QStringLiteral("launchId"));
+    QCOMPARE(launch.call({wrapped}).toString(), QStringLiteral("aaaaaaaa-0000-4000-8000-000000000001"));
+    QCOMPARE(launch.call({engine.newQObject(&x11)}).toString(), QString());
+    KWin::TestWindow base;
+    QCOMPARE(launch.call({engine.newQObject(&base)}).toString(), QString());
+    native.setObjectName(QStringLiteral("named native fixture"));
+    QCOMPARE(launch.call({wrapped}).toString(), QStringLiteral("aaaaaaaa-0000-4000-8000-000000000001"));
+    auto deleted = new KWin::XdgToplevelWindow;
+    const auto deletedWrapper = engine.newQObject(deleted);
+    delete deleted;
+    QCOMPARE(launch.call({deletedWrapper}).toString(), QString());
+    native.appId = QStringLiteral("org.arinn.Playback.00000000-0000-0000-0000-000000000000");
+    QCOMPARE(launch.call({wrapped}).toString(), QString());
   }
   void pagingAnchorAndActions() {
     MediaDaemon daemon;
@@ -1085,6 +1128,17 @@ private slots:
     QCOMPARE(daemon.lastTrackKind, QStringLiteral("audio"));
     QCOMPARE(daemon.lastTrackId, QStringLiteral("a2"));
     const auto stops = daemon.commands;
+    // Losing guarded input is not an automatic retry intent.
+    guard.m_blocked = true; emit guard.changed();
+    QTRY_VERIFY(!catalog->inputLayerActive());
+    catalog->refresh(); QTest::qWait(300);
+    QCOMPARE(daemon.windowCommands.count(QStringLiteral("Present")), 1);
+    QCOMPARE(daemon.commands, stops);
+    guard.m_blocked = false; emit guard.changed();
+    QVERIFY(QMetaObject::invokeMethod(window, "openSession", Q_ARG(QVariant, entryId), Q_ARG(QVariant, false)));
+    window->requestActivate();
+    QTRY_COMPARE(catalog->presentationState(), QStringLiteral("active"));
+    QCOMPARE(daemon.windowCommands.count(QStringLiteral("Present")), 2);
     QTest::keyClick(window, Qt::Key_Home);
     QTRY_COMPARE(daemon.homeCommands, 1);
     QTRY_COMPARE(player->property("visible").toBool(), false);
@@ -1096,7 +1150,7 @@ private slots:
     emit backend.changed();
     QTRY_COMPARE(player->property("visible").toBool(), true);
     QTRY_COMPARE(player->property("activeFocus").toBool(), true);
-    QCOMPARE(daemon.windowCommands, QStringList({QStringLiteral("Present")}));
+    QCOMPARE(daemon.windowCommands.count(QStringLiteral("Present")), 2);
     // Restore visible OSD to verify the two Back stages after Return.
     player->setProperty("osdVisible", true);
     QTest::keyClick(window, Qt::Key_Escape);
@@ -1106,9 +1160,8 @@ private slots:
     QTRY_COMPARE(player->property("visible").toBool(), false);
     QCOMPARE(daemon.commands,
              QStringList({QStringLiteral("Seek"), QStringLiteral("Stop")}));
-    QTRY_COMPARE(
-        daemon.windowCommands,
-        QStringList({QStringLiteral("Present"), QStringLiteral("Release")}));
+    QTRY_COMPARE(daemon.windowCommands.last(), QStringLiteral("Release"));
+    QCOMPARE(daemon.windowCommands.count(QStringLiteral("Present")), 2);
   }
   void managedWindowResolutionCanBeCancelledWithoutStartingPresentation() {
     MediaDaemon daemon;
@@ -1139,8 +1192,15 @@ private slots:
     QCOMPARE(home.count(), 0);
     catalog.homeRequested(QStringLiteral("epoch"), {}, {});
     QCOMPARE(home.count(), 1);
-    daemon.page1.clear();
-    catalog.refresh();
+    daemon.windowReady = false;
+    auto changed = QDBusMessage::createSignal(daemon.providers.first().path.path(), QStringLiteral("org.arinn.MediaWindow1"), QStringLiteral("Changed"));
+    changed << daemon.pageGeneration;
+    QVERIFY(bus.send(changed));
+    QTRY_VERIFY(!catalog.inputLayerActive());
+    QCOMPARE(catalog.sessionState(), QStringLiteral("ready"));
+    daemon.windowReady = true;
+    catalog.present(); QTRY_COMPARE(catalog.presentationState(), QStringLiteral("active"));
+    daemon.page1.clear(); catalog.refresh();
     QTRY_VERIFY(!catalog.inputLayerActive());
     QCOMPARE(daemon.commands.size(), 0);
   }

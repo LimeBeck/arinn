@@ -23,7 +23,8 @@ function fixture(options = {}) {
         const w = { internalId: uuid, resourceClass: klass, normalWindow: true,
             output, fullScreen: true, desktopFileName: klass === 'org.arinn.Shell' ? klass : 'org.test',
             wantsInput: true, closeable: true, closed: 0, closeWindow() { this.closed++; },
-            waylandClient: true, onAllDesktops: false, windowClassChanged: signal(),
+            nativeType: "KWin::X11Window", toString() { return this.nativeType + "(0x1)"; },
+            onAllDesktops: false, windowClassChanged: signal(),
             outputChanged: signal(), fullScreenChanged: signal() };
         for (const name of ['keepAbove', 'minimized']) {
             Object.defineProperty(w, name, {
@@ -483,6 +484,7 @@ test('ADR-0073: unacknowledged reports recover at a bounded rate using fresh evi
 function managedFixture() {
     const f = fixture({ managed: true });
     const launch = randomUUID();
+    f.activity.nativeType = 'KWin::XdgToplevelWindow';
     f.activity.resourceClass = 'org.arinn.Playback.' + launch;
     f.activity.fullScreen = false;
     f.activity.windowClassChanged.emit();
@@ -492,7 +494,7 @@ function managedFixture() {
 test('managed media reports exact native identity and empty identities for ordinary windows', () => {
     const {f, launch, token} = managedFixture();
     assert.ok(f.mediaReports.some(row => row[2] === token && row[3] === launch));
-    f.activity.waylandClient = false;
+    f.activity.nativeType = 'KWin::X11Window';
     f.activity.windowClassChanged.emit();
     f.refresh();
     assert.equal(f.mediaReports.at(-1)[3], '');
@@ -544,4 +546,15 @@ test('window disappearance and daemon replacement restore managed flags', () => 
     const next = managedFixture(); next.f.media('present', next.token); next.f.reconnect(':1.99');
     assert.equal(next.f.home.keepAbove, false);
     assert.equal(next.f.activity.fullScreen, false);
+});
+
+test('missing lock callback tears down managed flags after the bounded unknown-state interval', () => {
+    const {f, token} = managedFixture();
+    f.media('present', token); f.deferLock(); f.refresh();
+    assert.equal(f.home.keepAbove, true);
+    f.mediaIdle(); f.advance(1001); f.refresh();
+    assert.equal(f.home.keepAbove, false);
+    assert.equal(f.activity.fullScreen, false);
+    f.lockReplies.at(-1)(false);
+    assert.equal(f.home.keepAbove, false, 'late guard cannot revive the layer');
 });

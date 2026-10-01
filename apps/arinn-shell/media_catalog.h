@@ -89,6 +89,7 @@ public:
   Q_INVOKABLE void selectSubtitle(const QString &trackId);
 public slots:
   void refresh();
+  void windowChanged(const QString &generation);
   void homeRequested(const QString &epoch, const QString &target, const QString &output);
 signals:
   void presentationChanged();
@@ -145,6 +146,7 @@ private:
   void finishCatalog(const std::shared_ptr<Catalog> &catalog, bool success);
   void publish();
   void setPresentation(const QString &state);
+  void checkPresentedWindow(quint64 ticket, quint64 epoch, quint64 deadline);
   void resolveWindow(SessionRow row, quint64 ticket, quint64 epoch, quint64 deadline);
   void windowCommand(const SessionRow &row, bool presenting, quint64 ticket, quint64 epoch);
   void watchWindowOperation(const QString &objectPath, bool presenting, quint64 ticket, quint64 epoch, quint64 deadline);
@@ -177,6 +179,8 @@ private:
   QString m_presentation;
   QString m_daemonEpoch;
   QString m_daemonOwner;
+  QString m_windowGeneration, m_windowToken;
+  bool m_windowCheckInFlight = false;
   SessionRow m_presentRow;
   quint64 m_presentationTicket = 0;
   bool m_connected = false, m_loaded = false, m_snapshotError = false,

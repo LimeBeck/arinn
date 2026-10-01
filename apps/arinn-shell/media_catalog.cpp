@@ -122,6 +122,8 @@ struct MediaCatalog::Catalog {
 
 MediaCatalog::MediaCatalog(QObject *parent) : QObject(parent) {
   auto bus = QDBusConnection::sessionBus();
+  bus.connect(service, QString(), "org.arinn.MediaWindow1", "Changed", this,
+              SLOT(windowChanged(QString)));
   bus.connect(service, path, service, "HomeRequested", this,
               SLOT(homeRequested(QString, QString, QString)));
   bus.connect(service, path, service, "Changed", this, SLOT(refresh()));
@@ -1339,6 +1341,7 @@ void MediaCatalog::abandonPresentation() {
   const auto row = m_presentRow;
   const auto ticket = ++m_presentationTicket;
   m_presentRow = {};
+  m_windowCheckInFlight = false;
   setPresentation({});
   if (m_connected && !row.path.isEmpty())
     windowCommand(row, false, ticket, m_epoch);
@@ -1363,6 +1366,7 @@ void MediaCatalog::present() {
       m_presentRow.generation == row->generation)
     return;
   m_presentRow = *row;
+  m_windowCheckInFlight = false;
   const auto ticket = ++m_presentationTicket;
   setPresentation(QStringLiteral("pending"));
   resolveWindow(*row, ticket, m_epoch, monotonicUs() + 5000000);
@@ -1382,6 +1386,10 @@ void MediaCatalog::resolveWindow(SessionRow row, quint64 ticket, quint64 epoch,
             call->deleteLater();
             if (ticket != m_presentationTicket || epoch != m_epoch)
               return;
+            if (monotonicUs() >= deadline) {
+              setPresentation(QStringLiteral("Timeout"));
+              return;
+            }
             bool found = false;
             if (reply.type() != QDBusMessage::ErrorMessage &&
                 reply.signature() == "a(ss)" && !reply.arguments().isEmpty()) {
@@ -1394,6 +1402,7 @@ void MediaCatalog::resolveWindow(SessionRow row, quint64 ticket, quint64 epoch,
                 arg >> generation >> token;
                 arg.endStructure();
                 found = !generation.isEmpty() && !token.isEmpty();
+                if (found) { m_windowGeneration = generation; m_windowToken = token; }
               }
               arg.endArray();
             }
@@ -1415,6 +1424,7 @@ void MediaCatalog::release() {
   const auto ticket = ++m_presentationTicket;
   setPresentation({});
   m_presentRow = {};
+  m_windowCheckInFlight = false;
   if (!row.path.isEmpty())
     windowCommand(row, false, ticket, m_epoch);
 }
@@ -1474,6 +1484,11 @@ void MediaCatalog::watchWindowOperation(const QString &objectPath,
             call->deleteLater();
             if (ticket != m_presentationTicket || epoch != m_epoch)
               return;
+            if (monotonicUs() >= deadline) {
+              if (presenting)
+                setPresentation(QStringLiteral("Timeout"));
+              return;
+            }
             if (reply.type() == QDBusMessage::ErrorMessage ||
                 reply.signature() != "(ssbtta(sss)b)" ||
                 reply.arguments().isEmpty()) {
@@ -1506,10 +1521,76 @@ void MediaCatalog::watchWindowOperation(const QString &objectPath,
                     watchWindowOperation(objectPath, presenting, ticket, epoch,
                                          deadline);
                   });
-            } else if (presenting)
+            } else if (presenting) {
               setPresentation(state == QLatin1String("succeeded")
                                   ? QStringLiteral("active")
                               : error.isEmpty() ? state
                                                 : error);
+              if (m_presentation == QLatin1String("active"))
+                checkPresentedWindow(ticket, epoch, monotonicUs() + 1000000);
+            }
+          });
+}
+
+void MediaCatalog::windowChanged(const QString &generation) {
+  if (m_presentation == QLatin1String("active") &&
+      generation == m_presentRow.generation)
+    checkPresentedWindow(m_presentationTicket, m_epoch,
+                         monotonicUs() + 1000000);
+}
+void MediaCatalog::checkPresentedWindow(quint64 ticket, quint64 epoch,
+                                        quint64 deadline) {
+  if (ticket != m_presentationTicket || epoch != m_epoch ||
+      m_presentation != QLatin1String("active"))
+    return;
+  if (m_windowCheckInFlight)
+    return;
+  m_windowCheckInFlight = true;
+  const auto row = m_presentRow;
+  auto msg = QDBusMessage::createMethodCall(
+      m_daemonOwner, row.path, "org.arinn.MediaWindow1", "GetWindow");
+  msg << row.generation << row.localId;
+  auto pending = new QDBusPendingCallWatcher(
+      QDBusConnection::sessionBus().asyncCall(msg, 1000), this);
+  connect(pending, &QDBusPendingCallWatcher::finished, this,
+          [this, ticket, epoch, deadline](auto *call) {
+            const auto reply = call->reply();
+            call->deleteLater();
+            if (ticket != m_presentationTicket || epoch != m_epoch ||
+                m_presentation != QLatin1String("active"))
+              return;
+            m_windowCheckInFlight = false;
+            if (reply.type() == QDBusMessage::ErrorMessage) {
+              // A field-only inventory commit briefly closes the report
+              // barrier.
+              if (monotonicUs() < deadline &&
+                  errorCode(reply) == QLatin1String("Unavailable")) {
+                QTimer::singleShot(100, this, [this, ticket, epoch, deadline] {
+                  checkPresentedWindow(ticket, epoch, deadline);
+                });
+                return;
+              }
+              abandonPresentation();
+              return;
+            }
+            if (reply.signature() != "a(ss)" || reply.arguments().isEmpty()) {
+              abandonPresentation();
+              return;
+            }
+            const auto arg =
+                qvariant_cast<QDBusArgument>(reply.arguments().first());
+            arg.beginArray();
+            bool matches = false;
+            if (!arg.atEnd()) {
+              QString generation, token;
+              arg.beginStructure();
+              arg >> generation >> token;
+              arg.endStructure();
+              matches =
+                  generation == m_windowGeneration && token == m_windowToken;
+            }
+            arg.endArray();
+            if (!matches)
+              abandonPresentation();
           });
 }

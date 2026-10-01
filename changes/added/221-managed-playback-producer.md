@@ -1,0 +1,1 @@
+- Add managed player launch identity, daemon media-window association and acknowledged KWin presentation routing (AC-16, G-4.1, ADR-0074).

@@ -55,6 +55,7 @@ impl FakeMedia {
         // An unknown flag is ignored by the daemon.
         vec![
             FEATURE_TRACKS.into(),
+            arinn_protocol::media_window::FEATURE.into(),
             arinn_protocol::assets::FEATURE_ASSETS.into(),
             "FutureFlag9".into(),
         ]
@@ -219,6 +220,12 @@ impl Fixture {
             .at(production::PROVIDER_PATH, FakeAssets)
             .await
             .unwrap();
+        provider
+            .object_server()
+            .at(production::PROVIDER_PATH, FakeWindow)
+            .await
+            .unwrap();
+        core.export_platform().await.unwrap();
         let path: OwnedObjectPath = "/org/arinn/Daemon1/providers/p_media".try_into().unwrap();
         server
             .object_server()
@@ -236,6 +243,17 @@ impl Fixture {
             .at(
                 path.clone(),
                 MediaEndpoint {
+                    core: core.clone(),
+                    id: "mpv".into(),
+                },
+            )
+            .await
+            .unwrap();
+        server
+            .object_server()
+            .at(
+                path.clone(),
+                MediaWindowEndpoint {
                     core: core.clone(),
                     id: "mpv".into(),
                 },
@@ -360,7 +378,11 @@ async fn sessions_are_served_and_commands_reach_the_provider() {
     assert_eq!(page.generation, f.generation);
     assert_eq!(
         api.features().await.unwrap(),
-        vec![FEATURE_TRACKS, arinn_protocol::assets::FEATURE_ASSETS]
+        vec![
+            FEATURE_TRACKS,
+            arinn_protocol::media_window::FEATURE,
+            arinn_protocol::assets::FEATURE_ASSETS
+        ]
     );
     let (one,) = api.get_session(&f.generation, "s1").await.unwrap();
     assert_eq!(one.actions, ["play", "pause", "seek"]);
@@ -598,4 +620,131 @@ async fn removing_a_provider_path_removes_every_daemon_interface() {
         }
         Err(other) => panic!("{other:?}"),
     }
+}
+
+struct FakeWindow;
+const LAUNCH: &str = "aaaaaaaa-0000-4000-8000-000000000001";
+#[zbus::interface(name = "org.arinn.MediaWindowProvider1")]
+impl FakeWindow {
+    fn get_launch_id(&self, _generation: &str, _id: &str) -> String {
+        LAUNCH.into()
+    }
+}
+#[tokio::test]
+async fn managed_playback_routes_only_complete_exact_inventory_and_tears_down_after_stop() {
+    use arinn_protocol::{
+        kwin::KWinBridgeProxy,
+        media_window::{KWinMediaProxy, MediaWindowProxy},
+    };
+    let f = Fixture::new().await;
+    f.client.request_name("org.kde.KWin").await.unwrap();
+    let bridge = KWinBridgeProxy::new(&f.client).await.unwrap();
+    let media = KWinMediaProxy::new(&f.client).await.unwrap();
+    let api = MediaWindowProxy::builder(&f.client)
+        .path(f.path.clone())
+        .unwrap()
+        .build()
+        .await
+        .unwrap();
+    let g = bridge.connect(&Uuid::new_v4().to_string()).await.unwrap();
+    bridge.begin_inventory(&g, 1, 2).await.unwrap();
+    bridge
+        .put_window(&g, 1, 0, "video", "", "screen", 6)
+        .await
+        .unwrap();
+    bridge
+        .put_window(&g, 1, 1, "other", "", "screen", 4)
+        .await
+        .unwrap();
+    bridge.commit_inventory(&g, 1).await.unwrap();
+    media.report(&g, 1, "video", LAUNCH).await.unwrap();
+    assert!(
+        api.get_window(&f.generation, "s1")
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    media.report(&g, 1, "other", LAUNCH).await.unwrap();
+    assert!(
+        api.get_window(&f.generation, "s1")
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    media.report(&g, 1, "other", "").await.unwrap();
+    let refs = api.get_window(&f.generation, "s1").await.unwrap();
+    assert_eq!(refs[0].token, "video");
+    assert_eq!(refs[0].generation, g);
+    assert!(api.get_window(&f.generation, "missing").await.is_err());
+    assert!(
+        api.present(&f.generation, "s1", &Uuid::new_v4().to_string())
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("Unsupported")
+    );
+    assert!(media.next_control(&g).await.unwrap().is_empty());
+    let request = Uuid::new_v4().to_string();
+    let op = api.present(&f.generation, "s1", &request).await.unwrap();
+    assert_eq!(
+        api.present(&f.generation, "s1", &request).await.unwrap(),
+        op
+    );
+    let command = media.next_control(&g).await.unwrap();
+    assert_eq!(&command[1..], &["present", "video"]);
+    // Present itself changes fullscreen/focus inventory. The same identity
+    // must remain acknowledged rather than invalidating its own operation.
+    bridge.begin_inventory(&g, 2, 2).await.unwrap();
+    bridge
+        .put_window(&g, 2, 0, "video", "", "screen", 7)
+        .await
+        .unwrap();
+    bridge
+        .put_window(&g, 2, 1, "other", "", "screen", 4)
+        .await
+        .unwrap();
+    bridge.commit_inventory(&g, 2).await.unwrap();
+    media.report(&g, 2, "video", LAUNCH).await.unwrap();
+    media.report(&g, 2, "other", "").await.unwrap();
+    media.complete_control(&g, &command[0], "").await.unwrap();
+    f.wait(op).await.unwrap();
+    // Stop is independent of presentation; a cleared launch still releases
+    // the remembered scope. Do not request the provider identity on teardown.
+    f.core
+        .state
+        .lock()
+        .await
+        .providers
+        .get_mut("mpv")
+        .unwrap()
+        .sessions[0]
+        .state = "stopped".into();
+    let release = api
+        .release(&f.generation, "s1", &Uuid::new_v4().to_string())
+        .await
+        .unwrap();
+    let command = media.next_control(&g).await.unwrap();
+    assert_eq!(&command[1..], &["release", "video"]);
+    media.complete_control(&g, &command[0], "").await.unwrap();
+    f.wait(release).await.unwrap();
+    let release = api
+        .release(&f.generation, "s1", &Uuid::new_v4().to_string())
+        .await
+        .unwrap();
+    f.wait(release).await.unwrap();
+    assert!(media.next_control(&g).await.unwrap().is_empty());
+    assert!(media.report(&g, 1, "video", LAUNCH).await.is_err());
+    assert!(media.report(&g, 2, "missing", LAUNCH).await.is_err());
+    // A connection that is not the current KWin owner cannot forge reports.
+    let stranger = KWinMediaProxy::new(f.provider.as_ref().unwrap())
+        .await
+        .unwrap();
+    assert!(
+        stranger
+            .report(&g, 2, "video", LAUNCH)
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("PermissionDenied")
+    );
 }

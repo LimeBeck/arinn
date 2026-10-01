@@ -164,6 +164,9 @@ impl Core {
             .remove::<download_routing::DownloadsEndpoint, _>(path.clone())
             .await;
         let _ = server
+            .remove::<media_routing::MediaWindowEndpoint, _>(path.clone())
+            .await;
+        let _ = server
             .remove::<media_routing::MediaEndpoint, _>(path.clone())
             .await;
         let _ = server
@@ -175,6 +178,14 @@ impl Core {
     }
     pub async fn export_platform(&self) -> Result<(), ErrorCode> {
         self.windows.start(&self.connection).await?;
+        self.connection
+            .object_server()
+            .at(
+                production::PATH,
+                crate::windows::MediaBridge(self.windows.clone()),
+            )
+            .await
+            .map_err(|_| ErrorCode::Internal)?;
         self.connection
             .object_server()
             .at(
@@ -417,6 +428,16 @@ impl Core {
                     )
                     .await
             } else if new.capability() == "media" {
+                server
+                    .at(
+                        new.info.path.clone(),
+                        media_routing::MediaWindowEndpoint {
+                            core: self.clone(),
+                            id: id.clone(),
+                        },
+                    )
+                    .await
+                    .map_err(|_| ErrorCode::Internal)?;
                 server
                     .at(
                         new.info.path.clone(),

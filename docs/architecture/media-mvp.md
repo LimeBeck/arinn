@@ -38,7 +38,7 @@ Codecs, hardware decoding, HDR and passthrough are not guaranteed by documentati
 
 ## mpv
 
-`arinn-plugin-mpv` is the `media` provider for one Arinn-owned player (AC-16, [ADR-0057](../adr/0057-mpv-ipc-and-process-scope.md)). `Features` lists `MediaOpen1`, `MediaTracks1` and `MediaTimeline1`. mpv is an optional install. When `/usr/bin/mpv` is missing, the backend is `unavailable` and `Open` returns `Unavailable`.
+`arinn-plugin-mpv` is the `media` provider for one Arinn-owned player (AC-16, [ADR-0057](../adr/0057-mpv-ipc-and-process-scope.md)). `Features` lists `MediaOpen1`, `MediaTracks1`, `MediaTimeline1` and `MediaWindow1`. mpv is an optional install. When `/usr/bin/mpv` is missing, the backend is `unavailable` and `Open` returns `Unavailable`.
 
 The player is the transient user unit `app-arinn-mpv.service` in `app.slice`, without `AddRef`, so it is not in the plugin cgroup and a provider crash does not stop it. An active unit is left running. The socket is `$XDG_RUNTIME_DIR/arinn/mpv/ipc` in a `0700` directory. `/tmp` is refused. Reconnecting observes mpv and does not send `loadfile` again, and it does not signal any other mpv.
 
@@ -83,3 +83,5 @@ Session fields come from `org.mpris.MediaPlayer2.Player`:
 A command whose token is absent from `actions` returns `Unsupported` and does not call the player. A failed player call returns `Unavailable`, not success.
 
 `anchor_us` is `CLOCK_MONOTONIC` in microseconds. A new anchor is published on the first sample, on a playback-state change, on a seek (including a position jump while playing), and at most once per second while the state is `playing`. While that interval is open, the published position stays at the last anchor so the shell can interpolate.
+
+Managed window identity and acknowledged presentation routing follow [ADR-0074](../adr/0074-managed-playback-window.md) and the [managed playback contract](managed-playback.md). The producer recovers the exact Wayland application ID through its private player IPC on reconnection. Unmanaged players retain ordinary media controls but expose no managed window.

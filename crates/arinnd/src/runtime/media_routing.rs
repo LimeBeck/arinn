@@ -15,6 +15,7 @@ use arinn_protocol::media::{
 /// Feature flags the daemon knows; others are ignored.
 const KNOWN_FEATURES: &[&str] = &[
     FEATURE_OPEN,
+    arinn_protocol::media_window::FEATURE,
     FEATURE_TRACKS,
     FEATURE_TIMELINE,
     arinn_protocol::assets::FEATURE_ASSETS,
@@ -200,6 +201,11 @@ impl Core {
                         Daemon::state_changed(&emitter, &id, "media", &generation, revision).await;
                 }
                 self.changed().await;
+            }
+            if let Some(p) = self.state.lock().await.providers.get(&id)
+                && let Ok(emitter) = SignalEmitter::new(&self.connection, p.info.path.clone())
+            {
+                let _ = MediaWindowEndpoint::changed(&emitter, &generation).await;
             }
             // Library-linked sessions report progress on every import and
             // tick (ADR-0061).
@@ -637,3 +643,236 @@ impl MediaEndpoint {
 #[cfg(test)]
 #[path = "media_tests.rs"]
 pub(super) mod tests;
+
+pub(super) struct MediaWindowEndpoint {
+    pub(super) core: Core,
+    pub(super) id: String,
+}
+impl Core {
+    async fn playback_window(
+        &self,
+        id: &str,
+        generation: &str,
+        session: &str,
+    ) -> Result<
+        (
+            String,
+            String,
+            Vec<arinn_protocol::return_association::WindowRef>,
+        ),
+        ErrorCode,
+    > {
+        use arinn_protocol::media_window::{self, MediaWindowProviderProxy};
+        media_window::validate_session(generation, session)?;
+        let owner = self
+            .media_target(id, generation, session, media_window::FEATURE)
+            .await?;
+        let platform = self.windows.current_generation().await;
+        let proxy = MediaWindowProviderProxy::builder(&self.connection)
+            .destination(owner.as_str())
+            .map_err(|_| ErrorCode::Internal)?
+            .build()
+            .await
+            .map_err(|_| ErrorCode::Unavailable)?;
+        let launch = proxy
+            .get_launch_id(generation, session)
+            .await
+            .map_err(normalize_error)?;
+        media_window::validate_launch(&launch)?;
+        let windows = self.windows.media_window(&self.connection, &launch).await?;
+        if self
+            .media_target(id, generation, session, media_window::FEATURE)
+            .await?
+            != owner
+            || self.windows.current_generation().await != platform
+        {
+            return Err(ErrorCode::Conflict);
+        }
+        Ok((owner, launch, windows))
+    }
+    async fn playback_command(
+        &self,
+        id: &str,
+        generation: &str,
+        session: &str,
+        request_id: &str,
+        caller: &str,
+        present: bool,
+    ) -> Result<OwnedObjectPath, ErrorCode> {
+        use arinn_protocol::media_window;
+        media_window::validate_session(generation, session)?;
+        let fingerprint =
+            serde_json::to_string(&("media-window", id, generation, session, present))
+                .map_err(|_| ErrorCode::Internal)?;
+        if let Some(path) = self
+            .operations
+            .existing(caller, request_id, &fingerprint)
+            .await?
+        {
+            return Ok(path);
+        }
+        let owner = self
+            .media_target(id, generation, session, media_window::FEATURE)
+            .await?;
+        self.windows.media_supported(&self.connection).await?;
+        let (launch, window) = if present {
+            {
+                let state = self.state.lock().await;
+                let p = state.providers.get(id).ok_or(ErrorCode::NotFound)?;
+                let s = p
+                    .sessions
+                    .iter()
+                    .find(|s| s.id == session)
+                    .ok_or(ErrorCode::NotFound)?;
+                if !["playing", "paused", "ended"].contains(&s.state.as_str()) {
+                    return Err(ErrorCode::Unsupported);
+                }
+            }
+            let (resolved_owner, launch, windows) = tokio::time::timeout(
+                Duration::from_secs(3),
+                self.playback_window(id, generation, session),
+            )
+            .await
+            .map_err(|_| ErrorCode::Timeout)??;
+            if resolved_owner != owner {
+                return Err(ErrorCode::Conflict);
+            }
+            (
+                launch,
+                Some(windows.into_iter().next().ok_or(ErrorCode::NotFound)?),
+            )
+        } else {
+            (String::new(), None)
+        };
+        let state = self.state.lock().await;
+        let p = state.providers.get(id).ok_or(ErrorCode::NotFound)?;
+        if p.owner != owner || p.info.generation != generation {
+            return Err(ErrorCode::Conflict);
+        }
+        let entry = p
+            .sessions
+            .iter()
+            .find(|s| s.id == session)
+            .ok_or(ErrorCode::NotFound)?;
+        if present && !["playing", "paused", "ended"].contains(&entry.state.as_str()) {
+            return Err(ErrorCode::Unsupported);
+        }
+        let (path, op, fresh) = self
+            .operations
+            .admit(&self.connection, caller, request_id, &fingerprint, id)
+            .await?;
+        if !fresh {
+            return Ok(path);
+        }
+        let scope = crate::windows::Scope {
+            provider: id.into(),
+            owner: owner.clone(),
+            registration: generation.into(),
+        };
+        let queued = self
+            .windows
+            .enqueue_media(
+                &self.connection,
+                scope,
+                session,
+                &launch,
+                window.as_ref(),
+                present,
+            )
+            .await;
+        drop(state);
+        let core = self.clone();
+        let (id, generation, session, path_copy) = (
+            id.to_owned(),
+            generation.to_owned(),
+            session.to_owned(),
+            path.clone(),
+        );
+        tokio::spawn(async move {
+            {
+                let mut value = op.value.lock().await;
+                if value.state != "queued" {
+                    return;
+                }
+                value.state = "running".into();
+                value.started_at = now();
+            }
+            let result = match queued {
+                Ok(Some(receive)) => tokio::time::timeout(Duration::from_secs(5), receive)
+                    .await
+                    .map_err(|_| ErrorCode::Timeout)
+                    .and_then(|r| r.map_err(|_| ErrorCode::Unavailable))
+                    .and_then(|r| r),
+                Ok(None) => Ok(()),
+                Err(error) => Err(error),
+            };
+            let state = core.state.lock().await;
+            let valid = state.providers.get(&id).is_some_and(|p| {
+                p.owner == owner
+                    && p.info.generation == generation
+                    && p.sessions.iter().any(|s| s.id == session)
+            });
+            drop(state);
+            let result = if valid {
+                result
+            } else {
+                Err(ErrorCode::Unavailable)
+            };
+            op.finish(
+                &core.connection,
+                &path_copy,
+                result.map(|_| {
+                    vec![EntityRef {
+                        provider_id: id,
+                        capability: "media".into(),
+                        local_id: session,
+                    }]
+                }),
+            )
+            .await;
+        });
+        Ok(path)
+    }
+}
+#[zbus::interface(name = "org.arinn.MediaWindow1")]
+impl MediaWindowEndpoint {
+    async fn get_window(
+        &self,
+        generation: &str,
+        id: &str,
+    ) -> production::Result<Vec<arinn_protocol::return_association::WindowRef>> {
+        Ok(tokio::time::timeout(
+            Duration::from_secs(3),
+            self.core.playback_window(&self.id, generation, id),
+        )
+        .await
+        .map_err(|_| ErrorCode::Timeout)??
+        .2)
+    }
+    async fn present(
+        &self,
+        generation: &str,
+        id: &str,
+        request_id: &str,
+        #[zbus(header)] h: Header<'_>,
+    ) -> production::Result<OwnedObjectPath> {
+        Ok(self
+            .core
+            .playback_command(&self.id, generation, id, request_id, &sender(&h)?, true)
+            .await?)
+    }
+    async fn release(
+        &self,
+        generation: &str,
+        id: &str,
+        request_id: &str,
+        #[zbus(header)] h: Header<'_>,
+    ) -> production::Result<OwnedObjectPath> {
+        Ok(self
+            .core
+            .playback_command(&self.id, generation, id, request_id, &sender(&h)?, false)
+            .await?)
+    }
+    #[zbus(signal)]
+    async fn changed(emitter: &SignalEmitter<'_>, generation: &str) -> zbus::Result<()>;
+}

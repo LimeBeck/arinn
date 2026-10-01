@@ -441,6 +441,15 @@ async fn open_reports_anchors_tracks_chapters_and_hides_paths() {
         .iter()
         .find(|session| session.id == id)
         .unwrap();
+    assert_eq!(
+        player.launch_id(id.clone()).await.unwrap(),
+        "",
+        "legacy player cannot assert a managed identity"
+    );
+    assert_eq!(
+        player.launch_id("missing".into()).await,
+        Err(ErrorCode::NotFound)
+    );
     assert_eq!(session.title, "Secret Title");
     assert_eq!(session.state, "playing");
     assert_eq!(session.position_us, 1_000_000);

@@ -100,6 +100,12 @@ impl Manager {
             args.iter()
                 .any(|arg| arg == &format!("--input-ipc-server={}", self.socket))
         );
+        let app = args
+            .iter()
+            .find_map(|arg| arg.strip_prefix("--wayland-app-id=org.arinn.Playback."))
+            .expect("exact native window launch identity");
+        arinn_protocol::media_window::validate_launch(app).unwrap();
+        assert!(!app.is_empty());
         assert!(args.iter().all(|arg| !arg.contains("clip.mkv")));
         assert_eq!(flags, &vec!["no-env-expand".to_string()]);
         self.starts.fetch_add(1, Ordering::SeqCst);

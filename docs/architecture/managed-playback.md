@@ -1,7 +1,7 @@
 # Managed playback window association
 
 [ADR-0074](../adr/0074-managed-playback-window.md) implements existing specification
-§6.4 and ADR-0046. This increment is a contract, not production support.
+§6.4 and ADR-0046. The contract is implemented by the mpv producer and daemon routing; adapter stacking and shell integration are delivered separately in #141.
 
 ## Identity
 
@@ -104,7 +104,7 @@ Late replies never raise a surface after cancellation or lifetime invalidation.
 MediaExtensions.window handler and private-bus contract fixtures. SDK authorization,
 stale registration/session checks and handler-result validation apply to launch
 identity reads; MPRIS/base services export no window extension.
-A separate producer task implements provider/daemon association and routing.
+#221 implements provider/daemon association and routing: mpv launch identity, authoritative complete-inventory matching, authenticated optional KWin control lane, request deduplication and remembered session teardown.
 #141 implements adapter stacking and shell integration after that producer lands.
 Private-bus tests cover authentication, stale revision/generation, wrong session,
 ambiguity, remap, restart and absent-interface compatibility. Actual KDE input,

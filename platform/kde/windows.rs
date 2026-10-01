@@ -3,7 +3,7 @@
 
 //! Authoritative KWin inventory and acknowledged controls. No application discovery.
 use arinn_protocol::{
-    kwin,
+    kwin, media_window,
     platform::{self, Window, WindowPage},
     production,
     return_association::{self, ReturnAssociation, WindowRef},
@@ -66,6 +66,7 @@ struct State {
     home_revision: u64,
     association: ReturnAssociation,
     exhausted: bool,
+    media: MediaState,
 }
 impl Default for State {
     fn default() -> Self {
@@ -92,11 +93,13 @@ impl Default for State {
                 window: Vec::new(),
             },
             exhausted: false,
+            media: MediaState::default(),
         }
     }
 }
 impl State {
     fn reset(&mut self) {
+        self.media.fail_all(ErrorCode::Unavailable);
         for command in self.queued.drain(..).chain(self.pending.take()) {
             let _ = command.reply.send(Err(ErrorCode::Unavailable));
         }
@@ -166,6 +169,7 @@ impl State {
         }
     }
     fn prune(&mut self) {
+        self.media.prune();
         self.leases
             .retain(|_, l| l.created.elapsed() < Duration::from_secs(30));
         if self
@@ -351,6 +355,7 @@ impl Windows {
     }
     pub async fn disconnect(&self, owner: &str) {
         let mut s = self.state.lock().await;
+        s.media.disconnect(owner);
         s.leases.retain(|_, l| l.scope.owner != owner);
         let mut keep = VecDeque::new();
         for p in s.queued.drain(..) {
@@ -443,7 +448,7 @@ impl Windows {
             s.generation(generation)?;
             s.prune();
             check(&s, token, action)?;
-            if s.queued.len() + usize::from(s.pending.is_some()) >= 1024 {
+            if s.queued.len() + usize::from(s.pending.is_some()) + s.media.count() >= 1024 {
                 return Err(ErrorCode::Unavailable);
             }
             s.queued.push_back(Control {
@@ -696,6 +701,7 @@ impl Windows {
             s.publish(target, Vec::new());
         }
         s.retired.extend(removed);
+        s.media.inventory(&windows);
         s.windows = windows;
         s.snapshot = Some(Arc::new(next));
         s.revision = revision;
@@ -893,5 +899,417 @@ mod return_owner_tests {
         assert!(s.association.window.is_empty());
         assert_eq!(s.association.target, good.target);
         assert_eq!(s.association.revision, good.revision + 1);
+    }
+}
+
+// The optional playback lane has independent polling and acknowledgement.
+struct MediaControl {
+    command: Control,
+    session: String,
+    launch: String,
+}
+#[derive(Default)]
+struct MediaState {
+    supported: bool,
+    reports: HashMap<String, String>,
+    queued: VecDeque<MediaControl>,
+    pending: Option<MediaControl>,
+    presentation: Option<(Scope, String, String)>,
+}
+impl MediaState {
+    fn count(&self) -> usize {
+        self.queued.len() + usize::from(self.pending.is_some())
+    }
+    fn fail_all(&mut self, error: ErrorCode) {
+        for p in self.queued.drain(..).chain(self.pending.take()) {
+            let _ = p.command.reply.send(Err(error));
+        }
+        self.presentation = None;
+    }
+    fn prune(&mut self) {
+        if self
+            .pending
+            .as_ref()
+            .is_some_and(|p| p.command.deadline <= Instant::now() || p.command.reply.is_closed())
+        {
+            let p = self.pending.take().unwrap();
+            let _ = p.command.reply.send(Err(ErrorCode::Timeout));
+        }
+        let mut keep = VecDeque::new();
+        for p in self.queued.drain(..) {
+            if p.command.deadline <= Instant::now() || p.command.reply.is_closed() {
+                let _ = p.command.reply.send(Err(ErrorCode::Timeout));
+            } else {
+                keep.push_back(p);
+            }
+        }
+        self.queued = keep;
+    }
+    fn disconnect(&mut self, owner: &str) {
+        let mut keep = VecDeque::new();
+        for p in self.queued.drain(..) {
+            if p.command.scope.owner == owner {
+                let _ = p.command.reply.send(Err(ErrorCode::Unavailable));
+            } else {
+                keep.push_back(p);
+            }
+        }
+        self.queued = keep;
+        if self
+            .pending
+            .as_ref()
+            .is_some_and(|p| p.command.scope.owner == owner)
+        {
+            let p = self.pending.take().unwrap();
+            let _ = p.command.reply.send(Err(ErrorCode::Unavailable));
+        }
+        if let Some((scope, session, token)) = self.presentation.clone()
+            && scope.owner == owner
+        {
+            let (reply, receive) = oneshot::channel();
+            self.queued.push_back(MediaControl {
+                command: Control {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    action: "release".into(),
+                    token,
+                    scope,
+                    deadline: Instant::now() + Duration::from_secs(5),
+                    reply,
+                },
+                session,
+                launch: String::new(),
+            });
+            // Retain the receiver until teardown is acknowledged or expires.
+            tokio::spawn(async move {
+                let _ = tokio::time::timeout(Duration::from_secs(5), receive).await;
+            });
+        }
+    }
+    fn inventory(&mut self, windows: &[Window]) {
+        self.reports.clear();
+        let live: HashSet<_> = windows.iter().map(|w| w.token.as_str()).collect();
+        let mut keep = VecDeque::new();
+        for p in self.queued.drain(..) {
+            if p.command.action == "present" && !live.contains(p.command.token.as_str()) {
+                let _ = p.command.reply.send(Err(ErrorCode::NotFound));
+            } else {
+                keep.push_back(p);
+            }
+        }
+        self.queued = keep;
+        if self.pending.as_ref().is_some_and(|p| {
+            p.command.action == "present" && !live.contains(p.command.token.as_str())
+        }) {
+            let p = self.pending.take().unwrap();
+            let _ = p.command.reply.send(Err(ErrorCode::NotFound));
+        }
+    }
+    fn resolve(&self, windows: &[Window], launch: &str) -> Option<String> {
+        if launch.is_empty() || self.reports.len() != windows.len() {
+            return None;
+        }
+        let mut candidates = self.reports.iter().filter(|(_, id)| id.as_str() == launch);
+        let first = candidates.next()?.0.clone();
+        candidates.next().is_none().then_some(first)
+    }
+}
+impl Windows {
+    pub async fn media_window(
+        &self,
+        c: &Connection,
+        launch: &str,
+    ) -> Result<Vec<WindowRef>, ErrorCode> {
+        media_window::validate_launch(launch)?;
+        let current = owner(c).await?;
+        let s = self.state.lock().await;
+        s.live(&current)?;
+        Ok(s.media
+            .resolve(&s.windows, launch)
+            .map(|token| {
+                vec![WindowRef {
+                    generation: s.generation.clone(),
+                    token,
+                }]
+            })
+            .unwrap_or_default())
+    }
+    pub async fn media_supported(&self, c: &Connection) -> Result<(), ErrorCode> {
+        let current = owner(c).await?;
+        let s = self.state.lock().await;
+        s.live(&current)?;
+        if s.media.supported {
+            Ok(())
+        } else {
+            Err(ErrorCode::Unsupported)
+        }
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub async fn enqueue_media(
+        &self,
+        c: &Connection,
+        scope: Scope,
+        session: &str,
+        launch: &str,
+        window: Option<&WindowRef>,
+        present: bool,
+    ) -> Result<Option<oneshot::Receiver<Result<(), ErrorCode>>>, ErrorCode> {
+        let current = owner(c).await?;
+        let mut s = self.state.lock().await;
+        s.live(&current)?;
+        s.prune();
+        if !s.media.supported {
+            return Err(ErrorCode::Unsupported);
+        }
+        let token = if present {
+            let window = window.ok_or(ErrorCode::NotFound)?;
+            s.generation(&window.generation)?;
+            if s.media.resolve(&s.windows, launch).as_deref() != Some(window.token.as_str()) {
+                return Err(ErrorCode::Conflict);
+            }
+            window.token.clone()
+        } else {
+            let Some((previous, id, token)) = &s.media.presentation else {
+                return Ok(None);
+            };
+            if previous != &scope || id != session {
+                return Ok(None);
+            }
+            if s.windows.iter().any(|w| w.token == *token) {
+                token.clone()
+            } else {
+                String::new()
+            }
+        };
+        if s.queued.len() + usize::from(s.pending.is_some()) + s.media.count() >= 1024 {
+            return Err(ErrorCode::Unavailable);
+        }
+        let (send, receive) = oneshot::channel();
+        s.media.queued.push_back(MediaControl {
+            command: Control {
+                id: uuid::Uuid::new_v4().to_string(),
+                action: if present { "present" } else { "release" }.into(),
+                token,
+                scope,
+                deadline: Instant::now() + Duration::from_secs(5),
+                reply: send,
+            },
+            session: session.into(),
+            launch: launch.into(),
+        });
+        Ok(Some(receive))
+    }
+}
+pub struct MediaBridge(pub Windows);
+#[zbus::interface(name = "org.arinn.KWinMedia1")]
+impl MediaBridge {
+    async fn report(
+        &self,
+        generation: &str,
+        revision: i32,
+        token: &str,
+        launch: &str,
+        #[zbus(connection)] c: &Connection,
+        #[zbus(header)] h: Header<'_>,
+    ) -> production::Result<()> {
+        let current = trusted(c, &h).await?;
+        media_window::validate_report(generation, revision, token, launch)?;
+        let mut s = self.0.state.lock().await;
+        s.live(&current)?;
+        s.generation(generation)?;
+        if s.revision != revision {
+            return Err(ErrorCode::Conflict.into());
+        }
+        if !s.windows.iter().any(|w| w.token == token) {
+            return Err(ErrorCode::NotFound.into());
+        }
+        s.media.reports.insert(token.into(), launch.into());
+        if s.media.pending.as_ref().is_some_and(|p| {
+            p.command.action == "present"
+                && ((p.command.token == token && p.launch != launch)
+                    || (s.media.reports.len() == s.windows.len()
+                        && s.media.resolve(&s.windows, &p.launch).as_deref()
+                            != Some(p.command.token.as_str())))
+        }) {
+            let p = s.media.pending.take().unwrap();
+            let _ = p.command.reply.send(Err(ErrorCode::Conflict));
+        }
+        Ok(())
+    }
+    async fn next_control(
+        &self,
+        generation: &str,
+        #[zbus(connection)] c: &Connection,
+        #[zbus(header)] h: Header<'_>,
+    ) -> production::Result<Vec<String>> {
+        let current = trusted(c, &h).await?;
+        let mut s = self.0.state.lock().await;
+        s.live(&current)?;
+        s.generation(generation)?;
+        s.prune();
+        s.media.supported = true;
+        if s.media.pending.is_some() {
+            return Ok(Vec::new());
+        }
+        if s.media.reports.len() != s.windows.len()
+            && s.media
+                .queued
+                .front()
+                .is_some_and(|p| p.command.action == "present")
+        {
+            return Ok(Vec::new());
+        }
+        while let Some(p) = s.media.queued.pop_front() {
+            if p.command.action == "present"
+                && s.media.resolve(&s.windows, &p.launch).as_deref()
+                    != Some(p.command.token.as_str())
+            {
+                let _ = p.command.reply.send(Err(ErrorCode::Conflict));
+                continue;
+            }
+            // An older session's release must not tear down a newer presentation.
+            if p.command.action == "release"
+                && s.media
+                    .presentation
+                    .as_ref()
+                    .is_none_or(|(scope, session, _)| {
+                        scope != &p.command.scope || session != &p.session
+                    })
+            {
+                let _ = p.command.reply.send(Ok(()));
+                continue;
+            }
+            let record = vec![
+                p.command.id.clone(),
+                p.command.action.clone(),
+                p.command.token.clone(),
+            ];
+            if p.command.action == "present" {
+                s.media.presentation = Some((
+                    p.command.scope.clone(),
+                    p.session.clone(),
+                    p.command.token.clone(),
+                ));
+            }
+            s.media.pending = Some(p);
+            return Ok(record);
+        }
+        Ok(Vec::new())
+    }
+    async fn complete_control(
+        &self,
+        generation: &str,
+        request_id: &str,
+        error: &str,
+        #[zbus(connection)] c: &Connection,
+        #[zbus(header)] h: Header<'_>,
+    ) -> production::Result<()> {
+        let current = trusted(c, &h).await?;
+        kwin::validate_completion(request_id, error)?;
+        let mut s = self.0.state.lock().await;
+        s.live(&current)?;
+        s.generation(generation)?;
+        s.prune();
+        if s.media
+            .pending
+            .as_ref()
+            .is_none_or(|p| p.command.id != request_id)
+        {
+            return Err(ErrorCode::Conflict.into());
+        }
+        let p = s.media.pending.take().unwrap();
+        let result = if error.is_empty() {
+            if p.command.action == "present" {
+                s.media.presentation =
+                    Some((p.command.scope.clone(), p.session, p.command.token.clone()));
+            } else {
+                s.media.presentation = None;
+            }
+            Ok(())
+        } else {
+            Err(media_error(error))
+        };
+        let _ = p.command.reply.send(result);
+        Ok(())
+    }
+}
+fn media_error(error: &str) -> ErrorCode {
+    match error {
+        "NotFound" => ErrorCode::NotFound,
+        "Unsupported" => ErrorCode::Unsupported,
+        "PermissionDenied" => ErrorCode::PermissionDenied,
+        "Timeout" => ErrorCode::Timeout,
+        "InvalidArgument" => ErrorCode::InvalidArgument,
+        "Conflict" => ErrorCode::Conflict,
+        "Internal" => ErrorCode::Internal,
+        "Cancelled" => ErrorCode::Cancelled,
+        _ => ErrorCode::Unavailable,
+    }
+}
+
+#[cfg(test)]
+mod media_lifetime_tests {
+    use super::*;
+    fn scope() -> Scope {
+        Scope {
+            provider: "video".into(),
+            owner: ":1.4".into(),
+            registration: uuid::Uuid::new_v4().to_string(),
+        }
+    }
+    fn command(
+        scope: Scope,
+        action: &str,
+    ) -> (MediaControl, oneshot::Receiver<Result<(), ErrorCode>>) {
+        let (reply, receive) = oneshot::channel();
+        (
+            MediaControl {
+                command: Control {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    action: action.into(),
+                    token: "window".into(),
+                    scope,
+                    deadline: Instant::now() + Duration::from_secs(5),
+                    reply,
+                },
+                session: "session".into(),
+                launch: uuid::Uuid::new_v4().to_string(),
+            },
+            receive,
+        )
+    }
+    #[tokio::test]
+    async fn removal_timeout_and_owner_loss_fail_pending_work_without_redelivery() {
+        let mut s = MediaState::default();
+        let (p, r) = command(scope(), "present");
+        s.pending = Some(p);
+        s.inventory(&[]);
+        assert_eq!(r.await.unwrap(), Err(ErrorCode::NotFound));
+        assert!(s.pending.is_none());
+        let (mut p, r) = command(scope(), "present");
+        p.command.deadline = Instant::now();
+        s.queued.push_back(p);
+        s.prune();
+        assert_eq!(r.await.unwrap(), Err(ErrorCode::Timeout));
+        assert_eq!(s.count(), 0);
+        let (p, r) = command(scope(), "present");
+        s.pending = Some(p);
+        s.disconnect(":1.4");
+        assert_eq!(r.await.unwrap(), Err(ErrorCode::Unavailable));
+        assert_eq!(s.count(), 0);
+    }
+    #[test]
+    fn reset_removes_adapter_support_and_observations() {
+        let mut s = State::default();
+        s.media.supported = true;
+        s.media
+            .reports
+            .insert("window".into(), uuid::Uuid::new_v4().to_string());
+        s.media.presentation = Some((scope(), "session".into(), "window".into()));
+        let g = s.generation.clone();
+        s.reset();
+        assert_ne!(s.generation, g);
+        assert!(!s.media.supported);
+        assert!(s.media.reports.is_empty());
+        assert!(s.media.presentation.is_none());
     }
 }

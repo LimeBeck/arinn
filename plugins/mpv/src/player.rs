@@ -107,6 +107,7 @@ enum Ask {
     Disable(String, oneshot::Sender<Result<(), ErrorCode>>),
     Timeline(String, oneshot::Sender<Result<Timeline, ErrorCode>>),
     View(oneshot::Sender<View>),
+    LaunchId(String, oneshot::Sender<Result<String, ErrorCode>>),
     Thumb(String, oneshot::Sender<Result<ThumbTarget, ErrorCode>>),
 }
 
@@ -156,6 +157,7 @@ struct Core {
     client: Option<Client>,
     generation: u64,
     observed: bool,
+    launch_id: String,
     live: Option<Live>,
     idle: bool,
     backend: String,
@@ -214,6 +216,7 @@ impl Player {
             client: None,
             generation: 0,
             observed: false,
+            launch_id: String::new(),
             live: None,
             idle: true,
             backend: settings.backend,
@@ -277,6 +280,10 @@ impl Player {
 
     pub async fn disable_subtitles(&self, id: String) -> Result<(), ErrorCode> {
         self.call(|tx| Ask::Disable(id, tx)).await?
+    }
+
+    pub async fn launch_id(&self, id: String) -> Result<String, ErrorCode> {
+        self.call(|tx| Ask::LaunchId(id, tx)).await?
     }
 
     pub async fn timeline(&self, id: String) -> Result<Timeline, ErrorCode> {
@@ -354,6 +361,16 @@ impl Core {
             }
             Ask::Timeline(id, reply) => {
                 let _ = reply.send(self.timeline(&id));
+            }
+            Ask::LaunchId(id, reply) => {
+                let result = if self.live.as_ref().is_none_or(|live| live.id != id) {
+                    Err(ErrorCode::NotFound)
+                } else if self.phase() == "stopped" || self.client.is_none() {
+                    Ok(String::new())
+                } else {
+                    Ok(self.launch_id.clone())
+                };
+                let _ = reply.send(result);
             }
             Ask::View(reply) => {
                 let _ = reply.send(self.current_view());
@@ -541,6 +558,20 @@ impl Core {
         &mut self,
         incoming: &mut mpsc::UnboundedReceiver<Incoming>,
     ) -> Result<(), ErrorCode> {
+        // Recover the player process identity, including after a provider restart.
+        // A legacy/unmanaged player remains controllable without window presentation.
+        self.launch_id.clear();
+        if let Ok(reply) = self
+            .request(json!(["get_property", "options/wayland-app-id"]), incoming)
+            .await
+            && reply.error == "success"
+            && let Some(value) = reply.data.as_str()
+            && let Some(launch) = value.strip_prefix(arinn_protocol::media_window::APP_ID_PREFIX)
+            && !launch.is_empty()
+            && arinn_protocol::media_window::validate_launch(launch).is_ok()
+        {
+            self.launch_id = launch.into();
+        }
         self.seen.clear();
         for (id, name) in PROPS {
             let reply = self
@@ -881,6 +912,7 @@ impl Core {
     }
 
     fn drop_client(&mut self) {
+        self.launch_id.clear();
         self.client = None;
         self.observed = false;
         self.generation = self.generation.wrapping_add(1);

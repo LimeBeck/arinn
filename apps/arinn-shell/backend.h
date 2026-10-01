@@ -18,6 +18,7 @@ class Backend : public QObject {
   Q_PROPERTY(bool connected READ connected NOTIFY changed)
   Q_PROPERTY(bool available READ available NOTIFY changed)
   Q_PROPERTY(bool homeVisible READ homeVisible NOTIFY changed)
+  Q_PROPERTY(QString daemonEpoch READ daemonEpoch NOTIFY changed)
   Q_PROPERTY(QString returnWindow READ returnWindow NOTIFY changed)
   Q_PROPERTY(QVariantList items READ items NOTIFY itemsChanged)
   Q_PROPERTY(QVariantList continueEntries READ continueEntries NOTIFY
@@ -39,6 +40,7 @@ public:
   bool connected() const { return m_connected; }
   bool available() const { return m_available; }
   bool homeVisible() const { return m_home; }
+  QString daemonEpoch() const { return m_daemonEpoch; }
   QString returnWindow() const { return m_return; }
   QVariantList items() const { return m_items; }
   QVariantList continueEntries() const;
@@ -104,7 +106,7 @@ private:
        m_shortcutsError = false, m_shortcutsRequested = false,
        m_forceShortcutReload = false;
   quint64 m_connectionEpoch = 0, m_snapshotRevision = 0, m_shortcutTicket = 0;
-  QString m_generation, m_return, m_message;
+  QString m_generation, m_return, m_message, m_daemonEpoch;
   QVariantList m_items;
   QTimer m_timer;
 };

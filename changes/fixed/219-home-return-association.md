@@ -1,0 +1,1 @@
+- Use explicit daemon Return/window associations to show one current browser service on Home after focus moves to the shell. Preserve Return on missing, ambiguous, stale or incomplete evidence, and retain independent media sessions.

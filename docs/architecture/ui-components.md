@@ -171,7 +171,11 @@ resources and Onest font as the gallery. The independent session lifecycle guard
 still controls window visibility. Home starts in a degraded state when the daemon
 is absent and reconnects asynchronously.
 
-`Backend` constructs the Return card from the daemon's opaque return target. It
+`Backend` constructs the Return card from the daemon's opaque return target.
+The optional [Return association consumer](ui-web-shortcuts.md#home-activity-identity-and-visual-treatment)
+replaces it with the current-service card only while one validated browser match
+agrees with the live Home epoch/target. Missing or stale evidence restores Return;
+independent media sessions remain visible. Both presentations use daemon Back. It
 reads all `Providers` and `Application1.GetApplications` pages through the daemon,
 checks snapshot identity, generation, revision and pagination cycles, and exposes
 launchable/disabled application entries. The Home shortcut row is labelled

@@ -145,17 +145,29 @@ AC-02/AC-03 or full G-5.1 on a real KDE/TV session.
 
 ### Home activity identity and visual treatment
 
-Return is retained without cross-source deduplication. `Status.return_window`
-is the opaque KWin `internalId` Home target; `Status.generation` is the daemon
-epoch. `BrowserWindow.window_token` belongs to PlatformWindows1 and has its own
-platform generation/counter namespace. Comparing these values is unsupported.
-The shell does not derive an underlying browser service while Home is visible;
-outside Home its service presentation follows current browser focus. Owner loss,
-failed Status and current snapshot removal clear stale service presentation.
+The asynchronous `ReturnAssociation` model discovers ADR-0073 support per unique
+daemon owner, subscribes before reading, and reconciles epoch/revision notifications
+with bounded reads. Home context and inventory changes invalidate evidence
+immediately. Missing support, failed discovery/read, or stale/malformed evidence
+keeps the ordinary Return card.
 
-The deduplication part of [#207](https://github.com/LimeBeck/arinn/issues/207)
-remains incomplete. [#212](https://github.com/LimeBeck/arinn/issues/212) defines
-the missing explicit Return-to-platform-window association contract and the
-producer/consumer handoff. Do not infer it from equal strings, titles, URLs or
-last focus. Independent media sessions are also preserved. Actual Activity
-capture/blur remains task #149.
+While Home is visible, `BrowserCatalog` joins the explicit window reference with
+complete current daemon-mediated browser snapshots. Exactly one window and one
+active display tab must match. Provider registration generations and snapshot
+ownership are retained; provider changes and failed/incomplete refreshes clear
+the join. Window focus is irrelevant to this identity check. Equal titles, URLs,
+opaque Return strings and tokens in unrelated namespaces are never identity
+proof. Outside Home, current browser focus still drives the service presentation.
+
+`Main.qml` additionally checks the live backend Home flag, daemon epoch and exact
+Return target before replacing generic Return with the current-service card.
+Selecting that card uses the existing daemon Back action. Independent media
+sessions stay in Continue, including sessions with the same title. Loss of
+positive evidence restores generic Return. Periodic reads do not discard still
+current evidence solely because another read started; notifications and failed
+reads invalidate it.
+
+[#219](https://github.com/LimeBeck/arinn/issues/219) implements this browser-only
+consumer after producer #217. Private-bus and offscreen tests do not qualify
+real KDE/TV acceptance. Media/window association remains #189; Activity
+capture/blur remains #149.

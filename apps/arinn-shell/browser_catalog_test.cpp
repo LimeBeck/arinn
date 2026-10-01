@@ -17,6 +17,12 @@
 #include <QtDBus>
 #include <QtTest>
 
+struct ReturnWindowWire { QString generation, token; };
+Q_DECLARE_METATYPE(ReturnWindowWire)
+QDBusArgument &operator<<(QDBusArgument &a, const ReturnWindowWire &w) {
+  a.beginStructure(); a << w.generation << w.token; a.endStructure(); return a;
+}
+const QDBusArgument &operator>>(const QDBusArgument &a, ReturnWindowWire &) { return a; }
 struct WindowWire {
   QString id, token;
   bool focused = false;
@@ -32,6 +38,8 @@ struct ProviderWire {
   QString backend = QStringLiteral("available");
   QString runtime = QStringLiteral("ready");
   QString id = QStringLiteral("browser");
+  QString generation = QStringLiteral("11111111-1111-4111-8111-111111111111");
+  QString path = QStringLiteral("/org/arinn/Daemon1/providers/p_browser");
 };
 struct ShortcutWire {
   QString id, title, url, icon;
@@ -73,9 +81,9 @@ QDBusArgument &operator<<(QDBusArgument &argument, const ProviderWire &provider)
   argument.beginStructure();
   argument << provider.id << QString("plugin") << QString() << QString("Browser")
            << QString("1")
-           << QDBusObjectPath("/org/arinn/Daemon1/providers/p_browser")
+           << QDBusObjectPath(provider.path)
            << QStringList{"browser"} << provider.runtime << provider.backend
-           << QString("11111111-1111-4111-8111-111111111111") << qulonglong(1)
+           << provider.generation << qulonglong(1)
            << QString() << qulonglong(0) << qulonglong(0) << qulonglong(0)
            << qulonglong(0);
   argument.endStructure();
@@ -96,6 +104,19 @@ const QDBusArgument &operator>>(const QDBusArgument &argument, ShortcutWire &) {
 
 class BrowserDaemon : public QDBusVirtualObject {
 public:
+  bool associationSupported = false, holdAssociation = false, holdTabs = false,
+      duplicateProvider = false, otherProviderError = false;
+  QString associationEpoch, associationTarget, providerGeneration = QStringLiteral("11111111-1111-4111-8111-111111111111");
+  qulonglong associationRevision = 1;
+  QList<ReturnWindowWire> associationWindows;
+  QList<QDBusMessage> heldAssociations, heldTabs;
+  QStringList associationDestinations;
+  void notify(const char *interface, const char *member, const QVariantList &args = {}) {
+    auto message = QDBusMessage::createSignal("/org/arinn/Daemon1", interface, member);
+    message.setArguments(args); replyBus.send(message);
+  }
+  void releaseAssociations() { const auto replies = heldAssociations; heldAssociations.clear(); for (const auto &r : replies) replyBus.send(r); }
+  void releaseTabs() { const auto replies = heldTabs; heldTabs.clear(); for (const auto &r : replies) replyBus.send(r); }
   QString mode = "populated";
   QString runtime = "ready";
   QString activatedId, closedId, openedId, activateRequest, restartedId;
@@ -156,11 +177,26 @@ public:
   QList<WindowWire> scriptedWindows;
   QList<TabWire> scriptedTabs;
   QList<ShortcutWire> scriptedShortcuts;
-  QString introspect(const QString &) const override { return {}; }
+  QString introspect(const QString &) const override {
+    return associationSupported ? QStringLiteral("<interface name=\"org.arinn.ReturnAssociation1\"><method name=\"Get\"><arg type=\"(stsa(ss))\" direction=\"out\"/></method></interface>") : QString();
+  }
   bool handleMessage(const QDBusMessage &message,
                      const QDBusConnection &bus) override {
     QDBusArgument body;
-    if (message.member() == "Status") {
+    if (message.interface() == "org.freedesktop.DBus.Introspectable" && message.member() == "Introspect") {
+      bus.send(message.createReply(QString("<node>") + introspect(message.path()) + QString("</node>")));
+      return true;
+    } else if (message.interface() == "org.arinn.ReturnAssociation1" && message.member() == "Get") {
+      associationDestinations.append(message.service());
+      body.beginStructure();
+      body << (associationEpoch.isEmpty() ? daemonEpoch : associationEpoch) << associationRevision
+           << (associationTarget.isEmpty() ? returnWindow : associationTarget) << associationWindows;
+      body.endStructure();
+      auto reply = message.createReply(QVariant::fromValue(body));
+      replyBus = bus;
+      if (holdAssociation) heldAssociations.append(reply); else bus.send(reply);
+      return true;
+    } else if (message.member() == "Status") {
       if (statusError) {
         bus.send(message.createErrorReply(QDBusError::Failed, "Unavailable"));
         return true;
@@ -178,9 +214,9 @@ public:
                                : QString("available");
       const auto state = failed ? QString("failed") : runtime;
       body.beginStructure();
-      body << QString("snapshot")
-           << QList<ProviderWire>{{backend, state, QStringLiteral("browser")}}
-           << QString();
+      QList<ProviderWire> providers{{backend, state, QStringLiteral("browser"), providerGeneration}};
+      if (duplicateProvider) providers.append({backend, state, QStringLiteral("other"), providerGeneration, QStringLiteral("/org/arinn/Daemon1/providers/p_other")});
+      body << QString("snapshot") << providers << QString();
       body.endStructure();
     } else if (message.member() == "Restart") {
       ++restarts;
@@ -195,12 +231,12 @@ public:
       return true;
     } else if (message.member() == "GetTabs") {
       ++tabReads;
-      if (mode == "error") {
+      if (mode == "error" || (otherProviderError && message.path().endsWith("p_other"))) {
         bus.send(message.createErrorReply(QDBusError::Failed, "Unavailable"));
         return true;
       }
       body.beginStructure();
-      body << QString("11111111-1111-4111-8111-111111111111") << qulonglong(1);
+      body << providerGeneration << qulonglong(1);
       body.beginArray(QMetaType::fromType<WindowWire>());
       if (scripted) {
         for (const auto &window : scriptedWindows)
@@ -223,6 +259,7 @@ public:
       body.endArray();
       body << QString();
       body.endStructure();
+      if (holdTabs) { replyBus = bus; heldTabs.append(message.createReply(QVariant::fromValue(body))); return true; }
     } else if (message.member() == "ActivateTab" ||
                message.member() == "CloseTab") {
       if (message.member() == "ActivateTab") {
@@ -303,6 +340,8 @@ public:
 
 class ShellStandIn : public QObject {
   Q_OBJECT
+  Q_PROPERTY(bool connected READ connected CONSTANT)
+  Q_PROPERTY(QString daemonEpoch READ daemonEpoch CONSTANT)
   Q_PROPERTY(bool homeVisible MEMBER m_home CONSTANT)
   Q_PROPERTY(QString returnWindow MEMBER m_return CONSTANT)
   Q_PROPERTY(QVariantList items MEMBER m_items CONSTANT)
@@ -313,6 +352,8 @@ class ShellStandIn : public QObject {
   Q_PROPERTY(QStringList busyEntryIds MEMBER m_busy CONSTANT)
   Q_PROPERTY(QString message MEMBER m_message CONSTANT)
 public:
+  bool connected() const { return true; }
+  QString daemonEpoch() const { return QStringLiteral("77777777-7777-4777-8777-777777777777"); }
   bool m_home = true;
   QString m_return;
   QString m_homeState = QStringLiteral("empty");
@@ -334,6 +375,8 @@ public:
 // hidden until Home is visible, then showHome focuses returnWindow.
 class ExternalHomeBackend : public QObject {
   Q_OBJECT
+  Q_PROPERTY(bool connected READ connected CONSTANT)
+  Q_PROPERTY(QString daemonEpoch READ daemonEpoch CONSTANT)
   Q_PROPERTY(bool homeVisible READ homeVisible NOTIFY changed)
   Q_PROPERTY(QString returnWindow READ returnWindow NOTIFY changed)
   Q_PROPERTY(QVariantList items MEMBER m_items CONSTANT)
@@ -344,6 +387,8 @@ class ExternalHomeBackend : public QObject {
   Q_PROPERTY(QStringList busyEntryIds MEMBER m_busy CONSTANT)
   Q_PROPERTY(QString message MEMBER m_message CONSTANT)
 public:
+  bool connected() const { return true; }
+  QString daemonEpoch() const { return QStringLiteral("77777777-7777-4777-8777-777777777777"); }
   bool homeVisible() const { return m_home; }
   QString returnWindow() const { return m_return; }
   void openOverlay(const QString &activity) {
@@ -369,6 +414,8 @@ class BrowserCatalogTest : public QObject {
   Q_OBJECT
 private slots:
   void initTestCase() {
+    qDBusRegisterMetaType<ReturnWindowWire>();
+    qDBusRegisterMetaType<QList<ReturnWindowWire>>();
     qDBusRegisterMetaType<WindowWire>();
     qDBusRegisterMetaType<TabWire>();
     qDBusRegisterMetaType<EffectWire>();
@@ -376,6 +423,14 @@ private slots:
     qDBusRegisterMetaType<ShortcutWire>();
   }
   void cleanup() {
+    {
+      auto fixture = QDBusConnection("return-fixture");
+      if (fixture.isConnected()) {
+        fixture.unregisterService("org.arinn.Daemon1");
+        fixture.unregisterObject("/org/arinn", QDBusConnection::UnregisterTree);
+      }
+    }
+    QDBusConnection::disconnectFromBus("return-fixture");
     auto bus = QDBusConnection::sessionBus();
     bus.unregisterObject("/org/arinn", QDBusConnection::UnregisterTree);
     bus.unregisterService("org.arinn.Daemon1");
@@ -449,6 +504,133 @@ private slots:
     bus.unregisterService("org.arinn.Daemon1");
     QTRY_COMPARE(catalog.browserState(), QString("unavailable"));
     QVERIFY(catalog.tabs().isEmpty());
+  }
+  void explicitAssociationMatchesWithoutFocusAndRejectsUncertainEvidence() {
+    auto bus = QDBusConnection::connectToBus(qEnvironmentVariable("DBUS_SESSION_BUS_ADDRESS"), "return-fixture");
+    BrowserDaemon daemon;
+    daemon.associationSupported = daemon.scripted = daemon.homeVisible = true;
+    const QString platform = "33333333-3333-4333-8333-333333333333";
+    const QString token = platform + ":42";
+    daemon.returnWindow = "{aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa}";
+    daemon.associationWindows = {{platform, token}};
+    daemon.scriptedWindows = {{"other", platform + ":41", false}, {"mapped", token, false}};
+    daemon.scriptedTabs = {{"other-tab", "other", "Same title", "https://same.example/", true, false},
+                          {"mapped-tab", "mapped", "Same title", "https://same.example/", true, false}};
+    QVERIFY(bus.registerService("org.arinn.Daemon1"));
+    QVERIFY(bus.registerVirtualObject("/org/arinn", &daemon, QDBusConnection::SubPath));
+    BrowserCatalog catalog;
+    QTRY_VERIFY(catalog.returnMatched());
+    QCOMPARE(catalog.returnTarget(), daemon.returnWindow);
+    QCOMPARE(catalog.returnEpoch(), daemon.daemonEpoch);
+    const auto selectedWindow = catalog.windows().at(1).toMap().value("id");
+    QString selectedTab;
+    for (const auto &entry : catalog.tabs()) if (entry.toMap().value("windowId") == selectedWindow) selectedTab = entry.toMap().value("id").toString();
+    QCOMPARE(catalog.currentService().value("id").toString(), selectedTab);
+    QVERIFY(!daemon.associationDestinations.isEmpty());
+    QVERIFY(daemon.associationDestinations.first().startsWith(':'));
+    QVERIFY(daemon.returnWindow != token && daemon.daemonEpoch != platform);
+
+    // A second provider claiming the same token is ambiguous even with the same URL/title.
+    daemon.duplicateProvider = true;
+    daemon.notify("org.arinn.Daemon1", "ProvidersChanged");
+    QTRY_VERIFY(!catalog.returnMatched());
+    QTRY_COMPARE(catalog.windows().size(), 4);
+    QVERIFY(catalog.currentService().isEmpty());
+    daemon.otherProviderError = true;
+    daemon.notify("org.arinn.Daemon1", "ProvidersChanged");
+    QTRY_COMPARE(catalog.windows().size(), 2);
+    QVERIFY(!catalog.returnMatched()); // one successful provider is not a complete join
+    daemon.duplicateProvider = daemon.otherProviderError = false;
+    daemon.notify("org.arinn.Daemon1", "ProvidersChanged");
+    QTRY_VERIFY(catalog.returnMatched());
+
+    daemon.holdTabs = true;
+    daemon.notify("org.arinn.Daemon1", "StateChanged", {QString("browser"), QString("browser"), daemon.providerGeneration, qulonglong(2)});
+    QTRY_VERIFY(!catalog.returnMatched());
+    QTRY_VERIFY(!daemon.heldTabs.isEmpty());
+    daemon.providerGeneration = "22222222-2222-4222-8222-222222222222";
+    daemon.notify("org.arinn.Daemon1", "ProvidersChanged");
+    daemon.holdTabs = false;
+    daemon.releaseTabs();
+    QTRY_VERIFY(catalog.returnMatched());
+    QVERIFY(catalog.currentService().value("id").toString() != selectedTab);
+
+    daemon.homeVisible = false;
+    daemon.notify("org.arinn.Daemon1", "Changed");
+    QTRY_VERIFY(!catalog.returnMatched());
+    daemon.homeVisible = true;
+    daemon.associationWindows.clear(); ++daemon.associationRevision;
+    daemon.notify("org.arinn.Daemon1", "Changed");
+    daemon.notify("org.arinn.ReturnAssociation1", "Changed", {daemon.daemonEpoch, daemon.associationRevision});
+    QTest::qWait(150);
+    QVERIFY(!catalog.returnMatched());
+    daemon.associationWindows = {{platform, token}, {platform, token}};
+    ++daemon.associationRevision;
+    daemon.notify("org.arinn.ReturnAssociation1", "Changed", {daemon.daemonEpoch, daemon.associationRevision});
+    QTest::qWait(150);
+    QVERIFY(!catalog.returnMatched());
+    daemon.associationWindows = {{platform, token}};
+    ++daemon.associationRevision;
+    daemon.notify("org.arinn.ReturnAssociation1", "Changed", {daemon.daemonEpoch, daemon.associationRevision});
+    QTRY_VERIFY(catalog.returnMatched());
+    // Platform generation changes are independent of daemon/provider epochs.
+    const QString remapped = "44444444-4444-4444-8444-444444444444";
+    daemon.notify("org.arinn.PlatformWindows1", "WindowsChanged", {remapped, qulonglong(1)});
+    QTRY_VERIFY(!catalog.returnMatched());
+    daemon.associationWindows = {{remapped, remapped + ":1"}};
+    daemon.scriptedWindows[1].token = remapped + ":1";
+    ++daemon.associationRevision;
+    daemon.notify("org.arinn.ReturnAssociation1", "Changed", {daemon.daemonEpoch, daemon.associationRevision});
+    daemon.notify("org.arinn.Daemon1", "StateChanged");
+    QTRY_VERIFY(catalog.returnMatched());
+    daemon.returnWindow = "new-opaque-target";
+    daemon.associationTarget = "{aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa}";
+    daemon.notify("org.arinn.Daemon1", "Changed");
+    QTRY_VERIFY(!catalog.returnMatched());
+  }
+  void associationDropsDelayedReadsAcrossRevisionAndOwnerChanges() {
+    auto bus = QDBusConnection::connectToBus(qEnvironmentVariable("DBUS_SESSION_BUS_ADDRESS"), "return-fixture");
+    BrowserDaemon daemon;
+    daemon.associationSupported = daemon.scripted = daemon.homeVisible = daemon.holdAssociation = true;
+    daemon.returnWindow = "opaque-return";
+    const QString platform = "33333333-3333-4333-8333-333333333333";
+    daemon.associationWindows = {{platform, platform + ":1"}};
+    daemon.scriptedWindows = {{"window", platform + ":1", false}};
+    daemon.scriptedTabs = {{"tab", "window", "Page", "https://test.example/", true, false}};
+    QVERIFY(bus.registerService("org.arinn.Daemon1"));
+    QVERIFY(bus.registerVirtualObject("/org/arinn", &daemon, QDBusConnection::SubPath));
+    BrowserCatalog catalog;
+    QTRY_VERIFY(!daemon.heldAssociations.isEmpty());
+    QVERIFY(!catalog.returnMatched());
+    daemon.associationWindows.clear();
+    ++daemon.associationRevision;
+    daemon.notify("org.arinn.ReturnAssociation1", "Changed", {daemon.daemonEpoch, daemon.associationRevision});
+    daemon.holdAssociation = false;
+    daemon.releaseAssociations();
+    QTRY_VERIFY(daemon.associationDestinations.size() >= 2);
+    QVERIFY(!catalog.returnMatched());
+    daemon.associationWindows = {{platform, platform + ":1"}};
+    ++daemon.associationRevision;
+    daemon.notify("org.arinn.ReturnAssociation1", "Changed", {daemon.daemonEpoch, daemon.associationRevision});
+    QTRY_VERIFY(catalog.returnMatched());
+    daemon.holdAssociation = true;
+    ++daemon.associationRevision;
+    daemon.notify("org.arinn.ReturnAssociation1", "Changed", {daemon.daemonEpoch, daemon.associationRevision});
+    QTRY_VERIFY(!daemon.heldAssociations.isEmpty());
+    QVERIFY(!catalog.returnMatched());
+    auto replacement = QDBusConnection::connectToBus(qEnvironmentVariable("DBUS_SESSION_BUS_ADDRESS"), "return-replacement");
+    BrowserDaemon newer;
+    newer.homeVisible = true; newer.returnWindow = daemon.returnWindow; // optional interface absent
+    QVERIFY(bus.unregisterService("org.arinn.Daemon1"));
+    QVERIFY(replacement.registerService("org.arinn.Daemon1"));
+    QVERIFY(replacement.registerVirtualObject("/org/arinn", &newer, QDBusConnection::SubPath));
+    daemon.releaseAssociations();
+    QTRY_VERIFY(newer.providerReads > 0);
+    QVERIFY(!catalog.returnMatched());
+    QVERIFY(catalog.currentService().isEmpty());
+    replacement.unregisterService("org.arinn.Daemon1");
+    replacement.unregisterObject("/org/arinn", QDBusConnection::UnregisterTree);
+    QDBusConnection::disconnectFromBus("return-replacement");
   }
   void homeDoesNotAssociateDistinctReturnAndInventoryNamespaces() {
     auto bus = QDBusConnection::sessionBus();
@@ -841,6 +1023,49 @@ private slots:
     QTest::keyClick(window, Qt::Key_Backspace);
     QTRY_COMPARE(backend.backs, 1);
     QVERIFY(!home->property("navOpen").toBool());
+  }
+  void productionReturnAssociationWiring() {
+    auto bus = QDBusConnection::connectToBus(qEnvironmentVariable("DBUS_SESSION_BUS_ADDRESS"), "return-fixture");
+    BrowserDaemon daemon;
+    daemon.associationSupported = daemon.scripted = daemon.homeVisible = true;
+    daemon.returnWindow = "opaque-return";
+    const QString platform = "33333333-3333-4333-8333-333333333333";
+    daemon.associationWindows = {{platform, platform + ":1"}};
+    daemon.scriptedWindows = {{"window", platform + ":1", false}};
+    daemon.scriptedTabs = {{"tab", "window", "Page", "https://test.example/", true, false}};
+    QVERIFY(bus.registerService("org.arinn.Daemon1"));
+    QVERIFY(bus.registerVirtualObject("/org/arinn", &daemon, QDBusConnection::SubPath));
+    ExternalHomeBackend backend;
+    backend.m_continue = {QVariantMap{{"id", daemon.returnWindow}, {"title", "Return to activity"}}};
+    backend.openOverlay(daemon.returnWindow);
+    SessionGuardStandIn guard;
+    QQmlApplicationEngine engine;
+    engine.rootContext()->setContextProperty("backend", &backend);
+    engine.rootContext()->setContextProperty("sessionGuard", &guard);
+    installAssetImageProvider(&engine);
+    engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
+    QVERIFY(!engine.rootObjects().isEmpty());
+    auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+    QVERIFY(window);
+    auto home = window->findChild<QQuickItem *>("productionHome");
+    QVERIFY(home);
+    QTRY_VERIFY(home->property("returnIsWebService").toBool());
+    QCOMPARE(home->property("currentServiceTitle").toString(), QString("Page"));
+    QVERIFY(home->property("continueEntries").toList().isEmpty());
+    QVERIFY(QMetaObject::invokeMethod(home, "serviceRequested", Q_ARG(QString, home->property("currentServiceId").toString())));
+    QCOMPARE(backend.backs, 1);
+    QCOMPARE(daemon.activates, 0); // Return stays on the existing daemon Back path.
+    backend.openOverlay("new-return");
+    QTRY_VERIFY(!home->property("returnIsWebService").toBool());
+    QVERIFY(home->property("currentServiceTitle").toString().isEmpty());
+    backend.openOverlay(daemon.returnWindow);
+    QTRY_VERIFY(home->property("returnIsWebService").toBool());
+    daemon.associationWindows.clear();
+    ++daemon.associationRevision;
+    daemon.notify("org.arinn.ReturnAssociation1", "Changed", {daemon.daemonEpoch, daemon.associationRevision});
+    QTRY_VERIFY(!home->property("returnIsWebService").toBool());
+    QCOMPARE(home->property("continueEntries").toList().size(), 1);
+    QCOMPARE(home->property("continueEntries").toList().first().toMap().value("id").toString(), daemon.returnWindow);
   }
   void productionSaveWiring() {
     auto bus = QDBusConnection::sessionBus();

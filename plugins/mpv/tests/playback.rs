@@ -696,6 +696,41 @@ async fn missing_mpv_stays_unavailable_and_does_not_open() {
 }
 
 #[tokio::test]
+async fn missing_launcher_recovers_readiness_from_a_live_ipc_player() {
+    let dir = std::env::temp_dir().join(format!("arinn-mpv-{}", uuid::Uuid::new_v4()));
+    let peer = Peer::spawn(dir.clone(), true, false).await;
+    let player = Player::start(Settings {
+        socket: peer.socket(),
+        state_path: dir.join("session"),
+        launch: Launch::Missing,
+        publish_interval: Duration::from_secs(3600),
+        ffmpeg: None,
+        thumb_dir: PathBuf::new(),
+        backend: "unavailable".into(),
+    })
+    .unwrap();
+    let mut notes = player.subscribe();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while notes.borrow_and_update().backend != "available" {
+            notes.changed().await.unwrap();
+        }
+    })
+    .await
+    .expect("observed live player must recover backend readiness");
+    let id = player.open(source(&dir)).await.unwrap();
+    assert_eq!(player.launch_id(id.clone()).await.unwrap(), "");
+    player.control(MediaAction::Pause, id, 0).await.unwrap();
+    assert!(
+        names(&peer.commands().await)
+            .iter()
+            .any(|name| name == "set_property")
+    );
+    drop(player);
+    drop(peer);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
 async fn bad_uri_is_rejected() {
     let dir = std::env::temp_dir().join(format!("arinn-mpv-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();

@@ -533,9 +533,9 @@ impl Core {
             self.drop_client();
             return;
         }
-        if self.backend != "unavailable" {
-            self.backend = "available".into();
-        }
+        // Launch availability only controls creation. A reachable, observed
+        // player can be controlled even when its executable is now absent.
+        self.backend = "available".into();
         self.sync();
     }
 

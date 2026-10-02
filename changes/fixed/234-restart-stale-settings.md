@@ -1,0 +1,1 @@
+- Restarting a provider (`arinnctl provider restart`, Settings) now starts it with the current `config.toml` settings. Before, a restart reused the settings the provider was first started with, so for example new library folders were ignored.

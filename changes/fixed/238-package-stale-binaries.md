@@ -1,0 +1,1 @@
+- CI packages always rebuild the project's own binaries. A cached build could make a package ship outdated binaries, such as an mpv provider without managed playback.

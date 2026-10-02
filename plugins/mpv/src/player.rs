@@ -458,11 +458,6 @@ impl Core {
             &source.subtitle_language,
         );
         self.load_fault = None;
-        // A stopped player closes its idle window; open it again for the new
-        // file so it is ready to present (#236).
-        let _ = self
-            .request(json!(["set_property", "force-window", true]), incoming)
-            .await;
         let modern = self
             .request(parse::loadfile(path, &options, true), incoming)
             .await?;
@@ -922,6 +917,9 @@ impl Core {
 
     /// The player stays running between files (`--idle`), but an empty
     /// window must not stay on the desktop after playback stops (#236).
+    /// It is not turned back on before the next file: mpv opens its video
+    /// window when the video starts, and a window created earlier would be
+    /// replaced then, which ends a presentation of the old one.
     /// Best effort: the stop itself already succeeded.
     async fn close_idle_window(&mut self, incoming: &mut mpsc::UnboundedReceiver<Incoming>) {
         let _ = self

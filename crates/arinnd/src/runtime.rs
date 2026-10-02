@@ -1724,15 +1724,10 @@ impl Daemon {
                 let result = match supervisor.unit(&unit).await {
                     Err(ErrorCode::NotFound) => core.launch(&id).await,
                     Err(error) => Err(error),
-                    Ok(_) => {
-                        async {
-                            supervisor.stop(&unit).await?;
-                            // Unloads a failed unit; one that is already gone is fine.
-                            let _ = supervisor.reset_failed(&unit).await;
-                            core.launch(&id).await
-                        }
-                        .await
-                    }
+                    Ok(_) => match supervisor.discard(&unit).await {
+                        Ok(()) => core.launch(&id).await,
+                        Err(error) => Err(error),
+                    },
                 };
                 if result.is_ok() {
                     let directory = core.paths.state.clone();

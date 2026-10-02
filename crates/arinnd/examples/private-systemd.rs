@@ -26,7 +26,12 @@ struct Unit {
     starts: VecDeque<Instant>,
     retry_at: Option<Instant>,
     restarts: u32,
+    /// When an inactive transient unit is garbage-collected (unloaded).
+    collect_at: Option<Instant>,
 }
+/// Like systemd's CollectMode=inactive: an inactive transient unit is
+/// unloaded shortly after it stops, not at once (#234).
+const COLLECT_DELAY: Duration = Duration::from_millis(300);
 type Shared = Arc<Mutex<HashMap<String, Unit>>>;
 fn path(name: &str) -> OwnedObjectPath {
     format!(
@@ -94,6 +99,10 @@ impl Manager {
         _auxiliary: Vec<(String, Vec<(String, OwnedValue)>)>,
         #[zbus(connection)] connection: &Connection,
     ) -> zbus::fdo::Result<OwnedObjectPath> {
+        // systemd refuses a transient unit whose name is still loaded.
+        if self.units.lock().await.contains_key(name) {
+            return Err(zbus::fdo::Error::Failed(format!("UnitExists: {name}")));
+        }
         let mut properties: HashMap<_, _> = properties.into_iter().collect();
         let application = properties.contains_key("ExecStartEx");
         let (command, args, env) = if application {
@@ -156,6 +165,7 @@ impl Manager {
             starts: VecDeque::new(),
             retry_at: None,
             restarts: 0,
+            collect_at: None,
         };
         spawn(&mut unit).map_err(|_| zbus::fdo::Error::Failed("spawn".into()))?;
         if let Some(mut old) = self.units.lock().await.insert(name.into(), unit)
@@ -196,12 +206,17 @@ impl Manager {
             unit.child = None;
             unit.state = "inactive".into();
             unit.retry_at = None;
+            unit.collect_at = Some(Instant::now() + COLLECT_DELAY);
         }
         Ok("/org/freedesktop/systemd1/job/1".try_into().unwrap())
     }
     async fn reset_failed_unit(&self, name: &str) -> zbus::fdo::Result<()> {
         if let Some(unit) = self.units.lock().await.get_mut(name) {
             unit.starts.clear();
+            if unit.state == "failed" {
+                unit.state = "inactive".into();
+                unit.collect_at = Some(Instant::now() + COLLECT_DELAY);
+            }
         }
         Ok(())
     }
@@ -306,6 +321,10 @@ async fn main() -> anyhow::Result<()> {
     tokio::spawn(async move {
         loop {
             tokio::time::sleep(Duration::from_millis(100)).await;
+            shared
+                .lock()
+                .await
+                .retain(|_, unit| unit.collect_at.is_none_or(|time| Instant::now() < time));
             for unit in shared.lock().await.values_mut() {
                 if let Some(child) = unit.child.as_mut()
                     && let Some(status) = child.try_wait().ok().flatten()
@@ -324,6 +343,9 @@ async fn main() -> anyhow::Result<()> {
                         "activating"
                     }
                     .into();
+                    if unit.application {
+                        unit.collect_at = Some(Instant::now() + COLLECT_DELAY);
+                    }
                     unit.retry_at = if unit.application {
                         None
                     } else {

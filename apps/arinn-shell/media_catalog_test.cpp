@@ -1182,6 +1182,22 @@ private slots:
              QStringList({QStringLiteral("Seek"), QStringLiteral("Stop")}));
     QTRY_COMPARE(daemon.windowCommands.last(), QStringLiteral("Release"));
     QCOMPARE(daemon.windowCommands.count(QStringLiteral("Present")), 2);
+    // #246: until the daemon reports Home again the shell stays on screen,
+    // and the repeats of a held Back key do not walk into navigation.
+    auto home = window->findChild<QQuickItem *>(QStringLiteral("productionHome"));
+    QVERIFY(home);
+    QCOMPARE(backend.m_home, false);
+    QTest::qWait(300);
+    QVERIFY(window->isVisible());
+    for (int i = 0; i < 5; ++i) {
+      QKeyEvent repeat(QEvent::KeyPress, Qt::Key_Backspace, Qt::NoModifier, QString(), true);
+      QCoreApplication::sendEvent(window, &repeat);
+    }
+    QTest::qWait(200);
+    QCOMPARE(home->property("navOpen").toBool(), false);
+    backend.m_home = true; emit backend.changed();
+    QTRY_VERIFY(window->isVisible());
+    QCOMPARE(home->property("navOpen").toBool(), false);
   }
   void managedWindowResolutionCanBeCancelledWithoutStartingPresentation() {
     MediaDaemon daemon;

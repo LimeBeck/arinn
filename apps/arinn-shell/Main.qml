@@ -14,7 +14,12 @@ import "ui/screens/settings" as Settings
 Window {
     id: root
     width: 1920; height: 1080
-    visibility: (backend.homeVisible || mediaCatalog.inputLayerActive) && !sessionGuard.blocked ? Window.FullScreen : Window.Hidden
+    visibility: (backend.homeVisible || mediaCatalog.inputLayerActive || leavingPlayback) && !sessionGuard.blocked ? Window.FullScreen : Window.Hidden
+    // After Back leaves playback the input layer ends before the daemon
+    // reports Home again; stay on screen in between instead of vanishing
+    // (#246). Cleared by that report, or after a bound.
+    property bool leavingPlayback: false
+    Timer { id: leavingBound; interval: 2000; onTriggered: root.leavingPlayback = false }
     color: playerOpen ? "transparent" : Ui.Theme.background
     title: "Arinn"
     flags: Qt.Window | Qt.FramelessWindowHint
@@ -93,6 +98,7 @@ Window {
         target: backend
         ignoreUnknownSignals: true
         function onChanged() {
+            if (backend.homeVisible) root.leavingPlayback = false;
             if (!mediaCatalog.inputLayerActive) return;
             if (backend.homeVisible) root.showPlaybackHome();
             else if (root.presentationAtHome) {
@@ -315,6 +321,10 @@ Window {
             onSelectSubtitle: trackId => mediaCatalog.selectSubtitle(trackId)
             onStop: mediaCatalog.stop()
             onLeave: {
+                if (mediaCatalog.inputLayerActive) {
+                    root.leavingPlayback = true;
+                    leavingBound.restart();
+                }
                 if (mediaCatalog.sessionState === "ready")
                     mediaCatalog.stop();
                 mediaCatalog.release();

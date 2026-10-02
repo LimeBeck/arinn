@@ -30,6 +30,10 @@ class BrowserCatalog : public QObject {
   Q_PROPERTY(bool returnMatched READ returnMatched NOTIFY currentServiceChanged)
   Q_PROPERTY(QString returnEpoch READ returnEpoch NOTIFY currentServiceChanged)
   Q_PROPERTY(QString returnTarget READ returnTarget NOTIFY currentServiceChanged)
+  // What Home shows for Return. It follows returnMatched/currentService, but
+  // keeps the last match while its evidence is only being re-read (#227).
+  Q_PROPERTY(bool presentedReturn READ presentedReturn NOTIFY presentationChanged)
+  Q_PROPERTY(QVariantMap presentedService READ presentedService NOTIFY presentationChanged)
   Q_PROPERTY(QString retryAction READ retryAction NOTIFY changed)
   Q_PROPERTY(bool opening READ opening NOTIFY changed)
   Q_PROPERTY(QString openingTitle READ openingTitle NOTIFY changed)
@@ -47,6 +51,8 @@ public:
   bool returnMatched() const { return m_returnMatched; }
   QString returnEpoch() const { return m_association.epoch(); }
   QString returnTarget() const { return m_association.target(); }
+  bool presentedReturn() const { return m_presented; }
+  QVariantMap presentedService() const { return m_presentedService; }
   QString retryAction() const { return m_retryAction; }
   bool opening() const { return m_opening; }
   QString openingTitle() const { return m_openingTitle; }
@@ -70,6 +76,7 @@ signals:
   void shortcutsChanged();
   void openShortcutIdsChanged();
   void currentServiceChanged();
+  void presentationChanged();
 
 private:
   struct Catalog;
@@ -126,6 +133,12 @@ private:
   bool m_home = false;
   ReturnAssociation m_association;
   bool m_completeEvidence = false, m_returnMatched = false;
+  void updatePresentation(bool expired = false);
+  void setPresentation(bool presented, const QVariantMap &service);
+  bool m_presented = false;
+  QVariantMap m_presentedService;
+  QString m_presentedTarget, m_presentedEpoch;
+  QTimer m_holdTimer;
   quint64 m_evidenceVersion = 0;
   QString m_returnTarget, m_daemonEpoch, m_snapshotOwner;
   QTimer m_timer;

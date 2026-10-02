@@ -16,6 +16,7 @@
 #include <QTimer>
 #include <QtDBus>
 #include <QtTest>
+#include <QSignalSpy>
 
 struct ReturnWindowWire { QString generation, token; };
 Q_DECLARE_METATYPE(ReturnWindowWire)
@@ -587,6 +588,64 @@ private slots:
     daemon.associationTarget = "{aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa}";
     daemon.notify("org.arinn.Daemon1", "Changed");
     QTRY_VERIFY(!catalog.returnMatched());
+  }
+  // #227: a signal that only triggers a re-read must not flip Home's Return
+  // card to the generic one; a contradiction or a negative read still does.
+  void presentationHoldsOnlyWhileEvidenceIsPending() {
+    auto bus = QDBusConnection::connectToBus(qEnvironmentVariable("DBUS_SESSION_BUS_ADDRESS"), "return-fixture");
+    BrowserDaemon daemon;
+    daemon.associationSupported = daemon.scripted = daemon.homeVisible = true;
+    daemon.returnWindow = "opaque-return";
+    const QString platform = "33333333-3333-4333-8333-333333333333";
+    daemon.associationWindows = {{platform, platform + ":1"}};
+    daemon.scriptedWindows = {{"window", platform + ":1", false}};
+    daemon.scriptedTabs = {{"tab", "window", "Page", "https://test.example/", true, false}};
+    QVERIFY(bus.registerService("org.arinn.Daemon1"));
+    QVERIFY(bus.registerVirtualObject("/org/arinn", &daemon, QDBusConnection::SubPath));
+    BrowserCatalog catalog;
+    QTRY_VERIFY(catalog.presentedReturn());
+    QCOMPARE(catalog.presentedService().value("title").toString(), QString("Page"));
+    QSignalSpy dropped(&catalog, &BrowserCatalog::presentationChanged);
+
+    // A new browser revision: the strict match drops while the read is held,
+    // the presentation does not.
+    daemon.holdTabs = true;
+    daemon.notify("org.arinn.Daemon1", "StateChanged", {QString("browser"), QString("browser"), daemon.providerGeneration, qulonglong(2)});
+    daemon.notify("org.arinn.Daemon1", "Changed");
+    QTRY_VERIFY(!catalog.returnMatched());
+    QTRY_VERIFY(!daemon.heldTabs.isEmpty());
+    QTest::qWait(300);
+    QVERIFY(catalog.presentedReturn());
+    daemon.holdTabs = false;
+    daemon.releaseTabs();
+    QTRY_VERIFY(catalog.returnMatched());
+    QVERIFY(catalog.presentedReturn());
+    QCOMPARE(dropped.count(), 0);
+
+    // A read that stays pending longer than the hold drops it.
+    daemon.holdTabs = true;
+    daemon.notify("org.arinn.Daemon1", "StateChanged", {QString("browser"), QString("browser"), daemon.providerGeneration, qulonglong(3)});
+    QTRY_VERIFY(!catalog.returnMatched());
+    QTRY_VERIFY_WITH_TIMEOUT(!catalog.presentedReturn(), 3000);
+    daemon.holdTabs = false;
+    daemon.releaseTabs();
+    QTRY_VERIFY(catalog.presentedReturn());
+
+    // A completed negative association read drops it at once.
+    daemon.associationWindows.clear();
+    ++daemon.associationRevision;
+    daemon.notify("org.arinn.ReturnAssociation1", "Changed", {daemon.daemonEpoch, daemon.associationRevision});
+    QTRY_VERIFY_WITH_TIMEOUT(!catalog.presentedReturn(), 1000);
+    QVERIFY(catalog.presentedService().isEmpty());
+
+    // So does Home being hidden.
+    daemon.associationWindows = {{platform, platform + ":1"}};
+    ++daemon.associationRevision;
+    daemon.notify("org.arinn.ReturnAssociation1", "Changed", {daemon.daemonEpoch, daemon.associationRevision});
+    QTRY_VERIFY(catalog.presentedReturn());
+    daemon.homeVisible = false;
+    daemon.notify("org.arinn.Daemon1", "Changed");
+    QTRY_VERIFY_WITH_TIMEOUT(!catalog.presentedReturn(), 1000);
   }
   void associationDropsDelayedReadsAcrossRevisionAndOwnerChanges() {
     auto bus = QDBusConnection::connectToBus(qEnvironmentVariable("DBUS_SESSION_BUS_ADDRESS"), "return-fixture");

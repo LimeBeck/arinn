@@ -458,6 +458,11 @@ impl Core {
             &source.subtitle_language,
         );
         self.load_fault = None;
+        // A stopped player closes its idle window; open it again for the new
+        // file so it is ready to present (#236).
+        let _ = self
+            .request(json!(["set_property", "force-window", true]), incoming)
+            .await;
         let modern = self
             .request(parse::loadfile(path, &options, true), incoming)
             .await?;
@@ -479,6 +484,7 @@ impl Core {
         }
         if !self.file_loaded {
             let _ = self.request(json!(["stop"]), incoming).await;
+            self.close_idle_window(incoming).await;
             return Err(ErrorCode::Unavailable);
         }
         Ok(())
@@ -626,6 +632,9 @@ impl Core {
         };
         let reply = self.request(command, incoming).await?;
         ipc::map_error(&reply.error)?;
+        if action == MediaAction::Stop {
+            self.close_idle_window(incoming).await;
+        }
         if let Some(live) = self.live.as_mut() {
             match action {
                 MediaAction::Seek => {
@@ -909,6 +918,15 @@ impl Core {
         }
         self.force_anchor = true;
         self.sync();
+    }
+
+    /// The player stays running between files (`--idle`), but an empty
+    /// window must not stay on the desktop after playback stops (#236).
+    /// Best effort: the stop itself already succeeded.
+    async fn close_idle_window(&mut self, incoming: &mut mpsc::UnboundedReceiver<Incoming>) {
+        let _ = self
+            .request(json!(["set_property", "force-window", false]), incoming)
+            .await;
     }
 
     fn drop_client(&mut self) {

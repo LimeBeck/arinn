@@ -1,0 +1,1 @@
+- Leaving playback no longer leaves an empty mpv window on the desktop: a stopped player closes its idle window and shows it again for the next film.

@@ -579,6 +579,53 @@ async fn open_reports_anchors_tracks_chapters_and_hides_paths() {
 }
 
 #[tokio::test]
+async fn stop_closes_the_idle_window_and_open_restores_it() {
+    let dir = std::env::temp_dir().join(format!("arinn-mpv-{}", uuid::Uuid::new_v4()));
+    let peer = Peer::spawn(dir.clone(), true, false).await;
+    let player = player(&dir, peer.socket());
+    let id = player.open(source(&dir)).await.unwrap();
+    player.control(MediaAction::Stop, id, 0).await.unwrap();
+    let window = |value: bool| json!(["set_property", "force-window", value]);
+    let commands: Vec<Value> = peer
+        .commands()
+        .await
+        .into_iter()
+        .filter_map(|message| message.get("command").cloned())
+        .collect();
+    let stop = commands.iter().position(|c| c == &json!(["stop"])).unwrap();
+    assert!(
+        commands[stop..].contains(&window(false)),
+        "a stopped player closes its idle window"
+    );
+    let load = commands
+        .iter()
+        .position(|c| c.get(0) == Some(&json!("loadfile")))
+        .unwrap();
+    assert!(
+        commands[..load].contains(&window(true)),
+        "the window is enabled before a file loads"
+    );
+    player.open(source(&dir)).await.unwrap();
+    let commands: Vec<Value> = peer
+        .commands()
+        .await
+        .into_iter()
+        .filter_map(|message| message.get("command").cloned())
+        .collect();
+    let last_hide = commands.iter().rposition(|c| c == &window(false)).unwrap();
+    let reload = commands
+        .iter()
+        .rposition(|c| c.get(0) == Some(&json!("loadfile")))
+        .unwrap();
+    assert!(
+        commands[last_hide..reload].contains(&window(true)),
+        "the next open shows the window again"
+    );
+    drop(peer);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
 async fn thumbnail_without_video_or_ffmpeg_is_unsupported_and_does_not_seek() {
     let dir = std::env::temp_dir().join(format!("arinn-mpv-{}", uuid::Uuid::new_v4()));
     let peer = Peer::spawn(dir.clone(), false, false).await;

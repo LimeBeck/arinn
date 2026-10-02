@@ -23,6 +23,8 @@ function fixture(options = {}) {
         const w = { internalId: uuid, resourceClass: klass, normalWindow: true,
             output, fullScreen: true, desktopFileName: klass === 'org.arinn.Shell' ? klass : 'org.test',
             wantsInput: true, closeable: true, closed: 0, closeWindow() { this.closed++; },
+            nativeType: "KWin::X11Window", toString() { return this.nativeType + "(0x1)"; },
+            onAllDesktops: false, windowClassChanged: signal(),
             outputChanged: signal(), fullScreenChanged: signal() };
         for (const name of ['keepAbove', 'minimized']) {
             Object.defineProperty(w, name, {
@@ -39,7 +41,8 @@ function fixture(options = {}) {
     const activity = window('original-id', 'game');
     const home = window('shell-id', 'org.arinn.Shell');
     let windows = [activity, home];
-    let shortcut, takeCommand, report, tick, control;
+    let shortcut, takeCommand, report, tick, control, mediaControl;
+    const mediaReports = [], mediaAcks = [];
     const shortcuts = [];
     let locked = false, generation = randomUUID(), stage = [];
     let deferLock = false, deferHome = false;
@@ -63,8 +66,15 @@ function fixture(options = {}) {
         print: () => {},
         callDBus: (_service, _path, _interface, method, ...args) => {
             if (method === 'Introspect') {
-                const reply = () => args[0](options.unsupported ? '<node/>' : '<node><interface name="org.arinn.KWinReturn1"/></node>');
+                const reply = () => args[0](options.unsupported ? '<node/>' : '<node><interface name="org.arinn.KWinReturn1"/>' + (options.managed ? '<interface name="org.arinn.KWinMedia1"/>' : '') + '</node>');
                 if (options.deferDiscovery) discoveryReplies.push(reply); else reply();
+            }
+            if (_interface === 'org.arinn.KWinMedia1') {
+                const callback = args.at(-1);
+                if (method === 'Report') { mediaReports.push(args.slice(0, 4)); callback(); }
+                if (method === 'NextControl') mediaControl = callback;
+                if (method === 'CompleteControl') { mediaAcks.push(args.slice(0, 3)); callback(); }
+                return;
             }
             if (_interface === 'org.arinn.KWinReturn1') {
                 assert.equal(method, 'Report');
@@ -104,7 +114,9 @@ function fixture(options = {}) {
             }
         } });
     vm.runInContext(fs.readFileSync(path.join(__dirname, '../../platform/kde/phase0.js'), 'utf8'), context);
-    return { activity, home, workspace, window, polls, snapshots, acknowledgements, controls, trace,
+    return { activity, home, workspace, window, polls, snapshots, acknowledgements, controls, trace, mediaReports, mediaAcks,
+        media(action, token) { mediaControl([randomUUID(), action, token]); },
+        mediaIdle() { mediaControl([]); },
         advance(ms) { now += ms; },
         refresh() { tick(); }, lock(value) { locked = value; },
         command(action, token) { control([randomUUID(), action, token]); },
@@ -467,4 +479,94 @@ test('ADR-0073: unacknowledged reports recover at a bounded rate using fresh evi
     g.refresh();
     stale.reply();
     assert.equal(g.returnReports.at(-1).token, '', 'timeout recomputes instead of replaying the removed token');
+});
+
+function managedFixture() {
+    const f = fixture({ managed: true });
+    const launch = randomUUID();
+    f.activity.nativeType = 'KWin::XdgToplevelWindow';
+    f.activity.resourceClass = 'org.arinn.Playback.' + launch;
+    f.activity.fullScreen = false;
+    f.activity.windowClassChanged.emit();
+    f.refresh();
+    return { f, launch, token: f.snapshots.at(-1).rows[0][0] };
+}
+test('managed media reports exact native identity and empty identities for ordinary windows', () => {
+    const {f, launch, token} = managedFixture();
+    assert.ok(f.mediaReports.some(row => row[2] === token && row[3] === launch));
+    f.activity.nativeType = 'KWin::X11Window';
+    f.activity.windowClassChanged.emit();
+    f.refresh();
+    assert.equal(f.mediaReports.at(-1)[3], '');
+});
+test('managed Present keeps the shell focused over fullscreen video; Home and Return preserve the same window', () => {
+    const {f, token} = managedFixture();
+    f.media('present', token);
+    assert.equal(f.workspace.activeWindow, f.home);
+    assert.equal(f.home.keepAbove, true);
+    assert.equal(f.activity.fullScreen, true);
+    assert.equal(f.report()[0], false);
+    f.show();
+    assert.equal(f.report()[0], true);
+    f.back();
+    assert.equal(f.workspace.activeWindow, f.home);
+    assert.equal(f.report()[0], false);
+    assert.equal(f.activity.closed, 0);
+    f.refresh();
+    f.media('release', token);
+    assert.equal(f.home.keepAbove, true, 'ordinary Home owns the shell layer after Release');
+    assert.equal(f.home.onAllDesktops, true);
+    assert.equal(f.activity.fullScreen, false);
+    assert.equal(f.mediaAcks.at(-1)[2], '');
+});
+test('unrelated focus releases managed flags without stealing focus', () => {
+    const {f, token} = managedFixture();
+    f.media('present', token);
+    const other = f.window('other', 'editor'); f.add(other);
+    f.workspace.activeWindow = other;
+    f.workspace.windowActivated.emit(other);
+    assert.equal(f.workspace.activeWindow, other);
+    assert.equal(f.home.keepAbove, false);
+    assert.equal(f.activity.fullScreen, false);
+});
+test('lock and late guard responses cannot present managed video', () => {
+    const {f, token} = managedFixture();
+    f.lock(true); f.media('present', token);
+    assert.equal(f.home.keepAbove, false);
+    assert.equal(f.mediaAcks.at(-1)[2], 'PermissionDenied');
+    f.refresh(); f.lock(false); f.deferLock(); f.media('present', token);
+    f.advance(1001); f.lockReplies.at(-1)(false);
+    assert.equal(f.home.keepAbove, false);
+    assert.equal(f.mediaAcks.at(-1)[2], 'Timeout');
+});
+test('window disappearance and daemon replacement restore managed flags', () => {
+    const {f, token} = managedFixture();
+    f.media('present', token); f.remove(f.activity);
+    assert.equal(f.home.keepAbove, false);
+    const next = managedFixture(); next.f.media('present', next.token); next.f.reconnect(':1.99');
+    assert.equal(next.f.home.keepAbove, false);
+    assert.equal(next.f.activity.fullScreen, false);
+});
+
+test('missing lock callback tears down managed flags after the bounded unknown-state interval', () => {
+    const {f, token} = managedFixture();
+    f.media('present', token); f.deferLock(); f.refresh();
+    assert.equal(f.home.keepAbove, true);
+    f.mediaIdle(); f.advance(1001); f.refresh();
+    assert.equal(f.home.keepAbove, false);
+    assert.equal(f.activity.fullScreen, false);
+    f.lockReplies.at(-1)(false);
+    assert.equal(f.home.keepAbove, false, 'late guard cannot revive the layer');
+});
+
+test('unrelated focus from playback Home and explicit video focus relinquish the layer', () => {
+    for (const fromHome of [false, true]) {
+        const {f, token} = managedFixture(); f.media('present', token);
+        if (fromHome) f.show();
+        const selected = fromHome ? f.window('other-home', 'editor') : f.activity;
+        if (fromHome) f.add(selected);
+        f.workspace.activeWindow = selected; f.workspace.windowActivated.emit(selected);
+        assert.equal(f.workspace.activeWindow, selected);
+        assert.equal(f.home.keepAbove, false);
+    }
 });

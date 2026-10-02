@@ -80,7 +80,8 @@ QStringList knownFeatures(const QStringList &reported) {
   QStringList kept;
   for (const auto &flag : {QStringLiteral("MediaOpen1"),
                            QStringLiteral("MediaTracks1"),
-                           QStringLiteral("MediaTimeline1")}) {
+                           QStringLiteral("MediaTimeline1"),
+                           QStringLiteral("MediaWindow1")}) {
     if (reported.contains(flag))
       kept.append(flag);
   }
@@ -121,8 +122,13 @@ struct MediaCatalog::Catalog {
 
 MediaCatalog::MediaCatalog(QObject *parent) : QObject(parent) {
   auto bus = QDBusConnection::sessionBus();
+  bus.connect(service, QString(), "org.arinn.MediaWindow1", "Changed", this,
+              SLOT(windowChanged(QString)));
+  bus.connect(service, path, service, "HomeRequested", this,
+              SLOT(homeRequested(QString, QString, QString)));
   bus.connect(service, path, service, "Changed", this, SLOT(refresh()));
-  bus.connect(service, path, service, "ProvidersChanged", this, SLOT(refresh()));
+  bus.connect(service, path, service, "ProvidersChanged", this,
+              SLOT(refresh()));
   bus.connect(service, path, service, "StateChanged", this, SLOT(refresh()));
   auto watcher = new QDBusServiceWatcher(
       service, bus, QDBusServiceWatcher::WatchForOwnerChange, this);
@@ -131,6 +137,11 @@ MediaCatalog::MediaCatalog(QObject *parent) : QObject(parent) {
             ++m_epoch;
             ++m_commandTicket;
             m_connected = false;
+            abandonPresentation();
+            m_presentRow = {};
+            m_releaseRow = {};
+            m_daemonEpoch.clear();
+            m_daemonOwner.clear();
             m_loaded = false;
             m_snapshotError = false;
             m_sessions.clear();
@@ -212,7 +223,8 @@ bool MediaCatalog::featureOn(const QString &flag) const {
 bool MediaCatalog::playerSession() const {
   return featureOn(QStringLiteral("MediaOpen1")) ||
          featureOn(QStringLiteral("MediaTracks1")) ||
-         featureOn(QStringLiteral("MediaTimeline1"));
+         featureOn(QStringLiteral("MediaTimeline1")) ||
+         featureOn(QStringLiteral("MediaWindow1"));
 }
 bool MediaCatalog::tracksAvailable() const {
   return featureOn(QStringLiteral("MediaTracks1"));
@@ -323,6 +335,8 @@ qint64 MediaCatalog::displayedPosition(const SessionRow &row) {
 void MediaCatalog::select(const QString &id) {
   if (m_explicitId == id)
     return;
+  if (!m_presentRow.id.isEmpty() && m_presentRow.id != id)
+    release();
   m_explicitId = id;
   publish();
 }
@@ -388,15 +402,24 @@ void MediaCatalog::syncClock() {
   }
 }
 void MediaCatalog::publish() {
+  if (const auto *row = findId(m_releaseRow.id);
+      row && row->generation != m_releaseRow.generation)
+    m_releaseRow = {};
+  if (inputLayerActive()) {
+    const auto *row = findId(m_presentRow.id);
+    if (!m_connected || !row || row->generation != m_presentRow.generation ||
+        row->state == QLatin1String("stopped"))
+      abandonPresentation();
+  }
   QVariantList entries;
   entries.reserve(m_sessions.size());
   for (const auto &row : m_sessions) {
-    QVariantMap entry{{QStringLiteral("id"), row.id},
-                      {QStringLiteral("title"), row.title},
-                      {QStringLiteral("subtitle"), row.subtitle},
-                      {QStringLiteral("kind"), QStringLiteral("media")},
-                      {QStringLiteral("running"),
-                       row.state == QLatin1String("playing")}};
+    QVariantMap entry{
+        {QStringLiteral("id"), row.id},
+        {QStringLiteral("title"), row.title},
+        {QStringLiteral("subtitle"), row.subtitle},
+        {QStringLiteral("kind"), QStringLiteral("media")},
+        {QStringLiteral("running"), row.state == QLatin1String("playing")}};
     const auto artwork = AssetImages::imageUrl(row.providerId, row.path,
                                                row.generation, row.artworkId);
     if (!artwork.isEmpty())
@@ -421,12 +444,42 @@ void MediaCatalog::refresh() {
   m_refreshing = true;
   m_dirty = false;
   const auto epoch = m_epoch;
-  auto pending = new QDBusPendingCallWatcher(
-      QDBusConnection::sessionBus().asyncCall(daemonCall(service, "Status"),
-                                              3000),
-      this);
-  connect(pending, &QDBusPendingCallWatcher::finished, this,
+  auto ownerCall = QDBusMessage::createMethodCall(
+      "org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus",
+      "GetNameOwner");
+  ownerCall << QString::fromLatin1(service);
+  auto ownerPending = new QDBusPendingCallWatcher(
+      QDBusConnection::sessionBus().asyncCall(ownerCall, 3000), this);
+  connect(ownerPending, &QDBusPendingCallWatcher::finished, this,
           [this, epoch](auto *call) {
+            const auto reply = call->reply();
+            call->deleteLater();
+            if (epoch != m_epoch) {
+              m_refreshing = false;
+              refresh();
+              return;
+            }
+            if (reply.type() == QDBusMessage::ErrorMessage ||
+                reply.signature() != "s" || reply.arguments().isEmpty()) {
+              m_refreshing = false;
+              m_connected = false;
+              m_loaded = false;
+              m_sessions.clear();
+              publish();
+              if (m_dirty)
+                refresh();
+              return;
+            }
+            refreshStatus(reply.arguments().first().toString(), epoch);
+          });
+}
+void MediaCatalog::refreshStatus(const QString &owner, quint64 epoch) {
+  auto statusCall =
+      QDBusMessage::createMethodCall(owner, path, service, "Status");
+  auto pending = new QDBusPendingCallWatcher(
+      QDBusConnection::sessionBus().asyncCall(statusCall, 3000), this);
+  connect(pending, &QDBusPendingCallWatcher::finished, this,
+          [this, owner, epoch](auto *call) {
             const auto reply = call->reply();
             call->deleteLater();
             if (epoch != m_epoch) {
@@ -447,6 +500,12 @@ void MediaCatalog::refresh() {
                 refresh();
               return;
             }
+            const auto status =
+                qvariant_cast<QDBusArgument>(reply.arguments().at(0));
+            status.beginStructure();
+            status >> m_daemonEpoch;
+            status.endStructure();
+            m_daemonOwner = owner;
             m_connected = true;
             auto catalog = std::make_shared<Catalog>();
             catalog->epoch = epoch;
@@ -1204,7 +1263,8 @@ void MediaCatalog::watchThumbnail(const QString &objectPath, quint64 ticket,
             auto pending = new QDBusPendingCallWatcher(
                 QDBusConnection::sessionBus().asyncCall(msg, 3000), this);
             connect(pending, &QDBusPendingCallWatcher::finished, this,
-                    [this, timer, ticket, epoch, positionUs, deadline](auto *call) {
+                    [this, timer, ticket, epoch, positionUs,
+                     deadline](auto *call) {
                       const auto reply = call->reply();
                       call->deleteLater();
                       if (ticket != m_thumbnailTicket || epoch != m_epoch) {
@@ -1270,4 +1330,305 @@ void MediaCatalog::watchThumbnail(const QString &objectPath, quint64 ticket,
                     });
           });
   timer->start();
+}
+
+bool MediaCatalog::windowAvailable() const {
+  return featureOn(QStringLiteral("MediaWindow1"));
+}
+void MediaCatalog::setPresentation(const QString &state) {
+  if (m_presentation == state)
+    return;
+  m_presentation = state;
+  emit presentationChanged();
+}
+void MediaCatalog::abandonPresentation() {
+  const auto row = m_presentRow;
+  const auto ticket = ++m_presentationTicket;
+  m_presentRow = {};
+  m_windowCheckInFlight = false;
+  setPresentation({});
+  if (m_connected && !row.path.isEmpty()) {
+    m_releaseRow = row;
+    m_releaseEpoch = m_epoch;
+    windowCommand(row, false, ticket, m_epoch);
+  }
+}
+void MediaCatalog::homeRequested(const QString &epoch, const QString &,
+                                 const QString &) {
+  if (m_connected && epoch == m_daemonEpoch)
+    emit presentationHomeRequested();
+}
+void MediaCatalog::requestHome() {
+  if (!m_connected || m_daemonOwner.isEmpty())
+    return;
+  auto msg =
+      QDBusMessage::createMethodCall(m_daemonOwner, path, service, "Home");
+  QDBusConnection::sessionBus().asyncCall(msg, 3000);
+}
+void MediaCatalog::present() {
+  const auto *row = selected();
+  if (!row || !windowAvailable())
+    return;
+  if (inputLayerActive() && m_presentRow.id == row->id &&
+      m_presentRow.generation == row->generation)
+    return;
+  // A new explicit intent supersedes retry state for the previous scope.
+  m_releaseRow = {};
+  m_presentRow = *row;
+  m_windowCheckInFlight = false;
+  const auto ticket = ++m_presentationTicket;
+  setPresentation(QStringLiteral("pending"));
+  resolveWindow(*row, ticket, m_epoch, monotonicUs() + 5000000);
+}
+void MediaCatalog::resolveWindow(SessionRow row, quint64 ticket, quint64 epoch,
+                                 quint64 deadline) {
+  if (ticket != m_presentationTicket || epoch != m_epoch)
+    return;
+  if (monotonicUs() >= deadline) { setPresentation(QStringLiteral("Timeout")); return; }
+  auto msg = QDBusMessage::createMethodCall(
+      m_daemonOwner, row.path, "org.arinn.MediaWindow1", "GetWindow");
+  msg << row.generation << row.localId;
+  auto pending = new QDBusPendingCallWatcher(
+      QDBusConnection::sessionBus().asyncCall(msg, 3000), this);
+  connect(pending, &QDBusPendingCallWatcher::finished, this,
+          [this, row, ticket, epoch, deadline](auto *call) {
+            const auto reply = call->reply();
+            call->deleteLater();
+            if (ticket != m_presentationTicket || epoch != m_epoch)
+              return;
+            if (monotonicUs() >= deadline) {
+              setPresentation(QStringLiteral("Timeout"));
+              return;
+            }
+            bool found = false;
+            if (reply.type() != QDBusMessage::ErrorMessage &&
+                reply.signature() == "a(ss)" && !reply.arguments().isEmpty()) {
+              const auto arg =
+                  qvariant_cast<QDBusArgument>(reply.arguments().first());
+              arg.beginArray();
+              if (!arg.atEnd()) {
+                QString generation, token;
+                arg.beginStructure();
+                arg >> generation >> token;
+                arg.endStructure();
+                found = !generation.isEmpty() && !token.isEmpty();
+                if (found) { m_windowGeneration = generation; m_windowToken = token; }
+              }
+              arg.endArray();
+            }
+            if (found) {
+              windowCommand(row, true, ticket, epoch);
+              return;
+            }
+            if (monotonicUs() >= deadline) {
+              setPresentation(QStringLiteral("Unavailable"));
+              return;
+            }
+            QTimer::singleShot(150, this, [this, row, ticket, epoch, deadline] {
+              resolveWindow(row, ticket, epoch, deadline);
+            });
+          });
+}
+void MediaCatalog::release() {
+  const auto row = !m_presentRow.path.isEmpty() ? m_presentRow
+      : (m_releaseEpoch == m_epoch ? m_releaseRow : SessionRow{});
+  const auto ticket = ++m_presentationTicket;
+  setPresentation({});
+  m_presentRow = {};
+  m_windowCheckInFlight = false;
+  if (m_connected && !row.path.isEmpty()) {
+    m_releaseRow = row;
+    m_releaseEpoch = m_epoch;
+    windowCommand(row, false, ticket, m_epoch);
+  }
+}
+void MediaCatalog::failRelease() {
+  if (!m_releaseRow.path.isEmpty() && m_releaseEpoch == m_epoch &&
+      (m_presentation.isEmpty() || m_presentation == QLatin1String("ReleaseFailed")))
+    setPresentation(QStringLiteral("ReleaseFailed"));
+}
+void MediaCatalog::windowCommand(const SessionRow &row, bool presenting,
+                                 quint64 ticket, quint64 epoch, bool detachedRelease) {
+  auto msg = QDBusMessage::createMethodCall(m_daemonOwner, row.path,
+                                            "org.arinn.MediaWindow1",
+                                            presenting ? "Present" : "Release");
+  msg << row.generation << row.localId
+      << QUuid::createUuid().toString(QUuid::WithoutBraces);
+  auto pending = new QDBusPendingCallWatcher(
+      QDBusConnection::sessionBus().asyncCall(msg, 3000), this);
+  connect(
+      pending, &QDBusPendingCallWatcher::finished, this,
+      [this, row, presenting, ticket, epoch, detachedRelease](auto *call) {
+        const auto reply = call->reply();
+        call->deleteLater();
+        if (epoch != m_epoch)
+          return;
+        if (ticket != m_presentationTicket) {
+          // Admission may have completed after Back. Fence that exact session;
+          // never release a newer presentation of the same session.
+          if (presenting && m_presentRow.id != row.id)
+            windowCommand(row, false, m_presentationTicket, epoch, true);
+          return;
+        }
+        if (reply.type() == QDBusMessage::ErrorMessage ||
+            reply.signature() != "o" || reply.arguments().isEmpty()) {
+          if (presenting)
+            failPresentation(reply.type() == QDBusMessage::ErrorMessage
+                                ? errorCode(reply)
+                                : QStringLiteral("Unavailable"));
+          else if (!detachedRelease) failRelease();
+          return;
+        }
+        // Cleanup for an obsolete admission is independent of the current
+        // session's acknowledged Release and retry bookkeeping.
+        if (detachedRelease)
+          return;
+        watchWindowOperation(
+            qvariant_cast<QDBusObjectPath>(reply.arguments().first()).path(),
+            presenting, ticket, epoch, monotonicUs() + 6000000);
+      });
+}
+void MediaCatalog::watchWindowOperation(const QString &objectPath,
+                                        bool presenting, quint64 ticket,
+                                        quint64 epoch, quint64 deadline) {
+  if (ticket != m_presentationTicket || epoch != m_epoch)
+    return;
+  if (monotonicUs() >= deadline) {
+    if (presenting)
+      failPresentation(QStringLiteral("Timeout"));
+    else failRelease();
+    return;
+  }
+  auto msg = QDBusMessage::createMethodCall(m_daemonOwner, objectPath,
+                                            "org.arinn.Operation1", "Get");
+  auto pending = new QDBusPendingCallWatcher(
+      QDBusConnection::sessionBus().asyncCall(msg, 3000), this);
+  connect(pending, &QDBusPendingCallWatcher::finished, this,
+          [this, objectPath, presenting, ticket, epoch, deadline](auto *call) {
+            const auto reply = call->reply();
+            call->deleteLater();
+            if (ticket != m_presentationTicket || epoch != m_epoch)
+              return;
+            if (monotonicUs() >= deadline) {
+              if (presenting)
+                failPresentation(QStringLiteral("Timeout"));
+              else failRelease();
+              return;
+            }
+            if (reply.type() == QDBusMessage::ErrorMessage ||
+                reply.signature() != "(ssbtta(sss)b)" ||
+                reply.arguments().isEmpty()) {
+              if (presenting)
+                failPresentation(QStringLiteral("Unavailable"));
+              else failRelease();
+              return;
+            }
+            const auto arg =
+                qvariant_cast<QDBusArgument>(reply.arguments().first());
+            QString state, error;
+            bool retryable, cancellable;
+            qulonglong started, ended;
+            arg.beginStructure();
+            arg >> state >> error >> retryable >> started >> ended;
+            arg.beginArray();
+            while (!arg.atEnd()) {
+              QString provider, capability, entity;
+              arg.beginStructure();
+              arg >> provider >> capability >> entity;
+              arg.endStructure();
+            }
+            arg.endArray();
+            arg >> cancellable;
+            arg.endStructure();
+            if (state == QLatin1String("queued") ||
+                state == QLatin1String("running")) {
+              QTimer::singleShot(
+                  100, this,
+                  [this, objectPath, presenting, ticket, epoch, deadline] {
+                    watchWindowOperation(objectPath, presenting, ticket, epoch,
+                                         deadline);
+                  });
+            } else if (presenting) {
+              if (state == QLatin1String("succeeded")) setPresentation(QStringLiteral("active"));
+              else failPresentation(error.isEmpty() ? state : error);
+              if (m_presentation == QLatin1String("active"))
+                checkPresentedWindow(ticket, epoch, monotonicUs() + 1000000);
+            } else if (state == QLatin1String("succeeded")) {
+              m_releaseRow = {};
+            } else {
+              failRelease();
+            }
+          });
+}
+
+void MediaCatalog::windowChanged(const QString &generation) {
+  if (m_presentation == QLatin1String("active") &&
+      generation == m_presentRow.generation)
+    checkPresentedWindow(m_presentationTicket, m_epoch,
+                         monotonicUs() + 1000000);
+}
+void MediaCatalog::checkPresentedWindow(quint64 ticket, quint64 epoch,
+                                        quint64 deadline) {
+  if (ticket != m_presentationTicket || epoch != m_epoch ||
+      m_presentation != QLatin1String("active"))
+    return;
+  if (monotonicUs() >= deadline) { abandonPresentation(); return; }
+  if (m_windowCheckInFlight)
+    return;
+  m_windowCheckInFlight = true;
+  const auto row = m_presentRow;
+  auto msg = QDBusMessage::createMethodCall(
+      m_daemonOwner, row.path, "org.arinn.MediaWindow1", "GetWindow");
+  msg << row.generation << row.localId;
+  auto pending = new QDBusPendingCallWatcher(
+      QDBusConnection::sessionBus().asyncCall(msg, 1000), this);
+  connect(pending, &QDBusPendingCallWatcher::finished, this,
+          [this, ticket, epoch, deadline](auto *call) {
+            const auto reply = call->reply();
+            call->deleteLater();
+            if (ticket != m_presentationTicket || epoch != m_epoch ||
+                m_presentation != QLatin1String("active"))
+              return;
+            m_windowCheckInFlight = false;
+            if (monotonicUs() >= deadline) { abandonPresentation(); return; }
+            if (reply.type() == QDBusMessage::ErrorMessage) {
+              // A field-only inventory commit briefly closes the report
+              // barrier.
+              if (monotonicUs() < deadline &&
+                  errorCode(reply) == QLatin1String("Unavailable")) {
+                QTimer::singleShot(100, this, [this, ticket, epoch, deadline] {
+                  checkPresentedWindow(ticket, epoch, deadline);
+                });
+                return;
+              }
+              abandonPresentation();
+              return;
+            }
+            if (reply.signature() != "a(ss)" || reply.arguments().isEmpty()) {
+              abandonPresentation();
+              return;
+            }
+            const auto arg =
+                qvariant_cast<QDBusArgument>(reply.arguments().first());
+            arg.beginArray();
+            bool matches = false;
+            if (!arg.atEnd()) {
+              QString generation, token;
+              arg.beginStructure();
+              arg >> generation >> token;
+              arg.endStructure();
+              matches =
+                  generation == m_windowGeneration && token == m_windowToken;
+            }
+            arg.endArray();
+            if (!matches)
+              abandonPresentation();
+          });
+}
+
+void MediaCatalog::failPresentation(const QString &state) {
+  // The compositor may have acted before the operation read failed. Fence and
+  // teardown the remembered scope even when its outcome is now unknown.
+  release();
+  setPresentation(state);
 }

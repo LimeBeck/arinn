@@ -18,6 +18,13 @@ let detachedTarget = "";
 let homeVisible = false;
 let homeOutput = "";
 let daemonOwner = "";
+let mediaSupported = false;
+let playbackGuardAt = 0, playbackGuardSerial = 0;
+let mediaSerial = 0;
+let mediaControllingAt = 0;
+let mediaReportingAt = 0;
+let lastMediaReport = "";
+let playback = null;
 let pollSerial = 0;
 let pollStarted = 0;
 let ownerProbe = 0;
@@ -49,6 +56,9 @@ function discoverReturn(owner) {
     callDBus(owner, path, "org.freedesktop.DBus.Introspectable", "Introspect", xml => {
         if (owner !== daemonOwner) return;
         returnSupported = typeof xml === "string" && /<interface\s+name=["']org\.arinn\.KWinReturn1["']/.test(xml);
+        mediaSupported = typeof xml === "string" && /<interface\s+name=["']org\.arinn\.KWinMedia1["']/.test(xml);
+        publishMedia();
+        pollMediaControl();
         publishReturn();
     });
 }
@@ -101,10 +111,10 @@ function showHome() {
         const active = workspace.activeWindow;
         if (!homeVisible) {
             detachedTarget = "";
-            returnObject = active && !isShell(active) && active.normalWindow ? active : null;
+            returnObject = playback ? playback.window : (active && !isShell(active) && active.normalWindow ? active : null);
             target = id(returnObject);
         }
-        if (!homeVisible) homeOutput = active && !isShell(active) && active.output ? active.output.name : workspace.activeScreen.name;
+        if (!homeVisible) homeOutput = returnObject && returnObject.output ? returnObject.output.name : workspace.activeScreen.name;
         homeVisible = true;
         // Pin a transient request to its daemon owner; reconnect only restores
         // state through ReportHome and must never replay presentation intent.
@@ -114,6 +124,7 @@ function showHome() {
 // Give the Activity the screen before the shell stops covering it. Clearing
 // keepAbove first leaves a frame where neither surface covers the panel (#79).
 function handOff(w) {
+    if (playback) releasePlayback(false);
     w.minimized = false;
     workspace.activeWindow = w;
     const home = shell();
@@ -127,10 +138,18 @@ function returnToActivity() {
     if (!homeVisible) return;
     const w = workspace.windowList().find(w => id(w) === (target || detachedTarget));
     if (!w) { target = ""; reportHome(false); return; }
-    handOff(w);
-    reportHome(false);
+    if (playback && playback.window === w) {
+        const saved = playback, owner = daemonOwner, serial = mediaSerial, home = homeSerial, at = Date.now();
+        callDBus("org.freedesktop.ScreenSaver", "/ScreenSaver", "org.freedesktop.ScreenSaver", "GetActive", locked => {
+            if (locked !== false || owner !== daemonOwner || serial !== mediaSerial || playback !== saved || home !== homeSerial || !homeVisible || Date.now() - at >= 1000) return;
+            if (!workspace.windowList().includes(w) || launchId(w) !== saved.launch) return;
+            presentPlayback(w);
+            reportHome(false);
+        });
+    } else { handOff(w); reportHome(false); }
 }
 function dismissHome() {
+    if (playback) releasePlayback(false);
     // A launched application replaces Home: hide it without activating the
     // previous Activity; the new window takes focus as it maps.
     if (!homeVisible) return;
@@ -167,6 +186,7 @@ function checkDaemon() {
             daemonOwner = "";
             homeAcknowledged = false;
             returnSupported = false;
+            mediaSupported = false;
             ++homeSerial;
             resetInventory();
             ++pollSerial;
@@ -201,14 +221,27 @@ function watchWindow(w) {
         detachedTarget = "";
         reportHome(false);
     }
-    w.outputChanged.connect(() => { if (workspace.activeWindow === w) report(w); });
+    w.outputChanged.connect(() => {
+        if (workspace.activeWindow === w) report(w);
+        if (playback && playback.window === w && !homeVisible && workspace.activeWindow === shell()) {
+            const home = shell(); if (home && w.output && home.output !== w.output) workspace.sendClientToScreen(home, w.output);
+        }
+    });
+    if (w.windowClassChanged) w.windowClassChanged.connect(() => {
+        if (playback && playback.window === w && launchId(w) !== playback.launch) releasePlayback(false);
+        publishMedia();
+    });
     w.fullScreenChanged.connect(() => { if (workspace.activeWindow === w) report(w); });
     if (isShell(w)) raiseShell();
 }
 workspace.windowList().forEach(watchWindow);
 workspace.windowAdded.connect(watchWindow);
-workspace.windowActivated.connect(report);
+workspace.windowActivated.connect(w => {
+    report(w);
+    if (playback && w && !isShell(w)) releasePlayback(false);
+});
 workspace.windowRemoved.connect(w => {
+    if (playback && (playback.window === w || playback.shell === w)) releasePlayback(false);
     windowTokens.delete(w);
     if (id(w) === target) { detachedTarget = target; target = ""; if (homeVisible) reportHome(false); }
 });
@@ -234,6 +267,10 @@ function uuid() {
 }
 function bridge(method, ...args) { callDBus(inventoryOwner, path, "org.arinn.KWinBridge1", method, ...args); }
 function resetInventory() {
+    releasePlayback(false);
+    ++mediaSerial;
+    mediaControllingAt = mediaReportingAt = 0;
+    lastMediaReport = "";
     ++inventorySerial;
     lastReturnReport = "";
     inventoryOwner = "";
@@ -275,7 +312,7 @@ function publishInventory() {
     if (!platformGeneration || publishingAt) return;
     const rows = inventory();
     const fingerprint = JSON.stringify(rows);
-    if (fingerprint === inventoryFingerprint) { publishReturn(); return; }
+    if (fingerprint === inventoryFingerprint) { publishMedia(); publishReturn(); return; }
     if (rows.length > 100000 || inventoryRevision >= 2147483647) { resetInventory(); return; }
     const serial = inventorySerial, generation = platformGeneration, revision = inventoryRevision + 1;
     publishingAt = Date.now();
@@ -288,6 +325,8 @@ function publishInventory() {
                     publishingAt = 0;
                     inventoryRevision = revision;
                     inventoryFingerprint = fingerprint;
+                    lastMediaReport = "";
+                    publishMedia();
                     publishReturn();
                 });
                 return;
@@ -369,7 +408,140 @@ function inventoryTick() {
             platformGeneration = generation;
             publishInventory();
             pollControl();
+            pollMediaControl();
         });
     } else publishInventory();
+    pollMediaControl();
+    checkPlaybackLock();
+}
+
+// Optional managed playback lane (ADR-0074). Identities are exact native
+// Wayland app IDs. No product, title, executable or focus-based association.
+function launchId(w) {
+    // Ordinary scripts expose Window, not EffectWindow.waylandClient.
+    // Qt's QObject wrapper exposes the compositor's actual meta-object type.
+    // Fail closed for X11, unknown classes and future incompatible wrappers.
+    if (!w) return "";
+    try {
+        if (!/^KWin::XdgToplevelWindow\(0x[0-9a-f]*[1-9a-f][0-9a-f]*(?:, "[\s\S]*")?\)$/.test(String(w))) return "";
+    } catch (_) { return ""; }
+    const value = String(w.resourceClass || "");
+    const prefix = "org.arinn.Playback.";
+    if (!value.startsWith(prefix)) return "";
+    const launch = value.slice(prefix.length);
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(launch) && launch !== "00000000-0000-0000-0000-000000000000" ? launch : "";
+}
+function mediaRows() {
+    return workspace.windowList().filter(applicationWindow).map(w => [windowTokens.get(w) || "", launchId(w)]);
+}
+function mediaBridge(method, ...args) { callDBus(inventoryOwner, path, "org.arinn.KWinMedia1", method, ...args); }
+function publishMedia() {
+    if (!mediaSupported || !platformGeneration || !inventoryRevision || publishingAt || mediaReportingAt || inventoryOwner !== daemonOwner) return;
+    if (JSON.stringify(inventory()) !== inventoryFingerprint) return;
+    const rows = mediaRows(), serial = inventorySerial, generation = platformGeneration, revision = inventoryRevision;
+    const key = JSON.stringify([generation, revision, rows]);
+    if (key === lastMediaReport) return;
+    mediaReportingAt = Date.now();
+    function put(index) {
+        if (serial !== inventorySerial || revision !== inventoryRevision) return;
+        if (JSON.stringify([generation, revision, mediaRows()]) !== key) { mediaReportingAt = 0; publishMedia(); return; }
+        if (index === rows.length) { mediaReportingAt = 0; lastMediaReport = key; return; }
+        mediaBridge("Report", generation, revision, ...rows[index], () => put(index + 1));
+    }
+    put(0);
+}
+function savedFlags(w, names) {
+    const values = {}; for (const name of names) if (w[name] !== undefined) values[name] = w[name]; return values;
+}
+function restoreFlags(w, values) { for (const name of Object.keys(values)) w[name] = values[name]; }
+function presentPlayback(w) {
+    const home = shell();
+    if (!home || !applicationWindow(w) || !launchId(w)) throw new Error("unavailable");
+    if (playback && playback.window !== w) releasePlayback(false);
+    if (!playback) playback = { window: w, shell: home, launch: launchId(w),
+        windowFlags: savedFlags(w, ["fullScreen", "minimized", "keepAbove"]),
+        shellFlags: savedFlags(home, ["keepAbove", "minimized", "onAllDesktops"]) };
+    w.minimized = false;
+    w.fullScreen = true;
+    // The video stays in the normal fullscreen layer; only Arinn owns input.
+    w.keepAbove = false;
+    if (w.output && home.output !== w.output) workspace.sendClientToScreen(home, w.output);
+    homeOutput = w.output ? w.output.name : workspace.activeScreen.name;
+    home.keepAbove = true;
+    home.minimized = false;
+    home.onAllDesktops = true;
+    homeVisible = false;
+    target = ""; returnObject = null; detachedTarget = "";
+    workspace.activeWindow = home;
+}
+function releasePlayback(show) {
+    const saved = playback;
+    ++mediaSerial;
+    playback = null;
+    playbackGuardAt = 0; ++playbackGuardSerial;
+    if (!saved) return;
+    const windows = workspace.windowList();
+    if (windows.includes(saved.window)) restoreFlags(saved.window, saved.windowFlags);
+    if (windows.includes(saved.shell)) restoreFlags(saved.shell, saved.shellFlags);
+    homeVisible = show;
+    target = ""; returnObject = null; detachedTarget = "";
+    if (daemonOwner) reportHome(false, show ? raiseShell : undefined);
+}
+function checkPlaybackLock() {
+    if (!playback) return;
+    const now = Date.now();
+    if (playbackGuardAt) {
+        if (now - playbackGuardAt >= 1000) releasePlayback(false);
+        return;
+    }
+    const saved = playback, owner = daemonOwner, serial = ++playbackGuardSerial;
+    playbackGuardAt = now;
+    callDBus("org.freedesktop.ScreenSaver", "/ScreenSaver", "org.freedesktop.ScreenSaver", "GetActive", locked => {
+        if (saved !== playback || owner !== daemonOwner || serial !== playbackGuardSerial) return;
+        const timely = Date.now() - playbackGuardAt < 1000;
+        playbackGuardAt = 0;
+        if (!timely || locked !== false) releasePlayback(false);
+    });
+}
+function pollMediaControl() {
+    if (!mediaSupported || !platformGeneration) return;
+    const now = Date.now();
+    if (mediaReportingAt && now - mediaReportingAt > 3000) { mediaReportingAt = 0; lastMediaReport = ""; }
+    if (mediaControllingAt && now - mediaControllingAt > 1500) { ++mediaSerial; mediaControllingAt = 0; }
+    if (mediaControllingAt) return;
+    const serial = ++mediaSerial, inventory = inventorySerial, generation = platformGeneration, owner = daemonOwner;
+    mediaControllingAt = now;
+    mediaBridge("NextControl", generation, reply => {
+        if (serial !== mediaSerial || inventory !== inventorySerial || owner !== daemonOwner) return;
+        const command = stringList(reply);
+        if (!command || command.some(part => typeof part !== "string") || (command.length !== 0 && (command.length !== 3 || !["present", "release"].includes(command[1])))) { mediaControllingAt = 0; return; }
+        if (!command.length) { mediaControllingAt = 0; return; }
+        function complete(error) {
+            if (inventory !== inventorySerial || owner !== daemonOwner) return;
+            const completionSerial = mediaSerial;
+            mediaBridge("CompleteControl", generation, command[0], error, () => {
+                if (completionSerial !== mediaSerial || inventory !== inventorySerial || owner !== daemonOwner) return;
+                mediaControllingAt = 0; publishInventory();
+            });
+        }
+        callDBus("org.freedesktop.ScreenSaver", "/ScreenSaver", "org.freedesktop.ScreenSaver", "GetActive", locked => {
+            if (serial !== mediaSerial || inventory !== inventorySerial || owner !== daemonOwner) return;
+            if (Date.now() - now >= 1000) { complete("Timeout"); return; }
+            if (locked !== false) { releasePlayback(false); complete("PermissionDenied"); return; }
+            try {
+                if (command[1] === "release") {
+                    const token = playback ? windowTokens.get(playback.window) || "" : "";
+                    if (command[2] && token && command[2] !== token) { complete("Conflict"); return; }
+                    releasePlayback(true);
+                } else {
+                    const w = workspace.windowList().find(w => applicationWindow(w) && windowTokens.get(w) === command[2]);
+                    if (!w || !launchId(w)) { complete("NotFound"); return; }
+                    presentPlayback(w);
+                    reportHome(false);
+                }
+                complete("");
+            } catch (_) { releasePlayback(false); complete("Unavailable"); }
+        });
+    });
 }
 checkDaemon();

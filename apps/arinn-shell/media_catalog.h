@@ -25,10 +25,14 @@ class MediaCatalog : public QObject {
   Q_PROPERTY(QString playbackState READ playbackState NOTIFY sessionChanged)
   Q_PROPERTY(double durationUs READ durationUs NOTIFY sessionChanged)
   Q_PROPERTY(double positionUs READ positionUs NOTIFY positionChanged)
-  Q_PROPERTY(QStringList sessionActions READ sessionActions NOTIFY sessionChanged)
+  Q_PROPERTY(
+      QStringList sessionActions READ sessionActions NOTIFY sessionChanged)
   Q_PROPERTY(QString operationState READ operationState NOTIFY operationChanged)
   Q_PROPERTY(QString selectedId READ selectedId NOTIFY sessionChanged)
   Q_PROPERTY(QString sessionArtwork READ sessionArtwork NOTIFY sessionChanged)
+  Q_PROPERTY(bool windowAvailable READ windowAvailable NOTIFY sessionChanged)
+  Q_PROPERTY(QString presentationState READ presentationState NOTIFY presentationChanged)
+  Q_PROPERTY(bool inputLayerActive READ inputLayerActive NOTIFY presentationChanged)
   Q_PROPERTY(bool playerSession READ playerSession NOTIFY sessionChanged)
   Q_PROPERTY(bool tracksAvailable READ tracksAvailable NOTIFY sessionChanged)
   Q_PROPERTY(bool timelineAvailable READ timelineAvailable NOTIFY sessionChanged)
@@ -54,6 +58,13 @@ public:
   QString operationState() const { return m_operation; }
   QString selectedId() const;
   QString sessionArtwork() const;
+  bool windowAvailable() const;
+  QString presentationState() const { return m_presentation; }
+  bool inputLayerActive() const { return m_presentation == QStringLiteral("pending") || m_presentation == QStringLiteral("active"); }
+  Q_INVOKABLE void present();
+  Q_INVOKABLE void release();
+  Q_INVOKABLE void abandonPresentation();
+  Q_INVOKABLE void requestHome();
   bool playerSession() const;
   bool tracksAvailable() const;
   bool timelineAvailable() const;
@@ -78,7 +89,11 @@ public:
   Q_INVOKABLE void selectSubtitle(const QString &trackId);
 public slots:
   void refresh();
+  void windowChanged(const QString &generation);
+  void homeRequested(const QString &epoch, const QString &target, const QString &output);
 signals:
+  void presentationChanged();
+  void presentationHomeRequested();
   void continueEntriesChanged();
   void sessionChanged();
   void positionChanged();
@@ -121,6 +136,7 @@ private:
     qint64 endUs = 0;
   };
   struct Catalog;
+  void refreshStatus(const QString &owner, quint64 epoch);
   void readProviders(const std::shared_ptr<Catalog> &catalog,
                      const QString &token = {});
   void readFeatures(const std::shared_ptr<Catalog> &catalog, int index);
@@ -129,6 +145,13 @@ private:
   void failProvider(const std::shared_ptr<Catalog> &catalog, int index);
   void finishCatalog(const std::shared_ptr<Catalog> &catalog, bool success);
   void publish();
+  void setPresentation(const QString &state);
+  void failPresentation(const QString &state);
+  void failRelease();
+  void checkPresentedWindow(quint64 ticket, quint64 epoch, quint64 deadline);
+  void resolveWindow(SessionRow row, quint64 ticket, quint64 epoch, quint64 deadline);
+  void windowCommand(const SessionRow &row, bool presenting, quint64 ticket, quint64 epoch, bool detachedRelease = false);
+  void watchWindowOperation(const QString &objectPath, bool presenting, quint64 ticket, quint64 epoch, quint64 deadline);
   void setOperation(const QString &state);
   void command(const QString &action, double seekTarget = 0, bool seeking = false);
   void extensionCommand(const char *method, const QStringList &middle);
@@ -155,6 +178,15 @@ private:
   QList<SessionRow> m_sessions;
   QString m_explicitId;
   QString m_operation;
+  QString m_presentation;
+  QString m_daemonEpoch;
+  QString m_daemonOwner;
+  QString m_windowGeneration, m_windowToken;
+  bool m_windowCheckInFlight = false;
+  SessionRow m_presentRow;
+  SessionRow m_releaseRow;
+  quint64 m_releaseEpoch = 0;
+  quint64 m_presentationTicket = 0;
   bool m_connected = false, m_loaded = false, m_snapshotError = false,
        m_refreshing = false, m_dirty = false;
   quint64 m_epoch = 0, m_commandTicket = 0;

@@ -4,15 +4,32 @@
 
 #include "asset_images.h"
 #include "media_catalog.h"
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QJSEngine>
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QSignalSpy>
+#include <QScopeGuard>
 #include <QTest>
 #include <QtDBus>
 #include <time.h>
+// QObject wrappers exercise the actual Qt engine's native type observation.
+// The compositor classes have these Q_OBJECT names; no invented property.
+namespace KWin {
+class TestWindow : public QObject {
+  Q_OBJECT
+  Q_PROPERTY(QString resourceClass MEMBER appId)
+public:
+  QString appId = QStringLiteral("org.arinn.Playback.aaaaaaaa-0000-4000-8000-000000000001");
+};
+class XdgToplevelWindow final : public TestWindow { Q_OBJECT };
+class X11Window : public TestWindow { Q_OBJECT };
+}
 namespace {
 quint64 monotonicUs() {
   timespec ts{};
@@ -21,6 +38,7 @@ quint64 monotonicUs() {
   return static_cast<quint64>(ts.tv_sec) * 1000000ull +
          static_cast<quint64>(ts.tv_nsec) / 1000ull;
 }
+struct WindowWire { QString generation, token; };
 struct ContentWire {
   QString provider;
   QString capability;
@@ -63,6 +81,10 @@ struct ShortcutWire {
 struct EntityWire {
   QString provider, capability, local;
 };
+QDBusArgument &operator<<(QDBusArgument &argument, const WindowWire &window) {
+  argument.beginStructure(); argument << window.generation << window.token; argument.endStructure(); return argument;
+}
+const QDBusArgument &operator>>(const QDBusArgument &argument, WindowWire &) { return argument; }
 QDBusArgument &operator<<(QDBusArgument &argument, const ContentWire &content) {
   argument.beginStructure();
   argument << content.provider << content.capability << content.local;
@@ -175,6 +197,7 @@ public:
   bool loopSecond = false;
   bool rejectCommand = false;
   bool holdOperation = false;
+  bool rejectOperationRead = false;
   QString operationState = QStringLiteral("succeeded");
   QString operationError;
   int sessionReads = 0;
@@ -186,6 +209,13 @@ public:
   bool rejectFeatures = false;
   bool thumbnailUnsupported = false;
   QStringList features;
+  bool windowReady = true;
+  bool rejectRelease = false;
+  bool delayPresentAdmission = false;
+  QDBusMessage delayedPresent;
+  int windowReads = 0;
+  QStringList windowCommands;
+  int homeCommands = 0;
   QList<TrackWire> tracks;
   QList<ChapterWire> chapters;
   QList<RangeWire> ranges;
@@ -268,11 +298,42 @@ public:
       bus.send(message.createReply(QVariant::fromValue(
           QDBusObjectPath(QStringLiteral("/org/arinn/Daemon1/ops/media")))));
       return true;
+    } else if (message.member() == QLatin1String("Home")) {
+      ++homeCommands; bus.send(message.createReply()); return true;
+    } else if (message.member() == QLatin1String("GetWindow")) {
+      ++windowReads;
+      QDBusArgument windows;
+      windows.beginArray(QMetaType::fromType<WindowWire>());
+      if (windowReady)
+        windows << WindowWire{QStringLiteral("platform"),
+                              QStringLiteral("window")};
+      windows.endArray();
+      bus.send(message.createReply(QVariant::fromValue(windows)));
+      return true;
+    } else if (message.member() == QLatin1String("Present") ||
+               message.member() == QLatin1String("Release")) {
+      windowCommands.append(message.member());
+      if (message.member() == QLatin1String("Present") && delayPresentAdmission) {
+        message.setDelayedReply(true);
+        delayedPresent = message;
+        return true;
+      }
+      if (message.member() == QLatin1String("Release") && rejectRelease) {
+        bus.send(message.createErrorReply(QStringLiteral("org.arinn.Error1.Unavailable"), QStringLiteral("Unavailable")));
+        return true;
+      }
+      lastGeneration = message.arguments().value(0).toString();
+      lastLocal = message.arguments().value(1).toString();
+      lastRequest = message.arguments().value(2).toString();
+      bus.send(message.createReply(QVariant::fromValue(
+          QDBusObjectPath(QStringLiteral("/org/arinn/Daemon1/ops/media")))));
+      return true;
     } else if (message.member() == QLatin1String("Features")) {
       ++featureReads;
       if (rejectFeatures) {
-        bus.send(message.createErrorReply(QStringLiteral("org.arinn.Error1.Unavailable"),
-                                          QStringLiteral("Unavailable")));
+        bus.send(message.createErrorReply(
+            QStringLiteral("org.arinn.Error1.Unavailable"),
+            QStringLiteral("Unavailable")));
         return true;
       }
       bus.send(message.createReply(QVariant::fromValue(features)));
@@ -336,6 +397,9 @@ public:
     } else if (message.member() == QLatin1String("Get") &&
                message.interface() == QLatin1String("org.arinn.Operation1")) {
       ++operationReads;
+      if (rejectOperationRead) {
+        bus.send(message.createErrorReply(QStringLiteral("org.arinn.Error1.Unavailable"), QStringLiteral("Unavailable"))); return true;
+      }
       body.beginStructure();
       body << QString(holdOperation ? QStringLiteral("running") : operationState)
            << operationError << false << qulonglong(1) << qulonglong(2);
@@ -356,7 +420,8 @@ public:
 };
 class ShellStandIn : public QObject {
   Q_OBJECT
-  Q_PROPERTY(bool homeVisible MEMBER m_home CONSTANT)
+  Q_PROPERTY(bool homeVisible MEMBER m_home NOTIFY changed)
+  Q_PROPERTY(QVariantMap shortcutEditor MEMBER m_editor NOTIFY changed)
   Q_PROPERTY(QString returnWindow MEMBER m_return CONSTANT)
   Q_PROPERTY(QVariantList items MEMBER m_items CONSTANT)
   Q_PROPERTY(QVariantList continueEntries MEMBER m_continue CONSTANT)
@@ -367,21 +432,28 @@ class ShellStandIn : public QObject {
   Q_PROPERTY(QString message MEMBER m_message CONSTANT)
 public:
   bool m_home = true;
+  QVariantMap m_editor;
   QString m_return;
   QString m_homeState = QStringLiteral("ready");
   QString m_message;
   QVariantList m_items, m_continue, m_applications, m_favorites;
   QStringList m_busy;
+signals:
+  void changed();
+public:
   Q_INVOKABLE void back() {}
+  Q_INVOKABLE void closeShortcutEditor() { m_editor.clear(); emit changed(); }
   Q_INVOKABLE void launch(const QString &) {}
   Q_INVOKABLE void activate(const QString &) {}
   Q_INVOKABLE void refresh() {}
 };
 class SessionGuardStandIn : public QObject {
   Q_OBJECT
-  Q_PROPERTY(bool blocked MEMBER m_blocked CONSTANT)
+  Q_PROPERTY(bool blocked MEMBER m_blocked NOTIFY changed)
 public:
   bool m_blocked = false;
+signals:
+  void changed();
 };
 SessionWire session(const QString &id, const QString &title, const QString &state,
                     qlonglong position, qulonglong anchor, qlonglong duration,
@@ -404,6 +476,7 @@ class MediaCatalogTest : public QObject {
   Q_OBJECT
 private slots:
   void initTestCase() {
+    qDBusRegisterMetaType<WindowWire>();
     qDBusRegisterMetaType<ContentWire>();
     qDBusRegisterMetaType<SessionWire>();
     qDBusRegisterMetaType<ProviderWire>();
@@ -418,6 +491,33 @@ private slots:
     bus.unregisterObject(QStringLiteral("/org/arinn"),
                          QDBusConnection::UnregisterTree);
     bus.unregisterService(QStringLiteral("org.arinn.Daemon1"));
+  }
+  void nativeIdentityUsesRealQtQObjectTypeObservation() {
+    QFile adapter(QDir(QFileInfo(QStringLiteral(ARINN_MAIN_QML)).absolutePath()).filePath(QStringLiteral("../../platform/kde/phase0.js")));
+    QVERIFY(adapter.open(QIODevice::ReadOnly));
+    const auto source = QString::fromUtf8(adapter.readAll());
+    const auto start = source.indexOf(QStringLiteral("function launchId(w)"));
+    const auto end = source.indexOf(QStringLiteral("function mediaRows()"), start);
+    QVERIFY(start >= 0 && end > start);
+    QJSEngine engine;
+    QVERIFY(!engine.evaluate(source.mid(start, end - start)).isError());
+    KWin::XdgToplevelWindow native;
+    KWin::X11Window x11;
+    const auto wrapped = engine.newQObject(&native);
+    QVERIFY(wrapped.property(QStringLiteral("waylandClient")).isUndefined());
+    const auto launch = engine.globalObject().property(QStringLiteral("launchId"));
+    QCOMPARE(launch.call({wrapped}).toString(), QStringLiteral("aaaaaaaa-0000-4000-8000-000000000001"));
+    QCOMPARE(launch.call({engine.newQObject(&x11)}).toString(), QString());
+    KWin::TestWindow base;
+    QCOMPARE(launch.call({engine.newQObject(&base)}).toString(), QString());
+    native.setObjectName(QStringLiteral("named native fixture"));
+    QCOMPARE(launch.call({wrapped}).toString(), QStringLiteral("aaaaaaaa-0000-4000-8000-000000000001"));
+    auto deleted = new KWin::XdgToplevelWindow;
+    const auto deletedWrapper = engine.newQObject(deleted);
+    delete deleted;
+    QCOMPARE(launch.call({deletedWrapper}).toString(), QString());
+    native.appId = QStringLiteral("org.arinn.Playback.00000000-0000-0000-0000-000000000000");
+    QCOMPARE(launch.call({wrapped}).toString(), QString());
   }
   void pagingAnchorAndActions() {
     MediaDaemon daemon;
@@ -968,7 +1068,7 @@ private slots:
   }
   void shellOpensPlayerForRichSession() {
     MediaDaemon daemon;
-    daemon.features = {QStringLiteral("MediaTracks1"), QStringLiteral("MediaTimeline1")};
+    daemon.features = {QStringLiteral("MediaTracks1"), QStringLiteral("MediaTimeline1"), QStringLiteral("MediaWindow1")};
     daemon.tracks = {
         TrackWire{QStringLiteral("a1"), QStringLiteral("audio"),
                   QStringLiteral("eng"), QStringLiteral("English"),
@@ -1021,6 +1121,8 @@ private slots:
         catalog->continueEntries().at(0).toMap().value(QStringLiteral("id")).toString();
     QVERIFY(QMetaObject::invokeMethod(window, "openSession", Q_ARG(QVariant, entryId),
                                       Q_ARG(QVariant, false)));
+    QTRY_COMPARE(catalog->presentationState(), QStringLiteral("active"));
+    QCOMPARE(daemon.windowCommands, QStringList({QStringLiteral("Present")}));
     QTRY_COMPARE(player->property("visible").toBool(), true);
     QCOMPARE(session->property("visible").toBool(), false);
     QCOMPARE(player->property("pictureStandIn").toBool(), false);
@@ -1046,12 +1148,308 @@ private slots:
     QCOMPARE(daemon.lastTrackKind, QStringLiteral("audio"));
     QCOMPARE(daemon.lastTrackId, QStringLiteral("a2"));
     const auto stops = daemon.commands;
+    // Losing guarded input is not an automatic retry intent.
+    guard.m_blocked = true; emit guard.changed();
+    QTRY_VERIFY(!catalog->inputLayerActive());
+    catalog->refresh(); QTest::qWait(300);
+    QCOMPARE(daemon.windowCommands.count(QStringLiteral("Present")), 1);
+    QCOMPARE(daemon.commands, stops);
+    guard.m_blocked = false; emit guard.changed();
+    QVERIFY(QMetaObject::invokeMethod(window, "openSession", Q_ARG(QVariant, entryId), Q_ARG(QVariant, false)));
+    window->requestActivate();
+    QTRY_COMPARE(catalog->presentationState(), QStringLiteral("active"));
+    QCOMPARE(daemon.windowCommands.count(QStringLiteral("Present")), 2);
+    QTest::keyClick(window, Qt::Key_Home);
+    QTRY_COMPARE(daemon.homeCommands, 1);
+    QTRY_COMPARE(player->property("visible").toBool(), false);
+    QCOMPARE(daemon.commands, stops);
+    QCOMPARE(catalog->presentationState(), QStringLiteral("active"));
+    backend.m_home = true;
+    emit backend.changed();
+    backend.m_home = false;
+    emit backend.changed();
+    QTRY_COMPARE(player->property("visible").toBool(), true);
+    QTRY_COMPARE(player->property("activeFocus").toBool(), true);
+    QCOMPARE(daemon.windowCommands.count(QStringLiteral("Present")), 2);
+    // Restore visible OSD to verify the two Back stages after Return.
+    player->setProperty("osdVisible", true);
     QTest::keyClick(window, Qt::Key_Escape);
     QCOMPARE(player->property("osdVisible").toBool(), false);
     QCOMPARE(daemon.commands, stops);
     QTest::keyClick(window, Qt::Key_Escape);
     QTRY_COMPARE(player->property("visible").toBool(), false);
-    QCOMPARE(daemon.commands, QStringList({QStringLiteral("Seek"), QStringLiteral("Stop")}));
+    QCOMPARE(daemon.commands,
+             QStringList({QStringLiteral("Seek"), QStringLiteral("Stop")}));
+    QTRY_COMPARE(daemon.windowCommands.last(), QStringLiteral("Release"));
+    QCOMPARE(daemon.windowCommands.count(QStringLiteral("Present")), 2);
+  }
+  void managedWindowResolutionCanBeCancelledWithoutStartingPresentation() {
+    MediaDaemon daemon;
+    daemon.features = {QStringLiteral("MediaWindow1")};
+    daemon.windowReady = false;
+    daemon.page1 = {session(QStringLiteral("live"), QStringLiteral("Piece"),
+                            QStringLiteral("playing"), 0, monotonicUs(),
+                            9000000, {QStringLiteral("stop")})};
+    auto bus = QDBusConnection::sessionBus();
+    QVERIFY(bus.registerService(QStringLiteral("org.arinn.Daemon1")));
+    QVERIFY(bus.registerVirtualObject(QStringLiteral("/org/arinn"), &daemon,
+                                      QDBusConnection::SubPath));
+    MediaCatalog catalog;
+    QTRY_VERIFY(catalog.windowAvailable());
+    catalog.present();
+    QTRY_VERIFY(daemon.windowReads > 0);
+    QVERIFY(catalog.inputLayerActive());
+    catalog.release();
+    daemon.windowReady = true;
+    QTest::qWait(350);
+    QVERIFY(!daemon.windowCommands.contains(QStringLiteral("Present")));
+    QCOMPARE(daemon.windowCommands, QStringList({QStringLiteral("Release")}));
+    QVERIFY(!catalog.inputLayerActive());
+    catalog.present();
+    QTRY_COMPARE(catalog.presentationState(), QStringLiteral("active"));
+    QSignalSpy home(&catalog, &MediaCatalog::presentationHomeRequested);
+    catalog.homeRequested(QStringLiteral("old-epoch"), {}, {});
+    QCOMPARE(home.count(), 0);
+    catalog.homeRequested(QStringLiteral("epoch"), {}, {});
+    QCOMPARE(home.count(), 1);
+    daemon.windowReady = false;
+    auto changed = QDBusMessage::createSignal(daemon.providers.first().path.path(), QStringLiteral("org.arinn.MediaWindow1"), QStringLiteral("Changed"));
+    changed << daemon.pageGeneration;
+    QVERIFY(bus.send(changed));
+    QTRY_VERIFY(!catalog.inputLayerActive());
+    QCOMPARE(catalog.sessionState(), QStringLiteral("ready"));
+    daemon.windowReady = true;
+    catalog.present(); QTRY_COMPARE(catalog.presentationState(), QStringLiteral("active"));
+    daemon.page1.clear(); catalog.refresh();
+    QTRY_VERIFY(!catalog.inputLayerActive());
+    QCOMPARE(daemon.commands.size(), 0);
+  }
+  void pendingPresentationFailureRespectsFocus_data() {
+    QTest::addColumn<bool>("loseFocus");
+    QTest::newRow("lost-focus") << true;
+    QTest::newRow("retained-focus") << false;
+  }
+  void pendingPresentationFailureRespectsFocus() {
+    QFETCH(bool, loseFocus);
+    MediaDaemon daemon;
+    daemon.features = {QStringLiteral("MediaWindow1")};
+    daemon.holdOperation = true;
+    daemon.page1 = {session(QStringLiteral("live"), QStringLiteral("Piece"), QStringLiteral("paused"), 0, monotonicUs(), 9000000, {QStringLiteral("stop")})};
+    auto bus = QDBusConnection::sessionBus();
+    QVERIFY(bus.registerService(QStringLiteral("org.arinn.Daemon1")));
+    QVERIFY(bus.registerVirtualObject(QStringLiteral("/org/arinn"), &daemon, QDBusConnection::SubPath));
+    ShellStandIn backend;
+    SessionGuardStandIn guard;
+    QQmlApplicationEngine engine;
+    installAssetImageProvider(&engine);
+    engine.rootContext()->setContextProperty(QStringLiteral("backend"), &backend);
+    engine.rootContext()->setContextProperty(QStringLiteral("sessionGuard"), &guard);
+    engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
+    auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().value(0));
+    QVERIFY(window);
+    window->show(); window->requestActivate();
+    QTRY_VERIFY(window->isActive());
+    auto catalog = window->findChild<MediaCatalog *>(QStringLiteral("mediaCatalog"));
+    QVERIFY(catalog);
+    QTRY_VERIFY(catalog->windowAvailable());
+    const auto entryId = catalog->continueEntries().at(0).toMap().value(QStringLiteral("id")).toString();
+    QVERIFY(QMetaObject::invokeMethod(window, "openSession", Q_ARG(QVariant, entryId), Q_ARG(QVariant, false)));
+    QTRY_COMPARE(daemon.windowCommands, QStringList({QStringLiteral("Present")}));
+    QCOMPARE(catalog->presentationState(), QStringLiteral("pending"));
+    backend.m_home = false; emit backend.changed();
+    QQuickWindow other;
+    if (loseFocus) {
+      other.show(); other.requestActivate();
+      QTRY_VERIFY(other.isActive());
+      QTRY_VERIFY(!window->isActive());
+    } else {
+      QTRY_VERIFY(window->isActive());
+    }
+    daemon.rejectOperationRead = true;
+    QTRY_COMPARE(catalog->presentationState(), QStringLiteral("Unavailable"));
+    QTRY_COMPARE(daemon.windowCommands, QStringList({QStringLiteral("Present"), QStringLiteral("Release")}));
+    QCOMPARE(daemon.homeCommands, loseFocus ? 0 : 1);
+    QVERIFY(daemon.commands.isEmpty());
+    if (loseFocus) QVERIFY(other.isActive());
+  }
+  void failedPresentationOperationReleasesItsOriginalScope_data() {
+    QTest::addColumn<bool>("readFailure");
+    QTest::newRow("unobservable-operation") << true;
+    QTest::newRow("operation-timeout") << false;
+  }
+  void failedPresentationOperationReleasesItsOriginalScope() {
+    QFETCH(bool, readFailure);
+    MediaDaemon daemon;
+    daemon.features = {QStringLiteral("MediaWindow1")};
+    daemon.rejectOperationRead = readFailure;
+    daemon.holdOperation = !readFailure;
+    daemon.page1 = {session(QStringLiteral("live"), QStringLiteral("Piece"), QStringLiteral("paused"), 0, monotonicUs(), 9000000, {QStringLiteral("stop")})};
+    auto bus = QDBusConnection::sessionBus();
+    QVERIFY(bus.registerService(QStringLiteral("org.arinn.Daemon1")));
+    QVERIFY(bus.registerVirtualObject(QStringLiteral("/org/arinn"), &daemon, QDBusConnection::SubPath));
+    MediaCatalog catalog;
+    QTRY_VERIFY(catalog.windowAvailable());
+    catalog.present();
+    QTRY_COMPARE_WITH_TIMEOUT(catalog.presentationState(), readFailure ? QStringLiteral("Unavailable") : QStringLiteral("Timeout"), 8000);
+    QTRY_COMPARE(daemon.windowCommands, QStringList({QStringLiteral("Present"), QStringLiteral("Release")}));
+    QVERIFY(!catalog.inputLayerActive());
+    QCOMPARE(daemon.lastLocal, QStringLiteral("live"));
+    QCOMPARE(daemon.lastGeneration, daemon.pageGeneration);
+    catalog.refresh(); QTest::qWait(300);
+    QCOMPARE(daemon.windowCommands.size(), 2);
+    QVERIFY(daemon.commands.isEmpty());
+  }
+  void failedReleaseRetainsScopeForExplicitRetry_data() {
+    QTest::addColumn<QString>("failure");
+    for (const auto *value : {"unobservable", "timeout", "operation", "admission"})
+      QTest::newRow(value) << QString::fromLatin1(value);
+  }
+  void failedReleaseRetainsScopeForExplicitRetry() {
+    QFETCH(QString, failure);
+    MediaDaemon daemon;
+    daemon.features = {QStringLiteral("MediaWindow1")};
+    daemon.page1 = {session(QStringLiteral("live"), QStringLiteral("Piece"), QStringLiteral("paused"), 0, monotonicUs(), 9000000, {QStringLiteral("stop")})};
+    auto bus = QDBusConnection::sessionBus();
+    QVERIFY(bus.registerService(QStringLiteral("org.arinn.Daemon1")));
+    QVERIFY(bus.registerVirtualObject(QStringLiteral("/org/arinn"), &daemon, QDBusConnection::SubPath));
+    MediaCatalog catalog;
+    QTRY_VERIFY(catalog.windowAvailable());
+    catalog.present(); QTRY_COMPARE(catalog.presentationState(), QStringLiteral("active"));
+    daemon.rejectOperationRead = failure == QLatin1String("unobservable");
+    daemon.holdOperation = failure == QLatin1String("timeout");
+    daemon.rejectRelease = failure == QLatin1String("admission");
+    daemon.operationState = failure == QLatin1String("operation") ? QStringLiteral("failed") : QStringLiteral("succeeded");
+    catalog.release();
+    QTRY_COMPARE_WITH_TIMEOUT(catalog.presentationState(), QStringLiteral("ReleaseFailed"), 8000);
+    QVERIFY(!catalog.inputLayerActive());
+    QCOMPARE(daemon.windowCommands, QStringList({QStringLiteral("Present"), QStringLiteral("Release")}));
+    const auto originalRequest = daemon.lastRequest;
+    daemon.rejectOperationRead = false; daemon.holdOperation = false; daemon.rejectRelease = false; daemon.operationState = QStringLiteral("succeeded");
+    catalog.release();
+    QTRY_COMPARE(daemon.windowCommands.count(QStringLiteral("Release")), 2);
+    QVERIFY(daemon.lastRequest != originalRequest);
+    QTRY_COMPARE(catalog.presentationState(), QString());
+    QTest::qWait(300);
+    catalog.release(); QTest::qWait(150);
+    QCOMPARE(daemon.windowCommands.count(QStringLiteral("Release")), 2);
+    QCOMPARE(daemon.lastLocal, QStringLiteral("live"));
+    QVERIFY(daemon.commands.isEmpty());
+  }
+  void newPresentationSupersedesFailedReleaseScope() {
+    MediaDaemon daemon;
+    daemon.features = {QStringLiteral("MediaWindow1")};
+    daemon.page1 = {session(QStringLiteral("old"), QStringLiteral("Old"), QStringLiteral("paused"), 0, monotonicUs(), 9000000, {QStringLiteral("stop")}), session(QStringLiteral("new"), QStringLiteral("New"), QStringLiteral("paused"), 0, monotonicUs(), 9000000, {QStringLiteral("stop")})};
+    auto bus = QDBusConnection::sessionBus();
+    QVERIFY(bus.registerService(QStringLiteral("org.arinn.Daemon1")));
+    QVERIFY(bus.registerVirtualObject(QStringLiteral("/org/arinn"), &daemon, QDBusConnection::SubPath));
+    MediaCatalog catalog; QTRY_VERIFY(catalog.windowAvailable());
+    catalog.present(); QTRY_COMPARE(catalog.presentationState(), QStringLiteral("active"));
+    daemon.rejectOperationRead = true;
+    catalog.release(); QTRY_COMPARE(catalog.presentationState(), QStringLiteral("ReleaseFailed"));
+    daemon.rejectOperationRead = false;
+    for (const auto &entry : catalog.continueEntries()) {
+      const auto row = entry.toMap();
+      if (row.value(QStringLiteral("title")).toString() == QLatin1String("New"))
+        catalog.select(row.value(QStringLiteral("id")).toString());
+    }
+    catalog.present(); QTRY_COMPARE(catalog.presentationState(), QStringLiteral("active"));
+    QCOMPARE(daemon.lastLocal, QStringLiteral("new"));
+    catalog.release(); QTRY_COMPARE(daemon.windowCommands.count(QStringLiteral("Release")), 2);
+    QCOMPARE(daemon.lastLocal, QStringLiteral("new"));
+    QTest::qWait(300); catalog.release(); QTest::qWait(150);
+    QCOMPARE(daemon.windowCommands.count(QStringLiteral("Release")), 2);
+    QVERIFY(daemon.commands.isEmpty());
+  }
+  void oldPresentationCleanupDoesNotEraseAnotherReleaseRetry() {
+    MediaDaemon daemon;
+    daemon.features = {QStringLiteral("MediaWindow1")};
+    daemon.page1 = {session(QStringLiteral("old"), QStringLiteral("Old"), QStringLiteral("paused"), 0, monotonicUs(), 9000000, {QStringLiteral("stop")}), session(QStringLiteral("new"), QStringLiteral("New"), QStringLiteral("paused"), 0, monotonicUs(), 9000000, {QStringLiteral("stop")})};
+    auto bus = QDBusConnection::connectToBus(QDBusConnection::SessionBus, QStringLiteral("delayed-media-provider"));
+    const auto disconnect = qScopeGuard([] { QDBusConnection::disconnectFromBus(QStringLiteral("delayed-media-provider")); });
+    QVERIFY(bus.registerService(QStringLiteral("org.arinn.Daemon1")));
+    QVERIFY(bus.registerVirtualObject(QStringLiteral("/org/arinn"), &daemon, QDBusConnection::SubPath));
+    MediaCatalog catalog; QTRY_VERIFY(catalog.windowAvailable());
+    for (const auto &entry : catalog.continueEntries()) {
+      const auto row = entry.toMap();
+      if (row.value(QStringLiteral("title")).toString() == QLatin1String("Old"))
+        catalog.select(row.value(QStringLiteral("id")).toString());
+    }
+    QTRY_VERIFY(catalog.windowAvailable());
+    daemon.delayPresentAdmission = true;
+    catalog.present(); QTRY_COMPARE(daemon.windowCommands.count(QStringLiteral("Present")), 1);
+    daemon.delayPresentAdmission = false;
+    for (const auto &entry : catalog.continueEntries()) {
+      const auto row = entry.toMap();
+      if (row.value(QStringLiteral("title")).toString() == QLatin1String("New"))
+        catalog.select(row.value(QStringLiteral("id")).toString());
+    }
+    QTRY_VERIFY(catalog.windowAvailable());
+    catalog.present(); QTRY_COMPARE(daemon.windowCommands.count(QStringLiteral("Present")), 2);
+    QTRY_COMPARE(catalog.presentationState(), QStringLiteral("active"));
+    daemon.rejectOperationRead = true;
+    catalog.release(); QTRY_COMPARE(catalog.presentationState(), QStringLiteral("ReleaseFailed"));
+    daemon.rejectOperationRead = false;
+    bus.send(daemon.delayedPresent.createReply(QVariant::fromValue(QDBusObjectPath(QStringLiteral("/org/arinn/Daemon1/ops/media")))));
+    QTRY_COMPARE(daemon.windowCommands.count(QStringLiteral("Release")), 3);
+    QTest::qWait(300);
+    QCOMPARE(daemon.lastLocal, QStringLiteral("old"));
+    catalog.release(); QTRY_COMPARE(daemon.windowCommands.count(QStringLiteral("Release")), 4);
+    QCOMPARE(daemon.lastLocal, QStringLiteral("new"));
+    QVERIFY(daemon.commands.isEmpty());
+  }
+  void homeBackRetriesFailedReleaseWithoutReturnTarget_data() {
+    QTest::addColumn<int>("retryKey");
+    QTest::newRow("escape") << int(Qt::Key_Escape);
+    QTest::newRow("backspace") << int(Qt::Key_Backspace);
+    QTest::newRow("native-back") << int(Qt::Key_Back);
+  }
+  void homeBackRetriesFailedReleaseWithoutReturnTarget() {
+    QFETCH(int, retryKey);
+    MediaDaemon daemon;
+    daemon.features = {QStringLiteral("MediaWindow1")};
+    daemon.page1 = {session(QStringLiteral("live"), QStringLiteral("Piece"), QStringLiteral("paused"), 0, monotonicUs(), 9000000, {QStringLiteral("stop")})};
+    auto bus = QDBusConnection::sessionBus();
+    QVERIFY(bus.registerService(QStringLiteral("org.arinn.Daemon1")));
+    QVERIFY(bus.registerVirtualObject(QStringLiteral("/org/arinn"), &daemon, QDBusConnection::SubPath));
+    ShellStandIn backend; SessionGuardStandIn guard;
+    QQmlApplicationEngine engine; installAssetImageProvider(&engine);
+    engine.rootContext()->setContextProperty(QStringLiteral("backend"), &backend);
+    engine.rootContext()->setContextProperty(QStringLiteral("sessionGuard"), &guard);
+    engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
+    auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().value(0));
+    QVERIFY(window); window->show(); window->requestActivate(); QTRY_VERIFY(window->isActive());
+    auto catalog = window->findChild<MediaCatalog *>(QStringLiteral("mediaCatalog"));
+    auto home = window->findChild<QQuickItem *>(QStringLiteral("productionHome"));
+    QVERIFY(catalog); QVERIFY(home); QTRY_VERIFY(catalog->windowAvailable());
+    catalog->present(); QTRY_COMPARE(catalog->presentationState(), QStringLiteral("active"));
+    daemon.rejectOperationRead = true;
+    catalog->release(); QTRY_COMPARE(catalog->presentationState(), QStringLiteral("ReleaseFailed"));
+    const auto originalRequest = daemon.lastRequest;
+    daemon.rejectOperationRead = false;
+    backend.m_editor = {{QStringLiteral("id"), QStringLiteral("fixture")}, {QStringLiteral("title"), QStringLiteral("Fixture")}, {QStringLiteral("url"), QStringLiteral("https://example.test/")}};
+    emit backend.changed(); QTRY_VERIFY(home->property("shortcutEditorOpen").toBool());
+    auto sheet = home->findChild<QQuickItem *>(QStringLiteral("shortcutSheet"));
+    QVERIFY(sheet); QTRY_VERIFY(sheet->hasActiveFocus());
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_VERIFY(!home->property("shortcutEditorOpen").toBool());
+    QCOMPARE(daemon.windowCommands.count(QStringLiteral("Release")), 1);
+    QVERIFY(QMetaObject::invokeMethod(home, "openNavigation"));
+    QTRY_VERIFY(home->property("navOpen").toBool());
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_VERIFY(!home->property("navOpen").toBool());
+    QCOMPARE(daemon.windowCommands.count(QStringLiteral("Release")), 1);
+    QTest::keyClick(window, Qt::Key(retryKey));
+    QTRY_COMPARE_WITH_TIMEOUT(daemon.windowCommands.count(QStringLiteral("Release")), 2, 2000);
+    QVERIFY(daemon.lastRequest != originalRequest);
+    QCOMPARE(daemon.lastLocal, QStringLiteral("live"));
+    QCOMPARE(daemon.lastGeneration, daemon.pageGeneration);
+    QTRY_COMPARE(catalog->presentationState(), QString());
+    QCOMPARE(home->property("navOpen").toBool(), false);
+    QTest::qWait(300);
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_VERIFY(home->property("navOpen").toBool());
+    QCOMPARE(daemon.windowCommands.count(QStringLiteral("Release")), 2);
+    QVERIFY(daemon.commands.isEmpty());
   }
   void thumbnailRequestWhilePlaying() {
     MediaDaemon daemon;

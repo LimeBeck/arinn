@@ -169,3 +169,35 @@ actual daemon/provider processes and GIO with a test manager. See
 [desktop-provider verification](desktop-provider.md#verification-status).
 G-2.1/G-2.3 real-desktop evidence and G-2.2 actual cgroup qualification remain pending.
 The internal compositor transport is [documented separately](kwin-transport.md).
+
+## Managed playback adapter
+
+The optional `KWinMedia1` lane is separate from window Activate/Close. The adapter
+reports an identity for every current application-window token, including empty
+identities. Only a native `KWin::XdgToplevelWindow` with `resourceClass` equal to the protocol app-ID
+prefix plus a canonical non-nil launch UUID is eligible. There is no title,
+executable, desktop-file or current-focus association. Reports follow the
+committed inventory revision; unchanged inventory can still publish changed
+identity observations.
+
+Present saves the exact player and shell objects and their temporary flags,
+places fullscreen video below the focused shell on the player's output, and
+keeps the input layer while the OSD hides. Home preserves that player; Return
+restores shell input rather than handing keys to the video window. Release,
+window loss, unrelated focus, lock/unknown state and adapter/daemon reset restore
+the saved flags without selecting a replacement player. Guard callbacks are
+bounded and fenced by the current owner, inventory and presentation serial.
+
+Ordinary scripts expose `KWin::Window`, which has no `waylandClient` property
+(the API page lists that for effects). Native type observation uses
+[Qt's QObject wrapper](https://github.com/qt/qtdeclarative/blob/dev/src/qml/jsruntime/qv4qobjectwrapper.cpp)
+class name and the [KWin native toplevel class](https://github.com/KDE/kwin/blob/master/src/xdgshellwindow.h).
+Unknown classes/wrappers fail closed. A real QJSEngine regression verifies this
+observation using QObject meta-objects without an invented native property;
+Node mocks model the same representation. The representation contains a pointer,
+which is never recorded or logged. The
+[KWin scripting API](https://develop.kde.org/docs/plasma/kwin/api/) documents
+`resourceClass`, `windowClassChanged`, `fullScreen`, `keepAbove` and
+`onAllDesktops`. Their real compositor stacking/input behavior still needs
+G-4.1 qualification. See [managed playback](managed-playback.md) for the daemon
+contract and `tests/integration/kwin_adapter.test.cjs` for synthetic regressions.

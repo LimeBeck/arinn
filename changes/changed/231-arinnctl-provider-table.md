@@ -1,0 +1,1 @@
+- `arinnctl providers` shows a table with one row per provider instead of an undivided list of fields; other list output separates records with a blank line. `--json` is unchanged.

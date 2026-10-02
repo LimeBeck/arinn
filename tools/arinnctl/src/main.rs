@@ -25,13 +25,76 @@ fn human(value: &serde_json::Value, prefix: &str) {
             }
         }
         serde_json::Value::Array(values) => {
-            for value in values {
+            // Records (objects) are separated by a blank line.
+            for (index, value) in values.iter().enumerate() {
+                if index > 0 && value.is_object() && prefix.is_empty() {
+                    println!();
+                }
                 human(value, prefix);
             }
         }
         serde_json::Value::String(text) => println!("{prefix}{text}"),
         _ => println!("{prefix}{value}"),
     }
+}
+/// `providers` as a table, one row per provider (`--json` keeps all fields).
+fn provider_table(providers: &[arinn_protocol::production::ProviderInfo]) -> String {
+    let header = [
+        "ID",
+        "CAPABILITY",
+        "STATE",
+        "BACKEND",
+        "VERSION",
+        "RESTARTS",
+        "LAST ERROR",
+    ];
+    let rows: Vec<[String; 7]> = providers
+        .iter()
+        .map(|p| {
+            let error = if p.last_error.is_empty() {
+                "-".to_owned()
+            } else if p.recovered_at >= p.error_at && p.recovered_at > 0 {
+                format!("{} (recovered)", p.last_error)
+            } else {
+                p.last_error.clone()
+            };
+            [
+                p.id.clone(),
+                p.capabilities.join(","),
+                p.runtime_state.clone(),
+                p.backend_state.clone(),
+                p.version.clone(),
+                format!(
+                    "{}/{}",
+                    p.restarts_since_daemon_start, p.cumulative_restart_count
+                ),
+                error,
+            ]
+        })
+        .collect();
+    let mut widths = header.map(|h| h.chars().count());
+    for row in &rows {
+        for (width, cell) in widths.iter_mut().zip(row) {
+            *width = (*width).max(cell.chars().count());
+        }
+    }
+    let line = |cells: &[&str]| {
+        let mut text = String::new();
+        for (index, (cell, width)) in cells.iter().zip(widths).enumerate() {
+            if index + 1 == cells.len() {
+                text.push_str(cell);
+            } else {
+                text.push_str(cell);
+                text.push_str(&" ".repeat(width - cell.chars().count() + 2));
+            }
+        }
+        text.trim_end().to_owned() + "\n"
+    };
+    let mut out = line(&header);
+    for row in &rows {
+        out.push_str(&line(&row.each_ref().map(String::as_str)));
+    }
+    out
 }
 async fn operation(c: &zbus::Connection, path: zbus::zvariant::OwnedObjectPath) -> Result<(), u8> {
     let op = ProductionOperationProxy::builder(c)
@@ -254,7 +317,15 @@ async fn run() -> Result<(), u8> {
     let request = uuid::Uuid::new_v4().to_string();
     match args[0].as_str() {
         "status" => output(&p.status().await.map_err(|_| 1)?.0, json),
-        "providers" if args.len() == 1 => output(&p.providers().await.map_err(|_| 1)?, json),
+        "providers" if args.len() == 1 => {
+            let providers = p.providers().await.map_err(|_| 1)?;
+            if json {
+                output(&providers, json)
+            } else {
+                print!("{}", provider_table(&providers));
+                Ok(())
+            }
+        }
         "capabilities" => output(&p.capabilities().await.map_err(|_| 1)?, json),
         "activities" => {
             let mut activities = Vec::new();
@@ -329,5 +400,56 @@ async fn main() {
             }
         );
         std::process::exit(i32::from(code));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use arinn_protocol::production::ProviderInfo;
+
+    fn provider(id: &str, error: &str, error_at: u64, recovered_at: u64) -> ProviderInfo {
+        ProviderInfo {
+            id: id.into(),
+            plugin_id: id.into(),
+            source_path: String::new(),
+            name: String::new(),
+            version: "0.0.1".into(),
+            path: "/org/arinn/Daemon1/providers/p_x".try_into().unwrap(),
+            capabilities: vec!["media".into()],
+            runtime_state: "ready".into(),
+            backend_state: "available".into(),
+            generation: String::new(),
+            revision: 1,
+            last_error: error.into(),
+            error_at,
+            recovered_at,
+            restarts_since_daemon_start: 1,
+            cumulative_restart_count: 3,
+        }
+    }
+
+    #[test]
+    fn providers_are_one_aligned_row_each() {
+        let table = provider_table(&[
+            provider("mpris", "", 0, 0),
+            provider("library", "Unavailable", 10, 20),
+            provider("chrome-long-id", "Timeout", 30, 0),
+        ]);
+        let lines: Vec<&str> = table.lines().collect();
+        assert_eq!(lines.len(), 4);
+        assert!(lines[0].starts_with("ID              CAPABILITY  STATE"));
+        assert!(lines[1].starts_with("mpris           media       ready"));
+        assert!(lines[1].ends_with("1/3       -"));
+        assert!(lines[2].ends_with("Unavailable (recovered)"));
+        assert!(lines[3].ends_with("Timeout"));
+        // Columns line up: every row puts STATE at the same offset.
+        let state = lines[0].find("STATE").unwrap();
+        assert!(
+            lines
+                .iter()
+                .skip(1)
+                .all(|l| &l[state..state + 5] == "ready")
+        );
     }
 }

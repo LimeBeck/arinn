@@ -238,7 +238,15 @@ workspace.windowList().forEach(watchWindow);
 workspace.windowAdded.connect(watchWindow);
 workspace.windowActivated.connect(w => {
     report(w);
-    if (playback && w && !isShell(w)) releasePlayback(false);
+    if (!playback || !w || isShell(w)) return;
+    // KWin focuses the player's own window when it maps or goes fullscreen.
+    // That is not another application taking over: give input back to the
+    // shell instead of releasing (#236). Any other window still releases.
+    if (w === playback.window) {
+        workspace.activeWindow = playback.shell;
+        return;
+    }
+    releasePlayback(false);
 });
 workspace.windowRemoved.connect(w => {
     if (playback && (playback.window === w || playback.shell === w)) releasePlayback(false);
@@ -463,8 +471,11 @@ function presentPlayback(w) {
         shellFlags: savedFlags(home, ["keepAbove", "minimized", "onAllDesktops"]) };
     w.minimized = false;
     w.fullScreen = true;
-    // The video stays in the normal fullscreen layer; only Arinn owns input.
-    w.keepAbove = false;
+    // A fullscreen window is above panels only while it is active, and the
+    // shell keeps focus. Keep the video above panels so they do not show
+    // through the transparent shell (#236); the active fullscreen shell
+    // still stacks above it. Release restores the saved flag.
+    w.keepAbove = true;
     if (w.output && home.output !== w.output) workspace.sendClientToScreen(home, w.output);
     homeOutput = w.output ? w.output.name : workspace.activeScreen.name;
     home.keepAbove = true;

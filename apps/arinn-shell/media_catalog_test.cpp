@@ -1254,6 +1254,37 @@ private slots:
     QVERIFY(catalog.inputLayerActive());
     QCOMPARE(daemon.windowCommands, QStringList({QStringLiteral("Present")}));
   }
+  // #236: a short focus loss (the adapter returns focus from the player's
+  // own window) keeps the presentation; a lasting one still releases it.
+  void briefFocusLossKeepsThePresentation() {
+    MediaDaemon daemon;
+    daemon.features = {QStringLiteral("MediaWindow1")};
+    daemon.page1 = {session(QStringLiteral("live"), QStringLiteral("Piece"), QStringLiteral("playing"), 0, monotonicUs(), 9000000, {QStringLiteral("stop")})};
+    auto bus = QDBusConnection::sessionBus();
+    QVERIFY(bus.registerService(QStringLiteral("org.arinn.Daemon1")));
+    QVERIFY(bus.registerVirtualObject(QStringLiteral("/org/arinn"), &daemon, QDBusConnection::SubPath));
+    ShellStandIn backend; SessionGuardStandIn guard;
+    QQmlApplicationEngine engine; installAssetImageProvider(&engine);
+    engine.rootContext()->setContextProperty(QStringLiteral("backend"), &backend);
+    engine.rootContext()->setContextProperty(QStringLiteral("sessionGuard"), &guard);
+    engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
+    auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().value(0));
+    QVERIFY(window); window->show(); window->requestActivate(); QTRY_VERIFY(window->isActive());
+    auto catalog = window->findChild<MediaCatalog *>(QStringLiteral("mediaCatalog"));
+    QVERIFY(catalog); QTRY_VERIFY(catalog->windowAvailable());
+    catalog->present(); QTRY_COMPARE(catalog->presentationState(), QStringLiteral("active"));
+    QQuickWindow other;
+    other.show(); other.requestActivate();
+    QTRY_VERIFY(!window->isActive());
+    window->requestActivate();
+    QTRY_VERIFY(window->isActive());
+    QTest::qWait(900);
+    QCOMPARE(catalog->presentationState(), QStringLiteral("active"));
+    QCOMPARE(daemon.windowCommands, QStringList({QStringLiteral("Present")}));
+    other.requestActivate();
+    QTRY_VERIFY(!window->isActive());
+    QTRY_COMPARE(daemon.windowCommands, QStringList({QStringLiteral("Present"), QStringLiteral("Release")}));
+  }
   void pendingPresentationFailureRespectsFocus_data() {
     QTest::addColumn<bool>("loseFocus");
     QTest::newRow("lost-focus") << true;

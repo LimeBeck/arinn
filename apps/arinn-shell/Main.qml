@@ -35,12 +35,22 @@ Window {
         browserOpen = false;
         home.showHome();
     }
+    // KWin may focus the player's own window when it maps or goes
+    // fullscreen; the adapter then gives focus back to the shell (#236).
+    // Only a focus loss that lasts gives up the presentation.
     onActiveChanged: {
-        if (!active && mediaCatalog.presentationState === "active")
-            Qt.callLater(() => {
-                if (!root.active && mediaCatalog.presentationState === "active")
-                    mediaCatalog.abandonPresentation();
-            });
+        if (active)
+            focusLossGrace.stop();
+        else if (mediaCatalog.presentationState === "active")
+            focusLossGrace.restart();
+    }
+    Timer {
+        id: focusLossGrace
+        interval: 700
+        onTriggered: {
+            if (!root.active && mediaCatalog.presentationState === "active")
+                mediaCatalog.abandonPresentation();
+        }
     }
     function openSession(entryId, fromLibrary) {
         presentationAtHome = false;

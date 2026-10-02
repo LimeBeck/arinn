@@ -1,0 +1,1 @@
+- Managed playback stays fullscreen when KWin focuses the player window: focus goes back to the shell, and the video stays above the panel so the KDE panel no longer shows through.

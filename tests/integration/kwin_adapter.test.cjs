@@ -505,6 +505,7 @@ test('managed Present keeps the shell focused over fullscreen video; Home and Re
     assert.equal(f.workspace.activeWindow, f.home);
     assert.equal(f.home.keepAbove, true);
     assert.equal(f.activity.fullScreen, true);
+    assert.equal(f.activity.keepAbove, true, 'video stays above panels');
     assert.equal(f.report()[0], false);
     f.show();
     assert.equal(f.report()[0], true);
@@ -517,7 +518,18 @@ test('managed Present keeps the shell focused over fullscreen video; Home and Re
     assert.equal(f.home.keepAbove, true, 'ordinary Home owns the shell layer after Release');
     assert.equal(f.home.onAllDesktops, true);
     assert.equal(f.activity.fullScreen, false);
+    assert.equal(f.activity.keepAbove, false, 'Release restores the video layer');
     assert.equal(f.mediaAcks.at(-1)[2], '');
+});
+test('the player taking focus keeps the presentation and returns focus to the shell', () => {
+    const {f, token} = managedFixture();
+    f.media('present', token);
+    f.workspace.activeWindow = f.activity;
+    f.workspace.windowActivated.emit(f.activity);
+    assert.equal(f.workspace.activeWindow, f.home, 'focus goes back to the shell');
+    assert.equal(f.activity.fullScreen, true);
+    assert.equal(f.activity.keepAbove, true);
+    assert.equal(f.home.keepAbove, true);
 });
 test('unrelated focus releases managed flags without stealing focus', () => {
     const {f, token} = managedFixture();
@@ -559,14 +571,19 @@ test('missing lock callback tears down managed flags after the bounded unknown-s
     assert.equal(f.home.keepAbove, false, 'late guard cannot revive the layer');
 });
 
-test('unrelated focus from playback Home and explicit video focus relinquish the layer', () => {
-    for (const fromHome of [false, true]) {
-        const {f, token} = managedFixture(); f.media('present', token);
-        if (fromHome) f.show();
-        const selected = fromHome ? f.window('other-home', 'editor') : f.activity;
-        if (fromHome) f.add(selected);
-        f.workspace.activeWindow = selected; f.workspace.windowActivated.emit(selected);
-        assert.equal(f.workspace.activeWindow, selected);
-        assert.equal(f.home.keepAbove, false);
-    }
+test('unrelated focus from playback Home relinquishes the layer; video focus returns to the shell', () => {
+    const {f, token} = managedFixture(); f.media('present', token);
+    f.show();
+    const selected = f.window('other-home', 'editor');
+    f.add(selected);
+    f.workspace.activeWindow = selected; f.workspace.windowActivated.emit(selected);
+    assert.equal(f.workspace.activeWindow, selected);
+    assert.equal(f.home.keepAbove, false);
+    // The shell is the input layer during managed playback (spec 6.4): focus
+    // on the video, automatic or explicit, goes back to the shell (#236).
+    const video = managedFixture(); video.f.media('present', video.token);
+    video.f.workspace.activeWindow = video.f.activity;
+    video.f.workspace.windowActivated.emit(video.f.activity);
+    assert.equal(video.f.workspace.activeWindow, video.f.home);
+    assert.equal(video.f.home.keepAbove, true);
 });

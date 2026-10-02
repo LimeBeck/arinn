@@ -24,6 +24,12 @@ sha256sums=('SKIP')
 
 prepare() {
   cd "${pkgname}-${pkgver}"
+  # A git archive gives every file the commit time as its mtime. Cargo
+  # rebuilds a workspace crate only when its sources are newer than the
+  # cached build, so with the CI target cache (ADR-0047) an older commit
+  # time could package stale binaries (#238). Make the sources newer than
+  # any cached artifact; dependencies from the registry stay cached.
+  find . -type f -exec touch -c {} +
   export RUSTUP_TOOLCHAIN=stable
   cargo fetch --locked --target "$(rustc --print host-tuple)"
 }

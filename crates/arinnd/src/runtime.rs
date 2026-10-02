@@ -82,6 +82,7 @@ mod library_routing;
 mod media_routing;
 mod progress;
 mod settings_routing;
+mod web_icons;
 
 /// Capability sets the daemon routes; anything else is incompatible.
 const ROUTED: &[&str] = &["application", "browser", "media", "library", "download"];

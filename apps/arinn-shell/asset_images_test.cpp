@@ -4,6 +4,7 @@
 
 #include "asset_images.h"
 #include "icon_references.h"
+#include "web_icon_references.h"
 #include <QTemporaryDir>
 #include <QDir>
 #include <QFile>
@@ -58,14 +59,15 @@ public:
   QString introspect(const QString &) const override { return {}; }
   bool handleMessage(const QDBusMessage &message,
                      const QDBusConnection &bus) override {
-    if (message.interface() != QLatin1String("org.arinn.Assets1") ||
-        message.member() != QLatin1String("GetAsset")) {
+    const bool web = message.interface() == QLatin1String("org.arinn.WebShortcutIcons1") && message.member() == QLatin1String("Get");
+    if (!web && (message.interface() != QLatin1String("org.arinn.Assets1") ||
+        message.member() != QLatin1String("GetAsset"))) {
       bus.send(message.createErrorReply(QDBusError::NotSupported,
                                         QStringLiteral("fixture")));
       return true;
     }
     ++calls;
-    const auto id = message.arguments().value(1).toString();
+    const auto id = message.arguments().value(message.member() == "Get" ? 2 : 1).toString();
     lastId = id;
     if (hold) {
       message.setDelayedReply(true);
@@ -111,7 +113,7 @@ public:
     held.clear();
     auto bus = QDBusConnection::sessionBus();
     for (const auto &message : pending) {
-      const auto id = message.arguments().value(1).toString();
+      const auto id = message.arguments().value(message.member() == "Get" ? 2 : 1).toString();
       send(message, bus, id);
     }
   }
@@ -382,6 +384,7 @@ private slots:
     daemon.png = redPng;
     daemon.lastId.clear();
     daemon.held.clear();
+    WebIconReferences::clear();
     AssetImages::shared().clear();
     AssetImages::shared().setMemoryBudget(AssetImages::defaultBudget);
     auto bus = QDBusConnection::sessionBus();
@@ -400,8 +403,104 @@ private slots:
     bus.unregisterObject(QStringLiteral("/org/arinn"),
                          QDBusConnection::UnregisterTree);
     bus.unregisterService(QStringLiteral("org.arinn.Daemon1"));
+    WebIconReferences::clear();
     AssetImages::shared().clear();
     AssetImages::shared().setMemoryBudget(AssetImages::defaultBudget);
+  }
+  void webIconsBindContextAndDropLateReplies() {
+    auto bus = QDBusConnection::sessionBus();
+    QVERIFY(bus.registerVirtualObject("/org/arinn/Daemon1", &daemon));
+    const auto owner = bus.baseService();
+    const QString epoch = "77777777-7777-4777-8777-777777777777";
+    QVERIFY(WebIconReferences::add(owner,epoch,1,"id","/tmp/icon.png").isEmpty());
+    const auto url = WebIconReferences::add(owner,epoch,1,"id",{});
+    QVERIFY(url.startsWith("image://arinn-web-icons/"));
+    QVERIFY(!url.contains(owner));
+    const auto token = url.mid(QString("image://arinn-web-icons/").size());
+    QQmlApplicationEngine engine;
+    installAssetImageProvider(&engine);
+    auto *provider = dynamic_cast<QQuickAsyncImageProvider *>(engine.imageProvider("arinn-web-icons"));
+    QVERIFY(provider);
+    auto *response = provider->requestImageResponse(token,{});
+    QSignalSpy finished(response,&QQuickImageResponse::finished);
+    QTRY_COMPARE(finished.count(),1);
+    QVERIFY(response->errorString().isEmpty());
+    auto *texture=response->textureFactory(); QVERIFY(texture); delete texture;
+    delete response;
+    QCOMPARE(daemon.calls,1);
+    engine.rootContext()->setContextProperty("iconUrl",url);
+    engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_PLACEHOLDER_QML)).resolved(QUrl("icon_tile_fixture.qml")));
+    QVERIFY(!engine.rootObjects().isEmpty());
+    auto *window=qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+    QVERIFY(window);
+    auto *tile=findItem(window->contentItem(),"iconTile");
+    auto *fallback=findItem(window->contentItem(),"applicationFallback");
+    QVERIFY(tile && fallback);
+    QTRY_VERIFY(tile->property("iconReady").toBool());
+    QVERIFY(!fallback->isVisible());
+    engine.rootContext()->setContextProperty("iconUrl",QString());
+    QTRY_VERIFY(fallback->isVisible());
+    daemon.hold=true;
+    const auto next=WebIconReferences::add(owner,epoch,2,"next",{}).mid(QString("image://arinn-web-icons/").size());
+    response=provider->requestImageResponse(next,{});
+    QSignalSpy delayed(response,&QQuickImageResponse::finished);
+    QTRY_COMPARE(daemon.calls,2);
+    WebIconReferences::clear();
+    daemon.hold=false; daemon.release();
+    QTRY_COMPARE(delayed.count(),1);
+    QVERIFY(!response->errorString().isEmpty());
+    QVERIFY(!response->textureFactory()); delete response;
+  }
+  void webIconPoolRefusesAQueueAndBoundsDecodedImages() {
+    auto bus = QDBusConnection::sessionBus();
+    QVERIFY(bus.registerVirtualObject("/org/arinn/Daemon1", &daemon));
+    const QString epoch = "77777777-7777-4777-8777-777777777777";
+    QQmlApplicationEngine engine;
+    installAssetImageProvider(&engine);
+    auto *provider = dynamic_cast<QQuickAsyncImageProvider *>(engine.imageProvider("arinn-web-icons"));
+    QVERIFY(provider);
+    auto request = [&](const QString &id) {
+      const auto url = WebIconReferences::add(bus.baseService(), epoch, 1, id, {});
+      return provider->requestImageResponse(url.mid(QString("image://arinn-web-icons/").size()), {});
+    };
+    daemon.hold = true;
+    QList<QQuickImageResponse *> running;
+    QList<QSignalSpy *> finished;
+    for (int i = 0; i < 4; ++i) {
+      auto *response = request(QString("parallel-%1").arg(i));
+      running.append(response);
+      finished.append(new QSignalSpy(response, &QQuickImageResponse::finished));
+    }
+    QTRY_COMPARE(daemon.calls, 4);
+    auto *refused = request("no-queue");
+    QSignalSpy rejected(refused, &QQuickImageResponse::finished);
+    QTRY_COMPARE(rejected.count(), 1);
+    QVERIFY(!refused->errorString().isEmpty());
+    QCOMPARE(daemon.calls, 4);
+    delete refused;
+    daemon.hold = false;
+    daemon.release();
+    for (int i = 0; i < 4; ++i) {
+      QTRY_COMPARE(finished[i]->count(), 1);
+      QVERIFY(running[i]->errorString().isEmpty());
+      delete finished[i];
+      delete running[i];
+    }
+    QImage tooWide(257, 1, QImage::Format_RGB32);
+    tooWide.fill(Qt::red);
+    QByteArray tooWidePng;
+    QBuffer buffer(&tooWidePng);
+    buffer.open(QIODevice::WriteOnly);
+    QVERIFY(tooWide.save(&buffer, "PNG"));
+    for (const auto &invalid : {QByteArray(128 * 1024 + 1, 'x'), tooWidePng}) {
+      daemon.png = invalid;
+      auto *response = request(QUuid::createUuid().toString());
+      QSignalSpy done(response, &QQuickImageResponse::finished);
+      QTRY_COMPARE(done.count(), 1);
+      QVERIFY(!response->errorString().isEmpty());
+      QVERIFY(!response->textureFactory());
+      delete response;
+    }
   }
   void imageUrlRoundTrips() {
     const auto url = AssetImages::imageUrl(
@@ -457,6 +556,7 @@ private slots:
     QVERIFY(!otherGeneration.cacheHit);
     QCOMPARE(daemon.calls, 3);
 
+    WebIconReferences::clear();
     AssetImages::shared().clear();
     AssetImages::shared().setMemoryBudget(qMax(redPng.size(), bluePng.size()));
     daemon.calls = 0;
@@ -495,7 +595,8 @@ private slots:
                  {"disguised", AssetImages::Status::Error},
                  {"mismatch", AssetImages::Status::Error}};
     for (const auto &item : cases) {
-      AssetImages::shared().clear();
+      WebIconReferences::clear();
+    AssetImages::shared().clear();
       const auto before = daemon.calls;
       const auto assetId = QString::fromLatin1(item.id);
       auto result = fetchOnWorker(QString::fromLatin1(kProvider), QString::fromLatin1(kPath),

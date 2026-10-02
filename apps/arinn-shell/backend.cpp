@@ -4,6 +4,7 @@
 
 #include "backend.h"
 #include "icon_references.h"
+#include "web_icon_references.h"
 #include <algorithm>
 #include <QUrl>
 #include <arpa/inet.h>
@@ -91,8 +92,9 @@ Backend::Backend(QObject *parent) : QObject(parent) {
   auto watcher = new QDBusServiceWatcher(
       service, bus, QDBusServiceWatcher::WatchForOwnerChange, this);
   connect(watcher, &QDBusServiceWatcher::serviceOwnerChanged, this,
-          [this](const QString &, const QString &, const QString &) {
+          [this](const QString &, const QString &, const QString &owner) {
             ++m_connectionEpoch;
+            m_daemonOwner = owner;
             m_pendingIds.clear();
             m_connected = false;
             m_available = false;
@@ -109,7 +111,22 @@ Backend::Backend(QObject *parent) : QObject(parent) {
           });
   connect(&m_timer, &QTimer::timeout, this, &Backend::reloadCatalog);
   m_timer.start(1000);
-  refresh();
+  const auto ownerTicket = m_connectionEpoch;
+  auto lookup = QDBusMessage::createMethodCall(
+      "org.freedesktop.DBus", "/org/freedesktop/DBus",
+      "org.freedesktop.DBus", "GetNameOwner");
+  lookup << QString::fromLatin1(service);
+  auto *ownerCall = new QDBusPendingCallWatcher(bus.asyncCall(lookup, 3000), this);
+  connect(ownerCall, &QDBusPendingCallWatcher::finished, this,
+          [this, ownerTicket](auto *call) {
+            const auto reply = call->reply();
+            call->deleteLater();
+            if (ownerTicket != m_connectionEpoch)
+              return;
+            if (reply.type() != QDBusMessage::ErrorMessage && reply.signature() == "s")
+              m_daemonOwner = reply.arguments().first().toString();
+            refresh();
+          });
 }
 void Backend::publishState() {
   if (m_publishedItems != m_items) {
@@ -180,6 +197,7 @@ QString Backend::applicationsState() const {
   return m_applications.isEmpty() ? "empty" : "ready";
 }
 void Backend::clearShortcuts() {
+  WebIconReferences::clear();
   ++m_shortcutTicket;
   m_webShortcuts.clear();
   m_shortcutRecords.clear();
@@ -194,7 +212,10 @@ void Backend::refresh() {
   m_forceShortcutReload = true;
   reloadCatalog();
 }
-void Backend::reloadShortcuts() { readShortcuts(m_connectionEpoch); }
+void Backend::reloadShortcuts() {
+  WebIconReferences::clear();
+  readShortcuts(m_connectionEpoch);
+}
 void Backend::reloadCatalog() {
   if (m_refreshing) {
     m_dirty = true;
@@ -241,6 +262,8 @@ void Backend::reloadCatalog() {
                 m_home >> m_return >> active >> klass >> full >> platform >>
                 homeOutput >> activeOutput;
             arg.endStructure();
+            if (m_daemonEpoch != daemonEpoch)
+              WebIconReferences::clear();
             m_daemonEpoch = daemonEpoch;
             if (previousGeneration != m_generation) {
               m_items.clear();
@@ -490,11 +513,11 @@ void Backend::back() {
   });
 }
 void Backend::readShortcuts(quint64 epoch) {
-  if (epoch != m_connectionEpoch)
+  if (epoch != m_connectionEpoch || !m_daemonOwner.startsWith(':'))
     return;
   m_shortcutsRequested = true;
   const auto ticket = ++m_shortcutTicket;
-  auto msg = QDBusMessage::createMethodCall(service, path,
+  auto msg = QDBusMessage::createMethodCall(m_daemonOwner, path,
                                             "org.arinn.WebShortcuts1", "List");
   auto pending = new QDBusPendingCallWatcher(
       QDBusConnection::sessionBus().asyncCall(msg, 3000), this);
@@ -506,6 +529,7 @@ void Backend::readShortcuts(quint64 epoch) {
         if (epoch != m_connectionEpoch || ticket != m_shortcutTicket)
           return;
         auto fail = [this] {
+          WebIconReferences::clear();
           m_webShortcuts.clear();
           m_shortcutsLoaded = false;
           m_shortcutsError = true;
@@ -558,6 +582,19 @@ void Backend::readShortcuts(quint64 epoch) {
             (revision == m_shortcutRevision && records != m_shortcutRecords)) {
           fail();
           return;
+        }
+        if (!reply.service().isEmpty() && reply.service() != m_daemonOwner) {
+          fail();
+          return;
+        }
+        if (revision != m_shortcutRevision)
+          WebIconReferences::clear();
+        for (auto &entry : entries) {
+          auto row = entry.toMap();
+          const auto id = row.value("id").toString();
+          row.insert("iconSource", WebIconReferences::add(m_daemonOwner, m_daemonEpoch,
+              revision, id, records.value(id).value("icon").toString()));
+          entry = row;
         }
         m_shortcutRevision = revision;
         m_shortcutRecords = records;

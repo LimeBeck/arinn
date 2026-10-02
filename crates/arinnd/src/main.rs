@@ -74,6 +74,12 @@ async fn run() -> Result<(), ErrorCode> {
     core.export_browse().await?;
     let shortcuts = arinnd::shortcuts::WebShortcuts::new(&paths_state, core.operations.clone())
         .with_browser(core.clone());
+    let migrations = tokio::task::spawn_blocking(|| {
+        arinnd::shortcuts::load_migrations(&arinnd::shortcuts::data_roots())
+    })
+    .await
+    .map_err(|_| ErrorCode::Internal)?;
+    shortcuts.migrate_presets(migrations).await?;
     let defaults = tokio::task::spawn_blocking(|| {
         arinnd::shortcuts::load_defaults(&arinnd::shortcuts::data_roots())
     })
@@ -85,6 +91,7 @@ async fn run() -> Result<(), ErrorCode> {
             serde_json::json!({"level":"warn","component":"arinnd","provider_id":null,"request_id":null,"operation":"seed-web-shortcuts","error":"Internal","duration_ms":0})
         );
     }
+    core.export_web_icons(shortcuts.clone()).await?;
     connection
         .object_server()
         .at(PATH, shortcuts)

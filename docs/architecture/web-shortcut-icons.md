@@ -4,8 +4,11 @@
 [#224](https://github.com/LimeBeck/arinn/issues/224). Requirements: AC-03, AC-12;
 R-01–R-05, R-09, R-10; specification §5.1, §7.1, §9.7, §11, §13, §18.
 
-**Status:** contract preparation. No production fetching, cache or tile binding
-is implemented by this contract alone. Real KDE/TV qualification is not claimed.
+**Status:** production implementation in
+[#226](https://github.com/LimeBeck/arinn/issues/226). Provider discovery/cache,
+daemon routing, preset migration and asynchronous shell binding are implemented.
+Private-bus and offscreen tests are implementation evidence; real KDE/TV
+qualification is not claimed.
 
 ## Ownership and optional transport
 
@@ -147,3 +150,47 @@ Migration tests must cover fresh state, unmodified old default, edited title,
 URL or icon, removed default, id/order preservation and repeated startup. Required
 checks and an independent review precede readiness; real KDE/TV checks require
 separate owner authorization. No acceptance criterion or phase closes here.
+
+## Implementation details
+
+`plugins/chrome/src/icons/` owns the optional endpoint, inert metadata parsing,
+DNS-pinned HTTPS client, bounded raster conversion and cache. It authenticates
+through the SDK registration watch, independently of extension connectivity.
+Each blocking DNS/parser/decoder/cache worker retains the discovery semaphore
+permit until it actually finishes, including after the outer deadline expires.
+At most four subscribers wait for one coalesced origin. Losing all subscribers
+cancels discovery; cache replacement checks cancellation and its deadline.
+
+Cache files are named with SHA-256 origin digests and contain only an eight-byte
+creation timestamp followed by normalized PNG pixels. Directory-relative,
+no-follow file operations retain a directory descriptor across reads and atomic
+replacement. Startup and later pruning inspect at most 256 directory entries;
+unexpected directory contents disable caching. Cache errors leave downloading
+and the monogram fallback independent of persistence.
+
+`crates/arinnd/src/runtime/web_icons.rs` exports the optional root endpoint.
+It snapshots the first ready browser's ID, unique owner and registration,
+introspects the optional interface once per selected owner, and checks shortcut
+revision and selected registration again after the call. Browser backend
+connectivity does not affect selection. Four semaphore slots and a six-second
+deadline bound calls; neither registry nor shortcut locks span provider I/O.
+An initial request may wait for provider registration within that same deadline,
+so first paint does not permanently miss icons merely because supervision is
+still starting. This does not launch a browser or retry a selected provider.
+
+The shell keeps private lookup records in `WebIconReferences`; the actual
+`Backend::readShortcuts` model exposes only their opaque image-provider tokens.
+`asset_images.cpp` uses a separate four-worker pool with immediate refusal when
+busy, a seven-second bus timeout and dimension checks before PNG decoding.
+Its bounded decoded-image cache is separate from media artwork and installed-app
+icons. No site artwork is currently packaged: the explicit packaged-icon
+allowlist is empty, so unknown nonempty references retain their monogram and
+never become filesystem or network paths.
+
+The packaged TOML contains versioned `[[migration]]` records with an ID, old
+`title`, `url`, `icon`, and `replacement_url`. SQLite schema 6 adds
+`web_preset_migrations`; startup applies this data transactionally before the
+existing one-time seeding operation. Fresh databases record completion without
+matching rows and then seed the current defaults. Existing seeded databases
+only update exact tuples. A batch advances the shortcut revision once when any
+URL changes; IDs, ordering and all other fields remain intact.

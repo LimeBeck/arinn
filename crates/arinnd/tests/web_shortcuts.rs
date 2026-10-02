@@ -246,4 +246,112 @@ fn packaged_default_set_is_valid() {
     for shortcut in &defaults {
         shortcut.validate().unwrap();
     }
+    let migrations = shortcuts::load_migrations(std::slice::from_ref(&tree.0));
+    assert!(!migrations.is_empty());
+    for migration in &migrations {
+        migration.validate().unwrap();
+        assert!(defaults.iter().any(|s| s.title == migration.title
+            && s.icon == migration.icon
+            && s.url == migration.replacement_url));
+        assert!(!defaults.iter().any(|s| s.title == migration.title
+            && s.icon == migration.icon
+            && s.url == migration.url));
+    }
+}
+
+#[test]
+fn preset_migration_is_exact_once_and_preserves_user_state() {
+    use arinn_protocol::web::WebShortcut;
+    use arinnd::storage::Store;
+    for variant in ["original", "title", "url", "icon", "deleted", "fresh"] {
+        let tree =
+            Tree(std::env::temp_dir().join(format!("arinn-presets-{}", uuid::Uuid::new_v4())));
+        let mut store = Store::open(&tree.0).unwrap();
+        let original = WebShortcut {
+            id: "stable-id".into(),
+            title: "Example".into(),
+            url: "https://old.example/".into(),
+            icon: String::new(),
+        };
+        let other = WebShortcut {
+            id: "other-id".into(),
+            title: "Other".into(),
+            url: "https://other.example/".into(),
+            icon: String::new(),
+        };
+        let migration = shortcuts::PresetMigration {
+            id: "preset-v1".into(),
+            title: original.title.clone(),
+            url: original.url.clone(),
+            icon: original.icon.clone(),
+            replacement_url: "https://new.example".into(),
+        };
+        if variant != "fresh" {
+            store
+                .seed_web_shortcuts(&[original.clone(), other])
+                .unwrap();
+        }
+        let mut edited = original.clone();
+        match variant {
+            "title" => edited.title.push('!'),
+            "url" => edited.url.push_str("custom"),
+            "icon" => edited.icon = "custom-icon".into(),
+            _ => {}
+        }
+        if matches!(variant, "title" | "url" | "icon") {
+            store
+                .update_web_shortcut(store.web_shortcuts().unwrap().revision, &edited)
+                .unwrap();
+        }
+        if variant == "deleted" {
+            store
+                .remove_web_shortcut(store.web_shortcuts().unwrap().revision, &original.id)
+                .unwrap();
+        }
+        // Exercise the actual schema-5 upgrade, not only a new database.
+        if variant != "fresh" {
+            drop(store);
+            rusqlite::Connection::open(tree.0.join("state.sqlite3"))
+                .unwrap()
+                .execute_batch("DROP TABLE web_preset_migrations; PRAGMA user_version=5;")
+                .unwrap();
+            store = Store::open(&tree.0).unwrap();
+        }
+        let before = store.web_shortcuts().unwrap();
+        store
+            .migrate_web_presets(std::slice::from_ref(&migration))
+            .unwrap();
+        let after = store.web_shortcuts().unwrap();
+        assert_eq!(
+            after.revision,
+            before.revision + u64::from(variant == "original")
+        );
+        assert_eq!(after.shortcuts.len(), before.shortcuts.len());
+        for (old, new) in before.shortcuts.iter().zip(&after.shortcuts) {
+            assert_eq!(
+                (&old.id, &old.title, &old.icon),
+                (&new.id, &new.title, &new.icon)
+            );
+            assert_eq!(
+                new.url,
+                if variant == "original" && old.id == original.id {
+                    migration.replacement_url.clone()
+                } else {
+                    old.url.clone()
+                }
+            );
+        }
+        // Completion survives restart, even when no tuple matched. Later user
+        // edits to the old tuple must never be rewritten by this migration.
+        drop(store);
+        let mut store = Store::open(&tree.0).unwrap();
+        if matches!(variant, "title" | "url" | "icon" | "original") {
+            store
+                .update_web_shortcut(after.revision, &original)
+                .unwrap();
+        }
+        let before = store.web_shortcuts().unwrap();
+        store.migrate_web_presets(&[migration]).unwrap();
+        assert_eq!(store.web_shortcuts().unwrap(), before);
+    }
 }

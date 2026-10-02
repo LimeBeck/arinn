@@ -12,8 +12,16 @@ url = "https://www.youtube.com/"
 
 [[shortcut]]
 title = "Кинопоиск"
-url = "https://www.kinopoisk.ru/"
+url = "https://hd.kinopoisk.ru"
 
 [[shortcut]]
 title = "IVI"
 url = "https://www.ivi.ru/"
+
+# Exact prior tuple only; customized and removed entries are left alone.
+[[migration]]
+id = "site-url-2026-10-01-v1"
+title = "Кинопоиск"
+url = "https://www.kinopoisk.ru/"
+icon = ""
+replacement_url = "https://hd.kinopoisk.ru"

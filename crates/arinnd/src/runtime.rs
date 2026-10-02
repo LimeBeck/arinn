@@ -5,7 +5,7 @@ use crate::{
     operations::{Operations, now},
     registry::{Manifest, Registry, discovery_roots},
     storage::{Config, Paths, Store, atomic_write, private_dir},
-    supervisor::Supervisor,
+    supervisor::{Attachment, Supervisor},
 };
 use arinn_plugin_sdk::snapshots::{Snapshots, TabSnapshots};
 use arinn_protocol::{
@@ -388,6 +388,7 @@ impl Core {
         let _serial = self.reload_lock.lock().await;
         let (mut next, diagnostics) = self.prepare().await?;
         let supervisor = Supervisor::new(&self.connection);
+        let mut replaced_binaries = HashSet::new();
         let existing: Vec<_> = self.state.lock().await.providers.keys().cloned().collect();
         for id in existing.iter().filter(|id| !next.contains_key(*id)) {
             let (unit, path, owner) = {
@@ -413,7 +414,22 @@ impl Core {
                 })
             };
             if let Some((enabled, manifest, unit, owner)) = old {
-                if enabled == new.enabled
+                let current = match &manifest {
+                    Some(manifest) => {
+                        supervisor
+                            .executable_current(&unit, &manifest.executable)
+                            .await?
+                    }
+                    None => true,
+                };
+                // The manifest path is unchanged after a package upgrade, so a
+                // metadata comparison would keep the old process (#243).
+                if !current {
+                    replaced_binaries.insert(id.clone());
+                    log_event(id, "replace-stale-provider");
+                }
+                if current
+                    && enabled == new.enabled
                     && manifest
                         .as_ref()
                         .zip(new.manifest.as_ref())
@@ -508,7 +524,7 @@ impl Core {
             }
         }
         for (id, new) in next {
-            let replace = {
+            let replace = replaced_binaries.contains(&id) || {
                 let state = self.state.lock().await;
                 !state.providers.get(&id).is_some_and(|p| {
                     p.enabled == new.enabled
@@ -586,7 +602,10 @@ impl Core {
         let created = Supervisor::new(&self.connection)
             .start(&unit, &manifest, env)
             .await?;
-        if created {
+        if created == Attachment::Replaced {
+            log_event(id, "replace-stale-provider");
+        }
+        if created != Attachment::Attached {
             let state = self.paths.state.clone();
             let id = id.to_string();
             tokio::task::spawn_blocking(move || Store::open(&state)?.reset_supervisor_count(&id))
@@ -1281,6 +1300,14 @@ impl Core {
         });
         Ok(path)
     }
+}
+
+fn log_event(provider_id: &str, operation: &str) {
+    eprintln!(
+        "{}",
+        serde_json::json!({"level":"info","component":"arinnd","provider_id":provider_id,"request_id":null,"operation":operation,"error":null,"duration_ms":0})
+    );
+    let _ = std::io::Write::flush(&mut std::io::stderr());
 }
 
 /// The environment a provider unit starts with (spec §9.9, ADR-0034,

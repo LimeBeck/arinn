@@ -290,6 +290,17 @@ impl ServiceObject {
             .map(|u| u.exit_status)
             .unwrap_or(0)
     }
+    /// The real child pid, so the daemon can compare `/proc/<MainPID>/exe`
+    /// with the installed executable (#243).
+    #[zbus(property, name = "MainPID")]
+    async fn main_pid(&self) -> u32 {
+        self.units
+            .lock()
+            .await
+            .get(&self.name)
+            .and_then(|unit| unit.child.as_ref().map(std::process::Child::id))
+            .unwrap_or(0)
+    }
     #[zbus(property, name = "NRestarts")]
     async fn restarts(&self) -> u32 {
         self.units

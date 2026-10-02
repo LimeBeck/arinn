@@ -6,6 +6,7 @@
 import json
 import os
 from pathlib import Path
+import shutil
 import signal
 import subprocess
 import tempfile
@@ -63,11 +64,27 @@ with tempfile.TemporaryDirectory(prefix="arinn-production-") as folder:
     def ready():
         return next((p for p in providers() if p["id"] == "test" and p["runtime_state"] == "ready"), None)
 
-    def manifest(fixture="populated", name="Test"):
+    def manifest(fixture="populated", name="Test", executable=None):
+        binary = executable if executable is not None else BIN / "arinn-plugin-demo"
         (manifests / "test.toml").write_text(
             f'id = "test"\nname = "{name}"\nversion = "0.0.1"\napi_version = 1\n'
-            f'executable = "{BIN / "arinn-plugin-demo"}"\ncapabilities = ["application"]\n'
+            f'executable = "{binary}"\ncapabilities = ["application"]\n'
             f'args = ["--fixture", "{fixture}"]\n')
+
+    def executable_pids(path):
+        wanted = str(path)
+        live, stale = [], []
+        for entry in Path("/proc").iterdir():
+            if not entry.name.isdigit():
+                continue
+            try:
+                target = os.readlink(entry / "exe")
+            except OSError:
+                continue
+            deleted = target.endswith(" (deleted)")
+            if target.removesuffix(" (deleted)") == wanted:
+                (stale if deleted else live).append(int(entry.name))
+        return sorted(live), sorted(stale)
 
     def contract(mode="basic"):
         result = subprocess.run([str(BIN / "examples/contract-client"), "test", mode], env=env,
@@ -170,13 +187,64 @@ with tempfile.TemporaryDirectory(prefix="arinn-production-") as folder:
         assert 'ARINN_PROVIDER_SETTINGS={"marker":"after-restart"}' in unit_env, [
             line for line in unit_env if line.startswith("ARINN_PROVIDER_SETTINGS")]
         config.write_text(original)
+        attached = executable_pids(BIN / "arinn-plugin-demo")
+        assert attached[0] and not attached[1], attached
         daemon.send_signal(signal.SIGINT)
         daemon.wait(timeout=5)
         assert cli("status", ok=False).returncode == 3
         daemon = start(BIN / "arinnd")
+        daemon_log = logs[-1]
         third = wait(lambda: (p := ready()) and p["generation"] != second["generation"] and p)
+        # The binary was not replaced, so the daemon attaches to the same process.
+        assert executable_pids(BIN / "arinn-plugin-demo") == attached, executable_pids(BIN / "arinn-plugin-demo")
         assert third["path"] == first["path"]
         contract()
+        # #243: a package upgrade replaces the executable while the unit keeps
+        # running the deleted inode. Reload and a daemon restart must launch
+        # the installed binary (new PID and generation) instead of re-attaching.
+        installed = root / "provider-bin"
+        shutil.copy(BIN / "arinn-plugin-demo", installed)
+        installed.chmod(0o755)
+        previous = ready()["generation"]
+        manifest(executable=installed)
+        cli("providers", "reload")
+        switched = wait(lambda: (p := ready()) and p["generation"] != previous and p)
+        live, stale = executable_pids(installed)
+        assert live and not stale, (live, stale)
+
+        def replace_binary():
+            installed.unlink()
+            shutil.copy(BIN / "arinn-plugin-demo", installed)
+            installed.chmod(0o755)
+            wait(lambda: (pids := executable_pids(installed)) and pids[1] and not pids[0])
+
+        def assert_relaunched(previous_generation, previous_pids, log):
+            def relaunched():
+                provider = ready()
+                if not provider or provider["generation"] == previous_generation:
+                    return None
+                current_live, current_stale = executable_pids(installed)
+                if not current_live or current_stale or current_live == list(previous_pids):
+                    return None
+                return provider, current_live
+            provider, current_live = wait(relaunched)
+            log.seek(0)
+            text = log.read()
+            assert '"operation":"replace-stale-provider"' in text, text
+            assert '"provider_id":"test"' in text, text
+            assert str(installed) not in text, text
+            return provider, current_live
+
+        replace_binary()
+        stale_pids = executable_pids(installed)[1]
+        cli("providers", "reload")
+        reloaded, _live = assert_relaunched(switched["generation"], stale_pids, daemon_log)
+        replace_binary()
+        stale_pids = executable_pids(installed)[1]
+        daemon.send_signal(signal.SIGINT)
+        daemon.wait(timeout=5)
+        daemon = start(BIN / "arinnd")
+        assert_relaunched(reloaded["generation"], stale_pids, logs[-1])
         manifest("large")
         cli("providers", "reload")
         wait(lambda: (p := ready()) and p["generation"] != third["generation"])

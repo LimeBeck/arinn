@@ -683,6 +683,23 @@ private slots:
     QTRY_COMPARE(catalog.operationState(), QStringLiteral("Unavailable"));
     QCOMPARE(launched.size(), 1);
   }
+  // #247: Continue resumes a stopped film by its provider-local item id.
+  void launchContentFindsTheItem() {
+    LibraryDaemon daemon;
+    daemon.collections = {{QStringLiteral("films"), QStringLiteral("Films"),
+                           QStringLiteral("film")}};
+    daemon.page1 = {film(QStringLiteral("north"), QStringLiteral("North"))};
+    daemon.features.clear();
+    QVERIFY(registerBus(daemon));
+    LibraryCatalog catalog;
+    QTRY_COMPARE(catalog.libraryState(), QStringLiteral("ready"));
+    catalog.launchContent(QStringLiteral("library-provider"), QStringLiteral("missing"));
+    QCOMPARE(catalog.operationState(), QStringLiteral("NotFound"));
+    QCOMPARE(daemon.commands.size(), 0);
+    catalog.launchContent(QStringLiteral("library-provider"), QStringLiteral("north"));
+    QTRY_COMPARE(daemon.commands, QStringList({QStringLiteral("Launch")}));
+    QCOMPARE(daemon.lastLocal, QStringLiteral("north"));
+  }
   void stateChangedRefreshesWithoutAFastPoll() {
     LibraryDaemon daemon;
     daemon.collections = {{QStringLiteral("films"), QStringLiteral("Films"),

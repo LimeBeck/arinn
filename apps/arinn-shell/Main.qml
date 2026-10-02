@@ -172,7 +172,15 @@ Window {
                 Qt.callLater(() => browserView.forceActiveFocus());
             }
             onServiceRequested: backend.back()
-            onSessionRequested: entryId => root.openSession(entryId, false)
+            onSessionRequested: entryId => {
+                // A stopped film resumes through the library; the stopped
+                // session itself has nothing to present (#247).
+                const target = mediaCatalog.resumeTarget(entryId);
+                if (target.local)
+                    libraryCatalog.launchContent(target.provider, target.local);
+                else
+                    root.openSession(entryId, false);
+            }
             onPowerRequested: { feedback.text = qsTr("Power controls are not available yet."); feedbackTimer.restart(); }
         }
         Browser.BrowserView {

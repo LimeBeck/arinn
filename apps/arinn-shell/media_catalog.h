@@ -65,6 +65,10 @@ public:
   Q_INVOKABLE void release();
   Q_INVOKABLE void abandonPresentation();
   Q_INVOKABLE void requestHome();
+  // For a stopped session that plays a library item: {provider, local} of
+  // that item, so Continue resumes it through the library (#247). Empty
+  // otherwise: a stopped managed session cannot be presented again.
+  Q_INVOKABLE QVariantMap resumeTarget(const QString &id) const;
   bool playerSession() const;
   bool tracksAvailable() const;
   bool timelineAvailable() const;
@@ -114,6 +118,9 @@ private:
     QString subtitle;
     QString artworkId;
     QString state;
+    // The library item this session plays, when it came from a library.
+    QString contentProvider;
+    QString contentLocal;
     qint64 durationUs = -1;
     qint64 positionUs = 0;
     quint64 anchorUs = 0;

@@ -28,6 +28,8 @@ public:
   QString operationState() const { return m_operation; }
   QString launchingId() const { return m_launchingId; }
   Q_INVOKABLE void launch(const QString &id);
+  // Launch the item with this provider-local id (Continue resume, #247).
+  Q_INVOKABLE void launchContent(const QString &providerId, const QString &localId);
 public slots:
   void refresh();
 signals:

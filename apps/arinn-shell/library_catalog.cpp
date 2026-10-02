@@ -781,6 +781,16 @@ LibraryCatalog::launchTarget(const ItemRow &row) const {
     return seriesTarget(row);
   return &row;
 }
+void LibraryCatalog::launchContent(const QString &providerId,
+                                   const QString &localId) {
+  for (const auto &item : m_items) {
+    if (item.providerId == providerId && item.localId == localId) {
+      launch(item.id);
+      return;
+    }
+  }
+  setOperation(QStringLiteral("NotFound"));
+}
 void LibraryCatalog::launch(const QString &id) {
   if (m_operation == QLatin1String("pending") ||
       m_operation == QLatin1String("queued") ||

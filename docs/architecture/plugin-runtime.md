@@ -78,9 +78,17 @@ failed state, waits until systemd has unloaded it, and creates it again
 instead of restarting it in place
 ([#234](https://github.com/LimeBeck/arinn/issues/234)). Stopping a unit always
 waits briefly for that unload, because systemd refuses a new transient unit
-under a name that is still loaded. A daemon restart still
-attaches to surviving units, and those keep their settings until they restart. A typed schema and
-editing from the TV are [#145](https://github.com/LimeBeck/arinn/issues/145).
+under a name that is still loaded. A daemon restart or `providers reload`
+attaches to a surviving unit when its main process still runs the manifest
+executable: the same device and inode, and `/proc/<MainPID>/exe` is not marked
+deleted. A replaced file (the old inode is deleted after a package upgrade)
+makes the daemon discard that unit and create it again, so the provider runs
+the installed binary and the current settings. The replacement is logged with
+the provider id and without paths
+([#243](https://github.com/LimeBeck/arinn/issues/243)). A surviving unit whose
+binary still matches keeps the environment it was created with until it
+restarts. A typed schema and editing from the TV are
+[#145](https://github.com/LimeBeck/arinn/issues/145).
 
 ## Handshake and recovery
 

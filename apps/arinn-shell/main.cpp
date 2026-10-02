@@ -5,6 +5,7 @@
 #include "asset_images.h"
 #include "backend.h"
 #include "sessionlifecycle.h"
+#include "shell_window.h"
 #include <QDBusConnection>
 #include <QDBusConnectionInterface>
 #include <QGuiApplication>
@@ -38,6 +39,7 @@ int main(int argc, char **argv) {
                      QDBusConnection::ExportAllProperties);
   bus.registerObject("/org/arinn/Session1", sessionGuard,
                      QDBusConnection::ExportAllProperties);
+  configureShellWindows();
   QQmlApplicationEngine engine;
   installAssetImageProvider(&engine);
   engine.rootContext()->setContextProperty("backend", &backend);

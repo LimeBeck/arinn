@@ -1,0 +1,1 @@
+- The player OSD hides 4 s after a film starts even if no key is pressed.

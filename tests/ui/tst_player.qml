@@ -321,6 +321,28 @@ TestCase {
         compare(player.position, 30)
     }
 
+    // #245: a film opened from the library becomes ready and playing after
+    // the view opens; the OSD then hides without any input.
+    function test_idle_hide_after_launch_without_input_data() {
+        return [{tag: "ready-then-playing", playingFirst: false}, {tag: "playing-then-ready", playingFirst: true}]
+    }
+    function test_idle_hide_after_launch_without_input(data) {
+        player.osdIdleMs = 80
+        player.playbackState = "loading"
+        player.playing = false
+        player.osdVisible = true
+        wait(150)
+        if (data.playingFirst) {
+            player.playing = true
+            player.playbackState = "ready"
+        } else {
+            player.playbackState = "ready"
+            player.playing = true
+        }
+        tryCompare(player, "osdVisible", false, 2000)
+        assertNoCommands()
+    }
+
     function test_paused_osd_does_not_hide() {
         player.osdIdleMs = 80
         player.playing = false

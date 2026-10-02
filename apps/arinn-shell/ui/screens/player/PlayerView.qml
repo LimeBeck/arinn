@@ -382,6 +382,10 @@ FocusScope {
         armIdle()
     }
     onPlaybackStateChanged: armIdle()
+    // The transport binding may update after onPlaybackStateChanged ran with
+    // its old value; re-arm on the binding itself so the OSD hides after a
+    // launch without input (#245).
+    onTransportReadyChanged: armIdle()
     onOsdIdleMsChanged: armIdle()
     onSheetKindChanged: armIdle()
     onTracksSupportedChanged: {

@@ -1,0 +1,1 @@
+- Managed playback no longer releases itself a second after it starts: an empty window association while the compositor reports the presented window again is treated as pending, not as a lost window.

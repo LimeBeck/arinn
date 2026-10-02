@@ -1612,7 +1612,8 @@ void MediaCatalog::checkPresentedWindow(quint64 ticket, quint64 epoch,
                 qvariant_cast<QDBusArgument>(reply.arguments().first());
             arg.beginArray();
             bool matches = false;
-            if (!arg.atEnd()) {
+            const bool unresolved = arg.atEnd();
+            if (!unresolved) {
               QString generation, token;
               arg.beginStructure();
               arg >> generation >> token;
@@ -1621,6 +1622,17 @@ void MediaCatalog::checkPresentedWindow(quint64 ticket, quint64 epoch,
                   generation == m_windowGeneration && token == m_windowToken;
             }
             arg.endArray();
+            // Presenting changes the window's own flags, which commits a new
+            // inventory; until its reports complete the daemon answers an
+            // empty list. That is not a lost window: check again until the
+            // deadline. Only another window, or no window past the
+            // deadline, ends the presentation (#236).
+            if (unresolved) {
+              QTimer::singleShot(100, this, [this, ticket, epoch, deadline] {
+                checkPresentedWindow(ticket, epoch, deadline);
+              });
+              return;
+            }
             if (!matches)
               abandonPresentation();
           });

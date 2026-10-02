@@ -1224,6 +1224,36 @@ private slots:
     QTRY_VERIFY(!catalog.inputLayerActive());
     QCOMPARE(daemon.commands.size(), 0);
   }
+  // #236: a presentation changes the video window's flags, which closes the
+  // daemon's report barrier for a moment. The empty association during that
+  // barrier must not release the presentation.
+  void presentationSurvivesAShortReportBarrier() {
+    MediaDaemon daemon;
+    daemon.features = {QStringLiteral("MediaWindow1")};
+    daemon.page1 = {session(QStringLiteral("live"), QStringLiteral("Piece"),
+                            QStringLiteral("playing"), 0, monotonicUs(),
+                            9000000, {QStringLiteral("stop")})};
+    auto bus = QDBusConnection::sessionBus();
+    QVERIFY(bus.registerService(QStringLiteral("org.arinn.Daemon1")));
+    QVERIFY(bus.registerVirtualObject(QStringLiteral("/org/arinn"), &daemon,
+                                      QDBusConnection::SubPath));
+    MediaCatalog catalog;
+    QTRY_VERIFY(catalog.windowAvailable());
+    catalog.present();
+    QTRY_COMPARE(catalog.presentationState(), QStringLiteral("active"));
+    const auto reads = daemon.windowReads;
+    daemon.windowReady = false;
+    auto changed = QDBusMessage::createSignal(daemon.providers.first().path.path(), QStringLiteral("org.arinn.MediaWindow1"), QStringLiteral("Changed"));
+    changed << daemon.pageGeneration;
+    QVERIFY(bus.send(changed));
+    QTRY_VERIFY(daemon.windowReads > reads + 1);
+    QTest::qWait(250);
+    daemon.windowReady = true;
+    QTest::qWait(400);
+    QCOMPARE(catalog.presentationState(), QStringLiteral("active"));
+    QVERIFY(catalog.inputLayerActive());
+    QCOMPARE(daemon.windowCommands, QStringList({QStringLiteral("Present")}));
+  }
   void pendingPresentationFailureRespectsFocus_data() {
     QTest::addColumn<bool>("loseFocus");
     QTest::newRow("lost-focus") << true;

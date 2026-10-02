@@ -37,6 +37,17 @@ fn path(name: &str) -> OwnedObjectPath {
     .unwrap()
 }
 fn spawn(unit: &mut Unit) -> std::io::Result<()> {
+    // Tests read the environment each start used (#234).
+    if let Some(dir) = std::env::var_os("ARINN_TEST_UNIT_ENV_DIR") {
+        let name = std::path::Path::new(&unit.command)
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let _ = std::fs::write(
+            std::path::Path::new(&dir).join(format!("{name}.env")),
+            unit.env.join("\n"),
+        );
+    }
     let mut command = Command::new(&unit.command);
     command.args(&unit.args[1..]);
     for entry in &unit.env {

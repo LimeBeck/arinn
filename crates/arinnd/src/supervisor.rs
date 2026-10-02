@@ -186,6 +186,22 @@ impl Supervisor {
             .await
             .map_err(|_| ErrorCode::Timeout)?
     }
+    /// Clear a unit's failed state and start-limit counter. A failed
+    /// transient unit is unloaded by this.
+    pub async fn reset_failed(&self, name: &str) -> Result<(), ErrorCode> {
+        let work = async {
+            let _: () = self
+                .manager()
+                .await?
+                .call("ResetFailedUnit", &(name,))
+                .await
+                .map_err(|_| ErrorCode::Unavailable)?;
+            Ok(())
+        };
+        tokio::time::timeout(Duration::from_secs(3), work)
+            .await
+            .map_err(|_| ErrorCode::Timeout)?
+    }
     pub async fn restart(&self, name: &str) -> Result<(), ErrorCode> {
         let work = async {
             let manager = self.manager().await?;

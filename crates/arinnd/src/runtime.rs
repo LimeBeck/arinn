@@ -1717,10 +1717,22 @@ impl Daemon {
                     .unwrap_or_default();
                 core.unavailable(&id, &owner).await;
                 let supervisor = Supervisor::new(&core.connection);
+                // A transient unit keeps the environment it was created
+                // with, so restarting it in place would keep stale settings.
+                // Stop it and create it again with the current config.toml
+                // (ADR-0064, #234).
                 let result = match supervisor.unit(&unit).await {
                     Err(ErrorCode::NotFound) => core.launch(&id).await,
                     Err(error) => Err(error),
-                    Ok(_) => supervisor.restart(&unit).await,
+                    Ok(_) => {
+                        async {
+                            supervisor.stop(&unit).await?;
+                            // Unloads a failed unit; one that is already gone is fine.
+                            let _ = supervisor.reset_failed(&unit).await;
+                            core.launch(&id).await
+                        }
+                        .await
+                    }
                 };
                 if result.is_ok() {
                     let directory = core.paths.state.clone();

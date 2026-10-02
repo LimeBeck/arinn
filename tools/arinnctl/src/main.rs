@@ -13,28 +13,34 @@ fn output(value: &impl Serialize, json: bool) -> Result<(), u8> {
     if json {
         println!("{}", serde_json::to_string_pretty(&value).map_err(|_| 1)?);
     } else {
-        human(&value, "");
+        print!("{}", human(&value));
     }
     Ok(())
 }
-fn human(value: &serde_json::Value, prefix: &str) {
+/// `key: value` lines; the objects of any list, nested ones too, are
+/// separated by a blank line.
+fn human(value: &serde_json::Value) -> String {
+    let mut out = String::new();
+    human_into(value, "", &mut out);
+    out
+}
+fn human_into(value: &serde_json::Value, prefix: &str, out: &mut String) {
     match value {
         serde_json::Value::Object(map) => {
             for (key, value) in map {
-                human(value, &format!("{prefix}{key}: "));
+                human_into(value, &format!("{prefix}{key}: "), out);
             }
         }
         serde_json::Value::Array(values) => {
-            // Records (objects) are separated by a blank line.
             for (index, value) in values.iter().enumerate() {
-                if index > 0 && value.is_object() && prefix.is_empty() {
-                    println!();
+                if index > 0 && value.is_object() && !out.ends_with("\n\n") {
+                    out.push('\n');
                 }
-                human(value, prefix);
+                human_into(value, prefix, out);
             }
         }
-        serde_json::Value::String(text) => println!("{prefix}{text}"),
-        _ => println!("{prefix}{value}"),
+        serde_json::Value::String(text) => out.push_str(&format!("{prefix}{text}\n")),
+        _ => out.push_str(&format!("{prefix}{value}\n")),
     }
 }
 /// `providers` as a table, one row per provider (`--json` keeps all fields).
@@ -53,7 +59,7 @@ fn provider_table(providers: &[arinn_protocol::production::ProviderInfo]) -> Str
         .map(|p| {
             let error = if p.last_error.is_empty() {
                 "-".to_owned()
-            } else if p.recovered_at >= p.error_at && p.recovered_at > 0 {
+            } else if p.recovered_at > 0 {
                 format!("{} (recovered)", p.last_error)
             } else {
                 p.last_error.clone()
@@ -430,6 +436,25 @@ mod tests {
     }
 
     #[test]
+    fn records_in_nested_lists_are_separated() {
+        let value = serde_json::json!({
+            "revision": 1,
+            "shortcuts": [
+                {"id": "one", "title": "One"},
+                {"id": "two", "title": "Two"}
+            ]
+        });
+        assert_eq!(
+            human(&value),
+            "revision: 1\nshortcuts: id: one\nshortcuts: title: One\n\nshortcuts: id: two\nshortcuts: title: Two\n"
+        );
+        // Top-level lists too; scalar lists stay one line per value.
+        let value = serde_json::json!([{"id": "a"}, {"id": "b"}]);
+        assert_eq!(human(&value), "id: a\n\nid: b\n");
+        assert_eq!(human(&serde_json::json!(["x", "y"])), "x\ny\n");
+    }
+
+    #[test]
     fn providers_are_one_aligned_row_each() {
         let table = provider_table(&[
             provider("mpris", "", 0, 0),
@@ -443,6 +468,16 @@ mod tests {
         assert!(lines[1].ends_with("1/3       -"));
         assert!(lines[2].ends_with("Unavailable (recovered)"));
         assert!(lines[3].ends_with("Timeout"));
+        // Recovered is any non-zero recovered_at, as in the daemon, even
+        // after a backward clock step.
+        let table = provider_table(&[provider("clock", "Timeout", 50, 40)]);
+        assert!(
+            table
+                .lines()
+                .nth(1)
+                .unwrap()
+                .ends_with("Timeout (recovered)")
+        );
         // Columns line up: every row puts STATE at the same offset.
         let state = lines[0].find("STATE").unwrap();
         assert!(

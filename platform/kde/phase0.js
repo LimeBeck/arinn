@@ -243,11 +243,24 @@ workspace.windowActivated.connect(w => {
     // That is not another application taking over: give input back to the
     // shell instead of releasing (#236). Any other window still releases.
     if (w === playback.window) {
-        workspace.activeWindow = playback.shell;
+        // KWin may ignore an activation changed from inside this signal, so
+        // also do it once more after an asynchronous round trip, when the
+        // player's activation has finished.
+        const saved = playback;
+        workspace.activeWindow = saved.shell;
+        afterActivation(() => {
+            if (playback === saved && workspace.activeWindow === saved.window
+                && workspace.windowList().includes(saved.shell))
+                workspace.activeWindow = saved.shell;
+        });
         return;
     }
     releasePlayback(false);
 });
+// KWin scripts have no timers; a D-Bus reply runs after the current event.
+function afterActivation(action) {
+    callDBus("org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus", "GetId", () => action());
+}
 workspace.windowRemoved.connect(w => {
     if (playback && (playback.window === w || playback.shell === w)) releasePlayback(false);
     windowTokens.delete(w);

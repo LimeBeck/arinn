@@ -48,7 +48,7 @@ function fixture(options = {}) {
     let deferLock = false, deferHome = false;
     const homeReplies = [], commitReplies = [], returnReports = [], discoveryReplies = [];
     const acknowledgeHome = callback => { if (deferHome) homeReplies.push(callback); else callback(); };
-    const lockReplies = [], homeRequests = [];
+    const lockReplies = [], homeRequests = [], deferred = [];
     const snapshots = [], acknowledgements = [], controls = [];
     let owner = ":1.10"; const polls = [];
     let activeWindow = activity;
@@ -95,6 +95,7 @@ function fixture(options = {}) {
                 if (method === 'NextControl') { control = callback; controls.push(callback); }
                 if (method === 'CompleteControl') { acknowledgements.push(args.slice(0, 3)); callback(); }
             }
+            if (method === 'GetId') deferred.push(args.at(-1));
             if (method === 'GetActive') {
                 if (deferLock) lockReplies.push(args[0]);
                 else args[0](locked);
@@ -115,6 +116,7 @@ function fixture(options = {}) {
         } });
     vm.runInContext(fs.readFileSync(path.join(__dirname, '../../platform/kde/phase0.js'), 'utf8'), context);
     return { activity, home, workspace, window, polls, snapshots, acknowledgements, controls, trace, mediaReports, mediaAcks,
+        runDeferred() { deferred.splice(0).forEach(callback => callback('bus-id')); },
         media(action, token) { mediaControl([randomUUID(), action, token]); },
         mediaIdle() { mediaControl([]); },
         advance(ms) { now += ms; },
@@ -530,6 +532,24 @@ test('the player taking focus keeps the presentation and returns focus to the sh
     assert.equal(f.activity.fullScreen, true);
     assert.equal(f.activity.keepAbove, true);
     assert.equal(f.home.keepAbove, true);
+});
+test('focus returns to the shell after the player activation completes', () => {
+    const {f, token} = managedFixture();
+    f.media('present', token);
+    f.workspace.activeWindow = f.activity;
+    f.workspace.windowActivated.emit(f.activity);
+    // KWin ignored the change made inside the signal: the player stays active.
+    f.workspace.activeWindow = f.activity;
+    f.runDeferred();
+    assert.equal(f.workspace.activeWindow, f.home);
+    assert.equal(f.activity.fullScreen, true);
+    // A later presentation or an already focused shell is left alone.
+    const other = f.window('other', 'editor'); f.add(other);
+    f.workspace.activeWindow = f.activity;
+    f.workspace.windowActivated.emit(f.activity);
+    f.workspace.activeWindow = other;
+    f.runDeferred();
+    assert.equal(f.workspace.activeWindow, other);
 });
 test('unrelated focus releases managed flags without stealing focus', () => {
     const {f, token} = managedFixture();

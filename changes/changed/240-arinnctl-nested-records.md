@@ -1,0 +1,1 @@
+- `arinnctl` also separates records inside nested lists, for example in `shortcuts`, `snapshot` and `diagnostics`, and marks any recovered provider error as recovered.

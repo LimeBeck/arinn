@@ -1,0 +1,1 @@
+- The shell window requests an alpha channel, so the transparent playback layer no longer hides the video on Wayland.

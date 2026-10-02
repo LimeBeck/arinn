@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "asset_images.h"
+#include "shell_window.h"
 #include "backend.h"
 #include "sessionlifecycle.h"
 #include <QQmlApplicationEngine>
@@ -30,6 +31,7 @@ private slots:
     QTRY_COMPARE_WITH_TIMEOUT(backend.items().size(), 1, 5000);
     QCOMPARE(backend.items().at(0).toMap().value("localId").toString(),
              QString("demo.activity"));
+    configureShellWindows();
     QQmlApplicationEngine engine;
     auto *sessionGuard = createSessionLifecycle(&engine);
     engine.rootContext()->setContextProperty("backend", &backend);
@@ -39,6 +41,8 @@ private slots:
     QVERIFY(!engine.rootObjects().isEmpty());
     auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
     QVERIFY(window);
+    // The transparent playback layer needs an alpha channel (#236).
+    QVERIFY(window->requestedFormat().alphaBufferSize() >= 8);
     window->show();
     window->requestActivate();
     QTest::qWait(100);

@@ -16,6 +16,9 @@ public:
   bool valid() const { return m_valid && m_homeKnown && m_home; }
   bool homeKnown() const { return m_homeKnown; }
   bool homeVisible() const { return m_home; }
+  // True from an invalidation until the next read completes or is rejected:
+  // the evidence is being re-read, not known to be negative.
+  bool pending() const { return m_pending; }
 public slots:
   void refresh();
   void invalidate();
@@ -36,6 +39,6 @@ private:
   quint64 m_lifetime = 0, m_context = 0, m_floor = 0, m_revision = 0;
   bool m_valid = false, m_homeKnown = false, m_home = false,
        m_known = false, m_supported = false, m_busy = false,
-       m_dirty = false, m_resolving = false;
+       m_dirty = false, m_resolving = false, m_pending = false;
   QTimer m_timer;
 };

@@ -51,7 +51,7 @@ void ReturnAssociation::setOwner(const QString &owner) {
   }
   ++m_lifetime; ++m_context;
   m_owner = owner;
-  m_busy = m_dirty = m_known = m_supported = m_valid = m_homeKnown = false;
+  m_busy = m_dirty = m_known = m_supported = m_valid = m_homeKnown = m_pending = false;
   m_epoch.clear(); m_target.clear(); m_token.clear(); m_platform.clear();
   m_signalEpoch.clear(); m_inventoryGeneration.clear();
   m_revision = m_floor = 0;
@@ -66,6 +66,7 @@ void ReturnAssociation::setOwner(const QString &owner) {
 }
 void ReturnAssociation::invalidate() {
   ++m_context;
+  m_pending = true;
   m_valid = m_homeKnown = false;
   emit changed();
   QTimer::singleShot(0, this, &ReturnAssociation::refresh);
@@ -118,7 +119,7 @@ void ReturnAssociation::refresh() {
     if (lifetime != m_lifetime) return;
     if (context != m_context) { done(true); return; }
     if (reply.type() == QDBusMessage::ErrorMessage || reply.signature() != "(sbstbsssbbss)") {
-      m_valid = m_homeKnown = false; emit changed(); done(); return;
+      m_pending = false; m_valid = m_homeKnown = false; emit changed(); done(); return;
     }
     const auto a = qvariant_cast<QDBusArgument>(reply.arguments().first());
     QString epoch, generation, target, active, klass, output, activeOutput;
@@ -126,13 +127,13 @@ void ReturnAssociation::refresh() {
     a.beginStructure(); a >> epoch >> available >> generation >> revision >> home >> target
         >> active >> klass >> fullscreen >> platform >> output >> activeOutput; a.endStructure();
     if (!uuid(epoch) || generation != epoch || !text(target, 8192)) {
-      m_valid = m_homeKnown = false; emit changed(); done(); return;
+      m_pending = false; m_valid = m_homeKnown = false; emit changed(); done(); return;
     }
     if (epoch != m_epoch || target != m_target || home != m_home) m_valid = false;
     if (epoch != m_epoch) m_revision = 0;
     m_epoch = epoch; m_target = target; m_home = home; m_homeKnown = true;
     if (!home || !m_supported || target.isEmpty() || !platform) {
-      m_valid = false; emit changed(); done(); return;
+      m_pending = false; m_valid = false; emit changed(); done(); return;
     }
     emit changed();
     readAssociation(lifetime, context);
@@ -144,7 +145,7 @@ void ReturnAssociation::readAssociation(quint64 lifetime, quint64 context) {
     auto reply = p->reply(); p->deleteLater();
     if (lifetime != m_lifetime) return;
     if (context != m_context) { done(true); return; }
-    auto reject = [this] { m_valid = false; emit changed(); done(); };
+    auto reject = [this] { m_pending = false; m_valid = false; emit changed(); done(); };
     if (reply.type() == QDBusMessage::ErrorMessage || reply.signature() != "(stsa(ss))") { reject(); return; }
     const auto a = qvariant_cast<QDBusArgument>(reply.arguments().first());
     QString epoch, target, generation, token; qulonglong revision; int count = 0;
@@ -161,6 +162,7 @@ void ReturnAssociation::readAssociation(quint64 lifetime, quint64 context) {
     }
     m_revision = revision; m_installedTarget = target; m_installedToken = token; m_installedPlatform = generation;
     m_token = token; m_platform = generation; m_valid = count == 1;
+    m_pending = false;
     emit changed(); done();
   });
 }

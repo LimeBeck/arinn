@@ -151,6 +151,9 @@ BrowserCatalog::BrowserCatalog(QObject *parent) : QObject(parent), m_association
           });
   connect(&m_timer, &QTimer::timeout, this, &BrowserCatalog::refresh);
   m_timer.start(1000);
+  m_holdTimer.setSingleShot(true);
+  m_holdTimer.setInterval(1500);
+  connect(&m_holdTimer, &QTimer::timeout, this, [this] { updatePresentation(true); });
   m_saveErrorTimer.setSingleShot(true);
   m_saveErrorTimer.setInterval(4000);
   connect(&m_saveErrorTimer, &QTimer::timeout, this,
@@ -1029,6 +1032,45 @@ void BrowserCatalog::presentTabs(QVariantList tabs) {
     m_currentService = current;
     emit currentServiceChanged();
   }
+  updatePresentation();
+}
+// A daemon or association signal invalidates the evidence before it is read
+// again, so returnMatched drops for the length of a read even when nothing
+// changed. Home keeps showing the last match for at most the hold interval
+// while the evidence is only pending. Anything that contradicts it (Home
+// hidden, another Return target or daemon epoch, a completed negative read)
+// clears it at once. The Return action always goes through daemon Back, so
+// only the label is held (#227, ADR-0073).
+void BrowserCatalog::updatePresentation(bool expired) {
+  if (m_returnMatched && !m_currentService.isEmpty()) {
+    m_holdTimer.stop();
+    m_presentedTarget = m_association.target();
+    m_presentedEpoch = m_association.epoch();
+    setPresentation(true, m_currentService);
+    return;
+  }
+  if (!m_presented)
+    return;
+  const bool contradicted =
+      !m_home || (m_association.homeKnown() && !m_association.homeVisible()) ||
+      m_association.target() != m_presentedTarget ||
+      m_association.epoch() != m_presentedEpoch ||
+      m_returnTarget != m_presentedTarget;
+  const bool pending = !m_completeEvidence || m_association.pending();
+  if (expired || contradicted || !pending) {
+    m_holdTimer.stop();
+    setPresentation(false, {});
+    return;
+  }
+  if (!m_holdTimer.isActive())
+    m_holdTimer.start();
+}
+void BrowserCatalog::setPresentation(bool presented, const QVariantMap &service) {
+  if (m_presented == presented && m_presentedService == service)
+    return;
+  m_presented = presented;
+  m_presentedService = service;
+  emit presentationChanged();
 }
 void BrowserCatalog::retry() {
   if (m_retryAction == QLatin1String("restart") &&

@@ -81,7 +81,7 @@ Window {
             onRemoveShortcutRequested: backend.removeShortcut()
             busyEntryIds: backend.busyEntryIds
             // Only explicit current evidence may replace the generic Return tile.
-            returnIsWebService: backend.connected === true && backend.homeVisible && browserCatalog.returnMatched
+            returnIsWebService: backend.connected === true && backend.homeVisible && browserCatalog.presentedReturn
                 && backend.daemonEpoch === browserCatalog.returnEpoch
                 && backend.returnWindow === browserCatalog.returnTarget
             continueEntries: (returnIsWebService ? [] : backend.continueEntries).concat(mediaCatalog.continueEntries)
@@ -91,9 +91,9 @@ Window {
             favoritesTitle: qsTr("Favorites")
             returnActivityId: backend.returnWindow
             openServiceCount: browserCatalog.tabs.length
-            currentServiceId: backend.homeVisible && !returnIsWebService ? "" : (browserCatalog.currentService.id || "")
-            currentServiceTitle: backend.homeVisible && !returnIsWebService ? "" : (browserCatalog.currentService.title || "")
-            currentServiceSubtitle: backend.homeVisible && !returnIsWebService ? "" : (browserCatalog.currentService.subtitle || "")
+            currentServiceId: backend.homeVisible && !returnIsWebService ? "" : (browserCatalog.presentedService.id || "")
+            currentServiceTitle: backend.homeVisible && !returnIsWebService ? "" : (browserCatalog.presentedService.title || "")
+            currentServiceSubtitle: backend.homeVisible && !returnIsWebService ? "" : (browserCatalog.presentedService.subtitle || "")
             browserUnavailable: browserCatalog.browserState === "unavailable"
             openShortcutIds: browserCatalog.openShortcutIds
             homeState: backend.homeState

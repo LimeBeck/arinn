@@ -34,7 +34,9 @@ with tempfile.TemporaryDirectory(prefix="arinn-production-") as folder:
     env = {**os.environ, "HOME": folder, "XDG_CONFIG_HOME": str(root / "config"),
            "XDG_DATA_HOME": str(root / "data"), "XDG_DATA_DIRS": str(root / "system"),
            "XDG_STATE_HOME": str(root / "state"), "XDG_RUNTIME_DIR": str(root / "run"),
-           "ARINN_PRIVATE_TEST_BUS": "1", "LD_PRELOAD": ""}
+           "ARINN_PRIVATE_TEST_BUS": "1", "LD_PRELOAD": "",
+           "ARINN_TEST_UNIT_ENV_DIR": str(root / "unit-env")}
+    (root / "unit-env").mkdir()
     (root / "run").mkdir(mode=0o700)
     manifests = root / "data/arinn/plugins"
     manifests.mkdir(parents=True)
@@ -156,9 +158,18 @@ with tempfile.TemporaryDirectory(prefix="arinn-production-") as folder:
         cli("providers", "reload")
         assert ready()["generation"] == first["generation"]
         assert ready()["name"] == "Renamed"
+        # #234: a restart must start the provider with the current
+        # config.toml settings, not the environment of the old unit.
+        config = root / "config/arinn/config.toml"
+        original = config.read_text()
+        config.write_text(original + '\n[providers.test]\nplugin_id = "test"\n\n[providers.test.settings]\nmarker = "after-restart"\n')
         cli("provider", "restart", "test")
         second = wait(lambda: (p := ready()) and p["generation"] != first["generation"] and p)
         assert second["path"] == first["path"]
+        unit_env = (root / "unit-env/arinn-plugin-demo.env").read_text().splitlines()
+        assert 'ARINN_PROVIDER_SETTINGS={"marker":"after-restart"}' in unit_env, [
+            line for line in unit_env if line.startswith("ARINN_PROVIDER_SETTINGS")]
+        config.write_text(original)
         daemon.send_signal(signal.SIGINT)
         daemon.wait(timeout=5)
         assert cli("status", ok=False).returncode == 3

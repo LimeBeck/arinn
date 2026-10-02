@@ -177,24 +177,61 @@ impl Supervisor {
             loop {
                 match self.state(name).await {
                     Err(_) => return Ok(()),
-                    Ok(state) if state == "inactive" || state == "failed" => return Ok(()),
+                    Ok(state) if state == "inactive" || state == "failed" => break,
                     _ => tokio::time::sleep(Duration::from_millis(50)).await,
                 }
             }
+            Ok(())
         };
         tokio::time::timeout(Duration::from_secs(6), work)
             .await
+            .map_err(|_| ErrorCode::Timeout)??;
+        // An inactive transient unit is unloaded by systemd's garbage
+        // collection shortly after it stops; until then StartTransientUnit
+        // with the same name fails with UnitExists. Wait for that, so a
+        // following start can create the unit again (#234).
+        if self.state(name).await.as_deref() != Ok("failed") {
+            let _ = self.unloaded(name).await;
+        }
+        Ok(())
+    }
+    /// Wait up to 3 s until the unit is no longer loaded.
+    async fn unloaded(&self, name: &str) -> Result<(), ErrorCode> {
+        let work = async {
+            loop {
+                match self.unit(name).await {
+                    Err(ErrorCode::NotFound) => return Ok(()),
+                    Err(error) => return Err(error),
+                    Ok(_) => tokio::time::sleep(Duration::from_millis(50)).await,
+                }
+            }
+        };
+        tokio::time::timeout(Duration::from_secs(3), work)
+            .await
             .map_err(|_| ErrorCode::Timeout)?
     }
-    pub async fn restart(&self, name: &str) -> Result<(), ErrorCode> {
+    /// Stop a unit and wait until systemd has unloaded it, also when it had
+    /// failed, so it can be created again with a new environment (#234).
+    pub async fn discard(&self, name: &str) -> Result<(), ErrorCode> {
+        self.stop(name).await?;
+        match self.unit(name).await {
+            Err(ErrorCode::NotFound) => return Ok(()),
+            Err(error) => return Err(error),
+            Ok(_) => (),
+        }
+        // A failed transient unit stays loaded until its failed state is
+        // reset; it is then collected like any inactive unit.
+        self.reset_failed(name).await?;
+        self.unloaded(name).await
+    }
+    /// Clear a unit's failed state and start-limit counter. A failed
+    /// transient unit becomes inactive and is then garbage-collected.
+    pub async fn reset_failed(&self, name: &str) -> Result<(), ErrorCode> {
         let work = async {
-            let manager = self.manager().await?;
-            let _: () = manager
+            let _: () = self
+                .manager()
+                .await?
                 .call("ResetFailedUnit", &(name,))
-                .await
-                .map_err(|_| ErrorCode::Unavailable)?;
-            let _: OwnedObjectPath = manager
-                .call("RestartUnit", &(name, "replace"))
                 .await
                 .map_err(|_| ErrorCode::Unavailable)?;
             Ok(())

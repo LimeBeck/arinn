@@ -72,7 +72,14 @@ A provider unit starts with these variables:
 The settings table is opaque to the daemon. A value without a JSON form, such
 as a TOML datetime, makes the configuration invalid. Settings are read at each
 start, so a change reaches the provider at its next start or restart
-([ADR-0064](../adr/0064-provider-settings-in-config.md)). A typed schema and
+([ADR-0064](../adr/0064-provider-settings-in-config.md)). A transient unit keeps
+the environment it was created with, so `Daemon1.Restart` stops the unit, resets a
+failed state, waits until systemd has unloaded it, and creates it again
+instead of restarting it in place
+([#234](https://github.com/LimeBeck/arinn/issues/234)). Stopping a unit always
+waits briefly for that unload, because systemd refuses a new transient unit
+under a name that is still loaded. A daemon restart still
+attaches to surviving units, and those keep their settings until they restart. A typed schema and
 editing from the TV are [#145](https://github.com/LimeBeck/arinn/issues/145).
 
 ## Handshake and recovery

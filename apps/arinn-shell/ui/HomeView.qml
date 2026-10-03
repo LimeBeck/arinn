@@ -288,7 +288,9 @@ FocusScope {
             event.accepted = true;
         } else if (event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace) {
             // Editable controls consume Backspace before it bubbles to this scope.
-            back(); event.accepted = true;
+            // One step per press: repeats of a held key are ignored (#246).
+            if (!event.isAutoRepeat) back();
+            event.accepted = true;
         } else if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
             // Do not let Qt's implicit tab chain escape the active scope.
             if (navOpen) moveNavigation(event.key === Qt.Key_Backtab ? -1 : 1);

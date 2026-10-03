@@ -1182,6 +1182,81 @@ private slots:
              QStringList({QStringLiteral("Seek"), QStringLiteral("Stop")}));
     QTRY_COMPARE(daemon.windowCommands.last(), QStringLiteral("Release"));
     QCOMPARE(daemon.windowCommands.count(QStringLiteral("Present")), 2);
+    // #246: until the daemon reports Home again the shell stays on screen,
+    // and the repeats of a held Back key do not walk into navigation.
+    auto home = window->findChild<QQuickItem *>(QStringLiteral("productionHome"));
+    QVERIFY(home);
+    QCOMPARE(backend.m_home, false);
+    QTest::qWait(300);
+    QVERIFY(window->isVisible());
+    for (int i = 0; i < 5; ++i) {
+      QKeyEvent repeat(QEvent::KeyPress, Qt::Key_Backspace, Qt::NoModifier, QString(), true);
+      QCoreApplication::sendEvent(window, &repeat);
+    }
+    QTest::qWait(200);
+    QCOMPARE(home->property("navOpen").toBool(), false);
+    backend.m_home = true; emit backend.changed();
+    QTRY_VERIFY(window->isVisible());
+    QCOMPARE(home->property("navOpen").toBool(), false);
+
+    // #246, library origin: playback started from a film's detail page
+    // returns there, and held Back repeats do not close the detail.
+    auto library =
+        window->findChild<QQuickItem *>(QStringLiteral("productionLibrary"));
+    QVERIFY(library);
+    library->setProperty(
+        "entries",
+        QVariantList{QVariantMap{{QStringLiteral("id"), QStringLiteral("film-1")},
+                                 {QStringLiteral("title"), QStringLiteral("Film")},
+                                 {QStringLiteral("kind"), QStringLiteral("film")}}});
+    home->setProperty("screen", QStringLiteral("library"));
+    library->setProperty("detailEntryId", QStringLiteral("film-1"));
+    backend.m_home = false; emit backend.changed();
+    QVERIFY(QMetaObject::invokeMethod(window, "openSession", Q_ARG(QVariant, entryId),
+                                      Q_ARG(QVariant, true)));
+    window->requestActivate();
+    QTRY_COMPARE(catalog->presentationState(), QStringLiteral("active"));
+    QTRY_COMPARE(player->property("activeFocus").toBool(), true);
+    player->setProperty("osdVisible", false);
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_COMPARE(player->property("visible").toBool(), false);
+    QTRY_VERIFY(library->property("visible").toBool());
+    for (int i = 0; i < 5; ++i) {
+      QKeyEvent repeat(QEvent::KeyPress, Qt::Key_Backspace, Qt::NoModifier, QString(), true);
+      QCoreApplication::sendEvent(window, &repeat);
+    }
+    QTest::qWait(200);
+    QVERIFY(window->isVisible());
+    QCOMPARE(home->property("screen").toString(), QStringLiteral("library"));
+    QCOMPARE(library->property("detailEntryId").toString(), QStringLiteral("film-1"));
+    QCOMPARE(home->property("navOpen").toBool(), false);
+  }
+  // #247: Continue on a stopped film resumes the library item; a stopped
+  // session itself cannot be presented again.
+  void resumeTargetOnlyForStoppedLibraryContent() {
+    MediaDaemon daemon;
+    auto stopped = session(QStringLiteral("stopped"), QStringLiteral("Film"), QStringLiteral("stopped"), 0, monotonicUs(), 9000000, {});
+    stopped.hasContent = true;
+    stopped.content = {QStringLiteral("library"), QStringLiteral("library"), QStringLiteral("film-1")};
+    auto playing = session(QStringLiteral("playing"), QStringLiteral("Other"), QStringLiteral("playing"), 0, monotonicUs(), 9000000, {QStringLiteral("stop")});
+    playing.hasContent = true;
+    playing.content = {QStringLiteral("library"), QStringLiteral("library"), QStringLiteral("film-2")};
+    auto bare = session(QStringLiteral("bare"), QStringLiteral("Song"), QStringLiteral("stopped"), 0, monotonicUs(), 9000000, {});
+    daemon.page1 = {stopped, playing, bare};
+    auto bus = QDBusConnection::sessionBus();
+    QVERIFY(bus.registerService(QStringLiteral("org.arinn.Daemon1")));
+    QVERIFY(bus.registerVirtualObject(QStringLiteral("/org/arinn"), &daemon, QDBusConnection::SubPath));
+    MediaCatalog catalog;
+    QTRY_COMPARE(catalog.continueEntries().size(), 3);
+    QHash<QString, QString> ids;
+    for (const auto &entry : catalog.continueEntries())
+      ids.insert(entry.toMap().value(QStringLiteral("title")).toString(), entry.toMap().value(QStringLiteral("id")).toString());
+    const auto target = catalog.resumeTarget(ids.value(QStringLiteral("Film")));
+    QCOMPARE(target.value(QStringLiteral("provider")).toString(), QStringLiteral("library"));
+    QCOMPARE(target.value(QStringLiteral("local")).toString(), QStringLiteral("film-1"));
+    QVERIFY(catalog.resumeTarget(ids.value(QStringLiteral("Other"))).isEmpty());
+    QVERIFY(catalog.resumeTarget(ids.value(QStringLiteral("Song"))).isEmpty());
+    QVERIFY(catalog.resumeTarget(QStringLiteral("missing")).isEmpty());
   }
   void managedWindowResolutionCanBeCancelledWithoutStartingPresentation() {
     MediaDaemon daemon;

@@ -14,7 +14,14 @@ import "ui/screens/settings" as Settings
 Window {
     id: root
     width: 1920; height: 1080
-    visibility: (backend.homeVisible || mediaCatalog.inputLayerActive) && !sessionGuard.blocked ? Window.FullScreen : Window.Hidden
+    visibility: (backend.homeVisible || mediaCatalog.inputLayerActive || leavingPlayback) && !sessionGuard.blocked ? Window.FullScreen : Window.Hidden
+    // After Back leaves playback the input layer ends before the daemon
+    // reports Home again; stay on screen in between instead of vanishing
+    // (#246). Cleared by that report. The bound is only a last resort for a
+    // daemon that never reports: it covers a slow KWin handoff plus the
+    // backend's one-second status poll with a wide margin.
+    property bool leavingPlayback: false
+    Timer { id: leavingBound; interval: 10000; onTriggered: root.leavingPlayback = false }
     color: playerOpen ? "transparent" : Ui.Theme.background
     title: "Arinn"
     flags: Qt.Window | Qt.FramelessWindowHint
@@ -153,6 +160,7 @@ Window {
         target: backend
         ignoreUnknownSignals: true
         function onChanged() {
+            if (backend.homeVisible) root.leavingPlayback = false;
             if (!mediaCatalog.inputLayerActive) return;
             if (backend.homeVisible) root.showPlaybackHome();
             else if (root.presentationAtHome) {
@@ -168,6 +176,25 @@ Window {
         ignoreUnknownSignals: true
         function onChanged() {
             if (sessionGuard.blocked) mediaCatalog.abandonPresentation();
+        }
+    }
+    // Home does not show the library's operation state, so report a failed
+    // resume from a Continue card here.
+    property bool resumeFromHome: false
+    // The library launch in flight came from Home, not from the library.
+    property bool launchFromHome: false
+    Connections {
+        target: libraryCatalog
+        // Deferred so that LibraryView's bound operation state is current.
+        function onOperationChanged() {
+            Qt.callLater(() => {
+                if (!root.resumeFromHome || libraryView.operationPending) return;
+                root.resumeFromHome = false;
+                if (!libraryView.operationFailed) return;
+                root.launchFromHome = false;
+                feedback.text = libraryView.operationMessage;
+                feedbackTimer.restart();
+            });
         }
     }
     BrowserCatalog { id: browserCatalog }
@@ -233,7 +260,17 @@ Window {
                 Qt.callLater(() => Ui.Focus.take(browserView));
             }
             onServiceRequested: backend.back()
-            onSessionRequested: entryId => root.openSession(entryId, false)
+            onSessionRequested: entryId => {
+                // A stopped film resumes through the library; the stopped
+                // session itself has nothing to present (#247).
+                const target = mediaCatalog.resumeTarget(entryId);
+                if (target.local) {
+                    root.resumeFromHome = true;
+                    root.launchFromHome = true;
+                    libraryCatalog.launchContent(target.provider, target.local);
+                } else
+                    root.openSession(entryId, false);
+            }
             onPowerRequested: { feedback.text = qsTr("Power controls are not available yet."); feedbackTimer.restart(); }
         }
         Browser.BrowserView {
@@ -380,6 +417,10 @@ Window {
             onSelectSubtitle: trackId => mediaCatalog.selectSubtitle(trackId)
             onStop: mediaCatalog.stop()
             onLeave: {
+                if (mediaCatalog.inputLayerActive) {
+                    root.leavingPlayback = true;
+                    leavingBound.restart();
+                }
                 if (mediaCatalog.sessionState === "ready")
                     mediaCatalog.stop();
                 mediaCatalog.release();
@@ -443,7 +484,12 @@ Window {
         Connections {
             target: libraryCatalog
             function onSessionLaunched(presentationId) {
-                root.openSession(presentationId, true);
+                // A resume started from a Home Continue card returns to Home
+                // when playback ends; any other library launch returns to
+                // the library (§6.4).
+                const fromLibrary = !root.launchFromHome;
+                root.launchFromHome = false;
+                root.openSession(presentationId, fromLibrary);
             }
         }
         Ui.LaunchOverlay {
@@ -462,7 +508,7 @@ Window {
             color: "#33363b"
             visible: feedbackTimer.running || backend.message.length > 0
             Ui.UiText {
-                id: feedback
+                id: feedback; objectName: "feedback"
                 anchors.fill: parent; anchors.margins: 20
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter

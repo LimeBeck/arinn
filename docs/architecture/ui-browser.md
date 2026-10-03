@@ -250,3 +250,7 @@ confirms text through the real daemon, and a synthetic browser provider receives
 the resolved URL. Real browser/KDE/TV
 qualification is not established by these synthetic checks and requires the
 owner's operator test.
+
+When a browser tab takes focus and the shell becomes hidden, its local route is
+retained. On showing the shell again, Main restores focus to that route rather
+than focusing Home behind the Open services screen. Back then returns to Home.

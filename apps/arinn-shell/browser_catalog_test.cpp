@@ -397,6 +397,7 @@ public:
     m_home = true;
     emit changed();
   }
+  void hideOverlay() { m_home = false; emit changed(); }
   Q_INVOKABLE void back() { ++backs; }
   Q_INVOKABLE void launch(const QString &) {}
   Q_INVOKABLE void activate(const QString &) {}
@@ -1082,6 +1083,64 @@ private slots:
     QTest::keyClick(window, Qt::Key_Backspace);
     QTRY_COMPARE(backend.backs, 1);
     QVERIFY(!home->property("navOpen").toBool());
+  }
+  void openServicesRegainsFocusAfterTabReturn() {
+    auto bus = QDBusConnection::sessionBus();
+    BrowserDaemon daemon;
+    QVERIFY(bus.registerService("org.arinn.Daemon1"));
+    QVERIFY(bus.registerVirtualObject("/org/arinn", &daemon, QDBusConnection::SubPath));
+    ExternalHomeBackend backend;
+    backend.openOverlay(QString());
+    SessionGuardStandIn guard;
+    QQmlApplicationEngine engine;
+    engine.rootContext()->setContextProperty("backend", &backend);
+    engine.rootContext()->setContextProperty("sessionGuard", &guard);
+    installAssetImageProvider(&engine);
+    engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
+    QVERIFY(!engine.rootObjects().isEmpty());
+    auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+    QVERIFY(window);
+    auto home = window->findChild<QQuickItem *>("productionHome");
+    auto browser = window->findChild<QQuickItem *>("productionBrowser");
+    QVERIFY(home && browser);
+    const auto browserHasFocus = [&] {
+      for (auto *item = window->activeFocusItem(); item; item = item->parentItem())
+        if (item == browser) return true;
+      return false;
+    };
+    QTRY_COMPARE(browser->property("browserState").toString(), QString("populated"));
+    for (int cycle = 0; cycle < 2; ++cycle) {
+      QVERIFY(QMetaObject::invokeMethod(home, "openServicesRequested"));
+      window->requestActivate();
+      QTRY_VERIFY(browserHasFocus());
+      const auto tabs = browser->property("orderedTabs").toList();
+      QVERIFY(!tabs.isEmpty());
+      const auto id = tabs.first().toMap().value("id").toString();
+      QVERIFY(QMetaObject::invokeMethod(browser, "activateTab", Q_ARG(QString, id)));
+      QTRY_COMPARE(daemon.activates, cycle + 1);
+      QTRY_COMPARE(browser->property("operationState").toString(), QString("succeeded"));
+      // The private fixture models the platform hiding/showing the shell; no
+      // real browser, desktop session or globally intercepted key is involved.
+      backend.hideOverlay();
+      QTRY_VERIFY(!window->isVisible());
+      backend.openOverlay(QString());
+      QTRY_VERIFY(window->isVisible());
+      window->requestActivate();
+      QTRY_VERIFY(browserHasFocus());
+      QTest::keyClick(window, Qt::Key_Down);
+      QTRY_VERIFY(browserHasFocus());
+      QTest::keyClick(window, Qt::Key_Escape);
+      QTRY_VERIFY(!window->property("browserOpen").toBool());
+      QCOMPARE(home->property("screen").toString(), QString("home"));
+      QTest::keyClick(window, Qt::Key_Menu);
+      QTRY_VERIFY(home->property("navOpen").toBool());
+      QTest::keyClick(window, Qt::Key_Escape);
+      QTRY_VERIFY(!home->property("navOpen").toBool());
+    }
+    // The close intent uses the actual production Window.close wiring.
+    QVERIFY(QMetaObject::invokeMethod(home, "closeShellRequested"));
+    QTRY_VERIFY(!window->isVisible());
+    QCOMPARE(backend.backs, 0);
   }
   void productionReturnAssociationWiring() {
     auto bus = QDBusConnection::connectToBus(qEnvironmentVariable("DBUS_SESSION_BUS_ADDRESS"), "return-fixture");

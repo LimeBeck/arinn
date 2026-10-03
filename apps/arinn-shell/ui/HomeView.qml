@@ -87,6 +87,7 @@ FocusScope {
     signal returnRequested(string activityId)
     signal retryRequested()
     signal sectionRequested(string route)
+    signal closeShellRequested()
     signal powerRequested()
     signal openServicesRequested()
     signal serviceRequested(string serviceId)
@@ -516,17 +517,17 @@ FocusScope {
             MouseArea { anchors.fill: parent }
             BrandLockup { objectName: "navigationBrand"; x: 40; y: 32; markSize: 40; textRole: "section" }
             Column {
-                x: 28; y: 100; spacing: 8
+                x: 28; y: 100; spacing: 4
                 Repeater {
                     id: navItems
-                    model: root.sections.concat([qsTr("Open services"), qsTr("Return to activity"), qsTr("Power")])
+                    model: root.sections.concat([qsTr("Open services"), qsTr("Return to activity"), qsTr("Power"), qsTr("Close Arinn")])
                     delegate: Surface {
                         id: navButton
                         required property int index
                         required property string modelData
                         objectName: "nav-" + index
                         width: 444
-                        height: index === 5 && root.currentServiceTitle.length ? 112 : 88
+                        height: index === 5 && root.currentServiceTitle.length ? 112 : 84
                         text: modelData
                         visible: index !== 6 || (root.returnActivityId.length > 0 && !root.returnIsWebService)
                         focusScale: 1.02
@@ -602,7 +603,8 @@ FocusScope {
                             if (index < 5) root.selectSection(index);
                             else if (index === 5) { root.navOpen = false; root.openServicesRequested(); }
                             else if (index === 6) root.returnRequested(root.returnActivityId);
-                            else root.powerRequested();
+                            else if (index === 7) root.powerRequested();
+                            else root.closeShellRequested();
                         }
                         Keys.onTabPressed: root.moveNavigation(1)
                         Keys.onBacktabPressed: root.moveNavigation(-1)

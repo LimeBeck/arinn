@@ -160,9 +160,10 @@ Window {
         });
     }
     onVisibleChanged: if (visible) Qt.callLater(() => {
-        if (playerOpen) Ui.Focus.take(playerView);
-        else if (home.screen === "library") libraryView.focusDetailAction();
-        else home.showHome();
+        // Returning from an external activity keeps the displayed route. Home
+        // must not take focus behind Open services or another retained screen.
+        if (focusedScreen === "home") home.showHome();
+        else restoreFocus();
     })
     Connections {
         target: backend
@@ -280,6 +281,7 @@ Window {
                 } else
                     root.openSession(entryId, false);
             }
+            onCloseShellRequested: root.close()
             onPowerRequested: { feedback.text = qsTr("Power controls are not available yet."); feedbackTimer.restart(); }
         }
         Browser.BrowserView {

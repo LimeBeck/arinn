@@ -1,0 +1,1 @@
+- The MVP is accepted on two platforms: KDE Plasma 6 on Wayland and an X11 desktop with an EWMH window manager, XFCE first ([ADR-0080](docs/adr/0080-mvp-platforms.md)).

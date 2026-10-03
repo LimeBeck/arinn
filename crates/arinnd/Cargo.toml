@@ -25,3 +25,4 @@ futures-util.workspace = true
 url = "2"
 roxmltree = "0.21"
 arinn-plugin-sdk.workspace = true
+sentry = { version = "0.49.3", default-features = false, features = ["backtrace", "panic", "reqwest", "native-tls"] }

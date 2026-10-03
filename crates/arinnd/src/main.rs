@@ -99,6 +99,7 @@ async fn run() -> Result<(), ErrorCode> {
         .await
         .map_err(|_| ErrorCode::Internal)?;
     core.start().await;
+    arinnd::telemetry::record("ready", None, 0);
     eprintln!(
         "{}",
         serde_json::json!({"level":"info","component":"arinnd","provider_id":null,"request_id":null,"operation":"ready","error":null,"duration_ms":0})
@@ -106,10 +107,16 @@ async fn run() -> Result<(), ErrorCode> {
     tokio::signal::ctrl_c()
         .await
         .map_err(|_| ErrorCode::Internal)?;
+    arinnd::telemetry::record("shutdown", None, 0);
     Ok(())
 }
 #[tokio::main]
 async fn main() {
+    let telemetry = if std::env::args_os().nth(1).is_none() {
+        arinnd::telemetry::init()
+    } else {
+        None
+    };
     if let Err(error) = run().await {
         if std::env::args_os().nth(1).as_deref() != Some(std::ffi::OsStr::new("--check-plugins")) {
             eprintln!(
@@ -117,6 +124,8 @@ async fn main() {
                 serde_json::json!({"level":"error","component":"arinnd","provider_id":null,"request_id":null,"operation":"startup","error":error.to_string(),"duration_ms":0})
             );
         }
+        arinnd::telemetry::record("startup", Some(error), 0);
+        drop(telemetry);
         std::process::exit(1);
     }
 }

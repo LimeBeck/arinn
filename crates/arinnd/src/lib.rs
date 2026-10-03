@@ -13,5 +13,6 @@ pub mod shortcuts;
 pub mod storage;
 pub mod supervisor;
 
+pub mod telemetry;
 #[path = "../../../platform/kde/windows.rs"]
 pub mod windows;

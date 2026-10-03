@@ -13,7 +13,7 @@ pkgdesc='TV-first shell for a Linux HTPC (pre-alpha prototype)'
 arch=('x86_64')
 url='https://github.com/LimeBeck/arinn'
 license=('GPL-3.0-or-later' 'MIT OR Apache-2.0' 'CC-BY-SA-4.0')
-depends=('gcc-libs' 'glibc' 'glib2>=2.86' 'dbus' 'systemd' 'qt6-base' 'qt6-declarative' 'qt6-svg')
+depends=('gcc-libs' 'glibc' 'glib2>=2.86' 'dbus' 'systemd' 'qt6-base' 'qt6-declarative' 'qt6-svg' 'curl' 'libunwind' 'openssl')
 optdepends=('mpv: local file playback' 'ffmpeg: seek thumbnails for the mpv provider; video duration and audio/subtitle languages for the library provider' 'transmission-cli: local Transmission daemon for the download provider')
 makedepends=('cargo' 'cmake' 'ninja' 'python')
 options=('!lto')
@@ -97,5 +97,7 @@ package() {
     packaging/systemd/arinn-ewmh.service packaging/systemd/arinn-ewmh-session.target \
     -t "${pkgdir}/usr/lib/systemd/user/"
   install -Dm644 README.md CHANGELOG.md -t "${pkgdir}/usr/share/doc/${pkgname}/"
+  install -Dm644 build/_deps/sentry_native-src/LICENSE "${pkgdir}/usr/share/licenses/${pkgname}/sentry-native-LICENSE"
+  install -Dm644 build/_deps/tomlplusplus-src/LICENSE "${pkgdir}/usr/share/licenses/${pkgname}/tomlplusplus-LICENSE"
   install -Dm644 LICENSES/*.txt -t "${pkgdir}/usr/share/licenses/${pkgname}/"
 }

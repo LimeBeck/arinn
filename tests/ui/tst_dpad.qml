@@ -48,7 +48,17 @@ TestCase {
     function focused(root, name) {
         tryCompare(child(root, name), "activeFocus", true, 5000, name);
     }
-    function screen(view) { return {view: view, scope: view}; }
+    function screen(view, targets) { return {view: view, scope: view, targets: targets}; }
+    // The deepest item that contains both, for a sheet without a name.
+    function commonAncestor(a, b) {
+        for (let current = a; current; current = current.parent) {
+            for (let other = b; other; other = other.parent) {
+                if (other === current)
+                    return current;
+            }
+        }
+        return null;
+    }
 
     // Home -----------------------------------------------------------------
     Component {
@@ -90,9 +100,10 @@ TestCase {
             focused(home, "entry-web1");
             return screen(home);
         }, {
-            // Shown for a focused web shortcut, but Down reaches it only from
-            // the last row; Menu opens the editor from any shortcut
-            // (test_home_shortcut_editor). Tracked in #262.
+            // Shown while a web shortcut has focus, but arrows do not reach it
+            // in this fixture: Down leaves the shortcut's row first, and the
+            // button hides. Menu opens the editor (test_home_shortcut_editor).
+            // Not covered by #147 until #262 is decided.
             editShortcutButton: "Menu"
         });
     }
@@ -215,6 +226,41 @@ TestCase {
         });
     }
 
+    function test_settings_string_sheet() {
+        expectAllReachable(() => {
+            const view = create(settingsFactory);
+            focused(view, "category-media");
+            for (let i = 0; i < 4; ++i)
+                keyClick(Qt.Key_Down);
+            focused(view, "category-applications");
+            keyClick(Qt.Key_Right);
+            focused(view, "setting-shell-label");
+            keyClick(Qt.Key_Return);
+            verify(view.stringSheet);
+            const field = child(view, "editor-shell-label");
+            tryCompare(field, "activeFocus", true);
+            // Save and Cancel sit under the field in the sheet.
+            return {view: view, scope: commonAncestor(field, child(view, "stringSave"))};
+        });
+    }
+    function test_settings_integer_sheet() {
+        expectAllReachable(() => {
+            const view = create(settingsFactory);
+            focused(view, "category-media");
+            for (let i = 0; i < 6; ++i)
+                keyClick(Qt.Key_Down);
+            focused(view, "category-system");
+            keyClick(Qt.Key_Right);
+            focused(view, "setting-shell-idle");
+            keyClick(Qt.Key_Return);
+            focused(view, "integerStepper");
+            // The stepper takes Left/Right and Select in its key handler.
+            return {view: view, scope: commonAncestor(child(view, "integerStepper"),
+                                                      child(view, "integerBounds")),
+                    targets: /^integerStepper$/};
+        });
+    }
+
     // Session, player, downloads, power, browser ---------------------------
     Component {
         id: sessionFactory
@@ -233,7 +279,8 @@ TestCase {
             const view = create(sessionFactory);
             view.restore();
             tryVerify(() => Dpad.owner(focusedItem()) !== null);
-            return screen(view);
+            // The seek track handles Left, Right and Select in its key handler.
+            return screen(view, /^seekTrack$/);
         });
     }
     Component {
@@ -296,7 +343,8 @@ TestCase {
         expectAllReachable(() => {
             const view = create(downloadsFactory);
             focused(view, "job-active");
-            return screen(view);
+            // Each job row handles Select; its action button is NoFocus.
+            return screen(view, /^job-/);
         });
     }
     Component {
@@ -330,7 +378,8 @@ TestCase {
             const view = create(browserFactory);
             view.settleFocus();
             tryVerify(() => Dpad.owner(focusedItem()) !== null);
-            return screen(view);
+            // Rows, bookmark and close controls handle Select in key handlers.
+            return screen(view, /^(row|bookmark|close)-|^statusAction$/);
         });
     }
 }

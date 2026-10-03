@@ -96,4 +96,5 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0076](0076-shell-focus-ownership.md) | Shell focus ownership | Accepted | — |
 | [0077](0077-kde-x11-session.md) | Optional KDE Plasma X11 session | Proposed | — |
 | [0078](0078-x11-ewmh-adapter.md) | Optional generic X11/EWMH adapter | Proposed | — |
+| [0079](0079-shell-input-bindings.md) | Shell key bindings from config.toml | Accepted | — |
 <!-- register:end -->

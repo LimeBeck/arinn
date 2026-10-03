@@ -5,7 +5,7 @@
 add_subdirectory("${PROJECT_SOURCE_DIR}/platform/session"
     "${CMAKE_CURRENT_BINARY_DIR}/platform-session")
 
-qt_add_executable(arinn-shell main.cpp backend.cpp backend.h browser_catalog.cpp browser_catalog.h return_association.cpp return_association.h media_catalog.cpp media_catalog.h library_catalog.cpp library_catalog.h settings_catalog.cpp settings_catalog.h asset_images.cpp asset_images.h)
+qt_add_executable(arinn-shell main.cpp backend.cpp backend.h input_bindings.cpp input_bindings.h browser_catalog.cpp browser_catalog.h return_association.cpp return_association.h media_catalog.cpp media_catalog.h library_catalog.cpp library_catalog.h settings_catalog.cpp settings_catalog.h asset_images.cpp asset_images.h)
 qt_add_resources(arinn-shell ui PREFIX "/" FILES Main.qml)
 target_link_libraries(arinn-shell PRIVATE arinn-session-lifecycle Qt6::Quick Qt6::Qml Qt6::DBus)
 qt_add_executable(arinn-shell-test backend_test.cpp backend.cpp backend.h browser_catalog.cpp browser_catalog.h return_association.cpp return_association.h media_catalog.cpp media_catalog.h library_catalog.cpp library_catalog.h settings_catalog.cpp settings_catalog.h asset_images.cpp asset_images.h)
@@ -117,6 +117,10 @@ target_link_libraries(arinn-asset-images-test PRIVATE Qt6::DBus Qt6::Qml Qt6::Qu
 target_compile_definitions(arinn-asset-images-test PRIVATE
     ARINN_PLACEHOLDER_QML="${PROJECT_SOURCE_DIR}/tests/ui/asset_placeholder.qml")
 add_test(NAME asset-images COMMAND dbus-run-session -- $<TARGET_FILE:arinn-asset-images-test>)
+qt_add_executable(arinn-input-bindings-test input_bindings_test.cpp input_bindings.cpp input_bindings.h)
+target_link_libraries(arinn-input-bindings-test PRIVATE Qt6::Gui Qt6::DBus Qt6::Test)
+add_test(NAME input-bindings COMMAND dbus-run-session -- $<TARGET_FILE:arinn-input-bindings-test>)
+set_tests_properties(input-bindings PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 set_tests_properties(asset-images PROPERTIES ENVIRONMENT
     "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software")
 

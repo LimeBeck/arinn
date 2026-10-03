@@ -1488,6 +1488,25 @@ impl Daemon {
     async fn back(&self) -> production::Result<()> {
         self.core.platform.queue("return").await
     }
+    /// Extra keys per action from `config.toml` (ADR-0079). Read on each
+    /// call, so an edited file applies the next time the shell asks.
+    async fn get_input_bindings(&self) -> Vec<arinn_protocol::input::Binding> {
+        let path = self.core.paths.config.clone();
+        let bindings = tokio::task::spawn_blocking(move || Config::load(&path))
+            .await
+            .ok()
+            .and_then(Result::ok)
+            .map(|config| config.input.bindings)
+            .unwrap_or_default();
+        let (accepted, dropped) = arinn_protocol::input::accept(bindings);
+        if dropped {
+            eprintln!(
+                "{}",
+                serde_json::json!({"level":"warn","component":"arinnd","provider_id":null,"request_id":null,"operation":"input-bindings","error":"InvalidArgument","duration_ms":0})
+            );
+        }
+        accepted
+    }
     async fn take_command(&self, #[zbus(header)] h: Header<'_>) -> production::Result<String> {
         self.core
             .platform
@@ -2211,6 +2230,80 @@ mod browser_tests;
 #[cfg(test)]
 #[path = "../../../platform/kde/window_tests.rs"]
 mod window_tests;
+
+#[cfg(test)]
+mod input_tests {
+    use super::*;
+    use arinn_protocol::production::ProductionDaemonProxy;
+    use std::io::{BufRead, BufReader};
+    use std::process::{Command, Stdio};
+
+    // ADR-0079: [input.bindings] from config.toml reach the shell through
+    // Daemon1.GetInputBindings; invalid entries are left out.
+    #[tokio::test]
+    async fn bindings_come_from_config_and_invalid_entries_are_dropped() {
+        let mut bus = Command::new("dbus-daemon")
+            .args(["--session", "--nofork", "--print-address=1"])
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut address = String::new();
+        BufReader::new(bus.stdout.take().unwrap())
+            .read_line(&mut address)
+            .unwrap();
+        let connect = |address: String| async move {
+            zbus::connection::Builder::address(address.trim())
+                .unwrap()
+                .build()
+                .await
+                .unwrap()
+        };
+        let server = connect(address.clone()).await;
+        let client = connect(address.clone()).await;
+        let folder = std::env::temp_dir().join(format!("arinn-input-{}", Uuid::new_v4()));
+        std::fs::create_dir(&folder).unwrap();
+        let paths = Paths {
+            config: folder.join("config"),
+            data: folder.join("data"),
+            state: folder.join("state"),
+        };
+        let core = Core::new(&server, paths.clone(), folder.clone());
+        server
+            .object_server()
+            .at(production::PATH, Daemon { core })
+            .await
+            .unwrap();
+        server.request_name(production::SERVICE).await.unwrap();
+        let proxy = ProductionDaemonProxy::new(&client).await.unwrap();
+
+        // No config yet: no extra bindings.
+        assert!(proxy.get_input_bindings().await.unwrap().is_empty());
+
+        let mut config = Config::default();
+        config.input.bindings = BTreeMap::from([
+            ("menu".into(), vec!["evdev:582".into(), "Menu".into()]),
+            ("select".into(), vec!["F5".into()]),
+            ("jump".into(), vec!["F6".into()]),
+            ("back".into(), vec!["a".into()]),
+        ]);
+        config.save(&paths.config).unwrap();
+        let text = std::fs::read_to_string(paths.config.join("config.toml")).unwrap();
+        assert!(text.contains("[input.bindings]"), "{text}");
+        assert_eq!(
+            proxy.get_input_bindings().await.unwrap(),
+            vec![
+                ("select".to_string(), vec!["F5".to_string()]),
+                (
+                    "menu".to_string(),
+                    vec!["evdev:582".to_string(), "Menu".to_string()]
+                ),
+            ]
+        );
+        let _ = bus.kill();
+        let _ = bus.wait();
+        let _ = std::fs::remove_dir_all(&folder);
+    }
+}
 
 #[cfg(test)]
 mod token_tests {

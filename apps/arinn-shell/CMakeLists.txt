@@ -126,3 +126,20 @@ foreach(target arinn-shell arinn-shell-test arinn-ui-gallery arinn-ui-test arinn
         BASE "${PROJECT_SOURCE_DIR}/docs/design/handoff/assets"
         FILES "${PROJECT_SOURCE_DIR}/docs/design/handoff/assets/arinn-mark.svg")
 endforeach()
+
+foreach(target arinn-shell arinn-shell-test arinn-session-lifecycle-test
+    arinn-browser-catalog-test arinn-media-catalog-test arinn-library-catalog-test)
+    target_sources(${target} PRIVATE browse_catalog.cpp browse_catalog.h)
+endforeach()
+foreach(target arinn-shell arinn-shell-test arinn-session-lifecycle-test)
+    qt_add_resources(${target} browse_screen PREFIX "/" FILES
+        ui/screens/browse/qmldir ui/screens/browse/BrowseView.qml)
+endforeach()
+
+qt_add_executable(arinn-browse-catalog-test browse_catalog_test.cpp browse_catalog.cpp browse_catalog.h)
+target_link_libraries(arinn-browse-catalog-test PRIVATE Qt6::DBus Qt6::Qml Qt6::Test)
+add_test(NAME browse-catalog COMMAND dbus-run-session -- $<TARGET_FILE:arinn-browse-catalog-test>)
+
+# Private-bus integration fixture, not installed or used by the shell.
+qt_add_executable(arinn-browse-provider-fixture browse_provider_fixture.cpp browse_catalog.cpp browse_catalog.h)
+target_link_libraries(arinn-browse-provider-fixture PRIVATE Qt6::DBus Qt6::Qml)

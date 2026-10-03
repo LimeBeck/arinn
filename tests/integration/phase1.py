@@ -152,6 +152,43 @@ with tempfile.TemporaryDirectory(prefix="arinn-production-") as folder:
         cli("launch", "test", "demo.application.0")
         assert cli("activate", "test", "unknown", ok=False).returncode == 1
         assert cli("nonsense", ok=False).returncode == 2
+        # Browse1 uses the same text the shell sends. Resolution has no side
+        # effects; confirmation records it, including when no browser is ready.
+        wire_contract("org.arinn.Daemon1", "/org/arinn/Daemon1", "org.arinn.Browse1", "browse1.xml")
+        def browse_call(method, signature="", *arguments):
+            result = subprocess.run(["busctl", "--user", "--json=short", "call",
+                                     "org.arinn.Daemon1", "/org/arinn/Daemon1",
+                                     "org.arinn.Browse1", method, signature, *arguments],
+                                    env=env, capture_output=True, text=True, timeout=5)
+            assert result.returncode == 0, result.stderr
+            return json.loads(result.stdout)["data"] if result.stdout.strip() else []
+        browse_call("ClearRecent")
+        resolved = browse_call("Resolve", "s", "pages.example/path")
+        assert resolved[0:2] == ["address", "https://pages.example/path"], resolved
+        assert browse_call("GetRecent")[0] == []
+        browse_call("Open", "ss", "pages.example/path", str(uuid.uuid4()))
+        assert browse_call("GetRecent")[0] == ["pages.example/path"]
+        browse_call("ClearRecent")
+        assert browse_call("GetRecent")[0] == []
+        # The real shell C++ client sends text through the daemon to a
+        # synthetic BrowserProvider; no browser or compositor is involved.
+        browse_fixture = ROOT / "build/apps/arinn-shell/arinn-browse-provider-fixture"
+        assert browse_fixture.is_file(), "build the Qt browse integration fixture first"
+        browser_manifest = manifests / "browse-fixture.toml"
+        browser_manifest.write_text(
+            f'id="browse-fixture"\nname="Synthetic browser"\nversion="0.0.1"\n'
+            f'api_version=1\nexecutable="{browse_fixture}"\ncapabilities=["browser"]\n')
+        cli("providers", "reload")
+        wait(lambda: any(p["id"] == "browse-fixture" and p["runtime_state"] == "ready" for p in providers()))
+        opened = subprocess.run([str(browse_fixture), "--client"], env=env,
+                                capture_output=True, text=True, timeout=15)
+        assert opened.returncode == 0, f"client exit {opened.returncode}: " + opened.stdout + opened.stderr
+        received = wait(lambda: next(root.rglob("received-url"), None))
+        assert received.read_text() == "https://pages.example/path"
+        browser_manifest.unlink()
+        cli("providers", "reload")
+        wait(lambda: all(p["id"] != "browse-fixture" for p in providers()))
+        browse_call("ClearRecent")
         # Web shortcuts from the CLI (#84): add, list, edit and remove; open fails
         # with Unavailable while no browser is connected.
         added = json.loads(cli("--json", "shortcuts", "add", "Media", "http://nas.local:8096/").stdout)["id"]

@@ -164,7 +164,7 @@ with tempfile.TemporaryDirectory(prefix="arinn-production-") as folder:
             return json.loads(result.stdout)["data"] if result.stdout.strip() else []
         browse_call("ClearRecent")
         resolved = browse_call("Resolve", "s", "pages.example/path")
-        assert resolved[0:2] == ["address", "https://pages.example/path"], resolved
+        assert resolved == [["address", "https://pages.example/path", ""]], resolved
         assert browse_call("GetRecent")[0] == []
         browse_call("Open", "ss", "pages.example/path", str(uuid.uuid4()))
         assert browse_call("GetRecent")[0] == ["pages.example/path"]

@@ -608,7 +608,9 @@ Owner-requested development diagnostics use Sentry in the shell and daemon
 [configuration and captured data](../architecture/telemetry.md)). The separate
 `telemetry.toml` configuration flag `telemetry.enabled` defaults to false; a DSN
 alone MUST NOT enable collection or transmission. The §13 exclusions apply to
-all remote event fields and breadcrumbs; no memory dumps, screenshots or replay
+all remote event fields, breadcrumbs, traces and metrics. Under the same flag,
+fixed startup and daemon-operation traces and numeric error/operation counts and
+durations MAY be collected, without provider/browser/window identity. No memory dumps, screenshots or replay
 are sent. Existing local logging and diagnostics remain available.
 
 Before public release, remote diagnostics require informed, explicit user

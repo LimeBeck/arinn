@@ -34,12 +34,21 @@ DSN is embedded in the package or repository.
 
 Capture daemon startup/operation error codes, panic stack traces, lifecycle and
 operation breadcrumbs; native crashes, Qt warnings/critical/fatal events and
-bounded shell lifecycle/input/focus breadcrumbs. SDK auto sessions, performance
-tracing, profiling, replay, screenshots, memory dumps and automatic log capture
+bounded shell lifecycle/input/focus breadcrumbs. Under the same flag, collect
+fixed startup/daemon-operation traces and numeric counts/duration metrics, with
+full development sampling and only a component attribute. SDK auto sessions,
+profiling, replay, screenshots, memory dumps and automatic log capture
 remain disabled. Event filters reconstruct an allowlisted technical payload,
 removing free-form exception/log messages, user/device identity, requests,
 provider payloads, source paths, source context and local variables. No raw key
 text, key codes, pointer positions or window titles are captured.
+
+Every envelope is rebuilt before queue/cache and again at the native HTTP
+boundary. A checked patch to the pinned SDK routes pre-queue envelopes through
+that privacy filter and discards recursive inproc failures that skip callbacks.
+Transaction and metric callbacks clear scope data before batching; unsupported
+patch anchors fail configuration. This local hardening must be reviewed with
+any SDK upgrade. Transport gzip is forced off for the JSON boundary.
 
 The native SDK uses its in-process backend, which emits JSON crash events without
 minidumps or an external crash daemon. Keep instruction addresses and module
@@ -78,7 +87,7 @@ future public-release gate.
 
 Rust unit tests verify configuration defaults, DSN validation and sanitization.
 An isolated loopback mock endpoint inspects actual Rust/native SDK envelopes,
-including synthetic panics and native crashes. Disabled and malformed paths
+including trace/metric payloads, raw envelope bypass, synthetic panics, native crashes, recursive privacy-hook failures and cache contents before replay. Disabled and malformed paths
 must send no requests and create no telemetry cache. The full checks and
 independent review are recorded on the pull request, not implied by this ADR.
 Live Sentry ingestion, debug-symbol upload, desktop/TV operation and public consent

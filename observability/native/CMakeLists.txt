@@ -2,12 +2,14 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 include(FetchContent)
+find_package(CURL REQUIRED)
 set(SENTRY_BACKEND inproc CACHE STRING "" FORCE)
 set(SENTRY_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(SENTRY_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(SENTRY_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(SENTRY_INTEGRATION_QT OFF CACHE BOOL "" FORCE)
 set(SENTRY_LIBUNWIND_SYSTEM ON CACHE BOOL "" FORCE)
+set(SENTRY_TRANSPORT_COMPRESSION OFF CACHE BOOL "" FORCE)
 set(SENTRY_TRANSPORT curl CACHE STRING "" FORCE)
 FetchContent_Declare(sentry_native
     URL https://github.com/getsentry/sentry-native/archive/refs/tags/0.17.1.tar.gz
@@ -18,11 +20,13 @@ FetchContent_Declare(tomlplusplus
     URL_HASH SHA256=8517f65938a4faae9ccf8ebb36631a38c1cadfb5efa85d9a72e15b9e97d25155
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
 FetchContent_MakeAvailable(sentry_native tomlplusplus)
+execute_process(COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/harden_sdk.py
+    ${sentry_native_SOURCE_DIR} COMMAND_ERROR_IS_FATAL ANY)
 execute_process(COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/release.py version
     OUTPUT_VARIABLE ARINN_VERSION OUTPUT_STRIP_TRAILING_WHITESPACE
     COMMAND_ERROR_IS_FATAL ANY)
-add_library(arinn-telemetry STATIC telemetry.cpp telemetry.h)
-target_link_libraries(arinn-telemetry PUBLIC Qt6::Core sentry tomlplusplus::tomlplusplus)
+add_library(arinn-telemetry STATIC telemetry.cpp telemetry.h transport.cpp transport.h)
+target_link_libraries(arinn-telemetry PUBLIC Qt6::Core sentry tomlplusplus::tomlplusplus CURL::libcurl)
 target_compile_definitions(arinn-telemetry PRIVATE ARINN_RELEASE="arinn@${ARINN_VERSION}")
 # Attach the startup hook directly so its object cannot be dropped by the linker.
 target_sources(arinn-shell PRIVATE qt_startup.cpp)

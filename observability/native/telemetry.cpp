@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: 2026 Arinn contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "telemetry.h"
+#include "transport.h"
+#include <QElapsedTimer>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -12,6 +14,8 @@
 
 namespace {
 std::atomic_bool active{false};
+QElapsedTimer startupTimer;
+sentry_transaction_t *startupTransaction = nullptr;
 void copy(sentry_value_t out, sentry_value_t in, const char *key) {
   auto value = sentry_value_get_by_key(in, key);
   if (!sentry_value_is_null(value)) {
@@ -97,6 +101,49 @@ sentry_value_t sanitize(sentry_value_t event, sentry_hint_t *, void *) {
   sentry_value_decref(event);
   return clean;
 }
+sentry_value_t sanitizeTransaction(sentry_value_t transaction, void *) {
+  const char *name = sentry_value_as_string(sentry_value_get_by_key(transaction, "transaction"));
+  if (!name || std::strcmp(name, "shell.startup") != 0) {
+    sentry_value_decref(transaction); return sentry_value_new_null();
+  }
+  auto clean = sentry_value_new_object();
+  for (auto key : {"event_id", "start_timestamp", "timestamp"}) copy(clean, transaction, key);
+  sentry_value_set_by_key(clean, "type", sentry_value_new_string("transaction"));
+  sentry_value_set_by_key(clean, "transaction", sentry_value_new_string("shell.startup"));
+  sentry_value_set_by_key(clean, "platform", sentry_value_new_string("native"));
+  sentry_value_set_by_key(clean, "release", sentry_value_new_string(ARINN_RELEASE));
+  auto tags = sentry_value_new_object();
+  sentry_value_set_by_key(tags, "component", sentry_value_new_string("arinn-shell"));
+  sentry_value_set_by_key(clean, "tags", tags);
+  sentry_value_set_by_key(clean, "spans", sentry_value_new_list());
+  auto original = sentry_value_get_by_key(sentry_value_get_by_key(transaction, "contexts"), "trace");
+  auto trace = sentry_value_new_object();
+  for (auto key : {"trace_id", "span_id", "parent_span_id", "status"}) copy(trace, original, key);
+  sentry_value_set_by_key(trace, "op", sentry_value_new_string("shell.startup"));
+  auto contexts = sentry_value_new_object();
+  sentry_value_set_by_key(contexts, "trace", trace);
+  sentry_value_set_by_key(clean, "contexts", contexts);
+  sentry_value_decref(transaction);
+  return clean;
+}
+sentry_value_t sanitizeMetric(sentry_value_t metric, void *) {
+  const char *name = sentry_value_as_string(sentry_value_get_by_key(metric, "name"));
+  if (!name || (std::strcmp(name, "arinn.shell.messages") != 0 && std::strcmp(name, "arinn.shell.errors") != 0 && std::strcmp(name, "arinn.shell.startup.duration") != 0)) {
+    sentry_value_decref(metric); return sentry_value_new_null();
+  }
+  auto clean = sentry_value_new_object();
+  for (auto key : {"name", "type", "value", "timestamp", "trace_id", "span_id"}) copy(clean, metric, key);
+  if (std::strcmp(name, "arinn.shell.startup.duration") == 0) sentry_value_set_by_key(clean, "unit", sentry_value_new_string("millisecond"));
+  auto component = sentry_value_new_object();
+  sentry_value_set_by_key(component, "type", sentry_value_new_string("string"));
+  sentry_value_set_by_key(component, "value", sentry_value_new_string("arinn-shell"));
+  auto attributes = sentry_value_new_object();
+  sentry_value_set_by_key(attributes, "component", component);
+  sentry_value_set_by_key(clean, "attributes", attributes);
+  sentry_value_decref(metric);
+  return clean;
+}
+
 }
 namespace ArinnTelemetry {
 bool start() {
@@ -137,7 +184,12 @@ bool start() {
   const QFileInfo existing(directory);
   if (existing.isSymLink() || (existing.exists() && !existing.isDir()) ||
       !QDir().mkpath(directory) || !QFile::setPermissions(directory, QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner)) return false;
+  startupTimer.start();
+  auto *sender = transport();
+  if (!sender) return false;
   auto options = sentry_options_new();
+  sentry_options_set_transport(options, sender);
+  sentry_options_set_traces_sample_rate(options, 1.0);
   sentry_options_set_dsn(options, dsn.constData());
   sentry_options_set_release(options, ARINN_RELEASE);
   sentry_options_set_database_path(options, QFile::encodeName(directory).constData());
@@ -147,19 +199,29 @@ bool start() {
   sentry_options_set_shutdown_timeout(options, 2000);
   sentry_options_set_symbolize_stacktraces(options, 0);
   sentry_options_set_before_send(options, sanitize, nullptr);
+  sentry_options_set_before_transaction(options, sanitizeTransaction, nullptr);
+  sentry_options_set_before_send_metric(options, sanitizeMetric, nullptr);
   // Mirror the development flag in the SDK transport gate; public consent UI is pending.
   sentry_options_set_require_user_consent(options, 1);
   if (sentry_init(options) != 0) return false;
   sentry_user_consent_give();
   active = true;
+  startupTransaction = sentry_transaction_start(sentry_transaction_context_new("shell.startup", "shell.startup"), sentry_value_new_null());
   breadcrumb("startup");
   return true;
 }
 void stop() {
   if (!active) return;
+  finishStartup();
   breadcrumb("shutdown");
   active = false;
   sentry_close();
+}
+void finishStartup() {
+  if (!startupTransaction) return;
+  sentry_transaction_finish(startupTransaction);
+  startupTransaction = nullptr;
+  sentry_metrics_distribution("arinn.shell.startup.duration", startupTimer.elapsed(), "millisecond", sentry_value_new_object());
 }
 void breadcrumb(const char *operation) {
   if (!active) return;
@@ -175,7 +237,9 @@ void qtMessage(QtMsgType type, const QMessageLogContext &) {
   if (type == QtCriticalMsg) kind = "qt.critical";
   if (type == QtFatalMsg) kind = "qt.fatal";
   breadcrumb(kind);
+  sentry_metrics_count("arinn.shell.messages", 1, sentry_value_new_object());
   if (type == QtDebugMsg || type == QtInfoMsg) return;
+  sentry_metrics_count("arinn.shell.errors", 1, sentry_value_new_object());
   auto event = sentry_value_new_event();
   const char *name = type == QtWarningMsg ? "QtWarning" : type == QtCriticalMsg ? "QtCritical" : "QtFatal";
   sentry_value_set_by_key(event, "level", sentry_value_new_string(type == QtWarningMsg ? "warning" : type == QtFatalMsg ? "fatal" : "error"));

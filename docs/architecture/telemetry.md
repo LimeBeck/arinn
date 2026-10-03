@@ -50,11 +50,18 @@ flag is not evidence that those requirements are implemented.
   symbols have source paths and local variables removed. Native symbol names
   are resolved on the server from separately managed debug artifacts.
 
-Every event is rebuilt from allowed fields before transport. Free-form messages
+Opt-in traces measure `daemon.startup`, `daemon.operation` and `shell.startup`.
+Metrics count daemon operations/errors and shell diagnostic messages/errors, and
+record daemon startup/operation and shell startup durations in milliseconds.
+Names are fixed; attributes retain only the component. No provider, request,
+window or browser identity is attached. All these measurements use the same
+flag, with full sampling while development diagnostics are enabled.
+
+Every event, transaction and metric is rebuilt from allowed fields before transport. Free-form messages
 and exceptions are replaced by safe diagnostic descriptions. Users, hostnames,
-HTTP requests, contexts, source filenames/absolute paths, source text, locals,
+HTTP requests, unrelated contexts, source filenames/absolute paths, source text, locals,
 arbitrary tags/extras, unknown breadcrumbs, provider content, URLs and tab titles
-are removed. Automatic sessions, traces, profiles, metrics, logs, screenshots,
+are removed. Automatic sessions, profiles, logs, screenshots,
 replay, attachments and minidumps are not enabled. The remote ingestion service
 necessarily sees network connection metadata such as the source IP; the public
 privacy notice must cover that as well as retention.
@@ -62,13 +69,19 @@ privacy notice must cover that as well as retention.
 Breadcrumbs are bounded to 100, stack frames to 128 and exception chains to four.
 Native SDK cache data is under `$XDG_CACHE_HOME/arinn/sentry-shell` (fallback
 `$HOME/.cache/arinn/sentry-shell`) in a directory with mode 0700. Only sanitized
-JSON crash events may be buffered. No SDK, transport, panic/crash handler or cache
+JSON diagnostics may be buffered. No SDK, transport, panic/crash handler or cache
 is initialized when the flag is false, even with a valid DSN. The daemon's offline
 `--check-plugins` mode never initializes telemetry.
 
 ## Build and verification
 
 CMake downloads Sentry native 0.17.1 and toml++ 3.4.0 with fixed SHA-256 hashes.
+`observability/native/harden_sdk.py` applies checked, idempotent source guards:
+recursive inproc crashes that skip privacy callbacks are discarded; every
+submitted envelope is rebuilt before the SDK queues or persists it. Unsupported
+source anchors fail the build. The HTTP boundary filters again, including replay
+of older cached envelopes. SDK gzip is explicitly disabled for this JSON filter.
+Transaction/metric callbacks also remove SDK scope data before batching.
 For offline builds, supply existing source directories with
 `FETCHCONTENT_SOURCE_DIR_SENTRY_NATIVE` and `FETCHCONTENT_SOURCE_DIR_TOMLPLUSPLUS`.
 The package links the native SDK statically and retains its and toml++'s license
@@ -77,7 +90,7 @@ notices. libcurl, libunwind and OpenSSL development files are required.
 `cargo test --locked -p arinnd telemetry --lib` tests defaults and adversarial
 payloads. `sentry-isolated` in CTest runs `tests/integration/sentry.py` against a
 loopback server and disposable native/Rust fixtures. It checks actual envelope
-contents, disabled/malformed settings, invalid DSNs and crash/panic events;
+contents, traces/metrics, disabled/malformed settings, invalid DSNs, raw-envelope callback bypass, recursive crash fallback and cache privacy before replay;
 fixtures have core dumps disabled. Build Rust examples before CTest as specified
 in CONTRIBUTING.md. No request reaches the configured production Sentry project.
 

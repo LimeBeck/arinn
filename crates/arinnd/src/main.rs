@@ -11,7 +11,7 @@ use arinnd::{
 };
 use std::path::PathBuf;
 
-async fn run() -> Result<(), ErrorCode> {
+async fn run(started: std::time::Instant) -> Result<(), ErrorCode> {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
     if args == ["--check-plugins"] {
         let home = std::env::var_os("HOME")
@@ -99,7 +99,7 @@ async fn run() -> Result<(), ErrorCode> {
         .await
         .map_err(|_| ErrorCode::Internal)?;
     core.start().await;
-    arinnd::telemetry::record("ready", None, 0);
+    arinnd::telemetry::record("ready", None, started.elapsed().as_millis() as u64);
     eprintln!(
         "{}",
         serde_json::json!({"level":"info","component":"arinnd","provider_id":null,"request_id":null,"operation":"ready","error":null,"duration_ms":0})
@@ -112,19 +112,20 @@ async fn run() -> Result<(), ErrorCode> {
 }
 #[tokio::main]
 async fn main() {
+    let started = std::time::Instant::now();
     let telemetry = if std::env::args_os().nth(1).is_none() {
         arinnd::telemetry::init()
     } else {
         None
     };
-    if let Err(error) = run().await {
+    if let Err(error) = run(started).await {
         if std::env::args_os().nth(1).as_deref() != Some(std::ffi::OsStr::new("--check-plugins")) {
             eprintln!(
                 "{}",
                 serde_json::json!({"level":"error","component":"arinnd","provider_id":null,"request_id":null,"operation":"startup","error":error.to_string(),"duration_ms":0})
             );
         }
-        arinnd::telemetry::record("startup", Some(error), 0);
+        arinnd::telemetry::record("startup", Some(error), started.elapsed().as_millis() as u64);
         drop(telemetry);
         std::process::exit(1);
     }

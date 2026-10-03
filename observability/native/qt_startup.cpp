@@ -16,7 +16,7 @@ public:
     case QEvent::MouseButtonPress: operation = "input.pointer"; break;
     case QEvent::FocusIn: operation = "focus.in"; break;
     case QEvent::FocusOut: operation = "focus.out"; break;
-    case QEvent::Show: operation = "window.show"; break;
+    case QEvent::Show: ArinnTelemetry::finishStartup(); operation = "window.show"; break;
     case QEvent::Hide: operation = "window.hide"; break;
     case QEvent::WindowActivate: operation = "window.activate"; break;
     case QEvent::WindowDeactivate: operation = "window.deactivate"; break;

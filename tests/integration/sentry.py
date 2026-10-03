@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import resource
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -21,9 +22,16 @@ class Endpoint(http.server.BaseHTTPRequestHandler):
         if self.headers.get("Content-Encoding") == "gzip":
             body = gzip.decompress(body)
         self.server.envelopes.append(body)
+        delay = self.server.delay
+        self.server.delay = 0
+        if delay:
+            time.sleep(delay)
         self.send_response(200)
         self.end_headers()
-        self.wfile.write(b"{}")
+        try:
+            self.wfile.write(b"{}")
+        except BrokenPipeError:
+            pass
 
     def log_message(self, *_):
         pass
@@ -36,12 +44,16 @@ def events(envelopes):
         json.loads(lines[0])  # SDK envelope header.
         for index in range(1, len(lines), 2):
             header = json.loads(lines[index])
-            assert header["type"] == "event", header  # No session, attachment, log or trace.
-            result.append(json.loads(lines[index + 1]))
+            assert header["type"] in ("event", "transaction", "trace_metric"), header
+            payload = json.loads(lines[index + 1])
+            if header["type"] == "trace_metric":
+                result.extend(("metric", metric) for metric in payload["items"])
+            else:
+                result.append((header["type"], payload))
     return result
 
 
-def run(binary, configuration, crash=False, expected=True, dsn=None, cached=False):
+def run(binary, configuration, crash=False, expected=True, dsn=None, cached=False, mode=None):
     with tempfile.TemporaryDirectory(prefix="arinn-sentry-") as temporary:
         root = Path(temporary)
         config = root / "config/arinn"
@@ -54,6 +66,8 @@ def run(binary, configuration, crash=False, expected=True, dsn=None, cached=Fals
             sentinel.write_text("private-token-fixture")
         server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Endpoint)
         server.envelopes = []
+        # Keep one raw envelope in flight while the fixture crashes/dumps its queue.
+        server.delay = 0.4 if crash and "arinn-telemetry" in binary.name else 0
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         environment = dict(os.environ)
@@ -70,14 +84,34 @@ def run(binary, configuration, crash=False, expected=True, dsn=None, cached=Fals
         })
         # The fixture's synthetic crash must not create a core containing test data.
         resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
-        command = [str(binary)] + (["crash"] if crash else [])
+        command = [str(binary)] + ([mode] if mode else (["crash"] if crash else []))
         process = subprocess.run(command, env=environment, capture_output=True, timeout=20)
         time.sleep(0.1)
+        # Inspect cache before replay so a transient private buffer is detected.
+        for file in (root / "cache").rglob("*"):
+            if file.is_file() and file != sentinel:
+                data = file.read_bytes()
+                for marker in (b"private-token-fixture", b"private.invalid", b"Private tab", b"/home/private-fixture", str(root).encode()):
+                    assert marker not in data, (str(file), marker)
+        if crash and expected and "arinn-telemetry" in binary.name:
+            replay = subprocess.run([str(binary)], env=environment, capture_output=True, timeout=20)
+            assert replay.returncode == 0, replay.stderr.decode()
+            time.sleep(0.1)
         server.shutdown()
         thread.join()
         server.server_close()
         captured = events(server.envelopes)
         assert (process.returncode != 0) == crash, (command, process.returncode, process.stderr.decode())
+        for file in (root / "cache").rglob("*"):
+            if file.is_file():
+                data = file.read_bytes()
+                for marker in (b"private-token-fixture", b"private.invalid", b"Private tab", b"/home/private-fixture", str(root).encode()):
+                    if file != sentinel:
+                        assert marker not in data, (str(file), marker)
+        if mode == "recursive":
+            # A recursion fallback skips privacy hooks. It must never be cached.
+            assert not any(exception.get("type") == "SIGSEGV" for kind, payload in captured if kind == "event" for exception in payload.get("exception", {}).get("values", [])), captured
+            return
         if not expected:
             assert not captured, captured
             if cached:
@@ -91,15 +125,41 @@ def run(binary, configuration, crash=False, expected=True, dsn=None, cached=Fals
                        str(root), "username", "server_name", "context_line", '"user":', '"request":'):
             assert marker not in encoded, (marker, encoded)
         component = "arinn-shell" if "arinn-telemetry" in binary.name else "arinnd"
-        assert all(event["tags"]["component"] == component for event in captured)
-        assert any(event.get("breadcrumbs") for event in captured), captured
+        event_payloads = [payload for kind, payload in captured if kind == "event"]
+        assert all(payload["tags"]["component"] == component for kind, payload in captured if kind != "metric")
+        assert all(payload["attributes"]["component"]["value"] == component for kind, payload in captured if kind == "metric")
+        assert any(event.get("breadcrumbs") for event in event_payloads), captured
+        if not crash:
+            assert any(kind == "transaction" for kind, _ in captured), captured
+            assert any(kind == "metric" and payload["name"].endswith(".duration") for kind, payload in captured), captured
+            assert any(kind == "metric" and payload["type"] == "counter" for kind, payload in captured), captured
         if crash:
-            assert any(event.get("exception") for event in captured), captured
+            assert any(event.get("exception") for event in event_payloads), captured
             assert any(exception.get("stacktrace", {}).get("frames")
-                       for event in captured for exception in event.get("exception", {}).get("values", [])), captured
+                       for event in event_payloads for exception in event.get("exception", {}).get("values", [])), captured
         if component == "arinn-shell":
             directory = root / "cache/arinn/sentry-shell"
             assert directory.stat().st_mode & 0o777 == 0o700
+
+
+def verify_hardening(binary):
+    source = binary.parents[2] / "_deps/sentry_native-src/src"
+    patch = Path(__file__).resolve().parents[2] / "observability/native/harden_sdk.py"
+    with tempfile.TemporaryDirectory(prefix="arinn-sdk-patch-") as temporary:
+        root = Path(temporary)
+        for relative in ("backends/sentry_backend_inproc.c", "sentry_transport.c"):
+            target = root / "src" / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source / relative, target)
+        command = [sys.executable, str(patch), str(root)]
+        before = {path: path.read_bytes() for path in (root / "src").rglob("*.c")}
+        subprocess.run(command, check=True, capture_output=True)
+        subprocess.run(command, check=True, capture_output=True)
+        assert all(path.read_bytes() == contents for path, contents in before.items())
+        backend = root / "src/backends/sentry_backend_inproc.c"
+        backend.write_text(backend.read_text().replace("bool should_handle = !skip_hooks;", "bool unsupported_anchor = false;"))
+        rejected = subprocess.run(command, capture_output=True)
+        assert rejected.returncode != 0 and b"privacy anchor changed" in rejected.stderr
 
 
 def main():
@@ -107,6 +167,8 @@ def main():
     assert len(binaries) == 2
     for binary in binaries:
         assert binary.exists(), f"Build the SDK fixture first: {binary}"
+        if "arinn-telemetry" in binary.name:
+            verify_hardening(binary)
         for configuration in (None, "", "[telemetry]\nenabled = false", "[telemetry]\nenabled = 'true'", "broken ["):
             run(binary, configuration, expected=False)
         run(binary, "[telemetry]\nenabled = false", cached=True, expected=False)
@@ -115,6 +177,8 @@ def main():
             run(binary, "[telemetry]\nenabled = true", expected=False, dsn=invalid_dsn)
         run(binary, "[telemetry]\nenabled = true")
         run(binary, "[telemetry]\nenabled = true", crash=True)
+        if "arinn-telemetry" in binary.name:
+            run(binary, "[telemetry]\nenabled = true", crash=True, mode="recursive")
         print(f"PASS {binary.name}: disabled, malformed, enabled, crash and private payload filtering")
 
 

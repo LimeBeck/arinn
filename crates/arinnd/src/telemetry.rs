@@ -3,9 +3,17 @@
 
 //! Opt-in technical diagnostics. Never pass provider payloads or free-form errors here.
 use arinn_protocol::validation::ErrorCode;
-use sentry::protocol::{Breadcrumb, Event, Exception, Frame, Stacktrace};
+use sentry::protocol::{
+    Breadcrumb, Context, EnvelopeItem, Event, Exception, Frame, ItemContainer, Metric, SpanStatus,
+    Stacktrace, TraceContext, Transaction, Unit,
+};
+use sentry::{Envelope, Transport};
 use serde::Deserialize;
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{
+    path::PathBuf,
+    sync::Arc,
+    time::{Duration, SystemTime},
+};
 
 #[derive(Default, Deserialize)]
 struct Configuration {
@@ -72,12 +80,135 @@ pub fn init() -> Option<sentry::ClientInitGuard> {
     options.send_default_pii = false;
     options.max_breadcrumbs = 100;
     options.shutdown_timeout = Duration::from_secs(2);
+    options = options.traces_sample_rate(1.0);
+    options.transport = Some(Arc::new(FilteringFactory));
     options.before_send = Some(Arc::new(|event| Some(sanitize(event))));
     options.before_breadcrumb = Some(Arc::new(safe_breadcrumb));
     let guard = sentry::init(options);
     record("startup", None, 0);
     Some(guard)
 }
+
+struct FilteringFactory;
+impl sentry::TransportFactory for FilteringFactory {
+    fn create_transport_with_options(
+        &self,
+        options: sentry::TransportOptions,
+    ) -> Arc<dyn Transport> {
+        Arc::new(FilteringTransport(
+            sentry::transports::ReqwestHttpTransportOptions::from(options).build(),
+        ))
+    }
+}
+struct FilteringTransport(sentry::transports::ReqwestHttpTransport);
+impl Transport for FilteringTransport {
+    fn send_envelope(&self, envelope: Envelope) {
+        let clean = filter_envelope(envelope);
+        if clean.items().next().is_some() {
+            self.0.send_envelope(clean);
+        }
+    }
+    fn flush(&self, timeout: Duration) -> bool {
+        self.0.flush(timeout)
+    }
+    fn shutdown(&self, timeout: Duration) -> bool {
+        self.0.shutdown(timeout)
+    }
+}
+fn sanitize_transaction(transaction: Transaction<'static>) -> Option<Transaction<'static>> {
+    let name = transaction.name.as_deref()?;
+    if !matches!(name, "daemon.startup" | "daemon.operation") {
+        return None;
+    }
+    let mut clean = Transaction {
+        event_id: transaction.event_id,
+        name: Some(name.into()),
+        release: Some(concat!("arinn@", env!("CARGO_PKG_VERSION")).into()),
+        platform: "rust".into(),
+        timestamp: transaction.timestamp,
+        start_timestamp: transaction.start_timestamp,
+        ..Default::default()
+    };
+    clean.tags.insert("component".into(), "arinnd".into());
+    if let Some(Context::Trace(trace)) = transaction.contexts.get("trace") {
+        clean.contexts.insert(
+            "trace".into(),
+            TraceContext {
+                trace_id: trace.trace_id,
+                span_id: trace.span_id,
+                parent_span_id: trace.parent_span_id,
+                op: Some(name.into()),
+                status: trace.status,
+                ..Default::default()
+            }
+            .into(),
+        );
+    }
+    Some(clean)
+}
+fn sanitize_metric(mut metric: Metric) -> Option<Metric> {
+    if !matches!(
+        metric.name.as_ref(),
+        "arinn.daemon.operations"
+            | "arinn.daemon.errors"
+            | "arinn.daemon.operation.duration"
+            | "arinn.daemon.startup.duration"
+    ) || !metric.value.is_finite()
+        || metric.value < 0.0
+    {
+        return None;
+    }
+    metric.unit = metric
+        .name
+        .ends_with(".duration")
+        .then_some(Unit::Millisecond);
+    metric.attributes.clear();
+    metric
+        .attributes
+        .insert("component".into(), "arinnd".into());
+    Some(metric)
+}
+// Rebuild headers as well: SDK dynamic sampling context can contain scope data.
+fn filter_envelope(envelope: Envelope) -> Envelope {
+    let mut clean = Envelope::new();
+    for item in envelope.into_items() {
+        match item {
+            EnvelopeItem::Event(event) => clean.add_item(sanitize(*event)),
+            EnvelopeItem::Transaction(transaction) => {
+                if let Some(transaction) = sanitize_transaction(*transaction) {
+                    clean.add_item(transaction);
+                }
+            }
+            EnvelopeItem::ItemContainer(ItemContainer::Metrics(metrics)) => {
+                let metrics: Vec<_> = metrics
+                    .into_iter()
+                    .take(1000)
+                    .filter_map(sanitize_metric)
+                    .collect();
+                if !metrics.is_empty() {
+                    clean.add_item(ItemContainer::Metrics(metrics));
+                }
+            }
+            _ => {} // Never send raw envelopes, attachments, sessions, logs or unknown items.
+        }
+    }
+    clean
+}
+fn trace(name: &'static str, error: bool, duration_ms: u64) {
+    let now = SystemTime::now();
+    let transaction = sentry::start_transaction_with_timestamp(
+        sentry::TransactionContext::new(name, name),
+        now.checked_sub(Duration::from_millis(duration_ms))
+            .unwrap_or(now),
+    );
+    transaction.set_status(if error {
+        SpanStatus::InternalError
+    } else {
+        SpanStatus::Ok
+    });
+    transaction.finish();
+}
+
 fn safe_symbol(symbol: Option<String>) -> Option<String> {
     symbol.filter(|s| s.len() <= 512 && !s.contains(['/', '\\', '\n', '\r']))
 }
@@ -202,6 +333,22 @@ pub fn record(operation: &'static str, error: Option<ErrorCode>, duration_ms: u6
     let Some(operation) = safe_operation(operation) else {
         return;
     };
+    if operation == "operation.complete" {
+        sentry::metrics::counter("arinn.daemon.operations", 1).capture();
+        sentry::metrics::distribution("arinn.daemon.operation.duration", duration_ms as f64)
+            .unit(Unit::Millisecond)
+            .capture();
+        trace("daemon.operation", error.is_some(), duration_ms);
+    }
+    if operation == "ready" || (operation == "startup" && error.is_some()) {
+        sentry::metrics::distribution("arinn.daemon.startup.duration", duration_ms as f64)
+            .unit(Unit::Millisecond)
+            .capture();
+        trace("daemon.startup", error.is_some(), duration_ms);
+    }
+    if error.is_some() {
+        sentry::metrics::counter("arinn.daemon.errors", 1).capture();
+    }
     let mut crumb = Breadcrumb {
         category: Some("arinnd.lifecycle".into()),
         message: Some(operation.into()),
@@ -250,6 +397,41 @@ mod tests {
         ] {
             assert!(!valid_dsn(dsn));
         }
+    }
+    #[test]
+    fn transport_rebuilds_transactions_metrics_and_drops_unknown_items() {
+        let private = "private-token-fixture";
+        let transaction: Transaction = serde_json::from_value(serde_json::json!({
+            "transaction":"daemon.operation", "server_name":private,
+            "tags":{"private":private}, "extra":{"private":private}, "user":{"username":private},
+            "request":{"url":"https://private.invalid"},
+            "spans":[{"description":private,"data":{"private":private}}],
+            "contexts":{"trace":{"description":private,"data":{"private":private},"op":private}, "device":{"name":private}}
+        })).unwrap();
+        let metric: Metric = serde_json::from_value(serde_json::json!({
+            "name":"arinn.daemon.operations", "type":"counter", "value":1,
+            "timestamp":1, "trace_id":"0123456789abcdef0123456789abcdef",
+            "attributes":{"private":{"type":"string", "value":private}}
+        }))
+        .unwrap();
+        let mut envelope = Envelope::new();
+        envelope.add_item(transaction);
+        envelope.add_item(ItemContainer::Metrics(vec![metric]));
+        envelope.add_item(ItemContainer::Logs(vec![]));
+        let clean = filter_envelope(envelope);
+        assert_eq!(clean.items().count(), 2);
+        let mut bytes = Vec::new();
+        clean.to_writer(&mut bytes).unwrap();
+        let encoded = String::from_utf8(bytes).unwrap();
+        assert!(!encoded.contains(private), "{encoded}");
+        assert!(!encoded.contains("private.invalid"), "{encoded}");
+        assert!(encoded.contains("daemon.operation"));
+        assert!(encoded.contains("arinn.daemon.operations"));
+        let unknown = Transaction {
+            name: Some(private.into()),
+            ..Default::default()
+        };
+        assert!(sanitize_transaction(unknown).is_none());
     }
     #[test]
     fn sanitizes_every_sdk_payload_field() {

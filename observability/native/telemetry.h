@@ -5,6 +5,7 @@
 namespace ArinnTelemetry {
 bool start();
 void stop();
+void finishStartup();
 void breadcrumb(const char *operation);
 void qtMessage(QtMsgType type, const QMessageLogContext &context);
 }

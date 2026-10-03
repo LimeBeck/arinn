@@ -310,13 +310,13 @@ async fn a_rejected_value_restores_the_file_and_unsupported_keeps_it() {
     assert_eq!(f.wait(path).await, Err("InvalidArgument".into()));
     assert!(!f.stored().contains("/refused"), "{}", f.stored());
 
-    // Only applies at the next start: stored, and the operation succeeds.
+    // Only applies at the next start: stored, operation reports Unsupported.
     *f.handler.answer.lock().unwrap() = Err(ErrorCode::Unsupported);
     let path = api
         .set_value("library", &g, "roots", r#"["/later"]"#, &rid())
         .await
         .unwrap();
-    f.wait(path).await.unwrap();
+    assert_eq!(f.wait(path).await, Err("Unsupported".into()));
     assert!(f.stored().contains("/later"));
 }
 

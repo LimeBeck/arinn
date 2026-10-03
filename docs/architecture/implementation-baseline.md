@@ -71,3 +71,11 @@ CLI: human-readable text by default and `--json` for all read commands. Exit cod
 The contract harness starts any provider from its manifest and checks only the declared capabilities. Demo fixtures: empty/populated, delayed, invalid ID, crash, reconnect, revision race, unavailable backend. Rust unit and integration tests run with `cargo test`; QML interaction with Qt Quick Test; the IPC adapter with Qt Test.
 
 Initial engineering budgets on the target device: p95 input-to-focus ≤ 50 ms with a warm UI at 60 Hz; p95 frame time ≤ 16.7 ms outside heavy initial loads; a slow provider does not affect focus. These are measurement targets, not results. Performance regressions are judged on one fixed environment; regular CI never presents synthetic FPS as TV acceptance.
+
+CLI help uses the same command metadata as argument validation. `arinnctl --help`,
+`-h`, `help`, and command/group help (for example `browser activate --help`)
+print structured text to stdout with exit code 0 before connecting to D-Bus. Help
+includes descriptions, ID sources, examples and exit codes; `--json` keeps help
+as text. Invalid usage prints a concise stderr hint and exits with code 2. Omitting a
+command still requests status. The process regressions use an invalid bus address
+to verify that help and validation are independent of daemon availability.

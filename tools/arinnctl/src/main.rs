@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: 2026 Arinn contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+mod cli;
+
 use arinn_protocol::{
     browser::{BrowserApiProxy, TabPage},
     production::{ApplicationApiProxy, ProductionDaemonProxy, ProductionOperationProxy},
@@ -284,25 +286,15 @@ async fn run() -> Result<(), u8> {
     let mut args: Vec<_> = std::env::args().skip(1).collect();
     let json = args.iter().any(|a| a == "--json");
     args.retain(|a| a != "--json");
+    if let Some(help) = cli::help(&args) {
+        print!("{help}");
+        return Ok(());
+    }
     if args.is_empty() {
         args.push("status".into());
     }
-    let valid = matches!(args.as_slice(),[cmd] if ["status","providers","capabilities","activities","diagnostics","home","back"].contains(&cmd.as_str()))
-        || matches!(args.as_slice(),[cmd,sub] if cmd=="providers"&&sub=="reload")
-        || matches!(args.as_slice(),[cmd,sub,_] if cmd=="provider"&&sub=="restart")
-        || matches!(args.as_slice(),[cmd,_] if cmd=="snapshot")
-        || matches!(args.as_slice(),[cmd,_,_] if ["launch","activate","terminate"].contains(&cmd.as_str()))
-        || matches!(args.as_slice(),[cmd] if cmd=="shortcuts")
-        || matches!(args.as_slice(),[cmd,sub] if cmd=="shortcuts"&&sub=="list")
-        || matches!(args.as_slice(),[cmd,sub,..] if cmd=="shortcuts"&&sub=="add"&&(4..=5).contains(&args.len()))
-        || matches!(args.as_slice(),[cmd,sub,..] if cmd=="shortcuts"&&sub=="edit"&&(5..=6).contains(&args.len()))
-        || matches!(args.as_slice(),[cmd,sub,_] if cmd=="shortcuts"&&["remove","open"].contains(&sub.as_str()))
-        || matches!(args.as_slice(),[cmd,sub] if cmd=="browser"&&sub=="tabs")
-        || matches!(args.as_slice(),[cmd,sub,_,_] if cmd=="browser"&&["activate","close"].contains(&sub.as_str()));
-    if !valid {
-        eprintln!(
-            "usage: arinnctl [--json] status|providers|capabilities|diagnostics|snapshot <provider>|provider restart <id>|providers reload|launch <provider> <id>|activate <provider> <id>|terminate <provider> <id>|home|back|shortcuts [list]|shortcuts add <title> <url> [icon]|shortcuts edit <id> <title> <url> [icon]|shortcuts remove <id>|shortcuts open <id>|browser tabs|browser activate <provider> <tab>|browser close <provider> <tab>"
-        );
+    if !cli::valid(&args) {
+        eprintln!("{}", cli::usage_error(&args));
         return Err(2);
     }
     let c = zbus::connection::Builder::session()
@@ -395,16 +387,16 @@ async fn run() -> Result<(), u8> {
 #[tokio::main]
 async fn main() {
     if let Err(code) = run().await {
-        eprintln!(
-            "{}",
-            if code == 3 {
-                "Daemon unavailable"
-            } else if code == 2 {
-                "Invalid usage"
-            } else {
-                "Operation failed"
-            }
-        );
+        if code != 2 {
+            eprintln!(
+                "{}",
+                if code == 3 {
+                    "Daemon unavailable"
+                } else {
+                    "Operation failed"
+                }
+            );
+        }
         std::process::exit(i32::from(code));
     }
 }

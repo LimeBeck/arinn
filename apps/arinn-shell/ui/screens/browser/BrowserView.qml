@@ -81,6 +81,7 @@ FocusScope {
     signal open(string shortcutId)
     signal retryRequested()
     signal backRequested()
+    signal browseRequested()
 
     function hostOf(url) {
         const value = url !== undefined && url !== null ? String(url) : "";
@@ -453,6 +454,9 @@ FocusScope {
     }
 
     function localKey(event) {
+        if (event.key === Qt.Key_Up && !browseButton.activeFocus && ((!showTabs) || listIndex === 0)) {
+            Ui.Focus.take(browseButton); event.accepted = true; return;
+        }
         if (isBackKey(event.key)) {
             event.accepted = true;
             if (!event.isAutoRepeat)
@@ -601,10 +605,18 @@ FocusScope {
                 }
             }
 
+            Ui.ActionButton {
+                id: browseButton
+                objectName: "browserBrowse"
+                x: 1220; y: 96; height: 80
+                text: qsTr("Site or search")
+                onActivated: root.browseRequested()
+                Keys.onDownPressed: root.settleFocus()
+            }
             Item {
                 x: 120
                 y: 96
-                width: parent.width - 120 - 300
+                width: parent.width - 120 - 760
                 height: 72
                 Ui.UiText {
                     id: screenTitle

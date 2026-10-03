@@ -370,14 +370,49 @@ mod tests {
     use super::running_executable_matches;
     use std::{
         fs,
-        os::unix::fs::PermissionsExt,
+        os::unix::fs::{MetadataExt, PermissionsExt},
+        path::Path,
         process::{Command, Stdio},
+        thread,
+        time::{Duration, Instant},
     };
+
+    // What the check compares, for a failure message (#257).
+    fn describe(pid: u32, executable: &Path) -> String {
+        let proc_exe = format!("/proc/{pid}/exe");
+        let id = |path: &Path| {
+            fs::metadata(path)
+                .map(|m| format!("dev {} ino {}", m.dev(), m.ino()))
+                .unwrap_or_else(|error| error.to_string())
+        };
+        format!(
+            "link {:?}, running {}, installed {}",
+            fs::read_link(&proc_exe),
+            id(Path::new(&proc_exe)),
+            id(executable)
+        )
+    }
+
+    // Waits briefly for the condition: other tests in this binary spawn
+    // processes at the same time, and the check reads live /proc state.
+    fn eventually(mut condition: impl FnMut() -> bool) -> bool {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            if condition() {
+                return true;
+            }
+            if Instant::now() >= deadline {
+                return false;
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+    }
 
     #[test]
     fn replaced_executable_does_not_match_the_running_process() {
-        let dir = std::env::temp_dir().join(format!("arinn-stale-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
+        // A unique directory: a PID can repeat across concurrent containers
+        // that share a runner host.
+        let dir = std::env::temp_dir().join(format!("arinn-stale-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&dir).unwrap();
         let path = dir.join("sleep");
         fs::copy("/bin/sleep", &path).unwrap();
@@ -401,16 +436,19 @@ mod tests {
             }
         }
         let child = Kill(child);
+        let pid = child.0.id();
         assert!(
-            running_executable_matches(child.0.id(), &path),
-            "the process must match the executable it was started from"
+            eventually(|| running_executable_matches(pid, &path)),
+            "the process must match the executable it was started from: {}",
+            describe(pid, &path)
         );
         fs::remove_file(&path).unwrap();
         fs::copy("/bin/sleep", &path).unwrap();
         executable(&path);
         assert!(
-            !running_executable_matches(child.0.id(), &path),
-            "a replaced executable must not match the process still mapped to the old inode"
+            !running_executable_matches(pid, &path),
+            "a replaced executable must not match the process still mapped to the old inode: {}",
+            describe(pid, &path)
         );
         drop(child);
         let _ = fs::remove_dir_all(&dir);

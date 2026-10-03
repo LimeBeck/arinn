@@ -1087,6 +1087,8 @@ private slots:
     QVERIFY(bus.registerVirtualObject(QStringLiteral("/org/arinn"), &daemon,
                                       QDBusConnection::SubPath));
     ShellStandIn backend;
+    // #258: a lingering action result must not cover the picture.
+    backend.m_message = QStringLiteral("Done");
     SessionGuardStandIn guard;
     QQmlApplicationEngine engine;
     QStringList problems;
@@ -1123,8 +1125,11 @@ private slots:
                                       Q_ARG(QVariant, false)));
     QTRY_COMPARE(catalog->presentationState(), QStringLiteral("active"));
     QCOMPARE(daemon.windowCommands, QStringList({QStringLiteral("Present")}));
+    auto strip = window->findChild<QQuickItem *>(QStringLiteral("feedbackStrip"));
+    QVERIFY(strip);
     QTRY_COMPARE(player->property("visible").toBool(), true);
     QCOMPARE(session->property("visible").toBool(), false);
+    QCOMPARE(strip->property("visible").toBool(), false);
     QCOMPARE(player->property("pictureStandIn").toBool(), false);
     QCOMPARE(player->property("title").toString(), QStringLiteral("Piece"));
     QCOMPARE(player->property("tracksSupported").toBool(), true);

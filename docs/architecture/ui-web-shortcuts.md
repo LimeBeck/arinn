@@ -63,7 +63,10 @@ application ids do not collide. An id that is in neither list shows
 shell polls `Operation1.Get` the same way it polls an application launch: the
 tile stays busy, a duplicate request is ignored, and the operation state is
 shown when it finishes. `succeeded` is "Done". Any other terminal state shows
-the operation error string.
+the operation error string. These action results, and "Shortcut is no longer
+available", clear themselves after 3 s; connection states (daemon, provider,
+KWin) stay until they change. The strip is hidden while managed playback is on
+screen.
 
 When no browser provider is connected, `Open` still finishes `Unavailable`.
 The shell calls `Open` anyway and shows that result. It does not pre-disable

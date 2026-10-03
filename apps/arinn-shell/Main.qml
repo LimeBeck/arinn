@@ -6,6 +6,7 @@ import QtQuick.Window
 import Arinn.Shell 1.0
 import "ui" as Ui
 import "ui/screens/browser" as Browser
+import "ui/screens/browse" as Browse
 import "ui/screens/library" as Library
 import "ui/screens/player" as Player
 import "ui/screens/session" as Session
@@ -27,6 +28,9 @@ Window {
     flags: Qt.Window | Qt.FramelessWindowHint
     readonly property bool navOpen: home.navOpen
     property bool browserOpen: false
+    property bool browseOpen: false
+    function showBrowse() { browseCatalog.reset(); browseOpen = true; }
+    function closeBrowse() { browseOpen = false; browseCatalog.reset(); Qt.callLater(restoreFocus); }
     property bool sessionOpen: false
     property bool playerOpen: false
     property bool sessionFromLibrary: false
@@ -40,6 +44,8 @@ Window {
         playerOpen = false;
         sessionOpen = false;
         browserOpen = false;
+        browseOpen = false;
+        browseCatalog.reset();
         home.showHome();
     }
     onActiveChanged: {
@@ -99,13 +105,14 @@ Window {
     // shortcut editor cover the library and settings screens, so they win.
     readonly property string focusedScreen: playerOpen ? "player"
         : sessionOpen ? "session"
+        : browseOpen ? "browse"
         : browserOpen ? "browser"
         : home.navOpen || home.shortcutEditorOpen ? "home"
         : home.screen === "library" ? "library"
         : home.screen === "settings" ? "settings"
         : "home"
     function screenItem(name) {
-        return ({player: playerView, session: sessionView, browser: browserView,
+        return ({player: playerView, session: sessionView, browser: browserView, browse: browseView,
                  library: libraryView, settings: settingsView, home: home})[name];
     }
     // Focus the screen on display at its preferred item.
@@ -114,6 +121,7 @@ Window {
         case "player": Ui.Focus.take(playerView); break;
         case "session": sessionView.restore(); break;
         case "browser": browserView.settleFocus(); break;
+        case "browse": browseView.focusInitial(); break;
         case "library": libraryView.focusInitial(); break;
         case "settings": settingsView.focusInitial(); break;
         default: home.restoreFocus();
@@ -198,6 +206,7 @@ Window {
         }
     }
     BrowserCatalog { id: browserCatalog }
+    BrowseCatalog { id: browseCatalog; objectName: "browseCatalog"; tabs: browserCatalog.tabs }
     MediaCatalog { id: mediaCatalog; objectName: "mediaCatalog" }
     LibraryCatalog { id: libraryCatalog; objectName: "libraryCatalog" }
     SettingsCatalog { id: settingsCatalog; objectName: "settingsCatalog" }
@@ -207,7 +216,7 @@ Window {
         context: Qt.WindowShortcut
         autoRepeat: false
         enabled: root.active && mediaCatalog.presentationState === "ReleaseFailed"
-                 && !root.playerOpen && !root.sessionOpen && !root.browserOpen
+                 && !root.playerOpen && !root.sessionOpen && !root.browserOpen && !root.browseOpen
                  && home.screen === "home" && !home.navOpen
                  && !home.shortcutEditorOpen && !sessionGuard.blocked
         onActivated: mediaCatalog.release()
@@ -234,7 +243,7 @@ Window {
                 && backend.daemonEpoch === browserCatalog.returnEpoch
                 && backend.returnWindow === browserCatalog.returnTarget
             continueEntries: (returnIsWebService ? [] : backend.continueEntries).concat(mediaCatalog.continueEntries)
-            favoriteEntries: backend.favorites
+            favoriteEntries: [{id: "arinn-browse", title: qsTr("Site or search"), monogram: "⌕", enabled: true}].concat(backend.favorites)
             applicationEntries: backend.applications
             runningEntries: backend.items
             favoritesTitle: qsTr("Favorites")
@@ -251,7 +260,7 @@ Window {
             sectionDescription: screen === "applications" ? ((applicationEntries.length || runningEntries.length) ? qsTr("Choose an application or an open window.") : qsTr("No applications are available.")) : qsTr("This section is not available yet.")
             clockText: Qt.formatTime(new Date(), "hh:mm")
             Timer { interval: 1000; running: true; repeat: true; onTriggered: home.clockText = Qt.formatTime(new Date(), "hh:mm") }
-            onEntryRequested: entryId => backend.launch(entryId)
+            onEntryRequested: entryId => { if (entryId === "arinn-browse") root.showBrowse(); else backend.launch(entryId); }
             onRunningRequested: entryId => backend.activate(entryId)
             onReturnRequested: backend.back()
             onRetryRequested: backend.refresh()
@@ -279,7 +288,7 @@ Window {
             objectName: "productionBrowser"
             visible: root.browserOpen && !root.playerOpen
             enabled: root.browserOpen && !root.playerOpen
-            interactive: root.browserOpen && !root.playerOpen
+            interactive: root.browserOpen && !root.playerOpen && !root.browseOpen
             tabs: browserCatalog.tabs
             windows: browserCatalog.windows
             shortcuts: browserCatalog.shortcuts
@@ -292,7 +301,42 @@ Window {
             onSaveErrorDismissed: browserCatalog.dismissSaveError()
             onOpen: shortcutId => browserCatalog.openShortcut(shortcutId)
             onRetryRequested: browserCatalog.retry()
+            onBrowseRequested: root.showBrowse()
             onBackRequested: { root.browserOpen = false; Qt.callLater(home.showHome); }
+        }
+        Browse.BrowseView {
+            id: browseView
+            objectName: "productionBrowse"
+            visible: root.browseOpen && !root.playerOpen
+            enabled: visible
+            focus: root.focusedScreen === "browse"
+            z: 5
+            text: browseCatalog.text
+            kind: browseCatalog.kind
+            resolvedUrl: browseCatalog.url
+            engine: browseCatalog.engine
+            openTitle: browseCatalog.openTitle
+            operationState: browseCatalog.operationState
+            ordinaryApplications: {
+                const result = [];
+                for (let i = 0; i < backend.applications.length; ++i) {
+                    const row = backend.applications[i];
+                    if (row.group === "online" && !row.webShortcut && row.enabled) result.push(row);
+                }
+                return result;
+            }
+            suggestions: browseCatalog.suggestions
+            recent: browseCatalog.recent
+            keyboardAvailable: keyboardMonitor.available
+            browserUnavailable: !backend.connected || browserCatalog.retryAction === "restart"
+                || browseCatalog.operationState === "Unavailable"
+            onTextEdited: value => browseCatalog.text = value
+            onOpenRequested: browseCatalog.open()
+            onShortcutRequested: entryId => browserCatalog.openShortcut(entryId)
+            onApplicationRequested: entryId => backend.launch(entryId)
+            onClearRequested: browseCatalog.clearRecent()
+            onRetryRequested: { browseCatalog.dismissError(); browserCatalog.retry(); browseCatalog.refreshRecent(); browseCatalog.refreshShortcuts(); }
+            onBackRequested: root.closeBrowse()
         }
         Session.SessionView {
             id: sessionView
@@ -504,9 +548,11 @@ Window {
             onHomeRequested: Qt.callLater(home.showHome)
         }
         Rectangle {
+            objectName: "feedbackStrip"
             x: 420; y: 970; width: 1080; height: 72; radius: 36
             color: "#33363b"
-            visible: feedbackTimer.running || backend.message.length > 0
+            // Never over the picture of managed playback (#258).
+            visible: (feedbackTimer.running || backend.message.length > 0) && !root.playerOpen
             Ui.UiText {
                 id: feedback; objectName: "feedback"
                 anchors.fill: parent; anchors.margins: 20

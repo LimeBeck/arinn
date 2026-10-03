@@ -64,8 +64,11 @@ private slots:
     auto home = window->findChild<QQuickItem *>("productionHome");
     QVERIFY(home);
     QCOMPARE(home->property("screen").toString(), QString("home"));
-    QCOMPARE(home->property("favoriteEntries").toList().size(),
-             favorites.size());
+    const auto homeFavorites = home->property("favoriteEntries").toList();
+    QCOMPARE(homeFavorites.size(), favorites.size() + 1);
+    QCOMPARE(homeFavorites.first().toMap().value("id").toString(),
+             QString("arinn-browse"));
+    QCOMPARE(homeFavorites.mid(1), favorites);
     bool onApplicationsRoute = false;
     for (const auto &entry : home->property("applicationEntries").toList())
       if (entry.toMap().value("id").toString() == appId)

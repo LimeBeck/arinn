@@ -1,0 +1,1 @@
+- A successful launch no longer leaves a permanent "Done" strip on Home: action results disappear after 3 seconds, and the strip is never shown over managed playback.

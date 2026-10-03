@@ -203,3 +203,50 @@ QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
 
 Operator tests were not run. This binding does not lock the session or load a
 KWin script.
+
+## Site or search (#178)
+
+Home adds a generic **Site or search** entry; Open services exposes the same
+screen at its header. Up from the first service row (or the status action)
+reaches that header button. Back from the entry screen restores its originating
+screen. Escape exits; Backspace edits while the standard text field holds focus.
+Main owns the screen focus route, following ADR-0076.
+
+`BrowseCatalog` calls `Browse1.Resolve` after each edit. It discards replies for
+older edits and clears resolution immediately, so Enter cannot use the previous
+address. Resolve returns the contracted `(sss)` structure on the wire; a Rust
+regression test checks its actual reply signature as well as introspection.
+Only daemon-resolved address/search input can call `Browse1.Open`.
+The client observes the operation, suppresses concurrent Enter calls and bounds
+its wait to 30 seconds. Errors remain on the entry screen for retry. The shell
+never constructs a search URL or selects an engine by product name.
+
+The already-open hint compares scheme, host (ignoring `www.`) and effective
+port with active browser tabs in the C++ model. The daemon/provider owns
+focus-or-create. Suggestions match word prefixes in shortcut names and addresses,
+up to three; selecting one uses the existing shortcut-open flow. Existing Save
+controls in Open services continue to use `WebShortcuts1.Add`.
+
+Recent entries come from `GetRecent`, refresh on `RecentChanged` and clear through
+`ClearRecent`. The shell persists no typed text or browser history. Text, resolved
+URLs and recent entries are not logged. Returning with Back clears the current
+text and invalidates outstanding resolution replies. Daemon owner changes clear
+all transient state and reload shortcut/recent data after reconnect.
+
+The hardware-keyboard field and remote controls share one focus scope. Without a
+keyboard, shortcuts remain reachable; a printable key enables input and inserts
+that character. Ordinary browser applications remain in the Home/Applications
+catalog and are also exposed as secondary launch actions for provider-declared
+Online application entries. These actions use the ordinary application launch
+API, with no product-name matching. The scrollable choices keep recent entries,
+shortcuts and secondary actions reachable on a full catalogue.
+
+`browse-catalog` checks stale resolution replies, origin hints, duplicate opens,
+operation failure and recent clearing on a private bus. `tst_browse.qml` checks
+input, invalid text, recent-entry navigation, remote-only input and unavailable
+feedback. `phase1.py` exercises the live daemon's resolution, confirmation and
+recent clearing, including resolution without recording. Its Qt client fixture
+confirms text through the real daemon, and a synthetic browser provider receives
+the resolved URL. Real browser/KDE/TV
+qualification is not established by these synthetic checks and requires the
+owner's operator test.

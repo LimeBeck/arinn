@@ -205,6 +205,27 @@ async fn open_records_recent_entries_newest_first() {
 }
 
 #[tokio::test]
+async fn resolve_body_preserves_the_contracted_structure() {
+    let f = Fixture::new(engines()).await;
+    let reply = f
+        .client
+        .call_method(
+            Some(production::SERVICE),
+            production::PATH,
+            Some("org.arinn.Browse1"),
+            "Resolve",
+            &("example.org",),
+        )
+        .await
+        .unwrap();
+    // Introspection alone did not catch the previous flattened `sss` body.
+    assert_eq!(reply.body().signature().to_string(), "(sss)");
+    let (target,): (arinn_protocol::browse::Target,) = reply.body().deserialize().unwrap();
+    assert_eq!(target.kind, KIND_ADDRESS);
+    assert_eq!(target.url, "https://example.org");
+}
+
+#[tokio::test]
 async fn the_daemon_export_matches_the_published_browse1_xml() {
     let f = Fixture::new(engines()).await;
     let live = zbus::fdo::IntrospectableProxy::builder(&f.client)

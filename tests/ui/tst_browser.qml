@@ -343,6 +343,8 @@ TestCase {
         keyClick(Qt.Key_Left);
         keyClick(Qt.Key_Right);
         keyClick(Qt.Key_Up);
+        focused("browserBrowse");
+        keyClick(Qt.Key_Down);
         focused("statusAction");
         focusInside();
     }

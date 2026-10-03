@@ -559,6 +559,8 @@ private slots:
       QTRY_COMPARE(backend.message(), QString("Done"));
       QCOMPARE(daemon.opens, 2);
       QCOMPARE(daemon.launches, 0);
+      // #258: an action result is transient.
+      QTRY_COMPARE_WITH_TIMEOUT(backend.message(), QString(), 5000);
 
       backend.launch(QStringLiteral("missing"));
       QCOMPARE(backend.message(), QString("Shortcut is no longer available"));

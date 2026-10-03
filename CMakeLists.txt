@@ -13,3 +13,5 @@ add_subdirectory(scripts/perf)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 add_test(NAME shell-session-selector
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/package/test_shell_launcher.py)
+add_test(NAME desktop-entry-launcher
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/package/test_arinn_open.py)

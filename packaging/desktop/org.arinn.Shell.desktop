@@ -1,0 +1,14 @@
+# SPDX-FileCopyrightText: 2026 Arinn contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+[Desktop Entry]
+Type=Application
+Name=Arinn
+GenericName=TV shell
+Comment=Start Arinn or bring up Home
+Icon=org.arinn.Shell
+Exec=/usr/lib/arinn/arinn-open
+Terminal=false
+Categories=AudioVideo;Video;
+Keywords=TV;HTPC;Home;Media;
+StartupNotify=false
+SingleMainWindow=true

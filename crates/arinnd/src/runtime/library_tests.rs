@@ -5,9 +5,9 @@
 //! `MediaOpen1` (ADR-0058) on a private bus.
 use super::*;
 use arinn_protocol::{
-    library::LibraryApiProxy,
+    library::{FEATURE_ROOTS, LibraryApiProxy, RootState, Roots},
     media::{PlaybackSource, Session, SessionPage},
-    production::{EntityRef, ProductionOperationProxy},
+    production::{EntityRef, ProductionDaemonProxy, ProductionOperationProxy},
 };
 use std::{
     io::{BufRead, BufReader},
@@ -16,6 +16,9 @@ use std::{
 };
 
 const URI: &str = "file:///srv/films/film.mkv";
+
+/// The fake provider's roots and their revision; `None` without the feature.
+type SharedRoots = Arc<StdMutex<Option<(u64, Vec<RootState>)>>>;
 
 fn item(id: &str, available: bool) -> Item {
     Item {
@@ -42,6 +45,8 @@ struct FakeLibrary {
     generation: String,
     resume: bool,
     calls: Arc<StdMutex<Vec<String>>>,
+    /// `Some` serves `LibraryRoots1` with these roots (ADR-0071).
+    roots: SharedRoots,
 }
 #[zbus::interface(name = "org.arinn.LibraryProvider1")]
 impl FakeLibrary {
@@ -62,11 +67,14 @@ impl FakeLibrary {
         "available".into()
     }
     fn features(&self) -> Vec<String> {
+        let mut features = Vec::new();
         if self.resume {
-            vec![FEATURE_RESUME.into()]
-        } else {
-            Vec::new()
+            features.push(FEATURE_RESUME.into());
         }
+        if self.roots.lock().unwrap().is_some() {
+            features.push(FEATURE_ROOTS.into());
+        }
+        features
     }
     fn launch(&self, _generation: &str, id: &str) -> production::Result<(PlaybackSource,)> {
         self.calls.lock().unwrap().push(format!("launch {id}"));
@@ -76,6 +84,34 @@ impl FakeLibrary {
             start_position_us: 60_000_000,
             audio_language: "ru".into(),
             subtitle_language: String::new(),
+        },))
+    }
+    #[zbus(signal)]
+    async fn state_changed(
+        emitter: &SignalEmitter<'_>,
+        generation: &str,
+        revision: u64,
+    ) -> zbus::Result<()>;
+}
+#[derive(Clone)]
+struct FakeRoots(FakeLibrary);
+#[zbus::interface(name = "org.arinn.LibraryRoots1")]
+impl FakeRoots {
+    fn get_roots(&self, generation: &str) -> production::Result<(Roots,)> {
+        if generation != self.0.generation {
+            return Err(ErrorCode::Conflict.into());
+        }
+        let (revision, roots) = self
+            .0
+            .roots
+            .lock()
+            .unwrap()
+            .clone()
+            .ok_or(ErrorCode::Unsupported)?;
+        Ok((Roots {
+            generation: self.0.generation.clone(),
+            revision,
+            roots,
         },))
     }
     #[zbus(signal)]
@@ -166,6 +202,7 @@ struct Fixture {
     opened: Arc<StdMutex<Vec<MediaSource>>>,
     generation: String,
     path: OwnedObjectPath,
+    roots: SharedRoots,
 }
 impl Drop for Fixture {
     fn drop(&mut self) {
@@ -234,6 +271,10 @@ fn provider(
 }
 impl Fixture {
     async fn new(resume: bool, player_can_open: bool) -> Self {
+        Self::build(resume, player_can_open, None).await
+    }
+    async fn build(resume: bool, player_can_open: bool, roots: Option<Vec<RootState>>) -> Self {
+        let roots = Arc::new(StdMutex::new(roots.map(|r| (1, r))));
         let mut bus = Command::new("dbus-daemon")
             .args(["--session", "--nofork", "--print-address=1"])
             .stdout(Stdio::piped())
@@ -264,15 +305,18 @@ impl Fixture {
         let calls: Arc<StdMutex<Vec<String>>> = Arc::default();
         let opened: Arc<StdMutex<Vec<MediaSource>>> = Arc::default();
         let objects = library.object_server();
+        let fake = FakeLibrary {
+            generation: generation.clone(),
+            resume,
+            calls: calls.clone(),
+            roots: roots.clone(),
+        };
         objects
-            .at(
-                production::PROVIDER_PATH,
-                FakeLibrary {
-                    generation: generation.clone(),
-                    resume,
-                    calls: calls.clone(),
-                },
-            )
+            .at(production::PROVIDER_PATH, fake.clone())
+            .await
+            .unwrap();
+        objects
+            .at(production::PROVIDER_PATH, FakeRoots(fake))
             .await
             .unwrap();
         objects
@@ -367,6 +411,7 @@ impl Fixture {
             opened,
             generation,
             path,
+            roots,
         };
         for _ in 0..150 {
             {
@@ -543,6 +588,68 @@ async fn assets_are_unsupported_without_the_flag() {
         .unwrap();
     assert_eq!(
         error_name(assets.get_asset(&f.generation, "poster-1").await),
+        "org.arinn.Error1.Unsupported"
+    );
+}
+
+// ADR-0071: the daemon reads LibraryRoots1, serves Library1.GetRoots and
+// announces a change with its StateChanged for the library capability.
+#[tokio::test]
+async fn roots_are_read_served_and_announced() {
+    let root = |path: &str, available| RootState {
+        path: path.into(),
+        available,
+    };
+    let f = Fixture::build(false, true, Some(vec![root("/srv/films", true)])).await;
+    let api = f.api().await;
+    assert_eq!(api.features().await.unwrap(), vec![FEATURE_ROOTS]);
+    let mut first = None;
+    for _ in 0..150 {
+        if let Ok((roots,)) = api.get_roots().await {
+            first = Some(roots);
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let first = first.expect("roots were read");
+    assert_eq!(first.generation, f.generation);
+    assert_eq!(first.roots, vec![root("/srv/films", true)]);
+
+    let daemon = ProductionDaemonProxy::new(&f.client).await.unwrap();
+    let mut changes = daemon.receive_state_changed().await.unwrap();
+    *f.roots.lock().unwrap() = Some((
+        2,
+        vec![
+            root("/srv/films", true),
+            root("/run/media/fixture/Disk", false),
+        ],
+    ));
+    let emitter = SignalEmitter::new(&f._providers[0], production::PROVIDER_PATH).unwrap();
+    FakeRoots::state_changed(&emitter, &f.generation, 2)
+        .await
+        .unwrap();
+    let signal = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let signal = changes.next().await.unwrap();
+            let args = signal.args().unwrap();
+            if args.provider_id == "library" && args.capability == "library" {
+                return args.generation.to_string();
+            }
+        }
+    })
+    .await
+    .expect("the daemon announces the change");
+    assert_eq!(signal, f.generation);
+    let (second,) = api.get_roots().await.unwrap();
+    assert_eq!(second.revision, 2);
+    assert_eq!(second.roots[1], root("/run/media/fixture/Disk", false));
+}
+
+#[tokio::test]
+async fn roots_are_unsupported_without_the_flag() {
+    let f = Fixture::new(true, true).await;
+    assert_eq!(
+        error_name(f.api().await.get_roots().await),
         "org.arinn.Error1.Unsupported"
     );
 }

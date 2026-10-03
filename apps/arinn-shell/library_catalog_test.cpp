@@ -1218,7 +1218,13 @@ private slots:
     unknown.id = QStringLiteral("gone");
     unknown.title = QStringLiteral("Gone");
     unknown.content.local = QStringLiteral("missing");
-    daemon.sessions = {stopped, unknown};
+    SessionWire resumed = stopped;
+    resumed.id = QStringLiteral("new");
+    resumed.state = QStringLiteral("playing");
+    resumed.actions = {QStringLiteral("pause")};
+    daemon.sessions = {stopped, unknown, resumed};
+    daemon.operationEntities = {{QStringLiteral("media-provider"),
+                                 QStringLiteral("media"), QStringLiteral("new")}};
     QVERIFY(registerBus(daemon));
     ShellStandIn backend;
     SessionGuardStandIn guard;
@@ -1264,6 +1270,15 @@ private slots:
     // The stopped session itself is never opened or presented.
     QCOMPARE(window->property("sessionOpen").toBool(), false);
     QCOMPARE(window->property("playerOpen").toBool(), false);
+
+    // The new session opens, and leaving it returns to Home, where the
+    // resume started (§6.4), not to the library.
+    daemon.holdOperation = false;
+    QTRY_COMPARE(window->property("sessionOpen").toBool(), true);
+    QCOMPARE(window->property("sessionFromLibrary").toBool(), false);
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_COMPARE(window->property("sessionOpen").toBool(), false);
+    QCOMPARE(home->property("screen").toString(), QStringLiteral("home"));
   }
   void emptyPosterAndFanartStayGeneric() {
     LibraryDaemon daemon;

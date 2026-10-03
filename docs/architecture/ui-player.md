@@ -127,7 +127,7 @@ present (its launch id is empty, see [managed playback](managed-playback.md)),
 so `Main.qml` calls `LibraryCatalog.launchContent(provider, local)`, which is
 `Library1.Launch` for that item, and the library applies the stored resume
 position. The player then opens from `sessionLaunched`, as for a library
-Play. When the library catalog is still being read, the launch waits for the
+Play, but leaving it returns to Home, where the resume started (§6.4). When the library catalog is still being read, the launch waits for the
 read to finish. A failure (`NotFound`, `Unavailable`, `Timeout` and so on)
 shows the library's operation message on Home.
 

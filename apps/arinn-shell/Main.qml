@@ -113,6 +113,8 @@ Window {
     // Home does not show the library's operation state, so report a failed
     // resume from a Continue card here.
     property bool resumeFromHome: false
+    // The library launch in flight came from Home, not from the library.
+    property bool launchFromHome: false
     Connections {
         target: libraryCatalog
         // Deferred so that LibraryView's bound operation state is current.
@@ -121,6 +123,7 @@ Window {
                 if (!root.resumeFromHome || libraryView.operationPending) return;
                 root.resumeFromHome = false;
                 if (!libraryView.operationFailed) return;
+                root.launchFromHome = false;
                 feedback.text = libraryView.operationMessage;
                 feedbackTimer.restart();
             });
@@ -194,6 +197,7 @@ Window {
                 const target = mediaCatalog.resumeTarget(entryId);
                 if (target.local) {
                     root.resumeFromHome = true;
+                    root.launchFromHome = true;
                     libraryCatalog.launchContent(target.provider, target.local);
                 } else
                     root.openSession(entryId, false);
@@ -403,7 +407,12 @@ Window {
         Connections {
             target: libraryCatalog
             function onSessionLaunched(presentationId) {
-                root.openSession(presentationId, true);
+                // A resume started from a Home Continue card returns to Home
+                // when playback ends; any other library launch returns to
+                // the library (§6.4).
+                const fromLibrary = !root.launchFromHome;
+                root.launchFromHome = false;
+                root.openSession(presentationId, fromLibrary);
             }
         }
         Ui.LaunchOverlay {

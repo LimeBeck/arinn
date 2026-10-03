@@ -106,6 +106,27 @@ private slots:
     qApp->removeEventFilter(&bindings);
   }
 
+  // Review of #288: defaults keep their meaning, modifiers and unknown or
+  // ambiguous names never match.
+  void defaultsModifiersAndAmbiguityAreKept() {
+    Window window;
+    InputBindings bindings;
+    qApp->installEventFilter(&bindings);
+    bindings.setBindings({{QStringLiteral("select"), {QStringLiteral("Menu")}},
+                          {QStringLiteral("menu"), {QStringLiteral("evdev:582"),
+                                                    QStringLiteral("NotAQtKey")}},
+                          {QStringLiteral("up"), {QStringLiteral("F5")}},
+                          {QStringLiteral("down"), {QStringLiteral("f5")}}});
+    press(&window, Qt::Key_Menu, 135);                            // stays Menu
+    press(&window, 0, 582 + 8, {}, Qt::ControlModifier);          // modified: unchanged
+    press(&window, Qt::Key_unknown, 0);                           // unknown name ignored
+    press(&window, Qt::Key_F5, 71);                               // F5 vs f5: dropped
+    press(&window, 0, 582 + 8);                                   // still bound
+    QCOMPARE(window.pressed,
+             (QList<int>{Qt::Key_Menu, 0, Qt::Key_unknown, Qt::Key_F5, Qt::Key_Menu}));
+    qApp->removeEventFilter(&bindings);
+  }
+
   void bindingsComeFromTheDaemon() {
     auto bus = QDBusConnection::sessionBus();
     QVERIFY(bus.isConnected());

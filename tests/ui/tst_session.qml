@@ -216,6 +216,19 @@ TestCase {
         compare(plays.count, 1);
     }
 
+    // ADR-0079: media keys, including a configured play_pause binding.
+    function test_media_keys_request_actions() {
+        focused("action-play");
+        keyClick(Qt.Key_MediaTogglePlayPause);
+        compare(toggles.count, 1);
+        keyClick(Qt.Key_MediaPause);
+        compare(pauses.count, 1);
+        keyClick(Qt.Key_MediaPlay);
+        compare(plays.count, 1);
+        keyClick(Qt.Key_MediaStop);
+        compare(stops.count, 1);
+        compare(backs.count, 0);
+    }
     function test_back_matches_escape() {
         focused("action-play");
         keyClick(Qt.Key_Escape);

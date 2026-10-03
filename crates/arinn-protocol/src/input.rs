@@ -51,6 +51,11 @@ pub fn key(value: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || c == ' ' || c == '_')
 }
 
+/// The key a name refers to: Qt key names are case-insensitive.
+fn identity(key: &str) -> String {
+    key.to_ascii_lowercase()
+}
+
 /// One action and its extra keys, as `GetInputBindings` returns them.
 pub type Binding = (String, Vec<String>);
 
@@ -72,23 +77,27 @@ pub fn accept(bindings: impl IntoIterator<Item = (String, Vec<String>)>) -> (Vec
         }
         let mut unique: Vec<String> = Vec::new();
         for k in keys {
-            if !unique.contains(&k) {
+            if !unique.iter().any(|u| identity(u) == identity(&k)) {
                 unique.push(k);
             }
         }
         by_action.push((action, unique));
     }
-    // A key bound to two actions is ambiguous: drop it from both.
+    // A key bound to two actions is ambiguous, whatever its spelling (Qt key
+    // names are case-insensitive): drop it from both.
     let mut counts = std::collections::HashMap::new();
     for (_, keys) in &by_action {
         for k in keys {
-            *counts.entry(k.clone()).or_insert(0) += 1;
+            *counts.entry(identity(k)).or_insert(0) += 1;
         }
     }
     let mut accepted: Vec<Binding> = by_action
         .into_iter()
         .filter_map(|(action, keys)| {
-            let kept: Vec<String> = keys.into_iter().filter(|k| counts[k] == 1).collect();
+            let kept: Vec<String> = keys
+                .into_iter()
+                .filter(|k| counts[&identity(k)] == 1)
+                .collect();
             if kept.is_empty() {
                 None
             } else {
@@ -161,6 +170,15 @@ mod tests {
         assert!(dropped);
         // Order follows ACTIONS; F5 was bound twice and is dropped from both.
         assert_eq!(accepted, vec![b("menu", &["evdev:582", "Menu"])]);
+
+        // Spellings of one Qt key count as the same key.
+        let (accepted, dropped) = accept(vec![
+            b("up", &["F5"]),
+            b("down", &["f5"]),
+            b("menu", &["F7", "f7"]),
+        ]);
+        assert!(dropped);
+        assert_eq!(accepted, vec![b("menu", &["F7"])]);
     }
 
     #[test]

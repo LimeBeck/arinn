@@ -29,6 +29,7 @@ Spec §6.2 requires semantic actions that are configurable per device, but every
 
   Press, release and auto-repeat are kept. Every existing screen handler therefore works unchanged.
 - **Text keys are never rebound.** A key event that produces printable text, a single-character name, and a key with modifiers do not match. Text fields keep working whatever the configuration says.
+- **Defaults keep their meaning.** A key the shell already handles (arrows, Return, Enter, Space, Escape, Backspace, Back, Home, Menu, Tab and the media play/pause/stop keys) is never rebound to another action. An unknown Qt key name is ignored, and a key bound to two actions under any spelling is dropped from both.
 - **Reloading.** The shell reads the bindings at start and whenever it becomes the active application, so an edited file applies the next time Home is shown.
 - **Out of scope.** The global Home shortcut belongs to the platform layer and is separate ([#286](https://github.com/LimeBeck/arinn/issues/286)). A Settings → Input UI, per-device bindings and gamepads are later steps of #64.
 

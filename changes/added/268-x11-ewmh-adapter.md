@@ -1,0 +1,1 @@
+- Add an opt-in generic X11/EWMH adapter with window inventory and control, Meta+F12 Home, exact-target Return and composited managed-video layering. Keep KWin/Wayland as the default; real desktop qualification, XComposite background and output placement remain pending.

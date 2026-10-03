@@ -215,11 +215,14 @@ pub struct Windows {
     media_invalidated: Arc<Notify>,
 }
 async fn owner_lookup(c: &Connection) -> Result<Option<String>, ErrorCode> {
+    let Some(service) = crate::platform::adapter_service() else {
+        return Ok(None);
+    };
     tokio::time::timeout(Duration::from_secs(3), async {
         match zbus::fdo::DBusProxy::new(c)
             .await
             .map_err(|_| ErrorCode::Unavailable)?
-            .get_name_owner("org.kde.KWin".try_into().unwrap())
+            .get_name_owner(service.try_into().unwrap())
             .await
         {
             Ok(owner) => Ok(Some(owner.to_string())),
@@ -344,7 +347,7 @@ impl Windows {
             let mut tick = tokio::time::interval(Duration::from_millis(250));
             loop {
                 let lost = tokio::select! {
-                    change=changes.next()=>{let Some(change)=change else{break;}; match change.args(){Ok(a) if a.name.as_str()=="org.kde.KWin"=>a.old_owner.as_ref().map(|o|o.to_string()),_=>None}},
+                    change=changes.next()=>{let Some(change)=change else{break;}; match change.args(){Ok(a) if Some(a.name.as_str())==crate::platform::adapter_service()=>a.old_owner.as_ref().map(|o|o.to_string()),_=>None}},
                     _=tick.tick()=>None,
                 };
                 let mut s = backend.state.lock().await;

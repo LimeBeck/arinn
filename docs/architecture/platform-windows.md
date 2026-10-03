@@ -203,3 +203,12 @@ which is never recorded or logged. The
 `onAllDesktops`. Their real compositor stacking/input behavior still needs
 G-4.1 qualification. See [managed playback](managed-playback.md) for the daemon
 contract and `tests/integration/kwin_adapter.test.cjs` for synthetic regressions.
+
+## Optional generic X11 backend
+
+The [EWMH adapter](x11-ewmh.md) reuses the internal scalar transport with an
+explicitly selected trusted owner. It publishes normal EWMH clients with opaque
+per-lifetime tokens, bounded exact desktop metadata and no title/class fallback.
+Output names are empty until output placement is implemented. The public
+PlatformWindows1 wire contract remains unchanged; EWMH completion acknowledges
+checked dispatch, with final focus/placement policy owned by the window manager.

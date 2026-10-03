@@ -25,7 +25,9 @@ ADAPTER = PREFIX / "lib/arinn/arinn-kwin-adapter"
 SCRIPT = PREFIX / "share/arinn/kwin/phase0.js"
 NAMES = ["arinn-session.target", "arinnd.service", "arinn-shell.service", "arinn-kwin.service"]
 
-for name in NAMES:
+ALL_NAMES = NAMES + ["arinn-ewmh.service", "arinn-ewmh-session.target"]
+
+for name in ALL_NAMES:
     assert (UNITS / name).is_file(), f"missing unit {name}"
 assert ADAPTER.is_file() and os.access(ADAPTER, os.X_OK), "missing KWin adapter loader"
 assert SCRIPT.is_file(), "missing KWin script"
@@ -33,7 +35,7 @@ assert (PREFIX / "lib/arinn/arinn-shell-launch").is_file(), "missing shell launc
 
 # The package installs units but never enables them for anyone.
 for wants in UNITS.glob("*.wants"):
-    assert not any(p.name in NAMES for p in wants.iterdir()), f"enabled by default: {wants}"
+    assert not any(p.name in ALL_NAMES for p in wants.iterdir()), f"enabled by default: {wants}"
 
 
 def unit(name):
@@ -54,7 +56,16 @@ assert target["Install"]["WantedBy"] == ["graphical-session.target"]
 assert set(target["Unit"]["Wants"][0].split()) == set(NAMES[1:])
 for name in NAMES[1:]:
     part_of = unit(name)["Unit"]["PartOf"][0].split()
-    assert part_of == ["graphical-session.target", "arinn-session.target"], name
+    expected = ["graphical-session.target", "arinn-session.target"]
+    if name in ["arinnd.service", "arinn-shell.service"]:
+        expected.append("arinn-ewmh-session.target")
+    assert part_of == expected, name
+assert (PREFIX / "bin/arinn-platform-x11").is_file(), "missing EWMH adapter"
+ewmh = unit("arinn-ewmh-session.target")
+assert set(ewmh["Unit"]["Wants"][0].split()) == {"arinnd.service", "arinn-shell.service", "arinn-ewmh.service"}
+assert set(ewmh["Unit"]["Conflicts"][0].split()) == {"arinn-session.target", "arinn-kwin.service"}
+assert unit("arinn-ewmh.service")["Service"]["BusName"] == ["org.arinn.X11"]
+assert unit("arinn-ewmh.service")["Unit"]["PartOf"] == ["graphical-session.target arinn-ewmh-session.target"]
 # One daemon and one shell: readiness and uniqueness follow their bus names.
 assert unit("arinnd.service")["Service"]["BusName"] == ["org.arinn.Daemon1"]
 assert unit("arinn-shell.service")["Service"]["BusName"] == ["org.arinn.Shell1"]
@@ -67,7 +78,7 @@ if PREFIX == Path("/usr"):
     # Offline verification; unrelated units of the host may still warn.
     with tempfile.TemporaryDirectory(prefix="sd-") as runtime:
         result = subprocess.run(
-            ["systemd-analyze", "--user", "verify", *(str(UNITS / n) for n in NAMES)],
+            ["systemd-analyze", "--user", "verify", *(str(UNITS / n) for n in ALL_NAMES)],
             env={**os.environ, "XDG_RUNTIME_DIR": runtime}, capture_output=True, text=True, timeout=60)
     problems = [line for line in (result.stdout + result.stderr).splitlines()
                 if any(n in line for n in NAMES) or "arinn" in line]

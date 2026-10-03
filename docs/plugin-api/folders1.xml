@@ -1,0 +1,16 @@
+<!-- SPDX-FileCopyrightText: 2026 Arinn contributors
+SPDX-License-Identifier: MIT OR Apache-2.0 -->
+<node>
+  <interface name="org.arinn.Folders1">
+    <method name="Places">
+      <arg type="a(ss)" direction="out" />
+    </method>
+    <method name="List">
+      <arg name="path" type="s" direction="in" />
+      <arg name="after" type="s" direction="in" />
+      <arg name="limit" type="u" direction="in" />
+      <arg type="as" direction="out" />
+      <arg type="b" direction="out" />
+    </method>
+  </interface>
+</node>

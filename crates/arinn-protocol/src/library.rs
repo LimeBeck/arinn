@@ -18,9 +18,11 @@ pub const PROVIDER_INTERFACE: &str = "org.arinn.LibraryProvider1";
 pub const INTERFACE: &str = "org.arinn.Library1";
 pub const RESUME_INTERFACE: &str = "org.arinn.LibraryResume1";
 pub const IMPORT_INTERFACE: &str = "org.arinn.LibraryImport1";
+pub const ROOTS_INTERFACE: &str = "org.arinn.LibraryRoots1";
 
 pub const FEATURE_RESUME: &str = "LibraryResume1";
 pub const FEATURE_IMPORT: &str = "LibraryImport1";
+pub const FEATURE_ROOTS: &str = "LibraryRoots1";
 
 pub const COLLECTION_KINDS: &[&str] = &["film", "series", "other"];
 pub const ITEM_KINDS: &[&str] = &["film", "episode", "series", "other"];
@@ -150,6 +152,24 @@ pub struct ResumePage {
     pub revision: u64,
     pub resumes: Vec<Resume>,
     pub next_token: String,
+}
+
+/// Whether one configured library root can be read now (ADR-0071). `path`
+/// is the root exactly as configured in the provider's `path` setting, so
+/// the shell can match it to the value it shows.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct RootState {
+    pub path: String,
+    pub available: bool,
+}
+
+/// All configured roots of a provider with their availability. Small and
+/// bounded by `settings::MAX_PATHS`, so it is not paged.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct Roots {
+    pub generation: String,
+    pub revision: u64,
+    pub roots: Vec<RootState>,
 }
 
 /// One completed download output mapped onto a local file. Repeating an
@@ -300,6 +320,48 @@ impl ResumePage {
     }
 }
 
+impl Roots {
+    pub fn encoded_len(&self) -> Result<usize, ErrorCode> {
+        to_bytes(Context::new_dbus(LE, 0), &(self,))
+            .map(|bytes| bytes.len())
+            .map_err(|_| ErrorCode::InvalidArgument)
+    }
+
+    /// A `GetRoots` reply: a generation UUID, a revision from 1, valid
+    /// roots, and a body within `MAX_BODY_BYTES`.
+    pub fn validate(&self) -> Result<(), ErrorCode> {
+        uuid::Uuid::parse_str(&self.generation).map_err(|_| ErrorCode::InvalidArgument)?;
+        if self.revision == 0 {
+            return Err(ErrorCode::InvalidArgument);
+        }
+        validate_roots(&self.roots)
+    }
+}
+
+/// At most `settings::MAX_PATHS` roots, each an absolute normal path, no
+/// path twice, and small enough that the `GetRoots` reply carrying them
+/// stays within `MAX_BODY_BYTES` (spec §9.7).
+pub fn validate_roots(roots: &[RootState]) -> Result<(), ErrorCode> {
+    let mut paths = HashSet::new();
+    let ok = roots.len() as u64 <= crate::settings::MAX_PATHS
+        && roots
+            .iter()
+            .all(|root| crate::settings::path(&root.path) && paths.insert(root.path.as_str()));
+    if !ok {
+        return Err(ErrorCode::InvalidArgument);
+    }
+    // The generation is a UUID, so its text length is fixed.
+    let reply = Roots {
+        generation: uuid::Uuid::nil().to_string(),
+        revision: u64::MAX,
+        roots: roots.to_vec(),
+    };
+    if reply.encoded_len()? > MAX_BODY_BYTES {
+        return Err(ErrorCode::InvalidArgument);
+    }
+    Ok(())
+}
+
 pub fn validate_resumes(resumes: &[Resume]) -> Result<(), ErrorCode> {
     let mut ids = HashSet::new();
     for resume in resumes {
@@ -393,6 +455,23 @@ pub mod import {
 }
 pub use import::LibraryImportProxy;
 
+/// Optional provider extension (feature `LibraryRoots1`): the availability
+/// of the configured roots, for example a disconnected drive. The provider
+/// emits `StateChanged` with a new revision when any root changes.
+pub mod roots {
+    use super::Roots;
+    #[zbus::proxy(
+        interface = "org.arinn.LibraryRoots1",
+        default_path = "/org/arinn/Provider1"
+    )]
+    pub trait LibraryRoots {
+        fn get_roots(&self, generation: &str) -> zbus::Result<(Roots,)>;
+        #[zbus(signal, name = "StateChanged")]
+        fn roots_state_changed(&self, generation: &str, revision: u64) -> zbus::Result<()>;
+    }
+}
+pub use roots::LibraryRootsProxy;
+
 /// Shell-facing library API. `GetResumes` and `RestartFromBeginning` return
 /// `Unsupported` unless `Features` lists `LibraryResume1`. Import and
 /// `SetProgress` are not on this interface: the daemon calls the provider.
@@ -456,6 +535,8 @@ mod tests {
             "(sta(sss)a(sssssbibubuxssb)s)"
         );
         assert_eq!(Resume::SIGNATURE.to_string(), "(sxxbt)");
+        assert_eq!(RootState::SIGNATURE.to_string(), "(sb)");
+        assert_eq!(Roots::SIGNATURE.to_string(), "(sta(sb))");
         assert_eq!(ResumePage::SIGNATURE.to_string(), "(sta(sxxbt)s)");
         assert_eq!(ImportCandidate::SIGNATURE.to_string(), "((sss)ss)");
         assert_eq!(PlaybackSource::SIGNATURE.to_string(), "(ssxss)");
@@ -528,5 +609,75 @@ mod tests {
             Err(ErrorCode::InvalidArgument)
         );
         assert_eq!(validate_imports(&[]), Err(ErrorCode::InvalidArgument));
+    }
+
+    // ADR-0071: configured roots and whether each can be read now.
+    #[test]
+    fn roots_are_bounded_unique_absolute_paths() {
+        let root = |path: &str, available| RootState {
+            path: path.into(),
+            available,
+        };
+        assert_eq!(
+            validate_roots(&[
+                root("/srv/films", true),
+                root("/run/media/fixture/Disk", false)
+            ]),
+            Ok(())
+        );
+        assert_eq!(validate_roots(&[]), Ok(()));
+        for bad in [
+            vec![root("relative", true)],
+            vec![root("/srv/../etc", true)],
+            vec![root("/srv", true), root("/srv", false)],
+        ] {
+            assert_eq!(
+                validate_roots(&bad),
+                Err(ErrorCode::InvalidArgument),
+                "{bad:?}"
+            );
+        }
+        let many: Vec<_> = (0..=crate::settings::MAX_PATHS)
+            .map(|i| root(&format!("/srv/{i}"), true))
+            .collect();
+        assert_eq!(validate_roots(&many), Err(ErrorCode::InvalidArgument));
+        assert_eq!(validate_roots(&many[1..]), Ok(()));
+
+        // 64 roots of 4096 bytes each are valid one by one, but their
+        // GetRoots reply would exceed the body limit (review of #266).
+        let long: Vec<_> = (0..crate::settings::MAX_PATHS)
+            .map(|i| root(&format!("/{i:02}{}", "x".repeat(4093)), true))
+            .collect();
+        assert!(
+            long.iter()
+                .all(|r| crate::settings::path(&r.path) && r.path.len() == 4096)
+        );
+        assert_eq!(validate_roots(&long), Err(ErrorCode::InvalidArgument));
+        let fits: Vec<_> = (0..60)
+            .map(|i| root(&format!("/{i:02}{}", "x".repeat(4093)), true))
+            .collect();
+        assert_eq!(validate_roots(&fits), Ok(()));
+    }
+
+    #[test]
+    fn roots_reply_validates_generation_revision_and_roots() {
+        let reply = |generation: &str, revision| Roots {
+            generation: generation.into(),
+            revision,
+            roots: vec![RootState {
+                path: "/srv/films".into(),
+                available: false,
+            }],
+        };
+        let generation = uuid::Uuid::new_v4().to_string();
+        assert_eq!(reply(&generation, 1).validate(), Ok(()));
+        assert_eq!(
+            reply("not-a-uuid", 1).validate(),
+            Err(ErrorCode::InvalidArgument)
+        );
+        assert_eq!(
+            reply(&generation, 0).validate(),
+            Err(ErrorCode::InvalidArgument)
+        );
     }
 }

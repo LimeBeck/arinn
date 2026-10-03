@@ -109,10 +109,21 @@ enum Ask {
     View(oneshot::Sender<View>),
     LaunchId(String, oneshot::Sender<Result<String, ErrorCode>>),
     Thumb(String, oneshot::Sender<Result<ThumbTarget, ErrorCode>>),
+    Poster(oneshot::Sender<Option<PosterTarget>>),
+    SetArtwork(String, String),
 }
 
 struct ThumbTarget {
     path: PathBuf,
+}
+
+/// What a session card frame needs (#292): the session, its file, the
+/// current position and whether it is playing.
+pub struct PosterTarget {
+    pub id: String,
+    pub path: PathBuf,
+    pub position_us: i64,
+    pub playing: bool,
 }
 
 struct Anchor {
@@ -136,6 +147,8 @@ struct Live {
     tracks: Vec<Track>,
     timeline: Timeline,
     has_video: bool,
+    /// Asset id of the latest frame shown on the session card (#292).
+    artwork: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -192,6 +205,9 @@ pub struct Player {
     ffmpeg: Option<PathBuf>,
     thumb_dir: PathBuf,
     extractor: Arc<Extractor>,
+    /// Separate from `extractor`, so a card frame never cancels a seek
+    /// thumbnail (#292).
+    poster_extractor: Arc<Extractor>,
     _task: Arc<Task>,
 }
 
@@ -241,6 +257,7 @@ impl Player {
             ffmpeg: settings.ffmpeg,
             thumb_dir: settings.thumb_dir,
             extractor: Arc::new(Extractor::default()),
+            poster_extractor: Arc::new(Extractor::default()),
             _task: Arc::new(Task {
                 join: Mutex::new(Some(join)),
             }),
@@ -305,6 +322,47 @@ impl Player {
         self.extractor
             .extract(&ffmpeg, &self.thumb_dir, &target.path, position_us)
             .await
+    }
+
+    /// Capture a frame of the current position for the session card (#292)
+    /// when the session changed, playback moved on by `step`, or a paused
+    /// or stopped session sits at a new position. Returns the new asset.
+    pub async fn refresh_poster(
+        &self,
+        last: &mut Option<(String, i64)>,
+        step: Duration,
+    ) -> Option<String> {
+        let target = self.call(Ask::Poster).await.ok()??;
+        let ffmpeg = self.ffmpeg.clone()?;
+        if self.thumb_dir.as_os_str().is_empty() {
+            return None;
+        }
+        let step_us = i64::try_from(step.as_micros()).unwrap_or(i64::MAX);
+        if !crate::thumbnail::poster_due(
+            last.as_ref(),
+            &target.id,
+            target.position_us,
+            target.playing,
+            step_us,
+        ) {
+            return None;
+        }
+        let thumbnail = self
+            .poster_extractor
+            .extract(
+                &ffmpeg,
+                &crate::thumbnail::poster_dir(&self.thumb_dir),
+                &target.path,
+                target.position_us,
+            )
+            .await
+            .ok()?;
+        *last = Some((target.id.clone(), target.position_us));
+        let _ = self
+            .tx
+            .send(Ask::SetArtwork(target.id, thumbnail.asset.clone()))
+            .await;
+        Some(thumbnail.asset)
     }
 
     async fn call<T>(&self, make: impl FnOnce(oneshot::Sender<T>) -> Ask) -> Result<T, ErrorCode> {
@@ -378,6 +436,23 @@ impl Core {
             Ask::Thumb(id, reply) => {
                 let _ = reply.send(self.thumb_target(&id));
             }
+            Ask::Poster(reply) => {
+                let target = self.live.as_ref().and_then(|live| {
+                    Some(PosterTarget {
+                        id: live.id.clone(),
+                        path: live.path.clone().filter(|_| live.has_video)?,
+                        position_us: live.time_us.max(0),
+                        playing: self.phase() == media::STATE_PLAYING,
+                    })
+                });
+                let _ = reply.send(target);
+            }
+            Ask::SetArtwork(id, asset) => {
+                if let Some(live) = self.live.as_mut().filter(|live| live.id == id) {
+                    live.artwork = asset;
+                    self.sync();
+                }
+            }
         }
     }
 
@@ -441,6 +516,7 @@ impl Core {
                 ranges: Vec::new(),
             },
             has_video: false,
+            artwork: String::new(),
         });
         self.backend = "available".into();
         self.sync();
@@ -1004,7 +1080,7 @@ impl Core {
             id: live.id.clone(),
             title: live.title.clone(),
             subtitle: String::new(),
-            artwork: String::new(),
+            artwork: live.artwork.clone(),
             state: state.to_string(),
             duration_us: live.duration_us,
             position_us: anchor.position_us,
@@ -1081,6 +1157,7 @@ impl Live {
                 ranges: Vec::new(),
             },
             has_video: false,
+            artwork: String::new(),
         }
     }
 

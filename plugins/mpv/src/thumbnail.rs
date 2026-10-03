@@ -172,8 +172,10 @@ impl ThumbnailAssets {
             .ok()
             .filter(|uuid| !uuid.is_nil() && uuid.to_string() == id)
             .ok_or(ErrorCode::NotFound)?;
-        let path = self.directory.join(format!("{canonical}.jpg"));
-        let file = std::fs::File::open(&path).map_err(|_| ErrorCode::NotFound)?;
+        let name = format!("{canonical}.jpg");
+        let file = std::fs::File::open(self.directory.join(&name))
+            .or_else(|_| std::fs::File::open(poster_dir(&self.directory).join(&name)))
+            .map_err(|_| ErrorCode::NotFound)?;
         let mut data = Vec::new();
         // One byte more than allowed tells an oversized file apart.
         file.take(MAX_ASSET_BYTES as u64 + 1)
@@ -196,6 +198,34 @@ impl AssetHandler for ThumbnailAssets {
     ) -> Pin<Box<dyn Future<Output = Result<Asset, ErrorCode>> + Send + '_>> {
         Box::pin(async move { self.read(&id) })
     }
+}
+
+/// Whether a session card frame (#292) is due: a new session, playback
+/// that moved on by at least `step_us`, or a paused or stopped session at a
+/// new position.
+pub fn poster_due(
+    last: Option<&(String, i64)>,
+    id: &str,
+    position_us: i64,
+    playing: bool,
+    step_us: i64,
+) -> bool {
+    match last {
+        Some((last_id, last_position)) if last_id == id => {
+            if playing {
+                (position_us - last_position).abs() >= step_us
+            } else {
+                position_us != *last_position
+            }
+        }
+        _ => true,
+    }
+}
+
+/// Session card frames (#292) live apart from seek thumbnails, so neither
+/// pruning removes the other.
+pub fn poster_dir(thumb_dir: &Path) -> PathBuf {
+    thumb_dir.join("posters")
 }
 
 pub fn ffmpeg_binary() -> Option<PathBuf> {

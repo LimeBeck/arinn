@@ -14,7 +14,7 @@ mod thumbnail;
 pub use paths::{ensure_private_dir, file_path, validate_runtime};
 pub use player::{Launch, OPEN_LOAD_WAIT, Player, Settings, View};
 pub use scope::{UNIT, arguments, ensure_unit, socket_is_private};
-pub use thumbnail::{Extractor, KEPT_THUMBNAILS, ThumbnailAssets};
+pub use thumbnail::{Extractor, KEPT_THUMBNAILS, ThumbnailAssets, poster_due};
 
 use arinn_plugin_sdk::runtime::{
     MediaAction, MediaExtensions, MediaHandler, MediaOpenHandler, MediaService,
@@ -71,6 +71,21 @@ pub async fn serve(connection: Connection) -> Result<(), ErrorCode> {
         extensions = extensions.assets(assets);
     }
     let service = MediaService::with_extensions(bridge, Vec::new(), backend, extensions)?;
+    // Session card frames (#292): check every few seconds; ffmpeg runs at
+    // most once per 30 s of playback, or once when paused or stopped at a
+    // new position.
+    let posters = player.clone();
+    let poster_task = tokio::spawn(async move {
+        let mut last = None;
+        let mut tick = tokio::time::interval(Duration::from_secs(5));
+        loop {
+            tick.tick().await;
+            posters
+                .refresh_poster(&mut last, Duration::from_secs(30))
+                .await;
+        }
+    });
+    let _poster_guard = AbortOnDrop(poster_task);
     let mut notes = player.subscribe();
     let publish = publish(service.clone(), &mut notes);
     tokio::pin!(publish);
@@ -203,5 +218,13 @@ impl MediaWindowHandler for Bridge {
     ) -> Pin<Box<dyn Future<Output = Result<String, ErrorCode>> + Send + '_>> {
         let player = self.player();
         Box::pin(async move { player.launch_id(id).await })
+    }
+}
+
+/// Stops a background task when `serve` returns.
+struct AbortOnDrop(tokio::task::JoinHandle<()>);
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
     }
 }

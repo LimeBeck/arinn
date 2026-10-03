@@ -1,0 +1,1 @@
+- Fix X11 EWMH adapter failing on xfwm4 4.20 root `_NET_ACTIVE_WINDOW` payloads that use two CARD32 values (`0` plus the active window id).

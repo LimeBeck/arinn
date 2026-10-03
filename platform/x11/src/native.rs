@@ -169,6 +169,35 @@ impl Native {
         ensure!(r.type_ == ty && r.format == 32, "invalid property type");
         Ok(r.value32().unwrap().collect())
     }
+    fn net_active_window(&self) -> Result<Option<Window>> {
+        const NAME: &str = "_NET_ACTIVE_WINDOW";
+        let ty = AtomEnum::WINDOW;
+        let r = self
+            .c
+            .get_property(false, self.root, self.atoms._NET_ACTIVE_WINDOW, ty, 0, 2)?
+            .reply()?;
+        if r.type_ == 0 {
+            return Ok(None);
+        }
+        ensure!(
+            r.type_ == u32::from(ty) && r.format == 32,
+            "invalid property type"
+        );
+        let words: Vec<u32> = r.value32().unwrap().collect();
+        let length = words.len() + r.bytes_after as usize / 4;
+        if length > 2 || r.bytes_after != 0 {
+            bail!("{NAME}: length {length} exceeds maximum 2 CARD32");
+        }
+        let active = match words.as_slice() {
+            [] => bail!("{NAME}: length 0 has no valid window id"),
+            [0] => None,
+            [id] => Some(*id),
+            [0, id] if *id != 0 => Some(*id),
+            [_, _] => bail!("{NAME}: length 2 has no valid window id"),
+            [_, _, _, ..] => bail!("{NAME}: length {length} exceeds maximum 2 CARD32"),
+        };
+        Ok(active)
+    }
     fn bytes(&self, window: Window, property: Atom, ty: Atom) -> Result<Vec<u8>> {
         let r = self
             .c
@@ -298,16 +327,7 @@ impl Native {
         let live = clients.iter().copied().collect();
         self.tokens.retain(&live);
         self.watched.retain(|id| live.contains(id));
-        let active = self
-            .words(
-                self.root,
-                self.atoms._NET_ACTIVE_WINDOW,
-                AtomEnum::WINDOW.into(),
-                1,
-            )?
-            .first()
-            .copied()
-            .filter(|id| *id != 0);
+        let active = self.net_active_window()?;
         let mut shell = None;
         let mut shell_token = String::new();
         let mut rows = Vec::new();
@@ -718,16 +738,20 @@ pub(crate) mod fixture {
                     windows,
                 )?
                 .check()?;
+            self.set_net_active_window(&[active])?;
+            self.c.flush()?;
+            Ok(())
+        }
+        pub fn set_net_active_window(&self, words: &[u32]) -> Result<()> {
             self.c
                 .change_property32(
                     PropMode::REPLACE,
                     self.root,
                     self.atoms._NET_ACTIVE_WINDOW,
                     AtomEnum::WINDOW,
-                    &[active],
+                    words,
                 )?
                 .check()?;
-            self.c.flush()?;
             Ok(())
         }
         pub fn compositing(&self, enabled: bool) -> Result<()> {
@@ -797,6 +821,43 @@ pub(crate) mod fixture {
         assert!(native.snapshot()?.home_key);
         desktop.home_key_with(0xffe9)?; // Alt now occupies the old Mod4 slot.
         assert!(!native.snapshot()?.home_key);
+        Ok(())
+    }
+    #[test]
+    #[ignore = "requires Xvfb; spawns an isolated X server, never uses the real DISPLAY"]
+    fn xfwm4_two_word_net_active_window() -> Result<()> {
+        let desktop = Desktop::new()?;
+        let shell = desktop.client("org.arinn.Shell", "")?;
+        let video = desktop.client("org.example.Player.desktop", "")?;
+        desktop.inventory(&[shell, video], video)?;
+        desktop.set_net_active_window(&[0, video])?;
+        let mut native = Native::connect_display(Some(&desktop.display))?;
+        let snapshot = native.snapshot()?;
+        assert_eq!(snapshot.active, Some(video));
+        assert_eq!(snapshot.rows[0].flags & 1, 1);
+        Ok(())
+    }
+    #[test]
+    #[ignore = "requires Xvfb; spawns an isolated X server, never uses the real DISPLAY"]
+    fn net_active_window_rejects_invalid_payloads() -> Result<()> {
+        let desktop = Desktop::new()?;
+        let shell = desktop.client("org.arinn.Shell", "")?;
+        desktop.inventory(&[shell], shell)?;
+        let mut native = Native::connect_display(Some(&desktop.display))?;
+        for words in [[0u32, 0], [shell, 0], [shell, shell]] {
+            desktop.set_net_active_window(&words)?;
+            let err = native.snapshot().unwrap_err().to_string();
+            assert!(
+                err.contains("_NET_ACTIVE_WINDOW") && err.contains("length 2"),
+                "unexpected error: {err}"
+            );
+        }
+        desktop.set_net_active_window(&[0, shell, shell])?;
+        let err = native.snapshot().unwrap_err().to_string();
+        assert!(
+            err.contains("_NET_ACTIVE_WINDOW") && err.contains("length 3"),
+            "unexpected error: {err}"
+        );
         Ok(())
     }
     #[test]

@@ -704,10 +704,11 @@ void MediaCatalog::readSessions(const std::shared_ptr<Catalog> &catalog,
           arg >> contentProvider >> contentCapability >> contentLocal;
           arg.endStructure();
           arg.endStructure();
-          contentProvider.clear();
-          contentCapability.clear();
-          contentLocal.clear();
-          Q_UNUSED(hasContent);
+          if (hasContent && contentCapability == QLatin1String("library") &&
+              !contentProvider.isEmpty() && !contentLocal.isEmpty()) {
+            row.contentProvider = contentProvider;
+            row.contentLocal = contentLocal;
+          }
           if (row.localId.isEmpty() || duration < -1 || position < 0 ||
               (duration >= 0 && position > duration)) {
             failProvider(catalog, index);
@@ -1357,6 +1358,13 @@ void MediaCatalog::homeRequested(const QString &epoch, const QString &,
                                  const QString &) {
   if (m_connected && epoch == m_daemonEpoch)
     emit presentationHomeRequested();
+}
+QVariantMap MediaCatalog::resumeTarget(const QString &id) const {
+  const auto *row = findId(id);
+  if (!row || row->state != QLatin1String("stopped") || row->contentLocal.isEmpty())
+    return {};
+  return {{QStringLiteral("provider"), row->contentProvider},
+          {QStringLiteral("local"), row->contentLocal}};
 }
 void MediaCatalog::requestHome() {
   if (!m_connected || m_daemonOwner.isEmpty())

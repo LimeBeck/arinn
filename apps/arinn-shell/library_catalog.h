@@ -28,6 +28,8 @@ public:
   QString operationState() const { return m_operation; }
   QString launchingId() const { return m_launchingId; }
   Q_INVOKABLE void launch(const QString &id);
+  // Launch the item with this provider-local id (Continue resume, #247).
+  Q_INVOKABLE void launchContent(const QString &providerId, const QString &localId);
 public slots:
   void refresh();
 signals:
@@ -104,6 +106,7 @@ private:
   QList<CollectionRow> m_collections;
   QString m_operation;
   QString m_launchingId;
+  QString m_pendingProvider, m_pendingLocal;
   bool m_connected = false, m_loaded = false, m_error = false,
        m_unreachable = false, m_refreshing = false, m_dirty = false;
   quint64 m_epoch = 0, m_commandTicket = 0;

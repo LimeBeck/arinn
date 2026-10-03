@@ -1231,6 +1231,33 @@ private slots:
     QCOMPARE(library->property("detailEntryId").toString(), QStringLiteral("film-1"));
     QCOMPARE(home->property("navOpen").toBool(), false);
   }
+  // #247: Continue on a stopped film resumes the library item; a stopped
+  // session itself cannot be presented again.
+  void resumeTargetOnlyForStoppedLibraryContent() {
+    MediaDaemon daemon;
+    auto stopped = session(QStringLiteral("stopped"), QStringLiteral("Film"), QStringLiteral("stopped"), 0, monotonicUs(), 9000000, {});
+    stopped.hasContent = true;
+    stopped.content = {QStringLiteral("library"), QStringLiteral("library"), QStringLiteral("film-1")};
+    auto playing = session(QStringLiteral("playing"), QStringLiteral("Other"), QStringLiteral("playing"), 0, monotonicUs(), 9000000, {QStringLiteral("stop")});
+    playing.hasContent = true;
+    playing.content = {QStringLiteral("library"), QStringLiteral("library"), QStringLiteral("film-2")};
+    auto bare = session(QStringLiteral("bare"), QStringLiteral("Song"), QStringLiteral("stopped"), 0, monotonicUs(), 9000000, {});
+    daemon.page1 = {stopped, playing, bare};
+    auto bus = QDBusConnection::sessionBus();
+    QVERIFY(bus.registerService(QStringLiteral("org.arinn.Daemon1")));
+    QVERIFY(bus.registerVirtualObject(QStringLiteral("/org/arinn"), &daemon, QDBusConnection::SubPath));
+    MediaCatalog catalog;
+    QTRY_COMPARE(catalog.continueEntries().size(), 3);
+    QHash<QString, QString> ids;
+    for (const auto &entry : catalog.continueEntries())
+      ids.insert(entry.toMap().value(QStringLiteral("title")).toString(), entry.toMap().value(QStringLiteral("id")).toString());
+    const auto target = catalog.resumeTarget(ids.value(QStringLiteral("Film")));
+    QCOMPARE(target.value(QStringLiteral("provider")).toString(), QStringLiteral("library"));
+    QCOMPARE(target.value(QStringLiteral("local")).toString(), QStringLiteral("film-1"));
+    QVERIFY(catalog.resumeTarget(ids.value(QStringLiteral("Other"))).isEmpty());
+    QVERIFY(catalog.resumeTarget(ids.value(QStringLiteral("Song"))).isEmpty());
+    QVERIFY(catalog.resumeTarget(QStringLiteral("missing")).isEmpty());
+  }
   void managedWindowResolutionCanBeCancelledWithoutStartingPresentation() {
     MediaDaemon daemon;
     daemon.features = {QStringLiteral("MediaWindow1")};

@@ -91,6 +91,25 @@ Window {
             Qt.callLater(home.showHome);
         }
     }
+    // Focus the screen on display. Home's overlays and sections come first
+    // because the navigation menu covers the library and settings screens.
+    function restoreFocus() {
+        if (playerOpen) playerView.forceActiveFocus();
+        else if (sessionOpen) sessionView.restore();
+        else if (browserOpen) browserView.settleFocus();
+        else if (home.navOpen || home.shortcutEditorOpen) home.restoreFocus();
+        else if (home.screen === "library") libraryView.focusInitial();
+        else if (home.screen === "settings") settingsView.focusInitial();
+        else home.restoreFocus();
+    }
+    // Qt moves active focus to the root item when the focused item is
+    // destroyed or a hidden item calls forceActiveFocus(). Nothing handles
+    // keys there, so the remote would stop working: hand focus back to the
+    // screen on display.
+    function focusFellToRoot() {
+        return visible && (!activeFocusItem || activeFocusItem === contentItem);
+    }
+    onActiveFocusItemChanged: if (focusFellToRoot()) Qt.callLater(() => { if (focusFellToRoot()) restoreFocus(); })
     onVisibleChanged: if (visible) Qt.callLater(() => {
         if (playerOpen) playerView.forceActiveFocus();
         else if (home.screen === "library") libraryView.focusDetailAction();

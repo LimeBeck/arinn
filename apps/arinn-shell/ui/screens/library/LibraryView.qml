@@ -404,7 +404,7 @@ FocusScope {
         backRequested();
     }
     function reconcilePoster() {
-        if (detailOpen || !showGrid || focusPlace !== "poster")
+        if (!visible || !enabled || detailOpen || !showGrid || focusPlace !== "poster")
             return;
         if (!visibleEntries.length) {
             focusPlace = "tab";
@@ -425,7 +425,10 @@ FocusScope {
         }
         return !!item;
     }
+    // A hidden library must not take focus from the screen on display.
     function refocusAfterState() {
+        if (!visible || !enabled)
+            return;
         const focused = Window.activeFocusItem;
         if (!root.activeFocus || !focusTargetVisible(focused))
             focusInitial();

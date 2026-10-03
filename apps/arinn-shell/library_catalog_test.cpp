@@ -1154,6 +1154,59 @@ private slots:
     QTRY_VERIFY(focusInside(window->activeFocusItem(), home));
     QVERIFY(!focusInside(window->activeFocusItem(), library));
   }
+  void hiddenLibraryLeavesHomeFocusAlone() {
+    LibraryDaemon daemon;
+    daemon.collections = {{QStringLiteral("films"), QStringLiteral("Films"),
+                           QStringLiteral("film")}};
+    daemon.page1 = {film(QStringLiteral("north"), QStringLiteral("North"))};
+    QVERIFY(registerBus(daemon));
+    ShellStandIn backend;
+    SessionGuardStandIn guard;
+    QQmlApplicationEngine engine;
+    installAssetImageProvider(&engine);
+    engine.rootContext()->setContextProperty(QStringLiteral("backend"), &backend);
+    engine.rootContext()->setContextProperty(QStringLiteral("sessionGuard"),
+                                             &guard);
+    engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
+    auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().value(0));
+    QVERIFY(window);
+    window->show();
+    window->requestActivate();
+    auto home = window->findChild<QQuickItem *>(QStringLiteral("productionHome"));
+    auto library =
+        window->findChild<QQuickItem *>(QStringLiteral("productionLibrary"));
+    QVERIFY(home);
+    QVERIFY(library);
+    QTRY_COMPARE(library->property("libraryState").toString(),
+                 QStringLiteral("ready"));
+    QCOMPARE(library->property("visible").toBool(), false);
+    auto menu = findItem(home, QStringLiteral("menuButton"));
+    QVERIFY(menu);
+    menu->forceActiveFocus();
+    QTRY_VERIFY(menu->hasActiveFocus());
+
+    // A state change of the hidden library must not move focus at all.
+    QSignalSpy moves(window, &QQuickWindow::activeFocusItemChanged);
+    daemon.page1.clear();
+    auto signal = QDBusMessage::createSignal(
+        QStringLiteral("/org/arinn/Daemon1"), QStringLiteral("org.arinn.Daemon1"),
+        QStringLiteral("StateChanged"));
+    signal << QStringLiteral("library-provider") << QStringLiteral("library")
+           << QStringLiteral("g-library") << qulonglong(2);
+    QVERIFY(QDBusConnection::sessionBus().send(signal));
+    QTRY_COMPARE(library->property("libraryState").toString(),
+                 QStringLiteral("empty"));
+    QTest::qWait(100);
+    QCOMPARE(moves.count(), 0);
+    QVERIFY(menu->hasActiveFocus());
+
+    // A hidden screen that still forces focus drops it on the window's root
+    // item. The shell hands it back to the screen on display, so the remote
+    // keeps working.
+    QVERIFY(QMetaObject::invokeMethod(library, "focusInitial"));
+    QTRY_VERIFY(focusInside(window->activeFocusItem(), home));
+    QVERIFY(window->activeFocusItem() != window->contentItem());
+  }
   void navigationMenuFocusesTheLibrary() {
     LibraryDaemon daemon;
     daemon.collections = {{QStringLiteral("films"), QStringLiteral("Films"),

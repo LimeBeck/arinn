@@ -1,0 +1,1 @@
+- Home keeps keyboard focus when the hidden Library refreshes, and focus that falls to the window's root item returns to the screen on display, so the remote never stops responding until a mouse hovers the shell.

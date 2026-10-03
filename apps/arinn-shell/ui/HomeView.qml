@@ -175,6 +175,13 @@ FocusScope {
             sectionBack.forceActiveFocus();
         } else sectionBack.forceActiveFocus();
     }
+    // Focus whatever Home shows on top: the shortcut editor, the open
+    // navigation menu or the current section.
+    function restoreFocus() {
+        if (shortcutEditorOpen) shortcutCancel.forceActiveFocus();
+        else if (navOpen && navItems.itemAt(navIndex)) navItems.itemAt(navIndex).forceActiveFocus();
+        else restoreScreen();
+    }
     function openNavigation() {
         if (navOpen) return;
         navigationOpener = root.Window.window ? root.Window.window.activeFocusItem : null;

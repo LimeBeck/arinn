@@ -15,6 +15,7 @@ Type=dbus
 BusName=org.arinn.Shell1
 ExecStart=/usr/lib/arinn/arinn-shell-launch
 Restart=on-failure
-# Exit status 2: another shell owns org.arinn.Shell1; restarting cannot help.
+# Exit status 2: duplicate shell ownership, unsupported backend, or display
+# mismatch in the launcher; the journal reason distinguishes these cases.
 RestartPreventExitStatus=2
 RestartSec=2s

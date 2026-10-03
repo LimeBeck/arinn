@@ -15,8 +15,7 @@ url='https://github.com/LimeBeck/arinn'
 license=('GPL-3.0-or-later' 'MIT OR Apache-2.0' 'CC-BY-SA-4.0')
 depends=('gcc-libs' 'glibc' 'glib2>=2.86' 'dbus' 'systemd' 'qt6-base' 'qt6-declarative' 'qt6-svg')
 optdepends=('mpv: local file playback' 'ffmpeg: seek thumbnails for the mpv provider; video duration and audio/subtitle languages for the library provider' 'transmission-cli: local Transmission daemon for the download provider')
-makedepends=('cargo' 'cmake' 'ninja')
-checkdepends=('python')
+makedepends=('cargo' 'cmake' 'ninja' 'python')
 options=('!lto')
 install=arinn.install
 source=("${pkgname}-${pkgver}.tar.gz")

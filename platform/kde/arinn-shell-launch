@@ -8,8 +8,18 @@ if [ "$backend" = auto ]; then
     backend=${XDG_SESSION_TYPE:-wayland}
 fi
 case "$backend" in
-wayland) QT_QPA_PLATFORM=wayland ;;
-x11) QT_QPA_PLATFORM=xcb ;;
+wayland)
+    if [ -n "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then
+        echo "arinn-shell-launch: Wayland backend has only an X11 display" >&2
+        exit 2
+    fi
+    QT_QPA_PLATFORM=wayland ;;
+x11)
+    if [ -n "${WAYLAND_DISPLAY:-}" ] && [ -z "${DISPLAY:-}" ]; then
+        echo "arinn-shell-launch: X11 backend has only a Wayland display" >&2
+        exit 2
+    fi
+    QT_QPA_PLATFORM=xcb ;;
 *) echo "arinn-shell-launch: unsupported session backend" >&2; exit 2 ;;
 esac
 export QT_QPA_PLATFORM

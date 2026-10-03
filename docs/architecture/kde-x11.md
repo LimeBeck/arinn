@@ -15,11 +15,20 @@ The packaged `arinn-shell.service` uses `arinn-shell-launch`. With
 `wayland` and `XDG_SESSION_TYPE=x11` selects Qt `xcb`. An absent session type
 preserves the existing Wayland default. Unknown types are rejected before a shell
 starts. An explicit `ARINN_SESSION_BACKEND=wayland` or `x11` overrides detection.
+A selection with only the other transport's display variable is rejected with a
+fixed reason and exit status 2; the service also uses 2 for duplicate ownership.
+When both displays exist (Wayland with XWayland), the explicit selector wins and
+cannot distinguish a stale override from an intentional X11 run.
 
 The systemd user manager must have the current graphical environment, including
 `XDG_SESSION_TYPE`, `DISPLAY`, `XAUTHORITY` where required, and `WAYLAND_DISPLAY`
 on Wayland. Plasma normally imports this environment. After changing sessions,
-restart the opt-in Arinn target in the new session; the package never enables it.
+stop the Arinn target, unset a previous `ARINN_SESSION_BACKEND` override with
+`systemctl --user unset-environment ARINN_SESSION_BACKEND`, import the current
+`XDG_SESSION_TYPE`, `DISPLAY`, `XAUTHORITY` and `WAYLAND_DISPLAY` where present,
+and restart the target in the new session. Explicitly unset display variables
+that the new session does not provide; importing only present variables cannot
+clear stale values. The package never enables the target.
 For a direct development run on Plasma X11, use
 `QT_QPA_PLATFORM=xcb build/apps/arinn-shell/arinn-shell` with the existing daemon
 and packaged adapter. This is an operator action, not an automated test.

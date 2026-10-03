@@ -478,7 +478,10 @@ FocusScope {
             return;
         }
         if (event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace || event.key === Qt.Key_Back) {
-            back();
+            // One step per press: a held key's repeats must not walk on
+            // through Detail, the library and Home into navigation (#246).
+            if (!event.isAutoRepeat)
+                back();
             event.accepted = true;
             return;
         }

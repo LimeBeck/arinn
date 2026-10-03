@@ -73,7 +73,6 @@ pub fn desktop_id(value: &[u8]) -> String {
         return String::new();
     };
     let text = text.trim_end_matches('\0');
-    let text = text.strip_suffix(".desktop").unwrap_or(text);
     if arinn_protocol::validation::id(text).is_ok() && !text.contains('/') {
         text.into()
     } else {
@@ -94,6 +93,7 @@ pub struct Native {
     supported: HashSet<Atom>,
     compositor: Atom,
     tokens: Tokens,
+    watched: HashSet<Window>,
 }
 impl Native {
     pub fn connect() -> Result<Self> {
@@ -119,6 +119,7 @@ impl Native {
             supported: HashSet::new(),
             compositor,
             tokens: Tokens::default(),
+            watched: HashSet::new(),
         };
         s.wm = s.wm_owner()?;
         s.supported = s
@@ -248,7 +249,10 @@ impl Native {
         let mut home_key = false;
         while let Some(event) = self.c.poll_for_event()? {
             match event {
-                Event::DestroyNotify(e) => self.tokens.forget(e.window),
+                Event::DestroyNotify(e) => {
+                    self.tokens.forget(e.window);
+                    self.watched.remove(&e.window);
+                }
                 Event::KeyPress(_) => home_key = true,
                 Event::MappingNotify(_) => self.grab_home()?,
                 _ => (),
@@ -261,7 +265,9 @@ impl Native {
             AtomEnum::WINDOW.into(),
             4096,
         )?;
-        self.tokens.retain(&clients.iter().copied().collect());
+        let live = clients.iter().copied().collect();
+        self.tokens.retain(&live);
+        self.watched.retain(|id| live.contains(id));
         let active = self
             .words(
                 self.root,
@@ -281,14 +287,21 @@ impl Native {
             if attr.override_redirect || attr.class != WindowClass::INPUT_OUTPUT {
                 continue;
             }
-            self.c
-                .change_window_attributes(
-                    xid,
-                    &ChangeWindowAttributesAux::new()
-                        .event_mask(EventMask::STRUCTURE_NOTIFY | EventMask::PROPERTY_CHANGE),
-                )?
-                .check()
-                .ok();
+            if !self.watched.contains(&xid) {
+                if self
+                    .c
+                    .change_window_attributes(
+                        xid,
+                        &ChangeWindowAttributesAux::new()
+                            .event_mask(EventMask::STRUCTURE_NOTIFY | EventMask::PROPERTY_CHANGE),
+                    )?
+                    .check()
+                    .is_err()
+                {
+                    continue;
+                }
+                self.watched.insert(xid);
+            }
             let identity = [
                 self.atoms._NET_WM_DESKTOP_FILE,
                 self.atoms._KDE_NET_WM_DESKTOP_FILE,
@@ -304,7 +317,7 @@ impl Native {
             })
             .find(|id| !id.is_empty())
             .unwrap_or_default();
-            if identity == "org.arinn.Shell" {
+            if ["org.arinn.Shell", "org.arinn.Shell.desktop"].contains(&identity.as_str()) {
                 ensure!(shell.is_none(), "ambiguous shell identity");
                 shell = Some(xid);
                 continue;
@@ -477,7 +490,7 @@ mod tests {
     fn desktop_metadata_never_infers_identity_from_a_path() {
         assert_eq!(
             desktop_id(b"org.example.Player.desktop\0"),
-            "org.example.Player"
+            "org.example.Player.desktop"
         );
         assert!(desktop_id(b"/home/example/private.desktop").is_empty());
         assert!(desktop_id(b"invalid\0identity").is_empty());
@@ -708,13 +721,13 @@ pub(crate) mod fixture {
         let desktop = Desktop::new()?;
         let launch = Uuid::new_v4().to_string();
         let shell = desktop.client("org.arinn.Shell", "")?;
-        let video = desktop.client("org.example.Player", &launch)?;
+        let video = desktop.client("org.example.Player.desktop", &launch)?;
         desktop.inventory(&[shell, video], video)?;
         let mut native = Native::connect_display(Some(&desktop.display))?;
         let snapshot = native.snapshot()?;
         assert_eq!(snapshot.shell, Some(shell));
         assert_eq!(snapshot.rows.len(), 1);
-        assert_eq!(snapshot.rows[0].desktop_id, "org.example.Player");
+        assert_eq!(snapshot.rows[0].desktop_id, "org.example.Player.desktop");
         assert_eq!(snapshot.rows[0].launch, launch);
         desktop.home_key()?;
         assert!(native.snapshot()?.home_key);
@@ -753,7 +766,7 @@ pub(crate) mod fixture {
         desktop.c.destroy_window(video)?.check()?;
         desktop.inventory(&[shell], shell)?;
         assert!(native.snapshot()?.rows.is_empty());
-        let replacement = desktop.client("org.example.Player", &launch)?;
+        let replacement = desktop.client("org.example.Player.desktop", &launch)?;
         desktop.inventory(&[shell, replacement], replacement)?;
         assert_ne!(native.snapshot()?.rows[0].token, token);
         desktop

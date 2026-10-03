@@ -70,6 +70,18 @@ public:
     return true;
   }
 };
+class EndpointLock : public QDBusVirtualObject {
+public:
+  bool active = false;
+  QString introspect(const QString &) const override { return {}; }
+  bool handleMessage(const QDBusMessage &message,
+                     const QDBusConnection &bus) override {
+    if (message.member() != "GetActive")
+      return false;
+    bus.send(message.createReply(active));
+    return true;
+  }
+};
 class SessionLifecycleTest : public QObject {
   Q_OBJECT
 private slots:
@@ -78,9 +90,68 @@ private slots:
       QDBusConnection::disconnectFromBus(name);
     auto bus = QDBusConnection::sessionBus();
     bus.unregisterService("org.freedesktop.ScreenSaver");
+    bus.unregisterService("org.xfce.ScreenSaver");
+    bus.unregisterObject("/org/freedesktop/ScreenSaver");
+    bus.unregisterObject("/org/xfce/ScreenSaver");
     bus.unregisterService("org.freedesktop.login1");
     bus.unregisterObject("/ScreenSaver");
     bus.unregisterObject("/org/freedesktop/login1");
+  }
+  void supportedEndpoints_data() {
+    QTest::addColumn<QString>("service");
+    QTest::addColumn<QString>("path");
+    QTest::newRow("canonical") << QString("org.freedesktop.ScreenSaver")
+                               << QString("/org/freedesktop/ScreenSaver");
+    QTest::newRow("legacy")
+        << QString("org.freedesktop.ScreenSaver") << QString("/ScreenSaver");
+    QTest::newRow("xfce") << QString("org.xfce.ScreenSaver")
+                          << QString("/org/xfce/ScreenSaver");
+  }
+  void supportedEndpoints() {
+    QFETCH(QString, service);
+    QFETCH(QString, path);
+    auto bus = QDBusConnection::sessionBus();
+    EndpointLock lock;
+    QVERIFY(bus.registerService(service));
+    QVERIFY(bus.registerVirtualObject(path, &lock));
+    DbusSessionLifecycle guard(nullptr, bus, bus);
+    QTRY_VERIFY(!guard.blocked());
+    auto signal = QDBusMessage::createSignal(path, service, "ActiveChanged");
+    signal << true;
+    QVERIFY(bus.send(signal));
+    QTRY_VERIFY(guard.blocked());
+    signal.setArguments({false});
+    QVERIFY(bus.send(signal));
+    QTRY_VERIFY(!guard.blocked());
+    QVERIFY(bus.unregisterService(service));
+    QTRY_VERIFY(guard.blocked());
+    bus.unregisterObject(path);
+  }
+  void primaryEndpointWins() {
+    auto bus = QDBusConnection::sessionBus();
+    EndpointLock primary, fallback;
+    primary.active = true;
+    QVERIFY(bus.registerService("org.freedesktop.ScreenSaver"));
+    QVERIFY(bus.registerService("org.xfce.ScreenSaver"));
+    QVERIFY(
+        bus.registerVirtualObject("/org/freedesktop/ScreenSaver", &primary));
+    QVERIFY(bus.registerVirtualObject("/org/xfce/ScreenSaver", &fallback));
+    DbusSessionLifecycle guard(nullptr, bus, bus);
+    QTest::qWait(100);
+    QVERIFY(guard.blocked());
+    auto signal = QDBusMessage::createSignal(
+        "/org/xfce/ScreenSaver", "org.xfce.ScreenSaver", "ActiveChanged");
+    signal << false;
+    QVERIFY(bus.send(signal));
+    QTest::qWait(50);
+    QVERIFY(guard.blocked());
+    primary.active = false;
+    signal = QDBusMessage::createSignal("/org/freedesktop/ScreenSaver",
+                                        "org.freedesktop.ScreenSaver",
+                                        "ActiveChanged");
+    signal << false;
+    QVERIFY(bus.send(signal));
+    QTRY_VERIFY(!guard.blocked());
   }
   void daemonIndependentVisibility_data() {
     QTest::addColumn<bool>("stalled");

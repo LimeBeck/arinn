@@ -16,7 +16,9 @@ other desktop, compositor and TV qualification is **not run**.
 never block a Tokio executor or the shell UI thread. The daemon selects one
 trusted adapter owner at startup through `ARINN_PLATFORM_BACKEND`: absent or
 `kde` trusts `org.kde.KWin`, `ewmh` trusts `org.arinn.X11`, any other value fails
-closed. Both cannot be trusted simultaneously. Adapter loss invalidates the
+closed. Both cannot be trusted simultaneously. This authenticates ownership of a selected
+D-Bus name, not the executable or systemd unit: another process running as the
+same user can claim an unowned name. No unit or cgroup attestation is provided. Adapter loss invalidates the
 existing bridge generation, inventory and pending operations.
 
 The generic adapter reuses the internal scalar KWinBridge1, KWinMedia1 and
@@ -37,8 +39,11 @@ the backend unavailable rather than publish a partial inventory.
 Exact desktop metadata comes from `_NET_WM_DESKTOP_FILE`,
 `_KDE_NET_WM_DESKTOP_FILE` or `_GTK_APPLICATION_ID`. Unknown metadata stays empty;
 WM_CLASS, title, process name and executable are not association fallbacks.
-`org.arinn.Shell` metadata identifies the shell, which is excluded from inventory.
-Ambiguous shell identity fails closed. Output names are currently empty: this
+Desktop-file IDs retain their `.desktop` suffix for exact provider matching.
+`org.arinn.Shell` and `org.arinn.Shell.desktop` identify the shell, which is excluded
+from inventory. Two matching shell windows make identity ambiguous and trigger
+a fail-closed reconnect; run one shell instance. Event masks are selected once
+per newly observed XID and reset when its inventory lifetime ends. Output names are currently empty: this
 initial backend does not implement RandR output placement.
 
 ## Home, Return and video
@@ -66,6 +71,17 @@ until presentation is available again. Home and controls require an explicit unl
 The process cleans up presentation on SIGINT/SIGTERM and reconnect; native
 identity is refreshed before restoring a saved window.
 
+Both adapter and Qt shell probe lock APIs in this order: freedesktop service at
+`/org/freedesktop/ScreenSaver`, the same service at `/ScreenSaver`, then
+`org.xfce.ScreenSaver` at `/org/xfce/ScreenSaver` with its matching interface.
+The first successful `GetActive` reply wins. An absent service or unsupported
+endpoint allows the next probe; timeout or malformed replies fail closed. A
+working lock API is a hard runtime requirement: absence is never evidence of an
+unlocked session. See the [XFCE implementation](https://github.com/xfce-mirror/xfce4-screensaver/blob/master/src/gs-listener-dbus.c).
+Startup reports the selected fixed backend name. Daemon permission rejection
+reports a backend-selection hint; restoration failure reports a fixed reason
+before reconnecting. These diagnostics contain no window metadata.
+
 XComposite activity background remains the separate work in #149. Multi-output
 placement, real lock/suspend behavior and the transparent overlay on actual
 compositors remain qualification work. No AC or roadmap gate is marked passed.
@@ -79,17 +95,20 @@ trial inside an X11 graphical session:
 
 ```sh
 systemctl --user stop arinn-session.target arinn-ewmh-session.target
-systemctl --user import-environment DISPLAY XAUTHORITY XDG_SESSION_TYPE
-systemctl --user set-environment ARINN_PLATFORM_BACKEND=ewmh ARINN_SESSION_BACKEND=x11
+systemctl --user import-environment DISPLAY XAUTHORITY
+systemctl --user set-environment XDG_SESSION_TYPE=x11 ARINN_PLATFORM_BACKEND=ewmh ARINN_SESSION_BACKEND=x11
+systemctl --user start graphical-session.target
 systemctl --user start arinn-ewmh-session.target
 ```
 
 The two session targets conflict. Shared daemon and shell units stop with either
 target. A daemon started separately must be stopped before changing selection.
-For persistent autostart, put the two environment settings in the user's systemd
-environment configuration and enable only the EWMH target. Distribution-specific
-X11 environment import and graphical-session.target activation must be verified
-before enabling it. To return to KDE/Wayland, stop the EWMH target, unset the two
+Stock XFCE may not activate `graphical-session.target`, and LightDM may not import
+`XDG_SESSION_TYPE`; the manual recipe explicitly supplies both. Run it only from
+inside the intended X11 session. Stop `arinn-ewmh-session.target` before logging
+out of a desktop that does not manage the graphical target. Enabling the EWMH
+target alone is insufficient for persistent XFCE startup; persistent session
+integration remains distribution-specific qualification work. To return to KDE/Wayland, stop the EWMH target, unset the two
 Arinn environment variables, import the graphical session environment again,
 and start the existing Arinn session target.
 
@@ -106,3 +125,7 @@ synthetic EWMH metadata and clients, and never read the inherited `DISPLAY`.
 They verify inventory, typed identity, activation/close and Home-key dispatch,
 manager invalidation, Home/Return and video/compositor/lock lifecycle. They include partial-presentation rollback and compositor-loss regressions and do
 not substitute for real-desktop operator tests, which require owner permission.
+
+The Arch Qt CI job installs Xvfb and runs the native tests with `--include-ignored`.
+Private-bus adapter and Qt tests cover all three lock endpoints, priority, signals
+and loss of the lock service.

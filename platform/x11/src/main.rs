@@ -180,7 +180,10 @@ impl Actor {
                 .and_then(|p| self.row(&p.token))
                 .map(|r| r.xid);
             let had_presentation = self.presentation.is_some();
-            ensure!(self.release().is_empty(), "presentation restoration failed");
+            if !self.release().is_empty() {
+                eprintln!("arinn-platform-x11: presentation restoration failed");
+                anyhow::bail!("presentation restoration failed");
+            }
             if !unlocked || had_presentation {
                 if let Some(shell) = self.snapshot.shell {
                     self.native.raise_shell(shell, false)?;
@@ -354,20 +357,53 @@ impl Actor {
         }
     }
 }
+const LOCK_ENDPOINTS: [(&str, &str, &str); 3] = [
+    (
+        "org.freedesktop.ScreenSaver",
+        "/org/freedesktop/ScreenSaver",
+        "org.freedesktop.ScreenSaver",
+    ),
+    (
+        "org.freedesktop.ScreenSaver",
+        "/ScreenSaver",
+        "org.freedesktop.ScreenSaver",
+    ),
+    (
+        "org.xfce.ScreenSaver",
+        "/org/xfce/ScreenSaver",
+        "org.xfce.ScreenSaver",
+    ),
+];
 async fn unlocked(c: &Connection) -> bool {
     tokio::time::timeout(Duration::from_secs(1), async {
-        let p = Proxy::new(
-            c,
-            "org.freedesktop.ScreenSaver",
-            "/ScreenSaver",
-            "org.freedesktop.ScreenSaver",
-        )
-        .await
-        .ok()?;
-        p.call::<_, _, bool>("GetActive", &())
-            .await
-            .ok()
-            .map(|active| !active)
+        let bus = zbus::fdo::DBusProxy::new(c).await.ok()?;
+        for (service, path, interface) in LOCK_ENDPOINTS {
+            // Pin calls to an existing owner: never auto-start a screensaver.
+            let Ok(owner) = bus.get_name_owner(service.try_into().ok()?).await else {
+                continue;
+            };
+            let p = Proxy::new(c, owner.as_str(), path, interface).await.ok()?;
+            match p.call::<_, _, bool>("GetActive", &()).await {
+                Ok(active) => {
+                    let current = bus.get_name_owner(service.try_into().ok()?).await.ok()?;
+                    return Some(current == owner && !active);
+                }
+                Err(zbus::Error::MethodError(name, _, _))
+                    if [
+                        "org.freedesktop.DBus.Error.UnknownObject",
+                        "org.freedesktop.DBus.Error.UnknownMethod",
+                        "org.freedesktop.DBus.Error.UnknownInterface",
+                    ]
+                    .contains(&name.as_str()) =>
+                {
+                    continue;
+                }
+                // An owned but unresponsive/malformed service is unknown, not
+                // evidence of unlock from a lower-priority endpoint.
+                Err(_) => return None,
+            }
+        }
+        None
     })
     .await
     .ok()
@@ -503,7 +539,11 @@ async fn run(actor: &Arc<Mutex<Actor>>) -> Result<()> {
         .destination(destination.clone())?
         .build()
         .await?;
-    let generation = bridge.connect(&Uuid::new_v4().to_string()).await?;
+    let generation = bridge.connect(&Uuid::new_v4().to_string()).await.inspect_err(|error| {
+        if matches!(error, zbus::Error::MethodError(name, _, _) if name.as_str() == "org.arinn.Error1.PermissionDenied") {
+            eprintln!("arinn-platform-x11: daemon rejected adapter; check ARINN_PLATFORM_BACKEND");
+        }
+    })?;
     let (tx, mut rx) = mpsc::channel::<Pending>(8);
     let mut tasks = JoinSet::<Result<()>>::new();
     let home_poll = home.clone();
@@ -612,6 +652,7 @@ async fn main() -> Result<()> {
         std::env::var("ARINN_PLATFORM_BACKEND").as_deref() == Ok("ewmh"),
         "explicit EWMH backend selection required"
     );
+    eprintln!("arinn-platform-x11: selected backend ewmh (org.arinn.X11)");
     // No native payloads in logs. Reconnect creates fresh tokens and bridge generation.
     loop {
         if session().await.is_ok() {
@@ -756,5 +797,128 @@ mod tests {
         assert_eq!(actor.release(), "Unavailable");
         assert!(actor.presentation.is_some());
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod lock_tests {
+    use super::*;
+    use std::{
+        io::{BufRead, BufReader},
+        process::{Child, Command, Stdio},
+        sync::atomic::{AtomicBool, AtomicUsize, Ordering},
+    };
+    struct Bus {
+        child: Child,
+        client: Connection,
+        server: Connection,
+    }
+    impl Drop for Bus {
+        fn drop(&mut self) {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
+    }
+    impl Bus {
+        async fn new() -> Self {
+            let mut child = Command::new("dbus-daemon")
+                .args(["--session", "--nofork", "--print-address=1"])
+                .stdout(Stdio::piped())
+                .spawn()
+                .unwrap();
+            let mut address = String::new();
+            BufReader::new(child.stdout.take().unwrap())
+                .read_line(&mut address)
+                .unwrap();
+            async fn connection(address: &str) -> Connection {
+                zbus::connection::Builder::address(address.trim())
+                    .unwrap()
+                    .build()
+                    .await
+                    .unwrap()
+            }
+            Self {
+                child,
+                client: connection(&address).await,
+                server: connection(&address).await,
+            }
+        }
+    }
+    #[derive(Clone, Default)]
+    struct Lock {
+        active: Arc<AtomicBool>,
+        calls: Arc<AtomicUsize>,
+    }
+    #[zbus::interface(name = "org.freedesktop.ScreenSaver")]
+    impl Lock {
+        fn get_active(&self) -> bool {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            self.active.load(Ordering::SeqCst)
+        }
+    }
+    struct XfceLock(Lock);
+    #[zbus::interface(name = "org.xfce.ScreenSaver")]
+    impl XfceLock {
+        fn get_active(&self) -> bool {
+            self.0.calls.fetch_add(1, Ordering::SeqCst);
+            self.0.active.load(Ordering::SeqCst)
+        }
+    }
+    #[tokio::test]
+    async fn each_supported_lock_endpoint_checks_active_state_on_a_private_bus() {
+        for (service, path, _) in LOCK_ENDPOINTS {
+            let bus = Bus::new().await;
+            let lock = Lock::default();
+            if service == "org.xfce.ScreenSaver" {
+                bus.server
+                    .object_server()
+                    .at(path, XfceLock(lock.clone()))
+                    .await
+                    .unwrap();
+            } else {
+                bus.server
+                    .object_server()
+                    .at(path, lock.clone())
+                    .await
+                    .unwrap();
+            }
+            bus.server.request_name(service).await.unwrap();
+            assert!(unlocked(&bus.client).await, "{service} {path}");
+            lock.active.store(true, Ordering::SeqCst);
+            assert!(!unlocked(&bus.client).await, "{service} {path}");
+            bus.server.release_name(service).await.unwrap();
+            assert!(!unlocked(&bus.client).await);
+        }
+    }
+    #[tokio::test]
+    async fn first_answer_wins_and_missing_service_is_never_unlock_evidence() {
+        let bus = Bus::new().await;
+        assert!(!unlocked(&bus.client).await);
+        let primary = Lock::default();
+        primary.active.store(true, Ordering::SeqCst);
+        let legacy = Lock::default();
+        let xfce = Lock::default();
+        bus.server
+            .object_server()
+            .at(LOCK_ENDPOINTS[0].1, primary.clone())
+            .await
+            .unwrap();
+        bus.server
+            .object_server()
+            .at(LOCK_ENDPOINTS[1].1, legacy.clone())
+            .await
+            .unwrap();
+        bus.server
+            .object_server()
+            .at(LOCK_ENDPOINTS[2].1, XfceLock(xfce.clone()))
+            .await
+            .unwrap();
+        bus.server.request_name(LOCK_ENDPOINTS[0].0).await.unwrap();
+        bus.server.request_name(LOCK_ENDPOINTS[2].0).await.unwrap();
+        assert!(!unlocked(&bus.client).await);
+        assert_eq!(legacy.calls.load(Ordering::SeqCst), 0);
+        assert_eq!(xfce.calls.load(Ordering::SeqCst), 0);
+        primary.active.store(false, Ordering::SeqCst);
+        assert!(unlocked(&bus.client).await);
     }
 }

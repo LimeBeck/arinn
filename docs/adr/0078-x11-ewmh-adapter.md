@@ -60,3 +60,9 @@ Home/Return and compositor/lock cleanup. Private-bus tests reject the unselected
 adapter owner. Full repository checks and an independent agent review are
 required. Operator tests require separate explicit owner permission and have
 not been run.
+
+Review clarification: retain exact desktop-file IDs including their suffix; probe
+the canonical, legacy and XFCE lock endpoints in priority order in both adapter
+and shell. A functioning lock API remains mandatory. The selected bus-name
+owner is trusted without unit attestation. Arch CI runs isolated Xvfb scenarios;
+manual XFCE setup explicitly supplies session type and graphical target activation.

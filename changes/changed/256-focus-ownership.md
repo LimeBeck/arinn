@@ -1,0 +1,1 @@
+- The shell has one owner of keyboard focus: `Main.qml` gives focus to the screen on display, and screens move focus through `Focus.take()`, which refuses hidden or disabled items, so a screen that is not shown can never take focus from the remote (ADR-0076).

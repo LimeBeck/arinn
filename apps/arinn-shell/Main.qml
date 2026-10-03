@@ -64,9 +64,9 @@ Window {
         sessionOpen = !player;
         Qt.callLater(() => {
             if (player)
-                playerView.forceActiveFocus();
+                Ui.Focus.take(playerView);
             else
-                sessionView.forceActiveFocus();
+                Ui.Focus.take(sessionView);
         });
     }
     function closePlayer() {
@@ -78,33 +78,74 @@ Window {
                 if (libraryView.detailOpen)
                     libraryView.focusDetailAction();
                 else
-                    libraryView.forceActiveFocus();
+                    Ui.Focus.take(libraryView);
             });
         } else {
             Qt.callLater(home.showHome);
         }
     }
-    // Focus the screen on display. Home's overlays and sections come first
-    // because the navigation menu covers the library and settings screens.
+    // Focus ownership (ADR-0076). Main alone decides which screen holds
+    // focus: each screen binds `focus` to this route, so the screen on
+    // display is the focused scope and Qt restores the child it last focused.
+    // Screens move focus only inside themselves, through Ui.Focus.take(),
+    // which refuses hidden or disabled items. Home's navigation menu and
+    // shortcut editor cover the library and settings screens, so they win.
+    readonly property string focusedScreen: playerOpen ? "player"
+        : sessionOpen ? "session"
+        : browserOpen ? "browser"
+        : home.navOpen || home.shortcutEditorOpen ? "home"
+        : home.screen === "library" ? "library"
+        : home.screen === "settings" ? "settings"
+        : "home"
+    function screenItem(name) {
+        return ({player: playerView, session: sessionView, browser: browserView,
+                 library: libraryView, settings: settingsView, home: home})[name];
+    }
+    // Focus the screen on display at its preferred item.
     function restoreFocus() {
-        if (playerOpen) playerView.forceActiveFocus();
-        else if (sessionOpen) sessionView.restore();
-        else if (browserOpen) browserView.settleFocus();
-        else if (home.navOpen || home.shortcutEditorOpen) home.restoreFocus();
-        else if (home.screen === "library") libraryView.focusInitial();
-        else if (home.screen === "settings") settingsView.focusInitial();
-        else home.restoreFocus();
+        switch (focusedScreen) {
+        case "player": Ui.Focus.take(playerView); break;
+        case "session": sessionView.restore(); break;
+        case "browser": browserView.settleFocus(); break;
+        case "library": libraryView.focusInitial(); break;
+        case "settings": settingsView.focusInitial(); break;
+        default: home.restoreFocus();
+        }
     }
-    // Qt moves active focus to the root item when the focused item is
-    // destroyed or a hidden item calls forceActiveFocus(). Nothing handles
-    // keys there, so the remote would stop working: hand focus back to the
-    // screen on display.
+    function focusInside(item, scope) {
+        for (let current = item; current; current = current.parent)
+            if (current === scope) return true;
+        return false;
+    }
+    // A new route whose screen did not get focus through its scope (nothing
+    // focused there yet) starts at the screen's preferred item.
+    onFocusedScreenChanged: Qt.callLater(() => {
+        if (visible && !focusInside(activeFocusItem, screenItem(focusedScreen))) restoreFocus();
+    })
+    // Last resort: Qt moves active focus to the root item when the focused
+    // item is destroyed. Nothing handles keys there, so the remote would stop
+    // working. Hand focus back to the screen on display, and say so: it
+    // means some path bypassed the rules above.
+    // An inactive window parks focus on the root item itself; Qt restores it
+    // on activation, so only an active window counts.
     function focusFellToRoot() {
-        return visible && (!activeFocusItem || activeFocusItem === contentItem);
+        return visible && active && (!activeFocusItem || activeFocusItem === contentItem);
     }
-    onActiveFocusItemChanged: if (focusFellToRoot()) Qt.callLater(() => { if (focusFellToRoot()) restoreFocus(); })
+    property bool hadFocus: false
+    onActiveFocusItemChanged: {
+        if (!focusFellToRoot()) {
+            hadFocus = true;
+            return;
+        }
+        const fell = hadFocus;
+        Qt.callLater(() => {
+            if (!focusFellToRoot()) return;
+            if (fell) console.warn("Focus fell to the window root; restoring", focusedScreen);
+            restoreFocus();
+        });
+    }
     onVisibleChanged: if (visible) Qt.callLater(() => {
-        if (playerOpen) playerView.forceActiveFocus();
+        if (playerOpen) Ui.Focus.take(playerView);
         else if (home.screen === "library") libraryView.focusDetailAction();
         else home.showHome();
     })
@@ -118,7 +159,7 @@ Window {
                 root.presentationAtHome = false;
                 if (!root.active) { mediaCatalog.abandonPresentation(); return; }
                 root.playerOpen = true;
-                Qt.callLater(() => playerView.forceActiveFocus());
+                Qt.callLater(() => Ui.Focus.take(playerView));
             }
         }
     }
@@ -148,6 +189,7 @@ Window {
         anchors.fill: parent
         Ui.HomeView {
             id: home
+            focus: root.focusedScreen === "home"
             objectName: "productionHome"
             visible: !root.playerOpen
             shortcutManagement: true
@@ -188,7 +230,7 @@ Window {
             onRetryRequested: backend.refresh()
             onOpenServicesRequested: {
                 root.browserOpen = true;
-                Qt.callLater(() => browserView.forceActiveFocus());
+                Qt.callLater(() => Ui.Focus.take(browserView));
             }
             onServiceRequested: backend.back()
             onSessionRequested: entryId => root.openSession(entryId, false)
@@ -196,6 +238,7 @@ Window {
         }
         Browser.BrowserView {
             id: browserView
+            focus: root.focusedScreen === "browser"
             objectName: "productionBrowser"
             visible: root.browserOpen && !root.playerOpen
             enabled: root.browserOpen && !root.playerOpen
@@ -216,6 +259,7 @@ Window {
         }
         Session.SessionView {
             id: sessionView
+            focus: root.focusedScreen === "session"
             objectName: "productionSession"
             visible: root.sessionOpen && !root.playerOpen
             enabled: root.sessionOpen && !root.playerOpen
@@ -244,7 +288,7 @@ Window {
                         if (libraryView.detailOpen)
                             libraryView.focusDetailAction();
                         else
-                            libraryView.forceActiveFocus();
+                            Ui.Focus.take(libraryView);
                     });
                 } else {
                     Qt.callLater(home.showHome);
@@ -253,6 +297,7 @@ Window {
         }
         Settings.SettingsView {
             id: settingsView
+            focus: root.focusedScreen === "settings"
             objectName: "productionSettings"
             visible: home.screen === "settings" && !root.playerOpen
             enabled: visible
@@ -268,6 +313,7 @@ Window {
         }
         Library.LibraryView {
             id: libraryView
+            focus: root.focusedScreen === "library"
             objectName: "productionLibrary"
             visible: home.screen === "library" && !root.playerOpen
             enabled: visible
@@ -289,7 +335,7 @@ Window {
         Player.PlayerView {
             id: playerView
             objectName: "productionPlayer"
-            focus: root.playerOpen
+            focus: root.focusedScreen === "player"
             visible: root.playerOpen
             enabled: root.playerOpen
             z: 6

@@ -94,7 +94,7 @@ FocusScope {
         else
             next = Math.max(0, Math.min(items.length - 1, next));
         menuFocus = menuNames()[next];
-        items[next].forceActiveFocus();
+        Ui.Focus.take(items[next]);
     }
     function moveConfirm(delta, wrap) {
         const items = [cancelButton, confirmButton];
@@ -104,19 +104,19 @@ FocusScope {
             next = (next + items.length) % items.length;
         else
             next = Math.max(0, Math.min(items.length - 1, next));
-        items[next].forceActiveFocus();
+        Ui.Focus.take(items[next]);
     }
     function restoreMenuFocus() {
         const items = menuItems();
         const names = menuNames();
         for (let i = 0; i < names.length; ++i) {
             if (names[i] === menuFocus) {
-                items[i].forceActiveFocus();
+                Ui.Focus.take(items[i]);
                 return;
             }
         }
         if (items.length > 0)
-            items[0].forceActiveFocus();
+            Ui.Focus.take(items[0]);
     }
     function openConfirm(action) {
         pendingAction = action;
@@ -124,7 +124,7 @@ FocusScope {
         step = "confirm";
         Qt.callLater(() => {
             if (step === "confirm" && !refused)
-                cancelButton.forceActiveFocus();
+                Ui.Focus.take(cancelButton);
         });
     }
     function closeConfirm() {
@@ -193,7 +193,7 @@ FocusScope {
         wakeRequested();
         Qt.callLater(() => {
             if (step === "confirm")
-                cancelButton.forceActiveFocus();
+                Ui.Focus.take(cancelButton);
             else
                 restoreMenuFocus();
             Qt.callLater(() => { hoverFocusEnabled = true; });
@@ -500,7 +500,7 @@ FocusScope {
         Keys.onPressed: event => root.handleScopeKey(event, () => root.goBack())
         onVisibleChanged: {
             if (visible) {
-                Qt.callLater(() => { if (visible) forceActiveFocus(); });
+                Qt.callLater(() => { if (visible) Ui.Focus.take(errorPane); });
                 return;
             }
             // Clearing an explicit refusal returns to the power step. It does not
@@ -509,7 +509,7 @@ FocusScope {
                 if (root.refused || root.step === "ambient")
                     return;
                 if (root.step === "confirm")
-                    cancelButton.forceActiveFocus();
+                    Ui.Focus.take(cancelButton);
                 else
                     root.restoreMenuFocus();
             });
@@ -535,7 +535,7 @@ FocusScope {
             Qt.callLater(() => {
                 if (!visible)
                     return;
-                forceActiveFocus();
+                Ui.Focus.take(ambientLayer);
                 Qt.callLater(() => {
                     if (visible)
                         root.ambientArmed = true;

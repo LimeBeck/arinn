@@ -320,7 +320,7 @@ FocusScope {
         else if (statusActionText.length)
             focusStatus();
         else
-            forceActiveFocus();
+            Ui.Focus.take(root);
     }
 
     function findNamed(node, name) {
@@ -349,7 +349,7 @@ FocusScope {
     function focusWhenReady(index, side, tries) {
         const item = itemFor(index, side);
         if (item) {
-            item.forceActiveFocus();
+            Ui.Focus.take(item);
             reveal(index);
             return;
         }
@@ -376,13 +376,13 @@ FocusScope {
         const apply = tries => {
             const item = findNamed(messagePane, "statusAction");
             if (item && item.visible) {
-                item.forceActiveFocus();
+                Ui.Focus.take(item);
                 return;
             }
             if (tries > 0)
                 Qt.callLater(() => apply(tries - 1));
             else
-                forceActiveFocus();
+                Ui.Focus.take(root);
         };
         apply(8);
     }
@@ -428,7 +428,7 @@ FocusScope {
             if (statusActionText.length)
                 focusStatus();
             else
-                forceActiveFocus();
+                Ui.Focus.take(root);
             return;
         }
         const order = ["row", "bookmark", "close"];
@@ -892,7 +892,7 @@ FocusScope {
                         onActiveFocusChanged: if (activeFocus) root.noteRowFocus(index, "row")
                         TapHandler { onTapped: root.activateTab(modelData.id) }
                         HoverHandler {
-                            onHoveredChanged: if (hovered && root.pointerMode && root.hoverFocusEnabled) plate.forceActiveFocus()
+                            onHoveredChanged: if (hovered && root.pointerMode && root.hoverFocusEnabled) Ui.Focus.take(plate)
                         }
                     }
 
@@ -984,7 +984,7 @@ FocusScope {
                             onTapped: root.requestSave(modelData.id)
                         }
                         HoverHandler {
-                            onHoveredChanged: if (hovered && bookmarkBtn.enabled && root.pointerMode && root.hoverFocusEnabled) bookmarkBtn.forceActiveFocus()
+                            onHoveredChanged: if (hovered && bookmarkBtn.enabled && root.pointerMode && root.hoverFocusEnabled) Ui.Focus.take(bookmarkBtn)
                         }
                     }
 
@@ -1073,7 +1073,7 @@ FocusScope {
                         onActiveFocusChanged: if (activeFocus) root.noteRowFocus(index, "close")
                         TapHandler { onTapped: root.beginClose(modelData.id) }
                         HoverHandler {
-                            onHoveredChanged: if (hovered && root.pointerMode && root.hoverFocusEnabled) closeBtn.forceActiveFocus()
+                            onHoveredChanged: if (hovered && root.pointerMode && root.hoverFocusEnabled) Ui.Focus.take(closeBtn)
                         }
                     }
                 }

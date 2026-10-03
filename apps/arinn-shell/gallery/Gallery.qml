@@ -14,7 +14,7 @@ Window {
     title: "Arinn — component gallery"
     property bool pointerMode: false
     property string lastAction: qsTr("Arrows to navigate · Enter to select")
-    Component.onCompleted: media.forceActiveFocus()
+    Component.onCompleted: Ui.Focus.take(media)
     Ui.LogicalCanvas {
         anchors.fill: parent
         Keys.onPressed: event => {

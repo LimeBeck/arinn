@@ -118,12 +118,12 @@ FocusScope {
         if (!visible || !enabled)
             return;
         if (!hasSession) {
-            forceActiveFocus();
+            Ui.Focus.take(root);
             return;
         }
         const button = preferredButton();
-        if (button) button.forceActiveFocus();
-        else seekTrack.forceActiveFocus();
+        if (button) Ui.Focus.take(button);
+        else Ui.Focus.take(seekTrack);
     }
     function keepFocus() {
         if (!hasSession) return;
@@ -160,14 +160,14 @@ FocusScope {
                 const row = visualButtons();
                 for (let i = 0; i < row.length; ++i)
                     if (row[i].activeFocus) actionAnchor = row[i];
-                seekTrack.forceActiveFocus();
+                Ui.Focus.take(seekTrack);
             }
             return;
         }
         if (key === Qt.Key_Down) {
             if (!seekTrack.activeFocus) return;
             const target = actionAnchor && actionAnchor.enabled ? actionAnchor : preferredButton();
-            if (target) target.forceActiveFocus();
+            if (target) Ui.Focus.take(target);
             return;
         }
         const row = enabledButtons();
@@ -176,8 +176,8 @@ FocusScope {
         for (let i = 0; i < row.length; ++i)
             if (row[i].activeFocus) index = i;
         if (index < 0) return;
-        if (key === Qt.Key_Left && index > 0) row[index - 1].forceActiveFocus();
-        if (key === Qt.Key_Right && index + 1 < row.length) row[index + 1].forceActiveFocus();
+        if (key === Qt.Key_Left && index > 0) Ui.Focus.take(row[index - 1]);
+        if (key === Qt.Key_Right && index + 1 < row.length) Ui.Focus.take(row[index + 1]);
     }
 
     Component.onCompleted: if (visible && enabled) Qt.callLater(restore)
@@ -388,7 +388,7 @@ FocusScope {
                         pointerMode: root.pointerMode
                         hoverFocusEnabled: root.hoverFocusEnabled
                         Keys.onPressed: event => root.acceptBack(event)
-                        onActivated: if (root.allows("seek")) seekTrack.forceActiveFocus()
+                        onActivated: if (root.allows("seek")) Ui.Focus.take(seekTrack)
                     }
                     Ui.ActionButton {
                         id: nextButton

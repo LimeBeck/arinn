@@ -187,7 +187,7 @@ FocusScope {
         if (!item)
             return false;
         focusPlace = "tab";
-        item.forceActiveFocus();
+        Ui.Focus.take(item);
         const id = tabs[index].id;
         if (currentTabId !== id) {
             currentTabId = id;
@@ -206,7 +206,7 @@ FocusScope {
         if (!item)
             return false;
         focusPlace = "tab";
-        item.forceActiveFocus();
+        Ui.Focus.take(item);
         return true;
     }
     function focusPosterIndex(index) {
@@ -251,14 +251,14 @@ FocusScope {
         if (!libraryStatus.visible)
             return false;
         focusPlace = "status";
-        libraryStatus.forceActiveFocus();
+        Ui.Focus.take(libraryStatus);
         return true;
     }
     function focusDetailAction() {
         const entry = detailEntry;
         const button = entry && entry.missing ? detailRemove : detailPlay;
         if (button && button.visible)
-            button.forceActiveFocus();
+            Ui.Focus.take(button);
     }
     function focusSeason(index) {
         if (index < 0 || index >= detailSeasons.length)
@@ -273,7 +273,7 @@ FocusScope {
             episodeIndex = 0;
             episodeFlick.contentX = 0;
         }
-        item.forceActiveFocus();
+        Ui.Focus.take(item);
         return true;
     }
     function focusEpisode(index) {
@@ -674,7 +674,7 @@ FocusScope {
                         height: 427
                         z: poster.activeFocus ? 2 : 0
                         function focusPoster() {
-                            poster.forceActiveFocus();
+                            Ui.Focus.take(poster);
                         }
                         Ui.Surface {
                             id: poster
@@ -1165,7 +1165,7 @@ FocusScope {
                                 width: 420
                                 height: 236 + 16 + 72
                                 function focusStill() {
-                                    still.forceActiveFocus();
+                                    Ui.Focus.take(still);
                                 }
                                 Ui.Surface {
                                     id: still

@@ -1168,10 +1168,19 @@ private slots:
     QCOMPARE(moves.count(), 0);
     QVERIFY(menu->hasActiveFocus());
 
-    // A hidden screen that still forces focus drops it on the window's root
-    // item. The shell hands it back to the screen on display, so the remote
-    // keeps working.
+    // A hidden screen cannot take focus at all (ADR-0076).
     QVERIFY(QMetaObject::invokeMethod(library, "focusInitial"));
+    QTest::qWait(50);
+    QCOMPARE(moves.count(), 0);
+    QVERIFY(menu->hasActiveFocus());
+
+    // Focus that still falls to the window's root item, here because the
+    // focused item is destroyed, returns to the screen on display, so the
+    // remote keeps working.
+    auto stray = new QQuickItem(window->contentItem());
+    stray->forceActiveFocus();
+    QVERIFY(stray->hasActiveFocus());
+    delete stray;
     QTRY_VERIFY(focusInside(window->activeFocusItem(), home));
     QVERIFY(window->activeFocusItem() != window->contentItem());
   }

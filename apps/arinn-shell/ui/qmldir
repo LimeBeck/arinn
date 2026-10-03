@@ -3,3 +3,4 @@
 
 module Arinn.Ui
 singleton Theme 1.0 Theme.qml
+singleton Focus 1.0 Focus.qml

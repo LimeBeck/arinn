@@ -90,8 +90,8 @@ FocusScope {
         }
     }
     onShowDialogChanged: if (showDialog) Qt.callLater(focusDialog)
-    onSlowChanged: if (slow && showOverlay && !showDialog) Qt.callLater(() => cancelButton.forceActiveFocus())
-    function focusDialog() { if (retryButton.visible) retryButton.forceActiveFocus(); }
+    onSlowChanged: if (slow && showOverlay && !showDialog) Qt.callLater(() => Focus.take(cancelButton))
+    function focusDialog() { if (retryButton.visible) Focus.take(retryButton); }
     visible: showOverlay
     Timer {
         id: revealTimer
@@ -215,8 +215,8 @@ FocusScope {
             }
         }
     }
-    Keys.onLeftPressed: if (showDialog) retryButton.forceActiveFocus()
-    Keys.onRightPressed: if (showDialog) closeButton.forceActiveFocus()
+    Keys.onLeftPressed: if (showDialog) Focus.take(retryButton)
+    Keys.onRightPressed: if (showDialog) Focus.take(closeButton)
     Keys.onPressed: event => {
         if (event.key === Qt.Key_Home) {
             if (!root.showOverlay) {

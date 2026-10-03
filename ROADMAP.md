@@ -19,7 +19,7 @@ The single source of phase status ([ADR-0028](docs/adr/0028-documentation-govern
 | [0](#phase-0--architecture-spike) | Architecture spike on KDE/Wayland | **Done** (2026-09-27) |
 | [1](#phase-1--core-skeleton) | Production core skeleton, protocol and SDK | **Done** (2026-09-28) |
 | [2](#phase-2--applications) | Desktop applications, Steam, ES-DE | **Done** (2026-09-28) |
-| [3](#phase-3--browser) | Chrome integration — first daily-usable build | Planned |
+| [3](#phase-3--browser) | Chrome integration — first daily-usable build | **In progress** (2026-10-01) |
 | [4](#phase-4--media) | MPRIS, local library and mpv | Planned |
 | [5](#phase-5--product-mvp) | Downloads, full UI, persistence, packaging — MVP | Planned |
 | [6](#phase-6--rich-integrations-post-mvp) | Rich integrations after the MVP | Planned |
@@ -164,7 +164,13 @@ Goal: launch and return to ordinary applications, Steam and ES-DE through `arinn
 
 ## Phase 3 — Browser
 
-**Status:** Planned. Browser launch ownership (OQ-03) was resolved by
+**Status:** In progress (2026-10-01), under explicit owner authorization. Chrome
+MV3 extension, native host and browser plugin implementation are on `master`
+([#82](https://github.com/LimeBeck/arinn/issues/82),
+[#87](https://github.com/LimeBeck/arinn/pull/87)); daemon `Browser1` routing is
+implemented. Operator acceptance (AC-03–AC-06, G-3.1 operator parts) and the
+Phase 3 runbook remain open — implementation is ahead of acceptance. Browser
+launch ownership (OQ-03) was resolved by
 [ADR-0038](docs/adr/0038-browser-launch-ownership.md); online-service tiles (OQ-02)
 were resolved on 2026-09-28 as Arinn-owned web shortcuts ([ADR-0043](docs/adr/0043-web-shortcuts.md)).
 

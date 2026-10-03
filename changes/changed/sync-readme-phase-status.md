@@ -1,0 +1,1 @@
+- Sync [README.md](README.md) and [README.ru.md](README.ru.md) phase status with [ROADMAP.md](ROADMAP.md); mark Phase 3 (browser) as in progress per owner decision (2026-10-01).

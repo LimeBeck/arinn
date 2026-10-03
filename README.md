@@ -21,7 +21,7 @@
 ---
 
 > [!WARNING]
-> **Arinn is pre-alpha.** Phase 1 implements the production core and plugin SDK. The shell binds several screens to the daemon and is still a technical prototype. It is not yet usable as an everyday HTPC shell. See the [roadmap](ROADMAP.md).
+> **Arinn is pre-alpha.** Phases 0–2 are done; Phase 3 (browser integration) is in progress. The shell binds several screens to the daemon and is still a technical prototype. It is not yet usable as an everyday HTPC shell. See the [roadmap](ROADMAP.md).
 
 ## What is Arinn?
 
@@ -111,9 +111,12 @@ These are screenshots of the **current Qt/QML interface**, rendered by the devel
 | Phase | Goal | Status |
 | --- | --- | --- |
 | 0 | Architecture spike on KDE/Wayland | ✅ Done |
-| 1 | Production core, protocol and plugin SDK | In progress |
-| 2–4 | Applications, browser, media | Planned |
-| 5 | MVP: downloads, full UI, packaging | Planned |
+| 1 | Production core, protocol and plugin SDK | ✅ Done |
+| 2 | Desktop applications, Steam, ES-DE | ✅ Done |
+| 3 | Chrome integration — first daily-usable build | In progress |
+| 4 | MPRIS, local library and mpv | Planned |
+| 5 | Downloads, full UI, persistence, packaging — MVP | Planned |
+| 6 | Rich integrations (post-MVP) | Planned |
 
 What works today: the Rust daemon, the CLI and the Qt shell; production manifest discovery, paged application state, asynchronous commands and recovery after plugin and daemon crashes. The shell mounts Home, navigation, Applications, Open services, Library (`Library1`), Continue and Now playing (`Media1`), and Settings (`Settings1`). Artwork, posters and fanart load through `Assets1`. Providers on `master` include demo, desktop, Chrome, MPRIS, the local library and mpv. The daemon serves `Browse1`; the shell has no address or search screen. Downloads, the player on-screen display and the power menu are not mounted. Global Home and focus return were verified in Phase 0 (20/20 cycles on two monitors); the migrated runtime also passed 20/20 Home/Back cycles over Chrome and real systemd restart/reload checks ([evidence](docs/architecture/phase-1-live-evidence.json)). There is no stable release yet. Details: [ROADMAP.md](ROADMAP.md) and the [Phase 0 report](docs/architecture/phase-0-report.md).
 

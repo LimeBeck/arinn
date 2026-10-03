@@ -30,10 +30,19 @@ and a fresh request id. The shell then polls the returned `Operation1` object
 until it leaves `queued` or `running`. Duplicate calls for a tab that already
 has an operation in flight are ignored.
 
-A connected daemon with no ready browser provider, or only `unavailable`
-browser backends, is `unavailable` (no browser connected). A failed snapshot is
-`error`. A successful snapshot with no tabs is `empty`. Tabs on screen are
-`populated`. The first read, before a snapshot exists, is `loading`.
+A connected daemon with healthy ready browser providers but only `unavailable`
+backends is `disconnected`: no browser is connected. Open services presents the
+normal “No open services” pane with Home and Site or search actions, rather than
+an unavailable/error pane. It does not claim a fetched empty tab snapshot or
+complete association evidence; saving an open tab stays disabled. The existing
+Home binding permits web-shortcut open requests in this state, using the daemon's
+closed-browser launch path (ADR-0055).
+
+No ready browser provider, any active provider failure among disconnected
+providers, or an unavailable daemon remains `unavailable`. A failed snapshot is
+`error`. A successful snapshot with no tabs is `empty`, with the same normal
+“No open services” copy. Tabs on screen are `populated`. The first read, before a
+snapshot exists, is `loading`.
 
 The model keeps one focused window. If more than one snapshot window is
 focused, only the first is marked. Each window keeps at most one active tab.
@@ -84,7 +93,8 @@ full address as the subline. There is no favicon and no per-product artwork.
 
 `shortcuts` entries have `id` and `title`. An `url` field on a shortcut is
 ignored. `browserState` is `populated`, `empty`, `loading`, `error` or
-`unavailable`. `populated` shows the list. Empty, loading, error and unavailable
+`unavailable`, with `disconnected` for a healthy provider without a browser
+connection. `populated` shows the list. Empty, disconnected, loading, error and unavailable
 use the same left-aligned message block and hide the list. Empty offers Home,
 which emits `backRequested()`. Error and unavailable offer Retry. Loading hides
 the action.
@@ -103,7 +113,7 @@ saved state and OK does not call `Add` again. A rejected address sets
 do not use the same label. The screen maps `InvalidArgument`, `Conflict` and
 `NotFound` to short messages. The label clears when focus moves and four
 seconds after it appears. The list position stays visible beside it. The
-control is disabled when `browserState` is `unavailable`, and `Add` is not
+control is disabled when `browserState` is `unavailable` or `disconnected`, and `Add` is not
 called; the list itself is hidden in that state. OK on the close control emits
 `closeTab` with no confirmation, including when the tab is audible. The row
 then shows "Closing…" at half opacity until the snapshot drops it, and the row

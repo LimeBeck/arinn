@@ -107,6 +107,7 @@ struct BrowserCatalog::Catalog {
   int pages = 0, focused = 0;
   qsizetype windowStart = 0, tabStart = 0;
   bool hadError = false, noBrowser = false;
+  bool disconnected = false, providerError = false;
   QStringList failedProviders;
 };
 BrowserCatalog::BrowserCatalog(QObject *parent) : QObject(parent), m_association(this) {
@@ -127,6 +128,7 @@ BrowserCatalog::BrowserCatalog(QObject *parent) : QObject(parent), m_association
             m_connected = false;
             m_loaded = false;
             m_noBrowser = false;
+            m_disconnectedBrowser = false;
             m_snapshotError = false;
             m_generation.clear();
             m_home = false;
@@ -161,8 +163,10 @@ BrowserCatalog::BrowserCatalog(QObject *parent) : QObject(parent), m_association
   refresh();
 }
 QString BrowserCatalog::browserState() const {
-  if (!m_connected || m_noBrowser)
+  if (!m_connected)
     return "unavailable";
+  if (m_noBrowser)
+    return m_disconnectedBrowser ? "disconnected" : "unavailable";
   if (!m_loaded)
     return "loading";
   if (m_snapshotError)
@@ -317,6 +321,13 @@ void BrowserCatalog::readProviders(const std::shared_ptr<Catalog> &catalog,
                 finishCatalog(catalog, false); return;
               }
               catalog->seenProviders.insert(id);
+              const bool activeError = !error.isEmpty() && recovered == 0;
+              const bool disconnected = runtime == QLatin1String("ready") &&
+                  backend == QLatin1String("unavailable") && !activeError;
+              catalog->disconnected |= disconnected;
+              catalog->providerError |= !disconnected &&
+                  (runtime != QLatin1String("ready") ||
+                   backend != QLatin1String("available") || activeError);
               if (runtime != QLatin1String("ready") || backend != QLatin1String("available") ||
                   (!error.isEmpty() && recovered == 0)) catalog->hadError = true;
               if (runtime == QLatin1String("ready") &&
@@ -519,6 +530,10 @@ void BrowserCatalog::finishCatalog(const std::shared_ptr<Catalog> &catalog,
       && catalog->owner == m_association.owner();
   m_snapshotOwner = catalog->owner;
   m_loaded = true;
+  // A disconnected browser is not a fetched empty snapshot. Keep the
+  // existing association evidence and command/save availability checks.
+  m_disconnectedBrowser = success && catalog->noBrowser &&
+      catalog->disconnected && !catalog->providerError;
   QVariantList windows, tabs;
   QHash<QString, TabRef> refs;
   QString failedProvider;

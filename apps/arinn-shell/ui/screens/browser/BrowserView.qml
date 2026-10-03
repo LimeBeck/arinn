@@ -16,10 +16,10 @@ FocusScope {
     property var windows: []
     property var shortcuts: []
     property bool interactive: true
-    property string browserState: "populated" // populated, empty, loading, error, unavailable
+    property string browserState: "populated" // populated, empty, disconnected, loading, error, unavailable
     property string operationState: ""
     property string saveError: ""
-    readonly property bool saveEnabled: browserState !== "unavailable"
+    readonly property bool saveEnabled: browserState !== "unavailable" && browserState !== "disconnected"
     readonly property string saveErrorText: {
         if (saveError === "InvalidArgument")
             return qsTr("This address cannot be saved.");
@@ -38,7 +38,7 @@ FocusScope {
     readonly property string statusKind: {
         if (showTabs)
             return "populated";
-        if (browserState === "populated" || browserState === "empty")
+        if (browserState === "populated" || browserState === "empty" || browserState === "disconnected")
             return "empty";
         if (browserState === "loading" || browserState === "error" || browserState === "unavailable")
             return browserState;
@@ -50,7 +50,7 @@ FocusScope {
         return statusKind === "empty" ? qsTr("Go to Home") : qsTr("Retry");
     }
     readonly property var stateCopy: ({
-        empty: [qsTr("Nothing open"), qsTr("Services you open from Home will appear here.")],
+        empty: [qsTr("No open services"), qsTr("Services you open from Home will appear here.")],
         loading: [qsTr("Loading tabs"), qsTr("The tab list is loading.")],
         error: [qsTr("Tabs unavailable"), qsTr("The tab list could not be loaded.")],
         unavailable: [qsTr("Browser unavailable"), qsTr("Online services cannot be opened right now. Library, downloads and games still work.")]

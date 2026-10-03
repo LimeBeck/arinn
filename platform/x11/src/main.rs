@@ -155,6 +155,11 @@ impl Actor {
         let Some(shell) = self.snapshot.shell else {
             return "Unavailable";
         };
+        // A hidden (unlisted) shell has no lifetime and cannot be the input
+        // layer over the video (ADR-0046).
+        if self.snapshot.shell_token.is_empty() {
+            return "Unavailable";
+        }
         if !self.snapshot.compositor {
             return "Unsupported";
         }
@@ -760,6 +765,41 @@ mod tests {
     }
     #[test]
     #[ignore = "requires Xvfb; spawns an isolated server and synthetic EWMH manager"]
+    fn hidden_shell_allows_home_but_not_presentation() -> Result<()> {
+        let desktop = native::fixture::Desktop::new()?;
+        let launch = Uuid::new_v4().to_string();
+        let shell = desktop.client("org.arinn.Shell", "")?;
+        let video = desktop.client("org.example.Player.desktop", &launch)?;
+        desktop.inventory(&[video], video)?;
+        desktop.compositing(true)?;
+        let mut native = Native::connect_display(Some(&desktop.display))?;
+        let snapshot = native.snapshot()?;
+        assert_eq!(snapshot.shell, Some(shell));
+        assert!(snapshot.shell_token.is_empty());
+        let token = snapshot.rows[0].token.clone();
+        let mut actor = Actor {
+            native,
+            snapshot,
+            home: false,
+            target: String::new(),
+            presentation: None,
+            media_allowed: true,
+        };
+        assert_eq!(actor.present(&token), "Unavailable");
+        assert!(actor.presentation.is_none());
+        assert_eq!(actor.command(&Command::Home("home".into()), true), "");
+        assert!(actor.home);
+        assert_eq!(actor.target, token);
+        // Once the shell maps and is listed, it has a lifetime.
+        desktop.inventory(&[shell, video], shell)?;
+        actor.refresh(true)?;
+        assert!(!actor.snapshot.shell_token.is_empty());
+        assert_eq!(actor.command(&Command::Home("return".into()), true), "");
+        assert_eq!(actor.present(&token), "");
+        Ok(())
+    }
+    #[test]
+    #[ignore = "requires Xvfb; spawns an isolated server and synthetic EWMH manager"]
     fn isolated_home_return_and_video_lifecycle() -> Result<()> {
         let desktop = native::fixture::Desktop::new()?;
         let launch = Uuid::new_v4().to_string();
@@ -848,7 +888,7 @@ mod tests {
     #[test]
     #[ignore = "requires Xvfb; isolated focus and shell lifetime regressions"]
     fn unrelated_focus_and_shell_loss_restore_exact_presentation() -> Result<()> {
-        for scenario in ["focus", "destroy", "replace", "retire"] {
+        for scenario in ["focus", "destroy", "replace", "retire", "retire-destroy"] {
             let desktop = native::fixture::Desktop::new()?;
             let launch = Uuid::new_v4().to_string();
             let mut shell = desktop.client("org.arinn.Shell", "")?;
@@ -887,7 +927,15 @@ mod tests {
                     desktop.inventory(&[replacement, video, other], replacement)?;
                 }
                 "retire" => {
-                    // Destroy ends shell tracking even if a new shell XID later maps.
+                    // Inventory removal ends the lifetime even if the XID
+                    // returns; the hidden root child is found only for Home.
+                    desktop.inventory(&[video, other], video)?;
+                    actor.native.snapshot()?;
+                    desktop.inventory(&[shell, video, other], shell)?;
+                }
+                "retire-destroy" => {
+                    // A destroyed shell is not found again; a new shell XID
+                    // starts a new lifetime.
                     desktop.inventory(&[video, other], video)?;
                     desktop.c.destroy_window(shell)?.check()?;
                     actor.native.snapshot()?;

@@ -9,6 +9,7 @@
 #include <QSet>
 #include <QUuid>
 #include <QtDBus>
+#include <utility>
 #include <QtQml>
 #include <algorithm>
 #include <limits>
@@ -725,6 +726,12 @@ void LibraryCatalog::finishCatalog(const std::shared_ptr<Catalog> &catalog,
     m_collections = catalog->collections;
   }
   publish();
+  if (!m_pendingLocal.isEmpty()) {
+    const auto provider = std::exchange(m_pendingProvider, QString());
+    const auto local = std::exchange(m_pendingLocal, QString());
+    setOperation(QString());
+    launchContent(provider, local);
+  }
   if (m_dirty)
     QTimer::singleShot(0, this, &LibraryCatalog::refresh);
 }
@@ -788,6 +795,14 @@ void LibraryCatalog::launchContent(const QString &providerId,
       launch(item.id);
       return;
     }
+  }
+  // Home can show a stopped film before the first catalog read finishes.
+  // Launch it when that read completes instead of reporting NotFound.
+  if (!m_loaded || m_refreshing) {
+    m_pendingProvider = providerId;
+    m_pendingLocal = localId;
+    setOperation(QStringLiteral("queued"));
+    return;
   }
   setOperation(QStringLiteral("NotFound"));
 }

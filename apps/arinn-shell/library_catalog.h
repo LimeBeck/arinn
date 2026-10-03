@@ -106,6 +106,7 @@ private:
   QList<CollectionRow> m_collections;
   QString m_operation;
   QString m_launchingId;
+  QString m_pendingProvider, m_pendingLocal;
   bool m_connected = false, m_loaded = false, m_error = false,
        m_unreachable = false, m_refreshing = false, m_dirty = false;
   quint64 m_epoch = 0, m_commandTicket = 0;

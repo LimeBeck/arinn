@@ -121,6 +121,16 @@ list, so the session itself still loads.
 | `MediaTracks1` | `ListTracks`, `SelectTrack` and `DisableSubtitles`. The subtitle sheet starts with Off, a shell-only id. Choosing it calls `DisableSubtitles` and never `SelectTrack` |
 | `MediaTimeline1` | `GetTimeline` supplies chapter positions and the buffered range that contains the playhead. `RequestThumbnail` runs when the timeline is focused and again for a seek target. The operation result's `local_id` becomes the `thumbnail` URL. A failure leaves the previous URL |
 
+A Continue card for a **stopped** session whose content reference has the
+`library` capability opens neither screen. A stopped session has nothing to
+present (its launch id is empty, see [managed playback](managed-playback.md)),
+so `Main.qml` calls `LibraryCatalog.launchContent(provider, local)`, which is
+`Library1.Launch` for that item, and the library applies the stored resume
+position. The player then opens from `sessionLaunched`, as for a library
+Play. When the library catalog is still being read, the launch waits for the
+read to finish. A failure (`NotFound`, `Unavailable`, `Timeout` and so on)
+shows the library's operation message on Home.
+
 A library launch opens this screen when the provider lists one of those
 flags, and also while the new session is not in the snapshot yet. When that
 row arrives without the flags, production uses `SessionView` instead. The

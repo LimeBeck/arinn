@@ -6,6 +6,7 @@
 #include "backend.h"
 #include "sessionlifecycle.h"
 #include "shell_window.h"
+#include "startup_home.h"
 #include <QDBusConnection>
 #include <QDBusConnectionInterface>
 #include <QGuiApplication>
@@ -62,5 +63,6 @@ int main(int argc, char **argv) {
                        }
                      }
                    });
+  StartupHome startupHome(sessionGuard);
   return app.exec();
 }

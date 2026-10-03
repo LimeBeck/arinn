@@ -22,6 +22,19 @@ The observer executes independently of the application's daemon transport.
 
 ## Verified
 
+The production shell constructs `StartupHome` after loading its window. It waits
+for the independent lifecycle guard to confirm an unlocked session, then sends
+the existing `Daemon1.Home` command asynchronously. Unavailable daemon/platform
+responses retry once per second with at most one outstanding request. A successful
+acceptance ends the startup intent for that shell process; subsequent state
+refreshes, daemon reconnects and lock/unlock never replay it. Visibility continues
+to follow daemon state and the lifecycle guard, without a synthetic Home result.
+This implements the startup Home requirement of AC-01; actual login/TV acceptance
+remains an operator test. `shell-startup-home` launches the production executable
+on private session/system buses with an offscreen display and synthetic daemon
+and ScreenSaver services to test startup, delayed platform readiness, locked and
+unknown initial states, and absence of later replay.
+
 The `session-lifecycle` CTest runs on a dedicated private bus and uses real D-Bus subscriptions to fake ScreenSaver and login1 services: lock/unlock, sleep/wake, unlock during sleep, ScreenSaver owner disappearing and returning. It also covers absent/unknown lock state, stale unlocked replies after lock,
 owner loss or sleep/wake, and production window hiding with Daemon1 absent or
 owning its name without replying. Wake keeps the window hidden until a fresh

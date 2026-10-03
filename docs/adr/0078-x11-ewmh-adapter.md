@@ -4,7 +4,7 @@
 - **Date:** 2026-10-03
 - **Deciders:** Owner requested generic EWMH support while retaining Wayland; implementation prepared by Codex, owner review and merge pending
 - **Amends / Supersedes:** ADR-0040
-- **Amended by / Superseded by:** —
+- **Amended by / Superseded by:** [ADR-0080](0080-mvp-platforms.md) — an MVP platform
 - **Specification:** §6.3, §6.4, §8.5, §12; AC-16, AC-18, R-01, R-05, R-10
 
 ## Context

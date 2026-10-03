@@ -6,7 +6,7 @@
 | **Status** | Current — the single source of current requirements ([ADR-0028](../adr/0028-documentation-governance.md)) |
 | **Date** | 2026-09-28 |
 | **Supersedes** | [Developer Specification v0.3](developer-specification-v0.3.md) (Russian, kept unchanged as history) |
-| **Target platform** | Linux HTPC, KDE Plasma 6 on Wayland |
+| **Target platform** | Linux HTPC: KDE Plasma 6 on Wayland and X11 desktops with an EWMH window manager (XFCE first) |
 | **Primary UX** | TV-first, D-pad-first, air mouse supported |
 | **Architecture principle** | Plugin-first, capability-based API |
 
@@ -104,7 +104,7 @@ Arinn is a **shared household device** used by two people. Version 1 has no logi
 ### 4.2. Target environment
 
 - **Operating system:** Arch Linux / EndeavourOS (first official target); the architecture MUST NOT depend on pacman.
-- **Desktop:** KDE Plasma 6 on Wayland.
+- **Desktop:** the MVP runs on two platforms: KDE Plasma 6 on Wayland, and an X11 session with an EWMH window manager, XFCE first (P-09, [ADR-0080](../adr/0080-mvp-platforms.md)). Arinn MUST NOT depend on a particular desktop environment outside its platform adapters; GNOME and wlroots Wayland adapters are post-MVP.
 - **Display:** the target HTPC has **one screen** ([ADR-0031](../adr/0031-single-screen-target.md)). Multi-monitor behaviour ([§12.2](#122-overlay-and-output-selection)) is implementation robustness verified on the development machine, not a product requirement.
 - **Input:** keyboard-compatible remote and air mouse. The Air Mouse G60S Pro (BT/2.4G, Russian layout) emits standard keyboard and mouse events (P-05, P-07); no dedicated remote integration is needed ([ADR-0030](../adr/0030-phase0-machine-and-standard-input.md)).
 - **Development and Phase 0 verification** run on the development machine, which is technically equivalent to the HTPC (P-06). Final acceptance is repeated on the target HTPC at deployment.
@@ -127,6 +127,7 @@ Explicit answers of the project owner on 2026-09-27. They were recorded as ADR-0
 | P-06 | The development machine is technically equivalent to the HTPC and is used for the technical spike; it has two monitors. |
 | P-07 | The remote maps to standard keys, including Backspace and Esc. |
 | P-08 | The target HTPC has one screen; two monitors belong to the development machine. |
+| P-09 | Arinn runs on any Linux desktop environment through platform adapters. The MVP is accepted on KDE Plasma 6/Wayland and on an X11/EWMH desktop (XFCE first); owner decision on 2026-10-03 ([ADR-0080](../adr/0080-mvp-platforms.md)). |
 
 ---
 
@@ -539,9 +540,10 @@ and the [KWin transport contract](../architecture/kwin-transport.md).
 **Additional generic adapter (owner request, 2026-10-03).** An opt-in X11/EWMH
 backend supports normal window inventory, activation/close, global Home and
 exact-target Return, plus managed playback presentation with compositing.
-Wayland remains available and the MVP target is unchanged. Generic desktop,
-output placement, background capture and TV qualification remain pending; no
-acceptance criteria or phase gates are declared passed. See
+Wayland remains available. Since 2026-10-03 the X11/EWMH platform is an MVP
+platform alongside KDE Plasma 6 on Wayland (P-09, [ADR-0080](../adr/0080-mvp-platforms.md)).
+Output placement, background capture and XFCE/TV qualification remain pending;
+no acceptance criteria or phase gates are declared passed. See
 [EWMH implementation and limitations](../architecture/x11-ewmh.md) and
 [ADR-0078](../adr/0078-x11-ewmh-adapter.md).
 
@@ -692,7 +694,7 @@ records the shared components.
 
 ## 18. Packaging, distribution and licensing
 
-- The first official target is Arch Linux / EndeavourOS with KDE Plasma 6 on Wayland; the architecture does not depend on pacman.
+- The first official target is Arch Linux / EndeavourOS with KDE Plasma 6 on Wayland or an X11/EWMH desktop such as XFCE (P-09); the architecture does not depend on pacman.
 - `arinnd` runs as a user service bound to the graphical session; the shell starts from the session autostart after Plasma login; no duplicate instances. After login Arinn starts automatically and shows Home (AC-01).
 - Packaging installs binaries, plugin manifests, the KWin script, the Chrome extension and the Native Messaging manifest. The Arch package recipe is `packaging/arch/PKGBUILD`; every full CI run builds, installs and smoke-tests it ([§17.1](#171-continuous-integration-and-delivery)). Releases are published on GitHub Releases; an AUR package follows in Phase 5.
 - Licensing ([ADR-0029](../adr/0029-licensing.md)): core, shell, CLI, platform adapter and Arinn's plugins are `GPL-3.0-or-later`; `arinn-protocol`, the plugin SDK and interface XML are `MIT OR Apache-2.0` so third-party plugins may use any license; documentation is `CC-BY-SA-4.0`. Contributions require the [Contributor License Agreement](../../CLA.md). The repository contains no third-party logos; production builds must use service icons whose licenses allow it, or neutral placeholders.
@@ -775,6 +777,8 @@ Each question needs a decision by the project owner. The recommendation is the p
 ---
 
 ## 22. Changes from v0.3
+
+Owner decision on 2026-10-03 (no version change): the MVP is accepted on KDE Plasma 6/Wayland and on an X11/EWMH desktop, XFCE first (P-09, ADR-0080).
 
 Owner decisions after the `v0.1.0` pre-release (2026-09-28, no version change): OQ-01 (the shell is the input layer during managed playback, ADR-0046), OQ-04 (Plasma handles media and volume keys outside the shell) and OQ-05 (New is not part of the MVP) are resolved; web shortcut text entry uses a hardware keyboard in the MVP.
 

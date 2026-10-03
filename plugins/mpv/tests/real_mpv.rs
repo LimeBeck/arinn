@@ -4,8 +4,8 @@
 //! Real mpv with a null output, when the binary is installed.
 //! The Rust CI image does not install mpv; this test skips there.
 
-use arinn_plugin_mpv::{Launch, Player, Settings, arguments};
-use arinn_plugin_sdk::runtime::MediaAction;
+use arinn_plugin_mpv::{Launch, Player, Settings, ThumbnailAssets, arguments};
+use arinn_plugin_sdk::runtime::{AssetHandler, MediaAction};
 use arinn_protocol::{media::MediaSource, production::EntityRef};
 use std::{
     os::unix::fs::PermissionsExt,
@@ -80,8 +80,8 @@ async fn null_output_plays_a_generated_file() {
         state_path: folder.join("session"),
         launch: Launch::External,
         publish_interval: Duration::from_secs(1),
-        ffmpeg: None,
-        thumb_dir: PathBuf::new(),
+        ffmpeg: Some(PathBuf::from("/usr/bin/ffmpeg")),
+        thumb_dir: folder.join("thumbs"),
         backend: "available".into(),
     })
     .unwrap();
@@ -115,6 +115,40 @@ async fn null_output_plays_a_generated_file() {
         .unwrap();
     let paused = player.view().await.unwrap();
     assert_eq!(paused.sessions[0].state, "paused");
+    // #292: a paused session gets a card frame of its position, once.
+    let mut last = None;
+    let mut asset = None;
+    for _ in 0..20 {
+        asset = player
+            .refresh_poster(&mut last, Duration::from_secs(30))
+            .await;
+        if asset.is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    let asset = asset.expect("a card frame of the paused position");
+    let mut published = String::new();
+    for _ in 0..30 {
+        published = player.view().await.unwrap().sessions[0].artwork.clone();
+        if published == asset {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert_eq!(published, asset);
+    let served = ThumbnailAssets::new(folder.join("thumbs"))
+        .asset(asset.clone())
+        .await
+        .unwrap();
+    assert_eq!(served.mime, "image/jpeg");
+    assert!(
+        player
+            .refresh_poster(&mut last, Duration::from_secs(30))
+            .await
+            .is_none(),
+        "same paused position: no new frame"
+    );
     player
         .control(MediaAction::Seek, id.clone(), 1_500_000)
         .await

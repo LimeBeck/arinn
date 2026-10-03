@@ -1,0 +1,1 @@
+- The Now playing and Continue cards on Home show a frame of the film's current position instead of a letter (mpv provider).

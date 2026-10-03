@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Arinn contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! KWin-specific bridge, isolated from capability routing.
+//! Trusted platform bridge, isolated from capability routing.
 use arinn_protocol::{
     Status, production,
     validation::{self, ErrorCode},
@@ -64,7 +64,12 @@ impl Platform {
             .await
             .map_err(|_| ErrorCode::Unavailable)?;
         let owner = dbus
-            .get_name_owner("org.kde.KWin".try_into().unwrap())
+            .get_name_owner(
+                adapter_service()
+                    .ok_or(ErrorCode::PermissionDenied)?
+                    .try_into()
+                    .unwrap(),
+            )
             .await
             .map_err(|_| ErrorCode::PermissionDenied)?;
         if h.sender().map(|s| s.as_str()) != Some(owner.as_str()) {
@@ -123,5 +128,33 @@ impl Platform {
         s.fullscreen = fullscreen;
         s.active_output = output.into();
         Ok(())
+    }
+}
+
+/// One backend per daemon process; never accept both adapter owners at once.
+pub fn adapter_service() -> Option<&'static str> {
+    match std::env::var("ARINN_PLATFORM_BACKEND") {
+        Ok(value) => selected_service(Some(&value)),
+        Err(std::env::VarError::NotPresent) => selected_service(None),
+        Err(std::env::VarError::NotUnicode(_)) => None,
+    }
+}
+fn selected_service(value: Option<&str>) -> Option<&'static str> {
+    match value {
+        None | Some("kde") => Some("org.kde.KWin"),
+        Some("ewmh") => Some("org.arinn.X11"),
+        // Invalid configuration fails closed instead of trusting KWin implicitly.
+        _ => None,
+    }
+}
+#[cfg(test)]
+mod selection_tests {
+    #[test]
+    fn explicit_backend_selects_one_trusted_owner() {
+        use super::selected_service;
+        assert_eq!(selected_service(None), Some("org.kde.KWin"));
+        assert_eq!(selected_service(Some("kde")), Some("org.kde.KWin"));
+        assert_eq!(selected_service(Some("ewmh")), Some("org.arinn.X11"));
+        assert_eq!(selected_service(Some("auto")), None);
     }
 }

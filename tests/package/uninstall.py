@@ -35,6 +35,8 @@ UNIT_NAMES = {
     "arinnd.service",
     "arinn-shell.service",
     "arinn-kwin.service",
+    "arinn-ewmh.service",
+    "arinn-ewmh-session.target",
 }
 
 SYSTEMD_DIRS = (
@@ -66,15 +68,19 @@ MANIFEST_DIRS = (
 # `pacman -Qlq` instead of this list.
 SAMPLE_FILES = [
     "usr/bin/arinnd",
+    "usr/bin/arinn-platform-x11",
     "usr/bin/arinnctl",
     "usr/bin/arinn-shell",
     "usr/lib/arinn/plugins/arinn-plugin-demo",
     "usr/lib/arinn/arinn-kwin-adapter",
+    "usr/lib/arinn/arinn-shell-launch",
     "usr/lib/arinn/arinn-chrome-host",
     "usr/lib/systemd/user/arinn-session.target",
     "usr/lib/systemd/user/arinnd.service",
     "usr/lib/systemd/user/arinn-shell.service",
     "usr/lib/systemd/user/arinn-kwin.service",
+    "usr/lib/systemd/user/arinn-ewmh.service",
+    "usr/lib/systemd/user/arinn-ewmh-session.target",
     "usr/share/arinn/plugins/demo.toml",
     "usr/share/arinn/plugins/mpris.toml",
     "usr/lib/arinn/plugins/arinn-plugin-transmission",

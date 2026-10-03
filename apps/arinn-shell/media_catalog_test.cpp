@@ -24,7 +24,9 @@ namespace KWin {
 class TestWindow : public QObject {
   Q_OBJECT
   Q_PROPERTY(QString resourceClass MEMBER appId)
+  Q_PROPERTY(QString resourceName MEMBER instance)
 public:
+  QString instance;
   QString appId = QStringLiteral("org.arinn.Playback.aaaaaaaa-0000-4000-8000-000000000001");
 };
 class XdgToplevelWindow final : public TestWindow { Q_OBJECT };
@@ -507,6 +509,10 @@ private slots:
     QVERIFY(wrapped.property(QStringLiteral("waylandClient")).isUndefined());
     const auto launch = engine.globalObject().property(QStringLiteral("launchId"));
     QCOMPARE(launch.call({wrapped}).toString(), QStringLiteral("aaaaaaaa-0000-4000-8000-000000000001"));
+    QCOMPARE(launch.call({engine.newQObject(&x11)}).toString(), QString());
+    x11.instance = QStringLiteral("org.arinn.playback.aaaaaaaa-0000-4000-8000-000000000001");
+    QCOMPARE(launch.call({engine.newQObject(&x11)}).toString(), QStringLiteral("aaaaaaaa-0000-4000-8000-000000000001"));
+    x11.instance = QStringLiteral("org.arinn.playback.00000000-0000-0000-0000-000000000000");
     QCOMPARE(launch.call({engine.newQObject(&x11)}).toString(), QString());
     KWin::TestWindow base;
     QCOMPARE(launch.call({engine.newQObject(&base)}).toString(), QString());

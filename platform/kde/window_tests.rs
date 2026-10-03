@@ -48,7 +48,11 @@ impl Fixture {
         let provider = connect(&address).await;
         let stranger = connect(&address).await;
         server.request_name(production::SERVICE).await.unwrap();
-        kwin.request_name("org.kde.KWin").await.unwrap();
+        kwin.request_name(
+            crate::platform::adapter_service().unwrap_or("org.arinn.InvalidPlatformBackend"),
+        )
+        .await
+        .unwrap();
         let folder = std::env::temp_dir().join(format!("arinn-windows-{}", Uuid::new_v4()));
         std::fs::create_dir(&folder).unwrap();
         let core = Core::new(
@@ -1152,4 +1156,68 @@ async fn late_authorized_home_cannot_overwrite_a_new_owners_commit() {
         assert_eq!(association.target, newest_target);
         assert!(association.window.is_empty());
     }
+}
+
+#[tokio::test]
+async fn selected_adapter_owner_excludes_the_other_backend() {
+    let f = Fixture::new().await;
+    let selected = crate::platform::adapter_service().unwrap();
+    let other = if selected == "org.arinn.X11" {
+        "org.kde.KWin"
+    } else {
+        "org.arinn.X11"
+    };
+    f.stranger.request_name(other).await.unwrap();
+    let untrusted = KWinBridgeProxy::new(&f.stranger).await.unwrap();
+    assert_eq!(
+        crate::runtime::normalize_error(
+            untrusted
+                .connect(&Uuid::new_v4().to_string())
+                .await
+                .unwrap_err()
+        ),
+        ErrorCode::PermissionDenied
+    );
+    let trusted = KWinBridgeProxy::new(&f.kwin).await.unwrap();
+    let generation = trusted.connect(&Uuid::new_v4().to_string()).await.unwrap();
+    trusted.begin_inventory(&generation, 1, 0).await.unwrap();
+    trusted.commit_inventory(&generation, 1).await.unwrap();
+    f.kwin.release_name(selected).await.unwrap();
+    assert!(trusted.begin_inventory(&generation, 2, 0).await.is_err());
+}
+
+#[tokio::test]
+async fn invalid_backend_rejects_even_a_claimed_sentinel_name() {
+    if crate::platform::adapter_service().is_some() {
+        return;
+    }
+    let f = Fixture::new().await;
+    let caller = KWinBridgeProxy::new(&f.kwin).await.unwrap();
+    assert_eq!(
+        crate::runtime::normalize_error(
+            caller
+                .connect(&Uuid::new_v4().to_string())
+                .await
+                .unwrap_err()
+        ),
+        ErrorCode::PermissionDenied
+    );
+    f.core
+        .connection
+        .object_server()
+        .at(
+            production::PATH,
+            crate::runtime::Daemon {
+                core: f.core.clone(),
+            },
+        )
+        .await
+        .unwrap();
+    let home = arinn_protocol::production::ProductionDaemonProxy::new(&f.kwin)
+        .await
+        .unwrap();
+    assert_eq!(
+        crate::runtime::normalize_error(home.report_home_request("", "").await.unwrap_err()),
+        ErrorCode::PermissionDenied
+    );
 }

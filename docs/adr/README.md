@@ -58,9 +58,9 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0037](0037-agent-autonomy-and-owner-gated-decisions.md) | Agent autonomy and owner-gated decisions | Accepted | 0068, 0072 |
 | [0038](0038-browser-launch-ownership.md) | Browser launch ownership | Accepted | 0043 |
 | [0039](0039-platform-window-contract.md) | Platform window snapshot and control contract | Accepted | — |
-| [0040](0040-kwin-inventory-transport.md) | Trusted KWin inventory transport and SDK registration context | Accepted | — |
+| [0040](0040-kwin-inventory-transport.md) | Trusted KWin inventory transport and SDK registration context | Accepted | 0078 |
 | [0041](0041-independent-session-lifecycle-guard.md) | Daemon-independent session lifecycle guard | Accepted | — |
-| [0042](0042-opt-in-session-autostart.md) | Opt-in session autostart through packaged systemd user units | Accepted | — |
+| [0042](0042-opt-in-session-autostart.md) | Opt-in session autostart through packaged systemd user units | Accepted | 0077 |
 | [0043](0043-web-shortcuts.md) | Arinn-owned web shortcuts for online-service tiles | Accepted | 0045, 0051, 0075 |
 | [0044](0044-docs-only-ci-scope.md) | Documentation-only pull requests skip the build jobs | Accepted | 0049 |
 | [0045](0045-local-http-web-shortcuts.md) | Plain HTTP web shortcuts for local-network hosts | Accepted | — |
@@ -91,7 +91,9 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0071](0071-settings-editor-contract.md) | Settings editor contract (integer unit, folder listing, library root availability) | Accepted | — |
 | [0072](0072-cross-agent-code-review.md) | Cross-agent code review before merging | Accepted | — |
 | [0073](0073-return-window-association.md) | Optional Return-to-platform-window association | Accepted | — |
-| [0074](0074-managed-playback-window.md) | Explicit managed playback window identity | Accepted | — |
+| [0074](0074-managed-playback-window.md) | Explicit managed playback window identity | Accepted | 0077 |
 | [0075](0075-web-shortcut-site-icons.md) | Bounded provider-owned web shortcut site icons | Accepted | — |
 | [0076](0076-shell-focus-ownership.md) | Shell focus ownership | Accepted | — |
+| [0077](0077-kde-x11-session.md) | Optional KDE Plasma X11 session | Proposed | — |
+| [0078](0078-x11-ewmh-adapter.md) | Optional generic X11/EWMH adapter | Proposed | — |
 <!-- register:end -->

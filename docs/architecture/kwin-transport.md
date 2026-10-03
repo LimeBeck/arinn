@@ -18,8 +18,10 @@ uses seven inputs plus the callback. Counts, revisions and flags are signed int3
 ## Identity and lifetime
 
 `org.arinn.KWinBridge1` is exported by the daemon at `/org/arinn/Daemon1`. Every
-method authenticates the sender as the current unique owner of `org.kde.KWin`,
-using the existing trusted-platform boundary. Plugins cannot submit inventories
+method authenticates the sender as the current unique owner of the explicitly
+selected platform: `org.kde.KWin` by default, or `org.arinn.X11` for optional
+EWMH mode ([ADR-0078](../adr/0078-x11-ewmh-adapter.md)). The existing trusted-platform
+boundary accepts only one adapter owner at a time. Only the selected name owner can submit inventories
 or acknowledge commands. No script, expression, title, URL or executable is sent.
 
 `Connect(instance)` takes a non-nil UUID identifying one loaded adapter instance.
@@ -115,3 +117,7 @@ production staging, leases, authorization, queue limits and acknowledgements on
 private buses, plus deterministic adapter behavior. Actual KWin JavaScript
 marshalling and real-session behavior remain operator qualification work.
 No Phase 2 gate or live desktop criterion is closed here.
+
+In EWMH mode, owning `org.arinn.X11` is the identity check; the daemon does not
+attest executable, unit or cgroup identity. Same-user processes can claim the name
+when it is unowned. See [X11 runtime assumptions](x11-ewmh.md#runtime-and-identity).

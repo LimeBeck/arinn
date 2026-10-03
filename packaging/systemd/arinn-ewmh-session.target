@@ -1,0 +1,12 @@
+# SPDX-FileCopyrightText: 2026 Arinn contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+[Unit]
+Description=Arinn optional X11 EWMH session
+Documentation=https://github.com/LimeBeck/arinn
+Requisite=graphical-session.target
+PartOf=graphical-session.target
+After=graphical-session.target
+Conflicts=arinn-session.target arinn-kwin.service
+Wants=graphical-session.target arinnd.service arinn-shell.service arinn-ewmh.service
+[Install]
+WantedBy=graphical-session.target

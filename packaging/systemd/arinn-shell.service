@@ -4,7 +4,7 @@
 Description=Arinn TV shell
 Documentation=https://github.com/LimeBeck/arinn
 Wants=arinnd.service
-PartOf=graphical-session.target arinn-session.target
+PartOf=graphical-session.target arinn-session.target arinn-ewmh-session.target
 After=graphical-session.target arinnd.service
 StartLimitIntervalSec=60s
 StartLimitBurst=5
@@ -13,9 +13,9 @@ StartLimitBurst=5
 # Ready once it owns its bus name; a second instance exits without a window.
 Type=dbus
 BusName=org.arinn.Shell1
-ExecStart=/usr/bin/arinn-shell
-Environment=QT_QPA_PLATFORM=wayland
+ExecStart=/usr/lib/arinn/arinn-shell-launch
 Restart=on-failure
-# Exit status 2: another shell owns org.arinn.Shell1; restarting cannot help.
+# Exit status 2: duplicate shell ownership, unsupported backend, or display
+# mismatch in the launcher; the journal reason distinguishes these cases.
 RestartPreventExitStatus=2
 RestartSec=2s

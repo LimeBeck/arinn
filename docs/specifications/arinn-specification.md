@@ -511,6 +511,14 @@ Favorites survive removal of their provider and are marked unavailable. Browser 
 
 ## 12. Platform integration (KDE Plasma 6 / Wayland)
 
+**Additional session mode (owner request, 2026-10-03).** KDE Plasma 6/X11 is an
+optional implementation alongside the unchanged Wayland MVP target. It reuses
+the KWin platform adapter, with Qt `xcb` and a per-launch X11 window instance
+identity for managed playback. Real X11/TV qualification remains pending; this
+does not mark an acceptance criterion passed. General EWMH support for other
+desktops is implemented separately in #268 under parent #186. See [KDE/X11](../architecture/kde-x11.md) and
+[ADR-0077](../adr/0077-kde-x11-session.md).
+
 Wayland constraints: applications cannot control foreign windows, focus stealing is restricted, global hotkeys and overlay semantics depend on the compositor. Window management therefore stays in the platform layer.
 
 The pre-stable provider-facing window enumeration and control bindings are defined
@@ -520,6 +528,15 @@ bindings and isolated fixtures exist; the production daemon/KDE implementation
 and Phase 2 qualification remain pending. The internal trusted-adapter transport
 and SDK registration context are specified by [ADR-0040](../adr/0040-kwin-inventory-transport.md)
 and the [KWin transport contract](../architecture/kwin-transport.md).
+
+**Additional generic adapter (owner request, 2026-10-03).** An opt-in X11/EWMH
+backend supports normal window inventory, activation/close, global Home and
+exact-target Return, plus managed playback presentation with compositing.
+Wayland remains available and the MVP target is unchanged. Generic desktop,
+output placement, background capture and TV qualification remain pending; no
+acceptance criteria or phase gates are declared passed. See
+[EWMH implementation and limitations](../architecture/x11-ewmh.md) and
+[ADR-0078](../adr/0078-x11-ewmh-adapter.md).
 
 ### 12.1. Global Home
 

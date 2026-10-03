@@ -10,3 +10,6 @@ qt_standard_project_setup()
 enable_testing()
 add_subdirectory(apps/arinn-shell)
 add_subdirectory(scripts/perf)
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+add_test(NAME shell-session-selector
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/package/test_shell_launcher.py)

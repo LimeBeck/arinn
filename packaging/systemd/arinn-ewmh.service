@@ -1,0 +1,14 @@
+# SPDX-FileCopyrightText: 2026 Arinn contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+[Unit]
+Description=Arinn generic X11 EWMH platform adapter
+Documentation=https://github.com/LimeBeck/arinn
+PartOf=graphical-session.target arinn-ewmh-session.target
+After=graphical-session.target arinnd.service
+[Service]
+Type=dbus
+BusName=org.arinn.X11
+Environment=ARINN_PLATFORM_BACKEND=ewmh
+ExecStart=/usr/bin/arinn-platform-x11
+Restart=on-failure
+RestartSec=3s

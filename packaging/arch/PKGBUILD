@@ -15,8 +15,7 @@ url='https://github.com/LimeBeck/arinn'
 license=('GPL-3.0-or-later' 'MIT OR Apache-2.0' 'CC-BY-SA-4.0')
 depends=('gcc-libs' 'glibc' 'glib2>=2.86' 'dbus' 'systemd' 'qt6-base' 'qt6-declarative' 'qt6-svg')
 optdepends=('mpv: local file playback' 'ffmpeg: seek thumbnails for the mpv provider; video duration and audio/subtitle languages for the library provider' 'transmission-cli: local Transmission daemon for the download provider')
-makedepends=('cargo' 'cmake' 'ninja')
-checkdepends=('python')
+makedepends=('cargo' 'cmake' 'ninja' 'python')
 options=('!lto')
 install=arinn.install
 source=("${pkgname}-${pkgver}.tar.gz")
@@ -55,6 +54,7 @@ check() {
 package() {
   cd "${pkgname}-${pkgver}"
   local target="${CARGO_TARGET_DIR:-target}"
+  install -Dm755 "${target}"/release/arinn-platform-x11 "${pkgdir}/usr/bin/arinn-platform-x11"
   install -Dm755 "${target}"/release/arinnd "${pkgdir}/usr/bin/arinnd"
   install -Dm755 "${target}"/release/arinnctl "${pkgdir}/usr/bin/arinnctl"
   install -Dm755 build/apps/arinn-shell/arinn-shell "${pkgdir}/usr/bin/arinn-shell"
@@ -86,9 +86,11 @@ package() {
   install -Dm644 packaging/browser/search-engines.toml "${pkgdir}/usr/share/arinn/search-engines.toml"
   install -Dm644 platform/kde/phase0.js "${pkgdir}/usr/share/arinn/kwin/phase0.js"
   install -Dm755 platform/kde/arinn-kwin-adapter "${pkgdir}/usr/lib/arinn/arinn-kwin-adapter"
+  install -Dm755 platform/kde/arinn-shell-launch "${pkgdir}/usr/lib/arinn/arinn-shell-launch"
   # Session units are installed but never enabled by the package (ADR-0042).
   install -Dm644 packaging/systemd/arinn-session.target packaging/systemd/arinnd.service \
     packaging/systemd/arinn-shell.service packaging/systemd/arinn-kwin.service \
+    packaging/systemd/arinn-ewmh.service packaging/systemd/arinn-ewmh-session.target \
     -t "${pkgdir}/usr/lib/systemd/user/"
   install -Dm644 README.md CHANGELOG.md -t "${pkgdir}/usr/share/doc/${pkgname}/"
   install -Dm644 LICENSES/*.txt -t "${pkgdir}/usr/share/licenses/${pkgname}/"

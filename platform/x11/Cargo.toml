@@ -1,0 +1,15 @@
+# SPDX-FileCopyrightText: 2026 Arinn contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+[package]
+name = "arinn-platform-x11"
+version.workspace = true
+edition.workspace = true
+license = "GPL-3.0-or-later"
+repository.workspace = true
+[dependencies]
+anyhow.workspace = true
+arinn-protocol.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+zbus.workspace = true
+x11rb = { version = "0.14", features = ["xtest"] }

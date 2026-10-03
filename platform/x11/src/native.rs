@@ -192,7 +192,7 @@ impl Native {
             [] => bail!("{NAME}: length 0 has no valid window id"),
             [0] => None,
             [id] => Some(*id),
-            [id, 0] if *id != 0 => Some(*id),
+            [id, _] if *id != 0 => Some(*id),
             [0, id] if *id != 0 => Some(*id),
             [_, _] => bail!("{NAME}: length 2 has no valid window id"),
             [_, _, _, ..] => bail!("{NAME}: length {length} exceeds maximum 2 CARD32"),
@@ -832,7 +832,7 @@ pub(crate) mod fixture {
         let video = desktop.client("org.example.Player.desktop", "")?;
         desktop.inventory(&[shell, video], video)?;
         let mut native = Native::connect_display(Some(&desktop.display))?;
-        for words in [[video, 0], [0, video]] {
+        for words in [[video, 0], [video, 1_717_000_000], [0, video]] {
             desktop.set_net_active_window(&words)?;
             let snapshot = native.snapshot()?;
             assert_eq!(snapshot.active, Some(video));
@@ -847,14 +847,12 @@ pub(crate) mod fixture {
         let shell = desktop.client("org.arinn.Shell", "")?;
         desktop.inventory(&[shell], shell)?;
         let mut native = Native::connect_display(Some(&desktop.display))?;
-        for words in [[0u32, 0], [shell, shell]] {
-            desktop.set_net_active_window(&words)?;
-            let err = native.snapshot().unwrap_err().to_string();
-            assert!(
-                err.contains("_NET_ACTIVE_WINDOW") && err.contains("length 2"),
-                "unexpected error: {err}"
-            );
-        }
+        desktop.set_net_active_window(&[0, 0])?;
+        let err = native.snapshot().unwrap_err().to_string();
+        assert!(
+            err.contains("_NET_ACTIVE_WINDOW") && err.contains("length 2"),
+            "unexpected error: {err}"
+        );
         desktop.set_net_active_window(&[0, shell, shell])?;
         let err = native.snapshot().unwrap_err().to_string();
         assert!(

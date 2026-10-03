@@ -47,9 +47,12 @@ This follows [Qt desktopFileName](https://doc.qt.io/qt-6/qguiapplication.html#de
 and [GNOME application ID naming](https://developer.gnome.org/documentation/tutorials/application-id.html).
 The shell has its separate explicit identity.
 `org.arinn.Shell` and `org.arinn.Shell.desktop` identify the shell, which is excluded
-from inventory. Two matching shell windows make identity ambiguous and trigger
-a fail-closed reconnect; run one shell instance. Event masks are selected once
-per newly observed XID and reset when its inventory lifetime ends. Output names are currently empty: this
+from inventory. The shell XID is also discovered among direct root-window children
+(including unmapped windows) when it is absent from `_NET_CLIENT_LIST`; inventory
+still comes only from `_NET_CLIENT_LIST`. Two matching shell windows make identity
+ambiguous and trigger a fail-closed reconnect; run one shell instance. Event masks
+are selected once per newly observed XID and reset when its inventory lifetime ends;
+the tracked shell XID is cleared on `DestroyNotify` for that window. Output names are currently empty: this
 initial backend does not implement RandR output placement.
 
 ## Home, Return and video

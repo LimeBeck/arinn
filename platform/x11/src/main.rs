@@ -737,6 +737,29 @@ mod tests {
     use x11rb::protocol::xproto::ConnectionExt as _;
     #[test]
     #[ignore = "requires Xvfb; spawns an isolated server and synthetic EWMH manager"]
+    fn missing_shell_makes_home_unavailable() -> Result<()> {
+        let desktop = native::fixture::Desktop::new()?;
+        let launch = Uuid::new_v4().to_string();
+        let video = desktop.client("org.example.Player.desktop", &launch)?;
+        desktop.inventory(&[video], video)?;
+        let mut native = Native::connect_display(Some(&desktop.display))?;
+        let snapshot = native.snapshot()?;
+        let mut actor = Actor {
+            native,
+            snapshot,
+            home: false,
+            target: String::new(),
+            presentation: None,
+            media_allowed: true,
+        };
+        assert_eq!(
+            actor.command(&Command::Home("home".into()), true),
+            "Unavailable"
+        );
+        Ok(())
+    }
+    #[test]
+    #[ignore = "requires Xvfb; spawns an isolated server and synthetic EWMH manager"]
     fn isolated_home_return_and_video_lifecycle() -> Result<()> {
         let desktop = native::fixture::Desktop::new()?;
         let launch = Uuid::new_v4().to_string();
@@ -828,7 +851,7 @@ mod tests {
         for scenario in ["focus", "destroy", "replace", "retire"] {
             let desktop = native::fixture::Desktop::new()?;
             let launch = Uuid::new_v4().to_string();
-            let shell = desktop.client("org.arinn.Shell", "")?;
+            let mut shell = desktop.client("org.arinn.Shell", "")?;
             let video = desktop.client("org.example.Player.desktop", &launch)?;
             let other = desktop.client("org.example.Other.desktop", "")?;
             desktop.inventory(&[shell, video, other], video)?;
@@ -863,12 +886,15 @@ mod tests {
                     let replacement = desktop.client("org.arinn.Shell.desktop", "")?;
                     desktop.inventory(&[replacement, video, other], replacement)?;
                 }
-                _ => {
-                    // Inventory removal ends the lifetime even if the XID returns.
+                "retire" => {
+                    // Destroy ends shell tracking even if a new shell XID later maps.
                     desktop.inventory(&[video, other], video)?;
+                    desktop.c.destroy_window(shell)?.check()?;
                     actor.native.snapshot()?;
+                    shell = desktop.client("org.arinn.Shell", "")?;
                     desktop.inventory(&[shell, video, other], shell)?;
                 }
+                _ => unreachable!(),
             }
             actor.refresh(true)?;
             assert!(actor.presentation.is_none(), "{scenario}");

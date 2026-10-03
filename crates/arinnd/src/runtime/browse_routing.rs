@@ -100,8 +100,8 @@ pub(super) struct BrowseEndpoint {
 }
 #[zbus::interface(name = "org.arinn.Browse1")]
 impl BrowseEndpoint {
-    async fn resolve(&self, text: &str) -> Target {
-        self.core.resolve_text(text)
+    async fn resolve(&self, text: &str) -> (Target,) {
+        (self.core.resolve_text(text),)
     }
     async fn open(
         &self,

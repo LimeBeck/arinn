@@ -1123,7 +1123,6 @@ private slots:
     QVERIFY(!focusInside(window->activeFocusItem(), library));
   }
   void hiddenLibraryLeavesHomeFocusAlone() {
-  void navigationMenuFocusesTheLibrary() {
     LibraryDaemon daemon;
     daemon.collections = {{QStringLiteral("films"), QStringLiteral("Films"),
                            QStringLiteral("film")}};
@@ -1175,6 +1174,32 @@ private slots:
     QVERIFY(QMetaObject::invokeMethod(library, "focusInitial"));
     QTRY_VERIFY(focusInside(window->activeFocusItem(), home));
     QVERIFY(window->activeFocusItem() != window->contentItem());
+  }
+  void navigationMenuFocusesTheLibrary() {
+    LibraryDaemon daemon;
+    daemon.collections = {{QStringLiteral("films"), QStringLiteral("Films"),
+                           QStringLiteral("film")}};
+    daemon.page1 = {film(QStringLiteral("north"), QStringLiteral("North"))};
+    QVERIFY(registerBus(daemon));
+    ShellStandIn backend;
+    SessionGuardStandIn guard;
+    QQmlApplicationEngine engine;
+    installAssetImageProvider(&engine);
+    engine.rootContext()->setContextProperty(QStringLiteral("backend"), &backend);
+    engine.rootContext()->setContextProperty(QStringLiteral("sessionGuard"),
+                                             &guard);
+    engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
+    auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().value(0));
+    QVERIFY(window);
+    window->show();
+    window->requestActivate();
+    auto home = window->findChild<QQuickItem *>(QStringLiteral("productionHome"));
+    auto library =
+        window->findChild<QQuickItem *>(QStringLiteral("productionLibrary"));
+    QVERIFY(home);
+    QVERIFY(library);
+    QTRY_COMPARE(library->property("libraryState").toString(),
+                 QStringLiteral("ready"));
     QVERIFY(QMetaObject::invokeMethod(home, "openNavigation"));
     auto homeItem = findItem(home, QStringLiteral("nav-0"));
     QVERIFY(homeItem);

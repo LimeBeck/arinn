@@ -14,7 +14,7 @@ use x11rb::{
 x11rb::atom_manager! {
     pub Atoms: AtomsCookie {
         _NET_SUPPORTING_WM_CHECK, _NET_SUPPORTED, _NET_CLIENT_LIST,
-        _NET_ACTIVE_WINDOW, _NET_CLOSE_WINDOW, _NET_WM_STATE,
+        _NET_ACTIVE_WINDOW, _NET_CLOSE_WINDOW, _NET_WM_STATE, _NET_WM_DESKTOP,
         _NET_WM_STATE_FULLSCREEN, _NET_WM_STATE_ABOVE, _NET_WM_STATE_BELOW,
         _NET_WM_WINDOW_TYPE, _NET_WM_WINDOW_TYPE_NORMAL,
         _NET_WM_DESKTOP_FILE, _KDE_NET_WM_DESKTOP_FILE, _GTK_APPLICATION_ID,
@@ -131,7 +131,8 @@ impl Native {
                 s.atoms._NET_ACTIVE_WINDOW,
                 s.atoms._NET_WM_STATE,
                 s.atoms._NET_WM_STATE_FULLSCREEN,
-                s.atoms._NET_WM_STATE_ABOVE
+                s.atoms._NET_WM_STATE_ABOVE,
+                s.atoms._NET_WM_DESKTOP
             ]
             .iter()
             .all(|a| s.supported.contains(a)),
@@ -392,6 +393,9 @@ impl Native {
     }
     pub fn raise_shell(&self, xid: Window, above: bool) -> Result<()> {
         if above {
+            // Keep Home over the current Activity instead of switching to the
+            // virtual desktop on which the shell originally mapped.
+            self.message(xid, self.atoms._NET_WM_DESKTOP, [u32::MAX, 2, 0, 0, 0])?;
             self.state(xid, self.atoms._NET_WM_STATE_FULLSCREEN, true)?;
         }
         self.state(xid, self.atoms._NET_WM_STATE_ABOVE, above)?;
@@ -574,6 +578,7 @@ pub(crate) mod fixture {
                     atoms._NET_WM_STATE_FULLSCREEN,
                     atoms._NET_WM_STATE_ABOVE,
                     atoms._NET_WM_STATE_BELOW,
+                    atoms._NET_WM_DESKTOP,
                 ],
             )?
             .check()?;
@@ -736,9 +741,12 @@ pub(crate) mod fixture {
         let saved = native.present(video, shell, &launch)?;
         assert!(saved.succeeded);
         native.release(video, &saved.saved, &launch)?;
+        let messages = desktop.messages()?;
+        assert!(messages.iter().any(|m| m.window == shell
+            && m.type_ == desktop.atoms._NET_WM_DESKTOP
+            && m.data.as_data32()[0] == u32::MAX));
         assert!(
-            desktop
-                .messages()?
+            messages
                 .iter()
                 .any(|m| m.window == shell && m.type_ == desktop.atoms._NET_ACTIVE_WINDOW)
         );

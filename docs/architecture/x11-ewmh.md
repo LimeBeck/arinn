@@ -47,7 +47,7 @@ Meta+F12 uses a passive root key grab, including Caps/Num/Scroll lock modifier
 combinations; keyboard mapping changes rebuild the grabs. An existing grab
 conflict makes the backend unavailable. Home snapshots the exact opaque target
 and keeps it across repeated Home presses. Return validates that token in the
-current inventory before dispatch. The shell receives fullscreen/above and
+current inventory before dispatch. The shell receives all-desktops, fullscreen/above and
 activation EWMH messages; ordinary activation and close also use EWMH messages.
 An operation acknowledges checked request dispatch; the window manager retains
 focus and placement policy, so this is not proof of desktop qualification.

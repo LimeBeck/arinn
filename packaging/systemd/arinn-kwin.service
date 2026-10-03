@@ -4,7 +4,7 @@
 Description=Arinn KWin platform adapter
 Documentation=https://github.com/LimeBeck/arinn
 PartOf=graphical-session.target arinn-session.target
-After=graphical-session.target plasma-kwin_wayland.service arinnd.service
+After=graphical-session.target plasma-kwin_wayland.service plasma-kwin_x11.service arinnd.service
 
 [Service]
 # Loads the packaged KWin script for this session only (ADR-0032, ADR-0042).

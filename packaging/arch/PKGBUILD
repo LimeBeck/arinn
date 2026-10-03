@@ -86,6 +86,7 @@ package() {
   install -Dm644 packaging/browser/search-engines.toml "${pkgdir}/usr/share/arinn/search-engines.toml"
   install -Dm644 platform/kde/phase0.js "${pkgdir}/usr/share/arinn/kwin/phase0.js"
   install -Dm755 platform/kde/arinn-kwin-adapter "${pkgdir}/usr/lib/arinn/arinn-kwin-adapter"
+  install -Dm755 platform/kde/arinn-shell-launch "${pkgdir}/usr/lib/arinn/arinn-shell-launch"
   # Session units are installed but never enabled by the package (ADR-0042).
   install -Dm644 packaging/systemd/arinn-session.target packaging/systemd/arinnd.service \
     packaging/systemd/arinn-shell.service packaging/systemd/arinn-kwin.service \

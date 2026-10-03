@@ -416,17 +416,20 @@ function inventoryTick() {
 }
 
 // Optional managed playback lane (ADR-0074). Identities are exact native
-// Wayland app IDs. No product, title, executable or focus-based association.
+// Wayland app IDs or X11 instance names. No title or executable association.
 function launchId(w) {
     // Ordinary scripts expose Window, not EffectWindow.waylandClient.
     // Qt's QObject wrapper exposes the compositor's actual meta-object type.
-    // Fail closed for X11, unknown classes and future incompatible wrappers.
+    // Fail closed for unknown classes and future incompatible wrappers.
     if (!w) return "";
+    let native = "";
     try {
-        if (!/^KWin::XdgToplevelWindow\(0x[0-9a-f]*[1-9a-f][0-9a-f]*(?:, "[\s\S]*")?\)$/.test(String(w))) return "";
+        native = String(w);
+        if (!/^KWin::(?:XdgToplevelWindow|X11Window)\(0x[0-9a-f]*[1-9a-f][0-9a-f]*(?:, "[\s\S]*")?\)$/.test(native)) return "";
     } catch (_) { return ""; }
-    const value = String(w.resourceClass || "");
-    const prefix = "org.arinn.Playback.";
+    const x11 = native.startsWith("KWin::X11Window(");
+    const value = String((x11 ? w.resourceName : w.resourceClass) || "");
+    const prefix = x11 ? "org.arinn.Playback.".toLowerCase() : "org.arinn.Playback.";
     if (!value.startsWith(prefix)) return "";
     const launch = value.slice(prefix.length);
     return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(launch) && launch !== "00000000-0000-0000-0000-000000000000" ? launch : "";

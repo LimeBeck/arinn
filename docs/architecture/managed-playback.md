@@ -128,3 +128,10 @@ video transparency, Home/Return and performance remain G-4.1 owner qualification
 Provider polling invalidates media-window consumers only when the imported revision, backend, runtime readiness or negotiated features change. Platform invalidations use a separate retained, coalesced signal relay so a change during signal emission is delivered on the next iteration; control waiters retain their broadcast notification semantics.
 
 Removing negotiated MediaWindow1 support invalidates pending and active presentation like an unavailable backend, retaining exact bounded compositor cleanup without a transport Stop.
+
+## Optional KDE/X11 mode
+
+[KDE/X11](kde-x11.md) retains the same media-window contract and input-layer
+lifecycle while observing the per-launch X11 instance name. The shell uses Qt
+`xcb`; mpv never bypasses the compositor. Real X11 stacking, transparency, input
+and lock/suspend qualification is not run. See [ADR-0077](../adr/0077-kde-x11-session.md).

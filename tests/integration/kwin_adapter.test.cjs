@@ -481,11 +481,12 @@ test('ADR-0073: unacknowledged reports recover at a bounded rate using fresh evi
     assert.equal(g.returnReports.at(-1).token, '', 'timeout recomputes instead of replaying the removed token');
 });
 
-function managedFixture() {
+function managedFixture(x11 = false) {
     const f = fixture({ managed: true });
     const launch = randomUUID();
-    f.activity.nativeType = 'KWin::XdgToplevelWindow';
+    f.activity.nativeType = x11 ? 'KWin::X11Window' : 'KWin::XdgToplevelWindow';
     f.activity.resourceClass = 'org.arinn.Playback.' + launch;
+    f.activity.resourceName = x11 ? 'org.arinn.playback.' + launch : '';
     f.activity.fullScreen = false;
     f.activity.windowClassChanged.emit();
     f.refresh();
@@ -495,6 +496,22 @@ test('managed media reports exact native identity and empty identities for ordin
     const {f, launch, token} = managedFixture();
     assert.ok(f.mediaReports.some(row => row[2] === token && row[3] === launch));
     f.activity.nativeType = 'KWin::X11Window';
+    f.activity.windowClassChanged.emit();
+    f.refresh();
+    assert.equal(f.mediaReports.at(-1)[3], '');
+});
+test('X11 media uses the exact instance name and preserves Home/Return', () => {
+    const {f, launch, token} = managedFixture(true);
+    assert.ok(f.mediaReports.some(row => row[2] === token && row[3] === launch));
+    f.media('present', token);
+    assert.equal(f.workspace.activeWindow, f.home);
+    assert.equal(f.home.keepAbove, true);
+    assert.equal(f.activity.fullScreen, true);
+    f.show();
+    f.back();
+    assert.equal(f.workspace.activeWindow, f.home);
+    assert.equal(f.report()[0], false);
+    f.activity.resourceName = 'org.arinn.playback.00000000-0000-0000-0000-000000000000';
     f.activity.windowClassChanged.emit();
     f.refresh();
     assert.equal(f.mediaReports.at(-1)[3], '');

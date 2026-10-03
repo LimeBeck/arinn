@@ -90,7 +90,8 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0069](0069-explicit-home-presentation-requests.md) | Explicit Home presentation requests | Accepted | — |
 | [0072](0072-cross-agent-code-review.md) | Cross-agent code review before merging | Accepted | — |
 | [0073](0073-return-window-association.md) | Optional Return-to-platform-window association | Accepted | — |
-| [0074](0074-managed-playback-window.md) | Explicit managed playback window identity | Accepted | — |
+| [0074](0074-managed-playback-window.md) | Explicit managed playback window identity | Accepted | 0077 |
 | [0075](0075-web-shortcut-site-icons.md) | Bounded provider-owned web shortcut site icons | Accepted | — |
 | [0076](0076-shell-focus-ownership.md) | Shell focus ownership | Accepted | — |
+| [0077](0077-kde-x11-session.md) | Optional KDE Plasma X11 session | Proposed | — |
 <!-- register:end -->

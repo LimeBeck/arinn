@@ -70,6 +70,7 @@ SAMPLE_FILES = [
     "usr/bin/arinn-shell",
     "usr/lib/arinn/plugins/arinn-plugin-demo",
     "usr/lib/arinn/arinn-kwin-adapter",
+    "usr/lib/arinn/arinn-shell-launch",
     "usr/lib/arinn/arinn-chrome-host",
     "usr/lib/systemd/user/arinn-session.target",
     "usr/lib/systemd/user/arinnd.service",

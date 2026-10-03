@@ -4,7 +4,7 @@
 - **Date:** 2026-10-01
 - **Deciders:** Delegated technical choice in owner-directed playback task #189
 - **Amends / Supersedes:** —
-- **Amended by / Superseded by:** —
+- **Amended by / Superseded by:** [ADR-0077](0077-kde-x11-session.md)
 - **Specification:** §6.4, §9, §12; AC-16, G-4.1, R-01, R-03, R-05, R-09, R-10
 
 ## Context

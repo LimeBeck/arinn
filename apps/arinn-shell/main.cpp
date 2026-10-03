@@ -7,9 +7,11 @@
 #include "input_bindings.h"
 #include "sessionlifecycle.h"
 #include "shell_window.h"
+#include "startup_home.h"
 #include <QDBusConnection>
 #include <QDBusConnectionInterface>
 #include <QGuiApplication>
+#include <QIcon>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickWindow>
@@ -19,6 +21,9 @@ int main(int argc, char **argv) {
   QGuiApplication app(argc, argv);
   app.setApplicationName("arinn-shell");
   app.setDesktopFileName("org.arinn.Shell");
+  // The desktop entry names the icon (#289); X11 also needs it on the window.
+  app.setWindowIcon(QIcon::fromTheme(QStringLiteral("org.arinn.Shell"),
+                                     QIcon(QStringLiteral(":/brand/arinn-mark.svg"))));
   auto bus = QDBusConnection::sessionBus();
   if (!bus.registerService("org.arinn.Shell1")) {
     // Exit status 2 means "another shell owns the name": the systemd unit
@@ -63,5 +68,6 @@ int main(int argc, char **argv) {
                        }
                      }
                    });
+  StartupHome startupHome(sessionGuard);
   return app.exec();
 }

@@ -32,6 +32,14 @@ for name in ALL_NAMES:
 assert ADAPTER.is_file() and os.access(ADAPTER, os.X_OK), "missing KWin adapter loader"
 assert SCRIPT.is_file(), "missing KWin script"
 assert (PREFIX / "lib/arinn/arinn-shell-launch").is_file(), "missing shell launcher"
+# Menu entry and icon (#289).
+OPEN = PREFIX / "lib/arinn/arinn-open"
+assert OPEN.is_file() and os.access(OPEN, os.X_OK), "missing arinn-open"
+DESKTOP = PREFIX / "share/applications/org.arinn.Shell.desktop"
+assert DESKTOP.is_file(), "missing desktop entry"
+entry = DESKTOP.read_text()
+assert "Exec=/usr/lib/arinn/arinn-open" in entry and "Icon=org.arinn.Shell" in entry, entry
+assert (PREFIX / "share/icons/hicolor/scalable/apps/org.arinn.Shell.svg").is_file(), "missing icon"
 
 # The package installs units but never enables them for anyone.
 for wants in UNITS.glob("*.wants"):

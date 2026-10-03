@@ -62,7 +62,9 @@ The picture is not decoded in QML.
 `Main.qml` binds it to `MediaCatalog` and opens it from a Continue card whose
 `kind` is `media` when that provider lists none of `MediaOpen1`,
 `MediaTracks1` or `MediaTimeline1`. A session with one of those flags opens
-the [player OSD](ui-player.md) instead. The view still does not call D-Bus. It reuses `Theme`,
+the [player OSD](ui-player.md) instead. A stopped session linked to a
+library item opens neither: Continue relaunches the item through the library
+(see [player OSD](ui-player.md)). The view still does not call D-Bus. It reuses `Theme`,
 `UiText`, `LogicalCanvas`, `ProgressTrack`, `ActionButton` and `StatusPane`.
 
 `sessionState` `ready` shows the session. `empty` and `loading` show

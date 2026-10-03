@@ -1,0 +1,1 @@
+- Continue on a stopped film resumes it from the library instead of opening a player that hangs.

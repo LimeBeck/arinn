@@ -683,6 +683,38 @@ private slots:
     QTRY_COMPARE(catalog.operationState(), QStringLiteral("Unavailable"));
     QCOMPARE(launched.size(), 1);
   }
+  // #247: Continue resumes a stopped film by its provider-local item id.
+  void launchContentFindsTheItem() {
+    LibraryDaemon daemon;
+    daemon.collections = {{QStringLiteral("films"), QStringLiteral("Films"),
+                           QStringLiteral("film")}};
+    daemon.page1 = {film(QStringLiteral("north"), QStringLiteral("North"))};
+    daemon.features.clear();
+    QVERIFY(registerBus(daemon));
+    LibraryCatalog catalog;
+    QTRY_COMPARE(catalog.libraryState(), QStringLiteral("ready"));
+    catalog.launchContent(QStringLiteral("library-provider"), QStringLiteral("missing"));
+    QCOMPARE(catalog.operationState(), QStringLiteral("NotFound"));
+    QCOMPARE(daemon.commands.size(), 0);
+    catalog.launchContent(QStringLiteral("library-provider"), QStringLiteral("north"));
+    QTRY_COMPARE(daemon.commands, QStringList({QStringLiteral("Launch")}));
+    QCOMPARE(daemon.lastLocal, QStringLiteral("north"));
+  }
+  // Home can offer Continue before the first catalog read has finished.
+  void launchContentWaitsForTheCatalog() {
+    LibraryDaemon daemon;
+    daemon.collections = {{QStringLiteral("films"), QStringLiteral("Films"),
+                           QStringLiteral("film")}};
+    daemon.page1 = {film(QStringLiteral("north"), QStringLiteral("North"))};
+    daemon.features.clear();
+    QVERIFY(registerBus(daemon));
+    LibraryCatalog catalog;
+    QVERIFY(catalog.libraryState() != QStringLiteral("ready"));
+    catalog.launchContent(QStringLiteral("library-provider"), QStringLiteral("north"));
+    QCOMPARE(catalog.operationState(), QStringLiteral("queued"));
+    QTRY_COMPARE(daemon.commands, QStringList({QStringLiteral("Launch")}));
+    QCOMPARE(daemon.lastLocal, QStringLiteral("north"));
+  }
   void stateChangedRefreshesWithoutAFastPoll() {
     LibraryDaemon daemon;
     daemon.collections = {{QStringLiteral("films"), QStringLiteral("Films"),
@@ -1159,6 +1191,94 @@ private slots:
     QTest::keyClick(window, Qt::Key_Return);
     QTest::qWait(50);
     QCOMPARE(home->property("screen").toString(), QStringLiteral("library"));
+  }
+  // #247: Continue on a stopped, library-linked film launches the item through
+  // the library instead of opening the stopped session.
+  void continueResumesAStoppedFilmThroughTheLibrary() {
+    LibraryDaemon daemon;
+    daemon.holdOperation = true;
+    daemon.collections = {{QStringLiteral("films"), QStringLiteral("Films"),
+                           QStringLiteral("film")}};
+    daemon.page1 = {film(QStringLiteral("north"), QStringLiteral("North"))};
+    ProviderWire media;
+    media.id = QStringLiteral("media-provider");
+    media.name = QStringLiteral("media");
+    media.path = QDBusObjectPath(QStringLiteral("/org/arinn/Daemon1/providers/p_media"));
+    media.capabilities = {QStringLiteral("media")};
+    media.generation = QStringLiteral("g-media");
+    daemon.providers.append(media);
+    SessionWire stopped;
+    stopped.id = QStringLiteral("old");
+    stopped.title = QStringLiteral("North");
+    stopped.state = QStringLiteral("stopped");
+    stopped.hasContent = true;
+    stopped.content = {QStringLiteral("library-provider"), QStringLiteral("library"),
+                       QStringLiteral("north")};
+    SessionWire unknown = stopped;
+    unknown.id = QStringLiteral("gone");
+    unknown.title = QStringLiteral("Gone");
+    unknown.content.local = QStringLiteral("missing");
+    SessionWire resumed = stopped;
+    resumed.id = QStringLiteral("new");
+    resumed.state = QStringLiteral("playing");
+    resumed.actions = {QStringLiteral("pause")};
+    daemon.sessions = {stopped, unknown, resumed};
+    daemon.operationEntities = {{QStringLiteral("media-provider"),
+                                 QStringLiteral("media"), QStringLiteral("new")}};
+    QVERIFY(registerBus(daemon));
+    ShellStandIn backend;
+    SessionGuardStandIn guard;
+    QQmlApplicationEngine engine;
+    installAssetImageProvider(&engine);
+    engine.rootContext()->setContextProperty(QStringLiteral("backend"), &backend);
+    engine.rootContext()->setContextProperty(QStringLiteral("sessionGuard"),
+                                             &guard);
+    engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
+    auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().value(0));
+    QVERIFY(window);
+    window->show();
+    window->requestActivate();
+    auto home = window->findChild<QQuickItem *>(QStringLiteral("productionHome"));
+    auto library =
+        window->findChild<QQuickItem *>(QStringLiteral("productionLibrary"));
+    QVERIFY(home);
+    QVERIFY(library);
+    QTRY_COMPARE(library->property("libraryState").toString(),
+                 QStringLiteral("ready"));
+
+    // A film that is no longer in the library reports why on Home.
+    const auto goneId = presentationId(QStringLiteral("media-provider"),
+                                       QStringLiteral("gone"));
+    QTRY_VERIFY(findItem(home, QStringLiteral("entry-") + goneId));
+    findItem(home, QStringLiteral("entry-") + goneId)->forceActiveFocus();
+    QTest::keyClick(window, Qt::Key_Return);
+    auto feedback = window->findChild<QQuickItem *>(QStringLiteral("feedback"));
+    QVERIFY(feedback);
+    QTRY_COMPARE(feedback->property("text").toString(),
+                 QStringLiteral("That title is not in the library."));
+    QCOMPARE(daemon.commands.size(), 0);
+    QCOMPARE(window->property("sessionOpen").toBool(), false);
+
+    const auto mediaId = presentationId(QStringLiteral("media-provider"),
+                                        QStringLiteral("old"));
+    auto card = findItem(home, QStringLiteral("entry-") + mediaId);
+    QVERIFY(card);
+    card->forceActiveFocus();
+    QTest::keyClick(window, Qt::Key_Return);
+    QTRY_COMPARE(daemon.commands, QStringList({QStringLiteral("Launch")}));
+    QCOMPARE(daemon.lastLocal, QStringLiteral("north"));
+    // The stopped session itself is never opened or presented.
+    QCOMPARE(window->property("sessionOpen").toBool(), false);
+    QCOMPARE(window->property("playerOpen").toBool(), false);
+
+    // The new session opens, and leaving it returns to Home, where the
+    // resume started (§6.4), not to the library.
+    daemon.holdOperation = false;
+    QTRY_COMPARE(window->property("sessionOpen").toBool(), true);
+    QCOMPARE(window->property("sessionFromLibrary").toBool(), false);
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_COMPARE(window->property("sessionOpen").toBool(), false);
+    QCOMPARE(home->property("screen").toString(), QStringLiteral("home"));
   }
   void emptyPosterAndFanartStayGeneric() {
     LibraryDaemon daemon;

@@ -118,6 +118,25 @@ Window {
             if (sessionGuard.blocked) mediaCatalog.abandonPresentation();
         }
     }
+    // Home does not show the library's operation state, so report a failed
+    // resume from a Continue card here.
+    property bool resumeFromHome: false
+    // The library launch in flight came from Home, not from the library.
+    property bool launchFromHome: false
+    Connections {
+        target: libraryCatalog
+        // Deferred so that LibraryView's bound operation state is current.
+        function onOperationChanged() {
+            Qt.callLater(() => {
+                if (!root.resumeFromHome || libraryView.operationPending) return;
+                root.resumeFromHome = false;
+                if (!libraryView.operationFailed) return;
+                root.launchFromHome = false;
+                feedback.text = libraryView.operationMessage;
+                feedbackTimer.restart();
+            });
+        }
+    }
     BrowserCatalog { id: browserCatalog }
     MediaCatalog { id: mediaCatalog; objectName: "mediaCatalog" }
     LibraryCatalog { id: libraryCatalog; objectName: "libraryCatalog" }
@@ -180,7 +199,17 @@ Window {
                 Qt.callLater(() => browserView.forceActiveFocus());
             }
             onServiceRequested: backend.back()
-            onSessionRequested: entryId => root.openSession(entryId, false)
+            onSessionRequested: entryId => {
+                // A stopped film resumes through the library; the stopped
+                // session itself has nothing to present (#247).
+                const target = mediaCatalog.resumeTarget(entryId);
+                if (target.local) {
+                    root.resumeFromHome = true;
+                    root.launchFromHome = true;
+                    libraryCatalog.launchContent(target.provider, target.local);
+                } else
+                    root.openSession(entryId, false);
+            }
             onPowerRequested: { feedback.text = qsTr("Power controls are not available yet."); feedbackTimer.restart(); }
         }
         Browser.BrowserView {
@@ -390,7 +419,12 @@ Window {
         Connections {
             target: libraryCatalog
             function onSessionLaunched(presentationId) {
-                root.openSession(presentationId, true);
+                // A resume started from a Home Continue card returns to Home
+                // when playback ends; any other library launch returns to
+                // the library (§6.4).
+                const fromLibrary = !root.launchFromHome;
+                root.launchFromHome = false;
+                root.openSession(presentationId, fromLibrary);
             }
         }
         Ui.LaunchOverlay {
@@ -409,7 +443,7 @@ Window {
             color: "#33363b"
             visible: feedbackTimer.running || backend.message.length > 0
             Ui.UiText {
-                id: feedback
+                id: feedback; objectName: "feedback"
                 anchors.fill: parent; anchors.margins: 20
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter

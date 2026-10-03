@@ -166,6 +166,8 @@ async fn scenario() {
             "MediaOpen1",
             "MediaTracks1",
             "MediaTimeline1",
+            // Seek thumbnails are fetched by asset id (#278).
+            "AssetProvider1",
             "MediaWindow1"
         ]
     );
@@ -175,6 +177,7 @@ async fn scenario() {
     assert!(xml.contains("org.arinn.MediaTracks1"));
     assert!(xml.contains("org.arinn.MediaTimeline1"));
     assert!(xml.contains("org.arinn.MediaWindowProvider1"));
+    assert!(xml.contains("org.arinn.AssetProvider1"));
     assert_launch(&daemon, &first.destination).await;
     assert!(!names(&commands).iter().any(|name| name == "loadfile"));
     assert_eq!(std::fs::read_to_string(&state).unwrap(), before);

@@ -5,10 +5,18 @@
 //! seeked. At most one extraction runs; a newer request cancels the older one.
 
 use crate::paths::ensure_private_dir;
-use arinn_protocol::{media::Thumbnail, validation::ErrorCode};
+use arinn_plugin_sdk::runtime::AssetHandler;
+use arinn_protocol::{
+    assets::{self, Asset, MAX_ASSET_BYTES},
+    media::Thumbnail,
+    validation::ErrorCode,
+};
 use std::{
+    future::Future,
+    io::Read,
     os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
+    pin::Pin,
     time::{Duration, Instant},
 };
 use tokio::{process::Command, sync::Mutex};
@@ -144,6 +152,49 @@ fn prune(directory: &Path, keep: usize) {
     let extra = frames.len().saturating_sub(keep);
     for (_, path) in frames.into_iter().take(extra) {
         let _ = std::fs::remove_file(path);
+    }
+}
+
+/// Serves the extracted frames as `AssetProvider1` assets (ADR-0062): the
+/// asset id of a thumbnail is the canonical UUID that names its JPEG in the
+/// cache. Anything else is `NotFound`, so an id can never name a path.
+pub struct ThumbnailAssets {
+    directory: PathBuf,
+}
+
+impl ThumbnailAssets {
+    pub fn new(directory: PathBuf) -> Self {
+        Self { directory }
+    }
+
+    fn read(&self, id: &str) -> Result<Asset, ErrorCode> {
+        let canonical = uuid::Uuid::parse_str(id)
+            .ok()
+            .filter(|uuid| !uuid.is_nil() && uuid.to_string() == id)
+            .ok_or(ErrorCode::NotFound)?;
+        let path = self.directory.join(format!("{canonical}.jpg"));
+        let file = std::fs::File::open(&path).map_err(|_| ErrorCode::NotFound)?;
+        let mut data = Vec::new();
+        // One byte more than allowed tells an oversized file apart.
+        file.take(MAX_ASSET_BYTES as u64 + 1)
+            .read_to_end(&mut data)
+            .map_err(|_| ErrorCode::NotFound)?;
+        if data.len() > MAX_ASSET_BYTES || assets::sniff(&data) != Some(assets::MIME_JPEG) {
+            return Err(ErrorCode::NotFound);
+        }
+        Ok(Asset {
+            mime: assets::MIME_JPEG.into(),
+            data,
+        })
+    }
+}
+
+impl AssetHandler for ThumbnailAssets {
+    fn asset(
+        &self,
+        id: String,
+    ) -> Pin<Box<dyn Future<Output = Result<Asset, ErrorCode>> + Send + '_>> {
+        Box::pin(async move { self.read(&id) })
     }
 }
 

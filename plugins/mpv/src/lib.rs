@@ -14,7 +14,7 @@ mod thumbnail;
 pub use paths::{ensure_private_dir, file_path, validate_runtime};
 pub use player::{Launch, OPEN_LOAD_WAIT, Player, Settings, View};
 pub use scope::{UNIT, arguments, ensure_unit, socket_is_private};
-pub use thumbnail::{Extractor, KEPT_THUMBNAILS};
+pub use thumbnail::{Extractor, KEPT_THUMBNAILS, ThumbnailAssets};
 
 use arinn_plugin_sdk::runtime::{
     MediaAction, MediaExtensions, MediaHandler, MediaOpenHandler, MediaService,
@@ -49,6 +49,9 @@ pub async fn serve(connection: Connection) -> Result<(), ErrorCode> {
     };
     let thumb_dir = thumbnail::cache_dir().ok();
     let ffmpeg = thumb_dir.as_ref().and_then(|_| thumbnail::ffmpeg_binary());
+    // Seek thumbnails are fetched by asset id (ADR-0062), so the frames the
+    // timeline makes must also be served (#278).
+    let assets = thumb_dir.clone().map(ThumbnailAssets::new);
     let player = Player::start(Settings {
         socket,
         state_path,
@@ -59,16 +62,15 @@ pub async fn serve(connection: Connection) -> Result<(), ErrorCode> {
         backend: backend.to_string(),
     })?;
     let bridge = Bridge(player.clone());
-    let service = MediaService::with_extensions(
-        bridge.clone(),
-        Vec::new(),
-        backend,
-        MediaExtensions::default()
-            .open(bridge.clone())
-            .tracks(bridge.clone())
-            .timeline(bridge.clone())
-            .window(bridge),
-    )?;
+    let mut extensions = MediaExtensions::default()
+        .open(bridge.clone())
+        .tracks(bridge.clone())
+        .timeline(bridge.clone())
+        .window(bridge.clone());
+    if let Some(assets) = assets {
+        extensions = extensions.assets(assets);
+    }
+    let service = MediaService::with_extensions(bridge, Vec::new(), backend, extensions)?;
     let mut notes = player.subscribe();
     let publish = publish(service.clone(), &mut notes);
     tokio::pin!(publish);

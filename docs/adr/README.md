@@ -58,7 +58,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0037](0037-agent-autonomy-and-owner-gated-decisions.md) | Agent autonomy and owner-gated decisions | Accepted | 0068, 0072 |
 | [0038](0038-browser-launch-ownership.md) | Browser launch ownership | Accepted | 0043 |
 | [0039](0039-platform-window-contract.md) | Platform window snapshot and control contract | Accepted | — |
-| [0040](0040-kwin-inventory-transport.md) | Trusted KWin inventory transport and SDK registration context | Accepted | — |
+| [0040](0040-kwin-inventory-transport.md) | Trusted KWin inventory transport and SDK registration context | Accepted | 0078 |
 | [0041](0041-independent-session-lifecycle-guard.md) | Daemon-independent session lifecycle guard | Accepted | — |
 | [0042](0042-opt-in-session-autostart.md) | Opt-in session autostart through packaged systemd user units | Accepted | 0077 |
 | [0043](0043-web-shortcuts.md) | Arinn-owned web shortcuts for online-service tiles | Accepted | 0045, 0051, 0075 |
@@ -95,4 +95,5 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0075](0075-web-shortcut-site-icons.md) | Bounded provider-owned web shortcut site icons | Accepted | — |
 | [0076](0076-shell-focus-ownership.md) | Shell focus ownership | Accepted | — |
 | [0077](0077-kde-x11-session.md) | Optional KDE Plasma X11 session | Proposed | — |
+| [0078](0078-x11-ewmh-adapter.md) | Optional generic X11/EWMH adapter | Proposed | — |
 <!-- register:end -->

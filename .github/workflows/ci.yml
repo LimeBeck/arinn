@@ -81,10 +81,14 @@ jobs:
       - name: Install dependencies
         run: |
           pacman -Syu --noconfirm --needed base-devel git rust cmake ninja \
-            qt6-base qt6-declarative qt6-svg python nodejs dbus systemd
+            qt6-base qt6-declarative qt6-svg python nodejs dbus systemd xorg-server-xvfb
       - uses: actions/checkout@v7
       - name: Build Rust workspace
         run: cargo build --locked && cargo build --locked --examples
+      - name: Isolated X11 EWMH tests
+        env:
+          ARINN_XVFB: /usr/bin/Xvfb
+        run: cargo test --locked -p arinn-platform-x11 -- --include-ignored
       - name: Build shell
         run: |
           cmake -S . -B build -G Ninja

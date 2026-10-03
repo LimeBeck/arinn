@@ -7,7 +7,7 @@
 - **Date:** 2026-09-28
 - **Deciders:** Delegated technical choice for prerequisite task #24 within owner-approved desktop-provider work #20
 - **Amends / Supersedes:** —
-- **Amended by / Superseded by:** —
+- **Amended by / Superseded by:** [ADR-0078](0078-x11-ewmh-adapter.md)
 - **Specification:** §8.5, §9, §12, §17
 
 ## Context

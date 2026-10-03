@@ -25,6 +25,8 @@
 
 An optional KDE Plasma 6/X11 session mode is under preparation alongside the
 Wayland MVP. See [KDE/X11 setup and qualification limits](docs/architecture/kde-x11.md).
+The optional [generic EWMH backend](docs/architecture/x11-ewmh.md) adds a separate
+X11 adapter for other window managers; real desktop qualification is pending.
 
 ## What is Arinn?
 

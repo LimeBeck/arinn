@@ -54,6 +54,7 @@ check() {
 package() {
   cd "${pkgname}-${pkgver}"
   local target="${CARGO_TARGET_DIR:-target}"
+  install -Dm755 "${target}"/release/arinn-platform-x11 "${pkgdir}/usr/bin/arinn-platform-x11"
   install -Dm755 "${target}"/release/arinnd "${pkgdir}/usr/bin/arinnd"
   install -Dm755 "${target}"/release/arinnctl "${pkgdir}/usr/bin/arinnctl"
   install -Dm755 build/apps/arinn-shell/arinn-shell "${pkgdir}/usr/bin/arinn-shell"
@@ -89,6 +90,7 @@ package() {
   # Session units are installed but never enabled by the package (ADR-0042).
   install -Dm644 packaging/systemd/arinn-session.target packaging/systemd/arinnd.service \
     packaging/systemd/arinn-shell.service packaging/systemd/arinn-kwin.service \
+    packaging/systemd/arinn-ewmh.service packaging/systemd/arinn-ewmh-session.target \
     -t "${pkgdir}/usr/lib/systemd/user/"
   install -Dm644 README.md CHANGELOG.md -t "${pkgdir}/usr/share/doc/${pkgname}/"
   install -Dm644 LICENSES/*.txt -t "${pkgdir}/usr/share/licenses/${pkgname}/"

@@ -97,7 +97,6 @@ package() {
     packaging/systemd/arinn-ewmh.service packaging/systemd/arinn-ewmh-session.target \
     -t "${pkgdir}/usr/lib/systemd/user/"
   install -Dm644 README.md CHANGELOG.md -t "${pkgdir}/usr/share/doc/${pkgname}/"
-  install -Dm644 build/_deps/sentry_native-src/LICENSE "${pkgdir}/usr/share/licenses/${pkgname}/sentry-native-LICENSE"
-  install -Dm644 build/_deps/tomlplusplus-src/LICENSE "${pkgdir}/usr/share/licenses/${pkgname}/tomlplusplus-LICENSE"
+  install -Dm644 build/observability/native/licenses/*-LICENSE -t "${pkgdir}/usr/share/licenses/${pkgname}/"
   install -Dm644 LICENSES/*.txt -t "${pkgdir}/usr/share/licenses/${pkgname}/"
 }

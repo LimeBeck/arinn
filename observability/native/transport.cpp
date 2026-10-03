@@ -250,7 +250,10 @@ QByteArray filterEnvelope(const QByteArray &body) {
     }
     const auto encoded = QJsonDocument(filtered).toJson(QJsonDocument::Compact);
     QJsonObject item{{"type", type}, {"length", encoded.size()}};
-    if (type == "trace_metric") item.insert("item_count", filtered.value("items").toArray().size());
+    if (type == "trace_metric") {
+      item.insert("item_count", filtered.value("items").toArray().size());
+      item.insert("content_type", "application/vnd.sentry.items.trace-metric+json");
+    }
     clean += QJsonDocument(item).toJson(QJsonDocument::Compact) + '\n' + encoded + '\n';
   }
   return clean.isEmpty() ? QByteArray{} : QJsonDocument(envelopeHeader).toJson(QJsonDocument::Compact) + '\n' + clean;

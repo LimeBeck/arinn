@@ -85,7 +85,10 @@ Transaction/metric callbacks also remove SDK scope data before batching.
 For offline builds, supply existing source directories with
 `FETCHCONTENT_SOURCE_DIR_SENTRY_NATIVE` and `FETCHCONTENT_SOURCE_DIR_TOMLPLUSPLUS`.
 The package links the native SDK statically and retains its and toml++'s license
-notices. libcurl, libunwind and OpenSSL development files are required.
+notices, including MPack, jsmn and the portable stb_sprintf vendored notices.
+`package_notices.py` extracts the complete upstream permission/copyright blocks
+into the build directory; PKGBUILD installs them with the SDK/toml++ notices.
+libcurl, libunwind and OpenSSL development files are required.
 
 `cargo test --locked -p arinnd telemetry --lib` tests defaults and adversarial
 payloads. `sentry-isolated` in CTest runs `tests/integration/sentry.py` against a

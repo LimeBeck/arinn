@@ -30,6 +30,10 @@ MPRIS = PREFIX / "lib/arinn/plugins/arinn-plugin-mpris"
 LIBRARY = PREFIX / "lib/arinn/plugins/arinn-plugin-library"
 MPV = PREFIX / "lib/arinn/plugins/arinn-plugin-mpv"
 TRANSMISSION = PREFIX / "lib/arinn/plugins/arinn-plugin-transmission"
+for component, author in (("mpack", "Nicholas Fraser"), ("jsmn", "Serge Zaitsev"), ("stb_sprintf", "Sean Barrett")):
+    notice = PREFIX / "share/licenses/arinn" / f"sentry-native-{component}-LICENSE"
+    text = notice.read_text()
+    assert author in text and "Permission is hereby granted" in text and "SOFTWARE" in text, notice
 assert (PREFIX / "share/arinn/plugins/desktop.toml").is_file()
 mpris_manifest = (PREFIX / "share/arinn/plugins/mpris.toml").read_text()
 for line in (

@@ -22,6 +22,9 @@ FetchContent_Declare(tomlplusplus
 FetchContent_MakeAvailable(sentry_native tomlplusplus)
 execute_process(COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/harden_sdk.py
     ${sentry_native_SOURCE_DIR} COMMAND_ERROR_IS_FATAL ANY)
+execute_process(COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/package_notices.py
+    ${sentry_native_SOURCE_DIR} ${tomlplusplus_SOURCE_DIR} ${CMAKE_CURRENT_BINARY_DIR}/licenses
+    COMMAND_ERROR_IS_FATAL ANY)
 execute_process(COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/release.py version
     OUTPUT_VARIABLE ARINN_VERSION OUTPUT_STRIP_TRAILING_WHITESPACE
     COMMAND_ERROR_IS_FATAL ANY)

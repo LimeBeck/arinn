@@ -47,6 +47,8 @@ def events(envelopes):
             assert header["type"] in ("event", "transaction", "trace_metric"), header
             payload = json.loads(lines[index + 1])
             if header["type"] == "trace_metric":
+                assert header.get("content_type") == "application/vnd.sentry.items.trace-metric+json", header
+                assert header["item_count"] == len(payload["items"]), header
                 result.extend(("metric", metric) for metric in payload["items"])
             else:
                 result.append((header["type"], payload))
@@ -147,6 +149,10 @@ def run(binary, configuration, crash=False, expected=True, dsn=None, cached=Fals
 
 def verify_hardening(binary):
     source = binary.parents[2] / "_deps/sentry_native-src/src"
+    for name, author in (("mpack", "Nicholas Fraser"), ("jsmn", "Serge Zaitsev"), ("stb_sprintf", "Sean Barrett")):
+        notice = binary.parent / "licenses" / f"sentry-native-{name}-LICENSE"
+        text = notice.read_text()
+        assert author in text and "Permission is hereby granted" in text and "SOFTWARE" in text
     patch = Path(__file__).resolve().parents[2] / "observability/native/harden_sdk.py"
     with tempfile.TemporaryDirectory(prefix="arinn-sdk-patch-") as temporary:
         root = Path(temporary)

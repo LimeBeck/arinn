@@ -70,4 +70,6 @@ session activation as a dependency (the graphical target refuses direct start).
 
 Presentation retains a shell lifetime token and releases the exact player state
 on unrelated focus or shell loss/replacement, without activating another window.
-Unproven suffixless desktop metadata stays unknown rather than guessing a file ID.
+Qt/KDE and GTK application basenames receive their canonical .desktop suffix;
+other unproven suffixless metadata remains unknown. Home derives its Meta/Super
+modifier from the current mapping rather than assuming Mod4.

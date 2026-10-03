@@ -5,3 +5,5 @@ run native Xvfb coverage in CI, and document manual XFCE session startup.
 
 Reject unproven suffixless application metadata and release video presentation
 on unrelated focus or shell lifetime loss without stealing focus.
+
+Resolve the Home Meta/Super modifier from the keyboard mapping, including remaps.

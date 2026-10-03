@@ -69,19 +69,24 @@ pub fn launch_id(class: &[u8]) -> String {
         _ => String::new(),
     }
 }
-pub fn desktop_id(value: &[u8]) -> String {
+pub fn desktop_id(value: &[u8], basename: bool) -> String {
     let Ok(text) = std::str::from_utf8(value) else {
         return String::new();
     };
     let text = text.trim_end_matches('\0');
-    if arinn_protocol::validation::id(text).is_ok()
-        && !text.contains('/')
-        && (text.ends_with(".desktop") || text == "org.arinn.Shell")
-    {
-        text.into()
-    } else {
-        String::new()
+    if arinn_protocol::validation::id(text).is_err() || text.contains('/') {
+        return String::new();
     }
+    if text == "org.arinn.Shell" || text.ends_with(".desktop") {
+        return text.into();
+    }
+    if basename {
+        let id = format!("{text}.desktop");
+        if arinn_protocol::validation::id(&id).is_ok() {
+            return id;
+        }
+    }
+    String::new()
 }
 
 pub struct Attempt {
@@ -212,6 +217,8 @@ impl Native {
         ensure!(per_key > 0, "invalid keyboard mapping");
         let mut f12 = Vec::new();
         let mut locks = u16::from(ModMask::LOCK);
+        let mut supers = HashSet::new();
+        let mut metas = HashSet::new();
         let mods = self.c.get_modifier_mapping()?.reply()?;
         let per_mod = mods.keycodes.len() / 8;
         for (index, syms) in mapping.keysyms.chunks(per_key).enumerate() {
@@ -219,28 +226,47 @@ impl Native {
             if syms.contains(&0xffc9) {
                 f12.push(key);
             }
-            if syms.iter().any(|s| [0xff7f, 0xff14].contains(s)) && per_mod > 0 {
-                for (modifier, codes) in mods.keycodes.chunks(per_mod).enumerate() {
-                    if codes.contains(&key) {
-                        locks |= 1 << modifier;
-                    }
+            let mask = if per_mod > 0 {
+                mods.keycodes
+                    .chunks(per_mod)
+                    .enumerate()
+                    .filter(|(_, codes)| codes.contains(&key))
+                    .fold(0u16, |mask, (modifier, _)| mask | (1 << modifier))
+            } else {
+                0
+            };
+            if syms.iter().any(|s| [0xffe5, 0xff7f, 0xff14].contains(s)) {
+                locks |= mask;
+            }
+            if mask != 0 {
+                if syms.iter().any(|s| [0xffeb, 0xffec].contains(s)) {
+                    supers.insert(mask);
+                }
+                if syms.iter().any(|s| [0xffe7, 0xffe8].contains(s)) {
+                    metas.insert(mask);
                 }
             }
         }
+        // Qt's Meta transport normally uses Super; fall back to native Meta
+        // only when no mapped Super key exists. Do not treat Alt aliases as Meta.
+        let meta_masks = if supers.is_empty() { metas } else { supers };
+        ensure!(!meta_masks.is_empty(), "Meta modifier unavailable");
         ensure!(!f12.is_empty(), "F12 key unavailable");
-        for key in f12 {
-            for subset in 0u16..256 {
-                if subset & !locks == 0 {
-                    self.c
-                        .grab_key(
-                            false,
-                            self.root,
-                            (u16::from(ModMask::M4) | subset).into(),
-                            key,
-                            GrabMode::ASYNC,
-                            GrabMode::ASYNC,
-                        )?
-                        .check()?;
+        for meta in meta_masks {
+            for key in &f12 {
+                for subset in 0u16..256 {
+                    if subset & !locks == 0 {
+                        self.c
+                            .grab_key(
+                                false,
+                                self.root,
+                                (meta | subset).into(),
+                                *key,
+                                GrabMode::ASYNC,
+                                GrabMode::ASYNC,
+                            )?
+                            .check()?;
+                    }
                 }
             }
         }
@@ -318,6 +344,7 @@ impl Native {
                     &self
                         .bytes(xid, atom, self.atoms.UTF8_STRING)
                         .unwrap_or_default(),
+                    atom != self.atoms._NET_WM_DESKTOP_FILE,
                 )
             })
             .find(|id| !id.is_empty())
@@ -496,13 +523,22 @@ mod tests {
     #[test]
     fn desktop_metadata_never_infers_identity_from_a_path() {
         assert_eq!(
-            desktop_id(b"org.example.Player.desktop\0"),
+            desktop_id(b"org.example.Player.desktop\0", false),
             "org.example.Player.desktop"
         );
-        assert!(desktop_id(b"/home/example/private.desktop").is_empty());
-        assert!(desktop_id(b"invalid\0identity").is_empty());
-        assert!(desktop_id(b"org.gnome.Nautilus").is_empty());
-        assert_eq!(desktop_id(b"org.arinn.Shell"), "org.arinn.Shell");
+        assert!(desktop_id(b"/home/example/private.desktop", true).is_empty());
+        assert!(desktop_id(b"invalid\0identity", true).is_empty());
+        assert!(desktop_id(b"org.gnome.Nautilus", false).is_empty());
+        assert_eq!(desktop_id(b"org.arinn.Shell", true), "org.arinn.Shell");
+        assert_eq!(
+            desktop_id(b"org.gnome.Nautilus", true),
+            "org.gnome.Nautilus.desktop"
+        );
+        assert_eq!(
+            desktop_id(b"org.gnome.Nautilus.desktop", true),
+            "org.gnome.Nautilus.desktop"
+        );
+        assert!(desktop_id("x".repeat(256).as_bytes(), true).is_empty());
     }
 }
 
@@ -689,6 +725,9 @@ pub(crate) mod fixture {
             Ok(())
         }
         pub fn home_key(&self) -> Result<()> {
+            self.home_key_with(0xffeb)
+        }
+        pub fn home_key_with(&self, modifier_symbol: u32) -> Result<()> {
             use x11rb::protocol::xtest::ConnectionExt as _;
             let setup = self.c.setup();
             let mapping = self
@@ -703,7 +742,7 @@ pub(crate) mod fixture {
                     .map(|i| setup.min_keycode + i as u8)
                     .unwrap()
             };
-            let meta = key(0xffeb); // Super_L in Xvfb's synthetic keyboard map.
+            let meta = key(modifier_symbol);
             let f12 = key(0xffc9);
             for (kind, code) in [(2, meta), (2, f12), (3, f12), (3, meta)] {
                 self.c
@@ -725,6 +764,28 @@ pub(crate) mod fixture {
         }
     }
     #[test]
+    #[ignore = "requires Xvfb; isolated modifier remapping regression"]
+    fn home_follows_super_modifier_remapping() -> Result<()> {
+        let desktop = Desktop::new()?;
+        let mut native = Native::connect_display(Some(&desktop.display))?;
+        let mut mapping = desktop.c.get_modifier_mapping()?.reply()?.keycodes;
+        let count = mapping.len() / 8;
+        for i in 0..count {
+            mapping.swap(3 * count + i, 6 * count + i);
+        }
+        assert_eq!(
+            desktop.c.set_modifier_mapping(&mapping)?.reply()?.status,
+            x11rb::protocol::xproto::MappingStatus::SUCCESS
+        );
+        // MappingNotify rebuilds grabs without reconnecting the adapter.
+        native.snapshot()?;
+        desktop.home_key()?;
+        assert!(native.snapshot()?.home_key);
+        desktop.home_key_with(0xffe9)?; // Alt now occupies the old Mod4 slot.
+        assert!(!native.snapshot()?.home_key);
+        Ok(())
+    }
+    #[test]
     #[ignore = "requires Xvfb; spawns an isolated X server, never uses the real DISPLAY"]
     fn isolated_inventory_control_and_manager_restart() -> Result<()> {
         let desktop = Desktop::new()?;
@@ -741,14 +802,38 @@ pub(crate) mod fixture {
         let gtk = desktop.client("org.gnome.Nautilus", "")?;
         desktop.inventory(&[shell, video, gtk], video)?;
         let metadata = native.snapshot()?;
-        assert!(
+        assert_eq!(
             metadata
                 .rows
                 .iter()
                 .find(|r| r.xid == gtk)
                 .unwrap()
-                .desktop_id
-                .is_empty()
+                .desktop_id,
+            "org.gnome.Nautilus.desktop"
+        );
+        desktop
+            .c
+            .delete_property(gtk, desktop.atoms._GTK_APPLICATION_ID)?
+            .check()?;
+        desktop
+            .c
+            .change_property8(
+                PropMode::REPLACE,
+                gtk,
+                desktop.atoms._KDE_NET_WM_DESKTOP_FILE,
+                desktop.atoms.UTF8_STRING,
+                b"org.example.QtPlayer",
+            )?
+            .check()?;
+        assert_eq!(
+            native
+                .snapshot()?
+                .rows
+                .iter()
+                .find(|r| r.xid == gtk)
+                .unwrap()
+                .desktop_id,
+            "org.example.QtPlayer.desktop"
         );
         desktop.inventory(&[shell, video], video)?;
         desktop.home_key()?;

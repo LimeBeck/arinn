@@ -134,6 +134,9 @@ def run(binary, configuration, crash=False, expected=True, dsn=None, cached=Fals
             assert any(kind == "metric" and payload["name"].endswith(".duration") for kind, payload in captured), captured
             assert any(kind == "metric" and payload["type"] == "counter" for kind, payload in captured), captured
         if crash:
+            expected_type = "SIGSEGV" if component == "arinn-shell" else "RustPanic"
+            assert any(exception.get("type") == expected_type for event in event_payloads
+                       for exception in event.get("exception", {}).get("values", [])), captured
             assert any(event.get("exception") for event in event_payloads), captured
             assert any(exception.get("stacktrace", {}).get("frames")
                        for event in event_payloads for exception in event.get("exception", {}).get("values", [])), captured

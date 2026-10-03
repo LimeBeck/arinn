@@ -68,6 +68,7 @@ TestCase {
         keyClick(Qt.Key_Return); compare(removals.count, 1);
     }
     function test_add_tile_and_home_discards_draft() {
+        keyClick(Qt.Key_Down); focused("editShortcutButton");
         keyClick(Qt.Key_Down); focused("entry-shortcut-add");
         keyClick(Qt.Key_Return); focused("shortcutTitle");
         compare(child("shortcutTitle").text, "");

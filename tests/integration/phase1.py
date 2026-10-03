@@ -162,6 +162,23 @@ with tempfile.TemporaryDirectory(prefix="arinn-production-") as folder:
                                     env=env, capture_output=True, text=True, timeout=5)
             assert result.returncode == 0, result.stderr
             return json.loads(result.stdout)["data"] if result.stdout.strip() else []
+        # Folders1 (ADR-0071): start points end with "/", and a listing has
+        # folder names only.
+        wire_contract("org.arinn.Daemon1", "/org/arinn/Daemon1", "org.arinn.Folders1", "folders1.xml")
+        def folders_call(method, signature="", *arguments):
+            return subprocess.run(["busctl", "--user", "--json=short", "call",
+                                   "org.arinn.Daemon1", "/org/arinn/Daemon1",
+                                   "org.arinn.Folders1", method, signature, *arguments],
+                                  env=env, capture_output=True, text=True, timeout=5)
+        places = folders_call("Places")
+        assert places.returncode == 0, places.stderr
+        assert json.loads(places.stdout)["data"][0][-1] == ["root", "/"]
+        listed = folders_call("List", "ssu", str(ROOT / "docs"), "", "256")
+        assert listed.returncode == 0, listed.stderr
+        names, more = json.loads(listed.stdout)["data"]
+        assert "plugin-api" in names and "README.md" not in names and not more, names
+        missing = folders_call("List", "ssu", str(ROOT / "docs/missing"), "", "8")
+        assert missing.returncode != 0 and "NotFound" in missing.stderr, missing.stderr
         browse_call("ClearRecent")
         resolved = browse_call("Resolve", "s", "pages.example/path")
         assert resolved == [["address", "https://pages.example/path", ""]], resolved

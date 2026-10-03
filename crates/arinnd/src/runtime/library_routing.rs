@@ -1,8 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Arinn contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Daemon routing for `library` providers (ADR-0054, ADR-0058): catalogue and
-//! resume import, `org.arinn.Library1`, and library launch through the
+//! Daemon routing for `library` providers (ADR-0054, ADR-0058, ADR-0071):
+//! catalogue, resume and root-availability import, `org.arinn.Library1`, and
+//! library launch through the
 //! `MediaOpen1` of a media provider. The file URI of a launch goes from the
 //! library provider to the media provider only; it never reaches the shell or
 //! the logs.
@@ -10,8 +11,8 @@ use super::*;
 use arinn_plugin_sdk::snapshots::{LibrarySnapshots, ResumeSnapshots};
 use arinn_protocol::{
     library::{
-        self, Collection, FEATURE_IMPORT, FEATURE_RESUME, Item, LibraryPage, LibraryProviderProxy,
-        LibraryResumeProxy, Resume, ResumePage,
+        self, Collection, FEATURE_IMPORT, FEATURE_RESUME, FEATURE_ROOTS, Item, LibraryPage,
+        LibraryProviderProxy, LibraryResumeProxy, LibraryRootsProxy, Resume, ResumePage, Roots,
     },
     media::{FEATURE_OPEN, MediaOpenProxy, MediaSource},
 };
@@ -19,6 +20,7 @@ use arinn_protocol::{
 const KNOWN_FEATURES: &[&str] = &[
     FEATURE_RESUME,
     FEATURE_IMPORT,
+    FEATURE_ROOTS,
     arinn_protocol::assets::FEATURE_ASSETS,
 ];
 /// Library launch includes starting the player: the launch timeout of spec §9.5.
@@ -105,6 +107,18 @@ pub(super) async fn read_resumes(
     Ok((revision, resumes))
 }
 
+pub(super) async fn read_roots(
+    proxy: &LibraryRootsProxy<'_>,
+    generation: &str,
+) -> Result<Roots, ErrorCode> {
+    let (roots,): (Roots,) = proxy.get_roots(generation).await.map_err(normalize_error)?;
+    roots.validate()?;
+    if roots.generation != generation {
+        return Err(ErrorCode::Conflict);
+    }
+    Ok(roots)
+}
+
 impl Core {
     pub(super) async fn watch_library(&self, id: String, owner: String, generation: String) {
         let build = |path| {
@@ -132,12 +146,26 @@ impl Core {
         let Ok(mut resume_changes) = resume.receive_resume_state_changed().await else {
             return;
         };
+        let Ok(roots) = LibraryRootsProxy::builder(&self.connection)
+            .destination(owner.as_str())
+            .and_then(|b| b.path(production::PROVIDER_PATH))
+            .unwrap()
+            .build()
+            .await
+        else {
+            return;
+        };
+        // Likewise for LibraryRoots1 (ADR-0071).
+        let Ok(mut root_changes) = roots.receive_roots_state_changed().await else {
+            return;
+        };
         let mut tick = tokio::time::interval(Duration::from_secs(1));
         loop {
             tokio::select! {
                 _=tick.tick()=>{},
                 event=changes.next()=>{if event.is_none(){return;}},
                 event=resume_changes.next()=>{if event.is_none(){return;}},
+                event=root_changes.next()=>{if event.is_none(){return;}},
             }
             if !self
                 .state
@@ -156,12 +184,22 @@ impl Core {
                 } else {
                     None
                 };
-                Ok::<_, ErrorCode>((snapshot, resumes))
+                let roots = if snapshot.4.iter().any(|f| f == FEATURE_ROOTS) {
+                    Some(read_roots(&roots, &generation).await?)
+                } else {
+                    None
+                };
+                Ok::<_, ErrorCode>((snapshot, resumes, roots))
             })
             .await
             .unwrap_or(Err(ErrorCode::Timeout));
             let mut state = self.state.lock().await;
-            let Some(p) = state.providers.get_mut(&id) else {
+            let State {
+                providers,
+                library_roots,
+                ..
+            } = &mut *state;
+            let Some(p) = providers.get_mut(&id) else {
                 return;
             };
             if p.owner != owner || p.info.generation != generation {
@@ -169,7 +207,7 @@ impl Core {
             }
             let mut signal = None;
             match result {
-                Ok(((revision, collections, items, backend, features), resumes)) => {
+                Ok(((revision, collections, items, backend, features), resumes, roots)) => {
                     let cache = p
                         .library_cache
                         .get_or_insert_with(|| LibrarySnapshots::new(&generation).unwrap());
@@ -190,8 +228,20 @@ impl Core {
                             let resumes_changed = resumes.as_ref().map(|(_, r)| r)
                                 != Some(&p.resumes)
                                 && !(resumes.is_none() && p.resumes.is_empty());
-                            if revision != p.info.revision || resumes_changed {
+                            // The shell reads roots with Library1.GetRoots; a
+                            // change is announced with the library's StateChanged.
+                            let roots_changed = roots.as_ref().map(|r| &r.roots)
+                                != library_roots.get(&id).map(|r| &r.roots);
+                            if revision != p.info.revision || resumes_changed || roots_changed {
                                 signal = Some(revision);
+                            }
+                            match roots {
+                                Some(roots) => {
+                                    library_roots.insert(id.clone(), roots);
+                                }
+                                None => {
+                                    library_roots.remove(&id);
+                                }
                             }
                             p.collections = collections;
                             p.items = items;
@@ -472,6 +522,24 @@ impl LibraryEndpoint {
             .as_mut()
             .ok_or(ErrorCode::Unavailable)?
             .page(&owner, token, Instant::now())?,))
+    }
+    /// Configured roots and their availability (ADR-0071). `Unsupported`
+    /// unless `Features` lists `LibraryRoots1`; `Unavailable` until the
+    /// first read.
+    async fn get_roots(&self) -> production::Result<(Roots,)> {
+        let state = self.core.state.lock().await;
+        let p = state.providers.get(&self.id).ok_or(ErrorCode::NotFound)?;
+        if !p.features.iter().any(|f| f == FEATURE_ROOTS) {
+            return Err(ErrorCode::Unsupported.into());
+        }
+        let roots = state
+            .library_roots
+            .get(&self.id)
+            .ok_or(ErrorCode::Unavailable)?;
+        if roots.generation != p.info.generation {
+            return Err(ErrorCode::Unavailable.into());
+        }
+        Ok((roots.clone(),))
     }
     async fn restart_from_beginning(
         &self,

@@ -473,7 +473,8 @@ pub mod roots {
 pub use roots::LibraryRootsProxy;
 
 /// Shell-facing library API. `GetResumes` and `RestartFromBeginning` return
-/// `Unsupported` unless `Features` lists `LibraryResume1`. Import and
+/// `Unsupported` unless `Features` lists `LibraryResume1`, and `GetRoots`
+/// unless it lists `LibraryRoots1`. Import and
 /// `SetProgress` are not on this interface: the daemon calls the provider.
 #[zbus::proxy(
     interface = "org.arinn.Library1",
@@ -492,6 +493,11 @@ pub trait LibraryApi {
         id: &str,
         request_id: &str,
     ) -> zbus::Result<OwnedObjectPath>;
+    /// Configured roots and their availability (ADR-0071). `Unsupported`
+    /// unless `Features` lists `LibraryRoots1`, `Unavailable` until the
+    /// daemon has read them. A change is announced with the daemon's
+    /// `StateChanged` for the provider's `library` capability.
+    fn get_roots(&self) -> zbus::Result<(Roots,)>;
 }
 
 #[cfg(test)]

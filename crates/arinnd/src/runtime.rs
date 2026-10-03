@@ -78,6 +78,7 @@ impl Provider {
 mod assets;
 mod browse_routing;
 mod download_routing;
+mod folders_routing;
 mod library_routing;
 mod media_routing;
 mod progress;
@@ -90,6 +91,9 @@ struct State {
     providers: BTreeMap<String, Provider>,
     error: String,
     listings: crate::listings::Listings,
+    /// Configured roots and their availability of `library` providers that
+    /// list `LibraryRoots1` (ADR-0071), by provider id.
+    library_roots: BTreeMap<String, arinn_protocol::library::Roots>,
 }
 #[derive(Clone)]
 pub struct Core {
@@ -137,6 +141,7 @@ impl Core {
                 providers: BTreeMap::new(),
                 error: String::new(),
                 listings: crate::listings::Listings::default(),
+                library_roots: BTreeMap::new(),
             })),
             reload_lock: Arc::new(Mutex::new(())),
             maintenance: Arc::new(Mutex::new(())),
@@ -622,6 +627,9 @@ impl Core {
     async fn unavailable(&self, id: &str, owner: &str) {
         {
             let mut state = self.state.lock().await;
+            if state.providers.get(id).is_some_and(|p| p.owner == owner) {
+                state.library_roots.remove(id);
+            }
             if let Some(p) = state.providers.get_mut(id) {
                 if p.owner != owner {
                     return;

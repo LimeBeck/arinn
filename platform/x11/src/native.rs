@@ -192,6 +192,7 @@ impl Native {
             [] => bail!("{NAME}: length 0 has no valid window id"),
             [0] => None,
             [id] => Some(*id),
+            [id, 0] if *id != 0 => Some(*id),
             [0, id] if *id != 0 => Some(*id),
             [_, _] => bail!("{NAME}: length 2 has no valid window id"),
             [_, _, _, ..] => bail!("{NAME}: length {length} exceeds maximum 2 CARD32"),
@@ -830,11 +831,13 @@ pub(crate) mod fixture {
         let shell = desktop.client("org.arinn.Shell", "")?;
         let video = desktop.client("org.example.Player.desktop", "")?;
         desktop.inventory(&[shell, video], video)?;
-        desktop.set_net_active_window(&[0, video])?;
         let mut native = Native::connect_display(Some(&desktop.display))?;
-        let snapshot = native.snapshot()?;
-        assert_eq!(snapshot.active, Some(video));
-        assert_eq!(snapshot.rows[0].flags & 1, 1);
+        for words in [[video, 0], [0, video]] {
+            desktop.set_net_active_window(&words)?;
+            let snapshot = native.snapshot()?;
+            assert_eq!(snapshot.active, Some(video));
+            assert_eq!(snapshot.rows[0].flags & 1, 1);
+        }
         Ok(())
     }
     #[test]
@@ -844,7 +847,7 @@ pub(crate) mod fixture {
         let shell = desktop.client("org.arinn.Shell", "")?;
         desktop.inventory(&[shell], shell)?;
         let mut native = Native::connect_display(Some(&desktop.display))?;
-        for words in [[0u32, 0], [shell, 0], [shell, shell]] {
+        for words in [[0u32, 0], [shell, shell]] {
             desktop.set_net_active_window(&words)?;
             let err = native.snapshot().unwrap_err().to_string();
             assert!(

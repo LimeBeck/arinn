@@ -23,6 +23,9 @@
 > [!WARNING]
 > **Arinn is pre-alpha.** Phase 1 implements the production core and plugin SDK. The shell binds several screens to the daemon and is still a technical prototype. It is not yet usable as an everyday HTPC shell. See the [roadmap](ROADMAP.md).
 
+An optional KDE Plasma 6/X11 session mode is under preparation alongside the
+Wayland MVP. See [KDE/X11 setup and qualification limits](docs/architecture/kde-x11.md).
+
 ## What is Arinn?
 
 Arinn (Old Norse for *hearth*) turns a Linux computer behind the TV into something that feels like a TV: you pick up the remote and ask *"what do we want to do now?"* instead of *"which app do I start?"*.

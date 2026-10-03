@@ -106,6 +106,14 @@ impl Manager {
             .expect("exact native window launch identity");
         arinn_protocol::media_window::validate_launch(app).unwrap();
         assert!(!app.is_empty());
+        assert!(
+            args.iter()
+                .any(|arg| arg == &format!("--x11-name=org.arinn.playback.{app}"))
+        );
+        assert!(
+            args.iter()
+                .any(|arg| arg == "--x11-bypass-compositor=never")
+        );
         assert!(args.iter().all(|arg| !arg.contains("clip.mkv")));
         assert_eq!(flags, &vec!["no-env-expand".to_string()]);
         self.starts.fetch_add(1, Ordering::SeqCst);

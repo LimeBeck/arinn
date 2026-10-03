@@ -29,6 +29,7 @@ for name in NAMES:
     assert (UNITS / name).is_file(), f"missing unit {name}"
 assert ADAPTER.is_file() and os.access(ADAPTER, os.X_OK), "missing KWin adapter loader"
 assert SCRIPT.is_file(), "missing KWin script"
+assert (PREFIX / "lib/arinn/arinn-shell-launch").is_file(), "missing shell launcher"
 
 # The package installs units but never enables them for anyone.
 for wants in UNITS.glob("*.wants"):

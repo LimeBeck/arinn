@@ -511,6 +511,14 @@ Favorites survive removal of their provider and are marked unavailable. Browser 
 
 ## 12. Platform integration (KDE Plasma 6 / Wayland)
 
+**Additional session mode (owner request, 2026-10-03).** KDE Plasma 6/X11 is an
+optional implementation alongside the unchanged Wayland MVP target. It reuses
+the KWin platform adapter, with Qt `xcb` and a per-launch X11 window instance
+identity for managed playback. Real X11/TV qualification remains pending; this
+does not mark an acceptance criterion passed. General EWMH support for other
+desktops remains #186. See [KDE/X11](../architecture/kde-x11.md) and
+[ADR-0077](../adr/0077-kde-x11-session.md).
+
 Wayland constraints: applications cannot control foreign windows, focus stealing is restricted, global hotkeys and overlay semantics depend on the compositor. Window management therefore stays in the platform layer.
 
 The pre-stable provider-facing window enumeration and control bindings are defined

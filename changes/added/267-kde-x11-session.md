@@ -1,0 +1,1 @@
+- Add optional KDE Plasma/X11 session selection and managed-player instance identity alongside Wayland; real X11/TV qualification remains pending.

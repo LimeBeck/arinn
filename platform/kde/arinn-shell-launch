@@ -1,0 +1,16 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: 2026 Arinn contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Select the Qt transport for the existing graphical session (ADR-0077).
+set -eu
+backend=${ARINN_SESSION_BACKEND:-auto}
+if [ "$backend" = auto ]; then
+    backend=${XDG_SESSION_TYPE:-wayland}
+fi
+case "$backend" in
+wayland) QT_QPA_PLATFORM=wayland ;;
+x11) QT_QPA_PLATFORM=xcb ;;
+*) echo "arinn-shell-launch: unsupported session backend" >&2; exit 2 ;;
+esac
+export QT_QPA_PLATFORM
+exec /usr/bin/arinn-shell "$@"

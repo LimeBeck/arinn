@@ -174,8 +174,10 @@ The internal compositor transport is [documented separately](kwin-transport.md).
 
 The optional `KWinMedia1` lane is separate from window Activate/Close. The adapter
 reports an identity for every current application-window token, including empty
-identities. Only a native `KWin::XdgToplevelWindow` with `resourceClass` equal to the protocol app-ID
-prefix plus a canonical non-nil launch UUID is eligible. There is no title,
+identities. A native `KWin::XdgToplevelWindow` uses `resourceClass` with the protocol app-ID
+prefix plus a canonical non-nil launch UUID. The optional [KDE/X11 mode](kde-x11.md)
+uses the actual `KWin::X11Window` wrapper and its `resourceName` with the lowercase
+launch prefix; a generic class never establishes managed identity. There is no title,
 executable, desktop-file or current-focus association. Reports follow the
 committed inventory revision; unchanged inventory can still publish changed
 identity observations.

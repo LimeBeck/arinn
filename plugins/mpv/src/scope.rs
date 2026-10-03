@@ -75,6 +75,12 @@ pub async fn ensure_unit(
         "--wayland-app-id={}",
         arinn_protocol::media_window::app_id(&launch)?
     ));
+    argv.push(format!(
+        "--x11-name={}",
+        arinn_protocol::media_window::app_id(&launch)?.to_lowercase()
+    ));
+    // A transparent input/OSD layer requires compositing on X11.
+    argv.push("--x11-bypass-compositor=never".into());
     let command = vec![(
         binary_text.to_string(),
         argv,

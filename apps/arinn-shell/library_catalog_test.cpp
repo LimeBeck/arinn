@@ -1123,6 +1123,7 @@ private slots:
     QVERIFY(!focusInside(window->activeFocusItem(), library));
   }
   void hiddenLibraryLeavesHomeFocusAlone() {
+  void navigationMenuFocusesTheLibrary() {
     LibraryDaemon daemon;
     daemon.collections = {{QStringLiteral("films"), QStringLiteral("Films"),
                            QStringLiteral("film")}};
@@ -1174,6 +1175,18 @@ private slots:
     QVERIFY(QMetaObject::invokeMethod(library, "focusInitial"));
     QTRY_VERIFY(focusInside(window->activeFocusItem(), home));
     QVERIFY(window->activeFocusItem() != window->contentItem());
+    QVERIFY(QMetaObject::invokeMethod(home, "openNavigation"));
+    auto homeItem = findItem(home, QStringLiteral("nav-0"));
+    QVERIFY(homeItem);
+    QTRY_VERIFY(homeItem->hasActiveFocus());
+    QTest::keyClick(window, Qt::Key_Down);
+    QTest::keyClick(window, Qt::Key_Return);
+    QTRY_COMPARE(library->property("visible").toBool(), true);
+    // The hidden Back to Home button under the library must not keep focus.
+    QTRY_VERIFY(focusInside(window->activeFocusItem(), library));
+    QTest::keyClick(window, Qt::Key_Return);
+    QTest::qWait(50);
+    QCOMPARE(home->property("screen").toString(), QStringLiteral("library"));
   }
   void emptyPosterAndFanartStayGeneric() {
     LibraryDaemon daemon;

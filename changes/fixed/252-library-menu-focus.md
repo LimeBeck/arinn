@@ -1,0 +1,1 @@
+- Opening the Library from the navigation menu focuses the library instead of the hidden *Back to Home* button, so arrows move through the library and Select no longer returns to Home.

@@ -448,7 +448,9 @@ FocusScope {
         if (visible && enabled)
             Qt.callLater(focusInitial);
     }
-    onVisibleChanged: if (visible && enabled) Qt.callLater(focusInitial)
+    // Main.qml binds enabled to visible, and that binding may update after
+    // this handler runs, so check both when the deferred call fires.
+    onVisibleChanged: if (visible) Qt.callLater(() => { if (visible && enabled) focusInitial(); })
 
     Timer {
         id: hoverDelay

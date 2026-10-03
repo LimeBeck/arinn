@@ -154,7 +154,7 @@ systemctl --user disable arinn-session.target   # stop starting it at login
 systemctl --user stop arinn-session.target      # stop it in the current session
 ```
 
-Disable the target before removing the package. To build and run the current prototype in your own Plasma session from source instead:
+To start it once, or to bring up Home when it already runs, open **Arinn** from the application menu; this does not enable autostart. Disable the target before removing the package. To build and run the current prototype in your own Plasma session from source instead:
 
 ```sh
 git clone https://github.com/LimeBeck/arinn.git

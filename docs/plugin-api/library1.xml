@@ -24,6 +24,9 @@ SPDX-License-Identifier: MIT OR Apache-2.0 -->
       <arg name="token" type="s" direction="in" />
       <arg type="(sta(sxxbt)s)" direction="out" />
     </method>
+    <method name="GetRoots">
+      <arg type="(sta(sb))" direction="out" />
+    </method>
     <method name="RestartFromBeginning">
       <arg name="generation" type="s" direction="in" />
       <arg name="id" type="s" direction="in" />

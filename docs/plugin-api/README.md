@@ -27,13 +27,13 @@ capability, but **has not been released as a stable Plugin API**. Requirements:
 | `org.arinn.LibraryProvider1` | Provider unique bus owner, `/org/arinn/Provider1`; [library-provider1.xml](library-provider1.xml) |
 | `org.arinn.LibraryResume1` | Optional provider interface; [library-resume1.xml](library-resume1.xml) |
 | `org.arinn.LibraryImport1` | Optional provider interface; [library-import1.xml](library-import1.xml) |
-| `org.arinn.LibraryRoots1` | Optional provider interface; [library-roots1.xml](library-roots1.xml) ([ADR-0071](../adr/0071-settings-editor-contract.md)). The daemon's `Library1.GetRoots` is a follow-up |
+| `org.arinn.LibraryRoots1` | Optional provider interface; [library-roots1.xml](library-roots1.xml) ([ADR-0071](../adr/0071-settings-editor-contract.md)). The daemon serves it to the shell as `Library1.GetRoots` |
 | `org.arinn.DownloadProvider1` | Provider unique bus owner, `/org/arinn/Provider1`; [download-provider1.xml](download-provider1.xml) ([ADR-0067](../adr/0067-download-wire-contract.md)) |
 | `org.arinn.Downloads1` | Daemon-owned provider path of a `download` provider; [downloads1.xml](downloads1.xml) ([ADR-0067](../adr/0067-download-wire-contract.md)). Daemon export is not implemented yet ([#144](https://github.com/LimeBeck/arinn/issues/144)) |
 | `org.arinn.Browse1` | Daemon, `/org/arinn/Daemon1`; [browse1.xml](browse1.xml) ([ADR-0066](../adr/0066-address-and-search-contract.md)) |
 | `org.arinn.ProviderSettings1` | Optional interface of any provider; [provider-settings1.xml](provider-settings1.xml) ([ADR-0065](../adr/0065-provider-settings-contract.md)) |
 | `org.arinn.Settings1` | Daemon, `/org/arinn/Daemon1`; [settings1.xml](settings1.xml). Exported by the daemon ([ADR-0065](../adr/0065-provider-settings-contract.md)) |
-| `org.arinn.Folders1` | Daemon, `/org/arinn/Daemon1`; [folders1.xml](folders1.xml) ([ADR-0071](../adr/0071-settings-editor-contract.md)). Daemon export is not implemented yet |
+| `org.arinn.Folders1` | Daemon, `/org/arinn/Daemon1`; [folders1.xml](folders1.xml) ([ADR-0071](../adr/0071-settings-editor-contract.md)). Exported by the daemon |
 | `org.arinn.AssetProvider1` | Optional interface of `media` and `library` providers; [asset-provider1.xml](asset-provider1.xml) ([ADR-0062](../adr/0062-asset-contract.md)) |
 | `org.arinn.Assets1` | Daemon-owned provider path of a provider that lists `AssetProvider1`; [assets1.xml](assets1.xml). Exported by the daemon ([ADR-0062](../adr/0062-asset-contract.md)) |
 

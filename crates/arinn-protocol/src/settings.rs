@@ -49,6 +49,8 @@ pub const MAX_JSON_BYTES: usize = 16 * 1024;
 pub const MAX_STRING_LENGTH: u64 = 4096;
 pub const MAX_OPTIONS: usize = 64;
 pub const MAX_PATHS: u64 = 64;
+/// Longest integer `unit`, in bytes (ADR-0071).
+pub const MAX_UNIT_BYTES: usize = 16;
 const DEFAULT_STRING_LENGTH: u64 = 1024;
 
 /// One setting. In a provider's schema `value` is the default; from the
@@ -79,6 +81,9 @@ pub struct Constraints {
     #[serde(default)]
     pub multiple: bool,
     pub max_items: Option<u64>,
+    /// Integer only: short display text after the value, such as `min`
+    /// (ADR-0071). The shell shows it; values stay plain integers.
+    pub unit: Option<String>,
 }
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -106,14 +111,23 @@ impl Setting {
         let integer_keys = c.min.is_some() || c.max.is_some();
         let string_keys = c.max_length.is_some();
         let path_keys = c.directory || c.multiple || c.max_items.is_some();
+        let unit_ok = c.unit.as_deref().is_none_or(unit);
         let ok = match self.kind.as_str() {
-            KIND_BOOLEAN => !integer_keys && !string_keys && !path_keys && c.options.is_empty(),
+            KIND_BOOLEAN => {
+                !integer_keys
+                    && !string_keys
+                    && !path_keys
+                    && c.options.is_empty()
+                    && c.unit.is_none()
+            }
             KIND_INTEGER => {
                 !string_keys
                     && !path_keys
                     && c.options.is_empty()
+                    && unit_ok
                     && c.min.zip(c.max).is_none_or(|(min, max)| min <= max)
             }
+            _ if c.unit.is_some() => false,
             KIND_STRING => {
                 !integer_keys
                     && !path_keys
@@ -185,6 +199,15 @@ impl Setting {
         validation::text(&self.description)?;
         self.check_value(&self.value).map(|_| ())
     }
+}
+
+/// An integer unit: 1 to [`MAX_UNIT_BYTES`] bytes of display text with no
+/// control characters and no surrounding spaces.
+pub fn unit(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= MAX_UNIT_BYTES
+        && value.trim() == value
+        && !value.chars().any(char::is_control)
 }
 
 /// An absolute local path: no empty, `.` or `..` segment, no control

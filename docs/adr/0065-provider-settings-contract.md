@@ -4,7 +4,7 @@
 - **Date:** 2026-09-30
 - **Deciders:** project owner for the scope: providers declare settings, the daemon stores and passes them, and the shell edits them (2026-09-30, [#145](https://github.com/LimeBeck/arinn/issues/145)); the wire design is a delegated technical choice ([ADR-0037](0037-agent-autonomy-and-owner-gated-decisions.md))
 - **Amends / Supersedes:** amends [ADR-0064](0064-provider-settings-in-config.md) (adds the schema and live changes)
-- **Amended by / Superseded by:** —
+- **Amended by / Superseded by:** amended by [ADR-0071](0071-settings-editor-contract.md) (integer `unit`)
 - **Specification:** [§5.6](../specifications/arinn-specification.md#56-settings), [§9](../specifications/arinn-specification.md#9-plugin-api-v1), [§11](../specifications/arinn-specification.md#11-state-ownership-and-persistence)
 
 ## Context

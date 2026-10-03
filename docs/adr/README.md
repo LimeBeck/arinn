@@ -83,11 +83,12 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0062](0062-asset-contract.md) | Fetching assets by id | Accepted | — |
 | [0063](0063-ended-session-state.md) | The `ended` session state | Accepted | — |
 | [0064](0064-provider-settings-in-config.md) | Provider settings in config.toml and their delivery | Accepted | — |
-| [0065](0065-provider-settings-contract.md) | Provider settings contract (ProviderSettings1, Settings1) | Accepted | — |
+| [0065](0065-provider-settings-contract.md) | Provider settings contract (ProviderSettings1, Settings1) | Accepted | 0071 |
 | [0066](0066-address-and-search-contract.md) | Address and search wire contract (Browse1) | Accepted | — |
 | [0067](0067-download-wire-contract.md) | Download wire contract | Accepted | — |
 | [0068](0068-agent-instruction-clarifications.md) | Agent task scope, verification and coordination | Proposed | — |
 | [0069](0069-explicit-home-presentation-requests.md) | Explicit Home presentation requests | Accepted | — |
+| [0071](0071-settings-editor-contract.md) | Settings editor contract (integer unit, folder listing, library root availability) | Accepted | — |
 | [0072](0072-cross-agent-code-review.md) | Cross-agent code review before merging | Accepted | — |
 | [0073](0073-return-window-association.md) | Optional Return-to-platform-window association | Accepted | — |
 | [0074](0074-managed-playback-window.md) | Explicit managed playback window identity | Accepted | — |

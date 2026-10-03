@@ -165,3 +165,62 @@ fn paths() {
         assert!(!path(bad), "{bad:?}");
     }
 }
+
+// ADR-0071: an optional display unit on integer settings.
+#[test]
+fn integer_unit_is_short_display_text_on_integers_only() {
+    let minutes = setting(
+        "idle",
+        KIND_INTEGER,
+        "10",
+        r#"{"min":1,"max":60,"unit":"min"}"#,
+    );
+    assert_eq!(minutes.validate(), Ok(()));
+    assert_eq!(minutes.constraints().unwrap().unit.as_deref(), Some("min"));
+    // A unit does not change the value: it stays a plain integer.
+    assert_eq!(minutes.check_value("15"), Ok(serde_json::json!(15)));
+    assert_eq!(
+        minutes.check_value(r#""15 min""#),
+        Err(ErrorCode::InvalidArgument)
+    );
+
+    let longest = format!(r#"{{"unit":"{}"}}"#, "x".repeat(MAX_UNIT_BYTES));
+    assert_eq!(setting("n", KIND_INTEGER, "1", &longest).validate(), Ok(()));
+    for bad in [
+        format!(r#"{{"unit":"{}"}}"#, "x".repeat(MAX_UNIT_BYTES + 1)),
+        r#"{"unit":""}"#.into(),
+        r#"{"unit":" min"}"#.into(),
+        r#"{"unit":"m\nin"}"#.into(),
+    ] {
+        assert_eq!(
+            setting("n", KIND_INTEGER, "1", &bad).validate(),
+            Err(ErrorCode::InvalidArgument),
+            "{bad}"
+        );
+    }
+    // Multi-byte text counts in bytes.
+    assert!(unit("мин"));
+    assert!(!unit(&"ё".repeat(9)));
+
+    for (kind, value) in [
+        (KIND_BOOLEAN, "true"),
+        (KIND_STRING, r#""x""#),
+        (KIND_PATH, r#""/srv""#),
+    ] {
+        assert_eq!(
+            setting("n", kind, value, r#"{"unit":"min"}"#).validate(),
+            Err(ErrorCode::InvalidArgument),
+            "{kind}"
+        );
+    }
+    assert_eq!(
+        setting(
+            "n",
+            KIND_ENUM,
+            r#""a""#,
+            r#"{"options":[{"value":"a","title":"A"}],"unit":"min"}"#
+        )
+        .validate(),
+        Err(ErrorCode::InvalidArgument)
+    );
+}

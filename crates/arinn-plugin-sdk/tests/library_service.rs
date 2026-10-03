@@ -1,8 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Arinn contributors
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! `LibraryService` registers `library` and keeps resume and import optional
-//! (ADR-0054). Launch's file URI is not logged.
+//! `LibraryService` registers `library` and keeps resume, import and root
+//! availability optional (ADR-0054, ADR-0071). Launch's file URI is not
+//! logged.
 mod common;
 use arinn_plugin_sdk::runtime::{
     self, AssetHandler, LibraryExtensions, LibraryHandler, LibraryImportHandler,
@@ -12,7 +13,7 @@ use arinn_protocol::{
     assets::{Asset, AssetProviderProxy},
     library::{
         Collection, ImportCandidate, Item, LibraryImportProxy, LibraryProviderProxy,
-        LibraryResumeProxy,
+        LibraryResumeProxy, LibraryRootsProxy, RootState,
     },
     media::PlaybackSource,
     production::{self, EntityRef, Registration, RegistrationReply},
@@ -192,7 +193,8 @@ async fn scenario() {
     let extensions = LibraryExtensions::default()
         .resume(resume.clone())
         .import(import.clone())
-        .assets(Posters);
+        .assets(Posters)
+        .roots();
     let service = LibraryService::with_extensions(
         handler.clone(),
         vec![collection()],
@@ -205,6 +207,13 @@ async fn scenario() {
         extensions,
     )
     .unwrap();
+    service
+        .replace_roots(vec![RootState {
+            path: "/srv/films".into(),
+            available: true,
+        }])
+        .await
+        .unwrap();
     let mut registrations = service.registrations();
     let runner = tokio::spawn(runtime::run_library_on(provider.clone(), service.clone()));
     let context = tokio::time::timeout(Duration::from_secs(5), async {
@@ -233,8 +242,70 @@ async fn scenario() {
         vec![
             "LibraryResume1".to_string(),
             "LibraryImport1".to_string(),
-            "AssetProvider1".to_string()
+            "AssetProvider1".to_string(),
+            "LibraryRoots1".to_string()
         ]
+    );
+
+    // ADR-0071: configured roots and whether each can be read now.
+    let roots = LibraryRootsProxy::builder(&server)
+        .destination(destination.clone())
+        .unwrap()
+        .build()
+        .await
+        .unwrap();
+    let mut root_changes = roots.receive_roots_state_changed().await.unwrap();
+    let (first,) = roots.get_roots(&context.generation).await.unwrap();
+    assert_eq!(first.generation, context.generation);
+    assert_eq!(first.revision, 1);
+    assert_eq!(
+        first.roots,
+        vec![RootState {
+            path: "/srv/films".into(),
+            available: true
+        }]
+    );
+    assert_eq!(
+        error_name(roots.get_roots("stale").await),
+        "org.arinn.Error1.Conflict"
+    );
+    let gone = vec![
+        RootState {
+            path: "/srv/films".into(),
+            available: true,
+        },
+        RootState {
+            path: "/run/media/fixture/Disk".into(),
+            available: false,
+        },
+    ];
+    service.replace_roots(gone.clone()).await.unwrap();
+    let signal = tokio::time::timeout(Duration::from_secs(3), root_changes.next())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(signal.args().unwrap().revision, 2);
+    let (second,) = roots.get_roots(&context.generation).await.unwrap();
+    assert_eq!((second.revision, second.roots), (2, gone.clone()));
+    // The same list is not a change.
+    service.replace_roots(gone).await.unwrap();
+    assert_eq!(
+        roots
+            .get_roots(&context.generation)
+            .await
+            .unwrap()
+            .0
+            .revision,
+        2
+    );
+    assert_eq!(
+        service
+            .replace_roots(vec![RootState {
+                path: "relative".into(),
+                available: true
+            }])
+            .await,
+        Err(ErrorCode::InvalidArgument)
     );
     let posters = AssetProviderProxy::builder(&server)
         .destination(destination.clone())
@@ -357,6 +428,7 @@ async fn scenario() {
         ("org.arinn.LibraryProvider1", "library-provider1.xml"),
         ("org.arinn.LibraryResume1", "library-resume1.xml"),
         ("org.arinn.LibraryImport1", "library-import1.xml"),
+        ("org.arinn.LibraryRoots1", "library-roots1.xml"),
     ] {
         let xml = std::fs::read_to_string(format!(
             "{}/../../docs/plugin-api/{file}",
@@ -399,5 +471,26 @@ fn library_service_registers_and_checks_commands() {
         "{}\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+// Without the extension the roots are not published (ADR-0071).
+#[tokio::test]
+async fn roots_need_the_extension() {
+    let service = LibraryService::new(
+        Handler::default(),
+        vec![collection()],
+        vec![film(true)],
+        "available",
+    )
+    .unwrap();
+    assert_eq!(
+        service
+            .replace_roots(vec![RootState {
+                path: "/srv/films".into(),
+                available: true
+            }])
+            .await,
+        Err(ErrorCode::Unsupported)
     );
 }

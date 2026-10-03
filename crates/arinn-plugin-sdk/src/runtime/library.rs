@@ -1,14 +1,15 @@
 // SPDX-FileCopyrightText: 2026 Arinn contributors
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! `org.arinn.LibraryProvider1` and optional resume/import (ADR-0054).
+//! `org.arinn.LibraryProvider1` and optional resume/import (ADR-0054) and
+//! root availability (ADR-0071).
 //! Launch returns a file URI to the daemon only. The SDK does not log it.
 use super::{Endpoint, RegistrationContext, backend_state, run_endpoint};
 use crate::snapshots::{LibrarySnapshots, ResumeSnapshots};
 use arinn_protocol::{
     library::{
-        self, Collection, FEATURE_IMPORT, FEATURE_RESUME, ImportCandidate, Item, LibraryPage,
-        Resume, ResumePage,
+        self, Collection, FEATURE_IMPORT, FEATURE_RESUME, FEATURE_ROOTS, ImportCandidate, Item,
+        LibraryPage, Resume, ResumePage, RootState, Roots,
     },
     media::{self, PlaybackSource},
     production::{self, PROVIDER_PATH},
@@ -57,6 +58,7 @@ pub struct LibraryExtensions {
     assets: Option<Arc<dyn super::assets::AssetHandler>>,
     resume: Option<Arc<dyn LibraryResumeHandler>>,
     import: Option<Arc<dyn LibraryImportHandler>>,
+    roots: bool,
 }
 impl LibraryExtensions {
     /// Serve asset bytes for the provider's asset ids (ADR-0062).
@@ -72,6 +74,12 @@ impl LibraryExtensions {
         self.import = Some(Arc::new(handler));
         self
     }
+    /// Publish the availability of the configured roots (`LibraryRoots1`)
+    /// with [`LibraryService::replace_roots`].
+    pub fn roots(mut self) -> Self {
+        self.roots = true;
+        self
+    }
 }
 
 struct Data {
@@ -85,6 +93,8 @@ struct Data {
     resumes: Vec<Resume>,
     resume_snapshots: Option<ResumeSnapshots>,
     resume_revision: u64,
+    roots: Vec<RootState>,
+    roots_revision: u64,
 }
 
 #[derive(Clone)]
@@ -96,6 +106,7 @@ pub struct LibraryService {
     running: Arc<AtomicBool>,
     updates: tokio::sync::watch::Sender<(String, u64)>,
     resume_updates: tokio::sync::watch::Sender<(String, u64)>,
+    roots_updates: tokio::sync::watch::Sender<(String, u64)>,
 }
 
 impl LibraryService {
@@ -135,6 +146,8 @@ impl LibraryService {
                 resumes: Vec::new(),
                 resume_snapshots: None,
                 resume_revision: 0,
+                roots: Vec::new(),
+                roots_revision: 0,
             })),
             handler: Arc::new(handler),
             extensions,
@@ -142,6 +155,7 @@ impl LibraryService {
             running: Arc::new(AtomicBool::new(false)),
             updates: tokio::sync::watch::channel((String::new(), 0)).0,
             resume_updates: tokio::sync::watch::channel((String::new(), 0)).0,
+            roots_updates: tokio::sync::watch::channel((String::new(), 0)).0,
         })
     }
 
@@ -210,6 +224,34 @@ impl LibraryService {
         Ok(())
     }
 
+    /// Replace the configured roots and their availability. `Unsupported`
+    /// unless the service was built with [`LibraryExtensions::roots`]. A
+    /// change bumps the roots revision and emits `StateChanged` on
+    /// `LibraryRoots1` once registered; the same list is not a change.
+    pub async fn replace_roots(&self, roots: Vec<RootState>) -> Result<(), ErrorCode> {
+        if !self.extensions.roots {
+            return Err(ErrorCode::Unsupported);
+        }
+        library::validate_roots(&roots)?;
+        let update = {
+            let mut data = self.data.lock().await;
+            if data.roots == roots {
+                return Ok(());
+            }
+            data.roots = roots;
+            if data.roots_revision == 0 {
+                None
+            } else {
+                data.roots_revision += 1;
+                Some((data.generation.clone(), data.roots_revision))
+            }
+        };
+        if let Some(update) = update {
+            self.roots_updates.send_replace(update);
+        }
+        Ok(())
+    }
+
     fn feature_names(&self) -> Vec<String> {
         let mut names = Vec::new();
         if self.extensions.resume.is_some() {
@@ -220,6 +262,9 @@ impl LibraryService {
         }
         if self.extensions.assets.is_some() {
             names.push(arinn_protocol::assets::FEATURE_ASSETS.into());
+        }
+        if self.extensions.roots {
+            names.push(FEATURE_ROOTS.into());
         }
         names
     }
@@ -439,6 +484,37 @@ impl ImportIface {
 }
 
 #[derive(Clone)]
+struct RootsIface(LibraryService);
+#[zbus::interface(name = "org.arinn.LibraryRoots1")]
+impl RootsIface {
+    // Readable while the backend is unavailable: a missing drive is exactly
+    // what this reports.
+    async fn get_roots(
+        &self,
+        generation: &str,
+        #[zbus(header)] header: Header<'_>,
+    ) -> production::Result<(Roots,)> {
+        self.0.authorized(&header).await?;
+        let data = self.0.data.lock().await;
+        if data.generation != generation {
+            return Err(ErrorCode::Conflict.into());
+        }
+        Ok((Roots {
+            generation: data.generation.clone(),
+            revision: data.roots_revision,
+            roots: data.roots.clone(),
+        },))
+    }
+
+    #[zbus(signal)]
+    async fn state_changed(
+        emitter: &SignalEmitter<'_>,
+        generation: &str,
+        revision: u64,
+    ) -> zbus::Result<()>;
+}
+
+#[derive(Clone)]
 struct AssetsIface(LibraryService);
 #[zbus::interface(name = "org.arinn.AssetProvider1")]
 impl AssetsIface {
@@ -477,6 +553,7 @@ impl Endpoint for LibraryService {
         data.generation.clear();
         data.daemon_owner.clear();
         data.resume_revision = 0;
+        data.roots_revision = 0;
     }
     async fn daemon_owner(&self) -> String {
         self.data.lock().await.daemon_owner.clone()
@@ -493,6 +570,10 @@ impl Endpoint for LibraryService {
         data.revision = snapshots.publish(data.collections.clone(), data.items.clone())?;
         data.generation = generation.into();
         data.snapshots = Some(snapshots);
+        if self.extensions.roots {
+            data.roots_revision = 1;
+            self.roots_updates.send_replace((generation.into(), 1));
+        }
         if self.extensions.resume.is_some() {
             let mut resumes = ResumeSnapshots::new(generation)?;
             data.resume_revision = resumes.publish(data.resumes.clone())?;
@@ -563,6 +644,34 @@ impl Endpoint for LibraryService {
                 .object_server()
                 .at(PROVIDER_PATH, ImportIface(self.clone()))
                 .await?;
+        }
+        if self.extensions.roots {
+            connection
+                .object_server()
+                .at(PROVIDER_PATH, RootsIface(self.clone()))
+                .await?;
+            let connection = connection.clone();
+            let mut updates = self.roots_updates.subscribe();
+            tokio::spawn(async move {
+                loop {
+                    if updates.changed().await.is_err() {
+                        return;
+                    }
+                    let (generation, revision) = updates.borrow_and_update().clone();
+                    if revision == 0 {
+                        continue;
+                    }
+                    let Ok(emitter) = SignalEmitter::new(&connection, PROVIDER_PATH) else {
+                        return;
+                    };
+                    if RootsIface::state_changed(&emitter, &generation, revision)
+                        .await
+                        .is_err()
+                    {
+                        return;
+                    }
+                }
+            });
         }
         Ok(())
     }

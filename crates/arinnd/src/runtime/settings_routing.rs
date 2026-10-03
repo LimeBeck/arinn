@@ -321,7 +321,8 @@ impl Core {
         }
         .await;
         match applied {
-            Ok(()) | Err(ErrorCode::Unsupported) => Ok(()),
+            Ok(()) => Ok(()),
+            Err(ErrorCode::Unsupported) => Err(ErrorCode::Unsupported),
             Err(error) => {
                 previous.save(&directory)?;
                 Err(error)

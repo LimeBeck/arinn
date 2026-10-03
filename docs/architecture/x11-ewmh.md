@@ -141,3 +141,12 @@ not substitute for real-desktop operator tests, which require owner permission.
 The Arch Qt CI job installs Xvfb and runs the native tests with `--include-ignored`.
 Private-bus adapter and Qt tests cover all three lock endpoints, priority, signals
 and loss of the lock service.
+
+Inventory revisions compare only serialized window fields. Media identity reports
+are independent and reuse the current inventory revision on lock/unlock or
+launch-ID changes, avoiding the daemon's identical-inventory conflict.
+
+When a presented player leaves the inventory, restoration uses its previous row
+before replacing the snapshot. Native launch identity is revalidated before any
+state change. Destroyed or changed-identity players retire without changing
+another window; restoration failure for the exact live player remains observable.

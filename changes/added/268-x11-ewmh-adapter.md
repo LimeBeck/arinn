@@ -7,3 +7,7 @@ Reject unproven suffixless application metadata and release video presentation
 on unrelated focus or shell lifetime loss without stealing focus.
 
 Resolve the Home Meta/Super modifier from the keyboard mapping, including remaps.
+
+Publish media identity transitions independently of unchanged window inventory.
+
+Restore player presentation before retiring a disappeared inventory row.

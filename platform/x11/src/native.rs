@@ -474,6 +474,20 @@ impl Native {
             succeeded: result.is_ok(),
         })
     }
+    pub fn has_launch(&self, video: Window, launch: &str) -> Result<bool> {
+        match self.bytes(video, self.atoms.WM_CLASS, AtomEnum::STRING.into()) {
+            Ok(value) => Ok(!launch.is_empty() && launch_id(&value) == launch),
+            Err(error) => {
+                if matches!(error.downcast_ref::<x11rb::errors::ReplyError>(),
+                    Some(x11rb::errors::ReplyError::X11Error(e)) if e.error_kind == x11rb::protocol::ErrorKind::Window)
+                {
+                    Ok(false)
+                } else {
+                    Err(error)
+                }
+            }
+        }
+    }
     pub fn release(&self, video: Window, saved: &[Atom], launch: &str) -> Result<()> {
         ensure!(
             launch_id(&self.bytes(video, self.atoms.WM_CLASS, AtomEnum::STRING.into())?) == launch

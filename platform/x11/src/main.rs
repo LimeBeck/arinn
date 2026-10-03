@@ -163,7 +163,34 @@ impl Actor {
         }
     }
     fn refresh(&mut self, unlocked: bool) -> Result<Update> {
-        self.snapshot = self.native.snapshot()?;
+        let snapshot = self.native.snapshot()?;
+        if self.presentation.as_ref().is_some_and(|p| {
+            !snapshot
+                .rows
+                .iter()
+                .any(|r| r.token == p.token && r.launch == p.launch)
+        }) {
+            // Keep the previous row until restoration has used its exact XID.
+            // Native release revalidates the launch identity before changing state.
+            let p = self.presentation.as_ref().unwrap();
+            let same_player = if let Some(row) = self.row(&p.token) {
+                self.native.has_launch(row.xid, &p.launch)?
+            } else {
+                false
+            };
+            if !same_player {
+                self.presentation = None;
+            } else if !self.release().is_empty() {
+                eprintln!("arinn-platform-x11: presentation restoration failed");
+                anyhow::bail!("presentation restoration failed");
+            }
+            if !self.home
+                && let Some(shell) = snapshot.shell
+            {
+                self.native.raise_shell(shell, false)?;
+            }
+        }
+        self.snapshot = snapshot;
         self.media_allowed = unlocked && self.snapshot.compositor && self.snapshot.shell.is_some();
         if let Some(p) = self.presentation.clone() {
             let video = self
@@ -186,18 +213,6 @@ impl Actor {
                 }
                 self.home = false;
                 self.target.clear();
-            }
-        }
-        if self
-            .presentation
-            .as_ref()
-            .is_some_and(|p| self.row(&p.token).is_none_or(|r| r.launch != p.launch))
-        {
-            self.presentation = None;
-            if !self.home
-                && let Some(shell) = self.snapshot.shell
-            {
-                self.native.raise_shell(shell, false)?;
             }
         }
         if !self.media_allowed {
@@ -468,10 +483,16 @@ async fn publish(
     update: &Update,
 ) -> Result<()> {
     let rows = &update.snapshot.rows;
-    if *previous != *rows || *revision == 0 {
+    let inventory_changed = *revision == 0
+        || previous.len() != rows.len()
+        || previous.iter().zip(rows).any(|(old, row)| {
+            old.token != row.token || old.desktop_id != row.desktop_id || old.flags != row.flags
+        });
+    if inventory_changed {
         *revision = revision
             .checked_add(1)
             .ok_or_else(|| anyhow::anyhow!("inventory revision exhausted"))?;
+
         bridge
             .begin_inventory(generation, *revision, rows.len() as i32)
             .await?;
@@ -488,15 +509,23 @@ async fn publish(
                 )
                 .await?;
         }
+
         bridge.commit_inventory(generation, *revision).await?;
-        for row in rows {
+    }
+    for (index, row) in rows.iter().enumerate() {
+        if inventory_changed
+            || previous
+                .get(index)
+                .is_none_or(|old| old.token != row.token || old.launch != row.launch)
+        {
             media
                 .report(generation, *revision, &row.token, &row.launch)
                 .await?;
         }
-        *previous = rows.clone();
     }
+    *previous = rows.clone();
     let active = rows.iter().find(|r| Some(r.xid) == update.snapshot.active);
+
     home.report_window(
         active.map_or("", |r| r.token.as_str()),
         active.map_or("", |r| r.desktop_id.as_str()),
@@ -850,6 +879,104 @@ mod tests {
         Ok(())
     }
     #[test]
+    #[ignore = "requires Xvfb; isolated inventory disappearance regression"]
+    fn disappearing_player_restores_before_retiring_inventory() -> Result<()> {
+        let desktop = native::fixture::Desktop::new()?;
+        let launch = Uuid::new_v4().to_string();
+        let shell = desktop.client("org.arinn.Shell.desktop", "")?;
+        let video = desktop.client("org.example.Player.desktop", &launch)?;
+        desktop.inventory(&[shell, video], video)?;
+        desktop.compositing(true)?;
+        let mut native = Native::connect_display(Some(&desktop.display))?;
+        let snapshot = native.snapshot()?;
+        let token = snapshot.rows[0].token.clone();
+        let mut actor = Actor {
+            native,
+            snapshot,
+            home: false,
+            target: String::new(),
+            presentation: None,
+            media_allowed: true,
+        };
+        assert_eq!(actor.present(&token), "");
+        desktop.messages()?;
+        // The XID remains alive while the manager temporarily removes the client.
+        desktop.inventory(&[shell], shell)?;
+        actor.refresh(true)?;
+        assert!(actor.presentation.is_none());
+        let messages = desktop.messages()?;
+        for atom in [
+            desktop.atoms._NET_WM_STATE_FULLSCREEN,
+            desktop.atoms._NET_WM_STATE_BELOW,
+        ] {
+            assert!(messages.iter().any(|m| m.window == video
+                && m.type_ == desktop.atoms._NET_WM_STATE
+                && m.data.as_data32()[0] == 0
+                && m.data.as_data32()[1] == atom));
+        }
+        assert!(
+            !messages
+                .iter()
+                .any(|m| m.type_ == desktop.atoms._NET_ACTIVE_WINDOW)
+        );
+        desktop.inventory(&[shell, video], video)?;
+        actor.refresh(true)?;
+        assert_ne!(actor.snapshot.rows[0].token, token);
+        assert!(actor.row(&token).is_none());
+        Ok(())
+    }
+    #[test]
+    #[ignore = "requires Xvfb; isolated destroyed and changed player identity regression"]
+    fn retired_player_identity_does_not_restore_different_window() -> Result<()> {
+        use x11rb::{
+            protocol::xproto::{AtomEnum, PropMode},
+            wrapper::ConnectionExt as _,
+        };
+        for destroyed in [true, false] {
+            let desktop = native::fixture::Desktop::new()?;
+            let launch = Uuid::new_v4().to_string();
+            let shell = desktop.client("org.arinn.Shell.desktop", "")?;
+            let video = desktop.client("org.example.Player.desktop", &launch)?;
+            desktop.inventory(&[shell, video], video)?;
+            desktop.compositing(true)?;
+            let mut native = Native::connect_display(Some(&desktop.display))?;
+            let snapshot = native.snapshot()?;
+            let token = snapshot.rows[0].token.clone();
+            let mut actor = Actor {
+                native,
+                snapshot,
+                home: false,
+                target: String::new(),
+                presentation: None,
+                media_allowed: true,
+            };
+            assert_eq!(actor.present(&token), "");
+            desktop.messages()?;
+            if destroyed {
+                desktop.c.destroy_window(video)?.check()?;
+                desktop.inventory(&[shell], shell)?;
+            } else {
+                let other = Uuid::new_v4();
+                desktop
+                    .c
+                    .change_property8(
+                        PropMode::REPLACE,
+                        video,
+                        desktop.atoms.WM_CLASS,
+                        AtomEnum::STRING,
+                        format!("org.arinn.playback.{other}\0mpv\0").as_bytes(),
+                    )?
+                    .check()?;
+                desktop.inventory(&[shell, video], shell)?;
+            }
+            actor.refresh(true)?;
+            assert!(actor.presentation.is_none());
+            let messages = desktop.messages()?;
+            assert!(!messages.iter().any(|m| m.window == video));
+        }
+        Ok(())
+    }
+    #[test]
     #[ignore = "requires Xvfb; isolated regression for partial presentation failure"]
     fn failed_presentation_restores_video_and_reports_restore_failure() -> Result<()> {
         let desktop = native::fixture::Desktop::new()?;
@@ -905,10 +1032,11 @@ mod lock_tests {
         process::{Child, Command, Stdio},
         sync::atomic::{AtomicBool, AtomicUsize, Ordering},
     };
-    struct Bus {
+    pub(super) struct Bus {
         child: Child,
-        client: Connection,
-        server: Connection,
+        pub(super) client: Connection,
+        pub(super) server: Connection,
+        pub(super) address: String,
     }
     impl Drop for Bus {
         fn drop(&mut self) {
@@ -917,7 +1045,7 @@ mod lock_tests {
         }
     }
     impl Bus {
-        async fn new() -> Self {
+        pub(super) async fn new() -> Self {
             let mut child = Command::new("dbus-daemon")
                 .args(["--session", "--nofork", "--print-address=1"])
                 .stdout(Stdio::piped())
@@ -938,6 +1066,7 @@ mod lock_tests {
                 child,
                 client: connection(&address).await,
                 server: connection(&address).await,
+                address,
             }
         }
     }
@@ -1017,5 +1146,210 @@ mod lock_tests {
         assert_eq!(xfce.calls.load(Ordering::SeqCst), 0);
         primary.active.store(false, Ordering::SeqCst);
         assert!(unlocked(&bus.client).await);
+    }
+}
+
+#[cfg(test)]
+mod publication_tests {
+    use super::*;
+    #[derive(Default)]
+    struct Capture {
+        current: Option<Vec<(String, String, i32)>>,
+        stage: Vec<(String, String, i32)>,
+        count: i32,
+        revision: i32,
+        commits: usize,
+        media: Vec<(i32, String, String)>,
+    }
+    struct Bridge(Arc<Mutex<Capture>>);
+    #[zbus::interface(name = "org.arinn.KWinBridge1")]
+    impl Bridge {
+        fn begin_inventory(&self, _generation: &str, _revision: i32, count: i32) {
+            let mut state = self.0.lock().unwrap();
+            state.stage.clear();
+            state.count = count;
+        }
+        #[allow(clippy::too_many_arguments)] // Existing scalar transport signature.
+        fn put_window(
+            &self,
+            _generation: &str,
+            _revision: i32,
+            _index: i32,
+            token: &str,
+            desktop: &str,
+            _output: &str,
+            flags: i32,
+        ) {
+            self.0
+                .lock()
+                .unwrap()
+                .stage
+                .push((token.into(), desktop.into(), flags));
+        }
+        fn commit_inventory(&self, _generation: &str, revision: i32) -> zbus::fdo::Result<()> {
+            let mut state = self.0.lock().unwrap();
+            // The actual daemon rejects a new revision for identical wire fields.
+            if state.current.as_ref() == Some(&state.stage)
+                || state.stage.len() != state.count as usize
+            {
+                return Err(zbus::fdo::Error::Failed(
+                    "identical or incomplete inventory".into(),
+                ));
+            }
+            state.current = Some(state.stage.clone());
+            state.revision = revision;
+            state.commits += 1;
+            Ok(())
+        }
+    }
+    struct Media(Arc<Mutex<Capture>>);
+    #[zbus::interface(name = "org.arinn.KWinMedia1")]
+    impl Media {
+        fn report(
+            &self,
+            _generation: &str,
+            revision: i32,
+            token: &str,
+            launch: &str,
+        ) -> zbus::fdo::Result<()> {
+            let mut state = self.0.lock().unwrap();
+            if revision != state.revision {
+                return Err(zbus::fdo::Error::Failed("stale inventory revision".into()));
+            }
+            state.media.push((revision, token.into(), launch.into()));
+            Ok(())
+        }
+    }
+    struct Home;
+    #[zbus::interface(name = "org.arinn.Daemon1")]
+    impl Home {
+        fn report_window(&self, _token: &str, _desktop: &str, _fullscreen: bool, _output: &str) {}
+        fn report_home(&self, _visible: bool, _target: &str, _output: &str) {}
+    }
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn media_identity_changes_do_not_resubmit_identical_inventory() -> Result<()> {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            let bus = lock_tests::Bus::new().await;
+            let capture = Arc::new(Mutex::new(Capture::default()));
+            let path = "/org/arinn/Daemon1";
+            let server = zbus::connection::Builder::address(bus.address.trim())?
+                .serve_at(path, Bridge(capture.clone()))?
+                .serve_at(path, Media(capture.clone()))?
+                .serve_at(path, Home)?
+                .build()
+                .await?;
+            let owner = server.unique_name().unwrap().clone();
+            let home = HomeBridgeProxy::builder(&bus.client)
+                .destination(owner.clone())?
+                .cache_properties(zbus::proxy::CacheProperties::No)
+                .build()
+                .await?;
+            let bridge = KWinBridgeProxy::builder(&bus.client)
+                .destination(owner.clone())?
+                .cache_properties(zbus::proxy::CacheProperties::No)
+                .build()
+                .await?;
+            let media = KWinMediaProxy::builder(&bus.client)
+                .destination(owner.clone())?
+                .cache_properties(zbus::proxy::CacheProperties::No)
+                .build()
+                .await?;
+            let returns = KWinReturnProxy::builder(&bus.client)
+                .destination(owner)?
+                .cache_properties(zbus::proxy::CacheProperties::No)
+                .build()
+                .await?;
+
+            let token = Uuid::new_v4().to_string();
+            let launch = Uuid::new_v4().to_string();
+            let other_launch = Uuid::new_v4().to_string();
+            let generation = Uuid::new_v4().to_string();
+            let mut update = Update {
+                snapshot: Snapshot {
+                    rows: vec![Row {
+                        xid: 42,
+                        token: token.clone(),
+                        desktop_id: "org.example.Player.desktop".into(),
+                        launch: launch.clone(),
+                        flags: 4,
+                    }],
+                    shell: Some(43),
+                    shell_token: Uuid::new_v4().to_string(),
+                    active: Some(42),
+                    home_key: false,
+                    compositor: true,
+                },
+                home: false,
+                target: String::new(),
+                explicit_home: false,
+            };
+            let mut revision = 0;
+            let mut previous = Vec::new();
+            let mut previous_home = None;
+            for identity in [&launch, "", &launch, &other_launch] {
+                update.snapshot.rows[0].launch = identity.into();
+                tokio::time::timeout(
+                    Duration::from_secs(3),
+                    publish(
+                        &home,
+                        &bridge,
+                        &media,
+                        &returns,
+                        &generation,
+                        &mut revision,
+                        &mut previous,
+                        &mut previous_home,
+                        &update,
+                    ),
+                )
+                .await??;
+                assert_eq!(revision, 1);
+            }
+            // An unchanged tick emits neither inventory nor media updates.
+            publish(
+                &home,
+                &bridge,
+                &media,
+                &returns,
+                &generation,
+                &mut revision,
+                &mut previous,
+                &mut previous_home,
+                &update,
+            )
+            .await?;
+            {
+                let state = capture.lock().unwrap();
+                assert_eq!(state.commits, 1);
+                assert_eq!(
+                    state.media,
+                    [&launch, "", &launch, &other_launch].map(|id| (
+                        1,
+                        token.clone(),
+                        id.to_string()
+                    ))
+                );
+            }
+            // A real wire-field change allocates a revision and re-reports media.
+            update.snapshot.rows[0].flags |= 2;
+            publish(
+                &home,
+                &bridge,
+                &media,
+                &returns,
+                &generation,
+                &mut revision,
+                &mut previous,
+                &mut previous_home,
+                &update,
+            )
+            .await?;
+            let state = capture.lock().unwrap();
+            assert_eq!(state.commits, 2);
+            assert_eq!(revision, 2);
+            assert_eq!(state.media.last(), Some(&(2, token, other_launch)));
+            Ok(())
+        })
+        .await?
     }
 }

@@ -145,16 +145,26 @@ FocusScope {
     function revealRow(row) {
         sectionOffset = Math.max(0, row.y + row.height - 700);
     }
+    function focusApplicationRowBelow(fromRow) {
+        const rows = applicationRows();
+        for (let i = rows.indexOf(fromRow) + 1; i < rows.length; ++i) {
+            if (rows[i].focusIndex(fromRow.selectedIndex) || rows[i].restore()) return true;
+        }
+        return false;
+    }
     function applicationEdge(row, key) {
         if (key === Qt.Key_Left) { openNavigation(); return; }
         if (key === Qt.Key_Right) return;
+        if (key === Qt.Key_Down && shortcutEditButton.visible) {
+            Qt.callLater(() => Focus.take(shortcutEditButton));
+            return;
+        }
         const rows = applicationRows();
         const step = key === Qt.Key_Up ? -1 : 1;
         for (let i = rows.indexOf(row) + step; i >= 0 && i < rows.length; i += step) {
             if (rows[i].focusIndex(row.selectedIndex) || rows[i].restore()) return;
         }
         if (key === Qt.Key_Up) { sectionOffset = 0; Focus.take(menuButton); }
-        else if (shortcutEditButton.visible) Focus.take(shortcutEditButton);
         else Focus.take(sectionBack);
     }
     function applicationFocusLost(row) {
@@ -468,7 +478,11 @@ FocusScope {
                 visible: root.shortcutManagement && root.screen === "applications" && !!root.focusedEntry.webShortcut
                 onActivated: root.editShortcut(root.focusedEntry.id)
                 Keys.onUpPressed: root.restoreScreen()
-                Keys.onDownPressed: Focus.take(sectionBack)
+                Keys.onDownPressed: {
+                    const from = root.applicationRows().find(row => row.objectName === root.applicationFocusRow);
+                    if (!from || !root.focusApplicationRowBelow(from))
+                        Focus.take(sectionBack);
+                }
             }
             ActionButton {
                 id: sectionBack; objectName: "sectionBack"

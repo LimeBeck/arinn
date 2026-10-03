@@ -99,12 +99,6 @@ TestCase {
             home.selectSection(3);
             focused(home, "entry-web1");
             return screen(home);
-        }, {
-            // Shown while a web shortcut has focus, but arrows do not reach it
-            // in this fixture: Down leaves the shortcut's row first, and the
-            // button hides. Menu opens the editor (test_home_shortcut_editor).
-            // Not covered by #147 until #262 is decided.
-            editShortcutButton: "Menu"
         });
     }
     function test_home_shortcut_editor() {

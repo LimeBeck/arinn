@@ -1,0 +1,1 @@
+- Home → Applications: Down from a focused web shortcut now moves focus to **Edit shortcut**; Up on that button returns to the same entry (#262).

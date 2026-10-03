@@ -6,7 +6,7 @@
 - **Status:** Accepted
 - **Date:** 2026-10-03
 - **Deciders:** project owner for the behaviour (spec §5.6, owner decisions of 2026-09-30, [#172](https://github.com/LimeBeck/arinn/issues/172)); the wire design is a delegated technical choice ([ADR-0037](0037-agent-autonomy-and-owner-gated-decisions.md)), task [#192](https://github.com/LimeBeck/arinn/issues/192)
-- **Amends / Supersedes:** amends [ADR-0065](0065-provider-settings-contract.md) (integer constraints)
+- **Amends / Supersedes:** amends [ADR-0065](0065-provider-settings-contract.md) (integer constraints) and [ADR-0054](0054-media-and-library-wire-contract.md) (adds the optional `LibraryRoots1` library extension)
 - **Amended by / Superseded by:** —
 - **Specification:** [§5.6](../specifications/arinn-specification.md#56-settings), R-04, R-05, [§13](../specifications/arinn-specification.md#13-security)
 
@@ -25,8 +25,10 @@ The settings editors handoff (#172, DR-25 to DR-27) and the owner decisions of 2
 **Folder listing: `org.arinn.Folders1`** on `/org/arinn/Daemon1`, a new daemon interface ([folders1.xml](../plugin-api/folders1.xml), `arinn_protocol::folders`). `Settings1` is unchanged.
 - `Places() → a(ss)` returns `(kind, path)` start points:
   - `home`, the user's home folder;
-  - each mounted folder under `/media`, `/run/media` and `/mnt` as `mount`, in picker order;
+  - as `mount`, each mount point in the mount table at any depth under `/media`, `/run/media` and `/mnt`, ordered with the picker order on the full path. A parent such as `/run/media/<user>` is included only when it is itself a mount point;
   - `root`, which is `/`.
+
+  Paths that are not UTF-8 are skipped. `Places` has no change signal: the shell calls it again whenever it shows the start points.
 - `List(path, after, limit) → (as, b)` returns the names of the subfolders of an absolute normal path, in picker order, after the cursor `after` (empty for the first page), at most `limit` (1–256), and whether more follow.
   - An entry is listed when it resolves to a directory, so symbolic links to folders are included.
   - Hidden names (leading `.`) and names that cannot be shown or passed back (control characters, `/`, more than 255 bytes) are skipped.

@@ -320,15 +320,46 @@ impl ResumePage {
     }
 }
 
+impl Roots {
+    pub fn encoded_len(&self) -> Result<usize, ErrorCode> {
+        to_bytes(Context::new_dbus(LE, 0), &(self,))
+            .map(|bytes| bytes.len())
+            .map_err(|_| ErrorCode::InvalidArgument)
+    }
+
+    /// A `GetRoots` reply: a generation UUID, a revision from 1, valid
+    /// roots, and a body within `MAX_BODY_BYTES`.
+    pub fn validate(&self) -> Result<(), ErrorCode> {
+        uuid::Uuid::parse_str(&self.generation).map_err(|_| ErrorCode::InvalidArgument)?;
+        if self.revision == 0 {
+            return Err(ErrorCode::InvalidArgument);
+        }
+        validate_roots(&self.roots)
+    }
+}
+
 /// At most `settings::MAX_PATHS` roots, each an absolute normal path, no
-/// path twice.
+/// path twice, and small enough that the `GetRoots` reply carrying them
+/// stays within `MAX_BODY_BYTES` (spec §9.7).
 pub fn validate_roots(roots: &[RootState]) -> Result<(), ErrorCode> {
     let mut paths = HashSet::new();
     let ok = roots.len() as u64 <= crate::settings::MAX_PATHS
         && roots
             .iter()
             .all(|root| crate::settings::path(&root.path) && paths.insert(root.path.as_str()));
-    ok.then_some(()).ok_or(ErrorCode::InvalidArgument)
+    if !ok {
+        return Err(ErrorCode::InvalidArgument);
+    }
+    // The generation is a UUID, so its text length is fixed.
+    let reply = Roots {
+        generation: uuid::Uuid::nil().to_string(),
+        revision: u64::MAX,
+        roots: roots.to_vec(),
+    };
+    if reply.encoded_len()? > MAX_BODY_BYTES {
+        return Err(ErrorCode::InvalidArgument);
+    }
+    Ok(())
 }
 
 pub fn validate_resumes(resumes: &[Resume]) -> Result<(), ErrorCode> {
@@ -611,5 +642,42 @@ mod tests {
             .collect();
         assert_eq!(validate_roots(&many), Err(ErrorCode::InvalidArgument));
         assert_eq!(validate_roots(&many[1..]), Ok(()));
+
+        // 64 roots of 4096 bytes each are valid one by one, but their
+        // GetRoots reply would exceed the body limit (review of #266).
+        let long: Vec<_> = (0..crate::settings::MAX_PATHS)
+            .map(|i| root(&format!("/{i:02}{}", "x".repeat(4093)), true))
+            .collect();
+        assert!(
+            long.iter()
+                .all(|r| crate::settings::path(&r.path) && r.path.len() == 4096)
+        );
+        assert_eq!(validate_roots(&long), Err(ErrorCode::InvalidArgument));
+        let fits: Vec<_> = (0..60)
+            .map(|i| root(&format!("/{i:02}{}", "x".repeat(4093)), true))
+            .collect();
+        assert_eq!(validate_roots(&fits), Ok(()));
+    }
+
+    #[test]
+    fn roots_reply_validates_generation_revision_and_roots() {
+        let reply = |generation: &str, revision| Roots {
+            generation: generation.into(),
+            revision,
+            roots: vec![RootState {
+                path: "/srv/films".into(),
+                available: false,
+            }],
+        };
+        let generation = uuid::Uuid::new_v4().to_string();
+        assert_eq!(reply(&generation, 1).validate(), Ok(()));
+        assert_eq!(
+            reply("not-a-uuid", 1).validate(),
+            Err(ErrorCode::InvalidArgument)
+        );
+        assert_eq!(
+            reply(&generation, 0).validate(),
+            Err(ErrorCode::InvalidArgument)
+        );
     }
 }

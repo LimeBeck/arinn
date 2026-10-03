@@ -88,9 +88,12 @@ pub fn page(
 
 /// Shell-facing folder listing.
 ///
-/// - `Places` returns the start points: [`PLACE_HOME`], each mounted folder
-///   under [`MOUNT_PARENTS`] as [`PLACE_MOUNT`] in picker order, then
-///   [`PLACE_ROOT`] (`/`).
+/// - `Places` returns the start points: [`PLACE_HOME`]; each mount point in
+///   the mount table at any depth under [`MOUNT_PARENTS`] (a parent itself
+///   only when it is a mount point) as [`PLACE_MOUNT`], ordered with
+///   [`order`] on the full path; then [`PLACE_ROOT`] (`/`). Paths that are
+///   not UTF-8 are skipped. There is no change signal: the shell calls
+///   `Places` again when it shows the start points.
 /// - `List` returns the subfolder names of `path` after `after`, at most
 ///   `limit`, and whether more follow. An entry is a folder when it resolves
 ///   to a directory, so symbolic links to folders are listed.

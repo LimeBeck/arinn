@@ -105,7 +105,7 @@ T.AbstractButton {
     }
     function focusFromHover() {
         if (hoverTracker.hovered && pointerMode && hoverFocusEnabled && enabled)
-            forceActiveFocus(Qt.MouseFocusReason);
+            Focus.take(root, Qt.MouseFocusReason);
     }
     // The parent input scope and this handler receive the same move. Defer the
     // check until its pointer-mode update has propagated, regardless of order.

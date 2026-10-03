@@ -377,7 +377,7 @@ FocusScope {
         editingPart = "integer";
         editingDraft = String(current);
         editingKey = rowKey(row);
-        Qt.callLater(() => { if (integerStepper) integerStepper.forceActiveFocus(); });
+        Qt.callLater(() => { if (integerStepper) Ui.Focus.take(integerStepper); });
     }
     function openString(row) {
         if (!canEdit(row) || row.type !== "string") return;
@@ -392,12 +392,12 @@ FocusScope {
     function focusString() {
         if (!stringSheet) return;
         if (!keyboardReady) {
-            if (keyboardBack) keyboardBack.forceActiveFocus();
+            if (keyboardBack) Ui.Focus.take(keyboardBack);
             return;
         }
-        if (stringPart === "save" && stringSave) stringSave.forceActiveFocus();
-        else if (stringPart === "cancel" && stringCancel) stringCancel.forceActiveFocus();
-        else if (stringField) stringField.forceActiveFocus();
+        if (stringPart === "save" && stringSave) Ui.Focus.take(stringSave);
+        else if (stringPart === "cancel" && stringCancel) Ui.Focus.take(stringCancel);
+        else if (stringField) Ui.Focus.take(stringField);
     }
     function nudgeInteger(direction, autoRepeat) {
         const row = integerRowData;
@@ -498,7 +498,7 @@ FocusScope {
         const item = optionRepeater.itemAt(index);
         if (!item) return;
         optionIndex = index;
-        item.forceActiveFocus();
+        Ui.Focus.take(item);
         if (choosingOptions.length > 6 && optionFlick) {
             const y = Math.max(0, item.y + item.height / 2 - optionFlick.height / 2);
             optionFlick.contentY = Math.min(y, Math.max(0, optionFlick.contentHeight - optionFlick.height));
@@ -610,7 +610,7 @@ FocusScope {
         focusedRowKey = "";
         categoryIndex = next;
         const item = categoryRepeater.itemAt(next);
-        if (item) item.forceActiveFocus();
+        if (item) Ui.Focus.take(item);
     }
     function rowScopeAt(index) { return rowRepeater.itemAt(index); }
     function focusPart(rowIndex, name) {
@@ -623,7 +623,7 @@ FocusScope {
         partName = name;
         const row = activeRows[rowIndex];
         focusedRowKey = row ? rowKey(row) : focusedRowKey;
-        item.forceActiveFocus();
+        Ui.Focus.take(item);
         revealRow(scope);
         return true;
     }
@@ -633,7 +633,7 @@ FocusScope {
         if (stringSheet || integerSheet || choosingKey.length) {
             Qt.callLater(() => {
                 if (stringSheet) focusString();
-                else if (integerSheet && integerStepper) integerStepper.forceActiveFocus();
+                else if (integerSheet && integerStepper) Ui.Focus.take(integerStepper);
                 else if (choosingKey.length) focusOption(optionIndex);
             });
             return;
@@ -701,7 +701,7 @@ FocusScope {
     function focusInitial() {
         if (!visible) return;
         if (screenBlocked) {
-            screenStatus.forceActiveFocus();
+            Ui.Focus.take(screenStatus);
             return;
         }
         if (!categories.length) return;
@@ -1086,7 +1086,7 @@ FocusScope {
                                             onVisibleChanged: if (visible) {
                                                 text = root.editingDraft;
                                                 cursorPosition = text.length;
-                                                forceActiveFocus();
+                                                Ui.Focus.take(simpleEditor);
                                             }
                                             onTextChanged: if (visible && activeFocus) root.editingDraft = text
                                             Keys.onPressed: event => root.editorKeys(event)
@@ -1221,6 +1221,7 @@ FocusScope {
                                                     role: "meta"
                                                 }
                                                 TextInput {
+                                                    id: pathEditor
                                                     anchors.fill: parent
                                                     anchors.leftMargin: 20
                                                     anchors.rightMargin: 20
@@ -1234,7 +1235,7 @@ FocusScope {
                                                     onVisibleChanged: if (visible) {
                                                         text = root.editingDraft;
                                                         cursorPosition = text.length;
-                                                        forceActiveFocus();
+                                                        Ui.Focus.take(pathEditor);
                                                     }
                                                     onTextChanged: if (visible && activeFocus) root.editingDraft = text
                                                     Keys.onPressed: event => root.editorKeys(event)
@@ -1292,6 +1293,7 @@ FocusScope {
                                             role: "meta"
                                         }
                                         TextInput {
+                                            id: addEditor
                                             anchors.centerIn: parent
                                             width: parent.width - 40
                                             objectName: rowScope.multiple ? "editor-" + rowScope.key + "-add" : ""
@@ -1304,7 +1306,7 @@ FocusScope {
                                             onVisibleChanged: if (visible) {
                                                 text = root.editingDraft;
                                                 cursorPosition = text.length;
-                                                forceActiveFocus();
+                                                Ui.Focus.take(addEditor);
                                             }
                                             onTextChanged: if (visible && activeFocus) root.editingDraft = text
                                             Keys.onPressed: event => root.editorKeys(event)
@@ -1687,7 +1689,7 @@ FocusScope {
                             onVisibleChanged: if (visible) {
                                 text = root.editingDraft;
                                 cursorPosition = text.length;
-                                if (root.keyboardReady) forceActiveFocus();
+                                if (root.keyboardReady) Ui.Focus.take(stringField);
                             }
                             onTextChanged: if (activeFocus) {
                                 root.editingDraft = text;
@@ -1706,7 +1708,7 @@ FocusScope {
                                     event.accepted = true;
                                 } else if (event.key === Qt.Key_Down) {
                                     root.stringPart = "save";
-                                    stringSave.forceActiveFocus();
+                                    Ui.Focus.take(stringSave);
                                     event.accepted = true;
                                 } else if (event.key === Qt.Key_Up) {
                                     event.accepted = true;
@@ -1785,11 +1787,11 @@ FocusScope {
                                     event.accepted = true;
                                 } else if (event.key === Qt.Key_Right || event.key === Qt.Key_Down) {
                                     root.stringPart = "cancel";
-                                    stringCancel.forceActiveFocus();
+                                    Ui.Focus.take(stringCancel);
                                     event.accepted = true;
                                 } else if (event.key === Qt.Key_Up || event.key === Qt.Key_Left) {
                                     root.stringPart = "field";
-                                    stringField.forceActiveFocus();
+                                    Ui.Focus.take(stringField);
                                     event.accepted = true;
                                 } else if (event.key === Qt.Key_Escape || event.key === Qt.Key_Back) {
                                     root.cancelEditor();
@@ -1823,7 +1825,7 @@ FocusScope {
                                     event.accepted = true;
                                 } else if (event.key === Qt.Key_Left || event.key === Qt.Key_Up) {
                                     root.stringPart = "save";
-                                    stringSave.forceActiveFocus();
+                                    Ui.Focus.take(stringSave);
                                     event.accepted = true;
                                 }
                             }

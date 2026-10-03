@@ -41,7 +41,7 @@ FocusScope {
         if (!available(candidate)) return false;
         const item = cards.itemAt(candidate);
         if (!item || !item.item) return false;
-        item.item.forceActiveFocus();
+        Focus.take(item.item);
         return true;
     }
     function restore() { return focusIndex(selectedIndex); }

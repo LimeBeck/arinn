@@ -34,6 +34,12 @@ Interactive components inherit `enabled` and add `busy`. Consumers connect to
 but do not emit action intents. Disabled controls cannot activate. There are no
 success timers. Status panes hide their action during loading.
 
+Focus ownership follows [ADR-0076](../adr/0076-shell-focus-ownership.md):
+`Main.qml` decides which screen is the focused scope (`focusedScreen`), screens
+move focus only inside themselves, and every move goes through
+`Focus.take(item)`, which refuses hidden or disabled items. The `focus-ownership`
+test rejects any other `forceActiveFocus()` call.
+
 Screens own focus scopes, explicit neighbours, restoration and input-mode state.
 They pass `pointerMode` and `hoverFocusEnabled` to controls; the latter must be
 false during the 500 ms hover suppression after a scroll. Components never decide

@@ -139,7 +139,7 @@ FocusScope {
             }
             return false;
         }
-        item.forceActiveFocus();
+        Ui.Focus.take(item);
         const top = item.y;
         const bottom = top + item.height;
         let next = scroller.contentY;
@@ -169,8 +169,8 @@ FocusScope {
             focusJob(resolvedIndex());
             return;
         }
-        if (statusVisible) statusPane.forceActiveFocus();
-        else forceActiveFocus();
+        if (statusVisible) Ui.Focus.take(statusPane);
+        else Ui.Focus.take(root);
     }
     function syncImports() {
         const previous = knownImports;
@@ -291,7 +291,7 @@ FocusScope {
                                 if (!(root.pointerMode && root.hoverFocusEnabled)) return;
                                 root.selectedIndex = index;
                                 root.selectedId = modelData.id || "";
-                                forceActiveFocus(Qt.MouseFocusReason);
+                                Ui.Focus.take(row, Qt.MouseFocusReason);
                             }
                             Keys.onPressed: event => {
                                 if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {

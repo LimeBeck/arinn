@@ -92,4 +92,5 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0073](0073-return-window-association.md) | Optional Return-to-platform-window association | Accepted | — |
 | [0074](0074-managed-playback-window.md) | Explicit managed playback window identity | Accepted | — |
 | [0075](0075-web-shortcut-site-icons.md) | Bounded provider-owned web shortcut site icons | Accepted | — |
+| [0076](0076-shell-focus-ownership.md) | Shell focus ownership | Accepted | — |
 <!-- register:end -->

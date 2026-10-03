@@ -22,7 +22,7 @@ FocusScope {
     onShortcutErrorChanged: {
         if (shortcutError.length && removeConfirmation.visible) {
             removeConfirmation.visible = false;
-            shortcutDelete.forceActiveFocus();
+            Focus.take(shortcutDelete);
         }
     }
     readonly property bool shortcutEditorOpen: shortcutEditor.id !== undefined
@@ -40,12 +40,12 @@ FocusScope {
             shortcutTitle.text = shortcutEditor.title || "";
             shortcutUrl.text = shortcutEditor.url || "";
             removeConfirmation.visible = false;
-            Qt.callLater(() => keyboardAvailable ? shortcutTitle.forceActiveFocus() : shortcutCancel.forceActiveFocus());
+            Qt.callLater(() => keyboardAvailable ? Focus.take(shortcutTitle) : Focus.take(shortcutCancel));
         } else {
             shortcutTitle.text = "";
             shortcutUrl.text = "";
             if (shortcutOpener && shortcutOpener.visible && shortcutOpener.enabled)
-                shortcutOpener.forceActiveFocus();
+                Focus.take(shortcutOpener);
             else Qt.callLater(restoreScreen);
             shortcutOpener = null;
         }
@@ -127,7 +127,7 @@ FocusScope {
         if (homeState === "ready") {
             for (const row of rows) if (row.visible && row.restore()) return;
         }
-        menuButton.forceActiveFocus();
+        Focus.take(menuButton);
     }
     function groupEntries(group) {
         const entries = applicationEntries.filter(entry => (entry.group || "other") === group);
@@ -153,9 +153,9 @@ FocusScope {
         for (let i = rows.indexOf(row) + step; i >= 0 && i < rows.length; i += step) {
             if (rows[i].focusIndex(row.selectedIndex) || rows[i].restore()) return;
         }
-        if (key === Qt.Key_Up) { sectionOffset = 0; menuButton.forceActiveFocus(); }
-        else if (shortcutEditButton.visible) shortcutEditButton.forceActiveFocus();
-        else sectionBack.forceActiveFocus();
+        if (key === Qt.Key_Up) { sectionOffset = 0; Focus.take(menuButton); }
+        else if (shortcutEditButton.visible) Focus.take(shortcutEditButton);
+        else Focus.take(sectionBack);
     }
     function applicationFocusLost(row) {
         const rows = applicationRows();
@@ -163,7 +163,7 @@ FocusScope {
         for (let i = index - 1; i >= 0; --i) if (rows[i].restore()) return;
         for (let i = index + 1; i < rows.length; ++i) if (rows[i].restore()) return;
         for (const other of rows) if (other !== row && other.restore()) return;
-        sectionBack.forceActiveFocus();
+        Focus.take(sectionBack);
     }
     function restoreScreen() {
         if (screen === "home") restoreHome();
@@ -172,14 +172,14 @@ FocusScope {
             const remembered = rows.find(row => row.objectName === applicationFocusRow);
             if (remembered && remembered.restore()) return;
             for (const row of rows) if (row.restore()) return;
-            sectionBack.forceActiveFocus();
-        } else sectionBack.forceActiveFocus();
+            Focus.take(sectionBack);
+        } else Focus.take(sectionBack);
     }
     // Focus whatever Home shows on top: the shortcut editor, the open
     // navigation menu or the current section.
     function restoreFocus() {
-        if (shortcutEditorOpen) shortcutCancel.forceActiveFocus();
-        else if (navOpen && navItems.itemAt(navIndex)) navItems.itemAt(navIndex).forceActiveFocus();
+        if (shortcutEditorOpen) Focus.take(shortcutCancel);
+        else if (navOpen && navItems.itemAt(navIndex)) Focus.take(navItems.itemAt(navIndex));
         else restoreScreen();
     }
     function openNavigation() {
@@ -187,12 +187,12 @@ FocusScope {
         navigationOpener = root.Window.window ? root.Window.window.activeFocusItem : null;
         navIndex = Math.max(0, routes.indexOf(screen));
         navOpen = true;
-        Qt.callLater(() => navItems.itemAt(navIndex).forceActiveFocus());
+        Qt.callLater(() => Focus.take(navItems.itemAt(navIndex)));
     }
     function closeNavigation() {
         navOpen = false;
         if (navigationOpener && navigationOpener.visible && navigationOpener.enabled)
-            navigationOpener.forceActiveFocus();
+            Focus.take(navigationOpener);
         else restoreScreen();
         navigationOpener = null;
     }
@@ -227,14 +227,14 @@ FocusScope {
         for (let i = rows.indexOf(row) + step; i >= 0 && i < rows.length; i += step) {
             if (rows[i].visible && rows[i].focusIndex(row.selectedIndex)) return;
         }
-        if (key === Qt.Key_Up || !row.count) menuButton.forceActiveFocus();
+        if (key === Qt.Key_Up || !row.count) Focus.take(menuButton);
     }
     function focusAfterRemoval(row) {
         const rows = rowItems();
         const index = rows.indexOf(row);
         for (let i = index - 1; i >= 0; --i) if (rows[i].visible && rows[i].restore()) return;
         for (let i = index + 1; i < rows.length; ++i) if (rows[i].visible && rows[i].restore()) return;
-        menuButton.forceActiveFocus();
+        Focus.take(menuButton);
     }
     function remember(row, entry) { homeRow = row.objectName; focusedEntry = entry; }
     function entryById(entryId) {
@@ -262,7 +262,7 @@ FocusScope {
             activityNotice.visible = true;
             noticeTimer.restart();
             if (navOpen && navIndex === 6)
-                navItems.itemAt(5).forceActiveFocus();
+                Focus.take(navItems.itemAt(5));
         }
     }
     Component.onCompleted: Qt.callLater(restoreScreen)
@@ -301,7 +301,7 @@ FocusScope {
         let next = navIndex + step;
         while (next >= 0 && next < navItems.count) {
             const item = navItems.itemAt(next);
-            if (item.visible) { item.forceActiveFocus(); return; }
+            if (item.visible) { Focus.take(item); return; }
             next += step;
         }
     }
@@ -322,7 +322,7 @@ FocusScope {
             onActivated: root.openNavigation()
             onDpadRequested: root.pointerMode = false
             Keys.onDownPressed: {
-                if (root.screen === "home" && root.homeState !== "ready" && root.homeState !== "loading") statusPane.forceActiveFocus();
+                if (root.screen === "home" && root.homeState !== "ready" && root.homeState !== "loading") Focus.take(statusPane);
                 else root.restoreScreen();
             }
         }
@@ -403,7 +403,7 @@ FocusScope {
             }
             StatusPane {
                 id: statusPane
-                Keys.onUpPressed: menuButton.forceActiveFocus()
+                Keys.onUpPressed: Focus.take(menuButton)
                 objectName: "homeStatus"
                 x: 550; y: 300
                 visible: root.homeState !== "ready"
@@ -468,7 +468,7 @@ FocusScope {
                 visible: root.shortcutManagement && root.screen === "applications" && !!root.focusedEntry.webShortcut
                 onActivated: root.editShortcut(root.focusedEntry.id)
                 Keys.onUpPressed: root.restoreScreen()
-                Keys.onDownPressed: sectionBack.forceActiveFocus()
+                Keys.onDownPressed: Focus.take(sectionBack)
             }
             ActionButton {
                 id: sectionBack; objectName: "sectionBack"
@@ -621,7 +621,7 @@ FocusScope {
             else if (event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace) {
                 if (removeConfirmation.visible) {
                     removeConfirmation.visible = false;
-                    shortcutDelete.forceActiveFocus();
+                    Focus.take(shortcutDelete);
                 } else root.closeShortcutEditorRequested();
             }
         }
@@ -644,9 +644,9 @@ FocusScope {
                         selectByMouse: true; clip: true
                         readOnly: root.shortcutSaving || !root.keyboardAvailable
                         maximumLength: 256
-                        Keys.onDownPressed: shortcutUrl.forceActiveFocus()
-                        Keys.onReturnPressed: shortcutUrl.forceActiveFocus()
-                        Keys.onEnterPressed: shortcutUrl.forceActiveFocus()
+                        Keys.onDownPressed: Focus.take(shortcutUrl)
+                        Keys.onReturnPressed: Focus.take(shortcutUrl)
+                        Keys.onEnterPressed: Focus.take(shortcutUrl)
                         Keys.onEscapePressed: root.closeShortcutEditorRequested()
                         Keys.onPressed: event => { if (event.key === Qt.Key_Home) { root.showHome(); event.accepted = true; } }
                     }
@@ -662,10 +662,10 @@ FocusScope {
                         selectByMouse: true; clip: true
                         readOnly: root.shortcutSaving || !root.keyboardAvailable
                         maximumLength: 2048
-                        Keys.onUpPressed: shortcutTitle.forceActiveFocus()
-                        Keys.onDownPressed: shortcutSave.forceActiveFocus()
-                        Keys.onReturnPressed: shortcutSave.forceActiveFocus()
-                        Keys.onEnterPressed: shortcutSave.forceActiveFocus()
+                        Keys.onUpPressed: Focus.take(shortcutTitle)
+                        Keys.onDownPressed: Focus.take(shortcutSave)
+                        Keys.onReturnPressed: Focus.take(shortcutSave)
+                        Keys.onEnterPressed: Focus.take(shortcutSave)
                         Keys.onEscapePressed: root.closeShortcutEditorRequested()
                         Keys.onPressed: event => { if (event.key === Qt.Key_Home) { root.showHome(); event.accepted = true; } }
                     }
@@ -681,21 +681,21 @@ FocusScope {
                         id: shortcutSave; objectName: "shortcutSave"; text: qsTr("Save")
                         visible: root.keyboardAvailable; busy: root.shortcutSaving
                         onActivated: if (!root.shortcutSaving) root.saveShortcutRequested(shortcutTitle.text, shortcutUrl.text)
-                        Keys.onUpPressed: shortcutUrl.forceActiveFocus()
-                        Keys.onRightPressed: shortcutCancel.forceActiveFocus()
+                        Keys.onUpPressed: Focus.take(shortcutUrl)
+                        Keys.onRightPressed: Focus.take(shortcutCancel)
                     }
                     ActionButton {
                         id: shortcutCancel; objectName: "shortcutCancel"; text: qsTr("Cancel")
                         onActivated: root.closeShortcutEditorRequested()
-                        Keys.onLeftPressed: if (shortcutSave.visible) shortcutSave.forceActiveFocus()
-                        Keys.onRightPressed: if (shortcutDelete.visible) shortcutDelete.forceActiveFocus()
-                        Keys.onUpPressed: if (root.keyboardAvailable) shortcutUrl.forceActiveFocus()
+                        Keys.onLeftPressed: if (shortcutSave.visible) Focus.take(shortcutSave)
+                        Keys.onRightPressed: if (shortcutDelete.visible) Focus.take(shortcutDelete)
+                        Keys.onUpPressed: if (root.keyboardAvailable) Focus.take(shortcutUrl)
                     }
                     ActionButton {
                         id: shortcutDelete; objectName: "shortcutDelete"; text: qsTr("Remove"); destructive: true
                         visible: !!root.shortcutEditor.id
-                        onActivated: if (!root.shortcutSaving) { removeConfirmation.visible = true; confirmCancel.forceActiveFocus(); }
-                        Keys.onLeftPressed: shortcutCancel.forceActiveFocus()
+                        onActivated: if (!root.shortcutSaving) { removeConfirmation.visible = true; Focus.take(confirmCancel); }
+                        Keys.onLeftPressed: Focus.take(shortcutCancel)
                     }
                 }
             }
@@ -711,14 +711,14 @@ FocusScope {
                     spacing: 28
                     ActionButton {
                         id: confirmCancel; objectName: "shortcutKeep"; text: qsTr("Cancel")
-                        onActivated: { removeConfirmation.visible = false; shortcutDelete.forceActiveFocus(); }
-                        Keys.onRightPressed: confirmRemove.forceActiveFocus()
+                        onActivated: { removeConfirmation.visible = false; Focus.take(shortcutDelete); }
+                        Keys.onRightPressed: Focus.take(confirmRemove)
                     }
                     ActionButton {
                         id: confirmRemove; objectName: "shortcutRemove"; text: qsTr("Remove"); destructive: true
                         busy: root.shortcutSaving
                         onActivated: if (!root.shortcutSaving) root.removeShortcutRequested()
-                        Keys.onLeftPressed: confirmCancel.forceActiveFocus()
+                        Keys.onLeftPressed: Focus.take(confirmCancel)
                     }
                 }
             }

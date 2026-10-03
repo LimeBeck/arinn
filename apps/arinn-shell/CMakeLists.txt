@@ -13,7 +13,7 @@ qt_add_resources(arinn-shell-test test_ui PREFIX "/" FILES Main.qml)
 target_link_libraries(arinn-shell-test PRIVATE arinn-session-lifecycle Qt6::Quick Qt6::Qml Qt6::DBus Qt6::Test)
 
 set(ARINN_PRESENTATION_FILES
-    ui/qmldir ui/Theme.qml ui/UiText.qml ui/LogicalCanvas.qml
+    ui/qmldir ui/Theme.qml ui/Focus.qml ui/UiText.qml ui/LogicalCanvas.qml
     ui/Surface.qml ui/ActionButton.qml ui/ContentCard.qml ui/AppTile.qml
     ui/HomeRow.qml ui/HomeView.qml ui/BrandLockup.qml ui/BrandButton.qml
     ui/ProgressTrack.qml ui/Skeleton.qml ui/StatusPane.qml ui/LaunchOverlay.qml
@@ -41,6 +41,9 @@ add_test(NAME ui-components COMMAND arinn-ui-test
     -input "${PROJECT_SOURCE_DIR}/tests/ui")
 set_tests_properties(ui-components PROPERTIES ENVIRONMENT
     "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software")
+add_test(NAME focus-ownership COMMAND ${CMAKE_COMMAND}
+    -DSHELL_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+    -P "${PROJECT_SOURCE_DIR}/tests/ui/check_focus_calls.cmake")
 
 # Exercise the production window binding against isolated lifecycle/daemon doubles.
 target_sources(arinn-session-lifecycle-test PRIVATE backend.cpp backend.h browser_catalog.cpp browser_catalog.h return_association.cpp return_association.h media_catalog.cpp media_catalog.h library_catalog.cpp library_catalog.h settings_catalog.cpp settings_catalog.h asset_images.cpp asset_images.h)

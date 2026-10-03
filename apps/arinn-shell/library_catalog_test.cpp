@@ -1139,6 +1139,44 @@ private slots:
     QTRY_VERIFY(focusInside(window->activeFocusItem(), home));
     QVERIFY(!focusInside(window->activeFocusItem(), library));
   }
+  void navigationMenuFocusesTheLibrary() {
+    LibraryDaemon daemon;
+    daemon.collections = {{QStringLiteral("films"), QStringLiteral("Films"),
+                           QStringLiteral("film")}};
+    daemon.page1 = {film(QStringLiteral("north"), QStringLiteral("North"))};
+    QVERIFY(registerBus(daemon));
+    ShellStandIn backend;
+    SessionGuardStandIn guard;
+    QQmlApplicationEngine engine;
+    installAssetImageProvider(&engine);
+    engine.rootContext()->setContextProperty(QStringLiteral("backend"), &backend);
+    engine.rootContext()->setContextProperty(QStringLiteral("sessionGuard"),
+                                             &guard);
+    engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
+    auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().value(0));
+    QVERIFY(window);
+    window->show();
+    window->requestActivate();
+    auto home = window->findChild<QQuickItem *>(QStringLiteral("productionHome"));
+    auto library =
+        window->findChild<QQuickItem *>(QStringLiteral("productionLibrary"));
+    QVERIFY(home);
+    QVERIFY(library);
+    QTRY_COMPARE(library->property("libraryState").toString(),
+                 QStringLiteral("ready"));
+    QVERIFY(QMetaObject::invokeMethod(home, "openNavigation"));
+    auto homeItem = findItem(home, QStringLiteral("nav-0"));
+    QVERIFY(homeItem);
+    QTRY_VERIFY(homeItem->hasActiveFocus());
+    QTest::keyClick(window, Qt::Key_Down);
+    QTest::keyClick(window, Qt::Key_Return);
+    QTRY_COMPARE(library->property("visible").toBool(), true);
+    // The hidden Back to Home button under the library must not keep focus.
+    QTRY_VERIFY(focusInside(window->activeFocusItem(), library));
+    QTest::keyClick(window, Qt::Key_Return);
+    QTest::qWait(50);
+    QCOMPARE(home->property("screen").toString(), QStringLiteral("library"));
+  }
   void emptyPosterAndFanartStayGeneric() {
     LibraryDaemon daemon;
     daemon.collections = {{QStringLiteral("films"), QStringLiteral("Films"),

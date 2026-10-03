@@ -114,6 +114,37 @@ impl Actor {
         }
         ""
     }
+    fn release_live(&mut self) -> Result<()> {
+        let Some(p) = self.presentation.as_ref() else {
+            return Ok(());
+        };
+        let same_player = if let Some(row) = self.row(&p.token) {
+            self.native.has_launch(row.xid, &p.launch)?
+        } else {
+            false
+        };
+        if !same_player {
+            self.presentation = None;
+        } else if !self.release().is_empty() {
+            eprintln!("arinn-platform-x11: presentation restoration failed");
+            anyhow::bail!("presentation restoration failed");
+        }
+        Ok(())
+    }
+    fn cleanup(&mut self) -> Result<()> {
+        // Restore from the saved row before inventory retirement loses its XID.
+        let restored = self.release_live();
+        // Lower the current shell even if player restoration failed; never use
+        // stale shell identity when a fresh inventory cannot be obtained.
+        let lowered = self.native.snapshot().and_then(|snapshot| {
+            self.snapshot = snapshot;
+            if let Some(shell) = self.snapshot.shell {
+                self.native.raise_shell(shell, false)?;
+            }
+            Ok(())
+        });
+        restored.and(lowered)
+    }
     fn present(&mut self, token: &str) -> &'static str {
         let Some(row) = self.row(token).cloned() else {
             return "NotFound";
@@ -172,18 +203,7 @@ impl Actor {
         }) {
             // Keep the previous row until restoration has used its exact XID.
             // Native release revalidates the launch identity before changing state.
-            let p = self.presentation.as_ref().unwrap();
-            let same_player = if let Some(row) = self.row(&p.token) {
-                self.native.has_launch(row.xid, &p.launch)?
-            } else {
-                false
-            };
-            if !same_player {
-                self.presentation = None;
-            } else if !self.release().is_empty() {
-                eprintln!("arinn-platform-x11: presentation restoration failed");
-                anyhow::bail!("presentation restoration failed");
-            }
+            self.release_live()?;
             if !self.home
                 && let Some(shell) = snapshot.shell
             {
@@ -557,19 +577,11 @@ async fn session() -> Result<()> {
     ));
     let result = run(&actor).await;
     let cleanup = actor.clone();
-    tokio::task::spawn_blocking(move || {
-        let mut actor = cleanup.lock().unwrap();
-        // Refresh identities before restoring presentation state on shutdown.
-        if let Ok(snapshot) = actor.native.snapshot() {
-            actor.snapshot = snapshot;
-            actor.release();
-        }
-        if let Some(shell) = actor.snapshot.shell {
-            let _ = actor.native.raise_shell(shell, false);
-        }
-    })
-    .await?;
-    result
+    let restored = tokio::task::spawn_blocking(move || cleanup.lock().unwrap().cleanup()).await?;
+    if restored.is_err() {
+        eprintln!("arinn-platform-x11: shutdown restoration failed");
+    }
+    result.and(restored)
 }
 async fn run(actor: &Arc<Mutex<Actor>>) -> Result<()> {
     let c = zbus::connection::Builder::session()?
@@ -926,6 +938,53 @@ mod tests {
         Ok(())
     }
     #[test]
+    #[ignore = "requires Xvfb; isolated shutdown inventory disappearance regression"]
+    fn shutdown_restores_player_missing_from_inventory() -> Result<()> {
+        let desktop = native::fixture::Desktop::new()?;
+        let launch = Uuid::new_v4().to_string();
+        let shell = desktop.client("org.arinn.Shell.desktop", "")?;
+        let video = desktop.client("org.example.Player.desktop", &launch)?;
+        desktop.inventory(&[shell, video], video)?;
+        desktop.compositing(true)?;
+        let mut native = Native::connect_display(Some(&desktop.display))?;
+        let snapshot = native.snapshot()?;
+        let token = snapshot.rows[0].token.clone();
+        let mut actor = Actor {
+            native,
+            snapshot,
+            home: false,
+            target: String::new(),
+            presentation: None,
+            media_allowed: true,
+        };
+        assert_eq!(actor.present(&token), "");
+        desktop.messages()?;
+        // The XID remains alive while the manager temporarily removes the client.
+        desktop.inventory(&[shell], shell)?;
+        actor.cleanup()?;
+        assert!(actor.presentation.is_none());
+        let messages = desktop.messages()?;
+        for atom in [
+            desktop.atoms._NET_WM_STATE_FULLSCREEN,
+            desktop.atoms._NET_WM_STATE_BELOW,
+        ] {
+            assert!(messages.iter().any(|m| m.window == video
+                && m.type_ == desktop.atoms._NET_WM_STATE
+                && m.data.as_data32()[0] == 0
+                && m.data.as_data32()[1] == atom));
+        }
+        assert!(
+            !messages
+                .iter()
+                .any(|m| m.type_ == desktop.atoms._NET_ACTIVE_WINDOW)
+        );
+        desktop.inventory(&[shell, video], video)?;
+        actor.refresh(true)?;
+        assert_ne!(actor.snapshot.rows[0].token, token);
+        assert!(actor.row(&token).is_none());
+        Ok(())
+    }
+    #[test]
     #[ignore = "requires Xvfb; isolated destroyed and changed player identity regression"]
     fn retired_player_identity_does_not_restore_different_window() -> Result<()> {
         use x11rb::{
@@ -974,6 +1033,50 @@ mod tests {
             let messages = desktop.messages()?;
             assert!(!messages.iter().any(|m| m.window == video));
         }
+        Ok(())
+    }
+    #[test]
+    #[ignore = "requires Xvfb; isolated cleanup restoration failure regression"]
+    fn shutdown_lowers_shell_even_when_player_identity_probe_fails() -> Result<()> {
+        use x11rb::{protocol::xproto::PropMode, wrapper::ConnectionExt as _};
+        let desktop = native::fixture::Desktop::new()?;
+        let launch = Uuid::new_v4().to_string();
+        let shell = desktop.client("org.arinn.Shell.desktop", "")?;
+        let video = desktop.client("org.example.Player.desktop", &launch)?;
+        desktop.inventory(&[shell, video], video)?;
+        desktop.compositing(true)?;
+        let mut native = Native::connect_display(Some(&desktop.display))?;
+        let snapshot = native.snapshot()?;
+        let token = snapshot.rows[0].token.clone();
+        let mut actor = Actor {
+            native,
+            snapshot,
+            home: false,
+            target: String::new(),
+            presentation: None,
+            media_allowed: true,
+        };
+        assert_eq!(actor.present(&token), "");
+        desktop.messages()?;
+        // Malformed metadata prevents proving the live player's launch identity.
+        desktop
+            .c
+            .change_property8(
+                PropMode::REPLACE,
+                video,
+                desktop.atoms.WM_CLASS,
+                desktop.atoms.UTF8_STRING,
+                b"invalid",
+            )?
+            .check()?;
+        assert!(actor.cleanup().is_err());
+        assert!(actor.presentation.is_some());
+        let messages = desktop.messages()?;
+        assert!(messages.iter().any(|m| m.window == shell
+            && m.type_ == desktop.atoms._NET_WM_STATE
+            && m.data.as_data32()[0] == 0
+            && m.data.as_data32()[1] == desktop.atoms._NET_WM_STATE_ABOVE));
+        assert!(!messages.iter().any(|m| m.window == video));
         Ok(())
     }
     #[test]

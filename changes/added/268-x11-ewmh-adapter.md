@@ -11,3 +11,5 @@ Resolve the Home Meta/Super modifier from the keyboard mapping, including remaps
 Publish media identity transitions independently of unchanged window inventory.
 
 Restore player presentation before retiring a disappeared inventory row.
+
+Preserve restoration evidence during shutdown and reconnect cleanup as well.

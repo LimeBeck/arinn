@@ -150,3 +150,6 @@ When a presented player leaves the inventory, restoration uses its previous row
 before replacing the snapshot. Native launch identity is revalidated before any
 state change. Destroyed or changed-identity players retire without changing
 another window; restoration failure for the exact live player remains observable.
+
+Shutdown and reconnect cleanup use the same live-identity restoration before
+replacing the inventory snapshot, and report restoration failures explicitly.

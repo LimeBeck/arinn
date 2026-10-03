@@ -1,0 +1,21 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: 2026 Arinn contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Desktop entry action (#289): start the Arinn session unless one is
+# running, then bring up Home. Nothing here enables autostart.
+set -u
+if ! systemctl --user is-active --quiet arinn-session.target &&
+    ! systemctl --user is-active --quiet arinn-ewmh-session.target; then
+    systemctl --user start arinn-session.target || exit 1
+fi
+# The daemon may still be starting: retry Home for up to five seconds.
+tries=0
+while [ "$tries" -lt 20 ]; do
+    if /usr/bin/arinnctl home >/dev/null 2>&1; then
+        exit 0
+    fi
+    tries=$((tries + 1))
+    sleep 0.25
+done
+echo "arinn-open: the Arinn daemon did not answer" >&2
+exit 1

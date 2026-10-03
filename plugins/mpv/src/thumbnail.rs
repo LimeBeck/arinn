@@ -5,10 +5,18 @@
 //! seeked. At most one extraction runs; a newer request cancels the older one.
 
 use crate::paths::ensure_private_dir;
-use arinn_protocol::{media::Thumbnail, validation::ErrorCode};
+use arinn_plugin_sdk::runtime::AssetHandler;
+use arinn_protocol::{
+    assets::{self, Asset, MAX_ASSET_BYTES},
+    media::Thumbnail,
+    validation::ErrorCode,
+};
 use std::{
+    future::Future,
+    io::Read,
     os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
+    pin::Pin,
     time::{Duration, Instant},
 };
 use tokio::{process::Command, sync::Mutex};
@@ -145,6 +153,79 @@ fn prune(directory: &Path, keep: usize) {
     for (_, path) in frames.into_iter().take(extra) {
         let _ = std::fs::remove_file(path);
     }
+}
+
+/// Serves the extracted frames as `AssetProvider1` assets (ADR-0062): the
+/// asset id of a thumbnail is the canonical UUID that names its JPEG in the
+/// cache. Anything else is `NotFound`, so an id can never name a path.
+pub struct ThumbnailAssets {
+    directory: PathBuf,
+}
+
+impl ThumbnailAssets {
+    pub fn new(directory: PathBuf) -> Self {
+        Self { directory }
+    }
+
+    fn read(&self, id: &str) -> Result<Asset, ErrorCode> {
+        let canonical = uuid::Uuid::parse_str(id)
+            .ok()
+            .filter(|uuid| !uuid.is_nil() && uuid.to_string() == id)
+            .ok_or(ErrorCode::NotFound)?;
+        let name = format!("{canonical}.jpg");
+        let file = std::fs::File::open(self.directory.join(&name))
+            .or_else(|_| std::fs::File::open(poster_dir(&self.directory).join(&name)))
+            .map_err(|_| ErrorCode::NotFound)?;
+        let mut data = Vec::new();
+        // One byte more than allowed tells an oversized file apart.
+        file.take(MAX_ASSET_BYTES as u64 + 1)
+            .read_to_end(&mut data)
+            .map_err(|_| ErrorCode::NotFound)?;
+        if data.len() > MAX_ASSET_BYTES || assets::sniff(&data) != Some(assets::MIME_JPEG) {
+            return Err(ErrorCode::NotFound);
+        }
+        Ok(Asset {
+            mime: assets::MIME_JPEG.into(),
+            data,
+        })
+    }
+}
+
+impl AssetHandler for ThumbnailAssets {
+    fn asset(
+        &self,
+        id: String,
+    ) -> Pin<Box<dyn Future<Output = Result<Asset, ErrorCode>> + Send + '_>> {
+        Box::pin(async move { self.read(&id) })
+    }
+}
+
+/// Whether a session card frame (#292) is due: a new session, playback
+/// that moved on by at least `step_us`, or a paused or stopped session at a
+/// new position.
+pub fn poster_due(
+    last: Option<&(String, i64)>,
+    id: &str,
+    position_us: i64,
+    playing: bool,
+    step_us: i64,
+) -> bool {
+    match last {
+        Some((last_id, last_position)) if last_id == id => {
+            if playing {
+                (position_us - last_position).abs() >= step_us
+            } else {
+                position_us != *last_position
+            }
+        }
+        _ => true,
+    }
+}
+
+/// Session card frames (#292) live apart from seek thumbnails, so neither
+/// pruning removes the other.
+pub fn poster_dir(thumb_dir: &Path) -> PathBuf {
+    thumb_dir.join("posters")
 }
 
 pub fn ffmpeg_binary() -> Option<PathBuf> {

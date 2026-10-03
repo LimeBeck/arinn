@@ -6,8 +6,16 @@ add_subdirectory("${PROJECT_SOURCE_DIR}/platform/session"
     "${CMAKE_CURRENT_BINARY_DIR}/platform-session")
 
 qt_add_executable(arinn-shell main.cpp backend.cpp backend.h browser_catalog.cpp browser_catalog.h return_association.cpp return_association.h media_catalog.cpp media_catalog.h library_catalog.cpp library_catalog.h settings_catalog.cpp settings_catalog.h asset_images.cpp asset_images.h)
+target_sources(arinn-shell PRIVATE startup_home.cpp startup_home.h)
 qt_add_resources(arinn-shell ui PREFIX "/" FILES Main.qml)
 target_link_libraries(arinn-shell PRIVATE arinn-session-lifecycle Qt6::Quick Qt6::Qml Qt6::DBus)
+qt_add_executable(arinn-startup-home-test startup_home_test.cpp)
+target_link_libraries(arinn-startup-home-test PRIVATE Qt6::DBus Qt6::Test)
+target_compile_definitions(arinn-startup-home-test PRIVATE
+    ARINN_SHELL_BINARY="$<TARGET_FILE:arinn-shell>")
+add_dependencies(arinn-startup-home-test arinn-shell)
+add_test(NAME shell-startup-home COMMAND dbus-run-session --
+    $<TARGET_FILE:arinn-startup-home-test>)
 qt_add_executable(arinn-shell-test backend_test.cpp backend.cpp backend.h browser_catalog.cpp browser_catalog.h return_association.cpp return_association.h media_catalog.cpp media_catalog.h library_catalog.cpp library_catalog.h settings_catalog.cpp settings_catalog.h asset_images.cpp asset_images.h)
 qt_add_resources(arinn-shell-test test_ui PREFIX "/" FILES Main.qml)
 target_link_libraries(arinn-shell-test PRIVATE arinn-session-lifecycle Qt6::Quick Qt6::Qml Qt6::DBus Qt6::Test)

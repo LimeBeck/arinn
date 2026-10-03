@@ -504,9 +504,11 @@ Window {
             onHomeRequested: Qt.callLater(home.showHome)
         }
         Rectangle {
+            objectName: "feedbackStrip"
             x: 420; y: 970; width: 1080; height: 72; radius: 36
             color: "#33363b"
-            visible: feedbackTimer.running || backend.message.length > 0
+            // Never over the picture of managed playback (#258).
+            visible: (feedbackTimer.running || backend.message.length > 0) && !root.playerOpen
             Ui.UiText {
                 id: feedback; objectName: "feedback"
                 anchors.fill: parent; anchors.margins: 20

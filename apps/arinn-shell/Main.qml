@@ -17,9 +17,11 @@ Window {
     visibility: (backend.homeVisible || mediaCatalog.inputLayerActive || leavingPlayback) && !sessionGuard.blocked ? Window.FullScreen : Window.Hidden
     // After Back leaves playback the input layer ends before the daemon
     // reports Home again; stay on screen in between instead of vanishing
-    // (#246). Cleared by that report, or after a bound.
+    // (#246). Cleared by that report. The bound is only a last resort for a
+    // daemon that never reports: it covers a slow KWin handoff plus the
+    // backend's one-second status poll with a wide margin.
     property bool leavingPlayback: false
-    Timer { id: leavingBound; interval: 2000; onTriggered: root.leavingPlayback = false }
+    Timer { id: leavingBound; interval: 10000; onTriggered: root.leavingPlayback = false }
     color: playerOpen ? "transparent" : Ui.Theme.background
     title: "Arinn"
     flags: Qt.Window | Qt.FramelessWindowHint

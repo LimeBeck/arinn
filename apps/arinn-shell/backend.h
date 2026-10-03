@@ -93,6 +93,7 @@ private:
                       const char *method);
   void openShortcut(const QString &id);
   void beginOperation(const QString &id, const QDBusMessage &msg);
+  void setResultMessage(const QString &text);
   void watchOperation(const QString &id, const QString &operationPath,
                       quint64 epoch);
   void clearShortcuts();
@@ -108,5 +109,9 @@ private:
   quint64 m_connectionEpoch = 0, m_snapshotRevision = 0, m_shortcutTicket = 0;
   QString m_generation, m_return, m_message, m_daemonEpoch, m_daemonOwner;
   QVariantList m_items;
+  static constexpr int resultMessageMs = 3000;
   QTimer m_timer;
+  // Clears an action result such as "Done" after resultMessageMs.
+  QTimer m_resultTimer;
+  QString m_resultMessage;
 };

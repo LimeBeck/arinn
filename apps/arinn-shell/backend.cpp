@@ -78,6 +78,16 @@ struct Backend::Catalog {
   bool hadError = false;
 };
 Backend::Backend(QObject *parent) : QObject(parent) {
+  // An action's result is shown briefly; connection states stay (#258).
+  m_resultTimer.setSingleShot(true);
+  m_resultTimer.setInterval(resultMessageMs);
+  connect(&m_resultTimer, &QTimer::timeout, this, [this] {
+    if (m_message != m_resultMessage)
+      return;
+    m_message.clear();
+    m_resultMessage.clear();
+    publishState();
+  });
   auto bus = QDBusConnection::sessionBus();
   bus.connect(service, path, service, "Changed", this, SLOT(reloadCatalog()));
   bus.connect(service, path, service, "ProvidersChanged", this,
@@ -506,7 +516,7 @@ void Backend::back() {
       QDBusConnection::sessionBus().asyncCall(request("Back"), 3000), this);
   connect(call, &QDBusPendingCallWatcher::finished, this, [this](auto *call) {
     if (call->isError()) {
-      m_message = call->error().message();
+      setResultMessage(call->error().message());
       publishState();
     }
     call->deleteLater();
@@ -620,7 +630,7 @@ void Backend::launch(const QString &id) {
       return;
     }
   }
-  m_message = tr("Shortcut is no longer available");
+  setResultMessage(tr("Shortcut is no longer available"));
   publishState();
 }
 void Backend::activate(const QString &id) {
@@ -638,8 +648,9 @@ void Backend::runApplication(const QString &id, const QVariantList &entries,
     }
   }
   if (selected.isEmpty() || !selected.value("enabled", true).toBool()) {
-    m_message = selected.isEmpty() ? tr("Shortcut is no longer available")
-                                   : QStringLiteral("Unavailable");
+    setResultMessage(selected.isEmpty()
+                         ? tr("Shortcut is no longer available")
+                         : QStringLiteral("Unavailable"));
     publishState();
     return;
   }
@@ -662,7 +673,7 @@ void Backend::openShortcut(const QString &id) {
     }
   }
   if (!found) {
-    m_message = tr("Shortcut is no longer available");
+    setResultMessage(tr("Shortcut is no longer available"));
     publishState();
     return;
   }
@@ -670,6 +681,11 @@ void Backend::openShortcut(const QString &id) {
                                             "org.arinn.WebShortcuts1", "Open");
   msg << id << QUuid::createUuid().toString(QUuid::WithoutBraces);
   beginOperation(id, msg);
+}
+void Backend::setResultMessage(const QString &text) {
+  m_message = text;
+  m_resultMessage = text;
+  m_resultTimer.start();
 }
 void Backend::beginOperation(const QString &id, const QDBusMessage &msg) {
   if (m_pendingIds.contains(id))
@@ -689,9 +705,9 @@ void Backend::beginOperation(const QString &id, const QDBusMessage &msg) {
             if (reply.type() == QDBusMessage::ErrorMessage ||
                 reply.signature() != "o" || reply.arguments().isEmpty()) {
               m_pendingIds.remove(id);
-              m_message = reply.type() == QDBusMessage::ErrorMessage
-                              ? reply.errorMessage()
-                              : tr("Operation is unavailable");
+              setResultMessage(reply.type() == QDBusMessage::ErrorMessage
+                                   ? reply.errorMessage()
+                                   : tr("Operation is unavailable"));
               publishState();
               return;
             }
@@ -728,7 +744,7 @@ void Backend::watchOperation(const QString &id, const QString &operationPath,
                           reply.signature() != "(ssbtta(sss)b)" ||
                           reply.arguments().isEmpty()) {
                         m_pendingIds.remove(id);
-                        m_message = tr("Operation is unavailable");
+                        setResultMessage(tr("Operation is unavailable"));
                         timer->deleteLater();
                         publishState();
                         return;
@@ -755,7 +771,8 @@ void Backend::watchOperation(const QString &id, const QString &operationPath,
                         return;
                       }
                       m_pendingIds.remove(id);
-                      m_message = state == "succeeded" ? tr("Done") : error;
+                      setResultMessage(state == "succeeded" ? tr("Done")
+                                                              : error);
                       timer->deleteLater();
                       publishState();
                     });
@@ -768,7 +785,7 @@ void Backend::editShortcut(const QString &id) {
     return;
   if (!m_connected || !m_shortcutsLoaded || m_shortcutsError ||
       (!id.isEmpty() && !m_shortcutRecords.contains(id))) {
-    m_message = tr("Shortcuts are unavailable. Refresh and try again.");
+    setResultMessage(tr("Shortcuts are unavailable. Refresh and try again."));
     publishState();
     return;
   }

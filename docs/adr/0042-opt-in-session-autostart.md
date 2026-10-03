@@ -4,7 +4,7 @@
 - **Date:** 2026-09-28
 - **Deciders:** project owner (bring the autostart mechanism forward to run the current build on the TV, [issue #52](https://github.com/LimeBeck/arinn/issues/52)); unit layout and KWin loading under delegated authority ([ADR-0037](0037-agent-autonomy-and-owner-gated-decisions.md))
 - **Amends / Supersedes:** amends [ADR-0021](0021-plugin-runtime-ownership.md) (daemon and shell units), [ADR-0032](0032-kwin-script-platform-adapter.md) (how the packaged KWin script is loaded)
-- **Amended by / Superseded by:** —
+- **Amended by / Superseded by:** [ADR-0077](0077-kde-x11-session.md) (proposed optional X11 shell transport; owner approval pending)
 - **Specification:** [§18](../specifications/arinn-specification.md#18-packaging-distribution-and-licensing)
 
 ## Context

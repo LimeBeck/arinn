@@ -6,7 +6,7 @@
 - **Status:** Proposed
 - **Date:** 2026-10-03
 - **Deciders:** owner requested additional X11 support while preserving Wayland; implementation prepared by Codex in [#267](https://github.com/LimeBeck/arinn/issues/267), owner merge pending
-- **Amends / Supersedes:** amends [ADR-0074](0074-managed-playback-window.md) (platform observation of the launch identity)
+- **Amends / Supersedes:** amends [ADR-0074](0074-managed-playback-window.md) (platform observation of the launch identity), [ADR-0042](0042-opt-in-session-autostart.md) (session-selected shell transport)
 - **Amended by / Superseded by:** —
 - **Specification:** §6.4, §8.5, §12, §18; R-01, R-05
 

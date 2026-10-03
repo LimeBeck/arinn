@@ -67,3 +67,7 @@ and shell. A functioning lock API remains mandatory. The selected bus-name
 owner is trusted without unit attestation. Arch CI runs isolated Xvfb scenarios;
 manual XFCE setup supplies session type and the EWMH target pulls graphical
 session activation as a dependency (the graphical target refuses direct start).
+
+Presentation retains a shell lifetime token and releases the exact player state
+on unrelated focus or shell loss/replacement, without activating another window.
+Unproven suffixless desktop metadata stays unknown rather than guessing a file ID.

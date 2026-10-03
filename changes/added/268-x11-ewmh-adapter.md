@@ -2,3 +2,6 @@
 
 Preserve exact desktop-file IDs, support XFCE lock endpoints in adapter and shell,
 run native Xvfb coverage in CI, and document manual XFCE session startup.
+
+Reject unproven suffixless application metadata and release video presentation
+on unrelated focus or shell lifetime loss without stealing focus.

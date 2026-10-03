@@ -40,6 +40,8 @@ Exact desktop metadata comes from `_NET_WM_DESKTOP_FILE`,
 `_KDE_NET_WM_DESKTOP_FILE` or `_GTK_APPLICATION_ID`. Unknown metadata stays empty;
 WM_CLASS, title, process name and executable are not association fallbacks.
 Desktop-file IDs retain their `.desktop` suffix for exact provider matching.
+Suffixless metadata (including GTK application IDs) stays unknown rather than
+guess a desktop-file association; the shell has its separate explicit identity.
 `org.arinn.Shell` and `org.arinn.Shell.desktop` identify the shell, which is excluded
 from inventory. Two matching shell windows make identity ambiguous and trigger
 a fail-closed reconnect; run one shell instance. Event masks are selected once
@@ -68,6 +70,9 @@ the shell as the playback input layer. Stale release tokens cannot release a
 new presentation. Compositor loss, lock or unavailable lock state releases
 presentation, lowers its shell overlay and clears daemon-visible media identity
 until presentation is available again. Home and controls require an explicit unlocked ScreenSaver reply.
+Unrelated focus releases the presentation without reactivating the shell. Shell
+loss, replacement or an ended inventory lifetime restores the exact player
+state; presentation retains an opaque shell lifetime token, not just its XID.
 The process cleans up presentation on SIGINT/SIGTERM and reconnect; native
 identity is refreshed before restoring a saved window.
 
@@ -121,7 +126,7 @@ ARINN_XVFB=/absolute/path/to/Xvfb cargo test -p arinn-platform-x11 -- --include-
 ARINN_PLATFORM_BACKEND=ewmh cargo test -p arinnd selected_adapter_owner_excludes_the_other_backend
 ```
 
-The three ignored native tests each spawn their own Xvfb using `-displayfd`, create
+The four ignored native tests each spawn their own Xvfb using `-displayfd`, create
 synthetic EWMH metadata and clients, and never read the inherited `DISPLAY`.
 They verify inventory, typed identity, activation/close and Home-key dispatch,
 manager invalidation, Home/Return and video/compositor/lock lifecycle. They include partial-presentation rollback and compositor-loss regressions and do

@@ -41,6 +41,8 @@ trait HomeBridge {
 }
 #[derive(Clone)]
 struct Presentation {
+    shell: u32,
+    shell_token: String,
     token: String,
     launch: String,
     saved: Vec<u32>,
@@ -143,6 +145,8 @@ impl Actor {
         match self.native.present(row.xid, shell, &row.launch) {
             Ok(attempt) => {
                 self.presentation = Some(Presentation {
+                    shell,
+                    shell_token: self.snapshot.shell_token.clone(),
                     token: row.token,
                     launch: row.launch,
                     saved: attempt.saved,
@@ -160,7 +164,30 @@ impl Actor {
     }
     fn refresh(&mut self, unlocked: bool) -> Result<Update> {
         self.snapshot = self.native.snapshot()?;
-        self.media_allowed = unlocked && self.snapshot.compositor;
+        self.media_allowed = unlocked && self.snapshot.compositor && self.snapshot.shell.is_some();
+        if let Some(p) = self.presentation.clone() {
+            let video = self
+                .row(&p.token)
+                .filter(|r| r.launch == p.launch)
+                .map(|r| r.xid);
+            let same_shell =
+                self.snapshot.shell == Some(p.shell) && self.snapshot.shell_token == p.shell_token;
+            let unrelated_focus = self
+                .snapshot
+                .active
+                .is_some_and(|active| active != p.shell && Some(active) != video);
+            if !same_shell || unrelated_focus {
+                if !self.release().is_empty() {
+                    eprintln!("arinn-platform-x11: presentation restoration failed");
+                    anyhow::bail!("presentation restoration failed");
+                }
+                if same_shell {
+                    self.native.raise_shell(p.shell, false)?;
+                }
+                self.home = false;
+                self.target.clear();
+            }
+        }
         if self
             .presentation
             .as_ref()
@@ -755,6 +782,74 @@ mod tests {
         Ok(())
     }
     #[test]
+    #[ignore = "requires Xvfb; isolated focus and shell lifetime regressions"]
+    fn unrelated_focus_and_shell_loss_restore_exact_presentation() -> Result<()> {
+        for scenario in ["focus", "destroy", "replace", "retire"] {
+            let desktop = native::fixture::Desktop::new()?;
+            let launch = Uuid::new_v4().to_string();
+            let shell = desktop.client("org.arinn.Shell", "")?;
+            let video = desktop.client("org.example.Player.desktop", &launch)?;
+            let other = desktop.client("org.example.Other.desktop", "")?;
+            desktop.inventory(&[shell, video, other], video)?;
+            desktop.compositing(true)?;
+            let mut native = Native::connect_display(Some(&desktop.display))?;
+            let snapshot = native.snapshot()?;
+            let token = snapshot
+                .rows
+                .iter()
+                .find(|r| r.launch == launch)
+                .unwrap()
+                .token
+                .clone();
+            let mut actor = Actor {
+                native,
+                snapshot,
+                home: false,
+                target: String::new(),
+                presentation: None,
+                media_allowed: true,
+            };
+            assert_eq!(actor.present(&token), "");
+            desktop.messages()?;
+            match scenario {
+                "focus" => desktop.inventory(&[shell, video, other], other)?,
+                "destroy" => {
+                    desktop.c.destroy_window(shell)?.check()?;
+                    desktop.inventory(&[video, other], video)?;
+                }
+                "replace" => {
+                    desktop.c.destroy_window(shell)?.check()?;
+                    let replacement = desktop.client("org.arinn.Shell.desktop", "")?;
+                    desktop.inventory(&[replacement, video, other], replacement)?;
+                }
+                _ => {
+                    // Inventory removal ends the lifetime even if the XID returns.
+                    desktop.inventory(&[video, other], video)?;
+                    actor.native.snapshot()?;
+                    desktop.inventory(&[shell, video, other], shell)?;
+                }
+            }
+            actor.refresh(true)?;
+            assert!(actor.presentation.is_none(), "{scenario}");
+            assert!(!actor.home);
+            let messages = desktop.messages()?;
+            assert!(
+                messages.iter().any(|m| m.window == video
+                    && m.type_ == desktop.atoms._NET_WM_STATE
+                    && m.data.as_data32()[0] == 0
+                    && m.data.as_data32()[1] == desktop.atoms._NET_WM_STATE_FULLSCREEN),
+                "{scenario}"
+            );
+            assert!(
+                !messages
+                    .iter()
+                    .any(|m| m.type_ == desktop.atoms._NET_ACTIVE_WINDOW),
+                "{scenario}"
+            );
+        }
+        Ok(())
+    }
+    #[test]
     #[ignore = "requires Xvfb; isolated regression for partial presentation failure"]
     fn failed_presentation_restores_video_and_reports_restore_failure() -> Result<()> {
         let desktop = native::fixture::Desktop::new()?;
@@ -789,6 +884,8 @@ mod tests {
         // If restoration cannot address the exact object, keep its cleanup
         // evidence and report failure rather than acknowledging successful release.
         actor.presentation = Some(Presentation {
+            shell,
+            shell_token: actor.snapshot.shell_token.clone(),
             token,
             launch,
             saved: Vec::new(),

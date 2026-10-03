@@ -33,6 +33,7 @@ pub struct Row {
 pub struct Snapshot {
     pub rows: Vec<Row>,
     pub shell: Option<Window>,
+    pub shell_token: String,
     pub active: Option<Window>,
     pub home_key: bool,
     pub compositor: bool,
@@ -73,7 +74,10 @@ pub fn desktop_id(value: &[u8]) -> String {
         return String::new();
     };
     let text = text.trim_end_matches('\0');
-    if arinn_protocol::validation::id(text).is_ok() && !text.contains('/') {
+    if arinn_protocol::validation::id(text).is_ok()
+        && !text.contains('/')
+        && (text.ends_with(".desktop") || text == "org.arinn.Shell")
+    {
         text.into()
     } else {
         String::new()
@@ -279,6 +283,7 @@ impl Native {
             .copied()
             .filter(|id| *id != 0);
         let mut shell = None;
+        let mut shell_token = String::new();
         let mut rows = Vec::new();
         for xid in clients {
             let Ok(attr) = self.c.get_window_attributes(xid)?.reply() else {
@@ -320,6 +325,7 @@ impl Native {
             if ["org.arinn.Shell", "org.arinn.Shell.desktop"].contains(&identity.as_str()) {
                 ensure!(shell.is_none(), "ambiguous shell identity");
                 shell = Some(xid);
+                shell_token = self.tokens.get(xid);
                 continue;
             }
             let types = self
@@ -359,6 +365,7 @@ impl Native {
         Ok(Snapshot {
             rows,
             shell,
+            shell_token,
             active,
             home_key,
             compositor: self.c.get_selection_owner(self.compositor)?.reply()?.owner != 0,
@@ -494,6 +501,8 @@ mod tests {
         );
         assert!(desktop_id(b"/home/example/private.desktop").is_empty());
         assert!(desktop_id(b"invalid\0identity").is_empty());
+        assert!(desktop_id(b"org.gnome.Nautilus").is_empty());
+        assert_eq!(desktop_id(b"org.arinn.Shell"), "org.arinn.Shell");
     }
 }
 
@@ -729,6 +738,19 @@ pub(crate) mod fixture {
         assert_eq!(snapshot.rows.len(), 1);
         assert_eq!(snapshot.rows[0].desktop_id, "org.example.Player.desktop");
         assert_eq!(snapshot.rows[0].launch, launch);
+        let gtk = desktop.client("org.gnome.Nautilus", "")?;
+        desktop.inventory(&[shell, video, gtk], video)?;
+        let metadata = native.snapshot()?;
+        assert!(
+            metadata
+                .rows
+                .iter()
+                .find(|r| r.xid == gtk)
+                .unwrap()
+                .desktop_id
+                .is_empty()
+        );
+        desktop.inventory(&[shell, video], video)?;
         desktop.home_key()?;
         assert!(native.snapshot()?.home_key);
         let token = snapshot.rows[0].token.clone();

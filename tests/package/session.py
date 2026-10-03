@@ -62,7 +62,11 @@ for name in NAMES[1:]:
     assert part_of == expected, name
 assert (PREFIX / "bin/arinn-platform-x11").is_file(), "missing EWMH adapter"
 ewmh = unit("arinn-ewmh-session.target")
-assert set(ewmh["Unit"]["Wants"][0].split()) == {"arinnd.service", "arinn-shell.service", "arinn-ewmh.service"}
+assert set(ewmh["Unit"]["Wants"][0].split()) == {"graphical-session.target", "arinnd.service", "arinn-shell.service", "arinn-ewmh.service"}
+# The graphical target refuses direct manual start; pull it as a dependency
+# and order before services even on desktops without systemd session startup.
+assert ewmh["Unit"]["After"] == ["graphical-session.target"]
+assert ewmh["Unit"]["Requisite"] == ["graphical-session.target"]
 assert set(ewmh["Unit"]["Conflicts"][0].split()) == {"arinn-session.target", "arinn-kwin.service"}
 assert unit("arinn-ewmh.service")["Service"]["BusName"] == ["org.arinn.X11"]
 assert unit("arinn-ewmh.service")["Unit"]["PartOf"] == ["graphical-session.target arinn-ewmh-session.target"]

@@ -7,6 +7,6 @@ Requisite=graphical-session.target
 PartOf=graphical-session.target
 After=graphical-session.target
 Conflicts=arinn-session.target arinn-kwin.service
-Wants=arinnd.service arinn-shell.service arinn-ewmh.service
+Wants=graphical-session.target arinnd.service arinn-shell.service arinn-ewmh.service
 [Install]
 WantedBy=graphical-session.target

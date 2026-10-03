@@ -97,14 +97,15 @@ trial inside an X11 graphical session:
 systemctl --user stop arinn-session.target arinn-ewmh-session.target
 systemctl --user import-environment DISPLAY XAUTHORITY
 systemctl --user set-environment XDG_SESSION_TYPE=x11 ARINN_PLATFORM_BACKEND=ewmh ARINN_SESSION_BACKEND=x11
-systemctl --user start graphical-session.target
 systemctl --user start arinn-ewmh-session.target
 ```
 
 The two session targets conflict. Shared daemon and shell units stop with either
 target. A daemon started separately must be stopped before changing selection.
 Stock XFCE may not activate `graphical-session.target`, and LightDM may not import
-`XDG_SESSION_TYPE`; the manual recipe explicitly supplies both. Run it only from
+`XDG_SESSION_TYPE`; the manual recipe explicitly supplies the session type, and the EWMH
+target pulls the graphical target through its dependency. The graphical target
+has `RefuseManualStart=yes`, so do not start it directly. Run it only from
 inside the intended X11 session. Stop `arinn-ewmh-session.target` before logging
 out of a desktop that does not manage the graphical target. Enabling the EWMH
 target alone is insufficient for persistent XFCE startup; persistent session

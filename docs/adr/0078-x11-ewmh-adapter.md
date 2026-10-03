@@ -65,4 +65,5 @@ Review clarification: retain exact desktop-file IDs including their suffix; prob
 the canonical, legacy and XFCE lock endpoints in priority order in both adapter
 and shell. A functioning lock API remains mandatory. The selected bus-name
 owner is trusted without unit attestation. Arch CI runs isolated Xvfb scenarios;
-manual XFCE setup explicitly supplies session type and graphical target activation.
+manual XFCE setup supplies session type and the EWMH target pulls graphical
+session activation as a dependency (the graphical target refuses direct start).

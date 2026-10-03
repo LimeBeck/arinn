@@ -3,7 +3,8 @@
 
 //! ffmpeg thumbnails are cancellable and absent when no frame can be made.
 
-use arinn_plugin_mpv::{Extractor, KEPT_THUMBNAILS};
+use arinn_plugin_mpv::{Extractor, KEPT_THUMBNAILS, ThumbnailAssets};
+use arinn_plugin_sdk::runtime::AssetHandler;
 use arinn_protocol::validation::ErrorCode;
 use std::{os::unix::fs::PermissionsExt, path::PathBuf, sync::Arc, time::Duration};
 
@@ -173,5 +174,42 @@ async fn cache_keeps_only_the_newest_frames_and_ffmpeg_reads_a_local_file() {
     let input = lines.iter().position(|line| *line == "-i").unwrap();
     assert!(input > whitelist);
     assert_eq!(lines[input + 1], format!("file:{}", source.display()));
+    let _ = std::fs::remove_dir_all(&folder);
+}
+
+// #278: the frames are served by asset id; an id never names a path.
+#[tokio::test]
+async fn frames_are_served_by_their_uuid_only() {
+    let folder = dir();
+    let id = uuid::Uuid::new_v4().to_string();
+    let jpeg = [0xFF, 0xD8, 0xFF, 0xE0, 0, 0x10, b'J', b'F', b'I', b'F'];
+    std::fs::write(folder.join(format!("{id}.jpg")), jpeg).unwrap();
+    std::fs::write(folder.join("not-an-image.jpg"), b"text").unwrap();
+    let fake = uuid::Uuid::new_v4().to_string();
+    std::fs::write(folder.join(format!("{fake}.jpg")), b"not a jpeg").unwrap();
+    std::fs::write(folder.parent().unwrap().join("outside.jpg"), jpeg).unwrap();
+    let assets = ThumbnailAssets::new(folder.clone());
+
+    let asset = assets.asset(id.clone()).await.unwrap();
+    assert_eq!(asset.mime, "image/jpeg");
+    assert_eq!(asset.data, jpeg);
+    assert!(asset.validate().is_ok());
+
+    for bad in [
+        uuid::Uuid::new_v4().to_string(),
+        id.to_uppercase(),
+        format!("{id}.jpg"),
+        "../outside".into(),
+        "not-an-image".into(),
+        fake,
+        uuid::Uuid::nil().to_string(),
+    ] {
+        assert_eq!(
+            assets.asset(bad.clone()).await.map(|a| a.mime),
+            Err(ErrorCode::NotFound),
+            "{bad}"
+        );
+    }
+    let _ = std::fs::remove_file(folder.parent().unwrap().join("outside.jpg"));
     let _ = std::fs::remove_dir_all(&folder);
 }

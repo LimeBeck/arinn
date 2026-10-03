@@ -127,6 +127,7 @@ private:
   QString m_openingTitle, m_openingError, m_openingId, m_openOperationPath;
   bool m_openCancelRequested = false;
   bool m_connected = false, m_loaded = false, m_noBrowser = false,
+       m_disconnectedBrowser = false,
        m_snapshotError = false, m_refreshing = false, m_dirty = false;
   quint64 m_epoch = 0;
   QString m_generation;

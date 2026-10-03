@@ -41,6 +41,7 @@ struct ProviderWire {
   QString id = QStringLiteral("browser");
   QString generation = QStringLiteral("11111111-1111-4111-8111-111111111111");
   QString path = QStringLiteral("/org/arinn/Daemon1/providers/p_browser");
+  QString error;
 };
 struct ShortcutWire {
   QString id, title, url, icon;
@@ -85,7 +86,7 @@ QDBusArgument &operator<<(QDBusArgument &argument, const ProviderWire &provider)
            << QDBusObjectPath(provider.path)
            << QStringList{"browser"} << provider.runtime << provider.backend
            << provider.generation << qulonglong(1)
-           << QString() << qulonglong(0) << qulonglong(0) << qulonglong(0)
+           << provider.error << qulonglong(0) << qulonglong(0) << qulonglong(0)
            << qulonglong(0);
   argument.endStructure();
   return argument;
@@ -120,6 +121,8 @@ public:
   void releaseTabs() { const auto replies = heldTabs; heldTabs.clear(); for (const auto &r : replies) replyBus.send(r); }
   QString mode = "populated";
   QString runtime = "ready";
+  QString providerError;
+  bool failedPeer = false;
   QString activatedId, closedId, openedId, activateRequest, restartedId;
   int tabReads = 0, activates = 0, closes = 0, opens = 0, operationReads = 0,
       openArgCount = 0, providerReads = 0, restarts = 0, cancels = 0, adds = 0,
@@ -216,6 +219,9 @@ public:
       const auto state = failed ? QString("failed") : runtime;
       body.beginStructure();
       QList<ProviderWire> providers{{backend, state, QStringLiteral("browser"), providerGeneration}};
+      providers.first().error = providerError;
+      if (mode == "no-provider") providers.clear();
+      if (failedPeer) providers.append({QStringLiteral("unavailable"), QStringLiteral("failed"), QStringLiteral("other")});
       if (duplicateProvider) providers.append({backend, state, QStringLiteral("other"), providerGeneration, QStringLiteral("/org/arinn/Daemon1/providers/p_other")});
       body << QString("snapshot") << providers << QString();
       body.endStructure();
@@ -500,12 +506,57 @@ private slots:
     daemon.mode = "unavailable";
     const auto before = daemon.tabReads;
     catalog.refresh();
-    QTRY_COMPARE(catalog.browserState(), QString("unavailable"));
+    QTRY_COMPARE(catalog.browserState(), QString("disconnected"));
     QTest::qWait(200);
     QCOMPARE(daemon.tabReads, before);
     bus.unregisterService("org.arinn.Daemon1");
     QTRY_COMPARE(catalog.browserState(), QString("unavailable"));
     QVERIFY(catalog.tabs().isEmpty());
+  }
+  void disconnectedBrowserDoesNotHideProviderFailures() {
+    auto bus = QDBusConnection::sessionBus();
+    BrowserDaemon daemon;
+    daemon.mode = "unavailable";
+    QVERIFY(bus.registerService("org.arinn.Daemon1"));
+    QVERIFY(bus.registerVirtualObject("/org/arinn", &daemon, QDBusConnection::SubPath));
+    BrowserCatalog catalog;
+    QTRY_COMPARE(catalog.browserState(), QString("disconnected"));
+    QCOMPARE(daemon.tabReads, 0);
+    QVERIFY(catalog.tabs().isEmpty());
+    QVERIFY(!catalog.returnMatched());
+
+    daemon.providerError = "Unavailable";
+    catalog.refresh();
+    QTRY_COMPARE(catalog.browserState(), QString("unavailable"));
+    daemon.providerError.clear();
+    daemon.failedPeer = true;
+    catalog.refresh();
+    QTRY_COMPARE(catalog.retryAction(), QString("restart"));
+    QCOMPARE(catalog.browserState(), QString("unavailable"));
+    daemon.failedPeer = false;
+    daemon.runtime = "starting";
+    catalog.refresh();
+    QTRY_COMPARE(catalog.retryAction(), QString("refresh"));
+    QCOMPARE(catalog.browserState(), QString("unavailable"));
+    daemon.runtime = "ready";
+    catalog.refresh();
+    QTRY_COMPARE(catalog.browserState(), QString("disconnected"));
+    daemon.mode = "no-provider";
+    catalog.refresh();
+    QTRY_COMPARE(catalog.browserState(), QString("unavailable"));
+
+    daemon.mode = "populated";
+    catalog.refresh();
+    QTRY_COMPARE(catalog.browserState(), QString("populated"));
+    QVERIFY(!catalog.tabs().isEmpty());
+    const auto reads = daemon.tabReads;
+    daemon.mode = "unavailable";
+    catalog.refresh();
+    QTRY_COMPARE(catalog.browserState(), QString("disconnected"));
+    QCOMPARE(daemon.tabReads, reads);
+    QVERIFY(catalog.tabs().isEmpty());
+    QVERIFY(catalog.windows().isEmpty());
+    QVERIFY(!catalog.returnMatched());
   }
   void explicitAssociationMatchesWithoutFocusAndRejectsUncertainEvidence() {
     auto bus = QDBusConnection::connectToBus(qEnvironmentVariable("DBUS_SESSION_BUS_ADDRESS"), "return-fixture");
@@ -804,7 +855,7 @@ private slots:
     daemon.runtime = "ready";
     daemon.scripted = false;
     catalog.refresh();
-    QTRY_COMPARE(catalog.browserState(), QString("unavailable"));
+    QTRY_COMPARE(catalog.browserState(), QString("disconnected"));
     QCOMPARE(catalog.retryAction(), QString("refresh"));
     const auto reads = daemon.tabReads;
     const auto providers = daemon.providerReads;
@@ -898,7 +949,7 @@ private slots:
 
     daemon.mode = "unavailable";
     catalog.refresh();
-    QTRY_COMPARE(catalog.browserState(), QString("unavailable"));
+    QTRY_COMPARE(catalog.browserState(), QString("disconnected"));
     const auto adds = daemon.adds;
     catalog.addShortcut(QStringLiteral("anything"));
     QTRY_COMPARE(catalog.saveError(), QString("Unavailable"));

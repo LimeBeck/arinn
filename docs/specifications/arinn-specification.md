@@ -219,6 +219,13 @@ Arinn provides one system overlay for Home, Back, Play/Pause, volume, mute, the 
 - **Sleep** calls the platform's system suspend and respects inhibitors and permissions (P-04). On refusal an error is shown; the UI never reports a successful sleep based on a timer. After wake, the Home/Activity context is restored and providers reconnect.
 - **Restart** and **Shut down** require confirmation, with Cancel as the default focus. The list of applications that will be closed comes from the live registry. Confirmation never hides inhibitor or permission errors.
 
+**Close Arinn.** Global navigation includes a **Close Arinn** action, reachable
+with D-pad/Select or the pointer even when the daemon is unavailable. It closes
+the shell through the same graceful window-close path as Alt+F4, without
+confirmation. It does not request OS power actions or stop the daemon, providers
+or external applications. Back never invokes it. Owner request on 2026-10-03
+([#277](https://github.com/LimeBeck/arinn/issues/277)).
+
 **Ambient (screensaver).** Started by an explicit action or an idle timeout (10 minutes by default). Any key or pointer movement wakes the UI; the first wake event is consumed and triggers no action. Automatic ambient MUST NOT start while an external Activity is in the foreground **or** media is playing. The idle timer never triggers OS suspend. Ambient never stops applications.
 
 **Session lifecycle.** On lock or before sleep the shell hides regardless of daemon state and keeps the Activity context; after wake it re-checks the lock state before showing anything. If the lock state is unknown, the shell treats the session as locked ([session lifecycle](../architecture/session-lifecycle.md)). Lock/sleep observation MUST remain independent of daemon availability through an asynchronous, fail-closed platform lifecycle guard ([ADR-0041](../adr/0041-independent-session-lifecycle-guard.md)). The guard observes session state; it does not execute power or application commands.

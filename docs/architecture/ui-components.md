@@ -324,3 +324,10 @@ Comparison used the approved `os-h1-home-over-service.png` reference. The user's
 separate Library screenshot could not be materialized in this executor, so no
 pixel comparison with that image is claimed. Activity capture/blur (#149),
 full KDE/Wayland integration and physical TV readability were not tested here.
+
+## Shell close action
+
+Global navigation emits `closeShellRequested()` from its final Close Arinn row.
+`Main.qml` handles it with `Window.close()`, the same graceful path as Alt+F4.
+The action is local and available in degraded Home states; it does not call a
+provider, a power API or the daemon. Navigation preserves Back and focus traps.

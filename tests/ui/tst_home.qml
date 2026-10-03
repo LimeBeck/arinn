@@ -27,6 +27,7 @@ TestCase {
     SignalSpy { id: returns; signalName: "returnRequested" }
     SignalSpy { id: entries; signalName: "entryRequested" }
     SignalSpy { id: retry; signalName: "retryRequested" }
+    SignalSpy { id: closes; signalName: "closeShellRequested" }
     SignalSpy { id: services; signalName: "openServicesRequested" }
     SignalSpy { id: serviceCard; signalName: "serviceRequested" }
     function child(name) { const item = findChild(home, name); verify(item !== null, name); return item; }
@@ -37,6 +38,7 @@ TestCase {
         mouseMove(suite, 10, 10);
         home = createTemporaryObject(factory, suite);
         verify(home);
+        closes.target = home; closes.clear();
         returns.target = home; returns.clear();
         entries.target = home; entries.clear();
         retry.target = home; retry.clear();
@@ -46,8 +48,47 @@ TestCase {
     }
     function init() { createHome(); }
     function cleanup() {
+        closes.target = null;
         returns.target = null; entries.target = null; retry.target = null;
         services.target = null; serviceCard.target = null;
+    }
+
+    function test_close_shell_action_data() {
+        return [{tag: "keyboard", pointer: false}, {tag: "pointer", pointer: true}];
+    }
+    function test_close_shell_action(data) {
+        // The exit is local even when the daemon cannot supply Home content.
+        home.homeState = "unavailable";
+        home.returnActivityId = "a";
+        home.currentServiceTitle = "Synthetic service";
+        home.openNavigation();
+        focused("nav-0");
+        const close = child("nav-8");
+        compare(close.text, "Close Arinn");
+        verify(close.visible && close.enabled);
+        const navigation = child("navigation");
+        const bottom = close.mapToItem(navigation, 0, close.height);
+        verify(bottom.y < 1008, "All actions fit inside the navigation panel");
+        if (data.pointer) {
+            home.pointerMode = true;
+            mouseClick(close, close.width / 2, close.height / 2);
+        } else {
+            for (let i = 0; i < 10; ++i) keyClick(Qt.Key_Down);
+            focused("nav-8");
+            keyClick(Qt.Key_Return);
+        }
+        compare(closes.count, 1);
+        compare(returns.count, 0);
+    }
+    function test_back_from_close_action_does_not_exit() {
+        home.openNavigation();
+        focused("nav-0");
+        for (let i = 0; i < 10; ++i) keyClick(Qt.Key_Down);
+        focused("nav-8");
+        keyClick(Qt.Key_Escape);
+        compare(home.navOpen, false);
+        compare(closes.count, 0);
+        focused("entry-a");
     }
 
     function test_fixture_resets_pointer_data() {
@@ -150,7 +191,7 @@ TestCase {
         focused("nav-0");
         keyClick(Qt.Key_Left); keyClick(Qt.Key_Right); focused("nav-0");
         for (let i = 0; i < 10; ++i) keyClick(Qt.Key_Tab);
-        focused("nav-7");
+        focused("nav-8");
         keyClick(Qt.Key_Escape); focused("entry-b");
     }
     function test_section_back_and_home_close_navigation() {

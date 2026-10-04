@@ -4,7 +4,7 @@
 - **Date:** 2026-09-30
 - **Deciders:** delegated technical choice ([ADR-0037](0037-agent-autonomy-and-owner-gated-decisions.md)) within [ADR-0024](0024-local-library-mpv.md), [ADR-0046](0046-shell-input-layer-during-playback.md) and [ADR-0054](0054-media-and-library-wire-contract.md)
 - **Amends / Supersedes:** amends [ADR-0024](0024-local-library-mpv.md)
-- **Amended by / Superseded by:** —
+- **Amended by / Superseded by:** [ADR-0083](0083-managed-player-stop.md) (proposed)
 - **Specification:** [§6.4](../specifications/arinn-specification.md#64-player), [§7.4](../specifications/arinn-specification.md#74-local-library-and-mpv), [§13](../specifications/arinn-specification.md#13-security)
 
 ## Context

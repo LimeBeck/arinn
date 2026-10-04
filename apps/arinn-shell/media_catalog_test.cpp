@@ -1187,10 +1187,27 @@ private slots:
     QTest::keyClick(window, Qt::Key_Escape);
     QCOMPARE(player->property("osdVisible").toBool(), false);
     QCOMPARE(daemon.commands, stops);
+    daemon.holdOperation = true;
+    const auto releasesBeforeStop = daemon.windowCommands.count(QStringLiteral("Release"));
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_COMPARE(catalog->operationState(), QStringLiteral("pending"));
+    QTest::qWait(200);
+    QVERIFY(player->isVisible());
+    QVERIFY(!window->findChild<QQuickItem *>(QStringLiteral("productionHome"))->isVisible());
+    QCOMPARE(daemon.windowCommands.count(QStringLiteral("Release")), releasesBeforeStop);
+    // A failed Stop keeps the player route and makes Back a retry, rather
+    // than exposing Home under a player that has not actually exited.
+    daemon.operationState = QStringLiteral("failed");
+    daemon.holdOperation = false;
+    QTRY_VERIFY(!window->property("leavingStopPending").toBool());
+    QVERIFY(player->isVisible());
+    QVERIFY(!window->property("leaveError").toString().isEmpty());
+    QCOMPARE(daemon.windowCommands.count(QStringLiteral("Release")), releasesBeforeStop);
+    daemon.operationState = QStringLiteral("succeeded");
     QTest::keyClick(window, Qt::Key_Escape);
     QTRY_COMPARE(player->property("visible").toBool(), false);
     QCOMPARE(daemon.commands,
-             QStringList({QStringLiteral("Seek"), QStringLiteral("Stop")}));
+             QStringList({QStringLiteral("Seek"), QStringLiteral("Stop"), QStringLiteral("Stop")}));
     QTRY_COMPARE(daemon.windowCommands.last(), QStringLiteral("Release"));
     QCOMPARE(daemon.windowCommands.count(QStringLiteral("Present")), 2);
     // #246: until the daemon reports Home again the shell stays on screen,

@@ -1,0 +1,1 @@
+- Terminate managed playback on Stop, retain the final frame for Continue, and wait for confirmed exit before leaving playback controls.

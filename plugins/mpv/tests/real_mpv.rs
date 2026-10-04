@@ -67,7 +67,11 @@ async fn null_output_plays_a_generated_file() {
         .args(["--vo=null", "--ao=null"])
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    let child = PlayerProcess(command.spawn().unwrap());
+    let first_launch = uuid::Uuid::new_v4().to_string();
+    command.arg(format!(
+        "--wayland-app-id=org.arinn.Playback.{first_launch}"
+    ));
+    let mut child = PlayerProcess(command.spawn().unwrap());
     for _ in 0..50 {
         if socket.exists() {
             break;
@@ -100,6 +104,7 @@ async fn null_output_plays_a_generated_file() {
         })
         .await
         .expect("open");
+    assert_eq!(player.launch_id(id.clone()).await.unwrap(), first_launch);
     let view = player.view().await.unwrap();
     let session = view
         .sessions
@@ -162,7 +167,42 @@ async fn null_output_plays_a_generated_file() {
             .any(|track| track.kind == "audio" && track.selected)
     );
     player.disable_subtitles(id.clone()).await.unwrap();
+    let first_pid = child.0.id();
     player.control(MediaAction::Stop, id, 0).await.unwrap();
+    assert!(
+        child.0.try_wait().unwrap().is_some(),
+        "Stop must terminate mpv"
+    );
+    let next_launch = uuid::Uuid::new_v4().to_string();
+    command.arg(format!("--wayland-app-id=org.arinn.Playback.{next_launch}"));
+    let mut next_child = PlayerProcess(command.spawn().unwrap());
+    assert_ne!(first_pid, next_child.0.id());
+    for _ in 0..50 {
+        if tokio::net::UnixStream::connect(folder.join("ipc"))
+            .await
+            .is_ok()
+        {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let next_id = player
+        .open(MediaSource {
+            content: EntityRef {
+                provider_id: "library".into(),
+                capability: "library".into(),
+                local_id: "film-1".into(),
+            },
+            uri: format!("file://{}", clip.display()),
+            start_position_us: 1_500_000,
+            audio_language: String::new(),
+            subtitle_language: String::new(),
+        })
+        .await
+        .expect("fresh player open");
+    assert!(player.view().await.unwrap().sessions[0].position_us >= 1_500_000);
+    player.control(MediaAction::Stop, next_id, 0).await.unwrap();
+    assert!(next_child.0.try_wait().unwrap().is_some());
     assert_eq!(player.view().await.unwrap().sessions[0].state, "stopped");
     drop(player);
     drop(child);

@@ -182,6 +182,10 @@ struct Core {
     force_anchor: bool,
     anchor: Option<Anchor>,
     published: Option<Session>,
+    reconnect_enabled: bool,
+    ffmpeg: Option<PathBuf>,
+    thumb_dir: PathBuf,
+    poster_extractor: Arc<Extractor>,
     published_tracks: Vec<Track>,
     published_timeline: Timeline,
 }
@@ -222,6 +226,7 @@ impl Player {
             touch: 0,
         };
         let (notes, _) = watch::channel(view);
+        let poster_extractor = Arc::new(Extractor::default());
         let core = Core {
             socket: settings.socket,
             state_path: settings.state_path,
@@ -244,6 +249,10 @@ impl Player {
             force_anchor: false,
             anchor: None,
             published: None,
+            reconnect_enabled: true,
+            ffmpeg: settings.ffmpeg.clone(),
+            thumb_dir: settings.thumb_dir.clone(),
+            poster_extractor: poster_extractor.clone(),
             published_tracks: Vec::new(),
             published_timeline: Timeline {
                 chapters: Vec::new(),
@@ -257,7 +266,7 @@ impl Player {
             ffmpeg: settings.ffmpeg,
             thumb_dir: settings.thumb_dir,
             extractor: Arc::new(Extractor::default()),
-            poster_extractor: Arc::new(Extractor::default()),
+            poster_extractor,
             _task: Arc::new(Task {
                 join: Mutex::new(Some(join)),
             }),
@@ -382,7 +391,7 @@ impl Core {
         mut incoming: mpsc::UnboundedReceiver<Incoming>,
     ) {
         loop {
-            let disconnected = self.client.is_none();
+            let disconnected = self.client.is_none() && self.reconnect_enabled;
             tokio::select! {
                 biased;
                 ask = inbox.recv() => {
@@ -437,18 +446,26 @@ impl Core {
                 let _ = reply.send(self.thumb_target(&id));
             }
             Ask::Poster(reply) => {
-                let target = self.live.as_ref().and_then(|live| {
-                    Some(PosterTarget {
-                        id: live.id.clone(),
-                        path: live.path.clone().filter(|_| live.has_video)?,
-                        position_us: live.time_us.max(0),
-                        playing: self.phase() == media::STATE_PLAYING,
-                    })
-                });
+                let target = self
+                    .live
+                    .as_ref()
+                    .filter(|live| !live.stopped)
+                    .and_then(|live| {
+                        Some(PosterTarget {
+                            id: live.id.clone(),
+                            path: live.path.clone().filter(|_| live.has_video)?,
+                            position_us: live.time_us.max(0),
+                            playing: self.phase() == media::STATE_PLAYING,
+                        })
+                    });
                 let _ = reply.send(target);
             }
             Ask::SetArtwork(id, asset) => {
-                if let Some(live) = self.live.as_mut().filter(|live| live.id == id) {
+                if let Some(live) = self
+                    .live
+                    .as_mut()
+                    .filter(|live| live.id == id && !live.stopped)
+                {
                     live.artwork = asset;
                     self.sync();
                 }
@@ -476,6 +493,7 @@ impl Core {
         source.validate()?;
         let path = crate::paths::file_path(&source.uri)?;
         self.ensure_for_open(incoming).await?;
+        self.reconnect_enabled = true;
         let id = uuid::Uuid::new_v4().to_string();
         self.install(&id, &source, path.clone());
         if let Err(error) = self
@@ -681,6 +699,9 @@ impl Core {
         if !allowed.iter().any(|name| name == token) {
             return Err(ErrorCode::Unsupported);
         }
+        if matches!(action, MediaAction::Stop) {
+            return self.stop_owned(incoming).await;
+        }
         let command = match action {
             MediaAction::Play => json!(["set_property", "pause", false]),
             MediaAction::Pause => json!(["set_property", "pause", true]),
@@ -721,6 +742,95 @@ impl Core {
             }
         }
         self.sync();
+        Ok(())
+    }
+
+    /// Stop only our private player. The actor serializes Open behind this
+    /// handoff, and old IPC events are fenced before publishing the final row.
+    async fn stop_owned(
+        &mut self,
+        incoming: &mut mpsc::UnboundedReceiver<Incoming>,
+    ) -> Result<(), ErrorCode> {
+        let client = self.client.clone().ok_or(ErrorCode::Unavailable)?;
+        // Freeze the displayed frame and sample resume before quit can clear
+        // time-pos. All preparation is best effort and fits the 5 s command SLA.
+        let _ = tokio::time::timeout(
+            Duration::from_millis(200),
+            self.request(json!(["set_property", "pause", true]), incoming),
+        )
+        .await;
+        if let Ok(Ok(reply)) = tokio::time::timeout(
+            Duration::from_millis(200),
+            self.request(json!(["get_property", "time-pos"]), incoming),
+        )
+        .await
+            && reply.error == "success"
+            && let Some(position) = parse::us_from_seconds(&reply.data)
+            && let Some(live) = self.live.as_mut()
+        {
+            live.time_us = position;
+        }
+        let _ = tokio::time::timeout(Duration::from_secs(1), self.capture_final_frame()).await;
+        // quit may close IPC before returning its reply. Socket EOF is evidence
+        // of shutdown, not a provider failure; do not drain that event yet.
+        let _ =
+            tokio::time::timeout(Duration::from_millis(300), client.request(json!(["quit"]))).await;
+        if matches!(self.launch, Launch::Systemd { .. }) {
+            let stopped = tokio::time::timeout(Duration::from_secs(2), async {
+                let connection = Connection::session()
+                    .await
+                    .map_err(|_| ErrorCode::Unavailable)?;
+                scope::stop_unit(&connection).await
+            })
+            .await
+            .unwrap_or(Err(ErrorCode::Timeout));
+            stopped?;
+        }
+        let deadline = Instant::now() + Duration::from_millis(500);
+        while client.alive() && Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        if client.alive() {
+            return Err(ErrorCode::Timeout);
+        }
+        self.drop_client();
+        self.reconnect_enabled = false;
+        self.drain(incoming);
+        if let Some(live) = self.live.as_mut() {
+            live.stopped = true;
+        }
+        self.idle = true;
+        self.force_anchor = true;
+        self.backend = "available".into();
+        self.sync();
+        Ok(())
+    }
+
+    async fn capture_final_frame(&mut self) -> Result<(), ErrorCode> {
+        if self.live.as_ref().is_none_or(|live| !live.has_video)
+            || self.thumb_dir.as_os_str().is_empty()
+        {
+            return Err(ErrorCode::Unsupported);
+        }
+        let ffmpeg = self.ffmpeg.clone().ok_or(ErrorCode::Unsupported)?;
+        let directory = crate::thumbnail::poster_dir(&self.thumb_dir);
+        crate::paths::ensure_private_dir(&directory).map_err(|_| ErrorCode::Unsupported)?;
+        let temporary = crate::thumbnail::TemporaryFrame::new(
+            directory.join(format!("capture-{}.jpg", uuid::Uuid::new_v4())),
+        );
+        let client = self.client.clone().ok_or(ErrorCode::Unavailable)?;
+        let reply = client
+            .request(json!(["screenshot-to-file", temporary.path(), "video"]))
+            .await?;
+        ipc::map_error(&reply.error)?;
+        crate::thumbnail::validate_frame(temporary.path())?;
+        let frame = self
+            .poster_extractor
+            .extract(&ffmpeg, &directory, temporary.path(), 0)
+            .await?;
+        if let Some(live) = self.live.as_mut() {
+            live.artwork = frame.asset;
+        }
         Ok(())
     }
 

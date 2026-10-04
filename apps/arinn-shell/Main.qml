@@ -23,7 +23,7 @@ Window {
     // backend's one-second status poll with a wide margin.
     property bool leavingPlayback: false
     Timer { id: leavingBound; interval: 10000; onTriggered: root.leavingPlayback = false }
-    color: playerOpen ? "transparent" : Ui.Theme.background
+    color: playerOpen && !leavingStopPending && leaveError === "" ? "transparent" : Ui.Theme.background
     title: "Arinn"
     flags: Qt.Window | Qt.FramelessWindowHint
     readonly property bool navOpen: home.navOpen
@@ -33,6 +33,8 @@ Window {
     function closeBrowse() { browseOpen = false; browseCatalog.reset(); Qt.callLater(restoreFocus); }
     property bool sessionOpen: false
     property bool playerOpen: false
+    property bool leavingStopPending: false
+    property string leaveError: ""
     property bool sessionFromLibrary: false
     property bool presentationAtHome: false
     property bool presentationRequested: false
@@ -81,6 +83,38 @@ Window {
             else
                 Ui.Focus.take(sessionView);
         });
+    }
+    function leavePlayback() {
+        if (leavingStopPending)
+            return;
+        leaveError = "";
+        if (mediaCatalog.inputLayerActive) {
+            leavingPlayback = true;
+            leavingBound.restart();
+        }
+        if (mediaCatalog.sessionState !== "ready") {
+            finishPlaybackExit();
+            return;
+        }
+        leavingStopPending = true;
+        mediaCatalog.stop();
+        finishStopOperation();
+    }
+    function finishStopOperation() {
+        if (!leavingStopPending || mediaCatalog.operationState === "pending")
+            return;
+        leavingStopPending = false;
+        if (mediaCatalog.operationState === "succeeded")
+            finishPlaybackExit();
+        else {
+            leaveError = qsTr("Unable to stop playback. Press Back to retry.");
+            playerView.osdVisible = true;
+        }
+    }
+    function finishPlaybackExit() {
+        mediaCatalog.release();
+        presentationAtHome = false;
+        closePlayer();
     }
     function closePlayer() {
         playerOpen = false;
@@ -423,7 +457,7 @@ Window {
             objectName: "productionPlayer"
             focus: root.focusedScreen === "player"
             visible: root.playerOpen
-            enabled: root.playerOpen
+            enabled: root.playerOpen && !root.leavingStopPending
             z: 6
             pictureStandIn: false
             title: mediaCatalog.sessionTitle
@@ -449,7 +483,12 @@ Window {
             audioTrackId: mediaCatalog.audioTrackId
             subtitleTrackId: mediaCatalog.subtitleTrackId
             thumbnail: mediaCatalog.thumbnail
+            statusTitle: root.leaveError
             playbackState: {
+                if (root.leavingStopPending)
+                    return "loading";
+                if (root.leaveError !== "")
+                    return "error";
                 const state = mediaCatalog.sessionState;
                 if (mediaCatalog.windowAvailable && mediaCatalog.presentationState !== "active")
                     return mediaCatalog.presentationState === "pending" ? "loading" : "unavailable";
@@ -464,18 +503,8 @@ Window {
             onSeek: targetSeconds => mediaCatalog.seek(targetSeconds * 1000000)
             onSelectAudio: trackId => mediaCatalog.selectAudio(trackId)
             onSelectSubtitle: trackId => mediaCatalog.selectSubtitle(trackId)
-            onStop: mediaCatalog.stop()
-            onLeave: {
-                if (mediaCatalog.inputLayerActive) {
-                    root.leavingPlayback = true;
-                    leavingBound.restart();
-                }
-                if (mediaCatalog.sessionState === "ready")
-                    mediaCatalog.stop();
-                mediaCatalog.release();
-                root.presentationAtHome = false;
-                root.closePlayer();
-            }
+            onStop: root.leavePlayback()
+            onLeave: root.leavePlayback()
             onHomeRequested: {
                 if (mediaCatalog.inputLayerActive) {
                     root.showPlaybackHome();
@@ -495,7 +524,10 @@ Window {
         Connections {
             target: mediaCatalog
             function onPresentationHomeRequested() { root.showPlaybackHome(); }
+            function onOperationChanged() { root.finishStopOperation(); }
             function onPresentationChanged() {
+                if (root.leavingStopPending)
+                    return;
                 if (mediaCatalog.presentationState !== "" && mediaCatalog.presentationState !== "pending" && mediaCatalog.presentationState !== "active") {
                     root.playerOpen = false;
                     root.presentationAtHome = false;

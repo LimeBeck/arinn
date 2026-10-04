@@ -190,7 +190,7 @@ Goal: MPRIS media control, the local library and playback in external mpv with A
 | AC-09 MPRIS session shown and controlled | Integration + operator test |
 | AC-15 Library scan of local and mounted folders, fallback metadata, unavailable mount, film and episode start | Integration test |
 | AC-16 Play/pause/seek, audio/subtitle selection, resume after restart, Continue | Integration + operator test |
-| G-4.1 Media integration gate: OSD over video without losing playback, shell input layer per ADR-0046, Home/Return | #141: managed input layer implemented with synthetic adapter/private-bus coverage; owner-run KDE Wayland/TV operator test pending |
+| G-4.1 Media integration gate: OSD over video without losing playback, shell input layer per ADR-0046, Home/Return | #141: managed input layer implemented with synthetic adapter/private-bus coverage; #309 adds confirmed Stop, fresh-process Continue and retained final-frame artwork (ADR-0083 proposed); owner-run KDE Wayland/TV operator test pending |
 
 ## Phase 5 — Product MVP
 

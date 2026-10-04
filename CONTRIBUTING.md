@@ -70,12 +70,24 @@ Every pull request runs the full pipeline described in [ADR-0033](docs/adr/0033-
 
 ## Releases
 
-Only the maintainer releases. To release version `X.Y.Z`:
+Every successful push to `master` automatically publishes a pre-release tagged
+`snapshot-<full SHA>` after the complete CI and package installation checks pass
+([ADR-0086](docs/adr/0086-automatic-master-prereleases.md)). Each master commit
+builds independently. Snapshot publication reuses the same run's packages and
+source archive, verifies uploaded checksums before publishing, and changes no
+workspace version. PRs, nightlies and manual CI runs do not publish snapshots.
+Published snapshots are immutable; reruns with different assets fail. Before
+enabling the workflow, the owner configures the `SNAPSHOT_RELEASE_TOKEN`
+repository secret with Contents and Workflows write permissions. This permits
+older tested commits to publish after master workflow files have changed; the
+built-in GitHub token cannot cover that case. No manual dispatch is needed.
+
+Only the maintainer cuts version tags. To release version `X.Y.Z`:
 
 1. In a pull request, set `version` in the root `Cargo.toml` and `pkgver` in `packaging/arch/PKGBUILD` to `X.Y.Z`; run `python scripts/release.py collect X.Y.Z` to move the changelog fragments into a `## [X.Y.Z]` section; bump the specification version and update its §22 if requirements changed since the last version. Run `python scripts/release.py check vX.Y.Z`.
 2. If the release touches the platform layer, input or session behaviour, run the relevant operator tests on a real KDE session and attach the evidence to that pull request.
 3. Merge, make sure the latest nightly is green, then tag the merge commit: `git tag -s vX.Y.Z -m "Arinn X.Y.Z" && git push origin vX.Y.Z`.
-4. The release workflow reruns the full CI on the tag and publishes the GitHub Release with the Arch package, source tarball and checksums. `0.x` versions are marked as pre-releases.
+4. The release workflow reruns the full CI on the tag and publishes the GitHub Release with the Arch package, source tarball and checksums. Version tags publish ordinary releases, including `0.x`.
 
 ## Parallel work
 

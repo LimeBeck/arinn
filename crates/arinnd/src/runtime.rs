@@ -954,6 +954,39 @@ impl Core {
             .map_err(|_| ErrorCode::Unavailable)?
     }
 
+    /// Admit only stable launch IDs from a complete current application snapshot.
+    pub(crate) async fn admit_favorite_applications(
+        &self,
+        entries: &[EntityRef],
+    ) -> Result<(), ErrorCode> {
+        let state = self.state.lock().await;
+        for entry in entries.iter().filter(|e| e.capability == "application") {
+            let provider = state
+                .providers
+                .get(&entry.provider_id)
+                .ok_or(ErrorCode::NotFound)?;
+            if provider.capability() != "application" {
+                return Err(ErrorCode::NotFound);
+            }
+            if provider.owner.is_empty()
+                || provider.cache.is_none()
+                || provider.info.runtime_state != "ready"
+                || provider.info.backend_state == "unavailable"
+                || provider.info.recovered_at == 0 && !provider.info.last_error.is_empty()
+            {
+                return Err(ErrorCode::Unavailable);
+            }
+            if !provider
+                .applications
+                .iter()
+                .any(|app| app.id == entry.local_id)
+            {
+                return Err(ErrorCode::NotFound);
+            }
+        }
+        Ok(())
+    }
+
     /// Open a URL in the default browser provider: the first ready `browser`
     /// provider with a connected browser. Used by web shortcuts (ADR-0043).
     /// With no browser connected, the browser application is launched first

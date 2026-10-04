@@ -415,6 +415,10 @@ receive concrete XML before their first provider. Plugin API major 1 remains pre
 
 Plugin API v1 is not yet stable; wire XML, SDK and the contract suite are produced per capability before its first provider ([plugin API](../plugin-api/README.md)).
 
+The daemon-owned Favorites wire contract is [ADR-0084](../adr/0084-favorites-contract.md)
+and [Favorites1](../plugin-api/favorites1.xml); it implements the existing stable
+launch-target persistence and pin/unpin requirements (§5.1, §5.5, §11).
+
 ### 9.1. Capabilities
 
 A plugin declares capabilities, never a product type. One plugin may implement several.

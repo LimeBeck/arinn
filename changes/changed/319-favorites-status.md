@@ -1,0 +1,1 @@
+- Update the Favorites1 API index to reflect the daemon export and the remaining shell pin/unpin work.

@@ -73,6 +73,14 @@ async fn run(started: std::time::Instant) -> Result<(), ErrorCode> {
     core.export_settings().await?;
     core.export_folders().await?;
     core.export_browse().await?;
+    connection
+        .object_server()
+        .at(
+            PATH,
+            arinnd::favorites::Favorites::new(&paths_state).with_core(core.clone()),
+        )
+        .await
+        .map_err(|_| ErrorCode::Internal)?;
     let shortcuts = arinnd::shortcuts::WebShortcuts::new(&paths_state, core.operations.clone())
         .with_browser(core.clone());
     let migrations = tokio::task::spawn_blocking(|| {

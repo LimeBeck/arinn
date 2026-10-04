@@ -100,4 +100,5 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0080](0080-mvp-platforms.md) | MVP platforms — KDE Plasma 6 on Wayland and X11/EWMH desktops | Accepted | — |
 | [0082](0082-opt-in-sentry.md) | Optional Sentry diagnostics for the shell and daemon | Proposed | — |
 | [0083](0083-managed-player-stop.md) | Terminate the managed player on Stop and retain its final frame | Proposed | — |
+| [0084](0084-favorites-contract.md) | Revision-guarded daemon-owned favorites | Accepted | — |
 <!-- register:end -->

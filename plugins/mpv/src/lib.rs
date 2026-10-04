@@ -5,6 +5,7 @@
 //! File paths and titles are not logged.
 
 mod ipc;
+mod mpris;
 mod parse;
 mod paths;
 mod player;
@@ -86,6 +87,16 @@ pub async fn serve(connection: Connection) -> Result<(), ErrorCode> {
         }
     });
     let _poster_guard = AbortOnDrop(poster_task);
+    // Plasma sends media keys to the current MPRIS player (#300, ADR-0081).
+    // A failure here leaves playback working without media keys.
+    let mpris_connection = connection.clone();
+    let mpris_player = player.clone();
+    let mpris_task = tokio::spawn(async move {
+        if let Err(error) = mpris::run(mpris_connection, mpris_player, player::monotonic_us).await {
+            eprintln!("{}", log_line("mpris", error));
+        }
+    });
+    let _mpris_guard = AbortOnDrop(mpris_task);
     let mut notes = player.subscribe();
     let publish = publish(service.clone(), &mut notes);
     tokio::pin!(publish);

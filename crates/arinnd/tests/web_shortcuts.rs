@@ -313,7 +313,7 @@ fn preset_migration_is_exact_once_and_preserves_user_state() {
             drop(store);
             rusqlite::Connection::open(tree.0.join("state.sqlite3"))
                 .unwrap()
-                .execute_batch("DROP TABLE web_preset_migrations; PRAGMA user_version=5;")
+                .execute_batch("DROP TABLE web_preset_migrations; DROP TABLE favorite_state; PRAGMA user_version=5;")
                 .unwrap();
             store = Store::open(&tree.0).unwrap();
         }

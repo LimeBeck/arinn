@@ -2,10 +2,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import QtQuick
+import QtQuick.Window
 import "../.." as Ui
 
-// Fixture-driven queue. Callers pass job snapshots and listen for intents.
-// This screen does not open a service, import files, or leave its focus scope.
+// Download queue. Callers pass job snapshots and listen for intents; the
+// shell binds it to DownloadCatalog. This screen does not open a service,
+// import files, or leave its focus scope.
 FocusScope {
     id: root
     width: 1920
@@ -22,6 +24,9 @@ FocusScope {
     property string selectedId: ""
     property int selectedIndex: 0
     property string toastMessage: ""
+    // The shell announces completions itself (once per download per
+    // session) and sets this to false; fixtures keep the view's own toast.
+    property bool autoToast: true
     readonly property bool hoverFocusEnabled: !hoverDelay.running
     readonly property bool queueVisible: viewState === "populated" && jobCount > 0
     readonly property bool loadingVisible: viewState === "loading"
@@ -186,10 +191,11 @@ FocusScope {
         }
         knownImports = next;
         importsReady = true;
-        if (notice.length) {
-            toastMessage = notice;
-            toastTimer.restart();
-        }
+        if (notice.length && autoToast) showToast(notice);
+    }
+    function showToast(message) {
+        toastMessage = message;
+        toastTimer.restart();
     }
     function acceptDirection(event) {
         if (event.key === Qt.Key_Up || event.key === Qt.Key_Down || event.key === Qt.Key_Left || event.key === Qt.Key_Right) {
@@ -213,6 +219,11 @@ FocusScope {
     Component.onCompleted: Qt.callLater(() => { syncImports(); restore(); })
     onViewStateChanged: Qt.callLater(restore)
     onJobsChanged: Qt.callLater(() => { syncImports(); restore(); })
+    // A queue read while the screen was hidden could not focus a row. When
+    // the scope itself receives focus, hand it to the selected row.
+    onActiveFocusChanged: if (activeFocus && Window.activeFocusItem === root) Qt.callLater(() => {
+        if (activeFocus && Window.activeFocusItem === root) restore();
+    })
     Timer { id: hoverDelay; interval: hoverSuppressMs }
     Timer { id: toastTimer; interval: toastDurationMs; onTriggered: root.toastMessage = "" }
     HoverHandler {
@@ -255,12 +266,13 @@ FocusScope {
                 color: Ui.Theme.textSecondary
                 text: root.summaryLine
                 visible: root.viewState === "populated"
-                height: visible ? implicitHeight : 0
             }
             Flickable {
                 id: scroller
                 objectName: "downloadsQueue"
-                anchors.top: summary.bottom
+                // The summary is shown only with a queue; a Text whose height
+                // is bound to collapse loops through its implicit height.
+                anchors.top: root.viewState === "populated" ? summary.bottom : heading.bottom
                 anchors.topMargin: 28
                 anchors.left: parent.left
                 anchors.right: parent.right
@@ -398,7 +410,7 @@ FocusScope {
             Column {
                 id: skeletons
                 objectName: "downloadsSkeletons"
-                anchors.top: summary.bottom
+                anchors.top: root.viewState === "populated" ? summary.bottom : heading.bottom
                 anchors.topMargin: 28
                 width: parent.width
                 spacing: 16

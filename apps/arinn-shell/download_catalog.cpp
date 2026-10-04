@@ -496,7 +496,10 @@ void DownloadCatalog::readDownloads(const std::shared_ptr<Catalog> &catalog,
             arg >> refProvider >> capability >> refLocal;
             arg.endStructure();
             ++refs;
-            if (refProvider.isEmpty() || capability.isEmpty() || refLocal.isEmpty())
+            // library_refs are Library EntityRefs; anything else cannot be
+            // watched (review of #310).
+            if (refProvider.isEmpty() || refLocal.isEmpty() ||
+                capability != QLatin1String("library"))
               refsValid = false;
             else if (row.refLocal.isEmpty()) {
               row.refProvider = refProvider;

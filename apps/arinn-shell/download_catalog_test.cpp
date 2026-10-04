@@ -383,6 +383,11 @@ private slots:
            d.importState = QStringLiteral("pending");
            d.refs = {{QStringLiteral("lib"), QStringLiteral("library"), QStringLiteral("x")}};
          }},
+        {"non-library ref", [](DownloadWire &d) {
+           d.state = QStringLiteral("completed");
+           d.importState = QStringLiteral("imported");
+           d.refs = {{QStringLiteral("web"), QStringLiteral("browser"), QStringLiteral("x")}};
+         }},
         {"duplicate output", [](DownloadWire &d) {
            d.outputs = {{QStringLiteral("o"), QString()}, {QStringLiteral("o"), QString()}};
          }},

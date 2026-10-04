@@ -87,7 +87,8 @@ asynchronously, the same way `LibraryCatalog` reads `Library1`:
   action and no command is sent for them.
 - `GetDownloads` pages must carry the provider's generation and one revision
   across the pages. A repeated token, a torn read or a malformed row fails that
-  provider. A row is malformed when it breaks a `Download` invariant of
+  provider, and so does a page with more than 200 rows. A row is malformed
+  when it breaks a `Download` invariant of
   `crates/arinn-protocol/src/download.rs`:
   - a size or progress value without its flag, or progress outside 0..1;
   - a bad state or action token, a repeated action or more than eight;

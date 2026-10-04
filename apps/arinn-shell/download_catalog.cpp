@@ -115,6 +115,7 @@ const QStringList importStates{
     QStringLiteral("none"), QStringLiteral("pending"), QStringLiteral("imported"),
     QStringLiteral("unavailable"), QStringLiteral("unsupported")};
 constexpr int maxActions = 8;
+constexpr int maxPageEntries = 200;
 constexpr int maxOutputs = 64;
 void registerDownloadCatalog() {
   qmlRegisterType<DownloadCatalog>("Arinn.Shell", 1, 0, "DownloadCatalog");
@@ -461,8 +462,14 @@ void DownloadCatalog::readDownloads(const std::shared_ptr<Catalog> &catalog,
         catalog->pageGeneration = generation;
         catalog->pageRevision = revision;
         const auto providerId = provider.value(QStringLiteral("id")).toString();
+        int entries = 0;
         arg.beginArray();
         while (!arg.atEnd()) {
+          // A page holds at most MAX_PAGE_ENTRIES rows (ADR-0020).
+          if (++entries > maxPageEntries) {
+            failProvider(catalog, index, false);
+            return;
+          }
           Row row;
           row.providerId = providerId;
           row.path = provider.value(QStringLiteral("path")).toString();

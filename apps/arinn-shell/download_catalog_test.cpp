@@ -405,6 +405,19 @@ private slots:
     }
   }
 
+  // Review of #310: a page over the protocol's 200-entry limit fails the
+  // provider; exactly 200 is accepted.
+  void pageEntryLimit() {
+    for (int i = 0; i < 200; ++i)
+      daemon->page1.append(job(QStringLiteral("j%1").arg(i), QStringLiteral("queued")));
+    DownloadCatalog catalog;
+    QTRY_COMPARE(catalog.downloadsState(), QStringLiteral("populated"));
+    QCOMPARE(catalog.jobs().size(), 200);
+    daemon->page1.append(job(QStringLiteral("j200"), QStringLiteral("queued")));
+    reload(catalog);
+    QCOMPARE(catalog.downloadsState(), QStringLiteral("error"));
+  }
+
   void pagingAndRevisions() {
     daemon->page1 = {job(QStringLiteral("a"), QStringLiteral("queued"))};
     daemon->page2 = {job(QStringLiteral("b"), QStringLiteral("queued"))};

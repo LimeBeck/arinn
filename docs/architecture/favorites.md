@@ -43,6 +43,22 @@ Applications and Home; unpinning never deletes the application or shortcut.
 Only focus, pending state and drafts are shell-local. Persist no shell copy and
 never emit identities, titles or URLs in logs/diagnostics.
 
+## Daemon implementation
+
+`arinnd` exports the interface through its production object server. SQLite schema
+7 preserves existing ordered favorite rows and adds one revision singleton. The
+revision uses decimal text to retain the complete wire `u64` range; overflow at
+`u64::MAX` rejects a changed list. Revision and entries are read in one snapshot
+and replaced with an immediate transaction. Shortcut admission shares that
+transaction. New applications are admitted against the complete validated Core
+cache and provider health, while existing missing entries remain editable.
+
+The export serializes mutations and notifications, runs SQLite work in blocking
+tasks, and publishes `Changed` only after commit. There was no production
+Favorites writer before this export; schema-six compatibility retains the
+ordered stable application selections supported by the internal storage writer.
+The shell implementation remains a separate dependent change.
+
 ## Verification
 
 The contract tests cover wire signatures and round trips, ordering, empty lists,

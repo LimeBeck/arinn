@@ -1,1 +1,1 @@
-- Terminate managed playback on Stop, retain the final frame for Continue, and wait for confirmed exit before leaving playback controls.
+- Terminate managed playback on Stop, retain the final frame for Continue, and wait for confirmed exit before leaving playback controls. Keep unmanaged IPC peers alive on Stop, revalidate ownership on reconnect, retain failed-exit feedback, and wait for a pending library session before stopping it.

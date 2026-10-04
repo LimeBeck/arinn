@@ -15,7 +15,8 @@ import "ui/screens/settings" as Settings
 Window {
     id: root
     width: 1920; height: 1080
-    visibility: (backend.homeVisible || mediaCatalog.inputLayerActive || leavingPlayback) && !sessionGuard.blocked ? Window.FullScreen : Window.Hidden
+    visibility: (backend.homeVisible || mediaCatalog.inputLayerActive || leavingPlayback
+                 || leavingStopPending || (playerOpen && leaveError !== "")) && !sessionGuard.blocked ? Window.FullScreen : Window.Hidden
     // After Back leaves playback the input layer ends before the daemon
     // reports Home again; stay on screen in between instead of vanishing
     // (#246). Cleared by that report. The bound is only a last resort for a
@@ -33,6 +34,18 @@ Window {
     function closeBrowse() { browseOpen = false; browseCatalog.reset(); Qt.callLater(restoreFocus); }
     property bool sessionOpen: false
     property bool playerOpen: false
+    property bool leavingWaitForSession: false
+    Timer {
+        id: leaveSessionBound
+        objectName: "leaveSessionBound"
+        interval: 30000
+        onTriggered: {
+            // Keep selection fenced: the eventual row still belongs to the
+            // exact launch whose exit was requested.
+            root.leaveError = qsTr("Playback is not available yet. Waiting to stop the launched session.");
+            playerView.osdVisible = true;
+        }
+    }
     property bool leavingStopPending: false
     property string leaveError: ""
     property bool sessionFromLibrary: false
@@ -99,15 +112,23 @@ Window {
             leavingBound.restart();
         }
         if (mediaCatalog.sessionState !== "ready") {
+            if (sessionFromLibrary || mediaCatalog.sessionState === "loading") {
+                leavingWaitForSession = true;
+                leavingStopPending = true;
+                leaveSessionBound.restart();
+                return;
+            }
             finishPlaybackExit();
             return;
         }
+        leavingWaitForSession = false;
+        leaveSessionBound.stop();
         leavingStopPending = true;
         mediaCatalog.stop();
         finishStopOperation();
     }
     function finishStopOperation() {
-        if (!leavingStopPending || mediaCatalog.operationState === "pending")
+        if (!leavingStopPending || leavingWaitForSession || mediaCatalog.operationState === "pending")
             return;
         leavingStopPending = false;
         if (mediaCatalog.operationState === "succeeded")
@@ -516,9 +537,11 @@ Window {
                     root.showPlaybackHome();
                     mediaCatalog.requestHome();
                 } else {
+                    root.leaveError = "";
                     root.playerOpen = false;
                     root.sessionFromLibrary = false;
                     home.showHome();
+                    mediaCatalog.requestHome();
                 }
             }
         }
@@ -532,7 +555,7 @@ Window {
             function onPresentationHomeRequested() { root.showPlaybackHome(); }
             function onOperationChanged() { root.finishStopOperation(); }
             function onPresentationChanged() {
-                if (root.leavingStopPending)
+                if (root.leavingStopPending || root.leaveError !== "")
                     return;
                 if (mediaCatalog.presentationState !== "" && mediaCatalog.presentationState !== "pending" && mediaCatalog.presentationState !== "active") {
                     root.playerOpen = false;
@@ -554,6 +577,13 @@ Window {
                 }
             }
             function onSessionChanged() {
+                if (root.leavingWaitForSession && mediaCatalog.sessionState === "ready") {
+                    root.leavingStopPending = false;
+                    root.leavePlayback();
+                    return;
+                }
+                if (root.leavingStopPending)
+                    return;
                 if (root.playerOpen && mediaCatalog.windowAvailable && !root.presentationAtHome && !root.presentationRequested) {
                     root.presentationRequested = true;
                     mediaCatalog.present();

@@ -216,3 +216,5 @@ local frame, terminates its owned process and clears live window identity; Conti
 opens a new process through Library1 ([ADR-0083](../adr/0083-managed-player-stop.md)).
 Pause and global Home preserve the existing live session. Synthetic tests cover
 this ordering; no real compositor or TV acceptance is claimed.
+
+If exit is requested before a launched library session reaches the media snapshot, the shell keeps that selection and exit intent until the exact row can be stopped. A delayed snapshot shows bounded waiting feedback without allowing a different selection to inherit the Stop intent. Failed Stop feedback remains visible even after the input layer and handoff grace end.

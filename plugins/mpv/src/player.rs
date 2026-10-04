@@ -233,7 +233,7 @@ impl Player {
         let core = Core {
             socket: settings.socket,
             state_path: settings.state_path,
-            owns_unit: matches!(settings.launch, Launch::Systemd { .. }),
+            owns_unit: false,
             launch: settings.launch,
             interval: settings.publish_interval,
             incoming_tx,
@@ -607,6 +607,7 @@ impl Core {
                         .await
                         .map_err(|_| ErrorCode::Unavailable)?;
                     scope::ensure_unit(&connection, &binary, &socket).await?;
+                    self.owns_unit = true;
                     self.wait_for_socket().await?;
                 }
                 Launch::External | Launch::Missing => return Err(ErrorCode::Unavailable),
@@ -664,6 +665,7 @@ impl Core {
         // Recover the player process identity, including after a provider restart.
         // A legacy/unmanaged player remains controllable without window presentation.
         self.launch_id.clear();
+        self.owns_unit = false;
         if let Ok(reply) = self
             .request(json!(["get_property", "options/wayland-app-id"]), incoming)
             .await
@@ -674,7 +676,7 @@ impl Core {
             && arinn_protocol::media_window::validate_launch(launch).is_ok()
         {
             self.launch_id = launch.into();
-            if matches!(self.launch, Launch::Missing) {
+            if !matches!(self.launch, Launch::External) {
                 self.owns_unit = true;
             }
         }
@@ -711,7 +713,7 @@ impl Core {
         if !allowed.iter().any(|name| name == token) {
             return Err(ErrorCode::Unsupported);
         }
-        if matches!(action, MediaAction::Stop) {
+        if matches!(action, MediaAction::Stop) && (self.owns_unit || !self.launch_id.is_empty()) {
             return self.stop_owned(incoming).await;
         }
         let command = match action {

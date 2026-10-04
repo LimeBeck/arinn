@@ -47,9 +47,30 @@ This follows [Qt desktopFileName](https://doc.qt.io/qt-6/qguiapplication.html#de
 and [GNOME application ID naming](https://developer.gnome.org/documentation/tutorials/application-id.html).
 The shell has its separate explicit identity.
 `org.arinn.Shell` and `org.arinn.Shell.desktop` identify the shell, which is excluded
-from inventory. Two matching shell windows make identity ambiguous and trigger
-a fail-closed reconnect; run one shell instance. Event masks are selected once
-per newly observed XID and reset when its inventory lifetime ends. Output names are currently empty: this
+from inventory. The hidden shell (`Window.Hidden`) is a withdrawn window, which
+xfwm4 leaves out of `_NET_CLIENT_LIST`; its native X window exists unmapped
+before the first Home, as observed on live xfwm4 (#283). Startup Home (AC-01)
+depends on finding it, because the shell asks for Home while still hidden. The adapter
+therefore also looks for the shell among direct root-window children, mapped or
+not, one level deep. Inventory still comes only from `_NET_CLIENT_LIST`. The
+scan is bounded like the client list: more than 4096 root children fail closed.
+Its requests are pipelined (one batch of attributes, one batch of identity
+properties), because every window-manager frame is also a root child.
+
+A shell found only among root children serves Home, but it has no lifetime
+token: lifetimes, the shell's included, end when a window leaves
+`_NET_CLIENT_LIST`, even if the XID returns. Managed playback therefore requires
+a listed shell, and a shell that hides during playback ends the presentation
+(ADR-0046: the shell is the input layer). Home on a hidden shell works in two
+steps. The EWMH requests in `raise_shell` reach a withdrawn window but the
+manager ignores them; the explicit Home publish makes the shell show itself,
+and the next refresh raises the now-listed shell above while Home is active.
+
+Two matching shell windows, listed or not, make identity ambiguous and trigger a
+fail-closed reconnect; run one shell instance, and keep it to one native
+top-level window with the shell identity. Event masks are selected once per
+newly observed XID and reset when its inventory lifetime ends; the unlisted
+shell's mask is selected again on each snapshot. Output names are currently empty: this
 initial backend does not implement RandR output placement.
 
 ## Home, Return and video

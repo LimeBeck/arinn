@@ -69,6 +69,13 @@ pub fn launch_id(class: &[u8]) -> String {
         _ => String::new(),
     }
 }
+/// UTF-8/STRING metadata of a property reply; `None` when it is invalid.
+fn metadata(r: GetPropertyReply, ty: Atom) -> Option<Vec<u8>> {
+    if r.type_ == 0 {
+        return Some(Vec::new());
+    }
+    (r.type_ == ty && r.format == 8 && r.bytes_after == 0).then_some(r.value)
+}
 pub fn desktop_id(value: &[u8], basename: bool) -> String {
     let Ok(text) = std::str::from_utf8(value) else {
         return String::new();
@@ -169,6 +176,98 @@ impl Native {
         ensure!(r.type_ == ty && r.format == 32, "invalid property type");
         Ok(r.value32().unwrap().collect())
     }
+    fn is_shell_identity(identity: &str) -> bool {
+        ["org.arinn.Shell", "org.arinn.Shell.desktop"].contains(&identity)
+    }
+    fn identity_atoms(&self) -> [Atom; 3] {
+        [
+            self.atoms._NET_WM_DESKTOP_FILE,
+            self.atoms._KDE_NET_WM_DESKTOP_FILE,
+            self.atoms._GTK_APPLICATION_ID,
+        ]
+    }
+    /// The first non-empty desktop identity of the replies, in `identity_atoms`
+    /// priority order. Invalid or missing metadata counts as empty.
+    fn identity_of(&self, replies: impl IntoIterator<Item = Option<Vec<u8>>>) -> String {
+        replies
+            .into_iter()
+            .zip(self.identity_atoms())
+            .map(|(value, atom)| {
+                desktop_id(
+                    &value.unwrap_or_default(),
+                    atom != self.atoms._NET_WM_DESKTOP_FILE,
+                )
+            })
+            .find(|id| !id.is_empty())
+            .unwrap_or_default()
+    }
+    fn desktop_identity(&self, xid: Window) -> String {
+        let replies = self
+            .identity_atoms()
+            .map(|atom| self.bytes(xid, atom, self.atoms.UTF8_STRING).ok());
+        self.identity_of(replies)
+    }
+    fn watch_window(&mut self, xid: Window) -> Result<bool> {
+        if self.watched.contains(&xid) {
+            return Ok(true);
+        }
+        if self
+            .c
+            .change_window_attributes(
+                xid,
+                &ChangeWindowAttributesAux::new()
+                    .event_mask(EventMask::STRUCTURE_NOTIFY | EventMask::PROPERTY_CHANGE),
+            )?
+            .check()
+            .is_err()
+        {
+            return Ok(false);
+        }
+        self.watched.insert(xid);
+        Ok(true)
+    }
+    /// Shell windows among `xids`. Requests are pipelined: one batch of
+    /// attribute requests, then one batch of identity property requests, so
+    /// the cost does not grow by a round trip per window (WM frames included).
+    fn shell_candidates(&self, xids: &[Window]) -> Result<Vec<Window>> {
+        let attributes = xids
+            .iter()
+            .map(|&xid| Ok((xid, self.c.get_window_attributes(xid)?)))
+            .collect::<Result<Vec<_>>>()?;
+        let eligible = attributes
+            .into_iter()
+            .filter_map(|(xid, cookie)| {
+                let attr = cookie.reply().ok()?;
+                (!attr.override_redirect && attr.class == WindowClass::INPUT_OUTPUT).then_some(xid)
+            })
+            .collect::<Vec<_>>();
+        let pending = eligible
+            .iter()
+            .map(|&xid| {
+                let cookies = self
+                    .identity_atoms()
+                    .into_iter()
+                    .map(|atom| {
+                        self.c
+                            .get_property(false, xid, atom, self.atoms.UTF8_STRING, 0, 128)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok((xid, cookies))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        Ok(pending
+            .into_iter()
+            .filter_map(|(xid, cookies)| {
+                let replies = cookies.into_iter().map(|cookie| {
+                    cookie
+                        .reply()
+                        .ok()
+                        .and_then(|r| metadata(r, self.atoms.UTF8_STRING))
+                });
+                Self::is_shell_identity(&self.identity_of(replies)).then_some(xid)
+            })
+            .collect())
+    }
     fn net_active_window(&self) -> Result<Option<Window>> {
         const NAME: &str = "_NET_ACTIVE_WINDOW";
         let ty = AtomEnum::WINDOW;
@@ -204,14 +303,7 @@ impl Native {
             .c
             .get_property(false, window, property, ty, 0, 128)?
             .reply()?;
-        if r.type_ == 0 {
-            return Ok(Vec::new());
-        }
-        ensure!(
-            r.type_ == ty && r.format == 8 && r.bytes_after == 0,
-            "invalid metadata"
-        );
-        Ok(r.value)
+        metadata(r, ty).ok_or_else(|| anyhow::anyhow!("invalid metadata"))
     }
     fn wm_owner(&self) -> Result<Window> {
         let values = self.words(
@@ -325,12 +417,13 @@ impl Native {
             AtomEnum::WINDOW.into(),
             4096,
         )?;
-        let live = clients.iter().copied().collect();
+        let live = clients.iter().copied().collect::<HashSet<_>>();
+        // Lifetimes end when a window leaves _NET_CLIENT_LIST, the shell
+        // included: an unlisted (hidden) shell gets no lifetime token.
         self.tokens.retain(&live);
         self.watched.retain(|id| live.contains(id));
         let active = self.net_active_window()?;
-        let mut shell = None;
-        let mut shell_token = String::new();
+        let mut shell_matches = Vec::new();
         let mut rows = Vec::new();
         for xid in clients {
             let Ok(attr) = self.c.get_window_attributes(xid)?.reply() else {
@@ -339,41 +432,12 @@ impl Native {
             if attr.override_redirect || attr.class != WindowClass::INPUT_OUTPUT {
                 continue;
             }
-            if !self.watched.contains(&xid) {
-                if self
-                    .c
-                    .change_window_attributes(
-                        xid,
-                        &ChangeWindowAttributesAux::new()
-                            .event_mask(EventMask::STRUCTURE_NOTIFY | EventMask::PROPERTY_CHANGE),
-                    )?
-                    .check()
-                    .is_err()
-                {
-                    continue;
-                }
-                self.watched.insert(xid);
+            if !self.watch_window(xid)? {
+                continue;
             }
-            let identity = [
-                self.atoms._NET_WM_DESKTOP_FILE,
-                self.atoms._KDE_NET_WM_DESKTOP_FILE,
-                self.atoms._GTK_APPLICATION_ID,
-            ]
-            .into_iter()
-            .map(|atom| {
-                desktop_id(
-                    &self
-                        .bytes(xid, atom, self.atoms.UTF8_STRING)
-                        .unwrap_or_default(),
-                    atom != self.atoms._NET_WM_DESKTOP_FILE,
-                )
-            })
-            .find(|id| !id.is_empty())
-            .unwrap_or_default();
-            if ["org.arinn.Shell", "org.arinn.Shell.desktop"].contains(&identity.as_str()) {
-                ensure!(shell.is_none(), "ambiguous shell identity");
-                shell = Some(xid);
-                shell_token = self.tokens.get(xid);
+            let identity = self.desktop_identity(xid);
+            if Self::is_shell_identity(&identity) {
+                shell_matches.push(xid);
                 continue;
             }
             let types = self
@@ -409,6 +473,31 @@ impl Native {
                         0
                     },
             });
+        }
+        // A hidden shell is withdrawn and therefore absent from
+        // _NET_CLIENT_LIST (xfwm4). Find it among direct root children only,
+        // for Home; it never enters the inventory.
+        let root_children = self.c.query_tree(self.root)?.reply()?.children;
+        ensure!(
+            root_children.len() <= 4096,
+            "root window children exceed budget"
+        );
+        let unlisted = root_children
+            .into_iter()
+            .filter(|xid| !live.contains(xid))
+            .collect::<Vec<_>>();
+        let listed_shell = !shell_matches.is_empty();
+        shell_matches.extend(self.shell_candidates(&unlisted)?);
+        ensure!(shell_matches.len() <= 1, "ambiguous shell identity");
+        let shell = shell_matches.first().copied();
+        // Only a listed shell has a lifetime; presentation requires one.
+        let shell_token = match shell {
+            Some(xid) if listed_shell => self.tokens.get(xid),
+            _ => String::new(),
+        };
+        if let Some(xid) = shell {
+            // Observe DestroyNotify for the shell even while it is unlisted.
+            self.watch_window(xid)?;
         }
         Ok(Snapshot {
             rows,
@@ -957,6 +1046,99 @@ pub(crate) mod fixture {
             .delete_property(desktop.root, desktop.atoms._NET_SUPPORTING_WM_CHECK)?
             .check()?;
         assert!(native.snapshot().is_err());
+        Ok(())
+    }
+    #[test]
+    #[ignore = "requires Xvfb; spawns an isolated X server, never uses the real DISPLAY"]
+    fn unmapped_root_child_shell_is_tracked_outside_client_list() -> Result<()> {
+        let desktop = Desktop::new()?;
+        let launch = Uuid::new_v4().to_string();
+        let shell = desktop.client("org.arinn.Shell", "")?;
+        let video = desktop.client("org.example.Player.desktop", &launch)?;
+        desktop.inventory(&[video], video)?;
+        let mut native = Native::connect_display(Some(&desktop.display))?;
+        let snapshot = native.snapshot()?;
+        assert_eq!(snapshot.shell, Some(shell));
+        assert_eq!(snapshot.rows.len(), 1);
+        assert_eq!(snapshot.rows[0].xid, video);
+        assert!(snapshot.rows.iter().all(|row| row.xid != shell));
+        // Unlisted: found for Home, but without a lifetime token.
+        assert!(snapshot.shell_token.is_empty());
+        Ok(())
+    }
+    #[test]
+    #[ignore = "requires Xvfb; spawns an isolated X server, never uses the real DISPLAY"]
+    fn missing_shell_leaves_home_target_unavailable() -> Result<()> {
+        let desktop = Desktop::new()?;
+        let launch = Uuid::new_v4().to_string();
+        let video = desktop.client("org.example.Player.desktop", &launch)?;
+        desktop.inventory(&[video], video)?;
+        let mut native = Native::connect_display(Some(&desktop.display))?;
+        let snapshot = native.snapshot()?;
+        assert_eq!(snapshot.shell, None);
+        assert_eq!(snapshot.rows.len(), 1);
+        Ok(())
+    }
+    #[test]
+    #[ignore = "requires Xvfb; spawns an isolated X server, never uses the real DISPLAY"]
+    fn duplicate_shell_identity_fails_closed() -> Result<()> {
+        let desktop = Desktop::new()?;
+        let launch = Uuid::new_v4().to_string();
+        let _shell_a = desktop.client("org.arinn.Shell", "")?;
+        let _shell_b = desktop.client("org.arinn.Shell.desktop", "")?;
+        let video = desktop.client("org.example.Player.desktop", &launch)?;
+        desktop.inventory(&[video], video)?;
+        let mut native = Native::connect_display(Some(&desktop.display))?;
+        let err = native.snapshot().unwrap_err();
+        assert!(
+            err.to_string().contains("ambiguous shell identity"),
+            "{err}"
+        );
+        Ok(())
+    }
+    #[test]
+    #[ignore = "requires Xvfb; spawns an isolated X server, never uses the real DISPLAY"]
+    fn root_children_over_budget_fail_closed() -> Result<()> {
+        let desktop = Desktop::new()?;
+        let mut native = Native::connect_display(Some(&desktop.display))?;
+        desktop.inventory(&[], 0)?;
+        let existing = desktop.c.query_tree(desktop.root)?.reply()?.children.len();
+        for _ in existing..=4096 {
+            let xid = desktop.c.generate_id()?;
+            desktop.c.create_window(
+                0,
+                xid,
+                desktop.root,
+                0,
+                0,
+                1,
+                1,
+                0,
+                WindowClass::INPUT_OUTPUT,
+                0,
+                &CreateWindowAux::new(),
+            )?;
+        }
+        desktop.c.flush()?;
+        let err = native.snapshot().unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("root window children exceed budget"),
+            "{err}"
+        );
+        Ok(())
+    }
+    #[test]
+    #[ignore = "requires Xvfb; spawns an isolated X server, never uses the real DISPLAY"]
+    fn destroyed_hidden_shell_is_not_found_again() -> Result<()> {
+        let desktop = Desktop::new()?;
+        let shell = desktop.client("org.arinn.Shell", "")?;
+        desktop.inventory(&[], 0)?;
+        let mut native = Native::connect_display(Some(&desktop.display))?;
+        assert_eq!(native.snapshot()?.shell, Some(shell));
+        desktop.c.destroy_window(shell)?.check()?;
+        let snapshot = native.snapshot()?;
+        assert_eq!(snapshot.shell, None);
         Ok(())
     }
 }

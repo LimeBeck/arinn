@@ -84,7 +84,9 @@ asynchronously, the same way `LibraryCatalog` reads `Library1`:
 - It lists the providers with the `download` capability from
   `Daemon1.Providers` whose runtime is `ready`. A provider whose backend is
   `unavailable` still serves its cached rows (ADR-0067); those rows offer no
-  action and no command is sent for them.
+  download command (Pause, Resume, Start now, Retry) and none is sent for
+  them. Watch stays on an imported row: it opens a library item, which does
+  not depend on the download backend.
 - A `Providers` page over 200 entries fails the catalog.
 - `GetDownloads` pages must carry the provider's generation, a non-nil UUID,
   and one revision across the pages. A continuation token must be an id

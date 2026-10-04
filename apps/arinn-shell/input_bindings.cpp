@@ -149,12 +149,18 @@ int InputBindings::targetFor(const QKeyEvent *event) const {
       (event->modifiers() & ~Qt::KeypadModifier) != Qt::NoModifier)
     return 0;
   const auto evdev = static_cast<int>(event->nativeScanCode()) - kXkbOffset;
+  // A key can match by name and by code. Rules for two different actions
+  // make it ambiguous: it stays unchanged, as for two spellings of a name.
+  int target = 0;
   for (const auto &rule : m_rules) {
     if ((rule.evdev && rule.evdev == evdev) ||
-        (rule.key && rule.key == event->key()))
-      return rule.target;
+        (rule.key && rule.key == event->key())) {
+      if (target && target != rule.target)
+        return 0;
+      target = rule.target;
+    }
   }
-  return 0;
+  return target;
 }
 
 bool InputBindings::eventFilter(QObject *watched, QEvent *event) {

@@ -1,0 +1,1 @@
+- A key bound in `[input.bindings]` both by its name and by its `evdev:` code to two different actions is now ambiguous and keeps its normal meaning, instead of silently serving only one of the actions ([ADR-0079](docs/adr/0079-shell-input-bindings.md)).

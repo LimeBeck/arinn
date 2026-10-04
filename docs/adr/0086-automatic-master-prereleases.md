@@ -43,7 +43,10 @@ or different rebuilt assets. Pre-releases never become the latest stable release
 
 A `vX.Y.Z` tag retains the existing matching-version, changelog and full CI gates,
 but publishes an ordinary release, including `0.x`. Version preparation and
-required real-desktop operator evidence still belong to the maintainer. Agents
+required real-desktop operator evidence still belong to the maintainer. The
+automatic snapshot channel does not require a fresh real-desktop run for every
+push and never qualifies the operator gates; this distinction is part of the
+owner-gated policy proposal. Agents
 prepare workflow changes; only the owner merges this process change. No agent
 publication or release-policy exception is requested by this ADR.
 

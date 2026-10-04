@@ -716,7 +716,7 @@ records the shared components.
 - Every successful push to `master` publishes an automatic pre-release tagged `snapshot-<full SHA>` after the full pipeline and package installation tests pass. Each master commit has its own concurrency group and its run is not cancelled by another push. Assets and checksums come from that exact commit; no workspace version bump is made. Published snapshots are immutable and never replace the latest ordinary release ([ADR-0086](../adr/0086-automatic-master-prereleases.md), owner-gated process change).
 - Ordinary releases are cut from `master` by a `vX.Y.Z` tag that matches the workspace version and a `CHANGELOG.md` section. The release pipeline reruns the full CI on the tagged commit and publishes only if it passes, including for `0.x`.
 - Pull requests must be up to date with `master` before merging, so CI runs on the merged result; parallel work follows [ADR-0036](../adr/0036-parallel-development.md).
-- Every bug fix includes a regression test. Changes to the platform layer, input or session behaviour also need operator tests on a real KDE session before release, because hosted CI cannot run a compositor.
+- Every bug fix includes a regression test. Changes to the platform layer, input or session behaviour also need operator tests on a real KDE session before a version-tag release, because hosted CI cannot run a compositor. Automatic master snapshots do not claim this qualification or close operator gates.
 
 ---
 

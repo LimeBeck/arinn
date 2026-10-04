@@ -4,7 +4,7 @@
 - **Date:** 2026-09-30
 - **Deciders:** delegated technical choice ([ADR-0037](0037-agent-autonomy-and-owner-gated-decisions.md)) within [ADR-0024](0024-local-library-mpv.md) and [ADR-0054](0054-media-and-library-wire-contract.md)
 - **Amends / Supersedes:** —
-- **Amended by / Superseded by:** —
+- **Amended by / Superseded by:** Amended by [ADR-0083](0083-anime-tv-season-markers.md) (anime `TVn` seasons)
 - **Specification:** [§7.4](../specifications/arinn-specification.md#74-local-library-and-mpv), [§11](../specifications/arinn-specification.md#11-state-ownership-and-persistence), [§13](../specifications/arinn-specification.md#13-security)
 
 ## Context

@@ -59,10 +59,22 @@ pub fn parse_video(root: &Path, path: &Path) -> Option<Parsed> {
     if stem.is_empty() || stem.starts_with('.') {
         return None;
     }
-    let (series_dir, season_from_dir) = series_dir(rel);
+    let dir = series_dir(rel);
+    let season_from_dir = dir.season;
     let cleaned = clean(stem);
-    let (without_year, year) = take_year(&cleaned);
-    let marker = find_marker(&without_year);
+    let (mut text, mut year) = take_year(&cleaned);
+    let mut marker = find_marker(&text).map(|(s, e, start, end)| (s, Some(e), start, end));
+    if marker.is_none() {
+        // Anime names (ADR-0083) keep a `TVn` season or the episode number
+        // in `[...]` groups, which the plain cleaning drops.
+        let (alt, alt_year) = take_year(&clean(&unwrap_markers(stem)));
+        marker = tv_marker(&alt);
+        if marker.is_some() || season_from_dir.is_some() {
+            text = alt;
+            year = alt_year;
+        }
+    }
+    let without_year = text;
     let episode = marker.is_some() || season_from_dir.is_some();
     if !episode {
         let title = fallback_title(&without_year, stem);
@@ -72,12 +84,25 @@ pub fn parse_video(root: &Path, path: &Path) -> Option<Parsed> {
         Some((season, episode_no, start, end)) => {
             let before = trim_seps(&without_year[..start]);
             let after = trim_seps(&without_year[end..]);
-            (Some(season), Some(episode_no), before, after)
+            (Some(season), episode_no, before, after)
         }
-        None => (season_from_dir, None, without_year.clone(), String::new()),
+        // In a season folder the episode number may stand alone (ADR-0083).
+        None => match loose_episode(&without_year) {
+            Some((episode_no, start, end)) => (
+                season_from_dir,
+                Some(episode_no),
+                trim_seps(&without_year[..start]),
+                trim_seps(&without_year[end..]),
+            ),
+            None => (season_from_dir, None, without_year.clone(), String::new()),
+        },
     };
     let season = season.or(season_from_dir);
-    let (series_title, series_year) = series_title(&series_dir, &before, stem);
+    let series_dir = dir.path;
+    let (series_title, series_year) = match dir.title {
+        Some((title, year)) => (limit_text(&title), year),
+        None => series_title(&series_dir, &before, stem),
+    };
     let episode_title = if after.is_empty() {
         fallback_title(&before, stem)
     } else {
@@ -136,24 +161,55 @@ fn series_title(series_dir: &str, before: &str, stem: &str) -> (String, Option<i
     (fallback_title(&title, stem), year)
 }
 
-fn series_dir(rel: &Path) -> (String, Option<u32>) {
+/// Where a video's series lives. `path` is the series directory relative to
+/// the root, or empty; `title` is set by a `<Title> TVn` season folder, which
+/// names the series without being its directory (ADR-0083).
+#[derive(Default)]
+struct SeriesDir {
+    path: String,
+    season: Option<u32>,
+    title: Option<(String, Option<i32>)>,
+}
+
+fn series_dir(rel: &Path) -> SeriesDir {
     let mut parts = Vec::new();
     for component in rel.parent().unwrap_or(Path::new("")).components() {
         let Some(name) = component.as_os_str().to_str() else {
-            return (String::new(), None);
+            return SeriesDir::default();
         };
         if name.starts_with('.') {
-            return (String::new(), None);
+            return SeriesDir::default();
         }
         if let Some(season) = season_dir(name) {
-            return (parts.join("/"), Some(season));
+            return SeriesDir {
+                path: parts.join("/"),
+                season: Some(season),
+                title: None,
+            };
+        }
+        if let Some((title, year, season)) = titled_season_dir(name) {
+            return SeriesDir {
+                path: String::new(),
+                season: Some(season),
+                title: Some((title, year)),
+            };
         }
         parts.push(name.to_string());
     }
-    (parts.join("/"), None)
+    SeriesDir {
+        path: parts.join("/"),
+        ..SeriesDir::default()
+    }
 }
 
+/// `Season N`, or a folder that is only a `TVn` marker.
 fn season_dir(name: &str) -> Option<u32> {
+    let cleaned = clean(&unwrap_markers(name));
+    if let Some((season, 0, end)) = find_tv(&cleaned)
+        && end == cleaned.len()
+    {
+        return Some(season);
+    }
     let lower = name.to_ascii_lowercase();
     let rest = lower.strip_prefix("season")?.trim_start();
     let rest = rest
@@ -161,6 +217,17 @@ fn season_dir(name: &str) -> Option<u32> {
         .unwrap_or(rest)
         .trim();
     index_token(rest)
+}
+
+/// `<Title> TVn` (an optional year anywhere): season `n` of `<Title>`.
+fn titled_season_dir(name: &str) -> Option<(String, Option<i32>, u32)> {
+    let (text, year) = take_year(&clean(&unwrap_markers(name)));
+    let (season, start, end) = find_tv(&text)?;
+    let title = trim_seps(&text[..start]);
+    if title.is_empty() || !trim_seps(&text[end..]).is_empty() {
+        return None;
+    }
+    Some((title, year, season))
 }
 
 pub fn read_nfo(path: &Path, root: &Path) -> Option<Nfo> {
@@ -395,6 +462,151 @@ fn find_marker(input: &str) -> Option<(u32, u32, usize, usize)> {
         index += 1;
     }
     None
+}
+
+/// A standalone `TVn` season marker (`TV1`, `TV-2`, `tv 3`; `.` and `_` are
+/// spaces by now): season, start and end. `MTV2` and `TV 2000` are not.
+fn find_tv(input: &str) -> Option<(u32, usize, usize)> {
+    let lower = input.to_ascii_lowercase();
+    let bytes = lower.as_bytes();
+    for index in 0..bytes.len() {
+        if bytes[index] != b't' || !boundary_before(&lower, index) {
+            continue;
+        }
+        let Some(rest) = lower[index..].strip_prefix("tv") else {
+            continue;
+        };
+        let rest = rest.as_bytes();
+        let gap = usize::from(matches!(rest.first(), Some(b' ' | b'-')));
+        let Some((season, digits)) = take_digits(&rest[gap..], 1, 2) else {
+            continue;
+        };
+        let end = index + 2 + gap + digits;
+        if boundary_after(&lower, end)
+            && let Some(season) = index_token(&season.to_string())
+        {
+            return Some((season, index, end));
+        }
+    }
+    None
+}
+
+/// A `TVn` marker and the episode number right after it, if any.
+fn tv_marker(input: &str) -> Option<(u32, Option<u32>, usize, usize)> {
+    let (season, start, end) = find_tv(input)?;
+    match lead_episode(&input[end..], false) {
+        Some((episode, len)) => Some((season, Some(episode), start, end + len)),
+        None => Some((season, None, start, end)),
+    }
+}
+
+/// An episode number at the start of `text`, after spaces and dashes: `05`,
+/// `E05`, `EP 05`, `Episode 5` or `#05`, with an optional `v2` revision.
+/// `prefixed` requires the letter or `#` form. Returns the episode and the
+/// bytes consumed, which end at a word boundary.
+fn lead_episode(text: &str, prefixed: bool) -> Option<(u32, usize)> {
+    let lower = text.to_ascii_lowercase();
+    let bytes = lower.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() && matches!(bytes[index], b' ' | b'-') {
+        index += 1;
+    }
+    let mut has_prefix = false;
+    for prefix in ["episode", "ep", "e", "#"] {
+        if !lower[index..].starts_with(prefix) {
+            continue;
+        }
+        let mut next = index + prefix.len();
+        if prefix != "#" && bytes.get(next) == Some(&b' ') {
+            next += 1;
+        }
+        if bytes.get(next).is_some_and(u8::is_ascii_digit) {
+            index = next;
+            has_prefix = true;
+            break;
+        }
+    }
+    if prefixed && !has_prefix {
+        return None;
+    }
+    let (episode, digits) = take_digits(&bytes[index..], 1, 4)?;
+    let mut end = index + digits;
+    if bytes.get(end) == Some(&b'v') && bytes.get(end + 1).is_some_and(u8::is_ascii_digit) {
+        end += 1;
+        while bytes.get(end).is_some_and(u8::is_ascii_digit) {
+            end += 1;
+        }
+    }
+    if !boundary_after(&lower, end) {
+        return None;
+    }
+    Some((index_token(&episode.to_string())?, end))
+}
+
+/// The episode number of a name inside a season folder that carries no
+/// marker: the whole name, then ` - 05`, then `E05`/`EP05`/`#05`, then a
+/// trailing number of up to three digits (`Show 05`).
+fn loose_episode(text: &str) -> Option<(u32, usize, usize)> {
+    if let Some((episode, len)) = lead_episode(text, false)
+        && trim_seps(&text[len..]).is_empty()
+    {
+        return Some((episode, 0, len));
+    }
+    for (index, _) in text.match_indices(" - ") {
+        if let Some((episode, len)) = lead_episode(&text[index..], false) {
+            return Some((episode, index, index + len));
+        }
+    }
+    let lower = text.to_ascii_lowercase();
+    for index in 0..text.len() {
+        if text.is_char_boundary(index)
+            && boundary_before(&lower, index)
+            && !lower.as_bytes()[index].is_ascii_whitespace()
+            && let Some((episode, len)) = lead_episode(&text[index..], true)
+        {
+            return Some((episode, index, index + len));
+        }
+    }
+    let (_, last) = text.rsplit_once(' ')?;
+    let start = text.len() - last.len();
+    let digits = last.bytes().filter(u8::is_ascii_digit).count();
+    match lead_episode(last, false) {
+        Some((episode, len)) if len == last.len() && digits <= 3 => {
+            Some((episode, start, text.len()))
+        }
+        _ => None,
+    }
+}
+
+/// Opens the `[...]` groups that hold an anime marker so cleaning keeps it:
+/// `[07]`, `[07v2]` become ` - 07`; `[TV-2]` becomes `TV-2`. Other groups
+/// (release group, resolution, checksum) stay and are dropped later.
+fn unwrap_markers(stem: &str) -> String {
+    let mut out = String::new();
+    let mut rest = stem;
+    while let Some(open) = rest.find('[') {
+        out.push_str(&rest[..open]);
+        let Some(close) = rest[open..].find(']').map(|at| open + at) else {
+            out.push_str(&rest[open..]);
+            return out;
+        };
+        let token = clean(&rest[open + 1..close]);
+        let digits = token.bytes().filter(u8::is_ascii_digit).count();
+        if digits <= 3 && lead_episode(&token, false).is_some_and(|(_, len)| len == token.len()) {
+            out.push_str(" - ");
+            out.push_str(&token);
+            out.push(' ');
+        } else if find_tv(&token).is_some_and(|(_, start, end)| start == 0 && end == token.len()) {
+            out.push(' ');
+            out.push_str(&token);
+            out.push(' ');
+        } else {
+            out.push_str(&rest[open..=close]);
+        }
+        rest = &rest[close + 1..];
+    }
+    out.push_str(rest);
+    out
 }
 
 fn boundary_before(value: &str, index: usize) -> bool {
@@ -645,6 +857,77 @@ mod tests {
         assert!(parse_nfo(&hostile).is_none());
         let unresolved = parse_nfo("<movie><title>&xxe;</title></movie>").unwrap();
         assert_eq!(unresolved.title, None);
+    }
+
+    fn episode(path: &str) -> Parsed {
+        let parsed = parse_video(Path::new("/library"), Path::new(path)).unwrap();
+        assert_eq!(parsed.kind, Kind::Episode, "{path}");
+        parsed
+    }
+
+    // ADR-0083: anime `TVn` seasons in the file name.
+    #[test]
+    fn tv_marker_in_the_file_name_is_a_season() {
+        for (path, season, number) in [
+            ("/library/Show/[Group] Show TV2 - 05 [1080p].mkv", 2, 5),
+            ("/library/Show/Show.TV-2.06.mkv", 2, 6),
+            ("/library/Show/Show TV2 [07].mkv", 2, 7),
+            ("/library/Show/Show_tv_4_E08v2.mkv", 4, 8),
+            ("/library/Show/Show [TV-3] - 09.mkv", 3, 9),
+        ] {
+            let parsed = episode(path);
+            assert_eq!(parsed.series_title, "Show", "{path}");
+            assert_eq!(parsed.series_key, "dir:Show", "{path}");
+            assert_eq!((parsed.season, parsed.episode), (season, number), "{path}");
+        }
+        // Without a folder the series is the text before the marker.
+        let root = episode("/library/Show TV1 - 03 - Arrival.mkv");
+        assert_eq!(root.series_title, "Show");
+        assert_eq!(root.series_key, "name:show");
+        assert_eq!((root.season, root.episode), (1, 3));
+        assert_eq!(root.title, "Arrival");
+        // A season without an episode number keeps the number unset.
+        let bare = episode("/library/Show/Show TV2 1080p.mkv");
+        assert_eq!(bare.season, 2);
+        assert!(!bare.has_episode);
+    }
+
+    // ADR-0083: `TVn` and `<Title> TVn` folders are season folders.
+    #[test]
+    fn tv_folders_are_seasons_of_one_series() {
+        let first = episode("/library/Show TV1/01.mkv");
+        let second = episode("/library/Anime/Show TV2/[Group] Show - 02 [1080p].mkv");
+        for (parsed, season, number) in [(&first, 1, 1), (&second, 2, 2)] {
+            assert_eq!(parsed.series_title, "Show");
+            assert_eq!(parsed.series_key, "name:show");
+            assert_eq!((parsed.season, parsed.episode), (season, number));
+        }
+        let nested = episode("/library/Show/TV2/Show - 01.mkv");
+        assert_eq!(nested.series_key, "dir:Show");
+        assert_eq!(nested.series_title, "Show");
+        assert_eq!((nested.season, nested.episode), (2, 1));
+        let numbered = episode("/library/Show/TV1/Show 05.mkv");
+        assert_eq!((numbered.season, numbered.episode), (1, 5));
+        // The same loose numbering applies in a `Season N` folder.
+        let classic = episode("/library/Show/Season 1/Show - 03.mkv");
+        assert_eq!((classic.season, classic.episode), (1, 3));
+        let titled = episode("/library/Show/Season 1/Pilot.mkv");
+        assert!(!titled.has_episode);
+        assert_eq!(titled.title, "Pilot");
+    }
+
+    #[test]
+    fn tv_lookalikes_stay_films() {
+        for (path, title) in [
+            ("/library/MTV2 Live.mkv", "MTV2 Live"),
+            ("/library/The TV 2000 Special.mkv", "The TV 2000 Special"),
+            ("/library/Movie [01].mkv", "Movie"),
+            ("/library/Films/TVs Best.mkv", "TVs Best"),
+        ] {
+            let parsed = parse_video(Path::new("/library"), Path::new(path)).unwrap();
+            assert_eq!(parsed.kind, Kind::Film, "{path}");
+            assert_eq!(parsed.title, title, "{path}");
+        }
     }
 
     #[test]

@@ -77,7 +77,7 @@ def run(binary, configuration, crash=False, expected=True, dsn=None, cached=Fals
                     "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"):
             environment.pop(key, None)
         environment.update({
-            "ARINN_SENTRY_DSN": dsn if dsn is not None else f"http://publicfixture@127.0.0.1:{server.server_port}/1",
+            "ARINN_SENTRY_DSN": (dsn(server.server_port) if callable(dsn) else dsn) if dsn is not None else f"http://publicfixture@127.0.0.1:{server.server_port}/1",
             "XDG_CONFIG_HOME": str(root / "config"),
             "XDG_CACHE_HOME": str(root / "cache"),
             "HOME": str(root / "home"),
@@ -178,12 +178,14 @@ def main():
         assert binary.exists(), f"Build the SDK fixture first: {binary}"
         if "arinn-telemetry" in binary.name:
             verify_hardening(binary)
-        for configuration in (None, "", "[telemetry]\nenabled = false", "[telemetry]\nenabled = 'true'", "broken ["):
+        for configuration in (None, "", "[telemetry]\nenabled = false", "[telemetry]\nenabled = 'true'", "[telemetry]\nenabled = true\ndsn = false", "broken ["):
             run(binary, configuration, expected=False)
         run(binary, "[telemetry]\nenabled = false", cached=True, expected=False)
         run(binary, "[telemetry]\nenabled = false", crash=True, expected=False)
-        for invalid_dsn in ("", "broken", "http://publicfixture@remote.invalid/1", "https://publicfixture:secret@remote.invalid/1"):
+        for invalid_dsn in ("", "broken", "\udcff", "http://publicfixture@remote.invalid/1", "https://publicfixture:secret@remote.invalid/1"):
             run(binary, "[telemetry]\nenabled = true", expected=False, dsn=invalid_dsn)
+        run(binary, "[telemetry]\nenabled = true", expected=False,
+            dsn=lambda port: f"http://public\udcfffixture@127.0.0.1:{port}/1")
         run(binary, "[telemetry]\nenabled = true")
         run(binary, "[telemetry]\nenabled = true", crash=True)
         if "arinn-telemetry" in binary.name:

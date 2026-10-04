@@ -12,19 +12,25 @@ The shell and daemon independently read
 `$XDG_CONFIG_HOME/arinn/telemetry.toml`, falling back to
 `$HOME/.config/arinn/telemetry.toml`. Absolute roots are required. This separate
 file does not alter the main daemon config schema. Missing/invalid configuration,
-a non-boolean flag or an invalid/missing DSN disables Sentry without stopping Arinn.
+a non-boolean flag, malformed DSN setting or an invalid explicit DSN disables
+Sentry without stopping Arinn.
 
 ```toml
 [telemetry]
 enabled = false
-# Public ingestion DSN, not an account token; replace only in your local file.
-dsn = "https://PUBLIC_KEY@HOST/PROJECT_ID"
+# Optional override for a different project:
+# dsn = "https://PUBLIC_KEY@HOST/PROJECT_ID"
 ```
 
-Set `enabled = true` explicitly to enable development diagnostics. The supplied
-project's real DSN stays in local configuration. `ARINN_SENTRY_DSN`, when set,
-overrides the DSN in the file; an empty override disables the endpoint rather
-than falling back. DSNs require HTTPS; literal loopback HTTP is allowed for
+Set `enabled = true` explicitly to enable development diagnostics. No local DSN
+is needed: both binaries embed the owner-provided public ingestion endpoint from
+`observability/sentry-default-dsn.txt`. This is an intentional public project key,
+not an account/API authentication token. The endpoint alone never enables the SDK.
+
+Endpoint precedence is `ARINN_SENTRY_DSN` → configuration `dsn` → embedded default.
+An empty or invalid explicit override disables the endpoint rather than falling
+back. Keep custom endpoints and account/API credentials out of source; only the
+owner-approved public product endpoint is embedded. DSNs require HTTPS; literal loopback HTTP is allowed for
 isolated tests. Passwords, query strings and fragments are refused. Do not place
 account credentials or Sentry auth tokens here. Restart the shell and daemon
 through the session target after changing the flag; existing processes do not

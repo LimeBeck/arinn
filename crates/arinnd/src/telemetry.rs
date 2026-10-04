@@ -40,6 +40,17 @@ fn parse_config(text: &str) -> Telemetry {
         .unwrap_or_default()
         .telemetry
 }
+fn default_dsn() -> &'static str {
+    include_str!("../../../observability/sentry-default-dsn.txt")
+        .lines()
+        .find(|line| line.starts_with("https://"))
+        .expect("the checked-in public Sentry DSN must exist")
+}
+fn resolve_dsn(environment: Option<String>, configuration: Option<String>) -> String {
+    environment
+        .or(configuration)
+        .unwrap_or_else(|| default_dsn().to_owned())
+}
 fn valid_dsn(text: &str) -> bool {
     if text.len() > 2048 || text.parse::<sentry::types::Dsn>().is_err() {
         return false;
@@ -64,7 +75,11 @@ pub fn init() -> Option<sentry::ClientInitGuard> {
     if !config.enabled {
         return None;
     }
-    let dsn = std::env::var("ARINN_SENTRY_DSN").ok().or(config.dsn)?;
+    let environment = std::env::var_os("ARINN_SENTRY_DSN")
+        .map(|value| value.into_string())
+        .transpose()
+        .ok()?;
+    let dsn = resolve_dsn(environment, config.dsn);
     if !valid_dsn(&dsn) {
         return None;
     }
@@ -384,6 +399,21 @@ mod tests {
         }
         assert!(parse_config("[telemetry]\nenabled = true").enabled);
         assert!(!parse_config("[telemetry]\ndsn = 'https://fixture@example.invalid/1'").enabled);
+    }
+    #[test]
+    fn public_default_and_explicit_overrides() {
+        assert!(valid_dsn(default_dsn()));
+        assert_eq!(resolve_dsn(None, None), default_dsn());
+        assert_eq!(resolve_dsn(None, Some("configured".into())), "configured");
+        assert_eq!(
+            resolve_dsn(Some("environment".into()), Some("configured".into())),
+            "environment"
+        );
+        assert_eq!(resolve_dsn(Some(String::new()), None), "");
+        assert_eq!(resolve_dsn(None, Some(String::new())), "");
+        assert!(!parse_config("[telemetry]").enabled);
+        assert!(!parse_config("[telemetry]\nenabled = false").enabled);
+        assert!(!parse_config("[telemetry]\nenabled = true\ndsn = false").enabled);
     }
     #[test]
     fn dsn_rejects_remote_plaintext_and_credentials() {

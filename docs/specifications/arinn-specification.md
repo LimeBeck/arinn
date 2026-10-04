@@ -607,7 +607,11 @@ Owner-requested development diagnostics use Sentry in the shell and daemon
 ([ADR-0082](../adr/0082-opt-in-sentry.md),
 [configuration and captured data](../architecture/telemetry.md)). The separate
 `telemetry.toml` configuration flag `telemetry.enabled` defaults to false; a DSN
-alone MUST NOT enable collection or transmission. The §13 exclusions apply to
+alone MUST NOT enable collection or transmission. Both binaries embed the
+owner-provided public ingestion DSN; `enabled = true` is sufficient when no endpoint
+override is set. An environment DSN overrides a configuration DSN, which overrides
+the embedded default. Explicit empty/invalid overrides MUST disable transmission
+rather than fall back. The §13 exclusions apply to
 all remote event fields, breadcrumbs, traces and metrics. Under the same flag,
 fixed startup and daemon-operation traces and numeric error/operation counts and
 durations MAY be collected, without provider/browser/window identity. No memory dumps, screenshots or replay

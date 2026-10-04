@@ -36,6 +36,7 @@ not emit an intent for it.
 | `summaryText`, `statusTitle`, `statusDescription` | Optional copy. Empty values use generic English fallbacks |
 | `pointerMode` | Set when the pointer moves; cleared on an arrow key |
 | `toastMessage` | Set when a job already on screen changes `importState` to `imported`, or by `showToast(message)` |
+| `toastQueue` | Notices that arrived while another was shown; each is shown in turn for `toastDurationMs` |
 | `autoToast` | `true` (default): the view raises its own completion toast. The shell sets `false` and calls `showToast()` from `DownloadCatalog` |
 
 `progress` below 0, or omitted, means the size is unknown: the row shows no

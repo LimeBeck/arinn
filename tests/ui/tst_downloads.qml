@@ -266,6 +266,15 @@ TestCase {
         tryCompare(child("completionToast"), "visible", false);
     }
 
+    // Review of #310: notices that arrive together are shown one after another.
+    function test_toasts_queue_instead_of_replacing() {
+        view.showToast("First is ready to watch");
+        view.showToast("Second is ready to watch");
+        compare(view.toastMessage, "First is ready to watch");
+        tryCompare(view, "toastMessage", "Second is ready to watch", view.toastDurationMs * 3);
+        tryCompare(view, "toastMessage", "", view.toastDurationMs * 3);
+    }
+
     function test_non_media_completion_has_no_toast() {
         view.jobs = [{id: "extra", title: "Extra file", state: "downloading", progress: 0.2, availableActions: ["pause"], importState: "pending"}];
         focused("job-extra");

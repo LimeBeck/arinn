@@ -193,9 +193,24 @@ FocusScope {
         importsReady = true;
         if (notice.length && autoToast) showToast(notice);
     }
+    // Notices that arrive while one is shown wait their turn, so two imports
+    // in one read each get their toast (review of #310).
+    property var toastQueue: []
     function showToast(message) {
+        if (!message.length) return;
+        if (toastMessage.length) {
+            toastQueue = toastQueue.concat([message]);
+            return;
+        }
         toastMessage = message;
         toastTimer.restart();
+    }
+    function nextToast() {
+        toastMessage = "";
+        if (!toastQueue.length) return;
+        const next = toastQueue[0];
+        toastQueue = toastQueue.slice(1);
+        showToast(next);
     }
     function acceptDirection(event) {
         if (event.key === Qt.Key_Up || event.key === Qt.Key_Down || event.key === Qt.Key_Left || event.key === Qt.Key_Right) {
@@ -225,7 +240,7 @@ FocusScope {
         if (activeFocus && Window.activeFocusItem === root) restore();
     })
     Timer { id: hoverDelay; interval: hoverSuppressMs }
-    Timer { id: toastTimer; interval: toastDurationMs; onTriggered: root.toastMessage = "" }
+    Timer { id: toastTimer; interval: toastDurationMs; onTriggered: root.nextToast() }
     HoverHandler {
         id: hoverPoint
         property point previousPosition: Qt.point(-1, -1)

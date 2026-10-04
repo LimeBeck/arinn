@@ -183,6 +183,9 @@ struct Core {
     anchor: Option<Anchor>,
     published: Option<Session>,
     reconnect_enabled: bool,
+    shutdown_pending: bool,
+    owns_unit: bool,
+    pending_capture: Option<crate::thumbnail::TemporaryFrame>,
     ffmpeg: Option<PathBuf>,
     thumb_dir: PathBuf,
     poster_extractor: Arc<Extractor>,
@@ -230,6 +233,7 @@ impl Player {
         let core = Core {
             socket: settings.socket,
             state_path: settings.state_path,
+            owns_unit: matches!(settings.launch, Launch::Systemd { .. }),
             launch: settings.launch,
             interval: settings.publish_interval,
             incoming_tx,
@@ -250,6 +254,8 @@ impl Player {
             anchor: None,
             published: None,
             reconnect_enabled: true,
+            shutdown_pending: false,
+            pending_capture: None,
             ffmpeg: settings.ffmpeg.clone(),
             thumb_dir: settings.thumb_dir.clone(),
             poster_extractor: poster_extractor.clone(),
@@ -492,6 +498,9 @@ impl Core {
     ) -> Result<String, ErrorCode> {
         source.validate()?;
         let path = crate::paths::file_path(&source.uri)?;
+        if self.shutdown_pending {
+            self.stop_owned(incoming).await?;
+        }
         self.ensure_for_open(incoming).await?;
         self.reconnect_enabled = true;
         let id = uuid::Uuid::new_v4().to_string();
@@ -665,6 +674,9 @@ impl Core {
             && arinn_protocol::media_window::validate_launch(launch).is_ok()
         {
             self.launch_id = launch.into();
+            if matches!(self.launch, Launch::Missing) {
+                self.owns_unit = true;
+            }
         }
         self.seen.clear();
         for (id, name) in PROPS {
@@ -751,7 +763,7 @@ impl Core {
         &mut self,
         incoming: &mut mpsc::UnboundedReceiver<Incoming>,
     ) -> Result<(), ErrorCode> {
-        let client = self.client.clone().ok_or(ErrorCode::Unavailable)?;
+        let client = self.client.clone();
         // Freeze the displayed frame and sample resume before quit can clear
         // time-pos. All preparation is best effort and fits the 5 s command SLA.
         let _ = tokio::time::timeout(
@@ -773,9 +785,14 @@ impl Core {
         let _ = tokio::time::timeout(Duration::from_secs(1), self.capture_final_frame()).await;
         // quit may close IPC before returning its reply. Socket EOF is evidence
         // of shutdown, not a provider failure; do not drain that event yet.
-        let _ =
-            tokio::time::timeout(Duration::from_millis(300), client.request(json!(["quit"]))).await;
-        if matches!(self.launch, Launch::Systemd { .. }) {
+        self.shutdown_pending = true;
+        self.reconnect_enabled = false;
+        if let Some(client) = &client {
+            let _ =
+                tokio::time::timeout(Duration::from_millis(300), client.request(json!(["quit"])))
+                    .await;
+        }
+        if self.owns_unit {
             let stopped = tokio::time::timeout(Duration::from_secs(2), async {
                 let connection = Connection::session()
                     .await
@@ -787,13 +804,15 @@ impl Core {
             stopped?;
         }
         let deadline = Instant::now() + Duration::from_millis(500);
-        while client.alive() && Instant::now() < deadline {
+        while client.as_ref().is_some_and(Client::alive) && Instant::now() < deadline {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
-        if client.alive() {
+        if client.as_ref().is_some_and(Client::alive) {
             return Err(ErrorCode::Timeout);
         }
         self.drop_client();
+        self.pending_capture = None;
+        self.shutdown_pending = false;
         self.reconnect_enabled = false;
         self.drain(incoming);
         if let Some(live) = self.live.as_mut() {
@@ -815,18 +834,22 @@ impl Core {
         let ffmpeg = self.ffmpeg.clone().ok_or(ErrorCode::Unsupported)?;
         let directory = crate::thumbnail::poster_dir(&self.thumb_dir);
         crate::paths::ensure_private_dir(&directory).map_err(|_| ErrorCode::Unsupported)?;
-        let temporary = crate::thumbnail::TemporaryFrame::new(
-            directory.join(format!("capture-{}.jpg", uuid::Uuid::new_v4())),
-        );
+        if self.pending_capture.is_some() {
+            return Err(ErrorCode::Unsupported);
+        }
+        let path = directory.join(format!("capture-{}.jpg", uuid::Uuid::new_v4()));
+        // A timed-out mpv command can write later, before quit is processed.
+        // Keep the guard through confirmed exit, including a failed Stop retry.
+        self.pending_capture = Some(crate::thumbnail::TemporaryFrame::new(path.clone()));
         let client = self.client.clone().ok_or(ErrorCode::Unavailable)?;
         let reply = client
-            .request(json!(["screenshot-to-file", temporary.path(), "video"]))
+            .request(json!(["screenshot-to-file", &path, "video"]))
             .await?;
         ipc::map_error(&reply.error)?;
-        crate::thumbnail::validate_frame(temporary.path())?;
+        crate::thumbnail::validate_frame(&path)?;
         let frame = self
             .poster_extractor
-            .extract(&ffmpeg, &directory, temporary.path(), 0)
+            .extract(&ffmpeg, &directory, &path, 0)
             .await?;
         if let Some(live) = self.live.as_mut() {
             live.artwork = frame.asset;

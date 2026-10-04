@@ -145,11 +145,10 @@ pub async fn stop_unit(connection: &Connection) -> Result<(), ErrorCode> {
     .map_err(|_| ErrorCode::Unavailable)?;
     let job: Result<OwnedObjectPath, zbus::Error> =
         manager.call("StopUnit", &(UNIT, "replace")).await;
-    if let Err(error) = job {
-        if !matches!(&error, zbus::Error::MethodError(name, _, _) if name.as_str() == "org.freedesktop.systemd1.NoSuchUnit")
-        {
-            return Err(ErrorCode::Unavailable);
-        }
+    if let Err(error) = job
+        && !matches!(&error, zbus::Error::MethodError(name, _, _) if name.as_str() == "org.freedesktop.systemd1.NoSuchUnit")
+    {
+        return Err(ErrorCode::Unavailable);
     }
     loop {
         let object: OwnedObjectPath = match manager.call("GetUnit", &(UNIT,)).await {

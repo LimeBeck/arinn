@@ -33,6 +33,7 @@ struct Peer {
     extra: mpsc::UnboundedSender<Value>,
     capture_valid: Arc<AtomicBool>,
     ignore_quit: Arc<AtomicBool>,
+    delayed_capture: Arc<AtomicBool>,
     task: tokio::task::JoinHandle<()>,
 }
 
@@ -59,6 +60,7 @@ impl Peer {
         let (extra, extra_rx) = mpsc::unbounded_channel();
         let capture_valid = Arc::new(AtomicBool::new(true));
         let ignore_quit = Arc::new(AtomicBool::new(false));
+        let delayed_capture = Arc::new(AtomicBool::new(false));
         let task = tokio::spawn(serve(
             listener,
             Arc::clone(&commands),
@@ -68,6 +70,7 @@ impl Peer {
             PeerScript {
                 capture_valid: capture_valid.clone(),
                 ignore_quit: ignore_quit.clone(),
+                delayed_capture: delayed_capture.clone(),
                 has_video,
                 legacy_only,
                 open_error,
@@ -84,6 +87,7 @@ impl Peer {
             extra,
             capture_valid,
             ignore_quit,
+            delayed_capture,
             task,
         }
     }
@@ -112,6 +116,7 @@ impl Drop for Peer {
 struct PeerScript {
     capture_valid: Arc<AtomicBool>,
     ignore_quit: Arc<AtomicBool>,
+    delayed_capture: Arc<AtomicBool>,
     has_video: bool,
     legacy_only: bool,
     open_error: Option<String>,
@@ -174,6 +179,9 @@ async fn serve(
                     json!(state.time)
                 } else { Value::Null };
                 if name == "screenshot-to-file" {
+                    if script.delayed_capture.load(Ordering::SeqCst) {
+                        tokio::time::sleep(Duration::from_millis(1100)).await;
+                    }
                     let path = command.get(1).and_then(Value::as_str).unwrap();
                     std::fs::write(path, if script.capture_valid.load(Ordering::SeqCst) { b"\xff\xd8\xffsynthetic-frame".as_slice() } else { b"invalid".as_slice() }).unwrap();
                 }
@@ -1010,7 +1018,7 @@ async fn stop_closes_ipc_keeps_resume_and_open_uses_a_fresh_peer() {
 
 #[tokio::test]
 async fn stop_captures_final_frame_before_quit_and_keeps_the_asset() {
-    for valid in [true, false] {
+    for (valid, delayed) in [(true, false), (false, false), (true, true)] {
         use arinn_plugin_sdk::runtime::AssetHandler;
         use std::os::unix::fs::PermissionsExt;
         let dir = std::env::temp_dir().join(format!("arinn-mpv-frame-{}", uuid::Uuid::new_v4()));
@@ -1040,6 +1048,7 @@ async fn stop_captures_final_frame_before_quit_and_keeps_the_asset() {
             .unwrap();
         let previous_asset = player.view().await.unwrap().sessions[0].artwork.clone();
         peer.capture_valid.store(valid, Ordering::SeqCst);
+        peer.delayed_capture.store(delayed, Ordering::SeqCst);
         assert!(!previous_asset.is_empty());
         player.control(MediaAction::Stop, id, 0).await.unwrap();
         let commands = names(&peer.commands().await);
@@ -1054,7 +1063,7 @@ async fn stop_captures_final_frame_before_quit_and_keeps_the_asset() {
         assert!(!frame.is_empty());
         assert_eq!(
             frame == previous_asset,
-            !valid,
+            !valid || delayed,
             "failed capture keeps the previous frame"
         );
         assert_eq!(

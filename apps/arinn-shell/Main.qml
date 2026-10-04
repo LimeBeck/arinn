@@ -39,6 +39,9 @@ Window {
     property bool presentationAtHome: false
     property bool presentationRequested: false
     function showPlaybackHome() {
+        if (leavingStopPending)
+            return;
+        leaveError = "";
         if (!mediaCatalog.inputLayerActive)
             return;
         playerView.sheetKind = "";
@@ -58,6 +61,9 @@ Window {
             });
     }
     function openSession(entryId, fromLibrary) {
+        if (leavingStopPending)
+            return;
+        leaveError = "";
         presentationAtHome = false;
         presentationRequested = false;
         sessionFromLibrary = fromLibrary;

@@ -30,7 +30,9 @@ Preparation uses two 200 ms property deadlines; capture/normalization share one
 second; quit acknowledgement has 300 ms, owned-unit shutdown two seconds, and
 socket closure 500 ms. These limits fit the existing five-second media command
 budget. Missing/failed/oversized frames retain the previous artwork. Temporary
-files are removed even if the bounded extraction future is dropped. Frames are
+IPC captures stay guarded through confirmed player exit; a failed exit retains
+one capture guard until retry. Interrupted extractor output is removed even if
+its bounded future is dropped. Frames are
 local cache data and excluded from all telemetry.
 
 The shell keeps Home hidden and player input disabled while Stop is pending.

@@ -1203,7 +1203,15 @@ private slots:
     QVERIFY(player->isVisible());
     QVERIFY(!window->property("leaveError").toString().isEmpty());
     QCOMPARE(daemon.windowCommands.count(QStringLiteral("Release")), releasesBeforeStop);
+    // Leaving a failed Stop via Home must not poison a later Continue.
+    QTest::keyClick(window, Qt::Key_Home);
+    QTRY_VERIFY(!player->isVisible());
+    QVERIFY(window->property("leaveError").toString().isEmpty());
+    QVERIFY(QMetaObject::invokeMethod(window, "openSession", Q_ARG(QVariant, entryId), Q_ARG(QVariant, false)));
+    QTRY_VERIFY(player->isVisible());
+    QTRY_COMPARE(player->property("playbackState").toString(), QStringLiteral("ready"));
     daemon.operationState = QStringLiteral("succeeded");
+    player->setProperty("osdVisible", false);
     QTest::keyClick(window, Qt::Key_Escape);
     QTRY_COMPARE(player->property("visible").toBool(), false);
     QCOMPARE(daemon.commands,

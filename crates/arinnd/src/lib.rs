@@ -3,6 +3,7 @@
 
 //! Production core components, independently testable before wire API migration.
 pub mod browse;
+pub mod favorites;
 mod listings;
 pub mod operations;
 #[path = "../../../platform/kde/bridge.rs"]

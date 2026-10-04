@@ -346,7 +346,7 @@ fn web_shortcuts_migrate_from_schema_two_and_reject_corrupted_rows() {
         let connection = rusqlite::Connection::open(&database).unwrap();
         connection
             .execute_batch(
-                "DROP TABLE web_shortcuts; DROP TABLE web_shortcut_state; DROP TABLE browse_recent; DROP TABLE download_imports; DROP TABLE web_preset_migrations; PRAGMA user_version=2;
+                "DROP TABLE web_shortcuts; DROP TABLE web_shortcut_state; DROP TABLE browse_recent; DROP TABLE download_imports; DROP TABLE web_preset_migrations; DROP TABLE favorite_state; PRAGMA user_version=2;
                  INSERT INTO providers (provider_id, registry_uuid) VALUES ('kept', 'uuid-1');",
             )
             .unwrap();
@@ -434,7 +434,7 @@ fn browse_recent_migrates_from_schema_three_and_keeps_five() {
         let connection = rusqlite::Connection::open(state.join("state.sqlite3")).unwrap();
         connection
             .execute_batch(
-                "DROP TABLE browse_recent; DROP TABLE download_imports; DROP TABLE web_preset_migrations; PRAGMA user_version=3;",
+                "DROP TABLE browse_recent; DROP TABLE download_imports; DROP TABLE web_preset_migrations; DROP TABLE favorite_state; PRAGMA user_version=3;",
             )
             .unwrap();
     }
@@ -463,7 +463,7 @@ fn download_checkpoints_migrate_from_four_and_prune_only_the_selected_provider()
     {
         let connection = rusqlite::Connection::open(state.join("state.sqlite3")).unwrap();
         connection
-            .execute_batch("DROP TABLE download_imports; DROP TABLE web_preset_migrations; PRAGMA user_version=4;")
+            .execute_batch("DROP TABLE download_imports; DROP TABLE web_preset_migrations; DROP TABLE favorite_state; PRAGMA user_version=4;")
             .unwrap();
     }
     let mut store = Store::open(&state).unwrap();
@@ -490,4 +490,159 @@ fn download_checkpoints_migrate_from_four_and_prune_only_the_selected_provider()
         store.download_imports("two").unwrap(),
         [("gone".into(), record)].into()
     );
+}
+
+fn favorite(id: &str) -> arinn_protocol::production::EntityRef {
+    arinn_protocol::production::EntityRef {
+        provider_id: "fixture.desktop".into(),
+        capability: "application".into(),
+        local_id: id.into(),
+    }
+}
+
+#[test]
+fn favorites_cas_order_empty_and_revision_survive_reopen() {
+    let fixture = Fixture::new();
+    let state = fixture.paths().state;
+    let mut first = Store::open(&state).unwrap();
+    let mut second = Store::open(&state).unwrap();
+    assert_eq!(first.favorite_list().unwrap().revision, 1);
+    assert!(first.favorite_list().unwrap().entries.is_empty());
+    let entries = vec![favorite("one"), favorite("two")];
+    assert_eq!(first.replace_favorites(1, &entries), Ok((2, true)));
+    assert_eq!(second.replace_favorites(1, &[]), Err(ErrorCode::Conflict));
+    assert_eq!(second.favorite_list().unwrap().entries, entries);
+    assert_eq!(second.replace_favorites(2, &entries), Ok((2, false)));
+    let reverse = vec![favorite("two"), favorite("one")];
+    assert_eq!(second.replace_favorites(2, &reverse), Ok((3, true)));
+    drop(first);
+    drop(second);
+    let mut reopened = Store::open(&state).unwrap();
+    assert_eq!(reopened.favorite_list().unwrap().entries, reverse);
+    assert_eq!(reopened.favorite_list().unwrap().revision, 3);
+    assert_eq!(reopened.replace_favorites(3, &[]), Ok((4, true)));
+    assert!(
+        Store::open(&state)
+            .unwrap()
+            .favorite_list()
+            .unwrap()
+            .entries
+            .is_empty()
+    );
+    assert_eq!(
+        Store::open(&state)
+            .unwrap()
+            .favorite_list()
+            .unwrap()
+            .revision,
+        4
+    );
+}
+
+#[test]
+fn favorites_missing_shortcut_is_retained_but_not_newly_admitted() {
+    use arinn_protocol::{
+        favorites::{SHORTCUT_CAPABILITY, SHORTCUT_PROVIDER},
+        production::EntityRef,
+        web::WebShortcut,
+    };
+    let fixture = Fixture::new();
+    let mut store = Store::open(&fixture.paths().state).unwrap();
+    let shortcut = WebShortcut {
+        id: "fixture-site".into(),
+        title: "Example".into(),
+        url: "https://example.org/".into(),
+        icon: String::new(),
+    };
+    let entry = EntityRef {
+        provider_id: SHORTCUT_PROVIDER.into(),
+        capability: SHORTCUT_CAPABILITY.into(),
+        local_id: shortcut.id.clone(),
+    };
+    assert_eq!(
+        store.replace_favorites(1, std::slice::from_ref(&entry)),
+        Err(ErrorCode::NotFound)
+    );
+    let web_revision = store.add_web_shortcut(&shortcut).unwrap();
+    assert_eq!(
+        store.replace_favorites(1, &[entry.clone(), favorite("one")]),
+        Ok((2, true))
+    );
+    store
+        .remove_web_shortcut(web_revision, &shortcut.id)
+        .unwrap();
+    assert_eq!(store.favorite_list().unwrap().entries[0], entry);
+    assert_eq!(
+        store.replace_favorites(2, &[favorite("one"), entry.clone()]),
+        Ok((3, true))
+    );
+    assert_eq!(
+        store.replace_favorites(3, &[favorite("one")]),
+        Ok((4, true))
+    );
+    assert_eq!(
+        store.replace_favorites(4, &[entry]),
+        Err(ErrorCode::NotFound)
+    );
+    assert_eq!(store.favorite_list().unwrap().revision, 4);
+}
+
+#[test]
+fn favorites_invalid_writes_and_overflow_leave_selection_intact() {
+    let fixture = Fixture::new();
+    let state = fixture.paths().state;
+    let mut store = Store::open(&state).unwrap();
+    assert_eq!(
+        store.replace_favorites(1, &[favorite("one"), favorite("one")]),
+        Err(ErrorCode::InvalidArgument)
+    );
+    let mut transient = favorite("tab");
+    transient.capability = "browser".into();
+    assert_eq!(
+        store.replace_favorites(1, &[transient]),
+        Err(ErrorCode::InvalidArgument)
+    );
+    assert!(store.favorite_list().unwrap().entries.is_empty());
+    let db = rusqlite::Connection::open(state.join("state.sqlite3")).unwrap();
+    db.execute(
+        "UPDATE favorite_state SET revision=?1",
+        [(u64::MAX - 1).to_string()],
+    )
+    .unwrap();
+    assert_eq!(
+        store.replace_favorites(u64::MAX - 1, &[favorite("one")]),
+        Ok((u64::MAX, true))
+    );
+    assert_eq!(
+        store.replace_favorites(u64::MAX, &[favorite("two")]),
+        Err(ErrorCode::Conflict)
+    );
+    let list = store.favorite_list().unwrap();
+    assert_eq!(list.revision, u64::MAX);
+    assert_eq!(list.entries, vec![favorite("one")]);
+    assert_eq!(
+        store.replace_favorites(u64::MAX, &[favorite("one")]),
+        Ok((u64::MAX, false))
+    );
+}
+
+#[test]
+fn favorites_schema_six_migration_preserves_existing_order() {
+    let fixture = Fixture::new();
+    let state = fixture.paths().state;
+    let mut store = Store::open(&state).unwrap();
+    store
+        .set_favorites(&[target("two"), target("one")])
+        .unwrap();
+    drop(store);
+    let db = rusqlite::Connection::open(state.join("state.sqlite3")).unwrap();
+    db.execute_batch("DROP TABLE favorite_state; PRAGMA user_version=6;")
+        .unwrap();
+    drop(db);
+    let store = Store::open(&state).unwrap();
+    assert_eq!(
+        store.favorites().unwrap(),
+        vec![target("two"), target("one")]
+    );
+    assert_eq!(store.favorite_list().unwrap().revision, 1);
 }

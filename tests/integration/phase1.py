@@ -91,6 +91,22 @@ with tempfile.TemporaryDirectory(prefix="arinn-production-") as folder:
                                 capture_output=True, text=True, timeout=25)
         assert result.returncode == 0, result.stdout + result.stderr
 
+    def favorite_list():
+        result = subprocess.run(["busctl", "--user", "--json=short", "call", "org.arinn.Daemon1", "/org/arinn/Daemon1", "org.arinn.Favorites1", "List"], env=env, capture_output=True, text=True, timeout=3)
+        assert result.returncode == 0, result.stderr
+        return json.loads(result.stdout)["data"][0]
+
+    def set_favorites(revision, entries, error=None):
+        args = ["busctl", "--user", "--json=short", "call", "org.arinn.Daemon1", "/org/arinn/Daemon1", "org.arinn.Favorites1", "Set", "ta(sss)", str(revision), str(len(entries))]
+        for entry in entries:
+            args.extend(entry)
+        result = subprocess.run(args, env=env, capture_output=True, text=True, timeout=3)
+        if error:
+            assert result.returncode != 0 and error in result.stderr, result.stderr
+            return None
+        assert result.returncode == 0, result.stderr
+        return json.loads(result.stdout)["data"][0]
+
     def wire_contract(service, path, interface, filename):
         actual = subprocess.run(["busctl", "--user", "--xml-interface", "introspect", service, path],
                                 env=env, capture_output=True, text=True, timeout=3)
@@ -129,6 +145,16 @@ with tempfile.TemporaryDirectory(prefix="arinn-production-") as folder:
         first = wait(ready)
         wire_contract("org.arinn.Daemon1", "/org/arinn/Daemon1", "org.arinn.Daemon1", "daemon1.xml")
         wire_contract("org.arinn.Daemon1", first["path"], "org.arinn.Application1", "application1.xml")
+        wire_contract("org.arinn.Daemon1", "/org/arinn/Daemon1", "org.arinn.Favorites1", "favorites1.xml")
+        assert favorite_list() == [1, []]
+        pinned = [["test", "application", "demo.application.0"]]
+        set_favorites(1, [["test", "application", "demo.activity"]], "NotFound")
+        set_favorites(1, [["unknown", "application", "one"]], "NotFound")
+        favorite_revision = set_favorites(1, pinned)
+        assert favorite_revision == 2 and favorite_list() == [2, pinned]
+        assert set_favorites(2, pinned) == 2
+        set_favorites(1, [], "Conflict")
+
         created = subprocess.run(["busctl", "--user", "--json=short", "call", "org.arinn.Daemon1", first["path"],
                                   "org.arinn.Application1", "Activate", "sss", first["generation"], "demo.activity", str(uuid.uuid4())],
                                  env=env, capture_output=True, text=True, timeout=3)
@@ -252,6 +278,7 @@ with tempfile.TemporaryDirectory(prefix="arinn-production-") as folder:
         # The binary was not replaced, so the daemon attaches to the same process.
         assert executable_pids(BIN / "arinn-plugin-demo") == attached, executable_pids(BIN / "arinn-plugin-demo")
         assert third["path"] == first["path"]
+        assert favorite_list() == [favorite_revision, pinned]
         contract()
         # #243: a package upgrade replaces the executable while the unit keeps
         # running the deleted inode. Reload and a daemon restart must launch
@@ -330,10 +357,17 @@ with tempfile.TemporaryDirectory(prefix="arinn-production-") as folder:
         cli("providers", "reload")
         wait(ready)
         assert ready()["backend_state"] == "unavailable"
+        assert favorite_list() == [favorite_revision, pinned]
+        set_favorites(favorite_revision, pinned + [["test", "application", "demo.application.1"]], "Unavailable")
+        assert set_favorites(favorite_revision, pinned) == favorite_revision
         assert cli("activate", "test", "demo.activity", ok=False).returncode == 1
         (manifests / "test.toml").unlink()
         cli("providers", "reload")
         assert providers() == []
+        assert favorite_list() == [favorite_revision, pinned]
+        assert set_favorites(favorite_revision, pinned) == favorite_revision
+        favorite_revision = set_favorites(favorite_revision, [])
+        set_favorites(favorite_revision, pinned, "NotFound")
         manifest("delayed")
         cli("providers", "reload")
         wait(ready)

@@ -3,6 +3,8 @@
 
 //! Blocking persistence primitives. Call these from a dedicated blocking task.
 use arinn_protocol::{
+    favorites::{self, FavoriteList},
+    production::EntityRef,
     validation::{self, ErrorCode, MAX_BODY_BYTES},
     web::{MAX_SHORTCUTS, WebShortcut, WebShortcutList},
 };
@@ -357,7 +359,7 @@ impl Store {
         let version: u32 = transaction
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .map_err(|_| ErrorCode::Internal)?;
-        if version > 6 {
+        if version > 7 {
             return Err(ErrorCode::Unsupported);
         }
         if version == 0 {
@@ -387,6 +389,9 @@ impl Store {
         }
         if version <= 5 {
             transaction.execute_batch("CREATE TABLE web_preset_migrations (id TEXT PRIMARY KEY); PRAGMA user_version = 6;").map_err(|_| ErrorCode::Internal)?;
+        }
+        if version <= 6 {
+            transaction.execute_batch("CREATE TABLE favorite_state (singleton INTEGER PRIMARY KEY CHECK (singleton = 0), revision TEXT NOT NULL); INSERT INTO favorite_state VALUES (0, '1'); PRAGMA user_version = 7;").map_err(|_| ErrorCode::Internal)?;
         }
         transaction.commit().map_err(|_| ErrorCode::Internal)
     }
@@ -591,41 +596,96 @@ impl Store {
             [],
         )
     }
-    /// Callers admit only provider-declared stable launch targets. The storage
-    /// layer never stores titles, payloads or browser history.
-    pub fn set_favorites(&mut self, favorites: &[Target]) -> Result<(), ErrorCode> {
-        if favorites.len() > 1024 {
-            return Err(ErrorCode::InvalidArgument);
-        }
-        let mut seen = BTreeSet::new();
-        for target in favorites {
-            target.validate()?;
-            if !seen.insert((&target.provider_id, &target.capability, &target.local_id)) {
-                return Err(ErrorCode::InvalidArgument);
-            }
-        }
+    /// Read revision and ordered targets from one SQLite snapshot.
+    pub fn favorite_list(&self) -> Result<FavoriteList, ErrorCode> {
         let transaction = self
             .connection
-            .transaction()
+            .unchecked_transaction()
             .map_err(|_| ErrorCode::Unavailable)?;
+        let list = read_favorite_list(&transaction)?;
+        transaction.commit().map_err(|_| ErrorCode::Internal)?;
+        Ok(list)
+    }
+    /// Callers admit newly added application targets against the complete current
+    /// daemon catalog. Shortcut existence is checked in this same transaction.
+    pub fn replace_favorites(
+        &mut self,
+        revision: u64,
+        entries: &[EntityRef],
+    ) -> Result<(u64, bool), ErrorCode> {
+        FavoriteList {
+            revision,
+            entries: entries.to_vec(),
+        }
+        .validate()?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| ErrorCode::Unavailable)?;
+        let current = read_favorite_list(&transaction)?;
+        if revision != current.revision {
+            return Err(ErrorCode::Conflict);
+        }
+        if current.entries == entries {
+            transaction.commit().map_err(|_| ErrorCode::Internal)?;
+            return Ok((revision, false));
+        }
+        let next = revision.checked_add(1).ok_or(ErrorCode::Conflict)?;
+        for entry in entries {
+            if entry.capability == favorites::SHORTCUT_CAPABILITY
+                && !current.entries.contains(entry)
+            {
+                let exists: bool = transaction
+                    .query_row(
+                        "SELECT EXISTS(SELECT 1 FROM web_shortcuts WHERE id=?1)",
+                        [&entry.local_id],
+                        |row| row.get(0),
+                    )
+                    .map_err(|_| ErrorCode::Internal)?;
+                if !exists {
+                    return Err(ErrorCode::NotFound);
+                }
+            }
+        }
         transaction
             .execute("DELETE FROM favorites", [])
             .map_err(|_| ErrorCode::Internal)?;
-        for (position, target) in favorites.iter().enumerate() {
+        for (position, entry) in entries.iter().enumerate() {
             transaction
                 .execute(
                     "INSERT INTO favorites VALUES (?1,?2,?3,?4)",
                     params![
                         position as i64,
-                        target.provider_id,
-                        target.capability,
-                        target.local_id
+                        entry.provider_id,
+                        entry.capability,
+                        entry.local_id
                     ],
                 )
                 .map_err(|_| ErrorCode::Internal)?;
         }
-        transaction.commit().map_err(|_| ErrorCode::Internal)
+        transaction
+            .execute(
+                "UPDATE favorite_state SET revision=?1 WHERE singleton=0",
+                [next.to_string()],
+            )
+            .map_err(|_| ErrorCode::Internal)?;
+        transaction.commit().map_err(|_| ErrorCode::Internal)?;
+        Ok((next, true))
     }
+    /// Legacy internal writer uses the same durable revision, never bypasses CAS.
+    pub fn set_favorites(&mut self, entries: &[Target]) -> Result<(), ErrorCode> {
+        let entries: Vec<_> = entries
+            .iter()
+            .map(|entry| EntityRef {
+                provider_id: entry.provider_id.clone(),
+                capability: entry.capability.clone(),
+                local_id: entry.local_id.clone(),
+            })
+            .collect();
+        self.replace_favorites(self.favorite_list()?.revision, &entries)
+            .map(|_| ())
+    }
+
     pub fn record_launch(&mut self, target: &Target, now: i64) -> Result<(), ErrorCode> {
         target.validate()?;
         if now < 0 {
@@ -890,4 +950,32 @@ fn prune(transaction: &rusqlite::Transaction<'_>, now: i64) -> Result<(), ErrorC
         .map_err(|_| ErrorCode::Internal)?;
     transaction.execute("DELETE FROM recents WHERE rowid IN (SELECT rowid FROM recents ORDER BY launched_at DESC,provider_id,capability,local_id LIMIT -1 OFFSET ?1)", [MAX_RECENTS]).map_err(|_| ErrorCode::Internal)?;
     Ok(())
+}
+
+fn read_favorite_list(connection: &Connection) -> Result<FavoriteList, ErrorCode> {
+    let revision = connection
+        .query_row(
+            "SELECT revision FROM favorite_state WHERE singleton=0",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .map_err(|_| ErrorCode::Internal)?;
+    let revision = revision.parse::<u64>().map_err(|_| ErrorCode::Internal)?;
+    let mut query = connection
+        .prepare("SELECT provider_id,capability,local_id FROM favorites ORDER BY position")
+        .map_err(|_| ErrorCode::Internal)?;
+    let entries = query
+        .query_map([], |row| {
+            Ok(EntityRef {
+                provider_id: row.get(0)?,
+                capability: row.get(1)?,
+                local_id: row.get(2)?,
+            })
+        })
+        .map_err(|_| ErrorCode::Internal)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| ErrorCode::Internal)?;
+    let list = FavoriteList { revision, entries };
+    list.validate().map_err(|_| ErrorCode::Internal)?;
+    Ok(list)
 }

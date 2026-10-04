@@ -12,7 +12,8 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class ArinnOpen(unittest.TestCase):
-    def run_open(self, active, home_failures, home_ever=True):
+    def run_open(self, active, home_failures, home_ever=True,
+                 shell_active=True, shell_start_fails=False):
         with tempfile.TemporaryDirectory(prefix="arinn-open-test-") as folder:
             root = Path(folder)
             log = root / "log"
@@ -24,6 +25,8 @@ class ArinnOpen(unittest.TestCase):
                 f"echo \"systemctl $*\" >> {log}\n"
                 "case \"$*\" in\n"
                 f"  *is-active*{active}*) exit 0 ;;\n"
+                f"  *is-active*arinn-shell.service*) exit {0 if shell_active else 3} ;;\n"
+                f"  *start*arinn-shell.service*) exit {1 if shell_start_fails else 0} ;;\n"
                 "  *is-active*) exit 3 ;;\n"
                 "esac\n"
                 "exit 0\n")
@@ -56,6 +59,24 @@ class ArinnOpen(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertFalse(any("start" in line for line in log), log)
             self.assertEqual(log.count("arinnctl home"), 1)
+
+    def test_reopens_a_closed_shell_without_restarting_the_session(self):
+        for target in ("arinn-session.target", "arinn-ewmh-session.target"):
+            with self.subTest(target=target):
+                result, log = self.run_open(active=target, home_failures=0,
+                                            shell_active=False)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("systemctl --user start arinn-shell.service", log)
+                self.assertFalse(any("start arinn-session.target" in line for line in log), log)
+                self.assertFalse(any("enable" in line or "restart" in line for line in log), log)
+                self.assertLess(log.index("systemctl --user start arinn-shell.service"),
+                                log.index("arinnctl home"))
+
+    def test_failed_shell_start_does_not_report_home_success(self):
+        result, log = self.run_open(active="arinn-session.target", home_failures=0,
+                                    shell_active=False, shell_start_fails=True)
+        self.assertEqual(result.returncode, 1)
+        self.assertNotIn("arinnctl home", log)
 
     def test_gives_up_when_the_daemon_never_answers(self):
         result, log = self.run_open(active="nothing", home_failures=0, home_ever=False)

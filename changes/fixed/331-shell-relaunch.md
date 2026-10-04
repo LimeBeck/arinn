@@ -1,0 +1,1 @@
+The desktop entry starts the shell again after menu exit even while the KDE or EWMH session target remains active, and reports a failed shell start instead of falsely claiming Home success.

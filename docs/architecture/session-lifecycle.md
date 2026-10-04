@@ -50,3 +50,13 @@ On 2026-09-27 the project owner chose to run the real checks later. Real lock, s
 For an operator-approved lock/unlock check there is `tests/integration/kwin_lock.py`: open Home over a disposable Activity first, then run the test. It **locks the real screen** and waits up to 180 s for a manual unlock. It checks the `org.arinn.Session1.blocked` property and that the return target is kept. The operator visually confirms the shell is not shown over the lock screen. Suspend is checked separately through the regular KDE menu without bypassing inhibitors; the test suite never suspends or logs out automatically.
 
 A complete MVP power action still needs inhibitor/refusal reporting and provider recovery after wake. `SessionLifecycle` does not implement the suspend command itself.
+
+## Desktop entry relaunch
+
+Closing the shell through its menu ends the shell process without stopping the
+Arinn session target or enabling/disabling autostart. The packaged `arinn-open`
+launcher checks `arinn-shell.service` separately from the KDE/EWMH target and
+starts a missing shell before sending Home. An already active shell is preserved;
+a failed shell start fails the launch instead of reporting Home success without
+a window. Stub launcher tests cover closed-shell relaunch for both session targets
+and failed startup, without operating the real graphical session.

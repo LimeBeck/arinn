@@ -8,6 +8,11 @@ if ! systemctl --user is-active --quiet arinn-session.target &&
     ! systemctl --user is-active --quiet arinn-ewmh-session.target; then
     systemctl --user start arinn-session.target || exit 1
 fi
+# A clean shell exit leaves its session target active. Recreate the shell
+# independently; preserve the current KDE/EWMH session and running instance.
+if ! systemctl --user is-active --quiet arinn-shell.service; then
+    systemctl --user start arinn-shell.service || exit 1
+fi
 # The daemon may still be starting: retry Home for up to five seconds.
 tries=0
 while [ "$tries" -lt 20 ]; do

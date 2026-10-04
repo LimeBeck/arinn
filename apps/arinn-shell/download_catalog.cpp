@@ -67,7 +67,8 @@ QString size(quint64 bytes) {
 QString remaining(qint64 seconds) {
   if (seconds < 60)
     return QObject::tr("Less than a minute left");
-  const auto minutes = (seconds + 59) / 60;
+  // Round up without adding: any eta up to INT64_MAX is valid on the wire.
+  const auto minutes = seconds / 60 + (seconds % 60 ? 1 : 0);
   if (minutes < 60)
     return QObject::tr("%1 min left").arg(minutes);
   return QObject::tr("%1 h %2 min left").arg(minutes / 60).arg(minutes % 60);

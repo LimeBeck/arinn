@@ -7,6 +7,7 @@
 // import states, the toast-once rule and an unavailable backend.
 #include "download_catalog.h"
 #include <QCoreApplication>
+#include <limits>
 #include <QSignalSpy>
 #include <QTest>
 #include <QUuid>
@@ -300,6 +301,17 @@ private slots:
     QCOMPARE(b.value(QStringLiteral("availableActions")).toStringList(),
              QStringList{QStringLiteral("start_now")});
     QCOMPARE(b.value(QStringLiteral("subtitle")).toString(), QString());
+
+    // Review of #310: the largest valid eta does not overflow into a
+    // negative time.
+    daemon->page1.first().eta = std::numeric_limits<qlonglong>::max();
+    reload(catalog);
+    const auto far = jobById(catalog, QStringLiteral("a"))
+                         .value(QStringLiteral("subtitle"))
+                         .toString();
+    QVERIFY2(far.endsWith(QStringLiteral("min left")) && !far.contains(QLatin1Char('-')),
+             qPrintable(far));
+    QVERIFY2(far.contains(QStringLiteral("2562047788015215 h 31 min left")), qPrintable(far));
 
     // Checking shows no invented time remaining.
     const auto c = jobById(catalog, QStringLiteral("c"));

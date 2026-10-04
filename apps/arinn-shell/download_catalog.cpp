@@ -16,9 +16,17 @@ constexpr auto interface = "org.arinn.Downloads1";
 constexpr auto downloadPage = "(sta(ssstbttxbdasssa(ss)sa(sss))s)";
 constexpr int operationWaitMs = 31000;
 constexpr int fallbackPollMs = 30000;
+// Ids are opaque and may contain any separator, so the provider id is
+// length-prefixed: (a, "b\nc") and ("a\nb", c) stay distinct (review of #310).
 QString presentationId(const QString &provider, const QString &local) {
-  return QUuid::createUuidV5(QUuid(), provider + QLatin1Char('\n') + local)
+  return QUuid::createUuidV5(QUuid(), QString::number(provider.size()) +
+                                          QLatin1Char(':') + provider + local)
       .toString(QUuid::WithoutBraces);
+}
+// A snapshot generation is a non-nil UUID (ADR-0067 page header).
+bool uuidGeneration(const QString &value) {
+  const auto uuid = QUuid::fromString(value);
+  return !uuid.isNull() && uuid.toString(QUuid::WithoutBraces) == value.toLower();
 }
 QString errorCode(const QDBusMessage &reply) {
   auto name = reply.errorName();
@@ -361,8 +369,14 @@ void DownloadCatalog::readProviders(const std::shared_ptr<Catalog> &catalog,
           return;
         }
         catalog->snapshot = snapshot;
+        int entries = 0;
         arg.beginArray();
         while (!arg.atEnd()) {
+          // A registry page holds at most 200 providers (review of #310).
+          if (++entries > maxPageEntries) {
+            finishCatalog(catalog, false);
+            return;
+          }
           QString id, plugin, source, name, version, runtime, backend,
               generation, error;
           QStringList capabilities;
@@ -462,7 +476,8 @@ void DownloadCatalog::readDownloads(const std::shared_ptr<Catalog> &catalog,
         qulonglong revision = 0;
         arg.beginStructure();
         arg >> generation >> revision;
-        if (generation != provider.value(QStringLiteral("generation")).toString() ||
+        if (!uuidGeneration(generation) ||
+            generation != provider.value(QStringLiteral("generation")).toString() ||
             revision == 0 ||
             (!token.isEmpty() && (generation != catalog->pageGeneration ||
                                   revision != catalog->pageRevision))) {

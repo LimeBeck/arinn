@@ -14,6 +14,11 @@
 #include <QUuid>
 #include <QtDBus>
 namespace {
+// DownloadCatalog's presentation id: the provider id is length-prefixed.
+QString downloadId(const QString &local) {
+  return QUuid::createUuidV5(QUuid(), QStringLiteral("11:dl-provider") + local)
+      .toString(QUuid::WithoutBraces);
+}
 QString presentationId(const QString &provider, const QString &local) {
   return QUuid::createUuidV5(QUuid(), provider + QLatin1Char('\n') + local)
       .toString(QUuid::WithoutBraces);
@@ -309,7 +314,7 @@ public:
       body.endStructure();
     } else if (message.member() == QLatin1String("GetDownloads")) {
       body.beginStructure();
-      body << QStringLiteral("g-dl") << qulonglong(1);
+      body << QStringLiteral("7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f") << qulonglong(1);
       body.beginArray(QMetaType::fromType<DownloadWire>());
       for (const auto &row : downloads)
         body << row;
@@ -1221,7 +1226,7 @@ private slots:
     downloads.name = QStringLiteral("downloads");
     downloads.path = QDBusObjectPath(QStringLiteral("/org/arinn/Daemon1/providers/p_dl"));
     downloads.capabilities = {QStringLiteral("download")};
-    downloads.generation = QStringLiteral("g-dl");
+    downloads.generation = QStringLiteral("7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f");
     daemon.providers.append(downloads);
     DownloadWire done;
     done.id = QStringLiteral("done");
@@ -1278,9 +1283,9 @@ private slots:
     home->setProperty("screen", QStringLiteral("downloads"));
     QTRY_COMPARE(view->property("visible").toBool(), true);
     const auto doneId =
-        presentationId(QStringLiteral("dl-provider"), QStringLiteral("done"));
+        downloadId( QStringLiteral("done"));
     const auto runningId =
-        presentationId(QStringLiteral("dl-provider"), QStringLiteral("running"));
+        downloadId( QStringLiteral("running"));
     // Rows are looked up on every check: a catalog reload replaces the
     // jobs array and the Repeater recreates its delegates.
     const auto focused = [&](const QString &id) {
@@ -1319,7 +1324,7 @@ private slots:
     daemon.downloads = {late, done, running};
     home->setProperty("screen", QStringLiteral("downloads"));
     const auto lateId =
-        presentationId(QStringLiteral("dl-provider"), QStringLiteral("late"));
+        downloadId( QStringLiteral("late"));
     auto catalog = window->findChild<QObject *>(QStringLiteral("downloadCatalog"));
     QVERIFY(catalog);
     QVERIFY(QMetaObject::invokeMethod(catalog, "refresh"));

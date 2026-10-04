@@ -16,9 +16,11 @@
 #include <QUuid>
 #include <QtDBus>
 namespace {
+const char *const generation1 = "5b0e7e3a-7f43-4c1e-9a52-2f6c0d6a1b01";
+const char *const generation2 = "5b0e7e3a-7f43-4c1e-9a52-2f6c0d6a1b02";
 const QString providerPath = QStringLiteral("/org/arinn/Daemon1/providers/p_dl");
 QString presentationId(const QString &local) {
-  return QUuid::createUuidV5(QUuid(), QStringLiteral("dl\n") + local)
+  return QUuid::createUuidV5(QUuid(), QStringLiteral("2:dl") + local)
       .toString(QUuid::WithoutBraces);
 }
 struct ProviderWire {
@@ -27,7 +29,7 @@ struct ProviderWire {
   QStringList capabilities{QStringLiteral("download")};
   QString runtime = QStringLiteral("ready");
   QString backend = QStringLiteral("available");
-  QString generation = QStringLiteral("g1");
+  QString generation = QString::fromLatin1(generation1);
 };
 struct OutputWire {
   QString id, title;
@@ -105,7 +107,7 @@ class Daemon : public QDBusVirtualObject {
 public:
   QList<ProviderWire> providers{ProviderWire{}};
   QList<DownloadWire> page1, page2;
-  QString pageGeneration = QStringLiteral("g1");
+  QString pageGeneration = QString::fromLatin1(generation1);
   qulonglong page1Revision = 3, page2Revision = 3;
   bool loopSecond = false;
   QString downloadsError; // error name for GetDownloads
@@ -117,6 +119,8 @@ public:
   int reads = 0;
   // Delay for GetDownloads replies; the page is built when the call arrives.
   int downloadsDelayMs = 0;
+  // Single-page queues of further providers, by endpoint path.
+  QHash<QString, QList<DownloadWire>> otherPages;
   // Runs when a GetDownloads call arrives, after its page is built.
   std::function<void()> onRead;
   QString introspect(const QString &) const override { return {}; }
@@ -141,6 +145,18 @@ public:
       body.endStructure();
     } else if (member == QLatin1String("GetDownloads")) {
       ++reads;
+      if (otherPages.contains(message.path())) {
+        body.beginStructure();
+        body << pageGeneration << page1Revision;
+        body.beginArray(QMetaType::fromType<DownloadWire>());
+        for (const auto &row : otherPages.value(message.path()))
+          body << row;
+        body.endArray();
+        body << QString();
+        body.endStructure();
+        bus.send(message.createReply(QVariant::fromValue(body)));
+        return true;
+      }
       if (message.path() != providerPath || !downloadsError.isEmpty()) {
         bus.send(message.createErrorReply(
             QStringLiteral("org.arinn.Error1.") +
@@ -226,7 +242,7 @@ class DownloadCatalogTest : public QObject {
     auto signal = QDBusMessage::createSignal(QStringLiteral("/org/arinn/Daemon1"),
                                              QStringLiteral("org.arinn.Daemon1"),
                                              QStringLiteral("StateChanged"));
-    signal << QStringLiteral("dl") << capability << QStringLiteral("g1")
+    signal << QStringLiteral("dl") << capability << QString::fromLatin1(generation1)
            << qulonglong(4);
     QDBusConnection::sessionBus().send(signal);
   }
@@ -432,6 +448,43 @@ private slots:
     QCOMPARE(catalog.downloadsState(), QStringLiteral("error"));
   }
 
+  // Review of #310: generations must be UUIDs, and a registry page over 200
+  // providers fails the catalog.
+  void generationsAndProviderPagesAreChecked() {
+    daemon->page1 = {job(QStringLiteral("a"), QStringLiteral("queued"))};
+    daemon->providers.first().generation = QStringLiteral("g1");
+    daemon->pageGeneration = QStringLiteral("g1");
+    DownloadCatalog catalog;
+    QTRY_COMPARE(catalog.downloadsState(), QStringLiteral("error"));
+    daemon->providers.first().generation = QString::fromLatin1(generation1);
+    daemon->pageGeneration = QString::fromLatin1(generation1);
+    reload(catalog);
+    QCOMPARE(catalog.downloadsState(), QStringLiteral("populated"));
+    ProviderWire other;
+    other.capabilities = {QStringLiteral("library")};
+    for (int i = 0; i < 200; ++i) {
+      other.id = QStringLiteral("p%1").arg(i);
+      daemon->providers.append(other);
+    }
+    catalog.refresh();
+    QTRY_COMPARE(catalog.downloadsState(), QStringLiteral("error"));
+  }
+
+  // Review of #310: ids may contain newlines; (a, "b\nc") and ("a\nb", c)
+  // are two downloads, not a duplicate that fails a provider.
+  void presentationIdsDoNotCollide() {
+    daemon->providers.first().id = QStringLiteral("a");
+    daemon->page1 = {job(QStringLiteral("b\nc"), QStringLiteral("queued"))};
+    ProviderWire second;
+    second.id = QStringLiteral("a\nb");
+    second.path = QDBusObjectPath(QStringLiteral("/org/arinn/Daemon1/providers/p_dl2"));
+    daemon->providers.append(second);
+    daemon->otherPages.insert(second.path.path(), {job(QStringLiteral("c"), QStringLiteral("queued"))});
+    DownloadCatalog catalog;
+    QTRY_COMPARE(catalog.downloadsState(), QStringLiteral("populated"));
+    QCOMPARE(catalog.jobs().size(), 2);
+  }
+
   void pagingAndRevisions() {
     daemon->page1 = {job(QStringLiteral("a"), QStringLiteral("queued"))};
     daemon->page2 = {job(QStringLiteral("b"), QStringLiteral("queued"))};
@@ -457,7 +510,7 @@ private slots:
     reload(catalog);
     QCOMPARE(catalog.downloadsState(), QStringLiteral("error"));
 
-    daemon->pageGeneration = QStringLiteral("g1");
+    daemon->pageGeneration = QString::fromLatin1(generation1);
     daemon->page1.clear();
     daemon->page2.clear();
     reload(catalog);
@@ -520,7 +573,7 @@ private slots:
     daemon->holdOperation = true;
     catalog.request(a, QStringLiteral("pause"));
     QTRY_COMPARE(daemon->commands, QStringList{QStringLiteral("Pause")});
-    QCOMPARE(daemon->lastGeneration, QStringLiteral("g1"));
+    QCOMPARE(daemon->lastGeneration, QString::fromLatin1(generation1));
     QCOMPARE(daemon->lastLocal, QStringLiteral("a"));
     QVERIFY(jobById(catalog, QStringLiteral("a")).value(QStringLiteral("busy")).toBool());
     // A busy download takes no second command.
@@ -621,8 +674,8 @@ private slots:
     daemon->operationError = QStringLiteral("Unavailable");
     catalog.request(presentationId(QStringLiteral("a")), QStringLiteral("pause"));
     QTRY_VERIFY(jobById(catalog, QStringLiteral("a")).value(QStringLiteral("busy")).toBool());
-    daemon->providers.first().generation = QStringLiteral("g2");
-    daemon->pageGeneration = QStringLiteral("g2");
+    daemon->providers.first().generation = QString::fromLatin1(generation2);
+    daemon->pageGeneration = QString::fromLatin1(generation2);
     reload(catalog);
     QTRY_VERIFY(!jobById(catalog, QStringLiteral("a")).value(QStringLiteral("busy")).toBool());
     daemon->holdOperation = false;

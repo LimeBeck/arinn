@@ -85,8 +85,9 @@ asynchronously, the same way `LibraryCatalog` reads `Library1`:
   `Daemon1.Providers` whose runtime is `ready`. A provider whose backend is
   `unavailable` still serves its cached rows (ADR-0067); those rows offer no
   action and no command is sent for them.
-- `GetDownloads` pages must carry the provider's generation and one revision
-  across the pages. A repeated token, a torn read or a malformed row fails that
+- A `Providers` page over 200 entries fails the catalog.
+- `GetDownloads` pages must carry the provider's generation, a non-nil UUID,
+  and one revision across the pages. A repeated token, a torn read or a malformed row fails that
   provider, and so does a page with more than 200 rows. A row is malformed
   when it breaks a `Download` invariant of
   `crates/arinn-protocol/src/download.rs`:
@@ -112,7 +113,8 @@ asynchronously, the same way `LibraryCatalog` reads `Library1`:
 
 Rows map the contract to the view's job fields:
 
-- `id` is a presentation UUID of provider and job id.
+- `id` is a UUIDv5 of the length-prefixed provider id and the job id, so ids
+  that contain separators cannot collide.
 - `state` passes through; any other token becomes `unsupported`, shown as "Unsupported state".
 - `progress` is −1 without `has_progress`, so no percentage appears.
 - `subtitle` holds the size ("1.5 GB of 4.0 GB"). While downloading it also holds the rate and, when `eta_seconds` is not −1, the time left.

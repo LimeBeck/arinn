@@ -67,7 +67,7 @@ class ArinnOpen(unittest.TestCase):
                                             shell_active=False)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn("systemctl --user start arinn-shell.service", log)
-                self.assertFalse(any("start arinn-session.target" in line for line in log), log)
+                self.assertFalse(any("start " in line and ".target" in line for line in log), log)
                 self.assertFalse(any("enable" in line or "restart" in line for line in log), log)
                 self.assertLess(log.index("systemctl --user start arinn-shell.service"),
                                 log.index("arinnctl home"))

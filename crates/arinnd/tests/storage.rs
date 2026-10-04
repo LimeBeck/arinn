@@ -606,7 +606,7 @@ fn favorites_invalid_writes_and_overflow_leave_selection_intact() {
     let db = rusqlite::Connection::open(state.join("state.sqlite3")).unwrap();
     db.execute(
         "UPDATE favorite_state SET revision=?1",
-        [u64::MAX.to_string()],
+        [(u64::MAX - 1).to_string()],
     )
     .unwrap();
     assert_eq!(

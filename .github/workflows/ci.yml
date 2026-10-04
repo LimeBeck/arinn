@@ -61,7 +61,7 @@ jobs:
       - name: Install dependencies
         # The tests start private session buses with dbus-daemon and check
         # interface XML with Python.
-        run: apt-get update && apt-get install -y --no-install-recommends dbus python-is-python3
+        run: apt-get update && apt-get install -y --no-install-recommends dbus python-is-python3 libssl-dev
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -81,7 +81,7 @@ jobs:
       - name: Install dependencies
         run: |
           pacman -Syu --noconfirm --needed base-devel git rust cmake ninja \
-            qt6-base qt6-declarative qt6-svg python nodejs dbus systemd xorg-server-xvfb
+            qt6-base qt6-declarative qt6-svg curl libunwind openssl python nodejs dbus systemd xorg-server-xvfb
       - uses: actions/checkout@v7
       - name: Build Rust workspace
         run: cargo build --locked && cargo build --locked --examples

@@ -601,6 +601,25 @@ Diagnostics show the daemon status and, per provider: runtime and backend state,
 
 `arinnctl` uses the same public daemon API as the shell and provides at least `status`, `providers`, `capabilities`, `activities`, `diagnostics`, `provider restart <id>` and `providers reload`. Human-readable output by default and `--json` for read commands. Exit codes: 0 success, 1 runtime failure, 2 invalid usage, 3 daemon unavailable. Web shortcuts are managed with `shortcuts [list]`, `shortcuts add <title> <url> [icon]`, `shortcuts edit <id> <title> <url> [icon]`, `shortcuts remove <id>` and `shortcuts open <id>` (the TV fallback without a keyboard, §5.1); `browser tabs`, `browser activate <provider> <tab>` and `browser close <provider> <tab>` work on browser providers. A failed call prints the Arinn error name (for example `Conflict`) on standard error; URLs appear only in the command's own output.
 
+### 14.4. Optional remote diagnostics
+
+Owner-requested development diagnostics use Sentry in the shell and daemon
+([ADR-0082](../adr/0082-opt-in-sentry.md),
+[configuration and captured data](../architecture/telemetry.md)). The separate
+`telemetry.toml` configuration flag `telemetry.enabled` defaults to false; a DSN
+alone MUST NOT enable collection or transmission. The §13 exclusions apply to
+all remote event fields, breadcrumbs, traces and metrics. Under the same flag,
+fixed startup and daemon-operation traces and numeric error/operation counts and
+durations MAY be collected, without provider/browser/window identity. No memory dumps, screenshots or replay
+are sent. Existing local logging and diagnostics remain available.
+
+Before public release, remote diagnostics require informed, explicit user
+consent with a refusal path and review/withdrawal controls. Without consent,
+including refusal or withdrawal, Sentry MUST remain disabled and MUST NOT send
+cached reports. The current development flag is not the public consent UI;
+these pending requirements are tracked in the
+[publication checklist #74](https://github.com/LimeBeck/arinn/issues/74).
+
 ---
 
 ## 15. Design contract

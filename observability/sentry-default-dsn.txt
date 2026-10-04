@@ -1,0 +1,4 @@
+# SPDX-FileCopyrightText: 2026 Arinn contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Public ingestion endpoint explicitly supplied by the project owner.
+https://6f21f21a08206b451f719088da34ed2f@o4511241010675712.ingest.us.sentry.io/4512194350284800

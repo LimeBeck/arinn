@@ -28,9 +28,13 @@ shell having a working daemon connection.
 Use the official Rust SDK in `arinnd` and checksum-pinned Sentry native in the
 shell. Both read `[telemetry] enabled` from the independent
 `$XDG_CONFIG_HOME/arinn/telemetry.toml`; missing, malformed or false means disabled.
-A public DSN in that file or `ARINN_SENTRY_DSN` selects the endpoint and cannot
-activate telemetry. Changes take effect after process restart. No real project
-DSN is embedded in the package or repository.
+Following the owner's additional request in [#303](https://github.com/LimeBeck/arinn/issues/303),
+both binaries embed the supplied public ingestion DSN from one shared source.
+Endpoint precedence is `ARINN_SENTRY_DSN`, configuration `dsn`, then the embedded
+public project endpoint. Explicit empty/invalid overrides disable reporting and
+do not fall back. A DSN cannot activate telemetry; `enabled=true` is still required.
+Changes take effect after process restart. No account/API authentication token
+or user-specific endpoint is embedded. This ADR remains Proposed for owner review.
 
 Capture daemon startup/operation error codes, panic stack traces, lifecycle and
 operation breadcrumbs; native crashes, Qt warnings/critical/fatal events and

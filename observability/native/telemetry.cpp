@@ -146,6 +146,9 @@ sentry_value_t sanitizeMetric(sentry_value_t metric, void *) {
 
 }
 namespace ArinnTelemetry {
+QByteArray resolveDsn(const std::optional<QByteArray> &environment, const std::optional<QByteArray> &configuration) {
+  return environment.value_or(configuration.value_or(ARINN_DEFAULT_SENTRY_DSN));
+}
 bool start() {
   if (active) return true;
   auto configRoot = qEnvironmentVariable("XDG_CONFIG_HOME");
@@ -162,13 +165,16 @@ bool start() {
     const auto bytes = file.readAll();
     const auto config = toml::parse(std::string_view(bytes.constData(), bytes.size()));
     if (!config["telemetry"]["enabled"].value<bool>().value_or(false)) return false;
-    if (qEnvironmentVariableIsSet("ARINN_SENTRY_DSN")) dsn = qgetenv("ARINN_SENTRY_DSN");
-    else {
-      const auto setting = config["telemetry"]["dsn"].value<std::string>();
-      if (setting) dsn = QByteArray::fromStdString(*setting);
-    }
+    const auto node = config["telemetry"]["dsn"];
+    if (node && !node.is_string()) return false;
+    const auto setting = node.value<std::string>();
+    const std::optional<QByteArray> configured = setting ? std::optional(QByteArray::fromStdString(*setting)) : std::nullopt;
+    const std::optional<QByteArray> environment = qEnvironmentVariableIsSet("ARINN_SENTRY_DSN") ? std::optional(qgetenv("ARINN_SENTRY_DSN")) : std::nullopt;
+    dsn = resolveDsn(environment, configured);
   } catch (const toml::parse_error &) { return false; }
-  const QUrl url(QString::fromUtf8(dsn));
+  const auto text = QString::fromUtf8(dsn);
+  if (text.toUtf8() != dsn) return false;
+  const QUrl url(text);
   const bool local = url.host() == "127.0.0.1" || url.host() == "::1";
   if (dsn.isEmpty() || dsn.size() > 2048 || !url.isValid() || url.host().isEmpty() ||
       url.userName().isEmpty() || !url.password().isEmpty() || url.hasQuery() || url.hasFragment() ||

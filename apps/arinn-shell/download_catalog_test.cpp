@@ -10,6 +10,9 @@
 #include <limits>
 #include <QSignalSpy>
 #include <QTest>
+#include <QTimer>
+#include <functional>
+#include <utility>
 #include <QUuid>
 #include <QtDBus>
 namespace {
@@ -112,6 +115,10 @@ public:
   QStringList commands;
   QString lastGeneration, lastLocal;
   int reads = 0;
+  // Delay for GetDownloads replies; the page is built when the call arrives.
+  int downloadsDelayMs = 0;
+  // Runs when a GetDownloads call arrives, after its page is built.
+  std::function<void()> onRead;
   QString introspect(const QString &) const override { return {}; }
   bool handleMessage(const QDBusMessage &message,
                      const QDBusConnection &bus) override {
@@ -183,7 +190,14 @@ public:
                                         QStringLiteral("fixture")));
       return true;
     }
-    bus.send(message.createReply(QVariant::fromValue(body)));
+    const auto reply = message.createReply(QVariant::fromValue(body));
+    if (member == QLatin1String("GetDownloads") && onRead)
+      std::exchange(onRead, nullptr)();
+    if (member == QLatin1String("GetDownloads") && downloadsDelayMs > 0) {
+      QTimer::singleShot(downloadsDelayMs, [bus, reply] { bus.send(reply); });
+      return true;
+    }
+    bus.send(reply);
     return true;
   }
 };
@@ -489,6 +503,55 @@ private slots:
     daemon->page1.last().importState = QStringLiteral("imported");
     reload(catalog);
     QCOMPARE(toasts.size(), 1);
+  }
+
+  // Review of #310: a read that a newer change notification superseded is
+  // not published.
+  void supersededSnapshotIsNotPublished() {
+    daemon->page1 = {job(QStringLiteral("a"), QStringLiteral("queued"))};
+    DownloadCatalog catalog;
+    QTRY_COMPARE(catalog.downloadsState(), QStringLiteral("populated"));
+    QTest::qWait(50);
+    QStringList seen;
+    connect(&catalog, &DownloadCatalog::catalogChanged, this, [&] {
+      seen.append(jobById(catalog, QStringLiteral("a")).value(QStringLiteral("state")).toString());
+    });
+    daemon->downloadsDelayMs = 300;
+    daemon->page1.first().state = QStringLiteral("downloading");
+    // While that read is in flight the job changes and a change notification
+    // asks for a reread (StateChanged for "download" calls refresh()).
+    daemon->onRead = [this, &catalog] {
+      daemon->page1.first().state = QStringLiteral("paused");
+      QMetaObject::invokeMethod(&catalog, "refresh", Qt::QueuedConnection);
+    };
+    catalog.refresh();
+    QTRY_COMPARE(jobById(catalog, QStringLiteral("a")).value(QStringLiteral("state")).toString(),
+                 QStringLiteral("paused"));
+    QVERIFY2(!seen.contains(QStringLiteral("downloading")), qPrintable(seen.join(',')));
+  }
+
+  // Review of #310: a command sent to an old provider generation neither
+  // keeps the new row busy nor reports its failure there.
+  void providerRestartDropsTheCommand() {
+    auto downloading = job(QStringLiteral("a"), QStringLiteral("downloading"));
+    downloading.actions = {QStringLiteral("pause")};
+    daemon->page1 = {downloading};
+    DownloadCatalog catalog;
+    QTRY_COMPARE(catalog.downloadsState(), QStringLiteral("populated"));
+    daemon->holdOperation = true;
+    daemon->operationState = QStringLiteral("failed");
+    daemon->operationError = QStringLiteral("Unavailable");
+    catalog.request(presentationId(QStringLiteral("a")), QStringLiteral("pause"));
+    QTRY_VERIFY(jobById(catalog, QStringLiteral("a")).value(QStringLiteral("busy")).toBool());
+    daemon->providers.first().generation = QStringLiteral("g2");
+    daemon->pageGeneration = QStringLiteral("g2");
+    reload(catalog);
+    QTRY_VERIFY(!jobById(catalog, QStringLiteral("a")).value(QStringLiteral("busy")).toBool());
+    daemon->holdOperation = false;
+    QTest::qWait(400);
+    const auto row = jobById(catalog, QStringLiteral("a"));
+    QVERIFY(!row.value(QStringLiteral("busy")).toBool());
+    QCOMPARE(row.value(QStringLiteral("statusText")).toString(), QString());
   }
 
   void reloadsOnDownloadStateChanged() {

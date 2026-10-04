@@ -199,8 +199,8 @@ void DownloadCatalog::publish() {
         statusText = tr("Done · No library folder covers this download");
     }
     const auto failure = m_failures.value(row.id);
-    if (!failure.second.isEmpty())
-      statusText = failure.second;
+    if (!failure.message.isEmpty())
+      statusText = failure.message;
     QString errorText;
     if (row.state == QLatin1String("error"))
       errorText = row.errorMessage.isEmpty() ? failureText(row.errorCode)
@@ -486,6 +486,15 @@ void DownloadCatalog::finishCatalog(const std::shared_ptr<Catalog> &catalog,
     refresh();
     return;
   }
+  // A StateChanged arrived during this read: its snapshot is already stale.
+  // Read again instead of publishing it, a few times at most so a busy
+  // queue still updates the screen.
+  if (m_dirty && m_superseded < 3) {
+    ++m_superseded;
+    QTimer::singleShot(0, this, &DownloadCatalog::refresh);
+    return;
+  }
+  m_superseded = 0;
   m_loaded = true;
   m_connected = true;
   const auto everyProviderFailed =
@@ -517,11 +526,20 @@ void DownloadCatalog::finishCatalog(const std::shared_ptr<Catalog> &catalog,
     m_error = false;
     m_unreachable = false;
     m_rows = catalog->rows;
-    // A failure message lasts until its download changes state.
+    // A failure message lasts until its download changes state; a command
+    // for another provider generation no longer describes this row.
     for (auto it = m_failures.begin(); it != m_failures.end();) {
       const auto *row = findId(it.key());
-      if (!row || row->state != it.value().first)
+      if (!row || row->state != it.value().state ||
+          row->generation != it.value().generation)
         it = m_failures.erase(it);
+      else
+        ++it;
+    }
+    for (auto it = m_busy.begin(); it != m_busy.end();) {
+      const auto *row = findId(it.key());
+      if (!row || row->generation != it.value().generation)
+        it = m_busy.erase(it);
       else
         ++it;
     }
@@ -562,8 +580,9 @@ void DownloadCatalog::request(const QString &id, const QString &action) {
       !row->actions.contains(wireAction(action)))
     return;
   const auto epoch = m_epoch;
+  const auto ticket = ++m_ticket;
   m_failures.remove(id);
-  m_busy.insert(id);
+  m_busy.insert(id, {ticket, row->generation});
   publish();
   auto msg = QDBusMessage::createMethodCall(service, row->path, interface, name);
   msg << row->generation << row->localId
@@ -571,40 +590,41 @@ void DownloadCatalog::request(const QString &id, const QString &action) {
   auto pending = new QDBusPendingCallWatcher(
       QDBusConnection::sessionBus().asyncCall(msg, 3000), this);
   connect(pending, &QDBusPendingCallWatcher::finished, this,
-          [this, id, action, epoch](auto *call) {
+          [this, id, ticket, action, epoch](auto *call) {
             const auto reply = call->reply();
             call->deleteLater();
             if (epoch != m_epoch)
               return;
             if (reply.type() == QDBusMessage::ErrorMessage ||
                 reply.signature() != "o" || reply.arguments().isEmpty()) {
-              finishCommand(id, action,
+              finishCommand(id, ticket, action,
                             reply.type() == QDBusMessage::ErrorMessage
                                 ? errorCode(reply)
                                 : QStringLiteral("Unavailable"));
               return;
             }
             watchOperation(
-                id, action,
+                id, ticket, action,
                 qvariant_cast<QDBusObjectPath>(reply.arguments().at(0)).path(),
                 epoch);
           });
 }
 
-void DownloadCatalog::watchOperation(const QString &id, const QString &action,
+void DownloadCatalog::watchOperation(const QString &id, quint64 ticket,
+                                     const QString &action,
                                      const QString &objectPath, quint64 epoch) {
   auto timer = new QTimer(this);
   timer->setInterval(100);
   const auto deadline = QDeadlineTimer(operationWaitMs);
   connect(timer, &QTimer::timeout, this,
-          [this, timer, id, action, objectPath, epoch, deadline] {
+          [this, timer, id, ticket, action, objectPath, epoch, deadline] {
             timer->stop();
             if (epoch != m_epoch) {
               timer->deleteLater();
               return;
             }
             if (deadline.hasExpired()) {
-              finishCommand(id, action, QStringLiteral("Timeout"));
+              finishCommand(id, ticket, action, QStringLiteral("Timeout"));
               timer->deleteLater();
               return;
             }
@@ -613,7 +633,7 @@ void DownloadCatalog::watchOperation(const QString &id, const QString &action,
             auto pending = new QDBusPendingCallWatcher(
                 QDBusConnection::sessionBus().asyncCall(msg, 3000), this);
             connect(pending, &QDBusPendingCallWatcher::finished, this,
-                    [this, timer, id, action, epoch](auto *call) {
+                    [this, timer, id, ticket, action, epoch](auto *call) {
                       const auto reply = call->reply();
                       call->deleteLater();
                       if (epoch != m_epoch) {
@@ -623,7 +643,7 @@ void DownloadCatalog::watchOperation(const QString &id, const QString &action,
                       if (reply.type() == QDBusMessage::ErrorMessage ||
                           reply.signature() != "(ssbtta(sss)b)" ||
                           reply.arguments().isEmpty()) {
-                        finishCommand(id, action, QStringLiteral("Unavailable"));
+                        finishCommand(id, ticket, action, QStringLiteral("Unavailable"));
                         timer->deleteLater();
                         return;
                       }
@@ -637,7 +657,7 @@ void DownloadCatalog::watchOperation(const QString &id, const QString &action,
                         timer->start();
                         return;
                       }
-                      finishCommand(id, action,
+                      finishCommand(id, ticket, action,
                                     state == QLatin1String("succeeded")
                                         ? QString()
                                         : (error.isEmpty() ? state : error));
@@ -647,15 +667,20 @@ void DownloadCatalog::watchOperation(const QString &id, const QString &action,
   timer->start();
 }
 
-void DownloadCatalog::finishCommand(const QString &id, const QString &action,
+void DownloadCatalog::finishCommand(const QString &id, quint64 ticket,
+                                    const QString &action,
                                     const QString &result) {
+  // A command a provider restart already dropped reports nothing.
+  const auto command = m_busy.constFind(id);
+  if (command == m_busy.cend() || command->ticket != ticket)
+    return;
+  const auto generation = command->generation;
   m_busy.remove(id);
-  if (!result.isEmpty()) {
-    const auto *row = findId(id);
-    m_failures.insert(id, {row ? row->state : QString(),
+  const auto *row = findId(id);
+  if (!result.isEmpty() && row && row->generation == generation)
+    m_failures.insert(id, {row->state, generation,
                            actionTitle(action) + QStringLiteral(" · ") +
                                failureText(result)});
-  }
   publish();
   refresh();
 }

@@ -75,9 +75,9 @@ private:
   void failProvider(const std::shared_ptr<Catalog> &catalog, int index,
                     bool unavailable);
   void finishCatalog(const std::shared_ptr<Catalog> &catalog, bool success);
-  void watchOperation(const QString &id, const QString &action,
+  void watchOperation(const QString &id, quint64 ticket, const QString &action,
                       const QString &objectPath, quint64 epoch);
-  void finishCommand(const QString &id, const QString &action,
+  void finishCommand(const QString &id, quint64 ticket, const QString &action,
                      const QString &result);
   void announceImports();
   void publish();
@@ -86,8 +86,24 @@ private:
   QList<Row> m_rows;
   // Presentation id → the job state when the failure was reported, and the
   // message. The message stays until the job's state changes.
-  QHash<QString, QPair<QString, QString>> m_failures;
-  QSet<QString> m_busy;
+  // A failed command's message, shown on its row until the download changes
+  // state or provider generation.
+  struct Failure {
+    QString state;
+    QString generation;
+    QString message;
+  };
+  QHash<QString, Failure> m_failures;
+  // The command in flight per presentation id: its ticket and the provider
+  // generation it was sent to. A new generation drops it (review of #310).
+  struct Command {
+    quint64 ticket = 0;
+    QString generation;
+  };
+  QHash<QString, Command> m_busy;
+  quint64 m_ticket = 0;
+  // Reads in a row whose snapshot a newer StateChanged already superseded.
+  int m_superseded = 0;
   // Session memory for the completion toast: whether each download was last
   // seen imported, and which downloads were already announced.
   QHash<QString, bool> m_imported;

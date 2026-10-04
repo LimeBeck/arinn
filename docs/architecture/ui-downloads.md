@@ -89,7 +89,9 @@ asynchronously, the same way `LibraryCatalog` reads `Library1`:
   across the pages. A repeated token, a torn read or a malformed row fails that
   provider.
 - It reloads on `Daemon1.StateChanged` with capability `download` and on
-  `ProvidersChanged`. A 30 s timer is only a fallback.
+  `ProvidersChanged`. A 30 s timer is only a fallback. A read during which a
+  newer notification arrived is dropped and read again instead of published,
+  at most three times in a row so a busy queue still updates.
 
 | `downloadsState` | When |
 | --- | --- |
@@ -115,7 +117,9 @@ Output titles and file URIs are never presented; `Downloads1` carries no paths.
 lists the action and no command for it is in flight. It then follows the
 returned `Operation1` (31 s limit). The row is `busy` meanwhile. A failure shows
 on the row ("Could not pause · Service unavailable") until the download changes
-state. Either way the catalog reloads.
+state. Either way the catalog reloads. A command belongs to the provider
+generation it was sent to: when a reload shows another generation, the row is
+no longer busy and that command's result is ignored.
 
 `downloadImported(message)` fires once per download per shell session. It fires
 when a download seen earlier as not imported becomes `imported`. A download

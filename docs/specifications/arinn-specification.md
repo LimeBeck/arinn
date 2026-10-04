@@ -254,7 +254,7 @@ Input modes: **D-pad mode** (cursor hidden, full focus treatment) and **pointer 
 | Menu | Toggle global navigation. A long press on an application tile in Applications or in Home favorites opens the tile action sheet: pin/unpin and, while the application runs, Close ([§5.5](#55-applications)). The sheet replaces the direct pin/unpin. Owner decision on 2026-10-01 ([#205](https://github.com/LimeBeck/arinn/issues/205)) |
 | Media and volume keys | Media and volume actions; outside the shell Plasma handles them ([§5.7](#57-system-ui-power-and-ambient)) |
 
-Outside the shell, keys belong to the active application. Arinn MUST NOT intercept Esc, Backspace or plain letters globally. The prototype's letter shortcuts (H, M, P, A, O) are development bindings, not product keys. The production mapping uses semantic actions and is configurable per device.
+Outside the shell, keys belong to the active application. Arinn MUST NOT intercept Esc, Backspace or plain letters globally. The prototype's letter shortcuts (H, M, P, A, O) are development bindings, not product keys. The production mapping uses semantic actions and is configurable per device. First step, owner decision of 2026-10-03 ([#64](https://github.com/LimeBeck/arinn/issues/64)): extra keys per action are set in `config.toml` under `[input.bindings]` and apply inside the shell only; a Settings UI, per-device bindings and gamepads come later ([ADR-0079](../adr/0079-shell-input-bindings.md)).
 
 ### 6.3. Home and Back
 
@@ -414,6 +414,10 @@ the daemon routes `media` and `library` ([ADR-0058](../adr/0058-media-routing.md
 receive concrete XML before their first provider. Plugin API major 1 remains pre-stable.
 
 Plugin API v1 is not yet stable; wire XML, SDK and the contract suite are produced per capability before its first provider ([plugin API](../plugin-api/README.md)).
+
+The daemon-owned Favorites wire contract is [ADR-0084](../adr/0084-favorites-contract.md)
+and [Favorites1](../plugin-api/favorites1.xml); it implements the existing stable
+launch-target persistence and pin/unpin requirements (§5.1, §5.5, §11).
 
 ### 9.1. Capabilities
 
@@ -600,6 +604,29 @@ Diagnostics show the daemon status and, per provider: runtime and backend state,
 ### 14.3. CLI
 
 `arinnctl` uses the same public daemon API as the shell and provides at least `status`, `providers`, `capabilities`, `activities`, `diagnostics`, `provider restart <id>` and `providers reload`. Human-readable output by default and `--json` for read commands. Exit codes: 0 success, 1 runtime failure, 2 invalid usage, 3 daemon unavailable. Web shortcuts are managed with `shortcuts [list]`, `shortcuts add <title> <url> [icon]`, `shortcuts edit <id> <title> <url> [icon]`, `shortcuts remove <id>` and `shortcuts open <id>` (the TV fallback without a keyboard, §5.1); `browser tabs`, `browser activate <provider> <tab>` and `browser close <provider> <tab>` work on browser providers. A failed call prints the Arinn error name (for example `Conflict`) on standard error; URLs appear only in the command's own output.
+
+### 14.4. Optional remote diagnostics
+
+Owner-requested development diagnostics use Sentry in the shell and daemon
+([ADR-0082](../adr/0082-opt-in-sentry.md),
+[configuration and captured data](../architecture/telemetry.md)). The separate
+`telemetry.toml` configuration flag `telemetry.enabled` defaults to false; a DSN
+alone MUST NOT enable collection or transmission. Both binaries embed the
+owner-provided public ingestion DSN; `enabled = true` is sufficient when no endpoint
+override is set. An environment DSN overrides a configuration DSN, which overrides
+the embedded default. Explicit empty/invalid overrides MUST disable transmission
+rather than fall back. The §13 exclusions apply to
+all remote event fields, breadcrumbs, traces and metrics. Under the same flag,
+fixed startup and daemon-operation traces and numeric error/operation counts and
+durations MAY be collected, without provider/browser/window identity. No memory dumps, screenshots or replay
+are sent. Existing local logging and diagnostics remain available.
+
+Before public release, remote diagnostics require informed, explicit user
+consent with a refusal path and review/withdrawal controls. Without consent,
+including refusal or withdrawal, Sentry MUST remain disabled and MUST NOT send
+cached reports. The current development flag is not the public consent UI;
+these pending requirements are tracked in the
+[publication checklist #74](https://github.com/LimeBeck/arinn/issues/74).
 
 ---
 

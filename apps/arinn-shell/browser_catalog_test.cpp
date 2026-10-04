@@ -390,7 +390,7 @@ class ExternalHomeBackend : public QObject {
   Q_PROPERTY(QVariantList continueEntries MEMBER m_continue CONSTANT)
   Q_PROPERTY(QVariantList applications MEMBER m_applications CONSTANT)
   Q_PROPERTY(QVariantList favorites MEMBER m_favorites CONSTANT)
-  Q_PROPERTY(QString homeState MEMBER m_homeState CONSTANT)
+  Q_PROPERTY(QString homeState MEMBER m_homeState NOTIFY changed)
   Q_PROPERTY(QStringList busyEntryIds MEMBER m_busy CONSTANT)
   Q_PROPERTY(QString message MEMBER m_message CONSTANT)
 public:
@@ -1191,6 +1191,62 @@ private slots:
     // The close intent uses the actual production Window.close wiring.
     QVERIFY(QMetaObject::invokeMethod(home, "closeShellRequested"));
     QTRY_VERIFY(!window->isVisible());
+    QCOMPARE(backend.backs, 0);
+  }
+  void openServicesBackSurvivesHomeRefresh_data() {
+    QTest::addColumn<int>("key");
+    QTest::addColumn<QString>("browserState");
+    for (const auto &state : {QString("populated"), QString("empty"),
+                             QString("unavailable")}) {
+      QTest::newRow(qPrintable(state + "-escape")) << int(Qt::Key_Escape) << state;
+      QTest::newRow(qPrintable(state + "-backspace")) << int(Qt::Key_Backspace) << state;
+    }
+  }
+  void openServicesBackSurvivesHomeRefresh() {
+    QFETCH(int, key);
+    QFETCH(QString, browserState);
+    auto bus = QDBusConnection::sessionBus();
+    BrowserDaemon daemon;
+    QVERIFY(bus.registerService("org.arinn.Daemon1"));
+    QVERIFY(bus.registerVirtualObject("/org/arinn", &daemon, QDBusConnection::SubPath));
+    ExternalHomeBackend backend;
+    backend.openOverlay(QStringLiteral("opaque-return"));
+    SessionGuardStandIn guard;
+    QQmlApplicationEngine engine;
+    engine.rootContext()->setContextProperty("backend", &backend);
+    engine.rootContext()->setContextProperty("sessionGuard", &guard);
+    installAssetImageProvider(&engine);
+    engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
+    QVERIFY(!engine.rootObjects().isEmpty());
+    auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+    QVERIFY(window);
+    auto home = window->findChild<QQuickItem *>("productionHome");
+    auto browser = window->findChild<QQuickItem *>("productionBrowser");
+    QVERIFY(home && browser);
+    const auto focusInside = [&](QQuickItem *scope) {
+      for (auto *item = window->activeFocusItem(); item; item = item->parentItem())
+        if (item == scope) return true;
+      return false;
+    };
+    QTRY_COMPARE(browser->property("browserState").toString(), QString("populated"));
+    browser->setProperty("browserState", browserState);
+    QVERIFY(QMetaObject::invokeMethod(home, "openServicesRequested"));
+    window->requestActivate();
+    QTRY_VERIFY(focusInside(browser));
+    // Main keeps Home painted behind the browser. A catalog-state refresh
+    // queues Home's own restoreHome callback while Open services is on top.
+    backend.m_homeState = QStringLiteral("loading");
+    emit backend.changed();
+    QTRY_COMPARE(home->property("homeState").toString(), QString("loading"));
+    // Wait for the same queued callback, not an arbitrary sleep.
+    bool refreshed = false;
+    QTimer::singleShot(0, &engine, [&] { refreshed = true; });
+    QTRY_VERIFY(refreshed);
+    QVERIFY(focusInside(browser));
+    QTest::keyClick(window, Qt::Key(key));
+    QTRY_VERIFY(!window->property("browserOpen").toBool());
+    QTRY_COMPARE(home->property("screen").toString(), QString("home"));
+    QTRY_VERIFY(focusInside(home));
     QCOMPARE(backend.backs, 0);
   }
   void productionReturnAssociationWiring() {

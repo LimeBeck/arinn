@@ -4,6 +4,7 @@
 
 #include "asset_images.h"
 #include "backend.h"
+#include "input_bindings.h"
 #include "sessionlifecycle.h"
 #include "shell_window.h"
 #include "startup_home.h"
@@ -39,6 +40,10 @@ int main(int argc, char **argv) {
     return 2;
   }
   Backend backend;
+  // Extra keys from config.toml (ADR-0079), applied before any screen.
+  InputBindings bindings;
+  app.installEventFilter(&bindings);
+  bindings.reload();
   auto *sessionGuard = createSessionLifecycle(&app);
   bus.registerObject("/org/arinn/Shell1", &backend,
                      QDBusConnection::ExportAllProperties);

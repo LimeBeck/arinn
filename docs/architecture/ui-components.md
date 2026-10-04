@@ -37,7 +37,12 @@ success timers. Status panes hide their action during loading.
 Focus ownership follows [ADR-0076](../adr/0076-shell-focus-ownership.md):
 `Main.qml` decides which screen is the focused scope (`focusedScreen`), screens
 move focus only inside themselves, and every move goes through
-`Focus.take(item)`, which refuses hidden or disabled items. The `focus-ownership`
+`Focus.take(item)`, which refuses hidden or disabled items. Home stays painted
+beneath secondary screens, but Main disables it whenever another screen owns
+focus, so catalog refresh callbacks and hover cannot steal that screen's input.
+The production browser regression covers Home state changes while Open services
+is displayed: Escape and Backspace return locally to Home without activating
+the external Return target. The `focus-ownership`
 test rejects any other `forceActiveFocus()` call.
 
 Screens own focus scopes, explicit neighbours, restoration and input-mode state.

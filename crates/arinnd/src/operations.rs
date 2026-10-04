@@ -42,6 +42,7 @@ impl Operation {
             value.started_at = value.ended_at;
         }
 
+        let safe_error = outcome.as_ref().err().copied();
         match outcome {
             Ok(results) => {
                 value.state = "succeeded".into();
@@ -56,6 +57,11 @@ impl Operation {
         eprintln!(
             "{}",
             serde_json::json!({"level":"info","component":"arinnd","provider_id":if self.provider_id.is_empty(){None}else{Some(&self.provider_id)},"request_id":self.request_id,"operation":"complete","outcome":value.state,"error":if value.error.is_empty(){None}else{Some(&value.error)},"duration_ms":self.admitted_at.elapsed().as_millis()})
+        );
+        crate::telemetry::record(
+            "operation.complete",
+            safe_error,
+            self.admitted_at.elapsed().as_millis().min(u64::MAX as u128) as u64,
         );
         drop(value);
         if let Ok(emitter) = SignalEmitter::new(c, path.clone()) {

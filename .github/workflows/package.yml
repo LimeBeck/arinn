@@ -28,7 +28,7 @@ jobs:
         id: deps
         run: |
           pacman -Syu --noconfirm --needed base-devel git rust cmake ninja \
-            qt6-base qt6-declarative qt6-svg python dbus
+            qt6-base qt6-declarative qt6-svg curl libunwind openssl python dbus
           useradd --create-home builder
           echo "rustc=$(rustc -V | tr -c 'A-Za-z0-9.\n' '-')" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v7

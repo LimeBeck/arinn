@@ -12,6 +12,9 @@ SPDX-License-Identifier: MIT OR Apache-2.0 -->
     </method>
     <method name="Back">
     </method>
+    <method name="GetInputBindings">
+      <arg type="a(sas)" direction="out" />
+    </method>
     <method name="TakeCommand">
       <arg type="s" direction="out" />
     </method>

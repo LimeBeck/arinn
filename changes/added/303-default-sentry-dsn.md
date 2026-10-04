@@ -1,0 +1,1 @@
+- Embed the owner-approved public Sentry DSN as the shell and daemon default, preserving disabled-by-default telemetry and explicit endpoint overrides; enabling diagnostics now needs only the configuration flag.

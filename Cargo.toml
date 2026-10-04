@@ -23,6 +23,6 @@ zbus = { version = "5", default-features = false, features = ["tokio"] }
 toml = "0.9"
 libc = "0.2"
 sha2 = "0.10"
-rusqlite = { version = "0.37", features = ["bundled"] }
+rusqlite = { version = "0.40", features = ["bundled"] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 arinn-plugin-sdk = { path = "crates/arinn-plugin-sdk" }

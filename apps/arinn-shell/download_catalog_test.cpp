@@ -495,16 +495,20 @@ private slots:
     DownloadCatalog catalog;
     QTRY_COMPARE(catalog.downloadsState(), QStringLiteral("error"));
 
+    // Near the limit D-Bus padding matters: 64 outputs with 4,070-byte titles
+    // encode to about 261,800 bytes, with 4,080-byte titles to about 262,350,
+    // over 256 KiB (sizes checked against DownloadPage::encoded_len()).
     daemon->page2.clear();
-    auto big = job(QStringLiteral("a"), QStringLiteral("completed"));
-    for (int i = 0; i < 20; ++i)
-      big.outputs.append({QStringLiteral("o%1").arg(i), QString(8 * 1024, u'x')});
-    daemon->page1 = {big};
+    const auto page = [](int titleBytes) {
+      auto big = job(QStringLiteral("a"), QStringLiteral("completed"));
+      for (int i = 0; i < 64; ++i)
+        big.outputs.append({QStringLiteral("o%1").arg(i), QString(titleBytes, u'x')});
+      return QList<DownloadWire>{big};
+    };
+    daemon->page1 = page(4070);
     reload(catalog);
     QCOMPARE(catalog.downloadsState(), QStringLiteral("populated"));
-    for (int i = 20; i < 40; ++i)
-      big.outputs.append({QStringLiteral("o%1").arg(i), QString(8 * 1024, u'x')});
-    daemon->page1 = {big};
+    daemon->page1 = page(4080);
     reload(catalog);
     QCOMPARE(catalog.downloadsState(), QStringLiteral("error"));
   }

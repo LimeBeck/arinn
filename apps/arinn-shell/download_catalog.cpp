@@ -131,8 +131,26 @@ bool wireId(const QString &value) {
 bool wireText(const QString &value) {
   return value.toUtf8().size() <= 8 * 1024 && !value.contains(QChar(u'\0'));
 }
-// Lower bound of a D-Bus string's encoding: length, bytes, NUL.
-qsizetype wireBytes(const QString &value) { return 4 + value.toUtf8().size() + 1; }
+// The D-Bus encoding size of a DownloadPage, with alignment, as
+// DownloadPage::encoded_len() counts it (QtDBus does not expose the
+// serialized size of a reply).
+struct WireSize {
+  qsizetype at = 0;
+  void align(qsizetype n) { at = (at + n - 1) / n * n; }
+  void string(const QString &value) {
+    align(4);
+    at += 4 + value.toUtf8().size() + 1;
+  }
+  void word8() { align(8); at += 8; }  // t, x, d
+  void boolean() { align(4); at += 4; }
+  void structure() { align(8); }
+  // Array length, then padding to the element alignment even when empty.
+  void array(qsizetype elementAlign) {
+    align(4);
+    at += 4;
+    align(elementAlign);
+  }
+};
 // MAX_BODY_BYTES of a page (ADR-0020).
 constexpr qsizetype maxBodyBytes = 256 * 1024;
 constexpr int maxActions = 8;
@@ -492,9 +510,13 @@ void DownloadCatalog::readDownloads(const std::shared_ptr<Catalog> &catalog,
         catalog->pageRevision = revision;
         const auto providerId = provider.value(QStringLiteral("id")).toString();
         int entries = 0;
-        // A lower bound of the page's encoded size; above MAX_BODY_BYTES the
-        // page cannot be valid (review of #310).
-        qsizetype bytes = wireBytes(generation) + 8;
+        // The page's encoded size; above MAX_BODY_BYTES it is invalid
+        // (review of #310).
+        WireSize encoded;
+        encoded.structure();
+        encoded.string(generation);
+        encoded.word8();
+        encoded.array(8);
         arg.beginArray();
         while (!arg.atEnd()) {
           // A page holds at most MAX_PAGE_ENTRIES rows (ADR-0020).
@@ -515,12 +537,23 @@ void DownloadCatalog::readDownloads(const std::shared_ptr<Catalog> &catalog,
               row.hasTotal >> total >> rate >> eta >> row.hasProgress >>
               row.progress >> row.actions >> row.errorCode >> row.errorMessage;
           // Output titles are not shown; the shell never sees output files.
-          // Four integers, a double and two 4-byte booleans.
-          bytes += 40 + 8 + wireBytes(row.localId) + wireBytes(row.title) +
-                   wireBytes(row.state) + wireBytes(row.errorCode) +
-                   wireBytes(row.errorMessage);
+          encoded.structure();
+          encoded.string(row.localId);
+          encoded.string(row.title);
+          encoded.string(row.state);
+          encoded.word8();   // completed_bytes
+          encoded.boolean(); // has_total
+          encoded.word8();   // total_bytes
+          encoded.word8();   // rate
+          encoded.word8();   // eta
+          encoded.boolean(); // has_progress
+          encoded.word8();   // progress
+          encoded.array(4);
           for (const auto &action : std::as_const(row.actions))
-            bytes += wireBytes(action);
+            encoded.string(action);
+          encoded.string(row.errorCode);
+          encoded.string(row.errorMessage);
+          encoded.array(8);
           QStringList outputs;
           bool outputTitlesValid = true;
           arg.beginArray();
@@ -531,10 +564,14 @@ void DownloadCatalog::readDownloads(const std::shared_ptr<Catalog> &catalog,
             arg.endStructure();
             outputs.append(outputId);
             outputTitlesValid = outputTitlesValid && wireText(outputTitle);
-            bytes += wireBytes(outputId) + wireBytes(outputTitle);
+            encoded.structure();
+            encoded.string(outputId);
+            encoded.string(outputTitle);
           }
           arg.endArray();
           arg >> row.importState;
+          encoded.string(row.importState);
+          encoded.array(8);
           int refs = 0;
           bool refsValid = true;
           arg.beginArray();
@@ -544,7 +581,10 @@ void DownloadCatalog::readDownloads(const std::shared_ptr<Catalog> &catalog,
             arg >> refProvider >> capability >> refLocal;
             arg.endStructure();
             ++refs;
-            bytes += wireBytes(refProvider) + wireBytes(capability) + wireBytes(refLocal);
+            encoded.structure();
+            encoded.string(refProvider);
+            encoded.string(capability);
+            encoded.string(refLocal);
             // library_refs are Library EntityRefs; anything else cannot be
             // watched (review of #310).
             if (!wireId(refProvider) || !wireId(refLocal) ||
@@ -562,8 +602,7 @@ void DownloadCatalog::readDownloads(const std::shared_ptr<Catalog> &catalog,
           row.completedBytes = completed;
           row.totalBytes = total;
           row.eta = eta;
-          bytes += wireBytes(row.importState);
-          if (bytes > maxBodyBytes || !outputTitlesValid ||
+          if (encoded.at > maxBodyBytes || !outputTitlesValid ||
               !validRow(row, outputs, refs, refsValid)) {
             failProvider(catalog, index, false);
             return;
@@ -582,8 +621,8 @@ void DownloadCatalog::readDownloads(const std::shared_ptr<Catalog> &catalog,
         arg >> next;
         arg.endStructure();
         // A continuation token is an id (validation::id).
-        if ((!next.isEmpty() && !wireId(next)) ||
-            bytes + wireBytes(next) > maxBodyBytes) {
+        encoded.string(next);
+        if ((!next.isEmpty() && !wireId(next)) || encoded.at > maxBodyBytes) {
           failProvider(catalog, index, false);
           return;
         }

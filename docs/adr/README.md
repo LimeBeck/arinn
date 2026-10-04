@@ -95,6 +95,8 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0075](0075-web-shortcut-site-icons.md) | Bounded provider-owned web shortcut site icons | Accepted | — |
 | [0076](0076-shell-focus-ownership.md) | Shell focus ownership | Accepted | — |
 | [0077](0077-kde-x11-session.md) | Optional KDE Plasma X11 session | Proposed | — |
-| [0078](0078-x11-ewmh-adapter.md) | Optional generic X11/EWMH adapter | Proposed | — |
+| [0078](0078-x11-ewmh-adapter.md) | Optional generic X11/EWMH adapter | Proposed | 0080 |
 | [0079](0079-shell-input-bindings.md) | Shell key bindings from config.toml | Accepted | — |
+| [0080](0080-mvp-platforms.md) | MVP platforms — KDE Plasma 6 on Wayland and X11/EWMH desktops | Accepted | — |
+| [0082](0082-opt-in-sentry.md) | Optional Sentry diagnostics for the shell and daemon | Proposed | — |
 <!-- register:end -->

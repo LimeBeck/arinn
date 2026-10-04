@@ -312,7 +312,7 @@ TestCase {
         const pane = child("browserStatus");
         tryCompare(pane, "visible", true);
         compare(pane.kind, "empty");
-        compare(pane.title, "Nothing open");
+        compare(pane.title, "No open services");
         compare(child("statusActionLabel").text, "Go to Home");
         compare(pane.description, "Services you open from Home will appear here.");
         verify(findChild(view, "row-t2") === null);
@@ -327,6 +327,24 @@ TestCase {
         focused("statusAction");
         verify(findChild(view, "shortcut-s1") === null);
         focusInside();
+    }
+
+    function test_disconnected_is_normal_empty_without_save() {
+        view.browserState = "disconnected";
+        const pane = child("browserStatus");
+        tryCompare(pane, "visible", true);
+        compare(pane.kind, "empty");
+        compare(pane.title, "No open services");
+        compare(pane.description, "Services you open from Home will appear here.");
+        compare(view.saveEnabled, false);
+        verify(findChild(view, "row-t2") === null);
+        focused("statusAction");
+        keyClick(Qt.Key_Return);
+        compare(backs.count, 1);
+        compare(retries.count, 0);
+        view.browserState = "populated";
+        tryCompare(child("row-t2"), "visible", true);
+        compare(view.saveEnabled, true);
     }
 
     function test_unavailable() {

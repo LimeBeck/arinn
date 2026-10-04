@@ -194,11 +194,12 @@ FocusScope {
         if (notice.length && autoToast) showToast(notice);
     }
     // Notices that arrive while one is shown wait their turn, so two imports
-    // in one read each get their toast (review of #310).
+    // in one read each get their toast. While the screen is hidden they are
+    // kept, and shown once it is on display (review of #310).
     property var toastQueue: []
     function showToast(message) {
         if (!message.length) return;
-        if (toastMessage.length) {
+        if (toastMessage.length || !visible) {
             toastQueue = toastQueue.concat([message]);
             return;
         }
@@ -207,10 +208,20 @@ FocusScope {
     }
     function nextToast() {
         toastMessage = "";
-        if (!toastQueue.length) return;
+        if (!toastQueue.length || !visible) return;
         const next = toastQueue[0];
         toastQueue = toastQueue.slice(1);
         showToast(next);
+    }
+    onVisibleChanged: {
+        if (visible) {
+            if (!toastMessage.length) nextToast();
+        } else if (toastMessage.length) {
+            // A notice cut short by leaving is shown again on return.
+            toastTimer.stop();
+            toastQueue = [toastMessage].concat(toastQueue);
+            toastMessage = "";
+        }
     }
     function acceptDirection(event) {
         if (event.key === Qt.Key_Up || event.key === Qt.Key_Down || event.key === Qt.Key_Left || event.key === Qt.Key_Right) {

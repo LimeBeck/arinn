@@ -1,0 +1,1 @@
+- Fix Escape and Backspace on Open services after a Home data refresh by preventing the covered Home screen from taking keyboard focus.

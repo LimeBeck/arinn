@@ -52,13 +52,13 @@ The runtime file that remembers the session id and the content reference does no
 
 ### MPRIS export
 
-While it has a session, the mpv provider is an MPRIS player itself: `org.mpris.MediaPlayer2.arinn_mpv.instance<pid>` at `/org/mpris/MediaPlayer2` ([ADR-0081](../adr/0081-mpris-export-of-managed-playback.md)). Plasma sends the media keys to the current MPRIS player, so the remote's play/pause reaches Arinn playback this way; the shell never sees that key. The calls map onto the session's media actions:
+While its session is playing or paused, the mpv provider is an MPRIS player itself: `org.mpris.MediaPlayer2.arinn_mpv.instance<pid>` at `/org/mpris/MediaPlayer2` ([ADR-0081](../adr/0081-mpris-export-of-managed-playback.md)). Plasma sends the media keys to the current MPRIS player, so the remote's play/pause reaches Arinn playback this way; the shell never sees that key. The calls map onto the session's media actions:
 
 - `PlayPause`, `Play`, `Pause`, `Stop`, `Seek` and `SetPosition`;
 - `Next` and `Previous` when the session allows them;
 - `OpenUri` is not supported.
 
-The name is released when no session is left.
+A seek emits `Seeked`. The name is released when the session is stopped or ended or none is left.
 
 ## MPRIS
 

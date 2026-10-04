@@ -478,6 +478,17 @@ async fn assert_mpris_controls_the_session(daemon: &Connection, commands: &Arc<M
     )
     .await
     .unwrap();
+    // A seek is announced with Seeked (review of #326).
+    use futures_util::StreamExt;
+    let mut seeked = player.receive_signal("Seeked").await.unwrap();
+    let _: () = player.call("Seek", &(1_000_000i64,)).await.unwrap();
+    let signal = tokio::time::timeout(Duration::from_secs(5), seeked.next())
+        .await
+        .expect("Seeked after Seek")
+        .unwrap();
+    let (position,): (i64,) = signal.body().deserialize().unwrap();
+    assert!(position > 0, "{position}");
+    assert!(names(commands).iter().any(|name| name == "seek"));
     let _: () = player.call("PlayPause", &()).await.unwrap();
     let paused = commands
         .lock()

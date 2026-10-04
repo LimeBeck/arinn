@@ -125,6 +125,7 @@ version = "0.1.0"
 dependencies = [
  "arinn-plugin-sdk",
  "arinn-protocol",
+ "futures-util",
  "libc",
  "serde",
  "serde_json",

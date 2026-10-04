@@ -24,16 +24,19 @@ shell's `Key_MediaTogglePlayPause` handling nor `[input.bindings]`
   `org.mpris.MediaPlayer2` and `org.mpris.MediaPlayer2.Player` at
   `/org/mpris/MediaPlayer2` on its session-bus connection. mpv stays without
   scripts and IPC beyond ADR-0057.
-- **The bus name exists only during a session.**
+- **The bus name exists only while playback can be controlled.**
   `org.mpris.MediaPlayer2.arinn_mpv.instance<pid>` is requested while the
-  provider has a session and released when it has none, so an idle Arinn never
-  takes the media keys from other players.
+  provider's current session is playing or paused. It is released when the
+  session is stopped or ended or none is left, so an idle Arinn, or one that
+  keeps a stopped session, never takes the media keys from other players.
 - **Commands reuse the session path.**
   - `PlayPause`, `Play`, `Pause`, `Stop`, `Seek` and `SetPosition` become the
     same `MediaAction`s the shell sends, with the same allowed-action checks.
   - `PlayPause` uses `play-pause` when the session allows it, otherwise
     `pause` or `play` by state.
   - `Next` and `Previous` follow the session's actions.
+  - A successful `Seek` or `SetPosition` emits `Seeked` with the target
+    position, because clients extrapolate `Position`.
   - `OpenUri` is `NotSupported`; MPRIS cannot open media in Arinn.
   - `Raise` and `Quit` are not offered.
 - **Properties come from the provider's view.**
@@ -71,14 +74,16 @@ shell's `Key_MediaTogglePlayPause` handling nor `[input.bindings]`
 
 ## Verification
 
-- Unit tests in `plugins/mpv/src/mpris.rs`: status, track id, position and
-  metadata.
+- Unit tests in `plugins/mpv/src/mpris.rs`: status, track id, position,
+  metadata, and that only a playing or paused session keeps the name.
 - `plugins/mpris/src/map.rs` checks that the reserved prefix is skipped.
 - The `plugins/mpv/tests/bus.rs` scenario checks three things:
   - while a session plays, the name is on the bus;
   - `PlaybackStatus` is `Playing` and `DesktopEntry` is `org.arinn.Shell`;
+  - MPRIS `Seek` reaches mpv and emits `Seeked`;
   - MPRIS `PlayPause` pauses mpv.
 
-  Disabling the name request fails it.
-- Not covered: release of the name when the session ends, and a real
-  KEY_PLAYPAUSE through Plasma on the device (operator check).
+  Disabling the name request or the `Seeked` signal fails it.
+- Not covered: the actual release of the name on the bus after Stop (the
+  decision is unit-tested), and a real KEY_PLAYPAUSE through Plasma on the
+  device (operator check).

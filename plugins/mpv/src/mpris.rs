@@ -5,7 +5,7 @@
 //!
 //! Plasma takes the media keys as global shortcuts and sends them to the
 //! current MPRIS player, so Arinn's own mpv must be one: while a session
-//! exists the provider owns `org.mpris.MediaPlayer2.arinn_mpv.instance<pid>`
+//! plays or is paused the provider owns `org.mpris.MediaPlayer2.arinn_mpv.instance<pid>`
 //! and maps the MPRIS player calls onto the same session commands the shell
 //! uses. The `arinn_` name prefix is reserved for Arinn providers; the MPRIS
 //! provider skips it, so the session is not listed twice.
@@ -16,6 +16,7 @@ use std::collections::HashMap;
 use tokio::sync::watch;
 use zbus::{
     Connection, fdo,
+    object_server::SignalEmitter,
     zvariant::{ObjectPath, OwnedObjectPath, OwnedValue, Value},
 };
 
@@ -103,6 +104,13 @@ pub fn metadata(session: Option<&Session>) -> HashMap<String, OwnedValue> {
 
 fn current(view: &View) -> Option<&Session> {
     view.sessions.first()
+}
+
+/// Whether the media keys should reach this player: only a playing or
+/// paused session. A stopped or ended one keeps no action the keys use, so
+/// the name is released and Plasma picks another player.
+pub fn controllable(session: Option<&Session>) -> bool {
+    session.is_some_and(|s| s.state == media::STATE_PLAYING || s.state == media::STATE_PAUSED)
 }
 
 pub struct Root;
@@ -197,14 +205,26 @@ impl PlayerIface {
     async fn previous(&self) -> fdo::Result<()> {
         self.run(MediaAction::Previous, 0).await
     }
-    async fn seek(&self, offset: i64) -> fdo::Result<()> {
+    async fn seek(
+        &self,
+        offset: i64,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+    ) -> fdo::Result<()> {
         let session = self
             .session()
             .ok_or_else(|| fdo::Error::Failed("no session".into()))?;
         let target = seek_target(&session, (self.now)(), offset);
-        self.run(MediaAction::Seek, target).await
+        self.run(MediaAction::Seek, target).await?;
+        // Clients extrapolate Position; a jump must be announced.
+        Self::seeked(&emitter, target).await?;
+        Ok(())
     }
-    async fn set_position(&self, track: ObjectPath<'_>, position: i64) -> fdo::Result<()> {
+    async fn set_position(
+        &self,
+        track: ObjectPath<'_>,
+        position: i64,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+    ) -> fdo::Result<()> {
         let session = self
             .session()
             .ok_or_else(|| fdo::Error::Failed("no session".into()))?;
@@ -215,8 +235,12 @@ impl PlayerIface {
         {
             return Ok(());
         }
-        self.run(MediaAction::Seek, position).await
+        self.run(MediaAction::Seek, position).await?;
+        Self::seeked(&emitter, position).await?;
+        Ok(())
     }
+    #[zbus(signal)]
+    async fn seeked(emitter: &SignalEmitter<'_>, position: i64) -> zbus::Result<()>;
     fn open_uri(&self, _uri: &str) -> fdo::Result<()> {
         Err(fdo::Error::NotSupported("OpenUri".into()))
     }
@@ -285,7 +309,8 @@ impl PlayerIface {
     }
 }
 
-/// Export the player and keep the bus name only while a session exists.
+/// Export the player and keep the bus name only while a session can be
+/// controlled (see [`controllable`]).
 /// Property changes follow the provider's view.
 pub async fn run(connection: Connection, player: Player, now: fn() -> u64) -> zbus::Result<()> {
     let mut notes = player.subscribe();
@@ -301,7 +326,7 @@ pub async fn run(connection: Connection, player: Player, now: fn() -> u64) -> zb
     let name = bus_name();
     let mut owned = false;
     loop {
-        let has_session = !notes.borrow_and_update().sessions.is_empty();
+        let has_session = controllable(current(&notes.borrow_and_update()));
         if has_session && !owned {
             connection.request_name(name.as_str()).await?;
             owned = true;
@@ -370,6 +395,21 @@ mod tests {
         assert_eq!(seek_target(&paused, 0, -30_000_000), 0);
         assert_eq!(seek_target(&paused, 0, 5_000_000), 15_000_000);
         assert_eq!(seek_target(&paused, 0, 90_000_000), 60_000_000);
+    }
+
+    // Review of #326: a stopped or ended session must not keep the media keys.
+    #[test]
+    fn only_a_playing_or_paused_session_keeps_the_name() {
+        assert!(controllable(Some(&session(media::STATE_PLAYING, 0, 0, -1))));
+        assert!(controllable(Some(&session(media::STATE_PAUSED, 0, 0, -1))));
+        assert!(!controllable(Some(&session(
+            media::STATE_STOPPED,
+            0,
+            0,
+            -1
+        ))));
+        assert!(!controllable(Some(&session(media::STATE_ENDED, 0, 0, -1))));
+        assert!(!controllable(None));
     }
 
     #[test]

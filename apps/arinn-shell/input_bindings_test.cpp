@@ -127,6 +127,23 @@ private slots:
     qApp->removeEventFilter(&bindings);
   }
 
+  // #328: F5 by name and by its evdev code is one key; bound to two actions
+  // it is ambiguous and stays F5.
+  void nameAndCodeOfOneKeyAreAmbiguous() {
+    Window window;
+    InputBindings bindings;
+    qApp->installEventFilter(&bindings);
+    bindings.setBindings({{QStringLiteral("up"), {QStringLiteral("F5")}},
+                          {QStringLiteral("down"), {QStringLiteral("evdev:63")}},
+                          {QStringLiteral("select"), {QStringLiteral("F6"),
+                                                      QStringLiteral("evdev:64")}}});
+    press(&window, Qt::Key_F5, 63 + 8);
+    // Name and code of one key on the same action still map.
+    press(&window, Qt::Key_F6, 64 + 8);
+    QCOMPARE(window.pressed, (QList<int>{Qt::Key_F5, Qt::Key_Return}));
+    qApp->removeEventFilter(&bindings);
+  }
+
   void bindingsComeFromTheDaemon() {
     auto bus = QDBusConnection::sessionBus();
     QVERIFY(bus.isConnected());

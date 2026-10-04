@@ -9,6 +9,7 @@ pub mod assets;
 pub mod browse;
 pub mod browser;
 pub mod download;
+pub mod favorites;
 pub mod folders;
 pub mod input;
 pub mod kwin;

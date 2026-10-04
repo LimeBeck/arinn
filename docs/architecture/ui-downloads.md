@@ -123,7 +123,10 @@ re-import.
 
 Watch calls `watchTarget(id)`, the first library ref of an imported download.
 `LibraryCatalog.entryIdFor()` maps that ref to its top-level entry, a film or
-the episode's series. Main then opens the library on that entry's Detail. Back
+the episode's series. Main then opens the library on that entry's Detail. When the library catalog
+does not list the item yet, Main switches to the library, asks the catalog to
+read again, and opens the Detail once a later read lists it. Leaving the
+library drops that request. Back
 from the screen returns Home.
 
 ## Known presentation gaps

@@ -35,6 +35,19 @@ Window {
     property bool sessionOpen: false
     property bool playerOpen: false
     property bool sessionFromLibrary: false
+    // Watch on a download whose library item the library catalog has not
+    // read yet: {provider, local}, opened once the catalog lists it.
+    property var pendingWatch: null
+    function openWatchTarget() {
+        if (!pendingWatch || home.screen !== "library") {
+            pendingWatch = null;
+            return;
+        }
+        const entryId = libraryCatalog.entryIdFor(pendingWatch.provider, pendingWatch.local);
+        if (!entryId.length) return;
+        pendingWatch = null;
+        Qt.callLater(() => libraryView.openEntry(entryId));
+    }
     property bool presentationAtHome: false
     property bool presentationRequested: false
     function showPlaybackHome() {
@@ -444,9 +457,12 @@ Window {
             // library itself when the catalog does not list it yet.
             onWatchRequested: id => {
                 const target = downloadCatalog.watchTarget(id);
-                const entryId = target.local ? libraryCatalog.entryIdFor(target.provider, target.local) : "";
                 home.screen = "library";
-                if (entryId.length) Qt.callLater(() => libraryView.openEntry(entryId));
+                root.pendingWatch = target.local ? target : null;
+                if (!root.pendingWatch) return;
+                root.openWatchTarget();
+                // Not listed yet: read again, and open it when it appears.
+                if (root.pendingWatch) libraryCatalog.refresh();
             }
             onRefreshRequested: downloadCatalog.refresh()
             onBackRequested: home.back()
@@ -565,6 +581,7 @@ Window {
         }
         Connections {
             target: libraryCatalog
+            function onCatalogChanged() { if (root.pendingWatch) root.openWatchTarget(); }
             function onSessionLaunched(presentationId) {
                 // A resume started from a Home Continue card returns to Home
                 // when playback ends; any other library launch returns to

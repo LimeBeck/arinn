@@ -1305,6 +1305,36 @@ private slots:
                             QStringLiteral("north")));
     QTRY_VERIFY(focusInside(window->activeFocusItem(), library));
 
+    // Review of #310: Watch before the library lists the item opens its
+    // Detail once a later read lists it.
+    QVERIFY(QMetaObject::invokeMethod(library, "closeDetail"));
+    QTRY_COMPARE(library->property("detailOpen").toBool(), false);
+    DownloadWire late;
+    late.id = QStringLiteral("late");
+    late.title = QStringLiteral("West");
+    late.state = QStringLiteral("completed");
+    late.importState = QStringLiteral("imported");
+    late.refs = {{QStringLiteral("library-provider"), QStringLiteral("library"),
+                  QStringLiteral("west")}};
+    daemon.downloads = {late, done, running};
+    home->setProperty("screen", QStringLiteral("downloads"));
+    const auto lateId =
+        presentationId(QStringLiteral("dl-provider"), QStringLiteral("late"));
+    auto catalog = window->findChild<QObject *>(QStringLiteral("downloadCatalog"));
+    QVERIFY(catalog);
+    QVERIFY(QMetaObject::invokeMethod(catalog, "refresh"));
+    QTRY_COMPARE(view->property("jobs").toList().size(), 3);
+    // The view keeps the selected download; the new one is above it.
+    QTRY_VERIFY(focused(doneId));
+    QTest::keyClick(window, Qt::Key_Up);
+    QTRY_VERIFY(focused(lateId));
+    daemon.page1.append(film(QStringLiteral("west"), QStringLiteral("West")));
+    QTest::keyClick(window, Qt::Key_Return);
+    QTRY_COMPARE(home->property("screen").toString(), QStringLiteral("library"));
+    QTRY_COMPARE(library->property("detailEntryId").toString(),
+                 presentationId(QStringLiteral("library-provider"),
+                                QStringLiteral("west")));
+
     // Back from Downloads goes Home.
     home->setProperty("screen", QStringLiteral("downloads"));
     QTRY_VERIFY(focusInside(window->activeFocusItem(), view));

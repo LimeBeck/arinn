@@ -1328,7 +1328,22 @@ private slots:
     QTRY_VERIFY(focused(doneId));
     QTest::keyClick(window, Qt::Key_Up);
     QTRY_VERIFY(focused(lateId));
+    // Leaving the library before the item appears drops the request.
+    QTest::keyClick(window, Qt::Key_Return);
+    QTRY_COMPARE(home->property("screen").toString(), QStringLiteral("library"));
+    QVERIFY(!window->property("pendingWatch").isNull());
+    home->setProperty("screen", QStringLiteral("home"));
+    home->setProperty("screen", QStringLiteral("library"));
+    QVERIFY(window->property("pendingWatch").isNull());
     daemon.page1.append(film(QStringLiteral("west"), QStringLiteral("West")));
+    auto libraryCatalog = window->findChild<QObject *>(QStringLiteral("libraryCatalog"));
+    QVERIFY(libraryCatalog);
+    QVERIFY(QMetaObject::invokeMethod(libraryCatalog, "refresh"));
+    QTest::qWait(300);
+    QCOMPARE(library->property("detailOpen").toBool(), false);
+    // With the item listed, Watch opens it directly.
+    home->setProperty("screen", QStringLiteral("downloads"));
+    QTRY_VERIFY(focused(lateId));
     QTest::keyClick(window, Qt::Key_Return);
     QTRY_COMPARE(home->property("screen").toString(), QStringLiteral("library"));
     QTRY_COMPARE(library->property("detailEntryId").toString(),

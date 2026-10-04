@@ -38,6 +38,12 @@ Window {
     // Watch on a download whose library item the library catalog has not
     // read yet: {provider, local}, opened once the catalog lists it.
     property var pendingWatch: null
+    // Leaving the library abandons a pending Watch; coming back later must
+    // not open an old download's Detail (review of #310).
+    Connections {
+        target: home
+        function onScreenChanged() { if (home.screen !== "library") root.pendingWatch = null; }
+    }
     function openWatchTarget() {
         if (!pendingWatch || home.screen !== "library") {
             pendingWatch = null;

@@ -63,6 +63,9 @@ private:
     QString importState;
     QString refProvider;
     QString refLocal;
+    // The provider's backend is unavailable: the cached row stays readable
+    // and no command is offered (ADR-0067).
+    bool backendUnavailable = false;
   };
   struct Catalog;
   void readProviders(const std::shared_ptr<Catalog> &catalog,

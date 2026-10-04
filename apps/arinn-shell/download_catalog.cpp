@@ -172,8 +172,9 @@ void DownloadCatalog::publish() {
   for (const auto &row : m_rows) {
     const auto known = knownState(row.state);
     QStringList actions;
-    for (const auto &action : row.actions)
-      actions.append(viewAction(action));
+    if (!row.backendUnavailable)
+      for (const auto &action : row.actions)
+        actions.append(viewAction(action));
     QStringList details;
     if (row.hasTotal && row.state != QLatin1String("completed"))
       details.append(tr("%1 of %2").arg(size(row.completedBytes), size(row.totalBytes)));
@@ -312,15 +313,16 @@ void DownloadCatalog::readProviders(const std::shared_ptr<Catalog> &catalog,
           if (!capabilities.contains(QLatin1String("download")))
             continue;
           catalog->sawDownload = true;
-          // A provider whose backend is unavailable has no queue to show
-          // (the service-unavailable state).
-          if (runtime == QLatin1String("ready") &&
-              backend != QLatin1String("unavailable") && !id.isEmpty() &&
+          // A provider whose backend is unavailable still serves its cached
+          // rows; only its commands are refused (ADR-0067).
+          if (runtime == QLatin1String("ready") && !id.isEmpty() &&
               !endpoint.path().isEmpty() && !generation.isEmpty())
             catalog->providers.append(QVariantMap{
                 {QStringLiteral("id"), id},
                 {QStringLiteral("path"), endpoint.path()},
-                {QStringLiteral("generation"), generation}});
+                {QStringLiteral("generation"), generation},
+                {QStringLiteral("backendUnavailable"),
+                 backend == QLatin1String("unavailable")}});
         }
         arg.endArray();
         arg >> next;
@@ -412,6 +414,8 @@ void DownloadCatalog::readDownloads(const std::shared_ptr<Catalog> &catalog,
           row.providerId = providerId;
           row.path = provider.value(QStringLiteral("path")).toString();
           row.generation = generation;
+          row.backendUnavailable =
+              provider.value(QStringLiteral("backendUnavailable")).toBool();
           qulonglong completed = 0, total = 0, rate = 0;
           qlonglong eta = -1;
           arg.beginStructure();
@@ -486,11 +490,18 @@ void DownloadCatalog::finishCatalog(const std::shared_ptr<Catalog> &catalog,
   const auto everyProviderFailed =
       !catalog->providers.isEmpty() &&
       catalog->failed >= catalog->providers.size();
+  // With every backend unavailable and nothing cached, the service is
+  // unavailable rather than an empty queue.
+  auto everyBackendDown = !catalog->providers.isEmpty();
+  for (const auto &provider : std::as_const(catalog->providers))
+    if (!provider.toMap().value(QStringLiteral("backendUnavailable")).toBool())
+      everyBackendDown = false;
   if (!success) {
     m_error = true;
     m_unreachable = false;
     m_rows.clear();
   } else if (catalog->providers.isEmpty() ||
+             (everyBackendDown && catalog->rows.isEmpty()) ||
              (everyProviderFailed &&
               catalog->unavailable >= catalog->providers.size())) {
     // No download service, or none that can answer: service unavailable.
@@ -546,7 +557,7 @@ QVariantMap DownloadCatalog::watchTarget(const QString &id) const {
 void DownloadCatalog::request(const QString &id, const QString &action) {
   const auto *row = findId(id);
   const auto *name = method(action);
-  if (!row || !name || m_busy.contains(id) ||
+  if (!row || !name || m_busy.contains(id) || row->backendUnavailable ||
       !row->actions.contains(wireAction(action)))
     return;
   const auto epoch = m_epoch;

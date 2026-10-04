@@ -81,8 +81,9 @@ from the loading scope, and stay inside this screen.
 asynchronously, the same way `LibraryCatalog` reads `Library1`:
 
 - It lists the providers with the `download` capability from
-  `Daemon1.Providers`. A provider counts when its runtime is `ready` and its
-  backend is not `unavailable`.
+  `Daemon1.Providers` whose runtime is `ready`. A provider whose backend is
+  `unavailable` still serves its cached rows (ADR-0067); those rows offer no
+  action and no command is sent for them.
 - `GetDownloads` pages must carry the provider's generation and one revision
   across the pages. A repeated token, a torn read or a malformed row fails that
   provider.
@@ -92,7 +93,7 @@ asynchronously, the same way `LibraryCatalog` reads `Library1`:
 | `downloadsState` | When |
 | --- | --- |
 | `loading` | Before the first read |
-| `unavailable` | No daemon; no download provider; none ready with an available backend; every provider answered `Unavailable` |
+| `unavailable` | No daemon; no ready download provider; every backend unavailable with nothing cached; every provider answered `Unavailable` |
 | `error` | The daemon's provider list could not be read, or every provider failed otherwise |
 | `empty`, `populated` | The queue was read |
 

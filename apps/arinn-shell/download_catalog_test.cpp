@@ -361,11 +361,24 @@ private slots:
   }
 
   void unavailableService() {
-    daemon->page1 = {job(QStringLiteral("a"), QStringLiteral("queued"))};
+    // Review of #310: with the backend unavailable the cached queue stays
+    // readable and offers no command (ADR-0067).
+    auto queued = job(QStringLiteral("a"), QStringLiteral("queued"));
+    queued.actions = {QStringLiteral("start-now")};
+    daemon->page1 = {queued};
     daemon->providers.first().backend = QStringLiteral("unavailable");
     DownloadCatalog catalog;
-    QTRY_COMPARE(catalog.downloadsState(), QStringLiteral("unavailable"));
-    QCOMPARE(daemon->reads, 0);
+    QTRY_COMPARE(catalog.downloadsState(), QStringLiteral("populated"));
+    const auto cached = jobById(catalog, QStringLiteral("a"));
+    QCOMPARE(cached.value(QStringLiteral("state")).toString(), QStringLiteral("queued"));
+    QVERIFY(cached.value(QStringLiteral("availableActions")).toStringList().isEmpty());
+    catalog.request(presentationId(QStringLiteral("a")), QStringLiteral("start_now"));
+    QTest::qWait(100);
+    QVERIFY(daemon->commands.isEmpty());
+    // Nothing cached: the service is unavailable, not an empty queue.
+    daemon->page1.clear();
+    reload(catalog);
+    QCOMPARE(catalog.downloadsState(), QStringLiteral("unavailable"));
 
     daemon->providers.first().backend = QStringLiteral("available");
     daemon->downloadsError = QStringLiteral("Unavailable");

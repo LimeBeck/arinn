@@ -82,6 +82,8 @@ private:
   void announceImports();
   void publish();
   const Row *findId(const QString &id) const;
+  static bool validRow(const Row &row, const QStringList &outputs, int refs,
+                       bool refsValid);
   QVariantList m_jobs;
   QList<Row> m_rows;
   // Presentation id → the job state when the failure was reported, and the

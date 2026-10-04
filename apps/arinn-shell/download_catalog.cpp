@@ -95,6 +95,27 @@ QString actionTitle(const QString &action) {
     return QObject::tr("Could not start");
   return QObject::tr("Could not retry");
 }
+// A wire token: 1–32 of a–z, 0–9 and '-'.
+bool wireToken(const QString &value) {
+  if (value.isEmpty() || value.size() > 32)
+    return false;
+  for (const auto c : value)
+    if (!(c.isDigit() || (c >= QLatin1Char('a') && c <= QLatin1Char('z')) ||
+          c == QLatin1Char('-')))
+      return false;
+  return true;
+}
+const QStringList errorCodes{
+    QStringLiteral("NotFound"),         QStringLiteral("Unavailable"),
+    QStringLiteral("Unsupported"),      QStringLiteral("PermissionDenied"),
+    QStringLiteral("Timeout"),          QStringLiteral("InvalidArgument"),
+    QStringLiteral("Conflict"),         QStringLiteral("Internal"),
+    QStringLiteral("Cancelled")};
+const QStringList importStates{
+    QStringLiteral("none"), QStringLiteral("pending"), QStringLiteral("imported"),
+    QStringLiteral("unavailable"), QStringLiteral("unsupported")};
+constexpr int maxActions = 8;
+constexpr int maxOutputs = 64;
 void registerDownloadCatalog() {
   qmlRegisterType<DownloadCatalog>("Arinn.Shell", 1, 0, "DownloadCatalog");
 }
@@ -158,6 +179,37 @@ void DownloadCatalog::stateChanged(const QString &, const QString &capability,
                                    const QString &, qulonglong) {
   if (capability == QLatin1String("download"))
     refresh();
+}
+
+// The Download invariants (crates/arinn-protocol/src/download.rs).
+bool DownloadCatalog::validRow(const Row &row, const QStringList &outputs,
+                               int refs, bool refsValid) {
+  if (row.localId.isEmpty() || !wireToken(row.state) || row.eta < -1)
+    return false;
+  if (row.hasTotal ? row.completedBytes > row.totalBytes : row.totalBytes != 0)
+    return false;
+  if (row.hasProgress ? !(row.progress >= 0 && row.progress <= 1)
+                      : row.progress != 0.0)
+    return false;
+  if (row.actions.size() > maxActions ||
+      QSet<QString>(row.actions.cbegin(), row.actions.cend()).size() !=
+          row.actions.size())
+    return false;
+  for (const auto &action : row.actions)
+    if (!wireToken(action))
+      return false;
+  if (row.state == QLatin1String("error")
+          ? !errorCodes.contains(row.errorCode)
+          : !(row.errorCode.isEmpty() && row.errorMessage.isEmpty()))
+    return false;
+  if (outputs.size() > maxOutputs ||
+      QSet<QString>(outputs.cbegin(), outputs.cend()).size() != outputs.size() ||
+      outputs.contains(QString()))
+    return false;
+  if (!importStates.contains(row.importState) || refs > maxOutputs || !refsValid ||
+      (row.importState != QLatin1String("imported") && refs > 0))
+    return false;
+  return true;
 }
 
 const DownloadCatalog::Row *DownloadCatalog::findId(const QString &id) const {
@@ -424,40 +476,45 @@ void DownloadCatalog::readDownloads(const std::shared_ptr<Catalog> &catalog,
               row.hasTotal >> total >> rate >> eta >> row.hasProgress >>
               row.progress >> row.actions >> row.errorCode >> row.errorMessage;
           // Output titles are not shown; the shell never sees output files.
+          QStringList outputs;
           arg.beginArray();
           while (!arg.atEnd()) {
             QString outputId, outputTitle;
             arg.beginStructure();
             arg >> outputId >> outputTitle;
             arg.endStructure();
+            outputs.append(outputId);
           }
           arg.endArray();
           arg >> row.importState;
+          int refs = 0;
+          bool refsValid = true;
           arg.beginArray();
           while (!arg.atEnd()) {
             QString refProvider, capability, refLocal;
             arg.beginStructure();
             arg >> refProvider >> capability >> refLocal;
             arg.endStructure();
-            if (row.refLocal.isEmpty() && !refProvider.isEmpty() &&
-                !refLocal.isEmpty()) {
+            ++refs;
+            if (refProvider.isEmpty() || capability.isEmpty() || refLocal.isEmpty())
+              refsValid = false;
+            else if (row.refLocal.isEmpty()) {
               row.refProvider = refProvider;
               row.refLocal = refLocal;
             }
           }
           arg.endArray();
           arg.endStructure();
-          // A size or progress without its has-value flag is never shown.
-          if (row.localId.isEmpty() || eta < -1 ||
-              (row.hasTotal && completed > total) ||
-              (row.hasProgress && !(row.progress >= 0 && row.progress <= 1))) {
+          // A malformed row fails its provider (the Download invariants of
+          // ADR-0067); nothing is normalized into a misleading row.
+          row.completedBytes = completed;
+          row.totalBytes = total;
+          row.eta = eta;
+          if (!validRow(row, outputs, refs, refsValid)) {
             failProvider(catalog, index, false);
             return;
           }
-          row.completedBytes = completed;
-          row.totalBytes = row.hasTotal ? total : 0;
           row.rate = rate;
-          row.eta = eta;
           row.id = presentationId(providerId, row.localId);
           for (const auto &kept : std::as_const(catalog->rows)) {
             if (kept.id == row.id) {

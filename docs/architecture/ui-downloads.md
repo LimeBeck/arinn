@@ -87,7 +87,13 @@ asynchronously, the same way `LibraryCatalog` reads `Library1`:
   action and no command is sent for them.
 - `GetDownloads` pages must carry the provider's generation and one revision
   across the pages. A repeated token, a torn read or a malformed row fails that
-  provider.
+  provider. A row is malformed when it breaks a `Download` invariant of
+  `crates/arinn-protocol/src/download.rs`:
+  - a size or progress value without its flag, or progress outside 0..1;
+  - a bad state or action token, a repeated action or more than eight;
+  - an error code outside `error`, or an unknown code in it;
+  - an unknown import state, or library refs before `imported`;
+  - repeated or empty output ids.
 - It reloads on `Daemon1.StateChanged` with capability `download` and on
   `ProvidersChanged`. A 30 s timer is only a fallback. A read during which a
   newer notification arrived is dropped and read again instead of published,

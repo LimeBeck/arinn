@@ -277,8 +277,6 @@ private slots:
     downloading.actions = {QStringLiteral("pause")};
     auto queued = job(QStringLiteral("b"), QStringLiteral("queued"));
     queued.actions = {QStringLiteral("start-now")};
-    // A size or progress without its flag is never a percentage.
-    queued.progress = 0.5;
     auto verifying = job(QStringLiteral("c"), QStringLiteral("verifying"));
     verifying.eta = 30;
     auto failed = job(QStringLiteral("d"), QStringLiteral("error"));
@@ -352,6 +350,54 @@ private slots:
     // Nothing the shell receives names a file.
     for (const auto &value : catalog.jobs())
       QVERIFY(!value.toMap().contains(QStringLiteral("outputs")));
+  }
+
+  // Review of #310: a row that breaks a Download invariant fails its
+  // provider instead of being shown.
+  void malformedRowsFailTheProvider() {
+    QList<std::pair<const char *, std::function<void(DownloadWire &)>>> cases{
+        {"total without flag", [](DownloadWire &d) { d.total = 5; }},
+        {"progress without flag", [](DownloadWire &d) { d.progress = 0.5; }},
+        {"NaN progress", [](DownloadWire &d) {
+           d.hasProgress = true;
+           d.progress = std::numeric_limits<double>::quiet_NaN();
+         }},
+        {"completed past total", [](DownloadWire &d) {
+           d.hasTotal = true;
+           d.total = 1;
+           d.completed = 2;
+         }},
+        {"bad state token", [](DownloadWire &d) { d.state = QStringLiteral("Bad State"); }},
+        {"duplicate action", [](DownloadWire &d) {
+           d.actions = {QStringLiteral("pause"), QStringLiteral("pause")};
+         }},
+        {"error code outside error", [](DownloadWire &d) {
+           d.errorCode = QStringLiteral("Internal");
+         }},
+        {"error without known code", [](DownloadWire &d) {
+           d.state = QStringLiteral("error");
+           d.errorCode = QStringLiteral("Oops");
+         }},
+        {"unknown import state", [](DownloadWire &d) { d.importState = QStringLiteral("done"); }},
+        {"refs before import", [](DownloadWire &d) {
+           d.importState = QStringLiteral("pending");
+           d.refs = {{QStringLiteral("lib"), QStringLiteral("library"), QStringLiteral("x")}};
+         }},
+        {"duplicate output", [](DownloadWire &d) {
+           d.outputs = {{QStringLiteral("o"), QString()}, {QStringLiteral("o"), QString()}};
+         }},
+    };
+    for (const auto &[name, breakRow] : cases) {
+      // A fresh daemon fixture per case (the framework's cleanup runs last).
+      cleanup();
+      init();
+      auto row = job(QStringLiteral("a"), QStringLiteral("queued"));
+      breakRow(row);
+      daemon->page1 = {row};
+      DownloadCatalog catalog;
+      QTRY_VERIFY2(catalog.downloadsState() == QLatin1String("error"), name);
+      QVERIFY2(catalog.jobs().isEmpty(), name);
+    }
   }
 
   void pagingAndRevisions() {

@@ -160,7 +160,7 @@ fn scans_films_series_artwork_and_hostile_nfo() {
     assert_eq!(fs::read(&secret).unwrap(), b"SECRET_FROM_ENTITY");
 }
 
-// ADR-0083 (#311): anime `TVn` season folders beside each other form one
+// ADR-0085 (#311): anime `TVn` season folders beside each other form one
 // series with a season each.
 #[test]
 fn tv_season_folders_form_one_series() {

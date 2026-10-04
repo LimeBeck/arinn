@@ -65,7 +65,7 @@ pub fn parse_video(root: &Path, path: &Path) -> Option<Parsed> {
     let (mut text, mut year) = take_year(&cleaned);
     let mut marker = find_marker(&text).map(|(s, e, start, end)| (s, Some(e), start, end));
     if marker.is_none() {
-        // Anime names (ADR-0083) keep a `TVn` season or the episode number
+        // Anime names (ADR-0085) keep a `TVn` season or the episode number
         // in `[...]` groups, which the plain cleaning drops.
         let (alt, alt_year) = take_year(&clean(&unwrap_markers(stem)));
         marker = tv_marker(&alt);
@@ -86,7 +86,7 @@ pub fn parse_video(root: &Path, path: &Path) -> Option<Parsed> {
             let after = trim_seps(&without_year[end..]);
             (Some(season), episode_no, before, after)
         }
-        // In a season folder the episode number may stand alone (ADR-0083).
+        // In a season folder the episode number may stand alone (ADR-0085).
         None => match loose_episode(&without_year) {
             Some((episode_no, start, end)) => (
                 season_from_dir,
@@ -163,7 +163,7 @@ fn series_title(series_dir: &str, before: &str, stem: &str) -> (String, Option<i
 
 /// Where a video's series lives. `path` is the series directory relative to
 /// the root, or empty; `title` is set by a `<Title> TVn` season folder, which
-/// names the series without being its directory (ADR-0083).
+/// names the series without being its directory (ADR-0085).
 #[derive(Default)]
 struct SeriesDir {
     path: String,
@@ -865,7 +865,7 @@ mod tests {
         parsed
     }
 
-    // ADR-0083: anime `TVn` seasons in the file name.
+    // ADR-0085: anime `TVn` seasons in the file name.
     #[test]
     fn tv_marker_in_the_file_name_is_a_season() {
         for (path, season, number) in [
@@ -892,7 +892,7 @@ mod tests {
         assert!(!bare.has_episode);
     }
 
-    // ADR-0083: `TVn` and `<Title> TVn` folders are season folders.
+    // ADR-0085: `TVn` and `<Title> TVn` folders are season folders.
     #[test]
     fn tv_folders_are_seasons_of_one_series() {
         let first = episode("/library/Show TV1/01.mkv");

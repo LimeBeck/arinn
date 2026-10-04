@@ -1,4 +1,4 @@
-# ADR-0083: Anime `TVn` season markers in library names
+# ADR-0085: Anime `TVn` season markers in library names
 
 - **Status:** Accepted
 - **Date:** 2026-10-04

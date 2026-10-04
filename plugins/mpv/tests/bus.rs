@@ -470,6 +470,17 @@ async fn assert_mpris_controls_the_session(daemon: &Connection, commands: &Arc<M
         .try_into()
         .unwrap();
     assert_eq!(identity, "org.arinn.Shell");
+    // Volume belongs to the system: a write is refused, not ignored.
+    assert!(
+        properties
+            .set(
+                interface.clone(),
+                "Volume",
+                zbus::zvariant::Value::from(0.5)
+            )
+            .await
+            .is_err()
+    );
     let player = zbus::Proxy::new(
         daemon,
         name.clone(),

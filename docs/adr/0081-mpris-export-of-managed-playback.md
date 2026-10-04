@@ -46,6 +46,9 @@ shell's `Key_MediaTogglePlayPause` handling nor `[input.bindings]`
   - `Position` is extrapolated from the snapshot anchor and is not signalled.
   - The `Can*` properties follow the session's actions.
   - `Identity` is "Arinn" and `DesktopEntry` is `org.arinn.Shell`.
+  - `Volume` reads 1.0 and a write is refused with `NotSupported`. Volume is
+    the system's (spec §6.2: Plasma owns the volume keys); Arinn playback has
+    no player volume of its own.
   - Changes are signalled on every view change.
 - **The `arinn_` prefix is reserved.** Names under
   `org.mpris.MediaPlayer2.arinn_` belong to Arinn providers.

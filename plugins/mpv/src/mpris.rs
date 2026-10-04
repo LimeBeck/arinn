@@ -263,8 +263,15 @@ impl PlayerIface {
     fn volume(&self) -> f64 {
         1.0
     }
+    /// Volume is the system's (Plasma owns the volume keys, spec §6.2);
+    /// Arinn playback has no player volume, so a write is refused rather
+    /// than acknowledged and ignored (review of #326).
     #[zbus(property)]
-    fn set_volume(&self, _volume: f64) {}
+    fn set_volume(&self, _volume: f64) -> fdo::Result<()> {
+        Err(fdo::Error::NotSupported(
+            "Volume follows the system volume".into(),
+        ))
+    }
     #[zbus(property(emits_changed_signal = "false"))]
     fn position(&self) -> i64 {
         self.session()

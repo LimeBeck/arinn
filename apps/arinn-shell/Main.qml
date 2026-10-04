@@ -42,7 +42,7 @@ Window {
         onTriggered: {
             // Keep selection fenced: the eventual row still belongs to the
             // exact launch whose exit was requested.
-            root.leaveError = qsTr("Playback is not available yet. Waiting to stop the launched session.");
+            root.leaveError = qsTr("Playback is not available yet. Press Home to leave, or wait to stop the launched session.");
             playerView.osdVisible = true;
         }
     }
@@ -484,7 +484,8 @@ Window {
             objectName: "productionPlayer"
             focus: root.focusedScreen === "player"
             visible: root.playerOpen
-            enabled: root.playerOpen && !root.leavingStopPending
+            enabled: root.playerOpen && (!root.leavingStopPending
+                                        || (root.leavingWaitForSession && root.leaveError !== ""))
             z: 6
             pictureStandIn: false
             title: mediaCatalog.sessionTitle
@@ -533,6 +534,13 @@ Window {
             onStop: root.leavePlayback()
             onLeave: root.leavePlayback()
             onHomeRequested: {
+                // A vanished/unreported launch cannot fence navigation forever.
+                // Explicit Home cancels only the waiting exit, never a running Stop.
+                if (root.leavingWaitForSession && root.leaveError !== "") {
+                    root.leavingWaitForSession = false;
+                    root.leavingStopPending = false;
+                    leaveSessionBound.stop();
+                }
                 if (mediaCatalog.inputLayerActive) {
                     root.showPlaybackHome();
                     mediaCatalog.requestHome();
@@ -577,6 +585,10 @@ Window {
                 }
             }
             function onSessionChanged() {
+                if (root.leavingWaitForSession && mediaCatalog.sessionState === "unavailable") {
+                    root.leaveError = qsTr("Playback is unavailable. Press Home to leave, or wait to stop the launched session.");
+                    playerView.osdVisible = true;
+                }
                 if (root.leavingWaitForSession && mediaCatalog.sessionState === "ready") {
                     root.leavingStopPending = false;
                     root.leavePlayback();

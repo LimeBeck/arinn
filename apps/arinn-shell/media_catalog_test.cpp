@@ -1312,6 +1312,32 @@ private slots:
     QTRY_VERIFY(!window->property("leavingStopPending").toBool());
     QTRY_VERIFY(!player->isVisible());
     QVERIFY(library->isVisible());
+
+    // A launch that never becomes observable offers bounded recovery through
+    // Home. Cancelling its wait must not Stop a later, unrelated selection.
+    for (bool providerGone : {false, true}) {
+      QVERIFY(QMetaObject::invokeMethod(window, "openSession", Q_ARG(QVariant, QUuid::createUuid().toString(QUuid::WithoutBraces)), Q_ARG(QVariant, true)));
+      QVERIFY(QMetaObject::invokeMethod(window, "leavePlayback"));
+      QVERIFY(window->property("leavingStopPending").toBool());
+      if (providerGone) {
+        bus.unregisterService(QStringLiteral("org.arinn.Daemon1"));
+        QTRY_COMPARE(catalog->sessionState(), QStringLiteral("unavailable"));
+      } else {
+        QVERIFY(QMetaObject::invokeMethod(waitBound, "triggered"));
+      }
+      QTRY_VERIFY(!window->property("leaveError").toString().isEmpty());
+      QTRY_VERIFY(player->isEnabled());
+      window->requestActivate();
+      QTRY_VERIFY(player->hasActiveFocus());
+      const auto beforeCancel = daemon.commands.size();
+      QTest::keyClick(window, Qt::Key_Home);
+      QTRY_VERIFY(!player->isVisible());
+      QVERIFY(!window->property("leavingStopPending").toBool());
+      QVERIFY(!window->property("leavingWaitForSession").toBool());
+      QVERIFY(!waitBound->property("running").toBool());
+      QCOMPARE(home->property("screen").toString(), QStringLiteral("home"));
+      QCOMPARE(daemon.commands.size(), beforeCancel);
+    }
   }
   // #247: Continue on a stopped film resumes the library item; a stopped
   // session itself cannot be presented again.

@@ -47,11 +47,10 @@ jobs:
           version="${GITHUB_REF_NAME#v}"
           (cd dist && sha256sum * > SHA256SUMS)
           python scripts/release.py notes "$version" > notes.md
-          if [ "${version%%.*}" = "0" ]; then echo "PRERELEASE=true" >> "$GITHUB_ENV"; else echo "PRERELEASE=false" >> "$GITHUB_ENV"; fi
       - uses: softprops/action-gh-release@v3
         with:
           name: Arinn ${{ github.ref_name }}
           body_path: notes.md
-          prerelease: ${{ env.PRERELEASE }}
+          prerelease: false
           files: dist/*
           fail_on_unmatched_files: true

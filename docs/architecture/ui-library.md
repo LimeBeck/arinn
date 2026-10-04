@@ -143,6 +143,12 @@ of those keys emits `backRequested`. Home emits `homeRequested`, closes detail
 when it is open, and leaves focus inside the view. Tab does not leave the
 view.
 
+The view does not handle Menu. The key bubbles to `Main.qml`, which opens
+Home's navigation menu above the library (#329). The menu then holds focus,
+and closing it restores the poster or tab that opened it. Settings works the
+same way. From Settings, Open services, Browse and a media session, a Home
+key that the screen leaves unaccepted shows Home.
+
 ## Verification
 
 `tests/ui/tst_library.qml` imports this directory from the filesystem and

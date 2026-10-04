@@ -222,11 +222,38 @@ Window {
                  && !home.shortcutEditorOpen && !sessionGuard.blocked
         onActivated: mediaCatalog.release()
     }
+    // Menu and Home that the focused screen did not accept (#329, spec §6.2,
+    // §6.3). Home handles both itself; these are the other screens.
+    function unhandledKey(event) {
+        if (event.isAutoRepeat || event.modifiers !== Qt.NoModifier) return;
+        const section = focusedScreen === "library" || focusedScreen === "settings";
+        if (focusedScreen === "settings" && settingsView.editingKey.length) return;
+        if (event.key === Qt.Key_Menu && section) {
+            home.openNavigation();
+            event.accepted = true;
+        } else if (event.key === Qt.Key_Home) {
+            if (section) home.showHome();
+            else if (focusedScreen === "browser") { browserOpen = false; Qt.callLater(home.showHome); }
+            else if (focusedScreen === "browse") { browseOpen = false; browseCatalog.reset(); Qt.callLater(home.showHome); }
+            else if (focusedScreen === "session") {
+                sessionOpen = false;
+                sessionFromLibrary = false;
+                Qt.callLater(home.showHome);
+            } else return;
+            event.accepted = true;
+        }
+    }
     Ui.LogicalCanvas {
         anchors.fill: parent
+        // Keys bubble here from every screen that left them unaccepted.
+        Keys.onPressed: event => root.unhandledKey(event)
         Ui.HomeView {
             id: home
             focus: root.focusedScreen === "home"
+            // The navigation menu opened over Library or Settings (z 4) is
+            // drawn above them, below Open services and Browse (z 5).
+            z: navOpen ? 4.5 : 0
+            coveredByScreen: libraryView.visible || settingsView.visible
             // Home remains painted beneath other screens, but its catalog
             // callbacks and hovered cards must not take their input focus.
             enabled: root.focusedScreen === "home"

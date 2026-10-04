@@ -731,6 +731,8 @@ FocusScope {
             return;
         }
         if (screenBlocked) {
+            // Menu and Home stay global (#329): the shell handles them.
+            if (event.key === Qt.Key_Menu || event.key === Qt.Key_Home) return;
             if (event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace || event.key === Qt.Key_Back)
                 dismissRequested();
             event.accepted = true;

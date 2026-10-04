@@ -72,6 +72,10 @@ FocusScope {
     property string clockText: ""
     property bool pointerMode: false
     property bool navOpen: false
+    // A section the shell draws itself (Library, Settings) covers Home's own
+    // content. Home is then raised above it only to show the navigation
+    // menu, so its background and section content stay hidden (#329).
+    property bool coveredByScreen: false
     property string screen: "home"
     property string homeRow: "continue"
     property var focusedEntry: ({})
@@ -316,10 +320,11 @@ FocusScope {
             next += step;
         }
     }
-    Rectangle { anchors.fill: parent; color: Theme.background }
+    Rectangle { anchors.fill: parent; color: Theme.background; visible: !root.coveredByScreen }
     Item {
         id: content
         anchors.fill: parent
+        visible: !root.coveredByScreen
         enabled: !root.navOpen
         scale: root.navOpen ? 0.98 : 1
         opacity: root.navOpen ? 0.55 : 1
@@ -511,6 +516,8 @@ FocusScope {
         id: navigation
         objectName: "navigation"
         anchors.fill: parent; visible: root.navOpen
+        // Dims the covering section the way Home's own content is dimmed.
+        Rectangle { anchors.fill: parent; color: Qt.rgba(0, 0, 0, 0.45); visible: root.coveredByScreen }
         MouseArea { anchors.fill: parent; onClicked: root.closeNavigation() }
         Rectangle {
             x: 72; y: 72; width: 500; height: 936; radius: 44; color: "#292b30"

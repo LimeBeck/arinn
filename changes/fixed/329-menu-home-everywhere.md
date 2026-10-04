@@ -1,0 +1,1 @@
+- Open the side navigation with Menu from the Library and Settings screens; it now appears above them instead of staying hidden. The Home key now returns Home from Settings, Open services, Browse and a media session too.

@@ -1254,6 +1254,94 @@ private slots:
     QTest::qWait(50);
     QCOMPARE(home->property("screen").toString(), QStringLiteral("library"));
   }
+  // #329: Menu opens the side navigation over Library and Settings, drawn
+  // above them; Escape returns to the screen; Home from Settings goes Home.
+  void menuOpensNavigationOverSectionScreens() {
+    LibraryDaemon daemon;
+    daemon.collections = {{QStringLiteral("films"), QStringLiteral("Films"),
+                           QStringLiteral("film")}};
+    daemon.page1 = {film(QStringLiteral("north"), QStringLiteral("North"))};
+    QVERIFY(registerBus(daemon));
+    ShellStandIn backend;
+    SessionGuardStandIn guard;
+    QQmlApplicationEngine engine;
+    installAssetImageProvider(&engine);
+    engine.rootContext()->setContextProperty(QStringLiteral("backend"), &backend);
+    engine.rootContext()->setContextProperty(QStringLiteral("sessionGuard"),
+                                             &guard);
+    engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
+    auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().value(0));
+    QVERIFY(window);
+    window->show();
+    window->requestActivate();
+    auto home = window->findChild<QQuickItem *>(QStringLiteral("productionHome"));
+    auto library =
+        window->findChild<QQuickItem *>(QStringLiteral("productionLibrary"));
+    auto settings =
+        window->findChild<QQuickItem *>(QStringLiteral("productionSettings"));
+    QVERIFY(home);
+    QVERIFY(library);
+    QVERIFY(settings);
+    auto navigation = findItem(home, QStringLiteral("navigation"));
+    auto menuButton = findItem(home, QStringLiteral("menuButton"));
+    QVERIFY(navigation);
+    QVERIFY(menuButton);
+    QTRY_COMPARE(library->property("libraryState").toString(),
+                 QStringLiteral("ready"));
+    home->setProperty("screen", QStringLiteral("library"));
+    QTRY_VERIFY(focusInside(window->activeFocusItem(), library));
+
+    QTest::keyClick(window, Qt::Key_Menu);
+    QTRY_COMPARE(home->property("navOpen").toBool(), true);
+    auto libraryItem = findItem(home, QStringLiteral("nav-1"));
+    QVERIFY(libraryItem);
+    QTRY_VERIFY(libraryItem->hasActiveFocus());
+    // The menu is drawn above the library, without Home's own content.
+    QVERIFY(navigation->isVisible());
+    QVERIFY(home->z() > library->z());
+    QVERIFY(library->isVisible());
+    QVERIFY(!menuButton->isVisible());
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_COMPARE(home->property("navOpen").toBool(), false);
+    QTRY_VERIFY(focusInside(window->activeFocusItem(), library));
+    QVERIFY(home->z() < library->z());
+
+    // From the menu to Settings, then Home from Settings.
+    QTest::keyClick(window, Qt::Key_Menu);
+    QTRY_VERIFY(libraryItem->hasActiveFocus());
+    auto settingsItem = findItem(home, QStringLiteral("nav-4"));
+    QVERIFY(settingsItem);
+    for (int i = 0; i < 3; ++i)
+      QTest::keyClick(window, Qt::Key_Down);
+    QTRY_VERIFY(settingsItem->hasActiveFocus());
+    QTest::keyClick(window, Qt::Key_Return);
+    QTRY_COMPARE(home->property("screen").toString(), QStringLiteral("settings"));
+    QTRY_VERIFY(focusInside(window->activeFocusItem(), settings));
+    QTest::keyClick(window, Qt::Key_Menu);
+    QTRY_COMPARE(home->property("navOpen").toBool(), true);
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_VERIFY(focusInside(window->activeFocusItem(), settings));
+    QTest::keyClick(window, Qt::Key_Home);
+    QTRY_COMPARE(home->property("screen").toString(), QStringLiteral("home"));
+    QTRY_VERIFY(focusInside(window->activeFocusItem(), home));
+    QVERIFY(menuButton->isVisible());
+
+    // Home from Open services, Browse and a session also shows Home.
+    for (const auto &[flag, name] :
+         {std::pair{"browserOpen", "productionBrowser"},
+          std::pair{"browseOpen", "productionBrowse"},
+          std::pair{"sessionOpen", "productionSession"}}) {
+      auto screen = window->findChild<QQuickItem *>(QString::fromLatin1(name));
+      QVERIFY2(screen, name);
+      home->setProperty("screen", QStringLiteral("library"));
+      window->setProperty(flag, true);
+      QTRY_VERIFY2(focusInside(window->activeFocusItem(), screen), name);
+      QTest::keyClick(window, Qt::Key_Home);
+      QTRY_VERIFY2(!window->property(flag).toBool(), name);
+      QTRY_COMPARE(home->property("screen").toString(), QStringLiteral("home"));
+      QTRY_VERIFY2(focusInside(window->activeFocusItem(), home), name);
+    }
+  }
   // #247: Continue on a stopped, library-linked film launches the item through
   // the library instead of opening the stopped session.
   void continueResumesAStoppedFilmThroughTheLibrary() {

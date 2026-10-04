@@ -560,7 +560,7 @@ fn favorites_missing_shortcut_is_retained_but_not_newly_admitted() {
         local_id: shortcut.id.clone(),
     };
     assert_eq!(
-        store.replace_favorites(1, &[entry.clone()]),
+        store.replace_favorites(1, std::slice::from_ref(&entry)),
         Err(ErrorCode::NotFound)
     );
     let web_revision = store.add_web_shortcut(&shortcut).unwrap();

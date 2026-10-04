@@ -58,5 +58,9 @@ Arinn session target or enabling/disabling autostart. The packaged `arinn-open`
 launcher checks `arinn-shell.service` separately from the KDE/EWMH target and
 starts a missing shell before sending Home. An already active shell is preserved;
 a failed shell start fails the launch instead of reporting Home success without
-a window. Stub launcher tests cover closed-shell relaunch for both session targets
-and failed startup, without operating the real graphical session.
+a window. Before Home, the launcher performs a bounded round trip to the existing
+GUI-thread `Shell1.connected` property and rechecks the unit. The property value
+does not need to be true: the reply proves the shell has entered its event loop
+after loading QML. Name ownership alone is insufficient for a `Type=dbus` unit.
+Stub launcher tests cover both session targets, failed startup after name ownership,
+and delayed shell readiness, without operating the real graphical session.

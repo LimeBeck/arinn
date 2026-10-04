@@ -569,13 +569,19 @@ fn loose_episode(text: &str) -> Option<(u32, usize, usize)> {
     }
     let (_, last) = text.rsplit_once(' ')?;
     let start = text.len() - last.len();
-    let digits = last.bytes().filter(u8::is_ascii_digit).count();
     match lead_episode(last, false) {
-        Some((episode, len)) if len == last.len() && digits <= 3 => {
+        Some((episode, len)) if len == last.len() && number_digits(last) <= 3 => {
             Some((episode, start, text.len()))
         }
         _ => None,
     }
+}
+
+/// Digits of an episode token's number, without its `v2` revision.
+fn number_digits(token: &str) -> usize {
+    let lower = token.to_ascii_lowercase();
+    let number = lower.split('v').next().unwrap_or("");
+    number.bytes().filter(u8::is_ascii_digit).count()
 }
 
 /// Opens the `[...]` groups that hold an anime marker so cleaning keeps it:
@@ -591,8 +597,9 @@ fn unwrap_markers(stem: &str) -> String {
             return out;
         };
         let token = clean(&rest[open + 1..close]);
-        let digits = token.bytes().filter(u8::is_ascii_digit).count();
-        if digits <= 3 && lead_episode(&token, false).is_some_and(|(_, len)| len == token.len()) {
+        if number_digits(&token) <= 3
+            && lead_episode(&token, false).is_some_and(|(_, len)| len == token.len())
+        {
             out.push_str(" - ");
             out.push_str(&token);
             out.push(' ');
@@ -874,6 +881,9 @@ mod tests {
             ("/library/Show/Show TV2 [07].mkv", 2, 7),
             ("/library/Show/Show_tv_4_E08v2.mkv", 4, 8),
             ("/library/Show/Show [TV-3] - 09.mkv", 3, 9),
+            // Review of #313: the revision does not count against the
+            // three-digit episode limit.
+            ("/library/Show/Show TV2 [123v2].mkv", 2, 123),
         ] {
             let parsed = episode(path);
             assert_eq!(parsed.series_title, "Show", "{path}");

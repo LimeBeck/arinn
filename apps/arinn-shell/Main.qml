@@ -227,6 +227,9 @@ Window {
         Ui.HomeView {
             id: home
             focus: root.focusedScreen === "home"
+            // Home remains painted beneath other screens, but its catalog
+            // callbacks and hovered cards must not take their input focus.
+            enabled: root.focusedScreen === "home"
             objectName: "productionHome"
             visible: !root.playerOpen
             shortcutManagement: true

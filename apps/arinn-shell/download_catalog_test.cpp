@@ -119,6 +119,7 @@ public:
   int reads = 0;
   // Delay for GetDownloads replies; the page is built when the call arrives.
   int downloadsDelayMs = 0;
+  QString page2Token = QStringLiteral("p2");
   // Single-page queues of further providers, by endpoint path.
   QHash<QString, QList<DownloadWire>> otherPages;
   // Runs when a GetDownloads call arrives, after its page is built.
@@ -171,11 +172,11 @@ public:
       if (token.isEmpty()) {
         rows = page1;
         if (!page2.isEmpty() || loopSecond)
-          next = QStringLiteral("p2");
+          next = page2Token;
       } else {
         rows = page2;
         if (loopSecond)
-          next = QStringLiteral("p2");
+          next = page2Token;
       }
       body.beginStructure();
       body << pageGeneration << (token.isEmpty() ? page1Revision : page2Revision);
@@ -483,6 +484,29 @@ private slots:
     DownloadCatalog catalog;
     QTRY_COMPARE(catalog.downloadsState(), QStringLiteral("populated"));
     QCOMPARE(catalog.jobs().size(), 2);
+  }
+
+  // Review of #310: a continuation token must be an id, and a page whose
+  // encoding exceeds 256 KiB fails the provider.
+  void pageTokenAndSizeLimits() {
+    daemon->page1 = {job(QStringLiteral("a"), QStringLiteral("queued"))};
+    daemon->page2 = {job(QStringLiteral("b"), QStringLiteral("queued"))};
+    daemon->page2Token = QString(257, u't');
+    DownloadCatalog catalog;
+    QTRY_COMPARE(catalog.downloadsState(), QStringLiteral("error"));
+
+    daemon->page2.clear();
+    auto big = job(QStringLiteral("a"), QStringLiteral("completed"));
+    for (int i = 0; i < 20; ++i)
+      big.outputs.append({QStringLiteral("o%1").arg(i), QString(8 * 1024, u'x')});
+    daemon->page1 = {big};
+    reload(catalog);
+    QCOMPARE(catalog.downloadsState(), QStringLiteral("populated"));
+    for (int i = 20; i < 40; ++i)
+      big.outputs.append({QStringLiteral("o%1").arg(i), QString(8 * 1024, u'x')});
+    daemon->page1 = {big};
+    reload(catalog);
+    QCOMPARE(catalog.downloadsState(), QStringLiteral("error"));
   }
 
   void pagingAndRevisions() {

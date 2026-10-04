@@ -87,7 +87,9 @@ asynchronously, the same way `LibraryCatalog` reads `Library1`:
   action and no command is sent for them.
 - A `Providers` page over 200 entries fails the catalog.
 - `GetDownloads` pages must carry the provider's generation, a non-nil UUID,
-  and one revision across the pages. A repeated token, a torn read or a malformed row fails that
+  and one revision across the pages. A continuation token must be an id
+  (1–256 bytes), and a page whose encoding is certainly over 256 KiB (a lower
+  bound summed while decoding) fails the provider. A repeated token, a torn read or a malformed row fails that
   provider, and so does a page with more than 200 rows. A row is malformed
   when it breaks a `Download` invariant of
   `crates/arinn-protocol/src/download.rs`:

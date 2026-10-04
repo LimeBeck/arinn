@@ -131,6 +131,10 @@ bool wireId(const QString &value) {
 bool wireText(const QString &value) {
   return value.toUtf8().size() <= 8 * 1024 && !value.contains(QChar(u'\0'));
 }
+// Lower bound of a D-Bus string's encoding: length, bytes, NUL.
+qsizetype wireBytes(const QString &value) { return 4 + value.toUtf8().size() + 1; }
+// MAX_BODY_BYTES of a page (ADR-0020).
+constexpr qsizetype maxBodyBytes = 256 * 1024;
 constexpr int maxActions = 8;
 constexpr int maxPageEntries = 200;
 constexpr int maxOutputs = 64;
@@ -488,6 +492,9 @@ void DownloadCatalog::readDownloads(const std::shared_ptr<Catalog> &catalog,
         catalog->pageRevision = revision;
         const auto providerId = provider.value(QStringLiteral("id")).toString();
         int entries = 0;
+        // A lower bound of the page's encoded size; above MAX_BODY_BYTES the
+        // page cannot be valid (review of #310).
+        qsizetype bytes = wireBytes(generation) + 8;
         arg.beginArray();
         while (!arg.atEnd()) {
           // A page holds at most MAX_PAGE_ENTRIES rows (ADR-0020).
@@ -508,6 +515,12 @@ void DownloadCatalog::readDownloads(const std::shared_ptr<Catalog> &catalog,
               row.hasTotal >> total >> rate >> eta >> row.hasProgress >>
               row.progress >> row.actions >> row.errorCode >> row.errorMessage;
           // Output titles are not shown; the shell never sees output files.
+          // Four integers, a double and two 4-byte booleans.
+          bytes += 40 + 8 + wireBytes(row.localId) + wireBytes(row.title) +
+                   wireBytes(row.state) + wireBytes(row.errorCode) +
+                   wireBytes(row.errorMessage);
+          for (const auto &action : std::as_const(row.actions))
+            bytes += wireBytes(action);
           QStringList outputs;
           bool outputTitlesValid = true;
           arg.beginArray();
@@ -518,6 +531,7 @@ void DownloadCatalog::readDownloads(const std::shared_ptr<Catalog> &catalog,
             arg.endStructure();
             outputs.append(outputId);
             outputTitlesValid = outputTitlesValid && wireText(outputTitle);
+            bytes += wireBytes(outputId) + wireBytes(outputTitle);
           }
           arg.endArray();
           arg >> row.importState;
@@ -530,6 +544,7 @@ void DownloadCatalog::readDownloads(const std::shared_ptr<Catalog> &catalog,
             arg >> refProvider >> capability >> refLocal;
             arg.endStructure();
             ++refs;
+            bytes += wireBytes(refProvider) + wireBytes(capability) + wireBytes(refLocal);
             // library_refs are Library EntityRefs; anything else cannot be
             // watched (review of #310).
             if (!wireId(refProvider) || !wireId(refLocal) ||
@@ -547,7 +562,9 @@ void DownloadCatalog::readDownloads(const std::shared_ptr<Catalog> &catalog,
           row.completedBytes = completed;
           row.totalBytes = total;
           row.eta = eta;
-          if (!outputTitlesValid || !validRow(row, outputs, refs, refsValid)) {
+          bytes += wireBytes(row.importState);
+          if (bytes > maxBodyBytes || !outputTitlesValid ||
+              !validRow(row, outputs, refs, refsValid)) {
             failProvider(catalog, index, false);
             return;
           }
@@ -564,6 +581,12 @@ void DownloadCatalog::readDownloads(const std::shared_ptr<Catalog> &catalog,
         arg.endArray();
         arg >> next;
         arg.endStructure();
+        // A continuation token is an id (validation::id).
+        if ((!next.isEmpty() && !wireId(next)) ||
+            bytes + wireBytes(next) > maxBodyBytes) {
+          failProvider(catalog, index, false);
+          return;
+        }
         if (!next.isEmpty())
           readDownloads(catalog, index, next);
         else {

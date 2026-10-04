@@ -98,6 +98,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0078](0078-x11-ewmh-adapter.md) | Optional generic X11/EWMH adapter | Proposed | 0080 |
 | [0079](0079-shell-input-bindings.md) | Shell key bindings from config.toml | Accepted | — |
 | [0080](0080-mvp-platforms.md) | MVP platforms — KDE Plasma 6 on Wayland and X11/EWMH desktops | Accepted | — |
+| [0081](0081-mpris-export-of-managed-playback.md) | MPRIS export of Arinn-managed playback | Accepted | — |
 | [0082](0082-opt-in-sentry.md) | Optional Sentry diagnostics for the shell and daemon | Proposed | — |
 | [0084](0084-favorites-contract.md) | Revision-guarded daemon-owned favorites | Accepted | — |
 <!-- register:end -->

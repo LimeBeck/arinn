@@ -453,6 +453,11 @@ fn find_marker(input: &str) -> Option<(u32, u32, usize, usize)> {
     }
     index = 0;
     while index < bytes.len() {
+        // Slicing inside a multi-byte character would panic (`é`, Cyrillic).
+        if !lower.is_char_boundary(index) {
+            index += 1;
+            continue;
+        }
         if let Some((season, episode, len)) = parse_x(&lower[index..])
             && boundary_before(&lower, index)
             && boundary_after(&lower, index + len)
@@ -470,7 +475,7 @@ fn find_tv(input: &str) -> Option<(u32, usize, usize)> {
     let lower = input.to_ascii_lowercase();
     let bytes = lower.as_bytes();
     for index in 0..bytes.len() {
-        if bytes[index] != b't' || !boundary_before(&lower, index) {
+        if bytes[index] != b't' || !word_edge(lower[..index].chars().next_back()) {
             continue;
         }
         let Some(rest) = lower[index..].strip_prefix("tv") else {
@@ -482,13 +487,19 @@ fn find_tv(input: &str) -> Option<(u32, usize, usize)> {
             continue;
         };
         let end = index + 2 + gap + digits;
-        if boundary_after(&lower, end)
+        if word_edge(lower[end..].chars().next())
             && let Some(season) = index_token(&season.to_string())
         {
             return Some((season, index, end));
         }
     }
     None
+}
+
+/// No letter or digit, in any script, touches a standalone marker:
+/// `CaféTV2` and `ШоуTV2` are titles, not seasons (review of #313).
+fn word_edge(neighbour: Option<char>) -> bool {
+    !neighbour.is_some_and(char::is_alphanumeric)
 }
 
 /// A `TVn` marker and the episode number right after it, if any.
@@ -926,6 +937,24 @@ mod tests {
         assert_eq!(titled.title, "Pilot");
     }
 
+    // A non-ASCII name used to panic in the `NxNN` search, which slices the
+    // name at every byte (found in review of #313).
+    #[test]
+    fn non_ascii_names_parse() {
+        let film = parse_video(
+            Path::new("/library"),
+            Path::new("/library/Фильм (2001).mkv"),
+        )
+        .unwrap();
+        assert_eq!(film.kind, Kind::Film);
+        assert_eq!(film.title, "Фильм");
+        assert_eq!(film.year, 2001);
+        let episode = episode("/library/Сериал/Сериал 1x02 Пилот.mkv");
+        assert_eq!(episode.series_title, "Сериал");
+        assert_eq!((episode.season, episode.episode), (1, 2));
+        assert_eq!(episode.title, "Пилот");
+    }
+
     #[test]
     fn tv_lookalikes_stay_films() {
         for (path, title) in [
@@ -933,6 +962,8 @@ mod tests {
             ("/library/The TV 2000 Special.mkv", "The TV 2000 Special"),
             ("/library/Movie [01].mkv", "Movie"),
             ("/library/Films/TVs Best.mkv", "TVs Best"),
+            ("/library/CaféTV2 - 05.mkv", "CaféTV2 - 05"),
+            ("/library/ШоуTV2 05.mkv", "ШоуTV2 05"),
         ] {
             let parsed = parse_video(Path::new("/library"), Path::new(path)).unwrap();
             assert_eq!(parsed.kind, Kind::Film, "{path}");

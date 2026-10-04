@@ -10,7 +10,7 @@ capability, but **has not been released as a stable Plugin API**. Requirements:
 
 | Interface | Endpoint and contract |
 | --- | --- |
-| `org.arinn.Favorites1` | Daemon root; [favorites1.xml](favorites1.xml), [favorites contract](../architecture/favorites.md). Contract preparation; implementation pending |
+| `org.arinn.Favorites1` | Daemon root; [favorites1.xml](favorites1.xml), [favorites contract](../architecture/favorites.md). Daemon export implemented; shell pin/unpin remains tracked in #68 |
 | `org.arinn.Daemon1` | `org.arinn.Daemon1`, `/org/arinn/Daemon1`; [daemon1.xml](daemon1.xml) |
 | `org.arinn.Application1` | Daemon-owned `/org/arinn/Daemon1/providers/p_<uuid_hex>`; [application1.xml](application1.xml) |
 | `org.arinn.Provider1` | Provider unique bus owner, `/org/arinn/Provider1`; [provider1.xml](provider1.xml) |

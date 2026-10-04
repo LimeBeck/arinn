@@ -114,6 +114,9 @@ pub trait ProductionDaemon {
     fn status(&self) -> zbus::Result<(crate::Status,)>;
     fn home(&self) -> zbus::Result<()>;
     fn back(&self) -> zbus::Result<()>;
+    /// Extra keys per semantic action from `config.toml` (ADR-0079), in
+    /// `input::ACTIONS` order; invalid entries are left out.
+    fn get_input_bindings(&self) -> zbus::Result<Vec<crate::input::Binding>>;
 
     /// Trusted platform input: present Home, even when already visible.
     fn report_home_request(&self, target: &str, output: &str) -> zbus::Result<()>;

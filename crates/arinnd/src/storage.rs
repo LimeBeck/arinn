@@ -128,6 +128,16 @@ pub struct Config {
     /// unknown: the first packaged engine.
     #[serde(default)]
     pub search_engine: String,
+    /// Key bindings for the shell (ADR-0079).
+    #[serde(default)]
+    pub input: InputConfig,
+}
+/// `[input]`: extra keys per semantic action, `[input.bindings]`.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InputConfig {
+    #[serde(default)]
+    pub bindings: BTreeMap<String, Vec<String>>,
 }
 fn home_shortcut() -> String {
     "Meta+F12".into()
@@ -143,6 +153,7 @@ impl Default for Config {
             animations: true,
             browser_application: String::new(),
             search_engine: String::new(),
+            input: InputConfig::default(),
         }
     }
 }

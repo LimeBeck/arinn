@@ -201,6 +201,19 @@ FocusScope {
         if (acceptBack(event))
             return;
         const key = event.key;
+        // Media keys, including a configured play_pause binding (ADR-0079).
+        if (key === Qt.Key_MediaTogglePlayPause || key === Qt.Key_MediaPlay
+                || key === Qt.Key_MediaPause || key === Qt.Key_MediaStop) {
+            if (!event.isAutoRepeat) {
+                if (key === Qt.Key_MediaPlay) request("play");
+                else if (key === Qt.Key_MediaPause) request("pause");
+                else if (key === Qt.Key_MediaStop) request("stop");
+                else if (allows("playPause")) request("playPause");
+                else request(playbackState === "playing" ? "pause" : "play");
+            }
+            event.accepted = true;
+            return;
+        }
         if (key === Qt.Key_Left || key === Qt.Key_Right || key === Qt.Key_Up || key === Qt.Key_Down
                 || key === Qt.Key_Tab || key === Qt.Key_Backtab) {
             const direction = key === Qt.Key_Backtab ? Qt.Key_Left : key === Qt.Key_Tab ? Qt.Key_Right : key;

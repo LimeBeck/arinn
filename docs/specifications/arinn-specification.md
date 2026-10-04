@@ -254,7 +254,7 @@ Input modes: **D-pad mode** (cursor hidden, full focus treatment) and **pointer 
 | Menu | Toggle global navigation. A long press on an application tile in Applications or in Home favorites opens the tile action sheet: pin/unpin and, while the application runs, Close ([§5.5](#55-applications)). The sheet replaces the direct pin/unpin. Owner decision on 2026-10-01 ([#205](https://github.com/LimeBeck/arinn/issues/205)) |
 | Media and volume keys | Media and volume actions; outside the shell Plasma handles them ([§5.7](#57-system-ui-power-and-ambient)) |
 
-Outside the shell, keys belong to the active application. Arinn MUST NOT intercept Esc, Backspace or plain letters globally. The prototype's letter shortcuts (H, M, P, A, O) are development bindings, not product keys. The production mapping uses semantic actions and is configurable per device.
+Outside the shell, keys belong to the active application. Arinn MUST NOT intercept Esc, Backspace or plain letters globally. The prototype's letter shortcuts (H, M, P, A, O) are development bindings, not product keys. The production mapping uses semantic actions and is configurable per device. First step, owner decision of 2026-10-03 ([#64](https://github.com/LimeBeck/arinn/issues/64)): extra keys per action are set in `config.toml` under `[input.bindings]` and apply inside the shell only; a Settings UI, per-device bindings and gamepads come later ([ADR-0079](../adr/0079-shell-input-bindings.md)).
 
 ### 6.3. Home and Back
 

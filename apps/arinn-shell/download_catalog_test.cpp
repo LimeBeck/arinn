@@ -388,6 +388,20 @@ private slots:
            d.importState = QStringLiteral("imported");
            d.refs = {{QStringLiteral("web"), QStringLiteral("browser"), QStringLiteral("x")}};
          }},
+        // D-Bus strings cannot carry NUL, so only the size limits are
+        // reachable on the wire; validRow() still checks NUL like the protocol.
+        {"title over 8 KiB", [](DownloadWire &d) { d.title = QString(8 * 1024 + 1, u'x'); }},
+        {"id over 256 bytes", [](DownloadWire &d) { d.id = QString(257, u'x'); }},
+        {"error message over 8 KiB", [](DownloadWire &d) {
+           d.state = QStringLiteral("error");
+           d.errorCode = QStringLiteral("Internal");
+           d.errorMessage = QString(8 * 1024 + 1, u'x');
+         }},
+        {"ref id over 256 bytes", [](DownloadWire &d) {
+           d.state = QStringLiteral("completed");
+           d.importState = QStringLiteral("imported");
+           d.refs = {{QStringLiteral("lib"), QStringLiteral("library"), QString(257, u'x')}};
+         }},
         {"duplicate output", [](DownloadWire &d) {
            d.outputs = {{QStringLiteral("o"), QString()}, {QStringLiteral("o"), QString()}};
          }},

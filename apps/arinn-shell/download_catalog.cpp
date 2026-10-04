@@ -7,6 +7,7 @@
 #include <QUuid>
 #include <QtDBus>
 #include <QtQml>
+#include <algorithm>
 #include <cmath>
 namespace {
 constexpr auto service = "org.arinn.Daemon1";
@@ -114,6 +115,14 @@ const QStringList errorCodes{
 const QStringList importStates{
     QStringLiteral("none"), QStringLiteral("pending"), QStringLiteral("imported"),
     QStringLiteral("unavailable"), QStringLiteral("unsupported")};
+// validation::id and validation::text: UTF-8 byte limits, no NUL.
+bool wireId(const QString &value) {
+  return !value.isEmpty() && value.toUtf8().size() <= 256 &&
+         !value.contains(QChar(u'\0'));
+}
+bool wireText(const QString &value) {
+  return value.toUtf8().size() <= 8 * 1024 && !value.contains(QChar(u'\0'));
+}
 constexpr int maxActions = 8;
 constexpr int maxPageEntries = 200;
 constexpr int maxOutputs = 64;
@@ -185,7 +194,8 @@ void DownloadCatalog::stateChanged(const QString &, const QString &capability,
 // The Download invariants (crates/arinn-protocol/src/download.rs).
 bool DownloadCatalog::validRow(const Row &row, const QStringList &outputs,
                                int refs, bool refsValid) {
-  if (row.localId.isEmpty() || !wireToken(row.state) || row.eta < -1)
+  if (!wireId(row.localId) || !wireText(row.title) ||
+      !wireText(row.errorMessage) || !wireToken(row.state) || row.eta < -1)
     return false;
   if (row.hasTotal ? row.completedBytes > row.totalBytes : row.totalBytes != 0)
     return false;
@@ -205,7 +215,7 @@ bool DownloadCatalog::validRow(const Row &row, const QStringList &outputs,
     return false;
   if (outputs.size() > maxOutputs ||
       QSet<QString>(outputs.cbegin(), outputs.cend()).size() != outputs.size() ||
-      outputs.contains(QString()))
+      !std::all_of(outputs.cbegin(), outputs.cend(), wireId))
     return false;
   if (!importStates.contains(row.importState) || refs > maxOutputs || !refsValid ||
       (row.importState != QLatin1String("imported") && refs > 0))
@@ -484,6 +494,7 @@ void DownloadCatalog::readDownloads(const std::shared_ptr<Catalog> &catalog,
               row.progress >> row.actions >> row.errorCode >> row.errorMessage;
           // Output titles are not shown; the shell never sees output files.
           QStringList outputs;
+          bool outputTitlesValid = true;
           arg.beginArray();
           while (!arg.atEnd()) {
             QString outputId, outputTitle;
@@ -491,6 +502,7 @@ void DownloadCatalog::readDownloads(const std::shared_ptr<Catalog> &catalog,
             arg >> outputId >> outputTitle;
             arg.endStructure();
             outputs.append(outputId);
+            outputTitlesValid = outputTitlesValid && wireText(outputTitle);
           }
           arg.endArray();
           arg >> row.importState;
@@ -505,7 +517,7 @@ void DownloadCatalog::readDownloads(const std::shared_ptr<Catalog> &catalog,
             ++refs;
             // library_refs are Library EntityRefs; anything else cannot be
             // watched (review of #310).
-            if (refProvider.isEmpty() || refLocal.isEmpty() ||
+            if (!wireId(refProvider) || !wireId(refLocal) ||
                 capability != QLatin1String("library"))
               refsValid = false;
             else if (row.refLocal.isEmpty()) {
@@ -520,7 +532,7 @@ void DownloadCatalog::readDownloads(const std::shared_ptr<Catalog> &catalog,
           row.completedBytes = completed;
           row.totalBytes = total;
           row.eta = eta;
-          if (!validRow(row, outputs, refs, refsValid)) {
+          if (!outputTitlesValid || !validRow(row, outputs, refs, refsValid)) {
             failProvider(catalog, index, false);
             return;
           }

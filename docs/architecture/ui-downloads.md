@@ -95,7 +95,9 @@ asynchronously, the same way `LibraryCatalog` reads `Library1`:
   - an error code outside `error`, or an unknown code in it;
   - an unknown import state, library refs before `imported`, or a ref whose
     capability is not `library`;
-  - repeated or empty output ids.
+  - repeated or empty output ids;
+  - an id (job, output, ref) over 256 bytes or with NUL, or a title, error
+    message or output title over 8 KiB or with NUL.
 - It reloads on `Daemon1.StateChanged` with capability `download` and on
   `ProvidersChanged`. A 30 s timer is only a fallback. A read during which a
   newer notification arrived is dropped and read again instead of published,

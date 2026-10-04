@@ -1281,20 +1281,22 @@ private slots:
         presentationId(QStringLiteral("dl-provider"), QStringLiteral("done"));
     const auto runningId =
         presentationId(QStringLiteral("dl-provider"), QStringLiteral("running"));
-    auto doneRow = findItem(view, QStringLiteral("job-") + doneId);
-    auto runningRow = findItem(view, QStringLiteral("job-") + runningId);
-    QVERIFY(doneRow);
-    QVERIFY(runningRow);
-    QTRY_VERIFY(doneRow->hasActiveFocus());
+    // Rows are looked up on every check: a catalog reload replaces the
+    // jobs array and the Repeater recreates its delegates.
+    const auto focused = [&](const QString &id) {
+      auto row = findItem(view, QStringLiteral("job-") + id);
+      return row && row->hasActiveFocus();
+    };
+    QTRY_VERIFY(focused(doneId));
 
     QTest::keyClick(window, Qt::Key_Down);
-    QTRY_VERIFY(runningRow->hasActiveFocus());
+    QTRY_VERIFY(focused(runningId));
     QTest::keyClick(window, Qt::Key_Return);
     QTRY_COMPARE(daemon.commands, QStringList{QStringLiteral("Pause")});
     QCOMPARE(daemon.lastLocal, QStringLiteral("running"));
 
     QTest::keyClick(window, Qt::Key_Up);
-    QTRY_VERIFY(doneRow->hasActiveFocus());
+    QTRY_VERIFY(focused(doneId));
     QTest::keyClick(window, Qt::Key_Return);
     QTRY_COMPARE(home->property("screen").toString(), QStringLiteral("library"));
     QTRY_COMPARE(library->property("detailOpen").toBool(), true);

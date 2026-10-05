@@ -214,9 +214,11 @@ FocusScope {
         else restoreScreen();
         navigationOpener = null;
     }
+    // The shell closes the overlay first: Home is enabled again only then,
+    // so showHome() can focus a visible control (review of #334).
     function homeKey() {
-        showHome();
         homeKeyPressed();
+        showHome();
     }
     function showHome() {
         if (shortcutEditorOpen) closeShortcutEditorRequested();

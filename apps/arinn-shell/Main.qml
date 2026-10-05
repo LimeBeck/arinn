@@ -229,8 +229,10 @@ Window {
     }
     // A new route whose screen did not get focus through its scope (nothing
     // focused there yet) starts at the screen's preferred item.
+    // A hidden item inside the screen (a closed menu entry) does not count.
     onFocusedScreenChanged: Qt.callLater(() => {
-        if (visible && !focusInside(activeFocusItem, screenItem(focusedScreen))) restoreFocus();
+        if (visible && (!focusInside(activeFocusItem, screenItem(focusedScreen))
+                        || !activeFocusItem.visible)) restoreFocus();
     })
     // Last resort: Qt moves active focus to the root item when the focused
     // item is destroyed. Nothing handles keys there, so the remote would stop

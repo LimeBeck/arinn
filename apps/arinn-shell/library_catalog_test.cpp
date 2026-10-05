@@ -1675,6 +1675,11 @@ private slots:
       QTRY_COMPARE(home->property("screen").toString(), QStringLiteral("home"));
       QTRY_COMPARE(window->property("focusedScreen").toString(), QStringLiteral("home"));
       QTRY_VERIFY2(focusInside(window->activeFocusItem(), home), name);
+      // A visible, enabled Home control holds focus, not the closed menu.
+      auto focusedItem = window->activeFocusItem();
+      QVERIFY2(focusedItem && focusedItem->isVisible() && focusedItem->isEnabled() &&
+                   !focusInside(focusedItem, navigation),
+               name);
     }
 
     // Home from Open services, Browse and a session also shows Home.

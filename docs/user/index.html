@@ -5,15 +5,17 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Arinn user guide: install the Linux TV shell, set up your browser and media library, learn the controls and troubleshoot the prototype.">
+  <meta name="description" content="Arinn is a living-room interface for a Linux PC connected to your TV. Install the prototype, open your apps and websites, watch your media and learn Home and Back.">
   <meta name="color-scheme" content="dark">
   <title>Arinn — User guide</title>
+  <link rel="icon" href="assets/arinn-icon.svg" type="image/svg+xml">
+  <meta name="theme-color" content="#0F1115">
   <link rel="stylesheet" href="assets/site.css">
 </head>
 <body>
 <a class="skip" href="#content">Skip to content</a>
 <header class="topbar">
-  <a class="brand" href="#overview" aria-label="Arinn user guide"><span class="mark" aria-hidden="true">a</span> arinn<span class="brand-label"> / user guide</span></a>
+  <a class="brand" href="#overview" aria-label="Arinn user guide"><img class="mark" src="assets/arinn-mark.svg" alt="Arinn A1 Classic mark" width="36" height="36"> Arinn<span class="brand-label"> / user guide</span></a>
   <a href="https://github.com/LimeBeck/arinn">GitHub <span aria-hidden="true">↗</span></a>
 </header>
 <div class="layout">
@@ -22,25 +24,29 @@
       <p class="nav-label">GET STARTED</p>
       <a href="#overview">01 <span>Meet Arinn</span></a>
       <a href="#install">02 <span>Install &amp; launch</span></a>
-      <a href="#controls">03 <span>Learn the controls</span></a>
+      <a href="#first-steps">03 <span>Your first five minutes</span></a>
+      <a href="#controls">04 <span>Learn the controls</span></a>
       <p class="nav-label">MAKE IT YOURS</p>
-      <a href="#browser">04 <span>Browser &amp; services</span></a>
-      <a href="#library">05 <span>Library &amp; playback</span></a>
-      <a href="#settings">06 <span>Settings &amp; privacy</span></a>
+      <a href="#browser">05 <span>Browser &amp; services</span></a>
+      <a href="#applications">06 <span>Apps, games &amp; Home</span></a>
+      <a href="#library">07 <span>Library &amp; playback</span></a>
+      <a href="#downloads">08 <span>Downloads</span></a>
+      <a href="#settings">09 <span>Settings &amp; privacy</span></a>
       <p class="nav-label">WHEN YOU NEED A HAND</p>
-      <a href="#troubleshooting">07 <span>Troubleshooting</span></a>
-      <a href="#status">08 <span>Prototype limits</span></a>
+      <a href="#troubleshooting">10 <span>Troubleshooting</span></a>
+      <a href="#status">11 <span>Prototype limits</span></a>
     </nav>
     <p class="sidebar-note">A calm home for your TV.<br>Built on the Linux apps you use.</p>
   </aside>
   <main id="content">
     <section id="overview" class="hero" aria-labelledby="overview-title">
       <p class="eyebrow">THE ARINN HANDBOOK <span class="badge">PRE-ALPHA</span></p>
-      <h1 id="overview-title">Your Linux TV.<br><span>One place to begin.</span></h1>
-      <p class="lead">Bring your browser, films and applications together. Open Home over what you are doing, then return to the same place.</p>
-      <div class="hero-actions"><a class="button" href="#install">Set up Arinn <span aria-hidden="true">→</span></a><a href="#controls">Explore the controls</a></div>
-      <figure><img src="assets/home.png" alt="Arinn Home with Continue cards and favorite tiles in the development gallery" width="1920" height="1080"><figcaption>Current Qt interface with fictional gallery data. This preview does not connect to your applications.</figcaption></figure>
-      <div class="notice"><strong>A prototype, still taking shape.</strong> There is no stable release. Try Arinn in a session where you can return to your desktop; everyday HTPC acceptance is still pending. This guide describes the current implementation, with limits called out below.</div>
+      <h1 id="overview-title">Your PC. Your TV.<br><span>One place to begin.</span></h1>
+      <p class="lead">Arinn is a living-room interface for a Linux PC connected to your TV. Open websites, films, games and installed apps from one Home screen, using a keyboard-compatible remote or keyboard.</p>
+      <p>Keep the applications you already use. Open Home over the current app, then use Back to return without closing it. Arinn runs on your existing Linux installation.</p>
+      <div class="hero-actions"><a class="button" href="#install">Set up Arinn <span aria-hidden="true">→</span></a><a href="#first-steps">Your first five minutes</a></div>
+      <figure><img src="assets/home.png" alt="Arinn Home with Continue cards and application tiles, shown with demonstration content" width="1920" height="1080"><figcaption>Arinn Home, shown with demonstration content. Installed Arinn connects to your own apps and media; the screenshot illustrates the layout.</figcaption></figure>
+      <div class="notice"><strong>A prototype, still taking shape.</strong> Arinn is pre-alpha, for Linux users comfortable trying an early build. Start from your desktop and try it on your own hardware before relying on it for everyday TV use. This guide follows the current source; older packages may differ.</div>
       <div class="cards">
         <a href="#browser"><span class="card-number">WEB</span><h2>Go straight to a service</h2><p>Add a site as a tile and switch between open services.</p><span aria-hidden="true">↗</span></a>
         <a href="#library"><span class="card-number">MEDIA</span><h2>Bring your own library</h2><p>Browse local or mounted folders and play with mpv.</p><span aria-hidden="true">↗</span></a>
@@ -51,7 +57,7 @@
       <p class="eyebrow">02 / GET STARTED</p><h2 id="install-title">Install &amp; launch</h2>
       <p>The primary setup is Arch Linux or EndeavourOS, KDE Plasma 6 on Wayland, and a systemd user session. Use a keyboard, or a remote that sends standard keyboard events. Other distributions are not qualified.</p>
       <h3>1. Install a prototype package</h3>
-      <p>Download an Arch package and its checksums from <a href="https://github.com/LimeBeck/arinn/releases">GitHub Releases</a>. Choose the package for your architecture, verify its checksum against the release, then install the downloaded file:</p>
+      <p>Download an Arch package and its checksums from <a href="https://github.com/LimeBeck/arinn/releases">GitHub Releases</a>. The current Arch package targets x86_64. Use a <code>snapshot-…</code> pre-release for a build of a tested source commit; snapshots are still prototypes. Download <code>SHA256SUMS</code> from the same release, compare your package’s <code>sha256sum</code> with its entry, then install the downloaded file:</p>
       <pre><code>sudo pacman -U ./arinn-&lt;version&gt;-&lt;release&gt;-&lt;arch&gt;.pkg.tar.zst</code></pre>
       <p>Replace the placeholder with the actual filename. Installation does not start Arinn or enable autostart. Prototype packages may be labelled as pre-releases.</p>
       <h3>2. Start from your desktop</h3>
@@ -66,18 +72,30 @@ systemctl --user stop arinn-session.target</code></pre>
       <details><summary>X11 and XFCE setups</summary><p>X11/EWMH is an MVP target, but real desktop qualification and persistent XFCE startup remain pending. KDE Plasma X11 also requires compositing. Use the exact setup and environment recipes in the <a href="https://github.com/LimeBeck/arinn/blob/master/docs/architecture/x11-ewmh.md">X11/EWMH guide</a> or <a href="https://github.com/LimeBeck/arinn/blob/master/docs/architecture/kde-x11.md">KDE X11 guide</a>; do not enable the KDE and EWMH targets together.</p></details>
       <details><summary>Build from source</summary><p>For dependencies and source-build commands, follow the <a href="https://github.com/LimeBeck/arinn/blob/master/README.md#requirements">repository setup guide</a>. Source builds and package installs have different startup paths. Developer runbooks include tests that alter the real desktop and require explicit operator approval.</p></details>
     </section>
+    <section id="first-steps" aria-labelledby="first-steps-title">
+      <p class="eyebrow">03 / YOUR FIRST EVENING</p><h2 id="first-steps-title">Your first five minutes</h2>
+      <p>After installation, try one simple trip from Home to an app and back.</p>
+      <ol>
+        <li><strong>Open Arinn</strong> from your desktop’s application menu. Home shows available application and website tiles. Use arrows to move the focus and Enter to select.</li>
+        <li><strong>Open an installed app.</strong> Choose one on Home, or use the on-screen menu to open Applications. The app keeps its own controls while you use it.</li>
+        <li><strong>Come Home.</strong> Press <kbd>Meta</kbd> + <kbd>F12</kbd> to show Arinn over the app. It keeps running; its current activity can appear in Continue.</li>
+        <li><strong>Go back.</strong> Press Back (<kbd>Esc</kbd> on a keyboard) from Home to return to the active app. The Home key inside Arinn and the global shortcut outside it have different roles; see <a href="#controls">the key guide</a>.</li>
+        <li><strong>Add something you use.</strong> Connect Chrome or Chromium and <a href="#browser">add a website tile</a>, or <a href="#library">choose a media folder</a> for Library.</li>
+      </ol>
+      <p>If a tile is missing or a screen says unavailable, check <a href="#troubleshooting">the troubleshooting steps</a>. For the first setup and text entry, keep a hardware keyboard nearby; there is no on-screen keyboard yet.</p>
+    </section>
     <section id="controls" aria-labelledby="controls-title">
-      <p class="eyebrow">03 / FIND YOUR WAY</p><h2 id="controls-title">Learn the controls</h2>
+      <p class="eyebrow">04 / FIND YOUR WAY</p><h2 id="controls-title">Learn the controls</h2>
       <p>Home is an overlay above your current activity. Opening it keeps the application running. Back from Home returns to that application; when there is no active application, Back opens navigation.</p>
       <div class="table-wrap"><table><caption>Default navigation keys</caption><thead><tr><th scope="col">Key</th><th scope="col">Use it to</th></tr></thead><tbody>
       <tr><th scope="row"><kbd>Meta</kbd> + <kbd>F12</kbd></th><td>Open global Home while another application has focus.</td></tr>
       <tr><th scope="row">Arrow keys</th><td>Move the visible focus between controls.</td></tr>
       <tr><th scope="row"><kbd>Enter</kbd></th><td>Select the focused tile, button or setting.</td></tr>
       <tr><th scope="row"><kbd>Esc</kbd> / <kbd>Backspace</kbd></th><td>Go back; text fields keep Backspace for editing.</td></tr>
-      <tr><th scope="row"><kbd>Home</kbd></th><td>Go to Home inside the shell. Some screens currently have routing issues.</td></tr>
+      <tr><th scope="row"><kbd>Home</kbd></th><td>Go to Home inside the shell, including from a nested screen.</td></tr>
       <tr><th scope="row"><kbd>Menu</kbd></th><td>Open navigation or a tile's available actions, depending on the screen.</td></tr>
       </tbody></table></div>
-      <p>The menu button on Home also opens navigation. If Home or Menu does not respond on a nested screen, use the visible Back controls; fixes are tracked in <a href="https://github.com/LimeBeck/arinn/issues/329">#329</a>. Outside Arinn, keys belong to the application. Media and volume keys outside the shell are handled by the desktop.</p>
+      <p>The menu button on Home also opens navigation. Current source builds support Home and Menu across the shell’s screens; older packages may predate that routing fix. Outside Arinn, navigation keys belong to the application. Plasma handles global media and volume keys. Current Arinn-managed mpv playback exposes its media controls to Plasma, so play/pause can reach it while another screen has focus.</p>
       <h3>Extra remote buttons</h3><p>Keyboard-like remotes can add shell bindings in <code>$XDG_CONFIG_HOME/arinn/config.toml</code> (normally <code>~/.config/arinn/config.toml</code>). Keep existing configuration and add:</p>
       <pre><code>[input.bindings]
 select = ["F5"]
@@ -85,29 +103,49 @@ menu = ["evdev:582"]</code></pre>
       <p>These are example buttons; use the codes your device sends. Default keys remain available. Bindings apply when the shell next becomes active and only while it has focus. A settings editor, per-device configuration and gamepad support are not implemented. Global Home is separate; changing <code>home_shortcut</code> is currently tracked in <a href="https://github.com/LimeBeck/arinn/issues/286">#286</a>. See the <a href="https://github.com/LimeBeck/arinn/blob/master/docs/adr/0079-shell-input-bindings.md">binding rules</a> for supported actions and validation.</p>
     </section>
     <section id="browser" aria-labelledby="browser-title">
-      <p class="eyebrow">04 / ONLINE</p><h2 id="browser-title">Browser &amp; services</h2>
+      <p class="eyebrow">05 / ONLINE</p><h2 id="browser-title">Browser &amp; services</h2>
       <p>Arinn uses your installed Chrome or Chromium. The package includes a browser extension and a native messaging host; you must load the extension yourself.</p>
       <ol><li>Open <code>chrome://extensions</code> in your browser.</li><li>Enable <strong>Developer mode</strong>, then choose <strong>Load unpacked</strong>.</li><li>Select <code>/usr/share/arinn/chrome-extension</code>.</li><li>After an Arinn package update, press <strong>Reload</strong> on the extension card.</li></ol>
       <p>The extension uses tabs and native messaging permissions, without content scripts for reading pages. Incognito is not connected by default. Installation details are in the <a href="https://github.com/LimeBeck/arinn/blob/master/docs/architecture/plugin-runtime.md#chrome-two-processes-instead-of-two-supervisors-of-one-process">browser runtime guide</a>.</p>
-      <h3>Add a site as an application</h3><p>In Applications, use <strong>Add application — Any site as an application</strong>, then enter a title and address with a hardware keyboard. Existing shortcut tiles have an editor for changing or removing them. An on-screen keyboard is not implemented.</p>
+      <h3>Add a site as an application</h3><p>In Applications, use <strong>Add application — Any site as an application</strong>, then enter a title and address with a hardware keyboard. To change or remove a shortcut, focus its tile in Applications and press Menu, or select the visible Edit shortcut button. Change the title or address and save, or use Remove in the editor. An on-screen keyboard is not implemented.</p>
       <p>You can also manage shortcuts in a terminal:</p>
       <pre><code>arinnctl shortcuts list
 arinnctl shortcuts add "Example service" https://example.org/</code></pre>
       <p>Use HTTPS for online services. Plain HTTP is accepted only for local-network hosts. Do not put credentials in a shortcut address.</p>
       <h3>Switch between services</h3><p>Select a shortcut tile to open it. <strong>Open services</strong> lists managed browser activities so you can return to one or close it. Opening Home keeps the browser activity running. DRM, streaming-service compatibility and real TV behavior still require qualification.</p>
     </section>
+    <section id="applications" aria-labelledby="applications-title">
+      <p class="eyebrow">06 / YOUR APPS</p><h2 id="applications-title">Apps, games &amp; Home</h2>
+      <p>Open the on-screen menu and choose <strong>Applications</strong>. Arinn discovers installed Linux applications through their desktop entries and groups them into Online, Games, Media and Other. Select a tile with Enter to launch it.</p>
+      <h3>Steam and emulators</h3>
+      <p>Install Steam or EmulationStation / ES-DE separately, as you normally would on Linux. When their desktop entries are available, launch their tiles in Arinn, then choose games inside the application. Arinn currently opens the launcher; it does not provide its own Steam library or emulator game catalogue.</p>
+      <p>The remote navigates Arinn. Controls inside a browser, game or other app depend on that application; keep its usual keyboard, controller or pointer available. Use the global Home shortcut to bring Arinn back over it.</p>
+      <h3>Return to an open app</h3>
+      <p>From Home, Back returns to the active app. You can also select its Continue card. In Applications, the <strong>Open windows</strong> row lets you activate a listed running window; managed browser pages have their own <a href="#browser">Open services</a> screen.</p>
+      <h3>What appears in Favorites?</h3>
+      <p>In the current build, the Home row labelled Favorites brings together your saved website shortcuts and discovered applications automatically. Adding a website gives it a reusable tile. Choosing and ordering a separate pinned list is still being connected to the shell; the current Home row is not a manually curated list.</p>
+      <p>If an installed app is missing, confirm that it appears in your desktop’s application menu and that the application integration is available in <code>arinnctl providers</code>. See the <a href="https://github.com/LimeBeck/arinn/blob/master/docs/architecture/desktop-provider.md">application discovery guide</a> for desktop-entry visibility rules.</p>
+    </section>
     <section id="library" aria-labelledby="library-title">
-      <p class="eyebrow">05 / WATCH</p><h2 id="library-title">Library &amp; playback</h2>
+      <p class="eyebrow">07 / WATCH</p><h2 id="library-title">Library &amp; playback</h2>
       <p>The local library scans folders you configure, including network folders already mounted by your operating system. Arinn does not mount SMB or NFS shares for you.</p>
       <ol><li>Install the optional player and media tools: <code>sudo pacman -S --needed mpv ffmpeg</code>.</li><li>Open <strong>Settings → Media</strong> and configure the folders exposed by the local library provider.</li><li>Open <strong>Library</strong>, choose a film or series, and select its playback action.</li></ol>
       <p>A missing provider leaves its controls unavailable. A scan can take time; the existing catalogue remains visible while it runs. Removing a library folder does not delete your media files. If a network mount goes away, restore the mount before treating content as missing.</p>
       <h3>Return to what you were watching</h3><p>Continue on Home brings together current activities and resumable media. The library stores playback progress. During managed playback, the shell supplies controls above the external mpv window. Audio tracks, subtitles and seeking depend on the data and actions the provider reports.</p>
       <p>Global Home keeps playback running so you can return to it. Back first hides the player controls; leaving playback is a separate action. Do not assume an ordinary external player has all the managed mpv controls.</p>
-      <div class="notice"><strong>Check on your own hardware.</strong> Codec support, hardware decoding, HDR, passthrough and smooth overlay playback are not guaranteed. Real HTPC acceptance is pending.</div>
+      <div class="notice"><strong>Check on your own hardware.</strong> Codec support, hardware decoding, HDR, passthrough and smooth overlay playback are not guaranteed. Everyday TV use still needs testing on real hardware.</div>
       <p>Folder naming, scanning and resume details: <a href="https://github.com/LimeBeck/arinn/blob/master/docs/architecture/media-mvp.md">media guide</a>. Playback presentation limits: <a href="https://github.com/LimeBeck/arinn/blob/master/docs/architecture/managed-playback.md">managed playback guide</a>.</p>
     </section>
+    <section id="downloads" aria-labelledby="downloads-title">
+      <p class="eyebrow">08 / YOUR QUEUE</p><h2 id="downloads-title">Downloads</h2>
+      <p>Choose <strong>Downloads</strong> from the on-screen menu to see the connected download queue. The current integration uses Transmission. Add jobs in your usual Transmission client; Arinn shows their status and offers Pause, Resume, Start now or Retry when available.</p>
+      <p>Transmission must be running with an RPC endpoint the integration can reach. Arinn does not start or configure the Transmission server for you. With no connected service, the screen shows unavailable. Connection settings and the default local endpoint are in the <a href="https://github.com/LimeBeck/arinn/blob/master/docs/architecture/transmission-mvp.md">Transmission setup guide</a>.</p>
+      <h3>From download to Library</h3>
+      <p>Keep downloaded media inside a configured library folder, or configure a path mapping for a remote server. Once completed media is imported, the <strong>Watch</strong> action opens its Library detail so you can choose playback. A completed job waiting for import does not yet offer Watch. Arinn does not move or delete the files or stop seeding to import them.</p>
+      <p>The queue is connected in the current source build. End-to-end use with a real Transmission server and TV still needs qualification; try the flow on your setup before relying on it.</p>
+    </section>
     <section id="settings" aria-labelledby="settings-title">
-      <p class="eyebrow">06 / PREFERENCES</p><h2 id="settings-title">Settings &amp; privacy</h2>
+      <p class="eyebrow">09 / PREFERENCES</p><h2 id="settings-title">Settings &amp; privacy</h2>
       <p>Settings shows the controls provided by connected integrations. Select a row to change a toggle, choose an option, edit text or adjust a number. Disabled controls remain visible; empty categories mean no integration currently supplies settings there.</p>
       <p>A value marked for the next start applies when its provider restarts. Text entry needs a hardware keyboard. The current prototype uses one shared household space: there are no separate user profiles or accounts.</p>
       <h3>Configuration and saved state</h3><p>Daemon configuration lives under <code>$XDG_CONFIG_HOME/arinn</code>, normally <code>~/.config/arinn</code>. Providers own their media and resume state. Keep backups before manually editing configuration; changing a library folder does not remove its files.</p>
@@ -118,7 +156,7 @@ enabled = false</code></pre>
       <p>Existing processes do not reload this flag. Restart the active Arinn session target to apply a change. Do not put tokens or account credentials in configuration examples or bug reports.</p>
     </section>
     <section id="troubleshooting" aria-labelledby="troubleshooting-title">
-      <p class="eyebrow">07 / GET HELP</p><h2 id="troubleshooting-title">Troubleshooting</h2>
+      <p class="eyebrow">10 / GET HELP</p><h2 id="troubleshooting-title">Troubleshooting</h2>
       <h3>Start with a status check</h3><pre><code>arinnctl status
 arinnctl providers
 arinnctl diagnostics
@@ -128,16 +166,16 @@ systemctl --user status arinn-session.target arinnd.service arinn-shell.service<
       <details><summary>A website will not open</summary><p>Confirm that Chrome or Chromium and the unpacked extension are installed. Reload the extension after updates, then check <code>arinnctl providers</code> for the browser backend. A shortcut cannot work without an available browser provider.</p></details>
       <details><summary>The library is empty, or a film will not play</summary><p>Check configured roots, permissions and mounted folders. Confirm the library and playback providers are available and that mpv is installed. Missing artwork does not necessarily mean missing media. Codec and hardware support depend on the player and your system.</p></details>
       <details><summary>A screen or control says unavailable</summary><p>Check the provider list first. A screen may depend on work that has not shipped yet; consult Prototype limits below. A missing capability does not mean an action succeeded.</p></details>
-      <details><summary>Media keys do not control managed playback</summary><p>Outside the shell, Plasma handles global media keys. The managed mpv MPRIS integration is tracked separately in <a href="https://github.com/LimeBeck/arinn/issues/300">#300</a>; use visible playback controls when this integration is unavailable.</p></details>
+      <details><summary>Media keys do not control managed playback</summary><p>Current source builds expose an Arinn-managed mpv session to Plasma while it is playing or paused. Check your desktop’s media-key binding and selected player, especially if another player is open. Older packages may predate this integration. Use the visible playback controls to check that the session itself works; see the <a href="https://github.com/LimeBeck/arinn/blob/master/docs/architecture/media-mvp.md#mpris-export">media integration guide</a> for details.</p></details>
       <h3>Report a reproducible problem</h3><p>Open a <a href="https://github.com/LimeBeck/arinn/issues/new/choose">GitHub issue</a> with your package version, desktop/session type, steps, expected result and observed result. Review output before sharing it: remove personal paths, URLs, tab titles, credentials and tokens. Report security problems through the <a href="https://github.com/LimeBeck/arinn/blob/master/SECURITY.md">security policy</a>.</p>
     </section>
     <section id="status" aria-labelledby="status-title">
-      <p class="eyebrow">08 / KNOW THE LIMITS</p><h2 id="status-title">Prototype limits</h2>
+      <p class="eyebrow">11 / KNOW THE LIMITS</p><h2 id="status-title">Prototype limits</h2>
       <p>This guide is maintained with the code. Availability can differ between an older package and the current default branch; check your release notes.</p>
-      <ul><li>Downloads UI binding is still pending (<a href="https://github.com/LimeBeck/arinn/issues/233">#233</a>).</li><li>Power, suspend/wake and ambient acceptance remain open; use your desktop's system controls (<a href="https://github.com/LimeBeck/arinn/issues/148">#148</a>).</li><li>Real X11/TV qualification and persistent XFCE startup are pending.</li><li>There is no on-screen keyboard, per-user profile system or gamepad configuration UI.</li><li>Some Home/Menu routing, global shortcut configuration and managed-player integration fixes are still in review.</li></ul>
-      <p>For intended behavior, see the <a href="https://github.com/LimeBeck/arinn/blob/master/docs/specifications/arinn-specification.md">specification</a>. For accepted milestones and remaining work, see the <a href="https://github.com/LimeBeck/arinn/blob/master/ROADMAP.md">roadmap</a>. The guide does not certify acceptance criteria or mark phase gates passed.</p>
+      <ul><li>Downloads is connected in current source builds; real Transmission-to-Library-to-playback use on a TV still needs qualification.</li><li>Power, suspend/wake and ambient acceptance remain open; use your desktop's system controls (<a href="https://github.com/LimeBeck/arinn/issues/148">#148</a>).</li><li>Real X11/TV qualification and persistent XFCE startup are pending.</li><li>There is no on-screen keyboard, per-user profile system or gamepad configuration UI. Manually pinning and ordering Home favorites is not yet connected.</li><li>Global Home shortcut configuration still has a known limitation (<a href="https://github.com/LimeBeck/arinn/issues/286">#286</a>). Playback, streaming-service compatibility and hardware behavior still need testing on your setup.</li></ul>
+      <p>For intended behavior, see the <a href="https://github.com/LimeBeck/arinn/blob/master/docs/specifications/arinn-specification.md">specification</a>. For accepted milestones and remaining work, see the <a href="https://github.com/LimeBeck/arinn/blob/master/ROADMAP.md">roadmap</a>. These implementation notes do not mean the prototype has completed everyday TV testing.</p>
     </section>
-    <footer><a class="brand" href="#overview">arinn</a><p>A home for what you love to do.</p><p>© 2026 Arinn contributors · Documentation <a href="https://github.com/LimeBeck/arinn/blob/master/LICENSES/CC-BY-SA-4.0.txt">CC BY-SA 4.0</a> · <a href="https://github.com/LimeBeck/arinn/issues">Feedback</a></p></footer>
+    <footer><a class="brand" href="#overview">Arinn</a><p>A home for what you love to do.</p><p>© 2026 Arinn contributors · Documentation <a href="https://github.com/LimeBeck/arinn/blob/master/LICENSES/CC-BY-SA-4.0.txt">CC BY-SA 4.0</a> · <a href="https://github.com/LimeBeck/arinn/issues">Feedback</a></p></footer>
   </main>
 </div>
 </body>

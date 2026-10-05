@@ -25,7 +25,7 @@ dialog and restore focus. Modified clicks preserve normal browser behavior.
 
 ## Publication boundary
 
-The builder reads an explicit input allowlist and outputs 15 public files into
+The builder reads an explicit input allowlist and outputs 17 public files into
 `build/site` (or `--output /tmp/arinn-product-site`). It excludes README files,
 technical documents, historical prototypes, app binaries, configuration and Git
 metadata. The checker rejects extra files, symlinks, broken links and references
@@ -47,7 +47,7 @@ cp docs/site/pages.yml .github/workflows/pages.yml
 ```
 
 It validates both the handbook and product site in PRs, uploads only the assembled
-15-file artifact, and deploys only on `master`. Screenshot changes also rebuild
+17-file artifact, and deploys only on `master`. Screenshot changes also rebuild
 the website. The template is not an active workflow until it is installed; the
 current handbook workflow continues to publish the handbook by itself.
 
@@ -63,6 +63,8 @@ release or application deployment is part of this website.
 The builder copies the approved mark unchanged from
 `docs/design/handoff/assets/arinn-mark.svg`. It copies all seven PNGs directly from
 [current-ui](../design/current-ui/README.md), including the handbook's Home image.
+The handbook also includes its approved mark and app-icon favicon from
+`docs/user/assets/`; their provenance is recorded in the handbook README.
 Refreshing those originals refreshes the website on its next build; no separate
 screenshot copies need maintenance. Captures use fictional fixtures and original
 placeholder artwork, not personal media or proof of finished integrations.

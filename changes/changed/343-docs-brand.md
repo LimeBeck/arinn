@@ -1,0 +1,2 @@
+- Restyle the user documentation with Arinn’s charcoal palette, light typography, soft cards and restrained Ember accents; use the approved A1 Classic logo and app-icon favicon.
+- Explain Arinn as an interface for a TV-connected Linux PC, add a first-use walkthrough and application, Home and download guidance, and update the current Downloads and media-key status.

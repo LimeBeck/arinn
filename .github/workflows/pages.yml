@@ -49,7 +49,7 @@ jobs:
         run: |
           mkdir -p /tmp/arinn-user-site/assets
           cp docs/user/index.html /tmp/arinn-user-site/
-          cp docs/user/assets/site.css docs/user/assets/home.png /tmp/arinn-user-site/assets/
+          cp docs/user/assets/site.css docs/user/assets/home.png docs/user/assets/arinn-mark.svg docs/user/assets/arinn-icon.svg /tmp/arinn-user-site/assets/
       - uses: actions/upload-pages-artifact@v4
         with:
           path: /tmp/arinn-user-site

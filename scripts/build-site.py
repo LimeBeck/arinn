@@ -15,7 +15,7 @@ SCREENS = (
 PUBLISHED_FILES = frozenset({
     "index.html", "assets/site.css", "assets/site.js", "assets/guide.css",
     "assets/arinn-mark.svg", "guide/index.html", "guide/assets/site.css",
-    "guide/assets/home.png",
+    "guide/assets/home.png", "guide/assets/arinn-mark.svg", "guide/assets/arinn-icon.svg",
     *(f"assets/screenshots/{name}.png" for name in SCREENS),
 })
 
@@ -40,6 +40,8 @@ def build(output: Path) -> None:
            for name in ("site.css", "site.js", "guide.css")},
         "assets/arinn-mark.svg": ROOT / "docs/design/handoff/assets/arinn-mark.svg",
         "guide/assets/site.css": ROOT / "docs/user/assets/site.css",
+        "guide/assets/arinn-mark.svg": ROOT / "docs/user/assets/arinn-mark.svg",
+        "guide/assets/arinn-icon.svg": ROOT / "docs/user/assets/arinn-icon.svg",
         "guide/assets/home.png": ROOT / "docs/design/current-ui/home.png",
         **{f"assets/screenshots/{name}.png": ROOT / f"docs/design/current-ui/{name}.png"
            for name in SCREENS},
@@ -62,9 +64,6 @@ def build(output: Path) -> None:
                           'class="brand" href="../index.html"')
     guide = guide.replace('aria-label="Arinn user guide"',
                           'aria-label="Arinn home"')
-    guide = guide.replace('<span class="mark" aria-hidden="true">a</span>',
-                          '<img src="../assets/arinn-mark.svg" alt="Arinn mark" '
-                          'width="28" height="32">')
     guide = guide.replace('</head>',
                           '  <link rel="stylesheet" href="../assets/guide.css">\n</head>')
     (output / "guide/index.html").write_text(guide, encoding="utf-8")

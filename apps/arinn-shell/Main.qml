@@ -53,11 +53,18 @@ Window {
     // Watch on a download whose library item the library catalog has not
     // read yet: {provider, local}, opened once the catalog lists it.
     property var pendingWatch: null
+    // Each Watch request, and leaving the library, starts a new ticket; a
+    // deferred open of an older ticket does nothing (#341).
+    property int watchTicket: 0
     // Leaving the library abandons a pending Watch; coming back later must
     // not open an old download's Detail (review of #310).
     Connections {
         target: home
-        function onScreenChanged() { if (home.screen !== "library") root.pendingWatch = null; }
+        function onScreenChanged() {
+            if (home.screen === "library") return;
+            root.pendingWatch = null;
+            ++root.watchTicket;
+        }
     }
     function openWatchTarget() {
         if (!pendingWatch || home.screen !== "library") {
@@ -67,7 +74,11 @@ Window {
         const entryId = libraryCatalog.entryIdFor(pendingWatch.provider, pendingWatch.local);
         if (!entryId.length) return;
         pendingWatch = null;
-        Qt.callLater(() => libraryView.openEntry(entryId));
+        const ticket = watchTicket;
+        Qt.callLater(() => {
+            if (ticket === root.watchTicket && home.screen === "library")
+                libraryView.openEntry(entryId);
+        });
     }
     property bool presentationAtHome: false
     property bool presentationRequested: false
@@ -525,6 +536,7 @@ Window {
             onWatchRequested: id => {
                 const target = downloadCatalog.watchTarget(id);
                 home.screen = "library";
+                ++root.watchTicket;
                 root.pendingWatch = target.local ? target : null;
                 if (!root.pendingWatch) return;
                 root.openWatchTarget();

@@ -184,11 +184,12 @@ Window {
     // Screens move focus only inside themselves, through Ui.Focus.take(),
     // which refuses hidden or disabled items. Home's navigation menu and
     // shortcut editor cover the library and settings screens, so they win.
+    // Home's navigation menu opens over every screen but the player (#329).
     readonly property string focusedScreen: playerOpen ? "player"
+        : home.navOpen || home.shortcutEditorOpen ? "home"
         : sessionOpen ? "session"
         : browseOpen ? "browse"
         : browserOpen ? "browser"
-        : home.navOpen || home.shortcutEditorOpen ? "home"
         : home.screen === "library" ? "library"
         : home.screen === "downloads" ? "downloads"
         : home.screen === "settings" ? "settings"
@@ -316,10 +317,12 @@ Window {
         if (event.isAutoRepeat || event.modifiers !== Qt.NoModifier) return;
         const section = focusedScreen === "library" || focusedScreen === "settings"
             || focusedScreen === "downloads";
+        const overlay = focusedScreen === "browser" || focusedScreen === "browse"
+            || focusedScreen === "session";
         // A Settings editor keeps Menu; Home reaches the shell through the
         // view's homeRequested, which also cancels the editor.
         if (focusedScreen === "settings" && settingsView.editingKey.length) return;
-        if (event.key === Qt.Key_Menu && section) {
+        if (event.key === Qt.Key_Menu && (section || overlay)) {
             home.openNavigation();
             event.accepted = true;
         } else if (event.key === Qt.Key_Home) {
@@ -346,10 +349,11 @@ Window {
         Ui.HomeView {
             id: home
             focus: root.focusedScreen === "home"
-            // The navigation menu opened over Library, Settings or Downloads (z 4) is
-            // drawn above them, below Open services and Browse (z 5).
-            z: navOpen ? 4.5 : 0
+            // The navigation menu is drawn above the section screens (z 4) and
+            // Open services, Browse and Session (z 5), below the player (z 6).
+            z: navOpen ? 5.5 : 0
             coveredByScreen: libraryView.visible || settingsView.visible || downloadsView.visible
+                || browserView.visible || browseView.visible || sessionView.visible
             // Home remains painted beneath other screens, but its catalog
             // callbacks and hovered cards must not take their input focus.
             enabled: root.focusedScreen === "home"
@@ -391,6 +395,13 @@ Window {
             onRunningRequested: entryId => backend.activate(entryId)
             onReturnRequested: backend.back()
             onRetryRequested: backend.refresh()
+            // A section picked in the navigation menu replaces an open
+            // overlay (#329).
+            onSectionRequested: route => {
+                root.browserOpen = false;
+                if (root.browseOpen) { root.browseOpen = false; browseCatalog.reset(); }
+                if (root.sessionOpen) { root.sessionOpen = false; root.sessionFromLibrary = false; }
+            }
             onOpenServicesRequested: {
                 root.browserOpen = true;
                 Qt.callLater(() => Ui.Focus.take(browserView));

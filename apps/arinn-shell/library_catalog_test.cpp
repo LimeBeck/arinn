@@ -1592,6 +1592,48 @@ private slots:
     QTRY_COMPARE(home->property("screen").toString(), QStringLiteral("home"));
     QCOMPARE(settings->property("editingKey").toString(), QString());
 
+    // Review of #334: Menu opens the navigation over Open services, Browse and
+    // a session; Escape returns to the screen, and a section picked in the
+    // menu replaces the overlay.
+    for (const auto &[flag, name] :
+         {std::pair{"browserOpen", "productionBrowser"},
+          std::pair{"browseOpen", "productionBrowse"},
+          std::pair{"sessionOpen", "productionSession"}}) {
+      auto screen = window->findChild<QQuickItem *>(QString::fromLatin1(name));
+      QVERIFY2(screen, name);
+      home->setProperty("screen", QStringLiteral("home"));
+      window->setProperty(flag, true);
+      QTRY_VERIFY2(focusInside(window->activeFocusItem(), screen), name);
+      QMetaObject::invokeMethod(screen, "focusInitial");
+      QTest::keyClick(window, Qt::Key_Menu);
+      QTRY_VERIFY2(home->property("navOpen").toBool(), name);
+      // The menu focuses the entry of the current section.
+      const auto onMenu = [&] {
+        auto item = window->activeFocusItem();
+        return item && item->objectName().startsWith(QStringLiteral("nav-")) &&
+               focusInside(item, navigation);
+      };
+      QTRY_VERIFY2(onMenu(), name);
+      QVERIFY2(navigation->isVisible() && home->z() > screen->z(), name);
+      QTest::keyClick(window, Qt::Key_Escape);
+      QTRY_VERIFY2(!home->property("navOpen").toBool(), name);
+      QTRY_VERIFY2(focusInside(window->activeFocusItem(), screen), name);
+      QVERIFY2(window->property(flag).toBool(), name);
+      QTest::keyClick(window, Qt::Key_Menu);
+      QTRY_VERIFY2(onMenu(), name);
+      auto libraryEntry = findItem(home, QStringLiteral("nav-1"));
+      QVERIFY(libraryEntry);
+      for (int i = 0; i < 6 && !libraryEntry->hasActiveFocus(); ++i)
+        QTest::keyClick(window, Qt::Key_Up);
+      if (!libraryEntry->hasActiveFocus())
+        QTest::keyClick(window, Qt::Key_Down);
+      QTRY_VERIFY2(libraryEntry->hasActiveFocus(), name);
+      QTest::keyClick(window, Qt::Key_Return);
+      QTRY_VERIFY2(!window->property(flag).toBool(), name);
+      QTRY_COMPARE(home->property("screen").toString(), QStringLiteral("library"));
+      QTRY_VERIFY2(focusInside(window->activeFocusItem(), library), name);
+    }
+
     // Home from Open services, Browse and a session also shows Home.
     for (const auto &[flag, name] :
          {std::pair{"browserOpen", "productionBrowser"},

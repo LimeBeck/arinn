@@ -146,7 +146,10 @@ view.
 The view does not handle Menu. The key bubbles to `Main.qml`, which opens
 Home's navigation menu above the library (#329). The menu then holds focus,
 and closing it restores the poster or tab that opened it. Settings and
-Downloads work the same way.
+Downloads work the same way, and so do Open services, Browse and a media
+session. While the menu is open it is drawn above them and owns focus; only
+the player stays above it. A section picked in the menu closes an open
+overlay.
 
 From Settings, Downloads, Open services, Browse and a media session, Home
 shows Home. Editors take keys before they bubble, so two screens send Home

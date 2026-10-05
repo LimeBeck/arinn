@@ -11,6 +11,12 @@ fi
 # A clean shell exit leaves its session target active. Recreate the shell
 # independently; preserve the current KDE/EWMH session and running instance.
 if ! systemctl --user is-active --quiet arinn-shell.service; then
+    # Manual starts count toward the crash-loop limit too. Clear that count
+    # only after a confirmed clean exit; failed units retain their protection.
+    if [ "$(systemctl --user show --property=ActiveState --value arinn-shell.service)" = inactive ] &&
+        [ "$(systemctl --user show --property=Result --value arinn-shell.service)" = success ]; then
+        systemctl --user reset-failed arinn-shell.service || exit 1
+    fi
     systemctl --user start arinn-shell.service || exit 1
 fi
 # A Type=dbus start confirms name ownership before QML loads. Query a

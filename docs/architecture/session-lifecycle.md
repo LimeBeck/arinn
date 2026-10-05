@@ -64,3 +64,8 @@ does not need to be true: the reply proves the shell has entered its event loop
 after loading QML. Name ownership alone is insufficient for a `Type=dbus` unit.
 Stub launcher tests cover both session targets, failed startup after name ownership,
 and delayed shell readiness, without operating the real graphical session.
+
+Normal desktop-entry relaunch after a clean shell exit resets the unit start
+counter before starting it. The launcher requires `ActiveState=inactive` and
+`Result=success`; failed units retain the service start limit and crash-loop
+protection. Repeated menu close/reopen cycles therefore remain available.

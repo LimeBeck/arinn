@@ -10,6 +10,9 @@ use arinn_protocol::{
 use std::time::{Duration, Instant};
 
 pub(crate) const NAME_PREFIX: &str = "org.mpris.MediaPlayer2.";
+/// Players Arinn providers export themselves (ADR-0081). Their sessions
+/// already reach the daemon through that provider.
+pub(crate) const RESERVED: &str = "arinn_";
 const SEEK_SLACK_US: i64 = 1_500_000;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -43,7 +46,7 @@ pub(crate) struct Sample {
 
 pub(crate) fn session_id(bus_name: &str) -> Option<&str> {
     let rest = bus_name.strip_prefix(NAME_PREFIX)?;
-    if validation::id(rest).is_err() {
+    if rest.starts_with(RESERVED) || validation::id(rest).is_err() {
         return None;
     }
     Some(rest)
@@ -260,6 +263,15 @@ mod tests {
             Some("one.two")
         );
         assert_eq!(session_id("org.mpris.MediaPlayer2."), None);
+        // ADR-0081: players of Arinn providers are not listed twice.
+        assert_eq!(
+            session_id("org.mpris.MediaPlayer2.arinn_mpv.instance42"),
+            None
+        );
+        assert_eq!(
+            session_id("org.mpris.MediaPlayer2.arinnplayer"),
+            Some("arinnplayer")
+        );
         assert_eq!(session_id("org.mpris.MediaPlayer2"), None);
     }
 

@@ -178,6 +178,7 @@ async fn scenario() {
     assert!(xml.contains("org.arinn.MediaTimeline1"));
     assert!(xml.contains("org.arinn.MediaWindowProvider1"));
     assert!(xml.contains("org.arinn.AssetProvider1"));
+    assert_mpris_controls_the_session(&daemon, &commands).await;
     assert_launch(&daemon, &first.destination).await;
     assert!(!names(&commands).iter().any(|name| name == "loadfile"));
     assert_eq!(std::fs::read_to_string(&state).unwrap(), before);
@@ -422,4 +423,88 @@ async fn assert_launch(daemon: &Connection, destination: &zbus::names::OwnedUniq
             .await
             .is_err()
     );
+}
+
+/// ADR-0081 (#300): while a session exists the provider is an MPRIS player,
+/// so Plasma's media keys reach it; PlayPause pauses the playing session.
+async fn assert_mpris_controls_the_session(daemon: &Connection, commands: &Arc<Mutex<Vec<Value>>>) {
+    let dbus = zbus::fdo::DBusProxy::new(daemon).await.unwrap();
+    let mut name = None;
+    for _ in 0..100 {
+        name = dbus
+            .list_names()
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|n| n.to_string())
+            .find(|n| n.starts_with("org.mpris.MediaPlayer2.arinn_mpv.instance"));
+        if name.is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let name = name.expect("the provider owns its MPRIS name while a session exists");
+    let properties = zbus::fdo::PropertiesProxy::builder(daemon)
+        .destination(name.clone())
+        .unwrap()
+        .path("/org/mpris/MediaPlayer2")
+        .unwrap()
+        .build()
+        .await
+        .unwrap();
+    let interface = zbus::names::InterfaceName::try_from("org.mpris.MediaPlayer2.Player").unwrap();
+    let status: String = properties
+        .get(interface.clone(), "PlaybackStatus")
+        .await
+        .unwrap()
+        .try_into()
+        .unwrap();
+    assert_eq!(status, "Playing");
+    let identity: String = properties
+        .get(
+            zbus::names::InterfaceName::try_from("org.mpris.MediaPlayer2").unwrap(),
+            "DesktopEntry",
+        )
+        .await
+        .unwrap()
+        .try_into()
+        .unwrap();
+    assert_eq!(identity, "org.arinn.Shell");
+    // Volume belongs to the system: a write is refused, not ignored.
+    assert!(
+        properties
+            .set(
+                interface.clone(),
+                "Volume",
+                zbus::zvariant::Value::from(0.5)
+            )
+            .await
+            .is_err()
+    );
+    let player = zbus::Proxy::new(
+        daemon,
+        name.clone(),
+        "/org/mpris/MediaPlayer2",
+        "org.mpris.MediaPlayer2.Player",
+    )
+    .await
+    .unwrap();
+    // A seek is announced with Seeked (review of #326).
+    use futures_util::StreamExt;
+    let mut seeked = player.receive_signal("Seeked").await.unwrap();
+    let _: () = player.call("Seek", &(1_000_000i64,)).await.unwrap();
+    let signal = tokio::time::timeout(Duration::from_secs(5), seeked.next())
+        .await
+        .expect("Seeked after Seek")
+        .unwrap();
+    let (position,): (i64,) = signal.body().deserialize().unwrap();
+    assert!(position > 0, "{position}");
+    assert!(names(commands).iter().any(|name| name == "seek"));
+    let _: () = player.call("PlayPause", &()).await.unwrap();
+    let paused = commands
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|message| message.get("command") == Some(&json!(["set_property", "pause", true])));
+    assert!(paused, "PlayPause did not pause the playing session");
 }

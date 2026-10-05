@@ -14,11 +14,11 @@ on:
 permissions:
   contents: read
 
-# A newer commit on the same pull request or on master supersedes the
-# running pipeline; the nightly and releases always finish (ADR-0049).
+# Superseded PR runs cancel. Each master commit has its own group so every
+# successful push can publish its snapshot (ADR-0086).
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/master') }}
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}-${{ github.event_name == 'push' && github.ref == 'refs/heads/master' && github.sha || 'shared' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -136,3 +136,46 @@ jobs:
       # Pull requests build the package only when they touch it (ADR-0049);
       # run CI manually on the branch to force a package build.
       skip: ${{ needs.scope.outputs.package != 'true' }}
+
+  snapshot:
+    name: Publish master pre-release
+    needs: [scope, rust, integration, licenses, docs, package]
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
+    runs-on: ${{ vars.ARINN_RUNNER || 'ubuntu-latest' }}
+    container: python:3.12
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/download-artifact@v8
+        with:
+          name: arinn-arch-package
+          path: dist
+      - name: Prepare immutable snapshot
+        id: snapshot
+        env:
+          GH_TOKEN: ${{ secrets.SNAPSHOT_RELEASE_TOKEN }}
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          python scripts/snapshot-release.py prepare
+      - uses: softprops/action-gh-release@v3
+        id: upload
+        if: steps.snapshot.outputs.already_published != 'true'
+        with:
+          token: ${{ secrets.SNAPSHOT_RELEASE_TOKEN }}
+          tag_name: ${{ steps.snapshot.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: Arinn ${{ steps.snapshot.outputs.tag }}
+          body_path: snapshot-notes.md
+          draft: true
+          prerelease: true
+          make_latest: false
+          files: dist/*
+          fail_on_unmatched_files: true
+      - name: Verify assets and publish pre-release
+        env:
+          GH_TOKEN: ${{ secrets.SNAPSHOT_RELEASE_TOKEN }}
+          RELEASE_ID: ${{ steps.upload.outputs.id }}
+        run: python scripts/snapshot-release.py publish

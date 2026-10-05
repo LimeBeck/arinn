@@ -195,11 +195,12 @@ Window {
     // Screens move focus only inside themselves, through Ui.Focus.take(),
     // which refuses hidden or disabled items. Home's navigation menu and
     // shortcut editor cover the library and settings screens, so they win.
+    // Home's navigation menu opens over every screen but the player (#329).
     readonly property string focusedScreen: playerOpen ? "player"
+        : home.navOpen || home.shortcutEditorOpen ? "home"
         : sessionOpen ? "session"
         : browseOpen ? "browse"
         : browserOpen ? "browser"
-        : home.navOpen || home.shortcutEditorOpen ? "home"
         : home.screen === "library" ? "library"
         : home.screen === "downloads" ? "downloads"
         : home.screen === "settings" ? "settings"
@@ -228,8 +229,10 @@ Window {
     }
     // A new route whose screen did not get focus through its scope (nothing
     // focused there yet) starts at the screen's preferred item.
+    // A hidden item inside the screen (a closed menu entry) does not count.
     onFocusedScreenChanged: Qt.callLater(() => {
-        if (visible && !focusInside(activeFocusItem, screenItem(focusedScreen))) restoreFocus();
+        if (visible && (!focusInside(activeFocusItem, screenItem(focusedScreen))
+                        || !activeFocusItem.visible)) restoreFocus();
     })
     // Last resort: Qt moves active focus to the root item when the focused
     // item is destroyed. Nothing handles keys there, so the remote would stop
@@ -321,11 +324,55 @@ Window {
                  && !home.shortcutEditorOpen && !sessionGuard.blocked
         onActivated: mediaCatalog.release()
     }
+    // Menu and Home that the focused screen did not accept (#329, spec §6.2,
+    // §6.3). Home handles both itself; these are the other screens.
+    function unhandledKey(event) {
+        if (event.isAutoRepeat || event.modifiers !== Qt.NoModifier) return;
+        const section = focusedScreen === "library" || focusedScreen === "settings"
+            || focusedScreen === "downloads";
+        const overlay = focusedScreen === "browser" || focusedScreen === "browse"
+            || focusedScreen === "session";
+        // A Settings editor keeps Menu; Home reaches the shell through the
+        // view's homeRequested, which also cancels the editor.
+        if (focusedScreen === "settings" && settingsView.editingKey.length) return;
+        if (event.key === Qt.Key_Menu && (section || overlay)) {
+            home.openNavigation();
+            event.accepted = true;
+        } else if (event.key === Qt.Key_Home) {
+            if (goHomeFrom(focusedScreen)) event.accepted = true;
+        }
+    }
+    // Open services, Browse and a session give way to Home's navigation.
+    function closeOverlays() {
+        browserOpen = false;
+        if (browseOpen) { browseOpen = false; browseCatalog.reset(); }
+        if (sessionOpen) { sessionOpen = false; sessionFromLibrary = false; }
+    }
+    // Home from a screen that does not handle it itself; false when the
+    // screen is not one of these.
+    function goHomeFrom(screen) {
+        if (screen === "library" || screen === "settings" || screen === "downloads") home.showHome();
+        else if (screen === "browser") { browserOpen = false; Qt.callLater(home.showHome); }
+        else if (screen === "browse") { browseOpen = false; browseCatalog.reset(); Qt.callLater(home.showHome); }
+        else if (screen === "session") {
+            sessionOpen = false;
+            sessionFromLibrary = false;
+            Qt.callLater(home.showHome);
+        } else return false;
+        return true;
+    }
     Ui.LogicalCanvas {
         anchors.fill: parent
+        // Keys bubble here from every screen that left them unaccepted.
+        Keys.onPressed: event => root.unhandledKey(event)
         Ui.HomeView {
             id: home
             focus: root.focusedScreen === "home"
+            // The navigation menu is drawn above the section screens (z 4) and
+            // Open services, Browse and Session (z 5), below the player (z 6).
+            z: navOpen ? 5.5 : 0
+            coveredByScreen: libraryView.visible || settingsView.visible || downloadsView.visible
+                || browserView.visible || browseView.visible || sessionView.visible
             // Home remains painted beneath other screens, but its catalog
             // callbacks and hovered cards must not take their input focus.
             enabled: root.focusedScreen === "home"
@@ -367,7 +414,14 @@ Window {
             onRunningRequested: entryId => backend.activate(entryId)
             onReturnRequested: backend.back()
             onRetryRequested: backend.refresh()
+            // A section picked in the navigation menu, or Home pressed there,
+            // replaces an open overlay (#329, §6.3).
+            onSectionRequested: route => root.closeOverlays()
+            onHomeKeyPressed: root.closeOverlays()
             onOpenServicesRequested: {
+                // From the menu over Browse or a session, Open services
+                // replaces that overlay instead of opening beneath it.
+                root.closeOverlays();
                 root.browserOpen = true;
                 Qt.callLater(() => Ui.Focus.take(browserView));
             }
@@ -441,6 +495,7 @@ Window {
             onClearRequested: browseCatalog.clearRecent()
             onRetryRequested: { browseCatalog.dismissError(); browserCatalog.retry(); browseCatalog.refreshRecent(); browseCatalog.refreshShortcuts(); }
             onBackRequested: root.closeBrowse()
+            onHomeRequested: root.goHomeFrom("browse")
         }
         Session.SessionView {
             id: sessionView
@@ -494,6 +549,7 @@ Window {
             onValueChangeRequested: (providerId, settingId, value) => settingsCatalog.setValue(providerId, settingId, value)
             onErrorDismissRequested: (providerId, settingId) => settingsCatalog.dismissError(providerId, settingId)
             onDismissRequested: home.back()
+            onHomeRequested: root.goHomeFrom("settings")
             onRetryRequested: settingsCatalog.refresh()
         }
         Library.LibraryView {

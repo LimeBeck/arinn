@@ -64,6 +64,7 @@ TestCase {
 
     SignalSpy { id: changes; signalName: "valueChangeRequested" }
     SignalSpy { id: dismissals; signalName: "dismissRequested" }
+    SignalSpy { id: homes; signalName: "homeRequested" }
 
     function child(name) {
         const item = findChild(view, name);
@@ -94,12 +95,15 @@ TestCase {
         changes.clear();
         dismissals.target = view;
         dismissals.clear();
+        homes.target = view;
+        homes.clear();
         focused("category-media");
     }
     function init() { createView(); }
     function cleanup() {
         changes.target = null;
         dismissals.target = null;
+        homes.target = null;
         view = null;
     }
     function down(steps) {
@@ -165,6 +169,48 @@ TestCase {
         compare(changes.signalArguments[0][2], true);
         compare(child("knob-library-scan").x, 5);
         compare(view.rows[0].currentValue, false);
+    }
+
+    // #329: Home leaves an editor or sheet without committing the draft.
+    function test_home_from_editors_and_sheets() {
+        down(6);
+        focused("category-system");
+        keyClick(Qt.Key_Right);
+        focused("setting-shell-idle");
+        keyClick(Qt.Key_Return);
+        focused("integerStepper");
+        keyClick(Qt.Key_Left);
+        compare(child("integerValue").text, "9");
+        keyClick(Qt.Key_Home);
+        compare(homes.count, 1);
+        compare(view.editingKey, "");
+        compare(changes.count, 0);
+
+        createView();
+        down(4);
+        focused("category-applications");
+        keyClick(Qt.Key_Right);
+        focused("setting-shell-label");
+        keyClick(Qt.Key_Return);
+        const editor = child("editor-shell-label");
+        tryCompare(editor, "activeFocus", true);
+        keyClick(Qt.Key_Backspace);
+        keyClick(Qt.Key_Home);
+        compare(homes.count, 1);
+        compare(view.editingKey, "");
+        compare(changes.count, 0);
+
+        createView();
+        down(2);
+        focused("category-sound");
+        keyClick(Qt.Key_Right);
+        focused("setting-audio-output");
+        keyClick(Qt.Key_Return);
+        tryCompare(view, "choosingKey", "audio-output");
+        keyClick(Qt.Key_Home);
+        compare(homes.count, 1);
+        compare(view.choosingKey, "");
+        compare(changes.count, 0);
     }
 
     function test_integer_sheet_bounds_unit_and_hold() {

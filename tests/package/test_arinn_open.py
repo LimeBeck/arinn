@@ -12,22 +12,41 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class ArinnOpen(unittest.TestCase):
-    def run_open(self, active, home_failures, home_ever=True):
+    def run_open(self, active, home_failures, home_ever=True,
+                 shell_active=True, shell_start_fails=False,
+                 ready_failures=0, shell_ready=True, clean_shutdown=True, prior_starts=0):
         with tempfile.TemporaryDirectory(prefix="arinn-open-test-") as folder:
             root = Path(folder)
             log = root / "log"
             count = root / "count"
             count.write_text("0")
+            started = root / "started"
+            starts = root / "starts"
+            starts.write_text(str(prior_starts))
             systemctl = root / "systemctl"
             systemctl.write_text(
                 "#!/bin/sh\n"
                 f"echo \"systemctl $*\" >> {log}\n"
                 "case \"$*\" in\n"
                 f"  *is-active*{active}*) exit 0 ;;\n"
+                f"  *is-active*arinn-shell.service*) [ {1 if shell_active else 0} = 1 ] || [ -f {started} ]; exit $? ;;\n"
+                f"  *show*ActiveState*) echo {'inactive' if clean_shutdown else 'failed'}; exit 0 ;;\n"
+                f"  *show*Result*) echo {'success' if clean_shutdown else 'exit-code'}; exit 0 ;;\n"
+                f"  *reset-failed*) echo 0 > {starts}; exit 0 ;;\n"
+                f"  *start*arinn-shell.service*) [ {1 if shell_start_fails else 0} = 0 ] || exit 1; n=$(cat {starts}); n=$((n + 1)); echo $n > {starts}; [ $n -le 5 ] || exit 1; touch {started}; exit 0 ;;\n"
                 "  *is-active*) exit 3 ;;\n"
                 "esac\n"
                 "exit 0\n")
             systemctl.chmod(0o755)
+            ready_count = root / "ready-count"
+            ready_count.write_text("0")
+            busctl = root / "busctl"
+            busctl.write_text(
+                "#!/bin/sh\n"
+                f"n=$(cat {ready_count}); n=$((n + 1)); echo $n > {ready_count}\n"
+                f"echo \"busctl $*\" >> {log}\n"
+                f"[ {1 if shell_ready else 0} = 1 ] && [ $n -gt {ready_failures} ]\n")
+            busctl.chmod(0o755)
             arinnctl = root / "arinnctl"
             arinnctl.write_text(
                 "#!/bin/sh\n"
@@ -56,6 +75,56 @@ class ArinnOpen(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertFalse(any("start" in line for line in log), log)
             self.assertEqual(log.count("arinnctl home"), 1)
+
+    def test_reopens_a_closed_shell_without_restarting_the_session(self):
+        for target in ("arinn-session.target", "arinn-ewmh-session.target"):
+            with self.subTest(target=target):
+                result, log = self.run_open(active=target, home_failures=0,
+                                            shell_active=False)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("systemctl --user start arinn-shell.service", log)
+                self.assertFalse(any("start " in line and ".target" in line for line in log), log)
+                self.assertFalse(any("enable" in line or "restart" in line for line in log), log)
+                self.assertLess(log.index("systemctl --user start arinn-shell.service"),
+                                log.index("arinnctl home"))
+
+    def test_clean_relaunch_resets_the_start_counter(self):
+        result, log = self.run_open(active="arinn-session.target", home_failures=0,
+                                    shell_active=False, prior_starts=5)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("systemctl --user reset-failed arinn-shell.service", log)
+        self.assertLess(log.index("systemctl --user reset-failed arinn-shell.service"),
+                        log.index("systemctl --user start arinn-shell.service"))
+
+    def test_crash_loop_keeps_the_start_limit(self):
+        result, log = self.run_open(active="arinn-session.target", home_failures=0,
+                                    shell_active=False, clean_shutdown=False, prior_starts=5)
+        self.assertEqual(result.returncode, 1)
+        self.assertNotIn("systemctl --user reset-failed arinn-shell.service", log)
+        self.assertNotIn("arinnctl home", log)
+
+    def test_failed_shell_start_does_not_report_home_success(self):
+        result, log = self.run_open(active="arinn-session.target", home_failures=0,
+                                    shell_active=False, shell_start_fails=True)
+        self.assertEqual(result.returncode, 1)
+        self.assertNotIn("arinnctl home", log)
+
+    def test_waits_for_the_shell_event_loop_before_home(self):
+        result, log = self.run_open(active="arinn-session.target", home_failures=0,
+                                    shell_active=False, ready_failures=2)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        queries = [i for i, line in enumerate(log) if line.startswith("busctl ")]
+        self.assertEqual(len(queries), 3)
+        self.assertLess(queries[-1], log.index("arinnctl home"))
+        self.assertTrue(all("--timeout=250ms" in log[i] for i in queries))
+
+    def test_post_bus_name_shell_failure_does_not_report_success(self):
+        result, log = self.run_open(active="arinn-session.target", home_failures=0,
+                                    shell_active=False, shell_ready=False)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("systemctl --user start arinn-shell.service", log)
+        self.assertNotIn("arinnctl home", log)
+        self.assertEqual(sum(line.startswith("busctl ") for line in log), 20)
 
     def test_gives_up_when_the_daemon_never_answers(self):
         result, log = self.run_open(active="nothing", home_failures=0, home_ever=False)

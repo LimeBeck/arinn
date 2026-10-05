@@ -8,14 +8,30 @@ if ! systemctl --user is-active --quiet arinn-session.target &&
     ! systemctl --user is-active --quiet arinn-ewmh-session.target; then
     systemctl --user start arinn-session.target || exit 1
 fi
-# The daemon may still be starting: retry Home for up to five seconds.
+# A clean shell exit leaves its session target active. Recreate the shell
+# independently; preserve the current KDE/EWMH session and running instance.
+if ! systemctl --user is-active --quiet arinn-shell.service; then
+    # Manual starts count toward the crash-loop limit too. Clear that count
+    # only after a confirmed clean exit; failed units retain their protection.
+    if [ "$(systemctl --user show --property=ActiveState --value arinn-shell.service)" = inactive ] &&
+        [ "$(systemctl --user show --property=Result --value arinn-shell.service)" = success ]; then
+        systemctl --user reset-failed arinn-shell.service || exit 1
+    fi
+    systemctl --user start arinn-shell.service || exit 1
+fi
+# A Type=dbus start confirms name ownership before QML loads. Query a
+# GUI-thread property first: a reply requires the loaded shell event loop.
+# Bound each query; an unresponsive/failed shell must not report success.
 tries=0
 while [ "$tries" -lt 20 ]; do
-    if /usr/bin/arinnctl home >/dev/null 2>&1; then
+    if busctl --user --timeout=250ms get-property org.arinn.Shell1 \
+        /org/arinn/Shell1 org.arinn.Shell1 connected >/dev/null 2>&1 &&
+        systemctl --user is-active --quiet arinn-shell.service &&
+        /usr/bin/arinnctl home >/dev/null 2>&1; then
         exit 0
     fi
     tries=$((tries + 1))
     sleep 0.25
 done
-echo "arinn-open: the Arinn daemon did not answer" >&2
+echo "arinn-open: the Arinn shell or daemon did not answer" >&2
 exit 1

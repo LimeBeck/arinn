@@ -97,3 +97,8 @@ A command whose token is absent from `actions` returns `Unsupported` and does no
 `anchor_us` is `CLOCK_MONOTONIC` in microseconds. A new anchor is published on the first sample, on a playback-state change, on a seek (including a position jump while playing), and at most once per second while the state is `playing`. While that interval is open, the published position stays at the last anchor so the shell can interpolate.
 
 Managed window identity and acknowledged presentation routing follow [ADR-0074](../adr/0074-managed-playback-window.md) and the [managed playback contract](managed-playback.md). The producer recovers the exact Wayland application ID through its private player IPC on reconnection. Unmanaged players retain ordinary media controls but expose no managed window.
+
+During owned-player shutdown recovery, a retained Stop-only session does not
+keep the MPRIS bus name. Media-key routing requires a playing or paused session
+with Play, Pause or PlayPause available, so an IPC-disconnected retry cannot
+intercept keys intended for another player.

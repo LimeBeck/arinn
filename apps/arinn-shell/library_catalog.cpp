@@ -788,6 +788,23 @@ LibraryCatalog::launchTarget(const ItemRow &row) const {
     return seriesTarget(row);
   return &row;
 }
+QString LibraryCatalog::entryIdFor(const QString &providerId,
+                                   const QString &localId) const {
+  auto local = localId;
+  // Bounded walk: acceptProvider already rejects parent cycles.
+  for (int depth = 0; depth <= m_items.size(); ++depth) {
+    const ItemRow *found = nullptr;
+    for (const auto &item : m_items)
+      if (item.providerId == providerId && item.localId == local)
+        found = &item;
+    if (!found)
+      return {};
+    if (found->parentLocal.isEmpty())
+      return found->id;
+    local = found->parentLocal;
+  }
+  return {};
+}
 void LibraryCatalog::launchContent(const QString &providerId,
                                    const QString &localId) {
   for (const auto &item : m_items) {

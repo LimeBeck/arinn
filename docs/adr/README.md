@@ -74,7 +74,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0053](0053-release-and-label-workflows-on-the-runner.md) | Release and label workflows use the switchable runner | Accepted | — |
 | [0054](0054-media-and-library-wire-contract.md) | Media and library wire contract | Accepted | 0062, 0063, 0071 |
 | [0055](0055-launching-a-closed-browser.md) | Launching a closed browser before opening a URL | Accepted | — |
-| [0056](0056-local-library-scan-metadata-and-resume.md) | Local library scan, metadata and resume | Accepted | — |
+| [0056](0056-local-library-scan-metadata-and-resume.md) | Local library scan, metadata and resume | Accepted | 0085 |
 | [0057](0057-mpv-ipc-and-process-scope.md) | mpv IPC, process scope and thumbnails | Accepted | 0083 |
 | [0058](0058-media-routing.md) | Daemon routing for media providers | Accepted | 0060 |
 | [0059](0059-application-icon-references.md) | Application icon references | Accepted | — |
@@ -98,8 +98,10 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0078](0078-x11-ewmh-adapter.md) | Optional generic X11/EWMH adapter | Proposed | 0080 |
 | [0079](0079-shell-input-bindings.md) | Shell key bindings from config.toml | Accepted | — |
 | [0080](0080-mvp-platforms.md) | MVP platforms — KDE Plasma 6 on Wayland and X11/EWMH desktops | Accepted | — |
+| [0081](0081-mpris-export-of-managed-playback.md) | MPRIS export of Arinn-managed playback | Accepted | — |
 | [0082](0082-opt-in-sentry.md) | Optional Sentry diagnostics for the shell and daemon | Proposed | — |
 | [0083](0083-managed-player-stop.md) | Terminate the managed player on Stop and retain its final frame | Proposed | — |
 | [0084](0084-favorites-contract.md) | Revision-guarded daemon-owned favorites | Accepted | — |
+| [0085](0085-anime-tv-season-markers.md) | Anime `TVn` season markers in library names | Accepted | — |
 | [0086](0086-automatic-master-prereleases.md) | Automatic master pre-releases and ordinary version-tag releases | Proposed | — |
 <!-- register:end -->

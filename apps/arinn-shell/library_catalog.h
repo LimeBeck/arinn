@@ -30,6 +30,10 @@ public:
   Q_INVOKABLE void launch(const QString &id);
   // Launch the item with this provider-local id (Continue resume, #247).
   Q_INVOKABLE void launchContent(const QString &providerId, const QString &localId);
+  // The top-level entry (a film or its series) that shows this provider-local
+  // item, or an empty string (Downloads Watch, #233).
+  Q_INVOKABLE QString entryIdFor(const QString &providerId,
+                                 const QString &localId) const;
 public slots:
   void refresh();
 signals:

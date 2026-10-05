@@ -7,6 +7,7 @@ import Arinn.Shell 1.0
 import "ui" as Ui
 import "ui/screens/browser" as Browser
 import "ui/screens/browse" as Browse
+import "ui/screens/downloads" as Downloads
 import "ui/screens/library" as Library
 import "ui/screens/player" as Player
 import "ui/screens/session" as Session
@@ -49,6 +50,25 @@ Window {
     property bool leavingStopPending: false
     property string leaveError: ""
     property bool sessionFromLibrary: false
+    // Watch on a download whose library item the library catalog has not
+    // read yet: {provider, local}, opened once the catalog lists it.
+    property var pendingWatch: null
+    // Leaving the library abandons a pending Watch; coming back later must
+    // not open an old download's Detail (review of #310).
+    Connections {
+        target: home
+        function onScreenChanged() { if (home.screen !== "library") root.pendingWatch = null; }
+    }
+    function openWatchTarget() {
+        if (!pendingWatch || home.screen !== "library") {
+            pendingWatch = null;
+            return;
+        }
+        const entryId = libraryCatalog.entryIdFor(pendingWatch.provider, pendingWatch.local);
+        if (!entryId.length) return;
+        pendingWatch = null;
+        Qt.callLater(() => libraryView.openEntry(entryId));
+    }
     property bool presentationAtHome: false
     property bool presentationRequested: false
     function showPlaybackHome() {
@@ -170,11 +190,12 @@ Window {
         : browserOpen ? "browser"
         : home.navOpen || home.shortcutEditorOpen ? "home"
         : home.screen === "library" ? "library"
+        : home.screen === "downloads" ? "downloads"
         : home.screen === "settings" ? "settings"
         : "home"
     function screenItem(name) {
         return ({player: playerView, session: sessionView, browser: browserView, browse: browseView,
-                 library: libraryView, settings: settingsView, home: home})[name];
+                 library: libraryView, downloads: downloadsView, settings: settingsView, home: home})[name];
     }
     // Focus the screen on display at its preferred item.
     function restoreFocus() {
@@ -184,6 +205,7 @@ Window {
         case "browser": browserView.settleFocus(); break;
         case "browse": browseView.focusInitial(); break;
         case "library": libraryView.focusInitial(); break;
+        case "downloads": downloadsView.restore(); break;
         case "settings": settingsView.focusInitial(); break;
         default: home.restoreFocus();
         }
@@ -271,6 +293,11 @@ Window {
     BrowseCatalog { id: browseCatalog; objectName: "browseCatalog"; tabs: browserCatalog.tabs }
     MediaCatalog { id: mediaCatalog; objectName: "mediaCatalog" }
     LibraryCatalog { id: libraryCatalog; objectName: "libraryCatalog" }
+    DownloadCatalog {
+        id: downloadCatalog
+        objectName: "downloadCatalog"
+        onDownloadImported: message => downloadsView.showToast(message)
+    }
     SettingsCatalog { id: settingsCatalog; objectName: "settingsCatalog" }
     KeyboardMonitor { id: keyboardMonitor }
     Shortcut {
@@ -479,6 +506,34 @@ Window {
                 home.showHome();
             }
         }
+        Downloads.DownloadsView {
+            id: downloadsView
+            focus: root.focusedScreen === "downloads"
+            objectName: "productionDownloads"
+            visible: home.screen === "downloads" && !root.playerOpen
+            enabled: visible
+            z: 4
+            autoToast: false
+            viewState: downloadCatalog.downloadsState
+            jobs: downloadCatalog.jobs
+            onPauseRequested: id => downloadCatalog.request(id, "pause")
+            onResumeRequested: id => downloadCatalog.request(id, "resume")
+            onStartNowRequested: id => downloadCatalog.request(id, "start_now")
+            onRetryRequested: id => downloadCatalog.request(id, "retry")
+            // Watch opens the imported item's Detail in the library, or the
+            // library itself when the catalog does not list it yet.
+            onWatchRequested: id => {
+                const target = downloadCatalog.watchTarget(id);
+                home.screen = "library";
+                root.pendingWatch = target.local ? target : null;
+                if (!root.pendingWatch) return;
+                root.openWatchTarget();
+                // Not listed yet: read again, and open it when it appears.
+                if (root.pendingWatch) libraryCatalog.refresh();
+            }
+            onRefreshRequested: downloadCatalog.refresh()
+            onBackRequested: home.back()
+        }
         Player.PlayerView {
             id: playerView
             objectName: "productionPlayer"
@@ -612,6 +667,7 @@ Window {
         }
         Connections {
             target: libraryCatalog
+            function onCatalogChanged() { if (root.pendingWatch) root.openWatchTarget(); }
             function onSessionLaunched(presentationId) {
                 // A resume started from a Home Continue card returns to Home
                 // when playback ends; any other library launch returns to

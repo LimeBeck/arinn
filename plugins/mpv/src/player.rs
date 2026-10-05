@@ -1426,7 +1426,7 @@ fn refresh_anchor(
     elapsed >= interval
 }
 
-fn monotonic_us() -> u64 {
+pub(crate) fn monotonic_us() -> u64 {
     let mut time = libc::timespec {
         tv_sec: 0,
         tv_nsec: 0,

@@ -208,7 +208,7 @@ and accepts the full UI; early component work does not close its criteria.
 | AC-02 Full D-pad navigation | UI tests + operator test |
 | AC-13 No profile selection or login | Review |
 | AC-14 Focus and primary actions readable from 3 m | Operator test on a TV |
-| AC-17 Downloads with Transmission, import into Library exactly once | Integration + operator test |
+| AC-17 Downloads with Transmission, import into Library exactly once | Integration + operator test. Shell binding of the Downloads screen to `Downloads1` with catalog and `Main.qml` tests ([#233](https://github.com/LimeBeck/arinn/issues/233)); operator test with Transmission not run |
 | AC-18 Home/Back table with standard keyboard input, Esc/Backspace exception | UI tests |
 | AC-19 Suspend, wake, lock screen and ambient (carried over G-0.8) | Operator test |
 | G-5.1 UI matches the design handoff states and the 22 screenshots | Design review |

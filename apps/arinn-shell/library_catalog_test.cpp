@@ -14,6 +14,11 @@
 #include <QUuid>
 #include <QtDBus>
 namespace {
+// DownloadCatalog's presentation id: the provider id is length-prefixed.
+QString downloadId(const QString &local) {
+  return QUuid::createUuidV5(QUuid(), QStringLiteral("11:dl-provider") + local)
+      .toString(QUuid::WithoutBraces);
+}
 QString presentationId(const QString &provider, const QString &local) {
   return QUuid::createUuidV5(QUuid(), provider + QLatin1Char('\n') + local)
       .toString(QUuid::WithoutBraces);
@@ -166,8 +171,46 @@ QDBusArgument &operator<<(QDBusArgument &argument, const SessionWire &session) {
 const QDBusArgument &operator>>(const QDBusArgument &argument, SessionWire &) {
   return argument;
 }
+struct OutputWire {
+  QString id, title;
+};
+QDBusArgument &operator<<(QDBusArgument &argument, const OutputWire &row) {
+  argument.beginStructure();
+  argument << row.id << row.title;
+  argument.endStructure();
+  return argument;
+}
+const QDBusArgument &operator>>(const QDBusArgument &argument, OutputWire &) {
+  return argument;
+}
+// One org.arinn.Downloads1 row (#233), without outputs.
+struct DownloadWire {
+  QString id, title, state;
+  QStringList actions;
+  QString importState = QStringLiteral("none");
+  QList<EntityWire> refs;
+};
+QDBusArgument &operator<<(QDBusArgument &argument, const DownloadWire &row) {
+  argument.beginStructure();
+  argument << row.id << row.title << row.state << qulonglong(0) << false
+           << qulonglong(0) << qulonglong(0) << qlonglong(-1) << false << 0.0
+           << row.actions << QString() << QString();
+  argument.beginArray(QMetaType::fromType<OutputWire>());
+  argument.endArray();
+  argument << row.importState;
+  argument.beginArray(QMetaType::fromType<EntityWire>());
+  for (const auto &ref : row.refs)
+    argument << ref;
+  argument.endArray();
+  argument.endStructure();
+  return argument;
+}
+const QDBusArgument &operator>>(const QDBusArgument &argument, DownloadWire &) {
+  return argument;
+}
 class LibraryDaemon : public QDBusVirtualObject {
 public:
+  QList<DownloadWire> downloads;
   QList<ProviderWire> providers{ProviderWire{}};
   QList<CollectionWire> collections;
   QList<ItemWire> page1;
@@ -269,6 +312,21 @@ public:
       body.endArray();
       body << next;
       body.endStructure();
+    } else if (message.member() == QLatin1String("GetDownloads")) {
+      body.beginStructure();
+      body << QStringLiteral("7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f") << qulonglong(1);
+      body.beginArray(QMetaType::fromType<DownloadWire>());
+      for (const auto &row : downloads)
+        body << row;
+      body.endArray();
+      body << QString();
+      body.endStructure();
+    } else if (message.interface() == QLatin1String("org.arinn.Downloads1")) {
+      commands.append(message.member());
+      lastLocal = message.arguments().value(1).toString();
+      bus.send(message.createReply(QVariant::fromValue(
+          QDBusObjectPath(QStringLiteral("/org/arinn/Daemon1/ops/dl")))));
+      return true;
     } else if (message.member() == QLatin1String("Features")) {
       ++featureReads;
       bus.send(message.createReply(QVariant::fromValue(features)));
@@ -448,6 +506,8 @@ private slots:
     qDBusRegisterMetaType<EntityWire>();
     qDBusRegisterMetaType<ContentWire>();
     qDBusRegisterMetaType<SessionWire>();
+    qDBusRegisterMetaType<OutputWire>();
+    qDBusRegisterMetaType<DownloadWire>();
   }
   void cleanup() {
     auto bus = QDBusConnection::sessionBus();
@@ -1153,6 +1213,153 @@ private slots:
     QCOMPARE(home->property("screen").toString(), QStringLiteral("home"));
     QTRY_VERIFY(focusInside(window->activeFocusItem(), home));
     QVERIFY(!focusInside(window->activeFocusItem(), library));
+  }
+  // #233: the Downloads route shows Downloads1, commands go to the daemon,
+  // and Watch opens the imported film's Detail in the library.
+  void downloadsScreenWatchesTheImportedFilm() {
+    LibraryDaemon daemon;
+    daemon.collections = {{QStringLiteral("films"), QStringLiteral("Films"),
+                           QStringLiteral("film")}};
+    daemon.page1 = {film(QStringLiteral("north"), QStringLiteral("North"))};
+    ProviderWire downloads;
+    downloads.id = QStringLiteral("dl-provider");
+    downloads.name = QStringLiteral("downloads");
+    downloads.path = QDBusObjectPath(QStringLiteral("/org/arinn/Daemon1/providers/p_dl"));
+    downloads.capabilities = {QStringLiteral("download")};
+    downloads.generation = QStringLiteral("7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f");
+    daemon.providers.append(downloads);
+    DownloadWire done;
+    done.id = QStringLiteral("done");
+    done.title = QStringLiteral("North");
+    done.state = QStringLiteral("completed");
+    done.importState = QStringLiteral("imported");
+    done.refs = {{QStringLiteral("library-provider"), QStringLiteral("library"),
+                  QStringLiteral("north")}};
+    DownloadWire running;
+    running.id = QStringLiteral("running");
+    running.title = QStringLiteral("South");
+    running.state = QStringLiteral("downloading");
+    running.actions = {QStringLiteral("pause")};
+    daemon.downloads = {done, running};
+    QVERIFY(registerBus(daemon));
+    ShellStandIn backend;
+    SessionGuardStandIn guard;
+    QQmlApplicationEngine engine;
+    QStringList problems;
+    connect(&engine, &QQmlEngine::warnings, &engine,
+            [&](const QList<QQmlError> &warnings) {
+              for (const auto &warning : warnings) {
+                const auto text = warning.toString();
+                if (text.contains(QStringLiteral("qrc:/brand/")))
+                  continue;
+                problems.append(text);
+              }
+            });
+    installAssetImageProvider(&engine);
+    engine.rootContext()->setContextProperty(QStringLiteral("backend"), &backend);
+    engine.rootContext()->setContextProperty(QStringLiteral("sessionGuard"),
+                                             &guard);
+    engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
+    QVERIFY2(problems.isEmpty(), qPrintable(problems.join(QLatin1Char('\n'))));
+    auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().value(0));
+    QVERIFY(window);
+    window->show();
+    window->requestActivate();
+    auto home = window->findChild<QQuickItem *>(QStringLiteral("productionHome"));
+    auto library =
+        window->findChild<QQuickItem *>(QStringLiteral("productionLibrary"));
+    auto view =
+        window->findChild<QQuickItem *>(QStringLiteral("productionDownloads"));
+    QVERIFY(home);
+    QVERIFY(library);
+    QVERIFY(view);
+    QCOMPARE(view->property("visible").toBool(), false);
+    QTRY_COMPARE(library->property("libraryState").toString(),
+                 QStringLiteral("ready"));
+    QTRY_COMPARE(view->property("viewState").toString(),
+                 QStringLiteral("populated"));
+    QCOMPARE(view->property("jobs").toList().size(), 2);
+
+    home->setProperty("screen", QStringLiteral("downloads"));
+    QTRY_COMPARE(view->property("visible").toBool(), true);
+    const auto doneId =
+        downloadId( QStringLiteral("done"));
+    const auto runningId =
+        downloadId( QStringLiteral("running"));
+    // Rows are looked up on every check: a catalog reload replaces the
+    // jobs array and the Repeater recreates its delegates.
+    const auto focused = [&](const QString &id) {
+      auto row = findItem(view, QStringLiteral("job-") + id);
+      return row && row->hasActiveFocus();
+    };
+    QTRY_VERIFY(focused(doneId));
+
+    QTest::keyClick(window, Qt::Key_Down);
+    QTRY_VERIFY(focused(runningId));
+    QTest::keyClick(window, Qt::Key_Return);
+    QTRY_COMPARE(daemon.commands, QStringList{QStringLiteral("Pause")});
+    QCOMPARE(daemon.lastLocal, QStringLiteral("running"));
+
+    QTest::keyClick(window, Qt::Key_Up);
+    QTRY_VERIFY(focused(doneId));
+    QTest::keyClick(window, Qt::Key_Return);
+    QTRY_COMPARE(home->property("screen").toString(), QStringLiteral("library"));
+    QTRY_COMPARE(library->property("detailOpen").toBool(), true);
+    QCOMPARE(library->property("detailEntryId").toString(),
+             presentationId(QStringLiteral("library-provider"),
+                            QStringLiteral("north")));
+    QTRY_VERIFY(focusInside(window->activeFocusItem(), library));
+
+    // Review of #310: Watch before the library lists the item opens its
+    // Detail once a later read lists it.
+    QVERIFY(QMetaObject::invokeMethod(library, "closeDetail"));
+    QTRY_COMPARE(library->property("detailOpen").toBool(), false);
+    DownloadWire late;
+    late.id = QStringLiteral("late");
+    late.title = QStringLiteral("West");
+    late.state = QStringLiteral("completed");
+    late.importState = QStringLiteral("imported");
+    late.refs = {{QStringLiteral("library-provider"), QStringLiteral("library"),
+                  QStringLiteral("west")}};
+    daemon.downloads = {late, done, running};
+    home->setProperty("screen", QStringLiteral("downloads"));
+    const auto lateId =
+        downloadId( QStringLiteral("late"));
+    auto catalog = window->findChild<QObject *>(QStringLiteral("downloadCatalog"));
+    QVERIFY(catalog);
+    QVERIFY(QMetaObject::invokeMethod(catalog, "refresh"));
+    QTRY_COMPARE(view->property("jobs").toList().size(), 3);
+    // The view keeps the selected download; the new one is above it.
+    QTRY_VERIFY(focused(doneId));
+    QTest::keyClick(window, Qt::Key_Up);
+    QTRY_VERIFY(focused(lateId));
+    // Leaving the library before the item appears drops the request.
+    QTest::keyClick(window, Qt::Key_Return);
+    QTRY_COMPARE(home->property("screen").toString(), QStringLiteral("library"));
+    QVERIFY(!window->property("pendingWatch").isNull());
+    home->setProperty("screen", QStringLiteral("home"));
+    home->setProperty("screen", QStringLiteral("library"));
+    QVERIFY(window->property("pendingWatch").isNull());
+    daemon.page1.append(film(QStringLiteral("west"), QStringLiteral("West")));
+    auto libraryCatalog = window->findChild<QObject *>(QStringLiteral("libraryCatalog"));
+    QVERIFY(libraryCatalog);
+    QVERIFY(QMetaObject::invokeMethod(libraryCatalog, "refresh"));
+    QTest::qWait(300);
+    QCOMPARE(library->property("detailOpen").toBool(), false);
+    // With the item listed, Watch opens it directly.
+    home->setProperty("screen", QStringLiteral("downloads"));
+    QTRY_VERIFY(focused(lateId));
+    QTest::keyClick(window, Qt::Key_Return);
+    QTRY_COMPARE(home->property("screen").toString(), QStringLiteral("library"));
+    QTRY_COMPARE(library->property("detailEntryId").toString(),
+                 presentationId(QStringLiteral("library-provider"),
+                                QStringLiteral("west")));
+
+    // Back from Downloads goes Home.
+    home->setProperty("screen", QStringLiteral("downloads"));
+    QTRY_VERIFY(focusInside(window->activeFocusItem(), view));
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_COMPARE(home->property("screen").toString(), QStringLiteral("home"));
   }
   void hiddenLibraryLeavesHomeFocusAlone() {
     LibraryDaemon daemon;

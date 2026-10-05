@@ -52,9 +52,19 @@ On Stop, the provider captures the displayed frame with private IPC `screenshot-
 
 The runtime file that remembers the session id and the content reference does not contain the file path or the title. Neither is logged.
 
+### MPRIS export
+
+While its session is playing or paused, the mpv provider is an MPRIS player itself: `org.mpris.MediaPlayer2.arinn_mpv.instance<pid>` at `/org/mpris/MediaPlayer2` ([ADR-0081](../adr/0081-mpris-export-of-managed-playback.md)). Plasma sends the media keys to the current MPRIS player, so the remote's play/pause reaches Arinn playback this way; the shell never sees that key. The calls map onto the session's media actions:
+
+- `PlayPause`, `Play`, `Pause`, `Stop`, `Seek` and `SetPosition`;
+- `Next` and `Previous` when the session allows them;
+- `OpenUri` is not supported.
+
+A seek emits `Seeked`. The name is released when the session is stopped or ended or none is left.
+
 ## MPRIS
 
-`arinn-plugin-mpris` is the `media` provider for players already on the session bus (AC-09, [ADR-0013](../adr/0013-mpris-media.md), [ADR-0054](../adr/0054-media-and-library-wire-contract.md)). It watches well-known names under `org.mpris.MediaPlayer2.` and publishes one session per name through `org.arinn.MediaProvider1`. The session id is the instance suffix of that name. There is no per-player special case. `Features` is empty: the plugin does not export `MediaOpen1`, `MediaTracks1` or `MediaTimeline1`. An empty player list leaves the backend `available` and the snapshot empty.
+`arinn-plugin-mpris` is the `media` provider for players already on the session bus (AC-09, [ADR-0013](../adr/0013-mpris-media.md), [ADR-0054](../adr/0054-media-and-library-wire-contract.md)). It watches well-known names under `org.mpris.MediaPlayer2.` and publishes one session per name through `org.arinn.MediaProvider1`. The session id is the instance suffix of that name. There is no per-player special case. Names under the reserved prefix `org.mpris.MediaPlayer2.arinn_` are Arinn's own players and are skipped ([ADR-0081](../adr/0081-mpris-export-of-managed-playback.md)). `Features` is empty: the plugin does not export `MediaOpen1`, `MediaTracks1` or `MediaTimeline1`. An empty player list leaves the backend `available` and the snapshot empty.
 
 A name stays tracked while it has an owner. Each player is read on its own task, apart from the snapshot loop and from `GetSessions`, so one player that never answers does not stop the others. A read that fails, times out, or does not validate is omitted from that snapshot when the player has never been read, or keeps the last good session when it has, and is tried again. The player is removed only when `NameOwnerChanged` reports no new owner or a fresh `ListNames` omits the name. Outgoing player calls are bounded so a stalled method does not stick.
 

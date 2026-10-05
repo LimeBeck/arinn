@@ -42,7 +42,11 @@ designs and repository files are not bundled.
 ## Maintenance and provenance
 
 Keep the guide consistent with the current implementation and link to technical
-contracts for detailed setup. Revisit the limits when their linked issues land;
+contracts for detailed setup. The first-use walkthrough introduces Home and Back;
+application, browser, library and download chapters explain the connected flows.
+Distinguish implemented features from real-TV qualification and from older
+package versions. In particular, do not describe planned pin/unpin controls as
+available while Home still shows the automatic application/shortcut list. Revisit the limits when their linked issues land;
 do not call an acceptance criterion passed without evidence. The HTML and CSS
 are original documentation under CC-BY-SA-4.0, covered by existing `docs/**` REUSE
 annotations. No third-party fonts, scripts, logos or analytics are used.

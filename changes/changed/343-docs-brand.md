@@ -1,0 +1,1 @@
+- Restyle the user documentation with Arinn’s charcoal palette, light typography, soft cards and restrained Ember accents; use the approved A1 Classic logo and app-icon favicon.

@@ -42,6 +42,18 @@ class ProductSiteTest(unittest.TestCase):
         self.assertEqual((self.site / "assets/screenshots/home.png").read_bytes(),
                          (ROOT / "docs/design/current-ui/home.png").read_bytes())
 
+    def test_handbook_brand_assets_match_approved_sources(self):
+        for name, source in (
+            ("arinn-mark.svg", "docs/design/handoff/assets/arinn-mark.svg"),
+            ("arinn-icon.svg", "packaging/icons/org.arinn.Shell.svg"),
+        ):
+            with self.subTest(asset=name):
+                self.assertEqual((self.site / "guide/assets" / name).read_bytes(),
+                                 (ROOT / source).read_bytes())
+        guide = (self.site / "guide/index.html").read_text()
+        self.assertIn('src="assets/arinn-mark.svg"', guide)
+        self.assertIn('href="assets/arinn-icon.svg"', guide)
+
     def test_project_root_links_are_rejected(self):
         self.change_html('<a href="/guide/index.html">Guide</a>')
         self.assertTrue(any("root-relative" in error for error in CHECKER.check(self.site)))

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <!-- SPDX-FileCopyrightText: 2026 Arinn contributors -->
+  <!-- SPDX-License-Identifier: CC-BY-SA-4.0 -->
+  <!-- App icon: the A1 Classic mark (docs/design/handoff/assets/arinn-mark.svg)
+       on a Charcoal tile, per docs/design/brand/README.md. -->
+  <rect x="4" y="4" width="120" height="120" rx="28" fill="#0F1115"/>
+  <g transform="translate(24 22) scale(0.8)">
+    <path d="M14 86 L50 18 L86 86" fill="none" stroke="#EDEDED" stroke-width="15" stroke-linejoin="round"/>
+    <circle cx="50" cy="70" r="10" fill="#FF8A3D"/>
+  </g>
+</svg>

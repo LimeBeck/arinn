@@ -21,7 +21,8 @@ JavaScript and under a project prefix such as `/arinn/`.
 ## GitHub Pages deployment
 
 `.github/workflows/pages.yml` checks the site in pull requests and publishes only
-`index.html`, `assets/site.css` and `assets/home.png` on relevant pushes to
+`index.html`, `assets/site.css`, `assets/home.png`, `assets/arinn-mark.svg`
+and `assets/arinn-icon.svg` on relevant pushes to
 `master`, or a manual run on `master`. PRs and manual runs on other branches
 never deploy. Existing CI, package and release workflows are unchanged.
 
@@ -50,3 +51,17 @@ annotations. No third-party fonts, scripts, logos or analytics are used.
 Qt gallery, fictional fixtures, not a screenshot of a user's desktop. Its
 [provenance](../design/current-ui/README.md) and existing documentation license
 apply. Refresh this copy when the current-gallery screenshot changes.
+
+## Visual identity
+
+The guide follows the [Arinn brand](../design/brand/README.md): Charcoal
+`#0F1115`, Stone White `#EDEDED`, quiet neutral panels and restrained Ember
+Orange `#FF8A3D` accents. Keyboard focus uses a light outline, following the
+current design handoff. Typography uses the system sans-serif stack without
+remote font requests.
+
+`assets/arinn-mark.svg` is an unchanged copy of the approved A1 Classic mark
+from `docs/design/handoff/assets/arinn-mark.svg`; `assets/arinn-icon.svg` is an
+unchanged copy of `packaging/icons/org.arinn.Shell.svg`, used as the favicon.
+Both are Arinn assets under CC-BY-SA-4.0. Refresh these copies if their source
+assets change, and keep the Pages staging allowlist in sync.

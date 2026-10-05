@@ -48,6 +48,8 @@ FocusScope {
     signal valueChangeRequested(string providerId, string settingId, var value)
     signal errorDismissRequested(string providerId, string settingId)
     signal dismissRequested()
+    // Home from anywhere in Settings, editors and sheets included (§6.3).
+    signal homeRequested()
     signal retryRequested()
 
     readonly property bool screenBlocked: screenState === "loading" || screenState === "error" || screenState === "unavailable"
@@ -455,6 +457,19 @@ FocusScope {
     function commitString() {
         finishEdit(true);
     }
+    // Home closes transient UI without committing a draft, then asks the
+    // shell for Home (#329). Editors and sheets consume keys, so each calls
+    // this before its own handling.
+    function homeKey(event) {
+        if (event.key !== Qt.Key_Home || event.modifiers !== Qt.NoModifier) return false;
+        if (!event.isAutoRepeat) {
+            if (editingKey.length) cancelEditor();
+            if (choosingKey.length) closeOptions();
+            homeRequested();
+        }
+        event.accepted = true;
+        return true;
+    }
     function cancelEditor() {
         const key = editingKey;
         if (!key) return;
@@ -723,6 +738,7 @@ FocusScope {
 
     onRowsChanged: watchRows()
     Keys.onPressed: event => {
+        if (homeKey(event)) return;
         if (editingKey.length > 0) return;
         if (choosingKey.length > 0) {
             if (event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace || event.key === Qt.Key_Back)
@@ -731,8 +747,8 @@ FocusScope {
             return;
         }
         if (screenBlocked) {
-            // Menu and Home stay global (#329): the shell handles them.
-            if (event.key === Qt.Key_Menu || event.key === Qt.Key_Home) return;
+            // Menu stays global (#329): the shell handles it.
+            if (event.key === Qt.Key_Menu) return;
             if (event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace || event.key === Qt.Key_Back)
                 dismissRequested();
             event.accepted = true;
@@ -1698,6 +1714,7 @@ FocusScope {
                                 root.noteStringEdit();
                             }
                             Keys.onPressed: event => {
+                                if (root.homeKey(event)) return;
                                 if (!root.keyboardReady) {
                                     event.accepted = true;
                                     return;
@@ -1939,6 +1956,7 @@ FocusScope {
     }
 
     function editorKeys(event) {
+        if (homeKey(event)) return;
         if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
             if (!event.isAutoRepeat) finishEdit(true);
             event.accepted = true;

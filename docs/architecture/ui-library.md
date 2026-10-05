@@ -145,9 +145,16 @@ view.
 
 The view does not handle Menu. The key bubbles to `Main.qml`, which opens
 Home's navigation menu above the library (#329). The menu then holds focus,
-and closing it restores the poster or tab that opened it. Settings works the
-same way. From Settings, Open services, Browse and a media session, a Home
-key that the screen leaves unaccepted shows Home.
+and closing it restores the poster or tab that opened it. Settings and
+Downloads work the same way.
+
+From Settings, Downloads, Open services, Browse and a media session, Home
+shows Home. Editors take keys before they bubble, so two screens send Home
+themselves with `homeRequested()`:
+- Settings: an open editor or option list is closed first, without
+  committing its draft.
+- Browse: the address field gives up Home as cursor movement. In a text field
+  only Backspace and Esc keep a text meaning (§6.2).
 
 ## Verification
 

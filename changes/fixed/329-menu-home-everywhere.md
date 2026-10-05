@@ -1,1 +1,1 @@
-- Open the side navigation with Menu from the Library and Settings screens; it now appears above them instead of staying hidden. The Home key now returns Home from Settings, Open services, Browse and a media session too.
+- Open the side navigation with Menu from the Library, Settings and Downloads screens; it now appears above them instead of staying hidden. The Home key now returns Home from Settings (closing an open editor without saving it), Downloads, Open services, Browse (also while typing an address) and a media session too.

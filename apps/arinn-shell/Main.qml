@@ -253,22 +253,30 @@ Window {
     // §6.3). Home handles both itself; these are the other screens.
     function unhandledKey(event) {
         if (event.isAutoRepeat || event.modifiers !== Qt.NoModifier) return;
-        const section = focusedScreen === "library" || focusedScreen === "settings";
+        const section = focusedScreen === "library" || focusedScreen === "settings"
+            || focusedScreen === "downloads";
+        // A Settings editor keeps Menu; Home reaches the shell through the
+        // view's homeRequested, which also cancels the editor.
         if (focusedScreen === "settings" && settingsView.editingKey.length) return;
         if (event.key === Qt.Key_Menu && section) {
             home.openNavigation();
             event.accepted = true;
         } else if (event.key === Qt.Key_Home) {
-            if (section) home.showHome();
-            else if (focusedScreen === "browser") { browserOpen = false; Qt.callLater(home.showHome); }
-            else if (focusedScreen === "browse") { browseOpen = false; browseCatalog.reset(); Qt.callLater(home.showHome); }
-            else if (focusedScreen === "session") {
-                sessionOpen = false;
-                sessionFromLibrary = false;
-                Qt.callLater(home.showHome);
-            } else return;
-            event.accepted = true;
+            if (goHomeFrom(focusedScreen)) event.accepted = true;
         }
+    }
+    // Home from a screen that does not handle it itself; false when the
+    // screen is not one of these.
+    function goHomeFrom(screen) {
+        if (screen === "library" || screen === "settings" || screen === "downloads") home.showHome();
+        else if (screen === "browser") { browserOpen = false; Qt.callLater(home.showHome); }
+        else if (screen === "browse") { browseOpen = false; browseCatalog.reset(); Qt.callLater(home.showHome); }
+        else if (screen === "session") {
+            sessionOpen = false;
+            sessionFromLibrary = false;
+            Qt.callLater(home.showHome);
+        } else return false;
+        return true;
     }
     Ui.LogicalCanvas {
         anchors.fill: parent
@@ -277,10 +285,10 @@ Window {
         Ui.HomeView {
             id: home
             focus: root.focusedScreen === "home"
-            // The navigation menu opened over Library or Settings (z 4) is
+            // The navigation menu opened over Library, Settings or Downloads (z 4) is
             // drawn above them, below Open services and Browse (z 5).
             z: navOpen ? 4.5 : 0
-            coveredByScreen: libraryView.visible || settingsView.visible
+            coveredByScreen: libraryView.visible || settingsView.visible || downloadsView.visible
             // Home remains painted beneath other screens, but its catalog
             // callbacks and hovered cards must not take their input focus.
             enabled: root.focusedScreen === "home"
@@ -396,6 +404,7 @@ Window {
             onClearRequested: browseCatalog.clearRecent()
             onRetryRequested: { browseCatalog.dismissError(); browserCatalog.retry(); browseCatalog.refreshRecent(); browseCatalog.refreshShortcuts(); }
             onBackRequested: root.closeBrowse()
+            onHomeRequested: root.goHomeFrom("browse")
         }
         Session.SessionView {
             id: sessionView
@@ -449,6 +458,7 @@ Window {
             onValueChangeRequested: (providerId, settingId, value) => settingsCatalog.setValue(providerId, settingId, value)
             onErrorDismissRequested: (providerId, settingId) => settingsCatalog.dismissError(providerId, settingId)
             onDismissRequested: home.back()
+            onHomeRequested: root.goHomeFrom("settings")
             onRetryRequested: settingsCatalog.refresh()
         }
         Library.LibraryView {

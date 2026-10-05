@@ -1533,6 +1533,65 @@ private slots:
     QTRY_VERIFY(focusInside(window->activeFocusItem(), home));
     QVERIFY(menuButton->isVisible());
 
+    // Downloads is a section screen too: Menu opens navigation over it and
+    // Home leaves it.
+    auto downloads = window->findChild<QQuickItem *>(QStringLiteral("productionDownloads"));
+    QVERIFY(downloads);
+    home->setProperty("screen", QStringLiteral("downloads"));
+    QTRY_VERIFY(focusInside(window->activeFocusItem(), downloads));
+    QTest::keyClick(window, Qt::Key_Menu);
+    QTRY_COMPARE(home->property("navOpen").toBool(), true);
+    QVERIFY(navigation->isVisible());
+    QVERIFY(home->z() > downloads->z());
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_VERIFY(focusInside(window->activeFocusItem(), downloads));
+    QTest::keyClick(window, Qt::Key_Home);
+    QTRY_COMPARE(home->property("screen").toString(), QStringLiteral("home"));
+
+    // Review of #334: Home from the focused Browse address field and from an
+    // open Settings editor still reaches Home.
+    auto browse = window->findChild<QQuickItem *>(QStringLiteral("productionBrowse"));
+    QVERIFY(browse);
+    browse->setProperty("keyboardAvailable", true);
+    browse->setProperty("browserUnavailable", false);
+    window->setProperty("browseOpen", true);
+    auto field = findItem(browse, QStringLiteral("browseInput"));
+    QVERIFY(field);
+    QTRY_VERIFY(browse->isVisible());
+    QVERIFY(QMetaObject::invokeMethod(browse, "focusInitial"));
+    QTRY_VERIFY(field->hasActiveFocus());
+    QTest::keyClick(window, Qt::Key_Home);
+    QTRY_VERIFY(!window->property("browseOpen").toBool());
+    QTRY_COMPARE(home->property("screen").toString(), QStringLiteral("home"));
+
+    settings->setProperty("screenState", QStringLiteral("ready"));
+    settings->setProperty("categories", QVariantList{QVariantMap{
+        {QStringLiteral("id"), QStringLiteral("system")},
+        {QStringLiteral("title"), QStringLiteral("System")},
+        {QStringLiteral("icon"), QStringLiteral("memory")}}});
+    settings->setProperty("rows", QVariantList{QVariantMap{
+        {QStringLiteral("providerId"), QStringLiteral("shell")},
+        {QStringLiteral("providerName"), QStringLiteral("Shell")},
+        {QStringLiteral("id"), QStringLiteral("idle")},
+        {QStringLiteral("categoryId"), QStringLiteral("system")},
+        {QStringLiteral("title"), QStringLiteral("Idle minutes")},
+        {QStringLiteral("description"), QString()},
+        {QStringLiteral("type"), QStringLiteral("integer")},
+        {QStringLiteral("currentValue"), 10},
+        {QStringLiteral("constraints"), QVariantMap{{QStringLiteral("min"), 1},
+                                                    {QStringLiteral("max"), 60}}},
+        {QStringLiteral("enabled"), true}}});
+    home->setProperty("screen", QStringLiteral("settings"));
+    auto category = findItem(settings, QStringLiteral("category-system"));
+    QVERIFY(category);
+    QTRY_VERIFY(category->hasActiveFocus());
+    QTest::keyClick(window, Qt::Key_Right);
+    QTest::keyClick(window, Qt::Key_Return);
+    QTRY_COMPARE(settings->property("editingKey").toString(), QStringLiteral("shell-idle"));
+    QTest::keyClick(window, Qt::Key_Home);
+    QTRY_COMPARE(home->property("screen").toString(), QStringLiteral("home"));
+    QCOMPARE(settings->property("editingKey").toString(), QString());
+
     // Home from Open services, Browse and a session also shows Home.
     for (const auto &[flag, name] :
          {std::pair{"browserOpen", "productionBrowser"},

@@ -1355,6 +1355,19 @@ private slots:
                  presentationId(QStringLiteral("library-provider"),
                                 QStringLiteral("west")));
 
+    // #341: a Detail open already scheduled for a listed item does not
+    // survive leaving the library before it runs, even after returning.
+    // The signal is emitted directly: a key click would also run the
+    // deferred callback before the test could leave.
+    QVERIFY(QMetaObject::invokeMethod(library, "closeDetail"));
+    QTRY_COMPARE(library->property("detailOpen").toBool(), false);
+    QVERIFY(QMetaObject::invokeMethod(view, "watchRequested", Q_ARG(QString, lateId)));
+    QCOMPARE(home->property("screen").toString(), QStringLiteral("library"));
+    home->setProperty("screen", QStringLiteral("home"));
+    home->setProperty("screen", QStringLiteral("library"));
+    QTest::qWait(200);
+    QCOMPARE(library->property("detailOpen").toBool(), false);
+
     // Back from Downloads goes Home.
     home->setProperty("screen", QStringLiteral("downloads"));
     QTRY_VERIFY(focusInside(window->activeFocusItem(), view));

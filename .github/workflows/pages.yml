@@ -1,0 +1,58 @@
+name: User documentation
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - docs/user/**
+      - scripts/check-user-site.py
+      - .github/workflows/pages.yml
+  pull_request:
+    paths:
+      - docs/user/**
+      - scripts/check-user-site.py
+      - .github/workflows/pages.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ${{ vars.ARINN_RUNNER || 'ubuntu-latest' }}
+    container: python:3.12
+    steps:
+      - uses: actions/checkout@v7
+      - run: python scripts/check-user-site.py
+
+  deploy:
+    needs: check
+    if: ${{ github.ref == 'refs/heads/master' && github.event_name != 'pull_request' }}
+    runs-on: ${{ vars.ARINN_RUNNER || 'ubuntu-latest' }}
+    container: python:3.12
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/configure-pages@v5
+      # Publish only the user guide, never the repository or historical designs.
+      - name: Stage site
+        run: |
+          mkdir -p /tmp/arinn-user-site/assets
+          cp docs/user/index.html /tmp/arinn-user-site/
+          cp docs/user/assets/site.css docs/user/assets/home.png /tmp/arinn-user-site/assets/
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: /tmp/arinn-user-site
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

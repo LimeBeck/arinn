@@ -263,6 +263,9 @@ Plugins supply data and actions, never UI. The Plugin API v1 is **not stable yet
 
 ### Documentation map
 
+The [user guide website](docs/user/index.html) covers installation, controls,
+browser setup, media and troubleshooting. [Preview and Pages setup](docs/user/README.md).
+
 | Document | Purpose |
 | --- | --- |
 | [Specification](docs/specifications/arinn-specification.md) | Current requirements — the source of truth |

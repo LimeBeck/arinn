@@ -1,0 +1,1 @@
+- Add an Arinn product website with a responsive landing page, seven current Qt screenshots, accessible image enlargement and the user handbook. Assemble an explicit public-file allowlist for GitHub Pages and validate project-prefix links before publishing.

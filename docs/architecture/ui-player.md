@@ -205,3 +205,16 @@ are for the owner, not an agent-run test.
 Late Present admission cleanup is detached from the current session's Release acknowledgement and retry state; its outcome cannot erase another session's remembered cleanup.
 
 A failed Release exposes an explicit Back retry on Home even without a Return target. The retry uses a fresh request ID and the remembered cleanup scope; it sends no Stop. Home navigation and the shortcut editor consume their normal Back action before cleanup retry becomes available. Successful cleanup restores ordinary Home Back behavior.
+
+## Confirmed playback exit
+
+The second Back and explicit Stop share the production exit path. Main waits for
+the Media1 Stop operation before releasing presentation or showing Home/Detail.
+While pending, player input is disabled and Home stays hidden. Failure keeps the
+player screen and offers Back to retry. The provider saves the final position and
+local frame, terminates its owned process and clears live window identity; Continue
+opens a new process through Library1 ([ADR-0083](../adr/0083-managed-player-stop.md)).
+Pause and global Home preserve the existing live session. Synthetic tests cover
+this ordering; no real compositor or TV acceptance is claimed.
+
+If exit is requested before a launched library session reaches the media snapshot, the shell keeps that selection and exit intent until the exact row can be stopped. A delayed snapshot shows bounded waiting feedback without allowing a different selection to inherit the Stop intent. If the row remains absent for 30 seconds or its provider becomes unavailable, the feedback enables an explicit Home escape; it cancels that waiting exit before another selection is admitted. An in-flight Stop still fences input until it completes. Failed Stop feedback remains visible even after the input layer and handoff grace end.

@@ -131,3 +131,163 @@ async fn unit_active(connection: &Connection, manager: &Proxy<'_>) -> Result<boo
         .map_err(|_| ErrorCode::Unavailable)?;
     Ok(state == "active" || state == "activating")
 }
+
+/// Stop exactly the Arinn playback unit and await its terminal state. A job
+/// acknowledgement alone does not mean the player process has exited.
+pub async fn stop_unit(connection: &Connection) -> Result<(), ErrorCode> {
+    let manager = Proxy::new(
+        connection,
+        "org.freedesktop.systemd1",
+        "/org/freedesktop/systemd1",
+        "org.freedesktop.systemd1.Manager",
+    )
+    .await
+    .map_err(|_| ErrorCode::Unavailable)?;
+    let job: Result<OwnedObjectPath, zbus::Error> =
+        manager.call("StopUnit", &(UNIT, "replace")).await;
+    if let Err(error) = job
+        && !matches!(&error, zbus::Error::MethodError(name, _, _) if name.as_str() == "org.freedesktop.systemd1.NoSuchUnit")
+    {
+        return Err(ErrorCode::Unavailable);
+    }
+    loop {
+        let object: OwnedObjectPath = match manager.call("GetUnit", &(UNIT,)).await {
+            Ok(path) => path,
+            Err(zbus::Error::MethodError(name, _, _))
+                if name.as_str() == "org.freedesktop.systemd1.NoSuchUnit" =>
+            {
+                return Ok(());
+            }
+            Err(_) => return Err(ErrorCode::Unavailable),
+        };
+        let unit = Proxy::new(
+            connection,
+            "org.freedesktop.systemd1",
+            object.as_str(),
+            "org.freedesktop.systemd1.Unit",
+        )
+        .await
+        .map_err(|_| ErrorCode::Unavailable)?;
+        let state: String = unit
+            .get_property("ActiveState")
+            .await
+            .map_err(|_| ErrorCode::Unavailable)?;
+        if state == "inactive" || state == "failed" {
+            return Ok(());
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+#[cfg(test)]
+mod stop_tests {
+    use super::*;
+    use std::{
+        io::{BufRead, BufReader},
+        process::{Command, Stdio},
+        sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        },
+    };
+    use tokio::sync::Mutex;
+    struct Bus(std::process::Child);
+    impl Drop for Bus {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+    struct Manager {
+        state: Arc<Mutex<String>>,
+        polls: Arc<AtomicUsize>,
+    }
+    #[zbus::interface(name = "org.freedesktop.systemd1.Manager")]
+    impl Manager {
+        async fn stop_unit(&self, name: &str, mode: &str) -> OwnedObjectPath {
+            assert_eq!(name, UNIT);
+            assert_eq!(mode, "replace");
+            *self.state.lock().await = "deactivating".into();
+            let state = self.state.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                *state.lock().await = "inactive".into();
+            });
+            "/org/freedesktop/systemd1/job/1".try_into().unwrap()
+        }
+        fn get_unit(&self, name: &str) -> OwnedObjectPath {
+            assert_eq!(name, UNIT);
+            self.polls.fetch_add(1, Ordering::SeqCst);
+            "/org/freedesktop/systemd1/unit/player".try_into().unwrap()
+        }
+    }
+    struct Unit {
+        state: Arc<Mutex<String>>,
+    }
+    #[zbus::interface(name = "org.freedesktop.systemd1.Unit")]
+    impl Unit {
+        #[zbus(property)]
+        async fn active_state(&self) -> String {
+            self.state.lock().await.clone()
+        }
+    }
+    #[tokio::test]
+    async fn stop_waits_for_exit_and_targets_only_owned_unit() {
+        let mut child = Command::new("dbus-daemon")
+            .args(["--session", "--nofork", "--print-address=1"])
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut address = String::new();
+        BufReader::new(child.stdout.take().unwrap())
+            .read_line(&mut address)
+            .unwrap();
+        let _bus = Bus(child);
+        let server = zbus::connection::Builder::address(address.trim())
+            .unwrap()
+            .build()
+            .await
+            .unwrap();
+        let client = zbus::connection::Builder::address(address.trim())
+            .unwrap()
+            .build()
+            .await
+            .unwrap();
+        let state = Arc::new(Mutex::new("active".into()));
+        let polls = Arc::new(AtomicUsize::new(0));
+        server
+            .object_server()
+            .at(
+                "/org/freedesktop/systemd1",
+                Manager {
+                    state: state.clone(),
+                    polls: polls.clone(),
+                },
+            )
+            .await
+            .unwrap();
+        server
+            .object_server()
+            .at(
+                "/org/freedesktop/systemd1/unit/player",
+                Unit {
+                    state: state.clone(),
+                },
+            )
+            .await
+            .unwrap();
+        server
+            .request_name("org.freedesktop.systemd1")
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(1), stop_unit(&client))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(*state.lock().await, "inactive");
+        assert!(
+            polls.load(Ordering::SeqCst) > 1,
+            "a job reply is not exit evidence"
+        );
+    }
+}

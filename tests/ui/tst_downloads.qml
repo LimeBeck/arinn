@@ -266,6 +266,31 @@ TestCase {
         tryCompare(child("completionToast"), "visible", false);
     }
 
+    // Review of #310: notices that arrive together are shown one after another.
+    function test_toasts_queue_instead_of_replacing() {
+        view.showToast("First is ready to watch");
+        view.showToast("Second is ready to watch");
+        compare(view.toastMessage, "First is ready to watch");
+        tryCompare(view, "toastMessage", "Second is ready to watch", view.toastDurationMs * 3);
+        tryCompare(view, "toastMessage", "", view.toastDurationMs * 3);
+    }
+
+    // Review of #310: a notice raised while the screen is hidden waits for it.
+    function test_hidden_view_keeps_toasts() {
+        view.visible = false;
+        view.showToast("Hidden is ready to watch");
+        compare(view.toastMessage, "");
+        wait(view.toastDurationMs + 200);
+        view.visible = true;
+        compare(view.toastMessage, "Hidden is ready to watch");
+        // Leaving mid-notice keeps it for the next visit.
+        view.visible = false;
+        compare(view.toastMessage, "");
+        view.visible = true;
+        compare(view.toastMessage, "Hidden is ready to watch");
+        tryCompare(view, "toastMessage", "", view.toastDurationMs * 3);
+    }
+
     function test_non_media_completion_has_no_toast() {
         view.jobs = [{id: "extra", title: "Extra file", state: "downloading", progress: 0.2, availableActions: ["pause"], importState: "pending"}];
         focused("job-extra");

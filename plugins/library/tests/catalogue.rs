@@ -160,6 +160,43 @@ fn scans_films_series_artwork_and_hostile_nfo() {
     assert_eq!(fs::read(&secret).unwrap(), b"SECRET_FROM_ENTITY");
 }
 
+// ADR-0085 (#311): anime `TVn` season folders beside each other form one
+// series with a season each.
+#[test]
+fn tv_season_folders_form_one_series() {
+    let scratch = Scratch::new();
+    let root = scratch.path().join("root");
+    fs::create_dir_all(root.join("Show TV1")).unwrap();
+    fs::create_dir_all(root.join("Show TV2")).unwrap();
+    fs::write(root.join("Show TV1/01.mkv"), b"episode").unwrap();
+    fs::write(
+        root.join("Show TV1/[Group] Show - 02 [1080p].mkv"),
+        b"episode",
+    )
+    .unwrap();
+    fs::write(root.join("Show TV2/Show TV2 [01].mkv"), b"episode").unwrap();
+
+    let mut store = open(&scratch);
+    store
+        .scan(&settings(&root, false, PathBuf::from("ffprobe")))
+        .unwrap();
+    let (_, items) = store.snapshot().unwrap();
+    let series: Vec<_> = items.iter().filter(|item| item.kind == "series").collect();
+    assert_eq!(series.len(), 1);
+    assert_eq!(series[0].title, "Show");
+    let mut episodes: Vec<(u32, u32)> = items
+        .iter()
+        .filter(|item| item.kind == "episode")
+        .map(|item| {
+            assert_eq!(item.parent_id, series[0].id);
+            (item.season, item.episode)
+        })
+        .collect();
+    episodes.sort();
+    assert_eq!(episodes, vec![(1, 1), (1, 2), (2, 1)]);
+    assert!(items.iter().all(|item| item.kind != "film"));
+}
+
 #[test]
 fn in_root_symlink_is_one_catalogue_item() {
     let scratch = Scratch::new();

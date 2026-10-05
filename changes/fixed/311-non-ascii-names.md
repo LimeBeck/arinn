@@ -1,0 +1,1 @@
+- Stop the library scan from crashing on video files whose names contain non-ASCII letters (for example Cyrillic titles); the `1x02` episode search sliced names inside a multi-byte character.

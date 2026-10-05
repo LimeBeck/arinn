@@ -1604,7 +1604,6 @@ private slots:
       home->setProperty("screen", QStringLiteral("home"));
       window->setProperty(flag, true);
       QTRY_VERIFY2(focusInside(window->activeFocusItem(), screen), name);
-      QMetaObject::invokeMethod(screen, "focusInitial");
       QTest::keyClick(window, Qt::Key_Menu);
       QTRY_VERIFY2(home->property("navOpen").toBool(), name);
       // The menu focuses the entry of the current section.
@@ -1632,6 +1631,17 @@ private slots:
       QTRY_VERIFY2(!window->property(flag).toBool(), name);
       QTRY_COMPARE(home->property("screen").toString(), QStringLiteral("library"));
       QTRY_VERIFY2(focusInside(window->activeFocusItem(), library), name);
+
+      // Review of #334: Home in the menu over the overlay shows Home.
+      window->setProperty(flag, true);
+      QTRY_VERIFY2(focusInside(window->activeFocusItem(), screen), name);
+      QTest::keyClick(window, Qt::Key_Menu);
+      QTRY_VERIFY2(onMenu(), name);
+      QTest::keyClick(window, Qt::Key_Home);
+      QTRY_VERIFY2(!window->property(flag).toBool(), name);
+      QTRY_COMPARE(home->property("screen").toString(), QStringLiteral("home"));
+      QTRY_COMPARE(window->property("focusedScreen").toString(), QStringLiteral("home"));
+      QTRY_VERIFY2(focusInside(window->activeFocusItem(), home), name);
     }
 
     // Home from Open services, Browse and a session also shows Home.

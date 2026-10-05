@@ -91,6 +91,9 @@ FocusScope {
     signal returnRequested(string activityId)
     signal retryRequested()
     signal sectionRequested(string route)
+    // The Home key was pressed in Home or its navigation menu. The shell
+    // closes what the menu was opened over (§6.3, #329).
+    signal homeKeyPressed()
     signal closeShellRequested()
     signal powerRequested()
     signal openServicesRequested()
@@ -211,6 +214,10 @@ FocusScope {
         else restoreScreen();
         navigationOpener = null;
     }
+    function homeKey() {
+        showHome();
+        homeKeyPressed();
+    }
     function showHome() {
         if (shortcutEditorOpen) closeShortcutEditorRequested();
         navOpen = false;
@@ -295,7 +302,7 @@ FocusScope {
     }
     Keys.onPressed: event => {
         if ([Qt.Key_Left, Qt.Key_Right, Qt.Key_Up, Qt.Key_Down].includes(event.key)) root.pointerMode = false;
-        if (event.key === Qt.Key_Home) { showHome(); event.accepted = true; }
+        if (event.key === Qt.Key_Home) { homeKey(); event.accepted = true; }
         else if (event.key === Qt.Key_Menu) {
             if (shortcutManagement && !navOpen && screen === "applications" && focusedEntry.webShortcut)
                 editShortcut(focusedEntry.id);
@@ -640,7 +647,7 @@ FocusScope {
         enabled: visible
         Keys.onPressed: event => {
             event.accepted = true;
-            if (event.key === Qt.Key_Home) root.showHome();
+            if (event.key === Qt.Key_Home) root.homeKey();
             else if (event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace) {
                 if (removeConfirmation.visible) {
                     removeConfirmation.visible = false;
@@ -671,7 +678,7 @@ FocusScope {
                         Keys.onReturnPressed: Focus.take(shortcutUrl)
                         Keys.onEnterPressed: Focus.take(shortcutUrl)
                         Keys.onEscapePressed: root.closeShortcutEditorRequested()
-                        Keys.onPressed: event => { if (event.key === Qt.Key_Home) { root.showHome(); event.accepted = true; } }
+                        Keys.onPressed: event => { if (event.key === Qt.Key_Home) { root.homeKey(); event.accepted = true; } }
                     }
                 }
                 UiText { text: qsTr("Address"); color: Theme.textSecondary }
@@ -690,7 +697,7 @@ FocusScope {
                         Keys.onReturnPressed: Focus.take(shortcutSave)
                         Keys.onEnterPressed: Focus.take(shortcutSave)
                         Keys.onEscapePressed: root.closeShortcutEditorRequested()
-                        Keys.onPressed: event => { if (event.key === Qt.Key_Home) { root.showHome(); event.accepted = true; } }
+                        Keys.onPressed: event => { if (event.key === Qt.Key_Home) { root.homeKey(); event.accepted = true; } }
                     }
                 }
                 UiText {

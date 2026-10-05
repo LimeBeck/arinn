@@ -329,6 +329,12 @@ Window {
             if (goHomeFrom(focusedScreen)) event.accepted = true;
         }
     }
+    // Open services, Browse and a session give way to Home's navigation.
+    function closeOverlays() {
+        browserOpen = false;
+        if (browseOpen) { browseOpen = false; browseCatalog.reset(); }
+        if (sessionOpen) { sessionOpen = false; sessionFromLibrary = false; }
+    }
     // Home from a screen that does not handle it itself; false when the
     // screen is not one of these.
     function goHomeFrom(screen) {
@@ -395,13 +401,10 @@ Window {
             onRunningRequested: entryId => backend.activate(entryId)
             onReturnRequested: backend.back()
             onRetryRequested: backend.refresh()
-            // A section picked in the navigation menu replaces an open
-            // overlay (#329).
-            onSectionRequested: route => {
-                root.browserOpen = false;
-                if (root.browseOpen) { root.browseOpen = false; browseCatalog.reset(); }
-                if (root.sessionOpen) { root.sessionOpen = false; root.sessionFromLibrary = false; }
-            }
+            // A section picked in the navigation menu, or Home pressed there,
+            // replaces an open overlay (#329, §6.3).
+            onSectionRequested: route => root.closeOverlays()
+            onHomeKeyPressed: root.closeOverlays()
             onOpenServicesRequested: {
                 root.browserOpen = true;
                 Qt.callLater(() => Ui.Focus.take(browserView));

@@ -1645,6 +1645,26 @@ private slots:
       QTRY_COMPARE(home->property("screen").toString(), QStringLiteral("library"));
       QTRY_VERIFY2(focusInside(window->activeFocusItem(), library), name);
 
+      // Review of #334: Open services picked in the menu replaces the overlay
+      // and takes focus.
+      window->setProperty(flag, true);
+      QTRY_VERIFY2(focusInside(window->activeFocusItem(), screen), name);
+      QTest::keyClick(window, Qt::Key_Menu);
+      QTRY_VERIFY2(onMenu(), name);
+      auto servicesEntry = findItem(home, QStringLiteral("nav-5"));
+      QVERIFY(servicesEntry);
+      for (int i = 0; i < 8 && !servicesEntry->hasActiveFocus(); ++i)
+        QTest::keyClick(window, Qt::Key_Down);
+      QTRY_VERIFY2(servicesEntry->hasActiveFocus(), name);
+      QTest::keyClick(window, Qt::Key_Return);
+      auto browser = window->findChild<QQuickItem *>(QStringLiteral("productionBrowser"));
+      QTRY_VERIFY2(window->property("browserOpen").toBool(), name);
+      QTRY_COMPARE(window->property("focusedScreen").toString(), QStringLiteral("browser"));
+      QTRY_VERIFY2(focusInside(window->activeFocusItem(), browser), name);
+      if (QByteArray(flag) != "browserOpen")
+        QVERIFY2(!window->property(flag).toBool(), name);
+      window->setProperty("browserOpen", false);
+
       // Review of #334: Home in the menu over the overlay shows Home.
       window->setProperty(flag, true);
       QTRY_VERIFY2(focusInside(window->activeFocusItem(), screen), name);

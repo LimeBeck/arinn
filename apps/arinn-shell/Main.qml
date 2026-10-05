@@ -417,6 +417,9 @@ Window {
             onSectionRequested: route => root.closeOverlays()
             onHomeKeyPressed: root.closeOverlays()
             onOpenServicesRequested: {
+                // From the menu over Browse or a session, Open services
+                // replaces that overlay instead of opening beneath it.
+                root.closeOverlays();
                 root.browserOpen = true;
                 Qt.callLater(() => Ui.Focus.take(browserView));
             }

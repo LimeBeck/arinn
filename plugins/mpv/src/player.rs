@@ -182,6 +182,13 @@ struct Core {
     force_anchor: bool,
     anchor: Option<Anchor>,
     published: Option<Session>,
+    reconnect_enabled: bool,
+    shutdown_pending: bool,
+    owns_unit: bool,
+    pending_capture: Option<crate::thumbnail::TemporaryFrame>,
+    ffmpeg: Option<PathBuf>,
+    thumb_dir: PathBuf,
+    poster_extractor: Arc<Extractor>,
     published_tracks: Vec<Track>,
     published_timeline: Timeline,
 }
@@ -222,34 +229,13 @@ impl Player {
             touch: 0,
         };
         let (notes, _) = watch::channel(view);
-        let core = Core {
-            socket: settings.socket,
-            state_path: settings.state_path,
-            launch: settings.launch,
-            interval: settings.publish_interval,
+        let poster_extractor = Arc::new(Extractor::default());
+        let core = Core::new(
+            &settings,
             incoming_tx,
-            notes: notes.clone(),
-            client: None,
-            generation: 0,
-            observed: false,
-            launch_id: String::new(),
-            live: None,
-            idle: true,
-            backend: settings.backend,
-            snapshot: 0,
-            touch: 0,
-            file_loaded: false,
-            load_fault: None,
-            seen: HashSet::new(),
-            force_anchor: false,
-            anchor: None,
-            published: None,
-            published_tracks: Vec::new(),
-            published_timeline: Timeline {
-                chapters: Vec::new(),
-                ranges: Vec::new(),
-            },
-        };
+            notes.clone(),
+            poster_extractor.clone(),
+        );
         let join = tokio::spawn(core.run(rx, incoming_rx));
         Ok(Self {
             tx,
@@ -257,7 +243,7 @@ impl Player {
             ffmpeg: settings.ffmpeg,
             thumb_dir: settings.thumb_dir,
             extractor: Arc::new(Extractor::default()),
-            poster_extractor: Arc::new(Extractor::default()),
+            poster_extractor,
             _task: Arc::new(Task {
                 join: Mutex::new(Some(join)),
             }),
@@ -376,13 +362,56 @@ impl Player {
 }
 
 impl Core {
+    fn new(
+        settings: &Settings,
+        incoming_tx: mpsc::UnboundedSender<Incoming>,
+        notes: watch::Sender<View>,
+        poster_extractor: Arc<Extractor>,
+    ) -> Self {
+        Self {
+            socket: settings.socket.clone(),
+            state_path: settings.state_path.clone(),
+            owns_unit: false,
+            launch: settings.launch.clone(),
+            interval: settings.publish_interval,
+            incoming_tx,
+            notes,
+            client: None,
+            generation: 0,
+            observed: false,
+            launch_id: String::new(),
+            live: None,
+            idle: true,
+            backend: settings.backend.clone(),
+            snapshot: 0,
+            touch: 0,
+            file_loaded: false,
+            load_fault: None,
+            seen: HashSet::new(),
+            force_anchor: false,
+            anchor: None,
+            published: None,
+            reconnect_enabled: true,
+            shutdown_pending: false,
+            pending_capture: None,
+            ffmpeg: settings.ffmpeg.clone(),
+            thumb_dir: settings.thumb_dir.clone(),
+            poster_extractor,
+            published_tracks: Vec::new(),
+            published_timeline: Timeline {
+                chapters: Vec::new(),
+                ranges: Vec::new(),
+            },
+        }
+    }
+
     async fn run(
         mut self,
         mut inbox: mpsc::Receiver<Ask>,
         mut incoming: mpsc::UnboundedReceiver<Incoming>,
     ) {
         loop {
-            let disconnected = self.client.is_none();
+            let disconnected = self.client.is_none() && self.reconnect_enabled;
             tokio::select! {
                 biased;
                 ask = inbox.recv() => {
@@ -437,18 +466,26 @@ impl Core {
                 let _ = reply.send(self.thumb_target(&id));
             }
             Ask::Poster(reply) => {
-                let target = self.live.as_ref().and_then(|live| {
-                    Some(PosterTarget {
-                        id: live.id.clone(),
-                        path: live.path.clone().filter(|_| live.has_video)?,
-                        position_us: live.time_us.max(0),
-                        playing: self.phase() == media::STATE_PLAYING,
-                    })
-                });
+                let target = self
+                    .live
+                    .as_ref()
+                    .filter(|live| !live.stopped)
+                    .and_then(|live| {
+                        Some(PosterTarget {
+                            id: live.id.clone(),
+                            path: live.path.clone().filter(|_| live.has_video)?,
+                            position_us: live.time_us.max(0),
+                            playing: self.phase() == media::STATE_PLAYING,
+                        })
+                    });
                 let _ = reply.send(target);
             }
             Ask::SetArtwork(id, asset) => {
-                if let Some(live) = self.live.as_mut().filter(|live| live.id == id) {
+                if let Some(live) = self
+                    .live
+                    .as_mut()
+                    .filter(|live| live.id == id && !live.stopped)
+                {
                     live.artwork = asset;
                     self.sync();
                 }
@@ -475,7 +512,11 @@ impl Core {
     ) -> Result<String, ErrorCode> {
         source.validate()?;
         let path = crate::paths::file_path(&source.uri)?;
+        if self.shutdown_pending {
+            self.stop_owned(incoming).await?;
+        }
         self.ensure_for_open(incoming).await?;
+        self.reconnect_enabled = true;
         let id = uuid::Uuid::new_v4().to_string();
         self.install(&id, &source, path.clone());
         if let Err(error) = self
@@ -580,6 +621,7 @@ impl Core {
                         .await
                         .map_err(|_| ErrorCode::Unavailable)?;
                     scope::ensure_unit(&connection, &binary, &socket).await?;
+                    self.owns_unit = true;
                     self.wait_for_socket().await?;
                 }
                 Launch::External | Launch::Missing => return Err(ErrorCode::Unavailable),
@@ -637,6 +679,7 @@ impl Core {
         // Recover the player process identity, including after a provider restart.
         // A legacy/unmanaged player remains controllable without window presentation.
         self.launch_id.clear();
+        self.owns_unit = false;
         if let Ok(reply) = self
             .request(json!(["get_property", "options/wayland-app-id"]), incoming)
             .await
@@ -647,6 +690,9 @@ impl Core {
             && arinn_protocol::media_window::validate_launch(launch).is_ok()
         {
             self.launch_id = launch.into();
+            if !matches!(self.launch, Launch::External) {
+                self.owns_unit = true;
+            }
         }
         self.seen.clear();
         for (id, name) in PROPS {
@@ -676,10 +722,15 @@ impl Core {
             return Err(ErrorCode::NotFound);
         }
         let state = self.phase();
-        let allowed = actions(state);
+        let allowed = self.available_actions(state);
         let token = action_token(action);
         if !allowed.iter().any(|name| name == token) {
             return Err(ErrorCode::Unsupported);
+        }
+        if matches!(action, MediaAction::Stop)
+            && (self.shutdown_pending || self.owns_unit || !self.launch_id.is_empty())
+        {
+            return self.stop_owned(incoming).await;
         }
         let command = match action {
             MediaAction::Play => json!(["set_property", "pause", false]),
@@ -721,6 +772,106 @@ impl Core {
             }
         }
         self.sync();
+        Ok(())
+    }
+
+    /// Stop only our private player. The actor serializes Open behind this
+    /// handoff, and old IPC events are fenced before publishing the final row.
+    async fn stop_owned(
+        &mut self,
+        incoming: &mut mpsc::UnboundedReceiver<Incoming>,
+    ) -> Result<(), ErrorCode> {
+        let client = self.client.clone();
+        // Freeze the displayed frame and sample resume before quit can clear
+        // time-pos. All preparation is best effort and fits the 5 s command SLA.
+        let _ = tokio::time::timeout(
+            Duration::from_millis(200),
+            self.request(json!(["set_property", "pause", true]), incoming),
+        )
+        .await;
+        if let Ok(Ok(reply)) = tokio::time::timeout(
+            Duration::from_millis(200),
+            self.request(json!(["get_property", "time-pos"]), incoming),
+        )
+        .await
+            && reply.error == "success"
+            && let Some(position) = parse::us_from_seconds(&reply.data)
+            && let Some(live) = self.live.as_mut()
+        {
+            live.time_us = position;
+        }
+        let _ = tokio::time::timeout(Duration::from_secs(1), self.capture_final_frame()).await;
+        // quit may close IPC before returning its reply. Socket EOF is evidence
+        // of shutdown, not a provider failure; do not drain that event yet.
+        self.shutdown_pending = true;
+        self.reconnect_enabled = false;
+        if let Some(client) = &client {
+            let _ =
+                tokio::time::timeout(Duration::from_millis(300), client.request(json!(["quit"])))
+                    .await;
+        }
+        if self.owns_unit {
+            let stopped = tokio::time::timeout(Duration::from_secs(2), async {
+                let connection = Connection::session()
+                    .await
+                    .map_err(|_| ErrorCode::Unavailable)?;
+                scope::stop_unit(&connection).await
+            })
+            .await
+            .unwrap_or(Err(ErrorCode::Timeout));
+            stopped?;
+        }
+        let deadline = Instant::now() + Duration::from_millis(500);
+        while client.as_ref().is_some_and(Client::alive) && Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        if client.as_ref().is_some_and(Client::alive) {
+            return Err(ErrorCode::Timeout);
+        }
+        self.drop_client();
+        self.pending_capture = None;
+        self.shutdown_pending = false;
+        self.reconnect_enabled = false;
+        self.drain(incoming);
+        if let Some(live) = self.live.as_mut() {
+            live.stopped = true;
+        }
+        self.idle = true;
+        self.force_anchor = true;
+        self.backend = "available".into();
+        self.sync();
+        Ok(())
+    }
+
+    async fn capture_final_frame(&mut self) -> Result<(), ErrorCode> {
+        if self.live.as_ref().is_none_or(|live| !live.has_video)
+            || self.thumb_dir.as_os_str().is_empty()
+        {
+            return Err(ErrorCode::Unsupported);
+        }
+        let ffmpeg = self.ffmpeg.clone().ok_or(ErrorCode::Unsupported)?;
+        let directory = crate::thumbnail::poster_dir(&self.thumb_dir);
+        crate::paths::ensure_private_dir(&directory).map_err(|_| ErrorCode::Unsupported)?;
+        if self.pending_capture.is_some() {
+            return Err(ErrorCode::Unsupported);
+        }
+        let path = directory.join(format!("capture-{}.jpg", uuid::Uuid::new_v4()));
+        // A timed-out mpv command can write later, before quit is processed.
+        // Keep the guard through confirmed exit, including a failed Stop retry.
+        self.pending_capture = Some(crate::thumbnail::TemporaryFrame::new(path.clone()));
+        let client = self.client.clone().ok_or(ErrorCode::Unavailable)?;
+        let reply = client
+            .request(json!(["screenshot-to-file", &path, "video"]))
+            .await?;
+        ipc::map_error(&reply.error)?;
+        crate::thumbnail::validate_frame(&path)?;
+        let frame = self
+            .poster_extractor
+            .extract(&ffmpeg, &directory, &path, 0)
+            .await?;
+        if let Some(live) = self.live.as_mut() {
+            live.artwork = frame.asset;
+        }
         Ok(())
     }
 
@@ -977,7 +1128,11 @@ impl Core {
 
     fn fail_link(&mut self) {
         self.drop_client();
-        if let Some(live) = self.live.as_mut() {
+        // EOF after quit does not confirm that the owned unit exited. Keep
+        // the shutdown intent and Stop action until that check can be retried.
+        if !self.shutdown_pending
+            && let Some(live) = self.live.as_mut()
+        {
             live.stopped = true;
         }
         if self.backend != "unavailable" {
@@ -992,6 +1147,14 @@ impl Core {
         self.client = None;
         self.observed = false;
         self.generation = self.generation.wrapping_add(1);
+    }
+
+    fn available_actions(&self, state: &str) -> Vec<String> {
+        if self.shutdown_pending {
+            vec![media::ACTION_STOP.into()]
+        } else {
+            actions(state)
+        }
     }
 
     fn phase(&self) -> &'static str {
@@ -1085,7 +1248,7 @@ impl Core {
             duration_us: live.duration_us,
             position_us: anchor.position_us,
             anchor_us: anchor.anchor_us,
-            actions: actions(state),
+            actions: self.available_actions(state),
             has_content: live.has_content,
             content: if live.has_content {
                 live.content.clone()
@@ -1278,6 +1441,55 @@ pub(crate) fn monotonic_us() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn eof_during_failed_owned_shutdown_preserves_stop_retry() {
+        let settings = Settings {
+            socket: PathBuf::new(),
+            state_path: PathBuf::new(),
+            launch: Launch::External,
+            publish_interval: Duration::from_secs(1),
+            ffmpeg: None,
+            thumb_dir: PathBuf::new(),
+            backend: "available".into(),
+        };
+        let (incoming_tx, _) = mpsc::unbounded_channel();
+        let (notes, _) = watch::channel(View {
+            sessions: Vec::new(),
+            backend: "available".into(),
+            snapshot: 0,
+            touch: 0,
+        });
+        let mut core = Core::new(
+            &settings,
+            incoming_tx,
+            notes,
+            Arc::new(Extractor::default()),
+        );
+        core.live = Some(Live::anonymous());
+        core.live.as_mut().unwrap().pause = true;
+        core.live.as_mut().unwrap().stopped = false;
+        core.idle = false;
+        core.owns_unit = true;
+        core.shutdown_pending = true;
+        core.reconnect_enabled = false;
+        core.sync();
+        let generation = core.generation;
+        // quit closed IPC, but StopUnit failed before terminal confirmation.
+        core.on_incoming(Incoming::Dead { generation });
+        let row = core.session_snapshot().unwrap();
+        assert_eq!(row.state, media::STATE_PAUSED);
+        assert_eq!(row.actions, vec![media::ACTION_STOP]);
+        assert!(core.shutdown_pending);
+        assert!(core.owns_unit);
+        assert!(!core.reconnect_enabled);
+        // Other actions cannot target the already closed peer.
+        assert!(
+            !row.actions
+                .iter()
+                .any(|action| action == media::ACTION_PLAY)
+        );
+    }
 
     #[test]
     fn a_missing_binary_does_not_launch() {

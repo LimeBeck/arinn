@@ -274,7 +274,7 @@ If the saved Activity disappears, Home stays open, briefly shows an unavailable 
 
 - **OSD hidden:** Left/Right seek ±10 s (only if seek is supported) and show the OSD with focus on the timeline; OK/Up/Down only show the OSD.
 - **OSD visible:** OK on the timeline toggles play/pause. The OSD hides 4 s after the last input while playing and never while paused.
-- **Back** first hides the OSD; the next Back leaves the playback view of a managed mpv session, stops playback, saves resume and returns to the Home or Detail screen where playback started. It never terminates an arbitrary external application.
+- **Back** first hides the OSD; the next Back leaves the playback view of a managed mpv session, saves resume and the final video frame for the Continue tile, fully terminates the Arinn-owned player process, and returns to the Home or Detail screen where playback started. Continue launches a fresh process at the library resume position. Pause and global Home keep the live player and its state; Return reaches that same live session. It never terminates an arbitrary external application.
 - **Input during managed playback:** the shell keeps keyboard focus as a transparent fullscreen input layer over the mpv window, including while the OSD is hidden. All keys are handled locally in the shell; only commands (seek, play/pause, stop) go to the provider. mpv never receives keys and never forwards them. This resolves OQ-01 by owner decision on 2026-09-28 ([ADR-0046](../adr/0046-shell-input-layer-during-playback.md)); the media integration gate verifies that the layer does not degrade playback.
 
 ### 6.5. Performance principles

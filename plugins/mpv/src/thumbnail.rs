@@ -76,7 +76,8 @@ impl Extractor {
         *self.last_start.lock().await = Instant::now();
         ensure_private_dir(directory).map_err(|_| ErrorCode::Unsupported)?;
         let asset = uuid::Uuid::new_v4().to_string();
-        let output = directory.join(format!("{asset}.jpg"));
+        let mut output_guard = TemporaryFrame::new(directory.join(format!("{asset}.jpg")));
+        let output = output_guard.path().to_path_buf();
         let mut child = Command::new(ffmpeg)
             .arg("-hide_banner")
             .arg("-loglevel")
@@ -124,6 +125,8 @@ impl Extractor {
             return Err(ErrorCode::Unsupported);
         }
         let _ = std::fs::set_permissions(&output, std::fs::Permissions::from_mode(0o600));
+        validate_frame(&output)?;
+        output_guard.keep = true;
         prune(directory, KEPT_THUMBNAILS);
         Ok(Thumbnail {
             asset,
@@ -241,4 +244,36 @@ pub fn cache_dir() -> Result<PathBuf, ErrorCode> {
     let dir = base.join("arinn/mpv");
     ensure_private_dir(&dir)?;
     Ok(dir)
+}
+
+/// Remove captures and interrupted extracts even when their future is dropped.
+pub(crate) struct TemporaryFrame {
+    path: PathBuf,
+    keep: bool,
+}
+impl TemporaryFrame {
+    pub(crate) fn new(path: PathBuf) -> Self {
+        Self { path, keep: false }
+    }
+    pub(crate) fn path(&self) -> &Path {
+        &self.path
+    }
+}
+impl Drop for TemporaryFrame {
+    fn drop(&mut self) {
+        if !self.keep {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
+}
+pub(crate) fn validate_frame(path: &Path) -> Result<(), ErrorCode> {
+    let metadata = std::fs::metadata(path).map_err(|_| ErrorCode::Unsupported)?;
+    if !metadata.is_file() || metadata.len() == 0 || metadata.len() > MAX_ASSET_BYTES as u64 {
+        return Err(ErrorCode::Unsupported);
+    }
+    let bytes = std::fs::read(path).map_err(|_| ErrorCode::Unsupported)?;
+    if assets::sniff(&bytes) != Some(assets::MIME_JPEG) {
+        return Err(ErrorCode::Unsupported);
+    }
+    Ok(())
 }

@@ -1,0 +1,5 @@
+/* Match the assembled handbook to the product site; source handbook is unchanged. */
+:root{--bg:#0f1115;--accent:#ff8a3d}
+.topbar .brand{display:inline-flex;align-items:center;gap:10px}
+.topbar .brand img{display:block;width:28px;height:32px}
+.topbar .brand-label{margin-left:5px}

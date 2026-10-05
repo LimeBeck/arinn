@@ -16,7 +16,8 @@ import "ui/screens/settings" as Settings
 Window {
     id: root
     width: 1920; height: 1080
-    visibility: (backend.homeVisible || mediaCatalog.inputLayerActive || leavingPlayback) && !sessionGuard.blocked ? Window.FullScreen : Window.Hidden
+    visibility: (backend.homeVisible || mediaCatalog.inputLayerActive || leavingPlayback
+                 || leavingStopPending || (playerOpen && leaveError !== "")) && !sessionGuard.blocked ? Window.FullScreen : Window.Hidden
     // After Back leaves playback the input layer ends before the daemon
     // reports Home again; stay on screen in between instead of vanishing
     // (#246). Cleared by that report. The bound is only a last resort for a
@@ -24,7 +25,7 @@ Window {
     // backend's one-second status poll with a wide margin.
     property bool leavingPlayback: false
     Timer { id: leavingBound; interval: 10000; onTriggered: root.leavingPlayback = false }
-    color: playerOpen ? "transparent" : Ui.Theme.background
+    color: playerOpen && !leavingStopPending && leaveError === "" ? "transparent" : Ui.Theme.background
     title: "Arinn"
     flags: Qt.Window | Qt.FramelessWindowHint
     readonly property bool navOpen: home.navOpen
@@ -34,6 +35,20 @@ Window {
     function closeBrowse() { browseOpen = false; browseCatalog.reset(); Qt.callLater(restoreFocus); }
     property bool sessionOpen: false
     property bool playerOpen: false
+    property bool leavingWaitForSession: false
+    Timer {
+        id: leaveSessionBound
+        objectName: "leaveSessionBound"
+        interval: 30000
+        onTriggered: {
+            // Keep selection fenced: the eventual row still belongs to the
+            // exact launch whose exit was requested.
+            root.leaveError = qsTr("Playback is not available yet. Press Home to leave, or wait to stop the launched session.");
+            playerView.osdVisible = true;
+        }
+    }
+    property bool leavingStopPending: false
+    property string leaveError: ""
     property bool sessionFromLibrary: false
     // Watch on a download whose library item the library catalog has not
     // read yet: {provider, local}, opened once the catalog lists it.
@@ -57,6 +72,9 @@ Window {
     property bool presentationAtHome: false
     property bool presentationRequested: false
     function showPlaybackHome() {
+        if (leavingStopPending)
+            return;
+        leaveError = "";
         if (!mediaCatalog.inputLayerActive)
             return;
         playerView.sheetKind = "";
@@ -76,6 +94,9 @@ Window {
             });
     }
     function openSession(entryId, fromLibrary) {
+        if (leavingStopPending)
+            return;
+        leaveError = "";
         presentationAtHome = false;
         presentationRequested = false;
         sessionFromLibrary = fromLibrary;
@@ -101,6 +122,46 @@ Window {
             else
                 Ui.Focus.take(sessionView);
         });
+    }
+    function leavePlayback() {
+        if (leavingStopPending)
+            return;
+        leaveError = "";
+        if (mediaCatalog.inputLayerActive) {
+            leavingPlayback = true;
+            leavingBound.restart();
+        }
+        if (mediaCatalog.sessionState !== "ready") {
+            if (sessionFromLibrary || mediaCatalog.sessionState === "loading") {
+                leavingWaitForSession = true;
+                leavingStopPending = true;
+                leaveSessionBound.restart();
+                return;
+            }
+            finishPlaybackExit();
+            return;
+        }
+        leavingWaitForSession = false;
+        leaveSessionBound.stop();
+        leavingStopPending = true;
+        mediaCatalog.stop();
+        finishStopOperation();
+    }
+    function finishStopOperation() {
+        if (!leavingStopPending || leavingWaitForSession || mediaCatalog.operationState === "pending")
+            return;
+        leavingStopPending = false;
+        if (mediaCatalog.operationState === "succeeded")
+            finishPlaybackExit();
+        else {
+            leaveError = qsTr("Unable to stop playback. Press Back to retry.");
+            playerView.osdVisible = true;
+        }
+    }
+    function finishPlaybackExit() {
+        mediaCatalog.release();
+        presentationAtHome = false;
+        closePlayer();
     }
     function closePlayer() {
         playerOpen = false;
@@ -515,7 +576,8 @@ Window {
             objectName: "productionPlayer"
             focus: root.focusedScreen === "player"
             visible: root.playerOpen
-            enabled: root.playerOpen
+            enabled: root.playerOpen && (!root.leavingStopPending
+                                        || (root.leavingWaitForSession && root.leaveError !== ""))
             z: 6
             pictureStandIn: false
             title: mediaCatalog.sessionTitle
@@ -541,7 +603,12 @@ Window {
             audioTrackId: mediaCatalog.audioTrackId
             subtitleTrackId: mediaCatalog.subtitleTrackId
             thumbnail: mediaCatalog.thumbnail
+            statusTitle: root.leaveError
             playbackState: {
+                if (root.leavingStopPending)
+                    return "loading";
+                if (root.leaveError !== "")
+                    return "error";
                 const state = mediaCatalog.sessionState;
                 if (mediaCatalog.windowAvailable && mediaCatalog.presentationState !== "active")
                     return mediaCatalog.presentationState === "pending" ? "loading" : "unavailable";
@@ -556,26 +623,25 @@ Window {
             onSeek: targetSeconds => mediaCatalog.seek(targetSeconds * 1000000)
             onSelectAudio: trackId => mediaCatalog.selectAudio(trackId)
             onSelectSubtitle: trackId => mediaCatalog.selectSubtitle(trackId)
-            onStop: mediaCatalog.stop()
-            onLeave: {
-                if (mediaCatalog.inputLayerActive) {
-                    root.leavingPlayback = true;
-                    leavingBound.restart();
-                }
-                if (mediaCatalog.sessionState === "ready")
-                    mediaCatalog.stop();
-                mediaCatalog.release();
-                root.presentationAtHome = false;
-                root.closePlayer();
-            }
+            onStop: root.leavePlayback()
+            onLeave: root.leavePlayback()
             onHomeRequested: {
+                // A vanished/unreported launch cannot fence navigation forever.
+                // Explicit Home cancels only the waiting exit, never a running Stop.
+                if (root.leavingWaitForSession && root.leaveError !== "") {
+                    root.leavingWaitForSession = false;
+                    root.leavingStopPending = false;
+                    leaveSessionBound.stop();
+                }
                 if (mediaCatalog.inputLayerActive) {
                     root.showPlaybackHome();
                     mediaCatalog.requestHome();
                 } else {
+                    root.leaveError = "";
                     root.playerOpen = false;
                     root.sessionFromLibrary = false;
                     home.showHome();
+                    mediaCatalog.requestHome();
                 }
             }
         }
@@ -587,7 +653,10 @@ Window {
         Connections {
             target: mediaCatalog
             function onPresentationHomeRequested() { root.showPlaybackHome(); }
+            function onOperationChanged() { root.finishStopOperation(); }
             function onPresentationChanged() {
+                if (root.leavingStopPending || root.leaveError !== "")
+                    return;
                 if (mediaCatalog.presentationState !== "" && mediaCatalog.presentationState !== "pending" && mediaCatalog.presentationState !== "active") {
                     root.playerOpen = false;
                     root.presentationAtHome = false;
@@ -608,6 +677,17 @@ Window {
                 }
             }
             function onSessionChanged() {
+                if (root.leavingWaitForSession && mediaCatalog.sessionState === "unavailable") {
+                    root.leaveError = qsTr("Playback is unavailable. Press Home to leave, or wait to stop the launched session.");
+                    playerView.osdVisible = true;
+                }
+                if (root.leavingWaitForSession && mediaCatalog.sessionState === "ready") {
+                    root.leavingStopPending = false;
+                    root.leavePlayback();
+                    return;
+                }
+                if (root.leavingStopPending)
+                    return;
                 if (root.playerOpen && mediaCatalog.windowAvailable && !root.presentationAtHome && !root.presentationRequested) {
                     root.presentationRequested = true;
                     mediaCatalog.present();

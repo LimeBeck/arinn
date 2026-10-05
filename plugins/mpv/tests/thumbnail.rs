@@ -127,7 +127,7 @@ async fn cache_keeps_only_the_newest_frames_and_ffmpeg_reads_a_local_file() {
     let script = folder.join("fake-ffmpeg");
     std::fs::write(
         &script,
-        "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$(dirname \"$0\")/args\"\nout=\nfor arg in \"$@\"; do out=\"$arg\"; done\nprintf '\\377\\330' > \"$out\"\n",
+        "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$(dirname \"$0\")/args\"\nout=\nfor arg in \"$@\"; do out=\"$arg\"; done\nprintf '\\377\\330\\377' > \"$out\"\n",
     )
     .unwrap();
     std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700)).unwrap();
@@ -243,4 +243,49 @@ async fn poster_frames_are_served_too() {
     let assets = ThumbnailAssets::new(folder.clone());
     assert_eq!(assets.asset(id).await.unwrap().data, jpeg);
     let _ = std::fs::remove_dir_all(&folder);
+}
+
+#[tokio::test]
+async fn aborted_extraction_removes_incomplete_output() {
+    let folder = dir();
+    let script = folder.join("interrupted-ffmpeg");
+    std::fs::write(
+        &script,
+        "#!/bin/sh\nfor output do :; done\nprintf '\\377\\330\\377' > \"$output\"\nexec sleep 30\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let task = {
+        let folder = folder.clone();
+        tokio::spawn(async move {
+            Extractor::default()
+                .extract(
+                    &script,
+                    &folder,
+                    PathBuf::from("/library/clip.mkv").as_path(),
+                    0,
+                )
+                .await
+        })
+    };
+    let mut partial = None;
+    for _ in 0..50 {
+        partial = std::fs::read_dir(&folder)
+            .unwrap()
+            .flatten()
+            .map(|e| e.path())
+            .find(|p| p.extension().is_some_and(|x| x == "jpg"));
+        if partial.is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let partial = partial.expect("synthetic partial output");
+    task.abort();
+    let _ = task.await;
+    assert!(
+        !partial.exists(),
+        "a dropped capture future must not retain a partial frame"
+    );
+    let _ = std::fs::remove_dir_all(folder);
 }

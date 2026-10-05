@@ -1187,12 +1187,50 @@ private slots:
     QTest::keyClick(window, Qt::Key_Escape);
     QCOMPARE(player->property("osdVisible").toBool(), false);
     QCOMPARE(daemon.commands, stops);
+    daemon.holdOperation = true;
+    const auto releasesBeforeStop = daemon.windowCommands.count(QStringLiteral("Release"));
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_COMPARE(catalog->operationState(), QStringLiteral("pending"));
+    QTest::qWait(200);
+    QVERIFY(player->isVisible());
+    QVERIFY(!window->findChild<QQuickItem *>(QStringLiteral("productionHome"))->isVisible());
+    QCOMPARE(daemon.windowCommands.count(QStringLiteral("Release")), releasesBeforeStop);
+    // A failed Stop keeps the player route and makes Back a retry, rather
+    // than exposing Home under a player that has not actually exited.
+    daemon.operationState = QStringLiteral("failed");
+    daemon.holdOperation = false;
+    QTRY_VERIFY(!window->property("leavingStopPending").toBool());
+    QVERIFY(player->isVisible());
+    QVERIFY(!window->property("leaveError").toString().isEmpty());
+    QCOMPARE(daemon.windowCommands.count(QStringLiteral("Release")), releasesBeforeStop);
+    // Losing the input layer and expiring the handoff grace must not hide
+    // Stop failure feedback or its Back retry route.
+    catalog->abandonPresentation();
+    QTRY_VERIFY(!catalog->inputLayerActive());
+    window->setProperty("leavingPlayback", false);
+    QTRY_VERIFY(window->isVisible());
+    QVERIFY(player->isVisible());
+    // Leaving a failed Stop via Home must not poison a later Continue.
+    QTest::keyClick(window, Qt::Key_Home);
+    QTRY_VERIFY(!player->isVisible());
+    QVERIFY(window->property("leaveError").toString().isEmpty());
+    daemon.operationState = QStringLiteral("succeeded");
+    backend.m_home = true; emit backend.changed();
+    window->requestActivate();
+    QTRY_VERIFY(window->isActive());
+    QVERIFY(QMetaObject::invokeMethod(window, "openSession", Q_ARG(QVariant, entryId), Q_ARG(QVariant, false)));
+    QTRY_COMPARE(catalog->presentationState(), QStringLiteral("active"));
+    backend.m_home = false; emit backend.changed();
+    QTRY_VERIFY(player->isVisible());
+    QTRY_COMPARE(player->property("playbackState").toString(), QStringLiteral("ready"));
+    daemon.operationState = QStringLiteral("succeeded");
+    player->setProperty("osdVisible", false);
     QTest::keyClick(window, Qt::Key_Escape);
     QTRY_COMPARE(player->property("visible").toBool(), false);
     QCOMPARE(daemon.commands,
-             QStringList({QStringLiteral("Seek"), QStringLiteral("Stop")}));
+             QStringList({QStringLiteral("Seek"), QStringLiteral("Stop"), QStringLiteral("Stop")}));
     QTRY_COMPARE(daemon.windowCommands.last(), QStringLiteral("Release"));
-    QCOMPARE(daemon.windowCommands.count(QStringLiteral("Present")), 2);
+    QCOMPARE(daemon.windowCommands.count(QStringLiteral("Present")), 3);
     // #246: until the daemon reports Home again the shell stays on screen,
     // and the repeats of a held Back key do not walk into navigation.
     auto home = window->findChild<QQuickItem *>(QStringLiteral("productionHome"));
@@ -1241,6 +1279,65 @@ private slots:
     QCOMPARE(home->property("screen").toString(), QStringLiteral("library"));
     QCOMPARE(library->property("detailEntryId").toString(), QStringLiteral("film-1"));
     QCOMPARE(home->property("navOpen").toBool(), false);
+
+    // Back before the newly launched session reaches the media snapshot waits
+    // for that exact row and stops it before exposing the library again.
+    const auto lateId = QUuid::createUuidV5(QUuid(), QStringLiteral("media-provider\nlate"))
+                            .toString(QUuid::WithoutBraces);
+    const auto beforeLateStop = daemon.commands.size();
+    QVERIFY(QMetaObject::invokeMethod(window, "openSession", Q_ARG(QVariant, lateId), Q_ARG(QVariant, true)));
+    QVERIFY(player->isVisible());
+    QVERIFY(QMetaObject::invokeMethod(window, "leavePlayback"));
+    QVERIFY(window->property("leavingWaitForSession").toBool());
+    QVERIFY(window->property("leavingStopPending").toBool());
+    QCOMPARE(daemon.commands.size(), beforeLateStop);
+    QVERIFY(!library->isVisible());
+    auto waitBound = window->findChild<QObject *>(QStringLiteral("leaveSessionBound"));
+    QVERIFY(waitBound);
+    QVERIFY(QMetaObject::invokeMethod(waitBound, "triggered"));
+    QVERIFY(!window->property("leaveError").toString().isEmpty());
+    QVERIFY(window->property("leavingStopPending").toBool());
+    // A timeout does not allow another selection to replace the session
+    // whose pending launch must still be stopped.
+    QVERIFY(QMetaObject::invokeMethod(window, "openSession", Q_ARG(QVariant, entryId), Q_ARG(QVariant, false)));
+    QVERIFY(QMetaObject::invokeMethod(window, "showPlaybackHome"));
+    QVERIFY(window->property("leavingWaitForSession").toBool());
+    QVERIFY(player->isVisible());
+    daemon.page1 = {::session(QStringLiteral("late"), QStringLiteral("Late session"),
+                            QStringLiteral("playing"), 0, monotonicUs(), 9000000,
+                            {QStringLiteral("stop")})};
+    catalog->refresh();
+    QTRY_COMPARE(daemon.commands.size(), beforeLateStop + 1);
+    QCOMPARE(daemon.commands.last(), QStringLiteral("Stop"));
+    QTRY_VERIFY(!window->property("leavingStopPending").toBool());
+    QTRY_VERIFY(!player->isVisible());
+    QVERIFY(library->isVisible());
+
+    // A launch that never becomes observable offers bounded recovery through
+    // Home. Cancelling its wait must not Stop a later, unrelated selection.
+    for (bool providerGone : {false, true}) {
+      QVERIFY(QMetaObject::invokeMethod(window, "openSession", Q_ARG(QVariant, QUuid::createUuid().toString(QUuid::WithoutBraces)), Q_ARG(QVariant, true)));
+      QVERIFY(QMetaObject::invokeMethod(window, "leavePlayback"));
+      QVERIFY(window->property("leavingStopPending").toBool());
+      if (providerGone) {
+        bus.unregisterService(QStringLiteral("org.arinn.Daemon1"));
+        QTRY_COMPARE(catalog->sessionState(), QStringLiteral("unavailable"));
+      } else {
+        QVERIFY(QMetaObject::invokeMethod(waitBound, "triggered"));
+      }
+      QTRY_VERIFY(!window->property("leaveError").toString().isEmpty());
+      QTRY_VERIFY(player->isEnabled());
+      window->requestActivate();
+      QTRY_VERIFY(player->hasActiveFocus());
+      const auto beforeCancel = daemon.commands.size();
+      QTest::keyClick(window, Qt::Key_Home);
+      QTRY_VERIFY(!player->isVisible());
+      QVERIFY(!window->property("leavingStopPending").toBool());
+      QVERIFY(!window->property("leavingWaitForSession").toBool());
+      QVERIFY(!waitBound->property("running").toBool());
+      QCOMPARE(home->property("screen").toString(), QStringLiteral("home"));
+      QCOMPARE(daemon.commands.size(), beforeCancel);
+    }
   }
   // #247: Continue on a stopped film resumes the library item; a stopped
   // session itself cannot be presented again.

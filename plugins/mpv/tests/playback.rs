@@ -31,6 +31,10 @@ struct Peer {
     hold_seek: Arc<AtomicBool>,
     stop: Arc<AtomicBool>,
     extra: mpsc::UnboundedSender<Value>,
+    capture_valid: Arc<AtomicBool>,
+    ignore_quit: Arc<AtomicBool>,
+    delayed_capture: Arc<AtomicBool>,
+    managed: Arc<AtomicBool>,
     task: tokio::task::JoinHandle<()>,
 }
 
@@ -55,6 +59,10 @@ impl Peer {
         let hold_seek = Arc::new(AtomicBool::new(false));
         let stop = Arc::new(AtomicBool::new(false));
         let (extra, extra_rx) = mpsc::unbounded_channel();
+        let capture_valid = Arc::new(AtomicBool::new(true));
+        let ignore_quit = Arc::new(AtomicBool::new(false));
+        let delayed_capture = Arc::new(AtomicBool::new(false));
+        let managed = Arc::new(AtomicBool::new(false));
         let task = tokio::spawn(serve(
             listener,
             Arc::clone(&commands),
@@ -62,6 +70,10 @@ impl Peer {
             Arc::clone(&stop),
             extra_rx,
             PeerScript {
+                capture_valid: capture_valid.clone(),
+                ignore_quit: ignore_quit.clone(),
+                delayed_capture: delayed_capture.clone(),
+                managed: managed.clone(),
                 has_video,
                 legacy_only,
                 open_error,
@@ -76,6 +88,10 @@ impl Peer {
             hold_seek,
             stop,
             extra,
+            capture_valid,
+            ignore_quit,
+            delayed_capture,
+            managed,
             task,
         }
     }
@@ -102,6 +118,10 @@ impl Drop for Peer {
 }
 
 struct PeerScript {
+    capture_valid: Arc<AtomicBool>,
+    ignore_quit: Arc<AtomicBool>,
+    delayed_capture: Arc<AtomicBool>,
+    managed: Arc<AtomicBool>,
     has_video: bool,
     legacy_only: bool,
     open_error: Option<String>,
@@ -160,9 +180,25 @@ async fn serve(
                     });
                     delayed_load = Some(tokio::time::Instant::now() + delay);
                 }
-                send(&mut write, &json!({"request_id": id, "error": "success", "data": null})).await;
+                let data = if name == "get_property" && command.get(1).and_then(Value::as_str) == Some("time-pos") {
+                    json!(state.time)
+                } else if name == "get_property" && command.get(1).and_then(Value::as_str) == Some("options/wayland-app-id") && script.managed.load(Ordering::SeqCst) {
+                    json!("org.arinn.Playback.00000000-0000-4000-8000-000000000001")
+                } else { Value::Null };
+                if name == "screenshot-to-file" {
+                    if script.delayed_capture.load(Ordering::SeqCst) {
+                        tokio::time::sleep(Duration::from_millis(1100)).await;
+                    }
+                    let path = command.get(1).and_then(Value::as_str).unwrap();
+                    std::fs::write(path, if script.capture_valid.load(Ordering::SeqCst) { b"\xff\xd8\xffsynthetic-frame".as_slice() } else { b"invalid".as_slice() }).unwrap();
+                }
+                send(&mut write, &json!({"request_id": id, "error": "success", "data": data})).await;
                 for event in events {
                     send(&mut write, &event).await;
+                }
+                if name == "quit" && !script.ignore_quit.load(Ordering::SeqCst) {
+                    send(&mut write, &json!({"event":"property-change","name":"time-pos","data":0})).await;
+                    break;
                 }
             }
             _ = async {
@@ -932,4 +968,221 @@ async fn ended_advertises_seek_and_stop_only() {
     drop(player);
     drop(peer);
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn stop_closes_ipc_keeps_resume_and_open_uses_a_fresh_peer() {
+    let dir = std::env::temp_dir().join(format!("arinn-mpv-stop-{}", uuid::Uuid::new_v4()));
+    let first = Peer::spawn(dir.clone(), true, false).await;
+    first.managed.store(true, Ordering::SeqCst);
+    let player = player(&dir, first.socket());
+    let id = player.open(source(&dir)).await.unwrap();
+    player
+        .control(MediaAction::Seek, id.clone(), 7_000_000)
+        .await
+        .unwrap();
+    player
+        .control(MediaAction::Stop, id.clone(), 0)
+        .await
+        .unwrap();
+    assert!(first.task.is_finished(), "Stop must close the IPC peer");
+    let view = player.view().await.unwrap();
+    assert_eq!(
+        view.backend, "available",
+        "intentional exit is not a failure"
+    );
+    assert_eq!(view.sessions[0].position_us, 7_000_000);
+    assert_eq!(view.sessions[0].content.local_id, "film-1");
+    assert_eq!(view.sessions[0].state, "stopped");
+    assert_eq!(player.launch_id(id.clone()).await.unwrap(), "");
+    assert!(names(&first.commands().await).contains(&"quit".into()));
+    drop(first);
+    let second = Peer::spawn(dir.clone(), true, false).await;
+    second.managed.store(true, Ordering::SeqCst);
+    tokio::time::sleep(Duration::from_millis(250)).await;
+    assert!(
+        second.commands().await.is_empty(),
+        "Stop must not reconnect automatically"
+    );
+    let mut resumed = source(&dir);
+    resumed.start_position_us = 7_000_000;
+    let new_id = player.open(resumed).await.unwrap();
+    assert_ne!(new_id, id);
+    assert_eq!(
+        player.view().await.unwrap().sessions[0].position_us,
+        7_000_000
+    );
+    assert_eq!(
+        names(&second.commands().await)
+            .iter()
+            .filter(|n| *n == "loadfile")
+            .count(),
+        1
+    );
+    player.control(MediaAction::Stop, new_id, 0).await.unwrap();
+    drop(player);
+    drop(second);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
+async fn stop_captures_final_frame_before_quit_and_keeps_the_asset() {
+    for (valid, delayed) in [(true, false), (false, false), (true, true)] {
+        use arinn_plugin_sdk::runtime::AssetHandler;
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("arinn-mpv-frame-{}", uuid::Uuid::new_v4()));
+        let peer = Peer::spawn(dir.clone(), true, false).await;
+        peer.managed.store(true, Ordering::SeqCst);
+        let ffmpeg = dir.join("frame-extractor");
+        std::fs::write(
+        &ffmpeg,
+        "#!/bin/sh\nfor output do :; done\nprintf '\\377\\330\\377synthetic-frame' > \"$output\"\n",
+    )
+    .unwrap();
+        std::fs::set_permissions(&ffmpeg, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let player = Player::start(Settings {
+            socket: peer.socket(),
+            state_path: dir.join("session"),
+            launch: Launch::External,
+            publish_interval: Duration::from_secs(3600),
+            ffmpeg: Some(ffmpeg),
+            thumb_dir: dir.join("thumbs"),
+            backend: "available".into(),
+        })
+        .unwrap();
+        let id = player.open(source(&dir)).await.unwrap();
+        let mut prior = None;
+        player
+            .refresh_poster(&mut prior, Duration::from_secs(30))
+            .await
+            .unwrap();
+        let previous_asset = player.view().await.unwrap().sessions[0].artwork.clone();
+        peer.capture_valid.store(valid, Ordering::SeqCst);
+        peer.delayed_capture.store(delayed, Ordering::SeqCst);
+        assert!(!previous_asset.is_empty());
+        player.control(MediaAction::Stop, id, 0).await.unwrap();
+        let commands = names(&peer.commands().await);
+        assert!(
+            commands
+                .iter()
+                .position(|n| n == "screenshot-to-file")
+                .unwrap()
+                < commands.iter().position(|n| n == "quit").unwrap()
+        );
+        let frame = player.view().await.unwrap().sessions[0].artwork.clone();
+        assert!(!frame.is_empty());
+        assert_eq!(
+            frame == previous_asset,
+            !valid || delayed,
+            "failed capture keeps the previous frame"
+        );
+        assert_eq!(
+            arinn_plugin_mpv::ThumbnailAssets::new(dir.join("thumbs"))
+                .asset(frame.clone())
+                .await
+                .unwrap()
+                .mime,
+            "image/jpeg"
+        );
+        assert!(
+            std::fs::read_dir(dir.join("thumbs/posters"))
+                .unwrap()
+                .all(|e| !e
+                    .unwrap()
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with("capture-"))
+        );
+        let mut last = None;
+        assert!(
+            player
+                .refresh_poster(&mut last, Duration::from_secs(30))
+                .await
+                .is_none()
+        );
+        assert_eq!(player.view().await.unwrap().sessions[0].artwork, frame);
+        drop(player);
+        drop(peer);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+}
+
+#[tokio::test]
+async fn failed_quit_is_not_reported_as_success_and_can_be_retried() {
+    let dir = std::env::temp_dir().join(format!("arinn-mpv-quit-{}", uuid::Uuid::new_v4()));
+    let peer = Peer::spawn(dir.clone(), true, false).await;
+    peer.managed.store(true, Ordering::SeqCst);
+    let player = player(&dir, peer.socket());
+    let id = player.open(source(&dir)).await.unwrap();
+    peer.ignore_quit.store(true, Ordering::SeqCst);
+    assert_eq!(
+        player.control(MediaAction::Stop, id.clone(), 0).await,
+        Err(ErrorCode::Timeout)
+    );
+    assert_eq!(player.view().await.unwrap().sessions[0].state, "paused");
+    peer.ignore_quit.store(false, Ordering::SeqCst);
+    player.control(MediaAction::Stop, id, 0).await.unwrap();
+    assert_eq!(player.view().await.unwrap().sessions[0].state, "stopped");
+    drop(player);
+    drop(peer);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
+async fn installed_launcher_does_not_own_a_preexisting_unmanaged_peer() {
+    let dir = std::env::temp_dir().join(format!("arinn-mpv-unmanaged-{}", uuid::Uuid::new_v4()));
+    let peer = Peer::spawn(dir.clone(), true, false).await;
+    let player = Player::start(Settings {
+        socket: peer.socket(),
+        state_path: dir.join("session"),
+        launch: Launch::Systemd {
+            binary: PathBuf::from("/usr/bin/mpv"),
+        },
+        publish_interval: Duration::from_secs(3600),
+        ffmpeg: None,
+        thumb_dir: PathBuf::new(),
+        backend: "available".into(),
+    })
+    .unwrap();
+    let id = player.open(source(&dir)).await.unwrap();
+    player.control(MediaAction::Stop, id, 0).await.unwrap();
+    let commands = names(&peer.commands().await);
+    assert!(commands.contains(&"stop".into()));
+    assert!(!commands.contains(&"quit".into()));
+    assert!(!peer.task.is_finished(), "unmanaged process remains alive");
+    drop(player);
+    drop(peer);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
+async fn reconnect_revalidates_ownership_before_stopping_a_replacement_peer() {
+    let dir = std::env::temp_dir().join(format!("arinn-mpv-replaced-{}", uuid::Uuid::new_v4()));
+    let first = Peer::spawn(dir.clone(), true, false).await;
+    first.managed.store(true, Ordering::SeqCst);
+    let player = Player::start(Settings {
+        socket: first.socket(),
+        state_path: dir.join("session"),
+        launch: Launch::Systemd {
+            binary: PathBuf::from("/usr/bin/mpv"),
+        },
+        publish_interval: Duration::from_secs(3600),
+        ffmpeg: None,
+        thumb_dir: PathBuf::new(),
+        backend: "available".into(),
+    })
+    .unwrap();
+    player.open(source(&dir)).await.unwrap();
+    drop(first);
+    let replacement = Peer::spawn(dir.clone(), true, false).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let id = player.open(source(&dir)).await.unwrap();
+    player.control(MediaAction::Stop, id, 0).await.unwrap();
+    let commands = names(&replacement.commands().await);
+    assert!(commands.contains(&"stop".into()));
+    assert!(!commands.contains(&"quit".into()));
+    assert!(!replacement.task.is_finished());
+    drop(player);
+    drop(replacement);
+    let _ = std::fs::remove_dir_all(dir);
 }

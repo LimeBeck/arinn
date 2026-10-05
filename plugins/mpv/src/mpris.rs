@@ -107,10 +107,20 @@ fn current(view: &View) -> Option<&Session> {
 }
 
 /// Whether the media keys should reach this player: only a playing or
-/// paused session. A stopped or ended one keeps no action the keys use, so
+/// paused session with a playback action. A Stop-only shutdown retry keeps
+/// no action the keys use, just like a stopped or ended session, so
 /// the name is released and Plasma picks another player.
 pub fn controllable(session: Option<&Session>) -> bool {
-    session.is_some_and(|s| s.state == media::STATE_PLAYING || s.state == media::STATE_PAUSED)
+    session.is_some_and(|s| {
+        (s.state == media::STATE_PLAYING || s.state == media::STATE_PAUSED)
+            && [
+                media::ACTION_PLAY,
+                media::ACTION_PAUSE,
+                media::ACTION_PLAY_PAUSE,
+            ]
+            .iter()
+            .any(|action| allows(Some(s), action))
+    })
 }
 
 pub struct Root;
@@ -417,6 +427,25 @@ mod tests {
         ))));
         assert!(!controllable(Some(&session(media::STATE_ENDED, 0, 0, -1))));
         assert!(!controllable(None));
+    }
+
+    #[test]
+    fn shutdown_retry_does_not_keep_the_media_keys() {
+        for state in [media::STATE_PLAYING, media::STATE_PAUSED] {
+            let mut retry = session(state, 0, 0, -1);
+            retry.actions = vec![media::ACTION_STOP.into()];
+            assert!(!controllable(Some(&retry)));
+            retry.actions.clear();
+            assert!(!controllable(Some(&retry)));
+            for action in [
+                media::ACTION_PLAY,
+                media::ACTION_PAUSE,
+                media::ACTION_PLAY_PAUSE,
+            ] {
+                retry.actions = vec![action.into()];
+                assert!(controllable(Some(&retry)));
+            }
+        }
     }
 
     #[test]

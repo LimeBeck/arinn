@@ -1,0 +1,1 @@
+- Add a [user guide website](docs/user/index.html) with installation, controls, browser setup, local media, privacy and troubleshooting instructions, plus a GitHub Pages deployment workflow and local site validation. Pages activation and deployment-workflow merging require the owner.

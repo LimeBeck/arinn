@@ -143,6 +143,23 @@ of those keys emits `backRequested`. Home emits `homeRequested`, closes detail
 when it is open, and leaves focus inside the view. Tab does not leave the
 view.
 
+The view does not handle Menu. The key bubbles to `Main.qml`, which opens
+Home's navigation menu above the library (#329). The menu then holds focus,
+and closing it restores the poster or tab that opened it. Settings and
+Downloads work the same way, and so do Open services, Browse and a media
+session. While the menu is open it is drawn above them and owns focus; only
+the player stays above it. A section picked in the menu, or Home pressed in
+it, closes an open overlay; Escape and Menu close only the menu and return to
+the screen that opened it.
+
+From Settings, Downloads, Open services, Browse and a media session, Home
+shows Home. Editors take keys before they bubble, so two screens send Home
+themselves with `homeRequested()`:
+- Settings: an open editor or option list is closed first, without
+  committing its draft.
+- Browse: the address field gives up Home as cursor movement. In a text field
+  only Backspace and Esc keep a text meaning (§6.2).
+
 ## Verification
 
 `tests/ui/tst_library.qml` imports this directory from the filesystem and

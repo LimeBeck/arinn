@@ -97,10 +97,6 @@ QDBusArgument &operator<<(QDBusArgument &a, const DownloadWire &d) {
 }
 const QDBusArgument &operator>>(const QDBusArgument &a, DownloadWire &) { return a; }
 } // namespace
-Q_DECLARE_METATYPE(ProviderWire)
-Q_DECLARE_METATYPE(OutputWire)
-Q_DECLARE_METATYPE(RefWire)
-Q_DECLARE_METATYPE(DownloadWire)
 
 namespace {
 class Daemon : public QDBusVirtualObject {

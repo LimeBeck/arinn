@@ -29,6 +29,9 @@ FocusScope {
     signal clearRequested()
     signal retryRequested()
     signal backRequested()
+    // Home, also from the address field (§6.2: only Backspace and Esc keep
+    // a text meaning there).
+    signal homeRequested()
 
     function focusInitial() {
         if (browserUnavailable)
@@ -140,7 +143,11 @@ FocusScope {
             enabled: !root.browserUnavailable && !root.busy && root.canType
             onTextEdited: root.textEdited(text)
             Keys.onPressed: (event) => {
-                if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                if (event.key === Qt.Key_Home && event.modifiers === Qt.NoModifier) {
+                    // TextInput would take Home as cursor movement (#329).
+                    if (!event.isAutoRepeat) root.homeRequested();
+                    event.accepted = true;
+                } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
                     if (!event.isAutoRepeat && root.valid && !root.busy)
                         root.openRequested();
 

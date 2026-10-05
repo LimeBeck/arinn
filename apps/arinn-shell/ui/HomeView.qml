@@ -72,6 +72,10 @@ FocusScope {
     property string clockText: ""
     property bool pointerMode: false
     property bool navOpen: false
+    // A section the shell draws itself (Library, Settings) covers Home's own
+    // content. Home is then raised above it only to show the navigation
+    // menu, so its background and section content stay hidden (#329).
+    property bool coveredByScreen: false
     property string screen: "home"
     property string homeRow: "continue"
     property var focusedEntry: ({})
@@ -87,6 +91,9 @@ FocusScope {
     signal returnRequested(string activityId)
     signal retryRequested()
     signal sectionRequested(string route)
+    // The Home key was pressed in Home or its navigation menu. The shell
+    // closes what the menu was opened over (§6.3, #329).
+    signal homeKeyPressed()
     signal closeShellRequested()
     signal powerRequested()
     signal openServicesRequested()
@@ -207,6 +214,12 @@ FocusScope {
         else restoreScreen();
         navigationOpener = null;
     }
+    // The shell closes the overlay first: Home is enabled again only then,
+    // so showHome() can focus a visible control (review of #334).
+    function homeKey() {
+        homeKeyPressed();
+        showHome();
+    }
     function showHome() {
         if (shortcutEditorOpen) closeShortcutEditorRequested();
         navOpen = false;
@@ -291,7 +304,7 @@ FocusScope {
     }
     Keys.onPressed: event => {
         if ([Qt.Key_Left, Qt.Key_Right, Qt.Key_Up, Qt.Key_Down].includes(event.key)) root.pointerMode = false;
-        if (event.key === Qt.Key_Home) { showHome(); event.accepted = true; }
+        if (event.key === Qt.Key_Home) { homeKey(); event.accepted = true; }
         else if (event.key === Qt.Key_Menu) {
             if (shortcutManagement && !navOpen && screen === "applications" && focusedEntry.webShortcut)
                 editShortcut(focusedEntry.id);
@@ -316,10 +329,11 @@ FocusScope {
             next += step;
         }
     }
-    Rectangle { anchors.fill: parent; color: Theme.background }
+    Rectangle { anchors.fill: parent; color: Theme.background; visible: !root.coveredByScreen }
     Item {
         id: content
         anchors.fill: parent
+        visible: !root.coveredByScreen
         enabled: !root.navOpen
         scale: root.navOpen ? 0.98 : 1
         opacity: root.navOpen ? 0.55 : 1
@@ -511,6 +525,8 @@ FocusScope {
         id: navigation
         objectName: "navigation"
         anchors.fill: parent; visible: root.navOpen
+        // Dims the covering section the way Home's own content is dimmed.
+        Rectangle { anchors.fill: parent; color: Qt.rgba(0, 0, 0, 0.45); visible: root.coveredByScreen }
         MouseArea { anchors.fill: parent; onClicked: root.closeNavigation() }
         Rectangle {
             x: 72; y: 72; width: 500; height: 936; radius: 44; color: "#292b30"
@@ -633,7 +649,7 @@ FocusScope {
         enabled: visible
         Keys.onPressed: event => {
             event.accepted = true;
-            if (event.key === Qt.Key_Home) root.showHome();
+            if (event.key === Qt.Key_Home) root.homeKey();
             else if (event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace) {
                 if (removeConfirmation.visible) {
                     removeConfirmation.visible = false;
@@ -664,7 +680,7 @@ FocusScope {
                         Keys.onReturnPressed: Focus.take(shortcutUrl)
                         Keys.onEnterPressed: Focus.take(shortcutUrl)
                         Keys.onEscapePressed: root.closeShortcutEditorRequested()
-                        Keys.onPressed: event => { if (event.key === Qt.Key_Home) { root.showHome(); event.accepted = true; } }
+                        Keys.onPressed: event => { if (event.key === Qt.Key_Home) { root.homeKey(); event.accepted = true; } }
                     }
                 }
                 UiText { text: qsTr("Address"); color: Theme.textSecondary }
@@ -683,7 +699,7 @@ FocusScope {
                         Keys.onReturnPressed: Focus.take(shortcutSave)
                         Keys.onEnterPressed: Focus.take(shortcutSave)
                         Keys.onEscapePressed: root.closeShortcutEditorRequested()
-                        Keys.onPressed: event => { if (event.key === Qt.Key_Home) { root.showHome(); event.accepted = true; } }
+                        Keys.onPressed: event => { if (event.key === Qt.Key_Home) { root.homeKey(); event.accepted = true; } }
                     }
                 }
                 UiText {

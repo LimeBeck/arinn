@@ -156,13 +156,27 @@ impl LibraryHandler for Bridge {
         id: String,
     ) -> Pin<Box<dyn Future<Output = Result<PlaybackSource, ErrorCode>> + Send + '_>> {
         let store = self.store.clone();
+        let service = self.service.clone();
         Box::pin(async move {
-            tokio::task::spawn_blocking(move || {
+            let (source, resumes) = tokio::task::spawn_blocking(move || {
                 let store = store.lock().map_err(|_| ErrorCode::Internal)?;
-                store.launch(&id)
+                let (source, restarted) = store.launch_for_playback(&id)?;
+                // A rewatch cleared completion: publish the changed resume.
+                let resumes = if restarted {
+                    Some(store.resumes()?)
+                } else {
+                    None
+                };
+                Ok::<_, ErrorCode>((source, resumes))
             })
             .await
-            .map_err(|_| ErrorCode::Internal)?
+            .map_err(|_| ErrorCode::Internal)??;
+            if let Some(resumes) = resumes
+                && let Some(service) = service.lock().await.clone()
+            {
+                service.replace_resumes(resumes).await?;
+            }
+            Ok(source)
         })
     }
 }

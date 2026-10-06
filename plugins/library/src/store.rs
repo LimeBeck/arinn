@@ -286,6 +286,19 @@ impl Store {
         Ok(rows)
     }
 
+    /// The source to play. Launching a completed item is a rewatch: it starts
+    /// at 0 and clears completion, so a later stop can be resumed (ADR-0090).
+    /// Returns whether the stored resume changed.
+    pub fn launch_for_playback(&self, id: &str) -> Result<(PlaybackSource, bool), ErrorCode> {
+        let source = self.launch(id)?;
+        let restarted = self.resume_row(id)?.is_some_and(|resume| resume.completed);
+        if restarted {
+            let next = progress::restart(&self.progress_of(id)?);
+            self.write_progress(id, &next)?;
+        }
+        Ok((source, restarted))
+    }
+
     pub fn launch(&self, id: &str) -> Result<PlaybackSource, ErrorCode> {
         let row = self.item_row(id)?.ok_or(ErrorCode::NotFound)?;
         if !row.available || row.kind == "series" {

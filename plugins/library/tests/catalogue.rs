@@ -386,6 +386,53 @@ fn resume_rules_and_launch_position() {
     assert_eq!(store.launch(&id).unwrap().start_position_us, 0);
 }
 
+// #373 / ADR-0090: playing a completed item again is a rewatch. Its position
+// is kept when the viewer stops in the middle, and the end completes it again.
+#[test]
+fn rewatching_a_completed_item_resumes_where_it_stopped() {
+    let scratch = Scratch::new();
+    let root = scratch.path().join("root");
+    fs::create_dir(&root).unwrap();
+    fs::write(root.join("Show S01E01.mkv"), b"episode").unwrap();
+    let mut store = open(&scratch);
+    store
+        .scan(&settings(&root, false, PathBuf::from("ffprobe")))
+        .unwrap();
+    let id = store
+        .snapshot()
+        .unwrap()
+        .1
+        .into_iter()
+        .find(|item| item.kind == "episode")
+        .unwrap()
+        .id;
+    let duration = 24 * 60 * 1_000_000;
+    store.set_progress(&id, duration, duration, true).unwrap();
+    assert!(store.resumes().unwrap()[0].completed);
+
+    let (source, restarted) = store.launch_for_playback(&id).unwrap();
+    assert_eq!(source.start_position_us, 0);
+    assert!(restarted);
+    let resume = &store.resumes().unwrap()[0];
+    assert!(!resume.completed);
+    assert_eq!(resume.position_us, 0);
+
+    // Watched to the middle, then stopped: Continue resumes there.
+    store
+        .set_progress(&id, 10_000_000, duration, false)
+        .unwrap();
+    store
+        .set_progress(&id, 16 * 60 * 1_000_000, duration, false)
+        .unwrap();
+    let (again, restarted) = store.launch_for_playback(&id).unwrap();
+    assert!(!restarted);
+    assert_eq!(again.start_position_us, 16 * 60 * 1_000_000);
+
+    // Reaching the end completes it again.
+    store.set_progress(&id, duration, duration, true).unwrap();
+    assert!(store.resumes().unwrap()[0].completed);
+}
+
 #[test]
 fn import_is_idempotent_per_completion_id() {
     let scratch = Scratch::new();

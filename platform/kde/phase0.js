@@ -241,7 +241,11 @@ workspace.windowActivated.connect(w => {
     if (playback && w && !isShell(w)) releasePlayback(false);
 });
 workspace.windowRemoved.connect(w => {
-    if (playback && (playback.window === w || playback.shell === w)) releasePlayback(false);
+    // The managed player's own window closing (leaving playback, Stop, a
+    // crash) returns to Arinn, which owns the screen during managed playback;
+    // the shell itself disappearing does not (#372).
+    if (playback && playback.window === w) releasePlayback(true);
+    else if (playback && playback.shell === w) releasePlayback(false);
     windowTokens.delete(w);
     if (id(w) === target) { detachedTarget = target; target = ""; if (homeVisible) reportHome(false); }
 });

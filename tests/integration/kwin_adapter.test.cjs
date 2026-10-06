@@ -556,10 +556,24 @@ test('lock and late guard responses cannot present managed video', () => {
     assert.equal(f.home.keepAbove, false);
     assert.equal(f.mediaAcks.at(-1)[2], 'Timeout');
 });
-test('window disappearance and daemon replacement restore managed flags', () => {
+test('the closing player window returns to Arinn; daemon replacement restores managed flags', () => {
+    // #372: Back stops the managed mpv, so its window closes before the
+    // shell's Release arrives. Arinn must be shown, not left behind the desktop.
     const {f, token} = managedFixture();
     f.media('present', token); f.remove(f.activity);
-    assert.equal(f.home.keepAbove, false);
+    assert.equal(f.workspace.activeWindow, f.home);
+    assert.equal(f.home.keepAbove, true);
+    assert.equal(f.home.minimized, false);
+    assert.equal(f.report()[0], true, 'Home is reported visible');
+    // The late Release from the shell finds nothing to undo and keeps Arinn.
+    f.refresh(); f.media('release', token);
+    assert.equal(f.workspace.activeWindow, f.home);
+    assert.equal(f.mediaAcks.at(-1)[2], '');
+    // Another application taking focus still lets Arinn go.
+    const other = managedFixture(); other.f.media('present', other.token);
+    const editor = other.f.window('other', 'editor'); other.f.add(editor);
+    other.f.workspace.activeWindow = editor; other.f.workspace.windowActivated.emit(editor);
+    assert.equal(other.f.home.keepAbove, false);
     const next = managedFixture(); next.f.media('present', next.token); next.f.reconnect(':1.99');
     assert.equal(next.f.home.keepAbove, false);
     assert.equal(next.f.activity.fullScreen, false);

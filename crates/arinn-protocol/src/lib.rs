@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use zbus::zvariant::Type;
 pub mod application;
 pub mod assets;
+pub mod background;
 pub mod browse;
 pub mod browser;
 pub mod download;

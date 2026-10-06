@@ -484,6 +484,13 @@ Required fields: `id`, `name`, `version`, `api_version`, `executable` (absolute 
 
 ---
 
+Optional daemon-root `Background1` and trusted `BackgroundCapture1` define the
+bounded frame handoff for the existing Activity background requirement (§12.3).
+They are not provider capabilities and change no existing method signatures.
+See [ADR-0087](../adr/0087-bounded-activity-background-frames.md) and the
+[background contract](../architecture/activity-background.md). Contract preparation
+alone does not imply production capture or close G-5.2.
+
 ## 10. Activity model
 
 An **Activity** is what the user is doing right now: a Chrome tab, a Steam game, ES-DE, movie playback. An Activity is not necessarily an Application (Chrome is an application; a YouTube tab is an activity). Activities let Home show a meaningful Continue instead of a process list.

@@ -45,7 +45,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0024](0024-local-library-mpv.md) | Local library and external mpv with a rich media API | Accepted | 0046, 0054, 0057 |
 | [0025](0025-downloads-mvp.md) | DownloadProvider and Transmission in the MVP | Accepted | 0067 |
 | [0026](0026-multiple-monitors.md) | Home on the screen of the active Activity | Accepted | 0031 |
-| [0027](0027-activity-background-snapshot.md) | Compositor snapshot of the Activity for a separate Qt shell | Accepted | — |
+| [0027](0027-activity-background-snapshot.md) | Compositor snapshot of the Activity for a separate Qt shell | Accepted | 0087 |
 | [0028](0028-documentation-governance.md) | Documentation governance, living specification and English docs | Accepted | 0036 |
 | [0029](0029-licensing.md) | GPL-3.0-or-later core, permissive protocol, contributor license agreement | Accepted | — |
 | [0030](0030-phase0-machine-and-standard-input.md) | Phase 0 on the development machine and the remote as standard keyboard input | Accepted | — |
@@ -104,4 +104,5 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0084](0084-favorites-contract.md) | Revision-guarded daemon-owned favorites | Accepted | — |
 | [0085](0085-anime-tv-season-markers.md) | Anime `TVn` season markers in library names | Accepted | — |
 | [0086](0086-automatic-master-prereleases.md) | Automatic master pre-releases and ordinary version-tag releases | Proposed | — |
+| [0087](0087-bounded-activity-background-frames.md) | Bounded Activity background frames through immutable descriptors | Accepted | — |
 <!-- register:end -->

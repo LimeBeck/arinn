@@ -139,6 +139,12 @@ jobs:
 
   snapshot:
     name: Publish master pre-release
+    # Share the channel lock with post-publication retention; older CI can
+    # finish later, but its snapshot may not replace a newer verified commit.
+    concurrency:
+      group: arinn-master-snapshot-channel
+      queue: max
+      cancel-in-progress: false
     needs: [scope, rust, integration, licenses, docs, package]
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
     runs-on: ${{ vars.ARINN_RUNNER || 'ubuntu-latest' }}

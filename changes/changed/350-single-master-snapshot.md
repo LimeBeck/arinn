@@ -1,0 +1,1 @@
+- Retain one verified automatic master snapshot pre-release, skip superseded late publications and remove older snapshot release assets after checksum/ancestry checks; version releases and Git tags remain intact.

@@ -1,0 +1,35 @@
+# SPDX-FileCopyrightText: 2026 Arinn contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+name: Master snapshot retention
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  prune:
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master') ||
+      (github.event_name == 'release' && github.event.release.prerelease &&
+       !github.event.release.draft && startsWith(github.event.release.tag_name, 'snapshot-'))
+    concurrency:
+      group: arinn-master-snapshot-channel
+      queue: max
+      cancel-in-progress: false
+    runs-on: ${{ vars.ARINN_RUNNER || 'ubuntu-latest' }}
+    container: python:3.12
+    steps:
+      # Release events may point at an older commit; execute only trusted
+      # master policy, never scripts or artifacts from the triggering release.
+      - uses: actions/checkout@v7
+        with:
+          ref: master
+      - name: Retain the newest verified master snapshot
+        env:
+          GH_TOKEN: ${{ secrets.SNAPSHOT_RELEASE_TOKEN }}
+        run: python scripts/snapshot-release.py prune

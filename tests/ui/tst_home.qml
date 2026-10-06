@@ -46,6 +46,74 @@ TestCase {
         serviceCard.target = home; serviceCard.clear();
         focused("entry-a");
     }
+    SignalSpy { id: pins; signalName: "favoriteRequested" }
+    function test_saved_favorite_actions_and_focus_removal() {
+        home.actionsEnabled = true;
+        home.favoriteEntries = [{id: "f", title: "Favorite", pinned: true, providerId: "fixture"},
+                                {id: "g", title: "Another", pinned: true, providerId: "fixture"}];
+        pins.target = home; pins.clear();
+        const tile = child("entry-f");
+        tile.forceActiveFocus(); focused("entry-f");
+        keyPress(Qt.Key_Return); wait(750); keyRelease(Qt.Key_Return);
+        tryCompare(home,"tileActionsOpen",true);
+        focused("favoriteAction");
+        compare(entries.count,0); // Holding Select must not launch.
+        keyClick(Qt.Key_Return);
+        compare(pins.count,1); compare(pins.signalArguments[0][0],"f"); compare(pins.signalArguments[0][1],false);
+        home.favoriteEntries = [{id: "g", title: "Another", pinned: true, providerId: "fixture"}];
+        tryCompare(home,"tileActionsOpen",false);
+        tryCompare(child("entry-g"),"activeFocus",true);
+        pins.target = null;
+    }
+    function test_unavailable_favorite_can_be_removed() {
+        home.actionsEnabled = true;
+        home.favoriteEntries = [{id: "missing", title: "Unavailable favorite", pinned: true,
+                                providerId: "fixture", launchable: false, unavailable: true}];
+        child("entry-missing").forceActiveFocus(); focused("entry-missing");
+        keyClick(Qt.Key_Return);
+        tryCompare(home,"tileActionsOpen",true); focused("favoriteAction");
+        compare(entries.count,0);
+        keyClick(Qt.Key_Escape); tryCompare(home,"tileActionsOpen",false);
+        focused("entry-missing");
+    }
+    SignalSpy { id: terminations; signalName: "terminateRequested" }
+    function test_close_application_confirmation_and_remote_back() {
+        home.actionsEnabled = true;
+        home.favoriteEntries = [{id: "f", title: "Favorite", pinned: true, providerId: "fixture", runningId: "running"}];
+        terminations.target = home; terminations.clear();
+        home.openTileActions("f"); focused("favoriteAction");
+        keyClick(Qt.Key_Right); focused("closeAppAction"); keyClick(Qt.Key_Return);
+        focused("closeAppCancel"); compare(terminations.count,0);
+        pins.target = home; pins.clear();
+        mouseClick(child("favoriteAction"),10,10);
+        compare(pins.count,0); compare(terminations.count,0);
+        verify(home.confirmAppClose);
+        keyClick(Qt.Key_Tab); focused("closeAppConfirm");
+        keyClick(Qt.Key_Backtab); focused("closeAppCancel");
+        pins.target = null;
+        keyClick(Qt.Key_Back); focused("closeAppAction"); compare(terminations.count,0);
+        keyClick(Qt.Key_Return); focused("closeAppCancel");
+        keyClick(Qt.Key_Return); focused("closeAppAction"); compare(terminations.count,0);
+        keyClick(Qt.Key_Return); focused("closeAppCancel");
+        keyClick(Qt.Key_Right); focused("closeAppConfirm"); keyClick(Qt.Key_Return);
+        compare(terminations.count,1); compare(terminations.signalArguments[0][0],"running");
+        tryCompare(home,"tileActionsOpen",false);
+        home.openTileActions("f"); focused("favoriteAction"); keyClick(Qt.Key_Back);
+        tryCompare(home,"tileActionsOpen",false);
+        terminations.target = null;
+    }
+    function test_favorite_read_failure_preserves_visible_action_focus() {
+        home.actionsEnabled = true;
+        home.favoriteEntries = [{id: "f", title: "Favorite", pinned: true, providerId: "fixture"}];
+        home.openTileActions("f"); focused("favoriteAction");
+        home.favoriteError = "Favorites unavailable. Refresh the list before editing.";
+        home.actionsEnabled = false;
+        focused("favoriteRefresh");
+        verify(child("favoriteRefresh").visible && child("favoriteRefresh").enabled);
+        home.actionsEnabled = true; home.favoriteError = "";
+        focused("favoriteAction");
+        keyClick(Qt.Key_Back); tryCompare(home,"tileActionsOpen",false);
+    }
     function init() { createHome(); }
     function cleanup() {
         closes.target = null;

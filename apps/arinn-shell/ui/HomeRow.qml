@@ -21,6 +21,7 @@ FocusScope {
     readonly property real gap: variant === "content" ? 32 : 24
     signal selected(var entry)
     signal activated(string entryId)
+    signal actionsRequested(string entryId)
     signal edge(int key)
     signal focusLost()
     signal scrolled()
@@ -117,13 +118,41 @@ FocusScope {
                             subtitle: (root.browserUnavailable && entryLoader.modelData.webShortcut) ? qsTr("Unavailable") : (entryLoader.modelData.subtitle || "")
                             running: entryLoader.modelData.running || false
                             serviceOpen: root.openShortcutIds.indexOf(entryLoader.modelData.id) >= 0
-                            unavailable: root.browserUnavailable && !!entryLoader.modelData.webShortcut
                             enabled: entryLoader.modelData.enabled !== false
                             busy: entryLoader.modelData.busy || root.busyEntryIds.includes(entryLoader.modelData.id)
                             pointerMode: root.pointerMode
                             hoverFocusEnabled: root.hoverFocusEnabled
-                            onActiveFocusChanged: if (activeFocus) entryLoader.chosen()
+                            // An unavailable saved favorite is focusable so it can be removed.
+                            unavailable: entryLoader.modelData.unavailable || (root.browserUnavailable && !!entryLoader.modelData.webShortcut)
                             onActivated: root.activated(entryLoader.modelData.id)
+                            onPressAndHold: root.actionsRequested(entryLoader.modelData.id)
+                            Keys.onPressed: event => {
+                                if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
+                                    if (!event.isAutoRepeat && !busy) { holdHandled = false; down = true; holdTimer.restart(); }
+                                    event.accepted = true;
+                                }
+                            }
+                            property bool holdHandled: false
+                            Timer {
+                                id: holdTimer; interval: 650
+                                onTriggered: {
+                                    parent.holdHandled = true; parent.down = false;
+                                    root.actionsRequested(entryLoader.modelData.id);
+                                }
+                            }
+                            Keys.onReleased: event => {
+                                if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
+                                    if (event.isAutoRepeat) { event.accepted = true; return; }
+                                    holdTimer.stop();
+                                    if (holdHandled) { down = false; event.accepted = true; }
+                                    else { const invoke = down && enabled && !busy; down = false; if (invoke) clicked(); }
+                                    event.accepted = true;
+                                }
+                            }
+                            onActiveFocusChanged: {
+                                if (activeFocus) entryLoader.chosen();
+                                else holdTimer.stop();
+                            }
                             onDpadRequested: root.dpadRequested()
                         }
                     }

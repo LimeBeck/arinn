@@ -57,7 +57,26 @@ The export serializes mutations and notifications, runs SQLite work in blocking
 tasks, and publishes `Changed` only after commit. There was no production
 Favorites writer before this export; schema-six compatibility retains the
 ordered stable application selections supported by the internal storage writer.
-The shell implementation remains a separate dependent change.
+The shell reads Favorites1 before resolving Home tiles and stores no local copy.
+Its asynchronous owner/ticket fence rejects stale, regressing, duplicate or
+oversized replies. Changed subscriptions are installed before the first List;
+a notification during a read starts a newer read and invalidates the older reply.
+Application rows join stable provider/application identities; shortcuts join the
+reserved shortcut identity. Empty saved state never substitutes the catalog.
+Missing or unlaunchable saved targets remain focusable for removal with neutral
+presentation and no disclosure of opaque IDs.
+
+Holding Select for 650 ms or a pointer press-and-hold opens the tile action sheet
+on Applications or Home favorites. Pin/unpin sends the captured revision and the
+complete ordered identity list. Only one write is in flight; no mutation is
+retried, errors are normalized without remote payloads, and every outcome is
+reconciled with List. A refresh action is available after conflicts or uncertain
+replies. Removing a Home favorite closes its sheet and restores the nearest
+surviving control. A uniquely associated terminable application Activity offers
+Close through Application1 after a confirmation with Cancel focused by default,
+without calling external applications directly. Transient read failures schedule
+a fresh bounded read on the next status poll; writes never retry. Select
+autorepeat releases cannot activate a tile or cancel its hold timer.
 
 ## Verification
 

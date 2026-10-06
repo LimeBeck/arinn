@@ -139,12 +139,12 @@ keyboard-unavailable state. The catalog fixture uses a valid neutral glyph rathe
 than an unpaired UTF-16 surrogate: D-Bus strings are UTF-8, so the latter cannot
 round-trip consistently across Qt versions.
 
-**Remaining dependency:** #68 also requests explicit pin/unpin of Favorites.
-The current public daemon contracts expose no Favorites mutation API. This shell
-increment does not invent client-side persistence or extend that contract; the
-existing default Home row remains. #68 must remain open for the separately
-coordinated Favorites contract and its shell binding. This work does not qualify
-AC-02/AC-03 or full G-5.1 on a real KDE/TV session.
+**Favorites:** #68 now binds the separately delivered Favorites1 contract and
+daemon implementation (ADR-0084) in the shell. Home uses the durable saved order;
+Applications and shortcut tiles expose pin/unpin through the local tile action
+sheet. Missing saved entries remain removable. The [favorites implementation](favorites.md)
+describes owner/revision fencing, mutation reconciliation and focus restoration.
+No real KDE/TV acceptance or full G-5.1 completion is claimed.
 
 ### Home activity identity and visual treatment
 

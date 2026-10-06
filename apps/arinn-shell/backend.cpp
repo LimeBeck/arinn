@@ -5,15 +5,33 @@
 #include "backend.h"
 #include "icon_references.h"
 #include "web_icon_references.h"
-#include <algorithm>
-#include <QUrl>
-#include <arpa/inet.h>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QSet>
 #include <QTextBoundaryFinder>
+#include <QUrl>
 #include <QUuid>
 #include <QtDBus>
+#include <algorithm>
+#include <arpa/inet.h>
+// Local transport types; Favorites1 stores identities, never presentation.
+struct FavoriteWire {
+  QString provider, capability, local;
+};
+Q_DECLARE_METATYPE(FavoriteWire)
+Q_DECLARE_METATYPE(QList<FavoriteWire>)
+QDBusArgument &operator<<(QDBusArgument &arg, const FavoriteWire &v) {
+  arg.beginStructure();
+  arg << v.provider << v.capability << v.local;
+  arg.endStructure();
+  return arg;
+}
+const QDBusArgument &operator>>(const QDBusArgument &arg, FavoriteWire &v) {
+  arg.beginStructure();
+  arg >> v.provider >> v.capability >> v.local;
+  arg.endStructure();
+  return arg;
+}
 namespace {
 constexpr auto service = "org.arinn.Daemon1";
 constexpr auto path = "/org/arinn/Daemon1";
@@ -78,6 +96,8 @@ struct Backend::Catalog {
   bool hadError = false;
 };
 Backend::Backend(QObject *parent) : QObject(parent) {
+  qDBusRegisterMetaType<FavoriteWire>();
+  qDBusRegisterMetaType<QList<FavoriteWire>>();
   // An action's result is shown briefly; connection states stay (#258).
   m_resultTimer.setSingleShot(true);
   m_resultTimer.setInterval(resultMessageMs);
@@ -99,10 +119,18 @@ Backend::Backend(QObject *parent) : QObject(parent) {
   // Subscribe before the first List. This signal re-reads shortcuts only.
   bus.connect(service, path, "org.arinn.WebShortcuts1", "Changed", this,
               SLOT(reloadShortcuts()));
+  bus.connect(service, path, "org.arinn.Favorites1", "Changed", this,
+              SLOT(reloadFavorites()));
   auto watcher = new QDBusServiceWatcher(
       service, bus, QDBusServiceWatcher::WatchForOwnerChange, this);
   connect(watcher, &QDBusServiceWatcher::serviceOwnerChanged, this,
           [this](const QString &, const QString &, const QString &owner) {
+            ++m_favoriteTicket;
+            m_favoriteRevision = 0;
+            m_favoritesLoaded = m_favoritesError = m_favoritesRequested =
+                m_favoriteSaving = false;
+            m_favoriteTargets.clear();
+            m_favoriteError.clear();
             ++m_connectionEpoch;
             m_daemonOwner = owner;
             m_pendingIds.clear();
@@ -148,8 +176,8 @@ void Backend::publishState() {
     m_publishedContinue = entries;
     emit continueEntriesChanged();
   }
-  if (m_publishedApplications != m_applications) {
-    m_publishedApplications = m_applications;
+  if (m_publishedApplications != applications()) {
+    m_publishedApplications = applications();
     emit applicationsChanged();
   }
   if (m_publishedShortcuts != m_webShortcuts) {
@@ -172,8 +200,14 @@ QVariantList Backend::applications() const {
   // follow the catalog entries so provider indexes stay stable. The URL stays
   // out of this model.
   auto rows = m_applications;
+  for (auto &value : rows) {
+    auto row = value.toMap();
+    row["pinned"] = isFavorite(row);
+    value = row;
+  }
   for (const auto &item : m_webShortcuts) {
     auto map = item.toMap();
+    map["pinned"] = isFavorite(map);
     map.insert(QStringLiteral("group"), QStringLiteral("online"));
     map.insert(QStringLiteral("enabled"), true);
     rows.append(map);
@@ -181,21 +215,78 @@ QVariantList Backend::applications() const {
   return rows;
 }
 QVariantList Backend::favorites() const {
-  // Until pinned favorites exist, web shortcuts lead and application tiles
-  // (Steam, ES-DE, and the rest of the catalog) stay on the same Home row.
-  auto rows = m_webShortcuts;
-  rows += m_applications;
+  QVariantList rows;
+  const auto catalog = applications();
+  for (const auto &value : m_favoriteTargets) {
+    const auto target = value.toMap();
+    QVariantMap row;
+    for (const auto &candidate : catalog) {
+      const auto entry = candidate.toMap();
+      if (entry.value("providerId") == target.value("providerId") &&
+          entry.value("capability") == target.value("capability") &&
+          entry.value("localId") == target.value("localId")) {
+        row = entry;
+        break;
+      }
+    }
+    if (row.isEmpty()) {
+      // Retain a removable placeholder without disclosing opaque target IDs.
+      const auto key =
+          QUuid::createUuidV5(
+              QUuid(),
+              QJsonDocument(QJsonArray{target.value("providerId").toString(),
+                                       target.value("capability").toString(),
+                                       target.value("localId").toString()})
+                  .toJson(QJsonDocument::Compact))
+              .toString();
+      row = target;
+      row["id"] = key;
+      row["title"] = tr("Unavailable favorite");
+      row["subtitle"] = tr("Open actions to remove");
+      row["enabled"] = true;
+      row["unavailable"] = true;
+      row["launchable"] = false;
+    }
+    if (!row.contains("launchable"))
+      row["launchable"] = row.value("enabled", true);
+    row["enabled"] = true;
+    row["pinned"] = true;
+    rows.append(row);
+  }
   return rows;
+}
+bool Backend::isFavorite(const QVariantMap &target) const {
+  return std::any_of(
+      m_favoriteTargets.begin(), m_favoriteTargets.end(),
+      [&](const auto &value) {
+        const auto entry = value.toMap();
+        return entry.value("providerId") == target.value("providerId") &&
+               entry.value("capability") == target.value("capability") &&
+               entry.value("localId") == target.value("localId");
+      });
+}
+QVariantMap Backend::favoriteTarget(const QString &id) const {
+  auto rows = applications();
+  rows += favorites();
+  for (const auto &value : rows) {
+    const auto row = value.toMap();
+    if (row.value("id").toString() == id &&
+        !row.value("providerId").toString().isEmpty())
+      return {{"providerId", row.value("providerId")},
+              {"capability", row.value("capability")},
+              {"localId", row.value("localId")}};
+  }
+  return {};
 }
 QString Backend::homeState() const {
   if (!m_connected)
     return "unavailable";
-  if (!m_return.isEmpty() || !m_webShortcuts.isEmpty() ||
-      !m_applications.isEmpty())
+  if (!m_return.isEmpty() || !m_favoriteTargets.isEmpty())
     return "ready";
-  if (m_shortcutsError || m_snapshotError)
+  if (m_favoritesError || m_shortcutsError || m_snapshotError)
     return "error";
-  return m_shortcutsLoaded && m_loaded ? "empty" : "loading";
+  return m_favoritesLoaded && m_shortcutsLoaded && m_loaded ? "empty"
+                                                            : "loading";
 }
 QString Backend::applicationsState() const {
   if (!m_connected)
@@ -220,6 +311,8 @@ void Backend::clearShortcuts() {
 }
 void Backend::refresh() {
   m_forceShortcutReload = true;
+  m_favoritesRequested = false;
+  m_favoriteError.clear();
   reloadCatalog();
 }
 void Backend::reloadShortcuts() {
@@ -293,6 +386,8 @@ void Backend::reloadCatalog() {
                   readShortcuts(epoch);
               });
             }
+            if (!m_favoritesRequested)
+              readFavorites();
             // Status is polled every second. It may replace a connection
             // banner, and only a connection banner: an operation result has to
             // stay visible when that poll's reply arrives in the same turn.
@@ -450,17 +545,19 @@ void Backend::readApplications(const std::shared_ptr<Catalog> &catalog,
                                            generation, "launch", id})
                       .toJson(QJsonDocument::Compact))
                   .toString();
-          catalog->applications.append(
-              QVariantMap{{"id", key},
-                          {"title", title},
-                          {"iconSource", IconReferences::imageUrl(icon)},
-                          {"visualIdentity", provider.value("id").toString() + ":" + id},
-                          {"monogram", monogramFor(title)},
-                          {"enabled", launchable},
-                          {"group", group},
-                          {"path", provider.value("path")},
-                          {"generation", generation},
-                          {"localId", id}});
+          catalog->applications.append(QVariantMap{
+              {"id", key},
+              {"title", title},
+              {"iconSource", IconReferences::imageUrl(icon)},
+              {"visualIdentity", provider.value("id").toString() + ":" + id},
+              {"monogram", monogramFor(title)},
+              {"enabled", launchable},
+              {"group", group},
+              {"path", provider.value("path")},
+              {"generation", generation},
+              {"localId", id},
+              {"providerId", provider.value("id")},
+              {"capability", QStringLiteral("application")}});
         }
         arg.endArray();
         arg.beginArray();
@@ -477,13 +574,17 @@ void Backend::readApplications(const std::shared_ptr<Catalog> &catalog,
                                            generation, "activate", id})
                       .toJson(QJsonDocument::Compact))
                   .toString();
-          catalog->running.append(QVariantMap{{"id", key},
-                                              {"title", title},
-                                              {"enabled", activate},
-                                              {"running", true},
-                                              {"path", provider.value("path")},
-                                              {"generation", generation},
-                                              {"localId", id}});
+          catalog->running.append(
+              QVariantMap{{"id", key},
+                          {"title", title},
+                          {"enabled", activate},
+                          {"running", true},
+                          {"path", provider.value("path")},
+                          {"generation", generation},
+                          {"localId", id},
+                          {"applicationId", application},
+                          {"providerId", provider.value("id")},
+                          {"terminable", terminate}});
         }
         arg.endArray();
         arg >> next;
@@ -507,6 +608,20 @@ void Backend::finishCatalog(const std::shared_ptr<Catalog> &catalog,
   m_loaded = success;
   m_applications = success ? catalog->applications : QVariantList{};
   m_items = success ? catalog->running : QVariantList{};
+  for (auto &value : m_applications) {
+    auto app = value.toMap();
+    QVariantList matches;
+    for (const auto &running : m_items) {
+      const auto row = running.toMap();
+      if (row.value("providerId") == app.value("providerId") &&
+          row.value("applicationId") == app.value("localId") &&
+          row.value("terminable").toBool())
+        matches.append(row);
+    }
+    if (matches.size() == 1)
+      app["runningId"] = matches.first().toMap().value("id");
+    value = app;
+  }
   publishState();
   if (m_dirty)
     QTimer::singleShot(0, this, &Backend::reloadCatalog);
@@ -579,12 +694,16 @@ void Backend::readShortcuts(quint64 epoch) {
             fail();
             return;
           }
-          records.insert(id, {{"id", id}, {"title", title},
-                              {"url", url}, {"icon", icon}});
-          entries.append(QVariantMap{{"id", id},
-                                      {"title", title},
-                                      {"monogram", monogramFor(title)},
-                                      {"webShortcut", true}});
+          records.insert(
+              id, {{"id", id}, {"title", title}, {"url", url}, {"icon", icon}});
+          entries.append(
+              QVariantMap{{"id", id},
+                          {"title", title},
+                          {"monogram", monogramFor(title)},
+                          {"webShortcut", true},
+                          {"providerId", QStringLiteral("arinn")},
+                          {"capability", QStringLiteral("web-shortcut")},
+                          {"localId", id}});
         }
         arg.endArray();
         arg.endStructure();
@@ -647,10 +766,13 @@ void Backend::runApplication(const QString &id, const QVariantList &entries,
       break;
     }
   }
-  if (selected.isEmpty() || !selected.value("enabled", true).toBool()) {
-    setResultMessage(selected.isEmpty()
-                         ? tr("Shortcut is no longer available")
-                         : QStringLiteral("Unavailable"));
+  if (selected.isEmpty() ||
+      !selected
+           .value(QByteArray(method) == "Terminate" ? "terminable" : "enabled",
+                  true)
+           .toBool()) {
+    setResultMessage(selected.isEmpty() ? tr("Shortcut is no longer available")
+                                        : QStringLiteral("Unavailable"));
     publishState();
     return;
   }
@@ -832,33 +954,182 @@ void Backend::mutateShortcut(const char *method, const QVariantList &args) {
   m_shortcutSaving = true;
   m_shortcutError.clear();
   publishState();
-  auto call = new QDBusPendingCallWatcher(QDBusConnection::sessionBus().asyncCall(msg, 3000), this);
-  connect(call, &QDBusPendingCallWatcher::finished, this, [this, epoch, ticket, adding](auto *call) {
-    const auto reply = call->reply();
-    call->deleteLater();
-    if (epoch != m_connectionEpoch)
-      return;
-    m_shortcutSaving = false;
-    if (ticket != m_editorTicket) {
-      readShortcuts(epoch);
-      publishState();
-      return;
-    }
-    if (reply.type() == QDBusMessage::ErrorMessage) {
-      const auto code = reply.errorName().section('.', -1);
-      // Never display arbitrary remote messages that may contain user URLs.
-      m_shortcutError = code == "Conflict" ? tr("Shortcuts changed. Close and reopen the editor before saving.")
-          : code == "InvalidArgument" ? tr("Check the title and address. Use HTTPS, or HTTP for a local service.")
-          : code == "NoReply" || code == "Timeout" ? tr("No reply. Check the shortcut list before trying again.")
-          : tr("The shortcut could not be saved (%1).").arg(code);
-    } else if ((adding && (reply.signature() != "s" || reply.arguments().at(0).toString().isEmpty())) ||
-               (!adding && !reply.signature().isEmpty())) {
-      m_shortcutError = tr("Invalid reply. Check the shortcut list before trying again.");
-    } else {
-      closeShortcutEditor();
-    }
-    // No mutation is retried automatically, including uncertain Add replies.
-    readShortcuts(epoch);
-    publishState();
-  });
+  auto call = new QDBusPendingCallWatcher(
+      QDBusConnection::sessionBus().asyncCall(msg, 3000), this);
+  connect(
+      call, &QDBusPendingCallWatcher::finished, this,
+      [this, epoch, ticket, adding](auto *call) {
+        const auto reply = call->reply();
+        call->deleteLater();
+        if (epoch != m_connectionEpoch)
+          return;
+        m_shortcutSaving = false;
+        if (ticket != m_editorTicket) {
+          readShortcuts(epoch);
+          publishState();
+          return;
+        }
+        if (reply.type() == QDBusMessage::ErrorMessage) {
+          const auto code = reply.errorName().section('.', -1);
+          // Never display arbitrary remote messages that may contain user URLs.
+          m_shortcutError =
+              code == "Conflict" ? tr("Shortcuts changed. Close and reopen the "
+                                      "editor before saving.")
+              : code == "InvalidArgument"
+                  ? tr("Check the title and address. Use HTTPS, or HTTP for a "
+                       "local service.")
+              : code == "NoReply" || code == "Timeout"
+                  ? tr("No reply. Check the shortcut list before trying again.")
+                  : tr("The shortcut could not be saved (%1).").arg(code);
+        } else if ((adding && (reply.signature() != "s" ||
+                               reply.arguments().at(0).toString().isEmpty())) ||
+                   (!adding && !reply.signature().isEmpty())) {
+          m_shortcutError =
+              tr("Invalid reply. Check the shortcut list before trying again.");
+        } else {
+          closeShortcutEditor();
+        }
+        // No mutation is retried automatically, including uncertain Add
+        // replies.
+        readShortcuts(epoch);
+        publishState();
+      });
+}
+
+void Backend::reloadFavorites() { readFavorites(); }
+void Backend::readFavorites() {
+  if (!m_connected || !m_daemonOwner.startsWith(':'))
+    return;
+  m_favoritesRequested = true;
+  const auto epoch = m_connectionEpoch, ticket = ++m_favoriteTicket;
+  auto msg = QDBusMessage::createMethodCall(m_daemonOwner, path,
+                                            "org.arinn.Favorites1", "List");
+  auto call = new QDBusPendingCallWatcher(
+      QDBusConnection::sessionBus().asyncCall(msg, 3000), this);
+  connect(
+      call, &QDBusPendingCallWatcher::finished, this,
+      [this, epoch, ticket](auto *call) {
+        const auto reply = call->reply();
+        call->deleteLater();
+        if (epoch != m_connectionEpoch || ticket != m_favoriteTicket)
+          return;
+        auto fail = [this] {
+          m_favoritesError = true;
+          m_favoritesLoaded = false;
+          publishState();
+        };
+        if (reply.type() == QDBusMessage::ErrorMessage ||
+            reply.signature() != "(ta(sss))" ||
+            (!reply.service().isEmpty() && reply.service() != m_daemonOwner)) {
+          fail();
+          return;
+        }
+        const auto arg = qvariant_cast<QDBusArgument>(reply.arguments().at(0));
+        qulonglong revision = 0;
+        QVariantList targets;
+        QSet<QByteArray> seen;
+        qsizetype bytes = 16;
+        arg.beginStructure();
+        arg >> revision;
+        arg.beginArray();
+        while (!arg.atEnd()) {
+          QString provider, capability, local;
+          arg.beginStructure();
+          arg >> provider >> capability >> local;
+          arg.endStructure();
+          auto validId = [](const QString &id) {
+            return !id.isEmpty() && id.toUtf8().size() <= 256 &&
+                   !id.contains(QChar(0));
+          };
+          const auto key =
+              QJsonDocument(QJsonArray{provider, capability, local})
+                  .toJson(QJsonDocument::Compact);
+          // Exact D-Bus alignment and UTF-8 string footprint for (ta(sss)).
+          bytes = (bytes + 7) & ~qsizetype(7);
+          for (const auto &field : {provider, capability, local}) {
+            bytes = (bytes + 3) & ~qsizetype(3);
+            bytes += 4 + field.toUtf8().size() + 1;
+          }
+          if (!validId(local) || !validId(provider) ||
+              !(capability == "application" ||
+                (provider == "arinn" && capability == "web-shortcut")) ||
+              seen.contains(key) || targets.size() >= 1024 ||
+              bytes > 256 * 1024) {
+            fail();
+            return;
+          }
+          seen.insert(key);
+          targets.append(QVariantMap{{"providerId", provider},
+                                     {"capability", capability},
+                                     {"localId", local}});
+        }
+        arg.endArray();
+        arg.endStructure();
+        if (!revision || revision < m_favoriteRevision ||
+            (revision == m_favoriteRevision && targets != m_favoriteTargets)) {
+          fail();
+          return;
+        }
+        m_favoriteRevision = revision;
+        m_favoriteTargets = targets;
+        m_favoritesLoaded = true;
+        m_favoritesError = false;
+        publishState();
+      });
+}
+void Backend::setFavorite(const QString &id, bool pinned) {
+  if (!favoritesReady() || m_favoriteSaving)
+    return;
+  const auto target = favoriteTarget(id);
+  if (target.isEmpty())
+    return;
+  auto entries = m_favoriteTargets;
+  if (pinned == isFavorite(target))
+    return;
+  if (pinned)
+    entries.append(target);
+  else
+    entries.removeAll(target);
+  QList<FavoriteWire> wire;
+  for (const auto &value : entries) {
+    const auto entry = value.toMap();
+    wire.append({entry.value("providerId").toString(),
+                 entry.value("capability").toString(),
+                 entry.value("localId").toString()});
+  }
+  auto msg = QDBusMessage::createMethodCall(m_daemonOwner, path,
+                                            "org.arinn.Favorites1", "Set");
+  msg << QVariant::fromValue<qulonglong>(m_favoriteRevision)
+      << QVariant::fromValue(wire);
+  const auto epoch = m_connectionEpoch;
+  m_favoriteSaving = true;
+  m_favoriteError.clear();
+  publishState();
+  auto call = new QDBusPendingCallWatcher(
+      QDBusConnection::sessionBus().asyncCall(msg, 3000), this);
+  connect(call, &QDBusPendingCallWatcher::finished, this,
+          [this, epoch](auto *call) {
+            const auto reply = call->reply();
+            call->deleteLater();
+            if (epoch != m_connectionEpoch)
+              return;
+            m_favoriteSaving = false;
+            const auto code = reply.errorName().section('.', -1);
+            if (reply.type() == QDBusMessage::ErrorMessage ||
+                reply.signature() != "t") {
+              m_favoriteError =
+                  code == "Conflict"
+                      ? tr("Favorites changed. Refresh before trying again.")
+                      : tr("Favorites could not be saved. Refresh the list "
+                           "before trying again.");
+            } else
+              setResultMessage(tr("Favorites saved"));
+            // Reconcile after every outcome; never retry a write or change
+            // selection optimistically.
+            readFavorites();
+            publishState();
+          });
+}
+void Backend::terminate(const QString &id) {
+  runApplication(id, m_items, "Terminate");
 }

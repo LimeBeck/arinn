@@ -197,7 +197,7 @@ Window {
     // shortcut editor cover the library and settings screens, so they win.
     // Home's navigation menu opens over every screen but the player (#329).
     readonly property string focusedScreen: playerOpen ? "player"
-        : home.navOpen || home.shortcutEditorOpen ? "home"
+        : home.navOpen || home.shortcutEditorOpen || home.tileActionsOpen ? "home"
         : sessionOpen ? "session"
         : browseOpen ? "browse"
         : browserOpen ? "browser"
@@ -370,7 +370,7 @@ Window {
             focus: root.focusedScreen === "home"
             // The navigation menu is drawn above the section screens (z 4) and
             // Open services, Browse and Session (z 5), below the player (z 6).
-            z: navOpen ? 5.5 : 0
+            z: navOpen || tileActionsOpen ? 5.5 : 0
             coveredByScreen: libraryView.visible || settingsView.visible || downloadsView.visible
                 || browserView.visible || browseView.visible || sessionView.visible
             // Home remains painted beneath other screens, but its catalog
@@ -378,6 +378,11 @@ Window {
             enabled: root.focusedScreen === "home"
             objectName: "productionHome"
             visible: !root.playerOpen
+            actionsEnabled: backend.favoritesReady === true
+            favoriteSaving: backend.favoriteSaving === true
+            favoriteError: backend.favoriteError || ""
+            onFavoriteRequested: (entryId, pinned) => backend.setFavorite(entryId, pinned)
+            onTerminateRequested: entryId => backend.terminate(entryId)
             shortcutManagement: true
             keyboardAvailable: keyboardMonitor.available
             shortcutEditor: backend.shortcutEditor || ({})

@@ -3,9 +3,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "asset_images.h"
-#include "shell_window.h"
 #include "backend.h"
 #include "sessionlifecycle.h"
+#include "shell_window.h"
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickItem>
@@ -54,13 +54,10 @@ private slots:
     QTRY_COMPARE(backend.homeState(), QString("ready"));
     const auto appId =
         backend.applications().at(0).toMap().value("id").toString();
-    const auto shortcutCount = backend.webShortcuts().size();
     const auto favorites = backend.favorites();
-    QCOMPARE(favorites.size(), shortcutCount + backend.applications().size());
-    for (int i = 0; i < shortcutCount; ++i)
-      QCOMPARE(favorites.at(i).toMap().value("id").toString(),
-               backend.webShortcuts().at(i).toMap().value("id").toString());
-    QCOMPARE(favorites.at(shortcutCount).toMap().value("id").toString(), appId);
+    // The integration fixture persists one application via Favorites1.
+    QCOMPARE(favorites.size(), 1);
+    QCOMPARE(favorites.first().toMap().value("id").toString(), appId);
     auto home = window->findChild<QQuickItem *>("productionHome");
     QVERIFY(home);
     QCOMPARE(home->property("screen").toString(), QString("home"));

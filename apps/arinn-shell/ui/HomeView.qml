@@ -71,6 +71,32 @@ FocusScope {
     property string statusDescription: ""
     property string clockText: ""
     property bool pointerMode: false
+    property bool actionsEnabled: false
+    property bool favoriteSaving: false
+    property string favoriteError: ""
+    property string actionEntryId: ""
+    property var actionOpener: null
+    readonly property bool tileActionsOpen: actionEntryId.length > 0
+    readonly property var actionEntry: entryById(actionEntryId) || ({})
+    signal favoriteRequested(string entryId, bool pinned)
+    signal terminateRequested(string entryId)
+    function openTileActions(entryId) {
+        const entry = entryById(entryId);
+        if (!actionsEnabled || !entry || !entry.providerId) return;
+        actionOpener = root.Window.window ? root.Window.window.activeFocusItem : null;
+        actionEntryId = entryId;
+        Qt.callLater(() => Focus.take(favoriteAction));
+    }
+    function closeTileActions() {
+        actionEntryId = "";
+        Qt.callLater(() => {
+            if (actionOpener && actionOpener.visible && actionOpener.enabled) Focus.take(actionOpener);
+            else restoreScreen();
+            actionOpener = null;
+        });
+    }
+    onFavoriteEntriesChanged: if (tileActionsOpen && (screen === "home" ? !favoriteEntries.some(entry => entry.id === actionEntryId) : !entryById(actionEntryId))) closeTileActions()
+    onApplicationEntriesChanged: if (tileActionsOpen && !entryById(actionEntryId)) closeTileActions()
     property bool navOpen: false
     // A section the shell draws itself (Library, Settings) covers Home's own
     // content. Home is then raised above it only to show the navigation
@@ -196,7 +222,8 @@ FocusScope {
     // Focus whatever Home shows on top: the shortcut editor, the open
     // navigation menu or the current section.
     function restoreFocus() {
-        if (shortcutEditorOpen) Focus.take(shortcutCancel);
+        if (tileActionsOpen) Focus.take(favoriteAction);
+        else if (shortcutEditorOpen) Focus.take(shortcutCancel);
         else if (navOpen && navItems.itemAt(navIndex)) Focus.take(navItems.itemAt(navIndex));
         else restoreScreen();
     }
@@ -217,6 +244,7 @@ FocusScope {
     // The shell closes the overlay first: Home is enabled again only then,
     // so showHome() can focus a visible control (review of #334).
     function homeKey() {
+        if (tileActionsOpen) { actionEntryId = ""; actionOpener = null; }
         homeKeyPressed();
         showHome();
     }
@@ -231,7 +259,8 @@ FocusScope {
         restoreHome();
     }
     function back() {
-        if (navOpen) closeNavigation();
+        if (tileActionsOpen) closeTileActions();
+        else if (navOpen) closeNavigation();
         else if (screen !== "home") { screen = "home"; restoreHome(); }
         else if (returnActivityId) returnRequested(returnActivityId);
         else openNavigation();
@@ -273,6 +302,7 @@ FocusScope {
     }
     function activate(entryId) {
         const entry = entryById(entryId);
+        if (entry && entry.launchable === false) { openTileActions(entryId); return; }
         if (entry && entry.kind === "more") { openServicesRequested(); return; }
         if (entry && entry.kind === "service") { serviceRequested(entry.serviceId || ""); return; }
         if (entry && entry.kind === "media") { sessionRequested(entryId); return; }
@@ -334,7 +364,7 @@ FocusScope {
         id: content
         anchors.fill: parent
         visible: !root.coveredByScreen
-        enabled: !root.navOpen
+        enabled: !root.navOpen && !root.tileActionsOpen
         scale: root.navOpen ? 0.98 : 1
         opacity: root.navOpen ? 0.55 : 1
         Behavior on scale { NumberAnimation { duration: 320 } }
@@ -404,6 +434,7 @@ FocusScope {
                     title: root.favoritesTitle; variant: "app"; entries: root.favoriteEntries; busyEntryIds: root.busyEntryIds
                     browserUnavailable: root.browserUnavailable; openShortcutIds: root.openShortcutIds
                     pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled
+                    onActionsRequested: entryId => root.openTileActions(entryId)
                     onSelected: entry => root.remember(favoritesRow, entry)
                     onActivated: entryId => root.activate(entryId)
                     onEdge: key => root.rowEdge(favoritesRow, key)
@@ -445,6 +476,7 @@ FocusScope {
             // Scrolls so the focused group stays on screen at TV sizes.
             x: 120; y: 180 - root.sectionOffset; width: 1300; spacing: 40
             visible: root.screen !== "home"
+            enabled: !root.tileActionsOpen
             Behavior on y { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
             UiText { role: "title"; text: root.sections[root.routes.indexOf(root.screen)] || "" }
             UiText { width: parent.width; text: root.sectionDescription; color: Theme.textSecondary }
@@ -462,10 +494,12 @@ FocusScope {
                     entries: root.groupEntries(modelData); busyEntryIds: root.busyEntryIds
                     browserUnavailable: root.browserUnavailable; openShortcutIds: root.openShortcutIds
                     pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled
+                    onActionsRequested: entryId => root.openTileActions(entryId)
                     onSelected: entry => { root.focusedEntry = entry; root.applicationFocusRow = groupRow.objectName; root.revealRow(groupRow); }
                     onActivated: entryId => {
                         const entry = groupRow.entries.find(e => e.id === entryId);
                         if (entry && entry.shortcutAdd) root.editShortcut("");
+                        else if (entry && entry.launchable === false) root.openTileActions(entryId);
                         else root.entryRequested(entryId);
                     }
                     onEdge: key => root.applicationEdge(groupRow, key)
@@ -751,6 +785,57 @@ FocusScope {
                         busy: root.shortcutSaving
                         onActivated: if (!root.shortcutSaving) root.removeShortcutRequested()
                         Keys.onLeftPressed: Focus.take(confirmCancel)
+                    }
+                }
+            }
+        }
+    }
+
+    FocusScope {
+        id: tileActions
+        objectName: "tileActions"
+        anchors.fill: parent; visible: root.tileActionsOpen; enabled: visible; z: 20
+        Keys.onPressed: event => {
+            if (event.key === Qt.Key_Home) root.homeKey();
+            else if (event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace || event.key === Qt.Key_Menu) root.closeTileActions();
+            event.accepted = true;
+        }
+        Rectangle { anchors.fill: parent; color: Qt.rgba(0, 0, 0, 0.65) }
+        MouseArea { anchors.fill: parent; onClicked: root.closeTileActions() }
+        Rectangle {
+            anchors.centerIn: parent; width: 1000; height: 420; radius: 40; color: Theme.background
+            Column {
+                anchors.fill: parent; anchors.margins: 48; spacing: 24
+                UiText { text: root.actionEntry.title || qsTr("Application actions"); role: "section"; width: parent.width }
+                UiText { text: root.favoriteError; visible: text.length > 0; color: Theme.error; width: parent.width }
+                Row {
+                    spacing: 24
+                    ActionButton {
+                        id: favoriteAction; objectName: "favoriteAction"
+                        text: root.actionEntry.pinned ? qsTr("Unpin from Home") : qsTr("Pin to Home")
+                        enabled: root.actionsEnabled && !!root.actionEntry.providerId
+                        busy: root.favoriteSaving
+                        onActivated: root.favoriteRequested(root.actionEntryId, !root.actionEntry.pinned)
+                        Keys.onRightPressed: Focus.take(closeAppAction.visible ? closeAppAction : favoriteRefresh.visible ? favoriteRefresh : actionCancel)
+                    }
+                    ActionButton {
+                        id: closeAppAction; objectName: "closeAppAction"; text: qsTr("Close application"); destructive: true
+                        visible: !!root.actionEntry.runningId
+                        onActivated: { root.terminateRequested(root.actionEntry.runningId); root.closeTileActions(); }
+                        Keys.onLeftPressed: Focus.take(favoriteAction)
+                        Keys.onRightPressed: Focus.take(favoriteRefresh.visible ? favoriteRefresh : actionCancel)
+                    }
+                    ActionButton {
+                        id: favoriteRefresh; objectName: "favoriteRefresh"; text: qsTr("Refresh list")
+                        visible: root.favoriteError.length > 0; enabled: !root.favoriteSaving
+                        onActivated: root.retryRequested()
+                        Keys.onLeftPressed: Focus.take(favoriteAction)
+                        Keys.onRightPressed: Focus.take(actionCancel)
+                    }
+                    ActionButton {
+                        id: actionCancel; objectName: "actionCancel"; text: qsTr("Back")
+                        onActivated: root.closeTileActions()
+                        Keys.onLeftPressed: Focus.take(favoriteRefresh.visible ? favoriteRefresh : closeAppAction.visible ? closeAppAction : favoriteAction)
                     }
                 }
             }

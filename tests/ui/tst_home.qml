@@ -46,6 +46,36 @@ TestCase {
         serviceCard.target = home; serviceCard.clear();
         focused("entry-a");
     }
+    SignalSpy { id: pins; signalName: "favoriteRequested" }
+    function test_saved_favorite_actions_and_focus_removal() {
+        home.actionsEnabled = true;
+        home.favoriteEntries = [{id: "f", title: "Favorite", pinned: true, providerId: "fixture"},
+                                {id: "g", title: "Another", pinned: true, providerId: "fixture"}];
+        pins.target = home; pins.clear();
+        const tile = child("entry-f");
+        tile.forceActiveFocus(); focused("entry-f");
+        keyPress(Qt.Key_Return); wait(750); keyRelease(Qt.Key_Return);
+        tryCompare(home,"tileActionsOpen",true);
+        focused("favoriteAction");
+        compare(entries.count,0); // Holding Select must not launch.
+        keyClick(Qt.Key_Return);
+        compare(pins.count,1); compare(pins.signalArguments[0][0],"f"); compare(pins.signalArguments[0][1],false);
+        home.favoriteEntries = [{id: "g", title: "Another", pinned: true, providerId: "fixture"}];
+        tryCompare(home,"tileActionsOpen",false);
+        tryCompare(child("entry-g"),"activeFocus",true);
+        pins.target = null;
+    }
+    function test_unavailable_favorite_can_be_removed() {
+        home.actionsEnabled = true;
+        home.favoriteEntries = [{id: "missing", title: "Unavailable favorite", pinned: true,
+                                providerId: "fixture", launchable: false, unavailable: true}];
+        child("entry-missing").forceActiveFocus(); focused("entry-missing");
+        keyClick(Qt.Key_Return);
+        tryCompare(home,"tileActionsOpen",true); focused("favoriteAction");
+        compare(entries.count,0);
+        keyClick(Qt.Key_Escape); tryCompare(home,"tileActionsOpen",false);
+        focused("entry-missing");
+    }
     function init() { createHome(); }
     function cleanup() {
         closes.target = null;

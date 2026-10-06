@@ -204,7 +204,7 @@ and accepts the full UI; early component work does not close its criteria.
 
 | Exit criterion | Evidence |
 | --- | --- |
-| AC-01 Autostart after login shows Home | Operator test on the target HTPC. Opt-in session units delivered early (2026-09-28, [ADR-0042](docs/adr/0042-opt-in-session-autostart.md), [#52](https://github.com/LimeBeck/arinn/issues/52)); offline unit and loader checks in the package test; acceptance not run |
+| AC-01 Autostart after login shows Home | Passed on KDE Plasma 6 / Wayland, owner's manual check on the target HTPC (reported 2026-10-06, [#353](https://github.com/LimeBeck/arinn/issues/353)). No agent-run operator test and no evidence JSON exist for it. Opt-in session units: [ADR-0042](docs/adr/0042-opt-in-session-autostart.md), [#52](https://github.com/LimeBeck/arinn/issues/52); offline unit and loader checks run in the package test. XFCE/X11 remains under G-5.5 |
 | AC-02 Full D-pad navigation | UI tests + operator test |
 | AC-13 No profile selection or login | Pass (review, 2026-10-06, [#353](https://github.com/LimeBeck/arinn/issues/353)): the shell starts at Home. The QML and C++ sources of `apps/arinn-shell` contain no profile, account, login or password flow |
 | AC-14 Focus and primary actions readable from 3 m | Operator test on a TV |

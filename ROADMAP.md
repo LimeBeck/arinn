@@ -176,8 +176,8 @@ Goal: the main daily scenario — Arinn becomes usable every day.
 | AC-04 Existing tabs are shown and switchable | Integration + operator test |
 | AC-05 Global Home over Chrome | Operator test |
 | AC-06 Return to the same browser activity (tab level) | Operator test |
-| AC-10 Chrome provider crash does not crash shell or daemon | Integration test |
-| G-3.1 Extension uses only `tabs` and `nativeMessaging`; native host limits and reconnect as specified | Review, integration test |
+| AC-10 Chrome provider crash does not crash shell or daemon | Pass (integration, CI): `plugins/chrome/tests/isolation.rs` `chrome_provider_crash_does_not_crash_the_daemon` kills the provider with SIGKILL; the daemon stays up and the browser becomes unavailable. The shell shows the unavailable state without failing (`browser_catalog_test`, [#296](https://github.com/LimeBeck/arinn/pull/296)). Recorded 2026-10-06 ([#353](https://github.com/LimeBeck/arinn/issues/353)) |
+| G-3.1 Extension uses only `tabs` and `nativeMessaging`; native host limits and reconnect as specified | Pass (review + integration, CI): the manifest requests only `tabs` and `nativeMessaging` (`tests/integration/chrome_extension.test.cjs`, checked again by review). Framing limits are 1 MiB to the browser and 8 MiB from it (`plugins/chrome/src/framing.rs` `frames_round_trip_and_enforce_limits`). The real native host links the extension and the provider bridge (`plugins/chrome/tests/chain.rs`). The extension reconnects with capped exponential backoff and never replays commands (`chrome_extension.test.cjs`). Recorded 2026-10-06 ([#353](https://github.com/LimeBeck/arinn/issues/353)) |
 
 ## Phase 4 — Media
 
@@ -188,7 +188,7 @@ Goal: MPRIS media control, the local library and playback in external mpv with A
 | Exit criterion | Evidence |
 | --- | --- |
 | AC-09 MPRIS session shown and controlled | Integration + operator test |
-| AC-15 Library scan of local and mounted folders, fallback metadata, unavailable mount, film and episode start | Integration test |
+| AC-15 Library scan of local and mounted folders, fallback metadata, unavailable mount, film and episode start | Pass (integration, CI). Scan, names, NFO and artwork: `plugins/library/tests/catalogue.rs` (`scans_films_series_artwork_and_hostile_nfo`, `tv_season_folders_form_one_series`). Fallback metadata: `missing_ffprobe_keeps_the_catalogue_and_unknown_duration`. Unavailable root keeps entries: `missing_file_and_unavailable_root_keep_the_uuid`. Film and episode start through the daemon: `crates/arinnd/src/runtime/library_tests.rs` `a_launch_opens_the_item_in_the_media_provider`; in the shell, `library_catalog_test` `seriesLaunchResolvesToAnEpisode`. A mounted folder is an ordinary configured root; no network mount was exercised. Recorded 2026-10-06 ([#353](https://github.com/LimeBeck/arinn/issues/353)) |
 | AC-16 Play/pause/seek, audio/subtitle selection, resume after restart, Continue | Integration + operator test |
 | G-4.1 Media integration gate: OSD over video without losing playback, shell input layer per ADR-0046, Home/Return | #141: managed input layer implemented with synthetic adapter/private-bus coverage; #309 adds confirmed Stop, fresh-process Continue and retained final-frame artwork (ADR-0083 proposed); owner-run KDE Wayland/TV operator test pending |
 
@@ -206,10 +206,10 @@ and accepts the full UI; early component work does not close its criteria.
 | --- | --- |
 | AC-01 Autostart after login shows Home | Operator test on the target HTPC. Opt-in session units delivered early (2026-09-28, [ADR-0042](docs/adr/0042-opt-in-session-autostart.md), [#52](https://github.com/LimeBeck/arinn/issues/52)); offline unit and loader checks in the package test; acceptance not run |
 | AC-02 Full D-pad navigation | UI tests + operator test |
-| AC-13 No profile selection or login | Review |
+| AC-13 No profile selection or login | Pass (review, 2026-10-06, [#353](https://github.com/LimeBeck/arinn/issues/353)): the shell starts at Home. The QML and C++ sources of `apps/arinn-shell` contain no profile, account, login or password flow |
 | AC-14 Focus and primary actions readable from 3 m | Operator test on a TV |
 | AC-17 Downloads with Transmission, import into Library exactly once | Integration + operator test. Shell binding of the Downloads screen to `Downloads1` with catalog and `Main.qml` tests ([#233](https://github.com/LimeBeck/arinn/issues/233)); operator test with Transmission not run |
-| AC-18 Home/Back table with standard keyboard input, Esc/Backspace exception | UI tests |
+| AC-18 Home/Back table with standard keyboard input, Esc/Backspace exception | Pass (UI tests, CI) for the rows inside the shell. `tests/ui/tst_home_back.qml` (`HomeBackTable`) covers modal/sheet/navigation, nested screen, Home with and without a return Activity, and Backspace in a field. Home and Menu on every screen, including from a focused text field and an open Settings editor, are covered by `library_catalog_test` `menuOpensNavigationOverSectionScreens` and `SettingsView::test_home_from_editors_and_sheets` ([#334](https://github.com/LimeBeck/arinn/pull/334)). The external-application row is platform behaviour, covered by AC-05/G-0.3–G-0.4. Recorded 2026-10-06 ([#353](https://github.com/LimeBeck/arinn/issues/353)) |
 | AC-19 Suspend, wake, lock screen and ambient (carried over G-0.8) | Operator test |
 | G-5.1 UI matches the design handoff states and the 22 screenshots | Design review |
 | G-5.2 Activity background capture lifecycle and budget (carried over G-0.7) | Measurement report |

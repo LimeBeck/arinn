@@ -6,6 +6,7 @@
 #include "backend.h"
 #include "sessionlifecycle.h"
 #include "shell_window.h"
+#include <QKeyEvent>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickItem>
@@ -51,11 +52,15 @@ private slots:
     QTest::keyClick(window, Qt::Key_Escape);
     QTRY_VERIFY(!window->property("navOpen").toBool());
     QTRY_COMPARE_WITH_TIMEOUT(backend.applications().size(), 1, 5000);
-    QTRY_COMPARE(backend.homeState(), QString("ready"));
     const auto appId =
         backend.applications().at(0).toMap().value("id").toString();
+    QTRY_VERIFY(backend.favoritesReady());
+    QVERIFY(backend.favorites().isEmpty());
+    backend.setFavorite(appId, true);
+    QTRY_COMPARE(backend.favorites().size(), 1);
+    QTRY_COMPARE(backend.homeState(), QString("ready"));
     const auto favorites = backend.favorites();
-    // The integration fixture persists one application via Favorites1.
+    // Pin explicitly through the same durable API used by the tile sheet.
     QCOMPARE(favorites.size(), 1);
     QCOMPARE(favorites.first().toMap().value("id").toString(), appId);
     auto home = window->findChild<QQuickItem *>("productionHome");
@@ -82,6 +87,18 @@ private slots:
         inFavorites = true;
     QVERIFY(inFavorites);
     second->forceActiveFocus();
+    QTRY_VERIFY(second->hasActiveFocus());
+    // Autorepeat releases while holding Select must not activate the tile.
+    QTest::keyPress(window, Qt::Key_Return);
+    QTest::qWait(100);
+    QKeyEvent repeatRelease(QEvent::KeyRelease, Qt::Key_Return, Qt::NoModifier, QString(), true);
+    QCoreApplication::sendEvent(window, &repeatRelease);
+    QTest::qWait(650);
+    QTest::keyRelease(window, Qt::Key_Return);
+    QTRY_VERIFY(home->property("tileActionsOpen").toBool());
+    QVERIFY(backend.busyEntryIds().isEmpty());
+    QTest::keyClick(window, Qt::Key_Back);
+    QTRY_VERIFY(!home->property("tileActionsOpen").toBool());
     QTRY_VERIFY(second->hasActiveFocus());
     QSignalSpy updates(&backend, &Backend::applicationsChanged);
     backend.refresh();

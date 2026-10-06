@@ -284,6 +284,15 @@ private slots:
       QTRY_COMPARE(backend.favorites().size(), 2);
       QCOMPARE(backend.favorites().last().toMap().value("id").toString(),
                QString("saved-site"));
+      // Read recovery is automatic and bounded; no mutation is retried.
+      daemon.favoriteListError = true;
+      backend.refresh(); QTRY_VERIFY(!backend.favoritesReady());
+      QCOMPARE(backend.favorites().size(), 2);
+      const int writesBeforeReadFailure = daemon.favoriteWrites;
+      daemon.favoriteListError = false;
+      QTRY_VERIFY_WITH_TIMEOUT(backend.favoritesReady(), 5000);
+      QCOMPARE(backend.favorites().size(), 2);
+      QCOMPARE(daemon.favoriteWrites, writesBeforeReadFailure);
       daemon.favoriteFailure = "Conflict";
       backend.setFavorite(app, false);
       QTRY_VERIFY(!backend.favoriteError().isEmpty());

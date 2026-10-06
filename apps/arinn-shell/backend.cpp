@@ -129,6 +129,7 @@ Backend::Backend(QObject *parent) : QObject(parent) {
             m_favoriteRevision = 0;
             m_favoritesLoaded = m_favoritesError = m_favoritesRequested =
                 m_favoriteSaving = false;
+            m_favoriteReconcile = false;
             m_favoriteTargets.clear();
             m_favoriteError.clear();
             ++m_connectionEpoch;

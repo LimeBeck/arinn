@@ -75,6 +75,7 @@ FocusScope {
     property bool favoriteSaving: false
     property string favoriteError: ""
     property string actionEntryId: ""
+    property bool confirmAppClose: false
     property var actionOpener: null
     readonly property bool tileActionsOpen: actionEntryId.length > 0
     readonly property var actionEntry: entryById(actionEntryId) || ({})
@@ -84,10 +85,12 @@ FocusScope {
         const entry = entryById(entryId);
         if (!actionsEnabled || !entry || !entry.providerId) return;
         actionOpener = root.Window.window ? root.Window.window.activeFocusItem : null;
+        confirmAppClose = false;
         actionEntryId = entryId;
         Qt.callLater(() => Focus.take(favoriteAction));
     }
     function closeTileActions() {
+        confirmAppClose = false;
         actionEntryId = "";
         Qt.callLater(() => {
             if (actionOpener && actionOpener.visible && actionOpener.enabled) Focus.take(actionOpener);
@@ -797,7 +800,10 @@ FocusScope {
         anchors.fill: parent; visible: root.tileActionsOpen; enabled: visible; z: 20
         Keys.onPressed: event => {
             if (event.key === Qt.Key_Home) root.homeKey();
-            else if (event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace || event.key === Qt.Key_Menu) root.closeTileActions();
+            else if (event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace || event.key === Qt.Key_Back || event.key === Qt.Key_Menu) {
+                if (root.confirmAppClose) { root.confirmAppClose = false; Focus.take(closeAppAction); }
+                else root.closeTileActions();
+            }
             event.accepted = true;
         }
         Rectangle { anchors.fill: parent; color: Qt.rgba(0, 0, 0, 0.65) }
@@ -821,7 +827,7 @@ FocusScope {
                     ActionButton {
                         id: closeAppAction; objectName: "closeAppAction"; text: qsTr("Close application"); destructive: true
                         visible: !!root.actionEntry.runningId
-                        onActivated: { root.terminateRequested(root.actionEntry.runningId); root.closeTileActions(); }
+                        onActivated: { root.confirmAppClose = true; Qt.callLater(() => Focus.take(closeAppCancel)); }
                         Keys.onLeftPressed: Focus.take(favoriteAction)
                         Keys.onRightPressed: Focus.take(favoriteRefresh.visible ? favoriteRefresh : actionCancel)
                     }
@@ -840,6 +846,32 @@ FocusScope {
                 }
             }
         }
+        Rectangle {
+            objectName: "closeAppConfirmation"
+            visible: root.confirmAppClose; z: 1
+            anchors.fill: parent; color: Qt.rgba(0, 0, 0, 0.75)
+            Rectangle {
+                anchors.centerIn: parent; width: 1000; height: 360; radius: 40; color: Theme.background
+                Column {
+                    anchors.centerIn: parent; spacing: 40
+                    UiText { text: qsTr("Close this application?"); role: "section" }
+                    Row {
+                        spacing: 24
+                        ActionButton {
+                            id: closeAppCancel; objectName: "closeAppCancel"; text: qsTr("Cancel")
+                            onActivated: { root.confirmAppClose = false; Focus.take(closeAppAction); }
+                            Keys.onRightPressed: Focus.take(closeAppConfirm)
+                        }
+                        ActionButton {
+                            id: closeAppConfirm; objectName: "closeAppConfirm"; text: qsTr("Close"); destructive: true
+                            onActivated: { root.terminateRequested(root.actionEntry.runningId); root.closeTileActions(); }
+                            Keys.onLeftPressed: Focus.take(closeAppCancel)
+                        }
+                    }
+                }
+            }
+        }
+
     }
 
 }

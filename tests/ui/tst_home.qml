@@ -76,6 +76,25 @@ TestCase {
         keyClick(Qt.Key_Escape); tryCompare(home,"tileActionsOpen",false);
         focused("entry-missing");
     }
+    SignalSpy { id: terminations; signalName: "terminateRequested" }
+    function test_close_application_confirmation_and_remote_back() {
+        home.actionsEnabled = true;
+        home.favoriteEntries = [{id: "f", title: "Favorite", pinned: true, providerId: "fixture", runningId: "running"}];
+        terminations.target = home; terminations.clear();
+        home.openTileActions("f"); focused("favoriteAction");
+        keyClick(Qt.Key_Right); focused("closeAppAction"); keyClick(Qt.Key_Return);
+        focused("closeAppCancel"); compare(terminations.count,0);
+        keyClick(Qt.Key_Back); focused("closeAppAction"); compare(terminations.count,0);
+        keyClick(Qt.Key_Return); focused("closeAppCancel");
+        keyClick(Qt.Key_Return); focused("closeAppAction"); compare(terminations.count,0);
+        keyClick(Qt.Key_Return); focused("closeAppCancel");
+        keyClick(Qt.Key_Right); focused("closeAppConfirm"); keyClick(Qt.Key_Return);
+        compare(terminations.count,1); compare(terminations.signalArguments[0][0],"running");
+        tryCompare(home,"tileActionsOpen",false);
+        home.openTileActions("f"); focused("favoriteAction"); keyClick(Qt.Key_Back);
+        tryCompare(home,"tileActionsOpen",false);
+        terminations.target = null;
+    }
     function init() { createHome(); }
     function cleanup() {
         closes.target = null;

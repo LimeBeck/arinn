@@ -92,7 +92,7 @@ private:
   QVariantList m_favoriteTargets;
   quint64 m_favoriteRevision = 0, m_favoriteTicket = 0;
   bool m_favoritesLoaded = false, m_favoritesError = false,
-       m_favoritesRequested = false, m_favoriteSaving = false;
+       m_favoritesRequested = false, m_favoriteSaving = false, m_favoriteReconcile = false;
   QString m_favoriteError;
   void mutateShortcut(const char *method, const QVariantList &args);
   QHash<QString, QVariantMap> m_shortcutRecords;

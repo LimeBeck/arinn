@@ -142,6 +142,7 @@ FocusScope {
                             }
                             Keys.onReleased: event => {
                                 if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
+                                    if (event.isAutoRepeat) { event.accepted = true; return; }
                                     holdTimer.stop();
                                     if (holdHandled) { down = false; event.accepted = true; }
                                     else { const invoke = down && enabled && !busy; down = false; if (invoke) clicked(); }

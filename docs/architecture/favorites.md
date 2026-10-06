@@ -73,7 +73,10 @@ retried, errors are normalized without remote payloads, and every outcome is
 reconciled with List. A refresh action is available after conflicts or uncertain
 replies. Removing a Home favorite closes its sheet and restores the nearest
 surviving control. A uniquely associated terminable application Activity offers
-Close through Application1, without calling external applications directly.
+Close through Application1 after a confirmation with Cancel focused by default,
+without calling external applications directly. Transient read failures schedule
+a fresh bounded read on the next status poll; writes never retry. Select
+autorepeat releases cannot activate a tile or cancel its hold timer.
 
 ## Verification
 

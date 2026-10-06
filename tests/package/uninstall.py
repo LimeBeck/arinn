@@ -69,6 +69,8 @@ MANIFEST_DIRS = (
 SAMPLE_FILES = [
     "usr/bin/arinnd",
     "usr/bin/arinn-platform-x11",
+    "usr/lib/arinn/arinn-xfce-session",
+    "usr/share/arinn/autostart/org.arinn.XfceSession.desktop",
     "usr/bin/arinnctl",
     "usr/bin/arinn-shell",
     "usr/lib/arinn/plugins/arinn-plugin-demo",

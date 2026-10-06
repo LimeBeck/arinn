@@ -409,7 +409,8 @@ Window {
             currentServiceSubtitle: backend.homeVisible && !returnIsWebService ? "" : (browserCatalog.presentedService.subtitle || "")
             browserUnavailable: browserCatalog.browserState === "unavailable"
             openShortcutIds: browserCatalog.openShortcutIds
-            homeState: backend.homeState
+            // Site or search remains available even with no saved favorites.
+            homeState: backend.homeState === "empty" ? "ready" : backend.homeState
             statusTitle: homeState === "unavailable" ? qsTr("Home is unavailable") : homeState === "loading" ? qsTr("Loading Home…") : homeState === "error" ? qsTr("Home could not be loaded") : qsTr("Your Home starts here")
             statusDescription: homeState === "empty" ? qsTr("No favorites are available yet.") : qsTr("Navigation remains available. Home reconnects automatically.")
             sectionDescription: screen === "applications" ? ((applicationEntries.length || runningEntries.length) ? qsTr("Choose an application or an open window.") : qsTr("No applications are available.")) : qsTr("This section is not available yet.")

@@ -84,6 +84,13 @@ TestCase {
         home.openTileActions("f"); focused("favoriteAction");
         keyClick(Qt.Key_Right); focused("closeAppAction"); keyClick(Qt.Key_Return);
         focused("closeAppCancel"); compare(terminations.count,0);
+        pins.target = home; pins.clear();
+        mouseClick(child("favoriteAction"),10,10);
+        compare(pins.count,0); compare(terminations.count,0);
+        verify(home.confirmAppClose);
+        keyClick(Qt.Key_Tab); focused("closeAppConfirm");
+        keyClick(Qt.Key_Backtab); focused("closeAppCancel");
+        pins.target = null;
         keyClick(Qt.Key_Back); focused("closeAppAction"); compare(terminations.count,0);
         keyClick(Qt.Key_Return); focused("closeAppCancel");
         keyClick(Qt.Key_Return); focused("closeAppAction"); compare(terminations.count,0);

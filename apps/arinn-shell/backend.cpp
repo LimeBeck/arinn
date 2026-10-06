@@ -1014,9 +1014,15 @@ void Backend::readFavorites() {
         call->deleteLater();
         if (epoch != m_connectionEpoch || ticket != m_favoriteTicket)
           return;
+        if (m_favoriteReconcile) {
+          m_favoriteSaving = false;
+          m_favoriteReconcile = false;
+        }
         auto fail = [this] {
           m_favoritesError = true;
           m_favoritesLoaded = false;
+          m_favoritesRequested = false;
+          m_favoriteError = tr("Favorites unavailable. Refresh the list before editing.");
           publishState();
         };
         if (reply.type() == QDBusMessage::ErrorMessage ||
@@ -1073,6 +1079,7 @@ void Backend::readFavorites() {
         }
         m_favoriteRevision = revision;
         m_favoriteTargets = targets;
+        if (m_favoritesError) m_favoriteError.clear();
         m_favoritesLoaded = true;
         m_favoritesError = false;
         publishState();
@@ -1114,7 +1121,7 @@ void Backend::setFavorite(const QString &id, bool pinned) {
             call->deleteLater();
             if (epoch != m_connectionEpoch)
               return;
-            m_favoriteSaving = false;
+            m_favoriteReconcile = true;
             const auto code = reply.errorName().section('.', -1);
             if (reply.type() == QDBusMessage::ErrorMessage ||
                 reply.signature() != "t") {

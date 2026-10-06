@@ -687,6 +687,8 @@ FocusScope {
         Keys.onPressed: event => {
             event.accepted = true;
             if (event.key === Qt.Key_Home) root.homeKey();
+            else if ((event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) && root.confirmAppClose)
+                Focus.take(closeAppCancel.activeFocus ? closeAppConfirm : closeAppCancel);
             else if (event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace) {
                 if (removeConfirmation.visible) {
                     removeConfirmation.visible = false;
@@ -810,6 +812,7 @@ FocusScope {
         MouseArea { anchors.fill: parent; onClicked: root.closeTileActions() }
         Rectangle {
             anchors.centerIn: parent; width: 1000; height: 420; radius: 40; color: Theme.background
+            enabled: !root.confirmAppClose
             Column {
                 anchors.fill: parent; anchors.margins: 48; spacing: 24
                 UiText { text: root.actionEntry.title || qsTr("Application actions"); role: "section"; width: parent.width }
@@ -850,6 +853,7 @@ FocusScope {
             objectName: "closeAppConfirmation"
             visible: root.confirmAppClose; z: 1
             anchors.fill: parent; color: Qt.rgba(0, 0, 0, 0.75)
+            MouseArea { anchors.fill: parent; acceptedButtons: Qt.AllButtons }
             Rectangle {
                 anchors.centerIn: parent; width: 1000; height: 360; radius: 40; color: Theme.background
                 Column {

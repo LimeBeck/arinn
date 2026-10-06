@@ -687,8 +687,6 @@ FocusScope {
         Keys.onPressed: event => {
             event.accepted = true;
             if (event.key === Qt.Key_Home) root.homeKey();
-            else if ((event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) && root.confirmAppClose)
-                Focus.take(closeAppCancel.activeFocus ? closeAppConfirm : closeAppCancel);
             else if (event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace) {
                 if (removeConfirmation.visible) {
                     removeConfirmation.visible = false;
@@ -802,6 +800,8 @@ FocusScope {
         anchors.fill: parent; visible: root.tileActionsOpen; enabled: visible; z: 20
         Keys.onPressed: event => {
             if (event.key === Qt.Key_Home) root.homeKey();
+            else if ((event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) && root.confirmAppClose)
+                Focus.take(closeAppCancel.activeFocus ? closeAppConfirm : closeAppCancel);
             else if (event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace || event.key === Qt.Key_Back || event.key === Qt.Key_Menu) {
                 if (root.confirmAppClose) { root.confirmAppClose = false; Focus.take(closeAppAction); }
                 else root.closeTileActions();
@@ -811,40 +811,48 @@ FocusScope {
         Rectangle { anchors.fill: parent; color: Qt.rgba(0, 0, 0, 0.65) }
         MouseArea { anchors.fill: parent; onClicked: root.closeTileActions() }
         Rectangle {
-            anchors.centerIn: parent; width: 1000; height: 420; radius: 40; color: Theme.background
+            anchors.centerIn: parent; width: 1000; height: 560; radius: 40; color: Theme.background
             enabled: !root.confirmAppClose
             Column {
                 anchors.fill: parent; anchors.margins: 48; spacing: 24
                 UiText { text: root.actionEntry.title || qsTr("Application actions"); role: "section"; width: parent.width }
                 UiText { text: root.favoriteError; visible: text.length > 0; color: Theme.error; width: parent.width }
-                Row {
-                    spacing: 24
+                Grid {
+                    columns: 2; columnSpacing: 24; rowSpacing: 20
                     ActionButton {
+                        width: 400
                         id: favoriteAction; objectName: "favoriteAction"
                         text: root.actionEntry.pinned ? qsTr("Unpin from Home") : qsTr("Pin to Home")
                         enabled: root.actionsEnabled && !!root.actionEntry.providerId
                         busy: root.favoriteSaving
                         onActivated: root.favoriteRequested(root.actionEntryId, !root.actionEntry.pinned)
                         Keys.onRightPressed: Focus.take(closeAppAction.visible ? closeAppAction : favoriteRefresh.visible ? favoriteRefresh : actionCancel)
+                        Keys.onDownPressed: Focus.take(favoriteRefresh.visible ? favoriteRefresh : actionCancel)
                     }
                     ActionButton {
+                        width: 400
                         id: closeAppAction; objectName: "closeAppAction"; text: qsTr("Close application"); destructive: true
                         visible: !!root.actionEntry.runningId
                         onActivated: { root.confirmAppClose = true; Qt.callLater(() => Focus.take(closeAppCancel)); }
                         Keys.onLeftPressed: Focus.take(favoriteAction)
                         Keys.onRightPressed: Focus.take(favoriteRefresh.visible ? favoriteRefresh : actionCancel)
+                        Keys.onDownPressed: Focus.take(actionCancel)
                     }
                     ActionButton {
+                        width: 400
                         id: favoriteRefresh; objectName: "favoriteRefresh"; text: qsTr("Refresh list")
                         visible: root.favoriteError.length > 0; enabled: !root.favoriteSaving
                         onActivated: root.retryRequested()
                         Keys.onLeftPressed: Focus.take(favoriteAction)
                         Keys.onRightPressed: Focus.take(actionCancel)
+                        Keys.onUpPressed: Focus.take(favoriteAction)
                     }
                     ActionButton {
+                        width: 400
                         id: actionCancel; objectName: "actionCancel"; text: qsTr("Back")
                         onActivated: root.closeTileActions()
                         Keys.onLeftPressed: Focus.take(favoriteRefresh.visible ? favoriteRefresh : closeAppAction.visible ? closeAppAction : favoriteAction)
+                        Keys.onUpPressed: Focus.take(closeAppAction.visible ? closeAppAction : favoriteAction)
                     }
                 }
             }

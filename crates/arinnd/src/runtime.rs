@@ -5,7 +5,7 @@ use crate::{
     operations::{Operations, now},
     registry::{Manifest, Registry, discovery_roots},
     storage::{Config, Paths, Store, atomic_write, private_dir},
-    supervisor::{Attachment, Supervisor},
+    supervisor::{Attachment, Supervision, Supervisor},
 };
 use arinn_plugin_sdk::snapshots::{Snapshots, TabSnapshots};
 use arinn_protocol::{
@@ -121,6 +121,7 @@ pub struct Core {
     platform: crate::platform::Platform,
     windows: crate::windows::Windows,
     playback_exits: Arc<Mutex<media_routing::ExitFences>>,
+    supervision: tokio::sync::OnceCell<Arc<Supervision>>,
 }
 fn sender(h: &Header<'_>) -> Result<String, ErrorCode> {
     h.sender()
@@ -160,6 +161,22 @@ impl Core {
             platform: crate::platform::Platform::default(),
             windows,
             playback_exits: Arc::default(),
+            supervision: tokio::sync::OnceCell::new(),
+        }
+    }
+    async fn supervision(&self) -> Arc<Supervision> {
+        self.supervision
+            .get_or_init(|| async { Arc::new(Supervision::bootstrap(&self.connection).await) })
+            .await
+            .clone()
+    }
+    async fn supervisor(&self) -> Supervisor {
+        Supervisor::new(&self.connection, self.supervision().await)
+    }
+
+    pub async fn shutdown_supervision(&self) {
+        if let Some(supervision) = self.supervision.get() {
+            supervision.shutdown().await;
         }
     }
     /// Remove every daemon interface a provider path can carry, whatever the
@@ -392,7 +409,7 @@ impl Core {
     async fn reload_inner(&self) -> Result<(), ErrorCode> {
         let _serial = self.reload_lock.lock().await;
         let (mut next, diagnostics) = self.prepare().await?;
-        let supervisor = Supervisor::new(&self.connection);
+        let supervisor = self.supervisor().await;
         let mut replaced_binaries = HashSet::new();
         let existing: Vec<_> = self.state.lock().await.providers.keys().cloned().collect();
         for id in existing.iter().filter(|id| !next.contains_key(*id)) {
@@ -604,9 +621,7 @@ impl Core {
             .and_then(|c| c.providers.get(id).map(|i| i.settings.clone()))
             .unwrap_or_default();
         let env = provider_env(id, &manifest, &token_file, &data, &state, &settings)?;
-        let created = Supervisor::new(&self.connection)
-            .start(&unit, &manifest, env)
-            .await?;
+        let created = self.supervisor().await.start(&unit, &manifest, env).await?;
         if created == Attachment::Replaced {
             log_event(id, "replace-stale-provider");
         }
@@ -710,7 +725,7 @@ impl Core {
             .map(|(id, p)| (id.clone(), p.unit.clone()))
             .collect();
         for (id, unit) in units {
-            if let Ok(observed) = Supervisor::new(&self.connection).restarts(&unit).await {
+            if let Ok(observed) = self.supervisor().await.restarts(&unit).await {
                 let state_dir = self.paths.state.clone();
                 let provider_id = id.clone();
                 let result = tokio::task::spawn_blocking(move || {
@@ -735,7 +750,7 @@ impl Core {
             .map(|(id, p)| (id.clone(), p.unit.clone(), p.started.elapsed()))
             .collect();
         for (id, unit, elapsed) in candidates {
-            let supervisor = Supervisor::new(&self.connection);
+            let supervisor = self.supervisor().await;
             if supervisor.state(&unit).await.is_ok_and(|s| s == "failed") {
                 if let Some(p) = self.state.lock().await.providers.get_mut(&id) {
                     p.info.runtime_state = "failed".into();
@@ -1680,7 +1695,9 @@ impl Daemon {
             }
             p.unit.clone()
         };
-        Supervisor::new(&self.core.connection)
+        self.core
+            .supervisor()
+            .await
             .authenticate(&owner, &unit)
             .await?;
         let generation = Uuid::new_v4().to_string();
@@ -1803,7 +1820,7 @@ impl Daemon {
                     .map(|p| p.owner.clone())
                     .unwrap_or_default();
                 core.unavailable(&id, &owner).await;
-                let supervisor = Supervisor::new(&core.connection);
+                let supervisor = core.supervisor().await;
                 // A transient unit keeps the environment it was created
                 // with, so restarting it in place would keep stale settings.
                 // Stop it and create it again with the current config.toml

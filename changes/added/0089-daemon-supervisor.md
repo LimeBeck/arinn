@@ -1,0 +1,2 @@
+- Add an in-process provider supervisor when the session has no systemd user manager (ADR-0089).
+- Kill supervised provider process groups on daemon exit; failed spawns count toward the same start limit as systemd.

@@ -140,15 +140,61 @@ target pulls the graphical target through its dependency. The graphical target
 has `RefuseManualStart=yes`, so do not start it directly. Run it only from
 inside the intended X11 session. Stop `arinn-ewmh-session.target` before logging
 out of a desktop that does not manage the graphical target. Enabling the EWMH
-target alone is insufficient for persistent XFCE startup; persistent session
-integration remains distribution-specific qualification work. To return to KDE/Wayland, stop the EWMH target, unset the two
+target alone is insufficient for persistent XFCE startup. To return to KDE/Wayland, stop the EWMH target, unset the two
 Arinn environment variables, import the graphical session environment again,
 and start the existing Arinn session target.
+
+### Persistent XFCE/X11 startup
+
+The package installs `arinn-xfce-session` and an XDG autostart **template** under
+`/usr/share/arinn/autostart/`. It installs no global autostart entry and enables
+no units (ADR-0042). Opt in once as the intended desktop user:
+
+```sh
+mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/autostart"
+cp /usr/share/arinn/autostart/org.arinn.XfceSession.desktop \
+  "${XDG_CONFIG_HOME:-$HOME/.config}/autostart/"
+```
+
+Log out and log back into XFCE/X11. The entry runs only in XFCE. The helper
+requires `DISPLAY` and the XFCE session manager's D-Bus owner; it rejects an
+explicit non-X11 session type. LightDM's missing session type is supplied as
+`x11`. Before starting the target it imports `DISPLAY` and, when present,
+`XAUTHORITY`; absent authority clears a stale manager value so Xlib can use its
+default. It sets the two Arinn backend selectors before starting the shared
+daemon. The existing shell startup path requests Home (AC-01).
+
+The helper remains in the desktop autostart session, owning
+`org.arinn.XfceSession` to refuse duplicate launchers. It subscribes to XFCE
+owner changes before reading the initial owner. XFCE owner loss/replacement,
+session-bus loss, SIGTERM or SIGINT stops the EWMH target, including a partial
+failed startup, and clears the imported session/backend environment. Systemctl
+commands have a 30-second deadline. No window titles, display names, authority
+paths or raw bus errors are logged.
+
+One graphical session per Unix user is supported: systemd services and manager
+environment are shared. The helper refuses an already running Arinn session,
+daemon, shell or EWMH adapter without stopping it. Disable other Arinn autostart
+targets before choosing this path; do not start another session concurrently or
+configure this helper itself as a lingering systemd user service. Other desktop
+clients must import their own environment on their next login.
+
+To disable future startup, or before removing the package:
+
+```sh
+rm "${XDG_CONFIG_HOME:-$HOME/.config}/autostart/org.arinn.XfceSession.desktop"
+```
+
+Then log out to stop the current integration. Package removal does not edit
+per-user configuration. A user copy survives removal; `TryExec` prevents it
+from running when the helper is absent. Real XFCE login, Home visibility, logout
+and repeated login qualification remains **not run** and needs owner permission.
 
 ## Automated verification
 
 ```sh
 cargo test -p arinn-platform-x11
+ARINN_XFCE_SESSION="$PWD/target/debug/arinn-xfce-session" python tests/package/test_xfce_session.py
 ARINN_XVFB=/absolute/path/to/Xvfb cargo test -p arinn-platform-x11 -- --include-ignored
 ARINN_PLATFORM_BACKEND=ewmh cargo test -p arinnd selected_adapter_owner_excludes_the_other_backend
 ```
@@ -160,6 +206,11 @@ manager invalidation, Home/Return and video/compositor/lock lifecycle. They incl
 not substitute for real-desktop operator tests, which require owner permission.
 
 The Arch Qt CI job installs Xvfb and runs the native tests with `--include-ignored`.
+The installed-package session check also runs the XFCE helper suite on a private
+D-Bus with a synthetic session owner and stub systemctl. It checks login ordering,
+missing LightDM variables, logout, signals, duplicate refusal, failed-start
+cleanup and refusal of incompatible/pre-existing sessions. No real user manager
+or desktop is contacted.
 Private-bus adapter and Qt tests cover all three lock endpoints, priority, signals
 and loss of the lock service.
 

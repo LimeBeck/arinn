@@ -103,5 +103,6 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0083](0083-managed-player-stop.md) | Terminate the managed player on Stop and retain its final frame | Proposed | — |
 | [0084](0084-favorites-contract.md) | Revision-guarded daemon-owned favorites | Accepted | — |
 | [0085](0085-anime-tv-season-markers.md) | Anime `TVn` season markers in library names | Accepted | — |
-| [0086](0086-automatic-master-prereleases.md) | Automatic master pre-releases and ordinary version-tag releases | Proposed | — |
+| [0086](0086-automatic-master-prereleases.md) | Automatic master pre-releases and ordinary version-tag releases | Proposed | 0088 |
+| [0088](0088-single-master-snapshot-retention.md) | Retain one verified master snapshot release | Proposed | — |
 <!-- register:end -->

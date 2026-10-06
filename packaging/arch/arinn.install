@@ -6,6 +6,8 @@ post_install() {
   echo '   for your user (KDE Plasma on Wayland), run:'
   echo '     systemctl --user enable arinn-session.target'
   echo '   and log in again. Disable with: systemctl --user disable arinn-session.target'
+  echo '   For XFCE/X11, copy /usr/share/arinn/autostart/org.arinn.XfceSession.desktop'
+  echo '   to ${XDG_CONFIG_HOME:-$HOME/.config}/autostart/ and log in again.'
 }
 
 post_upgrade() {
@@ -17,4 +19,6 @@ post_upgrade() {
 pre_remove() {
   echo ':: Users who enabled autostart should run before removal:'
   echo '     systemctl --user disable --now arinn-session.target'
+  echo '   XFCE users: remove the user copy of org.arinn.XfceSession.desktop'
+  echo '   from the XDG autostart directory and log out before removal.'
 }

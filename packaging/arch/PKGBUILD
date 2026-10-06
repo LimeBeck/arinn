@@ -55,6 +55,10 @@ package() {
   cd "${pkgname}-${pkgver}"
   local target="${CARGO_TARGET_DIR:-target}"
   install -Dm755 "${target}"/release/arinn-platform-x11 "${pkgdir}/usr/bin/arinn-platform-x11"
+  install -Dm755 "${target}"/release/arinn-xfce-session "${pkgdir}/usr/lib/arinn/arinn-xfce-session"
+  # Template only: users opt in by copying it to their XDG autostart directory.
+  install -Dm644 packaging/autostart/org.arinn.XfceSession.desktop \
+    "${pkgdir}/usr/share/arinn/autostart/org.arinn.XfceSession.desktop"
   install -Dm755 "${target}"/release/arinnd "${pkgdir}/usr/bin/arinnd"
   install -Dm755 "${target}"/release/arinnctl "${pkgdir}/usr/bin/arinnctl"
   install -Dm755 build/apps/arinn-shell/arinn-shell "${pkgdir}/usr/bin/arinn-shell"

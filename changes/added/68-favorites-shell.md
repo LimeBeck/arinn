@@ -1,0 +1,1 @@
+- Home now displays daemon-owned saved favorites in order. Hold Select on an application or favorite to pin/unpin it; missing favorites remain removable, and conflicts offer refresh without automatically retrying a write.

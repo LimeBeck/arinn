@@ -87,7 +87,10 @@ QDBusArgument &operator<<(QDBusArgument &a, const TargetWire &p) {
 const QDBusArgument &operator>>(const QDBusArgument &a, ShortcutWire &) {
   return a;
 }
-const QDBusArgument &operator>>(const QDBusArgument &a, TargetWire &) {
+const QDBusArgument &operator>>(const QDBusArgument &a, TargetWire &v) {
+  a.beginStructure();
+  a >> v.provider >> v.capability >> v.id;
+  a.endStructure();
   return a;
 }
 
@@ -112,6 +115,11 @@ public:
   QVariantList mutationArgs;
   int lists = 0;
   int providerCalls = 0;
+  QList<TargetWire> favorites;
+  qulonglong favoriteRevision = 1;
+  int favoriteWrites = 0;
+  QString favoriteFailure;
+  bool favoriteListError = false;
   QString introspect(const QString &) const override { return {}; }
   bool handleMessage(const QDBusMessage &m,
                      const QDBusConnection &bus) override {
@@ -150,11 +158,11 @@ public:
       a << (mode == "generation" && !first ? QString("stale")
                                            : QString("generation"))
         << qulonglong(mode == "revision" && !first ? 2 : 1)
-        << QList<AppWire>{
-               {first ? "first" : "second", first,
-                first ? "games" : "future-group",
-                first ? QStringLiteral("applications-games")
-                      : QStringLiteral("/usr/share/icons/hicolor/48x48/apps/fixture.png")}}
+        << QList<AppWire>{{first ? "first" : "second", first,
+                           first ? "games" : "future-group",
+                           first ? QStringLiteral("applications-games")
+                                 : QStringLiteral("/usr/share/icons/hicolor/"
+                                                  "48x48/apps/fixture.png")}}
         << QList<RunningWire>{{first ? "window-first" : "window-second"}}
         << (first || mode == "cycle" ? QString("next") : QString());
       a.endStructure();
@@ -170,6 +178,34 @@ public:
       invokedId = m.arguments().at(1).toString();
       bus.send(
           m.createErrorReply(QDBusError::Failed, "fixture operation failure"));
+      return true;
+    } else if (m.interface() == "org.arinn.Favorites1" &&
+               m.member() == "List") {
+      if (favoriteListError) {
+        bus.send(m.createErrorReply("org.arinn.Error.Unavailable", "fixture"));
+        return true;
+      }
+      a.beginStructure();
+      a << favoriteRevision << favorites;
+      a.endStructure();
+    } else if (m.interface() == "org.arinn.Favorites1" && m.member() == "Set") {
+      ++favoriteWrites;
+      if (!favoriteFailure.isEmpty() ||
+          m.arguments().first().toULongLong() != favoriteRevision) {
+        bus.send(
+            m.createErrorReply("org.arinn.Error." + (favoriteFailure.isEmpty()
+                                                         ? QString("Conflict")
+                                                         : favoriteFailure),
+                               "synthetic private payload"));
+        return true;
+      }
+      favorites = qdbus_cast<QList<TargetWire>>(m.arguments().at(1));
+      ++favoriteRevision;
+      bus.send(m.createReply(QVariant::fromValue(favoriteRevision)));
+      auto signal = QDBusMessage::createSignal(
+          "/org/arinn/Daemon1", "org.arinn.Favorites1", "Changed");
+      signal << favoriteRevision;
+      bus.send(signal);
       return true;
     } else if (m.member() == "List") {
       ++lists;
@@ -220,6 +256,82 @@ public:
 class CatalogTest : public QObject {
   Q_OBJECT
 private slots:
+  void savedFavoritesMutationAndUnavailableRetention() {
+    auto bus = QDBusConnection::sessionBus();
+    CatalogDaemon daemon;
+    daemon.mode = "populated";
+    daemon.shortcuts = {
+        {"saved-site", "Saved site", "https://example.test/saved", ""}};
+    QVERIFY(bus.registerService("org.arinn.Daemon1"));
+    QVERIFY(bus.registerVirtualObject("/org/arinn", &daemon,
+                                      QDBusConnection::SubPath));
+    {
+      Backend backend;
+      QTRY_VERIFY(backend.favoritesReady());
+      QTRY_COMPARE(backend.applications().size(), 3);
+      QVERIFY(backend.favorites().isEmpty());
+      const auto app =
+          backend.applications().first().toMap().value("id").toString();
+      backend.setFavorite(app, true);
+      backend.setFavorite(app, true);
+      QTRY_COMPARE(backend.favorites().size(), 1);
+      QCOMPARE(daemon.favoriteWrites, 1);
+      QCOMPARE(daemon.favorites.first().provider, QString("test"));
+      QCOMPARE(daemon.favorites.first().capability, QString("application"));
+      QCOMPARE(daemon.favorites.first().id, QString("first"));
+      QVERIFY(backend.applications().first().toMap().value("pinned").toBool());
+      backend.setFavorite("saved-site", true);
+      QTRY_COMPARE(backend.favorites().size(), 2);
+      QCOMPARE(backend.favorites().last().toMap().value("id").toString(),
+               QString("saved-site"));
+      // Read recovery is automatic and bounded; no mutation is retried.
+      daemon.favoriteListError = true;
+      backend.refresh(); QTRY_VERIFY(!backend.favoritesReady());
+      QCOMPARE(backend.favorites().size(), 2);
+      const int writesBeforeReadFailure = daemon.favoriteWrites;
+      daemon.favoriteListError = false;
+      QTRY_VERIFY_WITH_TIMEOUT(backend.favoritesReady(), 5000);
+      QCOMPARE(backend.favorites().size(), 2);
+      QCOMPARE(daemon.favoriteWrites, writesBeforeReadFailure);
+      daemon.favoriteFailure = "Conflict";
+      backend.setFavorite(app, false);
+      QTRY_VERIFY(!backend.favoriteError().isEmpty());
+      QTRY_VERIFY(!backend.favoriteSaving());
+      QCOMPARE(backend.favorites().size(), 2);
+      QVERIFY(!backend.favoriteError().contains("private payload"));
+      const int writes = daemon.favoriteWrites;
+      QTest::qWait(100);
+      QCOMPARE(daemon.favoriteWrites, writes);
+      daemon.favoriteFailure.clear();
+      daemon.mode = "empty";
+      backend.refresh();
+      QTRY_COMPARE(backend.applications().size(), 1);
+      QTRY_VERIFY(
+          backend.favorites().first().toMap().value("unavailable").toBool());
+      const auto missing =
+          backend.favorites().first().toMap().value("id").toString();
+      backend.setFavorite(missing, false);
+      QTRY_COMPARE(backend.favorites().size(), 1);
+      backend.setFavorite("saved-site", false);
+      QTRY_VERIFY(backend.favorites().isEmpty());
+      QVERIFY(daemon.favorites.isEmpty());
+      // Reject malformed/regressing snapshots without replacing the saved
+      // state.
+      daemon.favoriteRevision = 0;
+      backend.refresh();
+      QTRY_VERIFY(!backend.favoritesReady());
+      bus.unregisterService("org.arinn.Daemon1");
+      QTRY_VERIFY(!backend.connected());
+      daemon.favoriteRevision = 1;
+      daemon.favorites = {{"arinn", "web-shortcut", "saved-site"}};
+      QVERIFY(bus.registerService("org.arinn.Daemon1"));
+      QTRY_VERIFY(backend.favoritesReady());
+      QTRY_COMPARE(backend.favorites().size(), 1);
+    }
+    bus.unregisterObject("/org/arinn", QDBusConnection::UnregisterTree);
+    bus.unregisterService("org.arinn.Daemon1");
+  }
+
   void initTestCase() {
     qDBusRegisterMetaType<ProviderWire>();
     qDBusRegisterMetaType<AppWire>();
@@ -245,9 +357,8 @@ private slots:
     {
       Backend backend;
       QTRY_VERIFY(backend.connected());
-      const auto state = (mode == "populated" || mode == "partial") ? "ready"
-                         : mode == "empty"                          ? "empty"
-                                                                    : "error";
+      const auto state =
+          (mode == "populated" || mode == "empty") ? "empty" : "error";
       const auto applicationsState = mode == "populated" ? "ready"
                                      : mode == "empty"   ? "empty"
                                                          : "error";
@@ -278,16 +389,8 @@ private slots:
         }
         QCOMPARE(daemon.launches, 0);
         QCOMPARE(daemon.opens, 0);
-        // Shortcuts lead the Home row; application tiles follow them.
-        // applications() appends the same shortcuts under Online.
-        const auto shortcutCount = backend.webShortcuts().size();
-        QCOMPARE(backend.favorites().size(), backend.applications().size());
-        QCOMPARE(backend.favorites()
-                     .at(shortcutCount)
-                     .toMap()
-                     .value("id")
-                     .toString(),
-                 backend.applications().at(0).toMap().value("id").toString());
+        // An empty saved list never substitutes the installed catalog.
+        QVERIFY(backend.favorites().isEmpty());
         QSignalSpy changes(&backend, &Backend::applicationsChanged);
         backend.refresh();
         QTest::qWait(200);
@@ -300,7 +403,8 @@ private slots:
         QCOMPARE(daemon.launches, 1);
         QCOMPARE(daemon.opens, 0);
         QTRY_COMPARE(backend.message(), QString("fixture operation failure"));
-        // Return is a KWin internalId UUID, not an inventory generation:counter.
+        // Return is a KWin internalId UUID, not an inventory
+        // generation:counter.
         daemon.returnedWindow = "{aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa}";
         backend.refresh();
         QTRY_COMPARE(backend.continueEntries().size(), 1);
@@ -328,7 +432,7 @@ private slots:
         signal << qulonglong(3);
         QVERIFY(bus.send(signal));
         QTRY_COMPARE(backend.webShortcuts().size(), 1);
-        QCOMPARE(backend.homeState(), QString("ready"));
+        QCOMPARE(backend.homeState(), QString("error"));
         QCOMPARE(backend.applicationsState(), QString("error"));
         QCOMPARE(backend.applications().size(), 1);
         const auto online = backend.applications().at(0).toMap();
@@ -337,8 +441,7 @@ private slots:
         QVERIFY(online.value("webShortcut").toBool());
         QVERIFY(online.value("enabled").toBool());
         QVERIFY(!online.contains("url"));
-        QCOMPARE(backend.favorites().at(0).toMap().value("id").toString(),
-                 QString("keep"));
+        QVERIFY(backend.favorites().isEmpty());
         QCOMPARE(daemon.providerCalls, providersBefore);
         daemon.shortcuts.clear();
         daemon.shortcutRevision = 4;
@@ -531,7 +634,7 @@ private slots:
         for (const auto &value : map)
           QVERIFY(!value.toString().contains(QStringLiteral("example.test")));
       }
-      QCOMPARE(backend.homeState(), QString("ready"));
+      QCOMPARE(backend.homeState(), QString("empty"));
 
       QSignalSpy same(&backend, &Backend::webShortcutsChanged);
       backend.refresh();

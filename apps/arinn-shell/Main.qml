@@ -197,7 +197,7 @@ Window {
     // shortcut editor cover the library and settings screens, so they win.
     // Home's navigation menu opens over every screen but the player (#329).
     readonly property string focusedScreen: playerOpen ? "player"
-        : home.navOpen || home.shortcutEditorOpen ? "home"
+        : home.navOpen || home.shortcutEditorOpen || home.tileActionsOpen ? "home"
         : sessionOpen ? "session"
         : browseOpen ? "browse"
         : browserOpen ? "browser"
@@ -370,7 +370,7 @@ Window {
             focus: root.focusedScreen === "home"
             // The navigation menu is drawn above the section screens (z 4) and
             // Open services, Browse and Session (z 5), below the player (z 6).
-            z: navOpen ? 5.5 : 0
+            z: navOpen || tileActionsOpen ? 5.5 : 0
             coveredByScreen: libraryView.visible || settingsView.visible || downloadsView.visible
                 || browserView.visible || browseView.visible || sessionView.visible
             // Home remains painted beneath other screens, but its catalog
@@ -378,6 +378,11 @@ Window {
             enabled: root.focusedScreen === "home"
             objectName: "productionHome"
             visible: !root.playerOpen
+            actionsEnabled: backend.favoritesReady === true
+            favoriteSaving: backend.favoriteSaving === true
+            favoriteError: backend.favoriteError || ""
+            onFavoriteRequested: (entryId, pinned) => backend.setFavorite(entryId, pinned)
+            onTerminateRequested: entryId => backend.terminate(entryId)
             shortcutManagement: true
             keyboardAvailable: keyboardMonitor.available
             shortcutEditor: backend.shortcutEditor || ({})
@@ -404,7 +409,8 @@ Window {
             currentServiceSubtitle: backend.homeVisible && !returnIsWebService ? "" : (browserCatalog.presentedService.subtitle || "")
             browserUnavailable: browserCatalog.browserState === "unavailable"
             openShortcutIds: browserCatalog.openShortcutIds
-            homeState: backend.homeState
+            // Site or search remains available even with no saved favorites.
+            homeState: backend.homeState === "empty" ? "ready" : backend.homeState
             statusTitle: homeState === "unavailable" ? qsTr("Home is unavailable") : homeState === "loading" ? qsTr("Loading Home…") : homeState === "error" ? qsTr("Home could not be loaded") : qsTr("Your Home starts here")
             statusDescription: homeState === "empty" ? qsTr("No favorites are available yet.") : qsTr("Navigation remains available. Home reconnects automatically.")
             sectionDescription: screen === "applications" ? ((applicationEntries.length || runningEntries.length) ? qsTr("Choose an application or an open window.") : qsTr("No applications are available.")) : qsTr("This section is not available yet.")

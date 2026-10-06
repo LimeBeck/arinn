@@ -28,6 +28,9 @@ class Backend : public QObject {
   Q_PROPERTY(
       QVariantList webShortcuts READ webShortcuts NOTIFY webShortcutsChanged)
   Q_PROPERTY(QVariantList favorites READ favorites NOTIFY changed)
+  Q_PROPERTY(bool favoritesReady READ favoritesReady NOTIFY changed)
+  Q_PROPERTY(bool favoriteSaving READ favoriteSaving NOTIFY changed)
+  Q_PROPERTY(QString favoriteError READ favoriteError NOTIFY changed)
   Q_PROPERTY(QString homeState READ homeState NOTIFY changed)
   Q_PROPERTY(QString applicationsState READ applicationsState NOTIFY changed)
   Q_PROPERTY(QStringList busyEntryIds READ busyEntryIds NOTIFY changed)
@@ -47,6 +50,13 @@ public:
   QVariantList applications() const;
   QVariantList webShortcuts() const { return m_webShortcuts; }
   QVariantList favorites() const;
+  bool favoritesReady() const {
+    return m_favoritesLoaded && !m_favoritesError && m_connected;
+  }
+  bool favoriteSaving() const { return m_favoriteSaving; }
+  QString favoriteError() const { return m_favoriteError; }
+  Q_INVOKABLE void setFavorite(const QString &id, bool pinned);
+  Q_INVOKABLE void terminate(const QString &id);
   QString homeState() const;
   QString applicationsState() const;
   QStringList busyEntryIds() const { return m_pendingIds.values(); }
@@ -66,6 +76,7 @@ public slots:
 private slots:
   void reloadCatalog();
   void reloadShortcuts();
+  void reloadFavorites();
 signals:
   void changed();
   void itemsChanged();
@@ -75,6 +86,14 @@ signals:
   void screenRequested(const QString &name);
 
 private:
+  void readFavorites();
+  QVariantMap favoriteTarget(const QString &id) const;
+  bool isFavorite(const QVariantMap &target) const;
+  QVariantList m_favoriteTargets;
+  quint64 m_favoriteRevision = 0, m_favoriteTicket = 0;
+  bool m_favoritesLoaded = false, m_favoritesError = false,
+       m_favoritesRequested = false, m_favoriteSaving = false, m_favoriteReconcile = false;
+  QString m_favoriteError;
   void mutateShortcut(const char *method, const QVariantList &args);
   QHash<QString, QVariantMap> m_shortcutRecords;
   QVariantMap m_shortcutEditor;

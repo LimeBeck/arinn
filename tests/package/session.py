@@ -32,6 +32,17 @@ for name in ALL_NAMES:
 assert ADAPTER.is_file() and os.access(ADAPTER, os.X_OK), "missing KWin adapter loader"
 assert SCRIPT.is_file(), "missing KWin script"
 assert (PREFIX / "lib/arinn/arinn-shell-launch").is_file(), "missing shell launcher"
+XFCE = PREFIX / "lib/arinn/arinn-xfce-session"
+assert XFCE.is_file() and os.access(XFCE, os.X_OK), "missing XFCE session helper"
+template = PREFIX / "share/arinn/autostart/org.arinn.XfceSession.desktop"
+assert template.is_file(), "missing XFCE autostart template"
+xfce_entry = template.read_text()
+assert "OnlyShowIn=XFCE;" in xfce_entry
+assert "Exec=/usr/lib/arinn/arinn-xfce-session" in xfce_entry
+for directory in (PREFIX / "../etc/xdg/autostart", PREFIX / "etc/xdg/autostart"):
+    assert not (directory / template.name).exists(), "XFCE autostart enabled globally"
+subprocess.run(["python", str(Path(__file__).with_name("test_xfce_session.py"))],
+               env={**os.environ, "ARINN_XFCE_SESSION": str(XFCE)}, check=True, timeout=60)
 # Menu entry and icon (#289).
 OPEN = PREFIX / "lib/arinn/arinn-open"
 assert OPEN.is_file() and os.access(OPEN, os.X_OK), "missing arinn-open"

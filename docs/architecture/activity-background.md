@@ -104,8 +104,9 @@ released on invalidation; no runtime screenshot files are written or persisted.
 
 The first KDE producer remains WindowThumbnail of the exact verified window.
 A small trusted in-process C++ worker can copy the grab result and export sealed
-pixels asynchronously; Qt's grab URL is an in-process image key, not a transport
-file. No PNG encoding runs in the compositor callback. An X11 producer uses the
+pixels asynchronously, converting Qt premultiplied ARGB grab results to the
+contract's straight-alpha RGBA8888 in sRGB on the worker; Qt's grab URL is an
+in-process image key, not a transport file. No PNG encoding runs in the compositor callback. An X11 producer uses the
 same contract with platform-owned native capture; it is separate implementation
 work and cannot substitute a desktop/root capture for the selected window.
 Near/far rendering remains .95/.90 scale, blur 8/36 and .6/.32 brightness through

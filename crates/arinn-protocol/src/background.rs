@@ -15,6 +15,8 @@ use zbus::zvariant::{OwnedFd, Type};
 pub const MAX_WIDTH: u32 = 1920;
 pub const MAX_HEIGHT: u32 = 1080;
 pub const MAX_FRAME_BYTES: u64 = 8 * 1024 * 1024;
+/// Non-renewable runtime deadline enforced by the daemon and producer;
+/// structural metadata validation does not measure elapsed capture time.
 pub const CAPTURE_DEADLINE_MS: u64 = 1500;
 
 /// Every lifetime is explicit; none is inferred from a title or filename.

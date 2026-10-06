@@ -484,13 +484,6 @@ Required fields: `id`, `name`, `version`, `api_version`, `executable` (absolute 
 
 ---
 
-Optional daemon-root `Background1` and trusted `BackgroundCapture1` define the
-bounded frame handoff for the existing Activity background requirement (§12.3).
-They are not provider capabilities and change no existing method signatures.
-See [ADR-0087](../adr/0087-bounded-activity-background-frames.md) and the
-[background contract](../architecture/activity-background.md). Contract preparation
-alone does not imply production capture or close G-5.2.
-
 ## 10. Activity model
 
 An **Activity** is what the user is doing right now: a Chrome tab, a Steam game, ES-DE, movie playback. An Activity is not necessarily an Application (Chrome is an application; a YouTube tab is an activity). Activities let Home show a meaningful Continue instead of a process list.
@@ -574,7 +567,14 @@ When Home opens, the platform remembers the Activity window and its output; the 
 
 ### 12.3. Activity background
 
-The receded Activity behind Home uses the last frame of the Activity window, captured by the trusted KWin component with `WindowThumbnail`, exported as a bounded frame to a private runtime directory and rendered by the shell (near: scale .95, blur 8, brightness .6; far: scale .90, blur 36, brightness .32). The snapshot is bound to generation + Activity + Home request and is invalidated on Return, Activity change, lock/sleep or provider/daemon loss. The UI never waits for the frame before local focus ([ADR-0027](../adr/0027-activity-background-snapshot.md)).
+The receded Activity behind Home uses the last frame of the Activity window, captured by the trusted KWin component with `WindowThumbnail`, handed off through the daemon as a bounded immutable sealed memfd and rendered by the shell (near: scale .95, blur 8, brightness .6; far: scale .90, blur 36, brightness .32). The snapshot is bound to generation + Activity + Home request and is invalidated on Return, Activity change, lock/sleep or provider/daemon loss. The UI never waits for the frame before local focus ([ADR-0027](../adr/0027-activity-background-snapshot.md), amended by [ADR-0087](../adr/0087-bounded-activity-background-frames.md) for the descriptor handoff). No runtime screenshot files are written or persisted.
+
+Optional daemon-root `Background1` and trusted `BackgroundCapture1` define the
+bounded frame handoff for this Activity background requirement.
+They are not provider capabilities and change no existing method signatures.
+See [ADR-0087](../adr/0087-bounded-activity-background-frames.md) and the
+[background contract](../architecture/activity-background.md). Contract preparation
+alone does not imply production capture or close G-5.2.
 
 ### 12.4. Session lifecycle
 

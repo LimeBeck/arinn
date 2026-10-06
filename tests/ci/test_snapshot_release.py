@@ -254,6 +254,22 @@ class RetentionTest(unittest.TestCase):
         self.assertEqual(api.writes,[("DELETE","/releases/1",None)])
         self.assertEqual([row["id"] for row in api.rows],[2])
 
+    def test_unverified_newer_release_cannot_discard_usable_older_draft(self):
+        api=RetentionAPI([channel_release(1,SHA,self.assets,draft=True),self.latest],[SHA,self.new])
+        api.rows[1]["assets"][0]["state"]="new"
+        with self.assertRaises(ValueError):
+            snapshot.prepare(api,SHA,"fixture/arinn",TAG,self.dist)
+        self.assertEqual(api.writes,[])
+        metadata={"sha":SHA,"tag":TAG,"assets":self.assets}
+        with self.assertRaises(ValueError):snapshot.publish(api,metadata,"1")
+        self.assertEqual(api.writes,[])
+        self.assertTrue(api.rows[0]["draft"])
+
+    def test_owner_changed_obsolete_draft_is_protected(self):
+        api=RetentionAPI([channel_release(1,SHA,self.assets,draft=True,prerelease=False),self.latest],[SHA,self.new])
+        with self.assertRaises(ValueError):snapshot.publish(api,{"sha":SHA,"tag":TAG,"assets":self.assets},"1")
+        self.assertEqual(api.writes,[])
+
     def test_checksum_content_and_redirect_authentication(self):
         api=RetentionAPI([self.old,self.latest],[SHA,self.new])
         api.asset_bytes=lambda asset_id:b"corrupt checksum bytes"

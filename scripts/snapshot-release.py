@@ -180,13 +180,14 @@ def superseded(api, sha):
     status = relation(api, sha, release_sha(newest))
     if status == "diverged":
         raise ValueError("Snapshot history is ambiguous")
-    return status == "ahead"
+    if status == "ahead":
+        verified_keeper(api, newest)
+        return True
+    return False
 
 
-def prune(api):
-    snapshots, keeper = channel(api)
-    if keeper is None:
-        return None
+
+def verified_keeper(api, keeper):
     # Re-read the keeper and verify usable assets before deleting any fallback.
     live = api.request("GET", "/releases/" + str(keeper["id"]))
     if not live or release_sha(live) != release_sha(keeper) or live.get("id") != keeper["id"]:
@@ -215,6 +216,14 @@ def prune(api):
     if set(expected) != set(names) - {"SHA256SUMS"} or any(asset["digest"] != expected[asset["name"]] for asset in assets if asset["name"] != "SHA256SUMS"):
         raise ValueError("Snapshot keeper checksum manifest disagrees")
     check_tag(api, live["tag_name"], release_sha(live), required=True)
+    return live
+
+
+def prune(api):
+    snapshots, keeper = channel(api)
+    if keeper is None:
+        return None
+    live = verified_keeper(api, keeper)
     for candidate in snapshots:
         if candidate["id"] == keeper["id"]:
             continue
@@ -266,6 +275,8 @@ def publish(api, metadata, release_id=None):
             if owned and owned.get("tag_name") != metadata["tag"]:
                 raise ValueError("Release points to another snapshot tag")
             if owned and owned.get("draft") is True:
+                if owned.get("prerelease") is not True or str(owned.get("id")) != release_id:
+                    raise ValueError("Obsolete draft identity changed")
                 api.request("DELETE", "/releases/" + release_id)
         prune(api)
         return

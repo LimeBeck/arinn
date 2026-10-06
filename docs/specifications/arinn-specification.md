@@ -636,6 +636,7 @@ The visual direction is **Quiet Spatial OS** — "Calm OS → Cinematic Content"
 
 - logical canvas 1920×1080, uniform scale `min(vw/1920, vh/1080)`, safe area from the handoff;
 - Onest and Material Symbols Rounded; text ≥ 24, action-critical text ≥ 26; tabular numerals; room for Russian labels ~30% longer;
+- interface language: Russian through Qt translations, following the system locale; English strings in the code are the source and the fallback for other locales. Owner decision on 2026-10-06 ([#363](https://github.com/LimeBeck/arinn/issues/363)); the handoff copy is the reference wording. Provider-supplied text (titles, setting names, error messages from plugins) is shown as delivered;
 - Ember `#FF8A3D` marks status, progress and brand only, never focus;
 - light field keyed to artwork hue, crossfaded over 900 ms, can be disabled, absent on system screens;
 - all tokens, radii, elevation and motion timings as in the handoff and Design System v2;

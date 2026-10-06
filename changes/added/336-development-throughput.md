@@ -1,0 +1,1 @@
+- Add a source-backed throughput proposal including reproduced Settings identity/i64 correctness gaps, shared-file/build repetition evidence, updated scenario dependencies and owner-controlled measurement pilots; no process or runtime change is adopted.

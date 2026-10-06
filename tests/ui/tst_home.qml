@@ -102,6 +102,18 @@ TestCase {
         tryCompare(home,"tileActionsOpen",false);
         terminations.target = null;
     }
+    function test_favorite_read_failure_preserves_visible_action_focus() {
+        home.actionsEnabled = true;
+        home.favoriteEntries = [{id: "f", title: "Favorite", pinned: true, providerId: "fixture"}];
+        home.openTileActions("f"); focused("favoriteAction");
+        home.favoriteError = "Favorites unavailable. Refresh the list before editing.";
+        home.actionsEnabled = false;
+        focused("favoriteRefresh");
+        verify(child("favoriteRefresh").visible && child("favoriteRefresh").enabled);
+        home.actionsEnabled = true; home.favoriteError = "";
+        focused("favoriteAction");
+        keyClick(Qt.Key_Back); tryCompare(home,"tileActionsOpen",false);
+    }
     function init() { createHome(); }
     function cleanup() {
         closes.target = null;

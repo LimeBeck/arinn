@@ -81,6 +81,21 @@ FocusScope {
     readonly property var actionEntry: entryById(actionEntryId) || ({})
     signal favoriteRequested(string entryId, bool pinned)
     signal terminateRequested(string entryId)
+    function restoreActionFocus() {
+        if (confirmAppClose) Focus.take(closeAppCancel);
+        else if (actionsEnabled) Focus.take(favoriteAction);
+        else if (favoriteRefresh.visible && favoriteRefresh.enabled) Focus.take(favoriteRefresh);
+        else Focus.take(actionCancel);
+    }
+    function settleActionFocus() {
+        if (!tileActionsOpen || !root.Window.window) return;
+        const item = root.Window.window.activeFocusItem;
+        if (item && item.visible && item.enabled && item !== tileActions && item !== root
+                && item !== root.Window.window.contentItem) return;
+        restoreActionFocus();
+    }
+    onActionsEnabledChanged: Qt.callLater(settleActionFocus)
+    onFavoriteErrorChanged: Qt.callLater(settleActionFocus)
     function openTileActions(entryId) {
         const entry = entryById(entryId);
         if (!actionsEnabled || !entry || !entry.providerId) return;
@@ -225,7 +240,7 @@ FocusScope {
     // Focus whatever Home shows on top: the shortcut editor, the open
     // navigation menu or the current section.
     function restoreFocus() {
-        if (tileActionsOpen) Focus.take(favoriteAction);
+        if (tileActionsOpen) restoreActionFocus();
         else if (shortcutEditorOpen) Focus.take(shortcutCancel);
         else if (navOpen && navItems.itemAt(navIndex)) Focus.take(navItems.itemAt(navIndex));
         else restoreScreen();

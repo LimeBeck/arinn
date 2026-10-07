@@ -1,0 +1,78 @@
+#!/usr/bin/make -f
+# SPDX-FileCopyrightText: 2026 Arinn contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+export DH_VERBOSE = 1
+export RUSTUP_TOOLCHAIN = stable
+export CARGO_TARGET_DIR ?= $(CURDIR)/target
+
+%:
+	dh $@
+
+override_dh_auto_configure:
+	find . -type f -exec touch -c {} +
+	cargo fetch --locked --target $$(rustc --print host-tuple)
+
+override_dh_auto_build:
+	cargo build --frozen --release
+	cargo build --frozen --release --example private-systemd
+	cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+	cmake --build build
+
+override_dh_auto_test:
+ifeq (nocheck,$(findstring nocheck,$(DEB_BUILD_OPTIONS)))
+	@echo "Skipping cargo test (DEB_BUILD_OPTIONS=nocheck)"
+else
+	cargo test --frozen --release
+endif
+
+override_dh_auto_install:
+	install -Dm755 "$(CARGO_TARGET_DIR)"/release/arinn-platform-x11 debian/arinn/usr/bin/arinn-platform-x11
+	install -Dm755 "$(CARGO_TARGET_DIR)"/release/arinn-xfce-session debian/arinn/usr/lib/arinn/arinn-xfce-session
+	install -Dm644 packaging/autostart/org.arinn.XfceSession.desktop \
+		debian/arinn/usr/share/arinn/autostart/org.arinn.XfceSession.desktop
+	install -Dm755 "$(CARGO_TARGET_DIR)"/release/arinnd debian/arinn/usr/bin/arinnd
+	install -Dm755 "$(CARGO_TARGET_DIR)"/release/arinnctl debian/arinn/usr/bin/arinnctl
+	install -Dm755 build/apps/arinn-shell/arinn-shell debian/arinn/usr/bin/arinn-shell
+	install -Dm755 "$(CARGO_TARGET_DIR)"/release/arinn-plugin-demo debian/arinn/usr/lib/arinn/plugins/arinn-plugin-demo
+	install -Dm755 "$(CARGO_TARGET_DIR)"/release/arinn-plugin-desktop debian/arinn/usr/lib/arinn/plugins/arinn-plugin-desktop
+	install -Dm644 plugins/desktop/desktop.toml debian/arinn/usr/share/arinn/plugins/desktop.toml
+	install -Dm644 plugins/demo/demo.toml debian/arinn/usr/share/arinn/plugins/demo.toml
+	install -Dm755 "$(CARGO_TARGET_DIR)"/release/arinn-plugin-mpris debian/arinn/usr/lib/arinn/plugins/arinn-plugin-mpris
+	install -Dm644 plugins/mpris/mpris.toml debian/arinn/usr/share/arinn/plugins/mpris.toml
+	install -Dm755 "$(CARGO_TARGET_DIR)"/release/arinn-plugin-library debian/arinn/usr/lib/arinn/plugins/arinn-plugin-library
+	install -Dm644 plugins/library/library.toml debian/arinn/usr/share/arinn/plugins/library.toml
+	install -Dm755 "$(CARGO_TARGET_DIR)"/release/arinn-plugin-mpv debian/arinn/usr/lib/arinn/plugins/arinn-plugin-mpv
+	install -Dm644 plugins/mpv/mpv.toml debian/arinn/usr/share/arinn/plugins/mpv.toml
+	install -Dm755 "$(CARGO_TARGET_DIR)"/release/arinn-plugin-transmission debian/arinn/usr/lib/arinn/plugins/arinn-plugin-transmission
+	install -Dm644 plugins/transmission/transmission.toml debian/arinn/usr/share/arinn/plugins/transmission.toml
+	install -Dm755 "$(CARGO_TARGET_DIR)"/release/arinn-plugin-chrome debian/arinn/usr/lib/arinn/plugins/arinn-plugin-chrome
+	install -Dm644 plugins/chrome/chrome.toml debian/arinn/usr/share/arinn/plugins/chrome.toml
+	install -Dm755 "$(CARGO_TARGET_DIR)"/release/arinn-chrome-host debian/arinn/usr/lib/arinn/arinn-chrome-host
+	install -Dm644 packaging/chrome/org.arinn.chrome_host.json \
+		debian/arinn/etc/opt/chrome/native-messaging-hosts/org.arinn.chrome_host.json
+	install -Dm644 packaging/chrome/org.arinn.chrome_host.json \
+		debian/arinn/etc/chromium/native-messaging-hosts/org.arinn.chrome_host.json
+	install -Dm644 plugins/chrome/extension/manifest.json plugins/chrome/extension/background.js \
+		-t debian/arinn/usr/share/arinn/chrome-extension/
+	install -Dm644 packaging/web-shortcuts/web-shortcuts.toml debian/arinn/usr/share/arinn/web-shortcuts.toml
+	install -Dm644 packaging/browser/browser-applications.toml debian/arinn/usr/share/arinn/browser-applications.toml
+	install -Dm644 packaging/browser/search-engines.toml debian/arinn/usr/share/arinn/search-engines.toml
+	install -Dm644 platform/kde/phase0.js debian/arinn/usr/share/arinn/kwin/phase0.js
+	install -Dm755 platform/kde/arinn-kwin-adapter debian/arinn/usr/lib/arinn/arinn-kwin-adapter
+	install -Dm755 platform/kde/arinn-shell-launch debian/arinn/usr/lib/arinn/arinn-shell-launch
+	install -Dm755 packaging/bin/arinn-open debian/arinn/usr/lib/arinn/arinn-open
+	install -Dm644 packaging/desktop/org.arinn.Shell.desktop debian/arinn/usr/share/applications/org.arinn.Shell.desktop
+	install -Dm644 packaging/icons/org.arinn.Shell.svg \
+		debian/arinn/usr/share/icons/hicolor/scalable/apps/org.arinn.Shell.svg
+	install -Dm644 packaging/systemd/arinn-session.target packaging/systemd/arinnd.service \
+		packaging/systemd/arinn-shell.service packaging/systemd/arinn-kwin.service \
+		packaging/systemd/arinn-ewmh.service packaging/systemd/arinn-ewmh-session.target \
+		-t debian/arinn/usr/lib/systemd/user/
+	install -Dm644 README.md CHANGELOG.md -t debian/arinn/usr/share/doc/arinn/
+	install -Dm644 build/observability/native/licenses/*-LICENSE -t debian/arinn/usr/share/licenses/arinn/
+	install -Dm644 LICENSES/*.txt -t debian/arinn/usr/share/licenses/arinn/
+
+override_dh_dwz:
+	:

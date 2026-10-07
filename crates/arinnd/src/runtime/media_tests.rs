@@ -1366,3 +1366,60 @@ fn rejection_records_carry_the_logging_schema() {
     assert_eq!(record["duration_ms"], 1500);
     assert_eq!(record["reason"], "no_matching_window");
 }
+
+#[tokio::test]
+async fn refusals_before_admission_are_logged_with_a_reason() {
+    let f = Fixture::new().await;
+    let caller = f.client.unique_name().unwrap().to_string();
+    let reused = rid();
+    f.core
+        .operations
+        .admit(
+            &f.core.connection,
+            &caller,
+            &reused,
+            "another-request",
+            "mpv",
+            Label::default(),
+        )
+        .await
+        .unwrap();
+    let logged = |expected: usize| {
+        LOGGED_REJECTIONS.with(|logged| {
+            let logged = logged.borrow();
+            assert_eq!(logged.len(), expected, "{logged:?}");
+            logged.last().cloned().unwrap()
+        })
+    };
+    // A request ID reused for a different Present.
+    assert_eq!(
+        f.core
+            .playback_command("mpv", &f.generation, "s1", &reused, &caller, true)
+            .await
+            .unwrap_err(),
+        ErrorCode::Conflict
+    );
+    let record = logged(1);
+    assert_eq!(record["reason"], "request_reused");
+    assert_eq!(record["request_id"], reused.as_str());
+    // An invalid session ID.
+    assert_eq!(
+        f.core
+            .playback_command("mpv", &f.generation, "", &rid(), &caller, false)
+            .await
+            .unwrap_err(),
+        ErrorCode::InvalidArgument
+    );
+    assert_eq!(logged(2)["reason"], "invalid_request");
+    // An invalid request ID is caller text and is never logged.
+    assert_eq!(
+        f.core
+            .playback_command("mpv", &f.generation, "s1", "Private Title", &caller, true)
+            .await
+            .unwrap_err(),
+        ErrorCode::InvalidArgument
+    );
+    let record = logged(3);
+    assert_eq!(record["reason"], "invalid_request");
+    assert_eq!(record["request_id"], "");
+}

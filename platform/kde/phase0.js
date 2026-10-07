@@ -20,7 +20,9 @@ let homeOutput = "";
 let daemonOwner = "";
 let mediaSupported = false;
 let playbackGuardAt = 0, playbackGuardSerial = 0;
-let mediaSerial = 0;
+// mediaSerial changes with playback; mediaPollSerial only marks which media poll
+// owns the slot, so a stale-poll reset never cancels a command (#369).
+let mediaSerial = 0, mediaPollSerial = 0;
 let mediaControllingAt = 0;
 let mediaReportingAt = 0;
 let lastMediaReport = "";
@@ -576,9 +578,9 @@ function pollMediaControl() {
     if (!mediaSupported || !platformGeneration) return;
     const now = Date.now();
     if (mediaReportingAt && now - mediaReportingAt > 3000) { mediaReportingAt = 0; lastMediaReport = ""; }
-    if (mediaControllingAt && now - mediaControllingAt > 1500) { ++mediaSerial; mediaControllingAt = 0; }
+    if (mediaControllingAt && now - mediaControllingAt > 1500) { ++mediaPollSerial; mediaControllingAt = 0; }
     if (mediaControllingAt) return;
-    const serial = ++mediaSerial, inventory = inventorySerial, generation = platformGeneration, owner = daemonOwner;
+    const serial = mediaSerial, poll = ++mediaPollSerial, inventory = inventorySerial, generation = platformGeneration, owner = daemonOwner;
     mediaControllingAt = now;
     mediaBridge("NextControl", generation, reply => {
         if (inventory !== inventorySerial || owner !== daemonOwner) return;
@@ -595,13 +597,17 @@ function pollMediaControl() {
             }
             return;
         }
-        if (!command || command.some(part => typeof part !== "string") || (command.length !== 0 && (command.length !== 3 || !["present", "release"].includes(command[1])))) { mediaControllingAt = 0; return; }
-        if (!command.length) { mediaControllingAt = 0; return; }
+        // An empty or invalid reply frees the slot only while this poll owns it.
+        if (!command || command.some(part => typeof part !== "string") || (command.length !== 0 && (command.length !== 3 || !["present", "release"].includes(command[1])))) { if (poll === mediaPollSerial) mediaControllingAt = 0; return; }
+        if (!command.length) { if (poll === mediaPollSerial) mediaControllingAt = 0; return; }
         // The daemon long-polls for up to a second before it hands over a
         // command. Freshness counts from receipt, and the stale-poll reset must
         // not drop a command this script now owns: the daemon would wait for
         // its completion until the operation times out (#369).
+        // A command from a poll the stale-poll reset already replaced is still
+        // presented; it takes the slot so the newer poll cannot free it.
         const received = Date.now();
+        ++mediaPollSerial;
         mediaControllingAt = received;
         // The daemon's request ID (a UUID it generated) and time since receipt.
         const traced = (outcome, reason, error) => ({ outcome, reason, error,

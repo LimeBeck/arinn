@@ -777,7 +777,18 @@ impl Core {
     ) -> Result<OwnedObjectPath, ErrorCode> {
         use arinn_protocol::media_window;
         let started = std::time::Instant::now();
-        media_window::validate_session(generation, session)?;
+        let kind = if present {
+            "media.present"
+        } else {
+            "media.release"
+        };
+        // Every refusal from here to admission is logged with its reason.
+        let rejected = |error: ErrorCode, reason: &'static str| {
+            log_rejection(id, request_id, kind, error, reason, started.elapsed());
+            error
+        };
+        media_window::validate_session(generation, session)
+            .map_err(|e| rejected(e, "invalid_request"))?;
         let fence_key = (id.to_owned(), generation.to_owned(), session.to_owned());
         // Capture ordering before any admission/provider/platform awaits.
         let present_fence = if present {
@@ -796,20 +807,20 @@ impl Core {
         if let Some(path) = self
             .operations
             .existing(caller, request_id, &fingerprint)
-            .await?
+            .await
+            .map_err(|e| {
+                rejected(
+                    e,
+                    if e == ErrorCode::Conflict {
+                        "request_reused"
+                    } else {
+                        "invalid_request"
+                    },
+                )
+            })?
         {
             return Ok(path);
         }
-        let kind = if present {
-            "media.present"
-        } else {
-            "media.release"
-        };
-        // Every refusal from here to admission is logged with its reason.
-        let rejected = |error: ErrorCode, reason: &'static str| {
-            log_rejection(id, request_id, kind, error, reason, started.elapsed());
-            error
-        };
         let owner = self
             .media_target(id, generation, session, media_window::FEATURE)
             .await
@@ -1008,10 +1019,16 @@ fn log_rejection(
     reason: &'static str,
     elapsed: Duration,
 ) {
-    eprintln!(
-        "{}",
-        rejection_record(provider_id, request_id, kind, error, reason, elapsed)
-    );
+    let record = rejection_record(provider_id, request_id, kind, error, reason, elapsed);
+    #[cfg(test)]
+    LOGGED_REJECTIONS.with(|logged| logged.borrow_mut().push(record.clone()));
+    eprintln!("{record}");
+}
+#[cfg(test)]
+thread_local! {
+    /// Rejection records logged on this thread, for tests.
+    pub(super) static LOGGED_REJECTIONS: std::cell::RefCell<Vec<serde_json::Value>> =
+        const { std::cell::RefCell::new(Vec::new()) };
 }
 /// The §14.1 structured record of a refused Present or Release.
 pub(super) fn rejection_record(
@@ -1022,6 +1039,12 @@ pub(super) fn rejection_record(
     reason: &'static str,
     elapsed: Duration,
 ) -> serde_json::Value {
+    // A refused request ID may be any caller text; only a UUID is logged.
+    let request_id = if uuid::Uuid::parse_str(request_id).is_ok() {
+        request_id
+    } else {
+        ""
+    };
     serde_json::json!({"level":"info","component":"arinnd","provider_id":provider_id,"request_id":request_id,"operation":"rejected","kind":kind,"error":error.to_string(),"reason":reason,"duration_ms":elapsed.as_millis().min(u64::MAX as u128) as u64})
 }
 /// The normalized reason of a failed Present or Release, from the platform

@@ -114,10 +114,19 @@ Window {
         mediaCatalog.select(entryId);
         applyMediaSurface();
     }
-    // One info line when playback does not get the player (#369). Fixed state
-    // names only: never a title, session id or window identity.
+    // One structured info record when playback does not get the player (#369),
+    // with the specification §14.1 fields. Fixed state names only: never a
+    // title, session id or window identity.
     function logMediaSurface(surface, reason) {
-        console.info("arinn-shell media surface " + JSON.stringify({
+        const failed = surface === "home";
+        console.info(JSON.stringify({
+            level: "info",
+            component: "arinn-shell",
+            provider_id: null,
+            request_id: null,
+            operation: "media.surface",
+            duration_ms: null,
+            error: failed ? mediaCatalog.presentationState : null,
             surface: surface,
             reason: reason,
             presentationState: mediaCatalog.presentationState,

@@ -741,3 +741,15 @@ test('a late answer to a superseded command keeps the newer poll in flight', () 
     f.mediaIdle(); f.controls.at(-1)([]); f.advance(1000); f.refresh();
     assert.equal(f.mediaPolls.count, polls + 1, 'polling continues after the newer poll answers');
 });
+test('a command delivered to a poll that playback outdated is answered Cancelled', () => {
+    const {f, token} = managedFixture();
+    f.media('present', token); f.refresh();
+    const acks = f.mediaAcks.length;
+    // Focus moves away while the next poll waits: playback is released.
+    const other = f.window('other', 'editor'); f.add(other);
+    f.workspace.activeWindow = other; f.workspace.windowActivated.emit(other);
+    f.media('present', token);
+    assert.equal(f.mediaAcks.length, acks + 1, 'the daemon gets an answer instead of waiting for its deadline');
+    assert.equal(f.mediaAcks.at(-1)[2], 'Cancelled');
+    assert.equal(f.home.keepAbove, false);
+});

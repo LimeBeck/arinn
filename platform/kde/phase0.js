@@ -578,8 +578,20 @@ function pollMediaControl() {
     const serial = ++mediaSerial, inventory = inventorySerial, generation = platformGeneration, owner = daemonOwner;
     mediaControllingAt = now;
     mediaBridge("NextControl", generation, reply => {
-        if (serial !== mediaSerial || inventory !== inventorySerial || owner !== daemonOwner) return;
+        if (inventory !== inventorySerial || owner !== daemonOwner) return;
         const command = stringList(reply);
+        if (serial !== mediaSerial) {
+            // Playback changed while this poll waited. A command it still
+            // received is answered, never dropped: the daemon would otherwise
+            // wait for its deadline (#369).
+            if (command && command.length === 3 && command.every(part => typeof part === "string") &&
+                ["present", "release"].includes(command[1])) {
+                diagnose("debug", "media." + command[1], { outcome: "cancelled", reason: "playback_changed",
+                    error: "Cancelled", request_id: command[0], duration_ms: 0 });
+                mediaBridge("CompleteControl", generation, command[0], "Cancelled", () => {});
+            }
+            return;
+        }
         if (!command || command.some(part => typeof part !== "string") || (command.length !== 0 && (command.length !== 3 || !["present", "release"].includes(command[1])))) { mediaControllingAt = 0; return; }
         if (!command.length) { mediaControllingAt = 0; return; }
         // The daemon long-polls for up to a second before it hands over a

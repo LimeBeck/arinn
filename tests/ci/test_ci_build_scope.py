@@ -114,9 +114,17 @@ class BuildJobTest(unittest.TestCase):
         job = jobs()["build"]
         save = job[job.index("Save compiler cache"):]
         condition = value(save, "if")
-        for event, saved in (("pull_request", False), ("push", True), ("schedule", True)):
-            with self.subTest(event=event):
-                self.assertEqual(bool(evaluate(condition, event_name=event)), saved)
+        cases = {
+            ("pull_request", "refs/pull/1/merge"): False,
+            ("push", "refs/heads/master"): True,
+            ("schedule", "refs/heads/master"): True,
+            ("workflow_dispatch", "refs/heads/master"): False,
+            # release.yml calls CI from a tag push.
+            ("push", "refs/tags/v1.0.0"): False,
+        }
+        for (event, ref), saved in cases.items():
+            with self.subTest(event=event, ref=ref):
+                self.assertEqual(bool(evaluate(condition, event_name=event, ref=ref)), saved)
 
 
 class ConcurrencyTest(unittest.TestCase):

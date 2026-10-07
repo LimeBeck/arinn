@@ -100,9 +100,9 @@ jobs:
           cmake --build build
           ccache --show-stats
       - name: Save compiler cache
-        # Pull request caches are visible only to that pull request; master
-        # and the nightly keep one shared cache warm.
-        if: ${{ github.event_name != 'pull_request' }}
+        # Pull request and tag caches are visible only to their own ref;
+        # master pushes and the nightly keep one shared cache warm.
+        if: ${{ github.event_name == 'schedule' || (github.event_name == 'push' && github.ref == 'refs/heads/master') }}
         uses: actions/cache/save@v4
         with:
           path: .ccache

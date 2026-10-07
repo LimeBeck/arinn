@@ -186,7 +186,7 @@ A Present or Release refused before it becomes an operation logs `"operation":"r
 - `capacity_exhausted`;
 - `admission_refused`.
 
-**Shell.** `Main.qml` prints one structured info record with the §14.1 fields (`component: "arinn-shell"`, `operation: "media.surface"`, `error` set to the presentation state when a presentation failed, otherwise `null`) in two cases:
+**Shell.** `MediaCatalog::logSurface` writes one JSON line directly to stderr, bypassing Qt logging so no category prefix breaks it. The line is a structured info record with the §14.1 fields (`component: "arinn-shell"`, `operation: "media.surface"`, `error` set to the presentation state when a presentation failed, otherwise `null`) in two cases:
 - It opens the session card instead of the player: `surface: "session"`, reason `no_player_features` or `session_not_ready`.
 - A presentation fails: `surface: "home"`, reason `presentation_failed`.
 

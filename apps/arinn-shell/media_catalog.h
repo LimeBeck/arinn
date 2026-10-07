@@ -65,6 +65,13 @@ public:
   Q_INVOKABLE void release();
   Q_INVOKABLE void abandonPresentation();
   Q_INVOKABLE void requestHome();
+  // One specification §14.1 JSON line on stderr when playback does not get the
+  // player (#369). Written directly, not through Qt logging, so the line stays
+  // parseable JSON. Fixed names only: never a title, session id or window.
+  Q_INVOKABLE void logSurface(const QString &surface, const QString &reason) const;
+  static QByteArray surfaceRecord(const QString &surface, const QString &reason,
+                                  const QString &presentation, const QString &session,
+                                  bool inputLayer, bool windowAvailable);
   // For a stopped session that plays a library item: {provider, local} of
   // that item, so Continue resumes it through the library (#247). Empty
   // otherwise: a stopped managed session cannot be presented again.

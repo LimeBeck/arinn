@@ -114,26 +114,9 @@ Window {
         mediaCatalog.select(entryId);
         applyMediaSurface();
     }
-    // One structured info record when playback does not get the player (#369),
-    // with the specification §14.1 fields. Fixed state names only: never a
-    // title, session id or window identity.
+    // One structured §14.1 record when playback does not get the player (#369).
     function logMediaSurface(surface, reason) {
-        const failed = surface === "home";
-        console.info(JSON.stringify({
-            level: "info",
-            component: "arinn-shell",
-            provider_id: null,
-            request_id: null,
-            operation: "media.surface",
-            duration_ms: null,
-            error: failed ? mediaCatalog.presentationState : null,
-            surface: surface,
-            reason: reason,
-            presentationState: mediaCatalog.presentationState,
-            sessionState: mediaCatalog.sessionState,
-            inputLayer: mediaCatalog.inputLayerActive,
-            windowAvailable: mediaCatalog.windowAvailable
-        }));
+        mediaCatalog.logSurface(surface, reason);
     }
     function applyMediaSurface() {
         // Rich flags select the OSD. A library launch whose session is not

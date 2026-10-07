@@ -339,3 +339,12 @@ checks, bounded public-HTTPS discovery, local cache and raster-image limits.
 Contract-only preparation: production fetching, routing and rendering remain
 dependent work. Missing support retains the monogram; installed-app icons remain
 under ADR-0059.
+
+### Optional Activity background transport
+
+[Background1](background1.xml) and [BackgroundCapture1](background-capture1.xml)
+are optional daemon-root metadata/frame and selected-platform publisher interfaces,
+not provider capabilities. [ADR-0087](../adr/0087-bounded-activity-background-frames.md)
+and the [background contract](../architecture/activity-background.md) define
+identity, immutable descriptor bounds, authorization and invalidation. Contract
+only: production capture, export and shell binding remain #149 dependent work.

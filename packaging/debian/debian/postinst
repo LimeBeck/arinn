@@ -1,0 +1,21 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: 2026 Arinn contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+set -e
+
+case "$1" in
+  configure)
+    echo 'Arinn does not start automatically. To start it after every login'
+    echo 'for your user (KDE Plasma on Wayland), run:'
+    echo '  systemctl --user enable arinn-session.target'
+    echo 'and log in again. Disable with: systemctl --user disable arinn-session.target'
+    echo 'For XFCE/X11, copy /usr/share/arinn/autostart/org.arinn.XfceSession.desktop'
+    echo 'to ${XDG_CONFIG_HOME:-$HOME/.config}/autostart/ and log in again.'
+    ;;
+esac
+
+#DEBHELPER#
+
+exit 0

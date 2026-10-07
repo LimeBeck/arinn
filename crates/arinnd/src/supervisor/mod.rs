@@ -79,12 +79,16 @@ impl Supervision {
 
 #[derive(Clone)]
 pub struct Supervisor {
+    connection: Connection,
     supervision: Arc<Supervision>,
 }
 
 impl Supervisor {
-    pub fn new(supervision: Arc<Supervision>) -> Self {
-        Self { supervision }
+    pub fn new(connection: &Connection, supervision: Arc<Supervision>) -> Self {
+        Self {
+            connection: connection.clone(),
+            supervision,
+        }
     }
 
     pub async fn unit(&self, name: &str) -> Result<OwnedObjectPath, ErrorCode> {
@@ -117,7 +121,12 @@ impl Supervisor {
     pub async fn authenticate(&self, owner: &str, unit: &str) -> Result<(), ErrorCode> {
         match self.supervision.mode {
             Mode::Systemd => self.supervision.systemd.authenticate(owner, unit).await,
-            Mode::Daemon => self.supervision.daemon.authenticate(owner, unit).await,
+            Mode::Daemon => {
+                self.supervision
+                    .daemon
+                    .authenticate(&self.connection, owner, unit)
+                    .await
+            }
         }
     }
 
@@ -443,7 +452,7 @@ mod tests {
         unsafe {
             std::env::set_var("ARINN_TEST_UNIT_ENV_DIR", &dir);
         }
-        let supervisor = Supervisor::new(supervision);
+        let supervisor = Supervisor::new(&connection, supervision);
         let unit = "arinn-provider-test.service";
         let executable = PathBuf::from("/bin/sleep");
         let args = vec!["120".into()];
@@ -473,7 +482,7 @@ mod tests {
         let bus = session_bus().await;
         let connection = session_connection(&bus.1).await;
         let supervision = Arc::new(Supervision::bootstrap(&connection).await);
-        let supervisor = Supervisor::new(supervision);
+        let supervisor = Supervisor::new(&connection, supervision);
         let unit = "arinn-provider-fail.service";
         supervisor
             .start(
@@ -520,7 +529,7 @@ mod tests {
         let bus = session_bus().await;
         let connection = session_connection(&bus.1).await;
         let supervision = Arc::new(Supervision::bootstrap(&connection).await);
-        let supervisor = Supervisor::new(supervision.clone());
+        let supervisor = Supervisor::new(&connection, supervision.clone());
         let unit = "arinn-provider-auth.service";
         supervisor
             .start(
@@ -557,7 +566,7 @@ mod tests {
         let connection = session_connection(&bus.1).await;
         let supervision = Arc::new(Supervision::bootstrap(&connection).await);
         assert_eq!(supervision.mode(), Mode::Daemon);
-        let supervisor = Supervisor::new(supervision.clone());
+        let supervisor = Supervisor::new(&connection, supervision.clone());
         let unit = "arinn-provider-one.service";
         supervisor
             .start(

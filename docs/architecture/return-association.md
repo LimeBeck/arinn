@@ -152,8 +152,9 @@ validated **current** provider snapshots mediated by the daemon:
   keeps Return; this contract creates no tab-level identity or guessed fallback.
 - Provider restart invalidates the **service match**, not the platform-owned
   Return mapping or Return action. Fresh registered evidence is required to join
-  again. Independent media sessions never match via this browser-only evidence;
-  media/window association remains #189.
+  again. Independent media sessions never match via this browser-only evidence.
+  A browser's own media session joins its tab only through
+  [ADR-0094](media-association.md); other media/window association remains #189.
 
 The consumer recomputes on each relevant state/provider change and clears stale
 matches while reconciling. Local D-pad and focus changes never wait for these

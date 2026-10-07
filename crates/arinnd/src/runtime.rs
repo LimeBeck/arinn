@@ -1716,16 +1716,7 @@ impl Daemon {
             p.info.revision = 0;
             p.cache = None;
         }
-        let bus = zbus::fdo::DBusProxy::new(&self.core.connection)
-            .await
-            .map_err(|_| ErrorCode::Unavailable)?;
-        if !bus
-            .name_has_owner(
-                owner
-                    .as_str()
-                    .try_into()
-                    .map_err(|_| ErrorCode::PermissionDenied)?,
-            )
+        if !crate::bus_peer::name_has_owner(&owner)
             .await
             .unwrap_or(false)
         {

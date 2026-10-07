@@ -1,3 +1,4 @@
 - Add an in-process provider supervisor when the session has no systemd user manager (ADR-0089).
 - Kill supervised provider process groups on daemon exit; failed spawns count toward the same start limit as systemd.
 - Document the `ARINN_PRIVATE_TEST_BUS` test-harness exception in ADR-0089 (production bootstrap unchanged).
+- Resolve `Register` deadlock by querying peer credentials on an auxiliary session-bus connection.

@@ -121,12 +121,7 @@ impl Supervisor {
     pub async fn authenticate(&self, owner: &str, unit: &str) -> Result<(), ErrorCode> {
         match self.supervision.mode {
             Mode::Systemd => self.supervision.systemd.authenticate(owner, unit).await,
-            Mode::Daemon => {
-                self.supervision
-                    .daemon
-                    .authenticate(&self.connection, owner, unit)
-                    .await
-            }
+            Mode::Daemon => self.supervision.daemon.authenticate(owner, unit).await,
         }
     }
 

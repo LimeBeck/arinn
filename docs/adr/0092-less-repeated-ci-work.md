@@ -29,11 +29,13 @@ second waited for the first and then repeated the whole pipeline.
 
 ## Decision
 
-- **The package builds only what it installs.** The PKGBUILD builds the
+- **The packages build only what they install.** The PKGBUILD and the
+  Debian rules ([ADR-0091](0091-debian-package-ci-artifact.md)) build the
   `arinn-shell` CMake target instead of all targets. The Qt test executables
-  are still built and run by the integration job.
+  are still built and run by the build job.
 - **Release-mode `check()` runs on the nightly, manual runs and tag builds.**
-  Pull requests and pushes to `master` pass `--nocheck`; the Rust job runs
+  Pull requests and pushes to `master` pass `--nocheck` (`nocheck` in
+  `DEB_BUILD_OPTIONS` for the Debian package); the build job runs
   `cargo test` on the same commit. Releases still build from scratch and run
   `check()` ([ADR-0047](0047-faster-package-builds.md)), and the nightly runs
   it on `master` every day.

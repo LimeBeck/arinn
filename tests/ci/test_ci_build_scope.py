@@ -12,6 +12,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 PKGBUILD = (ROOT / "packaging" / "arch" / "PKGBUILD").read_text()
 CI = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
 PACKAGE = (ROOT / ".github" / "workflows" / "package.yml").read_text()
+DEB_RULES = (ROOT / "packaging" / "debian" / "debian" / "rules").read_text()
 
 
 def function(name: str) -> str:
@@ -52,19 +53,29 @@ class PackageBuildTest(unittest.TestCase):
             "build/observability/native/licenses/*-LICENSE",
         })
 
+    def test_debian_package_builds_only_the_installed_shell_target(self):
+        build = re.search(r"^override_dh_auto_build:\n(.*?)\n\n", DEB_RULES, re.M | re.S).group(1)
+        self.assertIn("cmake --build build --target arinn-shell\n", build + "\n")
+        install = re.search(r"^override_dh_auto_install:\n(.*?)\n\n", DEB_RULES, re.M | re.S).group(1)
+        self.assertEqual(set(re.findall(r"\bbuild/[^\s\"]+", install)), {
+            "build/apps/arinn-shell/arinn-shell",
+            "build/observability/native/licenses/*-LICENSE",
+        })
+
     def test_release_mode_check_runs_on_nightly_manual_and_tag_builds_only(self):
-        nocheck = value(PACKAGE, "NOCHECK")
-        cases = {
-            ("pull_request", "branch"): "--nocheck",
-            ("push", "branch"): "--nocheck",
-            ("schedule", "branch"): "",
-            ("workflow_dispatch", "branch"): "",
-            # release.yml calls CI from a tag push.
-            ("push", "tag"): "",
-        }
-        for (event, ref_type), expected in cases.items():
-            with self.subTest(event=event, ref_type=ref_type):
-                self.assertEqual(evaluate(nocheck, event_name=event, ref_type=ref_type), expected)
+        for key, skip in (("NOCHECK", "--nocheck"), ("DEB_BUILD_OPTIONS", "nocheck")):
+            expression = value(PACKAGE, key)
+            cases = {
+                ("pull_request", "branch"): skip,
+                ("push", "branch"): skip,
+                ("schedule", "branch"): "",
+                ("workflow_dispatch", "branch"): "",
+                # release.yml calls CI from a tag push.
+                ("push", "tag"): "",
+            }
+            for (event, ref_type), expected in cases.items():
+                with self.subTest(key=key, event=event, ref_type=ref_type):
+                    self.assertEqual(evaluate(expression, event_name=event, ref_type=ref_type), expected)
 
 
 def jobs() -> dict[str, str]:

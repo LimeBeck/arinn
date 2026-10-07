@@ -606,11 +606,12 @@ function pollMediaControl() {
         // not drop a command this script now owns: the daemon would wait for
         // its completion until the operation times out (#369).
         // The daemon holds a poll for at most a second and expires a command
-        // five seconds after queueing it, so a command handed to a poll that
-        // started five seconds ago cannot finish its one-second lock check in
-        // time: KWin delayed this reply. Answer it without presenting.
+        // five seconds after queueing it, before the poll hands it over. Six
+        // seconds after this poll started the command has expired whenever it
+        // was queued: KWin delayed this reply. Answer it without presenting.
         const received = Date.now();
-        if (received - now >= 5000) {
+        const expired = () => Date.now() - now >= 6000;
+        if (expired()) {
             diagnose("debug", "media." + command[1], { outcome: "timeout", reason: "reply_late",
                 error: "Timeout", request_id: command[0], duration_ms: 0 });
             mediaBridge("CompleteControl", generation, command[0], "Timeout", () => {});
@@ -638,7 +639,7 @@ function pollMediaControl() {
             if (inventory !== inventorySerial || owner !== daemonOwner) return;
             // Playback changed while the lock check ran: answer, never drop.
             if (serial !== mediaSerial) { diagnose("debug", "media." + command[1], traced("cancelled", "playback_changed", "Cancelled")); complete("Cancelled"); return; }
-            if (Date.now() - received >= 1000) { diagnose("debug", "media." + command[1], traced("timeout", "lock_check_late", "Timeout")); complete("Timeout"); return; }
+            if (Date.now() - received >= 1000 || expired()) { diagnose("debug", "media." + command[1], traced("timeout", expired() ? "reply_late" : "lock_check_late", "Timeout")); complete("Timeout"); return; }
             if (locked !== false) { diagnose("debug", "media." + command[1], traced("denied", "session_locked", "PermissionDenied")); releasePlayback(false); complete("PermissionDenied"); return; }
             try {
                 if (command[1] === "release") {

@@ -786,6 +786,36 @@ test('a reply delayed past the daemon deadline is answered Timeout without prese
     assert.equal(late.length, 1);
     assert.equal(late[0].request_id, request);
 });
+test('a reply that may still be within the daemon deadline is presented', () => {
+    const {f, token} = managedFixture();
+    const stale = f.mediaControls.at(-1);
+    // 5.5 s after the poll started: a command queued late in the daemon's
+    // one-second wait still has time left.
+    for (let i = 0; i < 3; ++i) {
+        f.advance(1600); f.controls.at(-1)([]); f.refresh();
+        f.mediaControls.at(-1)([]);
+    }
+    f.advance(700);
+    stale([randomUUID(), 'present', token]);
+    assert.equal(f.mediaAcks.at(-1)[2], '');
+    assert.equal(f.home.keepAbove, true);
+    assert.equal(f.activity.fullScreen, true);
+});
+test('a lock check that ends past the latest possible deadline does not present', () => {
+    const {f, token} = managedFixture();
+    const stale = f.mediaControls.at(-1);
+    for (let i = 0; i < 3; ++i) {
+        f.advance(1600); f.controls.at(-1)([]); f.refresh();
+        f.mediaControls.at(-1)([]);
+    }
+    f.advance(700);
+    f.deferLock(); stale([randomUUID(), 'present', token]);
+    f.advance(600); f.lockReplies.at(-1)(false);
+    assert.equal(f.mediaAcks.at(-1)[2], 'Timeout');
+    assert.equal(f.home.keepAbove, false);
+    assert.equal(f.activity.fullScreen, false);
+    assert.ok(f.printed.some(line => JSON.parse(line).reason === 'reply_late'));
+});
 test('a command delivered to a poll that playback outdated is answered Cancelled', () => {
     const {f, token} = managedFixture();
     f.media('present', token); f.refresh();

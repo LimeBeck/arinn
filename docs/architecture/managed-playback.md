@@ -156,7 +156,7 @@ Removing negotiated MediaWindow1 support invalidates pending and active presenta
 | `media.present`, `media.release` | `denied` | `session_locked` |
 | `media.present`, `media.release` | `cancelled` | `playback_changed` |
 
-Command freshness counts from the moment the daemon hands a command over, not from the start of the long poll. Before #369, a Present handed over late in the daemon's one-second poll was rejected as `Timeout`. If the lock check was slow, the stale-poll reset dropped it silently, so the daemon waited five seconds and mpv stayed a decorated window. A command the adapter has received is now always answered, with `Cancelled` only if playback changed meanwhile. The stale-poll reset only frees the poll slot: a command that a replaced poll still delivers is presented normally, and it holds the slot until it is answered. A reply that arrives five seconds or more after its poll started is answered `Timeout` (`reply_late`) without presenting: the daemon holds a poll for at most a second and expires a command five seconds after queueing it, so the command could no longer finish its lock check in time.
+Command freshness counts from the moment the daemon hands a command over, not from the start of the long poll. Before #369, a Present handed over late in the daemon's one-second poll was rejected as `Timeout`. If the lock check was slow, the stale-poll reset dropped it silently, so the daemon waited five seconds and mpv stayed a decorated window. A command the adapter has received is now always answered, with `Cancelled` only if playback changed meanwhile. The stale-poll reset only frees the poll slot: a command that a replaced poll still delivers is presented normally, and it holds the slot until it is answered. A command is never presented six seconds or more after its poll started, whether its reply or its lock check is that late; it is answered `Timeout` (`reply_late`). The daemon holds a poll for at most a second and expires a command five seconds after queueing it, so by then the command has expired whenever it was queued. A reply that is late but may still be in time is presented.
 
 **Daemon (`arinnd`).** An operation completion line carries `kind` (`media.present`, `media.release`) and, on failure, a `reason` from `telemetry::REASONS`:
 
@@ -172,7 +172,7 @@ Command freshness counts from the moment the daemon hands a command over, not fr
 | `provider_changed` | The provider owner or generation changed. |
 
 A Present or Release refused before it becomes an operation logs `"operation":"rejected"` with the §14.1 fields (`component`, `provider_id`, `request_id`, `duration_ms`, `error`), plus `kind` and one of these reasons:
-- `invalid_request`, when the generation, session ID or request ID is malformed; a request ID that is not a UUID is logged as an empty string, because it is caller text;
+- `invalid_request`, when the generation, session ID or request ID is malformed; a request ID that is not a UUID is caller text and is logged as `null`;
 - `request_reused`, when the caller's request ID already names a different request;
 - `session_unavailable`;
 - `media_channel_absent`;

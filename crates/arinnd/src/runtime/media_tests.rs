@@ -1421,5 +1421,5 @@ async fn refusals_before_admission_are_logged_with_a_reason() {
     );
     let record = logged(3);
     assert_eq!(record["reason"], "invalid_request");
-    assert_eq!(record["request_id"], "");
+    assert!(record["request_id"].is_null(), "{record}");
 }

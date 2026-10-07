@@ -1039,12 +1039,11 @@ pub(super) fn rejection_record(
     reason: &'static str,
     elapsed: Duration,
 ) -> serde_json::Value {
-    // A refused request ID may be any caller text; only a UUID is logged.
-    let request_id = if uuid::Uuid::parse_str(request_id).is_ok() {
-        request_id
-    } else {
-        ""
-    };
+    // A refused request ID may be any caller text; only a UUID is logged,
+    // anything else is unavailable (null, specification §14.1).
+    let request_id = uuid::Uuid::parse_str(request_id)
+        .is_ok()
+        .then_some(request_id);
     serde_json::json!({"level":"info","component":"arinnd","provider_id":provider_id,"request_id":request_id,"operation":"rejected","kind":kind,"error":error.to_string(),"reason":reason,"duration_ms":elapsed.as_millis().min(u64::MAX as u128) as u64})
 }
 /// The normalized reason of a failed Present or Release, from the platform

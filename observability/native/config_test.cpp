@@ -50,10 +50,12 @@ private slots:
       QStringLiteral("Files Private.desktop Secret.document PrivateTitle.Videos.backup"),
       QStringLiteral("Cannot open /home/private-fixture/(PrivateTitle) [x/Private] {x/Private} /a<Private>"),
       QStringLiteral("Names Private.desktop(Secret) (x:PrivateTitle) key=(Private)"),
+      QStringLiteral("Hidden .PrivateTitle ..Private and abcdefghijklmnopqrstuvwxyzabcdefgh:PrivateTitle"),
+      QStringLiteral("Odd Private~Title Private*Title Private+Title Private|Title Private$Title"),
     };
     for (const auto &fixture : fixtures) {
       const auto shape = ArinnTelemetry::qtTemplate(none, fixture);
-      for (auto marker : {"rivate", "Secret", "desktop", "Videos", "Title", "mkv", "mp4", "http", "magnet", "base64", "@", "/", "1", "4"})
+      for (auto marker : {"rivate", "Secret", "desktop", "Videos", "Title", "abcdefgh", "mkv", "mp4", "http", "magnet", "base64", "@", "/", "1", "4"})
         QVERIFY2(!shape.text.contains(marker), shape.text.constData());
       QVERIFY2(ArinnTelemetry::safeTemplateText(shape.text.constData()), shape.text.constData());
       QVERIFY(shape.location.isEmpty());
@@ -95,8 +97,11 @@ private slots:
     for (auto text : {"", "a/b", "quote\"", "it's", "n=1", "digit 7", "\xd0\xa4"})
       QVERIFY2(!ArinnTelemetry::safeTemplateText(text), text);
     QVERIFY(ArinnTelemetry::safeLocation("HomeView.qml:42"));
-    QVERIFY(!ArinnTelemetry::safeLocation("/home/x.qml"));
-    QVERIFY(!ArinnTelemetry::safeLocation("Main"));
+    QVERIFY(ArinnTelemetry::safeLocation("Main.qml"));
+    QVERIFY(ArinnTelemetry::safeLocation("unknown.location"));
+    for (auto location : {"/home/x.qml", "Main", "Private.desktop:42", "Private.desktop", "Main.qml:",
+                          "Main.qml:x", "Main.qmlx", "Main.jsx:1", ".qml", "Main.qml:1234567"})
+      QVERIFY2(!ArinnTelemetry::safeLocation(location), location);
     QVERIFY(ArinnTelemetry::safeCategory("qt.qpa.wayland"));
     QVERIFY(!ArinnTelemetry::safeCategory("Private Title"));
   }

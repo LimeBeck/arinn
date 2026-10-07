@@ -85,9 +85,10 @@ template:
   5. addresses become `<str>`;
   6. any dotted name (`Title.desktop`, `host.example`, `qt.qpa.wayland`) becomes `<file>`, whatever the length of its parts; a sentence-ending dot is kept;
   7. any remaining token containing `\ / ? & # % = @` becomes `<str>` as a whole, never split into its parts;
-  8. numbers become `<n>`.
+  8. numbers become `<n>`;
+  9. finally, only tokens made of words, C++ scopes (`Name::member`), the placeholders above and punctuation are kept; every other token, such as a leading-dot name, becomes `<str>`. The rules above name what to remove; this pass decides what may stay.
 
-  Rules 3 to 7 always replace the whole whitespace-delimited token, brackets and placeholders included, so no part of a path, URL or name survives next to its placeholder. The result is truncated to 160 characters. A template that still contains a digit, quote, slash, `@`, `?`, `&`, `#`, `%`, `=` or a non-printable character is replaced by `Qt message`. The crash-safe SDK callback and the transport filter repeat this check.
+  Rules 3 to 7 always replace the whole whitespace-delimited token, brackets and placeholders included, so no part of a path, URL or name survives next to its placeholder. The result is truncated to 160 characters. A template that still contains a digit, quote, slash, `@`, `?`, `&`, `#`, `%`, `=` or a non-printable character is replaced by `Qt message`. The crash-safe SDK callback and the transport filter repeat this check, and check `qt.location` against its full grammar `<name>.<qml|js|mjs|cpp|h>[:<line>]` (or the fixed `unknown.location`), so no other file name passes either boundary.
 - **Fingerprint.** `["arinn-shell", <type>, <location>, <template>]`.
 - **Rate limit.** Each template is reported at most once per 10 minutes. At most 256 templates are tracked. Repeats increment `arinn.shell.messages.suppressed`. Fatal messages are always reported.
 - **Known noise.** `Icon is unavailable`, `Site icon is unavailable`, `Artwork is unavailable` and `QWaylandDataOffer` are never events. They increment `arinn.shell.messages.benign` and leave one `qt.noise` breadcrumb per template window.

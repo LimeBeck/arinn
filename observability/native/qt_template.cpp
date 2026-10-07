@@ -36,7 +36,7 @@ QString scrub(QString text) {
     {QRegularExpression(QStringLiteral("\"[^\"]*\"?|'[^']*'?|`[^`]*`?")), QStringLiteral("<str>")},
     // URLs of any scheme, hierarchical or opaque (qrc:, file:, data:, magnet:, urn:),
     // but not a C++ scope such as QQuickItem::stackAfter.
-    {QRegularExpression(QStringLiteral("\\S*\\b[A-Za-z][A-Za-z0-9+.-]{0,31}:(?!:)\\S+")), QStringLiteral("<url>")},
+    {QRegularExpression(QStringLiteral("\\S*\\b[A-Za-z][A-Za-z0-9+.-]*:(?!:)\\S+")), QStringLiteral("<url>")},
     // From here on a match is always the whole whitespace-delimited token, brackets
     // included, so no part of a path or name survives next to its placeholder.
     // Any token with a slash or backslash is a path, whatever precedes it.
@@ -53,7 +53,18 @@ QString scrub(QString text) {
     {QRegularExpression(QStringLiteral("\\s+")), QStringLiteral(" ")},
   };
   for (const auto &rule : rules) text.replace(rule.pattern, rule.replacement);
-  text = text.trimmed();
+  // The rules above name what to remove; this pass decides what may stay. A token
+  // survives only as words, C++ scopes, placeholders and punctuation; anything
+  // else (a leading-dot name, an unusual URL) becomes <str>.
+  static const QString atom = QStringLiteral(
+    "(?:<(?:url|str|path|file|n|text)>|[A-Za-z_][A-Za-z0-9_-]*(?:::[A-Za-z_][A-Za-z0-9_]*)*)");
+  static const QRegularExpression allowed(QStringLiteral("^[(\\[{]*") + atom +
+    QStringLiteral("(?:[()\\[\\]{},]+") + atom + QStringLiteral(")*[()\\[\\]{},;:!.]*$"));
+  static const QRegularExpression punctuation(QStringLiteral("^[()\\[\\]{},;:!.-]+$"));
+  QStringList tokens = text.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+  for (auto &token : tokens)
+    if (!allowed.match(token).hasMatch() && !punctuation.match(token).hasMatch()) token = QStringLiteral("<str>");
+  text = tokens.join(QLatin1Char(' '));
   if (text.size() > maxTemplate) {
     text.truncate(maxTemplate);
     const auto open = text.lastIndexOf(QLatin1Char('<'));
@@ -111,16 +122,37 @@ bool safeTemplateText(const char *text) {
   }
   return true;
 }
+// The full location grammar: <name>.<qml|js|mjs|cpp|h>[:<line>], or the fixed
+// sentinel for an unknown location. Any other file name is rejected.
 bool safeLocation(const char *text) {
-  if (!text || !*text) return false;
-  size_t size = 0;
-  bool dot = false;
-  for (const char *c = text; *c; ++c, ++size) {
-    if (size >= 96) return false;
-    if (*c == '.') dot = true;
-    else if (!isWordChar(*c) && *c != ':') return false;
+  if (!text) return false;
+  if (std::strcmp(text, "unknown.location") == 0) return true;
+  const char *c = text;
+  if (!((*c >= 'a' && *c <= 'z') || (*c >= 'A' && *c <= 'Z') || *c == '_')) return false;
+  size_t name = 0;
+  while (isWordChar(*c)) {
+    ++c;
+    if (++name > 64) return false;
   }
-  return dot && isWordChar(text[0]);
+  if (*c++ != '.') return false;
+  bool known = false;
+  for (const char *extension : {"qml", "js", "mjs", "cpp", "h"}) {
+    const size_t size = std::strlen(extension);
+    if (std::strncmp(c, extension, size) == 0 && (c[size] == '\0' || c[size] == ':')) {
+      c += size;
+      known = true;
+      break;
+    }
+  }
+  if (!known) return false;
+  if (*c == '\0') return true;
+  if (*c++ != ':') return false;
+  size_t digits = 0;
+  while (*c >= '0' && *c <= '9') {
+    ++c;
+    if (++digits > 6) return false;
+  }
+  return digits > 0 && *c == '\0';
 }
 bool safeCategory(const char *text) {
   if (!text || !*text) return false;

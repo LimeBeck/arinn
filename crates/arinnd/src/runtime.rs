@@ -121,7 +121,7 @@ pub struct Core {
     platform: crate::platform::Platform,
     windows: crate::windows::Windows,
     playback_exits: Arc<Mutex<media_routing::ExitFences>>,
-    supervision: tokio::sync::OnceCell<Arc<Supervision>>,
+    supervision: Arc<tokio::sync::OnceCell<Arc<Supervision>>>,
 }
 fn sender(h: &Header<'_>) -> Result<String, ErrorCode> {
     h.sender()
@@ -161,7 +161,7 @@ impl Core {
             platform: crate::platform::Platform::default(),
             windows,
             playback_exits: Arc::default(),
-            supervision: tokio::sync::OnceCell::new(),
+            supervision: Arc::new(tokio::sync::OnceCell::new()),
         }
     }
     async fn supervision(&self) -> Arc<Supervision> {
@@ -178,6 +178,11 @@ impl Core {
         if let Some(supervision) = self.supervision.get() {
             supervision.shutdown().await;
         }
+    }
+
+    #[cfg(test)]
+    async fn shared_supervision(&self) -> Arc<Supervision> {
+        self.supervision().await
     }
     /// Remove every daemon interface a provider path can carry, whatever the
     /// provider's capability was.
@@ -2613,5 +2618,62 @@ mod platform_wait_tests {
         let (_sender, receiver) = tokio::sync::oneshot::channel();
         assert_eq!(platform_wait(&op, receiver).await, Err(ErrorCode::Timeout));
         assert_eq!(op.traced().3, Some("platform_timeout"));
+    }
+}
+
+#[cfg(test)]
+mod supervision_sharing_tests {
+    use super::*;
+    use std::io::{BufRead, BufReader};
+    use std::process::{Command, Stdio};
+
+    /// Regression test for #382: `Daemon { core: core.clone() }` is cloned
+    /// before supervision starts, so the cell must be shared, or `Register`
+    /// looks for the provider in a second, empty pool.
+    #[tokio::test]
+    async fn cloned_cores_share_one_supervision_instance() {
+        // Kill the private bus and remove the folder even when an assertion
+        // fails, so a failure never leaves a daemon running.
+        struct Bus(std::process::Child, PathBuf);
+        impl Drop for Bus {
+            fn drop(&mut self) {
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+                let _ = std::fs::remove_dir_all(&self.1);
+            }
+        }
+        let folder =
+            std::env::temp_dir().join(format!("arinn-supervision-share-{}", Uuid::new_v4()));
+        std::fs::create_dir(&folder).unwrap();
+        let mut bus = Bus(
+            Command::new("dbus-daemon")
+                .args(["--session", "--nofork", "--print-address=1"])
+                .stdout(Stdio::piped())
+                .spawn()
+                .unwrap(),
+            folder.clone(),
+        );
+        let mut address = String::new();
+        BufReader::new(bus.0.stdout.take().unwrap())
+            .read_line(&mut address)
+            .unwrap();
+        let connection = zbus::connection::Builder::address(address.trim())
+            .unwrap()
+            .build()
+            .await
+            .unwrap();
+        let core = Core::new(
+            &connection,
+            Paths {
+                config: folder.join("config"),
+                data: folder.join("data"),
+                state: folder.join("state"),
+            },
+            folder.join("run"),
+        );
+        let daemon_core = core.clone();
+        let first = core.shared_supervision().await;
+        let second = daemon_core.shared_supervision().await;
+        assert!(Arc::ptr_eq(&first, &second));
     }
 }

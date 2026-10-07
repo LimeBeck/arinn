@@ -637,6 +637,70 @@
         <source>Close</source>
         <translation>Закрыть</translation>
     </message>
+    <message numerus="yes">
+        <source>Open: %n</source>
+        <translation>
+            <numerusform>Открыто: %n</numerusform>
+            <numerusform>Открыто: %n</numerusform>
+            <numerusform>Открыто: %n</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>All open services</source>
+        <translation>Все открытые сервисы</translation>
+    </message>
+    <message>
+        <source>Less than a minute left</source>
+        <translation>Осталось меньше минуты</translation>
+    </message>
+    <message>
+        <source>%1 min left</source>
+        <translation>Осталось %1 мин</translation>
+    </message>
+    <message>
+        <source>%1 h left</source>
+        <translation>Осталось %1 ч</translation>
+    </message>
+    <message>
+        <source>%1 h %2 min left</source>
+        <translation>Осталось %1 ч %2 мин</translation>
+    </message>
+    <message>
+        <source>Unavailable</source>
+        <translation>Недоступно</translation>
+    </message>
+    <message>
+        <source>Running · Return</source>
+        <translation>Запущено · Вернуться</translation>
+    </message>
+    <message>
+        <source>Opens full screen</source>
+        <translation>Откроется на весь экран</translation>
+    </message>
+    <message>
+        <source>OPEN SERVICES</source>
+        <translation>ОТКРЫТЫЕ СЕРВИСЫ</translation>
+    </message>
+    <message>
+        <source>%1 of %2</source>
+        <translation>%1 из %2</translation>
+    </message>
+    <message>
+        <source>Playing</source>
+        <translation>Воспроизводится</translation>
+    </message>
+    <message>
+        <source>Return</source>
+        <translation>Вернуться</translation>
+    </message>
+    <message>
+        <source>%1%</source>
+        <translation>%1%</translation>
+    </message>
+    <message>
+        <source>Downloading</source>
+        <translation>Загружается</translation>
+    </message>
 </context>
 <context>
     <name>LaunchOverlay</name>
@@ -848,6 +912,10 @@
     <message>
         <source>Playback is unavailable. Press Home to leave, or wait to stop the launched session.</source>
         <translation>Воспроизведение недоступно. Нажмите «Домой», чтобы выйти, или подождите остановки запущенного сеанса.</translation>
+    </message>
+    <message>
+        <source>Type an address or a search</source>
+        <translation>Введите адрес или запрос</translation>
     </message>
 </context>
 <context>

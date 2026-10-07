@@ -18,7 +18,6 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::sync::Mutex;
-use zbus::Connection;
 
 use super::running_executable_matches;
 
@@ -243,30 +242,13 @@ impl Pool {
         Ok(())
     }
 
-    pub async fn authenticate(
-        &self,
-        connection: &Connection,
-        owner: &str,
-        unit: &str,
-    ) -> Result<(), ErrorCode> {
+    pub async fn authenticate(&self, owner: &str, unit: &str) -> Result<(), ErrorCode> {
         let work = async {
-            let bus = zbus::fdo::DBusProxy::new(connection)
-                .await
-                .map_err(|_| ErrorCode::Unavailable)?;
-            let name: zbus::names::BusName<'_> =
-                owner.try_into().map_err(|_| ErrorCode::PermissionDenied)?;
-            let uid = bus
-                .get_connection_unix_user(name.clone())
-                .await
-                .map_err(|_| ErrorCode::PermissionDenied)?;
+            let (uid, pid) = crate::bus_peer::unix_peer(owner).await?;
             // SAFETY: geteuid has no arguments or memory preconditions.
             if uid != unsafe { libc::geteuid() } {
                 return Err(ErrorCode::PermissionDenied);
             }
-            let pid = bus
-                .get_connection_unix_process_id(name.clone())
-                .await
-                .map_err(|_| ErrorCode::PermissionDenied)?;
             let main_pid = self.main_pid(unit).await?;
             if main_pid == 0 || pid != main_pid {
                 return Err(ErrorCode::PermissionDenied);

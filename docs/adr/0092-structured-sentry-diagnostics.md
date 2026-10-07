@@ -74,13 +74,13 @@ template:
 
 - **`qt.location`.** The Arinn source file name and line, such as `HomeView.qml:42`.
   - It comes from the QML `qrc:/…:<line>:` prefix or from the message context.
-  - It is kept only for a `qrc:` resource or a `.cpp`/`.h` source whose name matches `[A-Za-z_][A-Za-z0-9_]{0,63}\.(qml|js|mjs|cpp|h)`.
+  - It is kept only for a `qrc:` resource, or a `.cpp`/`.h` source taken from the compile-time message context (never from message text), whose name matches `[A-Za-z_][A-Za-z0-9_]{0,63}\.(qml|js|mjs|cpp|h)`.
   - `file:` URLs and absolute paths never produce a location.
 - **`qt.category`.** The Qt logging category (`[A-Za-z0-9_.-]`, up to 64 characters), except `default`.
 - **Exception value: the template.** The message after these replacements, in order:
   1. non-ASCII or control text becomes `<text>`;
   2. quoted text (closed or not) becomes `<str>`;
-  3. URLs of any scheme become `<url>`;
+  3. URLs of any scheme, hierarchical or opaque (`urn:`, `mailto:`), become `<url>`; a C++ scope such as `QQuickItem::stackAfter` is kept;
   4. any token containing a slash or backslash becomes `<path>`, whatever character precedes it;
   5. addresses become `<str>`;
   6. file names with an extension become `<file>`;

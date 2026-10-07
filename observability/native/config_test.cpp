@@ -29,6 +29,9 @@ private slots:
     QCOMPARE(shape.category, QByteArray("qml"));
     QCOMPARE(shape.text, QByteArray("QML Image: Cannot open: <url>"));
     QVERIFY(!shape.benign);
+    // C++ scopes are not URLs.
+    QCOMPARE(ArinnTelemetry::qtTemplate(context, QStringLiteral("QQuickItem::stackAfter: Cannot stack")).text,
+             QByteArray("QQuickItem::stackAfter: Cannot stack"));
   }
   void privateFragmentsAreRemoved() {
     QMessageLogContext none;
@@ -43,6 +46,7 @@ private slots:
       QStringLiteral("Bad -/home/private-fixture/Videos or private-fixture/Videos/Title"),
       QStringLiteral("Windows C:\\Users\\private-fixture\\Videos path"),
       QStringLiteral("Query key=Private&title=Private#Title"),
+      QStringLiteral("Opaque urn:arinn:PrivateTitle and mailto:private-fixture"),
     };
     for (const auto &fixture : fixtures) {
       const auto shape = ArinnTelemetry::qtTemplate(none, fixture);
@@ -54,8 +58,11 @@ private slots:
   }
   void userPathsAreNotLocations() {
     QMessageLogContext none;
-    for (auto message : {"file:///home/private-fixture/Main.qml:3: x", "/home/private-fixture/a.qml:3: x"})
+    for (auto message : {"file:///home/private-fixture/Main.qml:3: x", "/home/private-fixture/a.qml:3: x",
+                         "file:///home/private-fixture/PrivateFile.cpp:42: x", "/home/private-fixture/Private.h:3: x"})
       QVERIFY(ArinnTelemetry::qtTemplate(none, QString::fromLatin1(message)).location.isEmpty());
+    QMessageLogContext url("file:///home/private-fixture/PrivateFile.cpp", 7, nullptr, "default");
+    QVERIFY(ArinnTelemetry::qtTemplate(url, QStringLiteral("x")).location.isEmpty());
     QMessageLogContext code("/build/private-fixture/apps/arinn-shell/backend.cpp", 12, nullptr, "default");
     const auto shape = ArinnTelemetry::qtTemplate(code, QStringLiteral("Reply failed"));
     QCOMPARE(shape.location, QByteArray("backend.cpp:12"));

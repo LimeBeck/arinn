@@ -629,13 +629,17 @@ pub fn operation(completion: &Completion<'_>) {
         counter = counter.attribute("error", error.clone());
     }
     counter.capture();
-    sentry::metrics::distribution(
+    let mut duration = sentry::metrics::distribution(
         "arinn.daemon.operation.duration",
         completion.duration_ms as f64,
     )
     .unit(Unit::Millisecond)
     .attribute("kind", kind.clone())
-    .capture();
+    .attribute("outcome", outcome);
+    if let Some(error) = &error {
+        duration = duration.attribute("error", error.clone());
+    }
+    duration.capture();
     if let Some(error) = &error {
         sentry::metrics::counter("arinn.daemon.errors", 1)
             .attribute("kind", kind.clone())
@@ -902,7 +906,15 @@ mod tests {
         assert_eq!(transaction["spans"][0]["op"], "platform.wait");
         assert_eq!(transaction["spans"][0]["description"], "media.present");
         assert_eq!(transaction["spans"][0]["status"], "cancelled");
-        assert!(text.contains("arinn.daemon.operation.duration"), "{text}");
+        let metrics = items(&text, "trace_metric");
+        let duration = metrics
+            .iter()
+            .flat_map(|batch| batch["items"].as_array().cloned().unwrap_or_default())
+            .find(|metric| metric["name"] == "arinn.daemon.operation.duration")
+            .unwrap_or_else(|| panic!("{text}"));
+        assert_eq!(duration["attributes"]["kind"]["value"], "media.present");
+        assert_eq!(duration["attributes"]["outcome"]["value"], "failed");
+        assert_eq!(duration["attributes"]["error"]["value"], "Timeout");
     }
     #[test]
     fn identical_failures_share_a_fingerprint() {

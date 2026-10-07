@@ -15,12 +15,14 @@ constexpr qint64 templateWindowMs = 10 * 60 * 1000;
 bool isWordChar(char c) {
   return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
 }
-// Only Arinn's own source names: qrc QML/JS resources and C++ sources.
-QByteArray sourceName(const QString &source) {
+// Only Arinn's own source names: qrc QML/JS resources and, from the compile-time
+// message context only, C++ sources. Text inside a message never names C++ code.
+QByteArray sourceName(const QString &source, bool fromContext) {
   static const QRegularExpression name(QStringLiteral("^[A-Za-z_][A-Za-z0-9_]{0,63}\\.(qml|js|mjs|cpp|h)$"));
   QString file = source;
   const bool resource = file.startsWith(QLatin1String("qrc:/")) || file.startsWith(QLatin1String(":/"));
-  const bool code = file.endsWith(QLatin1String(".cpp")) || file.endsWith(QLatin1String(".h"));
+  const bool code = fromContext && !file.contains(QLatin1String("://")) &&
+    (file.endsWith(QLatin1String(".cpp")) || file.endsWith(QLatin1String(".h")));
   if (!resource && !code) return {};
   file = file.mid(file.lastIndexOf(QLatin1Char('/')) + 1);
   return name.match(file).hasMatch() ? file.toLatin1() : QByteArray();
@@ -32,8 +34,9 @@ QString scrub(QString text) {
     {QRegularExpression(QStringLiteral("[^\\x20-\\x7E]+(?:\\s+[^\\x20-\\x7E]+)*")), QStringLiteral(" <text> ")},
     // Quoted text, closed or not: titles, names, property values.
     {QRegularExpression(QStringLiteral("\"[^\"]*\"?|'[^']*'?|`[^`]*`?")), QStringLiteral("<str>")},
-    // URLs of any scheme, including qrc:, file:, data: and magnet:.
-    {QRegularExpression(QStringLiteral("\\b[A-Za-z][A-Za-z0-9+.-]{1,31}:[^\\s<>]*[/=%;,?][^\\s<>]*")), QStringLiteral("<url>")},
+    // URLs of any scheme, hierarchical or opaque (qrc:, file:, data:, magnet:, urn:),
+    // but not a C++ scope such as QQuickItem::stackAfter.
+    {QRegularExpression(QStringLiteral("\\b[A-Za-z][A-Za-z0-9+.-]{1,31}:(?!:)[^\\s<>]+")), QStringLiteral("<url>")},
     // Any token with a slash or backslash is a path, whatever precedes it.
     {QRegularExpression(QStringLiteral("[^\\s<>()\\[\\]{}]*[/\\\\][^\\s<>()\\[\\]{}]*")), QStringLiteral("<path>")},
     // Addresses and accounts.
@@ -77,12 +80,14 @@ QtTemplate qtTemplate(const QMessageLogContext &context, const QString &message)
   const auto match = prefix.match(text);
   QString source = context.file ? QString::fromUtf8(context.file) : QString();
   int line = context.line;
+  bool fromContext = true;
   if (match.hasMatch()) {
     source = match.captured(1);
+    fromContext = false;
     line = match.captured(2).toInt();
     text = text.mid(match.capturedLength());
   }
-  out.location = sourceName(source);
+  out.location = sourceName(source, fromContext);
   if (!out.location.isEmpty() && line > 0 && line < 1000000)
     out.location += ':' + QByteArray::number(line);
   if (context.category && safeCategory(context.category) && std::strcmp(context.category, "default") != 0)

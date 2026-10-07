@@ -89,7 +89,7 @@ sanitizers drop any other value. The lists live in `crates/arinnd/src/telemetry.
 | `reason` | `provider_changed` (owner or generation changed during the operation), `platform_timeout` (no platform answer within 5 s), `platform_channel_closed` (the platform dropped the request) |
 | `operation` | Lifecycle: `startup`, `ready`, `shutdown`, `seed-web-shortcuts`, `operation.complete` |
 
-Metric attributes are `kind`, `outcome` and `error` only.
+Metric attributes are `kind`, `outcome` and `error` only; operation counts and durations carry all three, error counts carry `kind` and `error`.
 
 **Daemon transactions.** A transaction is named by the operation kind, with the trace op `daemon.operation`. It has up to 16 child spans:
 
@@ -107,7 +107,7 @@ The completion log line on stderr carries the same `kind` and `reason`.
 
 **Shell Qt and QML messages.** Warnings, critical and fatal messages become events of type `QtWarning`, `QtCritical` or `QtFatal`:
 
-- **`qt.location` tag.** The Arinn source name and line (`HomeView.qml:42`), from a `qrc:` QML prefix or a `.cpp`/`.h` context. It is never derived from `file:` URLs or absolute paths.
+- **`qt.location` tag.** The Arinn source name and line (`HomeView.qml:42`), from a `qrc:` QML prefix or the compile-time `.cpp`/`.h` context. It is never derived from `file:` URLs, absolute paths or C++ file names inside message text.
 - **`qt.category` tag.** The Qt logging category, for example `qml` or `qt.qpa.wayland`.
 - **Exception value.** The template: the message with non-ASCII text, quoted text, URLs, paths, addresses, file names and numbers replaced by `<text>`, `<str>`, `<url>`, `<path>`, `<file>` and `<n>`. Any token with a slash or backslash is a path whatever precedes it, and a token still holding a query or address separator becomes `<str>` whole. It is at most 160 characters. A template that still holds a digit, quote, slash or query character becomes `Qt message`.
 - **Fingerprint.** `["arinn-shell", type, location, template]`.

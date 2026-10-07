@@ -48,8 +48,7 @@ impl Supervision {
         let mode = if systemd::Backend::available(connection).await {
             Mode::Systemd
         } else if std::env::var_os("ARINN_PRIVATE_TEST_BUS").as_deref() == Some("1".as_ref()) {
-            // phase1.py starts the test systemd double after arinnd; keep the
-            // systemd adapter so the provider stays failed until the manager exists.
+            // ADR-0089: test harness only; never set in packaging or units.
             Mode::Systemd
         } else {
             daemon.ensure_maintainer();

@@ -15,7 +15,15 @@ The target minimal HTPC image may run without a systemd user manager. In that en
 
 Transient systemd user services remain the default whenever the session bus exposes a working `org.freedesktop.systemd1` user manager.
 
-When no user manager is available, `arinnd` enables an in-process provider supervisor once at startup. A provider never runs under both runtimes in the same daemon instance.
+`arinnd` chooses the supervision mode **once** at startup and never runs a provider under both runtimes in the same daemon instance. There is no product flag to disable the daemon supervisor on a minimal HTPC.
+
+Bootstrap rules:
+
+1. If the session bus has a working `org.freedesktop.systemd1` user manager → **systemd adapter**.
+2. Else if `ARINN_PRIVATE_TEST_BUS=1` → **systemd adapter** (test harness only). Private-bus integration tests start `private-systemd` after `arinnd`; the user manager may appear after the daemon. The provider stays failed until the double is up and an explicit restart runs, matching the pre-ADR-0089 harness behaviour.
+3. Else → **daemon supervisor** (production fallback when no user manager is available).
+
+`ARINN_PRIVATE_TEST_BUS` is set only by integration tests and test doubles (`tests/integration/`, `tests/package/`, `examples/private-systemd`). Packaging, systemd units and session autostart **must not** set it; doing so would keep the systemd adapter on a host without a user manager and block the daemon fallback.
 
 The daemon supervisor:
 
@@ -28,7 +36,7 @@ The D-Bus contract and XML introspection are unchanged.
 
 ## Consequences
 
-Minimal sessions without a user manager can run packaged browser and desktop providers. The daemon carries a bounded restart loop and PID tracking that must stay aligned with the systemd adapter semantics. Integration tests cover both supervision modes without requiring a real user manager on every runner.
+Minimal sessions without a user manager can run packaged browser and desktop providers. The daemon carries a bounded restart loop and PID tracking that must stay aligned with the systemd adapter semantics. The test-harness exception is narrow: it does not change production bootstrap on the HTPC image. Integration tests cover both supervision modes without requiring a real user manager on every runner.
 
 ## Alternatives considered
 

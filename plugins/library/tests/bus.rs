@@ -163,6 +163,30 @@ async fn scenario() {
     let (again,) = proxy.launch(&page.generation, &id).await.unwrap();
     assert_eq!(again.start_position_us, 5_000_000);
 
+    // #373 / ADR-0090: launching a completed item over the bus clears its
+    // completion and publishes the change.
+    resume
+        .set_progress(&page.generation, &id, 5_000_000, -1, true)
+        .await
+        .unwrap();
+    let (resumes,) = resume.get_resumes("").await.unwrap();
+    assert!(
+        resumes
+            .resumes
+            .iter()
+            .any(|row| row.content_id == id && row.completed)
+    );
+    let (rewatch,) = proxy.launch(&page.generation, &id).await.unwrap();
+    assert_eq!(rewatch.start_position_us, 0);
+    let (resumes,) = resume.get_resumes("").await.unwrap();
+    let row = resumes
+        .resumes
+        .iter()
+        .find(|row| row.content_id == id)
+        .unwrap();
+    assert!(!row.completed);
+    assert_eq!(row.position_us, 0);
+
     let imported = root.join("Imported.mkv");
     fs::write(&imported, b"imported").unwrap();
     let import = LibraryImportProxy::builder(&server)

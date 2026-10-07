@@ -74,7 +74,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0053](0053-release-and-label-workflows-on-the-runner.md) | Release and label workflows use the switchable runner | Accepted | — |
 | [0054](0054-media-and-library-wire-contract.md) | Media and library wire contract | Accepted | 0062, 0063, 0071 |
 | [0055](0055-launching-a-closed-browser.md) | Launching a closed browser before opening a URL | Accepted | — |
-| [0056](0056-local-library-scan-metadata-and-resume.md) | Local library scan, metadata and resume | Accepted | 0085 |
+| [0056](0056-local-library-scan-metadata-and-resume.md) | Local library scan, metadata and resume | Accepted | 0085, 0090 |
 | [0057](0057-mpv-ipc-and-process-scope.md) | mpv IPC, process scope and thumbnails | Accepted | 0083 |
 | [0058](0058-media-routing.md) | Daemon routing for media providers | Accepted | 0060 |
 | [0059](0059-application-icon-references.md) | Application icon references | Accepted | — |
@@ -106,4 +106,5 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0086](0086-automatic-master-prereleases.md) | Automatic master pre-releases and ordinary version-tag releases | Proposed | 0088 |
 | [0087](0087-bounded-activity-background-frames.md) | Bounded Activity background frames through immutable descriptors | Accepted | — |
 | [0088](0088-single-master-snapshot-retention.md) | Retain one verified master snapshot release | Proposed | — |
+| [0090](0090-rewatch-clears-completion.md) | Launching a completed item is a rewatch | Accepted | — |
 <!-- register:end -->

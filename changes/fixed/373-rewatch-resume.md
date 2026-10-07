@@ -1,0 +1,1 @@
+- Resume a film or episode you are watching again: starting an item that was already watched to the end now clears its "watched" state, so stopping in the middle and pressing Continue resumes there instead of starting over ([ADR-0090](docs/adr/0090-rewatch-clears-completion.md)).

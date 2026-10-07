@@ -255,6 +255,7 @@ impl Core {
             }
             let result = core
                 .store_and_apply(
+                    &op,
                     &id,
                     &generation,
                     &setting,
@@ -281,6 +282,7 @@ impl Core {
     #[allow(clippy::too_many_arguments)]
     async fn store_and_apply(
         &self,
+        op: &crate::operations::Operation,
         id: &str,
         generation: &str,
         setting: &str,
@@ -315,19 +317,20 @@ impl Core {
         );
         config.save(&directory)?;
         let values = Value::Object(effective_values(schema, &stored_values(&config, id)));
-        let applied = async {
-            let proxy = ProviderSettingsProxy::builder(&self.connection)
-                .destination(owner)
-                .map_err(|_| ErrorCode::Internal)?
-                .build()
-                .await
-                .map_err(|_| ErrorCode::Unavailable)?;
-            tokio::time::timeout(APPLY_TIMEOUT, proxy.apply(generation, &values.to_string()))
-                .await
-                .map_err(|_| ErrorCode::Timeout)?
-                .map_err(normalize_error)
-        }
-        .await;
+        let applied = op
+            .phase("provider.call", "settings.set", async {
+                let proxy = ProviderSettingsProxy::builder(&self.connection)
+                    .destination(owner)
+                    .map_err(|_| ErrorCode::Internal)?
+                    .build()
+                    .await
+                    .map_err(|_| ErrorCode::Unavailable)?;
+                tokio::time::timeout(APPLY_TIMEOUT, proxy.apply(generation, &values.to_string()))
+                    .await
+                    .map_err(|_| ErrorCode::Timeout)?
+                    .map_err(normalize_error)
+            })
+            .await;
         match applied {
             Ok(()) => Ok(()),
             Err(ErrorCode::Unsupported) => Err(ErrorCode::Unsupported),

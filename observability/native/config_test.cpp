@@ -46,11 +46,12 @@ private slots:
       QStringLiteral("Bad -/home/private-fixture/Videos or private-fixture/Videos/Title"),
       QStringLiteral("Windows C:\\Users\\private-fixture\\Videos path"),
       QStringLiteral("Query key=Private&title=Private#Title"),
-      QStringLiteral("Opaque urn:arinn:PrivateTitle and mailto:private-fixture"),
+      QStringLiteral("Opaque urn:arinn:PrivateTitle and mailto:private-fixture and x:PrivateTitle"),
+      QStringLiteral("Files Private.desktop Secret.document PrivateTitle.Videos.backup"),
     };
     for (const auto &fixture : fixtures) {
       const auto shape = ArinnTelemetry::qtTemplate(none, fixture);
-      for (auto marker : {"rivate", "Videos", "Title", "mkv", "mp4", "http", "magnet", "base64", "@", "/", "1", "4"})
+      for (auto marker : {"rivate", "Secret", "desktop", "Videos", "Title", "mkv", "mp4", "http", "magnet", "base64", "@", "/", "1", "4"})
         QVERIFY2(!shape.text.contains(marker), shape.text.constData());
       QVERIFY2(ArinnTelemetry::safeTemplateText(shape.text.constData()), shape.text.constData());
       QVERIFY(shape.location.isEmpty());

@@ -80,10 +80,10 @@ template:
 - **Exception value: the template.** The message after these replacements, in order:
   1. non-ASCII or control text becomes `<text>`;
   2. quoted text (closed or not) becomes `<str>`;
-  3. URLs of any scheme, hierarchical or opaque (`urn:`, `mailto:`), become `<url>`; a C++ scope such as `QQuickItem::stackAfter` is kept;
+  3. any `scheme:value` token, hierarchical or opaque and with a scheme of any length (`urn:`, `mailto:`, `x:`), becomes `<url>`; a C++ scope such as `QQuickItem::stackAfter` is kept;
   4. any token containing a slash or backslash becomes `<path>`, whatever character precedes it;
   5. addresses become `<str>`;
-  6. file names with an extension become `<file>`;
+  6. any dotted name (`Title.desktop`, `host.example`, `qt.qpa.wayland`) becomes `<file>`, whatever the length of its parts; a sentence-ending dot is kept;
   7. any remaining token containing `\ / ? & # % = @` becomes `<str>` as a whole, never split into its parts;
   8. numbers become `<n>`.
 

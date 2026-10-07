@@ -117,6 +117,22 @@ TestCase {
         verify(p.y >= 438 && p.y + last.height <= 888);
     }
 
+    function test_focus_move_in_the_model_change_turn_scrolls_to_the_row() {
+        // #275: Columns lay out new rows on the next polish pass. Moving focus
+        // in the same turn must not scroll by stale positions.
+        let apps = [];
+        for (let i = 0; i < 8; ++i) apps.push({
+            "id": "app" + i,
+            "title": "Browser " + i
+        })
+        view.ordinaryApplications = apps;
+        for (let i = 0; i < 8; ++i) view.move(1)
+        const last = child("browseOrdinary-7");
+        verify(last.activeFocus);
+        const p = last.mapToItem(view, 0, 0);
+        verify(p.y >= 438 && p.y + last.height <= 888, "row at " + p.y);
+    }
+
     function test_unavailable_focuses_retry() {
         view.browserUnavailable = true;
         view.focusInitial();

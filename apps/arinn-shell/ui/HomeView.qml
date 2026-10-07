@@ -171,9 +171,11 @@ FocusScope {
         const lead = continueEntries.length && continueEntries[0].kind !== "media" ? continueEntries[0] : null;
         const activity = shown ? service : lead ? [lead] : [];
         const rest = shown || !lead ? continueEntries : continueEntries.slice(1);
-        // Services that already have their own card in this row, by identity
-        // only, never by title (#358, #207).
-        const represented = activity.concat(rest).map(entry => entry.serviceId).filter(id => !!id);
+        // Services that already have a card in this row, by identity only,
+        // never by title (#358, #207). Only cards that fit count: with the
+        // summary, three further entries remain; without it nothing is left
+        // over, so a fourth cannot change the result.
+        const represented = activity.concat(rest.slice(0, 3)).map(entry => entry.serviceId).filter(id => !!id);
         const others = openServices.filter(entry => !represented.includes(entry.id));
         const more = openServices.length > 1 && others.length ? [{
             id: "open-services-more",

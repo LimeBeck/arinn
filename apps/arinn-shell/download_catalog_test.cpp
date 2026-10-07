@@ -400,6 +400,14 @@ private slots:
     daemon->page1 = {big, unsized, done};
     reload(catalog);
     QCOMPARE(catalog.downloadProgress(), 0.4);
+    // A sized download without reported progress still counts by its bytes.
+    auto sizedOnly = big;
+    sizedOnly.id = QStringLiteral("g");
+    sizedOnly.hasProgress = false;
+    sizedOnly.progress = 0;
+    daemon->page1 = {sizedOnly, unsized, done};
+    reload(catalog);
+    QCOMPARE(catalog.downloadProgress(), 0.4);
 
     // Nothing knows its progress.
     daemon->page1 = {job(QStringLiteral("f"), QStringLiteral("downloading"))};

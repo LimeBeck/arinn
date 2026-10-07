@@ -808,8 +808,8 @@ QString LibraryCatalog::entryIdFor(const QString &providerId,
 QString LibraryCatalog::artworkFor(const QString &providerId,
                                   const QString &localId) const {
   auto local = localId;
-  QString poster;
-  // Bounded walk as in entryIdFor: an episode falls back to its series.
+  // Bounded walk as in entryIdFor: an item's own fanart, then its own
+  // poster (an episode's still), then the nearest parent's artwork.
   for (int depth = 0; depth <= m_items.size(); ++depth) {
     const ItemRow *found = nullptr;
     for (const auto &item : m_items)
@@ -821,14 +821,15 @@ QString LibraryCatalog::artworkFor(const QString &providerId,
                                               found->generation, found->fanart);
     if (!fanart.isEmpty())
       return fanart;
-    if (poster.isEmpty())
-      poster = AssetImages::imageUrl(found->providerId, found->path,
-                                     found->generation, found->poster);
+    const auto poster = AssetImages::imageUrl(found->providerId, found->path,
+                                              found->generation, found->poster);
+    if (!poster.isEmpty())
+      return poster;
     if (found->parentLocal.isEmpty())
       break;
     local = found->parentLocal;
   }
-  return poster;
+  return {};
 }
 void LibraryCatalog::launchContent(const QString &providerId,
                                    const QString &localId) {

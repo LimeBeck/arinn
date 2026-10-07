@@ -326,7 +326,8 @@ bool DownloadCatalog::downloading() const {
 }
 double DownloadCatalog::downloadProgress() const {
   // Bytes when every active download knows its size, so a large download
-  // weighs more; otherwise the mean of the known fractions.
+  // weighs more; otherwise the mean of each download's known fraction, from
+  // its bytes or its reported progress.
   quint64 done = 0, total = 0;
   bool allSized = true;
   double sum = 0;
@@ -335,11 +336,14 @@ double DownloadCatalog::downloadProgress() const {
     if (row.state != QLatin1String("downloading"))
       continue;
     if (row.hasTotal && row.totalBytes > 0) {
-      done += std::min(row.completedBytes, row.totalBytes);
+      const auto completed = std::min(row.completedBytes, row.totalBytes);
+      done += completed;
       total += row.totalBytes;
-    } else {
-      allSized = false;
+      sum += static_cast<double>(completed) / static_cast<double>(row.totalBytes);
+      ++known;
+      continue;
     }
+    allSized = false;
     if (row.hasProgress && std::isfinite(row.progress)) {
       sum += std::clamp(row.progress, 0.0, 1.0);
       ++known;

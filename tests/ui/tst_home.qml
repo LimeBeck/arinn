@@ -500,6 +500,20 @@ TestCase {
         verify(findChild(home, "entry-open-services-more") === null);
         home.openServices = openTabs(2);
         compare(child("entry-open-services-more").text, "1 more open");
+        // A card cut off by the Continue limit does not represent its service.
+        const many = [];
+        for (let i = 1; i <= 5; ++i)
+            many.push({id: "m" + i, title: "Film " + i, kind: "media", serviceId: "tab-" + i});
+        home.currentServiceTitle = "";
+        home.currentServiceId = "";
+        home.continueEntries = many;
+        home.openServices = openTabs(5);
+        compare(home.continuePresentation.map(entry => entry.id).join(","), "open-services-more,m1,m2,m3");
+        compare(child("entry-open-services-more").text, "2 more open");
+        home.continueEntries = [{id: "b", title: "Second"}];
+        home.currentServiceId = "tab-1";
+        home.currentServiceTitle = "Page 1";
+        home.openServices = openTabs(2);
         // Titles never identify a service.
         home.currentServiceTitle = "Page 2";
         compare(child("entry-open-services-more").text, "1 more open");

@@ -306,6 +306,17 @@ Window {
     BrowserCatalog { id: browserCatalog }
     BrowseCatalog { id: browseCatalog; objectName: "browseCatalog"; tabs: browserCatalog.tabs }
     MediaCatalog { id: mediaCatalog; objectName: "mediaCatalog" }
+    // Continue media cards without session artwork use the backdrop of the
+    // library item they play (#365, ADR-0062). `library` only makes the
+    // binding follow catalog changes.
+    function continueMedia(entries, library) {
+        return entries.map(entry => {
+            if (entry.artwork) return entry;
+            const content = mediaCatalog.libraryContent(entry.id);
+            const artwork = content.local ? libraryCatalog.artworkFor(content.provider, content.local) : "";
+            return artwork ? Object.assign({}, entry, {artwork: artwork}) : entry;
+        });
+    }
     LibraryCatalog { id: libraryCatalog; objectName: "libraryCatalog" }
     DownloadCatalog {
         id: downloadCatalog
@@ -397,13 +408,18 @@ Window {
             returnIsWebService: backend.connected === true && backend.homeVisible && browserCatalog.presentedReturn
                 && backend.daemonEpoch === browserCatalog.returnEpoch
                 && backend.returnWindow === browserCatalog.returnTarget
-            continueEntries: (returnIsWebService ? [] : backend.continueEntries).concat(mediaCatalog.continueEntries)
-            favoriteEntries: [{id: "arinn-browse", title: qsTr("Site or search"), monogram: "⌕", enabled: true}].concat(backend.favorites)
+            continueEntries: (returnIsWebService ? [] : backend.continueEntries)
+                .concat(root.continueMedia(mediaCatalog.continueEntries, libraryCatalog.entries))
+            favoriteEntries: [{id: "arinn-browse", title: qsTr("Site or search"), hint: qsTr("Type an address or a search"),
+                               monogram: "⌕", enabled: true}].concat(backend.favorites)
             applicationEntries: backend.applications
             runningEntries: backend.items
             favoritesTitle: qsTr("Favorites")
             returnActivityId: backend.returnWindow
-            openServiceCount: browserCatalog.tabs.length
+            openServices: browserCatalog.tabs.map(tab => ({id: tab.id, title: tab.title || tab.domain || "",
+                                                            letter: tab.letter || "", icon: tab.icon || ""}))
+            downloadActive: downloadCatalog.downloading
+            downloadProgress: downloadCatalog.downloadProgress
             currentServiceId: backend.homeVisible && !returnIsWebService ? "" : (browserCatalog.presentedService.id || "")
             currentServiceTitle: backend.homeVisible && !returnIsWebService ? "" : (browserCatalog.presentedService.title || "")
             currentServiceSubtitle: backend.homeVisible && !returnIsWebService ? "" : (browserCatalog.presentedService.subtitle || "")

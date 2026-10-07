@@ -20,7 +20,7 @@ TestCase {
             id: home
             homeState: "ready"
             clockText: "20:42"
-            openServiceCount: 2
+            openServices: [{id: "svc-1", title: "North", letter: "N"}, {id: "svc-2", title: "South", letter: "S"}]
             continueEntries: [
                 {id: "{aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa}", title: "Return", subtitle: "Previous activity"},
                 {id: "session-a", title: "Same title", subtitle: "Independent session A"},

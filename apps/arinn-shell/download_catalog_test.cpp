@@ -365,6 +365,54 @@ private slots:
       QVERIFY(!value.toMap().contains(QStringLiteral("outputs")));
   }
 
+  // #367: Home's status chip sums the active downloads only.
+  void aggregateProgressOfActiveDownloads() {
+    auto big = job(QStringLiteral("a"), QStringLiteral("downloading"));
+    big.completed = 300;
+    big.hasTotal = true;
+    big.total = 1000;
+    big.hasProgress = true;
+    big.progress = 0.3;
+    auto small = job(QStringLiteral("b"), QStringLiteral("downloading"));
+    small.completed = 100;
+    small.hasTotal = true;
+    small.total = 100;
+    small.hasProgress = true;
+    small.progress = 1;
+    auto paused = job(QStringLiteral("c"), QStringLiteral("paused"));
+    paused.hasTotal = true;
+    paused.total = 100000;
+    auto done = job(QStringLiteral("d"), QStringLiteral("completed"));
+    daemon->page1 = {big, small, paused, done};
+
+    DownloadCatalog catalog;
+    QVERIFY(!catalog.downloading());
+    QCOMPARE(catalog.downloadProgress(), -1.0);
+    QTRY_COMPARE(catalog.downloadsState(), QStringLiteral("populated"));
+    QVERIFY(catalog.downloading());
+    // Bytes, so the large download weighs more: 400 of 1100.
+    QCOMPARE(catalog.downloadProgress(), 400.0 / 1100.0);
+
+    // An unsized download falls back to the mean of the known fractions.
+    auto unsized = job(QStringLiteral("e"), QStringLiteral("downloading"));
+    unsized.hasProgress = true;
+    unsized.progress = 0.5;
+    daemon->page1 = {big, unsized, done};
+    reload(catalog);
+    QCOMPARE(catalog.downloadProgress(), 0.4);
+
+    // Nothing knows its progress.
+    daemon->page1 = {job(QStringLiteral("f"), QStringLiteral("downloading"))};
+    reload(catalog);
+    QVERIFY(catalog.downloading());
+    QCOMPARE(catalog.downloadProgress(), -1.0);
+
+    daemon->page1 = {paused, done};
+    reload(catalog);
+    QVERIFY(!catalog.downloading());
+    QCOMPARE(catalog.downloadProgress(), -1.0);
+  }
+
   // Review of #310: a row that breaks a Download invariant fails its
   // provider instead of being shown.
   void malformedRowsFailTheProvider() {

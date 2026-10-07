@@ -34,6 +34,10 @@ public:
   // item, or an empty string (Downloads Watch, #233).
   Q_INVOKABLE QString entryIdFor(const QString &providerId,
                                  const QString &localId) const;
+  // Asset URL of the backdrop (fanart, else poster) of this provider-local
+  // item or the nearest parent that has one, or an empty string (#365).
+  Q_INVOKABLE QString artworkFor(const QString &providerId,
+                                 const QString &localId) const;
 public slots:
   void refresh();
 signals:

@@ -21,10 +21,16 @@ class DownloadCatalog : public QObject {
   // loading, populated, empty, error, unavailable (DownloadsView.viewState)
   Q_PROPERTY(QString downloadsState READ downloadsState NOTIFY catalogChanged)
   Q_PROPERTY(QVariantList jobs READ jobs NOTIFY catalogChanged)
+  // Home's status chip (#367): whether anything is downloading, and the
+  // aggregate progress 0–1 of active downloads, or -1 when none knows it.
+  Q_PROPERTY(bool downloading READ downloading NOTIFY catalogChanged)
+  Q_PROPERTY(double downloadProgress READ downloadProgress NOTIFY catalogChanged)
 public:
   explicit DownloadCatalog(QObject *parent = nullptr);
   QString downloadsState() const;
   QVariantList jobs() const { return m_jobs; }
+  bool downloading() const;
+  double downloadProgress() const;
   // action: pause, resume, start_now or retry (the view's action names).
   Q_INVOKABLE void request(const QString &id, const QString &action);
   // {provider, local} of the first library item an imported download

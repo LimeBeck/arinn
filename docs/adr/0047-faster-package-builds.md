@@ -4,7 +4,7 @@
 - **Date:** 2026-09-28
 - **Deciders:** project owner, explicit request to speed up the package job; mechanism under delegated authority ([ADR-0037](0037-agent-autonomy-and-owner-gated-decisions.md))
 - **Amends / Supersedes:** amends [ADR-0033](0033-ci-cd-and-releases.md) (package job on pull requests and `master` only)
-- **Amended by / Superseded by:** —
+- **Amended by / Superseded by:** [ADR-0092](0092-less-repeated-ci-work.md) — `check()` only on the nightly, manual runs and tag builds; the package builds only the shell target
 - **Specification:** [§17.1](../specifications/arinn-specification.md#171-continuous-integration-and-delivery)
 
 ## Context

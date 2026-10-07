@@ -18,7 +18,8 @@ override_dh_auto_build:
 	cargo build --frozen --release
 	cargo build --frozen --release --example private-systemd
 	cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-	cmake --build build
+	# Only the installed shell; CI builds and runs the Qt tests elsewhere (ADR-0092).
+	cmake --build build --target arinn-shell
 
 override_dh_auto_test:
 ifeq (nocheck,$(findstring nocheck,$(DEB_BUILD_OPTIONS)))

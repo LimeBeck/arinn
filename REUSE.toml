@@ -42,7 +42,7 @@ SPDX-FileCopyrightText = "2026 Arinn contributors"
 SPDX-License-Identifier = "CC0-1.0"
 
 [[annotations]]
-path = ["packaging/debian/debian/compat", "packaging/debian/debian/control", "packaging/debian/debian/source/format"]
+path = ["packaging/debian/debian/control", "packaging/debian/debian/source/format"]
 precedence = "override"
 SPDX-FileCopyrightText = "2026 Arinn contributors"
 SPDX-License-Identifier = "GPL-3.0-or-later"

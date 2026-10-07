@@ -83,9 +83,13 @@ QString scrub(QString text) {
   static const QRegularExpression allowed(QStringLiteral("^[(\\[{]*") + atom +
     QStringLiteral("(?:[()\\[\\]{},]+") + atom + QStringLiteral(")*[()\\[\\]{},;:!.]*$"));
   static const QRegularExpression punctuation(QStringLiteral("^[()\\[\\]{},;:!.-]+$"));
+  // Hexadecimal groups joined by colons are IPv6 addresses (`dead::beef`), not
+  // C++ scopes, even when no digit is left in them.
+  static const QRegularExpression address(QStringLiteral("^[(\\[{]*[0-9A-Fa-f]*(?::+[0-9A-Fa-f]*){2,}[)\\]},;:!.]*$"));
   QStringList tokens = text.split(QLatin1Char(' '), Qt::SkipEmptyParts);
   for (auto &token : tokens)
-    if (!allowed.match(token).hasMatch() && !punctuation.match(token).hasMatch()) token = QStringLiteral("<str>");
+    if (address.match(token).hasMatch() ||
+        (!allowed.match(token).hasMatch() && !punctuation.match(token).hasMatch())) token = QStringLiteral("<str>");
   text = tokens.join(QLatin1Char(' '));
   if (text.size() > maxTemplate) {
     text.truncate(maxTemplate);

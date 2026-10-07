@@ -372,7 +372,7 @@ fn sanitize_transaction(transaction: Transaction<'static>) -> Option<Transaction
     }
     Some(clean)
 }
-const METRIC_ATTRIBUTES: &[&str] = &["kind", "outcome", "error"];
+const METRIC_ATTRIBUTES: &[&str] = &["kind", "operation", "outcome", "error"];
 fn sanitize_metric(mut metric: Metric) -> Option<Metric> {
     if !matches!(
         metric.name.as_ref(),
@@ -578,7 +578,13 @@ pub fn record(operation: &'static str, error: Option<ErrorCode>, duration_ms: u6
         startup_trace(error.is_some(), duration_ms);
     }
     if error.is_some() {
-        sentry::metrics::counter("arinn.daemon.errors", 1).capture();
+        // A lifecycle failure is labeled by its lifecycle operation instead of a kind.
+        let mut counter =
+            sentry::metrics::counter("arinn.daemon.errors", 1).attribute("operation", operation);
+        if let Some(error) = error {
+            counter = counter.attribute("error", error.to_string());
+        }
+        counter.capture();
     }
     let mut crumb = Breadcrumb {
         category: Some("arinnd.lifecycle".into()),
@@ -921,6 +927,18 @@ mod tests {
         assert_eq!(duration["attributes"]["kind"]["value"], "media.present");
         assert_eq!(duration["attributes"]["outcome"]["value"], "failed");
         assert_eq!(duration["attributes"]["error"]["value"], "Timeout");
+    }
+    #[test]
+    fn startup_failures_count_with_their_lifecycle_label() {
+        let text = captured(|| record("startup", Some(ErrorCode::Internal), 0));
+        let errors: Vec<_> = items(&text, "trace_metric")
+            .iter()
+            .flat_map(|batch| batch["items"].as_array().cloned().unwrap_or_default())
+            .filter(|metric| metric["name"] == "arinn.daemon.errors")
+            .collect();
+        assert_eq!(errors.len(), 1, "{text}");
+        assert_eq!(errors[0]["attributes"]["operation"]["value"], "startup");
+        assert_eq!(errors[0]["attributes"]["error"]["value"], "Internal");
     }
     #[test]
     fn identical_failures_share_a_fingerprint() {

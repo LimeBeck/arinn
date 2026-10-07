@@ -89,7 +89,7 @@ sanitizers drop any other value. The lists live in `crates/arinnd/src/telemetry.
 | `reason` | `provider_changed` (owner or generation changed during the operation), `platform_timeout` (no platform answer within 5 s), `platform_channel_closed` (the platform dropped the request); for managed playback also `platform_not_polling`, `platform_window_missing`, `platform_conflict`, `session_locked` and `platform_cancelled` ([managed playback diagnostics](managed-playback.md#diagnostics)) |
 | `operation` | Lifecycle: `startup`, `ready`, `shutdown`, `seed-web-shortcuts`, `operation.complete` |
 
-Metric attributes are `kind`, `outcome` and `error` only; operation counts and durations carry all three, error counts carry `kind` and `error`.
+Metric attributes are `kind`, `operation`, `outcome` and `error` only. Operation counts and durations carry `kind`, `outcome` and `error`. Error counts carry `error` with either `kind` (an operation) or `operation` (a lifecycle failure such as `startup`).
 
 **Daemon transactions.** A transaction is named by the operation kind, with the trace op `daemon.operation`. It has up to 16 child spans:
 

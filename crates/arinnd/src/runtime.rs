@@ -1025,7 +1025,7 @@ impl Core {
             op.phase(
                 "provider.call",
                 "browser.launch",
-                self.launch_browser(deadline),
+                self.launch_browser(op, deadline),
             )
             .await?;
         }
@@ -1091,7 +1091,11 @@ impl Core {
     /// wait until a browser connects, within `deadline` (ADR-0055). Without a
     /// ready browser provider there is nothing to open the URL in, so nothing
     /// is launched. A mutating launch is never retried.
-    async fn launch_browser(&self, deadline: tokio::time::Instant) -> Result<(), ErrorCode> {
+    async fn launch_browser(
+        &self,
+        op: &crate::operations::Operation,
+        deadline: tokio::time::Instant,
+    ) -> Result<(), ErrorCode> {
         let _launching = self.browser_launch.lock().await;
         // Another open may have launched it while this one waited.
         if self.browser_connected().await {
@@ -1107,7 +1111,7 @@ impl Core {
                 vec![configured]
             }
         };
-        let (owner, generation, application) = {
+        let (id, owner, generation, application) = {
             let state = self.state.lock().await;
             let provider_ready = state.providers.values().any(|p| {
                 p.capability() == "browser"
@@ -1120,7 +1124,7 @@ impl Core {
             candidates
                 .iter()
                 .find_map(|candidate| {
-                    state.providers.values().find_map(|p| {
+                    state.providers.iter().find_map(|(id, p)| {
                         (p.capability() == "application"
                             && p.info.runtime_state == "ready"
                             && !p.owner.is_empty()
@@ -1129,6 +1133,7 @@ impl Core {
                                 .any(|a| &a.id == candidate && a.can_launch))
                         .then(|| {
                             (
+                                id.clone(),
                                 p.owner.clone(),
                                 p.info.generation.clone(),
                                 candidate.clone(),
@@ -1138,6 +1143,8 @@ impl Core {
                 })
                 .ok_or(ErrorCode::Unavailable)?
         };
+        // Losing the application provider during the launch ends the open.
+        op.depends_on(&id);
         let proxy = ApplicationProviderProxy::builder(&self.connection)
             .destination(owner.as_str())
             .map_err(|_| ErrorCode::Internal)?

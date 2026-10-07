@@ -4,3 +4,7 @@ target/
 *.user
 
 __pycache__/
+
+packaging/debian/*.deb
+packaging/debian/*.buildinfo
+packaging/debian/private-systemd

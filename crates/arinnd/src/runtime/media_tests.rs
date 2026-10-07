@@ -1258,7 +1258,7 @@ fn playback_failures_name_their_platform_reason() {
         (ErrorCode::Timeout, false, Some("platform_not_polling")),
         (ErrorCode::Timeout, true, None),
         (ErrorCode::NotFound, true, Some("platform_window_missing")),
-        (ErrorCode::Conflict, true, Some("launch_mismatch")),
+        (ErrorCode::Conflict, true, Some("platform_conflict")),
         (ErrorCode::PermissionDenied, true, Some("session_locked")),
         (ErrorCode::Cancelled, true, Some("platform_cancelled")),
         (ErrorCode::Unavailable, true, None),

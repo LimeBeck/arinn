@@ -166,7 +166,7 @@ Command freshness counts from the moment the daemon hands a command over, not fr
 | `platform_not_polling` | The same, and the adapter has not polled the media channel for three seconds: a stale or absent channel. |
 | `platform_channel_closed` | The platform dropped the request, for example on an adapter reset. |
 | `platform_window_missing` | The adapter or inventory no longer has the window. |
-| `launch_mismatch` | The window now reports another launch ID. |
+| `platform_conflict` | The platform refused the command as stale: the window reports another launch ID, the platform generation was reset, or a Release named another window. |
 | `session_locked` | The session is locked. |
 | `platform_cancelled` | Playback changed while the adapter checked the lock. |
 | `provider_changed` | The provider owner or generation changed. |

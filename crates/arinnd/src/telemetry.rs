@@ -188,7 +188,7 @@ pub const REASONS: &[&str] = &[
     // Managed playback windows (#369).
     "platform_not_polling",
     "platform_window_missing",
-    "launch_mismatch",
+    "platform_conflict",
     "session_locked",
     "platform_cancelled",
 ];

@@ -1030,7 +1030,9 @@ pub(super) fn playback_failure_reason(error: ErrorCode, poller_live: bool) -> Op
     match error {
         ErrorCode::Timeout if !poller_live => Some("platform_not_polling"),
         ErrorCode::NotFound => Some("platform_window_missing"),
-        ErrorCode::Conflict => Some("launch_mismatch"),
+        // A launch ID change, a platform generation reset and a Release token
+        // mismatch all arrive as Conflict; the reason does not guess which.
+        ErrorCode::Conflict => Some("platform_conflict"),
         ErrorCode::PermissionDenied => Some("session_locked"),
         ErrorCode::Cancelled => Some("platform_cancelled"),
         _ => None,

@@ -68,6 +68,18 @@ association or admitting Present. Store that exact presentation reference and it
 Release is idempotent teardown of the presentation stored for that registration
 and session, even after Stop clears the provider launch ID or the window vanishes.
 No stored presentation means successful teardown with no compositor mutation.
+On KDE, when the presented player window itself closes (leaving playback stops
+mpv since ADR-0083, or mpv exits or crashes), the KWin script shows Arinn
+with Home reported visible: Arinn owns the screen during managed playback, and
+the shell's later Release has nothing left to undo (#372). It first asks
+ScreenSaver `GetActive`; until the answer the shell keeps its playback layer.
+Home is shown only on `false` from the same daemon owner within the one-second
+guard bound, and the shell is raised only if the visible report is
+acknowledged within that bound. A locked, missing or late answer, a daemon
+owner change, a hand-off or a new Present only restores the shell's saved
+flags and reports Home hidden. Another application taking focus during
+playback, lock and the loss of the shell window still release without showing
+Arinn.
 Release never looks up a replacement window or changes another session. A per-registration/session exit fence rejects an older Present still awaiting provider identity when Release completes first. Exit records are bounded to 100,000 and cleared on provider loss. Known errors
 are rejected before dispatch. Missing support never reports success.
 

@@ -25,6 +25,9 @@ let mediaControllingAt = 0;
 let mediaReportingAt = 0;
 let lastMediaReport = "";
 let playback = null;
+// The managed player window closed: the shell keeps its playback layer until
+// a fresh unlocked guard result decides whether Home is shown (#372).
+let closing = null;
 let pollSerial = 0;
 let pollStarted = 0;
 let ownerProbe = 0;
@@ -108,6 +111,8 @@ function showHome() {
     // Do not surface over a locked session. ScreenSaver owns lock state.
     callDBus("org.freedesktop.ScreenSaver", "/ScreenSaver", "org.freedesktop.ScreenSaver", "GetActive", locked => {
         if (locked !== false || owner !== daemonOwner) return;
+        // An explicit Home owns the shell layer a pending close kept.
+        if (closing) { closing = null; ++playbackGuardSerial; }
         const active = workspace.activeWindow;
         if (!homeVisible) {
             detachedTarget = "";
@@ -124,7 +129,7 @@ function showHome() {
 // Give the Activity the screen before the shell stops covering it. Clearing
 // keepAbove first leaves a frame where neither surface covers the panel (#79).
 function handOff(w) {
-    if (playback) releasePlayback(false);
+    if (playback || closing) releasePlayback(false);
     w.minimized = false;
     workspace.activeWindow = w;
     const home = shell();
@@ -149,7 +154,7 @@ function returnToActivity() {
     } else { handOff(w); reportHome(false); }
 }
 function dismissHome() {
-    if (playback) releasePlayback(false);
+    if (playback || closing) releasePlayback(false);
     // A launched application replaces Home: hide it without activating the
     // previous Activity; the new window takes focus as it maps.
     if (!homeVisible) return;
@@ -241,7 +246,11 @@ workspace.windowActivated.connect(w => {
     if (playback && w && !isShell(w)) releasePlayback(false);
 });
 workspace.windowRemoved.connect(w => {
-    if (playback && (playback.window === w || playback.shell === w)) releasePlayback(false);
+    // The managed player's own window closing (leaving playback, Stop, a
+    // crash) returns to Arinn, which owns the screen during managed playback;
+    // the shell itself disappearing does not (#372).
+    if (playback && playback.window === w) closePlayback();
+    else if (playback && playback.shell === w) releasePlayback(false);
     windowTokens.delete(w);
     if (id(w) === target) { detachedTarget = target; target = ""; if (homeVisible) reportHome(false); }
 });
@@ -460,6 +469,7 @@ function restoreFlags(w, values) { for (const name of Object.keys(values)) w[nam
 function presentPlayback(w) {
     const home = shell();
     if (!home || !applicationWindow(w) || !launchId(w)) throw new Error("unavailable");
+    if (closing) releasePlayback(false);
     if (playback && playback.window !== w) releasePlayback(false);
     if (!playback) playback = { window: w, shell: home, launch: launchId(w),
         windowFlags: savedFlags(w, ["fullScreen", "minimized", "keepAbove"]),
@@ -478,10 +488,18 @@ function presentPlayback(w) {
     workspace.activeWindow = home;
 }
 function releasePlayback(show) {
-    const saved = playback;
+    const saved = playback, pending = closing;
     ++mediaSerial;
     playback = null;
+    closing = null;
     playbackGuardAt = 0; ++playbackGuardSerial;
+    if (pending) {
+        // Settle a pending close: an authorized Release may still show Home,
+        // anything else only restores the shell.
+        if (workspace.windowList().includes(pending.shell)) restoreFlags(pending.shell, pending.shellFlags);
+        homeVisible = show;
+        if (daemonOwner) reportHome(false, show ? raiseShell : undefined);
+    }
     if (!saved) return;
     const windows = workspace.windowList();
     if (windows.includes(saved.window)) restoreFlags(saved.window, saved.windowFlags);
@@ -490,7 +508,35 @@ function releasePlayback(show) {
     target = ""; returnObject = null; detachedTarget = "";
     if (daemonOwner) reportHome(false, show ? raiseShell : undefined);
 }
+// Leaving playback stops the managed player, so its window usually closes
+// before the shell's Release (#372). Show Home only on a fresh unlocked
+// result from the same daemon owner, bounded like every playback guard;
+// a locked, unknown or late answer only restores the shell's flags.
+function closePlayback() {
+    const saved = playback, owner = daemonOwner, at = Date.now();
+    ++mediaSerial;
+    playback = null;
+    playbackGuardAt = 0;
+    const serial = ++playbackGuardSerial;
+    closing = { shell: saved.shell, shellFlags: saved.shellFlags, at };
+    const pending = closing;
+    target = ""; returnObject = null; detachedTarget = "";
+    callDBus("org.freedesktop.ScreenSaver", "/ScreenSaver", "org.freedesktop.ScreenSaver", "GetActive", locked => {
+        if (closing !== pending || serial !== playbackGuardSerial) return;
+        if (locked !== false || owner !== daemonOwner || Date.now() - at >= 1000 ||
+            !workspace.windowList().includes(pending.shell)) { releasePlayback(false); return; }
+        // Keep the shell's layer until the visible report is acknowledged.
+        homeVisible = true;
+        reportHome(false, () => {
+            if (closing !== pending || serial !== playbackGuardSerial) return;
+            if (owner !== daemonOwner || Date.now() - at >= 1000) { releasePlayback(false); return; }
+            closing = null;
+            raiseShell();
+        });
+    });
+}
 function checkPlaybackLock() {
+    if (closing && Date.now() - closing.at >= 1000) releasePlayback(false);
     if (!playback) return;
     const now = Date.now();
     if (playbackGuardAt) {

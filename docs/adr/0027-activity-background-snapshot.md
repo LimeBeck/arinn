@@ -4,7 +4,7 @@
 - **Date:** 2026-09-27
 - **Deciders:** delegated technical choice, based on the Phase 0 runtime experiment
 - **Amends / Supersedes:** amends [ADR-0009](0009-kde-wayland-platform.md), [ADR-0019](0019-design-handoff-contract.md)
-- **Amended by / Superseded by:** —
+- **Amended by / Superseded by:** [ADR-0087](0087-bounded-activity-background-frames.md)
 - **Specification:** [§12.3](../specifications/arinn-specification.md)
 
 ## Context

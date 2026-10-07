@@ -39,13 +39,13 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0018](0018-demo-testing-gates.md) | Demo provider, shared contract suite and architecture gates | Accepted | 0020, 0023, 0033 |
 | [0019](0019-design-handoff-contract.md) | The design handoff as a separate presentation contract | Accepted | 0022, 0023, 0027 |
 | [0020](0020-dbus-contract-baseline.md) | D-Bus transport, identifiers and Plugin API reliability | Accepted | 0035, 0041 |
-| [0021](0021-plugin-runtime-ownership.md) | Transient systemd services and a separate Chrome native bridge | Accepted | 0038, 0042 |
+| [0021](0021-plugin-runtime-ownership.md) | Transient systemd services and a separate Chrome native bridge | Accepted | 0038, 0042, 0089 |
 | [0022](0022-state-and-interaction-baseline.md) | Activity ownership, persistence and interaction state | Accepted | 0034, 0043 |
 | [0023](0023-mvp-product-clarifications.md) | Back, system sleep and the target HTPC | Accepted | 0030 |
 | [0024](0024-local-library-mpv.md) | Local library and external mpv with a rich media API | Accepted | 0046, 0054, 0057 |
 | [0025](0025-downloads-mvp.md) | DownloadProvider and Transmission in the MVP | Accepted | 0067 |
 | [0026](0026-multiple-monitors.md) | Home on the screen of the active Activity | Accepted | 0031 |
-| [0027](0027-activity-background-snapshot.md) | Compositor snapshot of the Activity for a separate Qt shell | Accepted | — |
+| [0027](0027-activity-background-snapshot.md) | Compositor snapshot of the Activity for a separate Qt shell | Accepted | 0087 |
 | [0028](0028-documentation-governance.md) | Documentation governance, living specification and English docs | Accepted | 0036 |
 | [0029](0029-licensing.md) | GPL-3.0-or-later core, permissive protocol, contributor license agreement | Accepted | — |
 | [0030](0030-phase0-machine-and-standard-input.md) | Phase 0 on the development machine and the remote as standard keyboard input | Accepted | — |
@@ -74,7 +74,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0053](0053-release-and-label-workflows-on-the-runner.md) | Release and label workflows use the switchable runner | Accepted | — |
 | [0054](0054-media-and-library-wire-contract.md) | Media and library wire contract | Accepted | 0062, 0063, 0071 |
 | [0055](0055-launching-a-closed-browser.md) | Launching a closed browser before opening a URL | Accepted | — |
-| [0056](0056-local-library-scan-metadata-and-resume.md) | Local library scan, metadata and resume | Accepted | 0085 |
+| [0056](0056-local-library-scan-metadata-and-resume.md) | Local library scan, metadata and resume | Accepted | 0085, 0090 |
 | [0057](0057-mpv-ipc-and-process-scope.md) | mpv IPC, process scope and thumbnails | Accepted | 0083 |
 | [0058](0058-media-routing.md) | Daemon routing for media providers | Accepted | 0060 |
 | [0059](0059-application-icon-references.md) | Application icon references | Accepted | — |
@@ -104,5 +104,8 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0084](0084-favorites-contract.md) | Revision-guarded daemon-owned favorites | Accepted | — |
 | [0085](0085-anime-tv-season-markers.md) | Anime `TVn` season markers in library names | Accepted | — |
 | [0086](0086-automatic-master-prereleases.md) | Automatic master pre-releases and ordinary version-tag releases | Proposed | 0088 |
+| [0087](0087-bounded-activity-background-frames.md) | Bounded Activity background frames through immutable descriptors | Accepted | — |
 | [0088](0088-single-master-snapshot-retention.md) | Retain one verified master snapshot release | Proposed | — |
+| [0089](0089-daemon-provider-supervisor-without-a-systemd-user-manager.md) | Daemon provider supervisor without a systemd user manager | Accepted | — |
+| [0090](0090-rewatch-clears-completion.md) | Launching a completed item is a rewatch | Accepted | — |
 <!-- register:end -->

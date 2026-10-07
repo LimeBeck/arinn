@@ -143,7 +143,7 @@ Building from source:
 On Arch/EndeavourOS:
 
 ```sh
-sudo pacman -S --needed rust cmake ninja qt6-base qt6-declarative qt6-svg python nodejs curl libunwind openssl
+sudo pacman -S --needed rust cmake ninja qt6-base qt6-declarative qt6-svg qt6-tools python nodejs curl libunwind openssl
 ```
 
 Sentry diagnostics are optional in the shell and daemon. The separate

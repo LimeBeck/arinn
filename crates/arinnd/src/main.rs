@@ -115,6 +115,7 @@ async fn run(started: std::time::Instant) -> Result<(), ErrorCode> {
     tokio::signal::ctrl_c()
         .await
         .map_err(|_| ErrorCode::Internal)?;
+    core.shutdown_supervision().await;
     arinnd::telemetry::record("shutdown", None, 0);
     Ok(())
 }

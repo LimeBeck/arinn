@@ -480,7 +480,7 @@ Required fields: `id`, `name`, `version`, `api_version`, `executable` (absolute 
 
 ### 9.10. Lifecycle and registration
 
-`arinnd` orchestrates discover, start, handshake, monitor, restart and stop, delegating process supervision to systemd: each provider is a **transient user service** (`Restart=on-failure`, 2 s delay, at most 5 starts per 60 s, then failed until a manual restart). After start the plugin calls `Register` with a one-time token; the daemon verifies the D-Bus sender, UID, token and cgroup, accepts only manifest capabilities and returns a generation. A provider is available only after registration and its first valid snapshot. Runtime states: discovered, starting, ready, restarting, failed, stopped, incompatible; backend states: available, unavailable, degraded. Details: [plugin runtime](../architecture/plugin-runtime.md).
+`arinnd` orchestrates discover, start, handshake, monitor, restart and stop. When the session has a systemd user manager, each provider is a **transient user service** (`Restart=on-failure`, 2 s delay, at most 5 starts per 60 s, then failed until a manual restart). When no user manager is available, the daemon supervises the same manifest process in-process with the same restart budget and environment ([ADR-0089](../adr/0089-daemon-provider-supervisor-without-a-systemd-user-manager.md)). After start the plugin calls `Register` with a one-time token; the daemon verifies the D-Bus sender, UID, token and that the PID belongs to the supervised provider process, accepts only manifest capabilities and returns a generation. A provider is available only after registration and its first valid snapshot. Runtime states: discovered, starting, ready, restarting, failed, stopped, incompatible; backend states: available, unavailable, degraded. Details: [plugin runtime](../architecture/plugin-runtime.md).
 
 ---
 
@@ -567,7 +567,14 @@ When Home opens, the platform remembers the Activity window and its output; the 
 
 ### 12.3. Activity background
 
-The receded Activity behind Home uses the last frame of the Activity window, captured by the trusted KWin component with `WindowThumbnail`, exported as a bounded frame to a private runtime directory and rendered by the shell (near: scale .95, blur 8, brightness .6; far: scale .90, blur 36, brightness .32). The snapshot is bound to generation + Activity + Home request and is invalidated on Return, Activity change, lock/sleep or provider/daemon loss. The UI never waits for the frame before local focus ([ADR-0027](../adr/0027-activity-background-snapshot.md)).
+The receded Activity behind Home uses the last frame of the Activity window, captured by the trusted KWin component with `WindowThumbnail`, handed off through the daemon as a bounded immutable sealed memfd and rendered by the shell (near: scale .95, blur 8, brightness .6; far: scale .90, blur 36, brightness .32). The snapshot is bound to generation + Activity + Home request and is invalidated on Return, Activity change, lock/sleep or provider/daemon loss. The UI never waits for the frame before local focus ([ADR-0027](../adr/0027-activity-background-snapshot.md), amended by [ADR-0087](../adr/0087-bounded-activity-background-frames.md) for the descriptor handoff). No runtime screenshot files are written or persisted.
+
+Optional daemon-root `Background1` and trusted `BackgroundCapture1` define the
+bounded frame handoff for this Activity background requirement.
+They are not provider capabilities and change no existing method signatures.
+See [ADR-0087](../adr/0087-bounded-activity-background-frames.md) and the
+[background contract](../architecture/activity-background.md). Contract preparation
+alone does not imply production capture or close G-5.2.
 
 ### 12.4. Session lifecycle
 
@@ -636,6 +643,7 @@ The visual direction is **Quiet Spatial OS** — "Calm OS → Cinematic Content"
 
 - logical canvas 1920×1080, uniform scale `min(vw/1920, vh/1080)`, safe area from the handoff;
 - Onest and Material Symbols Rounded; text ≥ 24, action-critical text ≥ 26; tabular numerals; room for Russian labels ~30% longer;
+- interface language: Russian through Qt translations, following the system locale; English strings in the code are the source and the fallback for other locales. Owner decision on 2026-10-06 ([#363](https://github.com/LimeBeck/arinn/issues/363)); the handoff copy is the reference wording. Provider-supplied text (titles, setting names, error messages from plugins) is shown as delivered;
 - Ember `#FF8A3D` marks status, progress and brand only, never focus;
 - light field keyed to artwork hue, crossfaded over 900 ms, can be disabled, absent on system screens;
 - all tokens, radii, elevation and motion timings as in the handoff and Design System v2;

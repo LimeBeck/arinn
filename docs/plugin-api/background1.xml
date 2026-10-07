@@ -1,0 +1,12 @@
+<!-- SPDX-FileCopyrightText: 2026 Arinn contributors
+SPDX-License-Identifier: MIT OR Apache-2.0 -->
+<node>
+  <interface name="org.arinn.Background1">
+    <method name="Get"><arg type="(sta(ssss(ss))s)" direction="out" /></method>
+    <method name="ReadFrame">
+      <arg name="request_id" type="s" direction="in" />
+      <arg type="((ssss(ss))uuh)" direction="out" />
+    </method>
+    <signal name="Changed"><arg name="epoch" type="s" /><arg name="revision" type="t" /></signal>
+  </interface>
+</node>

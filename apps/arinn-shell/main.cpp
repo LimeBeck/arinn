@@ -12,15 +12,23 @@
 #include <QDBusConnectionInterface>
 #include <QGuiApplication>
 #include <QIcon>
+#include <QLocale>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickWindow>
 #include <QScreen>
+#include <QTranslator>
 #include <cstdio>
 int main(int argc, char **argv) {
   QGuiApplication app(argc, argv);
   app.setApplicationName("arinn-shell");
   app.setDesktopFileName("org.arinn.Shell");
+  // The interface follows the system locale; English strings are the source
+  // and the fallback (#363).
+  QTranslator translator;
+  if (translator.load(QLocale(), QStringLiteral("arinn"), QStringLiteral("_"),
+                      QStringLiteral(":/i18n")))
+    app.installTranslator(&translator);
   // The desktop entry names the icon (#289); X11 also needs it on the window.
   app.setWindowIcon(QIcon::fromTheme(QStringLiteral("org.arinn.Shell"),
                                      QIcon(QStringLiteral(":/brand/arinn-mark.svg"))));
@@ -68,6 +76,7 @@ int main(int argc, char **argv) {
                        }
                      }
                    });
+  createHiddenShellWindow(window);
   StartupHome startupHome(sessionGuard);
   return app.exec();
 }

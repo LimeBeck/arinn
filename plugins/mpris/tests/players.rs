@@ -6,6 +6,7 @@
 use arinn_plugin_mpris::serve;
 use arinn_protocol::{
     media::MediaProviderProxy,
+    media_association::MediaProcessProxy,
     production::{self, Registration, RegistrationReply},
 };
 use std::{
@@ -298,6 +299,49 @@ async fn scenario() {
     let xml = introspect.introspect().await.unwrap();
     assert!(xml.contains("org.arinn.MediaProvider1"));
     assert!(!xml.contains("org.arinn.MediaOpen1"));
+    // ADR-0096: the player's process, for the daemon only.
+    assert!(xml.contains("org.arinn.MediaProcess1"));
+    let processes = MediaProcessProxy::builder(&daemon)
+        .destination(&destination)
+        .unwrap()
+        .build()
+        .await
+        .unwrap();
+    assert_eq!(
+        processes
+            .get_process_id(&generation, "fixture")
+            .await
+            .unwrap(),
+        std::process::id()
+    );
+    assert_eq!(
+        error_name(processes.get_process_id(&generation, "missing").await),
+        "org.arinn.Error1.NotFound"
+    );
+    assert_eq!(
+        error_name(
+            processes
+                .get_process_id("00000000-0000-4000-8000-000000000009", "fixture")
+                .await
+        ),
+        "org.arinn.Error1.Conflict"
+    );
+    let stranger = bus.connection().await;
+    let snoop = MediaProcessProxy::builder(&stranger)
+        .destination(&destination)
+        .unwrap()
+        .build()
+        .await
+        .unwrap();
+    assert_eq!(
+        error_name(snoop.get_process_id(&generation, "fixture").await),
+        "org.arinn.Error1.PermissionDenied"
+    );
+    // Refused before its arguments are read.
+    assert_eq!(
+        error_name(snoop.get_process_id("", "").await),
+        "org.arinn.Error1.PermissionDenied"
+    );
     assert!(!xml.contains("org.arinn.MediaTracks1"));
     assert!(!xml.contains("org.arinn.MediaTimeline1"));
     // Introspection can outlast the one-second playing refresh. The anchor
@@ -563,6 +607,74 @@ async fn late_scenario() {
     runner.abort();
 }
 
+/// A bus name that moves to another owner with identical state still takes
+/// a new snapshot revision, so the daemon re-reads its process (ADR-0096).
+async fn moved_scenario() {
+    use zbus::fdo::RequestNameFlags;
+    let bus = Bus::start();
+    let daemon = bus.connection().await;
+    daemon
+        .object_server()
+        .at(production::PATH, Daemon)
+        .await
+        .unwrap();
+    daemon.request_name(production::SERVICE).await.unwrap();
+
+    let paused = || {
+        let player = player("Same", true);
+        *player.0.status.lock().unwrap() = "Paused".into();
+        player
+    };
+    let first = bus.connection().await;
+    first
+        .object_server()
+        .at("/org/mpris/MediaPlayer2", paused())
+        .await
+        .unwrap();
+    first
+        .request_name_with_flags(
+            "org.mpris.MediaPlayer2.same",
+            RequestNameFlags::AllowReplacement.into(),
+        )
+        .await
+        .unwrap();
+
+    let provider = bus.connection().await;
+    let destination = provider.unique_name().unwrap().clone();
+    let runner = tokio::spawn(async move {
+        let _ = serve(provider).await;
+    });
+    let proxy = MediaProviderProxy::builder(&daemon)
+        .destination(&destination)
+        .unwrap()
+        .build()
+        .await
+        .unwrap();
+    let (before,) = wait_page(&proxy, |page| page.sessions.len() == 1).await;
+    // Let any settling republish pass before the move.
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    let (before,) = wait_page(&proxy, |page| page.revision >= before.revision).await;
+
+    // One NameOwnerChanged from the first owner to the second: the name never
+    // disappears, and the second player reports exactly the same state.
+    let second = bus.connection().await;
+    second
+        .object_server()
+        .at("/org/mpris/MediaPlayer2", paused())
+        .await
+        .unwrap();
+    second
+        .request_name_with_flags(
+            "org.mpris.MediaPlayer2.same",
+            RequestNameFlags::ReplaceExisting.into(),
+        )
+        .await
+        .unwrap();
+    let (after,) = wait_page(&proxy, |page| page.revision > before.revision).await;
+    assert_eq!(after.sessions, before.sessions);
+    runner.abort();
+}
+
 /// `after` matches `before`, or is one playing republish later (about 1s).
 fn assert_same_or_one_republish(before: u64, after: u64) {
     if after == before {
@@ -667,4 +779,13 @@ fn mpris_player_appears_after_a_failed_first_read() {
     }
     let runtime = tokio::runtime::Runtime::new().unwrap();
     runtime.block_on(late_scenario());
+}
+
+#[test]
+fn mpris_owner_change_takes_a_new_revision() {
+    if !enter("mpris_owner_change_takes_a_new_revision") {
+        return;
+    }
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    runtime.block_on(moved_scenario());
 }

@@ -144,9 +144,33 @@ and a new or moved link waits; ties go by the link's sort order.
   confirmed on a real Chrome/KDE session. That check needs explicit owner
   permission and is not part of the contract tests.
 
-## Follow-ups
+## Implementation
 
-The producers (`plugins/mpris`, `plugins/chrome`), the daemon join and export
-(`crates/arinnd`), and the shell consumer (`apps/arinn-shell`) are implemented
-separately after this contract. Each comes with private-bus tests for link,
-ambiguity, pause hold, move, generation change and missing interfaces.
+- **Producers.** `plugins/mpris` exports `MediaProcess1` and reads the name
+  owner's process at call time. A tracked name that changes owner makes the
+  next publish take a new revision (`MediaService::touch`), even when the
+  sessions look the same. `plugins/chrome` exports `BrowserProcess1` and
+  records the host's parent process per connection at attach.
+- **Daemon.** `crates/arinnd/src/runtime/media_links.rs` runs one pass per
+  second. Each pass reads current snapshots, introspects each registration
+  once, makes at most 64 process lookups (cached per provider, generation,
+  snapshot revision and local ID) and applies `join`. It then re-reads the
+  provider set with each provider's generation and revision. While some
+  process IDs are still unknown, or the provider set or a snapshot moved
+  during the lookups, it only drops links to sessions or tabs that are gone.
+- **Shell.** `MediaCatalog` reads `Get` and sets the linked tab's
+  presentation ID as `serviceId` on a session's Continue entry. A `Changed`
+  with a newer revision clears its links until a reply at that revision. `HomeView`
+  merges that entry into the current-service card, or shows it as the tab's
+  card (`kind: "tab"`, which activates the tab). A link to a tab that is not
+  open is ignored. Play/pause media keys on such a card go to the session.
+
+Tests:
+- the MPRIS and Chrome provider tests (the real host binary, with the test
+  process standing in for the browser);
+- `runtime::media_links` private-bus tests;
+- `MediaCatalogTest::linkedSessionsNameTheirTab`;
+- the Home QML cases;
+- the `phase1.py` wire check.
+
+Real Chrome/KDE confirmation is still not run.

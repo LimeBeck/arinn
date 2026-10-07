@@ -41,6 +41,10 @@ quint64 monotonicUs() {
          static_cast<quint64>(ts.tv_nsec) / 1000ull;
 }
 struct WindowWire { QString generation, token; };
+struct LinkWire {
+  QString mediaProvider, mediaGeneration, session, browserProvider,
+      browserGeneration, tab;
+};
 struct ContentWire {
   QString provider;
   QString capability;
@@ -87,6 +91,14 @@ QDBusArgument &operator<<(QDBusArgument &argument, const WindowWire &window) {
   argument.beginStructure(); argument << window.generation << window.token; argument.endStructure(); return argument;
 }
 const QDBusArgument &operator>>(const QDBusArgument &argument, WindowWire &) { return argument; }
+QDBusArgument &operator<<(QDBusArgument &argument, const LinkWire &link) {
+  argument.beginStructure();
+  argument << link.mediaProvider << link.mediaGeneration << link.session
+           << link.browserProvider << link.browserGeneration << link.tab;
+  argument.endStructure();
+  return argument;
+}
+const QDBusArgument &operator>>(const QDBusArgument &argument, LinkWire &) { return argument; }
 QDBusArgument &operator<<(QDBusArgument &argument, const ContentWire &content) {
   argument.beginStructure();
   argument << content.provider << content.capability << content.local;
@@ -229,10 +241,34 @@ public:
   qlonglong lastThumbnail = -1;
   QString lastGeneration, lastLocal, lastRequest;
   qlonglong lastSeek = -1;
+  // MediaAssociation1 (ADR-0096): absent unless a test exports it.
+  bool associationExported = false;
+  QString associationEpoch = QStringLiteral("epoch");
+  qulonglong associationRevision = 2;
+  QList<QStringList> links;
   QString introspect(const QString &) const override { return {}; }
   bool handleMessage(const QDBusMessage &message,
                      const QDBusConnection &bus) override {
     QDBusArgument body;
+    if (message.interface() == QLatin1String("org.arinn.MediaAssociation1")) {
+      if (!associationExported) {
+        bus.send(message.createErrorReply(
+            QStringLiteral("org.freedesktop.DBus.Error.UnknownInterface"),
+            QStringLiteral("absent")));
+        return true;
+      }
+      QDBusArgument reply;
+      reply.beginStructure();
+      reply << associationEpoch << associationRevision;
+      reply.beginArray(QMetaType::fromType<LinkWire>());
+      for (const auto &link : links)
+        reply << LinkWire{link.value(0), link.value(1), link.value(2),
+                          link.value(3), link.value(4), link.value(5)};
+      reply.endArray();
+      reply.endStructure();
+      bus.send(message.createReply(QVariant::fromValue(reply)));
+      return true;
+    }
     if (message.member() == QLatin1String("Status")) {
       body.beginStructure();
       body << QStringLiteral("epoch") << true << QStringLiteral("generation")
@@ -479,6 +515,7 @@ class MediaCatalogTest : public QObject {
 private slots:
   void initTestCase() {
     qDBusRegisterMetaType<WindowWire>();
+    qDBusRegisterMetaType<LinkWire>();
     qDBusRegisterMetaType<ContentWire>();
     qDBusRegisterMetaType<SessionWire>();
     qDBusRegisterMetaType<ProviderWire>();
@@ -1411,6 +1448,104 @@ private slots:
     QCOMPARE(content.value(QStringLiteral("local")).toString(), QStringLiteral("ep-1"));
     QVERIFY(catalog.libraryContent(stream.value(QStringLiteral("id")).toString()).isEmpty());
     QVERIFY(catalog.libraryContent(QStringLiteral("missing")).isEmpty());
+  }
+  // #359 (ADR-0096): a linked session names its tab by the tab's
+  // presentation ID; a missing interface or another daemon epoch links
+  // nothing; play/pause reaches the chosen session only.
+  void linkedSessionsNameTheirTab() {
+    MediaDaemon daemon;
+    const auto now = monotonicUs();
+    daemon.page1 = {
+        session(QStringLiteral("browser"), QStringLiteral("Video"),
+                QStringLiteral("playing"), 0, now, -1,
+                {QStringLiteral("play"), QStringLiteral("pause")}),
+        session(QStringLiteral("player"), QStringLiteral("Song"),
+                QStringLiteral("paused"), 0, now, -1,
+                {QStringLiteral("play-pause")}),
+    };
+    daemon.links = {{QStringLiteral("media-provider"), QStringLiteral("g-media"),
+                     QStringLiteral("browser"), QStringLiteral("chrome"),
+                     QStringLiteral("g-chrome"), QStringLiteral("c1:t7")}};
+    auto bus = QDBusConnection::sessionBus();
+    QVERIFY(bus.registerService(QStringLiteral("org.arinn.Daemon1")));
+    QVERIFY(bus.registerVirtualObject(QStringLiteral("/org/arinn"), &daemon,
+                                      QDBusConnection::SubPath));
+    MediaCatalog catalog;
+    QTRY_COMPARE(catalog.continueEntries().size(), 2);
+    const auto serviceOf = [&catalog](const QString &title) {
+      for (const auto &value : catalog.continueEntries()) {
+        const auto entry = value.toMap();
+        if (entry.value(QStringLiteral("title")).toString() == title)
+          return entry.value(QStringLiteral("serviceId")).toString();
+      }
+      return QStringLiteral("missing");
+    };
+    // Without MediaAssociation1 nothing is linked.
+    QTest::qWait(200);
+    QCOMPARE(serviceOf(QStringLiteral("Video")), QString());
+
+    daemon.associationExported = true;
+    QDBusMessage changed = QDBusMessage::createSignal(
+        QStringLiteral("/org/arinn/Daemon1"),
+        QStringLiteral("org.arinn.MediaAssociation1"), QStringLiteral("Changed"));
+    changed << QStringLiteral("epoch") << qulonglong(2);
+    QVERIFY(bus.send(changed));
+    const auto tab =
+        QUuid::createUuidV5(
+            QUuid(), QJsonDocument(QJsonArray{QStringLiteral("chrome"),
+                                              QStringLiteral("g-chrome"),
+                                              QStringLiteral("tab"),
+                                              QStringLiteral("c1:t7")})
+                         .toJson(QJsonDocument::Compact))
+            .toString();
+    QTRY_COMPARE(serviceOf(QStringLiteral("Video")), tab);
+    QCOMPARE(serviceOf(QStringLiteral("Song")), QString());
+
+    // Play/pause on the linked card: the session has no play-pause action,
+    // so a playing session is paused. The selection does not change.
+    const auto selectedBefore = catalog.selectedId();
+    QString browserId;
+    for (const auto &value : catalog.continueEntries())
+      if (value.toMap().value(QStringLiteral("title")) == QStringLiteral("Video"))
+        browserId = value.toMap().value(QStringLiteral("id")).toString();
+    catalog.playPauseSession(browserId);
+    QTRY_COMPARE(daemon.commands, QStringList{QStringLiteral("Pause")});
+    QCOMPARE(daemon.lastLocal, QStringLiteral("browser"));
+    QCOMPARE(catalog.selectedId(), selectedBefore);
+
+    // An older revision than the one applied is a stale reply: ignored.
+    daemon.associationRevision = 5;
+    QVERIFY(bus.send(changed));
+    QTest::qWait(200);
+    daemon.associationRevision = 4;
+    daemon.links.clear();
+    QVERIFY(bus.send(changed));
+    QTest::qWait(300);
+    QCOMPARE(serviceOf(QStringLiteral("Video")), tab);
+
+    // A Changed with a newer revision clears the link at once; a reply below
+    // that revision (here still 5, as an older read would) does not bring it
+    // back. The link returns with a reply at the announced revision.
+    daemon.associationRevision = 5;
+    daemon.links = {{QStringLiteral("media-provider"), QStringLiteral("g-media"),
+                     QStringLiteral("browser"), QStringLiteral("chrome"),
+                     QStringLiteral("g-chrome"), QStringLiteral("c1:t7")}};
+    QDBusMessage newer = QDBusMessage::createSignal(
+        QStringLiteral("/org/arinn/Daemon1"),
+        QStringLiteral("org.arinn.MediaAssociation1"), QStringLiteral("Changed"));
+    newer << QStringLiteral("epoch") << qulonglong(9);
+    QVERIFY(bus.send(newer));
+    QTRY_COMPARE(serviceOf(QStringLiteral("Video")), QString());
+    QTest::qWait(300);
+    QCOMPARE(serviceOf(QStringLiteral("Video")), QString());
+    daemon.associationRevision = 9;
+    QVERIFY(bus.send(newer));
+    QTRY_COMPARE(serviceOf(QStringLiteral("Video")), tab);
+
+    // A snapshot of another daemon epoch is not trusted.
+    daemon.associationEpoch = QStringLiteral("other-epoch");
+    QVERIFY(bus.send(changed));
+    QTRY_COMPARE(serviceOf(QStringLiteral("Video")), QString());
   }
   void managedWindowResolutionCanBeCancelledWithoutStartingPresentation() {
     MediaDaemon daemon;

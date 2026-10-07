@@ -191,6 +191,9 @@ with tempfile.TemporaryDirectory(prefix="arinn-production-") as folder:
         # Folders1 (ADR-0071): start points end with "/", and a listing has
         # folder names only.
         wire_contract("org.arinn.Daemon1", "/org/arinn/Daemon1", "org.arinn.Folders1", "folders1.xml")
+        # MediaAssociation1 (ADR-0096): links appear only with browser media.
+        wire_contract("org.arinn.Daemon1", "/org/arinn/Daemon1", "org.arinn.MediaAssociation1",
+                      "media-association1.xml")
         def folders_call(method, signature="", *arguments):
             return subprocess.run(["busctl", "--user", "--json=short", "call",
                                    "org.arinn.Daemon1", "/org/arinn/Daemon1",

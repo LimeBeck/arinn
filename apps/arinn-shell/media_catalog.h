@@ -72,6 +72,9 @@ public:
   // {provider, local} of the library item any session plays, or an empty
   // map. Home uses it to show that item's backdrop (#365).
   Q_INVOKABLE QVariantMap libraryContent(const QString &id) const;
+  // Play/pause one session without selecting it: a Continue card linked to
+  // a browser tab sends this to its media session (ADR-0096).
+  Q_INVOKABLE void playPauseSession(const QString &id);
   bool playerSession() const;
   bool tracksAvailable() const;
   bool timelineAvailable() const;
@@ -96,6 +99,7 @@ public:
   Q_INVOKABLE void selectSubtitle(const QString &trackId);
 public slots:
   void refresh();
+  void linksChanged(const QString &epoch, qulonglong revision);
   void windowChanged(const QString &generation);
   void homeRequested(const QString &epoch, const QString &target, const QString &output);
 signals:
@@ -184,6 +188,22 @@ private:
   const SessionRow *selected() const;
   const SessionRow *findId(const QString &id) const;
   static qint64 displayedPosition(const SessionRow &row);
+  // MediaAssociation1 links (ADR-0096): a session and the presentation ID
+  // of the browser tab that plays it.
+  struct LinkRow {
+    QString provider;
+    QString generation;
+    QString session;
+    QString tab;
+    bool operator==(const LinkRow &) const = default;
+  };
+  QList<LinkRow> m_links;
+  // The revision of the last applied snapshot of this daemon epoch; an
+  // older reply is discarded (media-association contract).
+  quint64 m_linksRevision = 0;
+  // The revision a `Changed` announced; a reply below it is not applied.
+  quint64 m_linksWanted = 0;
+  void readLinks(const QString &owner, quint64 epoch);
   QVariantList m_continue;
   QList<SessionRow> m_sessions;
   QString m_explicitId;

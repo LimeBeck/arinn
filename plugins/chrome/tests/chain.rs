@@ -7,8 +7,10 @@ use arinn_plugin_chrome::{
     BRIDGE_NAME, BRIDGE_PATH, EXTENSION_ID,
     bridge::{Bridge, HostProxy},
     framing,
+    processes::Processes,
 };
-use arinn_protocol::validation::ErrorCode;
+use arinn_plugin_sdk::runtime::RegistrationContext;
+use arinn_protocol::{media_association::BrowserProcessProxy, production, validation::ErrorCode};
 use std::{
     io::{BufRead, BufReader},
     process::{Child, Command as StdCommand, Stdio},
@@ -112,6 +114,52 @@ async fn host_links_the_extension_and_the_provider_bridge() {
     let (windows, tabs, _) = bridge.snapshot();
     assert_eq!(windows[0].id, "c1:w1");
     assert!(windows[0].focused);
+    // ADR-0096: the process that started the host stands for the browser.
+    assert_eq!(bridge.browser_process("c1:w1").unwrap(), std::process::id());
+    // The exported interface answers the registered daemon only, and checks
+    // the caller before the arguments.
+    let daemon = bus.connection().await;
+    let generation = "30000000-0000-4000-8000-000000000003";
+    let (_registered, registrations) = tokio::sync::watch::channel(Some(RegistrationContext {
+        connection: provider.clone(),
+        daemon_owner: daemon.unique_name().unwrap().to_string(),
+        daemon_epoch: "10000000-0000-4000-8000-000000000001".into(),
+        generation: generation.into(),
+    }));
+    provider
+        .object_server()
+        .at(
+            production::PROVIDER_PATH,
+            Processes::new(bridge.clone(), registrations),
+        )
+        .await
+        .unwrap();
+    let proxy = |connection: zbus::Connection| {
+        let destination = provider.unique_name().unwrap().to_string();
+        async move {
+            BrowserProcessProxy::builder(&connection)
+                .destination(destination)
+                .unwrap()
+                .build()
+                .await
+                .unwrap()
+        }
+    };
+    let trusted = proxy(daemon.clone()).await;
+    assert_eq!(
+        trusted.get_process_id(generation, "c1:w1").await.unwrap(),
+        std::process::id()
+    );
+    let stranger_bus = bus.connection().await;
+    let snoop = proxy(stranger_bus.clone()).await;
+    for (generation, window) in [(generation, "c1:w1"), ("", "")] {
+        match snoop.get_process_id(generation, window).await.unwrap_err() {
+            zbus::Error::MethodError(name, _, _) => {
+                assert_eq!(name.as_str(), "org.arinn.Error1.PermissionDenied")
+            }
+            other => panic!("unexpected error: {other}"),
+        }
+    }
     assert_eq!(
         tabs.iter()
             .map(|t| (t.id.as_str(), t.active, t.audible))

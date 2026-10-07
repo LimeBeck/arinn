@@ -124,7 +124,11 @@ a service has a card, "Open: N" otherwise, hidden with one open service or none
 left over. The hero describes the focused item
 ([#364](https://github.com/LimeBeck/arinn/issues/364)). `downloadActive` and
 `downloadProgress` drive the status-area download chip; `ambientSuppressed` turns
-the light field off while an Activity background is shown. QML neither aggregates providers nor persists these arrays.
+the light field off while an Activity background is shown. A media entry whose
+`serviceId` names an open service is that service's card
+([ADR-0096](../adr/0096-browser-media-session-association.md)): it merges into the
+current-service card, or becomes a `tab` card that emits `tabRequested`.
+Play/pause media keys on it emit `mediaPlayPauseRequested` with the session ID. QML neither aggregates providers nor persists these arrays.
 `returnActivityId` identifies the return target independently of focus.
 `homeState` is ready/empty/loading/error/unavailable, accompanied by
 `statusTitle` and `statusDescription`; `clockText` is display-only.

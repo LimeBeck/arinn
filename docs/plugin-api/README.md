@@ -26,7 +26,7 @@ capability, but **has not been released as a stable Plugin API**. Requirements:
 | `org.arinn.MediaTimeline1` | Optional provider interface; [media-timeline1.xml](media-timeline1.xml) |
 | `org.arinn.MediaProcess1` | Optional media-provider interface, daemon callers only; [media-process1.xml](media-process1.xml) ([ADR-0096](../adr/0096-browser-media-session-association.md)) |
 | `org.arinn.BrowserProcess1` | Optional browser-provider interface, daemon callers only; [browser-process1.xml](browser-process1.xml) ([ADR-0096](../adr/0096-browser-media-session-association.md)) |
-| `org.arinn.MediaAssociation1` | Optional daemon-root media-session ↔ tab links; [media-association1.xml](media-association1.xml) ([ADR-0096](../adr/0096-browser-media-session-association.md)). Contract only, production implementation pending |
+| `org.arinn.MediaAssociation1` | Optional daemon-root media-session ↔ tab links; [media-association1.xml](media-association1.xml) ([ADR-0096](../adr/0096-browser-media-session-association.md)). Exported by the daemon |
 | `org.arinn.Library1` | Daemon-owned provider path of a `library` provider; [library1.xml](library1.xml). Exported by the daemon ([ADR-0060](../adr/0060-library-routing.md)) |
 | `org.arinn.LibraryProvider1` | Provider unique bus owner, `/org/arinn/Provider1`; [library-provider1.xml](library-provider1.xml) |
 | `org.arinn.LibraryResume1` | Optional provider interface; [library-resume1.xml](library-resume1.xml) |
@@ -302,9 +302,10 @@ implements browser-only deduplication; media association remains separately scop
 [MediaAssociation1](media-association1.xml) at the daemon root. The daemon
 links a browser's media session to its one audible tab by process identity;
 process IDs never leave the daemon. The [media association contract](../architecture/media-association.md)
-gives the join, hold and invalidation rules. This is contract only: producers,
-the daemon join and the shell consumer are follow-ups. Missing interfaces keep
-today's separate media and tab cards.
+gives the join, hold and invalidation rules. The MPRIS and Chrome providers,
+the daemon and the shell implement it ([#359](https://github.com/LimeBeck/arinn/issues/359));
+real Chrome/KDE qualification remains pending. Missing interfaces keep today's
+separate media and tab cards.
 
 ## SDK and fixtures
 

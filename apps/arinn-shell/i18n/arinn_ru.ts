@@ -701,6 +701,10 @@
         <source>Downloading</source>
         <translation>Загружается</translation>
     </message>
+    <message>
+        <source>Paused</source>
+        <translation>Пауза</translation>
+    </message>
 </context>
 <context>
     <name>LaunchOverlay</name>

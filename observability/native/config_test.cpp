@@ -53,11 +53,13 @@ private slots:
       QStringLiteral("Names Private.desktop(Secret) (x:PrivateTitle) key=(Private)"),
       QStringLiteral("Hidden .PrivateTitle ..Private and abcdefghijklmnopqrstuvwxyzabcdefgh:PrivateTitle"),
       QStringLiteral("Odd Private~Title Private*Title Private+Title Private|Title Private$Title"),
+      QStringLiteral("Error \"Private \"Title\" Secret\" and 'Private 'Title' Secret'"),
+      QStringLiteral("Curly \u201CPrivate Secret Title\u201D and \u00ABPrivate Secret Title\u00BB and \u2018Private Title"),
       QStringLiteral("Mixed Private\u00e9Title Caf\u00e9Private Private\U0001F600Title Private\u0001Title"),
     };
     for (const auto &fixture : fixtures) {
       const auto shape = ArinnTelemetry::qtTemplate(none, fixture);
-      for (auto marker : {"rivate", "Secret", "desktop", "Videos", "Title", "abcdefgh", "mkv", "mp4", "http", "magnet", "base64", "@", "/", "1", "4"})
+      for (auto marker : {"rivate", "Secret", "ecret", "desktop", "Videos", "Title", "abcdefgh", "mkv", "mp4", "http", "magnet", "base64", "@", "/", "1", "4"})
         QVERIFY2(!shape.text.contains(marker), shape.text.constData());
       QVERIFY2(ArinnTelemetry::safeTemplateText(shape.text.constData()), shape.text.constData());
       QVERIFY(shape.location.isEmpty());

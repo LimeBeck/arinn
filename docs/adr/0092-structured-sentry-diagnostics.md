@@ -79,7 +79,7 @@ template:
 - **`qt.category`.** The Qt logging category (`[A-Za-z0-9_.-]`, up to 64 characters), except `default`.
 - **Exception value: the template.** The message after these replacements, in order:
   1. any token holding non-ASCII or control text becomes `<text>` as a whole;
-  2. quoted text (closed or not) becomes `<str>`;
+  2. quoted text becomes `<str>`: for each quote class (`"`, `'`, backtick, typographic quotes) everything from the first to the last quote, or to the end when a quote is left open, so embedded quotes leave nothing between them;
   3. any `scheme:value` token, hierarchical or opaque and with a scheme of any length (`urn:`, `mailto:`, `x:`), becomes `<url>`; a C++ scope such as `QQuickItem::stackAfter` is kept;
   4. any token containing a slash or backslash becomes `<path>`, whatever character precedes it;
   5. addresses become `<str>`;
@@ -90,7 +90,7 @@ template:
 
   Rules 3 to 7 always replace the whole whitespace-delimited token, brackets and placeholders included, so no part of a path, URL or name survives next to its placeholder. The result is truncated to 160 characters. A template that still contains a digit, quote, slash, `@`, `?`, `&`, `#`, `%`, `=` or a non-printable character is replaced by `Qt message`. The crash-safe SDK callback and the transport filter repeat this check, and check `qt.location` against its full grammar `<name>.<qml|js|mjs|cpp|h>[:<line>]` (or the fixed `unknown.location`), so no other file name passes either boundary.
 - **Fingerprint.** `["arinn-shell", <type>, <location>, <template>]`, rebuilt at both boundaries from the cleaned type, location and template, never copied from the payload. The transport filter also runs the template rules again on a Qt exception value, because a raw or cached envelope may claim to be a Qt message without having passed the handler.
-- **Rate limit.** Each template is reported at most once per 10 minutes. At most 256 templates are tracked. Repeats increment `arinn.shell.messages.suppressed`. Fatal messages are always reported.
+- **Rate limit.** Each template is reported at most once per 10 minutes of monotonic time. At most 256 templates are tracked. Repeats increment `arinn.shell.messages.suppressed`. Fatal messages are always reported.
 - **Known noise.** `Icon is unavailable`, `Site icon is unavailable`, `Artwork is unavailable` and `QWaylandDataOffer` are never events. They increment `arinn.shell.messages.benign` and leave one `qt.noise` breadcrumb per template window.
 
 ### Changing the lists

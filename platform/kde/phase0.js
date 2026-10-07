@@ -40,14 +40,15 @@ watchdog.timeout.connect(checkDaemon);
 watchdog.start();
 function rpc(method, ...args) { callDBus(service, path, service, method, ...args); }
 // Diagnostics (#369): fixed event and reason names only, never titles, window
-// classes, tokens or launch IDs. Each operation and reason prints at most once
-// per ten seconds so a stuck state cannot flood the journal. Records carry the
+// classes, tokens or launch IDs. A repeat of the same operation, reason and
+// outcome prints at most once per ten seconds so a stuck state cannot flood
+// the journal; a changed outcome (a media channel re-attaching) always prints. Records carry the
 // specification §14.1 fields, null when unknown.
 const diagnosedAt = new Map();
 function diagnose(level, operation, fields) {
-    const key = operation + ":" + (fields.reason || ""), now = Date.now();
-    if (diagnosedAt.has(key) && now - diagnosedAt.get(key) < 10000) return;
-    diagnosedAt.set(key, now);
+    const key = operation + ":" + (fields.reason || ""), now = Date.now(), last = diagnosedAt.get(key);
+    if (last && last.outcome === fields.outcome && now - last.at < 10000) return;
+    diagnosedAt.set(key, { at: now, outcome: fields.outcome });
     print(JSON.stringify(Object.assign({ level, component: "arinn-kwin", provider_id: null,
         request_id: null, operation, duration_ms: null, error: null }, fields)));
 }

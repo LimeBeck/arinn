@@ -121,6 +121,7 @@ function fixture(options = {}) {
         refresh() { tick(); }, lock(value) { locked = value; },
         command(action, token) { control([randomUUID(), action, token]); },
         reconnect(value) { owner = value; tick(); },
+        setManaged(value) { options.managed = value; },
         show: () => shortcut(), back: () => takeCommand('return'),
         shortcuts, homeRequests, lockReplies, returnReports, homeReplies, commitReplies, discoveryReplies,
         deferHome() { deferHome = true; },
@@ -705,6 +706,15 @@ test('after a daemon owner change the media channel re-attaches and Present succ
     assert.equal(f.mediaAcks.at(-1)[2], '');
     const attached = f.printed.map(line => JSON.parse(line)).filter(entry => entry.operation === 'media.channel');
     assert.ok(attached.length >= 1 && attached.every(entry => entry.outcome === 'attached'));
+});
+test('a media channel that re-attaches within the rate limit is still printed', () => {
+    const f = fixture({ managed: false });
+    f.setManaged(true); f.reconnect(':1.98');
+    f.setManaged(false); f.reconnect(':1.99');
+    f.reconnect(':1.100');
+    const channel = f.printed.map(line => JSON.parse(line)).filter(entry => entry.operation === 'media.channel');
+    // Each transition prints; the unchanged repeat within ten seconds does not.
+    assert.deepEqual(channel.map(entry => entry.outcome), ['absent', 'attached', 'absent']);
 });
 test('presentation failures print rate-limited fixed reasons without identities', () => {
     const {f, launch, token} = managedFixture();

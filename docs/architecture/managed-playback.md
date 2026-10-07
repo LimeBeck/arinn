@@ -145,7 +145,7 @@ Removing negotiated MediaWindow1 support invalidates pending and active presenta
 
 [#369](https://github.com/LimeBeck/arinn/issues/369). Every line below holds fixed names only: no title, URL, path, window class, token or launch ID (specification §13).
 
-**KWin adapter (`phase0.js`).** The adapter prints one JSON line per operation and reason at most once every ten seconds. Each line has the §14.1 fields: `level`, `component: "arinn-kwin"`, `provider_id` (always `null`), `request_id` (the daemon's command ID, or `null`), `operation`, `duration_ms` (since the adapter received the command, or `null`) and `error` (the completion error code, or `null`). It also has these fields:
+**KWin adapter (`phase0.js`).** The adapter prints one JSON line per operation and reason; an unchanged repeat with the same outcome prints at most once every ten seconds, while a changed outcome, such as a media channel re-attaching, always prints. Each line has the §14.1 fields: `level`, `component: "arinn-kwin"`, `provider_id` (always `null`), `request_id` (the daemon's command ID, or `null`), `operation`, `duration_ms` (since the adapter received the command, or `null`) and `error` (the completion error code, or `null`). It also has these fields:
 
 | `operation` | `outcome` | `reason` |
 | --- | --- | --- |

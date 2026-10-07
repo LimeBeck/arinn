@@ -43,7 +43,9 @@ and `Browser1` signatures do not change. Types and validation are in
 The daemon discovers the interfaces by introspecting each registered provider
 of the matching capability. It reads process IDs only for current sessions and
 windows, with bounded concurrency and the normal call timeout. It caches them
-per (provider, generation, local ID).
+per (provider, generation, snapshot revision, local ID). Every new snapshot
+revision of a provider re-reads its process IDs, so a session or window whose
+process is replaced under the same local ID is never judged on stale evidence.
 
 For each media session with a non-zero process ID `P`, a link to tab `T` is
 **established** only when all of these hold:

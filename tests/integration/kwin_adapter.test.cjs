@@ -579,6 +579,68 @@ test('the closing player window returns to Arinn; daemon replacement restores ma
     assert.equal(next.f.activity.fullScreen, false);
 });
 
+test('a closing player window shows Arinn only on a fresh unlocked guard', () => {
+    // Review of #374: lock or an unknown session state must only restore flags.
+    const locked = managedFixture();
+    locked.f.media('present', locked.token); locked.f.lock(true); locked.f.remove(locked.f.activity);
+    assert.equal(locked.f.report()[0], false);
+    assert.equal(locked.f.home.keepAbove, false);
+    // No answer: the shell keeps its playback layer, then the bounded guard
+    // tears it down and a late answer cannot show Home.
+    const silent = managedFixture();
+    silent.f.media('present', silent.token); silent.f.deferLock(); silent.f.remove(silent.f.activity);
+    assert.equal(silent.f.home.keepAbove, true, 'no desktop flash while the guard is pending');
+    silent.f.mediaIdle(); silent.f.advance(1001); silent.f.refresh();
+    assert.equal(silent.f.home.keepAbove, false);
+    assert.equal(silent.f.report()[0], false);
+    silent.f.lockReplies[0](false);
+    assert.equal(silent.f.home.keepAbove, false, 'a late guard cannot show Home');
+    assert.equal(silent.f.report()[0], false);
+    // A late but delivered answer only restores flags.
+    const late = managedFixture();
+    late.f.media('present', late.token); late.f.deferLock(); late.f.remove(late.f.activity);
+    late.f.advance(1001); late.f.lockReplies[0](false);
+    assert.equal(late.f.home.keepAbove, false);
+    assert.equal(late.f.report()[0], false);
+    // The daemon owner changing while the guard is pending tears down.
+    const replaced = managedFixture();
+    replaced.f.media('present', replaced.token); replaced.f.deferLock(); replaced.f.remove(replaced.f.activity);
+    replaced.f.reconnect(':1.99'); replaced.f.lockReplies[0](false);
+    assert.equal(replaced.f.home.keepAbove, false);
+});
+test('a closing player window fences the Home acknowledgement', () => {
+    // A late acknowledgement must not raise the shell.
+    const late = managedFixture();
+    late.f.media('present', late.token); late.f.deferHome(); late.f.remove(late.f.activity);
+    assert.equal(late.f.report()[0], true);
+    late.f.advance(1001); late.f.homeReplies.at(-1)();
+    assert.equal(late.f.home.keepAbove, false);
+    assert.equal(late.f.report()[0], false);
+    // The daemon owner changing before the acknowledgement tears down.
+    const replaced = managedFixture();
+    replaced.f.media('present', replaced.token); replaced.f.deferHome(); replaced.f.remove(replaced.f.activity);
+    const ack = replaced.f.homeReplies.at(-1);
+    replaced.f.reconnect(':1.99'); ack();
+    assert.equal(replaced.f.home.keepAbove, false);
+    // KWin activating the desktop as the player window closes does not
+    // cancel the return to Arinn (#372).
+    const desktop = managedFixture();
+    desktop.f.media('present', desktop.token); desktop.f.deferLock(); desktop.f.remove(desktop.f.activity);
+    const plasma = desktop.f.window('desktop', 'plasmashell'); desktop.f.add(plasma);
+    desktop.f.workspace.activeWindow = plasma; desktop.f.workspace.windowActivated.emit(plasma);
+    desktop.f.lockReplies[0](false);
+    assert.equal(desktop.f.workspace.activeWindow, desktop.f.home);
+    assert.equal(desktop.f.home.keepAbove, true);
+    assert.equal(desktop.f.report()[0], true);
+    // An explicit Home during the pending close owns the shell afterwards.
+    const explicit = managedFixture();
+    explicit.f.media('present', explicit.token); explicit.f.deferLock(); explicit.f.remove(explicit.f.activity);
+    explicit.f.show(); explicit.f.lockReplies.at(-1)(false);
+    explicit.f.advance(1001); explicit.f.refresh();
+    assert.equal(explicit.f.home.keepAbove, true, 'the bounded guard does not hide an explicit Home');
+    assert.equal(explicit.f.report()[0], true);
+});
+
 test('missing lock callback tears down managed flags after the bounded unknown-state interval', () => {
     const {f, token} = managedFixture();
     f.media('present', token); f.deferLock(); f.refresh();

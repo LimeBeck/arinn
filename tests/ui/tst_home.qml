@@ -632,6 +632,15 @@ TestCase {
         keyClick(Qt.Key_Right); focused("entry-plain");
         tryVerify(() => Math.abs(glow.hue - identity) < 0.5, 5000, "identity hue again " + glow.hue);
         verify(glow.lit);
+        // The current service's colour follows its identity, not the fixed
+        // card id shared by every service.
+        home.currentServiceId = "tab-1";
+        home.currentServiceTitle = "Page";
+        child("entry-current-service").forceActiveFocus(); focused("entry-current-service");
+        compare(child("entry-current-service").visualIdentity, "tab-1");
+        tryCompare(glow, "tint", Qt.tint(Ui.Theme.identityColor("tab-1"), "transparent"));
+        home.currentServiceId = "tab-2";
+        tryCompare(glow, "tint", Qt.tint(Ui.Theme.identityColor("tab-2"), "transparent"));
         home.ambientSuppressed = true;
         verify(!glow.lit);
         home.ambientSuppressed = false;

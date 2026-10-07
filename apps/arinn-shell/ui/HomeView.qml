@@ -161,6 +161,8 @@ FocusScope {
         const service = shown ? [{
             id: "current-service",
             serviceId: currentServiceId,
+            // The colour follows the service, not the fixed presentation id.
+            visualIdentity: currentServiceId,
             title: currentServiceTitle,
             subtitle: currentServiceSubtitle,
             running: true,

@@ -342,6 +342,7 @@ def run_scenario(owned: list[str], keep: str = "", purge: str = "1", extras: tup
         "FAKE_KEEP": keep,
         "FAKE_PURGE": purge,
         "LANG": "C.UTF-8",
+        "ARINN_PACKAGE_MANAGER": "pacman",
     }
     result = subprocess.run(
         [sys.executable, __file__, "--root", str(root)],

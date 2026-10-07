@@ -1,0 +1,1 @@
+- Restore Register peer lookups on an auxiliary session-bus connection and shared supervision across cloned `Core` handles after the incomplete #378 squash merge.

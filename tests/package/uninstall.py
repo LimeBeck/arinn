@@ -210,11 +210,21 @@ def installed_with_pacman() -> bool:
     return run_pacman(["-Qq", "arinn"]).returncode == 0
 
 
+def dpkg_status() -> str:
+    """dpkg's package state for arinn, or "" when dpkg has no record of it.
+
+    `dpkg -s` succeeds for any record, including `config-files` after a plain
+    removal, so it cannot tell an installed package from residual conffiles.
+    """
+    result = subprocess.run(["dpkg-query", "-W", "-f=${db:Status-Status}", "arinn"],
+                            capture_output=True, text=True, timeout=60)
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
 def installed_with_dpkg() -> bool:
-    if not shutil.which("dpkg"):
+    if not shutil.which("dpkg-query"):
         return False
-    result = subprocess.run(["dpkg", "-s", "arinn"], capture_output=True, text=True, timeout=60)
-    return result.returncode == 0
+    return dpkg_status() == "installed"
 
 
 def uninstall_deb_package(root: Path) -> list[str]:
@@ -224,17 +234,21 @@ def uninstall_deb_package(root: Path) -> list[str]:
     owned = package_files(query.stdout)
     if not owned:
         raise SystemExit("dpkg listed no files for arinn")
-    remove = subprocess.run(
-        ["apt-get", "remove", "-y", "arinn"],
+    # Purge, not remove: the Native Messaging manifests under /etc are
+    # conffiles, which a plain removal keeps on disk (review of #380).
+    purge = subprocess.run(
+        ["apt-get", "purge", "-y", "arinn"],
         capture_output=True,
         text=True,
         timeout=300,
     )
-    if remove.returncode != 0:
-        raise SystemExit(f"apt-get remove arinn failed:\n{remove.stderr}")
-    still = subprocess.run(["dpkg", "-s", "arinn"], capture_output=True, text=True, timeout=60)
-    if still.returncode == 0:
-        raise SystemExit("arinn is still installed after apt-get remove")
+    if purge.returncode != 0:
+        raise SystemExit(f"apt-get purge arinn failed:\n{purge.stderr}")
+    status = dpkg_status()
+    if status == "config-files":
+        raise SystemExit("arinn conffiles remain after apt-get purge (dpkg status config-files)")
+    if status not in ("", "not-installed"):
+        raise SystemExit(f"arinn is still installed after apt-get purge (dpkg status {status})")
     return find_leftovers(root, owned)
 
 
@@ -293,6 +307,41 @@ def fake_pacman(argv: list[str]) -> int:
     return 9
 
 
+def fake_deb(argv: list[str]) -> int:
+    """dpkg, dpkg-query and apt-get stand-ins for the Debian self-check."""
+    args = argv[argv.index("--fake-deb") + 1 :]
+    root = Path(os.environ["FAKE_ROOT"])
+    listing = Path(os.environ["FAKE_FILES"]).read_text(encoding="utf-8")
+    state = Path(os.environ["FAKE_STATE"])
+    keep = os.environ.get("FAKE_KEEP", "")
+    tool = args[0]
+    if tool == "dpkg" and args[1:] == ["-L", "arinn"]:
+        # dpkg lists directories without a trailing slash.
+        sys.stdout.write("".join(line.rstrip("/") + "\n" for line in listing.splitlines()))
+        return 0
+    if tool == "dpkg-query" and args[1:] == ["-W", "-f=${db:Status-Status}", "arinn"]:
+        status = state.read_text(encoding="utf-8")
+        if not status:
+            print("dpkg-query: no packages found matching arinn", file=sys.stderr)
+            return 1
+        sys.stdout.write(status)
+        return 0
+    if tool == "apt-get" and args[1:] == ["purge", "-y", "arinn"]:
+        conffiles = os.environ.get("FAKE_CONFFILES", "remove") == "keep"
+        for relative in package_files(listing):
+            if relative == keep or (conffiles and relative.startswith("etc/")):
+                continue
+            path = root / relative
+            if path.is_symlink() or path.is_file():
+                path.unlink()
+        if not keep and not conffiles:
+            purge_installed_tree(root)
+        state.write_text(os.environ.get("FAKE_AFTER", ""), encoding="utf-8")
+        return 0
+    print(f"unexpected {tool} arguments: {args[1:]}", file=sys.stderr)
+    return 9
+
+
 def write_listing(directory: Path, owned: list[str]) -> Path:
     lines = []
     seen = set()
@@ -316,7 +365,8 @@ def plant(root: Path, relative: str, text: str = "packaged\n") -> None:
 
 
 def run_scenario(owned: list[str], keep: str = "", purge: str = "1", extras: tuple[str, ...] = (),
-                 symlink: tuple[str, str] | None = None) -> tuple[subprocess.CompletedProcess[str], Path]:
+                 symlink: tuple[str, str] | None = None, deb: dict[str, str] | None = None,
+                 ) -> tuple[subprocess.CompletedProcess[str], Path]:
     folder = Path(tempfile.mkdtemp(prefix="arinn-uninstall-"))
     root = folder / "root"
     root.mkdir()
@@ -330,11 +380,20 @@ def run_scenario(owned: list[str], keep: str = "", purge: str = "1", extras: tup
         path.parent.mkdir(parents=True, exist_ok=True)
         path.symlink_to(target)
     listing = write_listing(folder, owned)
-    wrapper = bin_dir / "pacman"
     script = shlex.quote(str(Path(__file__).resolve()))
     interpreter = shlex.quote(sys.executable)
-    wrapper.write_text(f"#!/bin/sh\nexec {interpreter} {script} --fake-pacman \"$@\"\n", encoding="utf-8")
-    wrapper.chmod(0o755)
+    if deb is None:
+        wrapper = bin_dir / "pacman"
+        wrapper.write_text(f"#!/bin/sh\nexec {interpreter} {script} --fake-pacman \"$@\"\n", encoding="utf-8")
+        wrapper.chmod(0o755)
+    else:
+        for tool in ("dpkg", "dpkg-query", "apt-get"):
+            wrapper = bin_dir / tool
+            wrapper.write_text(f"#!/bin/sh\nexec {interpreter} {script} --fake-deb {tool} \"$@\"\n",
+                               encoding="utf-8")
+            wrapper.chmod(0o755)
+        state = folder / "state"
+        state.write_text("installed", encoding="utf-8")
     env = {
         "PATH": str(bin_dir),
         "FAKE_ROOT": str(root),
@@ -342,8 +401,10 @@ def run_scenario(owned: list[str], keep: str = "", purge: str = "1", extras: tup
         "FAKE_KEEP": keep,
         "FAKE_PURGE": purge,
         "LANG": "C.UTF-8",
-        "ARINN_PACKAGE_MANAGER": "pacman",
+        "ARINN_PACKAGE_MANAGER": "pacman" if deb is None else "deb",
     }
+    if deb is not None:
+        env.update({"FAKE_STATE": str(folder / "state"), **deb})
     result = subprocess.run(
         [sys.executable, __file__, "--root", str(root)],
         env=env, capture_output=True, text=True, timeout=30, check=False)
@@ -446,12 +507,43 @@ def self_check() -> None:
     finally:
         shutil.rmtree(root.parent)
 
+    # Debian: a clean purge passes and leaves dpkg without a record.
+    result, root = run_scenario(SAMPLE_FILES, deb={})
+    try:
+        expect_pass(result)
+    finally:
+        shutil.rmtree(root.parent)
+
+    # Debian: dpkg still reporting the package installed fails the check.
+    result, root = run_scenario(SAMPLE_FILES, deb={"FAKE_AFTER": "installed"})
+    try:
+        expect_fail(result, "still installed")
+    finally:
+        shutil.rmtree(root.parent)
+
+    # Debian: conffiles kept on disk (a plain removal) fail the check by status
+    # and are not mistaken for an installed package (review of #380).
+    result, root = run_scenario(SAMPLE_FILES, deb={"FAKE_AFTER": "config-files", "FAKE_CONFFILES": "keep"})
+    try:
+        expect_fail(result, "conffiles remain")
+    finally:
+        shutil.rmtree(root.parent)
+
+    # Debian: a packaged file left on disk fails the check.
+    result, root = run_scenario(SAMPLE_FILES, keep=binary, deb={})
+    try:
+        expect_fail(result, binary)
+    finally:
+        shutil.rmtree(root.parent)
+
     print("PASS: a deliberate leftover fails the uninstall check")
 
 
 def main(argv: list[str]) -> int:
     if "--fake-pacman" in argv:
         return fake_pacman(argv)
+    if "--fake-deb" in argv:
+        return fake_deb(argv)
     if "--self-check" in argv:
         self_check()
         return 0

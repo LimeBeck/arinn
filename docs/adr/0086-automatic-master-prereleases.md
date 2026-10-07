@@ -4,7 +4,7 @@
 - **Date:** 2026-10-04
 - **Deciders:** project owner requested this process; acceptance and merge remain owner-gated
 - **Amends / Supersedes:** ADR-0033, ADR-0049
-- **Amended by / Superseded by:** [ADR-0088](0088-single-master-snapshot-retention.md)
+- **Amended by / Superseded by:** [ADR-0088](0088-single-master-snapshot-retention.md); [ADR-0092](0092-less-repeated-ci-work.md) — a second push run of the same commit cancels the first
 - **Specification:** §17.1, §18
 
 ## Context

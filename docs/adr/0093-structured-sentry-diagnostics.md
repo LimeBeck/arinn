@@ -1,4 +1,4 @@
-# ADR-0092: Structured, allowlisted Sentry diagnostics
+# ADR-0093: Structured, allowlisted Sentry diagnostics
 
 <!-- SPDX-FileCopyrightText: 2026 Arinn contributors -->
 <!-- SPDX-License-Identifier: CC-BY-SA-4.0 -->

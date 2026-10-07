@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! Opt-in technical diagnostics. Never pass provider payloads or free-form errors here.
-//! Every field that leaves the process is one of the fixed values below (ADR-0092).
+//! Every field that leaves the process is one of the fixed values below (ADR-0093).
 use arinn_protocol::validation::{CAPABILITIES, ErrorCode};
 use sentry::protocol::{
     Breadcrumb, Context, EnvelopeItem, Event, Exception, Frame, ItemContainer, Level, Metric, Span,
@@ -138,7 +138,7 @@ impl Transport for FilteringTransport {
 }
 /// Release reported with every payload; #357 replaces it with the build id.
 const RELEASE: &str = concat!("arinn@", env!("CARGO_PKG_VERSION"));
-/// Operation kinds: fixed Arinn identifiers, never user content (ADR-0092).
+/// Operation kinds: fixed Arinn identifiers, never user content (ADR-0093).
 pub const KINDS: &[&str] = &[
     "application.launch",
     "application.activate",

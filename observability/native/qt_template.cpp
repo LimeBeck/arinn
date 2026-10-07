@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Arinn contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Reduce Qt and QML messages to fixed templates before they reach Sentry (ADR-0092).
+// Reduce Qt and QML messages to fixed templates before they reach Sentry (ADR-0093).
 #include "telemetry.h"
 #include <QHash>
 #include <QMutex>

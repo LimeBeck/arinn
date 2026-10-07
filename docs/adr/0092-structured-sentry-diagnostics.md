@@ -61,7 +61,8 @@ These fields are used as follows:
   - A supplied fingerprint is never trusted. It is rebuilt from the clean tags.
 - **Traces.** One transaction per operation, named by its kind, with the trace op `daemon.operation`. Child spans are limited to 16 per operation.
   - Each span has op `provider.call` (daemon → provider D-Bus call) or `platform.wait` (wait for the platform adapter).
-  - Its description is a kind or a name in `telemetry::SPAN_NAMES` (`media.open`, `browser.show_window`).
+  - Its description is a kind or a name in `telemetry::SPAN_NAMES` (`media.open`, `browser.launch`, `browser.open_url`, `browser.show_window`).
+  - A step still running when the operation ends (for example on provider loss) is reported as cut short, not dropped.
   - Each span carries its status and timestamps; a step cut short by a deadline is `cancelled`.
 - **Metrics.** `arinn.daemon.operations`, `arinn.daemon.operation.duration` and `arinn.daemon.errors` gain the attributes `kind`, `outcome` and `error`, within the lists above.
 - **Breadcrumbs.** `operation.complete` breadcrumbs gain `kind`, `outcome`, `error` and `reason`.
@@ -80,10 +81,10 @@ template:
   1. non-ASCII or control text becomes `<text>`;
   2. quoted text (closed or not) becomes `<str>`;
   3. URLs of any scheme become `<url>`;
-  4. absolute, home and relative paths become `<path>`;
+  4. any token containing a slash or backslash becomes `<path>`, whatever character precedes it;
   5. addresses become `<str>`;
   6. file names with an extension become `<file>`;
-  7. separators `\ / ? & # % = @` are removed;
+  7. any remaining token containing `\ / ? & # % = @` becomes `<str>` as a whole, never split into its parts;
   8. numbers become `<n>`.
 
   The result is truncated to 160 characters. A template that still contains a digit, quote, slash, `@`, `?`, `&`, `#`, `%`, `=` or a non-printable character is replaced by `Qt message`. The crash-safe SDK callback and the transport filter repeat this check.

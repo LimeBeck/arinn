@@ -352,7 +352,7 @@ impl WebShortcuts {
                     }
                 }
                 let result = match browser {
-                    Some(core) => core.open_url(&url).await,
+                    Some(core) => core.open_url(&url, &operation).await,
                     None => Err(ErrorCode::Unavailable),
                 };
                 operation

@@ -47,9 +47,15 @@ impl Label {
 }
 #[derive(Default)]
 struct Trace {
+    label: Label,
     phases: Vec<Phase>,
+    /// Steps still running, closed as cut short if the operation ends first.
+    open: Vec<(u64, Phase)>,
+    next: u64,
     reason: Option<&'static str>,
+    done: bool,
 }
+const MAX_PHASES: usize = 16;
 #[derive(Clone)]
 pub struct Operation {
     pub value: Arc<Mutex<OperationInfo>>,
@@ -58,31 +64,39 @@ pub struct Operation {
     request_id: String,
     admitted_at: Instant,
     admitted_wall: SystemTime,
-    label: Arc<Label>,
+    kind: &'static str,
     trace: Arc<std::sync::Mutex<Trace>>,
 }
-/// Records a phase when dropped, so a step cut by a deadline is still traced.
+/// Closes a phase when dropped, so a step cut by a deadline is still traced.
 struct PhaseGuard<'a> {
     operation: &'a Operation,
-    phase: Option<Phase>,
+    id: Option<u64>,
+    outcome: Option<Result<(), ErrorCode>>,
 }
 impl Drop for PhaseGuard<'_> {
     fn drop(&mut self) {
-        if let Some(mut phase) = self.phase.take() {
+        let Some(id) = self.id else {
+            return;
+        };
+        if let Ok(mut trace) = self.operation.trace.lock()
+            && let Some(index) = trace.open.iter().position(|(open, _)| *open == id)
+        {
+            let (_, mut phase) = trace.open.remove(index);
             phase.end = SystemTime::now();
-            self.operation.push(phase);
+            phase.outcome = self.outcome;
+            trace.phases.push(phase);
         }
     }
 }
 impl Operation {
     pub fn kind(&self) -> &'static str {
-        self.label.kind
+        self.kind
     }
-    fn push(&self, phase: Phase) {
-        if let Ok(mut trace) = self.trace.lock()
-            && trace.phases.len() < 16
-        {
-            trace.phases.push(phase);
+    /// Names the provider once the operation has chosen one.
+    pub fn provider(&self, capability: &str, plugin: &str) {
+        if let Ok(mut trace) = self.trace.lock() {
+            let label = std::mem::take(&mut trace.label);
+            trace.label = label.provider(capability, plugin);
         }
     }
     /// Times one step. `op` is a `telemetry::SPAN_OPS` entry and `name` a
@@ -98,20 +112,32 @@ impl Operation {
             telemetry::KINDS.contains(&name) || telemetry::SPAN_NAMES.contains(&name),
             "unlisted span name {name}"
         );
+        let id = self.trace.lock().ok().and_then(|mut trace| {
+            if trace.done || trace.phases.len() + trace.open.len() >= MAX_PHASES {
+                return None;
+            }
+            let id = trace.next;
+            trace.next += 1;
+            let now = SystemTime::now();
+            trace.open.push((
+                id,
+                Phase {
+                    op,
+                    name,
+                    start: now,
+                    end: now,
+                    outcome: None,
+                },
+            ));
+            Some(id)
+        });
         let mut guard = PhaseGuard {
             operation: self,
-            phase: Some(Phase {
-                op,
-                name,
-                start: SystemTime::now(),
-                end: SystemTime::now(),
-                outcome: None,
-            }),
+            id,
+            outcome: None,
         };
         let result = work.await;
-        if let Some(phase) = guard.phase.as_mut() {
-            phase.outcome = Some(result.as_ref().map(|_| ()).map_err(|e| *e));
-        }
+        guard.outcome = Some(result.as_ref().map(|_| ()).map_err(|e| *e));
         drop(guard);
         result
     }
@@ -124,6 +150,63 @@ impl Operation {
         if let Ok(mut trace) = self.trace.lock() {
             trace.reason = Some(reason);
         }
+    }
+    /// An operation without a D-Bus object, for routing tests.
+    #[cfg(test)]
+    pub(crate) fn detached(label: Label) -> Self {
+        Self {
+            value: Arc::new(Mutex::new(OperationInfo {
+                state: "running".into(),
+                error: String::new(),
+                retryable: false,
+                started_at: 0,
+                ended_at: 0,
+                results: Vec::new(),
+                cancellable: false,
+            })),
+            caller: String::new(),
+            provider_id: String::new(),
+            request_id: String::new(),
+            admitted_at: Instant::now(),
+            admitted_wall: SystemTime::now(),
+            kind: label.kind,
+            trace: Arc::new(std::sync::Mutex::new(Trace {
+                label,
+                ..Default::default()
+            })),
+        }
+    }
+    /// Capability, plugin, `op name` of each step and the reason, as telemetry would see them.
+    #[cfg(test)]
+    pub(crate) fn traced(&self) -> (&'static str, String, Vec<String>, Option<&'static str>) {
+        let (label, phases, reason) = self.close_trace();
+        let steps = phases
+            .iter()
+            .map(|phase| {
+                let state = match phase.outcome {
+                    None => " cut",
+                    Some(Err(_)) => " failed",
+                    Some(Ok(())) => "",
+                };
+                format!("{} {}{state}", phase.op, phase.name)
+            })
+            .collect();
+        (label.capability, label.plugin, steps, reason)
+    }
+    /// Ends tracing: steps still running are reported as cut short.
+    fn close_trace(&self) -> (Label, Vec<Phase>, Option<&'static str>) {
+        let Ok(mut trace) = self.trace.lock() else {
+            return (Label::new(self.kind), Vec::new(), None);
+        };
+        trace.done = true;
+        let now = SystemTime::now();
+        let mut phases = std::mem::take(&mut trace.phases);
+        phases.extend(trace.open.drain(..).map(|(_, mut phase)| {
+            phase.end = now;
+            phase
+        }));
+        phases.sort_by_key(|phase| phase.start);
+        (std::mem::take(&mut trace.label), phases, trace.reason)
     }
     pub async fn finish(
         &self,
@@ -153,19 +236,15 @@ impl Operation {
             }
         }
         let duration_ms = self.admitted_at.elapsed().as_millis().min(u64::MAX as u128) as u64;
-        let (phases, reason) = self
-            .trace
-            .lock()
-            .map(|mut trace| (std::mem::take(&mut trace.phases), trace.reason))
-            .unwrap_or_default();
+        let (label, phases, reason) = self.close_trace();
         eprintln!(
             "{}",
-            serde_json::json!({"level":"info","component":"arinnd","provider_id":if self.provider_id.is_empty(){None}else{Some(&self.provider_id)},"request_id":self.request_id,"operation":"complete","kind":self.label.kind,"outcome":value.state,"error":if value.error.is_empty(){None}else{Some(&value.error)},"reason":reason,"duration_ms":duration_ms})
+            serde_json::json!({"level":"info","component":"arinnd","provider_id":if self.provider_id.is_empty(){None}else{Some(&self.provider_id)},"request_id":self.request_id,"operation":"complete","kind":self.kind,"outcome":value.state,"error":if value.error.is_empty(){None}else{Some(&value.error)},"reason":reason,"duration_ms":duration_ms})
         );
         crate::telemetry::operation(&Completion {
-            kind: self.label.kind,
-            capability: self.label.capability,
-            plugin: &self.label.plugin,
+            kind: self.kind,
+            capability: label.capability,
+            plugin: &label.plugin,
             error: safe_error,
             reason,
             started: self.admitted_wall,
@@ -261,8 +340,11 @@ impl Operations {
             request_id: request_id.into(),
             admitted_at: Instant::now(),
             admitted_wall: SystemTime::now(),
-            label: Arc::new(label),
-            trace: Default::default(),
+            kind: label.kind,
+            trace: Arc::new(std::sync::Mutex::new(Trace {
+                label,
+                ..Default::default()
+            })),
             value: Arc::new(Mutex::new(OperationInfo {
                 state: "queued".into(),
                 error: String::new(),
@@ -323,5 +405,43 @@ impl Operations {
                     .await;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod trace_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn a_step_still_running_at_completion_is_reported_cut_short() {
+        let op = Operation::detached(Label::new("library.launch").provider("library", "library"));
+        op.phase("provider.call", "library.launch", async { Ok(()) })
+            .await
+            .unwrap();
+        let (release, pending) = tokio::sync::oneshot::channel::<()>();
+        let running = {
+            let op = op.clone();
+            tokio::spawn(async move {
+                op.phase("provider.call", "media.open", async {
+                    pending.await.map_err(|_| ErrorCode::Unavailable)
+                })
+                .await
+            })
+        };
+        tokio::task::yield_now().await;
+        // Invalidation finishes the operation while the provider call still waits.
+        let (capability, plugin, steps, _) = op.traced();
+        assert_eq!((capability, plugin.as_str()), ("library", "library"));
+        assert_eq!(
+            steps,
+            [
+                "provider.call library.launch",
+                "provider.call media.open cut"
+            ]
+        );
+        release.send(()).unwrap();
+        running.await.unwrap().unwrap();
+        // A step ending after completion is not reported twice.
+        assert!(op.traced().2.is_empty());
     }
 }

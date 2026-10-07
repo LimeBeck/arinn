@@ -938,6 +938,7 @@ impl Core {
     /// browser's own focus request decides (ADR-0048).
     async fn show_browser_window(
         &self,
+        op: &crate::operations::Operation,
         id: &str,
         owner: &str,
         registration: &str,
@@ -963,10 +964,12 @@ impl Core {
                 "activate",
             )
             .await?;
-        tokio::time::timeout(Duration::from_secs(5), receiver)
-            .await
-            .map_err(|_| ErrorCode::Timeout)?
-            .map_err(|_| ErrorCode::Unavailable)?
+        op.phase(
+            "platform.wait",
+            "browser.show_window",
+            platform_wait(op, receiver),
+        )
+        .await
     }
 
     /// Admit only stable launch IDs from a complete current application snapshot.
@@ -1006,11 +1009,20 @@ impl Core {
     /// provider with a connected browser. Used by web shortcuts (ADR-0043).
     /// With no browser connected, the browser application is launched first
     /// (ADR-0038, ADR-0055); the whole open shares one launch deadline.
-    pub async fn open_url(&self, url: &str) -> Result<(), ErrorCode> {
+    pub async fn open_url(
+        &self,
+        url: &str,
+        op: &crate::operations::Operation,
+    ) -> Result<(), ErrorCode> {
         arinn_protocol::web::open_url(url)?;
         let deadline = tokio::time::Instant::now() + BROWSER_LAUNCH_DEADLINE;
         if !self.browser_connected().await {
-            self.launch_browser(deadline).await?;
+            op.phase(
+                "provider.call",
+                "browser.launch",
+                self.launch_browser(deadline),
+            )
+            .await?;
         }
         let (id, owner, generation, before, known) = {
             let state = self.state.lock().await;
@@ -1024,6 +1036,7 @@ impl Core {
                         && !p.owner.is_empty()
                 })
                 .ok_or(ErrorCode::Unavailable)?;
+            op.provider(p.capability(), &p.info.plugin_id);
             (
                 id.clone(),
                 p.owner.clone(),
@@ -1041,10 +1054,13 @@ impl Core {
             .build()
             .await
             .map_err(|_| ErrorCode::Unavailable)?;
-        tokio::time::timeout(Duration::from_secs(10), proxy.open_url(&generation, url))
-            .await
-            .map_err(|_| ErrorCode::Timeout)?
-            .map_err(normalize_error)?;
+        op.phase("provider.call", "browser.open_url", async {
+            tokio::time::timeout(Duration::from_secs(10), proxy.open_url(&generation, url))
+                .await
+                .map_err(|_| ErrorCode::Timeout)?
+                .map_err(normalize_error)
+        })
+        .await?;
         // The URL opens in a new window or focuses the window that already
         // shows its origin (ADR-0050). The window focused before the call is
         // not necessarily the one to show, so decide on the first newer
@@ -1052,7 +1068,7 @@ impl Core {
         let window_token = self
             .focused_token_after(&id, &generation, before, &known)
             .await;
-        self.show_browser_window(&id, &owner, &generation, &window_token)
+        self.show_browser_window(op, &id, &owner, &generation, &window_token)
             .await
     }
 
@@ -1333,12 +1349,8 @@ impl Core {
             if result.is_ok() && action == "activate_tab" {
                 // The browser selected the tab; the compositor window still
                 // has to come forward, which hides Home (ADR-0048).
-                result = op
-                    .phase(
-                        "platform.wait",
-                        "browser.show_window",
-                        core.show_browser_window(&id, &owner, &generation, &window_token),
-                    )
+                result = core
+                    .show_browser_window(&op, &id, &owner, &generation, &window_token)
                     .await;
             }
             if result.is_ok() && action == "launch" {
@@ -2577,5 +2589,29 @@ mod provider_env_tests {
         )
         .unwrap();
         assert!(env.contains(&"ARINN_PROVIDER_SETTINGS={}".to_string()));
+    }
+}
+
+#[cfg(test)]
+mod platform_wait_tests {
+    use super::*;
+    use crate::operations::Operation;
+
+    #[tokio::test]
+    async fn platform_waits_record_why_they_failed() {
+        let op = Operation::detached(Label::new("browser.activate_tab"));
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        drop(sender);
+        assert_eq!(
+            platform_wait(&op, receiver).await,
+            Err(ErrorCode::Unavailable)
+        );
+        assert_eq!(op.traced().3, Some("platform_channel_closed"));
+
+        // A platform that never answers: the five-second wait expires.
+        let op = Operation::detached(Label::new("media.present"));
+        let (_sender, receiver) = tokio::sync::oneshot::channel();
+        assert_eq!(platform_wait(&op, receiver).await, Err(ErrorCode::Timeout));
+        assert_eq!(op.traced().3, Some("platform_timeout"));
     }
 }

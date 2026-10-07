@@ -96,7 +96,7 @@ Metric attributes are `kind`, `outcome` and `error` only.
 - `provider.call`: a daemon → provider D-Bus call.
 - `platform.wait`: a wait for the platform adapter.
 
-A span description is a kind, `media.open` or `browser.show_window`. A library launch has the spans `provider.call library.launch` and `provider.call media.open`. A Present has `platform.wait media.present`. A span cut short by the operation deadline has status `cancelled`.
+A span description is a kind, `media.open`, `browser.launch`, `browser.open_url` or `browser.show_window`. A library launch has the spans `provider.call library.launch` and `provider.call media.open`. A Present has `platform.wait media.present`. A URL open (`browse.open`, `shortcut.open`) names the chosen browser plugin and has `provider.call browser.launch` (when the browser was closed), `provider.call browser.open_url` and `platform.wait browser.show_window`. A span cut short by the operation deadline, or still running when the operation ends, has status `cancelled`.
 
 **Daemon events.** A failed operation produces one event titled `<kind> failed: <error> (<reason>)`.
 
@@ -109,7 +109,7 @@ The completion log line on stderr carries the same `kind` and `reason`.
 
 - **`qt.location` tag.** The Arinn source name and line (`HomeView.qml:42`), from a `qrc:` QML prefix or a `.cpp`/`.h` context. It is never derived from `file:` URLs or absolute paths.
 - **`qt.category` tag.** The Qt logging category, for example `qml` or `qt.qpa.wayland`.
-- **Exception value.** The template: the message with non-ASCII text, quoted text, URLs, paths, addresses, file names, separators and numbers replaced by `<text>`, `<str>`, `<url>`, `<path>`, `<file>` and `<n>`. It is at most 160 characters. A template that still holds a digit, quote, slash or query character becomes `Qt message`.
+- **Exception value.** The template: the message with non-ASCII text, quoted text, URLs, paths, addresses, file names and numbers replaced by `<text>`, `<str>`, `<url>`, `<path>`, `<file>` and `<n>`. Any token with a slash or backslash is a path whatever precedes it, and a token still holding a query or address separator becomes `<str>` whole. It is at most 160 characters. A template that still holds a digit, quote, slash or query character becomes `Qt message`.
 - **Fingerprint.** `["arinn-shell", type, location, template]`.
 - **Rate limit.** One event per template per 10 minutes, with at most 256 templates tracked. Repeats count in `arinn.shell.messages.suppressed`. Fatal messages are never suppressed.
 - **Known noise.** `Icon is unavailable`, `Site icon is unavailable`, `Artwork is unavailable` and `QWaylandDataOffer` never become events. They count in `arinn.shell.messages.benign` and leave one `qt.noise` breadcrumb per template window.

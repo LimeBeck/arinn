@@ -395,13 +395,28 @@ impl Fixture {
     }
 }
 
+fn browse_op() -> crate::operations::Operation {
+    crate::operations::Operation::detached(Label::new("browse.open"))
+}
+
 #[tokio::test]
 async fn a_closed_browser_is_launched_before_the_url_opens() {
     let f = Fixture::new().await;
     let apps = f.with_closed_browser("browser.desktop").await;
     f.configure_browser("browser.desktop");
     let command = f.take_command();
-    assert_eq!(f.core.open_url("https://example.org/").await, Ok(()));
+    let op = browse_op();
+    assert_eq!(f.core.open_url("https://example.org/", &op).await, Ok(()));
+    // The operation is traced with the chosen browser and its steps (ADR-0092).
+    let (capability, _, steps, _) = op.traced();
+    assert_eq!(capability, "browser");
+    assert_eq!(
+        steps,
+        [
+            "provider.call browser.launch",
+            "provider.call browser.open_url"
+        ]
+    );
     // Launched once, then the URL opened in the connected browser.
     assert_eq!(*apps.calls.lock().unwrap(), vec!["launch browser.desktop"]);
     assert_eq!(
@@ -411,7 +426,10 @@ async fn a_closed_browser_is_launched_before_the_url_opens() {
     assert_eq!(command.await.unwrap(), "dismiss");
     // Now the browser is connected: no second launch.
     let command = f.take_command();
-    assert_eq!(f.core.open_url("https://example.org/b").await, Ok(()));
+    assert_eq!(
+        f.core.open_url("https://example.org/b", &browse_op()).await,
+        Ok(())
+    );
     assert_eq!(apps.calls.lock().unwrap().len(), 1);
     command.await.unwrap();
 }
@@ -422,7 +440,7 @@ async fn nothing_is_launched_without_a_known_browser_application() {
     let apps = f.with_closed_browser("editor.desktop").await;
     f.configure_browser("browser.desktop");
     assert_eq!(
-        f.core.open_url("https://example.org/").await,
+        f.core.open_url("https://example.org/", &browse_op()).await,
         Err(ErrorCode::Unavailable)
     );
     assert!(apps.calls.lock().unwrap().is_empty());
@@ -574,7 +592,10 @@ async fn urls_open_in_the_connected_browser_and_raise_the_window_that_shows_them
         window("w2", "token-2", true),
     ]);
     let core = f.core.clone();
-    let open = tokio::spawn(async move { core.open_url("https://mail.example/inbox").await });
+    let open = tokio::spawn(async move {
+        core.open_url("https://mail.example/inbox", &browse_op())
+            .await
+    });
     let control = tokio::time::timeout(Duration::from_secs(5), bridge.next_control(&platform))
         .await
         .unwrap()
@@ -594,7 +615,12 @@ async fn urls_open_in_the_connected_browser_and_raise_the_window_that_shows_them
         window("w3", "", true),
     ]);
     let command = f.take_command();
-    assert_eq!(f.core.open_url("https://example.org/watch").await, Ok(()));
+    assert_eq!(
+        f.core
+            .open_url("https://example.org/watch", &browse_op())
+            .await,
+        Ok(())
+    );
     assert_eq!(command.await.unwrap(), "dismiss");
     assert_eq!(
         *f.browser.calls.lock().unwrap(),
@@ -605,7 +631,7 @@ async fn urls_open_in_the_connected_browser_and_raise_the_window_that_shows_them
     );
 
     assert_eq!(
-        f.core.open_url("file:///etc/passwd").await,
+        f.core.open_url("file:///etc/passwd", &browse_op()).await,
         Err(ErrorCode::InvalidArgument)
     );
     // With no browser connected there is nothing to open the URL in.
@@ -620,7 +646,7 @@ async fn urls_open_in_the_connected_browser_and_raise_the_window_that_shows_them
         .info
         .backend_state = "unavailable".into();
     assert_eq!(
-        f.core.open_url("https://example.org/").await,
+        f.core.open_url("https://example.org/", &browse_op()).await,
         Err(ErrorCode::Unavailable)
     );
 }

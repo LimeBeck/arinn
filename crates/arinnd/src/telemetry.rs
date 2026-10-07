@@ -174,7 +174,12 @@ pub const KINDS: &[&str] = &[
 /// Child span kinds: a daemon → provider call or a wait for the platform adapter.
 pub const SPAN_OPS: &[&str] = &["provider.call", "platform.wait"];
 /// Child span names besides the operation kinds themselves.
-pub const SPAN_NAMES: &[&str] = &["media.open", "browser.show_window"];
+pub const SPAN_NAMES: &[&str] = &[
+    "media.open",
+    "browser.launch",
+    "browser.open_url",
+    "browser.show_window",
+];
 /// Normalized failure reasons the daemon can observe itself.
 pub const REASONS: &[&str] = &[
     "provider_changed",

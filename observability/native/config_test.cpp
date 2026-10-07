@@ -39,6 +39,10 @@ private slots:
       QStringLiteral("Фильм «Приватное название» недоступен"),
       QStringLiteral("magnet:?xt=urn:btih:0123 data:image/png;base64,AAAA user@private.invalid"),
       QStringLiteral("Unterminated \"Private Title and more"),
+      QStringLiteral("Missing </home/private-fixture/Private> and {/home/private-fixture/Videos}"),
+      QStringLiteral("Bad -/home/private-fixture/Videos or private-fixture/Videos/Title"),
+      QStringLiteral("Windows C:\\Users\\private-fixture\\Videos path"),
+      QStringLiteral("Query key=Private&title=Private#Title"),
     };
     for (const auto &fixture : fixtures) {
       const auto shape = ArinnTelemetry::qtTemplate(none, fixture);

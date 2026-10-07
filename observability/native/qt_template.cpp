@@ -34,14 +34,15 @@ QString scrub(QString text) {
     {QRegularExpression(QStringLiteral("\"[^\"]*\"?|'[^']*'?|`[^`]*`?")), QStringLiteral("<str>")},
     // URLs of any scheme, including qrc:, file:, data: and magnet:.
     {QRegularExpression(QStringLiteral("\\b[A-Za-z][A-Za-z0-9+.-]{1,31}:[^\\s<>]*[/=%;,?][^\\s<>]*")), QStringLiteral("<url>")},
-    // Absolute, home and relative paths.
-    {QRegularExpression(QStringLiteral("(^|[\\s(=:,\\[])(~|\\.{1,2})?/[^\\s<>)\\]]*")), QStringLiteral("\\1<path>")},
+    // Any token with a slash or backslash is a path, whatever precedes it.
+    {QRegularExpression(QStringLiteral("[^\\s<>()\\[\\]{}]*[/\\\\][^\\s<>()\\[\\]{}]*")), QStringLiteral("<path>")},
     // Addresses and accounts.
     {QRegularExpression(QStringLiteral("[^\\s<>]+@[^\\s<>]+")), QStringLiteral("<str>")},
     // File names with an extension.
     {QRegularExpression(QStringLiteral("[^\\s<>()\\[\\]]+\\.[A-Za-z][A-Za-z0-9]{0,4}\\b(?!\\.)")), QStringLiteral("<file>")},
-    // Remaining path or query separators and numbers.
-    {QRegularExpression(QStringLiteral("[\\\\/?&#%=@]+")), QStringLiteral(" ")},
+    // A token that still holds a query or address separator is dropped whole,
+    // never split into its parts.
+    {QRegularExpression(QStringLiteral("[^\\s<>]*[\\\\/?&#%=@][^\\s<>]*")), QStringLiteral("<str>")},
     {QRegularExpression(QStringLiteral("0x[0-9A-Fa-f]+|[0-9]+")), QStringLiteral("<n>")},
     {QRegularExpression(QStringLiteral("\\s+")), QStringLiteral(" ")},
   };

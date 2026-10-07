@@ -93,7 +93,7 @@ impl Core {
                 value.state = "running".into();
                 value.started_at = now();
             }
-            let result = core.open_url(&target.url).await;
+            let result = core.open_url(&target.url, &operation).await;
             operation
                 .finish(&core.connection, &object, result.map(|_| Vec::new()))
                 .await;

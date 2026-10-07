@@ -805,6 +805,32 @@ QString LibraryCatalog::entryIdFor(const QString &providerId,
   }
   return {};
 }
+QString LibraryCatalog::artworkFor(const QString &providerId,
+                                  const QString &localId) const {
+  auto local = localId;
+  // Bounded walk as in entryIdFor: an item's own fanart, then its own
+  // poster (an episode's still), then the nearest parent's artwork.
+  for (int depth = 0; depth <= m_items.size(); ++depth) {
+    const ItemRow *found = nullptr;
+    for (const auto &item : m_items)
+      if (item.providerId == providerId && item.localId == local)
+        found = &item;
+    if (!found)
+      break;
+    const auto fanart = AssetImages::imageUrl(found->providerId, found->path,
+                                              found->generation, found->fanart);
+    if (!fanart.isEmpty())
+      return fanart;
+    const auto poster = AssetImages::imageUrl(found->providerId, found->path,
+                                              found->generation, found->poster);
+    if (!poster.isEmpty())
+      return poster;
+    if (found->parentLocal.isEmpty())
+      break;
+    local = found->parentLocal;
+  }
+  return {};
+}
 void LibraryCatalog::launchContent(const QString &providerId,
                                    const QString &localId) {
   for (const auto &item : m_items) {

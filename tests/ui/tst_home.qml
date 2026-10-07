@@ -455,11 +455,17 @@ TestCase {
         keyClick(Qt.Key_Escape); compare(home.navOpen, true);
         editor.destroy();
     }
+    function openTabs(count) {
+        const rows = [];
+        for (let i = 1; i <= count; ++i)
+            rows.push({id: "tab-" + i, title: "Page " + i, letter: String.fromCharCode(64 + i)});
+        return rows;
+    }
     function test_continue_open_services_cards() {
         home.currentServiceId = "tab-1";
         home.currentServiceTitle = "Page";
         home.currentServiceSubtitle = "example.test · Return";
-        home.openServiceCount = 1;
+        home.openServices = openTabs(1);
         const current = child("entry-current-service");
         compare(current.text, "Page");
         verify(findChild(home, "entry-open-services-more") === null);
@@ -468,16 +474,194 @@ TestCase {
         keyClick(Qt.Key_Return);
         compare(serviceCard.count, 1);
         compare(serviceCard.signalArguments[0][0], "tab-1");
-        home.openServiceCount = 3;
+        home.openServices = openTabs(3);
         const more = child("entry-open-services-more");
         compare(more.text, "2 more open");
+        compare(more.subtitle, "All open services");
         more.forceActiveFocus();
         focused("entry-open-services-more");
         keyClick(Qt.Key_Return);
         compare(services.count, 1);
         compare(entries.count, 0);
-        home.openServiceCount = 1;
+        home.openServices = openTabs(1);
         verify(findChild(home, "entry-open-services-more") === null);
+    }
+    // #358: a service with its own Continue card is not counted again.
+    function test_open_services_count_excludes_represented_services() {
+        home.continueEntries = [{id: "activity", title: "Video", running: true, serviceId: "tab-2"},
+                                {id: "b", title: "Second"}];
+        home.openServices = openTabs(2);
+        compare(child("entry-open-services-more").text, "1 more open");
+        // The one service left over is on screen: nothing more to open.
+        home.continueEntries = [{id: "b", title: "Second"}];
+        home.currentServiceId = "tab-1";
+        home.currentServiceTitle = "Page 1";
+        home.openServices = openTabs(1);
+        verify(findChild(home, "entry-open-services-more") === null);
+        home.openServices = openTabs(2);
+        compare(child("entry-open-services-more").text, "1 more open");
+        // A card cut off by the Continue limit does not represent its service.
+        const many = [];
+        for (let i = 1; i <= 5; ++i)
+            many.push({id: "m" + i, title: "Film " + i, kind: "media", serviceId: "tab-" + i});
+        home.currentServiceTitle = "";
+        home.currentServiceId = "";
+        home.continueEntries = many;
+        home.openServices = openTabs(5);
+        compare(home.continuePresentation.map(entry => entry.id).join(","), "open-services-more,m1,m2,m3");
+        compare(child("entry-open-services-more").text, "2 more open");
+        home.continueEntries = [{id: "b", title: "Second"}];
+        home.currentServiceId = "tab-1";
+        home.currentServiceTitle = "Page 1";
+        home.openServices = openTabs(2);
+        // Titles never identify a service.
+        home.currentServiceTitle = "Page 2";
+        compare(child("entry-open-services-more").text, "1 more open");
+        // No service has a card of its own.
+        home.currentServiceTitle = "";
+        home.currentServiceId = "";
+        compare(child("entry-open-services-more").text, "Open: 2");
+    }
+    // #366: stacked chips of up to three services that have no card.
+    function test_open_services_card_stacks_chips() {
+        home.currentServiceId = "tab-1";
+        home.currentServiceTitle = "Page 1";
+        home.openServices = openTabs(5);
+        const more = child("entry-open-services-more");
+        compare(more.text, "4 more open");
+        const stack = findChild(more, "cardStack");
+        verify(stack.visible);
+        compare(more.stack.length, 3);
+        compare(more.stack.map(chip => chip.letter).join(""), "BCD");
+        verify(findChild(more, "stackChip-2") !== null);
+        verify(findChild(more, "stackChip-3") === null);
+        more.forceActiveFocus(); focused("entry-open-services-more");
+        compare(child("heroEyebrow").text, "OPEN SERVICES");
+        compare(child("heroTitle").text, "4 more open");
+        compare(child("heroMeta").text, "Page 2 · Page 3 · Page 4 · Page 5");
+    }
+    // #365: one activity and at most four further cards; media cards carry
+    // the time left and their progress.
+    function test_continue_limits_and_media_cards() {
+        const media = [];
+        for (let i = 0; i < 6; ++i)
+            media.push({id: "m" + i, title: "Film " + i, kind: "media", positionUs: 1800e6, durationUs: 7200e6});
+        media[1].subtitle = "S1 E4 · Pilot";
+        home.continueEntries = [{id: "a", title: "Activity", running: true}].concat(media);
+        compare(home.continuePresentation.map(entry => entry.id).join(","), "a,m0,m1,m2,m3");
+        const card = child("entry-m0");
+        compare(card.subtitle, "1 h 30 min left");
+        verify(card.showProgress);
+        compare(card.progress, 0.25);
+        compare(child("entry-m1").subtitle, "S1 E4 · Pilot");
+        // Without an activity, media fill the row up to five cards.
+        home.continueEntries = media;
+        compare(home.continuePresentation.length, 4);
+        compare(home.continuePresentation[0].id, "m0");
+        // No duration: no progress and no invented subtitle.
+        home.continueEntries = [{id: "x", title: "Stream", kind: "media"}];
+        verify(!child("entry-x").showProgress);
+        compare(child("entry-x").subtitle, "");
+    }
+    // #364: the hero describes the focused item and what OK does.
+    function test_hero_describes_the_focused_item() {
+        home.continueEntries = [
+            {id: "a", title: "Player", running: true},
+            {id: "film", title: "Film", kind: "media", positionUs: 4422e6, durationUs: 9960e6},
+            {id: "episode", title: "Show", subtitle: "S1 E4 · Pilot", kind: "media", positionUs: 0, durationUs: 2220e6},
+            {id: "live", title: "Song", kind: "media", running: true, positionUs: 10e6, durationUs: 200e6}
+        ];
+        home.favoriteEntries = [
+            {id: "f", title: "Favorite", group: "online"},
+            {id: "g", title: "Game", group: "games", running: true},
+            {id: "s", title: "Search", hint: "Type an address or a search"}
+        ];
+        child("entry-a").forceActiveFocus(); focused("entry-a");
+        compare(child("heroEyebrow").text, "NOW RUNNING");
+        verify(child("heroLiveDot").visible);
+        compare(child("heroTitle").text, "Player");
+        compare(child("heroMeta").text, "Return");
+        keyClick(Qt.Key_Right); focused("entry-film");
+        compare(child("heroEyebrow").text, "CONTINUE");
+        verify(!child("heroLiveDot").visible);
+        compare(child("heroTitle").text, "Film");
+        compare(child("heroMeta").text, "1:13:42 of 2:46:00 · 1 h 32 min left");
+        keyClick(Qt.Key_Right); focused("entry-episode");
+        compare(child("heroMeta").text, "S1 E4 · Pilot · 37 min left");
+        keyClick(Qt.Key_Right); focused("entry-live");
+        compare(child("heroMeta").text, "Playing");
+        child("entry-f").forceActiveFocus(); focused("entry-f");
+        compare(child("heroEyebrow").text, "FAVORITES · ONLINE");
+        compare(child("heroTitle").text, "Favorite");
+        compare(child("heroMeta").text, "Opens full screen");
+        home.openShortcutIds = ["f"];
+        compare(child("heroMeta").text, "Running · Return");
+        keyClick(Qt.Key_Right); focused("entry-g");
+        compare(child("heroEyebrow").text, "FAVORITES · GAMES");
+        compare(child("heroMeta").text, "Running · Return");
+        keyClick(Qt.Key_Right); focused("entry-s");
+        compare(child("heroEyebrow").text, "FAVORITES");
+        compare(child("heroMeta").text, "Type an address or a search");
+        // The hero follows the presented entry, not a stale snapshot.
+        home.favoriteEntries = [{id: "f", title: "Favorite"}, {id: "g", title: "Game", group: "games"},
+                                {id: "s", title: "Renamed", hint: "Type an address or a search"}];
+        compare(child("heroTitle").text, "Renamed");
+    }
+    // #367: the download chip shows only while something downloads.
+    function test_status_area_download_chip() {
+        home.clockText = "20:42";
+        const chip = child("downloadChip");
+        verify(!chip.visible);
+        home.downloadActive = true;
+        home.downloadProgress = 0.826;
+        verify(chip.visible);
+        compare(child("downloadChipLabel").text, "82%");
+        home.downloadProgress = -1;
+        compare(child("downloadChipLabel").text, "Downloading");
+        const clock = child("clock");
+        const area = child("statusArea");
+        tryVerify(() => Math.abs(chip.x + chip.width + 24 - clock.x) < 1, 2000,
+                  "chip " + chip.x + "+" + chip.width + " clock " + clock.x);
+        compare(area.x + area.width, 1920 - 96);
+        home.downloadActive = false;
+        verify(!chip.visible);
+    }
+    // #368: the light field takes the artwork's hue, or the identity hue.
+    function test_ambient_glow_follows_focus() {
+        const glow = child("ambientGlow");
+        home.continueEntries = [
+            {id: "film", title: "Film", kind: "media", artwork: Qt.resolvedUrl("fixture-glow.svg")},
+            {id: "plain", title: "Plain", kind: "media"}
+        ];
+        child("entry-film").forceActiveFocus(); focused("entry-film");
+        tryVerify(() => glow.shown && Math.abs(glow.hue - 30) <= 3, 5000, "artwork hue " + glow.hue);
+        keyClick(Qt.Key_Right); focused("entry-plain");
+        compare(glow.tint, Qt.tint(Ui.Theme.identityColor("plain"), "transparent"));
+        const identity = glow.toOklch(glow.tint).h;
+        tryVerify(() => Math.abs(glow.hue - identity) < 0.5, 5000, "identity hue " + glow.hue);
+        // Back to a hue the hidden layer still holds (a and plain may share
+        // an identity colour): the field switches without a repaint.
+        keyClick(Qt.Key_Left); focused("entry-film");
+        tryVerify(() => Math.abs(glow.hue - 30) <= 3, 5000, "artwork hue again " + glow.hue);
+        keyClick(Qt.Key_Right); focused("entry-plain");
+        tryVerify(() => Math.abs(glow.hue - identity) < 0.5, 5000, "identity hue again " + glow.hue);
+        verify(glow.lit);
+        // The current service's colour follows its identity, not the fixed
+        // card id shared by every service.
+        home.currentServiceId = "tab-1";
+        home.currentServiceTitle = "Page";
+        child("entry-current-service").forceActiveFocus(); focused("entry-current-service");
+        compare(child("entry-current-service").visualIdentity, "tab-1");
+        tryCompare(glow, "tint", Qt.tint(Ui.Theme.identityColor("tab-1"), "transparent"));
+        home.currentServiceId = "tab-2";
+        tryCompare(glow, "tint", Qt.tint(Ui.Theme.identityColor("tab-2"), "transparent"));
+        home.ambientSuppressed = true;
+        verify(!glow.lit);
+        home.ambientSuppressed = false;
+        keyClick(Qt.Key_Menu); focused("nav-0");
+        keyClick(Qt.Key_Down); keyClick(Qt.Key_Return);
+        compare(home.screen, "library");
+        verify(!glow.lit);
     }
     function test_open_services_navigation_item() {
         keyClick(Qt.Key_Menu);
@@ -488,7 +672,7 @@ TestCase {
         const hiddenBadge = findChild(home, "openServicesBadge");
         verify(hiddenBadge !== null);
         compare(hiddenBadge.visible, false);
-        home.openServiceCount = 4;
+        home.openServices = openTabs(4);
         home.currentServiceTitle = "Page";
         compare(child("openServicesBadge").visible, true);
         compare(child("openServicesCount").text, "4");
@@ -496,7 +680,7 @@ TestCase {
         keyClick(Qt.Key_Return);
         compare(services.count, 1);
         compare(home.navOpen, false);
-        home.openServiceCount = 0;
+        home.openServices = [];
         home.currentServiceTitle = "";
         keyClick(Qt.Key_Menu);
         for (let i = 0; i < 5; ++i) keyClick(Qt.Key_Down);

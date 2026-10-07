@@ -11,6 +11,9 @@ Surface {
     property bool running: false
     property bool showProgress: false
     property real progress: 0
+    // Chips of further items ({id, letter, icon}), drawn overlapping in the
+    // top-left corner instead of this card's own monogram (handoff H-1).
+    property var stack: []
     readonly property bool artworkReady: picture.status === Image.Ready
     implicitWidth: 400
     implicitHeight: 225
@@ -57,17 +60,54 @@ Surface {
                 ctx.drawImage(picture.source, 0, 0, w, h);
             }
         }
+        // Handoff 02: rgba(10,11,13) from .9 at the bottom to 0 at 70% height.
         Rectangle {
+            objectName: "artworkScrim"
             anchors.fill: parent
             radius: root.cornerRadius
             visible: root.artworkReady
             gradient: Gradient {
-                GradientStop { position: 0; color: "#10131416" }
-                GradientStop { position: 1; color: "#ee0a0b0d" }
+                GradientStop { position: 0; color: "#000a0b0d" }
+                GradientStop { position: 0.3; color: "#000a0b0d" }
+                GradientStop { position: 0.55; color: "#660a0b0d" }
+                GradientStop { position: 1; color: "#e60a0b0d" }
+            }
+        }
+        Row {
+            objectName: "cardStack"
+            x: 26; y: 24
+            spacing: -18
+            visible: root.stack.length > 0
+            Repeater {
+                model: root.stack
+                Rectangle {
+                    required property var modelData
+                    required property int index
+                    objectName: "stackChip-" + index
+                    z: root.stack.length - index
+                    width: 64; height: 64; radius: 20
+                    color: "#3a3c40"
+                    border.width: 4; border.color: "#2a2c2f"
+                    UiText {
+                        anchors.centerIn: parent
+                        visible: stackIcon.status !== Image.Ready
+                        text: modelData.letter || ""
+                        font.pixelSize: 28; font.weight: 700
+                    }
+                    Image {
+                        id: stackIcon
+                        anchors.fill: parent; anchors.margins: 8
+                        source: modelData.icon || ""
+                        sourceSize.width: 96; sourceSize.height: 96
+                        fillMode: Image.PreserveAspectFit
+                        asynchronous: true
+                        visible: status === Image.Ready
+                    }
+                }
             }
         }
         Rectangle {
-            visible: !root.artworkReady
+            visible: !root.artworkReady && root.stack.length === 0
             anchors.right: parent.right; anchors.top: parent.top
             anchors.margins: 24
             width: 60; height: 60; radius: 18
@@ -92,8 +132,15 @@ Surface {
             width: parent.width - 48
             spacing: 8
             UiText { width: parent.width; text: root.text; role: "section"; maximumLineCount: 2; elide: Text.ElideRight }
-            UiText { width: parent.width; text: root.subtitle; role: "meta"; maximumLineCount: 1; elide: Text.ElideRight; color: Theme.textSecondary }
-            ProgressTrack { width: parent.width; visible: root.showProgress; value: root.progress }
+            UiText {
+                objectName: "cardSubtitle"
+                width: parent.width; text: root.subtitle; maximumLineCount: 1; elide: Text.ElideRight
+                // Media cards use the 24 sub style of handoff 02.
+                role: root.artworkReady || root.showProgress ? "caption" : "meta"
+                color: Theme.textSecondary
+                visible: text.length > 0
+            }
+            ProgressTrack { objectName: "cardProgress"; width: parent.width; visible: root.showProgress; value: root.progress }
         }
     }
 }

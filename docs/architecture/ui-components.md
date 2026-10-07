@@ -23,10 +23,11 @@ models into these properties and routing emitted actions to the daemon.
 | `LogicalCanvas` | Centred 1920×1080 stage, uniform `min(width/1920, height/1080)` scale |
 | `Surface` | Focus, press, disabled and busy treatment; focus ring above all artwork; `activated()` intent |
 | `ActionButton` | Content-sized pill, `text`, optional `destructive` tint |
-| `ContentCard` | `text`, `subtitle`, `artwork` URL supplied by trusted shell models (a file or `image://arinn-assets/`), `running`, optional `showProgress` and normalized `progress`. The plate stays until the image is ready. Bytes from Assets1 are decoded in C++ |
+| `ContentCard` | `text`, `subtitle`, `artwork` URL supplied by trusted shell models (a file or `image://arinn-assets/`), `running`, optional `showProgress` and normalized `progress`, optional `stack` of up to three `{letter, icon}` chips drawn overlapping instead of the monogram. The plate stays until the image is ready; artwork gets the handoff scrim (`rgba(10,11,13)` from .9 to 0 at 70% height). Bytes from Assets1 are decoded in C++ |
 | `AppTile` | `text`, neutral `monogram`, `running` |
 | `ProgressTrack` | Clamped finite `value` from 0 to 1; Ember represents progress only |
 | `Skeleton` | Fixed-size pulsing placeholder; same default geometry as a content card |
+| `AmbientGlow` | Home's light field: `source` artwork or `tint` identity colour, `lit`, `strength`. The dominant hue of a 24×24 decode of the artwork keys the handoff's three radial layers, painted once per hue at one-fifth resolution and scaled up; a 900 ms cross-fade follows focus after a 200 ms settle. No full-resolution art is blurred per frame |
 | `StatusPane` | Explicit `kind` (empty/loading/error/unavailable), `title`, `description`, `actionText`; `actionRequested()` intent |
 
 Interactive components inherit `enabled` and add `busy`. Consumers connect to
@@ -108,15 +109,33 @@ a session action.
 `HomeView` accepts immutable `continueEntries`, `favoriteEntries` and `newEntries`
 arrays. Each entry has a unique opaque `id`, `title`, and optional `subtitle`,
 `artwork`, `monogram`, `running`, `progress`, `enabled`, `busy` and
-`webShortcut`. The caller owns the Continue projection (one Activity plus up to
-four resumable entries), New availability and provider state. Optional
-`currentServiceTitle`, `openServiceCount`, `openShortcutIds` and
-`browserUnavailable` add the Open services Continue card, the navigation item
-and the unavailable shortcut treatment; they default so a fixture that omits
-them is unchanged. QML neither aggregates providers nor persists these arrays.
+`webShortcut`. Media entries (`kind: "media"`) may carry the provider's reported
+`positionUs` and `durationUs`; Home derives the time left and the card progress
+from them. An entry that stands for an open web service carries its `serviceId`.
+`HomeView` limits Continue to one Activity plus four further cards (spec §5.1,
+handoff 02); New availability and provider state stay with the caller. Optional
+`currentServiceTitle`, `openServices` (`{id, title, letter, icon}`, the service on
+screen first), `openShortcutIds` and `browserUnavailable` add the Open services
+Continue cards, the navigation item and the unavailable shortcut treatment; they
+default so a fixture that omits them is unchanged. The open-services summary
+lists only services without a card of their own, matched by `serviceId`, never by
+title ([#358](https://github.com/LimeBeck/arinn/issues/358)): "N more open" once
+a service has a card, "Open: N" otherwise, hidden with one open service or none
+left over. The hero describes the focused item
+([#364](https://github.com/LimeBeck/arinn/issues/364)). `downloadActive` and
+`downloadProgress` drive the status-area download chip; `ambientSuppressed` turns
+the light field off while an Activity background is shown. QML neither aggregates providers nor persists these arrays.
 `returnActivityId` identifies the return target independently of focus.
 `homeState` is ready/empty/loading/error/unavailable, accompanied by
 `statusTitle` and `statusDescription`; `clockText` is display-only.
+
+In production, `Main.qml` passes the browser catalog's tabs as `openServices` and
+`DownloadCatalog.downloading`/`downloadProgress` (bytes when every active download
+knows its size, else the mean of the known fractions, else unknown). Continue media
+without session artwork take the backdrop of the library item the session plays
+through `MediaCatalog.libraryContent` and `LibraryCatalog.artworkFor`. Mute and
+Wi-Fi need platform state that no current interface exposes
+([#367](https://github.com/LimeBeck/arinn/issues/367)).
 
 Actions emit `entryRequested(id)`, `returnRequested(id)`, `retryRequested()`,
 `sectionRequested(route)` and `powerRequested()`. The gallery displays intent
@@ -336,3 +355,13 @@ Global navigation emits `closeShellRequested()` from its final Close Arinn row.
 `Main.qml` handles it with `Window.close()`, the same graceful path as Alt+F4.
 The action is local and available in degraded Home states; it does not call a
 provider, a power API or the daemon. Navigation preserves Back and focus traps.
+
+### Home handoff increment evidence (#358, #364–#368)
+
+[`evidence/home-handoff/`](evidence/home-handoff/) holds 1920×1080 offscreen
+captures (software renderer, Qt 6.8.2, synthetic fixtures and the gallery's
+fixture artwork) in Russian (`ru-*`) and English (`en-*`): a focused Continue
+media card with the hero time line, progress, backdrop scrim, download chip and
+light field; the focused activity; a focused favorite; and the open-services card
+with stacked chips. They were captured from `HomeView` alone, not the production
+window. No KDE session, TV or physical readability check was performed.

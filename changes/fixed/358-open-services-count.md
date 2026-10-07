@@ -1,0 +1,2 @@
+- Home's open-services summary no longer counts a service that already has its own Continue card; it is matched by service identity, never by title, and disappears when nothing is left over ([#358](https://github.com/LimeBeck/arinn/issues/358)).
+- Continue shows at most one activity and four further cards even when no service card is on screen ([#365](https://github.com/LimeBeck/arinn/issues/365)).

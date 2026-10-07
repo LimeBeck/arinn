@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Arinn contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "transport.h"
+#include "telemetry.h"
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -57,6 +58,25 @@ QJsonObject event(const QJsonObject &original) {
     {"message", "Native technical diagnostic; private message omitted"},
     {"tags", QJsonObject{{"component", "arinn-shell"}}}};
   for (auto key : {"event_id", "timestamp", "level"}) copy(clean, original, key);
+  const auto tags = original.value("tags").toObject();
+  auto cleanTags = clean.value("tags").toObject();
+  const auto location = tags.value("qt.location").toString().toLatin1();
+  if (ArinnTelemetry::safeLocation(location.constData()))
+    cleanTags.insert("qt.location", QString::fromLatin1(location));
+  const auto category = tags.value("qt.category").toString().toLatin1();
+  if (ArinnTelemetry::safeCategory(category.constData()))
+    cleanTags.insert("qt.category", QString::fromLatin1(category));
+  clean.insert("tags", cleanTags);
+  const auto print = original.value("fingerprint").toArray();
+  if (print.size() == 4) {
+    QJsonArray cleanPrint;
+    for (const auto &part : print) {
+      const auto text = part.toString().toLatin1();
+      if (!ArinnTelemetry::safeTemplateText(text.constData()) && !ArinnTelemetry::safeLocation(text.constData())) break;
+      cleanPrint.append(QString::fromLatin1(text));
+    }
+    if (cleanPrint.size() == 4) clean.insert("fingerprint", cleanPrint);
+  }
   QJsonArray exceptions;
   for (auto value : original.value("exception").toObject().value("values").toArray()) {
     if (exceptions.size() == 4) break;
@@ -64,7 +84,11 @@ QJsonObject event(const QJsonObject &original) {
     auto name = source.value("type").toString();
     if (name != "SIGSEGV" && name != "SIGABRT" && name != "SIGBUS" && name != "SIGILL" && name != "SIGFPE" &&
         name != "QtWarning" && name != "QtCritical" && name != "QtFatal") name = "NativeError";
-    QJsonObject exception{{"type", name}, {"value", "Technical failure; private message omitted"}};
+    // Non-Latin-1 text becomes '?', which the template check rejects.
+    const auto text = source.value("value").toString().toLatin1();
+    const bool qt = name.startsWith("Qt");
+    QJsonObject exception{{"type", name}, {"value", qt && ArinnTelemetry::safeTemplateText(text.constData())
+      ? QString::fromLatin1(text) : QStringLiteral("Technical failure; private message omitted")}};
     if (source.contains("stacktrace")) exception.insert("stacktrace", frames(source.value("stacktrace").toObject()));
     exceptions.append(exception);
   }
@@ -76,7 +100,7 @@ QJsonObject event(const QJsonObject &original) {
     auto source = value.toObject();
     auto message = source.value("message").toString();
     bool allowed = false;
-    for (auto known : {"startup", "shutdown", "about-to-quit", "qt.debug", "qt.info", "qt.warning", "qt.critical", "qt.fatal", "input.key", "input.pointer", "focus.in", "focus.out", "window.show", "window.hide", "window.activate", "window.deactivate"})
+    for (auto known : {"startup", "shutdown", "about-to-quit", "qt.debug", "qt.info", "qt.warning", "qt.critical", "qt.fatal", "qt.noise", "input.key", "input.pointer", "focus.in", "focus.out", "window.show", "window.hide", "window.activate", "window.deactivate"})
       if (message == known) allowed = true;
     if (allowed) {
       QJsonObject crumb{{"type", "default"}, {"category", "shell.lifecycle"}, {"message", message}};
@@ -114,7 +138,8 @@ QJsonObject metrics(const QJsonObject &original) {
     auto source = value.toObject();
     auto name = source.value("name").toString();
     const auto number = source.value("value");
-    if ((name != "arinn.shell.messages" && name != "arinn.shell.errors" && name != "arinn.shell.startup.duration") ||
+    if (!QStringList{"arinn.shell.messages", "arinn.shell.errors", "arinn.shell.messages.benign",
+                     "arinn.shell.messages.suppressed", "arinn.shell.startup.duration"}.contains(name) ||
         !number.isDouble() || !std::isfinite(number.toDouble()) || number.toDouble() < 0) continue;
     const auto type = source.value("type").toString();
     if (type != "counter" && type != "distribution" && type != "gauge") continue;

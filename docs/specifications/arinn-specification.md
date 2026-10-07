@@ -625,7 +625,11 @@ the embedded default. Explicit empty/invalid overrides MUST disable transmission
 rather than fall back. The §13 exclusions apply to
 all remote event fields, breadcrumbs, traces and metrics. Under the same flag,
 fixed startup and daemon-operation traces and numeric error/operation counts and
-durations MAY be collected, without provider/browser/window identity. No memory dumps, screenshots or replay
+durations MAY be collected, with only the fixed labels of
+[ADR-0092](../adr/0092-structured-sentry-diagnostics.md): operation kind,
+capability, manifest plugin id, outcome, error code, normalized reason and
+templated Qt/QML messages without user text. They exclude provider instance,
+request, browser and window identity. No memory dumps, screenshots or replay
 are sent. Existing local logging and diagnostics remain available.
 
 Before public release, remote diagnostics require informed, explicit user

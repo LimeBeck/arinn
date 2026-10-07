@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use crate::{
-    operations::{Operations, now},
+    operations::{Label, Operations, now},
     registry::{Manifest, Registry, discovery_roots},
     storage::{Config, Paths, Store, atomic_write, private_dir},
     supervisor::{Attachment, Supervision, Supervisor},
@@ -1244,10 +1244,25 @@ impl Core {
         if !allowed {
             return Err(ErrorCode::Unsupported);
         }
+        let kind = match action {
+            "launch" => "application.launch",
+            "activate" => "application.activate",
+            "activate_tab" => "browser.activate_tab",
+            "close_tab" => "browser.close_tab",
+            _ => "application.terminate",
+        };
+        let label = Label::new(kind).provider(capability, &p.info.plugin_id);
         let owner = p.owner.clone();
         let (path, op, fresh) = self
             .operations
-            .admit(&self.connection, caller, request_id, &fingerprint, id)
+            .admit(
+                &self.connection,
+                caller,
+                request_id,
+                &fingerprint,
+                id,
+                label,
+            )
             .await?;
         drop(state);
         if !fresh {
@@ -1298,7 +1313,7 @@ impl Core {
             };
             let result = tokio::time::timeout(
                 Duration::from_secs(if action == "launch" { 30 } else { 5 }),
-                work,
+                op.phase("provider.call", op.kind(), work),
             )
             .await
             .unwrap_or(Err(ErrorCode::Timeout));
@@ -1312,13 +1327,18 @@ impl Core {
             let mut result = if valid {
                 result
             } else {
+                op.reason("provider_changed");
                 Err(ErrorCode::Unavailable)
             };
             if result.is_ok() && action == "activate_tab" {
                 // The browser selected the tab; the compositor window still
                 // has to come forward, which hides Home (ADR-0048).
-                result = core
-                    .show_browser_window(&id, &owner, &generation, &window_token)
+                result = op
+                    .phase(
+                        "platform.wait",
+                        "browser.show_window",
+                        core.show_browser_window(&id, &owner, &generation, &window_token),
+                    )
                     .await;
             }
             if result.is_ok() && action == "launch" {
@@ -1756,7 +1776,14 @@ impl Daemon {
         let (path, op, fresh) = self
             .core
             .operations
-            .admit(&self.core.connection, &caller, request_id, "reload", "")
+            .admit(
+                &self.core.connection,
+                &caller,
+                request_id,
+                "reload",
+                "",
+                Label::new("daemon.reload"),
+            )
             .await?;
         if fresh {
             let core = self.core.clone();
@@ -1789,7 +1816,7 @@ impl Daemon {
         {
             return Ok(path);
         }
-        let unit = {
+        let (unit, label) = {
             let state = self.core.state.lock().await;
             let p = state
                 .providers
@@ -1798,12 +1825,20 @@ impl Daemon {
             if !p.enabled || p.info.runtime_state == "incompatible" {
                 return Err(ErrorCode::Unsupported.into());
             }
-            p.unit.clone()
+            let label = Label::new("provider.restart").provider(p.capability(), &p.info.plugin_id);
+            (p.unit.clone(), label)
         };
         let (path, op, fresh) = self
             .core
             .operations
-            .admit(&self.core.connection, &caller, request_id, &fingerprint, "")
+            .admit(
+                &self.core.connection,
+                &caller,
+                request_id,
+                &fingerprint,
+                "",
+                label,
+            )
             .await?;
         if fresh {
             let core = self.core.clone();
@@ -2112,6 +2147,24 @@ fn window_scope(state: &State, owner: &str) -> Result<crate::windows::Scope, Err
         })
         .ok_or(ErrorCode::PermissionDenied)
 }
+/// Waits up to five seconds for the platform adapter to answer a queued request,
+/// recording why the wait failed.
+pub(crate) async fn platform_wait(
+    operation: &crate::operations::Operation,
+    receiver: tokio::sync::oneshot::Receiver<Result<(), ErrorCode>>,
+) -> Result<(), ErrorCode> {
+    match tokio::time::timeout(Duration::from_secs(5), receiver).await {
+        Err(_) => {
+            operation.reason("platform_timeout");
+            Err(ErrorCode::Timeout)
+        }
+        Ok(Err(_)) => {
+            operation.reason("platform_channel_closed");
+            Err(ErrorCode::Unavailable)
+        }
+        Ok(Ok(result)) => result,
+    }
+}
 // Preserve operation completion if a caller's admission budget expires after
 // allocating its deduplication record but before spawning the completion task.
 struct WindowAdmission(Option<(Connection, OwnedObjectPath, crate::operations::Operation)>);
@@ -2155,6 +2208,15 @@ impl WindowEndpoint {
             .windows
             .check(&self.core.connection, generation, token, action)
             .await?;
+        let kind = if action == "close" {
+            "platform.window.close"
+        } else {
+            "platform.window.activate"
+        };
+        let label = match state.providers.get(&scope.provider) {
+            Some(p) => Label::new(kind).provider(p.capability(), &p.info.plugin_id),
+            None => Label::new(kind),
+        };
         let (path, operation, fresh) = self
             .core
             .operations
@@ -2164,6 +2226,7 @@ impl WindowEndpoint {
                 request_id,
                 &fingerprint,
                 &scope.provider,
+                label,
             )
             .await?;
         if fresh {
@@ -2196,17 +2259,22 @@ impl WindowEndpoint {
             admission.0.take();
             tokio::spawn(async move {
                 let result = match work {
-                    Ok(receiver) => tokio::time::timeout(Duration::from_secs(5), receiver)
-                        .await
-                        .map_err(|_| ErrorCode::Timeout)
-                        .and_then(|r| r.map_err(|_| ErrorCode::Unavailable))
-                        .and_then(|r| r),
+                    Ok(receiver) => {
+                        operation
+                            .phase(
+                                "platform.wait",
+                                operation.kind(),
+                                platform_wait(&operation, receiver),
+                            )
+                            .await
+                    }
                     Err(error) => Err(error),
                 };
                 let current = window_scope(&*core.state.lock().await, &scope.owner);
                 let result = if current.as_ref() == Ok(&scope) {
                     result
                 } else {
+                    operation.reason("provider_changed");
                     Err(ErrorCode::Unavailable)
                 };
                 operation

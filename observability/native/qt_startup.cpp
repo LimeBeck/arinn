@@ -27,7 +27,7 @@ public:
   }
 };
 void handler(QtMsgType type, const QMessageLogContext &context, const QString &message) {
-  ArinnTelemetry::qtMessage(type, context);
+  ArinnTelemetry::qtMessage(type, context, message);
   if (previous) previous(type, context, message);
   else {
     const auto formatted = qFormatLogMessage(type, context, message).toLocal8Bit();

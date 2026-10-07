@@ -1204,7 +1204,14 @@ async fn rejected_release_does_not_advance_the_present_exit_fence() {
     for _ in 0..32 {
         f.core
             .operations
-            .admit(&f.core.connection, &caller, &rid(), "occupied", "mpv")
+            .admit(
+                &f.core.connection,
+                &caller,
+                &rid(),
+                "occupied",
+                "mpv",
+                Label::default(),
+            )
             .await
             .unwrap();
     }
@@ -1219,4 +1226,28 @@ async fn rejected_release_does_not_advance_the_present_exit_fence() {
         f.core.playback_exits.lock().await.is_empty(),
         "rejected Release must not cancel a waiting Present"
     );
+}
+
+#[test]
+fn every_media_command_has_a_listed_telemetry_kind() {
+    for action in [
+        MediaAction::Play,
+        MediaAction::Pause,
+        MediaAction::PlayPause,
+        MediaAction::Seek(0),
+        MediaAction::Next,
+        MediaAction::Previous,
+        MediaAction::Stop,
+        MediaAction::SelectTrack {
+            kind: "audio".into(),
+            track: "1".into(),
+        },
+        MediaAction::DisableSubtitles,
+        MediaAction::Thumbnail(0),
+    ] {
+        assert!(
+            crate::telemetry::KINDS.contains(&action.kind()),
+            "{action:?}"
+        );
+    }
 }

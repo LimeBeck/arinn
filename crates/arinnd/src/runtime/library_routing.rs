@@ -342,10 +342,23 @@ impl Core {
         if action == "launch" && !entry.available {
             return Err(ErrorCode::Unavailable);
         }
+        let kind = if action == "restart" {
+            "library.restart"
+        } else {
+            "library.launch"
+        };
+        let label = Label::new(kind).provider("library", &p.info.plugin_id);
         let owner = p.owner.clone();
         let (path, op, fresh) = self
             .operations
-            .admit(&self.connection, caller, request_id, &fingerprint, id)
+            .admit(
+                &self.connection,
+                caller,
+                request_id,
+                &fingerprint,
+                id,
+                label,
+            )
             .await?;
         drop(state);
         if !fresh {
@@ -365,57 +378,68 @@ impl Core {
             }
             let work = async {
                 if action == "restart" {
-                    LibraryResumeProxy::builder(&core.connection)
-                        .destination(owner.as_str())
-                        .map_err(|_| ErrorCode::Internal)?
-                        .build()
-                        .await
-                        .map_err(|_| ErrorCode::Unavailable)?
-                        .restart_from_beginning(&generation, &item)
-                        .await
-                        .map_err(normalize_error)?;
+                    op.phase("provider.call", "library.restart", async {
+                        LibraryResumeProxy::builder(&core.connection)
+                            .destination(owner.as_str())
+                            .map_err(|_| ErrorCode::Internal)?
+                            .build()
+                            .await
+                            .map_err(|_| ErrorCode::Unavailable)?
+                            .restart_from_beginning(&generation, &item)
+                            .await
+                            .map_err(normalize_error)
+                    })
+                    .await?;
                     return Ok(EntityRef {
                         provider_id: id.clone(),
                         capability: "library".into(),
                         local_id: item.clone(),
                     });
                 }
-                let (source,) = LibraryProviderProxy::builder(&core.connection)
-                    .destination(owner.as_str())
-                    .map_err(|_| ErrorCode::Internal)?
-                    .build()
-                    .await
-                    .map_err(|_| ErrorCode::Unavailable)?
-                    .launch(&generation, &item)
-                    .await
-                    .map_err(normalize_error)?;
+                let (source,) = op
+                    .phase("provider.call", "library.launch", async {
+                        LibraryProviderProxy::builder(&core.connection)
+                            .destination(owner.as_str())
+                            .map_err(|_| ErrorCode::Internal)?
+                            .build()
+                            .await
+                            .map_err(|_| ErrorCode::Unavailable)?
+                            .launch(&generation, &item)
+                            .await
+                            .map_err(normalize_error)
+                    })
+                    .await?;
                 source.validate()?;
                 if source.local_id != item {
                     return Err(ErrorCode::InvalidArgument);
                 }
                 let (media_id, media_owner, media_generation) = core.media_opener().await?;
-                let session = MediaOpenProxy::builder(&core.connection)
-                    .destination(media_owner.as_str())
-                    .map_err(|_| ErrorCode::Internal)?
-                    .build()
-                    .await
-                    .map_err(|_| ErrorCode::Unavailable)?
-                    .open(
-                        &media_generation,
-                        MediaSource {
-                            content: EntityRef {
-                                provider_id: id.clone(),
-                                capability: "library".into(),
-                                local_id: item.clone(),
-                            },
-                            uri: source.uri,
-                            start_position_us: source.start_position_us,
-                            audio_language: source.audio_language,
-                            subtitle_language: source.subtitle_language,
-                        },
-                    )
-                    .await
-                    .map_err(normalize_error)?;
+                let session = op
+                    .phase("provider.call", "media.open", async {
+                        MediaOpenProxy::builder(&core.connection)
+                            .destination(media_owner.as_str())
+                            .map_err(|_| ErrorCode::Internal)?
+                            .build()
+                            .await
+                            .map_err(|_| ErrorCode::Unavailable)?
+                            .open(
+                                &media_generation,
+                                MediaSource {
+                                    content: EntityRef {
+                                        provider_id: id.clone(),
+                                        capability: "library".into(),
+                                        local_id: item.clone(),
+                                    },
+                                    uri: source.uri,
+                                    start_position_us: source.start_position_us,
+                                    audio_language: source.audio_language,
+                                    subtitle_language: source.subtitle_language,
+                                },
+                            )
+                            .await
+                            .map_err(normalize_error)
+                    })
+                    .await?;
                 validation::id(&session)?;
                 Ok(EntityRef {
                     provider_id: media_id,
@@ -441,6 +465,7 @@ impl Core {
             let result = if valid {
                 result
             } else {
+                op.reason("provider_changed");
                 Err(ErrorCode::Unavailable)
             };
             op.finish(&core.connection, &path_copy, result.map(|r| vec![r]))

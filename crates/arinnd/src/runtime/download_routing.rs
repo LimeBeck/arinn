@@ -568,10 +568,24 @@ impl Core {
             return Err(ErrorCode::Unsupported);
         }
         drop(downloads);
+        let kind = match action {
+            "pause" => "download.pause",
+            "resume" => "download.resume",
+            "start-now" => "download.start-now",
+            _ => "download.retry",
+        };
+        let label = Label::new(kind).provider("download", &p.info.plugin_id);
         let owner = p.owner.clone();
         let (path, op, fresh) = self
             .operations
-            .admit(&self.connection, caller, request_id, &fingerprint, id)
+            .admit(
+                &self.connection,
+                caller,
+                request_id,
+                &fingerprint,
+                id,
+                label,
+            )
             .await?;
         drop(state);
         if !fresh {
@@ -606,9 +620,10 @@ impl Core {
                 }
                 .map_err(normalize_error)
             };
-            let result = tokio::time::timeout(COMMAND_TIMEOUT, work)
-                .await
-                .unwrap_or(Err(ErrorCode::Timeout));
+            let result =
+                tokio::time::timeout(COMMAND_TIMEOUT, op.phase("provider.call", op.kind(), work))
+                    .await
+                    .unwrap_or(Err(ErrorCode::Timeout));
             let valid = core
                 .state
                 .lock()
@@ -619,6 +634,7 @@ impl Core {
             let result = if valid {
                 result
             } else {
+                op.reason("provider_changed");
                 Err(ErrorCode::Unavailable)
             };
             let result = result.map(|()| {

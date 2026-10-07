@@ -99,7 +99,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0079](0079-shell-input-bindings.md) | Shell key bindings from config.toml | Accepted | — |
 | [0080](0080-mvp-platforms.md) | MVP platforms — KDE Plasma 6 on Wayland and X11/EWMH desktops | Accepted | — |
 | [0081](0081-mpris-export-of-managed-playback.md) | MPRIS export of Arinn-managed playback | Accepted | — |
-| [0082](0082-opt-in-sentry.md) | Optional Sentry diagnostics for the shell and daemon | Proposed | — |
+| [0082](0082-opt-in-sentry.md) | Optional Sentry diagnostics for the shell and daemon | Proposed | 0092 |
 | [0083](0083-managed-player-stop.md) | Terminate the managed player on Stop and retain its final frame | Proposed | — |
 | [0084](0084-favorites-contract.md) | Revision-guarded daemon-owned favorites | Accepted | — |
 | [0085](0085-anime-tv-season-markers.md) | Anime `TVn` season markers in library names | Accepted | — |
@@ -108,4 +108,5 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0088](0088-single-master-snapshot-retention.md) | Retain one verified master snapshot release | Proposed | — |
 | [0089](0089-daemon-provider-supervisor-without-a-systemd-user-manager.md) | Daemon provider supervisor without a systemd user manager | Accepted | — |
 | [0090](0090-rewatch-clears-completion.md) | Launching a completed item is a rewatch | Accepted | — |
+| [0092](0092-structured-sentry-diagnostics.md) | Structured, allowlisted Sentry diagnostics | Proposed | — |
 <!-- register:end -->

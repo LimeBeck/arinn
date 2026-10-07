@@ -4,7 +4,9 @@
 <!-- SPDX-License-Identifier: CC-BY-SA-4.0 -->
 
 Specification §13–14; R-01–R-05, R-09, R-10;
-[ADR-0082](../adr/0082-opt-in-sentry.md); [task #301](https://github.com/LimeBeck/arinn/issues/301).
+[ADR-0082](../adr/0082-opt-in-sentry.md), [ADR-0092](../adr/0092-structured-sentry-diagnostics.md);
+tasks [#301](https://github.com/LimeBeck/arinn/issues/301) and
+[#370](https://github.com/LimeBeck/arinn/issues/370).
 
 ## Configuration
 
@@ -44,24 +46,75 @@ flag is not evidence that those requirements are implemented.
 
 ## Captured diagnostics
 
-- `arinnd`: startup and typed operation errors; successful/failed operation
-  duration breadcrumbs; startup, ready and shutdown; unwinding Rust panics with
-  bounded stack traces.
-- `arinn-shell`: Qt warnings, critical/fatal messages and native fatal signals;
-  debug/info messages as breadcrumbs; application lifecycle, window visibility,
-  activation, focus and input event kinds as breadcrumbs. No text, key code,
-  pointer position, window identity or title is recorded.
+- `arinnd`:
+  - startup errors and failed operations;
+  - successful and failed operation breadcrumbs with their duration;
+  - startup, ready and shutdown;
+  - unwinding Rust panics with bounded stack traces.
+- `arinn-shell`:
+  - Qt warnings and critical/fatal messages as templates;
+  - native fatal signals;
+  - debug/info messages as breadcrumbs;
+  - application lifecycle, window visibility, activation, focus and input event kinds as breadcrumbs.
+
+  No key code, pointer position, window identity or title is recorded.
 - Component, release version, level, timestamp, bounded operation/error codes,
   stack instruction addresses and native module build identifiers. Rust stack
   symbols have source paths and local variables removed. Native symbol names
   are resolved on the server from separately managed debug artifacts.
 
-Opt-in traces measure `daemon.startup`, `daemon.operation` and `shell.startup`.
-Metrics count daemon operations/errors and shell diagnostic messages/errors, and
-record daemon startup/operation and shell startup durations in milliseconds.
-Names are fixed; attributes retain only the component. No provider, request,
-window or browser identity is attached. All these measurements use the same
-flag, with full sampling while development diagnostics are enabled.
+Opt-in traces measure `daemon.startup`, one transaction per daemon operation named
+by its kind, and `shell.startup`. Metrics count daemon operations/errors and shell
+diagnostic messages/errors, and record daemon startup/operation and shell startup
+durations in milliseconds. Names are fixed. No provider instance, request, window or
+browser identity is attached. All these measurements use the same flag, with full
+sampling while development diagnostics are enabled.
+
+### Structured fields (ADR-0092)
+
+Every field below is a fixed value written by Arinn's code or manifests. The
+sanitizers drop any other value. The lists live in `crates/arinnd/src/telemetry.rs`
+(`KINDS`, `SPAN_OPS`, `SPAN_NAMES`, `REASONS`) and `observability/native/qt_template.cpp`.
+
+**Daemon tags, breadcrumb data and metric attributes:**
+
+| Field | Values |
+| --- | --- |
+| `component` | `arinnd` |
+| `kind` | `application.launch`, `application.activate`, `application.terminate`, `browser.activate_tab`, `browser.close_tab`, `browse.open`, `daemon.reload`, `provider.restart`, `download.pause`, `download.resume`, `download.start-now`, `download.retry`, `library.launch`, `library.restart`, `media.command:play`, `media.command:pause`, `media.command:play-pause`, `media.command:seek`, `media.command:next`, `media.command:previous`, `media.command:stop`, `media.command:select-track`, `media.command:disable-subtitles`, `media.command:thumbnail`, `media.present`, `media.release`, `platform.window.activate`, `platform.window.close`, `settings.set`, `shortcut.open` |
+| `capability` | A protocol capability (`media`, `library`, `download`, `browser`, `application`, …) |
+| `plugin` | Manifest plugin id matching `[a-z0-9][a-z0-9._-]{0,63}`; never the provider instance id |
+| `outcome` | `succeeded`, `failed` |
+| `error` | `NotFound`, `Unavailable`, `Unsupported`, `PermissionDenied`, `Timeout`, `InvalidArgument`, `Conflict`, `Internal`, `Cancelled` |
+| `reason` | `provider_changed` (owner or generation changed during the operation), `platform_timeout` (no platform answer within 5 s), `platform_channel_closed` (the platform dropped the request) |
+| `operation` | Lifecycle: `startup`, `ready`, `shutdown`, `seed-web-shortcuts`, `operation.complete` |
+
+Metric attributes are `kind`, `outcome` and `error` only.
+
+**Daemon transactions.** A transaction is named by the operation kind, with the trace op `daemon.operation`. It has up to 16 child spans:
+
+- `provider.call`: a daemon → provider D-Bus call.
+- `platform.wait`: a wait for the platform adapter.
+
+A span description is a kind, `media.open` or `browser.show_window`. A library launch has the spans `provider.call library.launch` and `provider.call media.open`. A Present has `platform.wait media.present`. A span cut short by the operation deadline has status `cancelled`.
+
+**Daemon events.** A failed operation produces one event titled `<kind> failed: <error> (<reason>)`.
+
+- Fingerprint: `["arinnd", kind, error, reason or "-"]`.
+- Level: `error` for `Timeout`, `Unavailable` and `Internal`, otherwise `warning`.
+
+The completion log line on stderr carries the same `kind` and `reason`.
+
+**Shell Qt and QML messages.** Warnings, critical and fatal messages become events of type `QtWarning`, `QtCritical` or `QtFatal`:
+
+- **`qt.location` tag.** The Arinn source name and line (`HomeView.qml:42`), from a `qrc:` QML prefix or a `.cpp`/`.h` context. It is never derived from `file:` URLs or absolute paths.
+- **`qt.category` tag.** The Qt logging category, for example `qml` or `qt.qpa.wayland`.
+- **Exception value.** The template: the message with non-ASCII text, quoted text, URLs, paths, addresses, file names, separators and numbers replaced by `<text>`, `<str>`, `<url>`, `<path>`, `<file>` and `<n>`. It is at most 160 characters. A template that still holds a digit, quote, slash or query character becomes `Qt message`.
+- **Fingerprint.** `["arinn-shell", type, location, template]`.
+- **Rate limit.** One event per template per 10 minutes, with at most 256 templates tracked. Repeats count in `arinn.shell.messages.suppressed`. Fatal messages are never suppressed.
+- **Known noise.** `Icon is unavailable`, `Site icon is unavailable`, `Artwork is unavailable` and `QWaylandDataOffer` never become events. They count in `arinn.shell.messages.benign` and leave one `qt.noise` breadcrumb per template window.
+
+Unquoted words that code writes into a message survive templating. §13 forbids such logging of user content, so the template holds no more than the local log.
 
 Every event, transaction and metric is rebuilt from allowed fields before transport. Free-form messages
 and exceptions are replaced by safe diagnostic descriptions. Users, hostnames,
@@ -96,8 +149,10 @@ notices, including MPack, jsmn and the portable stb_sprintf vendored notices.
 into the build directory; PKGBUILD installs them with the SDK/toml++ notices.
 libcurl, libunwind and OpenSSL development files are required.
 
-`cargo test --locked -p arinnd telemetry --lib` tests defaults and adversarial
-payloads. `sentry-isolated` in CTest runs `tests/integration/sentry.py` against a
+`cargo test --locked -p arinnd telemetry --lib` tests defaults, adversarial
+payloads, structured fields, fingerprints, spans and metric attributes.
+`sentry-configuration` also tests Qt message templates, locations, noise and the
+rate limit. `sentry-isolated` in CTest runs `tests/integration/sentry.py` against a
 loopback server and disposable native/Rust fixtures. It checks actual envelope
 contents, traces/metrics, disabled/malformed settings, invalid DSNs, raw-envelope callback bypass, recursive crash fallback and cache privacy before replay;
 fixtures have core dumps disabled. Build Rust examples before CTest as specified

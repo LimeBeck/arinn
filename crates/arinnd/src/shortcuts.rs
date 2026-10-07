@@ -336,6 +336,7 @@ impl WebShortcuts {
                 &request_id,
                 &format!("open-web-shortcut\0{id}"),
                 "",
+                crate::operations::Label::new("shortcut.open"),
             )
             .await?;
         if fresh {

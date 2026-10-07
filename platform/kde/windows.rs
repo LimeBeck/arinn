@@ -1247,6 +1247,11 @@ impl Windows {
         Ok(Some(receive))
     }
 }
+/// A Present is handed to the adapter only with at least this much of its
+/// deadline left. The adapter, which cannot see the deadline, presents a
+/// command only within this budget of starting the poll that received it, so
+/// it never presents an expired command (#369).
+const PRESENT_HANDOVER_BUDGET: Duration = Duration::from_secs(3);
 fn take_media_control(s: &mut State) -> Option<Vec<String>> {
     if s.media.pending.is_some() {
         return None;
@@ -1261,6 +1266,13 @@ fn take_media_control(s: &mut State) -> Option<Vec<String>> {
             return None;
         }
         let mut p = s.media.queued.pop_front().unwrap();
+        if p.command.action == "present"
+            && p.command.deadline.saturating_duration_since(Instant::now())
+                < PRESENT_HANDOVER_BUDGET
+        {
+            let _ = p.command.reply.send(Err(ErrorCode::Timeout));
+            continue;
+        }
         if p.command.action == "present"
             && s.media.resolve(&s.windows, &p.launch).as_deref() != Some(p.command.token.as_str())
         {
@@ -1564,6 +1576,32 @@ mod media_lifetime_tests {
         s.disconnect(":1.4", 1024);
         assert_eq!(r.await.unwrap(), Err(ErrorCode::Unavailable));
         assert_eq!(s.count(), 0);
+    }
+    #[tokio::test]
+    async fn a_present_without_its_handover_budget_is_never_handed_over() {
+        let mut s = State {
+            windows: vec![kwin::window("window", "", "screen", 6).unwrap()],
+            ..State::default()
+        };
+        let (mut late, late_reply) = command(scope(), "present");
+        late.command.deadline = Instant::now() + PRESENT_HANDOVER_BUDGET - Duration::from_millis(1);
+        let (fresh, _fresh_reply) = command(scope(), "present");
+        let launch = fresh.launch.clone();
+        late.launch = launch.clone();
+        let fresh_id = fresh.command.id.clone();
+        s.media.queued.push_back(late);
+        s.media.queued.push_back(fresh);
+        s.media.inventory(&s.windows);
+        s.media.reports.insert("window".into(), launch);
+        let handed = take_media_control(&mut s).unwrap();
+        assert_eq!(handed[0], fresh_id, "the late Present is not handed over");
+        assert_eq!(late_reply.await.unwrap(), Err(ErrorCode::Timeout));
+        assert_eq!(
+            &handed[1..],
+            &["present", "window"],
+            "the fresh Present follows"
+        );
+        assert!(s.media.queued.is_empty());
     }
     #[tokio::test]
     async fn teardown_does_not_duplicate_a_matching_pending_release() {

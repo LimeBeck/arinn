@@ -605,12 +605,12 @@ function pollMediaControl() {
         // command. Freshness counts from receipt, and the stale-poll reset must
         // not drop a command this script now owns: the daemon would wait for
         // its completion until the operation times out (#369).
-        // The daemon holds a poll for at most a second and expires a command
-        // five seconds after queueing it, before the poll hands it over. Six
-        // seconds after this poll started the command has expired whenever it
-        // was queued: KWin delayed this reply. Answer it without presenting.
+        // The daemon hands a Present over, no earlier than this poll started,
+        // only with at least three seconds of its deadline left. Within three
+        // seconds of the poll start it is therefore still valid; later, KWin
+        // delayed this reply and it may have expired. Answer without presenting.
         const received = Date.now();
-        const expired = () => Date.now() - now >= 6000;
+        const expired = () => command[1] === "present" && Date.now() - now >= 3000;
         if (expired()) {
             diagnose("debug", "media." + command[1], { outcome: "timeout", reason: "reply_late",
                 error: "Timeout", request_id: command[0], duration_ms: 0 });

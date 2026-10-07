@@ -1277,4 +1277,28 @@ async fn losing_a_provider_chosen_after_admission_finishes_the_operation() {
         .await;
     assert_eq!(op.value.lock().await.state, "failed");
     assert_eq!(op.value.lock().await.error, "Unavailable");
+
+    // A library launch depends on the media provider it opens the file in,
+    // without taking that provider's label.
+    let (_, launch, _) = f
+        .core
+        .operations
+        .admit(
+            &f.core.connection,
+            &caller,
+            &rid(),
+            "launch",
+            "library",
+            Label::new("library.launch").provider("library", "library"),
+        )
+        .await
+        .unwrap();
+    launch.depends_on("mpv");
+    f.core
+        .operations
+        .invalidate(&f.core.connection, Some("mpv"), None)
+        .await;
+    assert_eq!(launch.value.lock().await.state, "failed");
+    // Completion already reported the label; the reason stays readable.
+    assert_eq!(launch.traced().3, Some("provider_changed"));
 }

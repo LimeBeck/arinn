@@ -414,6 +414,8 @@ impl Core {
                     return Err(ErrorCode::InvalidArgument);
                 }
                 let (media_id, media_owner, media_generation) = core.media_opener().await?;
+                // Losing the media provider also ends the launch.
+                op.depends_on(&media_id);
                 let session = op
                     .phase("provider.call", "media.open", async {
                         MediaOpenProxy::builder(&core.connection)

@@ -112,6 +112,17 @@ private slots:
     QVERIFY2(clean.contains("\"fingerprint\":[\"arinn-shell\",\"QtWarning\",\"unknown.location\",\"Open <path> <str> <url> <n>\"]"),
              clean.constData());
   }
+  void transportRejectsEmbeddedNuls() {
+    const QByteArray raw =
+      "{}\n{\"type\":\"event\"}\n"
+      "{\"event_id\":\"0123456789abcdef0123456789abcdef\","
+      "\"tags\":{\"qt.location\":\"HomeView.qml\\u0000PrivateTitle\",\"qt.category\":\"qml\\u0000PrivateTitle\"},"
+      "\"exception\":{\"values\":[{\"type\":\"QtWarning\",\"value\":\"Binding loop\"}]}}\n";
+    const auto clean = ArinnTelemetry::filterEnvelope(raw);
+    QVERIFY(!clean.isEmpty());
+    QVERIFY2(!clean.contains("PrivateTitle"), clean.constData());
+    QVERIFY2(!clean.contains("qt.location") && !clean.contains("qt.category"), clean.constData());
+  }
   void crashSafeChecks() {
     QVERIFY(ArinnTelemetry::safeTemplateText("QML Image: Cannot open: <url>"));
     for (auto text : {"", "a/b", "quote\"", "it's", "n=1", "digit 7", "\xd0\xa4"})

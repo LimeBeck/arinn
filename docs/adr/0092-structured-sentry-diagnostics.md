@@ -64,7 +64,7 @@ These fields are used as follows:
   - Its description is a kind or a name in `telemetry::SPAN_NAMES` (`media.open`, `browser.launch`, `browser.open_url`, `browser.show_window`).
   - A step still running when the operation ends (for example on provider loss) is reported as cut short, not dropped.
   - Each span carries its status and timestamps; a step cut short by a deadline is `cancelled`.
-- **Metrics.** `arinn.daemon.operations`, `arinn.daemon.operation.duration` and `arinn.daemon.errors` gain the attributes `kind`, `outcome` and `error`, within the lists above.
+- **Metrics.** `arinn.daemon.operations`, `arinn.daemon.operation.duration` and `arinn.daemon.errors` gain the attributes `kind`, `outcome` and `error`, within the lists above. A lifecycle failure (`startup`) counts in `arinn.daemon.errors` with `operation` and `error` instead of `kind`.
 - **Breadcrumbs.** `operation.complete` breadcrumbs gain `kind`, `outcome`, `error` and `reason`.
 
 ### Shell (`arinn-shell`)

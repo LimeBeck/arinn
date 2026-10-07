@@ -108,6 +108,8 @@ jobs:
             libcurl4-openssl-dev libunwind-dev libssl-dev devscripts
           echo "rustc=$(rustc -V | tr -c 'A-Za-z0-9.\n' '-')" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v7
+      - name: Trust workspace for git archive
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Restore Cargo cache
         if: ${{ github.ref_type != 'tag' }}
         uses: actions/cache@v4

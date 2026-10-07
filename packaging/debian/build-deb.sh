@@ -10,6 +10,7 @@ set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$root"
+git config --global --add safe.directory "$root"
 
 version="$(python3 scripts/release.py version)"
 work="$(mktemp -d)"

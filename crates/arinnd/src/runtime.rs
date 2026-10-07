@@ -2192,6 +2192,16 @@ pub(crate) async fn platform_wait(
             operation.reason("platform_channel_closed");
             Err(ErrorCode::Unavailable)
         }
+        // The platform expired the request itself (its own deadline) or
+        // dropped it on an adapter reset or disconnect.
+        Ok(Ok(Err(ErrorCode::Timeout))) => {
+            operation.reason("platform_timeout");
+            Err(ErrorCode::Timeout)
+        }
+        Ok(Ok(Err(ErrorCode::Unavailable))) => {
+            operation.reason("platform_channel_closed");
+            Err(ErrorCode::Unavailable)
+        }
         Ok(Ok(result)) => result,
     }
 }
@@ -2631,6 +2641,19 @@ mod platform_wait_tests {
         let (_sender, receiver) = tokio::sync::oneshot::channel();
         assert_eq!(platform_wait(&op, receiver).await, Err(ErrorCode::Timeout));
         assert_eq!(op.traced().3, Some("platform_timeout"));
+
+        // The platform answers with its own expiry or reset.
+        for (error, reason) in [
+            (ErrorCode::Timeout, Some("platform_timeout")),
+            (ErrorCode::Unavailable, Some("platform_channel_closed")),
+            (ErrorCode::NotFound, None),
+        ] {
+            let op = Operation::detached(Label::new("media.present"));
+            let (sender, receiver) = tokio::sync::oneshot::channel();
+            sender.send(Err(error)).unwrap();
+            assert_eq!(platform_wait(&op, receiver).await, Err(error));
+            assert_eq!(op.traced().3, reason, "{error:?}");
+        }
     }
 }
 

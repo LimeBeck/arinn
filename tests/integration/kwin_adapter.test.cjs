@@ -753,3 +753,16 @@ test('a command delivered to a poll that playback outdated is answered Cancelled
     assert.equal(f.mediaAcks.at(-1)[2], 'Cancelled');
     assert.equal(f.home.keepAbove, false);
 });
+test('a Present without a shell window logs the daemon command context', () => {
+    const {f, token} = managedFixture();
+    f.remove(f.home);
+    f.media('present', token);
+    assert.equal(f.mediaAcks.at(-1)[2], 'Unavailable');
+    const entry = f.printed.map(line => JSON.parse(line))
+        .find(record => record.operation === 'media.present' && record.reason === 'no_shell_window');
+    assert.ok(entry, f.printed.join('\n'));
+    assert.match(entry.request_id, /^[0-9a-f-]{36}$/);
+    assert.equal(entry.request_id, f.mediaAcks.at(-1)[1]);
+    assert.equal(typeof entry.duration_ms, 'number');
+    assert.equal(entry.error, 'Unavailable');
+});

@@ -479,11 +479,14 @@ function savedFlags(w, names) {
     const values = {}; for (const name of names) if (w[name] !== undefined) values[name] = w[name]; return values;
 }
 function restoreFlags(w, values) { for (const name of Object.keys(values)) w[name] = values[name]; }
-function presentPlayback(w) {
+// `traced` carries the daemon command's diagnostic context when a command
+// asked for this presentation; Return re-presents without one.
+function presentPlayback(w, traced) {
     const home = shell();
     const reason = !home ? "no_shell_window" : !applicationWindow(w) ? "not_application_window" : !launchId(w) ? "no_launch_id" : "";
     if (reason) {
-        diagnose("debug", "media.present", { outcome: "unavailable", reason, error: "Unavailable" });
+        diagnose("debug", "media.present", traced ? traced("unavailable", reason, "Unavailable")
+            : { outcome: "unavailable", reason, error: "Unavailable" });
         throw new Error("unavailable");
     }
     if (closing) releasePlayback(false);
@@ -632,7 +635,7 @@ function pollMediaControl() {
                         complete("NotFound");
                         return;
                     }
-                    presentPlayback(w);
+                    presentPlayback(w, traced);
                     reportHome(false);
                 }
                 complete("");

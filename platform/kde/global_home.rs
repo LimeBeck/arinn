@@ -7,7 +7,8 @@
 //! sequence, and KGlobalAccel keeps the stored keys on every later
 //! registration. When the adapter connects, the daemon therefore writes the
 //! active keys itself: `home_shortcut` from `config.toml`, then HomePage.
-use crate::key_sequence;
+use crate::{key_sequence, storage::Config};
+use std::path::PathBuf;
 use zbus::Connection;
 
 const SERVICE: &str = "org.kde.kglobalaccel";
@@ -25,6 +26,27 @@ fn warn(error: &str) {
         "{}",
         serde_json::json!({"level":"warn","component":"arinnd","provider_id":null,"request_id":null,"operation":"global-home-shortcut","error":error,"duration_ms":0})
     );
+}
+
+/// A new adapter connection polled for the first time. On KDE the KWin
+/// script has registered its Home action by then; write the configured keys
+/// to it in the background.
+pub fn adapter_connected(connection: &Connection, config: PathBuf) {
+    if crate::platform::adapter_service() != Some("org.kde.KWin") {
+        return;
+    }
+    let connection = connection.clone();
+    tokio::spawn(async move {
+        let configured = tokio::task::spawn_blocking(move || Config::load(&config))
+            .await
+            .ok()
+            .and_then(Result::ok)
+            .map_or_else(
+                || key_sequence::DEFAULT_HOME.to_owned(),
+                |config| config.home_shortcut,
+            );
+        apply(&connection, &configured).await;
+    });
 }
 
 /// The keys written for a `home_shortcut` value, and whether the value was

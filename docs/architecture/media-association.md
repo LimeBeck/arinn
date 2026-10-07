@@ -52,10 +52,14 @@ For each media session with a non-zero process ID `P`, a link to tab `T` is
 2. exactly one browser provider has windows with process ID `P`;
 3. exactly one tab of those windows has `audible = true`, and that tab is `T`.
 
+Every window counts for rule 2, including a window without tabs. The daemon
+keeps the process ID each link was established with; it is never published.
+
 An established link **holds** while:
 
 - the session and the tab still exist under the same provider generations;
-- both process IDs are unchanged;
+- both process IDs are unchanged and equal to the one the link was
+  established with;
 - no other tab of those windows is the single audible tab.
 
 A pause, which clears `audible`, therefore keeps the link. A different tab
@@ -81,8 +85,14 @@ at most one link.
 
 ## Shell consumer
 
-- The shell reads `Get` asynchronously on start, on `Changed`, on a daemon owner
-  change and on provider changes. Local focus never waits for it.
+- The shell installs its `Changed` match **before** its first `Get`, so no change
+  between them is missed. It re-reads on `Changed`, on a daemon owner change and
+  on provider changes. Local focus never waits for it.
+- A `Get` reply applies only when its epoch is the current daemon's epoch and its
+  revision is not lower than the last applied one. A reply from before a newer
+  `Changed` or reply is discarded, so an older in-flight read never overwrites a
+  newer link. A new daemon owner or epoch resets the last applied revision and
+  clears the links.
 - A link applies only when all six fields match the shell's current, complete
   provider snapshots: media provider ID and generation with the session ID, and
   browser provider ID and generation with the tab ID. Anything stale or missing

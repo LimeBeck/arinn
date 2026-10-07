@@ -88,24 +88,44 @@ pub struct ProcessSession {
     pub process: u32,
 }
 
-/// A current browser tab and its window's browser process (join input).
+/// A current browser window and its browser process (join input). Every
+/// window counts, with or without tabs, for provider uniqueness.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProcessWindow {
+    pub browser_provider: String,
+    pub browser_generation: String,
+    pub window: String,
+    pub process: u32,
+}
+
+/// A current browser tab of one of the provider's windows (join input).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProcessTab {
     pub browser_provider: String,
     pub browser_generation: String,
     pub tab: String,
-    pub process: u32,
+    pub window: String,
     pub audible: bool,
 }
 
+/// A published link with the process ID it was verified with. The ID stays
+/// with the producer; only `link` is published.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct HeldLink {
+    pub link: MediaTabLink,
+    pub process: u32,
+}
+
 /// The reference join of docs/architecture/media-association.md. `previous`
-/// is the last published set; it only lets an established link hold while
-/// no tab is the single audible one. Never picks the first of candidates.
+/// is the last result; it only lets an established link hold, with the same
+/// process ID, while no tab is the single audible one. Never picks the first
+/// of several candidates.
 pub fn join(
     sessions: &[ProcessSession],
+    windows: &[ProcessWindow],
     tabs: &[ProcessTab],
-    previous: &[MediaTabLink],
-) -> Vec<MediaTabLink> {
+    previous: &[HeldLink],
+) -> Vec<HeldLink> {
     let mut links = Vec::new();
     for session in sessions {
         let process = session.process;
@@ -114,40 +134,53 @@ pub fn join(
         {
             continue;
         }
-        let candidates: Vec<&ProcessTab> = tabs.iter().filter(|t| t.process == process).collect();
-        let Some(first) = candidates.first() else {
+        let owned: Vec<&ProcessWindow> = windows.iter().filter(|w| w.process == process).collect();
+        let Some(first) = owned.first() else {
             continue;
         };
-        if candidates.iter().any(|t| {
-            t.browser_provider != first.browser_provider
-                || t.browser_generation != first.browser_generation
-        }) {
+        let (provider, generation) = (&first.browser_provider, &first.browser_generation);
+        if owned
+            .iter()
+            .any(|w| &w.browser_provider != provider || &w.browser_generation != generation)
+        {
             continue;
         }
+        let candidates: Vec<&ProcessTab> = tabs
+            .iter()
+            .filter(|t| {
+                &t.browser_provider == provider
+                    && &t.browser_generation == generation
+                    && owned.iter().any(|w| w.window == t.window)
+            })
+            .collect();
         let audible: Vec<&&ProcessTab> = candidates.iter().filter(|t| t.audible).collect();
         let tab = if audible.len() == 1 {
             Some(audible[0].tab.clone())
         } else {
             previous
                 .iter()
-                .find(|l| {
-                    l.media_provider == session.media_provider
-                        && l.media_generation == session.media_generation
-                        && l.session == session.session
-                        && l.browser_provider == first.browser_provider
-                        && l.browser_generation == first.browser_generation
+                .find(|h| {
+                    h.process == process
+                        && h.link.media_provider == session.media_provider
+                        && h.link.media_generation == session.media_generation
+                        && h.link.session == session.session
+                        && &h.link.browser_provider == provider
+                        && &h.link.browser_generation == generation
                 })
-                .filter(|l| candidates.iter().any(|t| t.tab == l.tab))
-                .map(|l| l.tab.clone())
+                .filter(|h| candidates.iter().any(|t| t.tab == h.link.tab))
+                .map(|h| h.link.tab.clone())
         };
         if let Some(tab) = tab {
-            links.push(MediaTabLink {
-                media_provider: session.media_provider.clone(),
-                media_generation: session.media_generation.clone(),
-                session: session.session.clone(),
-                browser_provider: first.browser_provider.clone(),
-                browser_generation: first.browser_generation.clone(),
-                tab,
+            links.push(HeldLink {
+                link: MediaTabLink {
+                    media_provider: session.media_provider.clone(),
+                    media_generation: session.media_generation.clone(),
+                    session: session.session.clone(),
+                    browser_provider: provider.clone(),
+                    browser_generation: generation.clone(),
+                    tab,
+                },
+                process,
             });
         }
     }
@@ -278,96 +311,135 @@ mod tests {
             process,
         }
     }
-    fn tab(id: &str, process: u32, audible: bool) -> ProcessTab {
+    fn window(id: &str, process: u32) -> ProcessWindow {
+        ProcessWindow {
+            browser_provider: "chrome".into(),
+            browser_generation: BG.into(),
+            window: id.into(),
+            process,
+        }
+    }
+    fn tab(id: &str, window: &str, audible: bool) -> ProcessTab {
         ProcessTab {
             browser_provider: "chrome".into(),
             browser_generation: BG.into(),
             tab: id.into(),
-            process,
+            window: window.into(),
             audible,
         }
     }
-    fn tabs_of(links: &[MediaTabLink]) -> Vec<&str> {
-        links.iter().map(|l| l.tab.as_str()).collect()
+    fn tabs_of(links: &[HeldLink]) -> Vec<&str> {
+        links.iter().map(|l| l.link.tab.as_str()).collect()
+    }
+    /// Windows w7 and w8 of browser process 7, w9 of process 8.
+    fn windows() -> Vec<ProcessWindow> {
+        vec![window("w7", 7), window("w8", 7), window("w9", 8)]
     }
 
     #[test]
     fn join_links_the_single_audible_tab_of_the_same_process() {
         let sessions = [session("browser", 7), session("player", 9)];
-        let tabs = [tab("t1", 7, false), tab("t2", 7, true), tab("t3", 8, true)];
-        let links = join(&sessions, &tabs, &[]);
+        let tabs = [
+            tab("t1", "w7", false),
+            tab("t2", "w8", true),
+            tab("t3", "w9", true),
+        ];
+        let links = join(&sessions, &windows(), &tabs, &[]);
         assert_eq!(links.len(), 1);
-        assert_eq!(links[0].session, "browser");
-        assert_eq!(links[0].tab, "t2");
+        assert_eq!(links[0].link.session, "browser");
+        assert_eq!(links[0].link.tab, "t2");
+        assert_eq!(links[0].process, 7);
         MediaAssociation {
             epoch: MG.into(),
             revision: 1,
-            links: links.clone(),
+            links: links.iter().map(|l| l.link.clone()).collect(),
         }
         .validate()
         .unwrap();
         // Unknown process, no audible tab, no browser windows: nothing.
-        assert!(join(&[session("browser", 0)], &tabs, &[]).is_empty());
-        assert!(join(&sessions, &[tab("t1", 7, false)], &[]).is_empty());
-        assert!(join(&sessions, &[], &[]).is_empty());
+        assert!(join(&[session("browser", 0)], &windows(), &tabs, &[]).is_empty());
+        assert!(join(&sessions, &windows(), &[tab("t1", "w7", false)], &[]).is_empty());
+        assert!(join(&sessions, &[], &tabs, &[]).is_empty());
     }
 
     #[test]
     fn join_refuses_ambiguity_and_never_picks_the_first() {
         // Two audible tabs.
-        let tabs = [tab("t1", 7, true), tab("t2", 7, true)];
-        assert!(join(&[session("s", 7)], &tabs, &[]).is_empty());
+        let tabs = [tab("t1", "w7", true), tab("t2", "w8", true)];
+        assert!(join(&[session("s", 7)], &windows(), &tabs, &[]).is_empty());
         // Two sessions of one process.
-        let tabs = [tab("t1", 7, true)];
-        assert!(join(&[session("a", 7), session("b", 7)], &tabs, &[]).is_empty());
-        // Two browser providers claim the process.
-        let mut other = tab("t9", 7, false);
+        let tabs = [tab("t1", "w7", true)];
+        assert!(join(&[session("a", 7), session("b", 7)], &windows(), &tabs, &[]).is_empty());
+        // A second browser provider claims the process, even with an empty
+        // window and no tabs at all.
+        let mut other = window("x1", 7);
         other.browser_provider = "other".into();
-        assert!(join(&[session("s", 7)], &[tab("t1", 7, true), other], &[]).is_empty());
+        let mut all = windows();
+        all.push(other);
+        assert!(join(&[session("s", 7)], &all, &tabs, &[]).is_empty());
     }
 
     #[test]
     fn join_holds_through_a_pause_and_moves_to_the_next_audible_tab() {
         let sessions = [session("s", 7)];
-        let playing = join(&sessions, &[tab("t1", 7, true), tab("t2", 7, false)], &[]);
+        let w = windows();
+        let playing = join(
+            &sessions,
+            &w,
+            &[tab("t1", "w7", true), tab("t2", "w8", false)],
+            &[],
+        );
         assert_eq!(tabs_of(&playing), ["t1"]);
         // Paused: no tab is audible, the link holds.
         let paused = join(
             &sessions,
-            &[tab("t1", 7, false), tab("t2", 7, false)],
+            &w,
+            &[tab("t1", "w7", false), tab("t2", "w8", false)],
             &playing,
         );
         assert_eq!(paused, playing);
         // Both audible: an established link holds, a new one is not made.
         let both = join(
             &sessions,
-            &[tab("t1", 7, true), tab("t2", 7, true)],
+            &w,
+            &[tab("t1", "w7", true), tab("t2", "w8", true)],
             &paused,
         );
         assert_eq!(both, playing);
         // Another tab becomes the single audible one: the link moves.
-        let moved = join(&sessions, &[tab("t1", 7, false), tab("t2", 7, true)], &both);
+        let moved = join(
+            &sessions,
+            &w,
+            &[tab("t1", "w7", false), tab("t2", "w8", true)],
+            &both,
+        );
         assert_eq!(tabs_of(&moved), ["t2"]);
         // The linked tab closes while nothing is audible: the link goes.
-        assert!(join(&sessions, &[tab("t1", 7, false)], &moved).is_empty());
+        assert!(join(&sessions, &w, &[tab("t1", "w7", false)], &moved).is_empty());
     }
 
     #[test]
     fn join_drops_links_on_generation_or_process_change() {
         let sessions = [session("s", 7)];
-        let tabs = [tab("t1", 7, false)];
-        let previous = join(&sessions, &[tab("t1", 7, true)], &[]);
+        let tabs = [tab("t1", "w7", false)];
+        let previous = join(&sessions, &windows(), &[tab("t1", "w7", true)], &[]);
         assert_eq!(previous.len(), 1);
         // A provider restart gives new generations; nothing carries over.
-        let mut restarted = tab("t1", 7, false);
-        restarted.browser_generation = "30000000-0000-4000-8000-000000000003".into();
-        assert!(join(&sessions, &[restarted], &previous).is_empty());
+        let mut restarted_window = window("w7", 7);
+        restarted_window.browser_generation = "30000000-0000-4000-8000-000000000003".into();
+        let mut restarted_tab = tab("t1", "w7", false);
+        restarted_tab.browser_generation = restarted_window.browser_generation.clone();
+        assert!(join(&sessions, &[restarted_window], &[restarted_tab], &previous).is_empty());
         let mut renewed = session("s", 7);
         renewed.media_generation = "40000000-0000-4000-8000-000000000004".into();
-        assert!(join(&[renewed], &tabs, &previous).is_empty());
+        assert!(join(&[renewed], &windows(), &tabs, &previous).is_empty());
         // The session now belongs to another process.
-        assert!(join(&[session("s", 8)], &tabs, &previous).is_empty());
-        assert!(join(&[session("s", 0)], &tabs, &previous).is_empty());
+        assert!(join(&[session("s", 8)], &windows(), &tabs, &previous).is_empty());
+        assert!(join(&[session("s", 0)], &windows(), &tabs, &previous).is_empty());
+        // Session and window both move to process 8 with nothing audible:
+        // the old evidence is for process 7, so the link is not held.
+        let moved = [window("w7", 8)];
+        assert!(join(&[session("s", 8)], &moved, &tabs, &previous).is_empty());
     }
 
     #[test]

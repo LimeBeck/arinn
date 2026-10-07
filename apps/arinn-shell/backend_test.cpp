@@ -44,6 +44,12 @@ private slots:
     QVERIFY(window);
     // The transparent playback layer needs an alpha channel (#236).
     QVERIFY(window->requestedFormat().alphaBufferSize() >= 8);
+    // The hidden shell owns a native window before its first show, so the
+    // EWMH adapter can find it for the first Home (#379).
+    QVERIFY(!window->handle());
+    createHiddenShellWindow(window);
+    QVERIFY(window->handle());
+    QVERIFY(!window->isVisible());
     window->show();
     window->requestActivate();
     QTest::qWait(100);

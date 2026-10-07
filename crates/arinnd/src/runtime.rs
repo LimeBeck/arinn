@@ -2523,18 +2523,34 @@ mod supervision_sharing_tests {
     use std::io::{BufRead, BufReader};
     use std::process::{Command, Stdio};
 
+    /// Regression test for #382: `Daemon { core: core.clone() }` is cloned
+    /// before supervision starts, so the cell must be shared, or `Register`
+    /// looks for the provider in a second, empty pool.
     #[tokio::test]
     async fn cloned_cores_share_one_supervision_instance() {
+        // Kill the private bus and remove the folder even when an assertion
+        // fails, so a failure never leaves a daemon running.
+        struct Bus(std::process::Child, PathBuf);
+        impl Drop for Bus {
+            fn drop(&mut self) {
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+                let _ = std::fs::remove_dir_all(&self.1);
+            }
+        }
         let folder =
             std::env::temp_dir().join(format!("arinn-supervision-share-{}", Uuid::new_v4()));
         std::fs::create_dir(&folder).unwrap();
-        let mut bus = Command::new("dbus-daemon")
-            .args(["--session", "--nofork", "--print-address=1"])
-            .stdout(Stdio::piped())
-            .spawn()
-            .unwrap();
+        let mut bus = Bus(
+            Command::new("dbus-daemon")
+                .args(["--session", "--nofork", "--print-address=1"])
+                .stdout(Stdio::piped())
+                .spawn()
+                .unwrap(),
+            folder.clone(),
+        );
         let mut address = String::new();
-        BufReader::new(bus.stdout.take().unwrap())
+        BufReader::new(bus.0.stdout.take().unwrap())
             .read_line(&mut address)
             .unwrap();
         let connection = zbus::connection::Builder::address(address.trim())
@@ -2555,8 +2571,5 @@ mod supervision_sharing_tests {
         let first = core.shared_supervision().await;
         let second = daemon_core.shared_supervision().await;
         assert!(Arc::ptr_eq(&first, &second));
-        let _ = bus.kill();
-        let _ = bus.wait();
-        let _ = std::fs::remove_dir_all(&folder);
     }
 }

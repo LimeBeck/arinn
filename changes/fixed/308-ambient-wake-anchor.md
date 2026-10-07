@@ -1,0 +1,1 @@
+- Wake the ambient screen on the first pointer movement; the first movement could previously become the reference point and be ignored ([#308](https://github.com/LimeBeck/arinn/issues/308)).

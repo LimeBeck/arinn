@@ -195,6 +195,9 @@ TestCase {
 
         mouseMove(menu, 10, 10);
         menu.startAmbient();
+        // The resting pointer is the wake anchor at once; waiting for a hover
+        // sample made the first real movement the anchor instead (flaky).
+        verify(menu.ambientAnchorKnown);
         compare(ambientSpy.count, 2);
         tryCompare(menu, "ambientArmed", true);
         compare(menu.step, "ambient");

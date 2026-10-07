@@ -314,6 +314,14 @@ Window {
     }
     SettingsCatalog { id: settingsCatalog; objectName: "settingsCatalog" }
     KeyboardMonitor { id: keyboardMonitor }
+    // Every key press and pointer movement in the shell feeds the one input
+    // mode; it hides the cursor in D-pad mode (spec §6.1, ADR-0095).
+    InputModeSource {
+        pointerActive: Ui.InputMode.pointerActive
+        onKeyPressed: Ui.InputMode.keyPressed()
+        onPointerMoved: Ui.InputMode.pointerMoved()
+        onPointerArrived: Ui.InputMode.forgetPointer()
+    }
     Shortcut {
         sequences: ["Esc", "Backspace", "Back"]
         context: Qt.WindowShortcut

@@ -69,7 +69,8 @@ TestCase {
         // The view is created under the cursor. Deliver that hover before the
         // test, then leave D-pad mode so a repeat of the same point is not a move.
         mouseMove(view, 8, 8);
-        view.pointerMode = false;
+        // D-pad mode without the key cooldown (ADR-0095).
+        Ui.InputMode.reset();
     }
     function init() { createView(); }
     function cleanup() { arm(null); }

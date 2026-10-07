@@ -45,13 +45,18 @@ is displayed: Escape and Backspace return locally to Home without activating
 the external Return target. The `focus-ownership`
 test rejects any other `forceActiveFocus()` call.
 
-Screens own focus scopes, explicit neighbours, restoration and input-mode state.
-They pass `pointerMode` and `hoverFocusEnabled` to controls; the latter must be
-false during the 500 ms hover suppression after a scroll. Components never decide
+Screens own focus scopes, explicit neighbours and restoration. The input mode is
+shell-wide ([ADR-0095](../adr/0095-shell-input-mode-ownership.md)): the
+`InputMode` singleton holds pointer/D-pad mode and the 2 s key cooldown, screens
+bind `pointerMode` to it and report keys and hover positions, and
+`InputModeSource` in `Main.qml` reports every key press and pointer movement in
+the shell window and hides the cursor in D-pad mode. Screens pass `pointerMode`
+and `hoverFocusEnabled` to controls; the latter must be false during the 500 ms
+hover suppression after a scroll. Components never decide
 global navigation or call providers for a focus change. The gallery demonstrates
 only a small local focus graph, not the complete screen/modal stack.
-`dpadRequested()` lets the containing screen switch input mode even when
-`KeyNavigation` consumes the arrow event locally.
+`dpadRequested()` reports the key to `InputMode` even when `KeyNavigation`
+consumes the arrow event locally; in the shell `InputModeSource` sees it first.
 
 ## Development and verification
 

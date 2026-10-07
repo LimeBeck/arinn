@@ -3,6 +3,7 @@
 
 import QtQuick
 import QtTest
+import "../../apps/arinn-shell/ui" as Ui
 import "../../apps/arinn-shell/ui/screens/library" as Library
 
 TestCase {
@@ -49,6 +50,7 @@ TestCase {
         // Qt Quick Test retains the pointer between fixtures. Park it outside
         // controls before creating the view so a queued hover cannot steal focus.
         mouseMove(suite, 10, 10);
+        Ui.InputMode.reset();
         if (library)
             library.destroy();
         library = createTemporaryObject(factory, suite, props || {});

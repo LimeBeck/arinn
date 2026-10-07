@@ -36,6 +36,9 @@ TestCase {
         // Qt Quick Test retains the pointer between fixtures. Park it outside
         // controls before creating Home so a queued hover cannot steal focus.
         mouseMove(suite, 10, 10);
+        // The input mode is shell-wide; start in D-pad mode without the key
+        // cooldown (ADR-0095).
+        Ui.InputMode.reset();
         home = createTemporaryObject(factory, suite);
         verify(home);
         closes.target = home; closes.clear();
@@ -387,6 +390,8 @@ TestCase {
         tryCompare(home, "hoverFocusEnabled", true);
         mouseMove(home, 10, 10);
         keyClick(Qt.Key_Up);
+        // Pointer motion enters pointer mode only after the key cooldown.
+        tryCompare(Ui.InputMode, "cooldownActive", false, 3000);
         mouseMove(child("entry-b"), 100, 100);
         tryCompare(home, "pointerMode", true);
         focused("entry-b");
@@ -400,6 +405,7 @@ TestCase {
         mouseMove(child("entry-c"), 100, 100);
         focused("entry-a");
         tryCompare(home, "hoverFocusEnabled", true);
+        tryCompare(Ui.InputMode, "cooldownActive", false, 3000);
         mouseMove(child("entry-c"), 101, 100);
         focused("entry-c");
     }

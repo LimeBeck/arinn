@@ -30,7 +30,8 @@ FocusScope {
     // Empty until a command is sent. pending waits; succeeded is quiet;
     // any other value is an error the banner shows.
     property string operationState: ""
-    property bool pointerMode: false
+    // The shell's input mode (ADR-0095); tests may assign it directly.
+    property bool pointerMode: Ui.InputMode.pointerActive
 
     readonly property bool hasSession: sessionState === "ready"
     readonly property bool operationPending: operationState === "pending" || operationState === "queued" || operationState === "running"
@@ -149,7 +150,7 @@ FocusScope {
         // key. Remember that point so it does not turn pointer mode back on.
         if (hoverPoint.hovered)
             hoverPoint.previousPosition = hoverPoint.point.scenePosition;
-        pointerMode = false;
+        Ui.InputMode.keyPressed();
         if (!hasSession) return;
         if (seekTrack.activeFocus && (key === Qt.Key_Left || key === Qt.Key_Right)) {
             nudgeSeek(key === Qt.Key_Left ? -1 : 1);
@@ -194,7 +195,7 @@ FocusScope {
             if (next.x === previousPosition.x && next.y === previousPosition.y)
                 return;
             previousPosition = next;
-            root.pointerMode = true;
+            Ui.InputMode.pointerMoved(next);
         }
     }
     Keys.onPressed: event => {

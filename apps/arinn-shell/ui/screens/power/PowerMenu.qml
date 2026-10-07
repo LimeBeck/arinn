@@ -173,6 +173,11 @@ FocusScope {
         waking = false;
         ambientArmed = false;
         ambientAnchorKnown = false;
+        // The pointer already rests here: its position is the anchor, so the
+        // first real movement wakes. Waiting for the ambient layer's first
+        // hover sample instead could take that movement as the anchor.
+        if (pointerTracker.hovered)
+            rememberAmbientPointer(pointerTracker.point.position.x, pointerTracker.point.position.y);
         step = "ambient";
     }
     function rememberAmbientPointer(x, y) {
@@ -595,6 +600,9 @@ FocusScope {
             }
         }
     }
+
+    // Where the pointer rests, for the ambient wake anchor.
+    HoverHandler { id: pointerTracker }
 
     Component.onCompleted: Qt.callLater(restoreMenuFocus)
     }

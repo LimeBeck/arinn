@@ -241,7 +241,7 @@ Focus is first-class state. Every focusable component MUST have distinguishable 
 
 Focus scopes trap focus in the topmost scope: dialog › power › sheet › nav › screen. Each screen remembers its last focus. After an item disappears, focus moves to the nearest previous index; closing a modal or sheet returns focus to its opener, or to the nearest focusable in the parent scope if the opener is gone.
 
-Input modes: **D-pad mode** (cursor hidden, full focus treatment) and **pointer mode** (air mouse; hover moves focus, lift is halved; hover is ignored for 500 ms after any scroll). The first arrow key returns to D-pad mode. Spatial navigation rules are in the design handoff.
+Input modes: **D-pad mode** (cursor hidden, full focus treatment) and **pointer mode** (air mouse; hover moves focus, lift is halved; hover is ignored for 500 ms after any scroll). Any key press in the shell returns to D-pad mode, hides the cursor and keeps its action. For 2 s after the latest key press, pointer motion and hover neither leave D-pad mode nor take focus. After that, the cursor stays hidden until the pointer genuinely moves; a resting pointer under scrolling, animations, model refreshes or a newly shown screen does not count. Owner request of 2026-10-04 ([#308](https://github.com/LimeBeck/arinn/issues/308), [ADR-0095](../adr/0095-shell-input-mode-ownership.md)). Spatial navigation rules are in the design handoff.
 
 ### 6.2. Keys
 

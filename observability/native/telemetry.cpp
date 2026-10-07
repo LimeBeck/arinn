@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "telemetry.h"
 #include "transport.h"
-#include <QDateTime>
 #include <QElapsedTimer>
 #include <QDir>
 #include <QFile>
@@ -16,6 +15,14 @@
 namespace {
 std::atomic_bool active{false};
 QElapsedTimer startupTimer;
+// Template throttling uses monotonic time: a wall-clock step back must not
+// silence a template for the size of the correction.
+qint64 monotonicMs() {
+  static QElapsedTimer clock;
+  static const bool started = (clock.start(), true);
+  (void)started;
+  return clock.elapsed();
+}
 sentry_transaction_t *startupTransaction = nullptr;
 void copy(sentry_value_t out, sentry_value_t in, const char *key) {
   auto value = sentry_value_get_by_key(in, key);
@@ -279,11 +286,11 @@ void qtMessage(QtMsgType type, const QMessageLogContext &context, const QString 
   if (shape.benign && !fatal) {
     // Expected noise, such as a missing icon: a counter, and one breadcrumb per window.
     sentry_metrics_count("arinn.shell.messages.benign", 1, sentry_value_new_object());
-    if (admitTemplate(key, QDateTime::currentMSecsSinceEpoch())) breadcrumb("qt.noise");
+    if (admitTemplate(key, monotonicMs())) breadcrumb("qt.noise");
     return;
   }
   sentry_metrics_count("arinn.shell.errors", 1, sentry_value_new_object());
-  if (!fatal && !admitTemplate(key, QDateTime::currentMSecsSinceEpoch())) {
+  if (!fatal && !admitTemplate(key, monotonicMs())) {
     sentry_metrics_count("arinn.shell.messages.suppressed", 1, sentry_value_new_object());
     return;
   }

@@ -27,14 +27,35 @@ QByteArray sourceName(const QString &source, bool fromContext) {
   file = file.mid(file.lastIndexOf(QLatin1Char('/')) + 1);
   return name.match(file).hasMatch() ? file.toLatin1() : QByteArray();
 }
+// Replace everything from the first to the last delimiter of a quote class with
+// <str>, or to the end when only one delimiter is present. Embedded or
+// mismatched quotes therefore never leave a quoted word between two matches.
+void replaceQuoted(QString &text, const QString &delimiters) {
+  static const QString opening = QStringLiteral("\u201C\u201E\u00AB\u2018\u201A\u2039");
+  qsizetype first = -1, last = -1, count = 0;
+  for (qsizetype i = 0; i < text.size(); ++i) {
+    if (!delimiters.contains(text.at(i))) continue;
+    if (first < 0) first = i;
+    last = i;
+    ++count;
+  }
+  if (first < 0) return;
+  // An unpaired or still-open quote hides everything after it.
+  const bool open = count % 2 == 1 || opening.contains(text.at(last));
+  const qsizetype end = open ? text.size() : last + 1;
+  text.replace(first, end - first, QStringLiteral(" <str> "));
+}
 QString scrub(QString text) {
+  // Quoted text first: ASCII quotes and backticks, then typographic quotes
+  // (titles, names, property values), each class as one private span.
+  for (const auto &delimiters : {QStringLiteral("\""), QStringLiteral("'"), QStringLiteral("`"),
+                                 QStringLiteral("\u201C\u201D\u201E\u00AB\u00BB\u2018\u2019\u201A\u2039\u203A")})
+    replaceQuoted(text, delimiters);
   struct Rule { QRegularExpression pattern; QString replacement; };
   static const Rule rules[] = {
     // Any token holding non-printable or non-ASCII text (titles in any script,
     // accented names, emoji, control characters) is replaced whole.
     {QRegularExpression(QStringLiteral("\\S*[^\\x20-\\x7E\\s]\\S*(?:\\s+\\S*[^\\x20-\\x7E\\s]\\S*)*")), QStringLiteral(" <text> ")},
-    // Quoted text, closed or not: titles, names, property values.
-    {QRegularExpression(QStringLiteral("\"[^\"]*\"?|'[^']*'?|`[^`]*`?")), QStringLiteral("<str>")},
     // URLs of any scheme, hierarchical or opaque (qrc:, file:, data:, magnet:, urn:),
     // but not a C++ scope such as QQuickItem::stackAfter.
     {QRegularExpression(QStringLiteral("\\S*\\b[A-Za-z][A-Za-z0-9+.-]*:(?!:)\\S+")), QStringLiteral("<url>")},

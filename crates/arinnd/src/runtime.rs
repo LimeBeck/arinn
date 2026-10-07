@@ -2516,7 +2516,8 @@ mod supervision_sharing_tests {
 
     #[tokio::test]
     async fn cloned_cores_share_one_supervision_instance() {
-        let folder = std::env::temp_dir().join(format!("arinn-supervision-share-{}", Uuid::new_v4()));
+        let folder =
+            std::env::temp_dir().join(format!("arinn-supervision-share-{}", Uuid::new_v4()));
         std::fs::create_dir(&folder).unwrap();
         let mut bus = Command::new("dbus-daemon")
             .args(["--session", "--nofork", "--print-address=1"])

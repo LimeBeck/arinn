@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! Production core components, independently testable before wire API migration.
-mod bus_peer;
 pub mod browse;
+mod bus_peer;
 pub mod favorites;
 mod listings;
 pub mod operations;

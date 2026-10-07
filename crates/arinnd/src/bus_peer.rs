@@ -23,8 +23,9 @@ pub async fn unix_peer(bus_name: &str) -> Result<(u32, u32), ErrorCode> {
     let bus = zbus::fdo::DBusProxy::new(&connection)
         .await
         .map_err(|_| ErrorCode::Unavailable)?;
-    let name: zbus::names::BusName<'_> =
-        bus_name.try_into().map_err(|_| ErrorCode::PermissionDenied)?;
+    let name: zbus::names::BusName<'_> = bus_name
+        .try_into()
+        .map_err(|_| ErrorCode::PermissionDenied)?;
     let uid = bus
         .get_connection_unix_user(name.clone())
         .await
@@ -41,8 +42,9 @@ pub async fn name_has_owner(bus_name: &str) -> Result<bool, ErrorCode> {
     let bus = zbus::fdo::DBusProxy::new(&connection)
         .await
         .map_err(|_| ErrorCode::Unavailable)?;
-    let name: zbus::names::BusName<'_> =
-        bus_name.try_into().map_err(|_| ErrorCode::PermissionDenied)?;
+    let name: zbus::names::BusName<'_> = bus_name
+        .try_into()
+        .map_err(|_| ErrorCode::PermissionDenied)?;
     bus.name_has_owner(name)
         .await
         .map_err(|_| ErrorCode::Unavailable)

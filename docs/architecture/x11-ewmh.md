@@ -32,7 +32,9 @@ The adapter checks the root and manager `_NET_SUPPORTING_WM_CHECK` properties
 and requires advertised client-list, activation, fullscreen and above support.
 A manager change causes a reconnect. It observes `_NET_CLIENT_LIST` normal
 clients and `_NET_ACTIVE_WINDOW`; destruction and inventory removal retire
-random UUID tokens. Properties are type checked and bounded (4,096 clients,
+random UUID tokens. `_NET_ACTIVE_WINDOW` may hold one or two CARD32s, as xfwm4
+writes two: the first non-zero word is the active window, and `[0]` or `[0, 0]`
+(xfwm4 with nothing focused, #379) mean no active window. Properties are type checked and bounded (4,096 clients,
 512 supported atoms, 512 metadata bytes); oversized required properties make
 the backend unavailable rather than publish a partial inventory.
 
@@ -49,7 +51,8 @@ The shell has its separate explicit identity.
 `org.arinn.Shell` and `org.arinn.Shell.desktop` identify the shell, which is excluded
 from inventory. The hidden shell (`Window.Hidden`) is a withdrawn window, which
 xfwm4 leaves out of `_NET_CLIENT_LIST`; its native X window exists unmapped
-before the first Home, as observed on live xfwm4 (#283). Startup Home (AC-01)
+before the first Home (#283). Qt creates a native window only on the first show,
+so the shell creates it explicitly at startup while still hidden (#379). Startup Home (AC-01)
 depends on finding it, because the shell asks for Home while still hidden. The adapter
 therefore also looks for the shell among direct root-window children, mapped or
 not, one level deep. Inventory still comes only from `_NET_CLIENT_LIST`. The

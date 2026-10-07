@@ -1366,6 +1366,52 @@ private slots:
     QVERIFY(catalog.resumeTarget(ids.value(QStringLiteral("Song"))).isEmpty());
     QVERIFY(catalog.resumeTarget(QStringLiteral("missing")).isEmpty());
   }
+  // #365: Continue entries carry the reported position and duration for
+  // Home's progress, and any session's library item for its backdrop.
+  void continueEntriesCarryTimelineAndLibraryContent() {
+    MediaDaemon daemon;
+    const auto now = monotonicUs();
+    auto paused = session(QStringLiteral("paused"), QStringLiteral("Film"),
+                          QStringLiteral("paused"), 1800000000, now, 7200000000, {});
+    paused.hasContent = true;
+    paused.content = {QStringLiteral("library"), QStringLiteral("library"), QStringLiteral("film-1")};
+    // Playing: the entry keeps the reported sample, not the advancing clock,
+    // so Home's row is not rebuilt on every tick.
+    auto playing = session(QStringLiteral("playing"), QStringLiteral("Show"),
+                           QStringLiteral("playing"), 600000000, now - 2000000, 2400000000, {});
+    playing.hasContent = true;
+    playing.content = {QStringLiteral("library"), QStringLiteral("library"), QStringLiteral("ep-1")};
+    auto live = session(QStringLiteral("live"), QStringLiteral("Stream"),
+                        QStringLiteral("paused"), 5000000, now, -1, {});
+    daemon.page1 = {paused, playing, live};
+    auto bus = QDBusConnection::sessionBus();
+    QVERIFY(bus.registerService(QStringLiteral("org.arinn.Daemon1")));
+    QVERIFY(bus.registerVirtualObject(QStringLiteral("/org/arinn"), &daemon, QDBusConnection::SubPath));
+    MediaCatalog catalog;
+    QTRY_COMPARE(catalog.continueEntries().size(), 3);
+    QHash<QString, QVariantMap> byTitle;
+    for (const auto &entry : catalog.continueEntries())
+      byTitle.insert(entry.toMap().value(QStringLiteral("title")).toString(), entry.toMap());
+    const auto film = byTitle.value(QStringLiteral("Film"));
+    QCOMPARE(film.value(QStringLiteral("positionUs")).toDouble(), 1800000000.0);
+    QCOMPARE(film.value(QStringLiteral("durationUs")).toDouble(), 7200000000.0);
+    const auto show = byTitle.value(QStringLiteral("Show"));
+    QCOMPARE(show.value(QStringLiteral("positionUs")).toDouble(), 600000000.0);
+    QCOMPARE(show.value(QStringLiteral("durationUs")).toDouble(), 2400000000.0);
+    // An unknown duration gives no timeline at all.
+    const auto stream = byTitle.value(QStringLiteral("Stream"));
+    QVERIFY(!stream.contains(QStringLiteral("positionUs")));
+    QVERIFY(!stream.contains(QStringLiteral("durationUs")));
+    const auto first = catalog.continueEntries();
+    QTest::qWait(450);
+    QCOMPARE(catalog.continueEntries(), first);
+
+    const auto content = catalog.libraryContent(show.value(QStringLiteral("id")).toString());
+    QCOMPARE(content.value(QStringLiteral("provider")).toString(), QStringLiteral("library"));
+    QCOMPARE(content.value(QStringLiteral("local")).toString(), QStringLiteral("ep-1"));
+    QVERIFY(catalog.libraryContent(stream.value(QStringLiteral("id")).toString()).isEmpty());
+    QVERIFY(catalog.libraryContent(QStringLiteral("missing")).isEmpty());
+  }
   void managedWindowResolutionCanBeCancelledWithoutStartingPresentation() {
     MediaDaemon daemon;
     daemon.features = {QStringLiteral("MediaWindow1")};

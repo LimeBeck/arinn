@@ -60,7 +60,10 @@ FocusScope {
     property string sectionDescription: qsTr("This section is not connected in the Home preview.")
     property string returnActivityId: ""
     property bool returnIsWebService: false
-    property int openServiceCount: 0
+    // Open web services ({id, title, letter, icon}), the one on screen first.
+    // `id` is the identity a Continue entry carries as `serviceId`.
+    property var openServices: []
+    readonly property int openServiceCount: openServices.length
     property string currentServiceId: ""
     property string currentServiceTitle: ""
     property string currentServiceSubtitle: ""
@@ -70,6 +73,13 @@ FocusScope {
     property string statusTitle: ""
     property string statusDescription: ""
     property string clockText: ""
+    // Aggregate of active downloads: the status chip shows while downloading.
+    // Progress is 0–1, or below 0 when no active download knows its size.
+    property bool downloadActive: false
+    property real downloadProgress: -1
+    // True while an Activity background is shown (ADR-0027): the ambient
+    // light field then stays off.
+    property bool ambientSuppressed: false
     property bool pointerMode: false
     property bool actionsEnabled: false
     property bool favoriteSaving: false
@@ -143,33 +153,115 @@ FocusScope {
     signal openServicesRequested()
     signal serviceRequested(string serviceId)
     signal sessionRequested(string entryId)
+    // Continue as shown: one activity (the service on screen, or the Return
+    // activity) and at most four further entries, the open-services summary
+    // first (spec §5.1, handoff 02, H-1).
     readonly property var continuePresentation: {
-        if (openServiceCount <= 1 && !currentServiceTitle.length)
-            return continueEntries;
         const shown = currentServiceTitle.length > 0;
         const service = shown ? [{
             id: "current-service",
             serviceId: currentServiceId,
+            // The colour follows the service, not the fixed presentation id.
+            visualIdentity: currentServiceId,
             title: currentServiceTitle,
             subtitle: currentServiceSubtitle,
             running: true,
             kind: "service"
         }] : [];
-        const others = openServiceCount - (shown ? 1 : 0);
-        const more = openServiceCount > 1 ? [{
+        const lead = continueEntries.length && continueEntries[0].kind !== "media" ? continueEntries[0] : null;
+        const activity = shown ? service : lead ? [lead] : [];
+        const rest = shown || !lead ? continueEntries : continueEntries.slice(1);
+        // Services that already have a card in this row, by identity only,
+        // never by title (#358, #207). Only cards that fit count: with the
+        // summary, three further entries remain; without it nothing is left
+        // over, so a fourth cannot change the result.
+        const represented = activity.concat(rest.slice(0, 3)).map(entry => entry.serviceId).filter(id => !!id);
+        const others = openServices.filter(entry => !represented.includes(entry.id));
+        const more = openServices.length > 1 && others.length ? [{
             id: "open-services-more",
-            title: qsTr("%n more open", "", Math.max(others, 1)),
-            subtitle: qsTr("Open services"),
+            // "N more" once a service has its own card, "Open: N" otherwise.
+            title: represented.length ? qsTr("%n more open", "", others.length) : qsTr("Open: %n", "", others.length),
+            subtitle: qsTr("All open services"),
+            names: others.map(entry => entry.title).filter(title => !!title).join(" · "),
+            stack: others.slice(0, 3).map(entry => ({id: entry.id, letter: entry.letter || "", icon: entry.icon || ""})),
             kind: "more"
         }] : [];
-        const activity = !shown && continueEntries.length ? [continueEntries[0]] : [];
-        const rest = shown ? continueEntries : continueEntries.slice(1);
-        const further = more.slice();
-        for (let i = 0; i < rest.length && further.length < 4; ++i) {
-            further.push(rest[i]);
-        }
-        return service.concat(activity).concat(further.slice(0, 4));
+        return activity.concat(more.concat(rest.map(mediaCard)).slice(0, 4));
     }
+    // A media entry's card: the time left as its subtitle when it has none,
+    // and its progress (#365).
+    function mediaCard(entry) {
+        if (!entry || entry.kind !== "media" || !(entry.durationUs > 0)) return entry;
+        const position = Math.max(0, Math.min(entry.positionUs || 0, entry.durationUs));
+        return Object.assign({}, entry, {
+            subtitle: entry.subtitle || remainingText(entry.durationUs - position),
+            detail: entry.subtitle || "",
+            progress: position / entry.durationUs
+        });
+    }
+    // 1:13:42, or 37:05 under an hour.
+    function formatTime(us) {
+        const total = Math.max(0, Math.floor(us / 1000000));
+        const h = Math.floor(total / 3600), m = Math.floor(total % 3600 / 60), sec = total % 60;
+        const two = n => (n < 10 ? "0" : "") + n;
+        return h > 0 ? h + ":" + two(m) + ":" + two(sec) : m + ":" + two(sec);
+    }
+    function remainingText(us) {
+        const minutes = Math.max(0, Math.round(us / 60000000));
+        const h = Math.floor(minutes / 60), m = minutes % 60;
+        if (minutes < 1) return qsTr("Less than a minute left");
+        if (!h) return qsTr("%1 min left").arg(m);
+        if (!m) return qsTr("%1 h left").arg(h);
+        return qsTr("%1 h %2 min left").arg(h).arg(m);
+    }
+    // What the hero says about the focused Home item and what OK does
+    // (#364, handoff 01–03).
+    function describe(row, entry) {
+        if (!entry || !entry.id)
+            return {eyebrow: qsTr("CONTINUE"), title: qsTr("Make yourself at home"), meta: qsTr("Choose something to open"), live: false};
+        if (row === "favorites") {
+            const group = groupTitles[entry.group];
+            const open = !!entry.running || openShortcutIds.indexOf(entry.id) >= 0;
+            const unavailable = entry.unavailable || (browserUnavailable && entry.webShortcut);
+            return {
+                eyebrow: (group ? favoritesTitle + " · " + group : favoritesTitle).toUpperCase(),
+                title: entry.title || "",
+                meta: unavailable ? (browserUnavailable && entry.webShortcut ? qsTr("Unavailable") : entry.subtitle || "")
+                    : entry.hint ? entry.hint : open ? qsTr("Running · Return") : qsTr("Opens full screen"),
+                live: false
+            };
+        }
+        if (entry.kind === "more")
+            return {eyebrow: qsTr("OPEN SERVICES"), title: entry.title, meta: entry.names || entry.subtitle, live: false};
+        if (entry.kind === "media") {
+            // The provider's own line (an episode, an artist), not the card's.
+            const detail = entry.detail !== undefined ? entry.detail : entry.subtitle || "";
+            let meta = detail;
+            // A playing session's last reported position is already behind.
+            if (!entry.running && entry.durationUs > 0) {
+                const position = Math.max(0, Math.min(entry.positionUs || 0, entry.durationUs));
+                const left = remainingText(entry.durationUs - position);
+                meta = detail ? detail + " · " + left
+                    : qsTr("%1 of %2").arg(formatTime(position)).arg(formatTime(entry.durationUs)) + " · " + left;
+            } else if (entry.running && !meta)
+                meta = qsTr("Playing");
+            return {eyebrow: qsTr("CONTINUE"), title: entry.title || "", meta: meta, live: false};
+        }
+        if (entry.running)
+            return {eyebrow: qsTr("NOW RUNNING"), title: entry.title || "",
+                    meta: entry.kind === "service" && entry.subtitle ? entry.subtitle : qsTr("Return"), live: true};
+        return {eyebrow: qsTr("CONTINUE"), title: entry.title || "", meta: entry.subtitle || "", live: false};
+    }
+    // The focused entry as currently presented; a stale snapshot otherwise.
+    readonly property var heroEntry: {
+        const pool = homeRow === "continue" ? continuePresentation : homeRow === "favorites" ? favoriteEntries : newEntries;
+        return (pool || []).find(entry => entry && entry.id === focusedEntry.id) || focusedEntry;
+    }
+    readonly property var hero: describe(homeRow, heroEntry)
+    // The light field follows the focused Continue or Favorites item; the
+    // open-services summary has no single hue.
+    readonly property var ambientEntry: (homeRow === "continue" || homeRow === "favorites")
+        && heroEntry && heroEntry.id && heroEntry.kind !== "more" ? heroEntry : null
 
     function rowItems() { return [continueRow, favoritesRow, newRow]; }
     function restoreHome() {
@@ -378,6 +470,16 @@ FocusScope {
         }
     }
     Rectangle { anchors.fill: parent; color: Theme.background; visible: !root.coveredByScreen }
+    AmbientGlow {
+        id: ambient
+        objectName: "ambientGlow"
+        anchors.fill: parent
+        visible: !root.coveredByScreen
+        lit: root.screen === "home" && root.homeState === "ready" && !root.ambientSuppressed
+             && root.ambientEntry !== null && root.homeRow !== "new"
+        source: root.ambientEntry ? (root.ambientEntry.artwork || "") : ""
+        tint: root.ambientEntry ? Theme.identityColor(root.ambientEntry.visualIdentity || root.ambientEntry.id) : "transparent"
+    }
     Item {
         id: content
         anchors.fill: parent
@@ -399,18 +501,55 @@ FocusScope {
                 else root.restoreScreen();
             }
         }
-        UiText { x: 1460; y: 60; width: 364; horizontalAlignment: Text.AlignRight; text: root.clockText; role: "meta" }
+        // Status area, right to left: clock, downloads, browser state
+        // (handoff 01). Mute and Wi-Fi need platform state (#367).
         Row {
-            objectName: "browserStatusChip"
-            x: 1180; y: 56; spacing: 12
-            visible: root.browserUnavailable
-            Rectangle { width: 28; height: 28; radius: 14; color: Theme.error; anchors.verticalCenter: parent.verticalCenter }
-            UiText {
-                objectName: "browserStatusLabel"
-                text: qsTr("Browser unavailable")
-                role: "caption"
-                color: Theme.error
+            objectName: "statusArea"
+            anchors.right: parent.right; anchors.rightMargin: Theme.safeRight
+            y: 44; height: 64; spacing: 24
+            Row {
+                objectName: "browserStatusChip"
                 anchors.verticalCenter: parent.verticalCenter
+                spacing: 12
+                visible: root.browserUnavailable
+                Rectangle { width: 28; height: 28; radius: 14; color: Theme.error; anchors.verticalCenter: parent.verticalCenter }
+                UiText {
+                    objectName: "browserStatusLabel"
+                    text: qsTr("Browser unavailable")
+                    role: "caption"
+                    color: Theme.error
+                    anchors.verticalCenter: parent.verticalCenter
+                }
+            }
+            Rectangle {
+                objectName: "downloadChip"
+                anchors.verticalCenter: parent.verticalCenter
+                visible: root.downloadActive
+                height: 48; radius: 24
+                width: downloadLabel.x + downloadLabel.width + 22
+                color: Theme.plate
+                Accessible.role: Accessible.StaticText
+                Accessible.name: downloadLabel.text
+                UiText {
+                    id: downloadArrow
+                    x: 20; anchors.verticalCenter: parent.verticalCenter
+                    text: "↓"; role: "caption"; font.weight: 700; color: Theme.ember
+                }
+                UiText {
+                    id: downloadLabel
+                    objectName: "downloadChipLabel"
+                    x: downloadArrow.x + downloadArrow.width + 8
+                    anchors.verticalCenter: parent.verticalCenter
+                    role: "caption"; font.weight: 600; wrapMode: Text.NoWrap
+                    text: root.downloadProgress >= 0
+                        ? qsTr("%1%").arg(Math.floor(Math.min(1, root.downloadProgress) * 100))
+                        : qsTr("Downloading")
+                }
+            }
+            UiText {
+                objectName: "clock"
+                anchors.verticalCenter: parent.verticalCenter
+                text: root.clockText; role: "meta"; font.pixelSize: 30; wrapMode: Text.NoWrap
             }
         }
         Item {
@@ -428,9 +567,18 @@ FocusScope {
                 Column {
                     x: 120; y: 136; width: 1300; spacing: 14
                     opacity: root.homeRow === "new" && newRow.visible ? 0 : 1
-                    UiText { role: "eyebrow"; text: root.focusedEntry.running ? qsTr("NOW RUNNING") : root.homeRow === "favorites" ? root.favoritesTitle.toUpperCase() : qsTr("CONTINUE"); color: Theme.textSecondary }
-                    UiText { width: parent.width; role: "hero"; text: root.focusedEntry.title || qsTr("Make yourself at home"); maximumLineCount: 1; elide: Text.ElideRight }
-                    UiText { width: parent.width; role: "meta"; text: root.focusedEntry.subtitle || qsTr("Choose something to open"); maximumLineCount: 1; elide: Text.ElideRight; color: Theme.textSecondary }
+                    Row {
+                        spacing: 12
+                        Rectangle {
+                            objectName: "heroLiveDot"
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 12; height: 12; radius: 6; color: Theme.ember
+                            visible: root.hero.live
+                        }
+                        UiText { objectName: "heroEyebrow"; role: "eyebrow"; text: root.hero.eyebrow; color: Theme.textSecondary }
+                    }
+                    UiText { objectName: "heroTitle"; width: parent.width; role: "hero"; text: root.hero.title; maximumLineCount: 1; elide: Text.ElideRight }
+                    UiText { objectName: "heroMeta"; width: parent.width; role: "meta"; font.pixelSize: 28; text: root.hero.meta; maximumLineCount: 1; elide: Text.ElideRight; color: Theme.textSecondary }
                 }
                 HomeRow {
                     id: continueRow; objectName: "continue"

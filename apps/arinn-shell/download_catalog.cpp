@@ -319,6 +319,40 @@ void DownloadCatalog::publish() {
   emit catalogChanged();
 }
 
+bool DownloadCatalog::downloading() const {
+  return std::any_of(m_rows.begin(), m_rows.end(), [](const Row &row) {
+    return row.state == QLatin1String("downloading");
+  });
+}
+double DownloadCatalog::downloadProgress() const {
+  // Bytes when every active download knows its size, so a large download
+  // weighs more; otherwise the mean of each download's known fraction, from
+  // its bytes or its reported progress.
+  quint64 done = 0, total = 0;
+  bool allSized = true;
+  double sum = 0;
+  int known = 0;
+  for (const auto &row : m_rows) {
+    if (row.state != QLatin1String("downloading"))
+      continue;
+    if (row.hasTotal && row.totalBytes > 0) {
+      const auto completed = std::min(row.completedBytes, row.totalBytes);
+      done += completed;
+      total += row.totalBytes;
+      sum += static_cast<double>(completed) / static_cast<double>(row.totalBytes);
+      ++known;
+      continue;
+    }
+    allSized = false;
+    if (row.hasProgress && std::isfinite(row.progress)) {
+      sum += std::clamp(row.progress, 0.0, 1.0);
+      ++known;
+    }
+  }
+  if (allSized && total > 0)
+    return static_cast<double>(done) / static_cast<double>(total);
+  return known ? sum / known : -1.0;
+}
 void DownloadCatalog::refresh() {
   if (m_refreshing) {
     m_dirty = true;

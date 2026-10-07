@@ -26,4 +26,14 @@ QtObject {
     readonly property var easing: [0.2, 0.8, 0.2, 1, 1, 1]
     readonly property FontLoader onest: FontLoader { source: "fonts/Onest.ttf" }
     readonly property string fontFamily: onest.name
+    // Stable generic colour for an identity without artwork or a logo. The
+    // identity is opaque: no product names, only a hash of the string.
+    readonly property var identityColors: ["#536fa6", "#487b69", "#80649c", "#9a625f", "#857541", "#477f8c"]
+    function identityColor(identity) {
+        const text = String(identity || "");
+        let hash = 0;
+        for (let i = 0; i < text.length; ++i)
+            hash = (hash * 31 + text.charCodeAt(i)) >>> 0;
+        return identityColors[hash % identityColors.length];
+    }
 }

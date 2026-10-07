@@ -1786,6 +1786,48 @@ private slots:
     QTRY_COMPARE(window->property("sessionOpen").toBool(), false);
     QCOMPARE(home->property("screen").toString(), QStringLiteral("home"));
   }
+  // #365: Continue shows the backdrop of the item a session plays: its
+  // fanart, else its poster (an episode's still), else its series' artwork.
+  void artworkForPrefersFanartAndFallsBackToTheSeries() {
+    LibraryDaemon daemon;
+    daemon.collections = {{QStringLiteral("films"), QStringLiteral("Films"),
+                           QStringLiteral("film")},
+                          {QStringLiteral("shows"), QStringLiteral("Series"),
+                           QStringLiteral("series")}};
+    auto posterOnly = film(QStringLiteral("poster"), QStringLiteral("Poster"));
+    posterOnly.fanart.clear();
+    auto bare = film(QStringLiteral("bare"), QStringLiteral("Bare"));
+    bare.poster.clear();
+    bare.fanart.clear();
+    daemon.page1 = {film(QStringLiteral("north"), QStringLiteral("North")), posterOnly,
+                    bare, showItem(), episodeItem(QStringLiteral("ep1"), QStringLiteral("Pilot"), 1, 1),
+                    episodeItem(QStringLiteral("ep2"), QStringLiteral("Second"), 1, 2)};
+    daemon.page1.last().poster = QStringLiteral("still-not-fetched");
+    QVERIFY(registerBus(daemon));
+    LibraryCatalog catalog;
+    QTRY_COMPARE(catalog.libraryState(), QStringLiteral("ready"));
+    QHash<QString, QVariantMap> byTitle;
+    for (const auto &entry : catalog.entries())
+      byTitle.insert(entry.toMap().value(QStringLiteral("title")).toString(), entry.toMap());
+    const auto provider = QStringLiteral("library-provider");
+    const auto north = catalog.artworkFor(provider, QStringLiteral("north"));
+    QVERIFY(north.startsWith(QStringLiteral("image://arinn-assets/")));
+    QCOMPARE(north, byTitle.value(QStringLiteral("North")).value(QStringLiteral("fanart")).toString());
+    QCOMPARE(catalog.artworkFor(provider, QStringLiteral("poster")),
+             byTitle.value(QStringLiteral("Poster")).value(QStringLiteral("artwork")).toString());
+    QCOMPARE(catalog.artworkFor(provider, QStringLiteral("ep1")),
+             byTitle.value(QStringLiteral("Serial")).value(QStringLiteral("fanart")).toString());
+    // An episode's own still wins over the series' fanart.
+    QString still;
+    for (const auto &episode : byTitle.value(QStringLiteral("Serial")).value(QStringLiteral("episodes")).toList())
+      if (episode.toMap().value(QStringLiteral("title")) == QStringLiteral("Second"))
+        still = episode.toMap().value(QStringLiteral("artwork")).toString();
+    QVERIFY(!still.isEmpty());
+    QCOMPARE(catalog.artworkFor(provider, QStringLiteral("ep2")), still);
+    QVERIFY(catalog.artworkFor(provider, QStringLiteral("bare")).isEmpty());
+    QVERIFY(catalog.artworkFor(provider, QStringLiteral("missing")).isEmpty());
+    QVERIFY(catalog.artworkFor(QStringLiteral("other"), QStringLiteral("north")).isEmpty());
+  }
   void emptyPosterAndFanartStayGeneric() {
     LibraryDaemon daemon;
     daemon.collections = {{QStringLiteral("films"), QStringLiteral("Films"),

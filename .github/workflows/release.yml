@@ -42,6 +42,10 @@ jobs:
         with:
           name: arinn-arch-package
           path: dist
+      - uses: actions/download-artifact@v8
+        with:
+          name: arinn-deb-package
+          path: dist
       - name: Checksums and release notes
         run: |
           version="${GITHUB_REF_NAME#v}"

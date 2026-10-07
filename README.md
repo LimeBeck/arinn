@@ -216,7 +216,8 @@ Read more in the [specification](docs/specifications/arinn-specification.md) and
 | `tools/arinnctl/` | Command-line client |
 | `tests/` | Integration, UI and operator tests |
 | `scripts/` | Development and release scripts |
-| `packaging/arch/` | Arch Linux package recipe |
+| `packaging/arch/` | Arch Linux package recipe (release blocker) |
+| `packaging/debian/` | Debian `.deb` recipe (CI artifact; see [packaging/debian/README.md](packaging/debian/README.md)) |
 | `docs/` | Specification, ADRs, architecture, plugin API, design |
 
 ### Build and test

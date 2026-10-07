@@ -16,6 +16,7 @@ loader runs against a fake busctl.
 import json
 import os
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -41,7 +42,7 @@ assert "OnlyShowIn=XFCE;" in xfce_entry
 assert "Exec=/usr/lib/arinn/arinn-xfce-session" in xfce_entry
 for directory in (PREFIX / "../etc/xdg/autostart", PREFIX / "etc/xdg/autostart"):
     assert not (directory / template.name).exists(), "XFCE autostart enabled globally"
-subprocess.run(["python", str(Path(__file__).with_name("test_xfce_session.py"))],
+subprocess.run([sys.executable, str(Path(__file__).with_name("test_xfce_session.py"))],
                env={**os.environ, "ARINN_XFCE_SESSION": str(XFCE)}, check=True, timeout=60)
 # Menu entry and icon (#289).
 OPEN = PREFIX / "lib/arinn/arinn-open"

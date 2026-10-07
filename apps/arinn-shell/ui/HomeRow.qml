@@ -165,6 +165,7 @@ FocusScope {
                             visualIdentity: entryLoader.modelData.visualIdentity || entryLoader.modelData.id
                             subtitle: entryLoader.modelData.subtitle || ""
                             artwork: entryLoader.modelData.artwork || ""
+                            stack: entryLoader.modelData.stack || []
                             running: entryLoader.modelData.running || false
                             showProgress: entryLoader.modelData.progress !== undefined
                             progress: entryLoader.modelData.progress || 0

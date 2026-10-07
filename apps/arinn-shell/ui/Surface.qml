@@ -8,13 +8,7 @@ T.AbstractButton {
     id: root
     property string visualIdentity: text
     property bool identityGlow: false
-    readonly property color accentColor: {
-        const colors = ["#536fa6", "#487b69", "#80649c", "#9a625f", "#857541", "#477f8c"];
-        let hash = 0;
-        for (let i = 0; i < visualIdentity.length; ++i)
-            hash = (hash * 31 + visualIdentity.charCodeAt(i)) >>> 0;
-        return colors[hash % colors.length];
-    }
+    readonly property color accentColor: Theme.identityColor(visualIdentity)
     property bool busy: false
     // The enclosing focus/input scope owns these, including scroll suppression.
     property bool pointerMode: false

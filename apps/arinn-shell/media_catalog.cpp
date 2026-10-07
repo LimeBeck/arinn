@@ -420,6 +420,14 @@ void MediaCatalog::publish() {
         {QStringLiteral("subtitle"), row.subtitle},
         {QStringLiteral("kind"), QStringLiteral("media")},
         {QStringLiteral("running"), row.state == QLatin1String("playing")}};
+    // The provider's reported position, not the advancing clock: the entry
+    // changes only with the snapshot, so Home's row is not rebuilt per tick.
+    if (row.durationUs > 0) {
+      entry.insert(QStringLiteral("durationUs"),
+                   static_cast<double>(row.durationUs));
+      entry.insert(QStringLiteral("positionUs"),
+                   static_cast<double>(row.positionUs));
+    }
     const auto artwork = AssetImages::imageUrl(row.providerId, row.path,
                                                row.generation, row.artworkId);
     if (!artwork.isEmpty())
@@ -1362,6 +1370,13 @@ void MediaCatalog::homeRequested(const QString &epoch, const QString &,
 QVariantMap MediaCatalog::resumeTarget(const QString &id) const {
   const auto *row = findId(id);
   if (!row || row->state != QLatin1String("stopped") || row->contentLocal.isEmpty())
+    return {};
+  return {{QStringLiteral("provider"), row->contentProvider},
+          {QStringLiteral("local"), row->contentLocal}};
+}
+QVariantMap MediaCatalog::libraryContent(const QString &id) const {
+  const auto *row = findId(id);
+  if (!row || row->contentLocal.isEmpty())
     return {};
   return {{QStringLiteral("provider"), row->contentProvider},
           {QStringLiteral("local"), row->contentLocal}};

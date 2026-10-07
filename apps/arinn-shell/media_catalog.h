@@ -69,6 +69,9 @@ public:
   // that item, so Continue resumes it through the library (#247). Empty
   // otherwise: a stopped managed session cannot be presented again.
   Q_INVOKABLE QVariantMap resumeTarget(const QString &id) const;
+  // {provider, local} of the library item any session plays, or an empty
+  // map. Home uses it to show that item's backdrop (#365).
+  Q_INVOKABLE QVariantMap libraryContent(const QString &id) const;
   bool playerSession() const;
   bool tracksAvailable() const;
   bool timelineAvailable() const;

@@ -49,10 +49,11 @@ TestCase {
         const props = {
             width: 1920, height: 1080, clockText: "22:57",
             continueEntries: [
-                {id: "film", title: "Alpha", subtitle: "Part two", progress: 0.42, artwork: art()},
-                {id: "second", title: "Bravo", subtitle: "Part three", progress: 0.2, artwork: art()},
-                {id: "third", title: "Charlie", subtitle: "Part four", progress: 0.1, artwork: art()}
+                {id: "film", title: "Alpha", kind: "media", positionUs: 4422e6, durationUs: 9960e6, artwork: art()},
+                {id: "second", title: "Bravo", subtitle: "S1 E4 · Part three", kind: "media", positionUs: 300e6, durationUs: 2520e6, artwork: art()},
+                {id: "third", title: "Charlie", subtitle: "Part four", kind: "media", positionUs: 240e6, durationUs: 2400e6, artwork: art()}
             ],
+            downloadActive: true, downloadProgress: 0.82,
             favoriteEntries: [
                 {id: "f1", title: "Alpha", monogram: "A"},
                 {id: "f2", title: "Bravo", monogram: "B"},
@@ -140,7 +141,7 @@ TestCase {
                 returnActivityId: "activity",
                 continueEntries: [
                     {id: "activity", title: "North", subtitle: "Return", running: true},
-                    {id: "film", title: "Alpha", subtitle: "Part two", progress: 0.42, artwork: art()}
+                    {id: "film", title: "Alpha", kind: "media", positionUs: 4422e6, durationUs: 9960e6, artwork: art()}
                 ]
             })};
         if (id === "home-nav")
@@ -168,12 +169,13 @@ TestCase {
         if (id === "home-over-service")
             return {factory: homeFactory, props: homeProps({
                 currentServiceId: "svc", currentServiceTitle: "North", currentServiceSubtitle: "loc-current",
-                openServiceCount: 2
+                openServices: [{id: "svc", title: "North", letter: "N"}, {id: "svc-2", title: "South", letter: "S"}]
             })};
         if (id === "home-nav-service")
             return {factory: homeFactory, props: homeProps({
                 currentServiceId: "svc", currentServiceTitle: "North", currentServiceSubtitle: "loc-current",
-                openServiceCount: 3
+                openServices: [{id: "svc", title: "North", letter: "N"}, {id: "svc-2", title: "South", letter: "S"},
+                               {id: "svc-3", title: "East", letter: "E"}]
             }), tune: "nav"};
         if (id === "home-browser-unavailable")
             return {factory: homeFactory, props: homeProps({

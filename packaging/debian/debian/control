@@ -1,0 +1,47 @@
+# SPDX-FileCopyrightText: 2026 Arinn contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+Source: arinn
+Section: x11
+Priority: optional
+Maintainer: Arinn contributors <https://github.com/LimeBeck/arinn>
+Build-Depends:
+ debhelper-compat (= 13),
+ cargo,
+ rustc,
+ cmake,
+ ninja-build,
+ pkg-config,
+ qt6-base-dev,
+ qt6-declarative-dev,
+ qt6-svg-dev,
+ qt6-tools-dev,
+ libcurl4-openssl-dev,
+ libunwind-dev,
+ libssl-dev,
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+Homepage: https://github.com/LimeBeck/arinn
+Vcs-Browser: https://github.com/LimeBeck/arinn
+Vcs-Git: https://github.com/LimeBeck/arinn.git
+
+Package: arinn
+Architecture: amd64
+Depends:
+ ${shlibs:Depends},
+ ${misc:Depends},
+ dbus,
+ systemd,
+ libglib2.0-0 (>= 2.80),
+ libqt6core6,
+ libqt6gui6,
+ libqt6qml6,
+ libqt6quick6,
+ libqt6svg6,
+ libcurl4,
+ libunwind8,
+ libssl3
+Recommends: mpv, ffmpeg, transmission-cli
+Description: TV-first shell for a Linux HTPC (pre-alpha prototype)
+ Arinn orchestrates media, applications and household HTPC sessions on Linux.
+ This package ships the daemon, Qt shell, demo providers and session units.
+ Autostart is opt in; see /usr/share/doc/arinn/README.md.

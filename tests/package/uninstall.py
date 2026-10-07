@@ -204,6 +204,40 @@ def run_pacman(args: list[str]) -> subprocess.CompletedProcess[str]:
     return result
 
 
+def installed_with_pacman() -> bool:
+    if not shutil.which("pacman"):
+        return False
+    return run_pacman(["-Qq", "arinn"]).returncode == 0
+
+
+def installed_with_dpkg() -> bool:
+    if not shutil.which("dpkg"):
+        return False
+    result = subprocess.run(["dpkg", "-s", "arinn"], capture_output=True, text=True, timeout=60)
+    return result.returncode == 0
+
+
+def uninstall_deb_package(root: Path) -> list[str]:
+    query = subprocess.run(["dpkg", "-L", "arinn"], capture_output=True, text=True, timeout=180, check=False)
+    if query.returncode != 0:
+        raise SystemExit(f"dpkg -L arinn failed:\n{query.stderr}")
+    owned = package_files(query.stdout)
+    if not owned:
+        raise SystemExit("dpkg listed no files for arinn")
+    remove = subprocess.run(
+        ["apt-get", "remove", "-y", "arinn"],
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    if remove.returncode != 0:
+        raise SystemExit(f"apt-get remove arinn failed:\n{remove.stderr}")
+    still = subprocess.run(["dpkg", "-s", "arinn"], capture_output=True, text=True, timeout=60)
+    if still.returncode == 0:
+        raise SystemExit("arinn is still installed after apt-get remove")
+    return find_leftovers(root, owned)
+
+
 def uninstall_installed_package(root: Path) -> list[str]:
     query = run_pacman(["-Qlq", "arinn"])
     owned = package_files(query.stdout)
@@ -423,7 +457,17 @@ def main(argv: list[str]) -> int:
     root = Path("/")
     if "--root" in argv:
         root = Path(argv[argv.index("--root") + 1])
-    leftovers = uninstall_installed_package(root)
+    manager = os.environ.get("ARINN_PACKAGE_MANAGER", "").strip().lower()
+    if manager == "deb":
+        leftovers = uninstall_deb_package(root)
+    elif manager == "pacman":
+        leftovers = uninstall_installed_package(root)
+    elif installed_with_pacman():
+        leftovers = uninstall_installed_package(root)
+    elif installed_with_dpkg():
+        leftovers = uninstall_deb_package(root)
+    else:
+        raise SystemExit("no supported package manager found for an installed arinn package")
     if leftovers:
         print(format_leftovers(leftovers), end="", file=sys.stderr)
         return 1

@@ -51,7 +51,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0030](0030-phase0-machine-and-standard-input.md) | Phase 0 on the development machine and the remote as standard keyboard input | Accepted | — |
 | [0031](0031-single-screen-target.md) | The target HTPC has one screen | Accepted | — |
 | [0032](0032-kwin-script-platform-adapter.md) | A packaged KWin script as the first KDE platform adapter | Accepted | 0042 |
-| [0033](0033-ci-cd-and-releases.md) | CI/CD pipeline and release policy | Accepted | 0036, 0044, 0047, 0049 |
+| [0033](0033-ci-cd-and-releases.md) | CI/CD pipeline and release policy | Accepted | 0036, 0044, 0047, 0049, 0091 |
 | [0034](0034-provider-data-directory-identity.md) | Provider data directories independent of registry state | Accepted | — |
 | [0035](0035-phase1-application-wire-contract.md) | Phase 1 application wire contract | Accepted | 0059 |
 | [0036](0036-parallel-development.md) | Parallel development by several agents | Accepted | 0037 |
@@ -108,4 +108,5 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0088](0088-single-master-snapshot-retention.md) | Retain one verified master snapshot release | Proposed | — |
 | [0089](0089-daemon-provider-supervisor-without-a-systemd-user-manager.md) | Daemon provider supervisor without a systemd user manager | Accepted | — |
 | [0090](0090-rewatch-clears-completion.md) | Launching a completed item is a rewatch | Accepted | — |
+| [0091](0091-debian-package-ci-artifact.md) | Debian package CI artifact | Accepted | — |
 <!-- register:end -->

@@ -1,10 +1,11 @@
 name: Package
 
-# Reusable: builds the Arch Linux package from the checked-out commit and
-# verifies it by installing it into a clean system (ADR-0033). Pull requests
-# and master reuse a Cargo cache; pull requests skip the release-mode
-# check(), which the Rust job already covers. Tag builds are clean and run
-# check() (ADR-0047).
+# Reusable: builds the Arch Linux package and a Debian .deb from the
+# checked-out commit and verifies each by installing it into a clean system
+# (ADR-0033, ADR-0091). Arch remains the release blocker; the .deb is an
+# additional artifact and smoke target. Pull requests and master reuse a
+# Cargo cache; pull requests skip release-mode package tests, which the Rust
+# job already covers. Tag builds are clean and run check() (ADR-0047).
 
 on:
   workflow_call:
@@ -90,3 +91,70 @@ jobs:
         run: |
           python tests/package/uninstall.py --self-check
           python tests/package/uninstall.py
+
+  build-deb:
+    name: Build Debian package
+    if: ${{ !inputs.skip }}
+    runs-on: ${{ vars.ARINN_RUNNER || 'ubuntu-latest' }}
+    container: ubuntu:25.04
+    steps:
+      - name: Install build dependencies
+        id: deps
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            git python3 ca-certificates debhelper-compat cargo rustc cmake ninja-build \
+            pkg-config qt6-base-dev qt6-declarative-dev qt6-svg-dev qt6-tools-dev \
+            libcurl4-openssl-dev libunwind-dev libssl-dev devscripts
+          echo "rustc=$(rustc -V | tr -c 'A-Za-z0-9.\n' '-')" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v7
+      - name: Restore Cargo cache
+        if: ${{ github.ref_type != 'tag' }}
+        uses: actions/cache@v4
+        with:
+          path: cargo-cache-deb
+          key: arinn-deb-${{ steps.deps.outputs.rustc }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: arinn-deb-${{ steps.deps.outputs.rustc }}-
+      - name: Build .deb
+        env:
+          CARGO_HOME: ${{ github.workspace }}/cargo-cache-deb/home
+          CARGO_TARGET_DIR: ${{ github.workspace }}/cargo-cache-deb/target
+          DEB_BUILD_OPTIONS: ${{ github.event_name == 'pull_request' && 'nocheck' || '' }}
+        run: |
+          mkdir -p "$CARGO_HOME" "$CARGO_TARGET_DIR"
+          chmod +x packaging/debian/build-deb.sh packaging/debian/debian/rules packaging/debian/debian/postinst
+          ./packaging/debian/build-deb.sh
+      - uses: actions/upload-artifact@v7
+        with:
+          name: arinn-deb-package
+          path: |
+            packaging/debian/*.deb
+            packaging/debian/private-systemd
+          if-no-files-found: error
+
+  smoke-deb:
+    name: Install and smoke-test Debian package
+    needs: build-deb
+    runs-on: ${{ vars.ARINN_RUNNER || 'ubuntu-latest' }}
+    container: ubuntu:25.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: arinn-deb-package
+          path: pkg
+      - name: Install package into a clean system
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends python3 dbus
+          apt-get install -y ./pkg/*.deb
+      - name: Smoke test
+        env:
+          ARINN_TEST_MANAGER: ${{ github.workspace }}/pkg/private-systemd
+        run: chmod +x "$ARINN_TEST_MANAGER" && dbus-run-session -- python3 tests/package/smoke.py
+      - name: Session units and KWin adapter loader
+        run: python3 tests/package/session.py
+      - name: Uninstall cleanly
+        run: |
+          python3 tests/package/uninstall.py --self-check
+          ARINN_PACKAGE_MANAGER=deb python3 tests/package/uninstall.py

@@ -19,7 +19,7 @@ pub fn now() -> u64 {
         .unwrap_or_default()
         .as_millis() as u64
 }
-/// Fixed diagnostic identity of an operation; never user content (ADR-0092).
+/// Fixed diagnostic identity of an operation; never user content (ADR-0093).
 #[derive(Clone, Debug, Default)]
 pub struct Label {
     pub kind: &'static str,

@@ -13,7 +13,7 @@ void finishStartup();
 void breadcrumb(const char *operation);
 void qtMessage(QtMsgType type, const QMessageLogContext &context, const QString &message);
 
-// A Qt or QML message reduced to a fixed, non-personal template (ADR-0092).
+// A Qt or QML message reduced to a fixed, non-personal template (ADR-0093).
 struct QtTemplate {
   QByteArray location; // Arinn source file and line, for example "HomeView.qml:42".
   QByteArray category; // Qt logging category, for example "qt.qpa.wayland".

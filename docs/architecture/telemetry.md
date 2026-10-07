@@ -4,7 +4,7 @@
 <!-- SPDX-License-Identifier: CC-BY-SA-4.0 -->
 
 Specification §13–14; R-01–R-05, R-09, R-10;
-[ADR-0082](../adr/0082-opt-in-sentry.md), [ADR-0092](../adr/0092-structured-sentry-diagnostics.md);
+[ADR-0082](../adr/0082-opt-in-sentry.md), [ADR-0093](../adr/0093-structured-sentry-diagnostics.md);
 tasks [#301](https://github.com/LimeBeck/arinn/issues/301) and
 [#370](https://github.com/LimeBeck/arinn/issues/370).
 
@@ -70,7 +70,7 @@ durations in milliseconds. Names are fixed. No provider instance, request, windo
 browser identity is attached. All these measurements use the same flag, with full
 sampling while development diagnostics are enabled.
 
-### Structured fields (ADR-0092)
+### Structured fields (ADR-0093)
 
 Every field below is a fixed value written by Arinn's code or manifests. The
 sanitizers drop any other value. The lists live in `crates/arinnd/src/telemetry.rs`

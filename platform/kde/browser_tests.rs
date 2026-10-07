@@ -407,7 +407,7 @@ async fn a_closed_browser_is_launched_before_the_url_opens() {
     let command = f.take_command();
     let op = browse_op();
     assert_eq!(f.core.open_url("https://example.org/", &op).await, Ok(()));
-    // The operation is traced with the chosen browser and its steps (ADR-0092).
+    // The operation is traced with the chosen browser and its steps (ADR-0093).
     let (capability, _, steps, _) = op.traced();
     assert_eq!(capability, "browser");
     assert_eq!(

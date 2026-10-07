@@ -152,11 +152,11 @@ Removing negotiated MediaWindow1 support invalidates pending and active presenta
 | `media.channel` (an introspection result for a new daemon owner) | `attached`, `absent` | — |
 | `media.present` | `unavailable` | `no_shell_window`, `not_application_window`, `no_launch_id` |
 | `media.present` | `not_found` | `no_matching_window`, `no_launch_id` |
-| `media.present`, `media.release` | `timeout` | `lock_check_late` |
+| `media.present`, `media.release` | `timeout` | `lock_check_late`, `reply_late` |
 | `media.present`, `media.release` | `denied` | `session_locked` |
 | `media.present`, `media.release` | `cancelled` | `playback_changed` |
 
-Command freshness counts from the moment the daemon hands a command over, not from the start of the long poll. Before #369, a Present handed over late in the daemon's one-second poll was rejected as `Timeout`. If the lock check was slow, the stale-poll reset dropped it silently, so the daemon waited five seconds and mpv stayed a decorated window. A command the adapter has received is now always answered, with `Cancelled` only if playback changed meanwhile. The stale-poll reset only frees the poll slot: a command that a replaced poll still delivers is presented normally, and it holds the slot until it is answered.
+Command freshness counts from the moment the daemon hands a command over, not from the start of the long poll. Before #369, a Present handed over late in the daemon's one-second poll was rejected as `Timeout`. If the lock check was slow, the stale-poll reset dropped it silently, so the daemon waited five seconds and mpv stayed a decorated window. A command the adapter has received is now always answered, with `Cancelled` only if playback changed meanwhile. The stale-poll reset only frees the poll slot: a command that a replaced poll still delivers is presented normally, and it holds the slot until it is answered. A reply that arrives five seconds or more after its poll started is answered `Timeout` (`reply_late`) without presenting: the daemon holds a poll for at most a second and expires a command five seconds after queueing it, so the command could no longer finish its lock check in time.
 
 **Daemon (`arinnd`).** An operation completion line carries `kind` (`media.present`, `media.release`) and, on failure, a `reason` from `telemetry::REASONS`:
 

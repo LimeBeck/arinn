@@ -605,9 +605,19 @@ function pollMediaControl() {
         // command. Freshness counts from receipt, and the stale-poll reset must
         // not drop a command this script now owns: the daemon would wait for
         // its completion until the operation times out (#369).
+        // The daemon holds a poll for at most a second and expires a command
+        // five seconds after queueing it, so a command handed to a poll that
+        // started five seconds ago cannot finish its one-second lock check in
+        // time: KWin delayed this reply. Answer it without presenting.
+        const received = Date.now();
+        if (received - now >= 5000) {
+            diagnose("debug", "media." + command[1], { outcome: "timeout", reason: "reply_late",
+                error: "Timeout", request_id: command[0], duration_ms: 0 });
+            mediaBridge("CompleteControl", generation, command[0], "Timeout", () => {});
+            return;
+        }
         // A command from a poll the stale-poll reset already replaced is still
         // presented; it takes the slot so the newer poll cannot free it.
-        const received = Date.now();
         ++mediaPollSerial;
         mediaControllingAt = received;
         // The daemon's request ID (a UUID it generated) and time since receipt.

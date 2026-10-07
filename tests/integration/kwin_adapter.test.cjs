@@ -769,6 +769,23 @@ test('a command delivered after the stale-poll reset is still presented', () => 
     assert.equal(f.home.keepAbove, true);
     assert.equal(f.activity.fullScreen, true);
 });
+test('a reply delayed past the daemon deadline is answered Timeout without presenting', () => {
+    const {f, token} = managedFixture();
+    const stale = f.mediaControls.at(-1);
+    // Newer polls keep running while KWin holds the old callback.
+    for (let i = 0; i < 4; ++i) {
+        f.advance(1600); f.controls.at(-1)([]); f.refresh();
+        f.mediaControls.at(-1)([]);
+    }
+    const request = randomUUID();
+    stale([request, 'present', token]);
+    assert.deepEqual(f.mediaAcks.at(-1).slice(1), [request, 'Timeout']);
+    assert.equal(f.home.keepAbove, false, 'no late input layer');
+    assert.equal(f.activity.fullScreen, false, 'no late fullscreen');
+    const late = f.printed.map(line => JSON.parse(line)).filter(entry => entry.reason === 'reply_late');
+    assert.equal(late.length, 1);
+    assert.equal(late[0].request_id, request);
+});
 test('a command delivered to a poll that playback outdated is answered Cancelled', () => {
     const {f, token} = managedFixture();
     f.media('present', token); f.refresh();

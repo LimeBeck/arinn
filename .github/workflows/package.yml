@@ -49,7 +49,10 @@ jobs:
           chown -R builder pkg
       - name: makepkg (build, check, package)
         env:
-          NOCHECK: ${{ github.event_name == 'pull_request' && '--nocheck' || '' }}
+          # Release-mode check() repeats the Rust job's cargo test, so pull
+          # requests and master pushes skip it; the nightly, manual runs and
+          # tag builds run it (ADR-0047, ADR-0092).
+          NOCHECK: ${{ (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref_type != 'tag')) && '--nocheck' || '' }}
         run: |
           cache="$GITHUB_WORKSPACE/cargo-cache"
           mkdir -p "$cache/home" "$cache/target"

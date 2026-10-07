@@ -65,7 +65,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0044](0044-docs-only-ci-scope.md) | Documentation-only pull requests skip the build jobs | Accepted | 0049 |
 | [0045](0045-local-http-web-shortcuts.md) | Plain HTTP web shortcuts for local-network hosts | Accepted | — |
 | [0046](0046-shell-input-layer-during-playback.md) | The shell is the input layer during managed playback | Accepted | — |
-| [0047](0047-faster-package-builds.md) | Cached package builds and no release-mode check() on pull requests | Accepted | — |
+| [0047](0047-faster-package-builds.md) | Cached package builds and no release-mode check() on pull requests | Accepted | 0092 |
 | [0048](0048-browser-wire-contract.md) | Browser wire contract (Browser1 and BrowserProvider1) | Accepted | 0050, 0051, 0075 |
 | [0049](0049-ci-minutes.md) | Spend fewer CI minutes | Accepted | 0053 |
 | [0050](0050-window-per-browser-activity.md) | One fullscreen browser window per browser activity | Accepted | 0051 |
@@ -103,9 +103,10 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0083](0083-managed-player-stop.md) | Terminate the managed player on Stop and retain its final frame | Proposed | — |
 | [0084](0084-favorites-contract.md) | Revision-guarded daemon-owned favorites | Accepted | — |
 | [0085](0085-anime-tv-season-markers.md) | Anime `TVn` season markers in library names | Accepted | — |
-| [0086](0086-automatic-master-prereleases.md) | Automatic master pre-releases and ordinary version-tag releases | Proposed | 0088 |
+| [0086](0086-automatic-master-prereleases.md) | Automatic master pre-releases and ordinary version-tag releases | Proposed | 0088, 0092 |
 | [0087](0087-bounded-activity-background-frames.md) | Bounded Activity background frames through immutable descriptors | Accepted | — |
 | [0088](0088-single-master-snapshot-retention.md) | Retain one verified master snapshot release | Proposed | — |
 | [0089](0089-daemon-provider-supervisor-without-a-systemd-user-manager.md) | Daemon provider supervisor without a systemd user manager | Accepted | — |
 | [0090](0090-rewatch-clears-completion.md) | Launching a completed item is a rewatch | Accepted | — |
+| [0092](0092-less-repeated-ci-work.md) | Less repeated work in CI | Proposed | — |
 <!-- register:end -->

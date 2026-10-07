@@ -15,10 +15,11 @@ permissions:
   contents: read
 
 # Superseded PR runs cancel. Each master commit has its own group so every
-# successful push can publish its snapshot (ADR-0086).
+# successful push can publish its snapshot (ADR-0086); a second push run for
+# the same commit cancels the first instead of repeating it (ADR-0092).
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}-${{ github.event_name == 'push' && github.ref == 'refs/heads/master' && github.sha || 'shared' }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/master') }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -77,12 +78,26 @@ jobs:
     if: ${{ !cancelled() && needs.scope.outputs.docs_only != 'true' }}
     runs-on: ${{ vars.ARINN_RUNNER || 'ubuntu-latest' }}
     container: archlinux:latest
+    # Compiled dependencies and C++ objects are cached between runs
+    # (ADR-0092); a cache miss only means a full build.
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_MAXSIZE: 1G
+      CMAKE_C_COMPILER_LAUNCHER: ccache
+      CMAKE_CXX_COMPILER_LAUNCHER: ccache
     steps:
       - name: Install dependencies
         run: |
-          pacman -Syu --noconfirm --needed base-devel git rust cmake ninja \
+          pacman -Syu --noconfirm --needed base-devel git rust cmake ninja ccache \
             qt6-base qt6-declarative qt6-svg qt6-tools curl libunwind openssl python nodejs dbus systemd xorg-server-xvfb
       - uses: actions/checkout@v7
+      - uses: Swatinem/rust-cache@v2
+      - name: Restore compiler cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .ccache
+          key: ccache-integration-${{ github.run_id }}
+          restore-keys: ccache-integration-
       - name: Build Rust workspace
         run: cargo build --locked && cargo build --locked --examples
       - name: Isolated X11 EWMH tests
@@ -91,8 +106,18 @@ jobs:
         run: cargo test --locked -p arinn-platform-x11 -- --include-ignored
       - name: Build shell
         run: |
+          ccache --zero-stats
           cmake -S . -B build -G Ninja
           cmake --build build
+          ccache --show-stats
+      - name: Save compiler cache
+        # Pull request caches are visible only to that pull request; master
+        # and the nightly keep one shared cache warm.
+        if: ${{ github.event_name != 'pull_request' }}
+        uses: actions/cache/save@v4
+        with:
+          path: .ccache
+          key: ccache-integration-${{ github.run_id }}
       - name: QML component tests
         run: ctest --test-dir build --output-on-failure
       - name: KWin adapter and Chrome extension tests

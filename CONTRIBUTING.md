@@ -211,7 +211,7 @@ A change is done when:
 
 These GitHub settings make the rules above enforceable:
 
-- **Branches → `master`:** require a pull request; require status checks *Rust*, *Qt shell and private-bus integration*, *Licensing*, *Documentation consistency*, *Changelog fragment*, *Package / Build Arch package*, *Package / Install and smoke-test package* and *cla*; require branches to be up to date before merging; block force pushes and deletion. Do not require code owner review (the maintainer account also opens agent pull requests).
+- **Branches → `master`:** require a pull request; require status checks *Rust, Qt shell and integration (Arch Linux)*, *Licensing*, *Documentation consistency*, *Changelog fragment*, *Package / Build Arch package*, *Package / Install and smoke-test package* and *cla*; require branches to be up to date before merging; block force pushes and deletion. Do not require code owner review (the maintainer account also opens agent pull requests).
 - **Actions → General:** workflow permissions "Read and write" (the CLA bot stores signatures in the `cla-signatures` branch).
 - **Security:** private vulnerability reporting, Dependabot alerts and secret scanning on.
 - **Labels:** run the *Labels* workflow once (Actions → Labels → Run workflow); afterwards it runs whenever `.github/labels.yml` changes.

@@ -67,24 +67,51 @@ class PackageBuildTest(unittest.TestCase):
                 self.assertEqual(evaluate(nocheck, event_name=event, ref_type=ref_type), expected)
 
 
-class IntegrationCacheTest(unittest.TestCase):
-    def job(self, name: str) -> str:
-        match = re.search(rf"^  {name}:\n(.*?)(?=^  \w|\Z)", CI, re.M | re.S)
-        assert match, name
-        return match.group(1)
+def jobs() -> dict[str, str]:
+    section = CI[CI.index("\njobs:\n"):]
+    names = re.findall(r"^  (\w[\w-]*):\n", section, re.M)
+    bodies = re.split(r"^  \w[\w-]*:\n", section, flags=re.M)[1:]
+    return dict(zip(names, bodies))
 
-    def test_integration_restores_rust_and_compiler_caches(self):
-        job = self.job("integration")
+
+class BuildJobTest(unittest.TestCase):
+    def test_one_arch_job_runs_rust_checks_before_the_shell(self):
+        job = jobs()["build"]
+        steps = ["cargo fmt --all --check", "cargo clippy --locked --all-targets -- -D warnings",
+                 "cargo test --locked\n", "cmake --build build", "ctest --test-dir build",
+                 "python tests/integration/phase1.py"]
+        positions = [job.index(step) for step in steps]
+        self.assertEqual(positions, sorted(positions))
+        self.assertIn("container: archlinux:latest", job)
+        # No other job compiles the workspace in debug mode again.
+        for name, body in jobs().items():
+            if name != "build":
+                with self.subTest(job=name):
+                    self.assertNotRegex(body, r"cargo (build|test|clippy)")
+        # The X11 step runs only the Xvfb tests; cargo test ran the others.
+        self.assertIn("-p arinn-platform-x11 -- --ignored", job)
+
+    def test_needs_name_existing_jobs(self):
+        names = set(jobs())
+        for name, body in jobs().items():
+            for need in re.findall(r"^    needs: \[?([^\]\n]*)\]?$", body, re.M):
+                for target in need.split(","):
+                    with self.subTest(job=name, needs=target.strip()):
+                        self.assertIn(target.strip(), names)
+        self.assertIn("build", re.search(r"needs: \[(.*)\]", jobs()["snapshot"]).group(1))
+
+    def test_build_restores_rust_and_compiler_caches(self):
+        job = jobs()["build"]
         self.assertIn("Swatinem/rust-cache@v2", job)
         self.assertIn("actions/cache/restore@v4", job)
         self.assertIn("CMAKE_CXX_COMPILER_LAUNCHER: ccache", job)
         self.assertRegex(job, r"pacman -Syu [^\n]*\bccache\b")
         # Caches restore before the builds that use them.
-        self.assertLess(job.index("rust-cache"), job.index("cargo build"))
+        self.assertLess(job.index("rust-cache"), job.index("cargo clippy"))
         self.assertLess(job.index("cache/restore"), job.index("cmake -S"))
 
     def test_only_master_and_nightly_save_the_compiler_cache(self):
-        job = self.job("integration")
+        job = jobs()["build"]
         save = job[job.index("Save compiler cache"):]
         condition = value(save, "if")
         for event, saved in (("pull_request", False), ("push", True), ("schedule", True)):

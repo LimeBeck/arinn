@@ -52,34 +52,16 @@ jobs:
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           python3 scripts/ci-scope.py
 
-  rust:
-    name: Rust (fmt, clippy, test)
-    needs: scope
-    if: ${{ !cancelled() && needs.scope.outputs.docs_only != 'true' }}
-    runs-on: ${{ vars.ARINN_RUNNER || 'ubuntu-latest' }}
-    container: rust:1
-    steps:
-      - name: Install dependencies
-        # The tests start private session buses with dbus-daemon and check
-        # interface XML with Python.
-        run: apt-get update && apt-get install -y --no-install-recommends dbus python-is-python3 libssl-dev
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo fmt --all --check
-      - run: cargo clippy --locked --all-targets -- -D warnings
-      - run: cargo test --locked
-
-  integration:
-    name: Qt shell and private-bus integration (Arch Linux)
+  # One Arch Linux job compiles the workspace once for the Rust lints and
+  # tests, the Qt shell and the private-bus suite (ADR-0092). Compiled
+  # dependencies and C++ objects are cached between runs; a cache miss only
+  # means a full build.
+  build:
+    name: Rust, Qt shell and integration (Arch Linux)
     needs: scope
     if: ${{ !cancelled() && needs.scope.outputs.docs_only != 'true' }}
     runs-on: ${{ vars.ARINN_RUNNER || 'ubuntu-latest' }}
     container: archlinux:latest
-    # Compiled dependencies and C++ objects are cached between runs
-    # (ADR-0092); a cache miss only means a full build.
     env:
       CCACHE_DIR: ${{ github.workspace }}/.ccache
       CCACHE_MAXSIZE: 1G
@@ -87,6 +69,9 @@ jobs:
       CMAKE_CXX_COMPILER_LAUNCHER: ccache
     steps:
       - name: Install dependencies
+        # Arch's rust package ships rustfmt and clippy. The tests start
+        # private session buses with dbus-daemon and check interface XML with
+        # Python.
         run: |
           pacman -Syu --noconfirm --needed base-devel git rust cmake ninja ccache \
             qt6-base qt6-declarative qt6-svg qt6-tools curl libunwind openssl python nodejs dbus systemd xorg-server-xvfb
@@ -96,14 +81,18 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: .ccache
-          key: ccache-integration-${{ github.run_id }}
-          restore-keys: ccache-integration-
+          key: ccache-arch-${{ github.run_id }}
+          restore-keys: ccache-arch-
+      - run: cargo fmt --all --check
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: cargo test --locked
       - name: Build Rust workspace
         run: cargo build --locked && cargo build --locked --examples
       - name: Isolated X11 EWMH tests
+        # cargo test above ran the others; these need Xvfb.
         env:
           ARINN_XVFB: /usr/bin/Xvfb
-        run: cargo test --locked -p arinn-platform-x11 -- --include-ignored
+        run: cargo test --locked -p arinn-platform-x11 -- --ignored
       - name: Build shell
         run: |
           ccache --zero-stats
@@ -117,7 +106,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: .ccache
-          key: ccache-integration-${{ github.run_id }}
+          key: ccache-arch-${{ github.run_id }}
       - name: QML component tests
         run: ctest --test-dir build --output-on-failure
       - name: KWin adapter and Chrome extension tests
@@ -170,7 +159,7 @@ jobs:
       group: arinn-master-snapshot-channel
       queue: max
       cancel-in-progress: false
-    needs: [scope, rust, integration, licenses, docs, package]
+    needs: [scope, build, licenses, docs, package]
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
     runs-on: ${{ vars.ARINN_RUNNER || 'ubuntu-latest' }}
     container: python:3.12

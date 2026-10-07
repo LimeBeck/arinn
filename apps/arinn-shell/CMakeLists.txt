@@ -165,3 +165,36 @@ add_test(NAME browse-catalog COMMAND dbus-run-session -- $<TARGET_FILE:arinn-bro
 # Private-bus integration fixture, not installed or used by the shell.
 qt_add_executable(arinn-browse-provider-fixture browse_provider_fixture.cpp browse_catalog.cpp browse_catalog.h)
 target_link_libraries(arinn-browse-provider-fixture PRIVATE Qt6::DBus Qt6::Qml)
+
+# Russian interface through Qt translations (#363). English qsTr()/tr()
+# strings are the source; `cmake --build build --target arinn_lupdate`
+# refreshes i18n/arinn_ru.ts from these sources.
+file(GLOB ARINN_I18N_QML CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/Main.qml"
+    "${CMAKE_CURRENT_SOURCE_DIR}/ui/*.qml"
+    "${CMAKE_CURRENT_SOURCE_DIR}/ui/screens/*/*.qml")
+file(GLOB ARINN_I18N_CPP CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp")
+list(FILTER ARINN_I18N_CPP EXCLUDE REGEX "(_test|_fixture)\\.cpp$")
+set(ARINN_TS_FILES "${CMAKE_CURRENT_SOURCE_DIR}/i18n/arinn_ru.ts")
+qt_add_lupdate(TS_FILES ${ARINN_TS_FILES}
+    SOURCES ${ARINN_I18N_QML} ${ARINN_I18N_CPP}
+    LUPDATE_TARGET arinn_lupdate
+    OPTIONS -no-obsolete -locations none)
+qt_add_lrelease(TS_FILES ${ARINN_TS_FILES}
+    LRELEASE_TARGET arinn_lrelease
+    QM_FILES_OUTPUT_VARIABLE ARINN_QM_FILES)
+qt_add_executable(arinn-translations-test translations_test.cpp)
+target_link_libraries(arinn-translations-test PRIVATE Qt6::Core Qt6::Test)
+add_test(NAME translations COMMAND arinn-translations-test)
+foreach(target arinn-shell arinn-translations-test)
+    qt_add_resources(${target} translations PREFIX "/i18n"
+        BASE "${CMAKE_CURRENT_BINARY_DIR}" FILES ${ARINN_QM_FILES})
+endforeach()
+# Every shell string has a reviewed Russian translation: a new or changed
+# source string without one fails this check (#363).
+add_test(NAME translations-complete COMMAND ${CMAKE_COMMAND}
+    -DLUPDATE=$<TARGET_FILE:Qt6::lupdate>
+    -DTS=${ARINN_TS_FILES}
+    "-DSOURCES=${ARINN_I18N_QML};${ARINN_I18N_CPP}"
+    -DWORK=${CMAKE_CURRENT_BINARY_DIR}/i18n-check
+    -P "${PROJECT_SOURCE_DIR}/tests/ui/check_translations.cmake")

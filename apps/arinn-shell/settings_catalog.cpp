@@ -29,13 +29,13 @@ struct CategoryDef {
   const char *icon;
 };
 constexpr CategoryDef kCategories[] = {
-    {"media", QT_TR_NOOP("Media"), "video_library"},
-    {"playback", QT_TR_NOOP("Playback"), "play_circle"},
-    {"sound", QT_TR_NOOP("Sound"), "volume_up"},
-    {"network", QT_TR_NOOP("Network"), "wifi"},
-    {"applications", QT_TR_NOOP("Applications"), "apps"},
-    {"appearance", QT_TR_NOOP("Appearance"), "palette"},
-    {"system", QT_TR_NOOP("System"), "memory"},
+    {"media", QT_TRANSLATE_NOOP("SettingsCatalog", "Media"), "video_library"},
+    {"playback", QT_TRANSLATE_NOOP("SettingsCatalog", "Playback"), "play_circle"},
+    {"sound", QT_TRANSLATE_NOOP("SettingsCatalog", "Sound"), "volume_up"},
+    {"network", QT_TRANSLATE_NOOP("SettingsCatalog", "Network"), "wifi"},
+    {"applications", QT_TRANSLATE_NOOP("SettingsCatalog", "Applications"), "apps"},
+    {"appearance", QT_TRANSLATE_NOOP("SettingsCatalog", "Appearance"), "palette"},
+    {"system", QT_TRANSLATE_NOOP("SettingsCatalog", "System"), "memory"},
 };
 QDBusMessage settingsCall(const char *method) {
   return QDBusMessage::createMethodCall(service, path, settingsInterface,

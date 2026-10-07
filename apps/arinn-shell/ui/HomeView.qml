@@ -158,7 +158,7 @@ FocusScope {
         const others = openServiceCount - (shown ? 1 : 0);
         const more = openServiceCount > 1 ? [{
             id: "open-services-more",
-            title: qsTr("%1 more open").arg(Math.max(others, 1)),
+            title: qsTr("%n more open", "", Math.max(others, 1)),
             subtitle: qsTr("Open services"),
             kind: "more"
         }] : [];

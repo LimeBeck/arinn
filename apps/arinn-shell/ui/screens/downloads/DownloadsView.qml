@@ -36,7 +36,7 @@ FocusScope {
         if (summaryText.length) return summaryText;
         let active = 0;
         for (let i = 0; i < jobCount; ++i) if (jobs[i] && jobs[i].state === "downloading") active += 1;
-        return active === 1 ? qsTr("1 downloading") : qsTr("%1 downloading").arg(active);
+        return qsTr("%n downloading", "", active);
     }
     readonly property string resolvedTitle: {
         if (statusTitle.length) return statusTitle;

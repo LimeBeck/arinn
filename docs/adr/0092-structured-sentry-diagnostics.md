@@ -87,7 +87,7 @@ template:
   7. any remaining token containing `\ / ? & # % = @` becomes `<str>` as a whole, never split into its parts;
   8. numbers become `<n>`.
 
-  The result is truncated to 160 characters. A template that still contains a digit, quote, slash, `@`, `?`, `&`, `#`, `%`, `=` or a non-printable character is replaced by `Qt message`. The crash-safe SDK callback and the transport filter repeat this check.
+  Rules 3 to 7 always replace the whole whitespace-delimited token, brackets and placeholders included, so no part of a path, URL or name survives next to its placeholder. The result is truncated to 160 characters. A template that still contains a digit, quote, slash, `@`, `?`, `&`, `#`, `%`, `=` or a non-printable character is replaced by `Qt message`. The crash-safe SDK callback and the transport filter repeat this check.
 - **Fingerprint.** `["arinn-shell", <type>, <location>, <template>]`.
 - **Rate limit.** Each template is reported at most once per 10 minutes. At most 256 templates are tracked. Repeats increment `arinn.shell.messages.suppressed`. Fatal messages are always reported.
 - **Known noise.** `Icon is unavailable`, `Site icon is unavailable`, `Artwork is unavailable` and `QWaylandDataOffer` are never events. They increment `arinn.shell.messages.benign` and leave one `qt.noise` breadcrumb per template window.

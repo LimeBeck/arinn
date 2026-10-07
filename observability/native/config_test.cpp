@@ -48,6 +48,8 @@ private slots:
       QStringLiteral("Query key=Private&title=Private#Title"),
       QStringLiteral("Opaque urn:arinn:PrivateTitle and mailto:private-fixture and x:PrivateTitle"),
       QStringLiteral("Files Private.desktop Secret.document PrivateTitle.Videos.backup"),
+      QStringLiteral("Cannot open /home/private-fixture/(PrivateTitle) [x/Private] {x/Private} /a<Private>"),
+      QStringLiteral("Names Private.desktop(Secret) (x:PrivateTitle) key=(Private)"),
     };
     for (const auto &fixture : fixtures) {
       const auto shape = ArinnTelemetry::qtTemplate(none, fixture);

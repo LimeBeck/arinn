@@ -36,17 +36,19 @@ QString scrub(QString text) {
     {QRegularExpression(QStringLiteral("\"[^\"]*\"?|'[^']*'?|`[^`]*`?")), QStringLiteral("<str>")},
     // URLs of any scheme, hierarchical or opaque (qrc:, file:, data:, magnet:, urn:),
     // but not a C++ scope such as QQuickItem::stackAfter.
-    {QRegularExpression(QStringLiteral("\\b[A-Za-z][A-Za-z0-9+.-]{0,31}:(?!:)[^\\s<>]+")), QStringLiteral("<url>")},
+    {QRegularExpression(QStringLiteral("\\S*\\b[A-Za-z][A-Za-z0-9+.-]{0,31}:(?!:)\\S+")), QStringLiteral("<url>")},
+    // From here on a match is always the whole whitespace-delimited token, brackets
+    // included, so no part of a path or name survives next to its placeholder.
     // Any token with a slash or backslash is a path, whatever precedes it.
-    {QRegularExpression(QStringLiteral("[^\\s<>()\\[\\]{}]*[/\\\\][^\\s<>()\\[\\]{}]*")), QStringLiteral("<path>")},
+    {QRegularExpression(QStringLiteral("\\S*[/\\\\]\\S*")), QStringLiteral("<path>")},
     // Addresses and accounts.
-    {QRegularExpression(QStringLiteral("[^\\s<>]+@[^\\s<>]+")), QStringLiteral("<str>")},
+    {QRegularExpression(QStringLiteral("\\S*@\\S*")), QStringLiteral("<str>")},
     // Any dotted name, whatever its extension: file names, hosts, dotted identifiers.
     // A sentence-ending dot is kept.
-    {QRegularExpression(QStringLiteral("[^\\s<>()\\[\\]{}]*\\w\\.\\w[^\\s<>()\\[\\]{}]*")), QStringLiteral("<file>")},
+    {QRegularExpression(QStringLiteral("\\S*\\w\\.\\w\\S*")), QStringLiteral("<file>")},
     // A token that still holds a query or address separator is dropped whole,
     // never split into its parts.
-    {QRegularExpression(QStringLiteral("[^\\s<>]*[\\\\/?&#%=@][^\\s<>]*")), QStringLiteral("<str>")},
+    {QRegularExpression(QStringLiteral("\\S*[\\\\/?&#%=@]\\S*")), QStringLiteral("<str>")},
     {QRegularExpression(QStringLiteral("0x[0-9A-Fa-f]+|[0-9]+")), QStringLiteral("<n>")},
     {QRegularExpression(QStringLiteral("\\s+")), QStringLiteral(" ")},
   };

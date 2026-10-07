@@ -41,7 +41,9 @@ build() {
   cargo build --frozen --release
   cargo build --frozen --release --example private-systemd
   cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-  cmake --build build
+  # Only the installed shell; the Qt test executables, gallery and perf
+  # harness are built and run by the CI integration job (ADR-0092).
+  cmake --build build --target arinn-shell
 }
 
 check() {

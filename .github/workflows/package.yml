@@ -4,8 +4,9 @@ name: Package
 # checked-out commit and verifies each by installing it into a clean system
 # (ADR-0033, ADR-0091). Arch remains the release blocker; the .deb is an
 # additional artifact and smoke target. Pull requests and master reuse a
-# Cargo cache; pull requests skip release-mode package tests, which the Rust
-# job already covers. Tag builds are clean and run check() (ADR-0047).
+# Cargo cache; pull requests and master pushes skip release-mode package
+# tests, which the build job already covers. The nightly, manual runs and tag
+# builds run them; tag builds are clean (ADR-0047, ADR-0092).
 
 on:
   workflow_call:
@@ -50,7 +51,10 @@ jobs:
           chown -R builder pkg
       - name: makepkg (build, check, package)
         env:
-          NOCHECK: ${{ github.event_name == 'pull_request' && '--nocheck' || '' }}
+          # Release-mode check() repeats the Rust job's cargo test, so pull
+          # requests and master pushes skip it; the nightly, manual runs and
+          # tag builds run it (ADR-0047, ADR-0092).
+          NOCHECK: ${{ (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref_type != 'tag')) && '--nocheck' || '' }}
         run: |
           cache="$GITHUB_WORKSPACE/cargo-cache"
           mkdir -p "$cache/home" "$cache/target"
@@ -123,7 +127,8 @@ jobs:
         env:
           CARGO_HOME: ${{ github.workspace }}/cargo-cache-deb/home
           CARGO_TARGET_DIR: ${{ github.workspace }}/cargo-cache-deb/target
-          DEB_BUILD_OPTIONS: ${{ github.event_name == 'pull_request' && 'nocheck' || '' }}
+          # Same check() policy as the Arch package (ADR-0092).
+          DEB_BUILD_OPTIONS: ${{ (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref_type != 'tag')) && 'nocheck' || '' }}
         run: |
           mkdir -p "$CARGO_HOME" "$CARGO_TARGET_DIR"
           chmod +x packaging/debian/build-deb.sh packaging/debian/debian/rules packaging/debian/debian/postinst

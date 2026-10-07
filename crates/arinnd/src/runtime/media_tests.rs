@@ -1295,3 +1295,27 @@ async fn losing_a_provider_chosen_after_admission_finishes_the_operation() {
     assert_eq!(op.value.lock().await.state, "failed");
     assert_eq!(op.value.lock().await.error, "Unavailable");
 }
+
+#[test]
+fn rejection_records_carry_the_logging_schema() {
+    let record = rejection_record(
+        "mpv",
+        "00000000-0000-4000-8000-000000000001",
+        "media.present",
+        ErrorCode::NotFound,
+        "no_matching_window",
+        Duration::from_millis(1500),
+    );
+    for field in [
+        "component",
+        "provider_id",
+        "request_id",
+        "operation",
+        "duration_ms",
+        "error",
+    ] {
+        assert!(record.get(field).is_some(), "§14.1 field {field}: {record}");
+    }
+    assert_eq!(record["duration_ms"], 1500);
+    assert_eq!(record["reason"], "no_matching_window");
+}

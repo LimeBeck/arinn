@@ -591,7 +591,10 @@ function pollMediaControl() {
             const completionSerial = mediaSerial;
             mediaBridge("CompleteControl", generation, command[0], error, () => {
                 if (completionSerial !== mediaSerial || inventory !== inventorySerial || owner !== daemonOwner) return;
-                mediaControllingAt = 0; publishInventory();
+                // A stale-poll reset may have started a newer poll meanwhile:
+                // only the command that still owns the poll slot clears it.
+                if (mediaControllingAt === received) mediaControllingAt = 0;
+                publishInventory();
             });
         }
         callDBus("org.freedesktop.ScreenSaver", "/ScreenSaver", "org.freedesktop.ScreenSaver", "GetActive", locked => {

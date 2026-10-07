@@ -42,7 +42,7 @@ function fixture(options = {}) {
     const home = window('shell-id', 'org.arinn.Shell');
     let windows = [activity, home];
     let shortcut, takeCommand, report, tick, control, mediaControl;
-    const mediaReports = [], mediaAcks = [];
+    const mediaReports = [], mediaAcks = [], mediaPolls = { count: 0 };
     const shortcuts = [];
     let locked = false, generation = randomUUID(), stage = [];
     let deferLock = false, deferHome = false;
@@ -72,7 +72,7 @@ function fixture(options = {}) {
             if (_interface === 'org.arinn.KWinMedia1') {
                 const callback = args.at(-1);
                 if (method === 'Report') { mediaReports.push(args.slice(0, 4)); callback(); }
-                if (method === 'NextControl') mediaControl = callback;
+                if (method === 'NextControl') { mediaControl = callback; mediaPolls.count++; }
                 if (method === 'CompleteControl') { mediaAcks.push(args.slice(0, 3)); callback(); }
                 return;
             }
@@ -114,7 +114,7 @@ function fixture(options = {}) {
             }
         } });
     vm.runInContext(fs.readFileSync(path.join(__dirname, '../../platform/kde/phase0.js'), 'utf8'), context);
-    return { activity, home, workspace, window, polls, snapshots, acknowledgements, controls, trace, mediaReports, mediaAcks, printed,
+    return { activity, home, workspace, window, polls, snapshots, acknowledgements, controls, trace, mediaReports, mediaAcks, printed, mediaPolls,
         media(action, token) { mediaControl([randomUUID(), action, token]); },
         mediaIdle() { mediaControl([]); },
         advance(ms) { now += ms; },
@@ -718,4 +718,18 @@ test('presentation failures print rate-limited fixed reasons without identities'
         for (const secret of [launch, token, 'org.arinn.Playback', 'game'])
             assert.ok(!line.includes(secret), line);
     }
+});
+test('a late answer to a superseded command keeps the newer poll in flight', () => {
+    const {f, token} = managedFixture();
+    f.advance(900); f.deferLock(); f.media('present', token);
+    f.advance(1600); f.refresh();
+    const polls = f.mediaPolls.count;
+    f.lockReplies[0](false);
+    assert.equal(f.mediaAcks.at(-1)[2], 'Cancelled');
+    // Keep the window-control lane answered so only the media lane is observed.
+    f.controls.at(-1)([]);
+    f.advance(100); f.refresh();
+    assert.equal(f.mediaPolls.count, polls, 'no conflicting second poll while the newer one waits');
+    f.mediaIdle(); f.controls.at(-1)([]); f.advance(1000); f.refresh();
+    assert.equal(f.mediaPolls.count, polls + 1, 'polling continues after the newer poll answers');
 });

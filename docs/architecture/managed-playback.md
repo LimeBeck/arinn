@@ -171,7 +171,7 @@ Command freshness counts from the moment the daemon hands a command over, not fr
 | `platform_cancelled` | Playback changed while the adapter checked the lock. |
 | `provider_changed` | The provider owner or generation changed. |
 
-A Present or Release refused before it becomes an operation logs `"operation":"rejected"` with `kind`, `error` and one of these reasons:
+A Present or Release refused before it becomes an operation logs `"operation":"rejected"` with the §14.1 fields (`component`, `provider_id`, `request_id`, `duration_ms`, `error`), plus `kind` and one of these reasons:
 - `session_unavailable`;
 - `media_channel_absent`;
 - `platform_unavailable`;
@@ -179,7 +179,12 @@ A Present or Release refused before it becomes an operation logs `"operation":"r
 - `window_lookup_failed`;
 - `owner_changed`;
 - `no_matching_window`;
-- `generation_changed`.
+- `generation_changed`;
+- `session_changed`, when the provider, its session or the media-window feature changed during the lookup;
+- `session_not_playing`;
+- `superseded_by_release`;
+- `capacity_exhausted`;
+- `admission_refused`.
 
 **Shell.** `Main.qml` prints one info line, `arinn-shell media surface {…}`, in two cases:
 - It opens the session card instead of the player: `surface: "session"`, reason `no_player_features` or `session_not_ready`.

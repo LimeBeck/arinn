@@ -38,14 +38,16 @@ watchdog.timeout.connect(checkDaemon);
 watchdog.start();
 function rpc(method, ...args) { callDBus(service, path, service, method, ...args); }
 // Diagnostics (#369): fixed event and reason names only, never titles, window
-// classes, tokens or launch IDs. Each event and reason prints at most once per
-// ten seconds so a stuck state cannot flood the journal.
+// classes, tokens or launch IDs. Each operation and reason prints at most once
+// per ten seconds so a stuck state cannot flood the journal. Records carry the
+// specification §14.1 fields, null when unknown.
 const diagnosedAt = new Map();
-function diagnose(level, event, fields) {
-    const key = event + ":" + (fields.reason || ""), now = Date.now();
+function diagnose(level, operation, fields) {
+    const key = operation + ":" + (fields.reason || ""), now = Date.now();
     if (diagnosedAt.has(key) && now - diagnosedAt.get(key) < 10000) return;
     diagnosedAt.set(key, now);
-    print(JSON.stringify(Object.assign({ level, component: "arinn-kwin", event }, fields)));
+    print(JSON.stringify(Object.assign({ level, component: "arinn-kwin", provider_id: null,
+        request_id: null, operation, duration_ms: null, error: null }, fields)));
 }
 function id(w) { return w ? w.internalId.toString() : ""; }
 function isShell(w) { return w && (w.desktopFileName === "org.arinn.Shell" || w.resourceClass === "org.arinn.Shell"); }
@@ -481,7 +483,7 @@ function presentPlayback(w) {
     const home = shell();
     const reason = !home ? "no_shell_window" : !applicationWindow(w) ? "not_application_window" : !launchId(w) ? "no_launch_id" : "";
     if (reason) {
-        diagnose("debug", "media.present", { outcome: "unavailable", reason });
+        diagnose("debug", "media.present", { outcome: "unavailable", reason, error: "Unavailable" });
         throw new Error("unavailable");
     }
     if (closing) releasePlayback(false);
@@ -586,6 +588,9 @@ function pollMediaControl() {
         // its completion until the operation times out (#369).
         const received = Date.now();
         mediaControllingAt = received;
+        // The daemon's request ID (a UUID it generated) and time since receipt.
+        const traced = (outcome, reason, error) => ({ outcome, reason, error,
+            request_id: command[0], duration_ms: Date.now() - received });
         function complete(error) {
             if (inventory !== inventorySerial || owner !== daemonOwner) return;
             const completionSerial = mediaSerial;
@@ -600,9 +605,9 @@ function pollMediaControl() {
         callDBus("org.freedesktop.ScreenSaver", "/ScreenSaver", "org.freedesktop.ScreenSaver", "GetActive", locked => {
             if (inventory !== inventorySerial || owner !== daemonOwner) return;
             // Playback changed while the lock check ran: answer, never drop.
-            if (serial !== mediaSerial) { diagnose("debug", "media." + command[1], { outcome: "cancelled", reason: "playback_changed" }); complete("Cancelled"); return; }
-            if (Date.now() - received >= 1000) { diagnose("debug", "media." + command[1], { outcome: "timeout", reason: "lock_check_late" }); complete("Timeout"); return; }
-            if (locked !== false) { diagnose("debug", "media." + command[1], { outcome: "denied", reason: "session_locked" }); releasePlayback(false); complete("PermissionDenied"); return; }
+            if (serial !== mediaSerial) { diagnose("debug", "media." + command[1], traced("cancelled", "playback_changed", "Cancelled")); complete("Cancelled"); return; }
+            if (Date.now() - received >= 1000) { diagnose("debug", "media." + command[1], traced("timeout", "lock_check_late", "Timeout")); complete("Timeout"); return; }
+            if (locked !== false) { diagnose("debug", "media." + command[1], traced("denied", "session_locked", "PermissionDenied")); releasePlayback(false); complete("PermissionDenied"); return; }
             try {
                 if (command[1] === "release") {
                     const token = playback ? windowTokens.get(playback.window) || "" : "";
@@ -611,7 +616,7 @@ function pollMediaControl() {
                 } else {
                     const w = workspace.windowList().find(w => applicationWindow(w) && windowTokens.get(w) === command[2]);
                     if (!w || !launchId(w)) {
-                        diagnose("debug", "media.present", { outcome: "not_found", reason: w ? "no_launch_id" : "no_matching_window" });
+                        diagnose("debug", "media.present", traced("not_found", w ? "no_launch_id" : "no_matching_window", "NotFound"));
                         complete("NotFound");
                         return;
                     }

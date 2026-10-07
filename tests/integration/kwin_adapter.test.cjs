@@ -703,15 +703,23 @@ test('after a daemon owner change the media channel re-attaches and Present succ
     assert.equal(f.home.keepAbove, true);
     assert.equal(f.activity.fullScreen, true);
     assert.equal(f.mediaAcks.at(-1)[2], '');
-    const attached = f.printed.map(line => JSON.parse(line)).filter(entry => entry.event === 'media.channel');
+    const attached = f.printed.map(line => JSON.parse(line)).filter(entry => entry.operation === 'media.channel');
     assert.ok(attached.length >= 1 && attached.every(entry => entry.outcome === 'attached'));
 });
 test('presentation failures print rate-limited fixed reasons without identities', () => {
     const {f, launch, token} = managedFixture();
     f.media('present', 'missing-token');
     f.refresh(); f.media('present', 'missing-token');
-    const failures = f.printed.map(line => JSON.parse(line)).filter(entry => entry.event === 'media.present');
-    assert.deepEqual(failures, [{ level: 'debug', component: 'arinn-kwin', event: 'media.present', outcome: 'not_found', reason: 'no_matching_window' }]);
+    const failures = f.printed.map(line => JSON.parse(line)).filter(entry => entry.operation === 'media.present');
+    assert.equal(failures.length, 1);
+    const {request_id: requestId, ...failure} = failures[0];
+    assert.match(requestId, /^[0-9a-f-]{36}$/, 'the daemon request ID');
+    assert.deepEqual(failure, { level: 'debug', component: 'arinn-kwin', provider_id: null,
+        operation: 'media.present', duration_ms: 0, error: 'NotFound', outcome: 'not_found', reason: 'no_matching_window' });
+    // Specification §14.1 fields are present in every record, null when unknown.
+    for (const entry of f.printed.map(line => JSON.parse(line)))
+        for (const field of ['component', 'provider_id', 'request_id', 'operation', 'duration_ms', 'error'])
+            assert.ok(field in entry, field);
     f.advance(10000); f.refresh(); f.media('present', 'missing-token');
     assert.equal(f.printed.filter(line => line.includes('no_matching_window')).length, 2, 'printed again after the interval');
     for (const line of f.printed) {

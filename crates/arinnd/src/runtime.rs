@@ -171,7 +171,7 @@ impl Core {
             .clone()
     }
     async fn supervisor(&self) -> Supervisor {
-        Supervisor::new(&self.connection, self.supervision().await)
+        Supervisor::new(self.supervision().await)
     }
 
     pub async fn shutdown_supervision(&self) {

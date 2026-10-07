@@ -289,11 +289,11 @@ impl Native {
         }
         let active = match words.as_slice() {
             [] => bail!("{NAME}: length 0 has no valid window id"),
-            [0] => None,
+            // xfwm4 writes [0, 0] while no client is focused (#379).
+            [0] | [0, 0] => None,
             [id] => Some(*id),
-            [id, _] if *id != 0 => Some(*id),
-            [0, id] if *id != 0 => Some(*id),
-            [_, _] => bail!("{NAME}: length 2 has no valid window id"),
+            [0, id] => Some(*id),
+            [id, _] => Some(*id),
             [_, _, _, ..] => bail!("{NAME}: length {length} exceeds maximum 2 CARD32"),
         };
         Ok(active)
@@ -931,17 +931,29 @@ pub(crate) mod fixture {
     }
     #[test]
     #[ignore = "requires Xvfb; spawns an isolated X server, never uses the real DISPLAY"]
+    fn xfwm4_two_zero_words_mean_no_active_window() -> Result<()> {
+        // A fresh xfwm4 session with nothing focused publishes [0, 0] (#379);
+        // the adapter must connect instead of retrying forever.
+        let desktop = Desktop::new()?;
+        let shell = desktop.client("org.arinn.Shell", "")?;
+        let video = desktop.client("org.example.Player.desktop", "")?;
+        desktop.inventory(&[shell, video], video)?;
+        desktop.set_net_active_window(&[0, 0])?;
+        let mut native = Native::connect_display(Some(&desktop.display))?;
+        let snapshot = native.snapshot()?;
+        assert_eq!(snapshot.active, None);
+        assert_eq!(snapshot.rows[0].flags & 1, 0);
+        desktop.set_net_active_window(&[0, video])?;
+        assert_eq!(native.snapshot()?.active, Some(video));
+        Ok(())
+    }
+    #[test]
+    #[ignore = "requires Xvfb; spawns an isolated X server, never uses the real DISPLAY"]
     fn net_active_window_rejects_invalid_payloads() -> Result<()> {
         let desktop = Desktop::new()?;
         let shell = desktop.client("org.arinn.Shell", "")?;
         desktop.inventory(&[shell], shell)?;
         let mut native = Native::connect_display(Some(&desktop.display))?;
-        desktop.set_net_active_window(&[0, 0])?;
-        let err = native.snapshot().unwrap_err().to_string();
-        assert!(
-            err.contains("_NET_ACTIVE_WINDOW") && err.contains("length 2"),
-            "unexpected error: {err}"
-        );
         desktop.set_net_active_window(&[0, shell, shell])?;
         let err = native.snapshot().unwrap_err().to_string();
         assert!(

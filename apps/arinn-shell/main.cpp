@@ -76,6 +76,7 @@ int main(int argc, char **argv) {
                        }
                      }
                    });
+  createHiddenShellWindow(window);
   StartupHome startupHome(sessionGuard);
   return app.exec();
 }

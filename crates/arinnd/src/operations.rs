@@ -115,6 +115,14 @@ impl Operation {
             trace.chosen.push(id.into());
         }
     }
+    /// Ends a dependency recorded with `depends_on` once it is no longer needed.
+    pub fn no_longer_depends_on(&self, id: &str) {
+        if let Ok(mut trace) = self.trace.lock()
+            && let Some(index) = trace.chosen.iter().position(|chosen| chosen == id)
+        {
+            trace.chosen.remove(index);
+        }
+    }
     fn chosen(&self, id: &str) -> bool {
         self.trace
             .lock()

@@ -1143,18 +1143,24 @@ impl Core {
                 })
                 .ok_or(ErrorCode::Unavailable)?
         };
-        // Losing the application provider during the launch ends the open.
+        // Losing the application provider while it launches the browser ends
+        // the open; once Launch has answered, the provider is no longer needed.
         op.depends_on(&id);
-        let proxy = ApplicationProviderProxy::builder(&self.connection)
-            .destination(owner.as_str())
-            .map_err(|_| ErrorCode::Internal)?
-            .build()
-            .await
-            .map_err(|_| ErrorCode::Unavailable)?;
-        tokio::time::timeout_at(deadline, proxy.launch(&generation, &application))
-            .await
-            .map_err(|_| ErrorCode::Timeout)?
-            .map_err(normalize_error)?;
+        let launched = async {
+            let proxy = ApplicationProviderProxy::builder(&self.connection)
+                .destination(owner.as_str())
+                .map_err(|_| ErrorCode::Internal)?
+                .build()
+                .await
+                .map_err(|_| ErrorCode::Unavailable)?;
+            tokio::time::timeout_at(deadline, proxy.launch(&generation, &application))
+                .await
+                .map_err(|_| ErrorCode::Timeout)?
+                .map_err(normalize_error)
+        }
+        .await;
+        op.no_longer_depends_on(&id);
+        launched?;
         loop {
             if self.browser_connected().await {
                 return Ok(());

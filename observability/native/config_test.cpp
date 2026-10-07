@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Arinn contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "telemetry.h"
+#include "transport.h"
 #include <QFile>
 #include <QtTest>
 
@@ -91,6 +92,22 @@ private slots:
     QVERIFY(!ArinnTelemetry::admitTemplate(key, 2000));
     QVERIFY(ArinnTelemetry::admitTemplate(key, 1000 + 10 * 60 * 1000));
     QVERIFY(ArinnTelemetry::admitTemplate("QtWarning\n\nother", 2000));
+  }
+  void transportTemplatesRawQtEnvelopes() {
+    // A raw envelope that claims to be a Qt message never reached qtTemplate.
+    const QByteArray raw =
+      "{}\n{\"type\":\"event\"}\n"
+      "{\"event_id\":\"0123456789abcdef0123456789abcdef\","
+      "\"tags\":{\"qt.location\":\"Private.desktop:4\"},"
+      "\"fingerprint\":[\"arinn-shell\",\"QtWarning\",\"private-token-fixture\",\"x\"],"
+      "\"exception\":{\"values\":[{\"type\":\"QtWarning\","
+      "\"value\":\"Open /home/private-fixture/a.mkv 'Private' urn:x:Private 42\"}]}}\n";
+    const auto clean = ArinnTelemetry::filterEnvelope(raw);
+    QVERIFY(!clean.isEmpty());
+    for (auto marker : {"private-fixture", "private-token-fixture", "Private", "a.mkv", "urn", "42", "desktop"})
+      QVERIFY2(!clean.contains(marker), clean.constData());
+    QVERIFY2(clean.contains("\"fingerprint\":[\"arinn-shell\",\"QtWarning\",\"unknown.location\",\"Open <path> <str> <url> <n>\"]"),
+             clean.constData());
   }
   void crashSafeChecks() {
     QVERIFY(ArinnTelemetry::safeTemplateText("QML Image: Cannot open: <url>"));

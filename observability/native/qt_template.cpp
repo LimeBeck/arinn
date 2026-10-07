@@ -111,6 +111,11 @@ QtTemplate qtTemplate(const QMessageLogContext &context, const QString &message)
   if (!safeTemplateText(out.text.constData())) out.text = "Qt message";
   return out;
 }
+QByteArray scrubTemplate(const QString &text) {
+  QMutexLocker lock(&templateLock);
+  auto out = scrub(text.left(4096)).toLatin1();
+  return safeTemplateText(out.constData()) ? out : QByteArrayLiteral("Qt message");
+}
 // No allocation or locale access: also called from the native crash callback.
 bool safeTemplateText(const char *text) {
   if (!text || !*text) return false;

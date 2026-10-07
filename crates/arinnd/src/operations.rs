@@ -48,9 +48,10 @@ impl Label {
 #[derive(Default)]
 struct Trace {
     label: Label,
-    /// Provider instance chosen after admission (a URL open picks its browser
-    /// late), so provider loss still finishes the operation.
-    chosen: String,
+    /// Provider instances chosen after admission (a URL open picks its
+    /// browser, a library launch its media provider), so losing any of them
+    /// still finishes the operation. Bounded: an operation uses few providers.
+    chosen: Vec<String>,
     phases: Vec<Phase>,
     /// Steps still running, closed as cut short if the operation ends first.
     open: Vec<(u64, Phase)>,
@@ -101,11 +102,23 @@ impl Operation {
         if let Ok(mut trace) = self.trace.lock() {
             let label = std::mem::take(&mut trace.label);
             trace.label = label.provider(capability, plugin);
-            trace.chosen = id.into();
+            if trace.chosen.len() < 4 {
+                trace.chosen.push(id.into());
+            }
+        }
+    }
+    /// Records a further provider this operation depends on, keeping its label.
+    pub fn depends_on(&self, id: &str) {
+        if let Ok(mut trace) = self.trace.lock()
+            && trace.chosen.len() < 4
+        {
+            trace.chosen.push(id.into());
         }
     }
     fn chosen(&self, id: &str) -> bool {
-        self.trace.lock().is_ok_and(|trace| trace.chosen == id)
+        self.trace
+            .lock()
+            .is_ok_and(|trace| trace.chosen.iter().any(|chosen| chosen == id))
     }
     /// Times one step. `op` is a `telemetry::SPAN_OPS` entry and `name` a
     /// `telemetry::KINDS` or `telemetry::SPAN_NAMES` entry.

@@ -61,10 +61,11 @@ QJsonObject event(const QJsonObject &original) {
   const auto tags = original.value("tags").toObject();
   auto cleanTags = clean.value("tags").toObject();
   const auto location = tags.value("qt.location").toString().toLatin1();
-  if (ArinnTelemetry::safeLocation(location.constData()))
+  // C-string checks stop at a NUL: never accept a value that embeds one.
+  if (!location.contains('\0') && ArinnTelemetry::safeLocation(location.constData()))
     cleanTags.insert("qt.location", QString::fromLatin1(location));
   const auto category = tags.value("qt.category").toString().toLatin1();
-  if (ArinnTelemetry::safeCategory(category.constData()))
+  if (!category.contains('\0') && ArinnTelemetry::safeCategory(category.constData()))
     cleanTags.insert("qt.category", QString::fromLatin1(category));
   clean.insert("tags", cleanTags);
   QJsonArray exceptions;

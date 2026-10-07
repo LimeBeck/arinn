@@ -1301,4 +1301,27 @@ async fn losing_a_provider_chosen_after_admission_finishes_the_operation() {
     assert_eq!(launch.value.lock().await.state, "failed");
     // Completion already reported the label; the reason stays readable.
     assert_eq!(launch.traced().3, Some("provider_changed"));
+
+    // A dependency that ended (the browser launch answered) no longer
+    // finishes the operation when that provider goes away.
+    let (_, open, _) = f
+        .core
+        .operations
+        .admit(
+            &f.core.connection,
+            &caller,
+            &rid(),
+            "open-after-launch",
+            "",
+            Label::new("browse.open"),
+        )
+        .await
+        .unwrap();
+    open.depends_on("mpv");
+    open.no_longer_depends_on("mpv");
+    f.core
+        .operations
+        .invalidate(&f.core.connection, Some("mpv"), None)
+        .await;
+    assert_eq!(open.value.lock().await.state, "queued");
 }

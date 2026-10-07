@@ -2,3 +2,4 @@
 - Kill supervised provider process groups on daemon exit; failed spawns count toward the same start limit as systemd.
 - Document the `ARINN_PRIVATE_TEST_BUS` test-harness exception in ADR-0089 (production bootstrap unchanged).
 - Resolve `Register` deadlock by querying peer credentials on an auxiliary session-bus connection.
+- Share supervision bootstrap across cloned `Core` handles so `Register` sees the same provider pool as `start()`.

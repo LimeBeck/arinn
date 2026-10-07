@@ -53,6 +53,7 @@ private slots:
       QStringLiteral("Names Private.desktop(Secret) (x:PrivateTitle) key=(Private)"),
       QStringLiteral("Hidden .PrivateTitle ..Private and abcdefghijklmnopqrstuvwxyzabcdefgh:PrivateTitle"),
       QStringLiteral("Odd Private~Title Private*Title Private+Title Private|Title Private$Title"),
+      QStringLiteral("Mixed Private\u00e9Title Caf\u00e9Private Private\U0001F600Title Private\u0001Title"),
     };
     for (const auto &fixture : fixtures) {
       const auto shape = ArinnTelemetry::qtTemplate(none, fixture);

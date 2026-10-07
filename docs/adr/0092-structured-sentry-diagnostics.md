@@ -78,7 +78,7 @@ template:
   - `file:` URLs and absolute paths never produce a location.
 - **`qt.category`.** The Qt logging category (`[A-Za-z0-9_.-]`, up to 64 characters), except `default`.
 - **Exception value: the template.** The message after these replacements, in order:
-  1. non-ASCII or control text becomes `<text>`;
+  1. any token holding non-ASCII or control text becomes `<text>` as a whole;
   2. quoted text (closed or not) becomes `<str>`;
   3. any `scheme:value` token, hierarchical or opaque and with a scheme of any length (`urn:`, `mailto:`, `x:`), becomes `<url>`; a C++ scope such as `QQuickItem::stackAfter` is kept;
   4. any token containing a slash or backslash becomes `<path>`, whatever character precedes it;

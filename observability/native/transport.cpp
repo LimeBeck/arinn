@@ -67,16 +67,6 @@ QJsonObject event(const QJsonObject &original) {
   if (ArinnTelemetry::safeCategory(category.constData()))
     cleanTags.insert("qt.category", QString::fromLatin1(category));
   clean.insert("tags", cleanTags);
-  const auto print = original.value("fingerprint").toArray();
-  if (print.size() == 4) {
-    QJsonArray cleanPrint;
-    for (const auto &part : print) {
-      const auto text = part.toString().toLatin1();
-      if (!ArinnTelemetry::safeTemplateText(text.constData()) && !ArinnTelemetry::safeLocation(text.constData())) break;
-      cleanPrint.append(QString::fromLatin1(text));
-    }
-    if (cleanPrint.size() == 4) clean.insert("fingerprint", cleanPrint);
-  }
   QJsonArray exceptions;
   for (auto value : original.value("exception").toObject().value("values").toArray()) {
     if (exceptions.size() == 4) break;
@@ -84,15 +74,22 @@ QJsonObject event(const QJsonObject &original) {
     auto name = source.value("type").toString();
     if (name != "SIGSEGV" && name != "SIGABRT" && name != "SIGBUS" && name != "SIGILL" && name != "SIGFPE" &&
         name != "QtWarning" && name != "QtCritical" && name != "QtFatal") name = "NativeError";
-    // Non-Latin-1 text becomes '?', which the template check rejects.
-    const auto text = source.value("value").toString().toLatin1();
+    // A raw or cached envelope may claim to be a Qt message: template its
+    // text again here instead of trusting that it already was one.
     const bool qt = name.startsWith("Qt");
+    const auto text = qt ? ArinnTelemetry::scrubTemplate(source.value("value").toString()) : QByteArray();
     QJsonObject exception{{"type", name}, {"value", qt && ArinnTelemetry::safeTemplateText(text.constData())
       ? QString::fromLatin1(text) : QStringLiteral("Technical failure; private message omitted")}};
     if (source.contains("stacktrace")) exception.insert("stacktrace", frames(source.value("stacktrace").toObject()));
     exceptions.append(exception);
   }
   if (!exceptions.isEmpty()) clean.insert("exception", QJsonObject{{"values", exceptions}});
+  // Grouping is rebuilt from the clean fields, never copied from the payload.
+  const auto first = exceptions.isEmpty() ? QJsonObject() : exceptions.first().toObject();
+  if (first.value("type").toString().startsWith("Qt")) {
+    clean.insert("fingerprint", QJsonArray{"arinn-shell", first.value("type"),
+      cleanTags.value("qt.location").toString(QStringLiteral("unknown.location")), first.value("value")});
+  }
   if (original.contains("stacktrace")) clean.insert("stacktrace", frames(original.value("stacktrace").toObject()));
   QJsonArray crumbs;
   for (auto value : original.value("breadcrumbs").toArray()) {

@@ -1268,3 +1268,30 @@ fn playback_failures_name_their_platform_reason() {
         assert!(named.is_none_or(|r| crate::telemetry::REASONS.contains(&r)));
     }
 }
+
+#[tokio::test]
+async fn losing_a_provider_chosen_after_admission_finishes_the_operation() {
+    // A URL open is admitted without a provider and picks its browser later.
+    let f = Fixture::new().await;
+    let caller = f.client.unique_name().unwrap().to_string();
+    let (_, op, _) = f
+        .core
+        .operations
+        .admit(
+            &f.core.connection,
+            &caller,
+            &rid(),
+            "chosen-late",
+            "",
+            Label::new("browse.open"),
+        )
+        .await
+        .unwrap();
+    op.provider("mpv", "media", "mpv");
+    f.core
+        .operations
+        .invalidate(&f.core.connection, Some("mpv"), None)
+        .await;
+    assert_eq!(op.value.lock().await.state, "failed");
+    assert_eq!(op.value.lock().await.error, "Unavailable");
+}

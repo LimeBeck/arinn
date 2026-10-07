@@ -1041,7 +1041,7 @@ impl Core {
                         && !p.owner.is_empty()
                 })
                 .ok_or(ErrorCode::Unavailable)?;
-            op.provider(p.capability(), &p.info.plugin_id);
+            op.provider(id, p.capability(), &p.info.plugin_id);
             (
                 id.clone(),
                 p.owner.clone(),

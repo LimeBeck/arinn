@@ -21,6 +21,9 @@ struct QtTemplate {
   bool benign = false; // Known noise: counted, never sent as an event.
 };
 QtTemplate qtTemplate(const QMessageLogContext &context, const QString &message);
+// The text rules of qtTemplate alone, for a value of unknown origin. Returns a
+// template that passes safeTemplateText, or "Qt message".
+QByteArray scrubTemplate(const QString &text);
 // Crash-safe checks shared by the SDK callback and the transport filter.
 bool safeTemplateText(const char *text);
 bool safeLocation(const char *text);

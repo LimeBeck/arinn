@@ -51,19 +51,6 @@ sentry_value_t sanitize(sentry_value_t event, sentry_hint_t *, void *) {
   const char *category = sentry_value_as_string(sentry_value_get_by_key(originalTags, "qt.category"));
   if (ArinnTelemetry::safeCategory(category)) sentry_value_set_by_key(tags, "qt.category", sentry_value_new_string(category));
   sentry_value_set_by_key(clean, "tags", tags);
-  // Grouping: component, type, location and template, each checked again.
-  auto print = sentry_value_get_by_key(event, "fingerprint");
-  if (sentry_value_get_length(print) == 4) {
-    auto cleanPrint = sentry_value_new_list();
-    bool safe = true;
-    for (size_t i = 0; i < 4; ++i) {
-      const char *part = sentry_value_as_string(sentry_value_get_by_index(print, i));
-      safe = safe && (ArinnTelemetry::safeTemplateText(part) || ArinnTelemetry::safeLocation(part));
-      if (safe) sentry_value_append(cleanPrint, sentry_value_new_string(part));
-    }
-    if (safe) sentry_value_set_by_key(clean, "fingerprint", cleanPrint);
-    else sentry_value_decref(cleanPrint);
-  }
   sentry_value_set_by_key(clean, "logger", sentry_value_new_string("arinn-shell"));
   sentry_value_set_by_key(clean, "message", sentry_value_new_string("Native technical diagnostic"));
   auto original = sentry_value_get_by_key(sentry_value_get_by_key(event, "exception"), "values");
@@ -86,6 +73,19 @@ sentry_value_t sanitize(sentry_value_t event, sentry_hint_t *, void *) {
     if (!sentry_value_is_null(stack))
       sentry_value_set_by_key(exception, "stacktrace", safeFrames(stack));
     sentry_value_append(exceptions, exception);
+  }
+  // Grouping is rebuilt from the clean fields (type, location, template),
+  // never copied from the payload.
+  auto first = sentry_value_get_by_index(exceptions, 0);
+  const char *firstType = sentry_value_as_string(sentry_value_get_by_key(first, "type"));
+  const char *firstValue = sentry_value_as_string(sentry_value_get_by_key(first, "value"));
+  if (firstType && std::strncmp(firstType, "Qt", 2) == 0 && ArinnTelemetry::safeTemplateText(firstValue)) {
+    auto print = sentry_value_new_list();
+    sentry_value_append(print, sentry_value_new_string("arinn-shell"));
+    sentry_value_append(print, sentry_value_new_string(firstType));
+    sentry_value_append(print, sentry_value_new_string(ArinnTelemetry::safeLocation(location) ? location : "unknown.location"));
+    sentry_value_append(print, sentry_value_new_string(firstValue));
+    sentry_value_set_by_key(clean, "fingerprint", print);
   }
   if (sentry_value_get_length(exceptions)) {
     auto wrapper = sentry_value_new_object();

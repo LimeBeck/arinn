@@ -48,6 +48,9 @@ impl Label {
 #[derive(Default)]
 struct Trace {
     label: Label,
+    /// Provider instance chosen after admission (a URL open picks its browser
+    /// late), so provider loss still finishes the operation.
+    chosen: String,
     phases: Vec<Phase>,
     /// Steps still running, closed as cut short if the operation ends first.
     open: Vec<(u64, Phase)>,
@@ -92,12 +95,17 @@ impl Operation {
     pub fn kind(&self) -> &'static str {
         self.kind
     }
-    /// Names the provider once the operation has chosen one.
-    pub fn provider(&self, capability: &str, plugin: &str) {
+    /// Names the provider instance once the operation has chosen one, for
+    /// diagnostics and for invalidation when that provider goes away.
+    pub fn provider(&self, id: &str, capability: &str, plugin: &str) {
         if let Ok(mut trace) = self.trace.lock() {
             let label = std::mem::take(&mut trace.label);
             trace.label = label.provider(capability, plugin);
+            trace.chosen = id.into();
         }
+    }
+    fn chosen(&self, id: &str) -> bool {
+        self.trace.lock().is_ok_and(|trace| trace.chosen == id)
     }
     /// Times one step. `op` is a `telemetry::SPAN_OPS` entry and `name` a
     /// `telemetry::KINDS` or `telemetry::SPAN_NAMES` entry.
@@ -393,10 +401,10 @@ impl Operations {
     pub async fn invalidate(&self, c: &Connection, provider: Option<&str>, caller: Option<&str>) {
         let entries = self.entries.lock().await;
         for entry in entries.values() {
-            if provider.is_some_and(|id| id == entry.provider)
-                || caller.is_some_and(|id| id == entry.operation.caller)
-            {
-                if provider.is_some_and(|id| id == entry.provider) {
+            let lost =
+                provider.is_some_and(|id| id == entry.provider || entry.operation.chosen(id));
+            if lost || caller.is_some_and(|id| id == entry.operation.caller) {
+                if lost {
                     entry.operation.reason("provider_changed");
                 }
                 entry

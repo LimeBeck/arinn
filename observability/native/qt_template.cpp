@@ -30,8 +30,9 @@ QByteArray sourceName(const QString &source, bool fromContext) {
 QString scrub(QString text) {
   struct Rule { QRegularExpression pattern; QString replacement; };
   static const Rule rules[] = {
-    // Non-printable or non-ASCII text (titles in any script, control characters).
-    {QRegularExpression(QStringLiteral("[^\\x20-\\x7E]+(?:\\s+[^\\x20-\\x7E]+)*")), QStringLiteral(" <text> ")},
+    // Any token holding non-printable or non-ASCII text (titles in any script,
+    // accented names, emoji, control characters) is replaced whole.
+    {QRegularExpression(QStringLiteral("\\S*[^\\x20-\\x7E\\s]\\S*(?:\\s+\\S*[^\\x20-\\x7E\\s]\\S*)*")), QStringLiteral(" <text> ")},
     // Quoted text, closed or not: titles, names, property values.
     {QRegularExpression(QStringLiteral("\"[^\"]*\"?|'[^']*'?|`[^`]*`?")), QStringLiteral("<str>")},
     // URLs of any scheme, hierarchical or opaque (qrc:, file:, data:, magnet:, urn:),
@@ -110,6 +111,11 @@ QtTemplate qtTemplate(const QMessageLogContext &context, const QString &message)
   out.text = scrub(text).toLatin1();
   if (!safeTemplateText(out.text.constData())) out.text = "Qt message";
   return out;
+}
+QByteArray scrubTemplate(const QString &text) {
+  QMutexLocker lock(&templateLock);
+  auto out = scrub(text.left(4096)).toLatin1();
+  return safeTemplateText(out.constData()) ? out : QByteArrayLiteral("Qt message");
 }
 // No allocation or locale access: also called from the native crash callback.
 bool safeTemplateText(const char *text) {

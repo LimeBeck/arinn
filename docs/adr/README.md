@@ -109,4 +109,5 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0089](0089-daemon-provider-supervisor-without-a-systemd-user-manager.md) | Daemon provider supervisor without a systemd user manager | Accepted | — |
 | [0090](0090-rewatch-clears-completion.md) | Launching a completed item is a rewatch | Accepted | — |
 | [0091](0091-debian-package-ci-artifact.md) | Debian package CI artifact | Accepted | — |
+| [0094](0094-configurable-global-home-keys.md) | Configurable global Home keys | Accepted | — |
 <!-- register:end -->

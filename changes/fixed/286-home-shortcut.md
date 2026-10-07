@@ -1,0 +1,1 @@
+- Apply `home_shortcut` from `config.toml` to the global Home key on KDE and in the X11/EWMH adapter; editing it previously had no effect. The remote's Home (HomePage) key now also opens Home ([ADR-0094](docs/adr/0094-configurable-global-home-keys.md), [#286](https://github.com/LimeBeck/arinn/issues/286)).

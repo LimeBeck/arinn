@@ -78,8 +78,10 @@ initial backend does not implement RandR output placement.
 
 ## Home, Return and video
 
-Meta+F12 uses a passive root key grab, including Caps/Num/Scroll lock modifier
-combinations. The shortcut derives Super modifiers from the keyboard/modifier
+Global Home uses passive root key grabs for `home_shortcut` (read only from
+`config.toml`, default Meta+F12) and XF86HomePage ([ADR-0094](../adr/0094-configurable-global-home-keys.md)),
+including Caps/Num/Scroll lock modifier
+combinations. A sequence whose key or modifier is not mapped is skipped. Meta derives Super modifiers from the keyboard/modifier
 mapping, falling back to native Meta only if no mapped Super exists; it does not
 assume Mod4. Keyboard/modifier mapping changes rebuild the grabs. An existing grab
 conflict makes the backend unavailable. Home snapshots the exact opaque target

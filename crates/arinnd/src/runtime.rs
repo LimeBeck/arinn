@@ -1556,10 +1556,25 @@ impl Daemon {
         accepted
     }
     async fn take_command(&self, #[zbus(header)] h: Header<'_>) -> production::Result<String> {
-        self.core
-            .platform
-            .take_command(&self.core.connection, h)
-            .await
+        let fresh = self.core.platform.poll(&self.core.connection, &h).await?;
+        if fresh && crate::platform::adapter_service() == Some("org.kde.KWin") {
+            // The KWin script has registered its Home action by its first
+            // poll; write the configured keys to it (#286).
+            let connection = self.core.connection.clone();
+            let path = self.core.paths.config.clone();
+            tokio::spawn(async move {
+                let configured = tokio::task::spawn_blocking(move || Config::load(&path))
+                    .await
+                    .ok()
+                    .and_then(Result::ok)
+                    .map_or_else(
+                        || crate::key_sequence::DEFAULT_HOME.to_owned(),
+                        |config| config.home_shortcut,
+                    );
+                crate::global_home::apply(&connection, &configured).await;
+            });
+        }
+        Ok(self.core.platform.next_command().await)
     }
     async fn report_home(
         &self,

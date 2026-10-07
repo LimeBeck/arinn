@@ -86,7 +86,7 @@ sanitizers drop any other value. The lists live in `crates/arinnd/src/telemetry.
 | `plugin` | Manifest plugin id matching `[a-z0-9][a-z0-9._-]{0,63}`; never the provider instance id |
 | `outcome` | `succeeded`, `failed` |
 | `error` | `NotFound`, `Unavailable`, `Unsupported`, `PermissionDenied`, `Timeout`, `InvalidArgument`, `Conflict`, `Internal`, `Cancelled` |
-| `reason` | `provider_changed` (owner or generation changed during the operation), `platform_timeout` (no platform answer within 5 s), `platform_channel_closed` (the platform dropped the request) |
+| `reason` | `provider_changed` (owner or generation changed during the operation), `platform_timeout` (no platform answer within 5 s), `platform_channel_closed` (the platform dropped the request); for managed playback also `platform_not_polling`, `platform_window_missing`, `launch_mismatch`, `session_locked` and `platform_cancelled` ([managed playback diagnostics](managed-playback.md#diagnostics)) |
 | `operation` | Lifecycle: `startup`, `ready`, `shutdown`, `seed-web-shortcuts`, `operation.complete` |
 
 Metric attributes are `kind`, `outcome` and `error` only; operation counts and durations carry all three, error counts carry `kind` and `error`.

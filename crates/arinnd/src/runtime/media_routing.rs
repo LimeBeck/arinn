@@ -799,10 +799,32 @@ impl Core {
         {
             return Ok(path);
         }
+        let kind = if present {
+            "media.present"
+        } else {
+            "media.release"
+        };
+        let rejected = |error: ErrorCode, reason: &'static str| {
+            log_rejection(id, request_id, kind, error, reason);
+            error
+        };
         let owner = self
             .media_target(id, generation, session, media_window::FEATURE)
-            .await?;
-        self.windows.media_supported(&self.connection).await?;
+            .await
+            .map_err(|e| rejected(e, "session_unavailable"))?;
+        self.windows
+            .media_supported(&self.connection)
+            .await
+            .map_err(|e| {
+                rejected(
+                    e,
+                    if e == ErrorCode::Unsupported {
+                        "media_channel_absent"
+                    } else {
+                        "platform_unavailable"
+                    },
+                )
+            })?;
         let (launch, window) = if present {
             {
                 let state = self.state.lock().await;
@@ -821,21 +843,23 @@ impl Core {
                 self.playback_window(id, generation, session),
             )
             .await
-            .map_err(|_| ErrorCode::Timeout)??;
+            .map_err(|_| rejected(ErrorCode::Timeout, "window_lookup_timeout"))?
+            .map_err(|e| rejected(e, "window_lookup_failed"))?;
             if resolved_owner != owner {
-                return Err(ErrorCode::Conflict);
+                return Err(rejected(ErrorCode::Conflict, "owner_changed"));
             }
-            (
-                launch,
-                Some(windows.into_iter().next().ok_or(ErrorCode::NotFound)?),
-            )
+            let window = windows
+                .into_iter()
+                .next()
+                .ok_or_else(|| rejected(ErrorCode::NotFound, "no_matching_window"))?;
+            (launch, Some(window))
         } else {
             (String::new(), None)
         };
         let state = self.state.lock().await;
         let p = state.providers.get(id).ok_or(ErrorCode::NotFound)?;
         if p.owner != owner || p.info.generation != generation {
-            return Err(ErrorCode::Conflict);
+            return Err(rejected(ErrorCode::Conflict, "generation_changed"));
         }
         if present {
             checked_media_target(p, generation, session, media_window::FEATURE)?;
@@ -934,6 +958,12 @@ impl Core {
                 Ok(None) => Ok(()),
                 Err(error) => Err(error),
             };
+            if let Err(error) = result {
+                let poller_live = core.windows.media_poller_live().await;
+                if let Some(reason) = playback_failure_reason(error, poller_live) {
+                    op.reason(reason);
+                }
+            }
             let state = core.state.lock().await;
             let valid = state.providers.get(&id).is_some_and(|p| {
                 p.owner == owner
@@ -961,6 +991,32 @@ impl Core {
             .await;
         });
         Ok(path)
+    }
+}
+/// Logs why a playback window command was refused before it became an
+/// operation (#369). Fixed fields only: no title, URL, path or window identity.
+fn log_rejection(
+    provider_id: &str,
+    request_id: &str,
+    kind: &'static str,
+    error: ErrorCode,
+    reason: &'static str,
+) {
+    eprintln!(
+        "{}",
+        serde_json::json!({"level":"info","component":"arinnd","provider_id":provider_id,"request_id":request_id,"operation":"rejected","kind":kind,"error":error.to_string(),"reason":reason})
+    );
+}
+/// The normalized reason of a failed Present or Release, from the platform
+/// adapter's answer and whether it is still polling the media channel.
+pub(super) fn playback_failure_reason(error: ErrorCode, poller_live: bool) -> Option<&'static str> {
+    match error {
+        ErrorCode::Timeout if !poller_live => Some("platform_not_polling"),
+        ErrorCode::NotFound => Some("platform_window_missing"),
+        ErrorCode::Conflict => Some("launch_mismatch"),
+        ErrorCode::PermissionDenied => Some("session_locked"),
+        ErrorCode::Cancelled => Some("platform_cancelled"),
+        _ => None,
     }
 }
 #[zbus::interface(name = "org.arinn.MediaWindow1")]

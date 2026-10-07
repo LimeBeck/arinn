@@ -37,6 +37,16 @@ watchdog.interval = 1000;
 watchdog.timeout.connect(checkDaemon);
 watchdog.start();
 function rpc(method, ...args) { callDBus(service, path, service, method, ...args); }
+// Diagnostics (#369): fixed event and reason names only, never titles, window
+// classes, tokens or launch IDs. Each event and reason prints at most once per
+// ten seconds so a stuck state cannot flood the journal.
+const diagnosedAt = new Map();
+function diagnose(level, event, fields) {
+    const key = event + ":" + (fields.reason || ""), now = Date.now();
+    if (diagnosedAt.has(key) && now - diagnosedAt.get(key) < 10000) return;
+    diagnosedAt.set(key, now);
+    print(JSON.stringify(Object.assign({ level, component: "arinn-kwin", event }, fields)));
+}
 function id(w) { return w ? w.internalId.toString() : ""; }
 function isShell(w) { return w && (w.desktopFileName === "org.arinn.Shell" || w.resourceClass === "org.arinn.Shell"); }
 function shell() { return workspace.windowList().find(isShell); }
@@ -60,6 +70,7 @@ function discoverReturn(owner) {
         if (owner !== daemonOwner) return;
         returnSupported = typeof xml === "string" && /<interface\s+name=["']org\.arinn\.KWinReturn1["']/.test(xml);
         mediaSupported = typeof xml === "string" && /<interface\s+name=["']org\.arinn\.KWinMedia1["']/.test(xml);
+        diagnose("info", "media.channel", { outcome: mediaSupported ? "attached" : "absent" });
         publishMedia();
         pollMediaControl();
         publishReturn();
@@ -468,7 +479,11 @@ function savedFlags(w, names) {
 function restoreFlags(w, values) { for (const name of Object.keys(values)) w[name] = values[name]; }
 function presentPlayback(w) {
     const home = shell();
-    if (!home || !applicationWindow(w) || !launchId(w)) throw new Error("unavailable");
+    const reason = !home ? "no_shell_window" : !applicationWindow(w) ? "not_application_window" : !launchId(w) ? "no_launch_id" : "";
+    if (reason) {
+        diagnose("debug", "media.present", { outcome: "unavailable", reason });
+        throw new Error("unavailable");
+    }
     if (closing) releasePlayback(false);
     if (playback && playback.window !== w) releasePlayback(false);
     if (!playback) playback = { window: w, shell: home, launch: launchId(w),
@@ -565,6 +580,12 @@ function pollMediaControl() {
         const command = stringList(reply);
         if (!command || command.some(part => typeof part !== "string") || (command.length !== 0 && (command.length !== 3 || !["present", "release"].includes(command[1])))) { mediaControllingAt = 0; return; }
         if (!command.length) { mediaControllingAt = 0; return; }
+        // The daemon long-polls for up to a second before it hands over a
+        // command. Freshness counts from receipt, and the stale-poll reset must
+        // not drop a command this script now owns: the daemon would wait for
+        // its completion until the operation times out (#369).
+        const received = Date.now();
+        mediaControllingAt = received;
         function complete(error) {
             if (inventory !== inventorySerial || owner !== daemonOwner) return;
             const completionSerial = mediaSerial;
@@ -574,9 +595,11 @@ function pollMediaControl() {
             });
         }
         callDBus("org.freedesktop.ScreenSaver", "/ScreenSaver", "org.freedesktop.ScreenSaver", "GetActive", locked => {
-            if (serial !== mediaSerial || inventory !== inventorySerial || owner !== daemonOwner) return;
-            if (Date.now() - now >= 1000) { complete("Timeout"); return; }
-            if (locked !== false) { releasePlayback(false); complete("PermissionDenied"); return; }
+            if (inventory !== inventorySerial || owner !== daemonOwner) return;
+            // Playback changed while the lock check ran: answer, never drop.
+            if (serial !== mediaSerial) { diagnose("debug", "media." + command[1], { outcome: "cancelled", reason: "playback_changed" }); complete("Cancelled"); return; }
+            if (Date.now() - received >= 1000) { diagnose("debug", "media." + command[1], { outcome: "timeout", reason: "lock_check_late" }); complete("Timeout"); return; }
+            if (locked !== false) { diagnose("debug", "media." + command[1], { outcome: "denied", reason: "session_locked" }); releasePlayback(false); complete("PermissionDenied"); return; }
             try {
                 if (command[1] === "release") {
                     const token = playback ? windowTokens.get(playback.window) || "" : "";
@@ -584,7 +607,11 @@ function pollMediaControl() {
                     releasePlayback(true);
                 } else {
                     const w = workspace.windowList().find(w => applicationWindow(w) && windowTokens.get(w) === command[2]);
-                    if (!w || !launchId(w)) { complete("NotFound"); return; }
+                    if (!w || !launchId(w)) {
+                        diagnose("debug", "media.present", { outcome: "not_found", reason: w ? "no_launch_id" : "no_matching_window" });
+                        complete("NotFound");
+                        return;
+                    }
                     presentPlayback(w);
                     reportHome(false);
                 }

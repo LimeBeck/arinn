@@ -1251,3 +1251,20 @@ fn every_media_command_has_a_listed_telemetry_kind() {
         );
     }
 }
+
+#[test]
+fn playback_failures_name_their_platform_reason() {
+    for (error, live, reason) in [
+        (ErrorCode::Timeout, false, Some("platform_not_polling")),
+        (ErrorCode::Timeout, true, None),
+        (ErrorCode::NotFound, true, Some("platform_window_missing")),
+        (ErrorCode::Conflict, true, Some("launch_mismatch")),
+        (ErrorCode::PermissionDenied, true, Some("session_locked")),
+        (ErrorCode::Cancelled, true, Some("platform_cancelled")),
+        (ErrorCode::Unavailable, true, None),
+    ] {
+        let named = playback_failure_reason(error, live);
+        assert_eq!(named, reason, "{error:?} live={live}");
+        assert!(named.is_none_or(|r| crate::telemetry::REASONS.contains(&r)));
+    }
+}

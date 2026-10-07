@@ -942,6 +942,8 @@ struct MediaControl {
 struct MediaState {
     supported: bool,
     polling: bool,
+    /// When the adapter last asked for a media command (#369 diagnostics).
+    polled: Option<Instant>,
     reports: HashMap<String, String>,
     queued: VecDeque<MediaControl>,
     pending: Option<MediaControl>,
@@ -1151,6 +1153,16 @@ impl Windows {
                 }]
             })
             .unwrap_or_default())
+    }
+    /// Whether the adapter is polling the media channel: a poll is waiting
+    /// now, or one started within the last three seconds. The adapter polls
+    /// about once a second, so a longer silence means a stale channel.
+    pub async fn media_poller_live(&self) -> bool {
+        let s = self.state.lock().await;
+        s.media.polling
+            || s.media
+                .polled
+                .is_some_and(|t| t.elapsed() < Duration::from_secs(3))
     }
     pub async fn media_supported(&self, c: &Connection) -> Result<(), ErrorCode> {
         let current = owner(c).await?;
@@ -1371,6 +1383,7 @@ impl MediaBridge {
             s.live(&current)?;
             s.prune();
             s.media.supported = true;
+            s.media.polled = Some(Instant::now());
             if let Some(record) = take_media_control(&mut s) {
                 return Ok(record);
             }
@@ -1487,6 +1500,21 @@ mod media_lifetime_tests {
         tokio::time::timeout(Duration::from_millis(100), windows.media_changed())
             .await
             .expect("second invalidation must be retained");
+    }
+    #[tokio::test]
+    async fn a_silent_media_poller_is_reported_stale() {
+        let windows = Windows::default();
+        assert!(!windows.media_poller_live().await, "never polled");
+        windows.state.lock().await.media.polled = Some(Instant::now());
+        assert!(windows.media_poller_live().await);
+        windows.state.lock().await.media.polled =
+            Instant::now().checked_sub(Duration::from_secs(4));
+        assert!(
+            !windows.media_poller_live().await,
+            "silent for four seconds"
+        );
+        windows.state.lock().await.media.polling = true;
+        assert!(windows.media_poller_live().await, "a poll is waiting now");
     }
     fn scope() -> Scope {
         Scope {

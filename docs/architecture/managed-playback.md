@@ -141,6 +141,52 @@ Provider polling invalidates media-window consumers only when the imported revis
 
 Removing negotiated MediaWindow1 support invalidates pending and active presentation like an unavailable backend, retaining exact bounded compositor cleanup without a transport Stop.
 
+## Diagnostics
+
+[#369](https://github.com/LimeBeck/arinn/issues/369). Every line below holds fixed names only: no title, URL, path, window class, token or launch ID (specification §13).
+
+**KWin adapter (`phase0.js`).** The adapter prints one JSON line per event and reason at most once every ten seconds. Each line has `level`, `component: "arinn-kwin"`, `event` and these fields:
+
+| Event | `outcome` | `reason` |
+| --- | --- | --- |
+| `media.channel` (an introspection result for a new daemon owner) | `attached`, `absent` | — |
+| `media.present` | `unavailable` | `no_shell_window`, `not_application_window`, `no_launch_id` |
+| `media.present` | `not_found` | `no_matching_window`, `no_launch_id` |
+| `media.present`, `media.release` | `timeout` | `lock_check_late` |
+| `media.present`, `media.release` | `denied` | `session_locked` |
+| `media.present`, `media.release` | `cancelled` | `playback_changed` |
+
+Command freshness counts from the moment the daemon hands a command over, not from the start of the long poll. Before #369, a Present handed over late in the daemon's one-second poll was rejected as `Timeout`. If the lock check was slow, the stale-poll reset dropped it silently, so the daemon waited five seconds and mpv stayed a decorated window. A command the adapter has received is now always answered, with `Cancelled` if playback changed meanwhile.
+
+**Daemon (`arinnd`).** An operation completion line carries `kind` (`media.present`, `media.release`) and, on failure, a `reason` from `telemetry::REASONS`:
+
+| Reason | Meaning |
+| --- | --- |
+| `platform_timeout` | The adapter did not answer within five seconds. |
+| `platform_not_polling` | The same, and the adapter has not polled the media channel for three seconds: a stale or absent channel. |
+| `platform_channel_closed` | The platform dropped the request, for example on an adapter reset. |
+| `platform_window_missing` | The adapter or inventory no longer has the window. |
+| `launch_mismatch` | The window now reports another launch ID. |
+| `session_locked` | The session is locked. |
+| `platform_cancelled` | Playback changed while the adapter checked the lock. |
+| `provider_changed` | The provider owner or generation changed. |
+
+A Present or Release refused before it becomes an operation logs `"operation":"rejected"` with `kind`, `error` and one of these reasons:
+- `session_unavailable`;
+- `media_channel_absent`;
+- `platform_unavailable`;
+- `window_lookup_timeout`;
+- `window_lookup_failed`;
+- `owner_changed`;
+- `no_matching_window`;
+- `generation_changed`.
+
+**Shell.** `Main.qml` prints one info line, `arinn-shell media surface {…}`, in two cases:
+- It opens the session card instead of the player: `surface: "session"`, reason `no_player_features` or `session_not_ready`.
+- A presentation fails: `surface: "home"`, reason `presentation_failed`.
+
+The line also includes `presentationState`, `sessionState`, `inputLayer` and `windowAvailable`.
+
 ## Optional KDE/X11 mode
 
 [KDE/X11](kde-x11.md) retains the same media-window contract and input-layer

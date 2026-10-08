@@ -852,6 +852,39 @@ test('a delayed Release is fenced while the newer Present still checks the lock'
     assert.equal(f.home.keepAbove, true);
     assert.equal(f.report()[0], false);
 });
+test('a Release delayed from the poll active at Return does not undo the Return', () => {
+    const {f, token} = managedFixture();
+    f.media('present', token); f.refresh();
+    const activePoll = f.mediaControls.at(-1);
+    f.show();
+    assert.equal(f.report()[0], true, 'Home over playback');
+    f.back();
+    assert.equal(f.report()[0], false, 'Return re-presented playback');
+    const request = randomUUID();
+    activePoll([request, 'release', token]);
+    assert.deepEqual(f.mediaAcks.at(-1).slice(1), [request, 'Cancelled']);
+    assert.equal(f.report()[0], false, 'the returned playback stays');
+    assert.equal(f.home.keepAbove, true);
+});
+test('two commands received in the same millisecond own the poll slot separately', () => {
+    const {f, token} = managedFixture();
+    f.media('present', token); f.refresh();
+    const oldReleasePoll = f.mediaControls.at(-1);
+    f.advance(1600); f.controls.at(-1)([]); f.refresh();
+    f.advance(4000); f.controls.at(-1)([]); f.refresh();
+    f.deferLock();
+    f.mediaControls.at(-1)([randomUUID(), 'present', token]);
+    oldReleasePoll([randomUUID(), 'release', token]);
+    const [presentLock, releaseLock] = f.lockReplies.slice(-2);
+    // The fenced Release answers first; the Present still owns the slot.
+    releaseLock(false);
+    const polls = f.mediaPolls.count;
+    f.controls.at(-1)([]); f.advance(100); f.refresh();
+    assert.equal(f.mediaPolls.count, polls, 'no poll while the Present checks the lock');
+    presentLock(false);
+    assert.equal(f.mediaAcks.at(-1)[2], '');
+    assert.equal(f.home.keepAbove, true);
+});
 test('a Release from a poll started before the Present was applied still releases', () => {
     const {f, token} = managedFixture();
     // The Present arrives on a poll the stale-poll reset already replaced, so

@@ -25,10 +25,15 @@ let playbackGuardAt = 0, playbackGuardSerial = 0;
 let mediaSerial = 0, mediaPollSerial = 0;
 // Every media poll gets the next sequence number. presentedFrom is the
 // sequence of the poll that delivered the latest Present (counted when it is
-// received), or of the newest poll at a re-presentation without a command. A Release from an older poll
+// received), or a number above every started poll at a re-presentation
+// without a command. A Release from an older poll
 // was delayed past that newer intent and must not tear it down.
 let pollSequence = 0, presentedFrom = 0;
 let mediaControllingAt = 0;
+// Received media commands not yet answered, and the poll serial of the latest
+// receipt: the slot is free again only when every received command has been
+// answered and no newer poll has started since.
+let mediaCommands = 0, mediaSlot = 0;
 let mediaReportingAt = 0;
 let lastMediaReport = "";
 let playback = null;
@@ -170,7 +175,9 @@ function returnToActivity() {
             if (locked !== false || owner !== daemonOwner || serial !== mediaSerial || playback !== saved || home !== homeSerial || !homeVisible || Date.now() - at >= 1000) return;
             if (!workspace.windowList().includes(w) || launchId(w) !== saved.launch) return;
             presentPlayback(w);
-            presentedFrom = pollSequence;
+            // Newer than every poll already started: a Release one of them
+            // still delivers predates this Return.
+            presentedFrom = ++pollSequence;
             reportHome(false);
         });
     } else { handOff(w); reportHome(false); }
@@ -301,6 +308,7 @@ function resetInventory() {
     releasePlayback(false);
     ++mediaSerial;
     mediaControllingAt = mediaReportingAt = 0;
+    mediaCommands = 0;
     lastMediaReport = "";
     ++inventorySerial;
     lastReturnReport = "";
@@ -585,7 +593,7 @@ function pollMediaControl() {
     if (!mediaSupported || !platformGeneration) return;
     const now = Date.now();
     if (mediaReportingAt && now - mediaReportingAt > 3000) { mediaReportingAt = 0; lastMediaReport = ""; }
-    if (mediaControllingAt && now - mediaControllingAt > 1500) { ++mediaPollSerial; mediaControllingAt = 0; }
+    if (mediaControllingAt && now - mediaControllingAt > 1500) { ++mediaPollSerial; mediaControllingAt = 0; mediaCommands = 0; }
     if (mediaControllingAt) return;
     const serial = mediaSerial, poll = ++mediaPollSerial, sequence = ++pollSequence, inventory = inventorySerial, generation = platformGeneration, owner = daemonOwner;
     mediaControllingAt = now;
@@ -624,8 +632,11 @@ function pollMediaControl() {
             return;
         }
         // A command from a poll the stale-poll reset already replaced is still
-        // presented; it takes the slot so the newer poll cannot free it.
-        ++mediaPollSerial;
+        // presented; it takes the slot so the newer poll cannot free it. The
+        // slot is held by a count of unanswered commands, not by a receipt
+        // time, which two commands can share.
+        mediaSlot = ++mediaPollSerial;
+        ++mediaCommands;
         // A Present's intent counts from receipt, not from its lock check, so
         // an older delayed Release whose check finishes first is still fenced.
         if (command[1] === "present") presentedFrom = Math.max(presentedFrom, sequence);
@@ -636,11 +647,12 @@ function pollMediaControl() {
         function complete(error) {
             if (inventory !== inventorySerial || owner !== daemonOwner) return;
             const completionSerial = mediaSerial;
+            mediaCommands = Math.max(0, mediaCommands - 1);
             mediaBridge("CompleteControl", generation, command[0], error, () => {
                 if (completionSerial !== mediaSerial || inventory !== inventorySerial || owner !== daemonOwner) return;
-                // A stale-poll reset may have started a newer poll meanwhile:
-                // only the command that still owns the poll slot clears it.
-                if (mediaControllingAt === received) mediaControllingAt = 0;
+                // Another received command may still be checking the lock, or a
+                // stale-poll reset may have started a newer poll meanwhile.
+                if (mediaCommands === 0 && mediaPollSerial === mediaSlot) mediaControllingAt = 0;
                 publishInventory();
             });
         }

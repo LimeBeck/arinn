@@ -167,7 +167,9 @@ and a new or moved link waits; ties go by the link's sort order.
   with a newer revision clears its links until a reply at that revision. `HomeView`
   merges that entry into the current-service card, or shows it as the tab's
   card (`kind: "tab"`, which activates the tab). A link to a tab that is not
-  open is ignored. Play/pause media keys on such a card go to the session.
+  open is ignored. On such a card Play, Pause and the play/pause toggle key go
+  to the session as `play`, `pause` and `playPause`; a session without the
+  dedicated action gets the toggle only when it moves it the way asked.
 
 Tests:
 - the MPRIS and Chrome provider tests (the real host binary, with the test

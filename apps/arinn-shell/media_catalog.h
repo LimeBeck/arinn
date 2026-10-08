@@ -74,7 +74,9 @@ public:
   Q_INVOKABLE QVariantMap libraryContent(const QString &id) const;
   // Play/pause one session without selecting it: a Continue card linked to
   // a browser tab sends this to its media session (ADR-0096).
-  Q_INVOKABLE void playPauseSession(const QString &id);
+  // `play`, `pause` or `playPause` for the session `id`, without selecting
+  // it (a Home card linked to it, ADR-0096).
+  Q_INVOKABLE void sessionAction(const QString &id, const QString &action);
   bool playerSession() const;
   bool tracksAvailable() const;
   bool timelineAvailable() const;

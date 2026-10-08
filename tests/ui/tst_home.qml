@@ -609,7 +609,7 @@ TestCase {
     }
     // #359 (ADR-0096): a browser's media session and its tab are one card.
     SignalSpy { id: tabRequests; signalName: "tabRequested" }
-    SignalSpy { id: playPauses; signalName: "mediaPlayPauseRequested" }
+    SignalSpy { id: playPauses; signalName: "mediaActionRequested" }
     function test_linked_media_session_merges_into_its_tab() {
         tabRequests.target = home; tabRequests.clear();
         playPauses.target = home; playPauses.clear();
@@ -633,6 +633,8 @@ TestCase {
         keyClick(Qt.Key_MediaPlay);
         compare(playPauses.count, 1);
         compare(playPauses.signalArguments[0][0], "m");
+        // Play stays Play (Pause: test_linked_card_pause_key_stays_pause).
+        compare(playPauses.signalArguments[0][1], "play");
         keyClick(Qt.Key_Return);
         compare(serviceCard.count, 1);
         // Paused keeps the single card.
@@ -644,6 +646,20 @@ TestCase {
         keyClick(Qt.Key_MediaPlay);
         compare(playPauses.count, 1);
         tabRequests.target = null; playPauses.target = null;
+    }
+    function test_linked_card_pause_key_stays_pause() {
+        playPauses.target = home; playPauses.clear();
+        home.openServices = openTabs(2);
+        home.currentServiceId = "tab-1";
+        home.currentServiceTitle = "Page 1";
+        home.currentServiceSubtitle = "video.example · Return";
+        home.continueEntries = [{id: "m", title: "Same title", kind: "media", serviceId: "tab-1", running: true}];
+        child("entry-current-service").forceActiveFocus();
+        keyClick(Qt.Key_MediaPause);
+        compare(playPauses.count, 1);
+        compare(playPauses.signalArguments[0][0], "m");
+        compare(playPauses.signalArguments[0][1], "pause");
+        playPauses.target = null;
     }
     function test_linked_session_of_another_tab_is_that_tabs_card() {
         tabRequests.target = home; tabRequests.clear();

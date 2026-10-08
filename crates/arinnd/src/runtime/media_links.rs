@@ -340,27 +340,36 @@ impl Core {
             // Not every process is known yet, or a snapshot moved: make no new
             // link and move none. A held link stays only while its session
             // and its tab's window are current with the process it was
-            // established with.
+            // established with, and nothing already known breaks the
+            // uniqueness: no other session with that process, and no window
+            // of it in another browser provider.
             previous
                 .into_iter()
                 .filter(|h| {
                     let l = &h.link;
-                    sessions.iter().any(|s| {
-                        s.media_provider == l.media_provider
-                            && s.media_generation == l.media_generation
-                            && s.session == l.session
-                            && s.process == h.process
-                    }) && tabs.iter().any(|t| {
-                        t.browser_provider == l.browser_provider
-                            && t.browser_generation == l.browser_generation
-                            && t.tab == l.tab
-                            && windows.iter().any(|w| {
-                                w.browser_provider == t.browser_provider
-                                    && w.browser_generation == t.browser_generation
-                                    && w.window == t.window
-                                    && w.process == h.process
-                            })
-                    })
+                    sessions.iter().filter(|s| s.process == h.process).count() == 1
+                        && windows.iter().all(|w| {
+                            w.process != h.process
+                                || w.browser_provider == l.browser_provider
+                                    && w.browser_generation == l.browser_generation
+                        })
+                        && sessions.iter().any(|s| {
+                            s.media_provider == l.media_provider
+                                && s.media_generation == l.media_generation
+                                && s.session == l.session
+                                && s.process == h.process
+                        })
+                        && tabs.iter().any(|t| {
+                            t.browser_provider == l.browser_provider
+                                && t.browser_generation == l.browser_generation
+                                && t.tab == l.tab
+                                && windows.iter().any(|w| {
+                                    w.browser_provider == t.browser_provider
+                                        && w.browser_generation == t.browser_generation
+                                        && w.window == t.window
+                                        && w.process == h.process
+                                })
+                        })
                 })
                 .collect()
         };

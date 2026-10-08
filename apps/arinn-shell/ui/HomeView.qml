@@ -155,7 +155,8 @@ FocusScope {
     signal sessionRequested(string entryId)
     // A tab card of a linked browser media session (ADR-0096).
     signal tabRequested(string tabId)
-    signal mediaPlayPauseRequested(string sessionId)
+    // action: "play", "pause" or "playPause", as the key asked.
+    signal mediaActionRequested(string sessionId, string action)
     // Continue as shown: one activity (the service on screen, or the Return
     // activity) and at most four further entries, the open-services summary
     // first (spec §5.1, handoff 02, H-1).
@@ -488,8 +489,12 @@ FocusScope {
         if (event.key === Qt.Key_Home) { homeKey(); event.accepted = true; }
         else if ([Qt.Key_MediaTogglePlayPause, Qt.Key_MediaPlay, Qt.Key_MediaPause].includes(event.key)) {
             // Play/pause on a card linked to a media session goes to it.
+            // Dedicated Play and Pause keep their meaning; only the toggle
+            // key toggles.
             if (screen === "home" && !navOpen && heroEntry && heroEntry.mediaId) {
-                mediaPlayPauseRequested(heroEntry.mediaId);
+                const action = event.key === Qt.Key_MediaPlay ? "play"
+                             : event.key === Qt.Key_MediaPause ? "pause" : "playPause";
+                mediaActionRequested(heroEntry.mediaId, action);
                 event.accepted = true;
             }
         }

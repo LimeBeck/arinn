@@ -1508,9 +1508,30 @@ private slots:
     for (const auto &value : catalog.continueEntries())
       if (value.toMap().value(QStringLiteral("title")) == QStringLiteral("Video"))
         browserId = value.toMap().value(QStringLiteral("id")).toString();
-    catalog.playPauseSession(browserId);
+    catalog.sessionAction(browserId, QStringLiteral("playPause"));
     QTRY_COMPARE(daemon.commands, QStringList{QStringLiteral("Pause")});
     QCOMPARE(daemon.lastLocal, QStringLiteral("browser"));
+    // Dedicated keys keep their meaning: Play on a playing session sends
+    // Play, never the toggle; Pause sends Pause.
+    catalog.sessionAction(browserId, QStringLiteral("play"));
+    QTRY_COMPARE(daemon.commands.size(), 2);
+    QCOMPARE(daemon.commands.last(), QStringLiteral("Play"));
+    catalog.sessionAction(browserId, QStringLiteral("pause"));
+    QTRY_COMPARE(daemon.commands.size(), 3);
+    QCOMPARE(daemon.commands.last(), QStringLiteral("Pause"));
+    // The other session has only the toggle: Play on it (paused) toggles,
+    // Pause on it does nothing.
+    QString playerId;
+    for (const auto &value : catalog.continueEntries())
+      if (value.toMap().value(QStringLiteral("title")) == QStringLiteral("Song"))
+        playerId = value.toMap().value(QStringLiteral("id")).toString();
+    catalog.sessionAction(playerId, QStringLiteral("pause"));
+    QTest::qWait(200);
+    QCOMPARE(daemon.commands.size(), 3);
+    catalog.sessionAction(playerId, QStringLiteral("play"));
+    QTRY_COMPARE(daemon.commands.size(), 4);
+    QCOMPARE(daemon.commands.last(), QStringLiteral("PlayPause"));
+    QCOMPARE(daemon.lastLocal, QStringLiteral("player"));
     QCOMPARE(catalog.selectedId(), selectedBefore);
 
     // An older revision than the one applied is a stale reply: ignored.

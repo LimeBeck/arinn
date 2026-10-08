@@ -1478,15 +1478,31 @@ void MediaCatalog::readLinks(const QString &owner, quint64 epoch) {
             }
           });
 }
-void MediaCatalog::playPauseSession(const QString &id) {
+void MediaCatalog::sessionAction(const QString &id, const QString &requested) {
   const auto *row = findId(id);
   if (!row || !m_connected)
     return;
-  QString action = QStringLiteral("playPause");
-  if (!row->wireActions.contains(wireAction(action)))
-    action = row->state == QLatin1String("playing") ? QStringLiteral("pause")
-                                                    : QStringLiteral("play");
-  if (!row->wireActions.contains(wireAction(action)) || !methodFor(action)) {
+  const bool playing = row->state == QLatin1String("playing");
+  const auto supports = [row](const QString &action) {
+    return row->wireActions.contains(wireAction(action));
+  };
+  QString action = requested;
+  if (requested == QLatin1String("playPause")) {
+    if (!supports(action))
+      action = playing ? QStringLiteral("pause") : QStringLiteral("play");
+  } else if (requested == QLatin1String("play") ||
+             requested == QLatin1String("pause")) {
+    // Without the dedicated action, the toggle stands in only when it moves
+    // the session the asked way; Play on a playing session does nothing.
+    if (!supports(action)) {
+      if ((requested == QLatin1String("play")) == playing)
+        return;
+      action = QStringLiteral("playPause");
+    }
+  } else {
+    return;
+  }
+  if (!supports(action) || !methodFor(action)) {
     setOperation(QStringLiteral("Unsupported"));
     return;
   }

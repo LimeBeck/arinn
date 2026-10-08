@@ -696,3 +696,33 @@ async fn an_incomplete_pass_keeps_a_link_only_with_its_process() {
     f.core.associate(&links, &mut cache).await;
     assert!(tabs_of(&links).await.is_empty());
 }
+
+#[tokio::test]
+async fn an_incomplete_pass_drops_a_link_that_known_evidence_breaks() {
+    let f = Fixture::new(
+        &[("chromium.instance1", BROWSER_PID), ("player", 77)],
+        &[("c1:w1", BROWSER_PID)],
+    )
+    .await;
+    let links = MediaLinks::new(&f.core.epoch);
+    let mut cache = Cache::default();
+    f.tabs(vec![tab("c1:t1", "c1:w1", true)]).await;
+    f.core.associate(&links, &mut cache).await;
+    assert_eq!(tabs_of(&links).await.len(), 1);
+
+    // "player" now reports the browser's process too, while a third
+    // session cannot be read, so the pass is incomplete. The duplicate is
+    // already proof that the session is no longer unique.
+    {
+        let mut table = f.media_pids.lock().unwrap();
+        table.insert("player".into(), BROWSER_PID);
+    }
+    {
+        let mut state = f.core.state.lock().await;
+        let mpris = state.providers.get_mut("mpris").unwrap();
+        mpris.sessions.push(session("unreadable"));
+        mpris.info.revision += 1;
+    }
+    f.core.associate(&links, &mut cache).await;
+    assert!(tabs_of(&links).await.is_empty());
+}

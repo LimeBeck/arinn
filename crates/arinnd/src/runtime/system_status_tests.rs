@@ -100,7 +100,6 @@ async fn the_export_follows_its_sources_and_matches_the_xml() {
     assert_eq!(signal.args().unwrap().epoch(), &core.epoch);
 
     // Muting raises the revision and announces it.
-    tokio::time::sleep(Duration::from_millis(300)).await;
     pactl_event(&folder.join("pactl"), "yes", "Event 'change' on sink #3");
     let muted = wait_for(&proxy, |s| s.audio() == Audio::Muted).await;
     assert!(muted.revision > known.revision);

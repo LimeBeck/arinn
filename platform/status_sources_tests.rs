@@ -269,8 +269,8 @@ pub(crate) fn fake_pactl(folder: &Path) -> PathBuf {
         "#!/bin/sh\n\
          dir=$(dirname \"$0\")\n\
          case \"$1\" in\n\
-         get-sink-mute) [ \"$LC_ALL\" = C ] || { echo 'Mute: да'; exit 0; }; cat \"$dir/mute\" ;;\n\
-         subscribe) [ -e \"$dir/no-subscribe\" ] && exit 1; exec tail -n 0 -f \"$dir/events\" ;;\n\
+         get-sink-mute) echo read >> \"$dir/reads\"; [ \"$LC_ALL\" = C ] || { echo 'Mute: да'; exit 0; }; cat \"$dir/mute\" ;;\n\
+         subscribe) [ -e \"$dir/no-subscribe\" ] && exit 1; exec tail -n +1 -f \"$dir/events\" ;;\n\
          *) exit 2 ;;\n\
          esac\n",
     )
@@ -327,8 +327,6 @@ async fn mute_follows_the_sound_server_and_fails_to_unknown() {
         next(&mut updates, is_audio).await,
         Update::Audio(Audio::Unmuted)
     );
-    // Let `tail` start before the first event.
-    tokio::time::sleep(Duration::from_millis(300)).await;
     pactl_event(&folder, "yes", "Event 'change' on sink #56");
     assert_eq!(
         next(&mut updates, is_audio).await,
@@ -346,6 +344,25 @@ async fn mute_follows_the_sound_server_and_fails_to_unknown() {
         next(&mut updates, is_audio).await,
         Update::Audio(Audio::Unmuted)
     );
+    // A burst of sink events is one read.
+    let reads = || {
+        std::fs::read_to_string(folder.join("reads"))
+            .unwrap_or_default()
+            .lines()
+            .count()
+    };
+    let before = reads();
+    pactl_event(
+        &folder,
+        "yes",
+        &["Event 'change' on sink #56"; 5].join("\n"),
+    );
+    assert_eq!(
+        next(&mut updates, is_audio).await,
+        Update::Audio(Audio::Muted)
+    );
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(reads() - before, 1);
     task.abort();
 
     // `subscribe` that ends, and no pactl at all: unknown.
@@ -392,6 +409,16 @@ async fn network_follows_network_manager_and_its_loss() {
             ..NetworkState::UNKNOWN
         })
     );
+    // NetworkManager stops while the bus stays up: its name-owner change
+    // gives unknown at once, long before the 60 s re-read.
+    drop(service);
+    assert_eq!(
+        next(&mut updates, is_network).await,
+        Update::Network(NetworkState::UNKNOWN)
+    );
+    // It comes back: read again.
+    let (_service, _fake) = network_manager(&bus, wifi()).await;
+    assert_eq!(next(&mut updates, is_network).await, wifi_state);
     // The bus goes away: unknown, never the last value.
     bus.stop();
     assert_eq!(

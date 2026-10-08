@@ -226,15 +226,7 @@ impl Sources {
 
     /// Follows NetworkManager until the bus connection ends.
     async fn watch_network(&self, connection: &Connection, updates: &mpsc::Sender<Update>) {
-        let rule = MatchRule::builder()
-            .msg_type(zbus::message::Type::Signal)
-            .sender(NM)
-            .and_then(|b| b.interface("org.freedesktop.DBus.Properties"))
-            .and_then(|b| b.member("PropertiesChanged"))
-            .map(|b| b.build());
-        let Ok(rule) = rule else { return };
-        let Ok(mut changes) = MessageStream::for_match_rule(rule, connection, Some(64)).await
-        else {
+        let Some((mut wakes, _drains)) = network_signals(connection).await else {
             return;
         };
         let mut due = Some(Instant::now());
@@ -242,8 +234,8 @@ impl Sources {
         loop {
             let wake = due.map_or(poll, |d| d.min(poll));
             tokio::select! {
-                change = changes.next() => match change {
-                    Some(Ok(_)) => {
+                signal = wakes.recv() => match signal {
+                    Some(true) => {
                         if due.is_none() {
                             due = Some(Instant::now() + SETTLE);
                         }
@@ -261,6 +253,57 @@ impl Sources {
             }
         }
     }
+}
+
+/// Aborts its task when dropped.
+struct Drain(tokio::task::JoinHandle<()>);
+impl Drop for Drain {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
+/// NetworkManager's `PropertiesChanged` and its name-owner changes, drained
+/// by their own tasks so a burst never fills a queue and stalls the
+/// connection. Each yields `true` (coalesced) for a change and `false` when
+/// its stream ends.
+async fn network_signals(connection: &Connection) -> Option<(mpsc::Receiver<bool>, [Drain; 2])> {
+    let rule = MatchRule::builder()
+        .msg_type(zbus::message::Type::Signal)
+        .sender(NM)
+        .ok()?
+        .interface("org.freedesktop.DBus.Properties")
+        .ok()?
+        .member("PropertiesChanged")
+        .ok()?
+        .build();
+    let changes = MessageStream::for_match_rule(rule, connection, Some(64))
+        .await
+        .ok()?;
+    // A NetworkManager that stops or restarts while the bus stays up sends
+    // no PropertiesChanged; its name-owner change triggers the read.
+    let owners = zbus::fdo::DBusProxy::new(connection)
+        .await
+        .ok()?
+        .receive_name_owner_changed_with_args(&[(0, NM)])
+        .await
+        .ok()?;
+    let (sender, receiver) = mpsc::channel(1);
+    let drain = |stream: futures_util::stream::BoxStream<'static, ()>,
+                 sender: mpsc::Sender<bool>| {
+        Drain(tokio::spawn(async move {
+            let mut stream = stream;
+            while stream.next().await.is_some() {
+                let _ = sender.try_send(true);
+            }
+            let _ = sender.send(false).await;
+        }))
+    };
+    let drains = [
+        drain(changes.map(|_| ()).boxed(), sender.clone()),
+        drain(owners.map(|_| ()).boxed(), sender),
+    ];
+    Some((receiver, drains))
 }
 
 async fn property(

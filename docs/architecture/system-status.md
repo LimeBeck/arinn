@@ -41,8 +41,12 @@ at most the enum values.
 - **Network:** a system bus connection follows NetworkManager's
   `PropertiesChanged` from any of its objects, including the access point's
   `Strength`. A burst of signals becomes one read after 200 ms, and the state
-  is also re-read every 30 s in case a signal was missed.
-  A lost bus connection reports `unknown` and reconnects after 10 s.
+  is also re-read every 30 s in case a signal was missed. A change of the
+  `org.freedesktop.NetworkManager` name owner also triggers a read, so a
+  NetworkManager that stops while the bus stays up reads `unknown` at once.
+  Both signal streams are drained by their own tasks, so a burst never stalls
+  the connection. A lost bus connection reports `unknown` and reconnects after
+  10 s.
 - **Audio:** `pactl subscribe` follows the sound server. A sink or server
   event re-reads `pactl get-sink-mute @DEFAULT_SINK@`, and the flag is also
   re-read every 30 s. `pactl` runs with `LC_ALL=C` because it localizes
@@ -88,8 +92,9 @@ at most the enum values.
   re-read.
 - `platform/status_sources_tests.rs`: the NetworkManager and `pactl`
   mappings, a fake NetworkManager on a private bus (Wi-Fi level, wired,
-  disconnected, two devices, absent, lost bus) and a fake `pactl` (sink and
-  server events, ignored events, locale, ended subscription, missing tool).
+  disconnected, two devices, absent, stopped and restarted on a live bus,
+  lost bus) and a fake `pactl` (sink and server events, a burst read once,
+  ignored events, locale, ended subscription, missing tool).
 - `crates/arinnd/src/runtime/system_status_tests.rs`: the daemon export with
   both fakes. It compares the methods with the XML, and covers `Changed` on a
   new revision, unchanged updates and revision exhaustion.

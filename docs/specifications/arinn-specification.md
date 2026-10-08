@@ -402,7 +402,7 @@ Plugins supply data, metadata, actions and capabilities. They MUST NOT supply QM
 
 ### 8.5. Platform layer
 
-Platform-specific functions are behind `PlatformService`; the first implementation is `KdePlatformService` for KDE Plasma 6 on Wayland: global shortcuts, application/window activation, overlay and window integration, session state and system actions (volume, network, power). KDE-specific code MUST NOT be spread across the daemon, and window management MUST NOT be spread across plugins. Details: [§12](#12-platform-integration-kde-plasma-6--wayland).
+Platform-specific functions are behind `PlatformService`; the first implementation is `KdePlatformService` for KDE Plasma 6 on Wayland: global shortcuts, application/window activation, overlay and window integration, session state and system actions (volume, network, power). KDE-specific code MUST NOT be spread across the daemon, and window management MUST NOT be spread across plugins. Details: [§12](#12-platform-integration-kde-plasma-6--wayland). Mute and network connectivity for Home's status area reach the shell only as the daemon's read-only `org.arinn.SystemStatus1` snapshot ([ADR-0100](../adr/0100-system-status.md)).
 
 The shell lifecycle guard uses platform-layer session observation independently of the daemon. Platform-specific transport stays in that layer; QML only consumes the resulting visibility guard. The existing shell-local transport is scheduled for extraction in [task #29](https://github.com/LimeBeck/arinn/issues/29).
 

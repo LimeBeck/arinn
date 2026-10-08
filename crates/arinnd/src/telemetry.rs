@@ -185,6 +185,12 @@ pub const REASONS: &[&str] = &[
     "provider_changed",
     "platform_timeout",
     "platform_channel_closed",
+    // Managed playback windows (#369).
+    "platform_not_polling",
+    "platform_window_missing",
+    "platform_conflict",
+    "session_locked",
+    "platform_cancelled",
 ];
 const OUTCOMES: &[&str] = &["succeeded", "failed"];
 const MAX_SPANS: usize = 16;

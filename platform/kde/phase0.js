@@ -20,8 +20,24 @@ let homeOutput = "";
 let daemonOwner = "";
 let mediaSupported = false;
 let playbackGuardAt = 0, playbackGuardSerial = 0;
-let mediaSerial = 0;
+// mediaSerial changes with playback; mediaPollSerial only marks which media poll
+// owns the slot, so a stale-poll reset never cancels a command (#369).
+let mediaSerial = 0, mediaPollSerial = 0;
+// Every media poll gets the next sequence number. presentedFrom is the
+// sequence of the poll that delivered the latest Present that presented, or
+// a number above every started poll at a re-presentation without a command. A Release from an older poll
+// was delayed past that newer intent and must not tear it down.
+let pollSequence = 0, presentedFrom = 0;
+// Sequences of received Presents not yet answered, and delayed Releases that
+// wait for one of them: a Release is cancelled only by a newer Present that
+// actually presents, and carried out if that Present fails.
+const pendingPresents = new Set();
+let presentWaiters = [];
 let mediaControllingAt = 0;
+// Received media commands not yet answered, and the poll serial of the latest
+// receipt: the slot is free again only when every received command has been
+// answered and no newer poll has started since.
+let mediaCommands = 0, mediaSlot = 0;
 let mediaReportingAt = 0;
 let lastMediaReport = "";
 let playback = null;
@@ -37,6 +53,24 @@ watchdog.interval = 1000;
 watchdog.timeout.connect(checkDaemon);
 watchdog.start();
 function rpc(method, ...args) { callDBus(service, path, service, method, ...args); }
+// Diagnostics (#369): fixed event and reason names only, never titles, window
+// classes, tokens or launch IDs. A repeat of the same operation, reason and
+// outcome prints at most once per ten seconds so a stuck state cannot flood
+// the journal; a changed outcome (a media channel re-attaching) always prints. Records carry the
+// specification §14.1 fields, null when unknown.
+const diagnosedAt = new Map();
+// KWin hides print() output unless the kwin_scripting debug category is
+// enabled, so the records would be missing exactly when they are needed. A
+// console warning reaches the journal by default; print() is the fallback.
+const record = typeof console !== "undefined" && console && typeof console.warn === "function"
+    ? line => console.warn(line) : line => print(line);
+function diagnose(level, operation, fields) {
+    const key = operation + ":" + (fields.reason || ""), now = Date.now(), last = diagnosedAt.get(key);
+    if (last && last.outcome === fields.outcome && now - last.at < 10000) return;
+    diagnosedAt.set(key, { at: now, outcome: fields.outcome });
+    record(JSON.stringify(Object.assign({ level, component: "arinn-kwin", provider_id: null,
+        request_id: null, operation, duration_ms: null, error: null }, fields)));
+}
 function id(w) { return w ? w.internalId.toString() : ""; }
 function isShell(w) { return w && (w.desktopFileName === "org.arinn.Shell" || w.resourceClass === "org.arinn.Shell"); }
 function shell() { return workspace.windowList().find(isShell); }
@@ -60,6 +94,7 @@ function discoverReturn(owner) {
         if (owner !== daemonOwner) return;
         returnSupported = typeof xml === "string" && /<interface\s+name=["']org\.arinn\.KWinReturn1["']/.test(xml);
         mediaSupported = typeof xml === "string" && /<interface\s+name=["']org\.arinn\.KWinMedia1["']/.test(xml);
+        diagnose("info", "media.channel", { outcome: mediaSupported ? "attached" : "absent" });
         publishMedia();
         pollMediaControl();
         publishReturn();
@@ -149,6 +184,9 @@ function returnToActivity() {
             if (locked !== false || owner !== daemonOwner || serial !== mediaSerial || playback !== saved || home !== homeSerial || !homeVisible || Date.now() - at >= 1000) return;
             if (!workspace.windowList().includes(w) || launchId(w) !== saved.launch) return;
             presentPlayback(w);
+            // Newer than every poll already started: a Release one of them
+            // still delivers predates this Return.
+            presentedFrom = ++pollSequence;
             reportHome(false);
         });
     } else { handOff(w); reportHome(false); }
@@ -279,6 +317,9 @@ function resetInventory() {
     releasePlayback(false);
     ++mediaSerial;
     mediaControllingAt = mediaReportingAt = 0;
+    mediaCommands = 0;
+    pendingPresents.clear();
+    presentWaiters = [];
     lastMediaReport = "";
     ++inventorySerial;
     lastReturnReport = "";
@@ -466,9 +507,16 @@ function savedFlags(w, names) {
     const values = {}; for (const name of names) if (w[name] !== undefined) values[name] = w[name]; return values;
 }
 function restoreFlags(w, values) { for (const name of Object.keys(values)) w[name] = values[name]; }
-function presentPlayback(w) {
+// `traced` carries the daemon command's diagnostic context when a command
+// asked for this presentation; Return re-presents without one.
+function presentPlayback(w, traced) {
     const home = shell();
-    if (!home || !applicationWindow(w) || !launchId(w)) throw new Error("unavailable");
+    const reason = !home ? "no_shell_window" : !applicationWindow(w) ? "not_application_window" : !launchId(w) ? "no_launch_id" : "";
+    if (reason) {
+        diagnose("debug", "media.present", traced ? traced("unavailable", reason, "Unavailable")
+            : { outcome: "unavailable", reason, error: "Unavailable" });
+        throw new Error("unavailable");
+    }
     if (closing) releasePlayback(false);
     if (playback && playback.window !== w) releasePlayback(false);
     if (!playback) playback = { window: w, shell: home, launch: launchId(w),
@@ -556,38 +604,109 @@ function pollMediaControl() {
     if (!mediaSupported || !platformGeneration) return;
     const now = Date.now();
     if (mediaReportingAt && now - mediaReportingAt > 3000) { mediaReportingAt = 0; lastMediaReport = ""; }
-    if (mediaControllingAt && now - mediaControllingAt > 1500) { ++mediaSerial; mediaControllingAt = 0; }
+    if (mediaControllingAt && now - mediaControllingAt > 1500) { ++mediaPollSerial; mediaControllingAt = 0; mediaCommands = 0; }
     if (mediaControllingAt) return;
-    const serial = ++mediaSerial, inventory = inventorySerial, generation = platformGeneration, owner = daemonOwner;
+    const serial = mediaSerial, poll = ++mediaPollSerial, sequence = ++pollSequence, inventory = inventorySerial, generation = platformGeneration, owner = daemonOwner;
     mediaControllingAt = now;
     mediaBridge("NextControl", generation, reply => {
-        if (serial !== mediaSerial || inventory !== inventorySerial || owner !== daemonOwner) return;
+        if (inventory !== inventorySerial || owner !== daemonOwner) return;
         const command = stringList(reply);
-        if (!command || command.some(part => typeof part !== "string") || (command.length !== 0 && (command.length !== 3 || !["present", "release"].includes(command[1])))) { mediaControllingAt = 0; return; }
-        if (!command.length) { mediaControllingAt = 0; return; }
+        if (serial !== mediaSerial) {
+            // Playback changed while this poll waited. A command it still
+            // received is answered, never dropped: the daemon would otherwise
+            // wait for its deadline (#369).
+            if (command && command.length === 3 && command.every(part => typeof part === "string") &&
+                ["present", "release"].includes(command[1])) {
+                diagnose("debug", "media." + command[1], { outcome: "cancelled", reason: "playback_changed",
+                    error: "Cancelled", request_id: command[0], duration_ms: 0 });
+                mediaBridge("CompleteControl", generation, command[0], "Cancelled", () => {});
+            }
+            return;
+        }
+        // An empty or invalid reply frees the slot only while this poll owns it.
+        if (!command || command.some(part => typeof part !== "string") || (command.length !== 0 && (command.length !== 3 || !["present", "release"].includes(command[1])))) { if (poll === mediaPollSerial) mediaControllingAt = 0; return; }
+        if (!command.length) { if (poll === mediaPollSerial) mediaControllingAt = 0; return; }
+        // The daemon long-polls for up to a second before it hands over a
+        // command. Freshness counts from receipt, and the stale-poll reset must
+        // not drop a command this script now owns: the daemon would wait for
+        // its completion until the operation times out (#369).
+        // The daemon hands a Present over, no earlier than this poll started,
+        // only with at least three seconds of its deadline left. Within three
+        // seconds of the poll start it is therefore still valid; later, KWin
+        // delayed this reply and it may have expired. Answer without presenting.
+        const received = Date.now();
+        const expired = () => command[1] === "present" && Date.now() - now >= 3000;
+        if (expired()) {
+            diagnose("debug", "media." + command[1], { outcome: "timeout", reason: "reply_late",
+                error: "Timeout", request_id: command[0], duration_ms: 0 });
+            mediaBridge("CompleteControl", generation, command[0], "Timeout", () => {});
+            return;
+        }
+        // A command from a poll the stale-poll reset already replaced is still
+        // presented; it takes the slot so the newer poll cannot free it. The
+        // slot is held by a count of unanswered commands, not by a receipt
+        // time, which two commands can share.
+        mediaSlot = ++mediaPollSerial;
+        ++mediaCommands;
+        // An older delayed Release whose lock check finishes first waits for
+        // this Present's outcome instead of racing it.
+        if (command[1] === "present") pendingPresents.add(sequence);
+        mediaControllingAt = received;
+        // The daemon's request ID (a UUID it generated) and time since receipt.
+        const traced = (outcome, reason, error) => ({ outcome, reason, error,
+            request_id: command[0], duration_ms: Date.now() - received });
         function complete(error) {
             if (inventory !== inventorySerial || owner !== daemonOwner) return;
             const completionSerial = mediaSerial;
+            mediaCommands = Math.max(0, mediaCommands - 1);
             mediaBridge("CompleteControl", generation, command[0], error, () => {
                 if (completionSerial !== mediaSerial || inventory !== inventorySerial || owner !== daemonOwner) return;
-                mediaControllingAt = 0; publishInventory();
+                // Another received command may still be checking the lock, or a
+                // stale-poll reset may have started a newer poll meanwhile.
+                if (mediaCommands === 0 && mediaPollSerial === mediaSlot) mediaControllingAt = 0;
+                publishInventory();
             });
+            if (command[1] === "present" && pendingPresents.delete(sequence)) {
+                const waiters = presentWaiters;
+                presentWaiters = [];
+                waiters.forEach(settle => settle());
+            }
+        }
+        // A Release from an older poll than a Present that presented is
+        // superseded; one waiting on a newer, unanswered Present settles when
+        // that Present is answered.
+        function settleRelease() {
+            if (inventory !== inventorySerial || owner !== daemonOwner) return;
+            if (presentedFrom > sequence) {
+                diagnose("debug", "media.release", traced("cancelled", "superseded_by_present", "Cancelled"));
+                complete("Cancelled");
+                return;
+            }
+            if ([...pendingPresents].some(pending => pending > sequence)) { presentWaiters.push(settleRelease); return; }
+            try {
+                const token = playback ? windowTokens.get(playback.window) || "" : "";
+                if (command[2] && token && command[2] !== token) { complete("Conflict"); return; }
+                releasePlayback(true);
+                complete("");
+            } catch (_) { releasePlayback(false); complete("Unavailable"); }
         }
         callDBus("org.freedesktop.ScreenSaver", "/ScreenSaver", "org.freedesktop.ScreenSaver", "GetActive", locked => {
-            if (serial !== mediaSerial || inventory !== inventorySerial || owner !== daemonOwner) return;
-            if (Date.now() - now >= 1000) { complete("Timeout"); return; }
-            if (locked !== false) { releasePlayback(false); complete("PermissionDenied"); return; }
+            if (inventory !== inventorySerial || owner !== daemonOwner) return;
+            // Playback changed while the lock check ran: answer, never drop.
+            if (serial !== mediaSerial) { diagnose("debug", "media." + command[1], traced("cancelled", "playback_changed", "Cancelled")); complete("Cancelled"); return; }
+            if (Date.now() - received >= 1000 || expired()) { diagnose("debug", "media." + command[1], traced("timeout", expired() ? "reply_late" : "lock_check_late", "Timeout")); complete("Timeout"); return; }
+            if (locked !== false) { diagnose("debug", "media." + command[1], traced("denied", "session_locked", "PermissionDenied")); releasePlayback(false); complete("PermissionDenied"); return; }
+            if (command[1] === "release") { settleRelease(); return; }
             try {
-                if (command[1] === "release") {
-                    const token = playback ? windowTokens.get(playback.window) || "" : "";
-                    if (command[2] && token && command[2] !== token) { complete("Conflict"); return; }
-                    releasePlayback(true);
-                } else {
-                    const w = workspace.windowList().find(w => applicationWindow(w) && windowTokens.get(w) === command[2]);
-                    if (!w || !launchId(w)) { complete("NotFound"); return; }
-                    presentPlayback(w);
-                    reportHome(false);
+                const w = workspace.windowList().find(w => applicationWindow(w) && windowTokens.get(w) === command[2]);
+                if (!w || !launchId(w)) {
+                    diagnose("debug", "media.present", traced("not_found", w ? "no_launch_id" : "no_matching_window", "NotFound"));
+                    complete("NotFound");
+                    return;
                 }
+                presentPlayback(w, traced);
+                presentedFrom = Math.max(presentedFrom, sequence);
+                reportHome(false);
                 complete("");
             } catch (_) { releasePlayback(false); complete("Unavailable"); }
         });

@@ -776,7 +776,19 @@ impl Core {
         present: bool,
     ) -> Result<OwnedObjectPath, ErrorCode> {
         use arinn_protocol::media_window;
-        media_window::validate_session(generation, session)?;
+        let started = std::time::Instant::now();
+        let kind = if present {
+            "media.present"
+        } else {
+            "media.release"
+        };
+        // Every refusal from here to admission is logged with its reason.
+        let rejected = |error: ErrorCode, reason: &'static str| {
+            log_rejection(id, request_id, kind, error, reason, started.elapsed());
+            error
+        };
+        media_window::validate_session(generation, session)
+            .map_err(|e| rejected(e, "invalid_request"))?;
         let fence_key = (id.to_owned(), generation.to_owned(), session.to_owned());
         // Capture ordering before any admission/provider/platform awaits.
         let present_fence = if present {
@@ -795,25 +807,51 @@ impl Core {
         if let Some(path) = self
             .operations
             .existing(caller, request_id, &fingerprint)
-            .await?
+            .await
+            .map_err(|e| {
+                rejected(
+                    e,
+                    if e == ErrorCode::Conflict {
+                        "request_reused"
+                    } else {
+                        "invalid_request"
+                    },
+                )
+            })?
         {
             return Ok(path);
         }
         let owner = self
             .media_target(id, generation, session, media_window::FEATURE)
-            .await?;
-        self.windows.media_supported(&self.connection).await?;
+            .await
+            .map_err(|e| rejected(e, "session_unavailable"))?;
+        self.windows
+            .media_supported(&self.connection)
+            .await
+            .map_err(|e| {
+                rejected(
+                    e,
+                    if e == ErrorCode::Unsupported {
+                        "media_channel_absent"
+                    } else {
+                        "platform_unavailable"
+                    },
+                )
+            })?;
         let (launch, window) = if present {
             {
                 let state = self.state.lock().await;
-                let p = state.providers.get(id).ok_or(ErrorCode::NotFound)?;
+                let p = state
+                    .providers
+                    .get(id)
+                    .ok_or_else(|| rejected(ErrorCode::NotFound, "session_changed"))?;
                 let s = p
                     .sessions
                     .iter()
                     .find(|s| s.id == session)
-                    .ok_or(ErrorCode::NotFound)?;
+                    .ok_or_else(|| rejected(ErrorCode::NotFound, "session_changed"))?;
                 if !["playing", "paused", "ended"].contains(&s.state.as_str()) {
-                    return Err(ErrorCode::Unsupported);
+                    return Err(rejected(ErrorCode::Unsupported, "session_not_playing"));
                 }
             }
             let (resolved_owner, launch, windows) = tokio::time::timeout(
@@ -821,42 +859,48 @@ impl Core {
                 self.playback_window(id, generation, session),
             )
             .await
-            .map_err(|_| ErrorCode::Timeout)??;
+            .map_err(|_| rejected(ErrorCode::Timeout, "window_lookup_timeout"))?
+            .map_err(|e| rejected(e, "window_lookup_failed"))?;
             if resolved_owner != owner {
-                return Err(ErrorCode::Conflict);
+                return Err(rejected(ErrorCode::Conflict, "owner_changed"));
             }
-            (
-                launch,
-                Some(windows.into_iter().next().ok_or(ErrorCode::NotFound)?),
-            )
+            let window = windows
+                .into_iter()
+                .next()
+                .ok_or_else(|| rejected(ErrorCode::NotFound, "no_matching_window"))?;
+            (launch, Some(window))
         } else {
             (String::new(), None)
         };
         let state = self.state.lock().await;
-        let p = state.providers.get(id).ok_or(ErrorCode::NotFound)?;
+        let p = state
+            .providers
+            .get(id)
+            .ok_or_else(|| rejected(ErrorCode::NotFound, "session_changed"))?;
         if p.owner != owner || p.info.generation != generation {
-            return Err(ErrorCode::Conflict);
+            return Err(rejected(ErrorCode::Conflict, "generation_changed"));
         }
         if present {
-            checked_media_target(p, generation, session, media_window::FEATURE)?;
+            checked_media_target(p, generation, session, media_window::FEATURE)
+                .map_err(|e| rejected(e, "session_changed"))?;
         }
         let entry = p
             .sessions
             .iter()
             .find(|s| s.id == session)
-            .ok_or(ErrorCode::NotFound)?;
+            .ok_or_else(|| rejected(ErrorCode::NotFound, "session_changed"))?;
         if present && !["playing", "paused", "ended"].contains(&entry.state.as_str()) {
-            return Err(ErrorCode::Unsupported);
+            return Err(rejected(ErrorCode::Unsupported, "session_not_playing"));
         }
         let mut exits = self.playback_exits.lock().await;
         if present && exits.get(&fence_key).copied().unwrap_or(0) != present_fence {
-            return Err(ErrorCode::Conflict);
+            return Err(rejected(ErrorCode::Conflict, "superseded_by_release"));
         }
         let release_fence = if present {
             None
         } else {
             if !exits.contains_key(&fence_key) && exits.len() >= 100_000 {
-                return Err(ErrorCode::Unavailable);
+                return Err(rejected(ErrorCode::Unavailable, "capacity_exhausted"));
             }
             Some(
                 exits
@@ -864,13 +908,8 @@ impl Core {
                     .copied()
                     .unwrap_or(0)
                     .checked_add(1)
-                    .ok_or(ErrorCode::Unavailable)?,
+                    .ok_or_else(|| rejected(ErrorCode::Unavailable, "capacity_exhausted"))?,
             )
-        };
-        let kind = if present {
-            "media.present"
-        } else {
-            "media.release"
         };
         let label = Label::new(kind).provider("media", &p.info.plugin_id);
         let (path, op, fresh) = self
@@ -883,7 +922,8 @@ impl Core {
                 id,
                 label,
             )
-            .await?;
+            .await
+            .map_err(|e| rejected(e, "admission_refused"))?;
         if !fresh {
             return Ok(path);
         }
@@ -934,6 +974,12 @@ impl Core {
                 Ok(None) => Ok(()),
                 Err(error) => Err(error),
             };
+            if let Err(error) = result {
+                let poller_live = core.windows.media_poller_live().await;
+                if let Some(reason) = playback_failure_reason(error, poller_live) {
+                    op.reason(reason);
+                }
+            }
             let state = core.state.lock().await;
             let valid = state.providers.get(&id).is_some_and(|p| {
                 p.owner == owner
@@ -961,6 +1007,57 @@ impl Core {
             .await;
         });
         Ok(path)
+    }
+}
+/// Logs why a playback window command was refused before it became an
+/// operation (#369). Fixed fields only: no title, URL, path or window identity.
+fn log_rejection(
+    provider_id: &str,
+    request_id: &str,
+    kind: &'static str,
+    error: ErrorCode,
+    reason: &'static str,
+    elapsed: Duration,
+) {
+    let record = rejection_record(provider_id, request_id, kind, error, reason, elapsed);
+    #[cfg(test)]
+    LOGGED_REJECTIONS.with(|logged| logged.borrow_mut().push(record.clone()));
+    eprintln!("{record}");
+}
+#[cfg(test)]
+thread_local! {
+    /// Rejection records logged on this thread, for tests.
+    pub(super) static LOGGED_REJECTIONS: std::cell::RefCell<Vec<serde_json::Value>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+/// The §14.1 structured record of a refused Present or Release.
+pub(super) fn rejection_record(
+    provider_id: &str,
+    request_id: &str,
+    kind: &'static str,
+    error: ErrorCode,
+    reason: &'static str,
+    elapsed: Duration,
+) -> serde_json::Value {
+    // A refused request ID may be any caller text; only a UUID is logged,
+    // anything else is unavailable (null, specification §14.1).
+    let request_id = uuid::Uuid::parse_str(request_id)
+        .is_ok()
+        .then_some(request_id);
+    serde_json::json!({"level":"info","component":"arinnd","provider_id":provider_id,"request_id":request_id,"operation":"rejected","kind":kind,"error":error.to_string(),"reason":reason,"duration_ms":elapsed.as_millis().min(u64::MAX as u128) as u64})
+}
+/// The normalized reason of a failed Present or Release, from the platform
+/// adapter's answer and whether it is still polling the media channel.
+pub(super) fn playback_failure_reason(error: ErrorCode, poller_live: bool) -> Option<&'static str> {
+    match error {
+        ErrorCode::Timeout if !poller_live => Some("platform_not_polling"),
+        ErrorCode::NotFound => Some("platform_window_missing"),
+        // A launch ID change, a platform generation reset and a Release token
+        // mismatch all arrive as Conflict; the reason does not guess which.
+        ErrorCode::Conflict => Some("platform_conflict"),
+        ErrorCode::PermissionDenied => Some("session_locked"),
+        ErrorCode::Cancelled => Some("platform_cancelled"),
+        _ => None,
     }
 }
 #[zbus::interface(name = "org.arinn.MediaWindow1")]

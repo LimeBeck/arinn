@@ -141,6 +141,60 @@ Provider polling invalidates media-window consumers only when the imported revis
 
 Removing negotiated MediaWindow1 support invalidates pending and active presentation like an unavailable backend, retaining exact bounded compositor cleanup without a transport Stop.
 
+## Diagnostics
+
+[#369](https://github.com/LimeBeck/arinn/issues/369). Every line below holds fixed names only: no title, URL, path, window class, token or launch ID (specification §13).
+
+**KWin adapter (`phase0.js`).** The adapter writes its records with `console.warn`, which reaches the journal without enabling KWin's `kwin_scripting` debug category; `print()`, which KWin shows only with that category enabled, is the fallback when the console API is missing. This path is covered by the adapter model only, not checked in a real KWin session. Qt formats these messages with its message pattern, so the journal line is the record prefixed by the logging category (`js: ` for `console.warn`, `kwin_scripting: ` for `print()`). The record itself is the JSON object from the first `{` to the end of the line. A raw JSON line needs a daemon-side sink, which is a `KWinMedia1` contract change and follows as a separate contract-change task. The daemon's own completion and rejection records for the same operations are raw JSON lines. The adapter writes one record per operation and reason; an unchanged repeat with the same outcome prints at most once every ten seconds, while a changed outcome, such as a media channel re-attaching, always prints. Each line has the §14.1 fields: `level`, `component: "arinn-kwin"`, `provider_id` (always `null`), `request_id` (the daemon's command ID, or `null`), `operation`, `duration_ms` (since the adapter received the command, or `null`) and `error` (the completion error code, or `null`). It also has these fields:
+
+| `operation` | `outcome` | `reason` |
+| --- | --- | --- |
+| `media.channel` (an introspection result for a new daemon owner) | `attached`, `absent` | — |
+| `media.present` | `unavailable` | `no_shell_window`, `not_application_window`, `no_launch_id` |
+| `media.present` | `not_found` | `no_matching_window`, `no_launch_id` |
+| `media.present`, `media.release` | `timeout` | `lock_check_late`, `reply_late` |
+| `media.present`, `media.release` | `denied` | `session_locked` |
+| `media.present`, `media.release` | `cancelled` | `playback_changed` |
+| `media.release` | `cancelled` | `superseded_by_present` |
+
+Command freshness counts from the moment the daemon hands a command over, not from the start of the long poll. Before #369, a Present handed over late in the daemon's one-second poll was rejected as `Timeout`. If the lock check was slow, the stale-poll reset dropped it silently, so the daemon waited five seconds and mpv stayed a decorated window. A command the adapter has received is now always answered, with `Cancelled` only if playback changed meanwhile. The stale-poll reset only frees the poll slot: a command that a replaced poll still delivers is presented normally, and it holds the slot until it is answered. The slot stays held while any received command is unanswered, and is freed only if no newer poll started since the latest receipt. The adapter cannot see a command's deadline, so the daemon guarantees one: it hands a Present to the adapter only with at least three seconds of its five-second deadline left, and answers it `Timeout` otherwise. Hand-over comes no earlier than the adapter's poll started, so the adapter presents only within three seconds of that poll start. A Present whose reply or lock check is later than that has possibly expired, because KWin delayed it; it is answered `Timeout` (`reply_late`) without presenting, so no fullscreen or input layer follows a failed operation. A normal hand-over (at most one second of poll plus one second of lock check) stays well inside the budget. A Release is fenced by intent instead. Every media poll is numbered. A Release delivered by a poll older than one whose Present was presented, or started before a re-presentation from Home (Return), is answered `Cancelled` (`superseded_by_present`) without tearing anything down. While a Present from a newer poll is still unanswered, an older Release waits for it: it is cancelled if that Present presents, and carried out if it fails, so a failed newer Present never leaves the earlier playback stuck in fullscreen. A Release delayed until after a newer Present of the same window therefore never ends the newer playback.
+
+**Daemon (`arinnd`).** An operation completion line carries `kind` (`media.present`, `media.release`) and, on failure, a `reason` from `telemetry::REASONS`:
+
+| Reason | Meaning |
+| --- | --- |
+| `platform_timeout` | The adapter did not answer within five seconds. |
+| `platform_not_polling` | The same, and the adapter has not polled the media channel for three seconds: a stale or absent channel. |
+| `platform_channel_closed` | The platform dropped the request, for example on an adapter reset. |
+| `platform_window_missing` | The adapter or inventory no longer has the window. |
+| `platform_conflict` | The platform refused the command as stale: the window reports another launch ID, the platform generation was reset, or a Release named another window. |
+| `session_locked` | The session is locked. |
+| `platform_cancelled` | Playback changed while the adapter checked the lock. |
+| `provider_changed` | The provider owner or generation changed. |
+
+A Present or Release refused before it becomes an operation logs `"operation":"rejected"` with the §14.1 fields (`component`, `provider_id`, `request_id`, `duration_ms`, `error`), plus `kind` and one of these reasons:
+- `invalid_request`, when the generation, session ID or request ID is malformed; a request ID that is not a UUID is caller text and is logged as `null`;
+- `request_reused`, when the caller's request ID already names a different request;
+- `session_unavailable`;
+- `media_channel_absent`;
+- `platform_unavailable`;
+- `window_lookup_timeout`;
+- `window_lookup_failed`;
+- `owner_changed`;
+- `no_matching_window`;
+- `generation_changed`;
+- `session_changed`, when the provider, its session or the media-window feature changed during the lookup;
+- `session_not_playing`;
+- `superseded_by_release`;
+- `capacity_exhausted`;
+- `admission_refused`.
+
+**Shell.** `MediaCatalog::logSurface` writes one JSON line directly to stderr, bypassing Qt logging so no category prefix breaks it. The line is a structured info record with the §14.1 fields (`component: "arinn-shell"`, `operation: "media.surface"`, `error` set to the presentation state when a presentation failed, otherwise `null`) in two cases:
+- It opens the session card instead of the player: `surface: "session"`, reason `no_player_features` or `session_not_ready`.
+- A presentation fails: `surface: "home"`, reason `presentation_failed`.
+
+The line also includes `presentationState`, `sessionState`, `inputLayer` and `windowAvailable`.
+
 ## Optional KDE/X11 mode
 
 [KDE/X11](kde-x11.md) retains the same media-window contract and input-layer

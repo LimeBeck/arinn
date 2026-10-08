@@ -61,8 +61,8 @@ impl Media {
         id: &str,
         #[zbus(header)] header: Header<'_>,
     ) -> production::Result<u32> {
-        media_association::validate_process_query(generation, id)?;
         trusted(&header, &self.daemon)?;
+        media_association::validate_process_query(generation, id)?;
         if generation != MEDIA_GENERATION {
             return Err(ErrorCode::Conflict.into());
         }
@@ -85,8 +85,8 @@ impl Browser {
         window_id: &str,
         #[zbus(header)] header: Header<'_>,
     ) -> production::Result<u32> {
-        media_association::validate_process_query(generation, window_id)?;
         trusted(&header, &self.daemon)?;
+        media_association::validate_process_query(generation, window_id)?;
         if generation != BROWSER_GENERATION {
             return Err(ErrorCode::Conflict.into());
         }
@@ -318,7 +318,8 @@ async fn contract() {
             .unwrap_err(),
         "NotFound",
     );
-    // Anyone but the daemon is refused: process IDs never reach the shell.
+    // Anyone but the daemon is refused, before its arguments are read:
+    // process IDs never reach the shell.
     let snoop = MediaProcessProxy::builder(&shell)
         .destination(media.unique_name().unwrap().as_str())
         .unwrap()
@@ -332,6 +333,10 @@ async fn contract() {
             .unwrap_err(),
         "PermissionDenied",
     );
+    error(
+        snoop.get_process_id("", "").await.unwrap_err(),
+        "PermissionDenied",
+    );
     let snoop = BrowserProcessProxy::builder(&shell)
         .destination(browser.unique_name().unwrap().as_str())
         .unwrap()
@@ -343,6 +348,10 @@ async fn contract() {
             .get_process_id(BROWSER_GENERATION, "c1:w1")
             .await
             .unwrap_err(),
+        "PermissionDenied",
+    );
+    error(
+        snoop.get_process_id("not-a-uuid", "").await.unwrap_err(),
         "PermissionDenied",
     );
 

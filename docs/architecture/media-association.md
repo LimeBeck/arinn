@@ -21,7 +21,9 @@ and `Browser1` signatures do not change. Types and validation are in
 ## Provider side
 
 - `GetProcessId` answers only the registered daemon owner. Any other caller
-  gets `PermissionDenied`: process IDs never reach the shell or other clients.
+  gets `PermissionDenied`, whatever its arguments: the caller check comes
+  before argument validation, so process IDs never reach the shell or other
+  clients and no error tells them more.
 - Arguments are the current registration generation and one current local ID.
   A stale generation is `Conflict`, an unknown ID is `NotFound`, and malformed
   arguments are `InvalidArgument`.

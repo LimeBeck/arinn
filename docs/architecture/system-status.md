@@ -44,6 +44,9 @@ at most the enum values.
   is also re-read every 30 s in case a signal was missed. A change of the
   `org.freedesktop.NetworkManager` name owner also triggers a read, so a
   NetworkManager that stops while the bus stays up reads `unknown` at once.
+  Each read first asks the bus for the name's owner and reads from that
+  unique name, so a stopped, activatable NetworkManager is never started by
+  Arinn.
   Both signal streams are drained by their own tasks, so a burst never stalls
   the connection. A lost bus connection reports `unknown` and reconnects after
   10 s.
@@ -93,6 +96,7 @@ at most the enum values.
 - `platform/status_sources_tests.rs`: the NetworkManager and `pactl`
   mappings, a fake NetworkManager on a private bus (Wi-Fi level, wired,
   disconnected, two devices, absent, stopped and restarted on a live bus,
+  stopped but activatable (never activated),
   lost bus) and a fake `pactl` (sink and server events, a burst read once,
   ignored events, locale, ended subscription, missing tool).
 - `crates/arinnd/src/runtime/system_status_tests.rs`: the daemon export with

@@ -128,8 +128,29 @@ impl Point {
 pub(crate) struct Bus(Child, pub(crate) String);
 impl Bus {
     pub(crate) fn new() -> Self {
+        Self::spawn("--session")
+    }
+    /// A bus that can activate the services in `services`.
+    fn with_services(folder: &Path, services: &Path) -> Self {
+        let config = folder.join("bus.conf");
+        std::fs::write(
+            &config,
+            format!(
+                "<!DOCTYPE busconfig PUBLIC \"-//freedesktop//DTD D-Bus Bus Configuration 1.0//EN\" \
+                 \"http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd\">\n\
+                 <busconfig><type>session</type><listen>unix:tmpdir=/tmp</listen>\
+                 <auth>EXTERNAL</auth><servicedir>{}</servicedir>\
+                 <policy context=\"default\"><allow send_destination=\"*\" eavesdrop=\"true\"/>\
+                 <allow eavesdrop=\"true\"/><allow own=\"*\"/></policy></busconfig>\n",
+                services.display()
+            ),
+        )
+        .unwrap();
+        Self::spawn(&format!("--config-file={}", config.display()))
+    }
+    fn spawn(config: &str) -> Self {
         let mut child = StdCommand::new("dbus-daemon")
-            .args(["--session", "--nofork", "--print-address=1"])
+            .args([config, "--nofork", "--print-address=1"])
             .stdout(Stdio::piped())
             .spawn()
             .unwrap();
@@ -257,6 +278,54 @@ async fn reads_network_manager_and_names_nothing() {
             ..NetworkState::UNKNOWN
         }
     );
+}
+
+#[tokio::test]
+async fn a_stopped_network_manager_is_not_activated() {
+    // NetworkManager is installed as an activatable D-Bus service but stopped.
+    let folder = std::env::temp_dir().join(format!("arinn-nm-{}", uuid::Uuid::new_v4()));
+    let services = folder.join("services");
+    std::fs::create_dir_all(&services).unwrap();
+    let marker = folder.join("activated");
+    let script = folder.join("network-manager");
+    std::fs::write(
+        &script,
+        format!("#!/bin/sh\ntouch '{}'\nsleep 3\n", marker.display()),
+    )
+    .unwrap();
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::fs::write(
+        services.join("org.freedesktop.NetworkManager.service"),
+        format!("[D-BUS Service]\nName={NM}\nExec={}\n", script.display()),
+    )
+    .unwrap();
+    let bus = Bus::with_services(&folder, &services);
+    let client = bus.connect().await;
+    assert_eq!(read_network(&client).await, NetworkState::UNKNOWN);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(
+        !marker.exists(),
+        "reading the status activated NetworkManager"
+    );
+    // The fixture does activate on a call to the well-known name.
+    let proxy = PropertiesProxy::builder(&client)
+        .destination(NM)
+        .unwrap()
+        .path(NM_PATH)
+        .unwrap()
+        .build()
+        .await
+        .unwrap();
+    let interface = zbus::names::InterfaceName::try_from(NM).unwrap();
+    let _ = tokio::time::timeout(Duration::from_millis(500), proxy.get(interface, "State")).await;
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while !marker.exists() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the activation entry works");
+    let _ = std::fs::remove_dir_all(&folder);
 }
 
 /// A fake `pactl`: `get-sink-mute` prints the `mute` file, but only in the C

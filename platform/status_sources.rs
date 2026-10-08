@@ -306,14 +306,28 @@ async fn network_signals(connection: &Connection) -> Option<(mpsc::Receiver<bool
     Some((receiver, drains))
 }
 
+/// NetworkManager's unique name. Asking the bus for the owner never
+/// activates the service, so a NetworkManager someone stopped stays stopped:
+/// every read goes to this name, not to the activatable well-known one.
+async fn owner(connection: &Connection) -> Option<String> {
+    let bus = zbus::fdo::DBusProxy::new(connection).await.ok()?;
+    let name = zbus::names::BusName::try_from(NM).ok()?;
+    tokio::time::timeout(CALL_TIMEOUT, bus.get_name_owner(name))
+        .await
+        .ok()?
+        .ok()
+        .map(|owner| owner.to_string())
+}
+
 async fn property(
     connection: &Connection,
+    owner: &str,
     path: &str,
     interface: &str,
     name: &str,
 ) -> Option<OwnedValue> {
     let proxy = PropertiesProxy::builder(connection)
-        .destination(NM)
+        .destination(owner)
         .ok()?
         .path(path)
         .ok()?
@@ -329,7 +343,10 @@ async fn property(
 
 /// The current NetworkManager state; `unknown` when it cannot be read.
 pub async fn read_network(connection: &Connection) -> NetworkState {
-    let Some(state) = property(connection, NM_PATH, NM, "State").await else {
+    let Some(owner) = owner(connection).await else {
+        return NetworkState::UNKNOWN;
+    };
+    let Some(state) = property(connection, &owner, NM_PATH, NM, "State").await else {
         return NetworkState::UNKNOWN;
     };
     let Ok(state) = u32::try_from(state) else {
@@ -342,12 +359,12 @@ pub async fn read_network(connection: &Connection) -> NetworkState {
             ..NetworkState::UNKNOWN
         };
     }
-    let link = match property(connection, NM_PATH, NM, "PrimaryConnectionType").await {
+    let link = match property(connection, &owner, NM_PATH, NM, "PrimaryConnectionType").await {
         Some(kind) => String::try_from(kind).map_or(Link::Unknown, |k| link_from_type(&k)),
         None => Link::Unknown,
     };
     let signal = if link == Link::Wifi {
-        wifi_signal(connection).await
+        wifi_signal(connection, &owner).await
     } else {
         0
     };
@@ -359,19 +376,19 @@ pub async fn read_network(connection: &Connection) -> NetworkState {
 }
 
 /// The access point strength of the primary connection's Wi-Fi device.
-async fn wifi_signal(connection: &Connection) -> u8 {
+async fn wifi_signal(connection: &Connection, owner: &str) -> u8 {
     let object = |value: OwnedValue| {
         zbus::zvariant::OwnedObjectPath::try_from(value)
             .ok()
             .filter(|p| p.as_str() != "/")
     };
-    let Some(primary) = property(connection, NM_PATH, NM, "PrimaryConnection")
+    let Some(primary) = property(connection, owner, NM_PATH, NM, "PrimaryConnection")
         .await
         .and_then(object)
     else {
         return 0;
     };
-    let devices = property(connection, primary.as_str(), ACTIVE, "Devices")
+    let devices = property(connection, owner, primary.as_str(), ACTIVE, "Devices")
         .await
         .and_then(|v| Vec::<zbus::zvariant::OwnedObjectPath>::try_from(v).ok())
         .unwrap_or_default();
@@ -380,13 +397,18 @@ async fn wifi_signal(connection: &Connection) -> u8 {
     let [device] = devices.as_slice() else {
         return 0;
     };
-    let Some(point) = property(connection, device.as_str(), WIRELESS, "ActiveAccessPoint")
-        .await
-        .and_then(object)
-    else {
+    let Some(point) = property(
+        connection,
+        owner,
+        device.as_str(),
+        WIRELESS,
+        "ActiveAccessPoint",
+    )
+    .await
+    .and_then(object) else {
         return 0;
     };
-    property(connection, point.as_str(), ACCESS_POINT, "Strength")
+    property(connection, owner, point.as_str(), ACCESS_POINT, "Strength")
         .await
         .and_then(|v| u8::try_from(v).ok())
         .map_or(0, signal_from_strength)

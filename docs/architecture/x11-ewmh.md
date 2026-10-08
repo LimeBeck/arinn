@@ -83,8 +83,9 @@ Global Home uses passive root key grabs for `home_shortcut` (read only from
 including Caps/Num/Scroll lock modifier
 combinations. A sequence whose key or modifier is not mapped is skipped. Meta derives Super modifiers from the keyboard/modifier
 mapping, falling back to native Meta only if no mapped Super exists; it does not
-assume Mod4. Keyboard/modifier mapping changes rebuild the grabs. An existing grab
-conflict makes the backend unavailable. Home snapshots the exact opaque target
+assume Mod4. Keyboard/modifier mapping changes rebuild the grabs. A sequence another
+client already grabs is skipped and logged; the backend is unavailable only
+when no Home sequence can be grabbed. Home snapshots the exact opaque target
 and keeps it across repeated Home presses. Return validates that token in the
 current inventory before dispatch. The shell receives all-desktops, fullscreen/above and
 activation EWMH messages; ordinary activation and close also use EWMH messages.

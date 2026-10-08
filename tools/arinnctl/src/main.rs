@@ -19,6 +19,22 @@ fn output(value: &impl Serialize, json: bool) -> Result<(), u8> {
     }
     Ok(())
 }
+/// The daemon's build id, or `None` for a daemon older than `BuildInfo`
+/// (ADR-0097). Any other failure is a runtime failure, not an old daemon.
+fn daemon_build(reply: zbus::Result<(String, String)>) -> Result<Option<String>, u8> {
+    match reply {
+        Ok((_, id)) => Ok(Some(id)),
+        Err(zbus::Error::MethodError(name, _, _))
+            if name.as_str() == "org.freedesktop.DBus.Error.UnknownMethod" =>
+        {
+            Ok(None)
+        }
+        Err(zbus::Error::FDO(error)) if matches!(*error, zbus::fdo::Error::UnknownMethod(_)) => {
+            Ok(None)
+        }
+        Err(_) => Err(1),
+    }
+}
 /// `status` with this client's build id and the daemon's (`null` when the
 /// daemon predates `BuildInfo`).
 fn with_builds(
@@ -332,8 +348,7 @@ async fn run() -> Result<(), u8> {
     match args[0].as_str() {
         "status" => {
             let status = p.status().await.map_err(|_| 1)?.0;
-            // An older daemon has no BuildInfo: its build is unknown (ADR-0097).
-            let daemon = p.build_info().await.ok().map(|(_, id)| id);
+            let daemon = daemon_build(p.build_info().await)?;
             output(&with_builds(&status, daemon.as_deref())?, json)
         }
         "providers" if args.len() == 1 => {
@@ -451,6 +466,44 @@ mod tests {
         let value = with_builds(&status, None).unwrap();
         assert!(value["daemon_build_id"].is_null());
         assert!(human(&value).contains("daemon_build_id: null\n"));
+    }
+
+    #[test]
+    fn only_a_missing_build_info_is_an_old_daemon() {
+        let unknown =
+            zbus::names::OwnedErrorName::try_from("org.freedesktop.DBus.Error.UnknownMethod")
+                .unwrap();
+        let message = zbus::message::Message::method_call("/", "BuildInfo")
+            .unwrap()
+            .build(&())
+            .unwrap();
+        assert_eq!(
+            daemon_build(Ok(("0.1.0".into(), "0.1.0+g1bd20d647afe".into()))),
+            Ok(Some("0.1.0+g1bd20d647afe".into()))
+        );
+        assert_eq!(
+            daemon_build(Err(zbus::Error::MethodError(unknown, None, message))),
+            Ok(None)
+        );
+        assert_eq!(
+            daemon_build(Err(zbus::Error::FDO(Box::new(
+                zbus::fdo::Error::UnknownMethod("BuildInfo".into())
+            )))),
+            Ok(None)
+        );
+        // A timeout or another error is a failure, not "no BuildInfo".
+        assert_eq!(
+            daemon_build(Err(zbus::Error::InputOutput(std::sync::Arc::new(
+                std::io::Error::from(std::io::ErrorKind::TimedOut)
+            )))),
+            Err(1)
+        );
+        assert_eq!(
+            daemon_build(Err(zbus::Error::FDO(Box::new(
+                zbus::fdo::Error::AccessDenied("no".into())
+            )))),
+            Err(1)
+        );
     }
 
     fn provider(id: &str, error: &str, error_at: u64, recovered_at: u64) -> ProviderInfo {

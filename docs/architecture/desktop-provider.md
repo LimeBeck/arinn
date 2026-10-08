@@ -94,7 +94,7 @@ reads/controls and clears old clients and running instances. Launch remains
 available when KWin is absent; unverified window actions are not published.
 
 KWin's documented desktopFileName basename is converted to an exact `.desktop`
-ID. Absolute paths and unproven associations stay empty. No resource class, title,
+ID. Absolute paths and unproven associations stay empty. A managed player window (an exact `org.arinn.Playback.<launch>` identity, ADR-0074) is Arinn's own playback surface: it stays in the inventory for presentation but always has an empty desktop ID, so it is never a running application or a Continue Activity ([#376](https://github.com/LimeBeck/arinn/issues/376)). No resource class, title,
 URL or executable matching is used for application association. The platform
 adapter separately excludes the Arinn shell, input-method surfaces and Plasma's
 `kscreenlocker_greet` surface (KWin JavaScript does not expose isLockScreen). Each normal external window has an opaque

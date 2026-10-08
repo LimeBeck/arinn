@@ -23,6 +23,11 @@ let playbackGuardAt = 0, playbackGuardSerial = 0;
 // mediaSerial changes with playback; mediaPollSerial only marks which media poll
 // owns the slot, so a stale-poll reset never cancels a command (#369).
 let mediaSerial = 0, mediaPollSerial = 0;
+// Every media poll gets the next sequence number. presentedFrom is the
+// sequence of the poll that delivered the latest Present, or of the newest
+// poll at a re-presentation without a command. A Release from an older poll
+// was delayed past that newer intent and must not tear it down.
+let pollSequence = 0, presentedFrom = 0;
 let mediaControllingAt = 0;
 let mediaReportingAt = 0;
 let lastMediaReport = "";
@@ -165,6 +170,7 @@ function returnToActivity() {
             if (locked !== false || owner !== daemonOwner || serial !== mediaSerial || playback !== saved || home !== homeSerial || !homeVisible || Date.now() - at >= 1000) return;
             if (!workspace.windowList().includes(w) || launchId(w) !== saved.launch) return;
             presentPlayback(w);
+            presentedFrom = pollSequence;
             reportHome(false);
         });
     } else { handOff(w); reportHome(false); }
@@ -581,7 +587,7 @@ function pollMediaControl() {
     if (mediaReportingAt && now - mediaReportingAt > 3000) { mediaReportingAt = 0; lastMediaReport = ""; }
     if (mediaControllingAt && now - mediaControllingAt > 1500) { ++mediaPollSerial; mediaControllingAt = 0; }
     if (mediaControllingAt) return;
-    const serial = mediaSerial, poll = ++mediaPollSerial, inventory = inventorySerial, generation = platformGeneration, owner = daemonOwner;
+    const serial = mediaSerial, poll = ++mediaPollSerial, sequence = ++pollSequence, inventory = inventorySerial, generation = platformGeneration, owner = daemonOwner;
     mediaControllingAt = now;
     mediaBridge("NextControl", generation, reply => {
         if (inventory !== inventorySerial || owner !== daemonOwner) return;
@@ -643,6 +649,13 @@ function pollMediaControl() {
             if (locked !== false) { diagnose("debug", "media." + command[1], traced("denied", "session_locked", "PermissionDenied")); releasePlayback(false); complete("PermissionDenied"); return; }
             try {
                 if (command[1] === "release") {
+                    // A Present delivered by a later poll, or a re-presentation,
+                    // supersedes this delayed Release: answer, do not tear down.
+                    if (presentedFrom > sequence) {
+                        diagnose("debug", "media.release", traced("cancelled", "superseded_by_present", "Cancelled"));
+                        complete("Cancelled");
+                        return;
+                    }
                     const token = playback ? windowTokens.get(playback.window) || "" : "";
                     if (command[2] && token && command[2] !== token) { complete("Conflict"); return; }
                     releasePlayback(true);
@@ -654,6 +667,7 @@ function pollMediaControl() {
                         return;
                     }
                     presentPlayback(w, traced);
+                    presentedFrom = sequence;
                     reportHome(false);
                 }
                 complete("");

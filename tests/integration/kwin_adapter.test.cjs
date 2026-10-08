@@ -815,6 +815,36 @@ test('a Present delayed past the handover budget is never presented', () => {
         assert.ok(f.printed.some(line => JSON.parse(line).reason === 'reply_late'));
     }
 });
+test('a delayed Release never tears down a newer Present of the same window', () => {
+    const {f, token} = managedFixture();
+    f.media('present', token); f.refresh();
+    const oldReleasePoll = f.mediaControls.at(-1);
+    // KWin holds the Release callback while the daemon times it out and
+    // hands a new Present of the same window to a later poll.
+    f.advance(1600); f.controls.at(-1)([]); f.refresh();
+    f.advance(4000); f.controls.at(-1)([]); f.refresh();
+    f.media('present', token);
+    assert.equal(f.report()[0], false);
+    const request = randomUUID();
+    oldReleasePoll([request, 'release', token]);
+    assert.equal(f.report()[0], false, 'the newer playback stays presented');
+    assert.equal(f.home.keepAbove, true);
+    assert.deepEqual(f.mediaAcks.at(-1).slice(1), [request, 'Cancelled']);
+    assert.ok(f.printed.some(line => JSON.parse(line).reason === 'superseded_by_present'));
+});
+test('a Release from a poll started before the Present was applied still releases', () => {
+    const {f, token} = managedFixture();
+    // The Present arrives on a poll the stale-poll reset already replaced, so
+    // the newer poll was started first; Back then arrives on that newer poll.
+    const stale = f.mediaControls.at(-1);
+    f.advance(1600); f.controls.at(-1)([]); f.refresh();
+    const releasePoll = f.mediaControls.at(-1);
+    stale([randomUUID(), 'present', token]);
+    assert.equal(f.home.keepAbove, true, 'presented');
+    releasePoll([randomUUID(), 'release', token]);
+    assert.equal(f.mediaAcks.at(-1)[2], '');
+    assert.equal(f.report()[0], true, 'Back reached Home');
+});
 test('a command delivered to a poll that playback outdated is answered Cancelled', () => {
     const {f, token} = managedFixture();
     f.media('present', token); f.refresh();

@@ -84,6 +84,7 @@ mod media_links;
 mod media_routing;
 mod progress;
 mod settings_routing;
+mod system_status;
 mod web_icons;
 
 /// Capability sets the daemon routes; anything else is incompatible.

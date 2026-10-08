@@ -17,6 +17,7 @@ Build-Depends:
  libcurl4-openssl-dev,
  libunwind-dev,
  libssl-dev,
+ dbus-daemon <!nocheck>,
 Standards-Version: 4.7.0
 Rules-Requires-Root: no
 Homepage: https://github.com/LimeBeck/arinn

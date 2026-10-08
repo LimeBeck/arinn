@@ -15,6 +15,14 @@
 namespace {
 std::atomic_bool active{false};
 QElapsedTimer startupTimer;
+// Template throttling uses monotonic time: a wall-clock step back must not
+// silence a template for the size of the correction.
+qint64 monotonicMs() {
+  static QElapsedTimer clock;
+  static const bool started = (clock.start(), true);
+  (void)started;
+  return clock.elapsed();
+}
 sentry_transaction_t *startupTransaction = nullptr;
 void copy(sentry_value_t out, sentry_value_t in, const char *key) {
   auto value = sentry_value_get_by_key(in, key);
@@ -44,6 +52,11 @@ sentry_value_t sanitize(sentry_value_t event, sentry_hint_t *, void *) {
     copy(clean, event, key);
   auto tags = sentry_value_new_object();
   sentry_value_set_by_key(tags, "component", sentry_value_new_string("arinn-shell"));
+  auto originalTags = sentry_value_get_by_key(event, "tags");
+  const char *location = sentry_value_as_string(sentry_value_get_by_key(originalTags, "qt.location"));
+  if (ArinnTelemetry::safeLocation(location)) sentry_value_set_by_key(tags, "qt.location", sentry_value_new_string(location));
+  const char *category = sentry_value_as_string(sentry_value_get_by_key(originalTags, "qt.category"));
+  if (ArinnTelemetry::safeCategory(category)) sentry_value_set_by_key(tags, "qt.category", sentry_value_new_string(category));
   sentry_value_set_by_key(clean, "tags", tags);
   sentry_value_set_by_key(clean, "logger", sentry_value_new_string("arinn-shell"));
   sentry_value_set_by_key(clean, "message", sentry_value_new_string("Native technical diagnostic"));
@@ -58,11 +71,28 @@ sentry_value_t sanitize(sentry_value_t event, sentry_hint_t *, void *) {
     for (auto allowed : {"SIGSEGV", "SIGABRT", "SIGBUS", "SIGILL", "SIGFPE", "QtWarning", "QtCritical", "QtFatal"})
       if (name && std::strcmp(name, allowed) == 0) safe = allowed;
     sentry_value_set_by_key(exception, "type", sentry_value_new_string(safe));
-    sentry_value_set_by_key(exception, "value", sentry_value_new_string("Technical failure; private message omitted"));
+    // Qt messages carry a template that our own handler already reduced.
+    const char *value = sentry_value_as_string(sentry_value_get_by_key(source, "value"));
+    const bool qt = std::strncmp(safe, "Qt", 2) == 0;
+    sentry_value_set_by_key(exception, "value", sentry_value_new_string(
+      qt && ArinnTelemetry::safeTemplateText(value) ? value : "Technical failure; private message omitted"));
     auto stack = sentry_value_get_by_key(source, "stacktrace");
     if (!sentry_value_is_null(stack))
       sentry_value_set_by_key(exception, "stacktrace", safeFrames(stack));
     sentry_value_append(exceptions, exception);
+  }
+  // Grouping is rebuilt from the clean fields (type, location, template),
+  // never copied from the payload.
+  auto first = sentry_value_get_by_index(exceptions, 0);
+  const char *firstType = sentry_value_as_string(sentry_value_get_by_key(first, "type"));
+  const char *firstValue = sentry_value_as_string(sentry_value_get_by_key(first, "value"));
+  if (firstType && std::strncmp(firstType, "Qt", 2) == 0 && ArinnTelemetry::safeTemplateText(firstValue)) {
+    auto print = sentry_value_new_list();
+    sentry_value_append(print, sentry_value_new_string("arinn-shell"));
+    sentry_value_append(print, sentry_value_new_string(firstType));
+    sentry_value_append(print, sentry_value_new_string(ArinnTelemetry::safeLocation(location) ? location : "unknown.location"));
+    sentry_value_append(print, sentry_value_new_string(firstValue));
+    sentry_value_set_by_key(clean, "fingerprint", print);
   }
   if (sentry_value_get_length(exceptions)) {
     auto wrapper = sentry_value_new_object();
@@ -89,7 +119,7 @@ sentry_value_t sanitize(sentry_value_t event, sentry_hint_t *, void *) {
     auto source = sentry_value_get_by_index(crumbs, i);
     const char *message = sentry_value_as_string(sentry_value_get_by_key(source, "message"));
     bool allowed = false;
-    for (auto known : {"startup", "shutdown", "about-to-quit", "qt.debug", "qt.info", "qt.warning", "qt.critical", "qt.fatal", "input.key", "input.pointer", "focus.in", "focus.out", "window.show", "window.hide", "window.activate", "window.deactivate"})
+    for (auto known : {"startup", "shutdown", "about-to-quit", "qt.debug", "qt.info", "qt.warning", "qt.critical", "qt.fatal", "qt.noise", "input.key", "input.pointer", "focus.in", "focus.out", "window.show", "window.hide", "window.activate", "window.deactivate"})
       if (message && std::strcmp(message, known) == 0) allowed = true;
     if (!allowed) continue;
     auto crumb = sentry_value_new_breadcrumb("default", message);
@@ -128,7 +158,10 @@ sentry_value_t sanitizeTransaction(sentry_value_t transaction, void *) {
 }
 sentry_value_t sanitizeMetric(sentry_value_t metric, void *) {
   const char *name = sentry_value_as_string(sentry_value_get_by_key(metric, "name"));
-  if (!name || (std::strcmp(name, "arinn.shell.messages") != 0 && std::strcmp(name, "arinn.shell.errors") != 0 && std::strcmp(name, "arinn.shell.startup.duration") != 0)) {
+  bool known = false;
+  for (auto allowed : {"arinn.shell.messages", "arinn.shell.errors", "arinn.shell.messages.benign", "arinn.shell.messages.suppressed", "arinn.shell.startup.duration"})
+    known = known || (name && std::strcmp(name, allowed) == 0);
+  if (!known) {
     sentry_value_decref(metric); return sentry_value_new_null();
   }
   auto clean = sentry_value_new_object();
@@ -235,24 +268,48 @@ void breadcrumb(const char *operation) {
   sentry_value_set_by_key(crumb, "category", sentry_value_new_string("shell.lifecycle"));
   sentry_add_breadcrumb(crumb);
 }
-void qtMessage(QtMsgType type, const QMessageLogContext &) {
-  if (!active) return;
-  const char *kind = "qt.debug";
-  if (type == QtInfoMsg) kind = "qt.info";
-  if (type == QtWarningMsg) kind = "qt.warning";
-  if (type == QtCriticalMsg) kind = "qt.critical";
-  if (type == QtFatalMsg) kind = "qt.fatal";
-  breadcrumb(kind);
+void qtMessage(QtMsgType type, const QMessageLogContext &context, const QString &message) {
+  // A message emitted while reporting another one is not reported again.
+  thread_local bool reporting = false;
+  if (!active || reporting) return;
+  reporting = true;
+  const struct Reset { bool &flag; ~Reset() { flag = false; } } reset{reporting};
   sentry_metrics_count("arinn.shell.messages", 1, sentry_value_new_object());
-  if (type == QtDebugMsg || type == QtInfoMsg) return;
-  sentry_metrics_count("arinn.shell.errors", 1, sentry_value_new_object());
-  auto event = sentry_value_new_event();
+  if (type == QtDebugMsg || type == QtInfoMsg) {
+    breadcrumb(type == QtDebugMsg ? "qt.debug" : "qt.info");
+    return;
+  }
+  const auto shape = qtTemplate(context, message);
   const char *name = type == QtWarningMsg ? "QtWarning" : type == QtCriticalMsg ? "QtCritical" : "QtFatal";
-  sentry_value_set_by_key(event, "level", sentry_value_new_string(type == QtWarningMsg ? "warning" : type == QtFatalMsg ? "fatal" : "error"));
-  auto exception = sentry_value_new_exception(name, "Technical failure; private message omitted");
+  const auto key = QByteArray(name) + '\n' + shape.location + '\n' + shape.text;
+  const bool fatal = type == QtFatalMsg;
+  if (shape.benign && !fatal) {
+    // Expected noise, such as a missing icon: a counter, and one breadcrumb per window.
+    sentry_metrics_count("arinn.shell.messages.benign", 1, sentry_value_new_object());
+    if (admitTemplate(key, monotonicMs())) breadcrumb("qt.noise");
+    return;
+  }
+  sentry_metrics_count("arinn.shell.errors", 1, sentry_value_new_object());
+  if (!fatal && !admitTemplate(key, monotonicMs())) {
+    sentry_metrics_count("arinn.shell.messages.suppressed", 1, sentry_value_new_object());
+    return;
+  }
+  breadcrumb(type == QtWarningMsg ? "qt.warning" : type == QtCriticalMsg ? "qt.critical" : "qt.fatal");
+  auto event = sentry_value_new_event();
+  sentry_value_set_by_key(event, "level", sentry_value_new_string(type == QtWarningMsg ? "warning" : fatal ? "fatal" : "error"));
+  auto exception = sentry_value_new_exception(name, shape.text.constData());
   sentry_value_set_by_key(exception, "stacktrace", sentry_value_new_stacktrace(nullptr, 0));
   sentry_event_add_exception(event, exception);
+  auto tags = sentry_value_new_object();
+  if (!shape.location.isEmpty()) sentry_value_set_by_key(tags, "qt.location", sentry_value_new_string(shape.location.constData()));
+  if (!shape.category.isEmpty()) sentry_value_set_by_key(tags, "qt.category", sentry_value_new_string(shape.category.constData()));
+  sentry_value_set_by_key(event, "tags", tags);
+  auto print = sentry_value_new_list();
+  for (const QByteArray &part : {QByteArray("arinn-shell"), QByteArray(name),
+                                 shape.location.isEmpty() ? QByteArray("unknown.location") : shape.location, shape.text})
+    sentry_value_append(print, sentry_value_new_string(part.constData()));
+  sentry_value_set_by_key(event, "fingerprint", print);
   sentry_capture_event(event);
-  if (type == QtFatalMsg) sentry_flush(2000);
+  if (fatal) sentry_flush(2000);
 }
 }

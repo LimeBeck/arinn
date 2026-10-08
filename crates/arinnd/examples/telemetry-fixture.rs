@@ -13,7 +13,34 @@ fn main() {
     sentry::metrics::counter("arinn.daemon.operations", 1)
         .attribute("private", "private-token-fixture")
         .capture();
-    arinnd::telemetry::record("operation.complete", None, 42);
+    let started = std::time::SystemTime::now() - std::time::Duration::from_millis(42);
+    let phases = [
+        arinnd::telemetry::Phase {
+            op: "provider.call",
+            name: "library.launch",
+            start: started,
+            end: started + std::time::Duration::from_millis(10),
+            outcome: Some(Ok(())),
+        },
+        arinnd::telemetry::Phase {
+            op: "provider.call",
+            name: "media.open",
+            start: started + std::time::Duration::from_millis(10),
+            end: started + std::time::Duration::from_millis(40),
+            outcome: Some(Err(arinn_protocol::validation::ErrorCode::Timeout)),
+        },
+    ];
+    // The plugin label is not a manifest id: it must be dropped, not sent.
+    arinnd::telemetry::operation(&arinnd::telemetry::Completion {
+        kind: "library.launch",
+        capability: "library",
+        plugin: "/home/private-fixture/private-token-fixture",
+        error: Some(arinn_protocol::validation::ErrorCode::Timeout),
+        reason: Some("provider_changed"),
+        started,
+        duration_ms: 42,
+        phases: &phases,
+    });
     arinnd::telemetry::record(
         "startup",
         Some(arinn_protocol::validation::ErrorCode::Internal),

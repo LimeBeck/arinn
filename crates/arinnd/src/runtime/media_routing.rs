@@ -51,6 +51,21 @@ impl MediaAction {
             _ => return None,
         })
     }
+    /// The fixed `telemetry::KINDS` entry of this command.
+    pub(super) fn kind(&self) -> &'static str {
+        match self {
+            Self::Play => "media.command:play",
+            Self::Pause => "media.command:pause",
+            Self::PlayPause => "media.command:play-pause",
+            Self::Seek(_) => "media.command:seek",
+            Self::Next => "media.command:next",
+            Self::Previous => "media.command:previous",
+            Self::Stop => "media.command:stop",
+            Self::SelectTrack { .. } => "media.command:select-track",
+            Self::DisableSubtitles => "media.command:disable-subtitles",
+            Self::Thumbnail(_) => "media.command:thumbnail",
+        }
+    }
     fn feature(&self) -> Option<&'static str> {
         match self {
             Self::SelectTrack { .. } | Self::DisableSubtitles => Some(FEATURE_TRACKS),
@@ -370,10 +385,18 @@ impl Core {
             .find(|s| s.id == session)
             .ok_or(ErrorCode::NotFound)?;
         action.check(entry, &p.features)?;
+        let label = Label::new(action.kind()).provider("media", &p.info.plugin_id);
         let owner = p.owner.clone();
         let (path, op, fresh) = self
             .operations
-            .admit(&self.connection, caller, request_id, &fingerprint, id)
+            .admit(
+                &self.connection,
+                caller,
+                request_id,
+                &fingerprint,
+                id,
+                label,
+            )
             .await?;
         drop(state);
         if !fresh {
@@ -447,9 +470,12 @@ impl Core {
                 .map_err(normalize_error)?;
                 Ok::<_, ErrorCode>(asset)
             };
-            let result = tokio::time::timeout(MEDIA_COMMAND_TIMEOUT, work)
-                .await
-                .unwrap_or(Err(ErrorCode::Timeout));
+            let result = tokio::time::timeout(
+                MEDIA_COMMAND_TIMEOUT,
+                op.phase("provider.call", op.kind(), work),
+            )
+            .await
+            .unwrap_or(Err(ErrorCode::Timeout));
             let valid = core
                 .state
                 .lock()
@@ -460,6 +486,7 @@ impl Core {
             let result = if valid {
                 result
             } else {
+                op.reason("provider_changed");
                 Err(ErrorCode::Unavailable)
             };
             let result = result.and_then(|asset| match asset {
@@ -840,9 +867,22 @@ impl Core {
                     .ok_or(ErrorCode::Unavailable)?,
             )
         };
+        let kind = if present {
+            "media.present"
+        } else {
+            "media.release"
+        };
+        let label = Label::new(kind).provider("media", &p.info.plugin_id);
         let (path, op, fresh) = self
             .operations
-            .admit(&self.connection, caller, request_id, &fingerprint, id)
+            .admit(
+                &self.connection,
+                caller,
+                request_id,
+                &fingerprint,
+                id,
+                label,
+            )
             .await?;
         if !fresh {
             return Ok(path);
@@ -887,11 +927,10 @@ impl Core {
                 value.started_at = now();
             }
             let result = match queued {
-                Ok(Some(receive)) => tokio::time::timeout(Duration::from_secs(5), receive)
-                    .await
-                    .map_err(|_| ErrorCode::Timeout)
-                    .and_then(|r| r.map_err(|_| ErrorCode::Unavailable))
-                    .and_then(|r| r),
+                Ok(Some(receive)) => {
+                    op.phase("platform.wait", op.kind(), platform_wait(&op, receive))
+                        .await
+                }
                 Ok(None) => Ok(()),
                 Err(error) => Err(error),
             };
@@ -905,6 +944,7 @@ impl Core {
             let result = if valid {
                 result
             } else {
+                op.reason("provider_changed");
                 Err(ErrorCode::Unavailable)
             };
             op.finish(

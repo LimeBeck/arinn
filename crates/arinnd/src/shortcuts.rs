@@ -336,6 +336,7 @@ impl WebShortcuts {
                 &request_id,
                 &format!("open-web-shortcut\0{id}"),
                 "",
+                crate::operations::Label::new("shortcut.open"),
             )
             .await?;
         if fresh {
@@ -351,7 +352,7 @@ impl WebShortcuts {
                     }
                 }
                 let result = match browser {
-                    Some(core) => core.open_url(&url).await,
+                    Some(core) => core.open_url(&url, &operation).await,
                     None => Err(ErrorCode::Unavailable),
                 };
                 operation

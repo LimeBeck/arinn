@@ -7,7 +7,7 @@
 - **Date:** 2026-10-04
 - **Deciders:** owner-requested preparation in [#301](https://github.com/LimeBeck/arinn/issues/301); owner review and merge required
 - **Amends / Supersedes:** —
-- **Amended by / Superseded by:** —
+- **Amended by / Superseded by:** [ADR-0093](0093-structured-sentry-diagnostics.md) (structured fields, proposed)
 - **Specification:** §11, §13, §14
 
 ## Context

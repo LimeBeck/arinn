@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Arinn contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "transport.h"
+#include "telemetry.h"
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -57,6 +58,16 @@ QJsonObject event(const QJsonObject &original) {
     {"message", "Native technical diagnostic; private message omitted"},
     {"tags", QJsonObject{{"component", "arinn-shell"}}}};
   for (auto key : {"event_id", "timestamp", "level"}) copy(clean, original, key);
+  const auto tags = original.value("tags").toObject();
+  auto cleanTags = clean.value("tags").toObject();
+  const auto location = tags.value("qt.location").toString().toLatin1();
+  // C-string checks stop at a NUL: never accept a value that embeds one.
+  if (!location.contains('\0') && ArinnTelemetry::safeLocation(location.constData()))
+    cleanTags.insert("qt.location", QString::fromLatin1(location));
+  const auto category = tags.value("qt.category").toString().toLatin1();
+  if (!category.contains('\0') && ArinnTelemetry::safeCategory(category.constData()))
+    cleanTags.insert("qt.category", QString::fromLatin1(category));
+  clean.insert("tags", cleanTags);
   QJsonArray exceptions;
   for (auto value : original.value("exception").toObject().value("values").toArray()) {
     if (exceptions.size() == 4) break;
@@ -64,11 +75,22 @@ QJsonObject event(const QJsonObject &original) {
     auto name = source.value("type").toString();
     if (name != "SIGSEGV" && name != "SIGABRT" && name != "SIGBUS" && name != "SIGILL" && name != "SIGFPE" &&
         name != "QtWarning" && name != "QtCritical" && name != "QtFatal") name = "NativeError";
-    QJsonObject exception{{"type", name}, {"value", "Technical failure; private message omitted"}};
+    // A raw or cached envelope may claim to be a Qt message: template its
+    // text again here instead of trusting that it already was one.
+    const bool qt = name.startsWith("Qt");
+    const auto text = qt ? ArinnTelemetry::scrubTemplate(source.value("value").toString()) : QByteArray();
+    QJsonObject exception{{"type", name}, {"value", qt && ArinnTelemetry::safeTemplateText(text.constData())
+      ? QString::fromLatin1(text) : QStringLiteral("Technical failure; private message omitted")}};
     if (source.contains("stacktrace")) exception.insert("stacktrace", frames(source.value("stacktrace").toObject()));
     exceptions.append(exception);
   }
   if (!exceptions.isEmpty()) clean.insert("exception", QJsonObject{{"values", exceptions}});
+  // Grouping is rebuilt from the clean fields, never copied from the payload.
+  const auto first = exceptions.isEmpty() ? QJsonObject() : exceptions.first().toObject();
+  if (first.value("type").toString().startsWith("Qt")) {
+    clean.insert("fingerprint", QJsonArray{"arinn-shell", first.value("type"),
+      cleanTags.value("qt.location").toString(QStringLiteral("unknown.location")), first.value("value")});
+  }
   if (original.contains("stacktrace")) clean.insert("stacktrace", frames(original.value("stacktrace").toObject()));
   QJsonArray crumbs;
   for (auto value : original.value("breadcrumbs").toArray()) {
@@ -76,7 +98,7 @@ QJsonObject event(const QJsonObject &original) {
     auto source = value.toObject();
     auto message = source.value("message").toString();
     bool allowed = false;
-    for (auto known : {"startup", "shutdown", "about-to-quit", "qt.debug", "qt.info", "qt.warning", "qt.critical", "qt.fatal", "input.key", "input.pointer", "focus.in", "focus.out", "window.show", "window.hide", "window.activate", "window.deactivate"})
+    for (auto known : {"startup", "shutdown", "about-to-quit", "qt.debug", "qt.info", "qt.warning", "qt.critical", "qt.fatal", "qt.noise", "input.key", "input.pointer", "focus.in", "focus.out", "window.show", "window.hide", "window.activate", "window.deactivate"})
       if (message == known) allowed = true;
     if (allowed) {
       QJsonObject crumb{{"type", "default"}, {"category", "shell.lifecycle"}, {"message", message}};
@@ -114,7 +136,8 @@ QJsonObject metrics(const QJsonObject &original) {
     auto source = value.toObject();
     auto name = source.value("name").toString();
     const auto number = source.value("value");
-    if ((name != "arinn.shell.messages" && name != "arinn.shell.errors" && name != "arinn.shell.startup.duration") ||
+    if (!QStringList{"arinn.shell.messages", "arinn.shell.errors", "arinn.shell.messages.benign",
+                     "arinn.shell.messages.suppressed", "arinn.shell.startup.duration"}.contains(name) ||
         !number.isDouble() || !std::isfinite(number.toDouble()) || number.toDouble() < 0) continue;
     const auto type = source.value("type").toString();
     if (type != "counter" && type != "distribution" && type != "gauge") continue;

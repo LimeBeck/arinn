@@ -1204,7 +1204,14 @@ async fn rejected_release_does_not_advance_the_present_exit_fence() {
     for _ in 0..32 {
         f.core
             .operations
-            .admit(&f.core.connection, &caller, &rid(), "occupied", "mpv")
+            .admit(
+                &f.core.connection,
+                &caller,
+                &rid(),
+                "occupied",
+                "mpv",
+                Label::default(),
+            )
             .await
             .unwrap();
     }
@@ -1219,4 +1226,102 @@ async fn rejected_release_does_not_advance_the_present_exit_fence() {
         f.core.playback_exits.lock().await.is_empty(),
         "rejected Release must not cancel a waiting Present"
     );
+}
+
+#[test]
+fn every_media_command_has_a_listed_telemetry_kind() {
+    for action in [
+        MediaAction::Play,
+        MediaAction::Pause,
+        MediaAction::PlayPause,
+        MediaAction::Seek(0),
+        MediaAction::Next,
+        MediaAction::Previous,
+        MediaAction::Stop,
+        MediaAction::SelectTrack {
+            kind: "audio".into(),
+            track: "1".into(),
+        },
+        MediaAction::DisableSubtitles,
+        MediaAction::Thumbnail(0),
+    ] {
+        assert!(
+            crate::telemetry::KINDS.contains(&action.kind()),
+            "{action:?}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn losing_a_provider_chosen_after_admission_finishes_the_operation() {
+    // A URL open is admitted without a provider and picks its browser later.
+    let f = Fixture::new().await;
+    let caller = f.client.unique_name().unwrap().to_string();
+    let (_, op, _) = f
+        .core
+        .operations
+        .admit(
+            &f.core.connection,
+            &caller,
+            &rid(),
+            "chosen-late",
+            "",
+            Label::new("browse.open"),
+        )
+        .await
+        .unwrap();
+    op.provider("mpv", "media", "mpv");
+    f.core
+        .operations
+        .invalidate(&f.core.connection, Some("mpv"), None)
+        .await;
+    assert_eq!(op.value.lock().await.state, "failed");
+    assert_eq!(op.value.lock().await.error, "Unavailable");
+
+    // A library launch depends on the media provider it opens the file in,
+    // without taking that provider's label.
+    let (_, launch, _) = f
+        .core
+        .operations
+        .admit(
+            &f.core.connection,
+            &caller,
+            &rid(),
+            "launch",
+            "library",
+            Label::new("library.launch").provider("library", "library"),
+        )
+        .await
+        .unwrap();
+    launch.depends_on("mpv");
+    f.core
+        .operations
+        .invalidate(&f.core.connection, Some("mpv"), None)
+        .await;
+    assert_eq!(launch.value.lock().await.state, "failed");
+    // Completion already reported the label; the reason stays readable.
+    assert_eq!(launch.traced().3, Some("provider_changed"));
+
+    // A dependency that ended (the browser launch answered) no longer
+    // finishes the operation when that provider goes away.
+    let (_, open, _) = f
+        .core
+        .operations
+        .admit(
+            &f.core.connection,
+            &caller,
+            &rid(),
+            "open-after-launch",
+            "",
+            Label::new("browse.open"),
+        )
+        .await
+        .unwrap();
+    open.depends_on("mpv");
+    open.no_longer_depends_on("mpv");
+    f.core
+        .operations
+        .invalidate(&f.core.connection, Some("mpv"), None)
+        .await;
+    assert_eq!(open.value.lock().await.state, "queued");
 }

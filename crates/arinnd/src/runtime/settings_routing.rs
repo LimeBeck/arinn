@@ -219,16 +219,24 @@ impl Core {
             .find(|s| s.id == setting)
             .ok_or(ErrorCode::NotFound)?
             .check_value(value)?;
-        let (owner, plugin_id) = if id == DAEMON_PROVIDER_ID {
-            (String::new(), String::new())
+        let (owner, plugin_id, label) = if id == DAEMON_PROVIDER_ID {
+            (String::new(), String::new(), Label::new("settings.set"))
         } else {
             let state = self.state.lock().await;
             let p = state.providers.get(id).ok_or(ErrorCode::NotFound)?;
-            (p.owner.clone(), p.info.plugin_id.clone())
+            let label = Label::new("settings.set").provider(p.capability(), &p.info.plugin_id);
+            (p.owner.clone(), p.info.plugin_id.clone(), label)
         };
         let (path, op, fresh) = self
             .operations
-            .admit(&self.connection, caller, request_id, &fingerprint, id)
+            .admit(
+                &self.connection,
+                caller,
+                request_id,
+                &fingerprint,
+                id,
+                label,
+            )
             .await?;
         if !fresh {
             return Ok(path);
@@ -247,6 +255,7 @@ impl Core {
             }
             let result = core
                 .store_and_apply(
+                    &op,
                     &id,
                     &generation,
                     &setting,
@@ -273,6 +282,7 @@ impl Core {
     #[allow(clippy::too_many_arguments)]
     async fn store_and_apply(
         &self,
+        op: &crate::operations::Operation,
         id: &str,
         generation: &str,
         setting: &str,
@@ -307,19 +317,20 @@ impl Core {
         );
         config.save(&directory)?;
         let values = Value::Object(effective_values(schema, &stored_values(&config, id)));
-        let applied = async {
-            let proxy = ProviderSettingsProxy::builder(&self.connection)
-                .destination(owner)
-                .map_err(|_| ErrorCode::Internal)?
-                .build()
-                .await
-                .map_err(|_| ErrorCode::Unavailable)?;
-            tokio::time::timeout(APPLY_TIMEOUT, proxy.apply(generation, &values.to_string()))
-                .await
-                .map_err(|_| ErrorCode::Timeout)?
-                .map_err(normalize_error)
-        }
-        .await;
+        let applied = op
+            .phase("provider.call", "settings.set", async {
+                let proxy = ProviderSettingsProxy::builder(&self.connection)
+                    .destination(owner)
+                    .map_err(|_| ErrorCode::Internal)?
+                    .build()
+                    .await
+                    .map_err(|_| ErrorCode::Unavailable)?;
+                tokio::time::timeout(APPLY_TIMEOUT, proxy.apply(generation, &values.to_string()))
+                    .await
+                    .map_err(|_| ErrorCode::Timeout)?
+                    .map_err(normalize_error)
+            })
+            .await;
         match applied {
             Ok(()) => Ok(()),
             Err(ErrorCode::Unsupported) => Err(ErrorCode::Unsupported),

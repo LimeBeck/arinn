@@ -1,0 +1,11 @@
+<!-- SPDX-FileCopyrightText: 2026 Arinn contributors
+SPDX-License-Identifier: MIT OR Apache-2.0 -->
+<node>
+  <interface name="org.arinn.BrowserProcess1">
+    <method name="GetProcessId">
+      <arg name="generation" type="s" direction="in" />
+      <arg name="window_id" type="s" direction="in" />
+      <arg type="u" direction="out" />
+    </method>
+  </interface>
+</node>

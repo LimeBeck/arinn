@@ -16,6 +16,7 @@ pub mod input;
 pub mod kwin;
 pub mod library;
 pub mod media;
+pub mod media_association;
 pub mod media_window;
 pub mod platform;
 pub mod production;

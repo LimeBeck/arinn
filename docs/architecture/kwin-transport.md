@@ -62,7 +62,7 @@ awaiting each reply. The daemon never publishes partially received state.
 
 Read-only metadata such as desktopFileName is resolved to an exact installed
 desktop-file ID by the platform layer. Ambiguity produces an empty association;
-there is no resource-class/title/process-name fallback. Only normal application
+there is no resource-class/title/process-name fallback. A managed player window always has an empty desktop ID. Only normal application
 windows are included, excluding shell and lock surfaces.
 
 ## Control acknowledgements

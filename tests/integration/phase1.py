@@ -201,9 +201,9 @@ with tempfile.TemporaryDirectory(prefix="arinn-production-") as folder:
                                  "/org/arinn/Daemon1", "org.arinn.SystemStatus1", "Get"],
                                 env=env, capture_output=True, text=True, timeout=5)
         assert status.returncode == 0, status.stderr
-        epoch, revision, audio, network, link, signal = json.loads(status.stdout)["data"][0]
+        _, revision, audio, network, _, level = json.loads(status.stdout)["data"][0]
         assert revision >= 1 and audio in ("muted", "unmuted", "unknown"), status.stdout
-        assert network in ("connected", "disconnected", "unknown") and 0 <= signal <= 4, status.stdout
+        assert network in ("connected", "disconnected", "unknown") and 0 <= level <= 4, status.stdout
         def folders_call(method, signature="", *arguments):
             return subprocess.run(["busctl", "--user", "--json=short", "call",
                                    "org.arinn.Daemon1", "/org/arinn/Daemon1",

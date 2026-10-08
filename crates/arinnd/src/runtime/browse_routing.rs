@@ -62,7 +62,14 @@ impl Core {
         let fingerprint = format!("browse-open\0{}", target.url);
         let (path, operation, fresh) = self
             .operations
-            .admit(&self.connection, caller, request_id, &fingerprint, "")
+            .admit(
+                &self.connection,
+                caller,
+                request_id,
+                &fingerprint,
+                "",
+                Label::new("browse.open"),
+            )
             .await?;
         if !fresh {
             return Ok(path);
@@ -86,7 +93,7 @@ impl Core {
                 value.state = "running".into();
                 value.started_at = now();
             }
-            let result = core.open_url(&target.url).await;
+            let result = core.open_url(&target.url, &operation).await;
             operation
                 .finish(&core.connection, &object, result.map(|_| Vec::new()))
                 .await;

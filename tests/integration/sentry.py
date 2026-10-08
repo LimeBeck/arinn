@@ -135,6 +135,25 @@ def run(binary, configuration, crash=False, expected=True, dsn=None, cached=Fals
             assert any(kind == "transaction" for kind, _ in captured), captured
             assert any(kind == "metric" and payload["name"].endswith(".duration") for kind, payload in captured), captured
             assert any(kind == "metric" and payload["type"] == "counter" for kind, payload in captured), captured
+        if component == "arinn-shell" and not crash:
+            qt = [event for event in event_payloads
+                  if event.get("tags", {}).get("qt.location") == "HomeView.qml:42"]
+            assert len(qt) == 1, captured  # The repeated warning is rate-limited.
+            assert qt[0]["exception"]["values"][0]["value"] == "QML Image: Cannot open: <url>", qt
+            assert qt[0]["fingerprint"] == ["arinn-shell", "QtWarning", "HomeView.qml:42",
+                                            "QML Image: Cannot open: <url>"], qt
+            assert "Icon is unavailable" not in encoded, captured
+            assert any(kind == "metric" and payload["name"] == "arinn.shell.messages.benign"
+                       for kind, payload in captured), captured
+        if component == "arinnd" and not crash:
+            launches = [payload for kind, payload in captured
+                        if kind == "transaction" and payload["transaction"] == "library.launch"]
+            assert launches, captured
+            spans = [(span["op"], span["description"]) for span in launches[0]["spans"]]
+            assert spans == [("provider.call", "library.launch"), ("provider.call", "media.open")], spans
+            failures = [event for event in event_payloads if event.get("tags", {}).get("kind") == "library.launch"]
+            assert failures and failures[0]["fingerprint"] == ["arinnd", "library.launch", "Timeout", "provider_changed"], failures
+            assert "plugin" not in failures[0]["tags"], failures
         if crash:
             expected_type = "SIGSEGV" if component == "arinn-shell" else "RustPanic"
             assert any(exception.get("type") == expected_type for event in event_payloads

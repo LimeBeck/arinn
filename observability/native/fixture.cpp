@@ -48,8 +48,12 @@ int main(int argc, char **argv) {
   }
   qDebug("private-token-fixture https://private.invalid/page Private tab");
   qInfo("private-token-fixture");
-  qWarning("private-token-fixture https://private.invalid/page Private tab");
-  qCritical("private-token-fixture /home/private-fixture/data");
+  // Templates keep the QML location and drop quoted text, URLs, paths and numbers.
+  qWarning("Tab \"private-token-fixture\" https://private.invalid/page 'Private tab'");
+  qCritical("Cannot read \"private-token-fixture\" from /home/private-fixture/data");
+  for (int i = 0; i < 2; ++i)
+    qWarning("qrc:/qt/qml/Arinn/ui/HomeView.qml:42:7: QML Image: Cannot open: file:///home/private-fixture/Private%%20tab.mkv");
+  qWarning("qrc:/qt/qml/Arinn/ui/Card.qml:9:5: QML Image: Icon is unavailable");
   if (app.arguments().contains("crash")) std::raise(SIGSEGV);
   return 0;
 }

@@ -28,7 +28,7 @@ execute_process(COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/packag
 execute_process(COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/release.py version
     OUTPUT_VARIABLE ARINN_VERSION OUTPUT_STRIP_TRAILING_WHITESPACE
     COMMAND_ERROR_IS_FATAL ANY)
-add_library(arinn-telemetry STATIC telemetry.cpp telemetry.h transport.cpp transport.h)
+add_library(arinn-telemetry STATIC telemetry.cpp telemetry.h transport.cpp transport.h qt_template.cpp)
 target_link_libraries(arinn-telemetry PUBLIC Qt6::Core sentry tomlplusplus::tomlplusplus CURL::libcurl)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/observability/sentry-default-dsn.txt)
 file(STRINGS ${CMAKE_SOURCE_DIR}/observability/sentry-default-dsn.txt ARINN_DEFAULT_DSN REGEX "^https://")

@@ -1,0 +1,7 @@
+- Make Sentry diagnostics diagnosable without user data ([ADR-0093](docs/adr/0093-structured-sentry-diagnostics.md)):
+  - Daemon operations report a fixed kind, capability, plugin id, outcome, error code and normalized reason.
+  - Each failure is grouped as one issue.
+  - Each operation is traced with provider-call and platform-wait spans.
+  - Shell Qt/QML warnings arrive as rate-limited templates with their QML location.
+  - Missing-icon noise is only counted.
+- The daemon's operation completion log line now names the operation `kind` and failure `reason`.

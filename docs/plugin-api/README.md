@@ -244,6 +244,17 @@ not create a second public operation tree. Cancellation is currently unsupported
 not a complete catalogue. `Status.generation` contains the daemon epoch;
 provider generations and revisions come from provider/application pages.
 
+### Build identity
+
+[ADR-0097](../adr/0097-build-identity.md) adds `BuildInfo() -> (version: s,
+build_id: s)` to [Daemon1](daemon1.xml), preserving every existing signature.
+`version` is the workspace version; `build_id` is `<version>+g<12 hex>`, with
+`-dirty` for a modified checkout, or the bare version when the commit is
+unknown (`arinn_protocol::build::validate`). Two ids name the same build when
+they are equal without `-dirty` (`same_build`). A daemon older than this method
+answers `UnknownMethod`, which a client treats as another build.
+`scripts/build_id.py` is the only source of the id for cargo and CMake builds.
+
 ### Explicit Home presentation
 
 [ADR-0069](../adr/0069-explicit-home-presentation-requests.md) adds two members to

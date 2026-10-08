@@ -1,0 +1,8 @@
+# SPDX-FileCopyrightText: 2026 Arinn contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# `git archive` replaces the next line with the archived commit
+# (export-subst in .gitattributes). In a checkout it stays a placeholder and
+# scripts/build_id.py asks git instead (ADR-0097).
+$Format:%H$

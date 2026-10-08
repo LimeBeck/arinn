@@ -117,4 +117,5 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0097](0097-build-identity.md) | Build identity with the commit hash | Accepted | — |
 | [0098](0098-restart-after-an-update.md) | Restart Arinn after an update | Accepted | — |
 | [0099](0099-snapshot-package-version.md) | Snapshot package version with the commit | Accepted | — |
+| [0100](0100-system-status.md) | Read-only system status for Home's status area | Accepted | — |
 <!-- register:end -->

@@ -17,7 +17,7 @@ function signal() {
 function fixture(options = {}) {
     let now = Date.now();
     const output = { name: 'second-screen' };
-    const trace = [];
+    const trace = [], printed = [], channels = [];
     function window(uuid, klass) {
         const fields = { keepAbove: false, minimized: false };
         const w = { internalId: uuid, resourceClass: klass, normalWindow: true,
@@ -42,7 +42,7 @@ function fixture(options = {}) {
     const home = window('shell-id', 'org.arinn.Shell');
     let windows = [activity, home];
     let shortcut, takeCommand, report, tick, control, mediaControl;
-    const mediaReports = [], mediaAcks = [];
+    const mediaReports = [], mediaAcks = [], mediaPolls = { count: 0 }, mediaControls = [];
     const shortcuts = [];
     let locked = false, generation = randomUUID(), stage = [];
     let deferLock = false, deferHome = false;
@@ -63,7 +63,8 @@ function fixture(options = {}) {
     const context = vm.createContext({ workspace, Date: { now: () => now },
         QTimer: class { constructor() { this.timeout = { connect: fn => { tick = fn; } }; } start() {} },
         registerShortcut: (id, _label, keys, fn) => { shortcuts.push({ id, keys }); shortcut = fn; },
-        print: () => {},
+        print: line => { printed.push(line); channels.push('print'); },
+        console: options.noConsole ? undefined : { warn: line => { printed.push(line); channels.push('warn'); } },
         callDBus: (_service, _path, _interface, method, ...args) => {
             if (method === 'Introspect') {
                 const reply = () => args[0](options.unsupported ? '<node/>' : '<node><interface name="org.arinn.KWinReturn1"/>' + (options.managed ? '<interface name="org.arinn.KWinMedia1"/>' : '') + '</node>');
@@ -72,7 +73,7 @@ function fixture(options = {}) {
             if (_interface === 'org.arinn.KWinMedia1') {
                 const callback = args.at(-1);
                 if (method === 'Report') { mediaReports.push(args.slice(0, 4)); callback(); }
-                if (method === 'NextControl') mediaControl = callback;
+                if (method === 'NextControl') { mediaControl = callback; mediaControls.push(callback); mediaPolls.count++; }
                 if (method === 'CompleteControl') { mediaAcks.push(args.slice(0, 3)); callback(); }
                 return;
             }
@@ -114,13 +115,14 @@ function fixture(options = {}) {
             }
         } });
     vm.runInContext(fs.readFileSync(path.join(__dirname, '../../platform/kde/phase0.js'), 'utf8'), context);
-    return { activity, home, workspace, window, polls, snapshots, acknowledgements, controls, trace, mediaReports, mediaAcks,
+    return { activity, home, workspace, window, polls, snapshots, acknowledgements, controls, trace, mediaReports, mediaAcks, printed, channels, mediaPolls, mediaControls,
         media(action, token) { mediaControl([randomUUID(), action, token]); },
         mediaIdle() { mediaControl([]); },
         advance(ms) { now += ms; },
         refresh() { tick(); }, lock(value) { locked = value; },
         command(action, token) { control([randomUUID(), action, token]); },
         reconnect(value) { owner = value; tick(); },
+        setManaged(value) { options.managed = value; },
         show: () => shortcut(), back: () => takeCommand('return'),
         shortcuts, homeRequests, lockReplies, returnReports, homeReplies, commitReplies, discoveryReplies,
         deferHome() { deferHome = true; },
@@ -662,4 +664,295 @@ test('unrelated focus from playback Home and explicit video focus relinquish the
         assert.equal(f.workspace.activeWindow, selected);
         assert.equal(f.home.keepAbove, false);
     }
+});
+
+// #369: the daemon long-polls NextControl for up to a second before handing a
+// command over. Freshness counts from receipt, not from the start of the poll.
+test('a Present handed over late in the long poll still presents', () => {
+    const {f, token} = managedFixture();
+    f.advance(900); f.deferLock(); f.media('present', token);
+    f.advance(200); f.lockReplies[0](false);
+    assert.equal(f.home.keepAbove, true);
+    assert.equal(f.activity.fullScreen, true);
+    assert.equal(f.mediaAcks.at(-1)[2], '');
+});
+test('the stale-poll reset never drops a command the script received', () => {
+    const {f, token} = managedFixture();
+    f.advance(900); f.deferLock(); f.media('present', token);
+    f.advance(700); f.refresh();
+    f.lockReplies[0](false);
+    assert.equal(f.mediaAcks.length, 1, 'the daemon gets an answer instead of waiting for its deadline');
+    assert.equal(f.mediaAcks.at(-1)[2], '');
+    assert.equal(f.home.keepAbove, true);
+});
+test('playback changing during the lock check answers Cancelled instead of dropping', () => {
+    const {f, token} = managedFixture();
+    f.media('present', token); f.refresh();
+    f.deferLock(); f.media('present', token);
+    const other = f.window('other', 'editor'); f.add(other);
+    f.workspace.activeWindow = other; f.workspace.windowActivated.emit(other);
+    f.lockReplies[0](false);
+    assert.equal(f.mediaAcks.at(-1)[2], 'Cancelled');
+    assert.equal(f.home.keepAbove, false);
+});
+test('after a daemon owner change the media channel re-attaches and Present succeeds', () => {
+    const {f, token} = managedFixture();
+    f.reconnect(':1.99');
+    const fresh = f.snapshots.at(-1).rows[0][0];
+    assert.notEqual(fresh, token, 'the new owner gets a new inventory generation');
+    assert.ok(f.mediaReports.some(row => row[2] === fresh), 'media identities are reported to the new owner');
+    f.media('present', fresh);
+    assert.equal(f.home.keepAbove, true);
+    assert.equal(f.activity.fullScreen, true);
+    assert.equal(f.mediaAcks.at(-1)[2], '');
+    const attached = f.printed.map(line => JSON.parse(line)).filter(entry => entry.operation === 'media.channel');
+    assert.ok(attached.length >= 1 && attached.every(entry => entry.outcome === 'attached'));
+});
+test('diagnostics use the always-enabled console warning channel, print only as fallback', () => {
+    // KWin shows print() only with kwin_scripting debug output enabled.
+    const f = fixture({ managed: true });
+    assert.ok(f.channels.length > 0);
+    assert.ok(f.channels.every(channel => channel === 'warn'), f.channels.join());
+    const old = fixture({ managed: true, noConsole: true });
+    assert.ok(old.channels.length > 0);
+    assert.ok(old.channels.every(channel => channel === 'print'));
+});
+test('a media channel that re-attaches within the rate limit is still printed', () => {
+    const f = fixture({ managed: false });
+    f.setManaged(true); f.reconnect(':1.98');
+    f.setManaged(false); f.reconnect(':1.99');
+    f.reconnect(':1.100');
+    const channel = f.printed.map(line => JSON.parse(line)).filter(entry => entry.operation === 'media.channel');
+    // Each transition prints; the unchanged repeat within ten seconds does not.
+    assert.deepEqual(channel.map(entry => entry.outcome), ['absent', 'attached', 'absent']);
+});
+test('presentation failures print rate-limited fixed reasons without identities', () => {
+    const {f, launch, token} = managedFixture();
+    f.media('present', 'missing-token');
+    f.refresh(); f.media('present', 'missing-token');
+    const failures = f.printed.map(line => JSON.parse(line)).filter(entry => entry.operation === 'media.present');
+    assert.equal(failures.length, 1);
+    const {request_id: requestId, ...failure} = failures[0];
+    assert.match(requestId, /^[0-9a-f-]{36}$/, 'the daemon request ID');
+    assert.deepEqual(failure, { level: 'debug', component: 'arinn-kwin', provider_id: null,
+        operation: 'media.present', duration_ms: 0, error: 'NotFound', outcome: 'not_found', reason: 'no_matching_window' });
+    // Specification §14.1 fields are present in every record, null when unknown.
+    for (const entry of f.printed.map(line => JSON.parse(line)))
+        for (const field of ['component', 'provider_id', 'request_id', 'operation', 'duration_ms', 'error'])
+            assert.ok(field in entry, field);
+    f.advance(10000); f.refresh(); f.media('present', 'missing-token');
+    assert.equal(f.printed.filter(line => line.includes('no_matching_window')).length, 2, 'printed again after the interval');
+    for (const line of f.printed) {
+        for (const secret of [launch, token, 'org.arinn.Playback', 'game'])
+            assert.ok(!line.includes(secret), line);
+    }
+});
+test('a late answer to a superseded command keeps the newer poll in flight', () => {
+    const {f, token} = managedFixture();
+    f.advance(900); f.deferLock(); f.media('present', token);
+    f.advance(1600); f.refresh();
+    const polls = f.mediaPolls.count;
+    f.lockReplies[0](false);
+    assert.equal(f.mediaAcks.at(-1)[2], 'Timeout', 'answered late, not cancelled: playback did not change');
+    // Keep the window-control lane answered so only the media lane is observed.
+    f.controls.at(-1)([]);
+    f.advance(100); f.refresh();
+    assert.equal(f.mediaPolls.count, polls, 'no conflicting second poll while the newer one waits');
+    f.mediaIdle(); f.controls.at(-1)([]); f.advance(1000); f.refresh();
+    assert.equal(f.mediaPolls.count, polls + 1, 'polling continues after the newer poll answers');
+});
+test('a command delivered after the stale-poll reset is still presented', () => {
+    const {f, token} = managedFixture();
+    const stale = f.mediaControls.at(-1);
+    // The NextControl reply is delayed past the 1.5-second reset.
+    f.advance(1600); f.controls.at(-1)([]); f.refresh();
+    assert.notEqual(f.mediaControls.at(-1), stale, 'the reset started a newer poll');
+    const newer = f.mediaControls.at(-1);
+    f.deferLock(); stale([randomUUID(), 'present', token]);
+    // The newer poll answering empty must not free the slot the command holds.
+    newer([]);
+    const polls = f.mediaPolls.count;
+    f.controls.at(-1)([]); f.advance(100); f.refresh();
+    assert.equal(f.mediaPolls.count, polls, 'no poll while the received command is handled');
+    f.lockReplies.at(-1)(false);
+    assert.equal(f.mediaAcks.at(-1)[2], '', 'presented, not Cancelled');
+    assert.equal(f.home.keepAbove, true);
+    assert.equal(f.activity.fullScreen, true);
+});
+test('a reply delayed past the daemon deadline is answered Timeout without presenting', () => {
+    const {f, token} = managedFixture();
+    const stale = f.mediaControls.at(-1);
+    // Newer polls keep running while KWin holds the old callback.
+    for (let i = 0; i < 4; ++i) {
+        f.advance(1600); f.controls.at(-1)([]); f.refresh();
+        f.mediaControls.at(-1)([]);
+    }
+    const request = randomUUID();
+    stale([request, 'present', token]);
+    assert.deepEqual(f.mediaAcks.at(-1).slice(1), [request, 'Timeout']);
+    assert.equal(f.home.keepAbove, false, 'no late input layer');
+    assert.equal(f.activity.fullScreen, false, 'no late fullscreen');
+    const late = f.printed.map(line => JSON.parse(line)).filter(entry => entry.reason === 'reply_late');
+    assert.equal(late.length, 1);
+    assert.equal(late[0].request_id, request);
+});
+test('a reply within the handover budget is presented', () => {
+    const {f, token} = managedFixture();
+    const stale = f.mediaControls.at(-1);
+    // 2.9 s after the poll started: the daemon guaranteed three seconds of
+    // deadline at hand-over, which came no earlier than the poll start.
+    f.advance(1600); f.controls.at(-1)([]); f.refresh();
+    f.mediaControls.at(-1)([]);
+    f.advance(1300);
+    stale([randomUUID(), 'present', token]);
+    assert.equal(f.mediaAcks.at(-1)[2], '');
+    assert.equal(f.home.keepAbove, true);
+    assert.equal(f.activity.fullScreen, true);
+});
+test('a Present delayed past the handover budget is never presented', () => {
+    // A reply at 3.1 s, and a reply at 2.5 s whose lock check ends at 3.1 s.
+    for (const [reply, lock] of [[3100, 0], [2500, 600]]) {
+        const {f, token} = managedFixture();
+        const stale = f.mediaControls.at(-1);
+        f.advance(1600); f.controls.at(-1)([]); f.refresh();
+        f.mediaControls.at(-1)([]);
+        f.advance(reply - 1600);
+        f.deferLock(); stale([randomUUID(), 'present', token]);
+        if (lock) { f.advance(lock); f.lockReplies.at(-1)(false); }
+        assert.equal(f.mediaAcks.at(-1)[2], 'Timeout');
+        assert.equal(f.home.keepAbove, false);
+        assert.equal(f.activity.fullScreen, false);
+        assert.ok(f.printed.some(line => JSON.parse(line).reason === 'reply_late'));
+    }
+});
+test('a delayed Release never tears down a newer Present of the same window', () => {
+    const {f, token} = managedFixture();
+    f.media('present', token); f.refresh();
+    const oldReleasePoll = f.mediaControls.at(-1);
+    // KWin holds the Release callback while the daemon times it out and
+    // hands a new Present of the same window to a later poll.
+    f.advance(1600); f.controls.at(-1)([]); f.refresh();
+    f.advance(4000); f.controls.at(-1)([]); f.refresh();
+    f.media('present', token);
+    assert.equal(f.report()[0], false);
+    const request = randomUUID();
+    oldReleasePoll([request, 'release', token]);
+    assert.equal(f.report()[0], false, 'the newer playback stays presented');
+    assert.equal(f.home.keepAbove, true);
+    assert.deepEqual(f.mediaAcks.at(-1).slice(1), [request, 'Cancelled']);
+    assert.ok(f.printed.some(line => JSON.parse(line).reason === 'superseded_by_present'));
+});
+test('a delayed Release is fenced while the newer Present still checks the lock', () => {
+    const {f, token} = managedFixture();
+    f.media('present', token); f.refresh();
+    const oldReleasePoll = f.mediaControls.at(-1);
+    f.advance(1600); f.controls.at(-1)([]); f.refresh();
+    f.advance(4000); f.controls.at(-1)([]); f.refresh();
+    // The newer Present is received first; both lock checks are pending and
+    // the old Release's check answers first.
+    f.deferLock();
+    const present = randomUUID(), release = randomUUID();
+    f.mediaControls.at(-1)([present, 'present', token]);
+    oldReleasePoll([release, 'release', token]);
+    f.lockReplies.at(-1)(false);
+    f.lockReplies.at(-2)(false);
+    const answers = Object.fromEntries(f.mediaAcks.map(ack => [ack[1], ack[2]]));
+    assert.equal(answers[release], 'Cancelled', 'the older Release is fenced');
+    assert.equal(answers[present], '', 'the newer Present is presented');
+    assert.equal(f.home.keepAbove, true);
+    assert.equal(f.report()[0], false);
+});
+test('a Release delayed from the poll active at Return does not undo the Return', () => {
+    const {f, token} = managedFixture();
+    f.media('present', token); f.refresh();
+    const activePoll = f.mediaControls.at(-1);
+    f.show();
+    assert.equal(f.report()[0], true, 'Home over playback');
+    f.back();
+    assert.equal(f.report()[0], false, 'Return re-presented playback');
+    const request = randomUUID();
+    activePoll([request, 'release', token]);
+    assert.deepEqual(f.mediaAcks.at(-1).slice(1), [request, 'Cancelled']);
+    assert.equal(f.report()[0], false, 'the returned playback stays');
+    assert.equal(f.home.keepAbove, true);
+});
+test('two commands received in the same millisecond own the poll slot separately', () => {
+    const {f, token} = managedFixture();
+    f.media('present', token); f.refresh();
+    const oldReleasePoll = f.mediaControls.at(-1);
+    f.advance(1600); f.controls.at(-1)([]); f.refresh();
+    f.advance(4000); f.controls.at(-1)([]); f.refresh();
+    f.deferLock();
+    const present = randomUUID(), release = randomUUID();
+    f.mediaControls.at(-1)([present, 'present', token]);
+    oldReleasePoll([release, 'release', token]);
+    const [presentLock, releaseLock] = f.lockReplies.slice(-2);
+    // The Release's check answers first; the Present still owns the slot.
+    releaseLock(false);
+    const polls = f.mediaPolls.count;
+    f.controls.at(-1)([]); f.advance(100); f.refresh();
+    assert.equal(f.mediaPolls.count, polls, 'no poll while the Present checks the lock');
+    presentLock(false);
+    const answers = Object.fromEntries(f.mediaAcks.map(ack => [ack[1], ack[2]]));
+    assert.equal(answers[present], '');
+    assert.equal(answers[release], 'Cancelled');
+    assert.equal(f.home.keepAbove, true);
+});
+test('a delayed Release is carried out when the newer Present fails', () => {
+    const {f, token} = managedFixture();
+    f.media('present', token); f.refresh();
+    const oldReleasePoll = f.mediaControls.at(-1);
+    f.advance(1600); f.controls.at(-1)([]); f.refresh();
+    f.advance(4000); f.controls.at(-1)([]); f.refresh();
+    f.deferLock();
+    const present = randomUUID(), release = randomUUID();
+    f.mediaControls.at(-1)([present, 'present', 'missing-token']);
+    oldReleasePoll([release, 'release', token]);
+    const [presentLock, releaseLock] = f.lockReplies.slice(-2);
+    releaseLock(false);
+    assert.ok(!f.mediaAcks.some(ack => ack[1] === release), 'the Release waits for the newer Present');
+    presentLock(false);
+    const answers = Object.fromEntries(f.mediaAcks.map(ack => [ack[1], ack[2]]));
+    assert.equal(answers[present], 'NotFound');
+    assert.equal(answers[release], '', 'the old playback is released');
+    assert.equal(f.report()[0], true, 'Home is shown');
+    assert.equal(f.activity.fullScreen, false, 'the player left fullscreen');
+});
+test('a Release from a poll started before the Present was applied still releases', () => {
+    const {f, token} = managedFixture();
+    // The Present arrives on a poll the stale-poll reset already replaced, so
+    // the newer poll was started first; Back then arrives on that newer poll.
+    const stale = f.mediaControls.at(-1);
+    f.advance(1600); f.controls.at(-1)([]); f.refresh();
+    const releasePoll = f.mediaControls.at(-1);
+    stale([randomUUID(), 'present', token]);
+    assert.equal(f.home.keepAbove, true, 'presented');
+    releasePoll([randomUUID(), 'release', token]);
+    assert.equal(f.mediaAcks.at(-1)[2], '');
+    assert.equal(f.report()[0], true, 'Back reached Home');
+});
+test('a command delivered to a poll that playback outdated is answered Cancelled', () => {
+    const {f, token} = managedFixture();
+    f.media('present', token); f.refresh();
+    const acks = f.mediaAcks.length;
+    // Focus moves away while the next poll waits: playback is released.
+    const other = f.window('other', 'editor'); f.add(other);
+    f.workspace.activeWindow = other; f.workspace.windowActivated.emit(other);
+    f.media('present', token);
+    assert.equal(f.mediaAcks.length, acks + 1, 'the daemon gets an answer instead of waiting for its deadline');
+    assert.equal(f.mediaAcks.at(-1)[2], 'Cancelled');
+    assert.equal(f.home.keepAbove, false);
+});
+test('a Present without a shell window logs the daemon command context', () => {
+    const {f, token} = managedFixture();
+    f.remove(f.home);
+    f.media('present', token);
+    assert.equal(f.mediaAcks.at(-1)[2], 'Unavailable');
+    const entry = f.printed.map(line => JSON.parse(line))
+        .find(record => record.operation === 'media.present' && record.reason === 'no_shell_window');
+    assert.ok(entry, f.printed.join('\n'));
+    assert.match(entry.request_id, /^[0-9a-f-]{36}$/);
+    assert.equal(entry.request_id, f.mediaAcks.at(-1)[1]);
+    assert.equal(typeof entry.duration_ms, 'number');
+    assert.equal(entry.error, 'Unavailable');
 });

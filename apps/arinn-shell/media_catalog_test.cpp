@@ -4,6 +4,8 @@
 
 #include "asset_images.h"
 #include "media_catalog.h"
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -477,6 +479,26 @@ SessionWire session(const QString &id, const QString &title, const QString &stat
 class MediaCatalogTest : public QObject {
   Q_OBJECT
 private slots:
+  void surfaceRecordIsOneFixedJsonLine() {
+    // #369: a complete §14.1 record, written directly as JSON.
+    const auto failed = MediaCatalog::surfaceRecord(QStringLiteral("home"), QStringLiteral("presentation_failed"),
+                                                    QStringLiteral("Timeout"), QStringLiteral("ready"), false, true);
+    QVERIFY(failed.startsWith('{') && !failed.contains('\n'));
+    const auto record = QJsonDocument::fromJson(failed).object();
+    for (auto field : {"component", "provider_id", "request_id", "operation", "duration_ms", "error"})
+      QVERIFY2(record.contains(QLatin1String(field)), field);
+    QCOMPARE(record.value("component").toString(), QStringLiteral("arinn-shell"));
+    QCOMPARE(record.value("operation").toString(), QStringLiteral("media.surface"));
+    QCOMPARE(record.value("error").toString(), QStringLiteral("Timeout"));
+    QVERIFY(record.value("request_id").isNull());
+    const auto session = QJsonDocument::fromJson(MediaCatalog::surfaceRecord(
+      QStringLiteral("session"), QStringLiteral("no_player_features"), QString(), QStringLiteral("ready"), false, true)).object();
+    QVERIFY(session.value("error").isNull());
+    // Free text never reaches the log as given.
+    const auto text = MediaCatalog::surfaceRecord(QStringLiteral("session"), QStringLiteral("Private Title"),
+                                                  QStringLiteral("/home/private-fixture"), QStringLiteral("x"), true, false);
+    QVERIFY2(!text.contains("Private") && !text.contains("private-fixture"), text.constData());
+  }
   void initTestCase() {
     qDBusRegisterMetaType<WindowWire>();
     qDBusRegisterMetaType<ContentWire>();

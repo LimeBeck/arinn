@@ -114,6 +114,10 @@ Window {
         mediaCatalog.select(entryId);
         applyMediaSurface();
     }
+    // One structured §14.1 record when playback does not get the player (#369).
+    function logMediaSurface(surface, reason) {
+        mediaCatalog.logSurface(surface, reason);
+    }
     function applyMediaSurface() {
         // Rich flags select the OSD. A library launch whose session is not
         // in the snapshot yet is managed playback, so the OSD is shown until
@@ -127,6 +131,8 @@ Window {
             mediaCatalog.present();
         }
         sessionOpen = !player;
+        if (!player)
+            logMediaSurface("session", mediaCatalog.sessionState === "ready" ? "no_player_features" : "session_not_ready");
         Qt.callLater(() => {
             if (player)
                 Ui.Focus.take(playerView);
@@ -719,6 +725,7 @@ Window {
                 if (root.leavingStopPending || root.leaveError !== "")
                     return;
                 if (mediaCatalog.presentationState !== "" && mediaCatalog.presentationState !== "pending" && mediaCatalog.presentationState !== "active") {
+                    root.logMediaSurface("home", "presentation_failed");
                     root.playerOpen = false;
                     root.presentationAtHome = false;
                     if (root.active) {

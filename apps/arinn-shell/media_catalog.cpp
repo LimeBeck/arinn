@@ -5,12 +5,16 @@
 #include "media_catalog.h"
 #include "asset_images.h"
 #include <QDeadlineTimer>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QRegularExpression>
 #include <QSet>
 #include <QUuid>
 #include <QtDBus>
 #include <QtQml>
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <limits>
 #include <time.h>
 namespace {
@@ -1649,6 +1653,38 @@ void MediaCatalog::checkPresentedWindow(quint64 ticket, quint64 epoch,
           });
 }
 
+QByteArray MediaCatalog::surfaceRecord(const QString &surface, const QString &reason,
+                                       const QString &presentation, const QString &session,
+                                       bool inputLayer, bool windowAvailable) {
+  // State names are short identifiers; anything else is not logged as given.
+  static const QRegularExpression name(QStringLiteral("^[A-Za-z_-]{0,32}$"));
+  const auto fixed = [](const QString &value) {
+    return name.match(value).hasMatch() ? QJsonValue(value) : QJsonValue(QStringLiteral("other"));
+  };
+  const bool failed = surface == QLatin1String("home") && !presentation.isEmpty();
+  const QJsonObject record{
+    {QStringLiteral("level"), QStringLiteral("info")},
+    {QStringLiteral("component"), QStringLiteral("arinn-shell")},
+    {QStringLiteral("provider_id"), QJsonValue::Null},
+    {QStringLiteral("request_id"), QJsonValue::Null},
+    {QStringLiteral("operation"), QStringLiteral("media.surface")},
+    {QStringLiteral("duration_ms"), QJsonValue::Null},
+    {QStringLiteral("error"), failed ? fixed(presentation) : QJsonValue(QJsonValue::Null)},
+    {QStringLiteral("surface"), fixed(surface)},
+    {QStringLiteral("reason"), fixed(reason)},
+    {QStringLiteral("presentationState"), fixed(presentation)},
+    {QStringLiteral("sessionState"), fixed(session)},
+    {QStringLiteral("inputLayer"), inputLayer},
+    {QStringLiteral("windowAvailable"), windowAvailable},
+  };
+  return QJsonDocument(record).toJson(QJsonDocument::Compact);
+}
+void MediaCatalog::logSurface(const QString &surface, const QString &reason) const {
+  const auto line = surfaceRecord(surface, reason, presentationState(), sessionState(),
+                                  inputLayerActive(), windowAvailable()) + '\n';
+  std::fwrite(line.constData(), 1, static_cast<size_t>(line.size()), stderr);
+  std::fflush(stderr);
+}
 void MediaCatalog::failPresentation(const QString &state) {
   // The compositor may have acted before the operation read failed. Fence and
   // teardown the remembered scope even when its outcome is now unknown.

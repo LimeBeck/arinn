@@ -1252,6 +1252,23 @@ fn every_media_command_has_a_listed_telemetry_kind() {
     }
 }
 
+#[test]
+fn playback_failures_name_their_platform_reason() {
+    for (error, live, reason) in [
+        (ErrorCode::Timeout, false, Some("platform_not_polling")),
+        (ErrorCode::Timeout, true, None),
+        (ErrorCode::NotFound, true, Some("platform_window_missing")),
+        (ErrorCode::Conflict, true, Some("platform_conflict")),
+        (ErrorCode::PermissionDenied, true, Some("session_locked")),
+        (ErrorCode::Cancelled, true, Some("platform_cancelled")),
+        (ErrorCode::Unavailable, true, None),
+    ] {
+        let named = playback_failure_reason(error, live);
+        assert_eq!(named, reason, "{error:?} live={live}");
+        assert!(named.is_none_or(|r| crate::telemetry::REASONS.contains(&r)));
+    }
+}
+
 #[tokio::test]
 async fn losing_a_provider_chosen_after_admission_finishes_the_operation() {
     // A URL open is admitted without a provider and picks its browser later.
@@ -1324,4 +1341,85 @@ async fn losing_a_provider_chosen_after_admission_finishes_the_operation() {
         .invalidate(&f.core.connection, Some("mpv"), None)
         .await;
     assert_eq!(open.value.lock().await.state, "queued");
+}
+
+#[test]
+fn rejection_records_carry_the_logging_schema() {
+    let record = rejection_record(
+        "mpv",
+        "00000000-0000-4000-8000-000000000001",
+        "media.present",
+        ErrorCode::NotFound,
+        "no_matching_window",
+        Duration::from_millis(1500),
+    );
+    for field in [
+        "component",
+        "provider_id",
+        "request_id",
+        "operation",
+        "duration_ms",
+        "error",
+    ] {
+        assert!(record.get(field).is_some(), "§14.1 field {field}: {record}");
+    }
+    assert_eq!(record["duration_ms"], 1500);
+    assert_eq!(record["reason"], "no_matching_window");
+}
+
+#[tokio::test]
+async fn refusals_before_admission_are_logged_with_a_reason() {
+    let f = Fixture::new().await;
+    let caller = f.client.unique_name().unwrap().to_string();
+    let reused = rid();
+    f.core
+        .operations
+        .admit(
+            &f.core.connection,
+            &caller,
+            &reused,
+            "another-request",
+            "mpv",
+            Label::default(),
+        )
+        .await
+        .unwrap();
+    let logged = |expected: usize| {
+        LOGGED_REJECTIONS.with(|logged| {
+            let logged = logged.borrow();
+            assert_eq!(logged.len(), expected, "{logged:?}");
+            logged.last().cloned().unwrap()
+        })
+    };
+    // A request ID reused for a different Present.
+    assert_eq!(
+        f.core
+            .playback_command("mpv", &f.generation, "s1", &reused, &caller, true)
+            .await
+            .unwrap_err(),
+        ErrorCode::Conflict
+    );
+    let record = logged(1);
+    assert_eq!(record["reason"], "request_reused");
+    assert_eq!(record["request_id"], reused.as_str());
+    // An invalid session ID.
+    assert_eq!(
+        f.core
+            .playback_command("mpv", &f.generation, "", &rid(), &caller, false)
+            .await
+            .unwrap_err(),
+        ErrorCode::InvalidArgument
+    );
+    assert_eq!(logged(2)["reason"], "invalid_request");
+    // An invalid request ID is caller text and is never logged.
+    assert_eq!(
+        f.core
+            .playback_command("mpv", &f.generation, "s1", "Private Title", &caller, true)
+            .await
+            .unwrap_err(),
+        ErrorCode::InvalidArgument
+    );
+    let record = logged(3);
+    assert_eq!(record["reason"], "invalid_request");
+    assert!(record["request_id"].is_null(), "{record}");
 }

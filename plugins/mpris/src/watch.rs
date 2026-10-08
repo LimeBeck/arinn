@@ -4,14 +4,19 @@
 //! Watch `org.mpris.MediaPlayer2.*` and serve `org.arinn.MediaProvider1`.
 //! No rich interfaces. Artwork URLs are not read or forwarded.
 use crate::map::{self, Caps, RawPlayer, Sample};
-use arinn_plugin_sdk::runtime::{MediaAction, MediaHandler, MediaService, run_media_on};
-use arinn_protocol::{media::Session, validation::ErrorCode};
+use arinn_plugin_sdk::runtime::{
+    MediaAction, MediaHandler, MediaService, RegistrationContext, run_media_on,
+};
+use arinn_protocol::{media::Session, media_association, production, validation::ErrorCode};
 use futures_util::StreamExt;
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     future::Future,
     pin::Pin,
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant},
 };
 use tokio::sync::{Mutex, Notify};
@@ -78,6 +83,10 @@ struct Bridge {
     connection: Connection,
     players: Arc<Mutex<BTreeMap<String, Tracked>>>,
     force: Arc<Mutex<HashSet<String>>>,
+    /// A tracked bus name changed owner since the last publish. The next
+    /// publish takes a new snapshot revision even if the sessions look the
+    /// same, so the daemon re-reads process IDs (ADR-0096).
+    moved: Arc<AtomicBool>,
     wake: Arc<Notify>,
 }
 
@@ -86,12 +95,85 @@ pub async fn serve(connection: Connection) -> Result<(), ErrorCode> {
         connection: connection.clone(),
         players: Arc::new(Mutex::new(BTreeMap::new())),
         force: Arc::new(Mutex::new(HashSet::new())),
+        moved: Arc::new(AtomicBool::new(false)),
         wake: Arc::new(Notify::new()),
     };
     let service = MediaService::new(bridge.clone(), Vec::new(), "available")?;
+    // Exported before registration so the daemon finds it by introspection.
+    connection
+        .object_server()
+        .at(
+            production::PROVIDER_PATH,
+            Processes {
+                bridge: bridge.clone(),
+                registrations: service.registrations(),
+            },
+        )
+        .await
+        .map_err(|_| ErrorCode::Unavailable)?;
     tokio::select! {
         result = bridge.watch(service.clone()) => result,
         result = run_media_on(connection, service) => result.map_err(|_| ErrorCode::Unavailable),
+    }
+}
+
+/// `MediaProcess1` (ADR-0096): the process that owns a player's bus name,
+/// for the daemon only. Read at call time, so a name that moves to another
+/// process never reports a stale ID. Never logged.
+struct Processes {
+    bridge: Bridge,
+    registrations: tokio::sync::watch::Receiver<Option<RegistrationContext>>,
+}
+impl Processes {
+    /// The caller first, then the arguments: anyone but the daemon gets
+    /// `PermissionDenied` whatever it sends.
+    fn check(&self, sender: &str, generation: &str, id: &str) -> Result<(), ErrorCode> {
+        let current = self.registrations.borrow();
+        // Unregistered, nobody is the daemon: refuse every caller alike, so
+        // the error does not reveal the registration state.
+        let current = current.as_ref().ok_or(ErrorCode::PermissionDenied)?;
+        if current.daemon_owner != sender {
+            return Err(ErrorCode::PermissionDenied);
+        }
+        media_association::validate_process_query(generation, id)?;
+        if current.generation != generation {
+            return Err(ErrorCode::Conflict);
+        }
+        Ok(())
+    }
+}
+#[zbus::interface(name = "org.arinn.MediaProcess1")]
+impl Processes {
+    async fn get_process_id(
+        &self,
+        generation: &str,
+        id: &str,
+        #[zbus(header)] header: zbus::message::Header<'_>,
+    ) -> production::Result<u32> {
+        let sender = header.sender().ok_or(ErrorCode::PermissionDenied)?.as_str();
+        self.check(sender, generation, id)?;
+        let bus_name = {
+            let players = self.bridge.players.lock().await;
+            let tracked = players.get(id).ok_or(ErrorCode::NotFound)?;
+            if tracked.session.is_none() {
+                return Err(ErrorCode::NotFound.into());
+            }
+            tracked.bus_name.clone()
+        };
+        let Ok(name) = zbus::names::BusName::try_from(bus_name.as_str()) else {
+            return Ok(media_association::UNKNOWN_PROCESS);
+        };
+        let process = match zbus::fdo::DBusProxy::new(&self.bridge.connection).await {
+            Ok(bus) => tokio::time::timeout(READ_TIMEOUT, bus.get_connection_unix_process_id(name))
+                .await
+                .ok()
+                .and_then(Result::ok)
+                .unwrap_or(media_association::UNKNOWN_PROCESS),
+            Err(_) => media_association::UNKNOWN_PROCESS,
+        };
+        // A registration that changed meanwhile must not get this answer.
+        self.check(sender, generation, id)?;
+        Ok(process)
     }
 }
 
@@ -145,6 +227,9 @@ impl Bridge {
         };
         if map::session_id(args.name.as_str()).is_none() {
             return;
+        }
+        if args.old_owner.is_some() {
+            self.moved.store(true, Ordering::SeqCst);
         }
         self.rescan(bus).await;
     }
@@ -202,6 +287,8 @@ impl Bridge {
     }
 
     async fn publish(&self, service: &MediaService) -> Result<(), ErrorCode> {
+        // Taken first: a move during this publish is seen by the next one.
+        let moved = self.moved.swap(false, Ordering::SeqCst);
         let names: Vec<Snapshot> = {
             let players = self.players.lock().await;
             players
@@ -258,7 +345,13 @@ impl Bridge {
                 }
             }
         }
-        service.replace(sessions, "available").await
+        service.replace(sessions, "available").await?;
+        // Before registration there is no revision to move, and nothing the
+        // daemon could have cached.
+        if moved {
+            let _ = service.touch().await;
+        }
+        Ok(())
     }
 
     async fn dispatch(

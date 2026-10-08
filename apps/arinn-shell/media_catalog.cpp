@@ -49,6 +49,16 @@ QString presentationId(const QString &provider, const QString &local) {
   return QUuid::createUuidV5(QUuid(), provider + QLatin1Char('\n') + local)
       .toString(QUuid::WithoutBraces);
 }
+// The tab presentation ID of BrowserCatalog, so a link names the same tab.
+QString tabPresentationId(const QString &provider, const QString &generation,
+                          const QString &local) {
+  return QUuid::createUuidV5(
+             QUuid(), QJsonDocument(QJsonArray{provider, generation,
+                                               QStringLiteral("tab"), local})
+                          .toJson(QJsonDocument::Compact))
+      .toString();
+}
+constexpr int maxLinks = 64;
 QString qmlAction(const QString &token) {
   if (token == QLatin1String("play-pause"))
     return QStringLiteral("playPause");
@@ -134,6 +144,8 @@ MediaCatalog::MediaCatalog(QObject *parent) : QObject(parent) {
   bus.connect(service, path, service, "ProvidersChanged", this,
               SLOT(refresh()));
   bus.connect(service, path, service, "StateChanged", this, SLOT(refresh()));
+  bus.connect(service, path, "org.arinn.MediaAssociation1", "Changed", this,
+              SLOT(linksChanged(QString, qulonglong)));
   auto watcher = new QDBusServiceWatcher(
       service, bus, QDBusServiceWatcher::WatchForOwnerChange, this);
   connect(watcher, &QDBusServiceWatcher::serviceOwnerChanged, this,
@@ -149,6 +161,9 @@ MediaCatalog::MediaCatalog(QObject *parent) : QObject(parent) {
             m_loaded = false;
             m_snapshotError = false;
             m_sessions.clear();
+            m_links.clear();
+            m_linksRevision = 0;
+            m_linksWanted = 0;
             setOperation(QString());
             publish();
             refresh();
@@ -436,6 +451,15 @@ void MediaCatalog::publish() {
                                                row.generation, row.artworkId);
     if (!artwork.isEmpty())
       entry.insert(QStringLiteral("artwork"), artwork);
+    // The tab that plays this session; Home shows one card for both only
+    // while that tab is in the current browser snapshot.
+    for (const auto &link : m_links) {
+      if (link.provider == row.providerId && link.generation == row.generation &&
+          link.session == row.localId) {
+        entry.insert(QStringLiteral("serviceId"), link.tab);
+        break;
+      }
+    }
     entries.append(entry);
   }
   if (m_continue != entries) {
@@ -519,6 +543,7 @@ void MediaCatalog::refreshStatus(const QString &owner, quint64 epoch) {
             status.endStructure();
             m_daemonOwner = owner;
             m_connected = true;
+            readLinks(owner, epoch);
             auto catalog = std::make_shared<Catalog>();
             catalog->epoch = epoch;
             readProviders(catalog);
@@ -1384,6 +1409,114 @@ QVariantMap MediaCatalog::libraryContent(const QString &id) const {
     return {};
   return {{QStringLiteral("provider"), row->contentProvider},
           {QStringLiteral("local"), row->contentLocal}};
+}
+void MediaCatalog::linksChanged(const QString &epoch, qulonglong revision) {
+  if (!m_connected || m_daemonOwner.isEmpty())
+    return;
+  // A newer revision invalidates the applied links now: until a reply at
+  // that revision is applied, both cards stay, whatever the read returns.
+  if (epoch == m_daemonEpoch && revision > m_linksRevision) {
+    m_linksWanted = qMax(m_linksWanted, quint64(revision));
+    if (!m_links.isEmpty()) {
+      m_links.clear();
+      publish();
+    }
+  }
+  readLinks(m_daemonOwner, m_epoch);
+}
+// Optional (ADR-0096): a daemon without MediaAssociation1, an error or a
+// snapshot of another daemon epoch leaves no link, so both cards stay.
+void MediaCatalog::readLinks(const QString &owner, quint64 epoch) {
+  auto call = QDBusMessage::createMethodCall(
+      owner, path, QStringLiteral("org.arinn.MediaAssociation1"),
+      QStringLiteral("Get"));
+  auto pending = new QDBusPendingCallWatcher(
+      QDBusConnection::sessionBus().asyncCall(call, 3000), this);
+  connect(pending, &QDBusPendingCallWatcher::finished, this,
+          [this, epoch](auto *watcher) {
+            const auto reply = watcher->reply();
+            watcher->deleteLater();
+            if (epoch != m_epoch)
+              return;
+            QList<LinkRow> links;
+            quint64 applied = 0;
+            if (reply.type() != QDBusMessage::ErrorMessage &&
+                reply.signature() == QLatin1String("(sta(ssssss))") &&
+                !reply.arguments().isEmpty()) {
+              const auto arg =
+                  qvariant_cast<QDBusArgument>(reply.arguments().at(0));
+              QString daemonEpoch;
+              qulonglong revision = 0;
+              arg.beginStructure();
+              arg >> daemonEpoch >> revision;
+              arg.beginArray();
+              while (!arg.atEnd()) {
+                QString mediaProvider, mediaGeneration, session,
+                    browserProvider, browserGeneration, tab;
+                arg.beginStructure();
+                arg >> mediaProvider >> mediaGeneration >> session >>
+                    browserProvider >> browserGeneration >> tab;
+                arg.endStructure();
+                if (links.size() < maxLinks)
+                  links.append(LinkRow{mediaProvider, mediaGeneration, session,
+                                       tabPresentationId(browserProvider,
+                                                         browserGeneration,
+                                                         tab)});
+              }
+              arg.endArray();
+              arg.endStructure();
+              if (daemonEpoch != m_daemonEpoch || revision == 0)
+                links.clear();
+              else if (revision < qMax(m_linksRevision, m_linksWanted))
+                return; // Older than one applied or announced.
+              else
+                applied = revision;
+            }
+            // A failed read keeps the last applied revision, so an older
+            // reply still in flight cannot apply after it.
+            if (applied)
+              m_linksRevision = applied;
+            if (links != m_links) {
+              m_links = links;
+              publish();
+            }
+          });
+}
+void MediaCatalog::sessionAction(const QString &id, const QString &requested) {
+  const auto *row = findId(id);
+  if (!row || !m_connected)
+    return;
+  const bool playing = row->state == QLatin1String("playing");
+  const auto supports = [row](const QString &action) {
+    return row->wireActions.contains(wireAction(action));
+  };
+  QString action = requested;
+  if (requested == QLatin1String("playPause")) {
+    if (!supports(action))
+      action = playing ? QStringLiteral("pause") : QStringLiteral("play");
+  } else if (requested == QLatin1String("play") ||
+             requested == QLatin1String("pause")) {
+    // Without the dedicated action, the toggle stands in only when it moves
+    // the session the asked way; Play on a playing session does nothing.
+    if (!supports(action)) {
+      if ((requested == QLatin1String("play")) == playing)
+        return;
+      action = QStringLiteral("playPause");
+    }
+  } else {
+    return;
+  }
+  if (!supports(action) || !methodFor(action)) {
+    setOperation(QStringLiteral("Unsupported"));
+    return;
+  }
+  ++m_commandTicket;
+  setOperation(QStringLiteral("pending"));
+  auto msg = QDBusMessage::createMethodCall(service, row->path,
+                                            "org.arinn.Media1", methodFor(action));
+  msg << row->generation << row->localId
+      << QUuid::createUuid().toString(QUuid::WithoutBraces);
+  dispatch(msg, m_commandTicket, m_epoch);
 }
 void MediaCatalog::requestHome() {
   if (!m_connected || m_daemonOwner.isEmpty())

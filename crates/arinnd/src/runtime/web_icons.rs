@@ -75,7 +75,7 @@ fn origin(value: &str) -> Result<String, ErrorCode> {
     web_icons::origin(&origin).map_err(|_| ErrorCode::Unsupported)?;
     Ok(origin)
 }
-fn introspection(xml: &str) -> Result<roxmltree::Document<'_>, ErrorCode> {
+pub(super) fn introspection(xml: &str) -> Result<roxmltree::Document<'_>, ErrorCode> {
     // Standard D-Bus introspection includes a DOCTYPE. Allow that declaration,
     // but never entity definitions, external resolution or unbounded trees.
     if xml.len() > 64 * 1024 || xml.contains("<!ENTITY") {

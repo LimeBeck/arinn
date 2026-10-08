@@ -613,6 +613,86 @@ TestCase {
                                 {id: "s", title: "Renamed", hint: "Type an address or a search"}];
         compare(child("heroTitle").text, "Renamed");
     }
+    // #359 (ADR-0096): a browser's media session and its tab are one card.
+    SignalSpy { id: tabRequests; signalName: "tabRequested" }
+    SignalSpy { id: playPauses; signalName: "mediaActionRequested" }
+    function test_linked_media_session_merges_into_its_tab() {
+        tabRequests.target = home; tabRequests.clear();
+        playPauses.target = home; playPauses.clear();
+        home.openServices = openTabs(2);
+        home.currentServiceId = "tab-1";
+        home.currentServiceTitle = "Page 1";
+        home.currentServiceSubtitle = "video.example · Return";
+        home.continueEntries = [
+            {id: "m", title: "Same title", kind: "media", serviceId: "tab-1", running: true,
+             positionUs: 60e6, durationUs: 240e6},
+            {id: "song", title: "Song", kind: "media", running: true}
+        ];
+        // The session's own card is gone; the service card carries its state.
+        compare(home.continuePresentation.map(entry => entry.id).join(","), "current-service,open-services-more,song");
+        const card = child("entry-current-service");
+        compare(card.subtitle, "Playing · video.example · Return");
+        verify(card.showProgress);
+        compare(card.progress, 0.25);
+        verify(findChild(home, "entry-m") === null);
+        card.forceActiveFocus(); focused("entry-current-service");
+        keyClick(Qt.Key_MediaPlay);
+        compare(playPauses.count, 1);
+        compare(playPauses.signalArguments[0][0], "m");
+        // Play stays Play (Pause: test_linked_card_pause_key_stays_pause).
+        compare(playPauses.signalArguments[0][1], "play");
+        keyClick(Qt.Key_Return);
+        compare(serviceCard.count, 1);
+        // Paused keeps the single card.
+        home.continueEntries = [{id: "m", title: "Same title", kind: "media", serviceId: "tab-1", running: false}];
+        compare(child("entry-current-service").subtitle, "Paused · video.example · Return");
+        // A card without a session ignores the media key.
+        child("entry-current-service").forceActiveFocus();
+        home.continueEntries = [];
+        keyClick(Qt.Key_MediaPlay);
+        compare(playPauses.count, 1);
+        tabRequests.target = null; playPauses.target = null;
+    }
+    function test_linked_card_pause_key_stays_pause() {
+        playPauses.target = home; playPauses.clear();
+        home.openServices = openTabs(2);
+        home.currentServiceId = "tab-1";
+        home.currentServiceTitle = "Page 1";
+        home.currentServiceSubtitle = "video.example · Return";
+        home.continueEntries = [{id: "m", title: "Same title", kind: "media", serviceId: "tab-1", running: true}];
+        child("entry-current-service").forceActiveFocus();
+        keyClick(Qt.Key_MediaPause);
+        compare(playPauses.count, 1);
+        compare(playPauses.signalArguments[0][0], "m");
+        compare(playPauses.signalArguments[0][1], "pause");
+        playPauses.target = null;
+    }
+    function test_linked_session_of_another_tab_is_that_tabs_card() {
+        tabRequests.target = home; tabRequests.clear();
+        home.openServices = openTabs(3);
+        home.continueEntries = [
+            {id: "a", title: "Activity", running: true},
+            {id: "m", title: "Same title", kind: "media", serviceId: "tab-2", running: false},
+            {id: "stale", title: "Stale", kind: "media", serviceId: "tab-9", running: true}
+        ];
+        const ids = home.continuePresentation.map(entry => entry.id);
+        compare(ids.join(","), "a,open-services-more,m,stale");
+        const tabCard = child("entry-m");
+        compare(tabCard.text, "Page 2");
+        compare(tabCard.subtitle, "Paused");
+        // tab-2 has its card; tab-1 and tab-3 are left over.
+        compare(child("entry-open-services-more").text, "2 more open");
+        // A link to a tab that is not open keeps the media card.
+        compare(child("entry-stale").text, "Stale");
+        tabCard.forceActiveFocus(); focused("entry-m");
+        compare(child("heroEyebrow").text, "NOW RUNNING");
+        compare(child("heroMeta").text, "Paused · Return");
+        keyClick(Qt.Key_Return);
+        compare(tabRequests.count, 1);
+        compare(tabRequests.signalArguments[0][0], "tab-2");
+        compare(entries.count, 0);
+        tabRequests.target = null;
+    }
     // #367: the download chip shows only while something downloads.
     function test_status_area_download_chip() {
         home.clockText = "20:42";

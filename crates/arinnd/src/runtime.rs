@@ -80,6 +80,7 @@ mod browse_routing;
 mod download_routing;
 mod folders_routing;
 mod library_routing;
+mod media_links;
 mod media_routing;
 mod progress;
 mod settings_routing;

@@ -154,12 +154,22 @@ FocusScope {
     signal openServicesRequested()
     signal serviceRequested(string serviceId)
     signal sessionRequested(string entryId)
+    // A tab card of a linked browser media session (ADR-0096).
+    signal tabRequested(string tabId)
+    // action: "play", "pause" or "playPause", as the key asked.
+    signal mediaActionRequested(string sessionId, string action)
     // Continue as shown: one activity (the service on screen, or the Return
     // activity) and at most four further entries, the open-services summary
     // first (spec §5.1, handoff 02, H-1).
     readonly property var continuePresentation: {
         const shown = currentServiceTitle.length > 0;
-        const service = shown ? [{
+        // A browser's media session linked to a current tab (ADR-0096) is one
+        // card with that tab. A link to a tab that is not open is ignored.
+        const tabs = openServices.map(entry => entry.id);
+        const entries = continueEntries.map(entry => entry.kind === "media" && entry.serviceId && !tabs.includes(entry.serviceId)
+            ? Object.assign({}, entry, {serviceId: ""}) : entry);
+        const merged = shown ? entries.find(entry => entry.kind === "media" && entry.serviceId === currentServiceId) : null;
+        const service = shown ? [Object.assign({
             id: "current-service",
             serviceId: currentServiceId,
             // The colour follows the service, not the fixed presentation id.
@@ -168,10 +178,12 @@ FocusScope {
             subtitle: currentServiceSubtitle,
             running: true,
             kind: "service"
-        }] : [];
-        const lead = continueEntries.length && continueEntries[0].kind !== "media" ? continueEntries[0] : null;
+        }, merged ? linkedState(merged, currentServiceSubtitle) : {})] : [];
+        const own = entries.filter(entry => entry !== merged);
+        const lead = own.length && own[0].kind !== "media" ? own[0] : null;
         const activity = shown ? service : lead ? [lead] : [];
-        const rest = shown || !lead ? continueEntries : continueEntries.slice(1);
+        const rest = (shown || !lead ? own : own.slice(1))
+            .map(entry => entry.kind === "media" && entry.serviceId ? tabCard(entry) : entry);
         // Services that already have a card in this row, by identity only,
         // never by title (#358, #207). Only cards that fit count: with the
         // summary, three further entries remain; without it nothing is left
@@ -188,6 +200,32 @@ FocusScope {
             kind: "more"
         }] : [];
         return activity.concat(more.concat(rest.map(mediaCard)).slice(0, 4));
+    }
+    // The playing or paused state a linked media session lends its tab card;
+    // play/pause goes to `mediaId` (ADR-0096).
+    function linkedState(entry, line) {
+        const card = mediaCard(entry) || {};
+        const state = entry.running ? qsTr("Playing") : qsTr("Paused");
+        return {
+            mediaId: entry.id,
+            playing: !!entry.running,
+            subtitle: line ? state + " · " + line : state,
+            progress: card.progress
+        };
+    }
+    // A linked session whose tab is not on screen: the tab's card, which
+    // opens that tab.
+    function tabCard(entry) {
+        const tab = openServices.find(service => service.id === entry.serviceId) || {};
+        return Object.assign({
+            id: entry.id,
+            serviceId: entry.serviceId,
+            visualIdentity: entry.serviceId,
+            title: tab.title || entry.title || "",
+            artwork: entry.artwork || "",
+            running: true,
+            kind: "tab"
+        }, linkedState(entry, ""));
     }
     // A media entry's card: the time left as its subtitle when it has none,
     // and its progress (#365).
@@ -248,6 +286,9 @@ FocusScope {
                 meta = qsTr("Playing");
             return {eyebrow: qsTr("CONTINUE"), title: entry.title || "", meta: meta, live: false};
         }
+        if (entry.kind === "tab")
+            return {eyebrow: qsTr("NOW RUNNING"), title: entry.title || "",
+                    meta: entry.subtitle + " · " + qsTr("Return"), live: true};
         if (entry.running)
             return {eyebrow: qsTr("NOW RUNNING"), title: entry.title || "",
                     meta: entry.kind === "service" && entry.subtitle ? entry.subtitle : qsTr("Return"), live: true};
@@ -416,6 +457,7 @@ FocusScope {
         if (entry && entry.launchable === false) { openTileActions(entryId); return; }
         if (entry && entry.kind === "more") { openServicesRequested(); return; }
         if (entry && entry.kind === "service") { serviceRequested(entry.serviceId || ""); return; }
+        if (entry && entry.kind === "tab") { tabRequested(entry.serviceId || ""); return; }
         if (entry && entry.kind === "media") { sessionRequested(entryId); return; }
         if (browserUnavailable && entry && entry.webShortcut) { openServicesRequested(); return; }
         if (entryId === returnActivityId) returnRequested(entryId);
@@ -446,6 +488,17 @@ FocusScope {
     Keys.onPressed: event => {
         if ([Qt.Key_Left, Qt.Key_Right, Qt.Key_Up, Qt.Key_Down].includes(event.key)) InputMode.keyPressed();
         if (event.key === Qt.Key_Home) { homeKey(); event.accepted = true; }
+        else if ([Qt.Key_MediaTogglePlayPause, Qt.Key_MediaPlay, Qt.Key_MediaPause].includes(event.key)) {
+            // Play/pause on a card linked to a media session goes to it.
+            // Dedicated Play and Pause keep their meaning; only the toggle
+            // key toggles.
+            if (screen === "home" && !navOpen && heroEntry && heroEntry.mediaId) {
+                const action = event.key === Qt.Key_MediaPlay ? "play"
+                             : event.key === Qt.Key_MediaPause ? "pause" : "playPause";
+                mediaActionRequested(heroEntry.mediaId, action);
+                event.accepted = true;
+            }
+        }
         else if (event.key === Qt.Key_Menu) {
             if (shortcutManagement && !navOpen && screen === "applications" && focusedEntry.webShortcut)
                 editShortcut(focusedEntry.id);

@@ -26,6 +26,8 @@ pub const COMMAND_TIMEOUT: Duration = Duration::from_secs(6);
 
 struct Connection {
     owner: String,
+    /// The browser process that started this host (ADR-0096), or 0.
+    browser_process: u32,
     windows: Vec<WireWindow>,
     tabs: Vec<WireTab>,
     /// Order of the last time this connection reported a focused window.
@@ -127,6 +129,22 @@ impl Bridge {
         (windows, tabs, connected)
     }
 
+    /// The browser process of a provider window ID (ADR-0096); 0 when it
+    /// could not be established. Never logged.
+    pub fn browser_process(&self, window_id: &str) -> Result<u32, ErrorCode> {
+        let (connection, window) = window_id.rsplit_once(":w").ok_or(ErrorCode::NotFound)?;
+        let window: i64 = window.parse().map_err(|_| ErrorCode::NotFound)?;
+        let state = self.state.lock().unwrap();
+        let c = state
+            .connections
+            .get(connection)
+            .ok_or(ErrorCode::NotFound)?;
+        if !c.windows.iter().any(|w| w.0 == window) {
+            return Err(ErrorCode::NotFound);
+        }
+        Ok(c.browser_process)
+    }
+
     /// The host and browser tab ID behind a provider tab ID.
     pub fn route(&self, id: &str) -> Result<Route, ErrorCode> {
         let (connection, tab) = id.rsplit_once(":t").ok_or(ErrorCode::NotFound)?;
@@ -226,6 +244,35 @@ impl Bridge {
     }
 }
 
+/// The browser launches the native host directly, so the host's parent is
+/// the browser process. 0 when either step fails.
+async fn host_parent(connection: &zbus::Connection, owner: &str) -> u32 {
+    let Ok(bus) = fdo::DBusProxy::new(connection).await else {
+        return 0;
+    };
+    let Ok(name) = zbus::names::BusName::try_from(owner) else {
+        return 0;
+    };
+    let Ok(Ok(host)) =
+        tokio::time::timeout(COMMAND_TIMEOUT, bus.get_connection_unix_process_id(name)).await
+    else {
+        return 0;
+    };
+    std::fs::read_to_string(format!("/proc/{host}/stat"))
+        .ok()
+        .and_then(|stat| parent_of(&stat))
+        .unwrap_or(0)
+}
+
+/// The parent process from `/proc/<pid>/stat`. The command name may contain
+/// spaces and parentheses, so fields are counted after its last `)`.
+fn parent_of(stat: &str) -> Option<u32> {
+    let rest = &stat[stat.rfind(')')? + 1..];
+    let mut fields = rest.split_whitespace();
+    let _state = fields.next()?;
+    fields.next()?.parse().ok().filter(|&p| p > 1)
+}
+
 fn sender(header: &Header<'_>) -> fdo::Result<String> {
     header
         .sender()
@@ -242,6 +289,7 @@ impl Bridge {
         #[zbus(connection)] connection: &zbus::Connection,
     ) -> fdo::Result<String> {
         let owner = sender(&header)?;
+        let browser_process = host_parent(connection, &owner).await;
         let id = {
             let mut state = self.state.lock().unwrap();
             if state.connections.len() >= MAX_CONNECTIONS {
@@ -254,6 +302,7 @@ impl Bridge {
                 id.clone(),
                 Connection {
                     owner: owner.clone(),
+                    browser_process,
                     windows: Vec::new(),
                     tabs: Vec::new(),
                     focused_at: 0,
@@ -342,6 +391,7 @@ mod tests {
                     id.into(),
                     Connection {
                         owner: owner.into(),
+                        browser_process: 4000 + focused_at as u32,
                         windows,
                         tabs,
                         focused_at,
@@ -399,6 +449,37 @@ mod tests {
         bridge.drop_host(":1.5");
         assert!(matches!(bridge.default_host(), Err(ErrorCode::Unavailable)));
         assert!(!bridge.snapshot().2);
+    }
+
+    #[test]
+    fn windows_report_their_connection_browser_process() {
+        let bridge = bridge_with(vec![
+            ("c1", ":1.5", vec![(1, true)], vec![tab(10, 1, true)], 1),
+            ("c2", ":1.6", vec![(1, false), (2, false)], vec![], 2),
+        ]);
+        assert_eq!(bridge.browser_process("c1:w1").unwrap(), 4001);
+        assert_eq!(bridge.browser_process("c2:w2").unwrap(), 4002);
+        for missing in ["c2:w9", "c9:w1", "c1:t10", "bogus", "c1:wx"] {
+            assert!(matches!(
+                bridge.browser_process(missing),
+                Err(ErrorCode::NotFound)
+            ));
+        }
+    }
+
+    #[test]
+    fn parent_process_is_read_after_the_command_name() {
+        assert_eq!(
+            parent_of("812 (arinn-chrome-ho) S 640 812 640 0 -1"),
+            Some(640)
+        );
+        // A command name with spaces and a closing parenthesis.
+        assert_eq!(parent_of("812 (a) b) c) S 77 1 1"), Some(77));
+        // init or a missing parent is not a browser.
+        assert_eq!(parent_of("812 (x) S 1 1 1"), None);
+        assert_eq!(parent_of("812 (x) S 0 1 1"), None);
+        assert_eq!(parent_of("garbage"), None);
+        assert_eq!(parent_of("812 (x) S"), None);
     }
 
     #[test]

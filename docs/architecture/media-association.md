@@ -144,9 +144,47 @@ and a new or moved link waits; ties go by the link's sort order.
   confirmed on a real Chrome/KDE session. That check needs explicit owner
   permission and is not part of the contract tests.
 
-## Follow-ups
+## Implementation
 
-The producers (`plugins/mpris`, `plugins/chrome`), the daemon join and export
-(`crates/arinnd`), and the shell consumer (`apps/arinn-shell`) are implemented
-separately after this contract. Each comes with private-bus tests for link,
-ambiguity, pause hold, move, generation change and missing interfaces.
+- **Producers.** `plugins/mpris` exports `MediaProcess1` and reads the name
+  owner's process at call time. A tracked name that changes owner makes the
+  next publish take a new revision (`MediaService::touch`), even when the
+  sessions look the same. `plugins/chrome` exports `BrowserProcess1` and
+  records the host's parent process per connection at attach.
+- **Daemon.** `crates/arinnd/src/runtime/media_links.rs` runs one pass per
+  second. Each pass reads current snapshots and introspects each
+  registration until its answer is known. It then makes at most 64 process
+  lookups, 16 at a time, least recently tried first, so a failing lookup
+  cannot starve the rest. Results are cached per provider, generation,
+  snapshot revision and local ID. The pass applies `join`, then re-reads the
+  provider set with each provider's generation and revision. The pass makes
+  no new link and moves none when a registration's support is still
+  unknown, a process ID is still unknown, or the provider set or a snapshot
+  moved during the lookups. It then keeps a held link only while its session
+  and its tab's window still have the process the link was made with, and
+  no process ID already read gives that process to another session or
+  browser provider. Introspection of unanswered registrations runs
+  concurrently.
+- **Providers without the interface.** A ready media provider with sessions,
+  or a browser provider with windows, that does not export its process
+  interface could hold the same process, so the daemon publishes no link at
+  all while it has entries. Today this applies to the mpv provider: while
+  it plays, browser media keeps both cards.
+- **Shell.** `MediaCatalog` reads `Get` and sets the linked tab's
+  presentation ID as `serviceId` on a session's Continue entry. A `Changed`
+  with a newer revision clears its links until a reply at that revision. `HomeView`
+  merges that entry into the current-service card, or shows it as the tab's
+  card (`kind: "tab"`, which activates the tab). A link to a tab that is not
+  open is ignored. On such a card Play, Pause and the play/pause toggle key go
+  to the session as `play`, `pause` and `playPause`; a session without the
+  dedicated action gets the toggle only when it moves it the way asked.
+
+Tests:
+- the MPRIS and Chrome provider tests (the real host binary, with the test
+  process standing in for the browser);
+- `runtime::media_links` private-bus tests;
+- `MediaCatalogTest::linkedSessionsNameTheirTab`;
+- the Home QML cases;
+- the `phase1.py` wire check.
+
+Real Chrome/KDE confirmation is still not run.

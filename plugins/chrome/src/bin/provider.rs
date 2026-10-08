@@ -74,6 +74,13 @@ async fn main() -> anyhow::Result<()> {
             arinn_plugin_chrome::icons::WebIcons::new(service.registrations()).await?,
         )
         .await?;
+    connection
+        .object_server()
+        .at(
+            "/org/arinn/Provider1",
+            arinn_plugin_chrome::processes::Processes::new(bridge.clone(), service.registrations()),
+        )
+        .await?;
     let publisher = tokio::spawn(publish(service.clone(), bridge.clone()));
     let result = runtime::run_browser_on(connection, service).await;
     publisher.abort();

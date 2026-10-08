@@ -462,6 +462,9 @@ Window {
                 Qt.callLater(() => Ui.Focus.take(browserView));
             }
             onServiceRequested: backend.back()
+            // One card for a browser tab and its media session (ADR-0096).
+            onTabRequested: tabId => browserCatalog.activateTab(tabId)
+            onMediaActionRequested: (sessionId, action) => mediaCatalog.sessionAction(sessionId, action)
             onSessionRequested: entryId => {
                 // A stopped film resumes through the library; the stopped
                 // session itself has nothing to present (#247).

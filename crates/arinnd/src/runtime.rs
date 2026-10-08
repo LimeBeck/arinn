@@ -1606,10 +1606,13 @@ impl Daemon {
         accepted
     }
     async fn take_command(&self, #[zbus(header)] h: Header<'_>) -> production::Result<String> {
-        self.core
-            .platform
-            .take_command(&self.core.connection, h)
-            .await
+        if self.core.platform.poll(&self.core.connection, &h).await? {
+            crate::global_home::adapter_connected(
+                &self.core.connection,
+                self.core.paths.config.clone(),
+            );
+        }
+        Ok(self.core.platform.next_command().await)
     }
     async fn report_home(
         &self,

@@ -22,6 +22,8 @@ struct State {
     home_output: String,
     active_output: String,
     seen: Option<Instant>,
+    /// Unique bus name of the adapter connection that last polled.
+    adapter: String,
 }
 #[derive(Clone)]
 pub struct Platform {
@@ -91,16 +93,26 @@ impl Platform {
             .try_send(command.into())
             .map_err(|_| ErrorCode::Unavailable.into())
     }
+    /// Authorizes an adapter poll and returns whether it comes from a new
+    /// adapter connection, which then needs its connection-time setup.
+    pub async fn poll(&self, c: &Connection, h: &Header<'_>) -> production::Result<bool> {
+        Self::authorize(c, h).await?;
+        let sender = h.sender().map(|s| s.to_string()).unwrap_or_default();
+        let mut s = self.state.lock().await;
+        s.seen = Some(Instant::now());
+        Ok(std::mem::replace(&mut s.adapter, sender.clone()) != sender)
+    }
+    /// The next queued command after an authorized `poll`, or `idle`.
+    pub async fn next_command(&self) -> String {
+        tokio::time::timeout(Duration::from_secs(20), self.rx.lock().await.recv())
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or("idle".into())
+    }
     pub async fn take_command(&self, c: &Connection, h: Header<'_>) -> production::Result<String> {
-        Self::authorize(c, &h).await?;
-        self.state.lock().await.seen = Some(Instant::now());
-        Ok(
-            tokio::time::timeout(Duration::from_secs(20), self.rx.lock().await.recv())
-                .await
-                .ok()
-                .flatten()
-                .unwrap_or("idle".into()),
-        )
+        self.poll(c, &h).await?;
+        Ok(self.next_command().await)
     }
     // Caller authenticates and validates before acquiring the inventory lock.
     pub(crate) async fn commit_home(&self, visible: bool, target: &str, output: &str) {

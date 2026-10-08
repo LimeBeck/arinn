@@ -24,7 +24,8 @@ FocusScope {
     property string detailEntryId: ""
     property string operationState: ""
     property string launchingId: ""
-    property bool pointerMode: false
+    // The shell's input mode (ADR-0095); tests may assign it directly.
+    property bool pointerMode: Ui.InputMode.pointerActive
     readonly property bool operationPending: operationState === "pending" || operationState === "queued" || operationState === "running"
     readonly property bool operationFailed: operationState !== "" && operationState !== "succeeded" && !operationPending
     readonly property string operationMessage: {
@@ -457,12 +458,21 @@ FocusScope {
         interval: root.hoverDelayMs
     }
     HoverHandler {
-        onPointChanged: root.pointerMode = true
+        // Hover re-evaluated under a resting pointer (scrolling, new rows)
+        // keeps the scene position; only a changed one is movement.
+        property point previousPosition: Qt.point(-1, -1)
+        onPointChanged: {
+            const next = point.scenePosition;
+            if (next.x === previousPosition.x && next.y === previousPosition.y)
+                return;
+            previousPosition = next;
+            Ui.InputMode.pointerMoved(next);
+        }
         cursorShape: root.pointerMode ? Qt.ArrowCursor : Qt.BlankCursor
     }
     Keys.onPressed: event => {
         if ([Qt.Key_Left, Qt.Key_Right, Qt.Key_Up, Qt.Key_Down].includes(event.key))
-            root.pointerMode = false;
+            Ui.InputMode.keyPressed();
         if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
             event.accepted = true;
             return;
@@ -554,7 +564,7 @@ FocusScope {
                 restingColor: modelData.id === root.currentTabId ? Qt.rgba(1, 1, 1, 0.16) : Ui.Theme.plate
                 pointerMode: root.pointerMode
                 hoverFocusEnabled: root.hoverFocusEnabled
-                onDpadRequested: root.pointerMode = false
+                onDpadRequested: Ui.InputMode.keyPressed()
                 onActivated: root.focusTab(index)
                 contentItem: Ui.UiText {
                     id: tabLabel
@@ -603,7 +613,7 @@ FocusScope {
             actionText: root.resolvedStatusAction
             pointerMode: root.pointerMode
             hoverFocusEnabled: root.hoverFocusEnabled
-            onDpadRequested: root.pointerMode = false
+            onDpadRequested: Ui.InputMode.keyPressed()
             onActionRequested: root.retryRequested()
         }
 
@@ -693,7 +703,7 @@ FocusScope {
                             focusedColor: restingColor
                             pointerMode: root.pointerMode
                             hoverFocusEnabled: root.hoverFocusEnabled
-                            onDpadRequested: root.pointerMode = false
+                            onDpadRequested: Ui.InputMode.keyPressed()
                             onActiveFocusChanged: {
                                 if (activeFocus) {
                                     root.focusedPosterId = modelData.id;
@@ -1051,7 +1061,7 @@ FocusScope {
                         text: root.detailEntry && root.detailEntry.progress > 0 ? qsTr("Continue") : qsTr("Play")
                         pointerMode: root.pointerMode
                         hoverFocusEnabled: root.hoverFocusEnabled
-                        onDpadRequested: root.pointerMode = false
+                        onDpadRequested: Ui.InputMode.keyPressed()
                         onActivated: root.playRequested(root.detailEntryId)
                     }
                     Ui.ActionButton {
@@ -1061,7 +1071,7 @@ FocusScope {
                         text: qsTr("Remove from library")
                         pointerMode: root.pointerMode
                         hoverFocusEnabled: root.hoverFocusEnabled
-                        onDpadRequested: root.pointerMode = false
+                        onDpadRequested: Ui.InputMode.keyPressed()
                         onActivated: root.removeRequested(root.detailEntryId)
                     }
                 }
@@ -1119,7 +1129,7 @@ FocusScope {
                             restingColor: modelData.id === root.currentSeasonId ? Qt.rgba(1, 1, 1, 0.16) : Ui.Theme.plate
                             pointerMode: root.pointerMode
                             hoverFocusEnabled: root.hoverFocusEnabled
-                            onDpadRequested: root.pointerMode = false
+                            onDpadRequested: Ui.InputMode.keyPressed()
                             onActivated: root.focusSeason(index)
                             contentItem: Ui.UiText {
                                 id: seasonLabel
@@ -1184,7 +1194,7 @@ FocusScope {
                                     focusedColor: restingColor
                                     pointerMode: root.pointerMode
                                     hoverFocusEnabled: root.hoverFocusEnabled
-                                    onDpadRequested: root.pointerMode = false
+                                    onDpadRequested: Ui.InputMode.keyPressed()
                                     onActiveFocusChanged: {
                                         if (!activeFocus)
                                             return;

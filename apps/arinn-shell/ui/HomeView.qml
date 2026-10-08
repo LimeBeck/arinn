@@ -80,7 +80,8 @@ FocusScope {
     // True while an Activity background is shown (ADR-0027): the ambient
     // light field then stays off.
     property bool ambientSuppressed: false
-    property bool pointerMode: false
+    // The shell's input mode (ADR-0095); tests may assign it directly.
+    property bool pointerMode: InputMode.pointerActive
     property bool actionsEnabled: false
     property bool favoriteSaving: false
     property string favoriteError: ""
@@ -436,14 +437,14 @@ FocusScope {
         property point previousPosition: Qt.point(-1, -1)
         onPointChanged: {
             if (point.scenePosition.x !== previousPosition.x || point.scenePosition.y !== previousPosition.y) {
-                root.pointerMode = true;
+                InputMode.pointerMoved(point.scenePosition);
                 previousPosition = point.scenePosition;
             }
         }
         cursorShape: root.pointerMode ? Qt.ArrowCursor : Qt.BlankCursor
     }
     Keys.onPressed: event => {
-        if ([Qt.Key_Left, Qt.Key_Right, Qt.Key_Up, Qt.Key_Down].includes(event.key)) root.pointerMode = false;
+        if ([Qt.Key_Left, Qt.Key_Right, Qt.Key_Up, Qt.Key_Down].includes(event.key)) InputMode.keyPressed();
         if (event.key === Qt.Key_Home) { homeKey(); event.accepted = true; }
         else if (event.key === Qt.Key_Menu) {
             if (shortcutManagement && !navOpen && screen === "applications" && focusedEntry.webShortcut)
@@ -495,7 +496,7 @@ FocusScope {
             x: 120; y: 44; height: 64; text: "Arinn"
             pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled
             onActivated: root.openNavigation()
-            onDpadRequested: root.pointerMode = false
+            onDpadRequested: InputMode.keyPressed()
             Keys.onDownPressed: {
                 if (root.screen === "home" && root.homeState !== "ready" && root.homeState !== "loading") Focus.take(statusPane);
                 else root.restoreScreen();
@@ -591,7 +592,7 @@ FocusScope {
                     onEdge: key => root.rowEdge(continueRow, key)
                     onFocusLost: root.focusAfterRemoval(continueRow)
                     onScrolled: hoverDelay.restart()
-                    onDpadRequested: root.pointerMode = false
+                    onDpadRequested: InputMode.keyPressed()
                 }
                 HomeRow {
                     id: favoritesRow; objectName: "favorites"
@@ -606,7 +607,7 @@ FocusScope {
                     onEdge: key => root.rowEdge(favoritesRow, key)
                     onFocusLost: root.focusAfterRemoval(favoritesRow)
                     onScrolled: hoverDelay.restart()
-                    onDpadRequested: root.pointerMode = false
+                    onDpadRequested: InputMode.keyPressed()
                 }
                 HomeRow {
                     id: newRow; objectName: "new"
@@ -620,7 +621,7 @@ FocusScope {
                     onEdge: key => root.rowEdge(newRow, key)
                     onFocusLost: root.focusAfterRemoval(newRow)
                     onScrolled: hoverDelay.restart()
-                    onDpadRequested: root.pointerMode = false
+                    onDpadRequested: InputMode.keyPressed()
                 }
             }
             StatusPane {
@@ -635,7 +636,7 @@ FocusScope {
                 actionText: root.homeState === "empty" ? qsTr("Browse sections") : qsTr("Retry")
                 pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled
                 onActionRequested: { if (root.homeState === "empty") root.openNavigation(); else root.retryRequested(); }
-                onDpadRequested: root.pointerMode = false
+                onDpadRequested: InputMode.keyPressed()
             }
         }
         Column {
@@ -671,7 +672,7 @@ FocusScope {
                     onEdge: key => root.applicationEdge(groupRow, key)
                     onFocusLost: root.applicationFocusLost(groupRow)
                     onScrolled: hoverDelay.restart()
-                    onDpadRequested: root.pointerMode = false
+                    onDpadRequested: InputMode.keyPressed()
                 }
             }
             HomeRow {
@@ -685,7 +686,7 @@ FocusScope {
                 onEdge: key => root.applicationEdge(runningRow, key)
                 onFocusLost: root.applicationFocusLost(runningRow)
                 onScrolled: hoverDelay.restart()
-                onDpadRequested: root.pointerMode = false
+                onDpadRequested: InputMode.keyPressed()
             }
             ActionButton {
                 id: shortcutEditButton; objectName: "editShortcutButton"
@@ -704,7 +705,7 @@ FocusScope {
                 text: qsTr("Back to Home")
                 pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled
                 onActivated: root.showHome()
-                onDpadRequested: root.pointerMode = false
+                onDpadRequested: InputMode.keyPressed()
                 Keys.onLeftPressed: root.openNavigation()
                 Keys.onUpPressed: root.restoreScreen()
             }
@@ -814,7 +815,7 @@ FocusScope {
                         }
                         pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled
                         onActiveFocusChanged: if (activeFocus) root.navIndex = index
-                        onDpadRequested: root.pointerMode = false
+                        onDpadRequested: InputMode.keyPressed()
                         onActivated: {
                             if (index < 5) root.selectSection(index);
                             else if (index === 5) { root.navOpen = false; root.openServicesRequested(); }

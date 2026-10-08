@@ -4,6 +4,10 @@
 //! Production core components, independently testable before wire API migration.
 pub mod browse;
 pub mod favorites;
+#[path = "../../../platform/kde/global_home.rs"]
+pub mod global_home;
+#[path = "../../../platform/key_sequence.rs"]
+pub mod key_sequence;
 mod listings;
 pub mod operations;
 #[path = "../../../platform/kde/bridge.rs"]

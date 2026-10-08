@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Arinn contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+use crate::key_sequence::{self, Sequence};
 use anyhow::{Result, bail, ensure};
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
@@ -110,16 +111,26 @@ pub struct Native {
     compositor: Atom,
     tokens: Tokens,
     watched: HashSet<Window>,
+    /// Global Home sequences: `home_shortcut`, then HomePage (#286).
+    home: Vec<Sequence>,
 }
 impl Native {
-    pub fn connect() -> Result<Self> {
+    pub fn connect(home_shortcut: &str) -> Result<Self> {
         ensure!(
             std::env::var("XDG_SESSION_TYPE").as_deref() == Ok("x11"),
             "X11 session required"
         );
-        Self::connect_display(None)
+        let (home, fallback) = key_sequence::home(home_shortcut);
+        if fallback {
+            eprintln!("arinn-platform-x11: invalid home_shortcut; using the default");
+        }
+        Self::connect_display_with(None, home)
     }
+    #[cfg(test)]
     pub(crate) fn connect_display(display: Option<&str>) -> Result<Self> {
+        Self::connect_display_with(display, key_sequence::home(key_sequence::DEFAULT_HOME).0)
+    }
+    pub(crate) fn connect_display_with(display: Option<&str>, home: Vec<Sequence>) -> Result<Self> {
         let (c, screen) = x11rb::connect(display)?;
         let root = c.setup().roots[screen].root;
         let atoms = Atoms::new(&c)?.reply()?;
@@ -136,6 +147,7 @@ impl Native {
             compositor,
             tokens: Tokens::default(),
             watched: HashSet::new(),
+            home,
         };
         s.wm = s.wm_owner()?;
         s.supported = s
@@ -337,17 +349,15 @@ impl Native {
             .reply()?;
         let per_key = usize::from(mapping.keysyms_per_keycode);
         ensure!(per_key > 0, "invalid keyboard mapping");
-        let mut f12 = Vec::new();
         let mut locks = u16::from(ModMask::LOCK);
         let mut supers = HashSet::new();
         let mut metas = HashSet::new();
+        let mut alts = HashSet::new();
         let mods = self.c.get_modifier_mapping()?.reply()?;
         let per_mod = mods.keycodes.len() / 8;
-        for (index, syms) in mapping.keysyms.chunks(per_key).enumerate() {
+        let keys = mapping.keysyms.chunks(per_key);
+        for (index, syms) in keys.clone().enumerate() {
             let key = setup.min_keycode + index as u8;
-            if syms.contains(&0xffc9) {
-                f12.push(key);
-            }
             let mask = if per_mod > 0 {
                 mods.keycodes
                     .chunks(per_mod)
@@ -367,31 +377,94 @@ impl Native {
                 if syms.iter().any(|s| [0xffe7, 0xffe8].contains(s)) {
                     metas.insert(mask);
                 }
+                if syms.iter().any(|s| [0xffe9, 0xffea].contains(s)) {
+                    alts.insert(mask);
+                }
             }
         }
         // Qt's Meta transport normally uses Super; fall back to native Meta
         // only when no mapped Super key exists. Do not treat Alt aliases as Meta.
         let meta_masks = if supers.is_empty() { metas } else { supers };
-        ensure!(!meta_masks.is_empty(), "Meta modifier unavailable");
-        ensure!(!f12.is_empty(), "F12 key unavailable");
-        for meta in meta_masks {
-            for key in &f12 {
-                for subset in 0u16..256 {
-                    if subset & !locks == 0 {
-                        self.c
-                            .grab_key(
-                                false,
-                                self.root,
-                                (meta | subset).into(),
-                                *key,
-                                GrabMode::ASYNC,
-                                GrabMode::ASYNC,
-                            )?
-                            .check()?;
+        let choices = |wanted: bool, masks: &HashSet<u16>| -> Vec<u16> {
+            if wanted {
+                masks.iter().copied().collect()
+            } else {
+                vec![0]
+            }
+        };
+        let mut grabbed = false;
+        for sequence in &self.home {
+            let codes: Vec<Keycode> = keys
+                .clone()
+                .enumerate()
+                .filter(|(_, syms)| syms.contains(&sequence.keysym()))
+                .map(|(index, _)| setup.min_keycode + index as u8)
+                .collect();
+            let m = sequence.modifiers;
+            let fixed = if m.shift {
+                u16::from(ModMask::SHIFT)
+            } else {
+                0
+            } | if m.ctrl {
+                u16::from(ModMask::CONTROL)
+            } else {
+                0
+            };
+            // A sequence whose key or modifier is not mapped is skipped; the
+            // next MappingNotify grabs it again.
+            let mut combinations = Vec::new();
+            for meta in choices(m.meta, &meta_masks) {
+                for alt in choices(m.alt, &alts) {
+                    for key in &codes {
+                        for subset in 0u16..256 {
+                            if subset & !locks == 0 {
+                                combinations.push((meta | alt | fixed | subset, *key));
+                            }
+                        }
                     }
                 }
             }
+            if combinations.is_empty() {
+                continue;
+            }
+            // Another client holding this sequence (BadAccess) costs only
+            // this sequence: release its partial grabs and keep the others.
+            let mut conflict = false;
+            for (modifiers, key) in &combinations {
+                let result = self
+                    .c
+                    .grab_key(
+                        false,
+                        self.root,
+                        (*modifiers).into(),
+                        *key,
+                        GrabMode::ASYNC,
+                        GrabMode::ASYNC,
+                    )?
+                    .check();
+                match result {
+                    Ok(()) => (),
+                    Err(x11rb::errors::ReplyError::X11Error(e))
+                        if e.error_kind == x11rb::protocol::ErrorKind::Access =>
+                    {
+                        conflict = true;
+                        break;
+                    }
+                    Err(error) => return Err(error.into()),
+                }
+            }
+            if conflict {
+                for (modifiers, key) in &combinations {
+                    self.c
+                        .ungrab_key(*key, self.root, (*modifiers).into())?
+                        .check()?;
+                }
+                eprintln!("arinn-platform-x11: a Home key is held by another client; skipped");
+            } else {
+                grabbed = true;
+            }
         }
+        ensure!(grabbed, "Home key unavailable");
         self.c.flush()?;
         Ok(())
     }
@@ -856,6 +929,10 @@ pub(crate) mod fixture {
             self.home_key_with(0xffeb)
         }
         pub fn home_key_with(&self, modifier_symbol: u32) -> Result<()> {
+            self.press(&[modifier_symbol], 0xffc9)
+        }
+        /// Presses and releases `symbol` while holding `modifiers`, all keysyms.
+        pub fn press(&self, modifiers: &[u32], symbol: u32) -> Result<()> {
             use x11rb::protocol::xtest::ConnectionExt as _;
             let setup = self.c.setup();
             let mapping = self
@@ -870,9 +947,12 @@ pub(crate) mod fixture {
                     .map(|i| setup.min_keycode + i as u8)
                     .unwrap()
             };
-            let meta = key(modifier_symbol);
-            let f12 = key(0xffc9);
-            for (kind, code) in [(2, meta), (2, f12), (3, f12), (3, meta)] {
+            let held: Vec<u8> = modifiers.iter().map(|m| key(*m)).collect();
+            let target = key(symbol);
+            let mut events: Vec<(u8, u8)> = held.iter().map(|code| (2, *code)).collect();
+            events.extend([(2, target), (3, target)]);
+            events.extend(held.iter().rev().map(|code| (3, *code)));
+            for (kind, code) in events {
                 self.c
                     .xtest_fake_input(kind, code, CURRENT_TIME, self.root, 0, 0, 0)?
                     .check()?;
@@ -890,6 +970,83 @@ pub(crate) mod fixture {
             }
             Ok(messages)
         }
+    }
+    #[test]
+    #[ignore = "requires Xvfb; spawns an isolated X server, never uses the real DISPLAY"]
+    fn configured_home_and_home_page_replace_meta_f12() -> Result<()> {
+        // #286: home_shortcut decides the grab, and HomePage is always added.
+        let desktop = Desktop::new()?;
+        let home = crate::key_sequence::home("Ctrl+Alt+H").0;
+        let mut native = Native::connect_display_with(Some(&desktop.display), home)?;
+        native.snapshot()?;
+        desktop.press(&[0xffe3, 0xffe9], u32::from(b'h'))?; // Control_L, Alt_L
+        assert!(native.snapshot()?.home_key);
+        desktop.press(&[], 0x1008_ff18)?; // XF86HomePage
+        assert!(native.snapshot()?.home_key);
+        desktop.press(&[0xffe9], u32::from(b'h'))?; // Alt+H alone is not Home.
+        assert!(!native.snapshot()?.home_key);
+        desktop.home_key()?; // Meta+F12 is no longer bound.
+        assert!(!native.snapshot()?.home_key);
+        Ok(())
+    }
+    #[test]
+    #[ignore = "requires Xvfb; spawns an isolated X server, never uses the real DISPLAY"]
+    fn held_home_shortcut_keeps_home_page_across_regrab() -> Result<()> {
+        // Another client holds the configured sequence: HomePage still opens
+        // Home, at connection and after a mapping change regrabs (ADR-0094).
+        let desktop = Desktop::new()?;
+        let setup = desktop.c.setup();
+        let mapping = desktop
+            .c
+            .get_keyboard_mapping(setup.min_keycode, setup.max_keycode - setup.min_keycode + 1)?
+            .reply()?;
+        let h = mapping
+            .keysyms
+            .chunks(usize::from(mapping.keysyms_per_keycode))
+            .position(|syms| syms.contains(&u32::from(b'h')))
+            .map(|i| setup.min_keycode + i as u8)
+            .unwrap();
+        let mods = desktop.c.get_modifier_mapping()?.reply()?;
+        let per_mod = mods.keycodes.len() / 8;
+        let alt_l = mapping
+            .keysyms
+            .chunks(usize::from(mapping.keysyms_per_keycode))
+            .position(|syms| syms.contains(&0xffe9))
+            .map(|i| setup.min_keycode + i as u8)
+            .unwrap();
+        let alt = mods
+            .keycodes
+            .chunks(per_mod)
+            .position(|codes| codes.contains(&alt_l))
+            .map(|modifier| 1u16 << modifier)
+            .unwrap();
+        desktop
+            .c
+            .grab_key(
+                false,
+                desktop.root,
+                (u16::from(ModMask::CONTROL) | alt).into(),
+                h,
+                GrabMode::ASYNC,
+                GrabMode::ASYNC,
+            )?
+            .check()?;
+        desktop.c.flush()?;
+        let home = crate::key_sequence::home("Ctrl+Alt+H").0;
+        let mut native = Native::connect_display_with(Some(&desktop.display), home)?;
+        native.snapshot()?;
+        desktop.press(&[], 0x1008_ff18)?;
+        assert!(native.snapshot()?.home_key);
+        // A mapping change ungrabs and grabs again; HomePage must survive it.
+        let mapping = desktop.c.get_modifier_mapping()?.reply()?.keycodes;
+        assert_eq!(
+            desktop.c.set_modifier_mapping(&mapping)?.reply()?.status,
+            x11rb::protocol::xproto::MappingStatus::SUCCESS
+        );
+        native.snapshot()?;
+        desktop.press(&[], 0x1008_ff18)?;
+        assert!(native.snapshot()?.home_key);
+        Ok(())
     }
     #[test]
     #[ignore = "requires Xvfb; isolated modifier remapping regression"]

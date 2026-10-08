@@ -1221,3 +1221,82 @@ async fn invalid_backend_rejects_even_a_claimed_sentinel_name() {
         ErrorCode::PermissionDenied
     );
 }
+/// Records the keys the daemon writes to KGlobalAccel.
+type AccelKeys = Vec<(Vec<i32>,)>;
+struct RecordingAccel(Arc<std::sync::Mutex<Vec<AccelKeys>>>);
+#[zbus::interface(name = "org.kde.KGlobalAccel")]
+impl RecordingAccel {
+    #[zbus(name = "setForeignShortcutKeys")]
+    fn set_foreign_shortcut_keys(&self, action: Vec<String>, keys: AccelKeys) {
+        assert_eq!(action[..2], ["kwin", "ArinnPhase0Home"]);
+        self.0.lock().unwrap().push(keys);
+    }
+    #[zbus(name = "shortcutKeys")]
+    fn shortcut_keys(&self, _action: Vec<String>) -> AccelKeys {
+        self.0.lock().unwrap().last().cloned().unwrap_or_default()
+    }
+}
+/// `home_shortcut` from config.toml and HomePage reach KDE's global shortcut
+/// once per adapter connection (#286). Without the fix the configured value
+/// was only validated, and KWin kept its hardcoded Meta+F12.
+#[tokio::test]
+async fn adapter_connection_applies_configured_home_shortcut() {
+    let f = Fixture::new().await;
+    let mut config = Config::load(&f.core.paths.config).unwrap();
+    config.home_shortcut = "Ctrl+Alt+H".into();
+    config.save(&f.core.paths.config).unwrap();
+    let writes = Arc::default();
+    f.stranger
+        .object_server()
+        .at("/kglobalaccel", RecordingAccel(Arc::clone(&writes)))
+        .await
+        .unwrap();
+    f.stranger
+        .request_name("org.kde.kglobalaccel")
+        .await
+        .unwrap();
+    f.core
+        .connection
+        .object_server()
+        .at(
+            production::PATH,
+            Daemon {
+                core: f.core.clone(),
+            },
+        )
+        .await
+        .unwrap();
+    let poll = || {
+        let kwin = f.kwin.clone();
+        tokio::spawn(async move {
+            kwin.call_method(
+                Some(production::SERVICE),
+                production::PATH,
+                Some("org.arinn.Daemon1"),
+                "TakeCommand",
+                &(),
+            )
+            .await
+        })
+    };
+    let first = poll();
+    for _ in 0..100 {
+        if !writes.lock().unwrap().is_empty() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(
+        *writes.lock().unwrap(),
+        [vec![
+            (vec![0x0C00_0048, 0, 0, 0],),
+            (vec![0x0100_0090, 0, 0, 0],)
+        ]]
+    );
+    // Later polls of the same adapter connection leave the keys alone.
+    first.abort();
+    let second = poll();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    second.abort();
+    assert_eq!(writes.lock().unwrap().len(), 1);
+}

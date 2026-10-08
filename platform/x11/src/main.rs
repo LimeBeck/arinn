@@ -1,6 +1,10 @@
 // SPDX-FileCopyrightText: 2026 Arinn contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+// Qt key codes in this shared module serve the KDE adapter only.
+#[allow(dead_code)]
+#[path = "../../key_sequence.rs"]
+mod key_sequence;
 mod native;
 use anyhow::{Result, ensure};
 use arinn_protocol::{
@@ -74,7 +78,7 @@ struct Pending {
 }
 impl Actor {
     fn connect() -> Result<Self> {
-        let mut native = Native::connect()?;
+        let mut native = Native::connect(&home_shortcut())?;
         let snapshot = native.snapshot()?;
         Ok(Self {
             native,
@@ -719,6 +723,29 @@ async fn shutdown() {
         .expect("SIGTERM handler");
     tokio::select! { _ = tokio::signal::ctrl_c() => (), _ = term.recv() => () }
 }
+/// `home_shortcut` from the daemon's `config.toml`, read only (#286). The
+/// daemon owns the file; a missing or unreadable value means the default.
+fn home_shortcut() -> String {
+    configured_home(
+        std::env::var_os("HOME").as_deref(),
+        std::env::var_os("XDG_CONFIG_HOME").as_deref(),
+    )
+}
+fn configured_home(home: Option<&std::ffi::OsStr>, config: Option<&std::ffi::OsStr>) -> String {
+    let path = config
+        .map(std::path::PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .or_else(|| {
+            home.map(std::path::PathBuf::from)
+                .filter(|p| p.is_absolute())
+                .map(|p| p.join(".config"))
+        })
+        .map(|root| root.join("arinn/config.toml"));
+    path.and_then(|path| std::fs::read_to_string(path).ok())
+        .and_then(|text| text.parse::<toml::Table>().ok())
+        .and_then(|table| table.get("home_shortcut")?.as_str().map(str::to_owned))
+        .unwrap_or_else(|| key_sequence::DEFAULT_HOME.to_owned())
+}
 #[tokio::main]
 async fn main() -> Result<()> {
     ensure!(
@@ -740,6 +767,34 @@ async fn main() -> Result<()> {
 mod tests {
     use super::*;
     use x11rb::protocol::xproto::ConnectionExt as _;
+    #[test]
+    fn home_shortcut_comes_from_the_daemon_config_file() {
+        let root = std::env::temp_dir().join(format!("arinn-x11-config-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(root.join("arinn")).unwrap();
+        let read = || configured_home(None, Some(root.as_os_str()));
+        assert_eq!(read(), "Meta+F12");
+        std::fs::write(
+            root.join("arinn/config.toml"),
+            "schema_version = 1\nhome_shortcut = \"Ctrl+Alt+H\"\n",
+        )
+        .unwrap();
+        assert_eq!(read(), "Ctrl+Alt+H");
+        // XDG_CONFIG_HOME wins over HOME; a relative value is ignored.
+        assert_eq!(
+            configured_home(
+                Some(std::ffi::OsStr::new("/nonexistent")),
+                Some(root.as_os_str())
+            ),
+            "Ctrl+Alt+H"
+        );
+        assert_eq!(
+            configured_home(None, Some(std::ffi::OsStr::new("relative"))),
+            "Meta+F12"
+        );
+        std::fs::write(root.join("arinn/config.toml"), "not toml [").unwrap();
+        assert_eq!(read(), "Meta+F12");
+        std::fs::remove_dir_all(root).unwrap();
+    }
     #[test]
     #[ignore = "requires Xvfb; spawns an isolated server and synthetic EWMH manager"]
     fn missing_shell_makes_home_unavailable() -> Result<()> {

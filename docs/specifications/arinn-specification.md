@@ -241,7 +241,7 @@ Focus is first-class state. Every focusable component MUST have distinguishable 
 
 Focus scopes trap focus in the topmost scope: dialog › power › sheet › nav › screen. Each screen remembers its last focus. After an item disappears, focus moves to the nearest previous index; closing a modal or sheet returns focus to its opener, or to the nearest focusable in the parent scope if the opener is gone.
 
-Input modes: **D-pad mode** (cursor hidden, full focus treatment) and **pointer mode** (air mouse; hover moves focus, lift is halved; hover is ignored for 500 ms after any scroll). The first arrow key returns to D-pad mode. Spatial navigation rules are in the design handoff.
+Input modes: **D-pad mode** (cursor hidden, full focus treatment) and **pointer mode** (air mouse; hover moves focus, lift is halved; hover is ignored for 500 ms after any scroll). Any key press in the shell returns to D-pad mode, hides the cursor and keeps its action. For 2 s after the latest key press, pointer motion and hover neither leave D-pad mode nor take focus. After that, the cursor stays hidden until the pointer genuinely moves; a resting pointer under scrolling, animations, model refreshes or a newly shown screen does not count. Owner request of 2026-10-04 ([#308](https://github.com/LimeBeck/arinn/issues/308), [ADR-0095](../adr/0095-shell-input-mode-ownership.md)). Spatial navigation rules are in the design handoff.
 
 ### 6.2. Keys
 
@@ -250,7 +250,7 @@ Input modes: **D-pad mode** (cursor hidden, full focus treatment) and **pointer 
 | Arrows | Move focus |
 | Enter / OK | Select |
 | Esc, Backspace | Back ([§6.3](#63-home-and-back)). In an editable text field Backspace deletes a character; Esc closes the topmost scope. |
-| Global Home | Configurable global shortcut owned by the platform layer (Meta+F12 in the Phase 0 spike) |
+| Global Home | Global shortcut owned by the platform layer: `home_shortcut` in `config.toml` (default Meta+F12) and the remote's HomePage key. Owner decision of 2026-10-07 ([#286](https://github.com/LimeBeck/arinn/issues/286), [ADR-0094](../adr/0094-configurable-global-home-keys.md)) |
 | Menu | Toggle global navigation. A long press on an application tile in Applications or in Home favorites opens the tile action sheet: pin/unpin and, while the application runs, Close ([§5.5](#55-applications)). The sheet replaces the direct pin/unpin. Owner decision on 2026-10-01 ([#205](https://github.com/LimeBeck/arinn/issues/205)) |
 | Media and volume keys | Media and volume actions; outside the shell Plasma handles them ([§5.7](#57-system-ui-power-and-ambient)) |
 
@@ -553,7 +553,7 @@ no acceptance criteria or phase gates are declared passed. See
 
 ### 12.1. Global Home
 
-The platform layer registers the global Home shortcut, which MUST work while focus is in Chrome, Steam, a game or ES-DE. The shell MUST NOT rely on receiving ordinary key events while unfocused. The first mechanism is a packaged KWin script with a typed bridge to the daemon ([ADR-0032](../adr/0032-kwin-script-platform-adapter.md)); plugins can never submit scripts.
+The platform layer registers the global Home shortcut, which MUST work while focus is in Chrome, Steam, a game or ES-DE. Its keys are `home_shortcut` from `config.toml` and HomePage ([ADR-0094](../adr/0094-configurable-global-home-keys.md)); on KDE the daemon writes them to the KWin action through KGlobalAccel when the adapter connects. The shell MUST NOT rely on receiving ordinary key events while unfocused. The first mechanism is a packaged KWin script with a typed bridge to the daemon ([ADR-0032](../adr/0032-kwin-script-platform-adapter.md)); plugins can never submit scripts.
 
 The explicit presentation transport is `Daemon1.ReportHomeRequest` →
 `HomeRequested(epoch, target, output)` ([ADR-0069](../adr/0069-explicit-home-presentation-requests.md)).

@@ -179,7 +179,7 @@ The prototype runs as temporary systemd user units and a session-only KWin scrip
 
 | Key | Action |
 | --- | --- |
-| Meta+F12 | Global Home: show Arinn over the current application (configurable) |
+| Meta+F12, remote Home | Global Home: show Arinn over the current application (`home_shortcut` in `config.toml`) |
 | Arrows | Move focus |
 | Enter | Select |
 | Esc / Backspace | Back: close Home and return to the application; without one, open navigation |

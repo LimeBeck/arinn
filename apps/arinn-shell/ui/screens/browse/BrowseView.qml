@@ -70,6 +70,11 @@ FocusScope {
         });
         index = Math.max(0, Math.min(list.length - 1, index + delta));
         Ui.Focus.take(list[index]);
+        // Columns position new rows on the next polish pass. A move in the
+        // same turn as a model change would read stale positions and leave
+        // the focused row outside the viewport (#275).
+        actionColumn.forceLayout();
+        choiceColumn.forceLayout();
         const pos = list[index].mapToItem(choiceColumn, 0, 0);
         if (list[index] !== field && list[index] !== retry && list[index] !== backButton)
             choices.contentY = Math.max(0, Math.min(choices.contentHeight - choices.height, pos.y - 180));
@@ -259,6 +264,8 @@ FocusScope {
             }
 
             Column {
+                id: actionColumn
+
                 spacing: 14
 
                 Ui.ActionButton {

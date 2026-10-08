@@ -39,6 +39,7 @@ dependencies = [
  "anyhow",
  "arinn-protocol",
  "tokio",
+ "toml",
  "uuid",
  "x11rb",
  "zbus",

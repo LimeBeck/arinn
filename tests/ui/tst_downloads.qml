@@ -65,7 +65,8 @@ TestCase {
         verify(view);
         arm(view);
         mouseMove(view, 8, 8);
-        view.pointerMode = false;
+        // D-pad mode without the key cooldown (ADR-0095).
+        Ui.InputMode.reset();
     }
     function init() { createView(); }
     function cleanup() { arm(null); }

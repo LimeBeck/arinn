@@ -21,7 +21,7 @@ qt_add_resources(arinn-shell-test test_ui PREFIX "/" FILES Main.qml)
 target_link_libraries(arinn-shell-test PRIVATE arinn-session-lifecycle Qt6::Quick Qt6::Qml Qt6::DBus Qt6::Test)
 
 set(ARINN_PRESENTATION_FILES
-    ui/qmldir ui/Theme.qml ui/Focus.qml ui/UiText.qml ui/LogicalCanvas.qml
+    ui/qmldir ui/Theme.qml ui/Focus.qml ui/InputMode.qml ui/UiText.qml ui/LogicalCanvas.qml
     ui/Surface.qml ui/ActionButton.qml ui/ContentCard.qml ui/AppTile.qml
     ui/HomeRow.qml ui/HomeView.qml ui/BrandLockup.qml ui/BrandButton.qml
     ui/ProgressTrack.qml ui/Skeleton.qml ui/StatusPane.qml ui/LaunchOverlay.qml
@@ -130,6 +130,10 @@ qt_add_executable(arinn-input-bindings-test input_bindings_test.cpp input_bindin
 target_link_libraries(arinn-input-bindings-test PRIVATE Qt6::Gui Qt6::DBus Qt6::Test)
 add_test(NAME input-bindings COMMAND dbus-run-session -- $<TARGET_FILE:arinn-input-bindings-test>)
 set_tests_properties(input-bindings PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+qt_add_executable(arinn-input-mode-test input_mode_test.cpp input_mode.cpp input_mode.h)
+target_link_libraries(arinn-input-mode-test PRIVATE Qt6::Gui Qt6::Qml Qt6::Test)
+add_test(NAME input-mode COMMAND arinn-input-mode-test)
+set_tests_properties(input-mode PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 set_tests_properties(asset-images PROPERTIES ENVIRONMENT
     "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software")
 
@@ -143,7 +147,7 @@ endforeach()
 foreach(target arinn-shell arinn-shell-test arinn-session-lifecycle-test
     arinn-browser-catalog-test arinn-media-catalog-test arinn-library-catalog-test)
     target_sources(${target} PRIVATE browse_catalog.cpp browse_catalog.h
-        download_catalog.cpp download_catalog.h)
+        download_catalog.cpp download_catalog.h input_mode.cpp input_mode.h)
 endforeach()
 foreach(target arinn-shell arinn-shell-test arinn-session-lifecycle-test)
     qt_add_resources(${target} downloads_screen PREFIX "/" FILES

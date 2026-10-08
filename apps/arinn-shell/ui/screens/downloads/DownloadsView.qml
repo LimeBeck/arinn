@@ -20,7 +20,8 @@ FocusScope {
     property string statusDescription: ""
     property string summaryText: ""
     property var jobs: []
-    property bool pointerMode: false
+    // The shell's input mode (ADR-0095); tests may assign it directly.
+    property bool pointerMode: Ui.InputMode.pointerActive
     property string selectedId: ""
     property int selectedIndex: 0
     property string toastMessage: ""
@@ -160,7 +161,7 @@ FocusScope {
     function moveFocus(key, wrap) {
         if (hoverPoint.hovered)
             hoverPoint.previousPosition = hoverPoint.point.scenePosition;
-        pointerMode = false;
+        Ui.InputMode.keyPressed();
         if (!queueVisible) return;
         if (key !== Qt.Key_Up && key !== Qt.Key_Down) return;
         const step = key === Qt.Key_Up ? -1 : 1;
@@ -260,7 +261,7 @@ FocusScope {
             if (next.x === previousPosition.x && next.y === previousPosition.y)
                 return;
             previousPosition = next;
-            root.pointerMode = true;
+            Ui.InputMode.pointerMoved(next);
         }
     }
     Keys.onPressed: event => root.acceptKey(event)
@@ -466,7 +467,7 @@ FocusScope {
                 pointerMode: root.pointerMode
                 hoverFocusEnabled: root.hoverFocusEnabled
                 onActionRequested: root.refreshRequested()
-                onDpadRequested: root.pointerMode = false
+                onDpadRequested: Ui.InputMode.keyPressed()
                 Keys.onPressed: event => root.acceptKey(event)
             }
             Rectangle {

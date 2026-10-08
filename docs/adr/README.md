@@ -111,5 +111,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0091](0091-debian-package-ci-artifact.md) | Debian package CI artifact | Accepted | — |
 | [0092](0092-less-repeated-ci-work.md) | Less repeated work in CI | Proposed | — |
 | [0093](0093-structured-sentry-diagnostics.md) | Structured, allowlisted Sentry diagnostics | Proposed | — |
+| [0094](0094-configurable-global-home-keys.md) | Configurable global Home keys | Accepted | — |
+| [0095](0095-shell-input-mode-ownership.md) | Shell input mode ownership | Accepted | — |
 | [0096](0096-browser-media-session-association.md) | Associate a browser's media session with its audible tab | Accepted | — |
 <!-- register:end -->

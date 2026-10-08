@@ -1581,6 +1581,11 @@ impl Daemon {
             .any(|p| p.info.runtime_state == "ready");
         (self.core.platform.status(&self.core.epoch, available).await,)
     }
+    /// Version and build id of this daemon (ADR-0097), fixed at build time.
+    #[zbus(out_args("version", "build_id"))]
+    fn build_info(&self) -> (&'static str, &'static str) {
+        (env!("CARGO_PKG_VERSION"), env!("ARINN_BUILD_ID"))
+    }
     async fn home(&self) -> production::Result<()> {
         self.core.platform.queue("home").await
     }
@@ -2464,6 +2469,92 @@ mod input_tests {
         let _ = bus.kill();
         let _ = bus.wait();
         let _ = std::fs::remove_dir_all(&folder);
+    }
+
+    // ADR-0097: BuildInfo reports this build, and the live Daemon1 export
+    // matches docs/plugin-api/daemon1.xml.
+    #[tokio::test]
+    async fn build_info_reports_this_build_and_matches_the_xml() {
+        // Killed on drop, so a failed assertion does not leave the bus.
+        struct Bus(std::process::Child);
+        impl Drop for Bus {
+            fn drop(&mut self) {
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+            }
+        }
+        let mut bus = Bus(Command::new("dbus-daemon")
+            .args(["--session", "--nofork", "--print-address=1"])
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap());
+        let mut address = String::new();
+        BufReader::new(bus.0.stdout.take().unwrap())
+            .read_line(&mut address)
+            .unwrap();
+        let connect = |address: String| async move {
+            zbus::connection::Builder::address(address.trim())
+                .unwrap()
+                .build()
+                .await
+                .unwrap()
+        };
+        let server = connect(address.clone()).await;
+        let client = connect(address.clone()).await;
+        let folder = std::env::temp_dir().join(format!("arinn-build-{}", Uuid::new_v4()));
+        std::fs::create_dir(&folder).unwrap();
+        let paths = Paths {
+            config: folder.join("config"),
+            data: folder.join("data"),
+            state: folder.join("state"),
+        };
+        let core = Core::new(&server, paths, folder.clone());
+        server
+            .object_server()
+            .at(production::PATH, Daemon { core })
+            .await
+            .unwrap();
+        server.request_name(production::SERVICE).await.unwrap();
+        let proxy = ProductionDaemonProxy::new(&client).await.unwrap();
+
+        let (version, build_id) = proxy.build_info().await.unwrap();
+        assert_eq!(version, env!("CARGO_PKG_VERSION"));
+        assert_eq!(build_id, env!("ARINN_BUILD_ID"));
+        arinn_protocol::build::validate(&version, &build_id).unwrap();
+
+        let xml = zbus::fdo::IntrospectableProxy::builder(&client)
+            .destination(production::SERVICE)
+            .unwrap()
+            .path(production::PATH)
+            .unwrap()
+            .build()
+            .await
+            .unwrap()
+            .introspect()
+            .await
+            .unwrap();
+        let expected = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../docs/plugin-api/daemon1.xml");
+        let mut python = Command::new("python3")
+            .args([
+                "-c",
+                r#"
+import sys, xml.etree.ElementTree as E
+def members(root):
+    interface = root.find("interface[@name='org.arinn.Daemon1']")
+    return sorted((n.tag, n.get('name'), [(a.get('name'), a.get('type'), a.get('direction')) for a in n.findall('arg')]) for n in interface if n.tag in ('method', 'signal'))
+expected, actual = members(E.parse(sys.argv[1]).getroot()), members(E.fromstring(sys.stdin.read()))
+assert expected == actual, ([m for m in expected if m not in actual], [m for m in actual if m not in expected])
+"#,
+                expected.to_str().unwrap(),
+            ])
+            .stdin(Stdio::piped())
+            .spawn()
+            .unwrap();
+        std::io::Write::write_all(&mut python.stdin.take().unwrap(), xml.as_bytes()).unwrap();
+        let _ = std::fs::remove_dir_all(&folder);
+        assert!(python.wait().unwrap().success(), "daemon1.xml");
+        drop(bus);
     }
 }
 

@@ -112,6 +112,9 @@ pub trait ProductionDaemon {
     fn home_items(&self) -> zbus::Result<Vec<(String, String, String, String, String)>>;
 
     fn status(&self) -> zbus::Result<(crate::Status,)>;
+    /// This daemon's workspace version and build id (ADR-0097); see
+    /// [`crate::build`]. An older daemon answers `UnknownMethod`.
+    fn build_info(&self) -> zbus::Result<(String, String)>;
     fn home(&self) -> zbus::Result<()>;
     fn back(&self) -> zbus::Result<()>;
     /// Extra keys per semantic action from `config.toml` (ADR-0079), in

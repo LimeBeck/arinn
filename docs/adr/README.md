@@ -114,4 +114,5 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0094](0094-configurable-global-home-keys.md) | Configurable global Home keys | Accepted | — |
 | [0095](0095-shell-input-mode-ownership.md) | Shell input mode ownership | Accepted | — |
 | [0096](0096-browser-media-session-association.md) | Associate a browser's media session with its audible tab | Accepted | — |
+| [0097](0097-build-identity.md) | Build identity with the commit hash | Accepted | — |
 <!-- register:end -->

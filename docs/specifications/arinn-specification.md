@@ -400,6 +400,8 @@ The shell lifecycle guard uses platform-layer session observation independently 
 
 Session D-Bus on both boundaries ([ADR-0020](../adr/0020-dbus-contract-baseline.md)): shell/CLI ↔ daemon under `org.arinn.Daemon1` at `/org/arinn/Daemon1`, and daemon ↔ plugins, each provider exporting `/org/arinn/Provider1` under its unique bus name. Interfaces carry a major version suffix (`…1`). Clients never call provider endpoints, MPRIS or KWin directly. The Chrome host ↔ Chrome provider link is a separate typed D-Bus interface that never reaches the core. The narrow session-observation exception in §5.7 is defined by [ADR-0041](../adr/0041-independent-session-lifecycle-guard.md).
 
+Every binary of one build carries the same build id: `<workspace version>+g<first 12 hex of the commit>`, with `-dirty` for a modified checkout, or the bare version when the commit is unknown. `Daemon1.BuildInfo` returns the daemon's version and build id, so a client can tell whether it talks to the same build; two ids name the same build when they are equal without `-dirty`. A daemon without the method answers `UnknownMethod`, and a client treats that as a different build ([ADR-0097](../adr/0097-build-identity.md)).
+
 ---
 
 ## 9. Plugin API v1

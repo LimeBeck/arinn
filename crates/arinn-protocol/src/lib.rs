@@ -9,6 +9,7 @@ pub mod assets;
 pub mod background;
 pub mod browse;
 pub mod browser;
+pub mod build;
 pub mod download;
 pub mod favorites;
 pub mod folders;

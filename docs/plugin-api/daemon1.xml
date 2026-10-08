@@ -8,6 +8,11 @@ SPDX-License-Identifier: MIT OR Apache-2.0 -->
     <method name="Status">
       <arg type="(sbstbsssbbss)" direction="out" />
     </method>
+    <!-- ADR-0097: version and build id; see arinn_protocol::build. -->
+    <method name="BuildInfo">
+      <arg name="version" type="s" direction="out" />
+      <arg name="build_id" type="s" direction="out" />
+    </method>
     <method name="Home">
     </method>
     <method name="Back">

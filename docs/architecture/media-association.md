@@ -36,6 +36,10 @@ and `Browser1` signatures do not change. Types and validation are in
   bus name, then its parent from `/proc/<pid>/stat`). It is recorded per
   connection at attach time and applies to every window of that connection.
   A host that cannot resolve it reports 0.
+- A provider publishes a new snapshot revision whenever the process behind a
+  current local ID changes. The MPRIS provider removes a session when its bus
+  name loses its owner; the Chrome provider gives a new connection new window
+  IDs.
 - Neither value is logged or sent to telemetry (spec §13).
 
 ## Daemon join
@@ -46,6 +50,14 @@ windows, with bounded concurrency and the normal call timeout. It caches them
 per (provider, generation, snapshot revision, local ID). Every new snapshot
 revision of a provider re-reads its process IDs, so a session or window whose
 process is replaced under the same local ID is never judged on stale evidence.
+
+`GetProcessId` answers for the provider's state at call time, which may be
+newer than the snapshot the daemon read. After its lookups, a pass therefore
+compares each provider's generation and snapshot revision with the ones it
+started from. If any changed, the pass makes no new link and moves none; it
+only drops links whose session or tab is gone, and the next pass starts over
+from the new snapshots. Every link is thus judged on process IDs and tabs from
+one snapshot revision of each provider.
 
 For each media session with a non-zero process ID `P`, a link to tab `T` is
 **established** only when all of these hold:

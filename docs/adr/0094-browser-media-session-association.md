@@ -61,8 +61,10 @@ all of these hold:
 An established link holds while both entries exist with the same generations
 and process IDs, and no other tab of that browser becomes the single audible
 one. A pause therefore keeps the link, and the next unambiguous audible tab
-moves it. Ambiguity, a provider restart, a generation change, provider loss or
-a daemon restart removes the link. A browser in another PID namespace (Flatpak,
+moves it. Two audible tabs keep an established link but never create one. A
+session or browser provider that is no longer unique, a process change, a
+provider restart, a generation change, provider loss or a daemon restart
+removes the link. A browser in another PID namespace (Flatpak,
 Snap) gives non-matching IDs, so nothing is linked. The shell hides the media
 card only for a link whose six fields match its current provider snapshots.
 Everything else keeps both cards.

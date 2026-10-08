@@ -51,14 +51,14 @@ Every integration is a separate plugin process talking to a small core over D-Bu
 
 These are screenshots of the **current Qt/QML interface**, rendered by the development gallery at 1920×1080 with fictional fixture data, one shared placeholder image and neutral application monograms. Home, navigation, Library, Applications, Open services, Now playing and Settings use the same views the production shell mounts. The gallery does not connect to a daemon. Names, favorites and settings rows in the fixtures are not a catalogue of finished integrations. See the [UI components](docs/architecture/ui-components.md).
 
-**Home** — the Arinn mark, Continue cards and favorite tiles, with remote-control focus on the return card. The other Continue cards show the placeholder landscape and a progress bar.
+**Home** — the Arinn mark, the Now running hero, Continue cards and favorite tiles over the ambient light field, with remote-control focus on the return card. The other Continue cards show the placeholder landscape and a progress bar.
 
-![Current Arinn Qt Home with Continue cards, the placeholder landscape and favorite tiles](docs/design/current-ui/home.png)
+![Current Arinn Qt Home with the Now running hero, Continue cards, the placeholder landscape and favorite tiles](docs/design/current-ui/home.png)
 
 <details>
 <summary>Navigation screenshot</summary>
 
-**Navigation** — the brand lockup and section menu over a dimmed Home, with Home selected.
+**Navigation** — the brand lockup and section menu (Home, Library, Downloads, Applications, Settings, Open services) over a dimmed Home, with Home selected.
 
 ![Current Arinn Qt navigation with the brand mark and Home selected](docs/design/current-ui/navigation.png)
 

@@ -24,8 +24,8 @@ let playbackGuardAt = 0, playbackGuardSerial = 0;
 // owns the slot, so a stale-poll reset never cancels a command (#369).
 let mediaSerial = 0, mediaPollSerial = 0;
 // Every media poll gets the next sequence number. presentedFrom is the
-// sequence of the poll that delivered the latest Present, or of the newest
-// poll at a re-presentation without a command. A Release from an older poll
+// sequence of the poll that delivered the latest Present (counted when it is
+// received), or of the newest poll at a re-presentation without a command. A Release from an older poll
 // was delayed past that newer intent and must not tear it down.
 let pollSequence = 0, presentedFrom = 0;
 let mediaControllingAt = 0;
@@ -626,6 +626,9 @@ function pollMediaControl() {
         // A command from a poll the stale-poll reset already replaced is still
         // presented; it takes the slot so the newer poll cannot free it.
         ++mediaPollSerial;
+        // A Present's intent counts from receipt, not from its lock check, so
+        // an older delayed Release whose check finishes first is still fenced.
+        if (command[1] === "present") presentedFrom = Math.max(presentedFrom, sequence);
         mediaControllingAt = received;
         // The daemon's request ID (a UUID it generated) and time since receipt.
         const traced = (outcome, reason, error) => ({ outcome, reason, error,
@@ -667,7 +670,6 @@ function pollMediaControl() {
                         return;
                     }
                     presentPlayback(w, traced);
-                    presentedFrom = sequence;
                     reportHome(false);
                 }
                 complete("");

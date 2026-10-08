@@ -832,6 +832,26 @@ test('a delayed Release never tears down a newer Present of the same window', ()
     assert.deepEqual(f.mediaAcks.at(-1).slice(1), [request, 'Cancelled']);
     assert.ok(f.printed.some(line => JSON.parse(line).reason === 'superseded_by_present'));
 });
+test('a delayed Release is fenced while the newer Present still checks the lock', () => {
+    const {f, token} = managedFixture();
+    f.media('present', token); f.refresh();
+    const oldReleasePoll = f.mediaControls.at(-1);
+    f.advance(1600); f.controls.at(-1)([]); f.refresh();
+    f.advance(4000); f.controls.at(-1)([]); f.refresh();
+    // The newer Present is received first; both lock checks are pending and
+    // the old Release's check answers first.
+    f.deferLock();
+    const present = randomUUID(), release = randomUUID();
+    f.mediaControls.at(-1)([present, 'present', token]);
+    oldReleasePoll([release, 'release', token]);
+    f.lockReplies.at(-1)(false);
+    f.lockReplies.at(-2)(false);
+    const answers = Object.fromEntries(f.mediaAcks.map(ack => [ack[1], ack[2]]));
+    assert.equal(answers[release], 'Cancelled', 'the older Release is fenced');
+    assert.equal(answers[present], '', 'the newer Present is presented');
+    assert.equal(f.home.keepAbove, true);
+    assert.equal(f.report()[0], false);
+});
 test('a Release from a poll started before the Present was applied still releases', () => {
     const {f, token} = managedFixture();
     // The Present arrives on a poll the stale-poll reset already replaced, so

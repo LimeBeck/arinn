@@ -67,6 +67,10 @@ impl FakeProcesses {
         if header.sender().map(|s| s.as_str()) != Some(self.daemon.as_str()) {
             return Err(ErrorCode::PermissionDenied.into());
         }
+        // A provider that hangs on these IDs: longer than the call timeout.
+        if id.starts_with("slow-") {
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        }
         if generation != self.generation {
             return Err(ErrorCode::Conflict.into());
         }
@@ -577,6 +581,118 @@ async fn a_provider_that_registers_during_lookups_links_nothing_yet() {
     );
     newcomer.sessions = vec![session("other")];
     *f.arrival.lock().unwrap() = Some(newcomer);
+    f.core.associate(&links, &mut cache).await;
+    assert!(tabs_of(&links).await.is_empty());
+}
+
+#[tokio::test]
+async fn a_provider_of_unknown_support_links_nothing() {
+    let f = Fixture::new(
+        &[("chromium.instance1", BROWSER_PID)],
+        &[("c1:w1", BROWSER_PID)],
+    )
+    .await;
+    let links = MediaLinks::new(&f.core.epoch);
+    let mut cache = Cache::default();
+    f.tabs(vec![tab("c1:t1", "c1:w1", true)]).await;
+    // A second media provider whose owner cannot be introspected: its
+    // sessions could share the process, so nothing is linked.
+    let mut unreachable = provider("mpris2", "media", ":1.99999", &Uuid::new_v4().to_string());
+    unreachable.sessions = vec![session("other")];
+    f.core
+        .state
+        .lock()
+        .await
+        .providers
+        .insert("mpris2".into(), unreachable);
+    f.core.associate(&links, &mut cache).await;
+    assert!(tabs_of(&links).await.is_empty());
+
+    // Once it is gone, the link is made.
+    f.core.state.lock().await.providers.remove("mpris2");
+    f.core.associate(&links, &mut cache).await;
+    assert_eq!(
+        tabs_of(&links).await,
+        vec![f.link("chromium.instance1", "c1:t1")]
+    );
+}
+
+#[tokio::test]
+async fn failing_lookups_do_not_starve_the_others() {
+    // 64 sessions the provider does not know, sorted ahead of the one it does.
+    let mut pids: Vec<(String, u32)> = (0..MAX_LOOKUPS).map(|n| (format!("a{n:03}"), 0)).collect();
+    pids.push(("z-browser".into(), BROWSER_PID));
+    let refs: Vec<(&str, u32)> = pids.iter().map(|(id, pid)| (id.as_str(), *pid)).collect();
+    let f = Fixture::new(&refs, &[("c1:w1", BROWSER_PID)]).await;
+    {
+        let mut table = f.media_pids.lock().unwrap();
+        table.retain(|id, _| id == "z-browser");
+    }
+    let links = MediaLinks::new(&f.core.epoch);
+    let mut cache = Cache::default();
+    let key = (
+        "mpris".to_string(),
+        f.media_generation.clone(),
+        1,
+        "z-browser".to_string(),
+    );
+    f.core.associate(&links, &mut cache).await;
+    // The first pass spent its budget; the next one asks the rest first.
+    f.core.associate(&links, &mut cache).await;
+    assert_eq!(cache.processes.get(&key), Some(&BROWSER_PID));
+}
+
+#[tokio::test]
+async fn hung_lookups_run_concurrently() {
+    let pids: Vec<(String, u32)> = (0..20).map(|n| (format!("slow-{n}"), 1)).collect();
+    let refs: Vec<(&str, u32)> = pids.iter().map(|(id, pid)| (id.as_str(), *pid)).collect();
+    let f = Fixture::new(&refs, &[("c1:w1", BROWSER_PID)]).await;
+    let links = MediaLinks::new(&f.core.epoch);
+    let mut cache = Cache::default();
+    let started = Instant::now();
+    f.core.associate(&links, &mut cache).await;
+    // One after another this would be 20 call timeouts (40 s).
+    assert!(
+        started.elapsed() < Duration::from_secs(15),
+        "{:?}",
+        started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn an_incomplete_pass_keeps_a_link_only_with_its_process() {
+    let f = Fixture::new(
+        &[("chromium.instance1", BROWSER_PID), ("player", 77)],
+        &[("c1:w1", BROWSER_PID)],
+    )
+    .await;
+    let links = MediaLinks::new(&f.core.epoch);
+    let mut cache = Cache::default();
+    f.tabs(vec![tab("c1:t1", "c1:w1", true)]).await;
+    f.core.associate(&links, &mut cache).await;
+    assert_eq!(tabs_of(&links).await.len(), 1);
+
+    // Another session cannot be read now, so the pass is incomplete; the
+    // link holds because its own process is still known and unchanged.
+    f.media_pids.lock().unwrap().remove("player");
+    let bump = |core: Core| async move {
+        core.state
+            .lock()
+            .await
+            .providers
+            .get_mut("mpris")
+            .unwrap()
+            .info
+            .revision += 1;
+    };
+    bump(f.core.clone()).await;
+    f.core.associate(&links, &mut cache).await;
+    assert_eq!(tabs_of(&links).await.len(), 1);
+
+    // Its own process cannot be read either: the evidence is gone, and so
+    // is the link.
+    f.media_pids.lock().unwrap().remove("chromium.instance1");
+    bump(f.core.clone()).await;
     f.core.associate(&links, &mut cache).await;
     assert!(tabs_of(&links).await.is_empty());
 }

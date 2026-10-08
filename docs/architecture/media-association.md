@@ -152,12 +152,16 @@ and a new or moved link waits; ties go by the link's sort order.
   sessions look the same. `plugins/chrome` exports `BrowserProcess1` and
   records the host's parent process per connection at attach.
 - **Daemon.** `crates/arinnd/src/runtime/media_links.rs` runs one pass per
-  second. Each pass reads current snapshots, introspects each registration
-  once, makes at most 64 process lookups (cached per provider, generation,
-  snapshot revision and local ID) and applies `join`. It then re-reads the
-  provider set with each provider's generation and revision. While some
-  process IDs are still unknown, or the provider set or a snapshot moved
-  during the lookups, it only drops links to sessions or tabs that are gone.
+  second. Each pass reads current snapshots and introspects each
+  registration until its answer is known. It then makes at most 64 process
+  lookups, 16 at a time, least recently tried first, so a failing lookup
+  cannot starve the rest. Results are cached per provider, generation,
+  snapshot revision and local ID. The pass applies `join`, then re-reads the
+  provider set with each provider's generation and revision. The pass makes
+  no new link and moves none when a registration's support is still
+  unknown, a process ID is still unknown, or the provider set or a snapshot
+  moved during the lookups. It then keeps a held link only while its session
+  and its tab's window still have the process the link was made with.
 - **Shell.** `MediaCatalog` reads `Get` and sets the linked tab's
   presentation ID as `serviceId` on a session's Continue entry. A `Changed`
   with a newer revision clears its links until a reply at that revision. `HomeView`

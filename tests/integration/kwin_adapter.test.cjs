@@ -883,17 +883,40 @@ test('two commands received in the same millisecond own the poll slot separately
     f.advance(1600); f.controls.at(-1)([]); f.refresh();
     f.advance(4000); f.controls.at(-1)([]); f.refresh();
     f.deferLock();
-    f.mediaControls.at(-1)([randomUUID(), 'present', token]);
-    oldReleasePoll([randomUUID(), 'release', token]);
+    const present = randomUUID(), release = randomUUID();
+    f.mediaControls.at(-1)([present, 'present', token]);
+    oldReleasePoll([release, 'release', token]);
     const [presentLock, releaseLock] = f.lockReplies.slice(-2);
-    // The fenced Release answers first; the Present still owns the slot.
+    // The Release's check answers first; the Present still owns the slot.
     releaseLock(false);
     const polls = f.mediaPolls.count;
     f.controls.at(-1)([]); f.advance(100); f.refresh();
     assert.equal(f.mediaPolls.count, polls, 'no poll while the Present checks the lock');
     presentLock(false);
-    assert.equal(f.mediaAcks.at(-1)[2], '');
+    const answers = Object.fromEntries(f.mediaAcks.map(ack => [ack[1], ack[2]]));
+    assert.equal(answers[present], '');
+    assert.equal(answers[release], 'Cancelled');
     assert.equal(f.home.keepAbove, true);
+});
+test('a delayed Release is carried out when the newer Present fails', () => {
+    const {f, token} = managedFixture();
+    f.media('present', token); f.refresh();
+    const oldReleasePoll = f.mediaControls.at(-1);
+    f.advance(1600); f.controls.at(-1)([]); f.refresh();
+    f.advance(4000); f.controls.at(-1)([]); f.refresh();
+    f.deferLock();
+    const present = randomUUID(), release = randomUUID();
+    f.mediaControls.at(-1)([present, 'present', 'missing-token']);
+    oldReleasePoll([release, 'release', token]);
+    const [presentLock, releaseLock] = f.lockReplies.slice(-2);
+    releaseLock(false);
+    assert.ok(!f.mediaAcks.some(ack => ack[1] === release), 'the Release waits for the newer Present');
+    presentLock(false);
+    const answers = Object.fromEntries(f.mediaAcks.map(ack => [ack[1], ack[2]]));
+    assert.equal(answers[present], 'NotFound');
+    assert.equal(answers[release], '', 'the old playback is released');
+    assert.equal(f.report()[0], true, 'Home is shown');
+    assert.equal(f.activity.fullScreen, false, 'the player left fullscreen');
 });
 test('a Release from a poll started before the Present was applied still releases', () => {
     const {f, token} = managedFixture();

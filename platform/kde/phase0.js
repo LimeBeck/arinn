@@ -24,11 +24,15 @@ let playbackGuardAt = 0, playbackGuardSerial = 0;
 // owns the slot, so a stale-poll reset never cancels a command (#369).
 let mediaSerial = 0, mediaPollSerial = 0;
 // Every media poll gets the next sequence number. presentedFrom is the
-// sequence of the poll that delivered the latest Present (counted when it is
-// received), or a number above every started poll at a re-presentation
-// without a command. A Release from an older poll
+// sequence of the poll that delivered the latest Present that presented, or
+// a number above every started poll at a re-presentation without a command. A Release from an older poll
 // was delayed past that newer intent and must not tear it down.
 let pollSequence = 0, presentedFrom = 0;
+// Sequences of received Presents not yet answered, and delayed Releases that
+// wait for one of them: a Release is cancelled only by a newer Present that
+// actually presents, and carried out if that Present fails.
+const pendingPresents = new Set();
+let presentWaiters = [];
 let mediaControllingAt = 0;
 // Received media commands not yet answered, and the poll serial of the latest
 // receipt: the slot is free again only when every received command has been
@@ -314,6 +318,8 @@ function resetInventory() {
     ++mediaSerial;
     mediaControllingAt = mediaReportingAt = 0;
     mediaCommands = 0;
+    pendingPresents.clear();
+    presentWaiters = [];
     lastMediaReport = "";
     ++inventorySerial;
     lastReturnReport = "";
@@ -642,9 +648,9 @@ function pollMediaControl() {
         // time, which two commands can share.
         mediaSlot = ++mediaPollSerial;
         ++mediaCommands;
-        // A Present's intent counts from receipt, not from its lock check, so
-        // an older delayed Release whose check finishes first is still fenced.
-        if (command[1] === "present") presentedFrom = Math.max(presentedFrom, sequence);
+        // An older delayed Release whose lock check finishes first waits for
+        // this Present's outcome instead of racing it.
+        if (command[1] === "present") pendingPresents.add(sequence);
         mediaControllingAt = received;
         // The daemon's request ID (a UUID it generated) and time since receipt.
         const traced = (outcome, reason, error) => ({ outcome, reason, error,
@@ -660,6 +666,29 @@ function pollMediaControl() {
                 if (mediaCommands === 0 && mediaPollSerial === mediaSlot) mediaControllingAt = 0;
                 publishInventory();
             });
+            if (command[1] === "present" && pendingPresents.delete(sequence)) {
+                const waiters = presentWaiters;
+                presentWaiters = [];
+                waiters.forEach(settle => settle());
+            }
+        }
+        // A Release from an older poll than a Present that presented is
+        // superseded; one waiting on a newer, unanswered Present settles when
+        // that Present is answered.
+        function settleRelease() {
+            if (inventory !== inventorySerial || owner !== daemonOwner) return;
+            if (presentedFrom > sequence) {
+                diagnose("debug", "media.release", traced("cancelled", "superseded_by_present", "Cancelled"));
+                complete("Cancelled");
+                return;
+            }
+            if ([...pendingPresents].some(pending => pending > sequence)) { presentWaiters.push(settleRelease); return; }
+            try {
+                const token = playback ? windowTokens.get(playback.window) || "" : "";
+                if (command[2] && token && command[2] !== token) { complete("Conflict"); return; }
+                releasePlayback(true);
+                complete("");
+            } catch (_) { releasePlayback(false); complete("Unavailable"); }
         }
         callDBus("org.freedesktop.ScreenSaver", "/ScreenSaver", "org.freedesktop.ScreenSaver", "GetActive", locked => {
             if (inventory !== inventorySerial || owner !== daemonOwner) return;
@@ -667,28 +696,17 @@ function pollMediaControl() {
             if (serial !== mediaSerial) { diagnose("debug", "media." + command[1], traced("cancelled", "playback_changed", "Cancelled")); complete("Cancelled"); return; }
             if (Date.now() - received >= 1000 || expired()) { diagnose("debug", "media." + command[1], traced("timeout", expired() ? "reply_late" : "lock_check_late", "Timeout")); complete("Timeout"); return; }
             if (locked !== false) { diagnose("debug", "media." + command[1], traced("denied", "session_locked", "PermissionDenied")); releasePlayback(false); complete("PermissionDenied"); return; }
+            if (command[1] === "release") { settleRelease(); return; }
             try {
-                if (command[1] === "release") {
-                    // A Present delivered by a later poll, or a re-presentation,
-                    // supersedes this delayed Release: answer, do not tear down.
-                    if (presentedFrom > sequence) {
-                        diagnose("debug", "media.release", traced("cancelled", "superseded_by_present", "Cancelled"));
-                        complete("Cancelled");
-                        return;
-                    }
-                    const token = playback ? windowTokens.get(playback.window) || "" : "";
-                    if (command[2] && token && command[2] !== token) { complete("Conflict"); return; }
-                    releasePlayback(true);
-                } else {
-                    const w = workspace.windowList().find(w => applicationWindow(w) && windowTokens.get(w) === command[2]);
-                    if (!w || !launchId(w)) {
-                        diagnose("debug", "media.present", traced("not_found", w ? "no_launch_id" : "no_matching_window", "NotFound"));
-                        complete("NotFound");
-                        return;
-                    }
-                    presentPlayback(w, traced);
-                    reportHome(false);
+                const w = workspace.windowList().find(w => applicationWindow(w) && windowTokens.get(w) === command[2]);
+                if (!w || !launchId(w)) {
+                    diagnose("debug", "media.present", traced("not_found", w ? "no_launch_id" : "no_matching_window", "NotFound"));
+                    complete("NotFound");
+                    return;
                 }
+                presentPlayback(w, traced);
+                presentedFrom = Math.max(presentedFrom, sequence);
+                reportHome(false);
                 complete("");
             } catch (_) { releasePlayback(false); complete("Unavailable"); }
         });

@@ -1,0 +1,1 @@
+- Keep CI build caches (Cargo home, target directory, ccache) on the self-hosted runner's disk instead of the GitHub cache. This also fixes the Rust job's `cargo fmt`, which picked up rustup proxies left by the Debian job in the shared runner home ([#411](https://github.com/LimeBeck/arinn/issues/411)).

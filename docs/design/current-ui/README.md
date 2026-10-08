@@ -3,7 +3,7 @@
 
 # Current Qt interface captures
 
-Captured on 2026-09-30 at 1920 × 1080 using Qt 6.11.2, the offscreen platform
+Captured on 2026-10-08 at 1920 × 1080 using Qt 6.11.2, the offscreen platform
 and software Qt Quick renderer. These images show the screens the production
 shell mounts: Home, navigation, Library, Applications, Open services, Now
 playing and Settings. They are not the historical HTML prototype.

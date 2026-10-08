@@ -1,0 +1,1 @@
+- Refresh the README, website and handbook screenshots of the current shell ([#398](https://github.com/LimeBeck/arinn/issues/398)).

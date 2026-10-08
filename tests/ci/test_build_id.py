@@ -4,6 +4,7 @@
 """Build id format and sources (ADR-0097)."""
 import importlib.util
 import os
+import re
 from pathlib import Path
 import subprocess
 import tempfile
@@ -74,6 +75,32 @@ class BuildId(unittest.TestCase):
             env={k: v for k, v in os.environ.items() if k != "ARINN_BUILD_ID"},
         ).stdout.strip()
         self.assertTrue(build_id.valid(printed, self.version), printed)
+
+
+
+    def test_snapshot_pkgver_carries_count_and_hash(self):
+        answers = {
+            ("rev-parse", "--is-shallow-repository"): "false",
+            ("rev-parse", "--verify", "HEAD"): COMMIT,
+            ("rev-list", "--count", "HEAD"): "394",
+        }
+        with mock.patch.object(build_id, "git", side_effect=lambda *a: answers.get(a)):
+            self.assertEqual(build_id.snapshot_pkgver(), f"{self.version}.r394.g1bd20d647afe")
+        # A shallow clone would count only what it fetched: refuse it.
+        answers[("rev-parse", "--is-shallow-repository")] = "true"
+        with mock.patch.object(build_id, "git", side_effect=lambda *a: answers.get(a)):
+            with self.assertRaises(SystemExit):
+                build_id.snapshot_pkgver()
+        with mock.patch.object(build_id, "git", return_value=None):
+            with self.assertRaises(SystemExit):
+                build_id.snapshot_pkgver()
+
+    def test_snapshot_pkgver_in_this_checkout(self):
+        shallow = build_id.git("rev-parse", "--is-shallow-repository")
+        if shallow != "false":
+            self.skipTest("shallow or no git checkout")
+        result = subprocess.run(["python3", str(SCRIPT), "--pkgver"], capture_output=True, text=True, check=True)
+        self.assertRegex(result.stdout.strip(), rf"^{re.escape(self.version)}\.r\d+\.g[0-9a-f]{{12}}$")
 
 
 if __name__ == "__main__":

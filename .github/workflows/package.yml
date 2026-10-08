@@ -34,6 +34,9 @@ jobs:
           useradd --create-home builder
           echo "rustc=$(rustc -V | tr -c 'A-Za-z0-9.\n' '-')" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v7
+        with:
+          # The snapshot pkgver counts commits (#357).
+          fetch-depth: 0
       - name: Restore Cargo cache
         if: ${{ github.ref_type != 'tag' }}
         uses: actions/cache@v4
@@ -44,10 +47,18 @@ jobs:
       - name: Create source tarball
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          version="$(python scripts/release.py version)"
+          # A tag builds the release version; every other build is a snapshot
+          # whose pkgver pacman orders by commit (#357, ADR-0097).
+          if [ "${{ github.ref_type }}" = tag ]; then
+            pkgver="$(python scripts/release.py version)"
+          else
+            pkgver="$(python scripts/build_id.py --pkgver)"
+          fi
           mkdir -p pkg
-          git archive --format=tar.gz --prefix="arinn-${version}/" -o "pkg/arinn-${version}.tar.gz" HEAD
+          git archive --format=tar.gz --prefix="arinn-${pkgver}/" -o "pkg/arinn-${pkgver}.tar.gz" HEAD
           cp packaging/arch/PKGBUILD packaging/arch/arinn.install pkg/
+          sed -i "s/^pkgver=.*/pkgver=${pkgver}/" pkg/PKGBUILD
+          grep -qx "pkgver=${pkgver}" pkg/PKGBUILD
           chown -R builder pkg
       - name: makepkg (build, check, package)
         env:

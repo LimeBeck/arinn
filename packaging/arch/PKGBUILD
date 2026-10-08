@@ -4,7 +4,10 @@
 
 # Built by .github/workflows/package.yml from a `git archive` tarball of the
 # checked-out commit. pkgver is set from the Cargo workspace version by
-# scripts/release.py; do not edit it by hand.
+# scripts/release.py; do not edit it by hand. A tag builds this version; every
+# other build replaces it with `<version>.r<commits>.g<12 hex>` from
+# scripts/build_id.py --pkgver in its copy, so each snapshot upgrades the one
+# before it (#357).
 
 pkgname=arinn
 pkgver=0.1.0

@@ -103,7 +103,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0083](0083-managed-player-stop.md) | Terminate the managed player on Stop and retain its final frame | Proposed | — |
 | [0084](0084-favorites-contract.md) | Revision-guarded daemon-owned favorites | Accepted | — |
 | [0085](0085-anime-tv-season-markers.md) | Anime `TVn` season markers in library names | Accepted | — |
-| [0086](0086-automatic-master-prereleases.md) | Automatic master pre-releases and ordinary version-tag releases | Proposed | 0088, 0092 |
+| [0086](0086-automatic-master-prereleases.md) | Automatic master pre-releases and ordinary version-tag releases | Proposed | 0088, 0092, 0099 |
 | [0087](0087-bounded-activity-background-frames.md) | Bounded Activity background frames through immutable descriptors | Accepted | — |
 | [0088](0088-single-master-snapshot-retention.md) | Retain one verified master snapshot release | Proposed | — |
 | [0089](0089-daemon-provider-supervisor-without-a-systemd-user-manager.md) | Daemon provider supervisor without a systemd user manager | Accepted | — |
@@ -116,4 +116,5 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0096](0096-browser-media-session-association.md) | Associate a browser's media session with its audible tab | Accepted | — |
 | [0097](0097-build-identity.md) | Build identity with the commit hash | Accepted | — |
 | [0098](0098-restart-after-an-update.md) | Restart Arinn after an update | Accepted | — |
+| [0099](0099-snapshot-package-version.md) | Snapshot package version with the commit | Accepted | — |
 <!-- register:end -->

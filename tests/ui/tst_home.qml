@@ -729,6 +729,40 @@ TestCase {
         home.downloadActive = false;
         verify(!chip.visible);
     }
+    // #387: mute and Wi-Fi show only while known, between the download chip
+    // and the clock (handoff 01).
+    function test_status_area_mute_and_wifi() {
+        home.clockText = "20:42";
+        const mute = child("muteIcon");
+        const wifi = child("wifiIcon");
+        const clock = child("clock");
+        verify(!mute.visible);
+        verify(!wifi.visible);
+        home.wifi = true;
+        verify(wifi.visible);
+        verify(!mute.visible);
+        compare(wifi.lit, 4); // Level unknown: the full glyph.
+        home.wifiLevel = 2;
+        compare(wifi.lit, 2);
+        tryVerify(() => Math.abs(wifi.x + wifi.width + 24 - clock.x) < 1, 2000,
+                  "wifi " + wifi.x + " clock " + clock.x);
+        home.muted = true;
+        verify(mute.visible);
+        tryVerify(() => Math.abs(mute.x + mute.width + 24 - wifi.x) < 1, 2000,
+                  "mute " + mute.x + " wifi " + wifi.x);
+        home.downloadActive = true;
+        const chip = child("downloadChip");
+        tryVerify(() => Math.abs(chip.x + chip.width + 24 - mute.x) < 1, 2000,
+                  "chip " + chip.x + " mute " + mute.x);
+        compare(mute.Accessible.name, "Sound muted");
+        compare(wifi.Accessible.name, "Wi-Fi connected");
+        home.downloadActive = false;
+        home.muted = false;
+        home.wifi = false;
+        home.wifiLevel = 0;
+        verify(!mute.visible);
+        verify(!wifi.visible);
+    }
     // #368: the light field takes the artwork's hue, or the identity hue.
     function test_ambient_glow_follows_focus() {
         const glow = child("ambientGlow");

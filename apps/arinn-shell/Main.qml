@@ -324,6 +324,10 @@ Window {
         });
     }
     LibraryCatalog { id: libraryCatalog; objectName: "libraryCatalog" }
+    SystemStatus {
+        id: systemStatus
+        objectName: "systemStatus"
+    }
     DownloadCatalog {
         id: downloadCatalog
         objectName: "downloadCatalog"
@@ -434,6 +438,9 @@ Window {
                                                             letter: tab.letter || "", icon: tab.icon || ""}))
             downloadActive: downloadCatalog.downloading
             downloadProgress: downloadCatalog.downloadProgress
+            muted: systemStatus.muted
+            wifi: systemStatus.wifi
+            wifiLevel: systemStatus.wifiLevel
             currentServiceId: backend.homeVisible && !returnIsWebService ? "" : (browserCatalog.presentedService.id || "")
             currentServiceTitle: backend.homeVisible && !returnIsWebService ? "" : (browserCatalog.presentedService.title || "")
             currentServiceSubtitle: backend.homeVisible && !returnIsWebService ? "" : (browserCatalog.presentedService.subtitle || "")

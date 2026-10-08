@@ -709,6 +709,14 @@
         <source>Restart</source>
         <translation>Перезапустить</translation>
     </message>
+    <message>
+        <source>Sound muted</source>
+        <translation>Звук выключен</translation>
+    </message>
+    <message>
+        <source>Wi-Fi connected</source>
+        <translation>Wi-Fi подключён</translation>
+    </message>
 </context>
 <context>
     <name>LaunchOverlay</name>

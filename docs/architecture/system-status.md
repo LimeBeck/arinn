@@ -82,7 +82,11 @@ at most the enum values.
   `signal`, falls back to `unknown` or 0 field by field, so a newer daemon
   never blanks the fields an older shell understands.
 - `unknown` shows nothing. The mute icon appears only while `audio` is `muted`.
-  The network icon follows `network`, `link` and `signal`, within handoff 01.
+  The Wi-Fi icon appears only while `network` is `connected` and `link` is
+  `wifi`; its dot and three arcs light up to `signal`, all of them when the
+  level is 0. A wired, other or disconnected network shows no icon, as handoff
+  01 defines none. `SystemStatus` (`apps/arinn-shell/system_status.cpp`) is
+  the shell's reader.
 - `Changed` never requests Home presentation and never moves focus.
 
 ## Verification
@@ -104,3 +108,7 @@ at most the enum values.
   new revision, unchanged updates and revision exhaustion.
 - `tests/integration/phase1.py`: the real daemon's export against the XML and
   a valid `Get` on the CI host.
+- `apps/arinn-shell/system_status_test.cpp`: the shell reader against a fake
+  daemon on a private bus: Changed and re-read, the revision floor, unknown
+  values field by field, failed and invalid replies, and a daemon restart.
+  `tests/ui/tst_home.qml` checks the icons' visibility, level and order.

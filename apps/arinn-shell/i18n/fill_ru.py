@@ -165,6 +165,8 @@ RU = {
     "Shortcut": "Ярлык",
     "On screen": "На экране",
     "Sound": "Звук",
+    "Sound muted": "Звук выключен",
+    "Wi-Fi connected": "Wi-Fi подключён",
     # Launch overlay
     "%1 did not open": "%1 не открылся",
     "The service": "Сервис",

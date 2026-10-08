@@ -128,7 +128,9 @@ title ([#358](https://github.com/LimeBeck/arinn/issues/358)): "N more open" once
 a service has a card, "Open: N" otherwise, hidden with one open service or none
 left over. The hero describes the focused item
 ([#364](https://github.com/LimeBeck/arinn/issues/364)). `downloadActive` and
-`downloadProgress` drive the status-area download chip; `ambientSuppressed` turns
+`downloadProgress` drive the status-area download chip. `muted`, `wifi` and
+`wifiLevel` (1–4, or 0 when unknown) show the mute and Wi-Fi icons between the
+chip and the clock, only while known; `ambientSuppressed` turns
 the light field off while an Activity background is shown. A media entry whose
 `serviceId` names an open service is that service's card
 ([ADR-0096](../adr/0096-browser-media-session-association.md)): it merges into the
@@ -143,8 +145,9 @@ In production, `Main.qml` passes the browser catalog's tabs as `openServices` an
 knows its size, else the mean of the known fractions, else unknown). Continue media
 without session artwork take the backdrop of the library item the session plays
 through `MediaCatalog.libraryContent` and `LibraryCatalog.artworkFor`. Mute and
-Wi-Fi need platform state that no current interface exposes
-([#367](https://github.com/LimeBeck/arinn/issues/367)).
+Wi-Fi come from `SystemStatus`, the shell's reader of the daemon's
+`SystemStatus1` ([ADR-0100](../adr/0100-system-status.md),
+[#387](https://github.com/LimeBeck/arinn/issues/387)).
 
 Actions emit `entryRequested(id)`, `returnRequested(id)`, `retryRequested()`,
 `sectionRequested(route)` and `powerRequested()`. The gallery displays intent

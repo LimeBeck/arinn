@@ -53,11 +53,14 @@ under `platform/`, never from core routing (R-01):
 - **Network:** NetworkManager on the system bus. Its `State` maps
   `CONNECTED_LOCAL`, `CONNECTED_SITE` and `CONNECTED_GLOBAL` to `connected`,
   `ASLEEP`, `DISCONNECTED`, `DISCONNECTING` and `CONNECTING` to
-  `disconnected`, and anything else to `unknown`. `PrimaryConnectionType`
+  `disconnected`, and anything else to `unknown`. `connected` therefore
+  means a link exists, not that the internet is reachable; a limited state
+  would be a later additive value. `PrimaryConnectionType`
   `802-11-wireless` gives `wifi`, `802-3-ethernet` gives `wired`, any other
   non-empty type gives `other`. The signal comes from the access point
   `Strength` of the primary Wi-Fi device: 1–24 % gives 1, 25–49 % gives 2,
-  50–74 % gives 3 and 75–100 % gives 4. Changes arrive through
+  50–74 % gives 3 and 75–100 % gives 4; 0 % or no access point gives 0
+  (unknown). Changes arrive through
   `PropertiesChanged`.
 - **Audio:** the mute flag of the default sink, read through the
   PulseAudio protocol (`pipewire-pulse` on Plasma 6). The change feed is the

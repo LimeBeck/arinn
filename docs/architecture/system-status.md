@@ -54,8 +54,13 @@ at most the enum values.
 - A `Get` reply applies only when its epoch is the current daemon's epoch and
   its revision is not lower than the last applied one. A new daemon owner or
   epoch resets the last applied revision and clears the state to `unknown`.
-- A daemon without the interface, a failed or timed-out read, or an invalid
-  reply leaves the state `unknown`. Stale icons never stay up after a failure.
+- A daemon without the interface, a failed or timed-out read, a reply with
+  another signature, an epoch that is not a UUID or revision 0 leaves the
+  state `unknown`. Stale icons never stay up after a failure.
+- Readers never reject a reply with `SystemStatus::validate`, which is the
+  producer check. A value they do not know, or an inconsistent `link` or
+  `signal`, falls back to `unknown` or 0 field by field, so a newer daemon
+  never blanks the fields an older shell understands.
 - `unknown` shows nothing. The mute icon appears only while `audio` is `muted`.
   The network icon follows `network`, `link` and `signal`, within handoff 01.
 - `Changed` never requests Home presentation and never moves focus.

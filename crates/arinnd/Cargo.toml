@@ -12,7 +12,7 @@ repository.workspace = true
 [dependencies]
 anyhow.workspace = true
 arinn-protocol.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["process", "io-util"] }
 uuid.workspace = true
 zbus.workspace = true
 serde.workspace = true

@@ -194,6 +194,16 @@ with tempfile.TemporaryDirectory(prefix="arinn-production-") as folder:
         # MediaAssociation1 (ADR-0096): links appear only with browser media.
         wire_contract("org.arinn.Daemon1", "/org/arinn/Daemon1", "org.arinn.MediaAssociation1",
                       "media-association1.xml")
+        # SystemStatus1 (ADR-0100): whatever this host reports, a valid snapshot.
+        wire_contract("org.arinn.Daemon1", "/org/arinn/Daemon1", "org.arinn.SystemStatus1",
+                      "system-status1.xml")
+        status = subprocess.run(["busctl", "--user", "--json=short", "call", "org.arinn.Daemon1",
+                                 "/org/arinn/Daemon1", "org.arinn.SystemStatus1", "Get"],
+                                env=env, capture_output=True, text=True, timeout=5)
+        assert status.returncode == 0, status.stderr
+        epoch, revision, audio, network, link, signal = json.loads(status.stdout)["data"][0]
+        assert revision >= 1 and audio in ("muted", "unmuted", "unknown"), status.stdout
+        assert network in ("connected", "disconnected", "unknown") and 0 <= signal <= 4, status.stdout
         def folders_call(method, signature="", *arguments):
             return subprocess.run(["busctl", "--user", "--json=short", "call",
                                    "org.arinn.Daemon1", "/org/arinn/Daemon1",

@@ -15,6 +15,8 @@ pub mod platform;
 pub mod registry;
 pub mod runtime;
 pub mod shortcuts;
+#[path = "../../../platform/status_sources.rs"]
+pub mod status_sources;
 pub mod storage;
 pub mod supervisor;
 

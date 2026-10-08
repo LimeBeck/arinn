@@ -102,6 +102,8 @@ async fn run(started: std::time::Instant) -> Result<(), ErrorCode> {
     }
     core.export_web_icons(shortcuts.clone()).await?;
     core.export_media_association().await?;
+    core.export_system_status(arinnd::status_sources::Sources::system())
+        .await?;
     connection
         .object_server()
         .at(PATH, shortcuts)

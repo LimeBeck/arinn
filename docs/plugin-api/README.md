@@ -27,7 +27,7 @@ capability, but **has not been released as a stable Plugin API**. Requirements:
 | `org.arinn.MediaProcess1` | Optional media-provider interface, daemon callers only; [media-process1.xml](media-process1.xml) ([ADR-0096](../adr/0096-browser-media-session-association.md)) |
 | `org.arinn.BrowserProcess1` | Optional browser-provider interface, daemon callers only; [browser-process1.xml](browser-process1.xml) ([ADR-0096](../adr/0096-browser-media-session-association.md)) |
 | `org.arinn.MediaAssociation1` | Optional daemon-root media-session ↔ tab links; [media-association1.xml](media-association1.xml) ([ADR-0096](../adr/0096-browser-media-session-association.md)). Exported by the daemon |
-| `org.arinn.SystemStatus1` | Optional daemon-root mute and network state; [system-status1.xml](system-status1.xml) ([ADR-0100](../adr/0100-system-status.md), [contract](../architecture/system-status.md)). Contract only, daemon export pending ([#387](https://github.com/LimeBeck/arinn/issues/387)) |
+| `org.arinn.SystemStatus1` | Optional daemon-root mute and network state; [system-status1.xml](system-status1.xml) ([ADR-0100](../adr/0100-system-status.md), [contract](../architecture/system-status.md)). Exported by the daemon; the shell icons are pending ([#387](https://github.com/LimeBeck/arinn/issues/387)) |
 | `org.arinn.Library1` | Daemon-owned provider path of a `library` provider; [library1.xml](library1.xml). Exported by the daemon ([ADR-0060](../adr/0060-library-routing.md)) |
 | `org.arinn.LibraryProvider1` | Provider unique bus owner, `/org/arinn/Provider1`; [library-provider1.xml](library-provider1.xml) |
 | `org.arinn.LibraryResume1` | Optional provider interface; [library-resume1.xml](library-resume1.xml) |

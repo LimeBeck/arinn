@@ -35,8 +35,20 @@ at most the enum values.
 
 ## Producer
 
-- The producer lives in the platform layer (`platform/`). Core routing knows
-  only the snapshot (R-01).
+- The sources live in the platform layer, `platform/status_sources.rs`. The
+  daemon export (`crates/arinnd/src/runtime/system_status.rs`) knows only
+  their updates (R-01). Both sources run on every platform backend.
+- **Network:** a system bus connection follows NetworkManager's
+  `PropertiesChanged` from any of its objects, including the access point's
+  `Strength`. A burst of signals becomes one read after 200 ms, and the state
+  is also re-read every 30 s in case a signal was missed.
+  A lost bus connection reports `unknown` and reconnects after 10 s.
+- **Audio:** `pactl subscribe` follows the sound server. A sink or server
+  event re-reads `pactl get-sink-mute @DEFAULT_SINK@`, and the flag is also
+  re-read every 30 s. `pactl` runs with `LC_ALL=C` because it localizes
+  yes/no; any other answer is `unknown`. A missing `pactl` or a subscription
+  that ends reports `unknown` and retries after 10 s. Without `pactl`
+  (`libpulse`) or NetworkManager the fields stay `unknown`.
 - It replaces the snapshot as a whole and bumps the revision only when the
   content changed (`checked_add`; on overflow it publishes every field
   `unknown` and stops updating). Then it emits `Changed(epoch, revision)`.
@@ -55,7 +67,8 @@ at most the enum values.
   its revision is not lower than the last applied one. A new daemon owner or
   epoch resets the last applied revision and clears the state to `unknown`.
 - A daemon without the interface, a failed or timed-out read, a reply with
-  another signature, an epoch that is not a UUID or revision 0 leaves the
+  another signature, an epoch that is not a UUID or is the nil UUID, or
+  revision 0 leaves the
   state `unknown`. Stale icons never stay up after a failure.
 - Readers never reject a reply with `SystemStatus::validate`, which is the
   producer check. A value they do not know, or an inconsistent `link` or
@@ -73,3 +86,12 @@ at most the enum values.
   bus. It covers a daemon without the interface, compares the live export with
   the XML, and covers an all-unknown snapshot and a `Changed` followed by a
   re-read.
+- `platform/status_sources_tests.rs`: the NetworkManager and `pactl`
+  mappings, a fake NetworkManager on a private bus (Wi-Fi level, wired,
+  disconnected, two devices, absent, lost bus) and a fake `pactl` (sink and
+  server events, ignored events, locale, ended subscription, missing tool).
+- `crates/arinnd/src/runtime/system_status_tests.rs`: the daemon export with
+  both fakes. It compares the methods with the XML, and covers `Changed` on a
+  new revision, unchanged updates and revision exhaustion.
+- `tests/integration/phase1.py`: the real daemon's export against the XML and
+  a valid `Get` on the CI host.

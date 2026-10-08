@@ -129,7 +129,9 @@ impl Processes {
     /// `PermissionDenied` whatever it sends.
     fn check(&self, sender: &str, generation: &str, id: &str) -> Result<(), ErrorCode> {
         let current = self.registrations.borrow();
-        let current = current.as_ref().ok_or(ErrorCode::Conflict)?;
+        // Unregistered, nobody is the daemon: refuse every caller alike, so
+        // the error does not reveal the registration state.
+        let current = current.as_ref().ok_or(ErrorCode::PermissionDenied)?;
         if current.daemon_owner != sender {
             return Err(ErrorCode::PermissionDenied);
         }

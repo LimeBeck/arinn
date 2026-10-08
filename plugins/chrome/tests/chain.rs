@@ -117,8 +117,34 @@ async fn host_links_the_extension_and_the_provider_bridge() {
     // ADR-0096: the process that started the host stands for the browser.
     assert_eq!(bridge.browser_process("c1:w1").unwrap(), std::process::id());
     // The exported interface answers the registered daemon only, and checks
-    // the caller before the arguments.
+    // the caller before the arguments. Before registration every caller is
+    // refused alike.
     let daemon = bus.connection().await;
+    let idle = bus.connection().await;
+    let (_unregistered, nobody) = tokio::sync::watch::channel(None);
+    idle.object_server()
+        .at(
+            production::PROVIDER_PATH,
+            Processes::new(bridge.clone(), nobody),
+        )
+        .await
+        .unwrap();
+    let early = BrowserProcessProxy::builder(&daemon)
+        .destination(idle.unique_name().unwrap().to_string())
+        .unwrap()
+        .build()
+        .await
+        .unwrap();
+    match early
+        .get_process_id("30000000-0000-4000-8000-000000000003", "c1:w1")
+        .await
+        .unwrap_err()
+    {
+        zbus::Error::MethodError(name, _, _) => {
+            assert_eq!(name.as_str(), "org.arinn.Error1.PermissionDenied")
+        }
+        other => panic!("unexpected error: {other}"),
+    }
     let generation = "30000000-0000-4000-8000-000000000003";
     let (_registered, registrations) = tokio::sync::watch::channel(Some(RegistrationContext {
         connection: provider.clone(),

@@ -60,12 +60,44 @@ pub fn keys(configured: &str) -> (Keys, bool) {
     (keys, fallback)
 }
 
-/// Sets the Home action's active keys. Returns whether every key is active:
-/// KGlobalAccel drops a key another action already holds.
+/// The action that holds `key` in KGlobalAccel, if another one does. A
+/// failed lookup counts as free: the write below still reports a missing
+/// service.
+async fn held_elsewhere(connection: &Connection, key: &(Vec<i32>,)) -> bool {
+    let owner: Vec<String> = match connection
+        .call_method(Some(SERVICE), PATH, Some(INTERFACE), "actionList", key)
+        .await
+    {
+        Ok(reply) => reply.body().deserialize().unwrap_or_default(),
+        Err(_) => return false,
+    };
+    owner.len() >= 2 && owner[..2] != ACTION[..2]
+}
+
+/// Sets the Home action's active keys. Returns whether every key is active.
+///
+/// KGlobalAccel stores a key that another action already holds but never
+/// triggers Home with it, so such keys are checked with `actionList` first,
+/// left out and reported as a conflict. When no key is free, the stored keys
+/// stay as they are.
 pub async fn apply(connection: &Connection, configured: &str) -> bool {
     let (keys, fallback) = keys(configured);
     if fallback {
         warn("InvalidArgument");
+    }
+    let total = keys.len();
+    let mut free = Vec::new();
+    for key in keys {
+        if !held_elsewhere(connection, &key).await {
+            free.push(key);
+        }
+    }
+    let conflict = free.len() < total;
+    if conflict {
+        warn("Conflict");
+    }
+    if free.is_empty() {
+        return false;
     }
     let set = connection
         .call_method(
@@ -73,13 +105,14 @@ pub async fn apply(connection: &Connection, configured: &str) -> bool {
             PATH,
             Some(INTERFACE),
             "setForeignShortcutKeys",
-            &(ACTION.to_vec(), keys.clone()),
+            &(ACTION.to_vec(), free.clone()),
         )
         .await;
     if set.is_err() {
         warn("Unavailable");
         return false;
     }
+    // KGlobalAccel ignores a write for an action it does not know.
     let active: Option<Keys> = match connection
         .call_method(
             Some(SERVICE),
@@ -93,12 +126,11 @@ pub async fn apply(connection: &Connection, configured: &str) -> bool {
         Ok(reply) => reply.body().deserialize().ok(),
         Err(_) => None,
     };
-    let applied = active.is_some_and(|active| keys.iter().all(|key| active.contains(key)));
-    if !applied {
-        // Usually a conflict with another global shortcut.
-        warn("Conflict");
+    let stored = active.is_some_and(|active| free.iter().all(|key| active.contains(key)));
+    if !stored {
+        warn("NotFound");
     }
-    applied
+    stored && !conflict
 }
 
 #[cfg(test)]
@@ -120,7 +152,8 @@ mod tests {
 
     type Writes = Arc<Mutex<Vec<(Vec<String>, Keys)>>>;
 
-    /// Records writes and, like KGlobalAccel, drops keys another action holds.
+    /// Records writes. Like kglobalacceld it stores every key, even one
+    /// another action holds; `actionList` names that other action.
     struct FakeAccel {
         writes: Writes,
         taken: Vec<i32>,
@@ -131,10 +164,19 @@ mod tests {
         #[zbus(name = "setForeignShortcutKeys")]
         fn set_foreign_shortcut_keys(&mut self, action: Vec<String>, keys: Keys) {
             self.writes.lock().unwrap().push((action, keys.clone()));
-            self.active = keys
-                .into_iter()
-                .filter(|(codes,)| !self.taken.contains(&codes[0]))
-                .collect();
+            self.active = keys;
+        }
+        #[zbus(name = "actionList")]
+        fn action_list(&self, key: (Vec<i32>,)) -> Vec<String> {
+            if self.taken.contains(&key.0[0]) {
+                ["kwin", "Other Action", "KWin", "Other"]
+                    .map(String::from)
+                    .to_vec()
+            } else if self.active.contains(&key) {
+                ACTION.map(String::from).to_vec()
+            } else {
+                Vec::new()
+            }
         }
         #[zbus(name = "shortcutKeys")]
         fn shortcut_keys(&self, _action: Vec<String>) -> Keys {
@@ -205,9 +247,26 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn reports_a_key_taken_by_another_action() {
-        let (_bus, _service, daemon, _writes) = fixture(vec![0x1100_003b]).await;
+    async fn a_key_held_by_another_action_is_left_out() {
+        // kglobalacceld would store Meta+F12 and never trigger Home with it.
+        let (_bus, _service, daemon, writes) = fixture(vec![0x1100_003b]).await;
         assert!(!apply(&daemon, "Meta+F12").await);
+        assert_eq!(writes.lock().unwrap()[0].1, [(vec![0x0100_0090, 0, 0, 0],)]);
+    }
+
+    #[tokio::test]
+    async fn keys_this_action_already_holds_are_written_again() {
+        let (_bus, _service, daemon, writes) = fixture(Vec::new()).await;
+        assert!(apply(&daemon, "Ctrl+Alt+H").await);
+        assert!(apply(&daemon, "Ctrl+Alt+H").await);
+        assert_eq!(writes.lock().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn nothing_is_written_when_every_key_is_held() {
+        let (_bus, _service, daemon, writes) = fixture(vec![0x1100_003b, 0x0100_0090]).await;
+        assert!(!apply(&daemon, "Meta+F12").await);
+        assert!(writes.lock().unwrap().is_empty());
     }
 
     #[tokio::test]

@@ -502,6 +502,23 @@ test('managed media reports exact native identity and empty identities for ordin
     f.refresh();
     assert.equal(f.mediaReports.at(-1)[3], '');
 });
+test('a managed player window is never associated with an application (#376)', () => {
+    for (const x11 of [false, true]) {
+        const {f, token} = managedFixture(x11);
+        const row = f.snapshots.at(-1).rows.find(r => r[0] === token);
+        assert.equal(row[1], '', 'the player window has no desktop ID');
+        const other = f.window('other', 'org.test');
+        f.add(other); f.refresh();
+        assert.ok(f.snapshots.at(-1).rows.some(r => r[0] !== token && r[1] === 'org.test.desktop'),
+            'an ordinary window of the same desktop file keeps its ID');
+        f.activity.resourceClass = 'mpv';
+        f.activity.resourceName = 'mpv';
+        f.activity.windowClassChanged.emit();
+        f.refresh();
+        assert.equal(f.snapshots.at(-1).rows.find(r => r[0] === token)[1], 'org.test.desktop',
+            'without a launch identity the window is an ordinary application window');
+    }
+});
 test('X11 media uses the exact instance name and preserves Home/Return', () => {
     const {f, launch, token} = managedFixture(true);
     assert.ok(f.mediaReports.some(row => row[2] === token && row[3] === launch));

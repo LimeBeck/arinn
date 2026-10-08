@@ -355,7 +355,9 @@ function inventory() {
         if (!windowTokens.has(w)) windowTokens.set(w, platformGeneration + ":" + (++windowCounter));
         const flags = (workspace.activeWindow === w ? 1 : 0) | (w.fullScreen ? 2 : 0) |
             (w.wantsInput === true ? 4 : 0) | (w.closeable === true && typeof w.closeWindow === "function" ? 8 : 0);
-        return [windowTokens.get(w), desktopId(w), boundedId(w.output ? String(w.output.name) : ""), flags];
+        // A managed player window is Arinn's own playback surface, never an
+        // application Activity: no desktop ID associates it with one (#376).
+        return [windowTokens.get(w), launchId(w) ? "" : desktopId(w), boundedId(w.output ? String(w.output.name) : ""), flags];
     });
 }
 function publishInventory() {

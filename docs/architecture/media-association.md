@@ -161,7 +161,15 @@ and a new or moved link waits; ties go by the link's sort order.
   no new link and moves none when a registration's support is still
   unknown, a process ID is still unknown, or the provider set or a snapshot
   moved during the lookups. It then keeps a held link only while its session
-  and its tab's window still have the process the link was made with.
+  and its tab's window still have the process the link was made with, and
+  no process ID already read gives that process to another session or
+  browser provider. Introspection of unanswered registrations runs
+  concurrently.
+- **Providers without the interface.** A ready media provider with sessions,
+  or a browser provider with windows, that does not export its process
+  interface could hold the same process, so the daemon publishes no link at
+  all while it has entries. Today this applies to the mpv provider: while
+  it plays, browser media keeps both cards.
 - **Shell.** `MediaCatalog` reads `Get` and sets the linked tab's
   presentation ID as `serviceId` on a session's Continue entry. A `Changed`
   with a newer revision clears its links until a reply at that revision. `HomeView`

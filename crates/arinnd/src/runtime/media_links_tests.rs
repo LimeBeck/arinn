@@ -188,6 +188,7 @@ struct Fixture {
     folder: std::path::PathBuf,
     core: Core,
     client: Connection,
+    address: String,
     media: Connection,
     browser: Connection,
     media_generation: String,
@@ -309,6 +310,7 @@ impl Fixture {
             folder,
             core,
             client,
+            address: address.trim().to_string(),
             media,
             browser,
             media_generation,
@@ -724,5 +726,104 @@ async fn an_incomplete_pass_drops_a_link_that_known_evidence_breaks() {
         mpris.info.revision += 1;
     }
     f.core.associate(&links, &mut cache).await;
+    assert!(tabs_of(&links).await.is_empty());
+}
+
+#[tokio::test]
+async fn a_provider_without_its_interface_keeps_cards_apart() {
+    let f = Fixture::new(
+        &[("chromium.instance1", BROWSER_PID)],
+        &[("c1:w1", BROWSER_PID)],
+    )
+    .await;
+    let links = MediaLinks::new(&f.core.epoch);
+    let mut cache = Cache::default();
+    f.tabs(vec![tab("c1:t1", "c1:w1", true)]).await;
+    f.core.associate(&links, &mut cache).await;
+    assert_eq!(tabs_of(&links).await.len(), 1);
+
+    // A media provider that does not export MediaProcess1 has a session:
+    // it could be the same process, so no link is provable, held or new.
+    // (The browser's connection answers introspection, without that one.)
+    let mut silent = provider(
+        "player2",
+        "media",
+        f.browser.unique_name().unwrap().as_str(),
+        &Uuid::new_v4().to_string(),
+    );
+    silent.sessions = vec![session("other")];
+    f.core
+        .state
+        .lock()
+        .await
+        .providers
+        .insert("player2".into(), silent);
+    f.core.associate(&links, &mut cache).await;
+    assert!(tabs_of(&links).await.is_empty());
+
+    // Without sessions it proves nothing either way and blocks nothing.
+    f.core
+        .state
+        .lock()
+        .await
+        .providers
+        .get_mut("player2")
+        .unwrap()
+        .sessions
+        .clear();
+    f.core.associate(&links, &mut cache).await;
+    assert_eq!(tabs_of(&links).await.len(), 1);
+}
+
+/// A bus peer that never answers: its connection's runtime is not driven
+/// after the connection is built.
+fn hung_peer(address: &str) -> String {
+    let (sent, received) = std::sync::mpsc::channel();
+    let address = address.to_string();
+    std::thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let connection = runtime.block_on(connect(&address));
+        sent.send(connection.unique_name().unwrap().to_string())
+            .unwrap();
+        std::thread::sleep(Duration::from_secs(60));
+        drop(connection);
+    });
+    received.recv().unwrap()
+}
+
+#[tokio::test]
+async fn unresponsive_registrations_are_introspected_concurrently() {
+    let f = Fixture::new(
+        &[("chromium.instance1", BROWSER_PID)],
+        &[("c1:w1", BROWSER_PID)],
+    )
+    .await;
+    {
+        let mut state = f.core.state.lock().await;
+        for n in 0..5 {
+            let mut hung = provider(
+                &format!("hung{n}"),
+                "media",
+                &hung_peer(&f.address),
+                &Uuid::new_v4().to_string(),
+            );
+            hung.sessions = vec![session("x")];
+            state.providers.insert(format!("hung{n}"), hung);
+        }
+    }
+    let links = MediaLinks::new(&f.core.epoch);
+    let mut cache = Cache::default();
+    let started = Instant::now();
+    f.core.associate(&links, &mut cache).await;
+    // One after another this would be five call timeouts (10 s).
+    assert!(
+        started.elapsed() < Duration::from_secs(6),
+        "{:?}",
+        started.elapsed()
+    );
+    // Still unknown: nothing is linked, and they are asked again.
     assert!(tabs_of(&links).await.is_empty());
 }

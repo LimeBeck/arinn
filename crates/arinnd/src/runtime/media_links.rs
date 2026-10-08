@@ -180,24 +180,36 @@ impl Core {
         }
         cache.processes.retain(|k, _| current.contains(k));
 
-        // Which registrations export their interface. One that cannot be
-        // asked yet stays unknown, and a pass with an unknown one makes no
-        // link: its sessions or windows could share a process.
-        for m in &media {
-            self.supports(
-                cache,
-                &m.registration,
-                media_association::MEDIA_PROCESS_INTERFACE,
-            )
+        // Which registrations export their interface, asked concurrently so
+        // registrations that do not answer cost one call timeout together.
+        // One that cannot be asked yet stays unknown, and a pass with an
+        // unknown one makes no link: its sessions or windows could share a
+        // process.
+        let unasked: Vec<(Registration, &'static str)> = media
+            .iter()
+            .map(|m| (&m.registration, media_association::MEDIA_PROCESS_INTERFACE))
+            .chain(browsers.iter().map(|b| {
+                (
+                    &b.registration,
+                    media_association::BROWSER_PROCESS_INTERFACE,
+                )
+            }))
+            .filter(|(r, _)| !cache.support.contains_key(*r))
+            .map(|(r, interface)| (r.clone(), interface))
+            .collect();
+        let answers =
+            futures_util::future::join_all(unasked.into_iter().map(|(registration, interface)| {
+                let core = self.clone();
+                async move {
+                    let supported = core.supports(&registration, interface).await;
+                    (registration, supported)
+                }
+            }))
             .await;
-        }
-        for b in &browsers {
-            self.supports(
-                cache,
-                &b.registration,
-                media_association::BROWSER_PROCESS_INTERFACE,
-            )
-            .await;
+        for (registration, supported) in answers {
+            if let Some(supported) = supported {
+                cache.support.insert(registration, supported);
+            }
         }
         let supported = |r: &Registration| cache.support.get(r).copied() == Some(true);
         // Missing process IDs, least recently tried first, so lookups that
@@ -313,6 +325,15 @@ impl Core {
         // A provider whose processes are not all known yet could hide a
         // competing candidate: wait for the next pass instead of guessing.
         // Unknown support is not "unsupported": it keeps the pass incomplete.
+        // A provider without its interface cannot show that its sessions or
+        // windows do not share a process. While one has entries, nothing is
+        // provable: every card stays separate, held links included.
+        let unprovable = media
+            .iter()
+            .any(|m| cache.support.get(&m.registration) == Some(&false) && !m.sessions.is_empty())
+            || browsers.iter().any(|b| {
+                cache.support.get(&b.registration) == Some(&false) && !b.windows.is_empty()
+            });
         let complete = media.iter().all(|m| {
             cache.support.get(&m.registration) == Some(&false)
                 || cache.support.get(&m.registration) == Some(&true)
@@ -334,7 +355,9 @@ impl Core {
             snapshot_revisions(&media, &browsers) != snapshot_revisions(&media_now, &browsers_now)
         };
         let previous = links.links().await;
-        let next = if complete && !fenced {
+        let next = if unprovable {
+            Vec::new()
+        } else if complete && !fenced {
             media_association::join(&sessions, &windows, &tabs, &previous)
         } else {
             // Not every process is known yet, or a snapshot moved: make no new
@@ -411,15 +434,9 @@ impl Core {
         (media, browsers)
     }
 
-    async fn supports(
-        &self,
-        cache: &mut Cache,
-        registration: &Registration,
-        interface: &str,
-    ) -> bool {
-        if let Some(&known) = cache.support.get(registration) {
-            return known;
-        }
+    /// Whether the registration exports `interface`; `None` while it cannot
+    /// be asked (asked again on the next pass).
+    async fn supports(&self, registration: &Registration, interface: &str) -> Option<bool> {
         let introspected = async {
             zbus::fdo::IntrospectableProxy::builder(&self.connection)
                 .destination(registration.1.as_str())
@@ -434,16 +451,13 @@ impl Core {
                 .ok()
         };
         let Ok(Some(xml)) = tokio::time::timeout(CALL_TIMEOUT, introspected).await else {
-            // Unreachable now; ask again on the next pass.
-            return false;
+            return None;
         };
-        let supported = super::web_icons::introspection(&xml).is_ok_and(|document| {
+        Some(super::web_icons::introspection(&xml).is_ok_and(|document| {
             document.root_element().children().any(|node| {
                 node.has_tag_name("interface") && node.attribute("name") == Some(interface)
             })
-        });
-        cache.support.insert(registration.clone(), supported);
-        supported
+        }))
     }
 
     /// `None` retries on the next pass; a definite failure is unknown (0).

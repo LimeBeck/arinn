@@ -25,6 +25,9 @@ public:
   QString link = QStringLiteral("wifi");
   uchar level = 3;
   bool fail = false;
+  // Hold the next Get unanswered; `held` answers it later.
+  bool hold = false;
+  QDBusMessage held;
   int reads = 0;
   bool handleMessage(const QDBusMessage &message,
                      const QDBusConnection &connection) override {
@@ -32,6 +35,11 @@ public:
         message.member() != QLatin1String("Get"))
       return false;
     ++reads;
+    if (hold) {
+      hold = false;
+      held = message;
+      return true;
+    }
     if (fail) {
       connection.send(message.createErrorReply(
           QStringLiteral("org.arinn.Error1.Internal"), QString()));
@@ -136,6 +144,21 @@ private slots:
     fake.epoch = epoch1;
     changed(epoch1, 7);
     QTRY_VERIFY(shows(status, true, true, 2));
+
+    // Overlapping reads: a superseded read that fails late never clears the
+    // newer state it was overtaken by.
+    fake.hold = true;
+    fake.revision = 8;
+    changed(epoch1, 8);
+    QTRY_VERIFY(fake.held.type() == QDBusMessage::MethodCallMessage);
+    fake.revision = 9;
+    fake.level = 1;
+    changed(epoch1, 9);
+    QTRY_VERIFY(shows(status, true, true, 1));
+    QVERIFY(daemon.send(fake.held.createErrorReply(
+        QStringLiteral("org.arinn.Error1.Internal"), QString())));
+    QTest::qWait(200);
+    QVERIFY(shows(status, true, true, 1));
 
     // A daemon restart: the state clears at once, and the new daemon's
     // first revision applies although it is lower.

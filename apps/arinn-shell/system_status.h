@@ -32,6 +32,9 @@ private:
   QString m_epoch;
   // Bumped on every daemon owner change: older replies are dropped.
   quint64 m_lifetime = 0;
+  // Bumped on every read: only the latest read's reply applies, so a
+  // superseded read that fails never clears a newer state.
+  quint64 m_request = 0;
   quint64 m_revision = 0;
   bool m_muted = false;
   bool m_wifi = false;

@@ -73,6 +73,8 @@ at most the enum values.
 - A `Get` reply applies only when its epoch is the current daemon's epoch and
   its revision is not lower than the last applied one. A new daemon owner or
   epoch resets the last applied revision and clears the state to `unknown`.
+  Only the reply to the latest read applies, so a superseded read that fails
+  late never clears a newer state.
 - A daemon without the interface, a failed or timed-out read, a reply with
   another signature, an epoch that is not a UUID or is the nil UUID, or
   revision 0 leaves the

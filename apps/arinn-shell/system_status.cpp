@@ -50,11 +50,12 @@ void SystemStatus::refresh() {
   auto pending = new QDBusPendingCallWatcher(
       QDBusConnection::sessionBus().asyncCall(call, 3000), this);
   const quint64 lifetime = m_lifetime;
+  const quint64 request = ++m_request;
   connect(pending, &QDBusPendingCallWatcher::finished, this,
-          [this, lifetime](QDBusPendingCallWatcher *watcher) {
+          [this, lifetime, request](QDBusPendingCallWatcher *watcher) {
             const QDBusMessage reply = watcher->reply();
             watcher->deleteLater();
-            if (lifetime != m_lifetime)
+            if (lifetime != m_lifetime || request != m_request)
               return;
             if (reply.type() == QDBusMessage::ErrorMessage ||
                 reply.signature() != QLatin1String("(stsssy)") ||

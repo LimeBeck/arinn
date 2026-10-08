@@ -4,7 +4,7 @@
 - **Date:** 2026-10-07
 - **Deciders:** project owner requested the optimization on 2026-10-07; mechanism under delegated authority ([ADR-0037](0037-agent-autonomy-and-owner-gated-decisions.md)); the release-mode test policy and the master pipeline remain owner-gated
 - **Amends / Supersedes:** amends [ADR-0033](0033-ci-cd-and-releases.md) (the Rust and integration jobs become one), [ADR-0047](0047-faster-package-builds.md) (where `check()` runs) and [ADR-0086](0086-automatic-master-prereleases.md) (duplicate master runs of one commit)
-- **Amended by / Superseded by:** —
+- **Amended by / Superseded by:** [ADR-0101](0101-host-local-ci-caches.md) — build caches in a host directory on the self-hosted runner
 - **Specification:** [§17.1](../specifications/arinn-specification.md#171-continuous-integration-and-delivery)
 
 ## Context

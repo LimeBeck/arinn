@@ -72,7 +72,9 @@ with tempfile.TemporaryDirectory(prefix="arinn-production-") as folder:
             f'args = ["--fixture", "{fixture}"]\n')
 
     def executable_pids(path):
-        wanted = str(path)
+        # /proc/<pid>/exe is the canonical path; CI links ./target into a
+        # cache directory (ADR-0101).
+        wanted = str(Path(path).resolve())
         live, stale = [], []
         for entry in Path("/proc").iterdir():
             if not entry.name.isdigit():

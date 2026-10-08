@@ -24,7 +24,12 @@ jobs:
     name: Build Arch package
     if: ${{ !inputs.skip }}
     runs-on: ${{ vars.ARINN_RUNNER || 'ubuntu-latest' }}
-    container: archlinux:latest
+    container:
+      image: archlinux:latest
+      # The Cargo home and target directory stay on the self-hosted runner's
+      # disk (ADR-0101).
+      volumes:
+        - /var/cache/arinn-ci/arch-pkg:/ci-cache
     steps:
       - name: Install build dependencies
         id: deps
@@ -38,10 +43,11 @@ jobs:
           # The snapshot pkgver counts commits (#357).
           fetch-depth: 0
       - name: Restore Cargo cache
-        if: ${{ github.ref_type != 'tag' }}
+        # Tag builds start clean; the self-hosted runner keeps /ci-cache.
+        if: ${{ github.ref_type != 'tag' && !vars.ARINN_RUNNER }}
         uses: actions/cache@v4
         with:
-          path: cargo-cache
+          path: /ci-cache
           key: arinn-pkg-${{ steps.deps.outputs.rustc }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: arinn-pkg-${{ steps.deps.outputs.rustc }}-
       - name: Create source tarball
@@ -67,8 +73,12 @@ jobs:
           # tag builds run it (ADR-0047, ADR-0092).
           NOCHECK: ${{ (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref_type != 'tag')) && '--nocheck' || '' }}
         run: |
-          cache="$GITHUB_WORKSPACE/cargo-cache"
+          cache=/ci-cache
+          if [ "$GITHUB_REF_TYPE" = tag ]; then cache="$GITHUB_WORKSPACE/cargo-cache"; fi
           mkdir -p "$cache/home" "$cache/target"
+          # A target directory past 12 GB is dropped so stale artifacts
+          # cannot fill the runner's disk.
+          if [ "$(du -s --block-size=1G "$cache/target" | cut -f1)" -gt 12 ]; then rm -rf "$cache/target"; mkdir "$cache/target"; fi
           chown -R builder "$cache"
           su builder -c "cd pkg && CARGO_HOME='$cache/home' CARGO_TARGET_DIR='$cache/target' makepkg --noconfirm --cleanbuild $NOCHECK"
           cp "$cache/target/release/examples/private-systemd" pkg/private-systemd
@@ -111,7 +121,17 @@ jobs:
     name: Build Debian package
     if: ${{ !inputs.skip }}
     runs-on: ${{ vars.ARINN_RUNNER || 'ubuntu-latest' }}
-    container: ubuntu:25.04
+    container:
+      image: ubuntu:25.04
+      # The rustup toolchain, Cargo home and target directory stay on the
+      # self-hosted runner's disk (ADR-0101).
+      volumes:
+        - /var/cache/arinn-ci/deb:/ci-cache
+    env:
+      # Never /github/home: on the self-hosted runner it is shared with the
+      # other jobs, which must not see rustup's proxies.
+      CARGO_HOME: /ci-cache/cargo
+      RUSTUP_HOME: /ci-cache/rustup
     steps:
       - name: Install build dependencies
         run: |
@@ -128,20 +148,23 @@ jobs:
       - name: Trust workspace for git archive
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Restore Cargo cache
-        if: ${{ github.ref_type != 'tag' }}
+        if: ${{ github.ref_type != 'tag' && !vars.ARINN_RUNNER }}
         uses: actions/cache@v4
         with:
-          path: cargo-cache-deb
+          path: /ci-cache/target
           key: arinn-deb-${{ steps.deps.outputs.rustc }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: arinn-deb-${{ steps.deps.outputs.rustc }}-
       - name: Build .deb
         env:
-          CARGO_HOME: ${{ github.workspace }}/cargo-cache-deb/home
-          CARGO_TARGET_DIR: ${{ github.workspace }}/cargo-cache-deb/target
+          # Tag builds start from an empty target directory.
+          CARGO_TARGET_DIR: ${{ github.ref_type == 'tag' && format('{0}/cargo-target', github.workspace) || '/ci-cache/target' }}
           # Same check() policy as the Arch package (ADR-0092).
           DEB_BUILD_OPTIONS: ${{ (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref_type != 'tag')) && 'nocheck' || '' }}
         run: |
           mkdir -p "$CARGO_HOME" "$CARGO_TARGET_DIR"
+          # A target directory past 12 GB is dropped so stale artifacts
+          # cannot fill the runner's disk.
+          if [ "$(du -s --block-size=1G "$CARGO_TARGET_DIR" | cut -f1)" -gt 12 ]; then rm -rf "$CARGO_TARGET_DIR"; mkdir "$CARGO_TARGET_DIR"; fi
           chmod +x packaging/debian/build-deb.sh packaging/debian/debian/rules packaging/debian/debian/postinst
           ./packaging/debian/build-deb.sh
       - uses: actions/upload-artifact@v7

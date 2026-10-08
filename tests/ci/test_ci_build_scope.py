@@ -28,6 +28,8 @@ def evaluate(expression: str, **context: str) -> object:
     expression language does, so '' stays falsy in both.
     """
     body = re.fullmatch(r"\$\{\{(.*)\}\}", expression.strip()).group(1)
+    # The self-hosted runner label, or '' for GitHub-hosted runners.
+    body = body.replace("vars.ARINN_RUNNER", repr(context.pop("runner", "")))
     for key, value in sorted(context.items(), key=lambda item: -len(item[0])):
         body = body.replace(f"github.{key}", repr(value))
     body = body.replace("&&", " and ").replace("||", " or ")
@@ -78,11 +80,16 @@ class PackageBuildTest(unittest.TestCase):
                     self.assertEqual(evaluate(expression, event_name=event, ref_type=ref_type), expected)
 
 
-def jobs() -> dict[str, str]:
-    section = CI[CI.index("\njobs:\n"):]
+def jobs(text: str | None = None) -> dict[str, str]:
+    text = CI if text is None else text
+    section = text[text.index("\njobs:\n"):]
     names = re.findall(r"^  (\w[\w-]*):\n", section, re.M)
     bodies = re.split(r"^  \w[\w-]*:\n", section, flags=re.M)[1:]
     return dict(zip(names, bodies))
+
+
+def package_jobs() -> dict[str, str]:
+    return jobs(PACKAGE)
 
 
 class BuildJobTest(unittest.TestCase):
@@ -93,7 +100,7 @@ class BuildJobTest(unittest.TestCase):
                  "python tests/integration/phase1.py"]
         positions = [job.index(step) for step in steps]
         self.assertEqual(positions, sorted(positions))
-        self.assertIn("container: archlinux:latest", job)
+        self.assertIn("image: archlinux:latest", job)
         # No other job compiles the workspace in debug mode again.
         for name, body in jobs().items():
             if name != "build":
@@ -111,19 +118,34 @@ class BuildJobTest(unittest.TestCase):
                         self.assertIn(target.strip(), names)
         self.assertIn("build", re.search(r"needs: \[(.*)\]", jobs()["snapshot"]).group(1))
 
-    def test_build_restores_rust_and_compiler_caches(self):
+    def test_build_keeps_its_caches_in_ci_cache(self):
+        # ADR-0101: the Cargo home, target directory and ccache live in
+        # /ci-cache, a host directory on the self-hosted runner.
         job = jobs()["build"]
-        self.assertIn("Swatinem/rust-cache@v2", job)
-        self.assertIn("actions/cache/restore@v4", job)
+        self.assertIn("- /var/cache/arinn-ci/arch-ci:/ci-cache", job)
+        self.assertIn("CARGO_HOME: /ci-cache/cargo", job)
+        self.assertIn("CCACHE_DIR: /ci-cache/ccache", job)
         self.assertIn("CMAKE_CXX_COMPILER_LAUNCHER: ccache", job)
         self.assertRegex(job, r"pacman -Syu [^\n]*\bccache\b")
-        # Caches restore before the builds that use them.
-        self.assertLess(job.index("rust-cache"), job.index("cargo clippy"))
-        self.assertLess(job.index("cache/restore"), job.index("cmake -S"))
+        self.assertIn("ln -sfn /ci-cache/target target", job)
+        # Caches are in place before the builds that use them.
+        self.assertLess(job.index("cache/restore"), job.index("cargo fmt"))
+        self.assertLess(job.index("ln -sfn"), job.index("cargo fmt"))
 
-    def test_only_master_and_nightly_save_the_compiler_cache(self):
+    def test_no_build_job_uses_the_shared_runner_home_for_cargo(self):
+        # On the self-hosted runner /github/home is shared by every job:
+        # rustup's proxies from the Debian job made the Arch job's
+        # cargo fmt resolve to a toolchain without rustfmt (#411).
+        for job in (jobs()["build"], package_jobs()["build-deb"]):
+            with self.subTest(job=job.splitlines()[0]):
+                self.assertNotIn("rust-cache", job)
+                self.assertIn("CARGO_HOME: /ci-cache/cargo", job)
+        self.assertIn("RUSTUP_HOME: /ci-cache/rustup", package_jobs()["build-deb"])
+        self.assertIn("CARGO_HOME='$cache/home'", package_jobs()["build"])
+
+    def test_only_hosted_master_and_nightly_save_the_build_cache(self):
         job = jobs()["build"]
-        save = job[job.index("Save compiler cache"):]
+        save = job[job.index("Save build cache"):]
         condition = value(save, "if")
         cases = {
             ("pull_request", "refs/pull/1/merge"): False,
@@ -136,6 +158,8 @@ class BuildJobTest(unittest.TestCase):
         for (event, ref), saved in cases.items():
             with self.subTest(event=event, ref=ref):
                 self.assertEqual(bool(evaluate(condition, event_name=event, ref=ref)), saved)
+                # The self-hosted runner keeps the cache on its own disk.
+                self.assertFalse(evaluate(condition, event_name=event, ref=ref, runner="self-hosted"))
 
 
 class ConcurrencyTest(unittest.TestCase):

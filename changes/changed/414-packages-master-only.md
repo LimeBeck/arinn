@@ -1,0 +1,1 @@
+- Pull requests no longer build the Arch and Debian packages; pushes to `master`, the nightly, releases and manual CI runs still build and smoke-test both ([#414](https://github.com/LimeBeck/arinn/issues/414)).

@@ -22,6 +22,9 @@ private slots:
     QCOMPARE(QCoreApplication::translate("HomeView", "Favorites"), QStringLiteral("Избранное"));
     QCOMPARE(QCoreApplication::translate("Main", "Home could not be loaded"),
              QStringLiteral("Не удалось загрузить главную"));
+    // Restarting Arinn is not the power menu's computer restart (ADR-0098).
+    QCOMPARE(QCoreApplication::translate("HomeView", "Restart"), QStringLiteral("Перезапустить"));
+    QCOMPARE(QCoreApplication::translate("PowerMenu", "Restart"), QStringLiteral("Перезагрузка"));
     QCOMPARE(QCoreApplication::translate("SettingsCatalog", "Media"), QStringLiteral("Медиа"));
     QCOMPARE(QCoreApplication::translate("DownloadCatalog", "%1 is ready to watch")
                  .arg(QStringLiteral("X")),

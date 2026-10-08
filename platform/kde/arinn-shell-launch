@@ -3,6 +3,17 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Select the Qt transport for the existing graphical session (ADR-0077).
 set -eu
+# ExecStopPost of arinn-shell.service (ADR-0098): exit status 75 is the
+# shell's request to restart Arinn after an update. The unit restarts the
+# shell itself; the daemon, possibly an older build, is restarted here.
+if [ "${1:-}" = --stopped ]; then
+    if [ "${EXIT_CODE:-}" = exited ] && [ "${EXIT_STATUS:-}" = 75 ]; then
+        echo "arinn-shell-launch: restart requested; restarting arinnd" >&2
+        systemctl --user --no-block try-restart arinnd.service ||
+            echo "arinn-shell-launch: arinnd was not restarted" >&2
+    fi
+    exit 0
+fi
 backend=${ARINN_SESSION_BACKEND:-auto}
 if [ "$backend" = auto ]; then
     backend=${XDG_SESSION_TYPE:-wayland}

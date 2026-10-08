@@ -441,8 +441,8 @@ Window {
             openShortcutIds: browserCatalog.openShortcutIds
             // Site or search remains available even with no saved favorites.
             homeState: backend.homeState === "empty" ? "ready" : backend.homeState
-            statusTitle: homeState === "unavailable" ? qsTr("Home is unavailable") : homeState === "loading" ? qsTr("Loading Home…") : homeState === "error" ? qsTr("Home could not be loaded") : qsTr("Your Home starts here")
-            statusDescription: homeState === "empty" ? qsTr("No favorites are available yet.") : qsTr("Navigation remains available. Home reconnects automatically.")
+            statusTitle: homeState === "unavailable" ? qsTr("Home is unavailable") : homeState === "loading" ? qsTr("Loading Home…") : homeState === "error" ? qsTr("Home could not be loaded") : homeState === "updated" ? qsTr("Arinn was updated") : qsTr("Your Home starts here")
+            statusDescription: homeState === "empty" ? qsTr("No favorites are available yet.") : homeState === "updated" ? qsTr("Restart it to finish. Navigation remains available.") : qsTr("Navigation remains available. Home reconnects automatically.")
             sectionDescription: screen === "applications" ? ((applicationEntries.length || runningEntries.length) ? qsTr("Choose an application or an open window.") : qsTr("No applications are available.")) : qsTr("This section is not available yet.")
             clockText: Qt.formatTime(new Date(), "hh:mm")
             Timer { interval: 1000; running: true; repeat: true; onTriggered: home.clockText = Qt.formatTime(new Date(), "hh:mm") }
@@ -450,6 +450,7 @@ Window {
             onRunningRequested: entryId => backend.activate(entryId)
             onReturnRequested: backend.back()
             onRetryRequested: backend.refresh()
+            onRestartRequested: backend.restartArinn()
             // A section picked in the navigation menu, or Home pressed there,
             // replaces an open overlay (#329, §6.3).
             onSectionRequested: route => root.closeOverlays()

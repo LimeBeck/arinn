@@ -58,7 +58,7 @@ flag is not evidence that those requirements are implemented.
   - application lifecycle, window visibility, activation, focus and input event kinds as breadcrumbs.
 
   No key code, pointer position, window identity or title is recorded.
-- Component, release version, level, timestamp, bounded operation/error codes,
+- Component, release (`arinn@<build id>`, ADR-0097), level, timestamp, bounded operation/error codes,
   stack instruction addresses and native module build identifiers. Rust stack
   symbols have source paths and local variables removed. Native symbol names
   are resolved on the server from separately managed debug artifacts.

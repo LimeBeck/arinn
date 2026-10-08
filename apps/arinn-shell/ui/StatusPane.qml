@@ -5,7 +5,7 @@ import QtQuick
 
 FocusScope {
     id: root
-    property string kind: "empty" // empty, loading, error, unavailable
+    property string kind: "empty" // empty, loading, error, unavailable, updated
     property string title: ""
     property string description: ""
     property string actionText: ""

@@ -25,9 +25,6 @@ execute_process(COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/harden
 execute_process(COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/package_notices.py
     ${sentry_native_SOURCE_DIR} ${tomlplusplus_SOURCE_DIR} ${CMAKE_CURRENT_BINARY_DIR}/licenses
     COMMAND_ERROR_IS_FATAL ANY)
-execute_process(COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/release.py version
-    OUTPUT_VARIABLE ARINN_VERSION OUTPUT_STRIP_TRAILING_WHITESPACE
-    COMMAND_ERROR_IS_FATAL ANY)
 add_library(arinn-telemetry STATIC telemetry.cpp telemetry.h transport.cpp transport.h qt_template.cpp)
 target_link_libraries(arinn-telemetry PUBLIC Qt6::Core sentry tomlplusplus::tomlplusplus CURL::libcurl)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/observability/sentry-default-dsn.txt)
@@ -36,7 +33,7 @@ list(LENGTH ARINN_DEFAULT_DSN ARINN_DEFAULT_DSN_COUNT)
 if(NOT ARINN_DEFAULT_DSN_COUNT EQUAL 1)
     message(FATAL_ERROR "The shared public Sentry default must contain exactly one HTTPS DSN")
 endif()
-target_compile_definitions(arinn-telemetry PRIVATE ARINN_RELEASE="arinn@${ARINN_VERSION}"
+target_compile_definitions(arinn-telemetry PRIVATE ARINN_RELEASE="arinn@${ARINN_BUILD_ID}"
     ARINN_DEFAULT_SENTRY_DSN="${ARINN_DEFAULT_DSN}")
 add_executable(arinn-telemetry-config-test config_test.cpp)
 target_link_libraries(arinn-telemetry-config-test PRIVATE arinn-telemetry Qt6::Test)

@@ -79,6 +79,47 @@ class ShellLauncher(unittest.TestCase):
             self.assertIsNotNone(make)
             self.assertIn("python", shlex.split(make.group(1)))
 
+    def stopped(self, code, status):
+        """Run the launcher as ExecStopPost with a stub systemctl."""
+        with tempfile.TemporaryDirectory(prefix="arinn-launch-test-") as folder:
+            root = Path(folder)
+            calls = root / "calls"
+            systemctl = root / "systemctl"
+            systemctl.write_text(f"#!/bin/sh\necho \"$*\" >> {calls}\n")
+            systemctl.chmod(0o755)
+            shell = root / "shell"
+            shell.write_text("#!/bin/sh\necho launched\n")
+            shell.chmod(0o755)
+            launcher = root / "launcher"
+            launcher.write_text((ROOT / "platform/kde/arinn-shell-launch").read_text()
+                                .replace("/usr/bin/arinn-shell", str(shell)))
+            env = dict(os.environ, PATH=f"{root}:{os.environ['PATH']}",
+                       EXIT_CODE=code, EXIT_STATUS=status, XDG_SESSION_TYPE="wayland")
+            result = subprocess.run(["sh", str(launcher), "--stopped"], env=env,
+                                    capture_output=True, text=True, timeout=5)
+            return result, calls.read_text() if calls.exists() else ""
+
+    def test_restart_status_restarts_the_daemon(self):
+        result, calls = self.stopped("exited", "75")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(calls, "--user --no-block try-restart arinnd.service\n")
+        self.assertEqual(result.stdout, "")
+
+    def test_other_stops_leave_the_daemon(self):
+        for code, status in (("exited", "0"), ("exited", "1"), ("exited", "2"),
+                             ("killed", "TERM"), ("killed", "75"), ("", "")):
+            result, calls = self.stopped(code, status)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(calls, "", (code, status))
+            self.assertEqual(result.stdout, "")
+
+    def test_unit_and_shell_agree_on_the_restart_status(self):
+        unit = (ROOT / "packaging/systemd/arinn-shell.service").read_text()
+        self.assertIn("ExecStopPost=/usr/lib/arinn/arinn-shell-launch --stopped\n", unit)
+        self.assertIn("RestartForceExitStatus=75\n", unit)
+        shell = (ROOT / "apps/arinn-shell/build_identity.h").read_text()
+        self.assertIn("RestartExitStatus = 75;", shell)
+
     def test_missing_type_preserves_wayland_default(self):
         self.assertEqual(json.loads(self.launch().stdout)[0], "wayland")
 

@@ -376,7 +376,7 @@ TestCase {
         keyClick(Qt.Key_Up); focused("menuButton");
     }
     function test_states_data() {
-        return [{tag: "loading"}, {tag: "empty"}, {tag: "error"}, {tag: "unavailable"}];
+        return [{tag: "loading"}, {tag: "empty"}, {tag: "error"}, {tag: "unavailable"}, {tag: "updated"}];
     }
     function test_states(data) {
         home.homeState = data.tag;
@@ -435,6 +435,23 @@ TestCase {
         keyClick(Qt.Key_Menu); focused("nav-0");
         keyClick(Qt.Key_Escape); focused("statusAction");
         keyClick(Qt.Key_Up); focused("menuButton");
+    }
+    // #357 (ADR-0098): the daemon runs another build. The state offers
+    // Restart, not Retry, and navigation stays available.
+    SignalSpy { id: restarts; signalName: "restartRequested" }
+    function test_updated_state_offers_restart() {
+        restarts.target = home; restarts.clear();
+        home.homeState = "updated";
+        focused("menuButton");
+        verify(child("homeStatus").visible);
+        compare(child("statusAction").text, "Restart");
+        keyClick(Qt.Key_Down); focused("statusAction");
+        keyClick(Qt.Key_Return);
+        compare(restarts.count, 1);
+        compare(retry.count, 0);
+        keyClick(Qt.Key_Menu); focused("nav-0");
+        keyClick(Qt.Key_Escape); focused("statusAction");
+        restarts.target = null;
     }
     function test_last_row_removed() {
         keyClick(Qt.Key_Down); keyClick(Qt.Key_Down); focused("entry-n");

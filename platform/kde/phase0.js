@@ -55,11 +55,16 @@ function rpc(method, ...args) { callDBus(service, path, service, method, ...args
 // the journal; a changed outcome (a media channel re-attaching) always prints. Records carry the
 // specification §14.1 fields, null when unknown.
 const diagnosedAt = new Map();
+// KWin hides print() output unless the kwin_scripting debug category is
+// enabled, so the records would be missing exactly when they are needed. A
+// console warning reaches the journal by default; print() is the fallback.
+const record = typeof console !== "undefined" && console && typeof console.warn === "function"
+    ? line => console.warn(line) : line => print(line);
 function diagnose(level, operation, fields) {
     const key = operation + ":" + (fields.reason || ""), now = Date.now(), last = diagnosedAt.get(key);
     if (last && last.outcome === fields.outcome && now - last.at < 10000) return;
     diagnosedAt.set(key, { at: now, outcome: fields.outcome });
-    print(JSON.stringify(Object.assign({ level, component: "arinn-kwin", provider_id: null,
+    record(JSON.stringify(Object.assign({ level, component: "arinn-kwin", provider_id: null,
         request_id: null, operation, duration_ms: null, error: null }, fields)));
 }
 function id(w) { return w ? w.internalId.toString() : ""; }

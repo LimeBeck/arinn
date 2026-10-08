@@ -17,7 +17,7 @@ function signal() {
 function fixture(options = {}) {
     let now = Date.now();
     const output = { name: 'second-screen' };
-    const trace = [], printed = [];
+    const trace = [], printed = [], channels = [];
     function window(uuid, klass) {
         const fields = { keepAbove: false, minimized: false };
         const w = { internalId: uuid, resourceClass: klass, normalWindow: true,
@@ -63,7 +63,8 @@ function fixture(options = {}) {
     const context = vm.createContext({ workspace, Date: { now: () => now },
         QTimer: class { constructor() { this.timeout = { connect: fn => { tick = fn; } }; } start() {} },
         registerShortcut: (id, _label, keys, fn) => { shortcuts.push({ id, keys }); shortcut = fn; },
-        print: line => printed.push(line),
+        print: line => { printed.push(line); channels.push('print'); },
+        console: options.noConsole ? undefined : { warn: line => { printed.push(line); channels.push('warn'); } },
         callDBus: (_service, _path, _interface, method, ...args) => {
             if (method === 'Introspect') {
                 const reply = () => args[0](options.unsupported ? '<node/>' : '<node><interface name="org.arinn.KWinReturn1"/>' + (options.managed ? '<interface name="org.arinn.KWinMedia1"/>' : '') + '</node>');
@@ -114,7 +115,7 @@ function fixture(options = {}) {
             }
         } });
     vm.runInContext(fs.readFileSync(path.join(__dirname, '../../platform/kde/phase0.js'), 'utf8'), context);
-    return { activity, home, workspace, window, polls, snapshots, acknowledgements, controls, trace, mediaReports, mediaAcks, printed, mediaPolls, mediaControls,
+    return { activity, home, workspace, window, polls, snapshots, acknowledgements, controls, trace, mediaReports, mediaAcks, printed, channels, mediaPolls, mediaControls,
         media(action, token) { mediaControl([randomUUID(), action, token]); },
         mediaIdle() { mediaControl([]); },
         advance(ms) { now += ms; },
@@ -706,6 +707,15 @@ test('after a daemon owner change the media channel re-attaches and Present succ
     assert.equal(f.mediaAcks.at(-1)[2], '');
     const attached = f.printed.map(line => JSON.parse(line)).filter(entry => entry.operation === 'media.channel');
     assert.ok(attached.length >= 1 && attached.every(entry => entry.outcome === 'attached'));
+});
+test('diagnostics use the always-enabled console warning channel, print only as fallback', () => {
+    // KWin shows print() only with kwin_scripting debug output enabled.
+    const f = fixture({ managed: true });
+    assert.ok(f.channels.length > 0);
+    assert.ok(f.channels.every(channel => channel === 'warn'), f.channels.join());
+    const old = fixture({ managed: true, noConsole: true });
+    assert.ok(old.channels.length > 0);
+    assert.ok(old.channels.every(channel => channel === 'print'));
 });
 test('a media channel that re-attaches within the rate limit is still printed', () => {
     const f = fixture({ managed: false });

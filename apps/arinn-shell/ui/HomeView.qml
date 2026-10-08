@@ -150,6 +150,8 @@ FocusScope {
     // closes what the menu was opened over (§6.3, #329).
     signal homeKeyPressed()
     signal closeShellRequested()
+    // The daemon runs another build: restart Arinn (ADR-0097, ADR-0098).
+    signal restartRequested()
     signal powerRequested()
     signal openServicesRequested()
     signal serviceRequested(string serviceId)
@@ -686,9 +688,13 @@ FocusScope {
                 kind: root.homeState
                 title: root.statusTitle
                 description: root.statusDescription
-                actionText: root.homeState === "empty" ? qsTr("Browse sections") : qsTr("Retry")
+                actionText: root.homeState === "empty" ? qsTr("Browse sections") : root.homeState === "updated" ? qsTr("Restart") : qsTr("Retry")
                 pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled
-                onActionRequested: { if (root.homeState === "empty") root.openNavigation(); else root.retryRequested(); }
+                onActionRequested: {
+                    if (root.homeState === "empty") root.openNavigation();
+                    else if (root.homeState === "updated") root.restartRequested();
+                    else root.retryRequested();
+                }
                 onDpadRequested: InputMode.keyPressed()
             }
         }

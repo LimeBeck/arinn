@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "backend.h"
+#include "build_identity.h"
 #include "web_icon_references.h"
 #include <QUuid>
 #include <QtDBus>
@@ -120,11 +121,26 @@ public:
   int favoriteWrites = 0;
   QString favoriteFailure;
   bool favoriteListError = false;
+  // BuildInfo: empty fails with NotSupported, "absent" is a daemon older
+  // than the method, "self" is this shell's build, anything else is sent.
+  QString build;
+  int buildCalls = 0;
   QString introspect(const QString &) const override { return {}; }
   bool handleMessage(const QDBusMessage &m,
                      const QDBusConnection &bus) override {
     QDBusArgument a;
-    if (m.member() == "Status") {
+    if (m.member() == "BuildInfo" && !build.isEmpty()) {
+      ++buildCalls;
+      if (build == "absent") {
+        bus.send(m.createErrorReply(
+            QStringLiteral("org.freedesktop.DBus.Error.UnknownMethod"),
+            "fixture"));
+        return true;
+      }
+      const auto id = build == "self" ? BuildIdentity::shell() : build;
+      bus.send(m.createReply(QVariantList{QStringLiteral("0.1.0"), id}));
+      return true;
+    } else if (m.member() == "Status") {
       a.beginStructure();
       const QString epoch = "77777777-7777-4777-8777-777777777777";
       a << epoch << true << epoch << qulonglong(1)
@@ -551,6 +567,58 @@ private slots:
       bus.unregisterService("org.arinn.Daemon1");
       QTRY_VERIFY(backend.shortcutEditor().isEmpty());
       QVERIFY(!backend.shortcutSaving());
+    }
+    bus.unregisterObject("/org/arinn", QDBusConnection::UnregisterTree);
+    bus.unregisterService("org.arinn.Daemon1");
+  }
+  // #357 (ADR-0097): a daemon of another build, or one older than
+  // BuildInfo, gives the "updated" Home state on every owner change.
+  void daemonOfAnotherBuildAsksForRestart() {
+    auto bus = QDBusConnection::sessionBus();
+    CatalogDaemon daemon;
+    daemon.mode = "empty";
+    daemon.build = "self";
+    QVERIFY(bus.registerVirtualObject("/org/arinn", &daemon,
+                                      QDBusConnection::SubPath));
+    {
+      Backend backend;
+      const auto restart = [&](const QString &build) {
+        bus.unregisterService("org.arinn.Daemon1");
+        QTRY_VERIFY(!backend.connected());
+        daemon.buildCalls = 0;
+        daemon.build = build;
+        QVERIFY(bus.registerService("org.arinn.Daemon1"));
+        QTRY_VERIFY(backend.connected());
+      };
+      QVERIFY(bus.registerService("org.arinn.Daemon1"));
+      QTRY_COMPARE(daemon.buildCalls, 1);
+      QTRY_COMPARE(backend.homeState(), QString("empty"));
+      QVERIFY(!backend.buildMismatch());
+
+      restart("0.1.0+g000000000000");
+      QTRY_COMPARE(backend.homeState(), QString("updated"));
+      QVERIFY(backend.buildMismatch());
+      // Asked once per daemon owner, not on every Status.
+      QTest::qWait(1500);
+      QCOMPARE(daemon.buildCalls, 1);
+
+      // The same commit with local changes is the same build.
+      auto clean = BuildIdentity::shell();
+      clean.remove(QRegularExpression("-dirty$"));
+      restart(clean + "-dirty");
+      QTRY_COMPARE(daemon.buildCalls, 1);
+      QTRY_COMPARE(backend.homeState(), QString("empty"));
+      QVERIFY(!backend.buildMismatch());
+
+      restart("absent");
+      QTRY_COMPARE(backend.homeState(), QString("updated"));
+
+      // A failing BuildInfo proves nothing: Home stays as it was.
+      restart(QString());
+      QTRY_COMPARE(backend.homeState(), QString("empty"));
+      QTest::qWait(1500);
+      QCOMPARE(backend.homeState(), QString("empty"));
+      QVERIFY(!backend.buildMismatch());
     }
     bus.unregisterObject("/org/arinn", QDBusConnection::UnregisterTree);
     bus.unregisterService("org.arinn.Daemon1");

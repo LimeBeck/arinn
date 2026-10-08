@@ -227,6 +227,16 @@ confirmation. It does not request OS power actions or stop the daemon, providers
 or external applications. Back never invokes it. Owner request on 2026-10-03
 ([#277](https://github.com/LimeBeck/arinn/issues/277)).
 
+**Arinn was updated.** On connect and on every daemon owner change, the shell
+compares the daemon's build id with its own (§8.6). A different build, or a
+daemon without `BuildInfo`, gives the Home state "Arinn was updated" with a
+**Restart** action instead of a vague load error; navigation stays available.
+Restart closes the shell with exit status 75, and the platform restarts the
+daemon and the shell from the installed binaries. A shell started without the
+session units only closes. Owner request on 2026-10-06
+([#357](https://github.com/LimeBeck/arinn/issues/357),
+[ADR-0098](../adr/0098-restart-after-an-update.md)).
+
 **Ambient (screensaver).** Started by an explicit action or an idle timeout (10 minutes by default). Any key or pointer movement wakes the UI; the first wake event is consumed and triggers no action. Automatic ambient MUST NOT start while an external Activity is in the foreground **or** media is playing. The idle timer never triggers OS suspend. Ambient never stops applications.
 
 **Session lifecycle.** On lock or before sleep the shell hides regardless of daemon state and keeps the Activity context; after wake it re-checks the lock state before showing anything. If the lock state is unknown, the shell treats the session as locked ([session lifecycle](../architecture/session-lifecycle.md)). Lock/sleep observation MUST remain independent of daemon availability through an asynchronous, fail-closed platform lifecycle guard ([ADR-0041](../adr/0041-independent-session-lifecycle-guard.md)). The guard observes session state; it does not execute power or application commands.
@@ -612,7 +622,7 @@ Diagnostics show the daemon status and, per provider: runtime and backend state,
 
 ### 14.3. CLI
 
-`arinnctl` uses the same public daemon API as the shell and provides at least `status`, `providers`, `capabilities`, `activities`, `diagnostics`, `provider restart <id>` and `providers reload`. Human-readable output by default and `--json` for read commands. Exit codes: 0 success, 1 runtime failure, 2 invalid usage, 3 daemon unavailable. Web shortcuts are managed with `shortcuts [list]`, `shortcuts add <title> <url> [icon]`, `shortcuts edit <id> <title> <url> [icon]`, `shortcuts remove <id>` and `shortcuts open <id>` (the TV fallback without a keyboard, §5.1); `browser tabs`, `browser activate <provider> <tab>` and `browser close <provider> <tab>` work on browser providers. A failed call prints the Arinn error name (for example `Conflict`) on standard error; URLs appear only in the command's own output.
+`arinnctl` uses the same public daemon API as the shell and provides at least `status`, `providers`, `capabilities`, `activities`, `diagnostics`, `provider restart <id>` and `providers reload`. Human-readable output by default and `--json` for read commands. `--version` prints the CLI's build id without connecting, and `status` adds `build_id` and the daemon's `daemon_build_id` (`null` for a daemon without `BuildInfo`, §8.6). Exit codes: 0 success, 1 runtime failure, 2 invalid usage, 3 daemon unavailable. Web shortcuts are managed with `shortcuts [list]`, `shortcuts add <title> <url> [icon]`, `shortcuts edit <id> <title> <url> [icon]`, `shortcuts remove <id>` and `shortcuts open <id>` (the TV fallback without a keyboard, §5.1); `browser tabs`, `browser activate <provider> <tab>` and `browser close <provider> <tab>` work on browser providers. A failed call prints the Arinn error name (for example `Conflict`) on standard error; URLs appear only in the command's own output.
 
 ### 14.4. Optional remote diagnostics
 

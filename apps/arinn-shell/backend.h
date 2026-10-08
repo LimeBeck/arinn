@@ -32,6 +32,8 @@ class Backend : public QObject {
   Q_PROPERTY(bool favoriteSaving READ favoriteSaving NOTIFY changed)
   Q_PROPERTY(QString favoriteError READ favoriteError NOTIFY changed)
   Q_PROPERTY(QString homeState READ homeState NOTIFY changed)
+  // The daemon runs another build than this shell (ADR-0097).
+  Q_PROPERTY(bool buildMismatch READ buildMismatch NOTIFY changed)
   Q_PROPERTY(QString applicationsState READ applicationsState NOTIFY changed)
   Q_PROPERTY(QStringList busyEntryIds READ busyEntryIds NOTIFY changed)
   Q_PROPERTY(QString message READ message NOTIFY changed)
@@ -58,6 +60,9 @@ public:
   Q_INVOKABLE void setFavorite(const QString &id, bool pinned);
   Q_INVOKABLE void terminate(const QString &id);
   QString homeState() const;
+  bool buildMismatch() const { return m_connected && m_buildMismatch; }
+  // Exit with the status that asks the platform to restart Arinn (ADR-0098).
+  Q_INVOKABLE void restartArinn();
   QString applicationsState() const;
   QStringList busyEntryIds() const { return m_pendingIds.values(); }
   QString message() const { return m_message; }
@@ -107,6 +112,8 @@ private:
   void readApplications(const std::shared_ptr<Catalog> &catalog, int index = 0,
                         const QString &token = {});
   void readShortcuts(quint64 epoch);
+  void checkBuild(quint64 epoch);
+  bool m_buildRequested = false, m_buildMismatch = false;
   void finishCatalog(const std::shared_ptr<Catalog> &catalog, bool success);
   void runApplication(const QString &id, const QVariantList &entries,
                       const char *method);

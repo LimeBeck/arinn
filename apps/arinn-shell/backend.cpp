@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "backend.h"
+#include "build_identity.h"
 #include "icon_references.h"
 #include "web_icon_references.h"
 #include <QJsonArray>
@@ -134,6 +135,8 @@ Backend::Backend(QObject *parent) : QObject(parent) {
             m_favoriteError.clear();
             ++m_connectionEpoch;
             m_daemonOwner = owner;
+            // A new daemon owner may be another build: ask it again.
+            m_buildRequested = m_buildMismatch = false;
             m_pendingIds.clear();
             m_connected = false;
             m_available = false;
@@ -282,6 +285,9 @@ QVariantMap Backend::favoriteTarget(const QString &id) const {
 QString Backend::homeState() const {
   if (!m_connected)
     return "unavailable";
+  // Another daemon build may lack what this shell calls: say so first.
+  if (m_buildMismatch)
+    return "updated";
   if (!m_return.isEmpty() || !m_favoriteTargets.isEmpty())
     return "ready";
   if (m_favoritesError || m_shortcutsError || m_snapshotError)
@@ -319,6 +325,47 @@ void Backend::refresh() {
 void Backend::reloadShortcuts() {
   WebIconReferences::clear();
   readShortcuts(m_connectionEpoch);
+}
+void Backend::checkBuild(quint64 epoch) {
+  m_buildRequested = true;
+  auto pending = new QDBusPendingCallWatcher(
+      QDBusConnection::sessionBus().asyncCall(request("BuildInfo"), 3000),
+      this);
+  connect(pending, &QDBusPendingCallWatcher::finished, this,
+          [this, epoch](auto *call) {
+            const auto reply = call->reply();
+            call->deleteLater();
+            if (epoch != m_connectionEpoch)
+              return;
+            bool mismatch = false;
+            if (reply.type() == QDBusMessage::ErrorMessage) {
+              // A daemon older than BuildInfo is another build. Any other
+              // error proves nothing: ask again on the next Status.
+              if (reply.errorName() !=
+                  QLatin1String("org.freedesktop.DBus.Error.UnknownMethod")) {
+                m_buildRequested = false;
+                return;
+              }
+              mismatch = true;
+            } else if (reply.signature() == QLatin1String("ss")) {
+              mismatch = !BuildIdentity::same(
+                  BuildIdentity::shell(), reply.arguments().at(1).toString());
+            } else {
+              m_buildRequested = false;
+              return;
+            }
+            if (mismatch != m_buildMismatch) {
+              m_buildMismatch = mismatch;
+              publishState();
+            }
+          });
+}
+void Backend::restartArinn() {
+  // After the QML call returns; the launcher restarts the daemon and systemd
+  // the shell (ADR-0098).
+  QTimer::singleShot(0, qApp, [] {
+    QCoreApplication::exit(BuildIdentity::RestartExitStatus);
+  });
 }
 void Backend::reloadCatalog() {
   if (m_refreshing) {
@@ -376,6 +423,8 @@ void Backend::reloadCatalog() {
             }
             emit screenRequested(homeOutput);
             m_connected = true;
+            if (!m_buildRequested)
+              checkBuild(epoch);
             // List once per connection, on an explicit refresh, and on
             // WebShortcuts1.Changed. A focus StateChanged must not List.
             // Defer List so Home can publish "loading" first; a same-thread

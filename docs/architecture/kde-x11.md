@@ -10,7 +10,11 @@ Generic EWMH support for other desktops remains [#186](https://github.com/LimeBe
 
 ## Starting the shell
 
-The packaged `arinn-shell.service` uses `arinn-shell-launch`. With
+The packaged `arinn-shell.service` uses `arinn-shell-launch`. The same script
+runs as `ExecStopPost` with `--stopped`: after the shell exits with status 75
+(Restart on the "Arinn was updated" Home state), it restarts `arinnd.service`,
+and `RestartForceExitStatus=75` restarts the shell ([ADR-0098](../adr/0098-restart-after-an-update.md)).
+With
 `ARINN_SESSION_BACKEND=auto` (the default), `XDG_SESSION_TYPE=wayland` selects Qt
 `wayland` and `XDG_SESSION_TYPE=x11` selects Qt `xcb`. An absent session type
 preserves the existing Wayland default. Unknown types are rejected before a shell

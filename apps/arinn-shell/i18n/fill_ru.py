@@ -16,6 +16,8 @@ RU = {
     "Loading…": "Загрузка…",
     "Loading": "Загрузка",
     "Retry": "Повторить",
+    "Arinn was updated": "Arinn обновлён",
+    "Restart it to finish. Navigation remains available.": "Перезапустите его, чтобы завершить обновление. Навигация остаётся доступной.",
     "Try again": "Повторить",
     "Back": "Назад",
     "Cancel": "Отмена",
@@ -309,6 +311,8 @@ CONTEXT = {
     ("LibraryView", "Continue"): "Продолжить",
     ("PlayerView", "Loading"): "Загрузка",
     ("PowerMenu", "Restart"): "Перезагрузка",
+    # Restart Arinn itself, not the computer (ADR-0098).
+    ("HomeView", "Restart"): "Перезапустить",
     ("BrowserView", "Open services"): "Открытые сервисы",
     ("HomeView", "Open services"): "Все открытые сервисы",
     ("HomeView", "Close"): "Закрыть",

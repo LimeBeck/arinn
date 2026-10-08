@@ -189,7 +189,7 @@ fn render(path: &str, commands: &[&Command]) -> String {
             }
         )
     };
-    out.push_str("\nOptions:\n  -h, --help  Show help without connecting to the daemon\n  --json      Print read results as JSON; help remains plain text\n");
+    out.push_str("\nOptions:\n  -h, --help     Show help without connecting to the daemon\n  -V, --version  Print the build id without connecting to the daemon\n  --json         Print read results as JSON; help remains plain text\n");
     if !leaf {
         out.push_str("\nCommands:\n");
         let mut rows = Vec::new();

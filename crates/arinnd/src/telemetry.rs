@@ -137,7 +137,8 @@ impl Transport for FilteringTransport {
     }
 }
 /// Release reported with every payload; #357 replaces it with the build id.
-const RELEASE: &str = concat!("arinn@", env!("CARGO_PKG_VERSION"));
+/// The Sentry release names the exact build (ADR-0097), as the shell's does.
+const RELEASE: &str = concat!("arinn@", env!("ARINN_BUILD_ID"));
 /// Operation kinds: fixed Arinn identifiers, never user content (ADR-0093).
 pub const KINDS: &[&str] = &[
     "application.launch",

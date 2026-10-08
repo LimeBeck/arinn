@@ -89,3 +89,21 @@ fn default_command_and_literal_help_values_still_require_the_daemon() {
         );
     }
 }
+#[test]
+fn version_prints_the_build_id_offline() {
+    for flag in ["--version", "-V"] {
+        let output = cli(&[flag]);
+        assert_eq!(output.status.code(), Some(0), "{output:?}");
+        assert!(output.stderr.is_empty(), "{output:?}");
+        let text = String::from_utf8(output.stdout).unwrap();
+        let id = text
+            .trim()
+            .strip_prefix("arinnctl ")
+            .expect("arinnctl <build id>");
+        assert_eq!(
+            arinn_protocol::build::validate(env!("CARGO_PKG_VERSION"), id),
+            Ok(()),
+            "{id}"
+        );
+    }
+}

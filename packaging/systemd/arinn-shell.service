@@ -14,6 +14,10 @@ StartLimitBurst=5
 Type=dbus
 BusName=org.arinn.Shell1
 ExecStart=/usr/lib/arinn/arinn-shell-launch
+# Exit status 75 asks to restart Arinn after an update (ADR-0098): the
+# launcher restarts arinnd, and the unit restarts the shell.
+ExecStopPost=/usr/lib/arinn/arinn-shell-launch --stopped
+RestartForceExitStatus=75
 Restart=on-failure
 # Exit status 2: duplicate shell ownership, unsupported backend, or display
 # mismatch in the launcher; the journal reason distinguishes these cases.

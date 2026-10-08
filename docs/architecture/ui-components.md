@@ -135,7 +135,7 @@ the light field off while an Activity background is shown. A media entry whose
 current-service card, or becomes a `tab` card that emits `tabRequested`.
 Play, Pause and the toggle key on it emit `mediaActionRequested` with the session ID and `play`, `pause` or `playPause`. QML neither aggregates providers nor persists these arrays.
 `returnActivityId` identifies the return target independently of focus.
-`homeState` is ready/empty/loading/error/unavailable, accompanied by
+`homeState` is ready/empty/loading/error/unavailable/updated, accompanied by
 `statusTitle` and `statusDescription`; `clockText` is display-only.
 
 In production, `Main.qml` passes the browser catalog's tabs as `openServices` and
@@ -361,6 +361,9 @@ full KDE/Wayland integration and physical TV readability were not tested here.
 ## Shell close action
 
 Global navigation emits `closeShellRequested()` from its final Close Arinn row.
+The `updated` Home state (the daemon runs another build, ADR-0097) offers
+Restart instead of Retry and emits `restartRequested()`; `Main.qml` calls
+`Backend.restartArinn()`, which exits with status 75 (ADR-0098).
 `Main.qml` handles it with `Window.close()`, the same graceful path as Alt+F4.
 The action is local and available in degraded Home states; it does not call a
 provider, a power API or the daemon. Navigation preserves Back and focus traps.

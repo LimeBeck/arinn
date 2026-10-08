@@ -705,6 +705,10 @@
         <source>Paused</source>
         <translation>Пауза</translation>
     </message>
+    <message>
+        <source>Restart</source>
+        <translation>Перезапустить</translation>
+    </message>
 </context>
 <context>
     <name>LaunchOverlay</name>
@@ -920,6 +924,14 @@
     <message>
         <source>Type an address or a search</source>
         <translation>Введите адрес или запрос</translation>
+    </message>
+    <message>
+        <source>Arinn was updated</source>
+        <translation>Arinn обновлён</translation>
+    </message>
+    <message>
+        <source>Restart it to finish. Navigation remains available.</source>
+        <translation>Перезапустите его, чтобы завершить обновление. Навигация остаётся доступной.</translation>
     </message>
 </context>
 <context>

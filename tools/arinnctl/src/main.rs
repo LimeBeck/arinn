@@ -19,6 +19,34 @@ fn output(value: &impl Serialize, json: bool) -> Result<(), u8> {
     }
     Ok(())
 }
+/// The daemon's build id, or `None` for a daemon older than `BuildInfo`
+/// (ADR-0097). Any other failure is a runtime failure, not an old daemon.
+fn daemon_build(reply: zbus::Result<(String, String)>) -> Result<Option<String>, u8> {
+    match reply {
+        Ok((_, id)) => Ok(Some(id)),
+        Err(zbus::Error::MethodError(name, _, _))
+            if name.as_str() == "org.freedesktop.DBus.Error.UnknownMethod" =>
+        {
+            Ok(None)
+        }
+        Err(zbus::Error::FDO(error)) if matches!(*error, zbus::fdo::Error::UnknownMethod(_)) => {
+            Ok(None)
+        }
+        Err(_) => Err(1),
+    }
+}
+/// `status` with this client's build id and the daemon's (`null` when the
+/// daemon predates `BuildInfo`).
+fn with_builds(
+    status: &arinn_protocol::Status,
+    daemon: Option<&str>,
+) -> Result<serde_json::Value, u8> {
+    let mut value = serde_json::to_value(status).map_err(|_| 1)?;
+    let map = value.as_object_mut().ok_or(1)?;
+    map.insert("build_id".into(), env!("ARINN_BUILD_ID").into());
+    map.insert("daemon_build_id".into(), daemon.into());
+    Ok(value)
+}
 /// `key: value` lines; the objects of any list, nested ones too, are
 /// separated by a blank line.
 fn human(value: &serde_json::Value) -> String {
@@ -290,6 +318,10 @@ async fn run() -> Result<(), u8> {
         print!("{help}");
         return Ok(());
     }
+    if args.len() == 1 && (args[0] == "--version" || args[0] == "-V") {
+        println!("arinnctl {}", env!("ARINN_BUILD_ID"));
+        return Ok(());
+    }
     if args.is_empty() {
         args.push("status".into());
     }
@@ -314,7 +346,11 @@ async fn run() -> Result<(), u8> {
     let p = ProductionDaemonProxy::new(&c).await.map_err(|_| 3)?;
     let request = uuid::Uuid::new_v4().to_string();
     match args[0].as_str() {
-        "status" => output(&p.status().await.map_err(|_| 1)?.0, json),
+        "status" => {
+            let status = p.status().await.map_err(|_| 1)?.0;
+            let daemon = daemon_build(p.build_info().await)?;
+            output(&with_builds(&status, daemon.as_deref())?, json)
+        }
         "providers" if args.len() == 1 => {
             let providers = p.providers().await.map_err(|_| 1)?;
             if json {
@@ -405,6 +441,70 @@ async fn main() {
 mod tests {
     use super::*;
     use arinn_protocol::production::ProviderInfo;
+
+    #[test]
+    fn status_names_both_builds() {
+        let status = arinn_protocol::Status {
+            epoch: "e".into(),
+            provider_available: true,
+            generation: "g".into(),
+            revision: 1,
+            home_visible: true,
+            return_window: String::new(),
+            active_window: String::new(),
+            active_class: String::new(),
+            active_fullscreen: false,
+            platform_connected: true,
+            home_output: String::new(),
+            active_output: String::new(),
+        };
+        let value = with_builds(&status, Some("0.1.0+g1bd20d647afe")).unwrap();
+        assert_eq!(value["build_id"], env!("ARINN_BUILD_ID"));
+        assert_eq!(value["daemon_build_id"], "0.1.0+g1bd20d647afe");
+        assert!(human(&value).contains("daemon_build_id: 0.1.0+g1bd20d647afe\n"));
+        // A daemon without BuildInfo: unknown, not invented.
+        let value = with_builds(&status, None).unwrap();
+        assert!(value["daemon_build_id"].is_null());
+        assert!(human(&value).contains("daemon_build_id: null\n"));
+    }
+
+    #[test]
+    fn only_a_missing_build_info_is_an_old_daemon() {
+        let unknown =
+            zbus::names::OwnedErrorName::try_from("org.freedesktop.DBus.Error.UnknownMethod")
+                .unwrap();
+        let message = zbus::message::Message::method_call("/", "BuildInfo")
+            .unwrap()
+            .build(&())
+            .unwrap();
+        assert_eq!(
+            daemon_build(Ok(("0.1.0".into(), "0.1.0+g1bd20d647afe".into()))),
+            Ok(Some("0.1.0+g1bd20d647afe".into()))
+        );
+        assert_eq!(
+            daemon_build(Err(zbus::Error::MethodError(unknown, None, message))),
+            Ok(None)
+        );
+        assert_eq!(
+            daemon_build(Err(zbus::Error::FDO(Box::new(
+                zbus::fdo::Error::UnknownMethod("BuildInfo".into())
+            )))),
+            Ok(None)
+        );
+        // A timeout or another error is a failure, not "no BuildInfo".
+        assert_eq!(
+            daemon_build(Err(zbus::Error::InputOutput(std::sync::Arc::new(
+                std::io::Error::from(std::io::ErrorKind::TimedOut)
+            )))),
+            Err(1)
+        );
+        assert_eq!(
+            daemon_build(Err(zbus::Error::FDO(Box::new(
+                zbus::fdo::Error::AccessDenied("no".into())
+            )))),
+            Err(1)
+        );
+    }
 
     fn provider(id: &str, error: &str, error_at: u64, recovered_at: u64) -> ProviderInfo {
         ProviderInfo {

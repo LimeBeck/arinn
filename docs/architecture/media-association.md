@@ -112,6 +112,11 @@ and a new or moved link waits; ties go by the link's sort order.
   `Changed` or reply is discarded, so an older in-flight read never overwrites a
   newer link. A new daemon owner or epoch resets the last applied revision and
   clears the links.
+- A `Changed` for the current epoch with a revision higher than the last
+  applied one clears the applied links at once, before the re-read. Until a
+  valid `Get` reply at that revision or later is applied, every media card
+  stays separate. A failed, timed-out or invalid read therefore never leaves an
+  invalidated link hiding a card.
 - A link applies only when all six fields match the shell's current, complete
   provider snapshots: media provider ID and generation with the session ID, and
   browser provider ID and generation with the tab ID. Anything stale or missing

@@ -317,7 +317,7 @@ def main():
         metadata, published = prepare(api, sha, repo, tag, Path("dist"))
         path.write_text(json.dumps(metadata))
         changes = subprocess.check_output([sys.executable, "scripts/release.py", "unreleased"], text=True)
-        Path("snapshot-notes.md").write_text(f"Automatic master snapshot from `{sha}`.\n\nWorkspace/package version is unchanged. Full CI, package build and installation smoke tests passed for this commit. No real-desktop qualification is claimed.\n\n" + changes)
+        Path("snapshot-notes.md").write_text(f"Automatic master snapshot from `{sha}`.\n\nThe workspace version is unchanged; the package version carries the commit count and hash. Full CI, package build and installation smoke tests passed for this commit. No real-desktop qualification is claimed.\n\n" + changes)
         with open(os.environ["GITHUB_OUTPUT"], "a") as output:
             output.write(f"tag={tag}\nalready_published={'true' if published else 'false'}\n")
     elif sys.argv[1] == "publish":

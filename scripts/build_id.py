@@ -8,6 +8,7 @@
 
     python scripts/build_id.py            print the build id
     python scripts/build_id.py --watch    print the files a build should watch
+    python scripts/build_id.py --pkgver   print the snapshot package version
 
 The build id is `<version>+g<12 hex>` with `-dirty` for a modified checkout,
 or the bare workspace version when the commit is unknown. The commit comes
@@ -99,7 +100,26 @@ def watched() -> list[Path]:
     return [p for p in paths if p.exists()]
 
 
+def snapshot_pkgver() -> str:
+    """`<version>.r<commits>.g<12 hex>` for a master snapshot package (#357).
+
+    pacman orders it after `<version>` and before the next release, and
+    orders snapshots by their commit count, so every snapshot upgrades the
+    one before it. The count needs the full history: a shallow clone fails.
+    """
+    if git("rev-parse", "--is-shallow-repository") != "false":
+        raise SystemExit("--pkgver needs a full clone (fetch-depth: 0)")
+    head = git("rev-parse", "--verify", "HEAD")
+    count = git("rev-list", "--count", "HEAD")
+    if not head or not re.fullmatch(r"[0-9a-f]{40}", head) or not count or not count.isdigit():
+        raise SystemExit("--pkgver needs a git checkout")
+    return f"{release.version()}.r{count}.g{head[:12]}"
+
+
 def main(argv: list[str]) -> int:
+    if argv == ["--pkgver"]:
+        print(snapshot_pkgver())
+        return 0
     if argv[:1] == ["--watch"]:
         for path in watched():
             print(path)

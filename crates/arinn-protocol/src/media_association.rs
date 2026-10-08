@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Arinn contributors
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! Optional media-session ↔ browser-tab association (ADR-0094). Bindings and
+//! Optional media-session ↔ browser-tab association (ADR-0096). Bindings and
 //! validation only; the join rules are in docs/architecture/media-association.md.
 use crate::{
     platform,
@@ -184,8 +184,11 @@ pub fn join(
             });
         }
     }
-    links.sort();
+    // Over the cap, links that hold unchanged keep their place: a new
+    // candidate never evicts one, so no merged card splits again.
+    links.sort_by_key(|l| (!previous.contains(l), l.clone()));
     links.truncate(MAX_LINKS);
+    links.sort();
     links
 }
 
@@ -440,6 +443,25 @@ mod tests {
         // the old evidence is for process 7, so the link is not held.
         let moved = [window("w7", 8)];
         assert!(join(&[session("s", 8)], &moved, &tabs, &previous).is_empty());
+    }
+
+    #[test]
+    fn join_keeps_held_links_over_new_ones_at_the_cap() {
+        let count = MAX_LINKS as u32 + 1;
+        let mut sessions = Vec::new();
+        let mut windows = Vec::new();
+        let mut tabs = Vec::new();
+        for n in 0..count {
+            // Session "s000" sorts first; it is the new candidate.
+            sessions.push(session(&format!("s{n:03}"), 100 + n));
+            windows.push(window(&format!("w{n:03}"), 100 + n));
+            tabs.push(tab(&format!("t{n:03}"), &format!("w{n:03}"), n != 0));
+        }
+        let held = join(&sessions[1..], &windows, &tabs, &[]);
+        assert_eq!(held.len(), MAX_LINKS);
+        tabs[0].audible = true;
+        let next = join(&sessions, &windows, &tabs, &held);
+        assert_eq!(next, held);
     }
 
     #[test]

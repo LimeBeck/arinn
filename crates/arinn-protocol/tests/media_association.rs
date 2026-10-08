@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Arinn contributors
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! Contract fixtures only (ADR-0094): no production provider, daemon join or
+//! Contract fixtures only (ADR-0096): no production provider, daemon join or
 //! shell consumer. The live exports must match the published XML.
 use arinn_protocol::{
     media_association::{

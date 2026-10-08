@@ -24,9 +24,9 @@ capability, but **has not been released as a stable Plugin API**. Requirements:
 | `org.arinn.MediaOpen1` | Optional provider interface; [media-open1.xml](media-open1.xml) |
 | `org.arinn.MediaTracks1` | Optional provider interface; [media-tracks1.xml](media-tracks1.xml) |
 | `org.arinn.MediaTimeline1` | Optional provider interface; [media-timeline1.xml](media-timeline1.xml) |
-| `org.arinn.MediaProcess1` | Optional media-provider interface, daemon callers only; [media-process1.xml](media-process1.xml) ([ADR-0094](../adr/0094-browser-media-session-association.md)) |
-| `org.arinn.BrowserProcess1` | Optional browser-provider interface, daemon callers only; [browser-process1.xml](browser-process1.xml) ([ADR-0094](../adr/0094-browser-media-session-association.md)) |
-| `org.arinn.MediaAssociation1` | Optional daemon-root media-session ↔ tab links; [media-association1.xml](media-association1.xml) ([ADR-0094](../adr/0094-browser-media-session-association.md)). Contract only, production implementation pending |
+| `org.arinn.MediaProcess1` | Optional media-provider interface, daemon callers only; [media-process1.xml](media-process1.xml) ([ADR-0096](../adr/0096-browser-media-session-association.md)) |
+| `org.arinn.BrowserProcess1` | Optional browser-provider interface, daemon callers only; [browser-process1.xml](browser-process1.xml) ([ADR-0096](../adr/0096-browser-media-session-association.md)) |
+| `org.arinn.MediaAssociation1` | Optional daemon-root media-session ↔ tab links; [media-association1.xml](media-association1.xml) ([ADR-0096](../adr/0096-browser-media-session-association.md)). Contract only, production implementation pending |
 | `org.arinn.Library1` | Daemon-owned provider path of a `library` provider; [library1.xml](library1.xml). Exported by the daemon ([ADR-0060](../adr/0060-library-routing.md)) |
 | `org.arinn.LibraryProvider1` | Provider unique bus owner, `/org/arinn/Provider1`; [library-provider1.xml](library-provider1.xml) |
 | `org.arinn.LibraryResume1` | Optional provider interface; [library-resume1.xml](library-resume1.xml) |
@@ -296,7 +296,7 @@ implements browser-only deduplication; media association remains separately scop
 
 ### Optional browser media-session association
 
-[ADR-0094](../adr/0094-browser-media-session-association.md) defines
+[ADR-0096](../adr/0096-browser-media-session-association.md) defines
 [MediaProcess1](media-process1.xml) on a media provider,
 [BrowserProcess1](browser-process1.xml) on a browser provider and
 [MediaAssociation1](media-association1.xml) at the daemon root. The daemon

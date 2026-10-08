@@ -1,6 +1,6 @@
 # Browser media-session association
 
-Normative contract for [ADR-0094](../adr/0094-browser-media-session-association.md)
+Normative contract for [ADR-0096](../adr/0096-browser-media-session-association.md)
 ([#359](https://github.com/LimeBeck/arinn/issues/359)). A browser's own media
 session (for example `org.mpris.MediaPlayer2.chromium.instance<pid>`) and the tab
 that plays it are one item in Continue. This document states what each side may
@@ -95,7 +95,8 @@ The snapshot carries the daemon epoch and a revision that increases with every
 content change (`checked_add`; on overflow the interface stops publishing
 links). `Changed(epoch, revision)` invalidates readers; it never requests Home
 presentation. At most 64 links are published, and a session or tab appears in
-at most one link.
+at most one link. Over that cap, links that hold unchanged keep their place
+and a new or moved link waits; ties go by the link's sort order.
 
 ## Shell consumer
 
@@ -116,7 +117,7 @@ at most one link.
   - Return or OK opens the exact tab;
   - play/pause on the card goes to the session;
   - the separate media card is hidden.
-  
+
   When the tab is the current service, that card is the current-service card.
 - Media keys keep working through the desktop because the MPRIS session is
   untouched.
@@ -127,7 +128,9 @@ at most one link.
   so nothing is linked. Other browsers without a provider interface are not
   linked either.
 - `audible` can lag briefly behind playback. The hold rule keeps a link
-  through a pause, and an ambiguous moment keeps today's two cards.
+  through a pause and through two audible tabs. Only a session that has no
+  link yet, or one whose session or browser provider is no longer unique,
+  keeps today's two cards.
 - That the native host's parent is the process owning the MPRIS name has to be
   confirmed on a real Chrome/KDE session. That check needs explicit owner
   permission and is not part of the contract tests.

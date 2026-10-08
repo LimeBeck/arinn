@@ -1,4 +1,4 @@
-# ADR-0094: Associate a browser's media session with its audible tab
+# ADR-0096: Associate a browser's media session with its audible tab
 
 - **Status:** Accepted
 - **Date:** 2026-10-07

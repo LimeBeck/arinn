@@ -24,6 +24,7 @@ The shell work and the owner questions DR-39…DR-41 are tracked in [#418](https
 | DR-45 | The language and the last key are remembered per field. | Technical: shell interaction state (§11). Whether it survives a shell restart is decided in the implementation task; it never holds the typed text. |
 | DR-46 | Back hides the panel first; a hardware keyboard keeps typing into the field while the panel is open. | Technical: it follows [§6.3](../specifications/arinn-specification.md#63-home-and-back) and AC-18. The open panel is one more level for Back, Backspace in a field keeps deleting text, and Home and Menu work as on every screen. |
 | DR-47 | The package carried third-party service logos again. | Replaced with the existing monograms before adding. The `kb-*` and new `se-*` screenshots contain none; see the [design README](README.md#licensing). |
+| DR-48 | The keyboard in the prototype `arinn.dc.html` is a simplified demo and differs from the README: focus opens on the 4th key of the middle letter row, not the 5th, and reopening does not return to the last key; it shows up to 3 suggestions instead of 4; the *123* and language keys are 1.5 keys wide instead of 1; the screen ignores `lang=en`. | Technical, no source change: the README section *On-screen keyboard* and `arinn On-Screen Keyboard.dc.html` are authoritative for the keyboard, as the canvas is for *Closing applications*. The delivered prototype is kept as is. |
 
 ## Handoff update of 2026-10-01 (closing applications)
 

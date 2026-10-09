@@ -327,10 +327,20 @@ FocusScope {
                             height: 156
                             readonly property string actionName: root.primaryAction(modelData)
                             function hoverFocus() {
-                                if (!(root.pointerMode && root.hoverFocusEnabled)) return;
+                                if (!(rowHover.hovered && root.pointerMode && root.hoverFocusEnabled)) return;
                                 root.selectedIndex = index;
                                 root.selectedId = modelData.id || "";
                                 Ui.Focus.take(row, Qt.MouseFocusReason);
+                            }
+                            // As in Surface: the view's handler and this one
+                            // receive the same move in either order, so pointer
+                            // mode may turn on after this row's hover was
+                            // checked (#396). Check again when it does.
+                            Connections {
+                                target: root
+                                function onPointerModeChanged() {
+                                    if (root.pointerMode) Qt.callLater(row.hoverFocus);
+                                }
                             }
                             Keys.onPressed: event => {
                                 if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
@@ -339,6 +349,7 @@ FocusScope {
                                 } else root.acceptKey(event);
                             }
                             HoverHandler {
+                                id: rowHover
                                 onHoveredChanged: if (hovered) Qt.callLater(row.hoverFocus)
                                 onPointChanged: Qt.callLater(row.hoverFocus)
                             }

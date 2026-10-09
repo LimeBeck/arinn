@@ -13,6 +13,17 @@ void finishStartup();
 void breadcrumb(const char *operation);
 void qtMessage(QtMsgType type, const QMessageLogContext &context, const QString &message);
 
+// A finished shell flow (ADR-0093): fixed names, wall-clock start, monotonic
+// offsets in milliseconds. Unknown names are dropped.
+struct FlowStep {
+  const char *name;
+  qint64 startMs;
+  qint64 endMs;
+  const char *outcome;
+};
+void flow(const char *name, qint64 startedAtMs, qint64 durationMs, const char *outcome,
+          const FlowStep *steps, int stepCount);
+
 // A Qt or QML message reduced to a fixed, non-personal template (ADR-0093).
 struct QtTemplate {
   QByteArray location; // Arinn source file and line, for example "HomeView.qml:42".

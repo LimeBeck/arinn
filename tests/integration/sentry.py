@@ -145,6 +145,15 @@ def run(binary, configuration, crash=False, expected=True, dsn=None, cached=Fals
             assert "Icon is unavailable" not in encoded, captured
             assert any(kind == "metric" and payload["name"] == "arinn.shell.messages.benign"
                        for kind, payload in captured), captured
+            flows = [payload for kind, payload in captured
+                     if kind == "transaction" and payload["transaction"] != "shell.startup"]
+            assert [flow["transaction"] for flow in flows] == ["playback.present"], flows
+            assert flows[0]["tags"] == {"component": "arinn-shell", "outcome": "Timeout"}, flows
+            assert flows[0]["contexts"]["trace"]["op"] == "shell.flow", flows
+            assert flows[0]["contexts"]["trace"]["status"] == "deadline_exceeded", flows
+            steps = sorted((span["op"], span["description"], span.get("status")) for span in flows[0]["spans"])
+            assert steps == [("shell.step", "platform.present", "deadline_exceeded"),
+                             ("shell.step", "window.resolve", "ok")], steps
         if component == "arinnd" and not crash:
             launches = [payload for kind, payload in captured
                         if kind == "transaction" and payload["transaction"] == "library.launch"]

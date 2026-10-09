@@ -6,6 +6,7 @@
 // private bus: paging and revisions, every state, actions as operations,
 // import states, the toast-once rule and an unavailable backend.
 #include "download_catalog.h"
+#include "flow_trace_recorder.h"
 #include <QCoreApplication>
 #include <limits>
 #include <QSignalSpy>
@@ -604,8 +605,15 @@ private slots:
     queued.actions = {QStringLiteral("start-now")};
     daemon->page1 = {queued};
     daemon->providers.first().backend = QStringLiteral("unavailable");
+    recordFlows();
     DownloadCatalog catalog;
     QTRY_COMPARE(catalog.downloadsState(), QStringLiteral("populated"));
+    // The first read is reported; a repeat that changes nothing is not
+    // (ADR-0093).
+    QTRY_COMPARE(flowsNamed("downloads.read").size(), 1);
+    QCOMPARE(flowsNamed("downloads.read").first().outcome, QString("ok"));
+    reload(catalog);
+    QCOMPARE(flowsNamed("downloads.read").size(), 1);
     const auto cached = jobById(catalog, QStringLiteral("a"));
     QCOMPARE(cached.value(QStringLiteral("state")).toString(), QStringLiteral("queued"));
     QVERIFY(cached.value(QStringLiteral("availableActions")).toStringList().isEmpty());
@@ -625,6 +633,11 @@ private slots:
     daemon->downloadsError = QStringLiteral("Internal");
     reload(catalog);
     QCOMPARE(catalog.downloadsState(), QStringLiteral("error"));
+    // Every failed read is reported, even when the state repeats.
+    QStringList outcomes;
+    for (const auto &flow : flowsNamed("downloads.read"))
+      outcomes << flow.outcome;
+    QCOMPARE(outcomes, QStringList({"ok", "Unavailable", "Unavailable", "failed"}));
 
     // No download service at all.
     daemon->downloadsError.clear();

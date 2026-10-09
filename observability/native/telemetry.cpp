@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Arinn contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "telemetry.h"
+#include "flows.h"
 #include "transport.h"
 #include <QElapsedTimer>
 #include <QDir>
@@ -131,25 +132,50 @@ sentry_value_t sanitize(sentry_value_t event, sentry_hint_t *, void *) {
   sentry_value_decref(event);
   return clean;
 }
+// A status string kept only when it is one of the fixed span statuses.
+void copyStatus(sentry_value_t out, sentry_value_t in) {
+  const char *status = sentry_value_as_string(sentry_value_get_by_key(in, "status"));
+  if (ArinnFlows::knownStatus(status)) sentry_value_set_by_key(out, "status", sentry_value_new_string(status));
+}
 sentry_value_t sanitizeTransaction(sentry_value_t transaction, void *) {
   const char *name = sentry_value_as_string(sentry_value_get_by_key(transaction, "transaction"));
-  if (!name || std::strcmp(name, "shell.startup") != 0) {
+  const bool startup = name && std::strcmp(name, "shell.startup") == 0;
+  if (!startup && !ArinnFlows::knownFlow(name)) {
     sentry_value_decref(transaction); return sentry_value_new_null();
   }
   auto clean = sentry_value_new_object();
   for (auto key : {"event_id", "start_timestamp", "timestamp"}) copy(clean, transaction, key);
   sentry_value_set_by_key(clean, "type", sentry_value_new_string("transaction"));
-  sentry_value_set_by_key(clean, "transaction", sentry_value_new_string("shell.startup"));
+  sentry_value_set_by_key(clean, "transaction", sentry_value_new_string(name));
   sentry_value_set_by_key(clean, "platform", sentry_value_new_string("native"));
   sentry_value_set_by_key(clean, "release", sentry_value_new_string(ARINN_RELEASE));
   auto tags = sentry_value_new_object();
   sentry_value_set_by_key(tags, "component", sentry_value_new_string("arinn-shell"));
+  const char *outcome = sentry_value_as_string(sentry_value_get_by_key(sentry_value_get_by_key(transaction, "tags"), "outcome"));
+  if (!startup && ArinnFlows::knownOutcome(outcome)) sentry_value_set_by_key(tags, "outcome", sentry_value_new_string(outcome));
   sentry_value_set_by_key(clean, "tags", tags);
-  sentry_value_set_by_key(clean, "spans", sentry_value_new_list());
+  // Startup has no spans; a flow keeps its fixed step spans only.
+  auto spans = sentry_value_new_list();
+  auto originalSpans = sentry_value_get_by_key(transaction, "spans");
+  for (size_t i = 0; !startup && i < sentry_value_get_length(originalSpans) &&
+                     sentry_value_get_length(spans) < static_cast<size_t>(ArinnFlows::maxSteps); ++i) {
+    auto source = sentry_value_get_by_index(originalSpans, i);
+    const char *op = sentry_value_as_string(sentry_value_get_by_key(source, "op"));
+    const char *step = sentry_value_as_string(sentry_value_get_by_key(source, "description"));
+    if (!op || std::strcmp(op, ArinnFlows::stepOp) != 0 || !ArinnFlows::knownStep(step)) continue;
+    auto span = sentry_value_new_object();
+    for (auto key : {"trace_id", "span_id", "parent_span_id", "start_timestamp", "timestamp"}) copy(span, source, key);
+    sentry_value_set_by_key(span, "op", sentry_value_new_string(ArinnFlows::stepOp));
+    sentry_value_set_by_key(span, "description", sentry_value_new_string(step));
+    copyStatus(span, source);
+    sentry_value_append(spans, span);
+  }
+  sentry_value_set_by_key(clean, "spans", spans);
   auto original = sentry_value_get_by_key(sentry_value_get_by_key(transaction, "contexts"), "trace");
   auto trace = sentry_value_new_object();
-  for (auto key : {"trace_id", "span_id", "parent_span_id", "status"}) copy(trace, original, key);
-  sentry_value_set_by_key(trace, "op", sentry_value_new_string("shell.startup"));
+  for (auto key : {"trace_id", "span_id", "parent_span_id"}) copy(trace, original, key);
+  copyStatus(trace, original);
+  sentry_value_set_by_key(trace, "op", sentry_value_new_string(startup ? "shell.startup" : ArinnFlows::flowOp));
   auto contexts = sentry_value_new_object();
   sentry_value_set_by_key(contexts, "trace", trace);
   sentry_value_set_by_key(clean, "contexts", contexts);
@@ -261,6 +287,44 @@ void finishStartup() {
   sentry_transaction_finish(startupTransaction);
   startupTransaction = nullptr;
   sentry_metrics_distribution("arinn.shell.startup.duration", startupTimer.elapsed(), "millisecond", sentry_value_new_object());
+}
+namespace {
+sentry_span_status_t spanStatus(const char *outcome) {
+  const char *status = ArinnFlows::status(outcome);
+  struct Pair { const char *name; sentry_span_status_t value; };
+  static constexpr Pair pairs[] = {
+    {"ok", SENTRY_SPAN_STATUS_OK}, {"not_found", SENTRY_SPAN_STATUS_NOT_FOUND},
+    {"unavailable", SENTRY_SPAN_STATUS_UNAVAILABLE}, {"unimplemented", SENTRY_SPAN_STATUS_UNIMPLEMENTED},
+    {"permission_denied", SENTRY_SPAN_STATUS_PERMISSION_DENIED},
+    {"deadline_exceeded", SENTRY_SPAN_STATUS_DEADLINE_EXCEEDED},
+    {"invalid_argument", SENTRY_SPAN_STATUS_INVALID_ARGUMENT}, {"aborted", SENTRY_SPAN_STATUS_ABORTED},
+    {"internal_error", SENTRY_SPAN_STATUS_INTERNAL_ERROR}, {"cancelled", SENTRY_SPAN_STATUS_CANCELLED}};
+  for (const auto &pair : pairs)
+    if (std::strcmp(pair.name, status) == 0) return pair.value;
+  return SENTRY_SPAN_STATUS_UNKNOWN;
+}
+}
+void flow(const char *name, qint64 startedAtMs, qint64 durationMs, const char *outcome,
+          const FlowStep *steps, int stepCount) {
+  if (!active || !ArinnFlows::knownFlow(name) || startedAtMs <= 0 || durationMs < 0) return;
+  if (!ArinnFlows::knownOutcome(outcome)) outcome = "failed";
+  const auto us = [startedAtMs](qint64 offsetMs) {
+    return static_cast<uint64_t>(startedAtMs + offsetMs) * 1000;
+  };
+  auto *transaction = sentry_transaction_start_ts(
+      sentry_transaction_context_new(name, ArinnFlows::flowOp), sentry_value_new_null(), us(0));
+  if (!transaction) return;
+  for (int i = 0; i < stepCount && i < ArinnFlows::maxSteps; ++i) {
+    const auto &step = steps[i];
+    if (!ArinnFlows::knownStep(step.name) || step.startMs < 0 || step.endMs < step.startMs) continue;
+    auto *span = sentry_transaction_start_child_ts(transaction, ArinnFlows::stepOp, step.name, us(step.startMs));
+    if (!span) continue;
+    sentry_span_set_status(span, spanStatus(ArinnFlows::knownOutcome(step.outcome) ? step.outcome : "failed"));
+    sentry_span_finish_ts(span, us(step.endMs));
+  }
+  sentry_transaction_set_tag(transaction, "outcome", outcome);
+  sentry_transaction_set_status(transaction, spanStatus(outcome));
+  sentry_transaction_finish_ts(transaction, us(durationMs));
 }
 void breadcrumb(const char *operation) {
   if (!active) return;

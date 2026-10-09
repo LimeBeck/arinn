@@ -3,6 +3,9 @@
 #include "telemetry.h"
 #include "transport.h"
 #include <QFile>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QtTest>
 
 class ConfigurationTest : public QObject {
@@ -123,6 +126,45 @@ private slots:
     QVERIFY(!clean.isEmpty());
     QVERIFY2(!clean.contains("PrivateTitle"), clean.constData());
     QVERIFY2(!clean.contains("qt.location") && !clean.contains("qt.category"), clean.constData());
+  }
+  void transportKeepsOnlyFixedFlowFields() {
+    // A raw flow transaction: only the fixed name, steps, statuses and
+    // outcome survive (ADR-0093).
+    const QByteArray raw =
+      "{}\n{\"type\":\"transaction\"}\n"
+      "{\"event_id\":\"0123456789abcdef0123456789abcdef\",\"transaction\":\"playback.present\","
+      "\"start_timestamp\":1.5,\"timestamp\":2.5,"
+      "\"tags\":{\"outcome\":\"Timeout\",\"private\":\"private-token-fixture\"},"
+      "\"extra\":{\"url\":\"https://private.invalid/page\"},"
+      "\"contexts\":{\"trace\":{\"op\":\"private-token-fixture\",\"status\":\"deadline_exceeded\","
+      "\"trace_id\":\"0123456789abcdef0123456789abcdef\",\"span_id\":\"0123456789abcdef\"}},"
+      "\"spans\":[{\"op\":\"shell.step\",\"description\":\"window.resolve\",\"status\":\"ok\","
+      "\"span_id\":\"0123456789abcdee\",\"start_timestamp\":1.5,\"timestamp\":2.0,"
+      "\"data\":{\"title\":\"private-token-fixture\"}},"
+      "{\"op\":\"shell.step\",\"description\":\"private-token-fixture\",\"status\":\"ok\"},"
+      "{\"op\":\"private-token-fixture\",\"description\":\"window.check\"},"
+      "{\"op\":\"shell.step\",\"description\":\"window.check\",\"status\":\"private-token-fixture\"}]}\n";
+    const auto clean = ArinnTelemetry::filterEnvelope(raw);
+    QVERIFY(!clean.isEmpty());
+    for (auto marker : {"private-token-fixture", "private.invalid", "extra", "data"})
+      QVERIFY2(!clean.contains(marker), clean.constData());
+    const auto payload = QJsonDocument::fromJson(clean.split('\n').value(2)).object();
+    QCOMPARE(payload.value("transaction").toString(), QStringLiteral("playback.present"));
+    QCOMPARE(payload.value("tags").toObject().value("outcome").toString(), QStringLiteral("Timeout"));
+    const auto trace = payload.value("contexts").toObject().value("trace").toObject();
+    QCOMPARE(trace.value("op").toString(), QStringLiteral("shell.flow"));
+    QCOMPARE(trace.value("status").toString(), QStringLiteral("deadline_exceeded"));
+    const auto spans = payload.value("spans").toArray();
+    QCOMPARE(spans.size(), 2);
+    QCOMPARE(spans.at(0).toObject().value("description").toString(), QStringLiteral("window.resolve"));
+    QCOMPARE(spans.at(0).toObject().value("status").toString(), QStringLiteral("ok"));
+    QCOMPARE(spans.at(1).toObject().value("description").toString(), QStringLiteral("window.check"));
+    QVERIFY(!spans.at(1).toObject().contains("status"));
+    // A flow name outside the list never leaves the device.
+    auto unknown = raw;
+    unknown.replace("\"transaction\":\"playback.present\"", "\"transaction\":\"Private Title\"");
+    QVERIFY2(!ArinnTelemetry::filterEnvelope(unknown).contains("Private Title"),
+             ArinnTelemetry::filterEnvelope(unknown).constData());
   }
   void crashSafeChecks() {
     QVERIFY(ArinnTelemetry::safeTemplateText("QML Image: Cannot open: <url>"));

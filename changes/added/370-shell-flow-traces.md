@@ -1,0 +1,1 @@
+- Sentry diagnostics (when enabled) now time the shell's user-visible flows, with fixed names only: Home load, Downloads read, address and web shortcut opens, Return to the activity, and presenting a managed player until its input layer is confirmed ([#370](https://github.com/LimeBeck/arinn/issues/370)).

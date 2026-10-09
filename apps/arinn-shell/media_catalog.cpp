@@ -1377,9 +1377,22 @@ void MediaCatalog::setPresentation(const QString &state) {
   if (m_presentation == state)
     return;
   m_presentation = state;
+  if (m_presentFlow.active()) {
+    if (state == QLatin1String("active")) {
+      m_presentFlow.end("platform.present");
+      m_presentFlow.begin("window.check");
+    } else if (state.isEmpty()) {
+      m_presentFlow.finish("Cancelled");
+    } else if (state != QLatin1String("pending")) {
+      m_presentFlow.finish(FlowTrace::outcome(state));
+    }
+  }
   emit presentationChanged();
 }
 void MediaCatalog::abandonPresentation() {
+  // An active presentation whose window check has not confirmed it failed.
+  if (m_presentFlow.active() && m_presentation == QLatin1String("active"))
+    m_presentFlow.finish("failed");
   const auto row = m_presentRow;
   const auto ticket = ++m_presentationTicket;
   m_presentRow = {};
@@ -1537,6 +1550,8 @@ void MediaCatalog::present() {
   m_presentRow = *row;
   m_windowCheckInFlight = false;
   const auto ticket = ++m_presentationTicket;
+  m_presentFlow.start("playback.present");
+  m_presentFlow.begin("window.resolve");
   setPresentation(QStringLiteral("pending"));
   resolveWindow(*row, ticket, m_epoch, monotonicUs() + 5000000);
 }
@@ -1577,6 +1592,8 @@ void MediaCatalog::resolveWindow(SessionRow row, quint64 ticket, quint64 epoch,
               arg.endArray();
             }
             if (found) {
+              m_presentFlow.end("window.resolve");
+              m_presentFlow.begin("platform.present");
               windowCommand(row, true, ticket, epoch);
               return;
             }
@@ -1781,8 +1798,12 @@ void MediaCatalog::checkPresentedWindow(quint64 ticket, quint64 epoch,
                   generation == m_windowGeneration && token == m_windowToken;
             }
             arg.endArray();
-            if (!matches)
+            if (!matches) {
               abandonPresentation();
+            } else if (m_presentFlow.active()) {
+              m_presentFlow.end("window.check");
+              m_presentFlow.finish("ok");
+            }
           });
 }
 
@@ -1821,6 +1842,7 @@ void MediaCatalog::logSurface(const QString &surface, const QString &reason) con
 void MediaCatalog::failPresentation(const QString &state) {
   // The compositor may have acted before the operation read failed. Fence and
   // teardown the remembered scope even when its outcome is now unknown.
+  m_presentFlow.finish(FlowTrace::outcome(state));
   release();
   setPresentation(state);
 }

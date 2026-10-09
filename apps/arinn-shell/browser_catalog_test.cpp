@@ -3,6 +3,7 @@
 
 #include "asset_images.h"
 #include "browser_catalog.h"
+#include "flow_trace_recorder.h"
 #include <fcntl.h>
 #include <unistd.h>
 #include <QElapsedTimer>
@@ -486,14 +487,22 @@ private slots:
     QTRY_COMPARE(daemon.closedId, QString("t2"));
     QCOMPARE(daemon.closes, 1);
     QTRY_COMPARE(catalog.operationState(), QString("succeeded"));
+    recordFlows();
     catalog.openShortcut("known");
     QTRY_COMPARE(daemon.openedId, QString("known"));
     QCOMPARE(daemon.opens, 1);
     QCOMPARE(daemon.openArgCount, 2);
     QTRY_COMPARE(catalog.operationState(), QString("succeeded"));
+    // ADR-0093: one flow per open, with its request and operation steps.
+    QTRY_COMPARE(flowsNamed("shortcut.open").size(), 1);
+    QCOMPARE(flowsNamed("shortcut.open").first().outcome, QString("ok"));
+    QCOMPARE(flowsNamed("shortcut.open").first().steps,
+             QStringList({"request:ok", "operation.wait:ok"}));
     catalog.openShortcut("missing");
     QTRY_COMPARE(catalog.operationState(), QString("NotFound"));
     QCOMPARE(daemon.opens, 1);
+    QCOMPARE(flowsNamed("shortcut.open").size(), 2);
+    QCOMPARE(flowsNamed("shortcut.open").last().outcome, QString("NotFound"));
     const auto reads = daemon.tabReads;
     daemon.mode = "empty";
     catalog.refresh();
@@ -843,6 +852,7 @@ private slots:
     QVERIFY(!catalog.openShortcutIds().contains(QString("plain")));
 
     daemon.holdOperation = true;
+    recordFlows();
     catalog.openShortcut("port");
     QTRY_VERIFY(catalog.opening());
     QCOMPARE(catalog.openingTitle(), QString("Port"));
@@ -850,6 +860,8 @@ private slots:
     QTRY_COMPARE(daemon.cancels, 1);
     QCOMPARE(catalog.opening(), false);
     QCOMPARE(catalog.openingError(), QString());
+    QTRY_COMPARE(flowsNamed("shortcut.open").size(), 1);
+    QCOMPARE(flowsNamed("shortcut.open").first().outcome, QString("Cancelled"));
 
     daemon.mode = "unavailable";
     daemon.runtime = "ready";

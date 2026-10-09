@@ -5,6 +5,7 @@
  */
 
 #pragma once
+#include "flow_trace.h"
 #include "return_association.h"
 #include <QHash>
 #include <QObject>
@@ -126,6 +127,8 @@ private:
   bool m_opening = false;
   QString m_openingTitle, m_openingError, m_openingId, m_openOperationPath;
   bool m_openCancelRequested = false;
+  // Web shortcut open timing for diagnostics (ADR-0093).
+  FlowTrace::Flow m_openFlow;
   bool m_connected = false, m_loaded = false, m_noBrowser = false,
        m_disconnectedBrowser = false,
        m_snapshotError = false, m_refreshing = false, m_dirty = false;

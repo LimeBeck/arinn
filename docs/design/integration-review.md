@@ -11,6 +11,8 @@ The designer package adds remote-only text input ([#417](https://github.com/Lime
 - the package was built on the 2026-09-30 package, so *Closing applications* was kept from the 2026-10-01 handoff and the README was merged by hand ([design README](README.md#licensing));
 - the previous package is in the [archive](archive/2026-10-09-before-on-screen-keyboard/README.md).
 
+The shell work and the owner questions DR-39…DR-41 are tracked in [#418](https://github.com/LimeBeck/arinn/issues/418).
+
 | ID | Point | Resolution / remaining check |
 | --- | --- | --- |
 | DR-39 | The handoff makes the keyboard the way to type without a hardware keyboard and replaces the dead ends IN-8 and STR-2. [Specification §5.1](../specifications/arinn-specification.md#51-home) and [ADR-0051](../adr/0051-address-and-search-entry.md) keep a hardware keyboard in the MVP and call an on-screen keyboard post-MVP. | Open, owner: whether the keyboard enters the MVP or a later phase. The specification is unchanged; until it is decided, IN-8 and STR-2 stay as they are. |

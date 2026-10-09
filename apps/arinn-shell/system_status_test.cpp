@@ -229,6 +229,8 @@ private slots:
     QTRY_COMPARE(fake.reads, 11);
     QTest::qWait(400);
     QCOMPARE(fake.reads, 11);
+    fake.fail = false;
+    fake.errorName = QStringLiteral("org.arinn.Error1.Internal");
     down();
   }
 };

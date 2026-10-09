@@ -78,7 +78,12 @@ at most the enum values.
 - A daemon without the interface, a failed or timed-out read, a reply with
   another signature, an epoch that is not a UUID or is the nil UUID, or
   revision 0 leaves the
-  state `unknown`. Stale icons never stay up after a failure.
+  state `unknown`. Stale icons never stay up after a failure. A failed read is
+  retried after 1 s, 5 s and 30 s, then not until the next `Changed` or owner
+  change. This covers a timeout and a daemon that owns its name but has not
+  exported the interface yet. A read that fails because the name has no owner
+  is not retried; the owner change brings the next read
+  ([#409](https://github.com/LimeBeck/arinn/issues/409)).
 - Readers never reject a reply with `SystemStatus::validate`, which is the
   producer check. A value they do not know, or an inconsistent `link` or
   `signal`, falls back to `unknown` or 0 field by field, so a newer daemon
@@ -112,5 +117,6 @@ at most the enum values.
   a valid `Get` on the CI host.
 - `apps/arinn-shell/system_status_test.cpp`: the shell reader against a fake
   daemon on a private bus: Changed and re-read, the revision floor, unknown
-  values field by field, failed and invalid replies, and a daemon restart.
+  values field by field, failed and invalid replies, a daemon restart, and
+  bounded retries after a failed read.
   `tests/ui/tst_home.qml` checks the icons' visibility, level and order.

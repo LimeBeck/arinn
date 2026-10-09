@@ -1,0 +1,1 @@
+- The Chrome native host now exits when the Chrome provider restarts, including when the restarted provider takes over the bridge name directly, so the browser backend no longer stays unavailable until the old `arinn-chrome-host` process is killed by hand ([#356](https://github.com/LimeBeck/arinn/issues/356)).

@@ -1,0 +1,1 @@
+- Design handoff of 2026-10-09: the on-screen keyboard for remote-only text input (KB-1…8), the folder picker screenshots and the settings editor decisions; open points are in the [integration review](docs/design/integration-review.md) ([#417](https://github.com/LimeBeck/arinn/issues/417)).

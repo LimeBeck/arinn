@@ -69,7 +69,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0048](0048-browser-wire-contract.md) | Browser wire contract (Browser1 and BrowserProvider1) | Accepted | 0050, 0051, 0075 |
 | [0049](0049-ci-minutes.md) | Spend fewer CI minutes | Accepted | 0053, 0102 |
 | [0050](0050-window-per-browser-activity.md) | One fullscreen browser window per browser activity | Accepted | 0051 |
-| [0051](0051-address-and-search-entry.md) | Address and search entry for free browsing | Accepted | 0066 |
+| [0051](0051-address-and-search-entry.md) | Address and search entry for free browsing | Accepted | 0066, 0103 |
 | [0052](0052-browser-window-association.md) | Browser windows are linked to platform windows by focus agreement | Accepted | — |
 | [0053](0053-release-and-label-workflows-on-the-runner.md) | Release and label workflows use the switchable runner | Accepted | — |
 | [0054](0054-media-and-library-wire-contract.md) | Media and library wire contract | Accepted | 0062, 0063, 0071 |
@@ -120,4 +120,5 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0100](0100-system-status.md) | Read-only system status for Home's status area | Accepted | — |
 | [0101](0101-host-local-ci-caches.md) | Host-local build caches on the self-hosted runner | Accepted | — |
 | [0102](0102-packages-built-for-master-only.md) | Packages are built for master only, never for pull requests | Accepted | — |
+| [0103](0103-on-screen-keyboard.md) | On-screen keyboard in the MVP | Accepted | — |
 <!-- register:end -->

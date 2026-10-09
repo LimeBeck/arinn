@@ -96,6 +96,14 @@ fn result_code(error: &str) -> String {
     }
 }
 
+/// Whether a bridge-name change ends this host's provider: the name left the
+/// owner it attached to, whether it is now unowned or moved to a restarted
+/// provider that queued for it (#356). Changes that predate the owner the host
+/// read, which the stream can still deliver, do not end it.
+fn provider_left(old_owner: Option<&str>, bridge_owner: &str) -> bool {
+    old_owner == Some(bridge_owner)
+}
+
 /// Run the host until the browser closes the port or the provider disappears.
 pub async fn run<R, W>(
     connection: zbus::Connection,
@@ -166,14 +174,12 @@ where
                 }
             }
             change = owner_changes.next() => {
-                // The provider is gone when the name loses its owner or moves
-                // to a new one (a restarted provider queued for it, #356).
-                let owner = change.map(|c| {
-                    c.args()
-                        .ok()
-                        .and_then(|a| a.new_owner.as_ref().map(|o| o.to_string()))
-                });
-                if owner.is_none_or(|owner| owner.as_deref() != Some(bridge_owner.as_str())) {
+                let Some(change) = change else { break Ok(()) };
+                let old_owner = change
+                    .args()
+                    .ok()
+                    .and_then(|a| a.old_owner.as_ref().map(|o| o.to_string()));
+                if provider_left(old_owner.as_deref(), &bridge_owner) {
                     break Ok(());
                 }
             }
@@ -181,4 +187,20 @@ where
     };
     writer.abort();
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::provider_left;
+
+    #[test]
+    fn only_a_change_away_from_the_attached_owner_ends_the_host() {
+        // The attached provider went away, or the name moved on from it.
+        assert!(provider_left(Some(":1.7"), ":1.7"));
+        // A change that predates the owner snapshot: the old provider left
+        // before the host attached to its replacement.
+        assert!(!provider_left(Some(":1.3"), ":1.7"));
+        // The replacement acquiring the name it now holds.
+        assert!(!provider_left(None, ":1.7"));
+    }
 }

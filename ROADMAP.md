@@ -216,6 +216,7 @@ and accepts the full UI; early component work does not close its criteria.
 | G-5.3 Arch/EndeavourOS package installs, starts and uninstalls cleanly | Packaging test |
 | G-5.4 Performance budgets of spec §6.5 measured on the target device | [Measurement harness](docs/architecture/performance-harness.md) with offscreen/private-bus smoke checks; target-device measurement report remains pending |
 | G-5.5 Operator acceptance of AC-01–AC-19 repeated on an X11/EWMH desktop (XFCE) in addition to KDE Plasma 6/Wayland (P-09, [ADR-0080](docs/adr/0080-mvp-platforms.md)) | Operator test on each platform |
+| G-5.6 On-screen keyboard: every text field can be filled with the remote alone (spec §6.2, [ADR-0103](docs/adr/0103-on-screen-keyboard.md), [#418](https://github.com/LimeBeck/arinn/issues/418)) | UI tests + visual comparison with `kb-*.png` + operator test with the remote |
 
 ## Phase 6 — Rich integrations (post-MVP)
 

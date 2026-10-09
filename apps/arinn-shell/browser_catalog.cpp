@@ -799,6 +799,7 @@ void BrowserCatalog::openShortcut(const QString &id) {
   m_opening = true;
   m_openFlow.start("shortcut.open");
   m_openFlow.begin("request");
+  m_openFlowOwner = pendingId;
   emit changed();
   auto msg = daemonCall("org.arinn.WebShortcuts1", "Open");
   msg << id << QUuid::createUuid().toString(QUuid::WithoutBraces);
@@ -822,7 +823,8 @@ void BrowserCatalog::openShortcut(const QString &id) {
               setOperation(failed);
               if (pendingId.startsWith(QLatin1String("shortcut:"))) {
                 m_opening = false;
-                m_openFlow.finish(m_openCancelRequested ? "Cancelled" : FlowTrace::outcome(failed));
+                if (pendingId == m_openFlowOwner)
+                  m_openFlow.finish(m_openCancelRequested ? "Cancelled" : FlowTrace::outcome(failed));
                 m_openingError =
                     m_openCancelRequested ? QString() : failed;
                 m_openCancelRequested = false;
@@ -834,8 +836,10 @@ void BrowserCatalog::openShortcut(const QString &id) {
                 qvariant_cast<QDBusObjectPath>(reply.arguments().at(0)).path();
             if (pendingId.startsWith(QLatin1String("shortcut:"))) {
               m_openOperationPath = objectPath;
-              m_openFlow.end("request");
-              m_openFlow.begin("operation.wait");
+              if (pendingId == m_openFlowOwner) {
+                m_openFlow.end("request");
+                m_openFlow.begin("operation.wait");
+              }
               if (m_openCancelRequested)
                 cancelOpen();
             }
@@ -873,7 +877,8 @@ void BrowserCatalog::watchOperation(const QString &objectPath,
                 setOperation("Unavailable");
                 if (pendingId.startsWith(QLatin1String("shortcut:"))) {
                   m_opening = false;
-                  m_openFlow.finish(m_openCancelRequested ? "Cancelled" : "Unavailable");
+                  if (pendingId == m_openFlowOwner)
+                    m_openFlow.finish(m_openCancelRequested ? "Cancelled" : "Unavailable");
                   m_openingError = m_openCancelRequested
                                        ? QString()
                                        : QStringLiteral("Unavailable");
@@ -914,9 +919,10 @@ void BrowserCatalog::watchOperation(const QString &objectPath,
               if (pendingId.startsWith(QLatin1String("shortcut:"))) {
                 m_openOperationPath.clear();
                 m_opening = false;
-                m_openFlow.finish(m_openCancelRequested ? "Cancelled"
-                                  : failed.isEmpty()    ? "ok"
-                                                        : FlowTrace::outcome(failed));
+                if (pendingId == m_openFlowOwner)
+                  m_openFlow.finish(m_openCancelRequested ? "Cancelled"
+                                    : failed.isEmpty()    ? "ok"
+                                                          : FlowTrace::outcome(failed));
                 if (m_openCancelRequested || failed.isEmpty())
                   m_openingError.clear();
                 else

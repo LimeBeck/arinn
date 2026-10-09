@@ -129,12 +129,12 @@ public:
       openArgCount = 0, providerReads = 0, restarts = 0, cancels = 0, adds = 0,
       lists = 0;
   bool scripted = false, holdOperation = false, rejectAdd = false,
-       holdAdd = false, holdList = false, recordAdded = true;
+       holdAdd = false, holdList = false, recordAdded = true, holdOpens = false;
   bool homeVisible = false, statusError = false;
   QString returnWindow, daemonEpoch = QStringLiteral("77777777-7777-4777-8777-777777777777");
   QString rejectCode = QStringLiteral("InvalidArgument");
   QString addedTitle, addedUrl, addedIcon, addedRequest;
-  QList<QDBusMessage> heldAdds, heldLists, staleLists;
+  QList<QDBusMessage> heldAdds, heldLists, staleLists, heldOpens;
   QDBusConnection replyBus = QDBusConnection::sessionBus();
   void replyLists(const QList<QDBusMessage> &messages) {
     auto bus = QDBusConnection::sessionBus();
@@ -325,6 +325,11 @@ public:
       ++opens;
       openArgCount = message.arguments().size();
       openedId = message.arguments().at(0).toString();
+      if (holdOpens) {
+        message.setDelayedReply(true);
+        heldOpens.append(message);
+        return true;
+      }
       bus.send(message.createReply(
           QVariant::fromValue(QDBusObjectPath("/org/arinn/Daemon1/ops/open"))));
       return true;
@@ -441,6 +446,41 @@ private slots:
     }
     QDBusConnection::disconnectFromBus("return-fixture");
     auto bus = QDBusConnection::sessionBus();
+    bus.unregisterObject("/org/arinn", QDBusConnection::UnregisterTree);
+    bus.unregisterService("org.arinn.Daemon1");
+  }
+  void supersededShortcutOpenKeepsItsOwnTrace() {
+    // ADR-0093: a later open replaces the earlier one's trace, and the
+    // earlier open's late reply must not end the later trace.
+    auto bus = QDBusConnection::sessionBus();
+    BrowserDaemon daemon;
+    daemon.scripted = true;
+    daemon.scriptedShortcuts = {{"first", "First", "https://example.test/1", {}},
+                                {"second", "Second", "https://example.test/2", {}}};
+    daemon.holdOperation = true;
+    QVERIFY(bus.registerService("org.arinn.Daemon1"));
+    QVERIFY(bus.registerVirtualObject("/org/arinn", &daemon,
+                                      QDBusConnection::SubPath));
+    {
+      BrowserCatalog catalog;
+      QTRY_COMPARE(catalog.shortcuts().size(), 2);
+      recordFlows();
+      daemon.holdOpens = true;
+      catalog.openShortcut("first");
+      QTRY_COMPARE(daemon.heldOpens.size(), 1);
+      daemon.holdOpens = false;
+      catalog.openShortcut("second");
+      QTRY_COMPARE(daemon.opens, 2);
+      QCOMPARE(flowsNamed("shortcut.open").size(), 1);
+      QCOMPARE(flowsNamed("shortcut.open").first().outcome, QString("Cancelled"));
+      bus.send(daemon.heldOpens.first().createErrorReply(
+          QStringLiteral("org.arinn.Error1.Unavailable"), QStringLiteral("fixture")));
+      QTest::qWait(300);
+      QCOMPARE(flowsNamed("shortcut.open").size(), 1);
+      daemon.holdOperation = false;
+      QTRY_COMPARE(flowsNamed("shortcut.open").size(), 2);
+      QCOMPARE(flowsNamed("shortcut.open").last().outcome, QString("ok"));
+    }
     bus.unregisterObject("/org/arinn", QDBusConnection::UnregisterTree);
     bus.unregisterService("org.arinn.Daemon1");
   }

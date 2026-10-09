@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,400..600,0..1,0&display=block">
+<style>
+html,body{margin:0;background:oklch(0.13 0.005 260)}
+*{box-sizing:border-box}
+a{color:oklch(0.75 0.17 50)} a:hover{color:oklch(0.97 0.004 260)}
+</style>
+</helmet>
+<div style="min-height:100vh;padding:96px 96px 160px;background:oklch(0.13 0.005 260);font-family:'Onest',sans-serif;color:oklch(0.97 0.004 260);-webkit-font-smoothing:antialiased;display:flex;flex-direction:column;gap:88px">
+
+<div style="display:flex;flex-direction:column;gap:20px;max-width:1200px">
+  <div style="font-size:20px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:oklch(0.75 0.17 50)">Arinn · ADR-0050</div>
+  <div style="font-size:64px;font-weight:700;letter-spacing:-0.025em;line-height:1.05">{{ t.svcTitle }}</div>
+  <div style="font-size:22px;line-height:1.55;color:oklch(0.82 0.006 260);text-wrap:pretty">{{ t.intro }}</div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:28px">
+  <div style="font-size:36px;font-weight:700;letter-spacing:-0.015em">{{ t.secAnswers }}</div>
+  <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px;max-width:1968px">
+    <sc-for list="{{ answers }}" as="a" hint-placeholder-count="6">
+      <div style="border-radius:20px;padding:28px 30px;background:rgba(255,255,255,.05);box-shadow:inset 0 1px 0 rgba(255,255,255,.07);display:flex;flex-direction:column;gap:12px">
+        <div style="font-size:18px;font-weight:500;color:oklch(0.72 0.008 260);line-height:1.4">{{ a.q }}</div>
+        <div style="font-size:24px;font-weight:600;line-height:1.3">{{ a.a }}</div>
+        <div style="font-size:18px;line-height:1.5;color:oklch(0.82 0.006 260);text-wrap:pretty">{{ a.why }}</div>
+      </div>
+    </sc-for>
+  </div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:28px">
+  <div style="font-size:36px;font-weight:700;letter-spacing:-0.015em">{{ t.secScreen }}</div>
+  <div style="display:flex;flex-wrap:wrap;gap:56px 48px">
+    <sc-for list="{{ listFrames }}" as="f" hint-placeholder-count="5">
+      <div id="{{ f.id }}" style="display:flex;flex-direction:column;gap:14px;width:960px">
+        <div style="display:flex;align-items:baseline;gap:14px"><div style="padding:4px 10px;border-radius:6px;background:oklch(0.75 0.17 50);color:#111;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:500">{{ f.id }}</div><div style="font-size:24px;font-weight:600">{{ f.label }}</div></div>
+        <div style="position:relative;width:960px;height:540px;border-radius:10px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.5)">
+          <div style="position:absolute;left:0;top:0;width:1920px;height:1080px;transform:scale(.5);transform-origin:0 0;overflow:hidden;background:oklch(0.17 0.005 260)">
+            <div style="position:absolute;inset:0;background:{{ f.light }}"></div>
+            <div style="position:absolute;top:44px;right:96px;height:64px;display:flex;align-items:center;gap:24px;color:oklch(0.88 0.005 260)"><span style="font-family:'Material Symbols Rounded';font-size:32px;line-height:1;font-feature-settings:'liga';font-variation-settings:'FILL' 1">wifi</span><span style="font-size:30px;font-weight:500;font-variant-numeric:tabular-nums">21:47</span></div>
+            <div style="position:absolute;left:120px;right:300px;top:96px;display:flex;align-items:baseline;gap:20px">
+              <div style="font-size:56px;font-weight:700;letter-spacing:-0.02em">{{ t.svcTitle }}</div>
+              <div style="font-size:40px;font-weight:600;color:oklch(0.68 0.008 260);font-variant-numeric:tabular-nums">{{ f.count }}</div>
+              <div style="flex:1"></div>
+              <div style="font-size:26px;font-weight:500;color:oklch(0.84 0.006 260);font-variant-numeric:tabular-nums">{{ f.pos }}</div>
+            </div>
+            <div style="position:absolute;left:96px;width:1548px;top:196px;bottom:150px;overflow:hidden;-webkit-mask-image:{{ f.mask }};mask-image:{{ f.mask }}">
+              <div style="padding:14px 24px;display:flex;flex-direction:column;gap:16px;transform:translateY({{ f.ty }}px)">
+                <sc-for list="{{ f.rows }}" as="r" hint-placeholder-count="4">
+                  <div style="display:flex;gap:16px;align-items:center;opacity:{{ r.op }}">
+                    <div style="position:relative;flex:1;min-width:0;min-height:128px;border-radius:26px;padding:22px 28px;display:flex;align-items:center;gap:24px;background:{{ r.bg }};transform:{{ r.tf }};box-shadow:{{ r.sh }};z-index:{{ r.z }}">
+                      <div style="flex:none;width:76px;height:76px;border-radius:22px;overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:34px;font-weight:700;color:oklch(0.9 0.005 260);background:rgba(255,255,255,.12)">{{ r.letter }}<sc-if value="{{ r.hasLogo }}"><img src="{{ r.src }}" alt="" style="width:100%;height:100%;object-fit:contain;display:block"></sc-if></div>
+                      <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:8px">
+                        <div style="font-size:30px;font-weight:600;line-height:1.25;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:{{ r.lines }};overflow:hidden;word-break:break-word">{{ r.title }}</div>
+                        <div style="display:flex;align-items:center;gap:24px;font-size:24px;font-weight:500;color:oklch(0.84 0.006 260);min-width:0">
+                          <span style="min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.sub }}</span>
+                          <sc-if value="{{ r.current }}"><span style="flex:none;display:flex;align-items:center;gap:10px;color:oklch(0.97 0.004 260)"><span style="width:12px;height:12px;border-radius:6px;background:oklch(0.75 0.17 50)"></span>{{ t.onScreen }}</span></sc-if>
+                          <sc-if value="{{ r.audio }}"><span style="flex:none;display:flex;align-items:center;gap:8px;color:oklch(0.97 0.004 260)"><span style="font-family:'Material Symbols Rounded';font-size:30px;line-height:1;color:oklch(0.75 0.17 50);font-feature-settings:'liga';font-variation-settings:'FILL' 1">volume_up</span>{{ t.sound }}</span></sc-if>
+                          <sc-if value="{{ r.closing }}"><span style="flex:none;color:oklch(0.97 0.004 260)">{{ t.closingS }}</span></sc-if>
+                        </div>
+                      </div>
+                      <div style="position:absolute;inset:0;border-radius:26px;box-shadow:{{ r.kant }};pointer-events:none"></div>
+                    </div>
+                    <div style="flex:none;width:128px;height:128px;border-radius:26px;display:flex;align-items:center;justify-content:center;background:{{ r.closeBg }};color:{{ r.closeFg }};transform:{{ r.closeTf }};box-shadow:{{ r.closeSh }}"><span style="font-family:'Material Symbols Rounded';font-size:44px;line-height:1;font-feature-settings:'liga'">{{ r.closeIcon }}</span></div>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+            <div style="position:absolute;left:120px;bottom:64px;display:flex;gap:44px;font-size:24px;font-weight:500;color:oklch(0.72 0.008 260)">
+              <span style="display:flex;align-items:center;gap:12px"><span style="padding:2px 12px;border-radius:10px;background:rgba(255,255,255,.1);color:oklch(0.92 0.005 260);font-weight:600">OK</span>{{ t.hGo }}</span>
+              <span style="display:flex;align-items:center;gap:12px"><span style="font-family:'Material Symbols Rounded';font-size:30px;line-height:1;padding:2px 6px;border-radius:10px;background:rgba(255,255,255,.1);color:oklch(0.92 0.005 260);font-feature-settings:'liga'">arrow_forward</span>{{ t.hClose }}</span>
+              <span style="display:flex;align-items:center;gap:12px"><span style="padding:2px 12px;border-radius:10px;background:rgba(255,255,255,.1);color:oklch(0.92 0.005 260);font-weight:600">{{ t.kBack }}</span>{{ t.hExit }}</span>
+            </div>
+          </div>
+        </div>
+        <div style="font-size:16px;line-height:1.5;color:oklch(0.72 0.008 260);text-wrap:pretty">{{ f.caption }}</div>
+      </div>
+    </sc-for>
+
+    <sc-for list="{{ msgFrames }}" as="f" hint-placeholder-count="2">
+      <div id="{{ f.id }}" style="display:flex;flex-direction:column;gap:14px;width:960px">
+        <div style="display:flex;align-items:baseline;gap:14px"><div style="padding:4px 10px;border-radius:6px;background:oklch(0.75 0.17 50);color:#111;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:500">{{ f.id }}</div><div style="font-size:24px;font-weight:600">{{ f.label }}</div></div>
+        <div style="position:relative;width:960px;height:540px;border-radius:10px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.5)">
+          <div style="position:absolute;left:0;top:0;width:1920px;height:1080px;transform:scale(.5);transform-origin:0 0;overflow:hidden;background:oklch(0.17 0.005 260)">
+            <div style="position:absolute;top:44px;right:96px;height:64px;display:flex;align-items:center;gap:24px;color:oklch(0.88 0.005 260)"><span style="font-family:'Material Symbols Rounded';font-size:32px;line-height:1;font-feature-settings:'liga';font-variation-settings:'FILL' 1">wifi</span><span style="font-size:30px;font-weight:500;font-variant-numeric:tabular-nums">21:47</span></div>
+            <div style="position:absolute;left:120px;top:96px;display:flex;align-items:baseline;gap:20px"><div style="font-size:56px;font-weight:700;letter-spacing:-0.02em">{{ t.svcTitle }}</div></div>
+            <div style="position:absolute;left:120px;top:360px;width:980px;display:flex;flex-direction:column;align-items:flex-start;gap:24px">
+              <span style="font-family:'Material Symbols Rounded';font-size:88px;line-height:1;color:{{ f.iconColor }};font-feature-settings:'liga'">{{ f.icon }}</span>
+              <div style="font-size:48px;font-weight:700;letter-spacing:-0.02em">{{ f.title }}</div>
+              <div style="font-size:30px;line-height:1.45;color:oklch(0.84 0.006 260);text-wrap:pretty">{{ f.body }}</div>
+              <div style="margin-top:16px;height:88px;padding:0 44px;border-radius:44px;display:flex;align-items:center;gap:14px;font-size:30px;font-weight:600;background:oklch(0.97 0.004 260);color:oklch(0.17 0.006 260);transform:scale(1.06);transform-origin:left center;box-shadow:0 18px 40px -12px rgba(0,0,0,.7)"><span style="font-family:'Material Symbols Rounded';font-size:36px;line-height:1;font-feature-settings:'liga'">{{ f.btnIcon }}</span>{{ f.btn }}</div>
+            </div>
+          </div>
+        </div>
+        <div style="font-size:16px;line-height:1.5;color:oklch(0.72 0.008 260);text-wrap:pretty">{{ f.caption }}</div>
+      </div>
+    </sc-for>
+  </div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:28px">
+  <div style="font-size:36px;font-weight:700;letter-spacing:-0.015em">{{ t.secHome }}</div>
+  <div style="display:flex;flex-wrap:wrap;gap:56px 48px">
+    <sc-for list="{{ homeFrames }}" as="f" hint-placeholder-count="3">
+      <div id="{{ f.id }}" style="display:flex;flex-direction:column;gap:14px;width:960px">
+        <div style="display:flex;align-items:baseline;gap:14px"><div style="padding:4px 10px;border-radius:6px;background:oklch(0.75 0.17 50);color:#111;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:500">{{ f.id }}</div><div style="font-size:24px;font-weight:600">{{ f.label }}</div></div>
+        <div style="position:relative;width:960px;height:540px;border-radius:10px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.5)">
+          <div style="position:absolute;left:0;top:0;width:1920px;height:1080px;transform:scale(.5);transform-origin:0 0;overflow:hidden;background:oklch(0.17 0.005 260)">
+            <div style="position:absolute;inset:0;background:{{ f.light }}"></div>
+            <div style="position:absolute;inset:0;isolation:isolate;z-index:0;filter:{{ f.homeFl }};transform:{{ f.homeTf }}">
+              <div style="position:absolute;top:44px;right:96px;height:64px;display:flex;align-items:center;gap:24px;color:oklch(0.88 0.005 260)">
+                <sc-if value="{{ f.warn }}"><div style="height:48px;padding:0 20px 0 14px;border-radius:24px;display:flex;align-items:center;gap:10px;background:rgba(255,255,255,.08);font-size:24px;font-weight:600"><span style="font-family:'Material Symbols Rounded';font-size:28px;line-height:1;color:oklch(0.66 0.21 22);font-feature-settings:'liga'">public_off</span>{{ t.unavT }}</div></sc-if>
+                <span style="font-family:'Material Symbols Rounded';font-size:32px;line-height:1;font-feature-settings:'liga';font-variation-settings:'FILL' 1">wifi</span><span style="font-size:30px;font-weight:500;font-variant-numeric:tabular-nums">21:47</span>
+              </div>
+              <div style="position:absolute;left:120px;top:48px;height:56px;display:flex;align-items:center;gap:14px;font-size:28px;font-weight:600;color:oklch(0.9 0.005 260)"><svg viewBox="0 0 100 100" width="36" height="36" style="flex:none;display:block;overflow:visible"><path d="M14 86 L50 18 L86 86" fill="none" stroke="#EDEDED" stroke-width="15" stroke-linejoin="round"></path><circle cx="50" cy="70" r="10" fill="#FF8A3D"></circle></svg>Arinn</div>
+              <div style="position:absolute;left:120px;top:136px;width:1300px;display:flex;flex-direction:column;gap:14px">
+                <div style="display:flex;align-items:center;gap:12px;font-size:24px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:oklch(0.84 0.008 260)"><sc-if value="{{ f.heroLive }}"><div style="width:12px;height:12px;border-radius:6px;background:oklch(0.75 0.17 50)"></div></sc-if><span>{{ f.heroEyebrow }}</span></div>
+                <div style="font-size:84px;line-height:1.02;font-weight:700;letter-spacing:-0.025em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ f.heroTitle }}</div>
+                <div style="font-size:28px;font-weight:500;color:oklch(0.86 0.006 260);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ f.heroMeta }}</div>
+              </div>
+              <div style="position:absolute;left:0;right:0;top:372px">
+                <div style="padding-left:120px;height:50px;font-size:30px;font-weight:600;color:oklch(0.9 0.005 260)">{{ t.cont }}</div>
+                <div style="display:flex;gap:32px;padding-left:120px">
+                  <sc-for list="{{ f.cont }}" as="c" hint-placeholder-count="4">
+                    <div style="position:relative;flex:none;width:400px;height:225px;border-radius:26px;overflow:hidden;background:{{ c.bg }};transform:{{ c.tf }};box-shadow:{{ c.sh }};z-index:{{ c.z }}">
+                      <sc-if value="{{ c.isSvc }}">
+                        <div style="position:absolute;inset:0;padding:24px 26px;display:flex;flex-direction:column;justify-content:space-between">
+                          <div style="display:flex;align-items:center;justify-content:space-between">
+                            <div style="display:flex;align-items:center;gap:10px;font-size:24px;font-weight:600"><div style="width:12px;height:12px;border-radius:6px;background:oklch(0.75 0.17 50)"></div>{{ t.running }}</div>
+                            <div style="width:64px;height:64px;border-radius:20px;overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:700;background:rgba(255,255,255,.12)">{{ c.letter }}<sc-if value="{{ c.hasLogo }}"><img src="{{ c.src }}" alt="" style="width:100%;height:100%;object-fit:contain;display:block"></sc-if></div>
+                          </div>
+                          <div style="display:flex;flex-direction:column;gap:4px;min-width:0"><div style="font-size:32px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ c.title }}</div><div style="font-size:24px;font-weight:500;color:oklch(0.84 0.006 260);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ c.sub }}</div></div>
+                        </div>
+                      </sc-if>
+                      <sc-if value="{{ c.isAll }}">
+                        <div style="position:absolute;inset:0;padding:24px 26px;display:flex;flex-direction:column;justify-content:space-between">
+                          <div style="display:flex">
+                            <sc-for list="{{ c.stack }}" as="k" hint-placeholder-count="3"><div style="width:64px;height:64px;margin-right:-18px;border-radius:20px;overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:700;background:oklch(0.3 0.006 260);box-shadow:0 0 0 4px oklch(0.24 0.006 260)">{{ k.letter }}<sc-if value="{{ k.hasLogo }}"><img src="{{ k.src }}" alt="" style="width:100%;height:100%;object-fit:contain;display:block"></sc-if></div></sc-for>
+                          </div>
+                          <div style="display:flex;flex-direction:column;gap:4px"><div style="font-size:32px;font-weight:600">{{ t.more3 }}</div><div style="font-size:24px;font-weight:500;color:oklch(0.84 0.006 260)">{{ t.allSvc }}</div></div>
+                        </div>
+                      </sc-if>
+                      <sc-if value="{{ c.isMedia }}">
+                        <div style="position:absolute;inset:0;background:{{ c.art }};filter:brightness(.82)"></div>
+                        <div style="position:absolute;left:22px;top:18px;font-family:'JetBrains Mono',monospace;font-size:15px;color:rgba(255,255,255,.45)">backdrop</div>
+                        <div style="position:absolute;inset:0;background:linear-gradient(0deg, rgba(10,11,13,.9) 0%, rgba(10,11,13,.4) 45%, rgba(10,11,13,0) 70%)"></div>
+                        <div style="position:absolute;left:24px;right:24px;bottom:22px;display:flex;flex-direction:column;gap:6px">
+                          <div style="font-size:30px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ c.title }}</div>
+                          <div style="font-size:24px;font-weight:500;color:oklch(0.86 0.006 260)">{{ c.sub }}</div>
+                          <div style="height:6px;margin-top:8px;border-radius:3px;background:rgba(255,255,255,.25);overflow:hidden"><div style="height:100%;width:{{ c.pct }}%;border-radius:3px;background:oklch(0.75 0.17 50)"></div></div>
+                        </div>
+                      </sc-if>
+                      <div style="position:absolute;inset:0;border-radius:26px;box-shadow:{{ c.kant }};pointer-events:none"></div>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+              <div style="position:absolute;left:0;right:0;top:700px">
+                <div style="padding-left:120px;height:50px;font-size:30px;font-weight:600;color:oklch(0.9 0.005 260)">{{ t.fav }}</div>
+                <div style="display:flex;gap:24px;padding-left:120px">
+                  <sc-for list="{{ f.favs }}" as="c" hint-placeholder-count="6">
+                    <div style="position:relative;flex:none;width:264px;height:132px;border-radius:26px;padding:0 22px;display:flex;align-items:center;gap:18px;background:{{ c.bg }};transform:{{ c.tf }};box-shadow:{{ c.sh }};z-index:{{ c.z }}">
+                      <div style="flex:none;width:60px;height:60px;border-radius:18px;overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:26px;font-weight:700;background:rgba(255,255,255,.12);opacity:{{ c.op }};filter:{{ c.fl }}">{{ c.letter }}<sc-if value="{{ c.hasLogo }}"><img src="{{ c.src }}" alt="" style="width:100%;height:100%;object-fit:contain;display:block"></sc-if></div>
+                      <div style="min-width:0;display:flex;flex-direction:column;gap:2px"><div style="font-size:28px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:{{ c.fg }}">{{ c.name }}</div><sc-if value="{{ c.hasSub }}"><div style="font-size:22px;font-weight:500;color:oklch(0.72 0.008 260);white-space:nowrap">{{ t.unav }}</div></sc-if></div>
+                      <sc-if value="{{ c.open }}"><div style="position:absolute;right:16px;top:16px;width:12px;height:12px;border-radius:6px;background:oklch(0.75 0.17 50)"></div></sc-if>
+                      <div style="position:absolute;inset:0;border-radius:26px;box-shadow:{{ c.kant }};pointer-events:none"></div>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+            </div>
+
+            <sc-if value="{{ f.nav }}">
+              <div style="position:absolute;inset:0;background:linear-gradient(90deg, rgba(0,0,0,.45), rgba(0,0,0,.1))"></div>
+              <div style="position:absolute;left:72px;top:72px;bottom:72px;width:500px;border-radius:44px;padding:40px 28px 28px;display:flex;flex-direction:column;gap:8px;background:oklch(0.22 0.006 260 / .82);backdrop-filter:blur(40px);box-shadow:inset 0 1px 0 rgba(255,255,255,.1), 0 40px 100px rgba(0,0,0,.6)">
+                <div style="display:flex;align-items:center;gap:14px;padding:0 22px 26px;font-size:28px;font-weight:600"><svg viewBox="0 0 100 100" width="38" height="38" style="flex:none;display:block;overflow:visible"><path d="M14 86 L50 18 L86 86" fill="none" stroke="#EDEDED" stroke-width="15" stroke-linejoin="round"></path><circle cx="50" cy="70" r="10" fill="#FF8A3D"></circle></svg>Arinn</div>
+                <sc-for list="{{ navItems }}" as="n" hint-placeholder-count="5">
+                  <div style="height:88px;border-radius:28px;padding:0 24px;display:flex;align-items:center;gap:20px;font-size:30px;font-weight:600;color:oklch(0.84 0.006 260)"><span style="font-family:'Material Symbols Rounded';font-size:40px;line-height:1;font-feature-settings:'liga';font-variation-settings:'FILL' 1">{{ n.icon }}</span>{{ n.label }}</div>
+                </sc-for>
+                <div style="position:relative;min-height:88px;border-radius:28px;padding:12px 24px;display:flex;align-items:center;gap:16px;background:rgba(255,255,255,.2);transform:scale(1.02);box-shadow:0 30px 60px -24px rgba(0,0,0,.9)">
+                  <span style="font-family:'Material Symbols Rounded';font-size:40px;line-height:1;font-feature-settings:'liga';font-variation-settings:'FILL' 1">stacks</span>
+                  <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px"><div style="font-size:30px;font-weight:600;white-space:nowrap">{{ t.svcTitle }}</div><div style="font-size:22px;font-weight:500;color:oklch(0.84 0.006 260);display:flex;align-items:center;gap:8px;white-space:nowrap;overflow:hidden"><span style="flex:none;width:10px;height:10px;border-radius:5px;background:oklch(0.75 0.17 50)"></span><span style="min-width:0;overflow:hidden;text-overflow:ellipsis">{{ t.onScreenKp }}</span></div></div>
+                  <span style="flex:none;font-size:24px;font-weight:600;color:oklch(0.75 0.17 50);font-variant-numeric:tabular-nums">4</span>
+                  <div style="position:absolute;inset:0;border-radius:28px;box-shadow:inset 0 0 0 3px rgba(255,255,255,.45);pointer-events:none"></div>
+                </div>
+                <div style="margin-top:auto;height:1px;background:rgba(255,255,255,.1);margin-bottom:12px"></div>
+                <div style="height:80px;border-radius:28px;padding:0 24px;display:flex;align-items:center;gap:20px;font-size:28px;font-weight:600;color:oklch(0.84 0.006 260)"><span style="font-family:'Material Symbols Rounded';font-size:36px;line-height:1;font-feature-settings:'liga'">power_settings_new</span>{{ t.power }}</div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ f.launch }}">
+              <div style="position:absolute;inset:0;background:oklch(0.12 0.005 260 / .92)"></div>
+              <div style="position:absolute;left:0;right:0;top:280px;display:flex;flex-direction:column;align-items:center;gap:40px">
+                <div style="width:180px;height:180px;border-radius:52px;overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:80px;font-weight:700;background:rgba(255,255,255,.1);box-shadow:0 0 140px 20px oklch(0.62 0.13 55 / .35), inset 0 0 0 2px rgba(255,255,255,.2)">{{ f.lLetter }}<sc-if value="{{ f.lHasLogo }}"><img src="{{ f.lSrc }}" alt="" style="width:100%;height:100%;object-fit:contain;display:block"></sc-if></div>
+                <div style="font-size:36px;font-weight:600">{{ t.openingKp }}</div>
+                <div style="position:relative;width:360px;height:6px;border-radius:3px;background:rgba(255,255,255,.18);overflow:hidden"><div style="position:absolute;left:{{ f.barX }}px;top:0;bottom:0;width:120px;border-radius:3px;background:oklch(0.75 0.17 50)"></div></div>
+                <sc-if value="{{ f.slow }}">
+                  <div style="display:flex;flex-direction:column;align-items:center;gap:28px">
+                    <div style="font-size:30px;line-height:1.45;color:oklch(0.84 0.006 260);text-align:center">{{ t.slow }}</div>
+                    <div style="height:88px;padding:0 44px;border-radius:44px;display:flex;align-items:center;font-size:30px;font-weight:600;background:oklch(0.97 0.004 260);color:oklch(0.17 0.006 260);transform:scale(1.06);box-shadow:0 18px 40px -12px rgba(0,0,0,.7)">{{ t.cancelL }}</div>
+                  </div>
+                </sc-if>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ f.fail }}">
+              <div style="position:absolute;inset:0;background:rgba(0,0,0,.6)"></div>
+              <div style="position:absolute;left:50%;top:50%;width:860px;margin-left:-430px;transform:translateY(-50%);border-radius:48px;padding:52px 52px 44px;display:flex;flex-direction:column;gap:18px;background:oklch(0.22 0.006 260 / .92);backdrop-filter:blur(48px);box-shadow:inset 0 1px 0 rgba(255,255,255,.1), 0 50px 120px rgba(0,0,0,.6)">
+                <span style="font-family:'Material Symbols Rounded';font-size:64px;line-height:1;color:oklch(0.66 0.21 22);font-feature-settings:'liga';font-variation-settings:'FILL' 1">error</span>
+                <div style="font-size:48px;font-weight:700;letter-spacing:-0.02em">{{ t.failKp }}</div>
+                <div style="font-size:30px;line-height:1.45;color:oklch(0.84 0.006 260);margin-bottom:16px">{{ t.webFailB }}</div>
+                <div style="display:flex;gap:20px">
+                  <div style="height:88px;padding:0 40px;border-radius:44px;display:flex;align-items:center;font-size:30px;font-weight:600;background:oklch(0.97 0.004 260);color:oklch(0.17 0.006 260);transform:scale(1.06);box-shadow:0 18px 40px -12px rgba(0,0,0,.7)">{{ t.retryS }}</div>
+                  <div style="height:88px;padding:0 40px;border-radius:44px;display:flex;align-items:center;font-size:30px;font-weight:600;background:rgba(255,255,255,.13)">{{ t.hClose }}</div>
+                </div>
+              </div>
+            </sc-if>
+          </div>
+        </div>
+        <div style="font-size:16px;line-height:1.5;color:oklch(0.72 0.008 260);text-wrap:pretty">{{ f.caption }}</div>
+      </div>
+    </sc-for>
+  </div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:28px;max-width:1968px">
+  <div style="font-size:36px;font-weight:700;letter-spacing:-0.015em">{{ t.secMotion }}</div>
+  <div style="font-size:20px;line-height:1.55;color:oklch(0.82 0.006 260);max-width:1200px;text-wrap:pretty">{{ t.motionIntro }}</div>
+  <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:20px">
+    <sc-for list="{{ motion }}" as="m" hint-placeholder-count="4">
+      <div style="border-radius:20px;padding:28px 30px;background:rgba(255,255,255,.05);box-shadow:inset 0 1px 0 rgba(255,255,255,.07);display:flex;flex-direction:column;gap:12px">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:16px;color:oklch(0.75 0.17 50)">{{ m.t }}</div>
+        <div style="font-size:24px;font-weight:600;line-height:1.3">{{ m.h }}</div>
+        <div style="font-size:18px;line-height:1.5;color:oklch(0.82 0.006 260);text-wrap:pretty">{{ m.d }}</div>
+      </div>
+    </sc-for>
+  </div>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;lang&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;ru&quot;,&quot;en&quot;],&quot;default&quot;:&quot;ru&quot;,&quot;tsType&quot;:&quot;'ru'|'en'&quot;,&quot;section&quot;:&quot;Language&quot;}}">
+const C={tx:'oklch(0.97 0.004 260)',tx2:'oklch(0.84 0.006 260)',tx3:'oklch(0.68 0.008 260)',ink:'oklch(0.17 0.006 260)'};
+const HUE={kinopoisk:55,youtube:25,ivi:355};
+const letterOf=d=>d.split('/')[0].replace(/^(www|m|hd)\./,'').charAt(0).toUpperCase();
+const art=h=>`linear-gradient(155deg, oklch(0.5 0.09 ${h} / .5) 0%, oklch(0.5 0.09 ${h} / 0) 55%), repeating-linear-gradient(135deg, oklch(0.3 0.05 ${h}) 0 16px, oklch(0.27 0.05 ${h}) 16px 32px)`;
+const light=h=>`radial-gradient(ellipse 70% 60% at 18% 0%, oklch(0.5 0.12 ${h} / .32) 0%, oklch(0.5 0.12 ${h} / 0) 70%)`;
+const S={
+ ru:{svcTitle:'Открытые сервисы',intro:'Каждый сервис открыт в своём окне Chrome на весь экран. Arinn показывает их плоским списком, переключает между ними и закрывает их. Все макеты 1920×1080, показаны в масштабе 50%.',
+  secAnswers:'Ответы на вопросы к дизайну',secScreen:'Экран «Открытые сервисы»',secHome:'Home и навигация',secMotion:'Переход Arinn ⇄ окно сервиса (#80)',
+  motionIntro:'Окно Chrome Arinn не рисует, поэтому анимирует только свою сторону: уходит в цвет сервиса и появляется из него. Используются существующие кривые и длительности.',
+  onScreen:'На экране',sound:'Звук',closingS:'Закрывается…',hGo:'Перейти',hClose:'Закрыть',hExit:'Выйти',kBack:'Назад',unavT:'Браузер недоступен',unav:'Недоступно',
+  cont:'Продолжить',fav:'Избранное',running:'Сейчас запущено',more3:'Ещё 3 открыто',allSvc:'Все открытые сервисы',onScreenKp:'На экране: Кинопоиск',power:'Питание',
+  openingKp:'Открывается Кинопоиск…',slow:'Браузер запускается дольше обычного',cancelL:'Отменить',failKp:'Кинопоиск не открылся',webFailB:'Браузер не ответил за 30 секунд. Попробуйте ещё раз.',retryS:'Повторить',
+  ret:'Вернуться',contWatch:'Продолжить просмотр',s1e4:'Сезон 1 · Эпизод 4 · осталось 38 мин',
+  nav:['Главная','Медиатека','Загрузки','Приложения','Настройки'],names:['Браузер','Кинопоиск','IVI','YouTube','Steam','EmulationStation'],media:[['Сёгун','С1 · Э4 · осталось 38 мин'],['Фоллаут','С1 · Э2 · осталось 21 мин']],
+  of:'из'},
+ en:{svcTitle:'Open services',intro:'Each service runs in its own full-screen Chrome window. Arinn shows them as a flat list, switches between them and closes them. All mockups are 1920×1080, shown at 50%.',
+  secAnswers:'Answers to the design questions',secScreen:'“Open services” screen',secHome:'Home and navigation',secMotion:'Arinn ⇄ service window transition (#80)',
+  motionIntro:'Arinn cannot draw the Chrome window, so it animates only its own side: it fades into the service colour and returns out of it. Existing curves and durations are reused.',
+  onScreen:'On screen',sound:'Sound',closingS:'Closing…',hGo:'Go to',hClose:'Close',hExit:'Exit',kBack:'Back',unavT:'Browser unavailable',unav:'Unavailable',
+  cont:'Continue',fav:'Favorites',running:'Running now',more3:'3 more open',allSvc:'All open services',onScreenKp:'On screen: Kinopoisk',power:'Power',
+  openingKp:'Opening Kinopoisk…',slow:'The browser is taking longer than usual to start',cancelL:'Cancel',failKp:'Kinopoisk didn’t open',webFailB:'The browser didn’t respond within 30 seconds. Try again.',retryS:'Try again',
+  ret:'Return',contWatch:'Continue watching',s1e4:'Season 1 · Episode 4 · 38 min left',
+  nav:['Home','Library','Downloads','Apps','Settings'],names:['Browser','Kinopoisk','IVI','YouTube','Steam','EmulationStation'],media:[['Shōgun','S1 · E4 · 38 min left'],['Fallout','S1 · E2 · 21 min left']],
+  of:'of'}
+};
+class Component extends DCLogic {
+  state={logos:{}};
+  componentDidMount(){fetch('.image-slots.state.json').then(r=>r.ok?r.json():null).then(j=>{if(!j)return;const logos={};['browser','kinopoisk','ivi','youtube','steam','es'].forEach(a=>{const v=j['logo-'+a];const u=v&&(typeof v==='string'?v:v.u);if(u)logos[a]=u});this.setState({logos})}).catch(()=>{})}
+  get L(){return this.props.lang==='en'?'en':'ru'}
+  ic(app,dom){const src=app&&this.state.logos[app];const ru=this.L==='ru';return{hasLogo:!!src,src:src||'',letter:src?'':(app?{kinopoisk:ru?'К':'K',youtube:'Y',ivi:'I',browser:ru?'Б':'B',steam:'S',es:'E'}[app]:letterOf(dom))}}
+  row(o,focus,extra={}){const on=focus==='row',cOn=focus==='close',dom=o.addr.split('/')[0],title=o.title||dom;
+    return{...this.ic(o.app,o.addr),title,sub:o.title?dom:o.addr,current:!!o.current,audio:!!o.audio,closing:!!extra.closing,lines:on?2:1,
+      bg:on?'rgba(255,255,255,.2)':'rgba(255,255,255,.06)',tf:on?'scale(1.02)':'none',z:on?3:1,
+      sh:on?`0 0 60px 0 oklch(0.62 0.13 ${HUE[o.app]||260} / .22), 0 40px 70px -26px rgba(0,0,0,.9)`:'none',
+      kant:on?'inset 0 0 0 3px rgba(255,255,255,.45)':'inset 0 1px 0 rgba(255,255,255,.08)',
+      closeBg:cOn?C.tx:'rgba(255,255,255,.06)',closeFg:cOn?C.ink:C.tx2,closeTf:cOn?'scale(1.06)':'none',closeSh:cOn?'0 18px 40px -12px rgba(0,0,0,.7)':'none',
+      closeIcon:extra.closing?'progress_activity':'close',op:extra.closing?.5:1}}
+  tile(o,focus){const on=!!focus;return{bg:on?'rgba(255,255,255,.2)':'rgba(255,255,255,.06)',tf:on?'scale(1.06) translateY(-6px)':'none',z:on?3:1,sh:on?'0 0 120px 20px oklch(0.62 0.13 55 / .4), 0 50px 80px -30px rgba(0,0,0,.9)':'none',kant:on?'inset 0 0 0 3px rgba(255,255,255,.45)':'inset 0 1px 0 rgba(255,255,255,.08)',...o}}
+  renderVals(){
+    const L=this.L,t=S[L],T=(ru,en)=>L==='en'?en:ru;
+    const BASE=[
+      {app:'kinopoisk',title:T('Дюна: Часть вторая — смотреть онлайн в хорошем качестве','Dune: Part Two — watch online in HD'),addr:'hd.kinopoisk.ru/film/4540126',current:1,audio:1},
+      {app:'youtube',title:T('Как снимали «Сёгун»: за кадром','Making Shōgun: behind the scenes'),addr:'youtube.com/watch?v=Qk2h7s'},
+      {app:'ivi',title:T('Каталог фильмов','Movie catalogue'),addr:'ivi.ru/movies'},
+      {title:T('Прогноз погоды на 10 дней — Москва','10-day weather forecast — Moscow'),addr:'yandex.ru/pogoda/moscow'}];
+    const MANY=[[T('Смотреть сериал «Медведь», 3 сезон','Watch The Bear, season 3'),'okko.tv/serial/the-bear'],[T('Премьеры недели','Premieres of the week'),'start.ru/premieres'],[T('Концерт в Большом зале консерватории — трансляция','Concert at the Great Hall of the Conservatory — live'),'meloman.ru/live'],[T('Расписание матчей РПЛ','Russian Premier League fixtures'),'sports.ru/rfpl/calendar'],[T('Прямой эфир','Live'),'smotrim.ru/live'],[T('Рецепт пасты карбонара','Pasta carbonara recipe'),'eda.ru/recepty/pasta'],[T('Лучшие фильмы 2024 года','Best films of 2024'),'kinopoisk.ru/lists/top-2024'],[T('Подкасты','Podcasts'),'music.yandex.ru/podcasts'],[T('Лекция о чёрных дырах','A lecture on black holes'),'postnauka.ru/video/1182'],[T('Новые серии каждую пятницу','New episodes every Friday'),'wink.ru/series'],[T('Мультфильмы для детей','Cartoons for kids'),'kion.ru/kids'],[T('Главные новости','Top news'),'ria.ru'],[T('Документальные фильмы','Documentaries'),'premier.one/docs'],[T('Чемпионат мира по фигурному катанию','World Figure Skating Championships'),'matchtv.ru/figure']];
+    const LONG=T('Смотреть сериал Сёгун 1 сезон 4 серия «Восьмикратная изгородь» онлайн бесплатно в хорошем качестве HD 1080 без регистрации и рекламы на русском языке в озвучке','Watch Shōgun season 1 episode 4 “The Eightfold Fence” online free in HD 1080 quality with no sign-up and no ads, dubbed and subtitled in several languages');
+    const fade='linear-gradient(180deg, transparent 0, #000 60px, #000 calc(100% - 90px), transparent 100%)';
+    const base=(fi,ff)=>BASE.map((o,i)=>this.row(o,i===fi?ff:null));
+    const many=[...BASE,...MANY.map(([a,b])=>({title:a,addr:b}))];
+    const lf=(id,label,count,pos,rows,light,mask,ty,caption)=>({id,label,count,pos,rows,light,mask,ty,caption});
+    const listFrames=[
+      lf('OS-1',T('Список, фокус на сервисе','List, focus on a service'),'4','',base(1,'row'),light(25),'none',0,T('Первым идёт сервис, который сейчас на экране, дальше по времени последнего использования. Свет фона берёт оттенок сервиса в фокусе (иконка ярлыка или нейтральный). OK переключает на окно.','The service on screen comes first, then the rest by last use. The background light takes the hue of the focused service (from the shortcut icon, or neutral). OK switches to its window.')),
+      lf('OS-2',T('Фокус на «Закрыть»','Focus on Close'),'4','',base(0,'close'),light(55),'none',0,T('Стрелка вправо переводит фокус на кнопку закрытия этой строки, влево возвращает. Сервис со звуком закрывается без подтверждения: кнопка отдельная, случайно не нажать.','Right moves focus to this row’s close button, left moves it back. A service playing sound closes without confirmation: the button is a separate target and hard to hit by accident.')),
+      lf('OS-3',T('Закрывается','Closing'),'4','',BASE.map((o,i)=>i===2?this.row(o,null,{closing:1}):this.row(o,i===3?'row':null)),light(260),'none',0,T('Строка приглушена до 50%, в кнопке индикатор. Фокус сразу уходит на следующую строку. Когда браузер подтвердит, строка схлопывается (220 мс), список подтягивается.','The row dims to 50% and the button shows a spinner. Focus moves to the next row straight away. When the browser confirms, the row collapses (220 ms) and the list closes the gap.')),
+      lf('OS-4',T('Много открыто (18)','Many open (18)'),'18',T('9 из 18','9 of 18'),many.map((o,i)=>this.row(o,i===8?'row':null)),light(260),fade,-720,T('Список прокручивается так, чтобы фокус держался во второй-третьей строке снизу. Край списка гаснет, справа позиция «9 из 18». Прокрутка от удержания стрелки ускоряется.','The list scrolls so focus stays two or three rows from the bottom. The edges fade out and the position “9 of 18” sits top-right. Holding an arrow speeds up the scroll.')),
+      lf('OS-5',T('Длинный и пустой заголовок','Long and empty titles'),'4','',[this.row({app:'kinopoisk',title:T('Дюна: Часть вторая','Dune: Part Two'),addr:'hd.kinopoisk.ru/film/4540126',current:1,audio:1},null),this.row({title:LONG,addr:'seriesonline.example/shogun/s1e4'},'row'),this.row({title:'',addr:'rutube.ru/video/8f3a2c1b9e7d'},null),this.row({app:'ivi',title:'',addr:'ivi.ru/watch/210488'},null)],light(260),'none',0,T('Без фокуса заголовок в одну строку с многоточием, в фокусе до двух строк. Пустой заголовок заменяется доменом, адрес уходит в подпись. Буквенный знак строится из домена, если ярлыка для сайта нет.','Unfocused, the title is one line with an ellipsis; focused, up to two lines. An empty title is replaced by the domain, and the address moves to the subline. When no shortcut matches the site, the letter mark comes from the domain.'))
+    ];
+    const msgFrames=[
+      {id:'OS-6',label:T('Ничего не открыто','Nothing open'),icon:'stacks',iconColor:C.tx3,title:T('Ничего не открыто','Nothing open'),body:T('Здесь появятся сервисы, которые вы откроете с главного экрана.','Services you open from Home will appear here.'),btn:T('На главную','Go to Home'),btnIcon:'home',caption:T('Пустое состояние. Пункт в навигации остаётся, счётчик скрыт.','Empty state. The nav item stays; its count is hidden.')},
+      {id:'OS-7',label:t.unavT,icon:'public_off',iconColor:'oklch(0.66 0.21 22)',title:t.unavT,body:T('Онлайн-сервисы сейчас не открываются. Медиатека, загрузки и игры работают.','Online services can’t open right now. Library, downloads and games still work.'),btn:t.retryS,btnIcon:'refresh',caption:T('Расширение не подключено или плагин упал. Список не показывается: данных о вкладках нет. «Повторить» переподключает плагин.','The extension isn’t connected or the plugin crashed. No list is shown because there is no window data. “Try again” reconnects the plugin.')}
+    ];
+    const lg=this.state.logos;
+    const svc={isSvc:1,...this.ic('kinopoisk'),title:BASE[0].title,sub:'hd.kinopoisk.ru · '+t.ret};
+    const stack=['youtube','ivi',null].map(a=>a?this.ic(a):{hasLogo:false,src:'',letter:'Y'});
+    const media=[{isMedia:1,title:t.media[0][0],sub:t.media[0][1],pct:42,art:art(20)},{isMedia:1,title:t.media[1][0],sub:t.media[1][1],pct:66,art:art(140)}];
+    const favs=(unav,openDots)=>['browser','kinopoisk','ivi','youtube','steam','es'].map((a,i)=>{const dim=unav&&i<4;
+      return this.tile({...this.ic(a),name:t.names[i],open:openDots&&['kinopoisk','ivi','youtube'].includes(a),op:dim?.4:1,fl:dim?'grayscale(1)':'none',fg:dim?C.tx3:C.tx,hasSub:dim},unav&&i===1)});
+    const kpHero={heroLive:1,heroEyebrow:t.running,heroTitle:t.names[1],heroMeta:'hd.kinopoisk.ru · '+t.ret};
+    const sgHero={heroLive:0,heroEyebrow:t.contWatch,heroTitle:t.media[0][0],heroMeta:t.s1e4,light:light(20)};
+    const recede={homeFl:'blur(12px) brightness(.6)',homeTf:'scale(.97)'};
+    const noSvc=[this.tile({isAll:1,stack}),...media.map(m=>this.tile(m))];
+    const hf=o=>({light:light(55),homeFl:'none',homeTf:'none',nav:false,launch:false,fail:false,warn:false,slow:false,barX:0,...kpHero,lHasLogo:!!lg.kinopoisk,lSrc:lg.kinopoisk||'',lLetter:lg.kinopoisk?'':T('К','K'),...o});
+    const homeFrames=[
+      hf({id:'H-1',label:T('Home поверх сервиса','Home over a service'),cont:[this.tile(svc,1),this.tile({isAll:1,stack}),...media.map(m=>this.tile(m))],favs:favs(false,true),caption:T('Первая карточка Continue — текущий сервис: иконка ярлыка или буква, заголовок страницы, домен. Вторая — «Ещё N открыто», ведёт на экран «Открытые сервисы»; при одном открытом сервисе её нет. Точка на плитке ярлыка значит «уже открыт»: Arinn сопоставляет адреса вкладок с адресами ярлыков сам, доработка расширения не нужна.','The first Continue card is the current service: shortcut icon or letter, page title, domain. The second, “N more open”, leads to Open services; it is hidden when only one service is open. A dot on a shortcut tile means “already open”. Arinn matches window addresses to shortcut URLs itself, so the extension needs no change.')}),
+      hf({id:'H-2',label:T('Навигация: пункт «Открытые сервисы»','Nav: the Open services item'),cont:[this.tile(svc),this.tile({isAll:1,stack}),...media.map(m=>this.tile(m))],favs:favs(false,true),nav:true,homeFl:'brightness(.55)',homeTf:'scale(.98)',caption:T('Пункт сразу под основными разделами: счётчик и подпись о том, что сейчас на экране. Для веб-сервиса заменяет нижнюю строку активности; для внешних приложений (Steam и т. п.) она остаётся. Панель поднята до y72–1008, чтобы поместились оба пункта.','The item sits right below the main sections, with a count and a subline saying what is on screen. For a web service it replaces the bottom activity row; for external apps (Steam etc.) that row stays. The panel now spans y72–1008 so both fit.')}),
+      hf({id:'H-3',label:T('Home, браузер недоступен','Home, browser unavailable'),cont:media.map(m=>this.tile(m)),favs:favs(true,false),warn:true,...sgHero,light:'none',caption:T('Плитки веб-ярлыков и «Браузер» приглушены, иконки обесцвечены, подпись «Недоступно». Они остаются фокусируемыми: OK показывает экран OS-7. В строке статуса метка «Браузер недоступен». Остальной Home работает.','Web shortcut tiles and Browser are dimmed with greyscale icons and the subline “Unavailable”. They stay focusable; OK shows OS-7. The status bar shows “Browser unavailable”. The rest of Home works.')}),
+      hf({id:'H-4',label:T('Открывается','Opening'),cont:noSvc,favs:favs(false,false),...sgHero,launch:true,barX:120,caption:T('Существующий экран запуска плюс бегущая полоса Ember. Если окно появилось быстрее 400 мс, экран не показывается.','The existing launch overlay plus a running Ember bar. If the window appears within 400 ms, the overlay is skipped.')}),
+      hf({id:'H-5',label:T('Открывается дольше 8 секунд','Opening for more than 8 s'),cont:noSvc,favs:favs(false,false),...sgHero,launch:true,slow:true,barX:220,caption:T('Chrome запускается с нуля. После 8 с появляется пояснение и «Отменить»; Назад делает то же самое.','Chrome is starting from scratch. After 8 s an explanation and “Cancel” appear; Back does the same.')}),
+      hf({id:'H-6',label:T('Не удалось открыть','Failed to open'),cont:noSvc,favs:favs(false,false),...sgHero,...recede,fail:true,caption:T('Тайм-аут 30 с или ошибка. Диалог по образцу 18b, пользователь остаётся в Arinn. «Закрыть» возвращает фокус на плитку.','A 30 s timeout or an error. The dialog follows 18b; the user stays in Arinn. “Close” returns focus to the tile.')})
+    ];
+    const navItems=['home','video_library','download','apps','settings'].map((icon,i)=>({icon,label:t.nav[i]}));
+    const answers=[
+      {q:T('Как называть экран?','What do we call the screen?'),a:T('«Открытые сервисы» / Open services','“Открытые сервисы” / Open services'),why:T('«Вкладки» — слово браузера, а вкладок пользователь здесь не видит. «Запущено» уже занято приложениями и играми.','“Tabs” is a browser word, and the user never sees tabs here. “Running” is already used for apps and games.')},
+      {q:T('Где живёт список?','Where does the list live?'),a:T('Отдельный экран, вход из навигации и с карточки «Ещё N открыто» в Continue','Its own screen, reached from the nav and from the “N more open” card in Continue'),why:T('Быстрый переключатель по кнопке потребовал бы отдельную клавишу, а на пульте только стрелки, OK, Назад и Home.','A quick switcher would need its own key, and the remote only has arrows, OK, Back and Home.')},
+      {q:T('Что на карточке без favicon?','What goes on a card without a favicon?'),a:T('Иконка ярлыка, если адрес совпал с ярлыком; иначе буква домена','The shortcut icon when the address matches a shortcut; otherwise the domain’s letter'),why:T('Буква на нейтральном чипе, без выдуманных цветов. Заголовок страницы — главная строка, домен — подпись.','The letter sits on a neutral chip with no invented colours. The page title is the main line and the domain is the subline.')},
+      {q:T('Подтверждать закрытие со звуком?','Confirm closing a service with sound?'),a:T('Нет','No'),why:T('Закрытие — отдельная кнопка справа от строки, до неё нужно дойти стрелкой. Диалог добавил бы лишний шаг к частому действию.','Close is a separate button to the right of the row that you have to move to. A dialog would add a step to a frequent action.')},
+      {q:T('Отметка «уже открыт» на ярлыке?','An “already open” mark on shortcuts?'),a:T('Да, та же точка Ember, что у запущенных приложений','Yes, the same Ember dot as running apps'),why:T('Данные уже есть: Arinn сравнивает адреса открытых окон с адресами ярлыков. Правка контракта не нужна.','The data already exists: Arinn compares open window addresses with shortcut URLs. No contract change is needed.')},
+      {q:T('Переход Arinn ⇄ окно (#80)?','Arinn ⇄ window transition (#80)?'),a:T('Arinn уходит в цвет сервиса и возвращается из размытия','Arinn fades into the service colour and returns out of a blur'),why:T('Окно браузера анимировать нельзя, поэтому движется только Arinn. Подробно — в последнем разделе.','The browser window can’t be animated, so only Arinn moves. Details are in the last section.')}
+    ];
+    const motion=[
+      {t:T('0–220 мс','0–220 ms'),h:T('Нажатие','Press'),d:T('Строка или плитка сжимается до 0.98 и возвращается, как при любом OK.','The row or tile shrinks to 0.98 and springs back, as on any OK.')},
+      {t:T('220–500 мс','220–500 ms'),h:T('Уход Arinn','Arinn leaves'),d:T('Интерфейс отдаляется (scale .97, blur 12) и гаснет в тёмный оттенок сервиса. Затем Arinn поднимает окно Chrome.','The UI recedes (scale .97, blur 12) and fades into a dark tint of the service hue. Then Arinn raises the Chrome window.')},
+      {t:T('Home из сервиса','Home from a service'),h:T('Возврат','Return'),d:T('Существующая анимация lt-return: Arinn проявляется из размытия за 450 мс, фокус на карточке текущего сервиса.','The existing lt-return animation: Arinn resolves out of a blur in 450 ms with focus on the current service card.')},
+      {t:T('Переключение','Switching'),h:T('Сервис → сервис','Service → service'),d:T('Через список: уход Arinn, как выше. Прямого перехода между окнами без Arinn нет.','Through the list, with Arinn leaving as above. There is no direct window-to-window switch that bypasses Arinn.')}
+    ];
+    return{t,answers,listFrames,msgFrames,homeFrames,navItems,motion};
+  }
+}
+</script>
+</body>
+</html>

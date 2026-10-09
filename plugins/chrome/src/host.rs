@@ -107,13 +107,14 @@ where
     W: AsyncWrite + Unpin + Send + 'static,
 {
     let bus = fdo::DBusProxy::new(&connection).await?;
+    // Subscribe before reading the owner, so no change between the two is lost.
+    let mut owner_changes = bus
+        .receive_name_owner_changed_with_args(&[(0, BRIDGE_NAME)])
+        .await?;
     let bridge_owner = bus
         .get_name_owner(BRIDGE_NAME.try_into()?)
         .await?
         .to_string();
-    let mut owner_changes = bus
-        .receive_name_owner_changed_with_args(&[(0, BRIDGE_NAME)])
-        .await?;
     let bridge = BridgeClientProxy::builder(&connection)
         .destination(bridge_owner.clone())?
         .build()
@@ -165,7 +166,14 @@ where
                 }
             }
             change = owner_changes.next() => {
-                if change.is_none_or(|c| c.args().is_ok_and(|a| a.new_owner.is_none())) {
+                // The provider is gone when the name loses its owner or moves
+                // to a new one (a restarted provider queued for it, #356).
+                let owner = change.map(|c| {
+                    c.args()
+                        .ok()
+                        .and_then(|a| a.new_owner.as_ref().map(|o| o.to_string()))
+                });
+                if owner.is_none_or(|owner| owner.as_deref() != Some(bridge_owner.as_str())) {
                     break Ok(());
                 }
             }

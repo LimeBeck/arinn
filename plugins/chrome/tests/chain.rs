@@ -279,12 +279,66 @@ async fn host_links_the_extension_and_the_provider_bridge() {
     );
     until(|| !bridge.snapshot().2).await;
     let mut child = host(&bus, &origin());
+    // The port stays open: only the provider's loss may end this host.
+    let _port = child.stdin.take();
     until(|| bridge.snapshot().2).await;
     provider.release_name(BRIDGE_NAME).await.unwrap();
     assert!(
         tokio::time::timeout(Duration::from_secs(5), child.wait())
             .await
             .unwrap()
+            .unwrap()
+            .success()
+    );
+}
+
+// #356: when the bridge name moves straight to a new provider (one queued
+// behind the old one), the host's provider is gone and it must exit too.
+#[tokio::test(flavor = "multi_thread")]
+async fn host_exits_when_the_bridge_moves_to_a_new_provider() {
+    let bus = Bus::start();
+    let old = bus.connection().await;
+    let bridge = Bridge::default();
+    old.object_server()
+        .at(BRIDGE_PATH, bridge.clone())
+        .await
+        .unwrap();
+    old.request_name(BRIDGE_NAME).await.unwrap();
+    let mut child = host(&bus, &origin());
+    // Keep the browser's port open: `wait` would otherwise close stdin, and
+    // the host would exit for that reason instead.
+    let _port = child.stdin.take();
+    until(|| bridge.snapshot().2).await;
+
+    // The restarted provider queues for the name while the old one still
+    // holds it; releasing hands the name over without an ownerless moment.
+    let new = bus.connection().await;
+    new.object_server()
+        .at(BRIDGE_PATH, Bridge::default())
+        .await
+        .unwrap();
+    let queued = zbus::fdo::DBusProxy::new(&new)
+        .await
+        .unwrap()
+        .request_name(
+            BRIDGE_NAME.try_into().unwrap(),
+            // No DoNotQueue: wait in line, as a provider restarted early does.
+            zbus::fdo::RequestNameFlags::AllowReplacement.into(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(queued, zbus::fdo::RequestNameReply::InQueue);
+    assert!(
+        tokio::time::timeout(Duration::from_millis(500), child.wait())
+            .await
+            .is_err(),
+        "the host keeps running while its provider owns the name"
+    );
+    old.release_name(BRIDGE_NAME).await.unwrap();
+    assert!(
+        tokio::time::timeout(Duration::from_secs(5), child.wait())
+            .await
+            .expect("the host outlived its provider")
             .unwrap()
             .success()
     );

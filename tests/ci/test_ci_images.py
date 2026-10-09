@@ -128,6 +128,13 @@ class ImageContentTest(unittest.TestCase):
         sdk = stage(ARCH, "qt-sdk")
         self.assertIn("pip install --no-cache-dir --require-hashes -r /qt/aqtinstall.txt", sdk)
         self.assertIn("diff -u - /qt/actual.sha256", sdk)
+        pins = (ROOT / "ci" / "images" / "arch" / "qt-archives.sha256").read_text()
+        archives = re.findall(r"^[0-9a-f]{64}  \./(\S+)\.7z$", pins, re.M)
+        self.assertEqual(len(archives), len([line for line in pins.splitlines()
+                                             if line and not line.startswith("#")]))
+        for name in ("qtbase", "qtdeclarative", "qtsvg", "qttools", "icu"):
+            with self.subTest(archive=name):
+                self.assertTrue(any(archive.startswith(name + "-") for archive in archives), archives)
         requirements = (ROOT / "ci" / "images" / "arch" / "aqtinstall.txt").read_text()
         pinned = re.findall(r"^([A-Za-z0-9_.-]+)==\S+ \\$", requirements, re.M)
         self.assertIn("aqtinstall", pinned)

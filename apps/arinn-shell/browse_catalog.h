@@ -36,7 +36,6 @@ public:
   Q_INVOKABLE void dismissError();
 public slots:
   void refreshRecent();
-  void refreshShortcuts();
 signals:
   void changed();
 
@@ -44,7 +43,7 @@ private:
   void watchOperation(const QString &path, quint64 ticket, int polls = 0);
   QString m_text, m_kind, m_url, m_engine, m_operation;
   QStringList m_recent;
-  QVariantList m_tabs, m_shortcuts;
-  quint64 m_resolve = 0, m_recentRead = 0, m_shortcutRead = 0, m_command = 0;
+  QVariantList m_tabs;
+  quint64 m_resolve = 0, m_recentRead = 0, m_command = 0;
   bool m_busy = false;
 };

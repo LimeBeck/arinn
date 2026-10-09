@@ -537,10 +537,9 @@ Window {
                 || browseCatalog.operationState === "Unavailable"
             onTextEdited: value => browseCatalog.text = value
             onOpenRequested: browseCatalog.open()
-            onShortcutRequested: entryId => browserCatalog.openShortcut(entryId)
             onApplicationRequested: entryId => backend.launch(entryId)
             onClearRequested: browseCatalog.clearRecent()
-            onRetryRequested: { browseCatalog.dismissError(); browserCatalog.retry(); browseCatalog.refreshRecent(); browseCatalog.refreshShortcuts(); }
+            onRetryRequested: { browseCatalog.dismissError(); browserCatalog.retry(); browseCatalog.refreshRecent(); }
             onBackRequested: root.closeBrowse()
             onHomeRequested: root.goHomeFrom("browse")
         }

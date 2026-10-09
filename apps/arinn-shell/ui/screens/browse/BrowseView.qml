@@ -16,15 +16,21 @@ FocusScope {
     property bool browserUnavailable: false
     property bool keyboardSeen: false
     readonly property bool canType: keyboardAvailable || keyboardSeen
+    // The on-screen keyboard panel (spec §6.2, ADR-0103).
+    property bool keyboardOpen: false
+    // Recent entries and open services that match the text, up to four:
+    // [{icon, title, subtitle, value, open}] (spec §7.1).
     property var suggestions: []
     property var recent: []
     property var ordinaryApplications: []
     readonly property bool busy: operationState === "running" || operationState === "queued"
     readonly property bool valid: kind === "address" || kind === "search"
+    // While the panel is hidden, the list under the field: recent entries
+    // with Clear for an empty field (V-2b), suggestions while typing.
+    readonly property var listedSuggestions: keyboardOpen || !text.length ? [] : suggestions
 
     signal textEdited(string value)
     signal openRequested()
-    signal shortcutRequested(string entryId)
     signal applicationRequested(string entryId)
     signal clearRequested()
     signal retryRequested()
@@ -36,12 +42,36 @@ FocusScope {
     function focusInitial() {
         if (browserUnavailable)
             Ui.Focus.take(retry);
+        else if (keyboardOpen)
+            keyboard.start();
         else if (canType && !busy)
             Ui.Focus.take(field);
-        else if (suggestionRows.count)
-            Ui.Focus.take(suggestionRows.itemAt(0));
         else
-            Ui.Focus.take(backButton);
+            // No hardware keyboard: the remote types through the panel.
+            Ui.Focus.take(keyboardButton);
+    }
+
+    function showKeyboard() {
+        if (keyboardOpen || browserUnavailable)
+            return;
+        keyboardOpen = true;
+        keyboard.start();
+    }
+
+    function hideKeyboard() {
+        if (!keyboardOpen)
+            return;
+        keyboard.finish();
+        keyboardOpen = false;
+        Ui.Focus.take(keyboardButton);
+    }
+
+    function chooseSuggestion(entry) {
+        if (!entry || busy)
+            return;
+        root.textEdited(entry.value);
+        if (!keyboardOpen)
+            Ui.Focus.take(canType ? field : keyboardButton);
     }
 
     function controls() {
@@ -52,6 +82,9 @@ FocusScope {
         if (browserUnavailable) {
             result.push(retry);
         } else {
+            result.push(keyboardButton);
+            if (keyboardOpen)
+                return result;
             for (let i = 0; i < suggestionRows.count; ++i) result.push(suggestionRows.itemAt(i))
             for (let i = 0; i < recentRows.count; ++i) result.push(recentRows.itemAt(i))
             if (clear.visible)
@@ -64,6 +97,11 @@ FocusScope {
     }
 
     function move(delta) {
+        // With the panel open, Down from the field or its button enters it.
+        if (keyboardOpen && delta > 0) {
+            keyboard.enterFromAbove();
+            return;
+        }
         const list = controls();
         let index = list.findIndex((item) => {
             return item.activeFocus;
@@ -76,7 +114,7 @@ FocusScope {
         actionColumn.forceLayout();
         choiceColumn.forceLayout();
         const pos = list[index].mapToItem(choiceColumn, 0, 0);
-        if (list[index] !== field && list[index] !== retry && list[index] !== backButton)
+        if (list[index] !== field && list[index] !== retry && list[index] !== backButton && list[index] !== keyboardButton)
             choices.contentY = Math.max(0, Math.min(choices.contentHeight - choices.height, pos.y - 180));
 
     }
@@ -86,16 +124,36 @@ FocusScope {
     onVisibleChanged: {
         if (!visible) {
             keyboardSeen = false;
+            if (keyboardOpen) {
+                keyboard.finish();
+                keyboardOpen = false;
+            }
         }
+    }
+    onBrowserUnavailableChanged: if (browserUnavailable && keyboardOpen) {
+        keyboard.finish();
+        keyboardOpen = false;
+        Qt.callLater(() => Ui.Focus.take(retry));
     }
     Keys.onPressed: (event) => {
         if (event.key === Qt.Key_Escape || event.key === Qt.Key_Back || (event.key === Qt.Key_Backspace && !field.activeFocus)) {
-            if (!event.isAutoRepeat)
-                root.backRequested();
-
+            if (!event.isAutoRepeat) {
+                // The open panel is one more level for Back (DR-46).
+                if (keyboardOpen)
+                    root.hideKeyboard();
+                else
+                    root.backRequested();
+            }
             event.accepted = true;
         } else if ([Qt.Key_Up, Qt.Key_Down, Qt.Key_Tab, Qt.Key_Backtab].includes(event.key)) {
             move(event.key === Qt.Key_Up || event.key === Qt.Key_Backtab ? -1 : 1);
+            event.accepted = true;
+        } else if (event.key === Qt.Key_Right && field.activeFocus) {
+            // The field gives Right back at the end of the text.
+            Ui.Focus.take(keyboardButton);
+            event.accepted = true;
+        } else if (event.key === Qt.Key_Left && keyboardButton.activeFocus && canType) {
+            Ui.Focus.take(field);
             event.accepted = true;
         } else if (!field.activeFocus && event.text.length && !(event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier)) && event.key !== Qt.Key_Return && event.key !== Qt.Key_Enter && !browserUnavailable && !busy) {
             root.keyboardSeen = true;
@@ -112,21 +170,23 @@ FocusScope {
 
     Ui.UiText {
         x: 120
-        y: 96
+        // The open panel moves the title and the field up (KB-1).
+        y: root.keyboardOpen ? 64 : 96
         text: qsTr("Site or search")
         font.pixelSize: 56
         font.weight: 700
     }
 
     Rectangle {
+        id: fieldPlate
+
         x: 120
-        y: 210
+        y: root.keyboardOpen ? 160 : 210
         width: 1480
         height: 132
         radius: 34
         color: Qt.rgba(1, 1, 1, 0.12)
-        opacity: root.browserUnavailable || !root.canType ? 0.6 : 1
-        border.width: field.activeFocus ? 3 : 0
+        border.width: field.activeFocus || root.keyboardOpen ? 3 : 0
         border.color: Qt.rgba(1, 1, 1, 0.45)
 
         TextInput {
@@ -134,7 +194,9 @@ FocusScope {
 
             objectName: "browseInput"
             x: 32
-            width: parent.width - 64
+            // Dimmed without a way to type; the keyboard button stays bright.
+            opacity: root.browserUnavailable || !(root.canType || root.keyboardOpen) ? 0.6 : 1
+            width: keyboardButton.x - x - 24
             height: 80
             anchors.verticalCenter: parent.verticalCenter
             text: root.text
@@ -145,7 +207,14 @@ FocusScope {
             verticalAlignment: TextInput.AlignVCenter
             clip: true
             selectByMouse: true
-            enabled: !root.browserUnavailable && !root.busy && root.canType
+            // The panel types here without focus; the caret stays visible.
+            cursorVisible: activeFocus || root.keyboardOpen
+            cursorDelegate: Rectangle {
+                width: 4
+                color: Ui.Theme.ember
+                visible: field.cursorVisible
+            }
+            enabled: !root.browserUnavailable && !root.busy && (root.canType || root.keyboardOpen)
             onTextEdited: root.textEdited(text)
             Keys.onPressed: (event) => {
                 if (event.key === Qt.Key_Home && event.modifiers === Qt.NoModifier) {
@@ -170,12 +239,23 @@ FocusScope {
 
         }
 
+        Ui.KeyboardButton {
+            id: keyboardButton
+
+            objectName: "browseKeyboard"
+            x: parent.width - width - 24
+            anchors.verticalCenter: parent.verticalCenter
+            panelOpen: root.keyboardOpen
+            enabled: !root.browserUnavailable
+            onActivated: root.keyboardOpen ? root.hideKeyboard() : root.showKeyboard()
+        }
+
     }
 
     Ui.UiText {
         objectName: "browseIntent"
         x: 152
-        y: 370
+        y: fieldPlate.y + 160
         width: 1448
         font.pixelSize: 30
         elide: Text.ElideRight
@@ -192,6 +272,7 @@ FocusScope {
         height: 450
         clip: true
         contentHeight: choiceColumn.height
+        visible: !root.keyboardOpen
 
         Column {
             id: choiceColumn
@@ -201,37 +282,25 @@ FocusScope {
             visible: !root.browserUnavailable
 
             Ui.UiText {
-                visible: !root.canType
-                text: qsTr("A keyboard is needed to type")
-                font.pixelSize: 44
-                font.weight: 700
-            }
-
-            Ui.UiText {
-                visible: !root.canType
-                text: qsTr("You can still open shortcuts with the remote.")
-                role: "body"
-            }
-
-            Ui.UiText {
                 visible: suggestionRows.count > 0
-                text: qsTr("Shortcuts")
+                text: qsTr("Suggestions")
                 role: "meta"
             }
 
             Repeater {
                 id: suggestionRows
 
-                model: root.suggestions
+                model: root.listedSuggestions
 
                 Ui.ActionButton {
                     required property var modelData
+                    required property int index
 
-                    objectName: "browseShortcut-" + modelData.id
+                    objectName: "browseSuggestion-" + index
                     width: 1040
                     height: 88
-                    text: modelData.title + " · " + modelData.subtitle + (modelData.open ? " · " + qsTr("Open") : "")
-                    onActivated: root.shortcutRequested(modelData.id)
+                    text: modelData.title + (modelData.subtitle ? " · " + modelData.subtitle : "") + (modelData.open ? " · " + qsTr("Open") : "")
+                    onActivated: root.chooseSuggestion(modelData)
                 }
 
             }
@@ -255,10 +324,7 @@ FocusScope {
                     width: 1040
                     height: 64
                     text: modelData
-                    onActivated: {
-                        root.textEdited(modelData);
-                        Ui.Focus.take(field);
-                    }
+                    onActivated: root.chooseSuggestion({value: modelData})
                 }
 
             }
@@ -332,7 +398,8 @@ FocusScope {
     Ui.UiText {
         objectName: "browseFeedback"
         x: 120
-        y: 918
+        // Above the open panel, under the intent line.
+        y: root.keyboardOpen ? fieldPlate.y + 204 : 918
         width: 1400
         role: "body"
         color: root.busy || root.operationState === "succeeded" ? Ui.Theme.textSecondary : Ui.Theme.error
@@ -345,8 +412,28 @@ FocusScope {
         objectName: "browseBack"
         x: 1580
         y: 922
+        visible: !root.keyboardOpen
         text: qsTr("Back")
         onActivated: root.backRequested()
+    }
+
+    Ui.OnScreenKeyboard {
+        id: keyboard
+
+        objectName: "browseOnScreenKeyboard"
+        y: root.height - implicitHeight
+        z: 3
+        visible: root.keyboardOpen
+        target: root.busy ? null : field
+        memoryKey: "browse"
+        context: "address"
+        submitLabel: qsTr("Open")
+        suggestions: root.suggestions
+        emptySuggestions: qsTr("No suggestions")
+        onSubmitted: if (root.valid && !root.busy) root.openRequested()
+        onSuggestionChosen: index => root.chooseSuggestion(root.suggestions[index])
+        onHideRequested: root.hideKeyboard()
+        onLeaveUp: Ui.Focus.take(keyboardButton)
     }
 
 }

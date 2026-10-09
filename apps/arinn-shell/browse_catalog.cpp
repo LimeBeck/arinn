@@ -40,23 +40,17 @@ BrowseCatalog::BrowseCatalog(QObject *parent) : QObject(parent) {
   auto bus = QDBusConnection::sessionBus();
   bus.connect(service, path, "org.arinn.Browse1", "RecentChanged", this,
               SLOT(refreshRecent()));
-  bus.connect(service, path, "org.arinn.WebShortcuts1", "Changed", this,
-              SLOT(refreshShortcuts()));
   auto *owner = new QDBusServiceWatcher(
       service, bus, QDBusServiceWatcher::WatchForOwnerChange, this);
   connect(owner, &QDBusServiceWatcher::serviceOwnerChanged, this, [this] {
     reset();
     ++m_recentRead;
-    ++m_shortcutRead;
     m_recent.clear();
-    m_shortcuts.clear();
     m_tabs.clear();
     emit changed();
     refreshRecent();
-    refreshShortcuts();
   });
   refreshRecent();
-  refreshShortcuts();
 }
 void BrowseCatalog::reset() {
   ++m_resolve;
@@ -87,37 +81,66 @@ QString BrowseCatalog::openTitle() const {
   }
   return {};
 }
+// Recent entries, then the open services, that match the text: up to four
+// for the on-screen keyboard's suggestion row (spec §7.1, ADR-0103). Web
+// shortcuts are not suggested; their tiles are on Home.
 QVariantList BrowseCatalog::suggestions() const {
   QVariantList result;
   const auto query = m_text.trimmed().toCaseFolded();
-  for (const auto &row : m_shortcuts) {
-    const auto shortcut = row.toMap();
-    const auto title = shortcut.value("title").toString().toCaseFolded();
-    const auto address = shortcut.value("url").toString().toCaseFolded();
-    auto words =
-        (title + " " + address)
-            .split(QRegularExpression("[^\\p{L}\\p{N}]+"), Qt::SkipEmptyParts);
-    words << title << address << address.section("://", 1);
-    if (!query.isEmpty() && std::none_of(words.cbegin(), words.cend(),
-                                         [&query](const QString &word) {
-                                           return word.startsWith(query);
-                                         }))
-      continue;
-    bool opened = false;
-    const auto wanted = origin(shortcut.value("url").toString());
-    for (const auto &tabRow : m_tabs) {
-      const auto tab = tabRow.toMap();
-      if (!wanted.isEmpty() && tab.value("active").toBool() &&
-          origin(tab.value("url").toString()) == wanted)
-        opened = true;
+  const auto matches = [&query](const QStringList &texts) {
+    if (query.isEmpty())
+      return true;
+    for (const auto &text : texts) {
+      const auto folded = text.toCaseFolded();
+      auto words = folded.split(QRegularExpression("[^\\p{L}\\p{N}]+"),
+                                Qt::SkipEmptyParts);
+      words << folded;
+      if (std::any_of(
+              words.cbegin(), words.cend(),
+              [&query](const QString &word) { return word.startsWith(query); }))
+        return true;
     }
-    result.append(QVariantMap{
-        {"id", shortcut.value("id")},
-        {"title", shortcut.value("title")},
-        {"open", opened},
-        {"subtitle", QUrl(shortcut.value("url").toString()).host()}});
-    if (result.size() == 3)
+    return false;
+  };
+  for (const auto &entry : m_recent) {
+    if (result.size() == 4)
+      return result;
+    if (entry.trimmed().toCaseFolded() == query || !matches({entry}))
+      continue;
+    result.append(QVariantMap{{"kind", "recent"},
+                              {"icon", "history"},
+                              {"title", entry},
+                              {"subtitle", QString()},
+                              {"value", entry},
+                              {"open", false}});
+  }
+  QStringList origins;
+  for (const auto &row : m_tabs) {
+    if (result.size() == 4)
       break;
+    const auto tab = row.toMap();
+    const QUrl url(tab.value("url").toString());
+    const auto key = origin(url.toString());
+    if (!tab.value("active").toBool() || key.isEmpty() || origins.contains(key))
+      continue;
+    origins << key;
+    auto host = url.host();
+    if (url.port() != -1)
+      host += ":" + QString::number(url.port());
+    const auto title = tab.value("title").toString();
+    if (!matches({title, host}))
+      continue;
+    // The origin with its scheme: Browse1 resolves it as typed and the
+    // already-open hint names the service.
+    result.append(QVariantMap{
+        {"kind", "open"},
+        {"icon", "public"},
+        {"title", title.isEmpty() ? host : title},
+        {"subtitle", host},
+        {"value", url.adjusted(QUrl::RemovePath | QUrl::RemoveQuery |
+                               QUrl::RemoveFragment | QUrl::RemoveUserInfo)
+                      .toString()},
+        {"open", true}});
   }
   return result;
 }
@@ -181,44 +204,6 @@ void BrowseCatalog::refreshRecent() {
               emit changed();
             }
           });
-}
-void BrowseCatalog::refreshShortcuts() {
-  const auto ticket = ++m_shortcutRead;
-  auto *pending = new QDBusPendingCallWatcher(
-      QDBusConnection::sessionBus().asyncCall(
-          call("List", "org.arinn.WebShortcuts1"), 3000),
-      this);
-  connect(
-      pending, &QDBusPendingCallWatcher::finished, this,
-      [this, ticket](auto *watcher) {
-        const auto reply = watcher->reply();
-        watcher->deleteLater();
-        if (ticket != m_shortcutRead)
-          return;
-        if (reply.signature() != "(ta(ssss))" ||
-            reply.type() == QDBusMessage::ErrorMessage) {
-          m_shortcuts.clear();
-          emit changed();
-          return;
-        }
-        const auto arg = qvariant_cast<QDBusArgument>(reply.arguments().at(0));
-        qulonglong revision;
-        QVariantList rows;
-        QString id, title, url, icon;
-        arg.beginStructure();
-        arg >> revision;
-        arg.beginArray();
-        while (!arg.atEnd()) {
-          arg.beginStructure();
-          arg >> id >> title >> url >> icon;
-          arg.endStructure();
-          rows.append(QVariantMap{{"id", id}, {"title", title}, {"url", url}});
-        }
-        arg.endArray();
-        arg.endStructure();
-        m_shortcuts = rows;
-        emit changed();
-      });
 }
 void BrowseCatalog::dismissError() {
   if (m_busy)

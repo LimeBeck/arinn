@@ -129,16 +129,8 @@
         <translation>Arinn открывает только адреса http и https</translation>
     </message>
     <message>
-        <source>A keyboard is needed to type</source>
-        <translation>Для ввода нужна клавиатура</translation>
-    </message>
-    <message>
-        <source>You can still open shortcuts with the remote.</source>
-        <translation>Ярлыки можно открыть и с пульта.</translation>
-    </message>
-    <message>
-        <source>Shortcuts</source>
-        <translation>Ярлыки</translation>
+        <source>Suggestions</source>
+        <translation>Подсказки</translation>
     </message>
     <message>
         <source>Open</source>
@@ -187,6 +179,10 @@
     <message>
         <source>Back</source>
         <translation>Назад</translation>
+    </message>
+    <message>
+        <source>No suggestions</source>
+        <translation>Подсказок нет</translation>
     </message>
 </context>
 <context>
@@ -719,6 +715,48 @@
     </message>
 </context>
 <context>
+    <name>KeyboardButton</name>
+    <message>
+        <source>Hide</source>
+        <translation>Скрыть</translation>
+    </message>
+    <message>
+        <source>Keyboard</source>
+        <translation>Клавиатура</translation>
+    </message>
+    <message>
+        <source>Hide the on-screen keyboard</source>
+        <translation>Скрыть экранную клавиатуру</translation>
+    </message>
+    <message>
+        <source>Open the on-screen keyboard</source>
+        <translation>Открыть экранную клавиатуру</translation>
+    </message>
+</context>
+<context>
+    <name>KeyboardModel</name>
+    <message>
+        <source>ABC</source>
+        <translation>АБВ</translation>
+    </message>
+    <message>
+        <source>123</source>
+        <translation>123</translation>
+    </message>
+    <message>
+        <source>RU</source>
+        <translation>РУ</translation>
+    </message>
+    <message>
+        <source>EN</source>
+        <translation>EN</translation>
+    </message>
+    <message>
+        <source>Space</source>
+        <translation>Пробел</translation>
+    </message>
+</context>
+<context>
     <name>LaunchOverlay</name>
     <message>
         <source>%1 did not open</source>
@@ -947,6 +985,33 @@
     <message>
         <source>Off</source>
         <translation>Выкл.</translation>
+    </message>
+</context>
+<context>
+    <name>OnScreenKeyboard</name>
+    <message>
+        <source>OK</source>
+        <translation>OK</translation>
+    </message>
+    <message>
+        <source>Type</source>
+        <translation>Ввести</translation>
+    </message>
+    <message>
+        <source>To suggestions</source>
+        <translation>К подсказкам</translation>
+    </message>
+    <message>
+        <source>To the field</source>
+        <translation>К полю</translation>
+    </message>
+    <message>
+        <source>Back</source>
+        <translation>Назад</translation>
+    </message>
+    <message>
+        <source>Hide keyboard</source>
+        <translation>Скрыть клавиатуру</translation>
     </message>
 </context>
 <context>

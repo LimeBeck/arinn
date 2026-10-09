@@ -143,8 +143,6 @@ RU = {
     "Enter · Search “%1” in %2": "Enter · Найти «%1» в %2",
     "Arinn opens only http and https addresses": "Arinn открывает только адреса http и https",
     "A keyboard is needed to type": "Для ввода нужна клавиатура",
-    "You can still open shortcuts with the remote.": "Ярлыки можно открыть и с пульта.",
-    "Shortcuts": "Ярлыки",
     "Recent": "Недавние",
     "Open %1 with tabs": "Открыть %1 с вкладками",
     "Browser unavailable": "Браузер недоступен",
@@ -303,6 +301,22 @@ RU = {
     "min. %1 · was %2 · max. %3": "мин. %1 · было %2 · макс. %3",
     "%1 of %2 characters": "%1 из %2 символов",
     "Connect a USB or Bluetooth keyboard, or change it from a computer:": "Подключите USB- или Bluetooth-клавиатуру или измените с компьютера:",
+    # On-screen keyboard (ADR-0103, handoff KB-1…8)
+    "Keyboard": "Клавиатура",
+    "Hide": "Скрыть",
+    "Open the on-screen keyboard": "Открыть экранную клавиатуру",
+    "Hide the on-screen keyboard": "Скрыть экранную клавиатуру",
+    "Space": "Пробел",
+    "123": "123",
+    "ABC": "АБВ",
+    "RU": "РУ",
+    "EN": "EN",
+    "Type": "Ввести",
+    "To suggestions": "К подсказкам",
+    "To the field": "К полю",
+    "Hide keyboard": "Скрыть клавиатуру",
+    "Suggestions": "Подсказки",
+    "No suggestions": "Подсказок нет",
 }
 
 # Context-specific overrides: the same English word reads differently.

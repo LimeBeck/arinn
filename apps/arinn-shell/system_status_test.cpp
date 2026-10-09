@@ -25,6 +25,9 @@ public:
   QString link = QStringLiteral("wifi");
   uchar level = 3;
   bool fail = false;
+  // Fail this many more reads, then answer.
+  int failNext = 0;
+  QString errorName = QStringLiteral("org.arinn.Error1.Internal");
   // Hold the next Get unanswered; `held` answers it later.
   bool hold = false;
   QDBusMessage held;
@@ -40,9 +43,9 @@ public:
       held = message;
       return true;
     }
-    if (fail) {
-      connection.send(message.createErrorReply(
-          QStringLiteral("org.arinn.Error1.Internal"), QString()));
+    if (fail || failNext > 0) {
+      failNext = qMax(0, failNext - 1);
+      connection.send(message.createErrorReply(errorName, QString()));
       return true;
     }
     QDBusArgument status;
@@ -169,6 +172,65 @@ private slots:
     fake.level = 4;
     up();
     QTRY_VERIFY(shows(status, true, true, 4));
+    down();
+  }
+
+  // #409: a failed read is retried a bounded number of times without
+  // waiting for the next Changed; a lasting error is not retried.
+  void retriesAfterAFailedRead() {
+    fake.epoch = epoch1;
+    fake.revision = 1;
+    fake.audio = QStringLiteral("muted");
+    fake.network = QStringLiteral("connected");
+    fake.link = QStringLiteral("wifi");
+    fake.level = 3;
+    fake.fail = false;
+    fake.reads = 0;
+    fake.failNext = 1;
+    up();
+    SystemStatus status;
+    status.setRetryDelays({50, 100});
+    // The first read fails; the retry, with no Changed, shows the state.
+    QTRY_VERIFY(shows(status, true, true, 3));
+    QCOMPARE(fake.reads, 2);
+
+    // Every read fails: two retries, then it waits for the next Changed.
+    fake.fail = true;
+    changed(epoch1, 2);
+    QTRY_COMPARE(fake.reads, 5);
+    QTest::qWait(400);
+    QCOMPARE(fake.reads, 5);
+    QVERIFY(shows(status, false, false, 0));
+
+    // A Changed starts a fresh round, and a good read ends it.
+    fake.fail = false;
+    fake.failNext = 2;
+    fake.revision = 3;
+    changed(epoch1, 3);
+    QTRY_VERIFY(shows(status, true, true, 3));
+    QCOMPARE(fake.reads, 8);
+
+    // The daemon owns its name before it exports SystemStatus1, so a
+    // missing interface is retried too.
+    fake.errorName =
+        QStringLiteral("org.freedesktop.DBus.Error.UnknownInterface");
+    fake.failNext = 1;
+    fake.revision = 4;
+    fake.audio = QStringLiteral("unmuted");
+    changed(epoch1, 4);
+    QTRY_VERIFY(shows(status, false, true, 3));
+    QCOMPARE(fake.reads, 10);
+
+    // A name without an owner is not retried: the owner change brings the
+    // next read.
+    fake.errorName = QStringLiteral("org.freedesktop.DBus.Error.ServiceUnknown");
+    fake.fail = true;
+    changed(epoch1, 5);
+    QTRY_COMPARE(fake.reads, 11);
+    QTest::qWait(400);
+    QCOMPARE(fake.reads, 11);
+    fake.fail = false;
+    fake.errorName = QStringLiteral("org.arinn.Error1.Internal");
     down();
   }
 };

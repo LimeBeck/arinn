@@ -5,7 +5,7 @@
 cmake_minimum_required(VERSION 3.24)
 project(ArinnPhase0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
-find_package(Qt6 6.6 REQUIRED COMPONENTS Quick DBus Test QuickTest Svg LinguistTools)
+find_package(Qt6 6.8 REQUIRED COMPONENTS Quick DBus Test QuickTest Svg LinguistTools)
 qt_standard_project_setup()
 enable_testing()
 find_package(Python3 REQUIRED COMPONENTS Interpreter)

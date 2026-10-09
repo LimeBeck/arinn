@@ -1,0 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Arinn contributors
+#
+# SPDX-License-Identifier: CC0-1.0
+
+# SHA-256 of every Qt SDK archive the qt-sdk stage of ci/images/arch/Dockerfile
+# downloads, in `find | sort` order (ADR-0103). The image build fails when the
+# downloaded archives differ and prints the actual list.

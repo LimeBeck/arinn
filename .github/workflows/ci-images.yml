@@ -1,0 +1,104 @@
+name: CI images
+
+# Builds the Arch Linux and Ubuntu CI images from ci/images/** and publishes
+# them to ghcr.io (ADR-0103). An image's tag is its target plus the Git tree
+# hash of its directory, so every commit runs on the images built from its
+# own Dockerfiles. CI calls this workflow first and builds only the tags that
+# do not exist yet; the weekly run and manual runs rebuild every tag in place,
+# so the images pick up current distribution packages.
+
+on:
+  workflow_call:
+    inputs:
+      reuse:
+        description: Keep an image whose tag already exists instead of rebuilding it
+        type: boolean
+        default: true
+    outputs:
+      arch_build:
+        description: Arch Linux image for the CI build job and the package build
+        value: ${{ jobs.images.outputs.arch_build }}
+      arch_smoke:
+        description: Arch Linux image for the package install test
+        value: ${{ jobs.images.outputs.arch_smoke }}
+      ubuntu_build:
+        description: Ubuntu image for the Debian package build
+        value: ${{ jobs.images.outputs.ubuntu_build }}
+      ubuntu_smoke:
+        description: Ubuntu image for the Debian package install test
+        value: ${{ jobs.images.outputs.ubuntu_smoke }}
+  schedule:
+    - cron: "41 2 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  images:
+    name: Build CI images
+    runs-on: ${{ vars.ARINN_RUNNER || 'ubuntu-latest' }}
+    # The only job on the host: it drives the host's Docker. It checks out
+    # into its own directory, which no container job uses.
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      arch_build: ${{ steps.images.outputs.arch_build }}
+      arch_smoke: ${{ steps.images.outputs.arch_smoke }}
+      ubuntu_build: ${{ steps.images.outputs.ubuntu_build }}
+      ubuntu_smoke: ${{ steps.images.outputs.ubuntu_smoke }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: ci-images-source
+          sparse-checkout: ci/images
+      - name: Log in to ghcr.io
+        # A private Docker config, so the token never lands in the runner
+        # user's ~/.docker.
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "DOCKER_CONFIG=$RUNNER_TEMP/ci-images-docker" >> "$GITHUB_ENV"
+          export DOCKER_CONFIG="$RUNNER_TEMP/ci-images-docker"
+          mkdir -p "$DOCKER_CONFIG"
+          echo "$TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+      - name: Build and push missing images
+        id: images
+        env:
+          # Called from CI: reuse existing tags. Weekly and manual runs of
+          # this workflow have no inputs and rebuild every tag.
+          REUSE: ${{ inputs.reuse && 'true' || 'false' }}
+        run: |
+          set -euo pipefail
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          source="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+          for distro in arch ubuntu; do
+            tree="$(git -C ci-images-source rev-parse "HEAD:ci/images/$distro")"
+            for target in smoke build; do
+              image="ghcr.io/$owner/arinn-ci-$distro:$target-${tree:0:16}"
+              echo "${distro}_${target}=$image" >> "$GITHUB_OUTPUT"
+              if [ "$REUSE" = true ] && docker manifest inspect "$image" > /dev/null 2>&1; then
+                echo "Reusing $image"
+                continue
+              fi
+              # Every build starts from the current base image and packages.
+              docker build --pull --no-cache --target "$target" \
+                --label "org.opencontainers.image.source=$source" \
+                --tag "$image" "ci-images-source/ci/images/$distro"
+              docker push "$image"
+            done
+          done
+      - name: Prune old CI images
+        # The self-hosted runner keeps pulled and built images; drop ours
+        # that no build or refresh touched for two weeks.
+        if: ${{ always() }}
+        run: |
+          docker image prune --all --force \
+            --filter "label=org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            --filter "until=336h"
+      - name: Log out
+        if: ${{ always() }}
+        run: |
+          docker logout ghcr.io || true
+          rm -rf "$RUNNER_TEMP/ci-images-docker"

@@ -13,6 +13,7 @@ PKGBUILD = (ROOT / "packaging" / "arch" / "PKGBUILD").read_text()
 CI = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
 PACKAGE = (ROOT / ".github" / "workflows" / "package.yml").read_text()
 DEB_RULES = (ROOT / "packaging" / "debian" / "debian" / "rules").read_text()
+ARCH_IMAGE = (ROOT / "ci" / "images" / "arch" / "Dockerfile").read_text()
 
 
 def function(name: str) -> str:
@@ -100,7 +101,8 @@ class BuildJobTest(unittest.TestCase):
                  "python tests/integration/phase1.py"]
         positions = [job.index(step) for step in steps]
         self.assertEqual(positions, sorted(positions))
-        self.assertIn("image: archlinux:latest", job)
+        # The prebuilt Arch Linux image (ADR-0103).
+        self.assertIn("image: ${{ needs.images.outputs.arch_build }}", job)
         # No other job compiles the workspace in debug mode again.
         for name, body in jobs().items():
             if name != "build":
@@ -126,7 +128,7 @@ class BuildJobTest(unittest.TestCase):
         self.assertIn("CARGO_HOME: /ci-cache/cargo", job)
         self.assertIn("CCACHE_DIR: /ci-cache/ccache", job)
         self.assertIn("CMAKE_CXX_COMPILER_LAUNCHER: ccache", job)
-        self.assertRegex(job, r"pacman -Syu [^\n]*\bccache\b")
+        self.assertRegex(ARCH_IMAGE[ARCH_IMAGE.index("AS build"):], r"pacman -Syu [^\n]*\bccache\b")
         self.assertIn("ln -sfn /ci-cache/target target", job)
         # Caches are in place before the builds that use them.
         self.assertLess(job.index("cache/restore"), job.index("cargo fmt"))

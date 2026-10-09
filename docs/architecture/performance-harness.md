@@ -10,7 +10,7 @@ This harness does not close G-5.4 or qualify the production shell on a TV.
 
 ## Run
 
-Requires Python 3, CMake ≥ 3.24, Ninja, a C++20 compiler, Qt 6 ≥ 6.6 Quick and
+Requires Python 3, CMake ≥ 3.24, Ninja, a C++20 compiler, Qt 6 ≥ 6.8 Quick and
 DBus development packages, and `dbus-run-session`. Build artifacts are isolated;
 the standalone CMake project also participates in the repository build, without
 being installed as a production executable. CTest's `performance-harness` test

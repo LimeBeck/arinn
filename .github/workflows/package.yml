@@ -6,7 +6,9 @@ name: Package
 # additional artifact and smoke target. Pull requests and master reuse a
 # Cargo cache; pull requests and master pushes skip release-mode package
 # tests, which the build job already covers. The nightly, manual runs and tag
-# builds run them; tag builds are clean (ADR-0047, ADR-0092).
+# builds run them; tag builds are clean (ADR-0047, ADR-0092). Jobs run in the
+# prebuilt CI images (ADR-0103); the Arch package's shell builds against the
+# minimum supported Qt in the build image, not against the system Qt (#416).
 
 on:
   workflow_call:
@@ -15,9 +17,26 @@ on:
         description: Skip the build (documentation-only change, ADR-0044, or a pull request that does not touch the package, ADR-0049)
         type: boolean
         default: false
+      arch_build_image:
+        description: Arch Linux build image from ci-images.yml
+        type: string
+        default: ""
+      arch_smoke_image:
+        description: Arch Linux install test image from ci-images.yml
+        type: string
+        default: ""
+      deb_build_image:
+        description: Ubuntu build image from ci-images.yml
+        type: string
+        default: ""
+      deb_smoke_image:
+        description: Ubuntu install test image from ci-images.yml
+        type: string
+        default: ""
 
 permissions:
   contents: read
+  packages: read
 
 jobs:
   build:
@@ -25,19 +44,23 @@ jobs:
     if: ${{ !inputs.skip }}
     runs-on: ${{ vars.ARINN_RUNNER || 'ubuntu-latest' }}
     container:
-      image: archlinux:latest
+      image: ${{ inputs.arch_build_image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
       # The Cargo home and target directory stay on the self-hosted runner's
       # disk (ADR-0101).
       volumes:
         - /var/cache/arinn-ci/arch-pkg:/ci-cache
     steps:
-      - name: Install build dependencies
+      - name: Update to the latest Arch Linux
+        # The image has every build dependency and the builder user
+        # (ci/images/arch). The nightly upgrades it (ADR-0033, ADR-0103).
+        if: ${{ github.event_name == 'schedule' }}
+        run: pacman -Syu --noconfirm
+      - name: Record Rust version
         id: deps
-        run: |
-          pacman -Syu --noconfirm --needed base-devel git rust cmake ninja \
-            qt6-base qt6-declarative qt6-svg qt6-tools curl libunwind openssl python dbus
-          useradd --create-home builder
-          echo "rustc=$(rustc -V | tr -c 'A-Za-z0-9.\n' '-')" >> "$GITHUB_OUTPUT"
+        run: echo "rustc=$(rustc -V | tr -c 'A-Za-z0-9.\n' '-')" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v7
         with:
           # The snapshot pkgver counts commits (#357).
@@ -80,8 +103,27 @@ jobs:
           # cannot fill the runner's disk.
           if [ "$(du -s --block-size=1G "$cache/target" | cut -f1)" -gt 12 ]; then rm -rf "$cache/target"; mkdir "$cache/target"; fi
           chown -R builder "$cache"
-          su builder -c "cd pkg && CARGO_HOME='$cache/home' CARGO_TARGET_DIR='$cache/target' makepkg --noconfirm --cleanbuild $NOCHECK"
+          # The shell builds against the minimum supported Qt (#416, ADR-0103).
+          test -f "$ARINN_QT_FLOOR_PREFIX/lib/cmake/Qt6/Qt6Config.cmake"
+          su builder -c "cd pkg && CARGO_HOME='$cache/home' CARGO_TARGET_DIR='$cache/target' ARINN_QT_FLOOR_PREFIX='$ARINN_QT_FLOOR_PREFIX' makepkg --noconfirm --cleanbuild $NOCHECK"
           cp "$cache/target/release/examples/private-systemd" pkg/private-systemd
+      - name: Qt floor check
+        # No packaged binary imports a Qt version tag above the floor, a
+        # private Qt symbol or a symbol the floor Qt does not export (#416).
+        run: |
+          mkdir pkgroot
+          bsdtar -xf pkg/arinn-[0-9]*.pkg.tar.zst -C pkgroot
+          python tests/package/qt_floor.py --qt-lib-dir "$ARINN_QT_FLOOR_PREFIX/lib" pkgroot
+      - name: Shell on the minimum supported Qt
+        # Installs the package into this throwaway container and runs the
+        # smoke test with the shell loading the floor Qt libraries instead of
+        # the system Qt (#416).
+        run: |
+          pacman -U --noconfirm pkg/arinn-[0-9]*.pkg.tar.zst
+          export LD_LIBRARY_PATH="$ARINN_QT_FLOOR_PREFIX/lib"
+          ldd /usr/bin/arinn-shell | grep -F "$LD_LIBRARY_PATH/libQt6Core.so.6"
+          chmod +x pkg/private-systemd
+          ARINN_TEST_MANAGER="$GITHUB_WORKSPACE/pkg/private-systemd" dbus-run-session -- python tests/package/smoke.py
       - uses: actions/upload-artifact@v7
         with:
           name: arinn-arch-package
@@ -95,7 +137,11 @@ jobs:
     name: Install and smoke-test package
     needs: build
     runs-on: ${{ vars.ARINN_RUNNER || 'ubuntu-latest' }}
-    container: archlinux:latest
+    container:
+      image: ${{ inputs.arch_smoke_image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
@@ -103,8 +149,11 @@ jobs:
           name: arinn-arch-package
           path: pkg
       - name: Install package into a clean system
+        # The image has only Python and D-Bus (ci/images/arch). Upgrading
+        # first keeps pacman from mixing its old package set with the
+        # current dependencies it downloads.
         run: |
-          pacman -Syu --noconfirm --needed python dbus
+          pacman -Syu --noconfirm
           pacman -U --noconfirm pkg/*.pkg.tar.zst
       - name: Smoke test
         env:
@@ -122,7 +171,10 @@ jobs:
     if: ${{ !inputs.skip }}
     runs-on: ${{ vars.ARINN_RUNNER || 'ubuntu-latest' }}
     container:
-      image: ubuntu:25.04
+      image: ${{ inputs.deb_build_image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
       # The rustup toolchain, Cargo home and target directory stay on the
       # self-hosted runner's disk (ADR-0101).
       volumes:
@@ -133,14 +185,7 @@ jobs:
       CARGO_HOME: /ci-cache/cargo
       RUSTUP_HOME: /ci-cache/rustup
     steps:
-      - name: Install build dependencies
-        run: |
-          apt-get update
-          apt-get install -y --no-install-recommends \
-            git python3 ca-certificates curl debhelper-compat cmake g++ ninja-build \
-            pkg-config qt6-base-dev qt6-declarative-dev qt6-svg-dev qt6-tools-dev \
-            libcurl4-openssl-dev libunwind-dev libssl-dev devscripts \
-            dbus-daemon libglib2.0-bin python-is-python3
+      # The image has every build dependency (ci/images/ubuntu).
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - name: Record Rust version
@@ -180,7 +225,11 @@ jobs:
     name: Install and smoke-test Debian package
     needs: build-deb
     runs-on: ${{ vars.ARINN_RUNNER || 'ubuntu-latest' }}
-    container: ubuntu:25.04
+    container:
+      image: ${{ inputs.deb_smoke_image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
@@ -188,9 +237,9 @@ jobs:
           name: arinn-deb-package
           path: pkg
       - name: Install package into a clean system
+        # The image has only Python and D-Bus (ci/images/ubuntu).
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends python3 dbus
           apt-get install -y ./pkg/*.deb
       - name: Smoke test
         env:

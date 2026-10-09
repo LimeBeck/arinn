@@ -4,7 +4,7 @@
 - **Date:** 2026-10-07
 - **Deciders:** project owner (issue #377, architect binding 2026-10-06)
 - **Amends / Supersedes:** amends [ADR-0033](0033-ci-cd-and-releases.md) (package CI and release artifacts)
-- **Amended by / Superseded by:** [ADR-0102](0102-packages-built-for-master-only.md) — pull requests never build the packages
+- **Amended by / Superseded by:** [ADR-0102](0102-packages-built-for-master-only.md) — pull requests never build the packages; [ADR-0103](0103-qt-floor-and-prebuilt-ci-images.md) — the Qt minimum is 6.8; the Ubuntu jobs use prebuilt images
 - **Specification:** [§17.1](../specifications/arinn-specification.md#171-continuous-integration-and-delivery), [§18](../specifications/arinn-specification.md#18-packaging-distribution-and-licensing)
 
 ## Context

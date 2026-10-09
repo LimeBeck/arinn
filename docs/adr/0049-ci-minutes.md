@@ -4,7 +4,7 @@
 - **Date:** 2026-09-29
 - **Deciders:** project owner, after the private repository ran out of GitHub Actions minutes on 2026-09-28 (explicit approval of each point below); mechanism under delegated authority
 - **Amends / Supersedes:** amends [ADR-0033](0033-ci-cd-and-releases.md) and [ADR-0044](0044-docs-only-ci-scope.md) (which jobs a pull request runs)
-- **Amended by / Superseded by:** [ADR-0053](0053-release-and-label-workflows-on-the-runner.md) — the release and label workflows also use the switchable runner; [ADR-0102](0102-packages-built-for-master-only.md) — pull requests never build the packages
+- **Amended by / Superseded by:** [ADR-0053](0053-release-and-label-workflows-on-the-runner.md) — the release and label workflows also use the switchable runner; [ADR-0102](0102-packages-built-for-master-only.md) — pull requests never build the packages; [ADR-0103](0103-qt-floor-and-prebuilt-ci-images.md) — the CI image job runs on the runner host
 - **Specification:** [§17.1](../specifications/arinn-specification.md#171-continuous-integration-and-delivery)
 
 ## Context

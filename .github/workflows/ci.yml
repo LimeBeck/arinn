@@ -13,6 +13,8 @@ on:
 
 permissions:
   contents: read
+  # Container jobs pull the CI images from ghcr.io (ADR-0103).
+  packages: read
 
 # Superseded PR runs cancel. Each master commit has its own group so every
 # successful push can publish its snapshot (ADR-0086); a second push run for
@@ -26,7 +28,9 @@ env:
 
 # Every job runs on `vars.ARINN_RUNNER` when that repository variable is set
 # (for example `self-hosted`), else on GitHub-hosted Ubuntu (ADR-0049). Jobs
-# run in containers, so a self-hosted runner needs only Docker and git.
+# run in containers, so a self-hosted runner needs only Docker and git. The
+# Arch Linux and Ubuntu jobs use prebuilt images with their dependencies
+# from ci/images/** (ADR-0103).
 
 jobs:
   # A pull request that changes only documentation skips the build jobs
@@ -52,6 +56,17 @@ jobs:
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           python3 scripts/ci-scope.py
 
+  # Builds the CI images that do not exist yet for this commit's
+  # ci/images/** (ADR-0103).
+  images:
+    name: CI images
+    needs: scope
+    if: ${{ !cancelled() && needs.scope.outputs.docs_only != 'true' }}
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/ci-images.yml
+
   # One Arch Linux job compiles the workspace once for the Rust lints and
   # tests, the Qt shell and the private-bus suite (ADR-0092). The Cargo home,
   # the Cargo target directory and ccache live in /ci-cache: a directory on
@@ -59,11 +74,14 @@ jobs:
   # (ADR-0101). A cache miss only means a full build.
   build:
     name: Rust, Qt shell and integration (Arch Linux)
-    needs: scope
+    needs: [scope, images]
     if: ${{ !cancelled() && needs.scope.outputs.docs_only != 'true' }}
     runs-on: ${{ vars.ARINN_RUNNER || 'ubuntu-latest' }}
     container:
-      image: archlinux:latest
+      image: ${{ needs.images.outputs.arch_build }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
       volumes:
         - /var/cache/arinn-ci/arch-ci:/ci-cache
     env:
@@ -77,13 +95,12 @@ jobs:
       CMAKE_C_COMPILER_LAUNCHER: ccache
       CMAKE_CXX_COMPILER_LAUNCHER: ccache
     steps:
-      - name: Install dependencies
-        # Arch's rust package ships rustfmt and clippy. The tests start
-        # private session buses with dbus-daemon and check interface XML with
-        # Python.
-        run: |
-          pacman -Syu --noconfirm --needed base-devel git rust cmake ninja ccache \
-            qt6-base qt6-declarative qt6-svg qt6-tools curl libunwind openssl python nodejs dbus systemd xorg-server-xvfb
+      - name: Update to the latest Arch Linux
+        # The image has every dependency (ci/images/arch). The nightly
+        # upgrades it so regressions from rolling dependencies show up before
+        # users update (ADR-0033, ADR-0103).
+        if: ${{ github.event_name == 'schedule' }}
+        run: pacman -Syu --noconfirm
       - uses: actions/checkout@v7
       - name: Restore build cache
         # The self-hosted runner keeps /ci-cache on its own disk.
@@ -159,7 +176,7 @@ jobs:
 
   package:
     name: Package
-    needs: scope
+    needs: [scope, images]
     # The reusable workflow skips its own jobs, so its nested required
     # checks are reported as skipped instead of never appearing.
     if: ${{ !cancelled() }}
@@ -168,6 +185,10 @@ jobs:
       # Pull requests never build the packages (ADR-0102); run CI manually
       # on the branch to check a packaging change before it merges.
       skip: ${{ needs.scope.outputs.package != 'true' }}
+      arch_build_image: ${{ needs.images.outputs.arch_build }}
+      arch_smoke_image: ${{ needs.images.outputs.arch_smoke }}
+      deb_build_image: ${{ needs.images.outputs.ubuntu_build }}
+      deb_smoke_image: ${{ needs.images.outputs.ubuntu_smoke }}
 
   snapshot:
     name: Publish master pre-release
@@ -177,7 +198,7 @@ jobs:
       group: arinn-master-snapshot-channel
       queue: max
       cancel-in-progress: false
-    needs: [scope, build, licenses, docs, package]
+    needs: [scope, images, build, licenses, docs, package]
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
     runs-on: ${{ vars.ARINN_RUNNER || 'ubuntu-latest' }}
     container: python:3.12

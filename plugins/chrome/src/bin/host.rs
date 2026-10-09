@@ -20,15 +20,19 @@ async fn main() -> std::process::ExitCode {
         Ok(connection) => host::run(connection, tokio::io::stdin(), tokio::io::stdout()).await,
         Err(e) => Err(e.into()),
     };
-    match result {
-        Ok(()) => std::process::ExitCode::SUCCESS,
+    let code = match result {
+        Ok(()) => 0,
         Err(e) => {
             // Never print message contents: they may hold titles or URLs.
             eprintln!(
                 "arinn-chrome-host: {}",
                 e.root_cause().to_string().lines().next().unwrap_or("error")
             );
-            std::process::ExitCode::FAILURE
+            1
         }
-    }
+    };
+    // Exit now: Tokio reads stdin on a blocking thread that only returns when
+    // the browser closes the port, and runtime shutdown would wait for it, so
+    // a host whose provider went away would otherwise never exit (#356).
+    std::process::exit(code)
 }

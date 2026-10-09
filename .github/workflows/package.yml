@@ -139,7 +139,8 @@ jobs:
           apt-get install -y --no-install-recommends \
             git python3 ca-certificates curl debhelper-compat cmake g++ ninja-build \
             pkg-config qt6-base-dev qt6-declarative-dev qt6-svg-dev qt6-tools-dev \
-            libcurl4-openssl-dev libunwind-dev libssl-dev devscripts
+            libcurl4-openssl-dev libunwind-dev libssl-dev devscripts \
+            dbus-daemon libglib2.0-bin python-is-python3
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - name: Record Rust version

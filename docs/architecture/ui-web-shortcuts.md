@@ -110,11 +110,14 @@ catalog cases and `webShortcuts`, 10 passed). The same Qt build then ran
 
 Applications → Other includes **Add application — Any site as an application**.
 On a shortcut tile, Menu opens its editor; the **Edit shortcut** button supplies a
-pointer-accessible action as well. Title and address are standard text fields for
-a hardware keyboard. Down/Up move between fields and actions; Backspace edits
-text, Esc cancels, and Home discards the draft and returns Home. Without a detected
-keyboard the sheet explains the `arinnctl shortcuts` fallback. No on-screen
-keyboard is implemented. Remove has a confirmation whose initial focus is Cancel.
+pointer-accessible action as well. Title and address are text fields for a
+hardware keyboard, each with a keyboard button that opens the
+[on-screen keyboard](ui-keyboard.md) in a full-screen typing layer (KB-2, KB-3).
+Down/Up move between fields and actions; Right at the end of a field reaches its
+button; Backspace edits text, Esc cancels, and Home discards the draft and returns
+Home. Without a detected keyboard the sheet opens on the Title button and Save
+stays available; `arinnctl shortcuts` remains a fallback. An empty title saves
+the address's host. Remove has a confirmation whose initial focus is Cancel.
 Closing restores the invoking tile or an available neighboring row.
 
 `Backend` retains a private configuration cache, validates bounded unique rows and
@@ -134,8 +137,8 @@ URLs and titles are never logged. URL acceptance remains enforced by the daemon.
 Private-bus `CatalogTest::shortcutEditorAndRevisionValidation` covers captured
 revisions, Conflict, duplicate submissions, Add identity, Remove, retained icons,
 invalid lists and daemon loss. `tests/ui/tst_shortcut_editor.qml` covers D-pad
-entry, text Backspace, modal focus, cancellation, remove confirmation and the
-keyboard-unavailable state. The catalog fixture uses a valid neutral glyph rather
+entry, text Backspace, modal focus, cancellation, remove confirmation, and typing
+both fields and saving with the remote alone. The catalog fixture uses a valid neutral glyph rather
 than an unpaired UTF-16 surrogate: D-Bus strings are UTF-8, so the latter cannot
 round-trip consistently across Qt versions.
 

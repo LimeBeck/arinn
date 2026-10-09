@@ -64,11 +64,12 @@ bound it is. A `unit` string in the integer constraints is shown beside the
 value; until the contract task adds that key, the unit is blank. Digits from a
 keyboard replace the draft. Select saves the draft. A string sheet prefills
 the current value. Enter or Save sends it; the counter uses `maxLength` when
-that constraint is present. Without a keyboard the field is dimmed, the sheet
-explains that a keyboard is required, and shows the command `arinnctl settings set`
-with no value in it. `KeyboardMonitor` reports a keyboard only when an input
-device of that type is present. Arrow keys and other remote navigation do not
-mark one. The first character key enables the field.
+that constraint is present. The field's keyboard button opens the
+[on-screen keyboard](ui-keyboard.md) in a full-screen typing layer (KB-4), whose
+main key saves. Without a keyboard the field is dimmed and the sheet opens on
+that button; Save and Cancel stay available. `KeyboardMonitor` reports a
+keyboard only when an input device of that type is present. Arrow keys and other
+remote navigation do not mark one. The first character key enables the field.
 
 A single path, and a path with `multiple`, stay plain text fields with Add and
 Remove. The folder list and the folder picker in specification §5.6 wait on
@@ -125,7 +126,7 @@ that change settles.
 
 `tests/ui/tst_settings.qml` covers D-pad focus, the boolean, the integer sheet
 (bounds, hold acceleration, unit when present), the enum sheet (paging and a
-wrapping label), the string sheet, the no-keyboard state, single-path and
+wrapping label), the string sheet, typing it with the on-screen keyboard, single-path and
 multiple-path text, a disabled row, pending and error text, an over-long
 string, saving toasts, a deferred row note, Back, the unavailable screen,
 focus kept across a row republish, and Select on a pending boolean.

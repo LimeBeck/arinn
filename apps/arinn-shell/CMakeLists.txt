@@ -32,7 +32,7 @@ foreach(target arinn-shell arinn-shell-test)
 endforeach()
 
 # Development-only gallery: no backend, bus registration or platform actions.
-qt_add_executable(arinn-ui-gallery gallery/main.cpp)
+qt_add_executable(arinn-ui-gallery gallery/main.cpp keyboard_model.cpp keyboard_model.h)
 qt_add_resources(arinn-ui-gallery gallery_ui PREFIX "/" FILES
     gallery/Gallery.qml gallery/HomeGallery.qml gallery/BrowserGallery.qml
     gallery/SessionGallery.qml gallery/LibraryGallery.qml gallery/SettingsGallery.qml

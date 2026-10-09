@@ -492,6 +492,10 @@ TestCase {
         verify(insideView(windowFocus()));
     }
 
+    function keyAt(row, column) { return child("keyboardKey-" + row + "-" + column); }
+
+    // STR-2 is no longer a dead end: without a hardware keyboard, the remote
+    // types through the on-screen keyboard (KB-4, ADR-0103).
     function test_string_without_keyboard() {
         view.keyboardAvailable = false;
         down(4);
@@ -499,19 +503,85 @@ TestCase {
         keyClick(Qt.Key_Right);
         focused("setting-shell-label");
         keyClick(Qt.Key_Return);
-        focused("keyboardBack");
-        compare(child("keyboardPrompt").visible, true);
-        compare(child("keyboardOff").text, "A keyboard is needed to type");
-        compare(child("settingsCommand").text, "arinnctl settings set");
+        focused("stringKeyboard");
+        verify(child("stringSave").visible);
+        child("stringOnScreenKeyboard").model.forget();
         keyClick(Qt.Key_Return);
+        tryCompare(view, "stringTyping", true);
+        focused("keyboardKeys");
+        compare(child("stringTypingInput").text, "note");
+        // No context row: the fifth key of the middle letter row.
+        tryCompare(keyAt(1, 4), "focused", true);
+        keyClick(Qt.Key_Return);
+        compare(child("editor-shell-label").text, "noteg");
+        // Back returns to the sheet's keyboard button without saving.
+        keyClick(Qt.Key_Escape);
+        tryCompare(view, "stringTyping", false);
+        focused("stringKeyboard");
         compare(changes.count, 0);
-        focused("setting-shell-label");
-        keyClick(Qt.Key_Return);
-        focused("keyboardBack");
+        // A key from a hardware keyboard still wakes the field.
         keyClick(Qt.Key_A);
         focused("editor-shell-label");
-        compare(child("editor-shell-label").text, "notea");
+        compare(child("editor-shell-label").text, "notega");
         verify(insideView(windowFocus()));
+    }
+
+    function test_string_panel_saves_with_its_main_key() {
+        down(4);
+        keyClick(Qt.Key_Right);
+        focused("setting-shell-label");
+        keyClick(Qt.Key_Return);
+        focused("editor-shell-label");
+        keyClick(Qt.Key_End);
+        keyClick(Qt.Key_Right);
+        focused("stringKeyboard");
+        child("stringOnScreenKeyboard").model.forget();
+        keyClick(Qt.Key_Return);
+        tryCompare(view, "stringTyping", true);
+        keyClick(Qt.Key_Down);
+        keyClick(Qt.Key_Down);
+        for (let i = 0; i < 8; ++i) keyClick(Qt.Key_Right);
+        tryCompare(keyAt(3, 7), "focused", true);
+        compare(keyAt(3, 7).modelData.label, "Save");
+        keyClick(Qt.Key_Escape);
+        tryCompare(view, "stringTyping", false);
+        compare(changes.count, 0);
+        keyClick(Qt.Key_Return);
+        tryCompare(view, "stringTyping", true);
+        tryCompare(keyAt(3, 7), "focused", true);
+        keyClick(Qt.Key_Return);
+        compare(changes.count, 1);
+        compare(changes.signalArguments[0][2], "note");
+        tryCompare(view, "stringTyping", false);
+    }
+
+    function test_string_panel_counter_and_limit() {
+        down(4);
+        keyClick(Qt.Key_Right);
+        focused("setting-shell-label");
+        keyClick(Qt.Key_Return);
+        focused("editor-shell-label");
+        keyClick(Qt.Key_End);
+        keyClick(Qt.Key_Right);
+        keyClick(Qt.Key_Return);
+        tryCompare(view, "stringTyping", true);
+        const input = child("stringTypingInput");
+        const counter = child("stringTypingCounter");
+        // The fixture allows 40 characters: the counter shows from 30.
+        input.text = "a".repeat(29);
+        verify(!counter.visible);
+        input.text = "a".repeat(30);
+        verify(counter.visible);
+        compare(counter.text, "30 / 40");
+        input.text = "a".repeat(40);
+        compare(counter.color, Qt.color("#E8474F"));
+        // Input past the limit is ignored.
+        child("stringOnScreenKeyboard").insertText("b");
+        compare(input.text.length, 40);
+        compare(view.editingDraft.length, 40);
+        keyClick(Qt.Key_Home);
+        tryCompare(view, "stringTyping", false);
+        compare(changes.count, 0);
     }
 
     function test_saving_feedback() {

@@ -45,6 +45,10 @@ FocusScope {
         zone = "keys";
         Focus.take(keys);
     }
+    // Focus returns to the keys after the screen rebuilt its controls.
+    function resume() {
+        Focus.take(keys);
+    }
     // Called by the field when the panel is hidden.
     function finish() {
         keyboard.close();

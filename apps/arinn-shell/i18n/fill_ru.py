@@ -141,7 +141,6 @@ RU = {
     "Enter · Open website %1": "Enter · Открыть сайт %1",
     "Enter · Search “%1” in %2": "Enter · Найти «%1» в %2",
     "Arinn opens only http and https addresses": "Arinn открывает только адреса http и https",
-    "A keyboard is needed to type": "Для ввода нужна клавиатура",
     "Recent": "Недавние",
     "Open %1 with tabs": "Открыть %1 с вкладками",
     "Browser unavailable": "Браузер недоступен",
@@ -299,7 +298,6 @@ RU = {
     "Add path": "Добавить путь",
     "min. %1 · was %2 · max. %3": "мин. %1 · было %2 · макс. %3",
     "%1 of %2 characters": "%1 из %2 символов",
-    "Connect a USB or Bluetooth keyboard, or change it from a computer:": "Подключите USB- или Bluetooth-клавиатуру или измените с компьютера:",
     # On-screen keyboard (ADR-0103, handoff KB-1…8)
     "Keyboard": "Клавиатура",
     "Hide": "Скрыть",
@@ -317,6 +315,7 @@ RU = {
     "Suggestions": "Подсказки",
     "No suggestions": "Подсказок нет",
     "No open services": "Открытых сервисов нет",
+    "Up to %1 characters": "До %1 символов",
     "Empty · The shortcut will be named after its domain: %1": "Пусто · Ярлык будет называться по домену: %1",
     "page title": "заголовок страницы",
     "domain": "домен",

@@ -1466,12 +1466,8 @@
         <translation>%1 из %2 символов</translation>
     </message>
     <message>
-        <source>A keyboard is needed to type</source>
-        <translation>Для ввода нужна клавиатура</translation>
-    </message>
-    <message>
-        <source>Connect a USB or Bluetooth keyboard, or change it from a computer:</source>
-        <translation>Подключите USB- или Bluetooth-клавиатуру или измените с компьютера:</translation>
+        <source>Up to %1 characters</source>
+        <translation>До %1 символов</translation>
     </message>
     <message>
         <source>Save</source>
@@ -1480,10 +1476,6 @@
     <message>
         <source>Cancel</source>
         <translation>Отмена</translation>
-    </message>
-    <message>
-        <source>Back</source>
-        <translation>Назад</translation>
     </message>
 </context>
 <context>

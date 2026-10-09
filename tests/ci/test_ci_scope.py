@@ -2,10 +2,13 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Tests for scripts/ci-scope.py (ADR-0044, ADR-0049)."""
+"""Tests for scripts/ci-scope.py (ADR-0044, ADR-0049, ADR-0102)."""
 
 import importlib.util
+import os
 import pathlib
+import subprocess
+import sys
 import unittest
 
 SCRIPT = pathlib.Path(__file__).resolve().parents[2] / "scripts" / "ci-scope.py"
@@ -49,36 +52,27 @@ class DocsOnlyTest(unittest.TestCase):
 
 
 class PackageTest(unittest.TestCase):
-    def test_package_inputs_build_the_package(self):
-        for path in (
-            "packaging/arch/PKGBUILD",
-            "packaging/systemd/arinn-shell.service",
-            "packaging/chrome/org.arinn.chrome_host.json",
-            "tests/package/session.py",
-            ".github/workflows/package.yml",
-            "Cargo.lock",
-            "Cargo.toml",
-            "plugins/chrome/Cargo.toml",
-            "plugins/desktop/desktop.toml",
-            "plugins/chrome/extension/background.js",
-            "platform/kde/phase0.js",
-            "platform/kde/arinn-kwin-adapter",
-            "CMakeLists.txt",
-        ):
-            with self.subTest(path=path):
-                self.assertTrue(ci_scope.package([path]))
+    # ADR-0102: the Arch and Debian packages build for master, the nightly,
+    # releases and manual runs, never for a pull request.
+    def test_pull_requests_never_build_the_packages(self):
+        self.assertFalse(ci_scope.package(pull_request=True))
 
-    def test_ordinary_code_changes_skip_the_package(self):
-        self.assertFalse(ci_scope.package([
-            "crates/arinnd/src/runtime.rs",
-            "apps/arinn-shell/Main.qml",
-            "tools/arinnctl/src/main.rs",
-            "tests/integration/phase1.py",
-        ]))
+    def test_other_events_build_the_packages(self):
+        self.assertTrue(ci_scope.package(pull_request=False))
 
-    def test_unknown_changes_build_the_package(self):
-        # Push, nightly, release and manual runs have no path list.
-        self.assertTrue(ci_scope.package(None))
+    def test_a_pull_request_that_changes_packaging_skips_the_packages(self):
+        env = dict(os.environ, GITHUB_OUTPUT="")
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT), "packaging/arch/PKGBUILD", ".github/workflows/package.yml"],
+            capture_output=True, text=True, env=env, check=True)
+        self.assertIn("docs_only=false", result.stdout)
+        self.assertIn("package=false", result.stdout)
+
+    def test_a_push_builds_the_packages(self):
+        env = dict(os.environ, GITHUB_OUTPUT="", GITHUB_EVENT_NAME="push")
+        result = subprocess.run([sys.executable, str(SCRIPT)], capture_output=True, text=True,
+                                env=env, check=True)
+        self.assertIn("package=true", result.stdout)
 
 
 if __name__ == "__main__":

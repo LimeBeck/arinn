@@ -165,8 +165,8 @@ jobs:
     if: ${{ !cancelled() }}
     uses: ./.github/workflows/package.yml
     with:
-      # Pull requests build the package only when they touch it (ADR-0049);
-      # run CI manually on the branch to force a package build.
+      # Pull requests never build the packages (ADR-0102); run CI manually
+      # on the branch to check a packaging change before it merges.
       skip: ${{ needs.scope.outputs.package != 'true' }}
 
   snapshot:

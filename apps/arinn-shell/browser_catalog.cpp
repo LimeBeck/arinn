@@ -800,6 +800,7 @@ void BrowserCatalog::openShortcut(const QString &id) {
   m_openFlow.start("shortcut.open");
   m_openFlow.begin("request");
   m_openFlowOwner = pendingId;
+  m_openFlowCancelled = false;
   emit changed();
   auto msg = daemonCall("org.arinn.WebShortcuts1", "Open");
   msg << id << QUuid::createUuid().toString(QUuid::WithoutBraces);
@@ -824,7 +825,7 @@ void BrowserCatalog::openShortcut(const QString &id) {
               if (pendingId.startsWith(QLatin1String("shortcut:"))) {
                 m_opening = false;
                 if (pendingId == m_openFlowOwner)
-                  m_openFlow.finish(m_openCancelRequested ? "Cancelled" : FlowTrace::outcome(failed));
+                  m_openFlow.finish(m_openFlowCancelled ? "Cancelled" : FlowTrace::outcome(failed));
                 m_openingError =
                     m_openCancelRequested ? QString() : failed;
                 m_openCancelRequested = false;
@@ -878,7 +879,7 @@ void BrowserCatalog::watchOperation(const QString &objectPath,
                 if (pendingId.startsWith(QLatin1String("shortcut:"))) {
                   m_opening = false;
                   if (pendingId == m_openFlowOwner)
-                    m_openFlow.finish(m_openCancelRequested ? "Cancelled" : "Unavailable");
+                    m_openFlow.finish(m_openFlowCancelled ? "Cancelled" : "Unavailable");
                   m_openingError = m_openCancelRequested
                                        ? QString()
                                        : QStringLiteral("Unavailable");
@@ -920,7 +921,7 @@ void BrowserCatalog::watchOperation(const QString &objectPath,
                 m_openOperationPath.clear();
                 m_opening = false;
                 if (pendingId == m_openFlowOwner)
-                  m_openFlow.finish(m_openCancelRequested ? "Cancelled"
+                  m_openFlow.finish(m_openFlowCancelled ? "Cancelled"
                                     : failed.isEmpty()    ? "ok"
                                                           : FlowTrace::outcome(failed));
                 if (m_openCancelRequested || failed.isEmpty())
@@ -1143,6 +1144,7 @@ void BrowserCatalog::retry() {
 }
 void BrowserCatalog::cancelOpen() {
   m_openCancelRequested = true;
+  m_openFlowCancelled = true;
   m_opening = false;
   m_openingError.clear();
   const auto path = m_openOperationPath;

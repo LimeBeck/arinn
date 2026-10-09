@@ -132,6 +132,8 @@ private:
   // by a later one, never end it.
   FlowTrace::Flow m_openFlow;
   QString m_openFlowOwner;
+  // Cancellation of the traced open; replies of other opens never clear it.
+  bool m_openFlowCancelled = false;
   bool m_connected = false, m_loaded = false, m_noBrowser = false,
        m_disconnectedBrowser = false,
        m_snapshotError = false, m_refreshing = false, m_dirty = false;

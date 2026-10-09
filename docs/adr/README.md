@@ -65,9 +65,9 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0044](0044-docs-only-ci-scope.md) | Documentation-only pull requests skip the build jobs | Accepted | 0049 |
 | [0045](0045-local-http-web-shortcuts.md) | Plain HTTP web shortcuts for local-network hosts | Accepted | — |
 | [0046](0046-shell-input-layer-during-playback.md) | The shell is the input layer during managed playback | Accepted | — |
-| [0047](0047-faster-package-builds.md) | Cached package builds and no release-mode check() on pull requests | Accepted | 0092 |
+| [0047](0047-faster-package-builds.md) | Cached package builds and no release-mode check() on pull requests | Accepted | 0092, 0101 |
 | [0048](0048-browser-wire-contract.md) | Browser wire contract (Browser1 and BrowserProvider1) | Accepted | 0050, 0051, 0075 |
-| [0049](0049-ci-minutes.md) | Spend fewer CI minutes | Accepted | 0053 |
+| [0049](0049-ci-minutes.md) | Spend fewer CI minutes | Accepted | 0053, 0102 |
 | [0050](0050-window-per-browser-activity.md) | One fullscreen browser window per browser activity | Accepted | 0051 |
 | [0051](0051-address-and-search-entry.md) | Address and search entry for free browsing | Accepted | 0066 |
 | [0052](0052-browser-window-association.md) | Browser windows are linked to platform windows by focus agreement | Accepted | — |
@@ -108,8 +108,8 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0088](0088-single-master-snapshot-retention.md) | Retain one verified master snapshot release | Proposed | — |
 | [0089](0089-daemon-provider-supervisor-without-a-systemd-user-manager.md) | Daemon provider supervisor without a systemd user manager | Accepted | — |
 | [0090](0090-rewatch-clears-completion.md) | Launching a completed item is a rewatch | Accepted | — |
-| [0091](0091-debian-package-ci-artifact.md) | Debian package CI artifact | Accepted | — |
-| [0092](0092-less-repeated-ci-work.md) | Less repeated work in CI | Proposed | — |
+| [0091](0091-debian-package-ci-artifact.md) | Debian package CI artifact | Accepted | 0102 |
+| [0092](0092-less-repeated-ci-work.md) | Less repeated work in CI | Proposed | 0101 |
 | [0093](0093-structured-sentry-diagnostics.md) | Structured, allowlisted Sentry diagnostics | Proposed | — |
 | [0094](0094-configurable-global-home-keys.md) | Configurable global Home keys | Accepted | — |
 | [0095](0095-shell-input-mode-ownership.md) | Shell input mode ownership | Accepted | — |
@@ -118,4 +118,6 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0098](0098-restart-after-an-update.md) | Restart Arinn after an update | Accepted | — |
 | [0099](0099-snapshot-package-version.md) | Snapshot package version with the commit | Accepted | — |
 | [0100](0100-system-status.md) | Read-only system status for Home's status area | Accepted | — |
+| [0101](0101-host-local-ci-caches.md) | Host-local build caches on the self-hosted runner | Accepted | — |
+| [0102](0102-packages-built-for-master-only.md) | Packages are built for master only, never for pull requests | Accepted | — |
 <!-- register:end -->

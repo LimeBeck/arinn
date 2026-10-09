@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,400..600,0..1,0&display=block">
+<style>
+html,body{margin:0;background:oklch(0.13 0.005 260)}
+*{box-sizing:border-box}
+a{color:oklch(0.75 0.17 50)} a:hover{color:oklch(0.97 0.004 260)}
+</style>
+</helmet>
+<div style="min-height:100vh;padding:96px 96px 160px;background:oklch(0.13 0.005 260);font-family:'Onest',sans-serif;color:oklch(0.97 0.004 260);-webkit-font-smoothing:antialiased;display:flex;flex-direction:column;gap:88px">
+
+<div style="display:flex;flex-direction:column;gap:20px;max-width:1200px">
+  <div style="font-size:20px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:oklch(0.75 0.17 50)">Arinn · #169 · ADR-0065</div>
+  <div style="font-size:64px;font-weight:700;letter-spacing:-0.025em;line-height:1.05">Редакторы настроек</div>
+  <div style="font-size:22px;line-height:1.55;color:oklch(0.82 0.006 260);text-wrap:pretty">Что открывается за шевроном в «Настройках» (14). Один общий редактор на каждый вид значения из контракта, папки медиатеки и выбор папки пультом. Листы — по образцу субтитров и аудио (10, 11), диалоги — по образцу питания (15), поле и «Нет клавиатуры» — из «Сайт или поиск» (IN-8). Макеты 1920×1080, масштаб 50%.</div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:28px">
+  <div style="font-size:36px;font-weight:700;letter-spacing:-0.015em">Ответы на вопросы к дизайну</div>
+  <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px;max-width:1968px">
+    <sc-for list="{{ answers }}" as="a" hint-placeholder-count="6">
+      <div style="border-radius:20px;padding:28px 30px;background:rgba(255,255,255,.05);box-shadow:inset 0 1px 0 rgba(255,255,255,.07);display:flex;flex-direction:column;gap:12px">
+        <div style="font-size:18px;font-weight:500;color:oklch(0.72 0.008 260);line-height:1.4">{{ a.q }}</div>
+        <div style="font-size:24px;font-weight:600;line-height:1.3">{{ a.a }}</div>
+        <div style="font-size:18px;line-height:1.5;color:oklch(0.82 0.006 260);text-wrap:pretty">{{ a.why }}</div>
+      </div>
+    </sc-for>
+  </div>
+</div>
+
+<sc-for list="{{ sections }}" as="sec" hint-placeholder-count="2">
+<div style="display:flex;flex-direction:column;gap:28px">
+  <div style="font-size:36px;font-weight:700;letter-spacing:-0.015em">{{ sec.title }}</div>
+  <sc-if value="{{ sec.hasNote }}"><div style="font-size:20px;line-height:1.55;color:oklch(0.82 0.006 260);max-width:1300px;text-wrap:pretty">{{ sec.note }}</div></sc-if>
+  <div style="display:flex;flex-wrap:wrap;gap:56px 48px">
+    <sc-for list="{{ sec.frames }}" as="f" hint-placeholder-count="3">
+      <div id="{{ f.id }}" style="display:flex;flex-direction:column;gap:14px;width:960px">
+        <div style="display:flex;align-items:baseline;gap:14px"><div style="padding:4px 10px;border-radius:6px;background:oklch(0.75 0.17 50);color:#111;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:500">{{ f.id }}</div><div style="font-size:24px;font-weight:600">{{ f.label }}</div></div>
+        <div data-screen-label="{{ f.id }}" style="position:relative;width:960px;height:540px;border-radius:10px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.5)">
+          <div style="position:absolute;left:0;top:0;width:1920px;height:1080px;transform:scale(.5);transform-origin:0 0;overflow:hidden;background:oklch(0.17 0.005 260)">
+            <div style="position:absolute;inset:0;transform:{{ f.baseTf }};filter:{{ f.baseFl }};transform-origin:center">
+            <div style="position:absolute;inset:0;background:radial-gradient(ellipse 70% 60% at 18% 0%, oklch(0.5 0.12 260 / .3) 0%, oklch(0.5 0.12 260 / 0) 70%)"></div>
+            <div style="position:absolute;top:44px;right:96px;height:64px;display:flex;align-items:center;gap:24px;color:oklch(0.88 0.005 260)">
+              <sc-if value="{{ f.kbOff }}"><span style="font-family:'Material Symbols Rounded';font-size:32px;line-height:1;color:oklch(0.68 0.008 260);font-feature-settings:'liga'">keyboard_off</span></sc-if>
+              <span style="font-family:'Material Symbols Rounded';font-size:32px;line-height:1;font-feature-settings:'liga';font-variation-settings:'FILL' 1">wifi</span><span style="font-size:30px;font-weight:500;font-variant-numeric:tabular-nums">21:47</span>
+            </div>
+
+            <sc-if value="{{ f.isSettings }}">
+              <div style="position:absolute;left:120px;top:96px;font-size:56px;font-weight:700;letter-spacing:-0.02em">Настройки</div>
+              <div style="position:absolute;left:120px;top:220px;width:540px;display:flex;flex-direction:column;gap:8px">
+                <sc-for list="{{ f.cats }}" as="c" hint-placeholder-count="7">
+                  <div style="position:relative;height:88px;border-radius:26px;padding:0 26px;display:flex;align-items:center;gap:22px;font-size:30px;font-weight:600;background:{{ c.bg }};color:{{ c.fg }}">
+                    <span style="font-family:'Material Symbols Rounded';font-size:38px;line-height:1;font-feature-settings:'liga';font-variation-settings:'FILL' 1">{{ c.icon }}</span>{{ c.label }}
+                    <div style="position:absolute;right:26px;top:50%;margin-top:-5px;width:10px;height:10px;border-radius:5px;background:oklch(0.75 0.17 50);opacity:{{ c.dotOp }}"></div>
+                  </div>
+                </sc-for>
+              </div>
+              <div style="position:absolute;left:740px;right:96px;top:220px;display:flex;flex-direction:column;gap:10px">
+                <div style="font-size:24px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:oklch(0.84 0.008 260);height:40px">{{ f.eyebrow }}</div>
+                <sc-for list="{{ f.rows }}" as="r" hint-placeholder-count="4">
+                  <div style="position:relative;min-height:112px;border-radius:28px;padding:20px 32px;display:flex;align-items:center;gap:24px;background:{{ r.bg }};transform:{{ r.tf }};box-shadow:{{ r.sh }}">
+                    <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px">
+                      <div style="font-size:30px;font-weight:600;color:{{ r.lc }}">{{ r.label }}</div>
+                      <sc-if value="{{ r.hasDesc }}"><div style="display:flex;align-items:center;gap:10px;font-size:26px;color:{{ r.dc }}"><sc-if value="{{ r.hasDi }}"><span style="flex:none;font-family:'Material Symbols Rounded';font-size:30px;line-height:1;color:{{ r.diC }};font-feature-settings:'liga'">{{ r.di }}</span></sc-if><span style="min-width:0;text-wrap:pretty">{{ r.desc }}</span></div></sc-if>
+                    </div>
+                    <sc-if value="{{ r.isToggle }}"><div style="flex:none;width:88px;height:50px;border-radius:25px;padding:5px;display:flex;justify-content:{{ r.tgJ }};background:{{ r.tgBg }}"><div style="width:40px;height:40px;border-radius:20px;background:{{ r.tgK }}"></div></div></sc-if>
+                    <sc-if value="{{ r.isLink }}"><div style="flex:none;display:flex;align-items:center;gap:10px;font-size:26px;font-weight:500;color:{{ r.vc }}">{{ r.val }}<span style="font-family:'Material Symbols Rounded';font-size:36px;line-height:1;font-feature-settings:'liga'">{{ r.chev }}</span></div></sc-if>
+                    <div style="position:absolute;inset:0;border-radius:28px;box-shadow:{{ r.kant }};pointer-events:none"></div>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ f.isFolders }}">
+              <div style="position:absolute;left:120px;top:96px;display:flex;align-items:center;gap:20px"><div style="font-size:56px;font-weight:700;letter-spacing:-0.02em">Папки медиатеки</div><div style="font-size:40px;font-weight:600;color:oklch(0.68 0.008 260)">{{ f.count }}</div></div>
+              <sc-if value="{{ f.hasAdd }}">
+                <div style="position:absolute;right:96px;top:100px;height:80px;padding:0 36px 0 28px;border-radius:40px;display:flex;align-items:center;gap:12px;font-size:28px;font-weight:600;white-space:nowrap;background:{{ f.add.bg }};color:{{ f.add.fg }};transform:{{ f.add.tf }};transform-origin:right center;box-shadow:{{ f.add.sh }};opacity:{{ f.add.op }}"><span style="font-family:'Material Symbols Rounded';font-size:36px;line-height:1;font-feature-settings:'liga'">add</span>Добавить папку</div>
+              </sc-if>
+              <sc-if value="{{ f.hasNote }}"><div style="position:absolute;left:120px;top:180px;display:flex;align-items:center;gap:12px;font-size:26px;font-weight:500;color:oklch(0.84 0.006 260)"><span style="font-family:'Material Symbols Rounded';font-size:30px;line-height:1;font-feature-settings:'liga'">info</span>{{ f.note }}</div></sc-if>
+              <div style="position:absolute;left:120px;right:96px;top:240px;bottom:150px;overflow:hidden;padding:8px 12px 0;margin:0 -12px">
+                <div style="display:flex;flex-direction:column;gap:16px;transform:{{ f.listTf }}">
+                  <sc-for list="{{ f.frows }}" as="r" hint-placeholder-count="2">
+                    <div style="display:flex;gap:16px;align-items:stretch">
+                      <div style="position:relative;flex:1;min-width:0;min-height:128px;border-radius:26px;padding:22px 28px;display:flex;align-items:center;gap:24px;background:{{ r.bg }};transform:{{ r.tf }};box-shadow:{{ r.sh }}">
+                        <div style="flex:none;width:76px;height:76px;border-radius:22px;display:flex;align-items:center;justify-content:center;background:{{ r.chipBg }};color:{{ r.chipFg }}"><span style="font-family:'Material Symbols Rounded';font-size:44px;line-height:1;font-feature-settings:'liga';font-variation-settings:'FILL' 1">{{ r.icon }}</span></div>
+                        <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px">
+                          <div style="font-size:30px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:{{ r.nc }}">{{ r.name }}</div>
+                          <div style="font-family:'JetBrains Mono',monospace;font-size:24px;color:oklch(0.84 0.006 260);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.path }}</div>
+                          <sc-if value="{{ r.hasStatus }}"><div style="display:flex;align-items:center;gap:10px;font-size:26px;font-weight:500;color:oklch(0.97 0.004 260)"><span style="flex:none;font-family:'Material Symbols Rounded';font-size:30px;line-height:1;color:{{ r.stC }};font-feature-settings:'liga'">{{ r.stIcon }}</span><span style="min-width:0;text-wrap:pretty">{{ r.status }}</span></div></sc-if>
+                        </div>
+                        <div style="position:absolute;inset:0;border-radius:26px;box-shadow:{{ r.kant }};pointer-events:none"></div>
+                      </div>
+                      <div style="flex:none;width:128px;border-radius:26px;display:flex;align-items:center;justify-content:center;background:{{ r.xBg }};color:{{ r.xFg }};transform:{{ r.xTf }};box-shadow:{{ r.xSh }}"><span style="font-family:'Material Symbols Rounded';font-size:44px;line-height:1;font-feature-settings:'liga'">remove</span></div>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+              <sc-if value="{{ f.hasScroll }}">
+                <div style="position:absolute;left:120px;right:96px;bottom:150px;height:140px;background:linear-gradient(to top, oklch(0.17 0.005 260) 10%, oklch(0.17 0.005 260 / 0))"></div>
+                <div style="position:absolute;right:52px;top:248px;bottom:158px;width:6px;border-radius:3px;background:rgba(255,255,255,.1)"><div style="position:absolute;left:0;right:0;top:{{ f.thumbTop }}%;height:{{ f.thumbH }}%;border-radius:3px;background:oklch(0.84 0.006 260)"></div></div>
+              </sc-if>
+              <sc-if value="{{ f.fEmpty }}">
+                <div style="position:absolute;left:0;right:0;top:300px;display:flex;flex-direction:column;align-items:center;gap:22px;text-align:center">
+                  <div style="width:160px;height:160px;border-radius:48px;background:rgba(255,255,255,.06);display:flex;align-items:center;justify-content:center"><span style="font-family:'Material Symbols Rounded';font-size:80px;line-height:1;color:oklch(0.84 0.006 260);font-feature-settings:'liga'">create_new_folder</span></div>
+                  <div style="font-size:52px;font-weight:700;letter-spacing:-0.02em;margin-top:12px">Папок пока нет</div>
+                  <div style="font-size:30px;line-height:1.45;color:oklch(0.84 0.006 260);max-width:900px;text-wrap:pretty">Добавьте папку с фильмами и сериалами — с этого компьютера, с диска или из сетевой папки, которую система уже подключила.</div>
+                  <div style="margin-top:20px;height:88px;padding:0 40px 0 32px;border-radius:44px;display:flex;align-items:center;gap:14px;font-size:30px;font-weight:600;background:oklch(0.97 0.004 260);color:oklch(0.17 0.006 260);transform:scale(1.06);box-shadow:0 18px 40px -12px rgba(0,0,0,.7)"><span style="font-family:'Material Symbols Rounded';font-size:36px;line-height:1;font-feature-settings:'liga'">add</span>Добавить папку</div>
+                </div>
+              </sc-if>
+            </sc-if>
+
+            <sc-if value="{{ f.isPicker }}">
+              <div style="position:absolute;left:120px;top:96px;font-size:56px;font-weight:700;letter-spacing:-0.02em">Выбор папки</div>
+              <div style="position:absolute;left:120px;top:200px;width:1180px;height:104px;border-radius:30px;padding:0 32px 0 28px;display:flex;align-items:center;gap:18px;background:{{ f.pb.bg }};transform:{{ f.pb.tf }};box-shadow:{{ f.pb.sh }}">
+                <span style="flex:none;font-family:'Material Symbols Rounded';font-size:40px;line-height:1;color:{{ f.pb.ic }};font-feature-settings:'liga'">{{ f.pb.icon }}</span>
+                <div style="flex:1;min-width:0;display:flex;align-items:center;font-family:'JetBrains Mono',monospace;font-size:32px;white-space:nowrap;overflow:hidden"><span style="flex:none;color:oklch(0.84 0.006 260)">{{ f.pb.pre }}</span><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;color:oklch(0.97 0.004 260);font-weight:500">{{ f.pb.last }}</span><sc-if value="{{ f.pb.caret }}"><span style="flex:none;width:4px;height:44px;margin-left:4px;border-radius:2px;background:oklch(0.75 0.17 50)"></span></sc-if></div>
+                <div style="position:absolute;inset:0;border-radius:30px;box-shadow:{{ f.pb.kant }};pointer-events:none"></div>
+              </div>
+              <div style="position:absolute;left:1332px;top:208px;height:88px;padding:0 40px 0 32px;border-radius:44px;display:flex;align-items:center;gap:14px;font-size:30px;font-weight:600;white-space:nowrap;background:{{ f.ch.bg }};color:{{ f.ch.fg }};transform:{{ f.ch.tf }};transform-origin:left center;box-shadow:{{ f.ch.sh }};opacity:{{ f.ch.op }}"><span style="font-family:'Material Symbols Rounded';font-size:36px;line-height:1;font-feature-settings:'liga'">check</span>Выбрать эту папку</div>
+
+              <div style="position:absolute;left:120px;top:350px;width:540px;display:flex;flex-direction:column;gap:8px">
+                <div style="font-size:24px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:oklch(0.84 0.008 260);height:40px">Начать с</div>
+                <sc-for list="{{ f.starts }}" as="s" hint-placeholder-count="4">
+                  <div style="position:relative;min-height:104px;border-radius:26px;padding:14px 26px;display:flex;align-items:center;gap:20px;background:{{ s.bg }};color:{{ s.fg }};transform:{{ s.tf }};box-shadow:{{ s.sh }}">
+                    <span style="flex:none;font-family:'Material Symbols Rounded';font-size:38px;line-height:1;color:{{ s.ic }};font-feature-settings:'liga';font-variation-settings:'FILL' 1">{{ s.icon }}</span>
+                    <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px"><div style="font-size:30px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ s.label }}</div><div style="font-family:'JetBrains Mono',monospace;font-size:24px;color:{{ s.subC }};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ s.sub }}</div></div>
+                    <div style="flex:none;width:10px;height:10px;border-radius:5px;background:oklch(0.75 0.17 50);opacity:{{ s.dotOp }}"></div>
+                    <div style="position:absolute;inset:0;border-radius:26px;box-shadow:{{ s.kant }};pointer-events:none"></div>
+                  </div>
+                </sc-for>
+                <sc-if value="{{ f.hasStartNote }}"><div style="padding:12px 26px 0;font-size:24px;line-height:1.45;color:oklch(0.84 0.006 260);text-wrap:pretty">{{ f.startNote }}</div></sc-if>
+              </div>
+
+              <div style="position:absolute;left:740px;right:96px;top:350px;bottom:140px;display:flex;flex-direction:column;gap:8px">
+                <div style="height:40px;display:flex;align-items:center;justify-content:space-between;gap:24px;font-size:24px;font-weight:600;color:oklch(0.84 0.008 260)"><span style="letter-spacing:.08em;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ f.pEyebrow }}</span><span style="flex:none;font-variant-numeric:tabular-nums">{{ f.pPos }}</span></div>
+                <sc-if value="{{ f.hasPBlock }}">
+                  <div style="border-radius:30px;padding:26px 32px;display:flex;gap:20px;align-items:flex-start;background:oklch(0.66 0.21 22 / .14);margin-bottom:8px">
+                    <span style="flex:none;font-family:'Material Symbols Rounded';font-size:40px;line-height:1;color:oklch(0.66 0.21 22);font-feature-settings:'liga';font-variation-settings:'FILL' 1">error</span>
+                    <div style="display:flex;flex-direction:column;gap:6px"><div style="font-size:30px;font-weight:600">{{ f.pBlockT }}</div><div style="font-size:26px;line-height:1.4;color:oklch(0.84 0.006 260);text-wrap:pretty">{{ f.pBlockB }}</div></div>
+                  </div>
+                </sc-if>
+                <div style="position:relative;flex:1;min-height:0;overflow:hidden;padding:6px 12px 0;margin:0 -12px">
+                  <div style="display:flex;flex-direction:column;gap:8px">
+                    <sc-for list="{{ f.prows }}" as="r" hint-placeholder-count="5">
+                      <div style="position:relative;flex:none;min-height:96px;border-radius:26px;padding:16px 28px;display:flex;align-items:center;gap:22px;background:{{ r.bg }};transform:{{ r.tf }};box-shadow:{{ r.sh }}">
+                        <span style="flex:none;font-family:'Material Symbols Rounded';font-size:38px;line-height:1;color:{{ r.ic }};font-feature-settings:'liga';font-variation-settings:'FILL' 1">{{ r.icon }}</span>
+                        <div style="flex:1;min-width:0;font-size:30px;font-weight:600;line-height:1.3;color:{{ r.nc }};display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere">{{ r.name }}</div>
+                        <span style="flex:none;font-family:'Material Symbols Rounded';font-size:36px;line-height:1;color:oklch(0.84 0.006 260);font-feature-settings:'liga'">{{ r.chev }}</span>
+                        <div style="position:absolute;inset:0;border-radius:26px;box-shadow:{{ r.kant }};pointer-events:none"></div>
+                      </div>
+                    </sc-for>
+                  </div>
+                  <sc-if value="{{ f.pFade }}"><div style="position:absolute;left:0;right:0;bottom:0;height:120px;background:linear-gradient(to top, oklch(0.17 0.005 260) 10%, oklch(0.17 0.005 260 / 0))"></div></sc-if>
+                </div>
+                <sc-if value="{{ f.pScroll }}"><div style="position:absolute;right:-44px;top:56px;bottom:0;width:6px;border-radius:3px;background:rgba(255,255,255,.1)"><div style="position:absolute;left:0;right:0;top:{{ f.thumbTop }}%;height:{{ f.thumbH }}%;border-radius:3px;background:oklch(0.84 0.006 260)"></div></div></sc-if>
+                <sc-if value="{{ f.hasPState }}">
+                  <div style="position:absolute;left:0;right:0;top:64px;display:flex;flex-direction:column;align-items:flex-start;gap:18px;padding:28px 8px">
+                    <span style="font-family:'Material Symbols Rounded';font-size:80px;line-height:1;color:{{ f.ps.ic }};font-feature-settings:'liga'">{{ f.ps.icon }}</span>
+                    <div style="font-size:44px;font-weight:700;letter-spacing:-0.02em">{{ f.ps.t }}</div>
+                    <div style="font-size:30px;line-height:1.45;color:oklch(0.84 0.006 260);max-width:920px;text-wrap:pretty">{{ f.ps.b }}</div>
+                    <div style="margin-top:14px;display:flex;gap:20px">
+                      <sc-for list="{{ f.ps.btns }}" as="b" hint-placeholder-count="0">
+                        <div style="height:88px;padding:0 40px 0 32px;border-radius:44px;display:flex;align-items:center;gap:14px;font-size:30px;font-weight:600;white-space:nowrap;background:{{ b.bg }};color:{{ b.fg }};transform:{{ b.tf }};box-shadow:{{ b.sh }}"><span style="font-family:'Material Symbols Rounded';font-size:36px;line-height:1;font-feature-settings:'liga'">{{ b.icon }}</span>{{ b.label }}</div>
+                      </sc-for>
+                    </div>
+                  </div>
+                </sc-if>
+              </div>
+            </sc-if>
+
+            <div style="position:absolute;left:120px;bottom:64px;display:flex;gap:44px;font-size:24px;font-weight:500;color:oklch(0.72 0.008 260)">
+              <sc-for list="{{ f.hints }}" as="h" hint-placeholder-count="3"><span style="display:flex;align-items:center;gap:12px"><span style="padding:2px 12px;border-radius:10px;background:rgba(255,255,255,.1);color:oklch(0.92 0.005 260);font-weight:600">{{ h.k }}</span>{{ h.v }}</span></sc-for>
+            </div>
+            </div>
+
+            <sc-if value="{{ f.hasSheet }}">
+              <div style="position:absolute;top:0;right:0;bottom:0;width:720px;padding:112px 56px 64px;display:flex;flex-direction:column;background:oklch(0.22 0.006 260 / .95);box-shadow:-40px 0 120px rgba(0,0,0,.5), inset 1px 0 0 rgba(255,255,255,.08);z-index:8">
+                <div style="display:flex;align-items:baseline;justify-content:space-between;gap:20px"><div style="font-size:24px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:oklch(0.84 0.008 260)">{{ f.sh.eyebrow }}</div><sc-if value="{{ f.sh.hasPos }}"><div style="flex:none;font-size:24px;font-weight:600;color:oklch(0.84 0.008 260);font-variant-numeric:tabular-nums">{{ f.sh.pos }}</div></sc-if></div>
+                <div style="margin-top:14px;font-size:52px;font-weight:700;letter-spacing:-0.02em;line-height:1.1;text-wrap:pretty">{{ f.sh.title }}</div>
+                <sc-if value="{{ f.sh.hasDesc }}"><div style="margin-top:14px;font-size:26px;line-height:1.4;color:oklch(0.84 0.006 260);text-wrap:pretty">{{ f.sh.desc }}</div></sc-if>
+                <div style="position:relative;flex:1;min-height:0;margin-top:36px;display:flex;flex-direction:column;gap:12px;overflow:hidden;padding:4px 10px 0;margin-left:-10px;margin-right:-10px">
+                  <sc-if value="{{ f.sh.hasBlock }}">
+                    <div style="flex:none;border-radius:28px;padding:22px 26px;display:flex;gap:18px;align-items:flex-start;background:oklch(0.66 0.21 22 / .16);margin-bottom:8px">
+                      <span style="flex:none;font-family:'Material Symbols Rounded';font-size:36px;line-height:1;color:oklch(0.66 0.21 22);font-feature-settings:'liga';font-variation-settings:'FILL' 1">error</span>
+                      <div style="display:flex;flex-direction:column;gap:6px"><div style="font-size:28px;font-weight:600">{{ f.sh.blockT }}</div><div style="font-size:26px;line-height:1.4;color:oklch(0.84 0.006 260);text-wrap:pretty">{{ f.sh.blockB }}</div></div>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{ f.sh.isEnum }}">
+                    <div style="display:flex;flex-direction:column;gap:12px;transform:{{ f.sh.listTf }}">
+                      <sc-for list="{{ f.sh.opts }}" as="o" hint-placeholder-count="4">
+                        <div style="flex:none;min-height:104px;border-radius:28px;padding:18px 28px;display:flex;align-items:center;gap:20px;background:{{ o.bg }};color:{{ o.fg }};transform:{{ o.tf }};box-shadow:{{ o.sh }}">
+                          <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:4px"><div style="font-size:30px;font-weight:600;line-height:1.25;text-wrap:pretty">{{ o.label }}</div><sc-if value="{{ o.hasSub }}"><div style="font-size:26px;line-height:1.3;color:{{ o.subC }};text-wrap:pretty">{{ o.sub }}</div></sc-if></div>
+                          <span style="flex:none;font-family:'Material Symbols Rounded';font-size:40px;line-height:1;color:{{ o.ckC }};opacity:{{ o.ckOp }};font-feature-settings:'liga';font-variation-settings:'wght' 600">{{ o.ck }}</span>
+                        </div>
+                      </sc-for>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{ f.sh.isInt }}">
+                    <div style="display:flex;flex-direction:column;gap:26px">
+                      <div style="position:relative;height:240px;border-radius:36px;padding:0 32px;display:flex;align-items:center;justify-content:space-between;background:{{ f.sh.int.bg }};box-shadow:{{ f.sh.int.sh }}">
+                        <div style="width:96px;height:96px;border-radius:48px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.12);opacity:{{ f.sh.int.decOp }}"><span style="font-family:'Material Symbols Rounded';font-size:52px;line-height:1;font-feature-settings:'liga'">remove</span></div>
+                        <div style="display:flex;align-items:baseline;gap:14px"><span style="font-size:160px;font-weight:600;line-height:1;letter-spacing:-0.03em;font-variant-numeric:tabular-nums">{{ f.sh.int.val }}</span><span style="font-size:40px;font-weight:600;color:oklch(0.84 0.006 260)">{{ f.sh.int.unit }}</span></div>
+                        <div style="width:96px;height:96px;border-radius:48px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.12);opacity:{{ f.sh.int.incOp }}"><span style="font-family:'Material Symbols Rounded';font-size:52px;line-height:1;font-feature-settings:'liga'">add</span></div>
+                        <div style="position:absolute;inset:0;border-radius:36px;box-shadow:{{ f.sh.int.kant }};pointer-events:none"></div>
+                      </div>
+                      <div style="display:flex;justify-content:space-between;padding:0 12px;font-size:26px;font-weight:500;color:oklch(0.84 0.006 260);font-variant-numeric:tabular-nums"><span>{{ f.sh.int.min }}</span><span>{{ f.sh.int.cur }}</span><span>{{ f.sh.int.max }}</span></div>
+                      <sc-if value="{{ f.sh.int.hasNote }}"><div style="display:flex;align-items:center;gap:12px;padding:0 12px;font-size:26px;font-weight:500;color:{{ f.sh.int.noteC }}"><span style="flex:none;font-family:'Material Symbols Rounded';font-size:30px;line-height:1;font-feature-settings:'liga'">{{ f.sh.int.noteIcon }}</span><span style="min-width:0;text-wrap:pretty">{{ f.sh.int.note }}</span></div></sc-if>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{ f.sh.isStr }}">
+                    <div style="display:flex;flex-direction:column;gap:14px">
+                      <div style="position:relative;height:112px;border-radius:30px;padding:0 30px;display:flex;align-items:center;background:{{ f.sh.fd.bg }};opacity:{{ f.sh.fd.op }};box-shadow:{{ f.sh.fd.sh }}">
+                        <div style="flex:1;min-width:0;display:flex;align-items:center;font-size:36px;font-weight:500;color:{{ f.sh.fd.tc }}"><span style="min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ f.sh.fd.text }}</span><sc-if value="{{ f.sh.fd.caret }}"><span style="flex:none;width:4px;height:46px;margin-left:4px;border-radius:2px;background:oklch(0.75 0.17 50)"></span></sc-if></div>
+                        <div style="position:absolute;inset:0;border-radius:30px;box-shadow:{{ f.sh.fd.ring }};pointer-events:none"></div>
+                      </div>
+                      <sc-if value="{{ f.sh.fd.hasNote }}"><div style="display:flex;align-items:flex-start;gap:12px;padding-left:8px;font-size:26px;font-weight:500;line-height:1.35;color:{{ f.sh.fd.nc }}"><span style="flex:none;font-family:'Material Symbols Rounded';font-size:30px;line-height:1.2;font-feature-settings:'liga'">{{ f.sh.fd.ni }}</span><span style="min-width:0;text-wrap:pretty">{{ f.sh.fd.note }}</span></div></sc-if>
+                      <sc-if value="{{ f.sh.hasMsg }}">
+                        <div style="margin-top:14px;padding-left:8px;display:flex;flex-direction:column;gap:12px">
+                          <div style="font-size:36px;font-weight:700;letter-spacing:-0.015em">{{ f.sh.msgT }}</div>
+                          <div style="font-size:26px;line-height:1.45;color:oklch(0.84 0.006 260);text-wrap:pretty">{{ f.sh.msgB }}</div>
+                          <div style="align-self:flex-start;padding:6px 14px;border-radius:12px;background:rgba(255,255,255,.1);font-family:'JetBrains Mono',monospace;font-size:24px;color:oklch(0.95 0.004 260)">{{ f.sh.msgCmd }}</div>
+                        </div>
+                      </sc-if>
+                      <div style="margin-top:18px;display:flex;gap:16px">
+                        <sc-for list="{{ f.sh.btns }}" as="b" hint-placeholder-count="2">
+                          <div style="height:88px;padding:0 36px 0 28px;border-radius:44px;display:flex;align-items:center;gap:12px;font-size:30px;font-weight:600;white-space:nowrap;background:{{ b.bg }};color:{{ b.fg }};transform:{{ b.tf }};transform-origin:left center;box-shadow:{{ b.sh }};opacity:{{ b.op }}"><span style="font-family:'Material Symbols Rounded';font-size:36px;line-height:1;font-feature-settings:'liga'">{{ b.icon }}</span>{{ b.label }}</div>
+                        </sc-for>
+                      </div>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{ f.sh.fade }}"><div style="position:absolute;left:0;right:0;bottom:0;height:130px;background:linear-gradient(to top, oklch(0.2 0.006 260) 8%, oklch(0.2 0.006 260 / 0))"></div></sc-if>
+                  <sc-if value="{{ f.sh.fadeTop }}"><div style="position:absolute;left:0;right:0;top:0;height:90px;background:linear-gradient(to bottom, oklch(0.2 0.006 260) 8%, oklch(0.2 0.006 260 / 0))"></div></sc-if>
+                </div>
+                <div style="margin-top:28px;display:flex;flex-wrap:wrap;gap:14px 32px;font-size:24px;font-weight:500;color:oklch(0.72 0.008 260)">
+                  <sc-for list="{{ f.sh.hints }}" as="h" hint-placeholder-count="2"><span style="display:flex;align-items:center;gap:12px"><span style="padding:2px 12px;border-radius:10px;background:rgba(255,255,255,.1);color:oklch(0.92 0.005 260);font-weight:600">{{ h.k }}</span>{{ h.v }}</span></sc-for>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ f.hasToast }}">
+              <div style="position:absolute;left:{{ f.toastX }};bottom:132px;transform:translateX(-50%);min-height:104px;padding:18px 44px 18px 30px;border-radius:52px;display:flex;align-items:center;gap:20px;background:oklch(0.24 0.006 260 / .97);box-shadow:0 30px 90px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.1);white-space:nowrap;z-index:12">
+                <span style="font-family:'Material Symbols Rounded';font-size:40px;line-height:1;color:{{ f.toastC }};font-feature-settings:'liga';font-variation-settings:'FILL' 1">{{ f.toastIcon }}</span>
+                <div style="display:flex;flex-direction:column;gap:2px"><div style="font-size:30px;font-weight:600">{{ f.toastT }}</div><div style="font-size:24px;font-weight:500;color:oklch(0.84 0.006 260)">{{ f.toastS }}</div></div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ f.hasDlg }}">
+              <div style="position:absolute;inset:0;background:rgba(0,0,0,.58);z-index:20"></div>
+              <div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:900px;border-radius:48px;padding:52px 48px 44px;display:flex;flex-direction:column;gap:18px;background:oklch(0.22 0.006 260 / .97);box-shadow:0 60px 160px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,255,255,.1);z-index:21">
+                <div style="font-size:48px;font-weight:700;letter-spacing:-0.02em;line-height:1.15;text-wrap:pretty">{{ f.dlgT }}</div>
+                <div style="font-size:30px;line-height:1.45;color:oklch(0.84 0.006 260);text-wrap:pretty">{{ f.dlgB }}</div>
+                <div style="margin-top:22px;display:flex;gap:20px">
+                  <sc-for list="{{ f.dlgBtns }}" as="b" hint-placeholder-count="2">
+                    <div style="flex:1;height:96px;border-radius:48px;display:flex;align-items:center;justify-content:center;gap:14px;font-size:30px;font-weight:600;white-space:nowrap;background:{{ b.bg }};color:{{ b.fg }};transform:{{ b.tf }};box-shadow:{{ b.sh }}"><span style="font-family:'Material Symbols Rounded';font-size:36px;line-height:1;color:{{ b.ic }};font-feature-settings:'liga'">{{ b.icon }}</span>{{ b.label }}</div>
+                  </sc-for>
+                </div>
+              </div>
+            </sc-if>
+          </div>
+        </div>
+        <div style="font-size:16px;line-height:1.5;color:oklch(0.72 0.008 260);text-wrap:pretty">{{ f.caption }}</div>
+      </div>
+    </sc-for>
+  </div>
+</div>
+</sc-for>
+
+<div style="display:flex;flex-direction:column;gap:28px;max-width:1968px">
+  <div style="font-size:36px;font-weight:700;letter-spacing:-0.015em">Контракт → интерфейс</div>
+  <div style="font-size:20px;line-height:1.55;color:oklch(0.82 0.006 260);max-width:1300px;text-wrap:pretty">Провайдер задаёт вид, ограничения и значение; оболочка рисует всё сама (R-04). Редактор подсказывает границы заранее, но решение принимает демон: текст ошибки в редакторе — его ответ.</div>
+  <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px">
+    <sc-for list="{{ rules }}" as="m" hint-placeholder-count="6">
+      <div style="border-radius:20px;padding:26px 30px;background:rgba(255,255,255,.05);box-shadow:inset 0 1px 0 rgba(255,255,255,.07);display:flex;flex-direction:column;gap:10px">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:18px;color:oklch(0.75 0.17 50);word-break:break-all">{{ m.t }}</div>
+        <div style="font-size:22px;font-weight:600;line-height:1.35">{{ m.h }}</div>
+        <div style="font-size:18px;line-height:1.5;color:oklch(0.82 0.006 260);text-wrap:pretty">{{ m.d }}</div>
+      </div>
+    </sc-for>
+  </div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:20px;max-width:1300px">
+  <div style="font-size:36px;font-weight:700;letter-spacing:-0.015em">Вопросы к контракту</div>
+  <sc-for list="{{ questions }}" as="q" hint-placeholder-count="4">
+    <div style="display:flex;gap:18px;font-size:20px;line-height:1.55;color:oklch(0.88 0.006 260)"><span style="flex:none;font-family:'JetBrains Mono',monospace;font-size:18px;color:oklch(0.75 0.17 50);padding-top:2px">{{ q.n }}</span><span style="text-wrap:pretty">{{ q.t }}</span></div>
+  </sc-for>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+const C={tx:'oklch(0.97 0.004 260)',tx2:'oklch(0.84 0.006 260)',tx3:'oklch(0.68 0.008 260)',ink:'oklch(0.17 0.006 260)',amber:'oklch(0.75 0.17 50)',err:'oklch(0.66 0.21 22)'};
+const RING='inset 0 0 0 3px rgba(255,255,255,.45)',EDGE='inset 0 1px 0 rgba(255,255,255,.08)',LIFT='0 50px 80px -30px rgba(0,0,0,.9)';
+const CATS=[['media','video_library','Медиа'],['playback','play_circle','Воспроизведение'],['audio','volume_up','Звук'],['network','wifi','Сеть'],['apps','apps','Приложения'],['look','palette','Оформление'],['system','settings','Система']];
+const DEF={isSettings:false,isFolders:false,isPicker:false,hasSheet:false,hasToast:false,hasDlg:false,kbOff:false,hints:[],baseTf:'none',baseFl:'none',caption:''};
+const K=(k,v)=>({k,v});
+class Component extends DCLogic {
+  btn(label,icon,o={}){const f=!!o.f,d=!!o.danger;return{label,icon,bg:f?C.tx:(d?'oklch(0.66 0.21 22 / .22)':'rgba(255,255,255,.1)'),fg:f?C.ink:C.tx,ic:d?(f?C.err:'oklch(0.8 0.12 22)'):'inherit',tf:f?'scale(1.06)':'none',sh:f?'0 18px 40px -12px rgba(0,0,0,.7)':'none',op:o.dim?.4:1}}
+  row(o){const f=!!o.f,off=!!o.off;
+    return{label:o.l,lc:off?C.tx3:C.tx,hasDesc:!!o.d,desc:o.d||'',dc:o.dc||C.tx2,hasDi:!!o.di,di:o.di||'',diC:o.diC||C.tx2,
+      isToggle:!!o.tg,tgJ:o.on?'flex-end':'flex-start',tgBg:o.on?C.amber:'rgba(255,255,255,.18)',tgK:o.on?C.ink:C.tx,
+      isLink:!o.tg,val:o.v||'',vc:off?C.tx3:C.tx2,chev:off?'lock':'chevron_right',
+      bg:f?(off?'rgba(255,255,255,.12)':'rgba(255,255,255,.2)'):'rgba(255,255,255,.06)',tf:f?'scale(1.02)':'none',sh:f?LIFT:'none',kant:f?RING:EDGE}}
+  settings(o){
+    const cats=CATS.map(([id,icon,label])=>({icon,label,bg:id===o.cat?'rgba(255,255,255,.08)':'transparent',fg:id===o.cat?C.tx:C.tx2,dotOp:id===o.cat?1:0}));
+    const eb=CATS.find(c=>c[0]===o.cat)[2];
+    const recede=!!o.sheet;
+    return this.frame({...o,isSettings:true,cats,eyebrow:eb,rows:o.rows.map(r=>this.row(r)),baseTf:recede?'scale(.98)':'none',baseFl:recede?'brightness(.55)':'none',hints:recede?[]:(o.hints||[K('OK','Изменить'),K('Назад','К разделам')])})}
+  sheet(s){const d={eyebrow:'',title:'',hasPos:false,pos:'',hasDesc:!!s.desc,desc:s.desc||'',hasBlock:!!s.block,blockT:s.block?.t||'',blockB:s.block?.b||'',isEnum:false,isInt:false,isStr:false,opts:[],listTf:'none',int:{},fd:{},hasMsg:false,msgT:'',msgB:'',msgCmd:'',btns:[],fade:false,fadeTop:false,hints:[]};
+    const r={...d,...s,hasPos:!!s.pos};
+    if(s.opts){r.isEnum=true;r.opts=s.opts.map(o=>{const f=!!o.f,sel=!!o.sel,busy=!!o.busy;return{label:o.l,hasSub:!!o.s,sub:o.s||'',bg:f?C.tx:'rgba(255,255,255,.06)',fg:f?C.ink:C.tx,subC:f?'oklch(0.36 0.006 260)':C.tx2,ck:busy?'progress_activity':'check',ckC:f?C.ink:C.amber,ckOp:sel||busy?1:0,tf:f?'scale(1.02)':'none',sh:f?'0 30px 60px -24px rgba(0,0,0,.8)':'none'}});r.listTf=s.shift?`translateY(-${s.shift}px)`:'none';r.hints=s.hints||[K('OK','Выбрать'),K('Назад','Закрыть')]}
+    if(s.int){const i=s.int;r.isInt=true;r.int={val:i.val,unit:i.unit,decOp:i.val<=i.min?.3:1,incOp:i.val>=i.max?.3:1,min:'мин. '+i.min,max:'макс. '+i.max,cur:i.cur||'',bg:i.dim?'rgba(255,255,255,.06)':'rgba(255,255,255,.14)',sh:i.dim?'none':LIFT,kant:i.dim?EDGE:RING,hasNote:!!i.note,note:i.note||'',noteIcon:i.noteIcon||'info',noteC:i.err?C.err:C.tx2};r.hints=s.hints||[K('← →','Изменить'),K('OK','Сохранить'),K('Назад','Отмена')]}
+    if(s.str){const t=s.str,foc=!!t.focus,dim=!!t.dim;r.isStr=true;r.fd={text:t.text||t.ph,tc:t.text?C.tx:C.tx3,caret:foc&&!dim,bg:dim?'rgba(255,255,255,.05)':(foc?'rgba(255,255,255,.12)':'rgba(255,255,255,.08)'),op:dim?.6:1,sh:foc&&!dim?'0 30px 60px -24px rgba(0,0,0,.8)':'none',ring:foc&&!dim?RING:EDGE,hasNote:!!t.note,note:t.note||'',ni:t.ni||(t.err?'error':'info'),nc:t.err?C.err:C.tx2};
+      if(t.msg){r.hasMsg=true;r.msgT=t.msg.t;r.msgB=t.msg.b;r.msgCmd=t.msg.cmd}
+      r.btns=t.btns||[];r.hints=s.hints||[K('Enter','Сохранить'),K('Esc','Отмена')]}
+    return r}
+  frame(o){const x={...DEF,...o};
+    if(o.sheet){x.hasSheet=true;x.sh=this.sheet(o.sheet)}
+    if(o.toast){x.hasToast=true;x.toastIcon=o.toast.icon||'check_circle';x.toastC=o.toast.err?C.err:C.amber;x.toastT=o.toast.t;x.toastS=o.toast.s||'';x.toastX=o.toast.x||'50%'}
+    if(o.dlg){x.hasDlg=true;x.dlgT=o.dlg.t;x.dlgB=o.dlg.b;x.dlgBtns=o.dlg.btns}
+    return x}
+  folders(o){
+    const rows=(o.rows||[]).map(r=>{const f=o.focus===r.i,xf=o.xfocus===r.i,un=!!r.un;
+      return{name:r.n,path:r.p,nc:un?C.tx2:C.tx,icon:un?'folder_off':'folder',chipBg:un?'rgba(255,255,255,.06)':'rgba(255,255,255,.12)',chipFg:un?C.tx3:C.tx,
+        hasStatus:un||!!r.st,status:r.st||'Недоступна. Фильмы из неё остаются в медиатеке как недоступные',stIcon:r.stIcon||'error',stC:r.stC||C.err,
+        bg:f?'rgba(255,255,255,.2)':'rgba(255,255,255,.06)',tf:f?'scale(1.02)':'none',sh:f?LIFT:'none',kant:f?RING:EDGE,
+        xBg:xf?C.tx:'rgba(255,255,255,.06)',xFg:xf?C.ink:C.tx2,xTf:xf?'scale(1.06)':'none',xSh:xf?'0 18px 40px -12px rgba(0,0,0,.7)':'none'}});
+    const af=o.focus==='add',ad=!!o.addOff;
+    return this.frame({...o,isFolders:true,frows:rows,count:o.count??String(rows.length),hasAdd:!o.empty,fEmpty:!!o.empty,
+      add:{bg:af?C.tx:'rgba(255,255,255,.1)',fg:af?C.ink:C.tx,tf:af?'scale(1.06)':'none',sh:af?'0 18px 40px -12px rgba(0,0,0,.7)':'none',op:ad?.4:1},
+      hasNote:!!o.note,note:o.note||'',listTf:o.shift?`translateY(-${o.shift}px)`:'none',hasScroll:!!o.scroll,thumbTop:o.scroll?.t||0,thumbH:o.scroll?.h||0,
+      hints:o.hints||[K('OK','Открыть в медиатеке'),K('→','Убрать'),K('Назад','К настройкам')]})}
+  picker(o){
+    const pf=o.focus==='path',cf=o.focus==='choose',kb=!!o.typing;
+    const ST={home:['home','Домашняя папка','/home/anna'],nas:['lan','nas','/mnt/nas'],usb:['usb','KINGSTON','/run/media/anna/KINGSTON'],root:['hard_drive','Весь компьютер','/']};
+    const starts=(o.starts||['home','nas','usb','root']).map(k=>{const [icon,label,sub]=ST[k],f=o.focus==='s:'+k,sel=o.start===k,gone=o.gone===k;
+      return{icon:gone?'link_off':icon,label,sub:gone?'Отключена':sub,ic:gone?C.err:(f?C.tx:C.tx2),bg:f?'rgba(255,255,255,.2)':(sel?'rgba(255,255,255,.08)':'transparent'),fg:gone?C.tx2:(sel||f?C.tx:C.tx2),subC:gone?C.err:C.tx2,dotOp:sel&&!f?1:0,tf:f?'scale(1.02)':'none',sh:f?LIFT:'none',kant:f?RING:'none'}});
+    const prows=(o.rows||[]).map((r,i)=>{const f=o.focus===i,lock=!!r.lock;
+      return{name:r.n||r,icon:lock?'lock':'folder',ic:lock?C.tx3:(f?C.tx:C.tx2),nc:lock?C.tx2:C.tx,chev:lock?'':'chevron_right',bg:f?'rgba(255,255,255,.2)':'rgba(255,255,255,.06)',tf:f?'scale(1.02)':'none',sh:f?LIFT:'none',kant:f?RING:EDGE}});
+    const ps=o.state?{icon:o.state.icon,ic:o.state.err?C.err:C.tx2,t:o.state.t,b:o.state.b,btns:o.state.btns||[]}:{icon:'',ic:'',t:'',b:'',btns:[]};
+    const off=!!o.chooseOff;
+    return this.frame({...o,isPicker:true,starts,prows,
+      pb:{icon:kb?'keyboard':'folder_open',ic:kb||pf?C.tx:C.tx2,pre:o.pre,last:o.last,caret:kb,bg:kb||pf?'rgba(255,255,255,.14)':'rgba(255,255,255,.06)',tf:'none',sh:kb||pf?'0 30px 60px -24px rgba(0,0,0,.8)':'none',kant:kb||pf?RING:EDGE},
+      ch:{bg:cf?C.tx:'rgba(255,255,255,.1)',fg:cf?C.ink:C.tx,tf:cf?'scale(1.06)':'none',sh:cf?'0 18px 40px -12px rgba(0,0,0,.7)':'none',op:off?.4:1},
+      pEyebrow:o.eyebrow||'',pPos:o.pos||'',hasPBlock:!!o.block,pBlockT:o.block?.t||'',pBlockB:o.block?.b||'',pFade:!!o.fade,pScroll:!!o.scroll,thumbTop:o.scroll?.t||0,thumbH:o.scroll?.h||0,
+      hasPState:!!o.state,ps,hasStartNote:!!o.startNote,startNote:o.startNote||'',
+      hints:o.hints||[K('OK','Открыть'),K('Назад','Вверх на уровень'),K('↑','Выбрать эту папку')]})}
+  renderVals(){
+    const b=(l,i,o)=>this.btn(l,i,o);
+    const LOOK=(o={})=>[{l:'Световой фон',d:'Цвет обложки подсвечивает фон',tg:1,on:1},{l:'Заставка',v:o.saver||'Через 10 мин',f:o.f==='saver',d:o.saverD,di:o.saverDi,diC:o.saverDiC,dc:o.saverDc},{l:'Размер текста',v:o.size||'Обычный',f:o.f==='size'}];
+    const PLAY=(o={})=>[{l:'Автозапуск следующей серии',d:'Через 10 секунд после титров',tg:1,on:1},{l:'Субтитры по умолчанию',v:o.subs||'Русские',f:o.f==='subs'},{l:'Аудио по умолчанию',v:'Русский',f:o.f==='audio'},{l:'Пропускать заставки',tg:1,on:0}];
+    const AUDIO=(o={})=>[{l:'Выход звука',v:'HDMI · Телевизор',f:o.f==='out'},{l:'Ночной режим',d:o.nightD||'Тише взрывы, громче диалоги',tg:1,on:o.nightOn,f:o.f==='night',di:o.nightDi,diC:o.nightDiC,dc:o.nightDc},{l:'Задержка звука',v:'0 мс',off:1,f:o.f==='delay',d:o.f==='delay'?'Сейчас изменить нельзя':''},{l:'Звуки интерфейса',tg:1,on:1}];
+    const SYS=(o={})=>[{l:'Имя устройства',v:o.name||'Arinn в гостиной',f:o.f==='name'},{l:'Об устройстве',v:'Arinn 0.2'},{l:'Обновления',v:'Последняя версия'},{l:'Диагностика',v:''}];
+    const MEDIA=(o={})=>[{l:'Папки медиатеки',v:o.v||'2 папки',f:o.f==='folders'},{l:'Обновлять автоматически',d:'Новые файлы появятся в медиатеке сами',tg:1,on:1},{l:'«Новое» на главной',d:'Недавно добавленные фильмы и сериалы',tg:1,on:1}];
+
+    const SUBS=(f,sel,o={})=>[['Выключены'],['Русские'],['Русские (надписи)','Только надписи и песни'],['Английские'],['Как в файле','Дорожка, которую автор отметил основной']].map(([l,s],i)=>({l,s,f:i===f,sel:i===sel,busy:o.busy===i}));
+    const LANGS=['Норвежский','Польский','Португальский','Румынский','Русский','Сербский','Словацкий','Словенский','Суахили'];
+    const SIZE=(f,sel)=>[['Обычный','Для экрана до 55 дюймов на расстоянии 2–3 метров'],['Крупный','Для большого экрана или если сидите дальше трёх метров'],['Очень крупный','На экране поместится меньше обложек и строк']].map(([l,s],i)=>({l,s,f:i===f,sel:i===sel}));
+    const OUT=(f,sel)=>[['HDMI · Телевизор','LG OLED55'],['HDMI 2 · Ресивер','Denon AVR-X1700H'],['Наушники','Разъём 3,5 мм на передней панели'],['Встроенные динамики']].map(([l,s],i)=>({l,s,f:i===f,sel:i===sel}));
+    const saverInt=(val,o={})=>({eyebrow:'Оформление',title:'Заставка',desc:'Через сколько минут без действий включается заставка',int:{val,unit:'мин',min:1,max:60,...o}});
+    const nameStr=(o)=>({eyebrow:'Система',title:'Имя устройства',desc:'Так Arinn виден в домашней сети и в arinnctl',str:o});
+
+    const editors=[
+      this.settings({id:'ED-1',label:'Строки: вид значения виден по правому краю',cat:'look',rows:LOOK({f:'saver'}),caption:'Строка не меняется: название 30/600, значение 26 и шеврон. OK на строке с шевроном открывает лист справа. Переключатель (boolean) переключается прямо в строке, как сейчас, без листа.'}),
+      this.settings({id:'ED-2',label:'Недоступная настройка (enabled = false)',cat:'audio',rows:AUDIO({f:'delay',nightOn:1}),hints:[K('OK','Недоступно'),K('Назад','К разделам')],caption:'Строка видна на своём месте и получает фокус — так её можно прочитать. Название и значение в text-3, вместо шеврона замок, фокус тусклее (плашка 12% вместо 20%). OK ничего не открывает, строка под названием объясняет почему. Если контракт передаёт причину, она встаёт вместо «Сейчас изменить нельзя».'}),
+      this.settings({id:'EN-1',label:'enum: список вариантов',cat:'playback',rows:PLAY({f:'subs'}),sheet:{eyebrow:'Воспроизведение',title:'Субтитры по умолчанию',opts:SUBS(1,1)},caption:'Лист как у субтитров в плеере (10): w720, стекло, экран за ним .98 и яркость .55. Фокус при открытии на текущем варианте, у текущего ember-галочка. OK выбирает и сохраняет, лист закрывается через 180 мс, фокус возвращается на строку. Назад — закрыть без изменений.'}),
+      this.settings({id:'EN-2',label:'enum: 64 варианта',cat:'playback',rows:PLAY({f:'audio'}),sheet:{eyebrow:'Воспроизведение',title:'Аудио по умолчанию',pos:'45 из 64',opts:LANGS.map((l,i)=>({l,f:i===4,sel:i===4})),shift:0,fade:true,fadeTop:true},caption:'Больше 6 вариантов — список прокручивается, фокус держится в середине листа. Позиция «45 из 64» справа от надзаголовка, края затухают. ↑/↓ по одному, Ch+/Ch− или PgUp/PgDn — на страницу.'}),
+      this.settings({id:'EN-3',label:'enum: длинные подписи',cat:'look',rows:LOOK({f:'size'}),sheet:{eyebrow:'Оформление',title:'Размер текста',opts:SIZE(0,0)},caption:'Название варианта переносится на вторую строку, а не обрезается; пояснение (если провайдер его дал) — 26 под ним. Высота строки растёт от 104. Русские подписи длиннее английских на треть, поэтому перенос — норма, а не исключение.'}),
+      this.settings({id:'IN-1',label:'integer: степпер',cat:'look',rows:LOOK({f:'saver'}),sheet:saverInt(15,{cur:'было 10'}),caption:'Число 160/600 — читается с 3 м. ←/→ меняют на шаг из ограничений, удержание ускоряет: после 1 с шаг ×10. ↑/↓ тоже работают. Под числом границы и прежнее значение. OK сохраняет, Назад — отмена без вопроса. Цифры с клавиатуры набирают значение напрямую.'}),
+      this.settings({id:'IN-2',label:'integer: граница',cat:'look',rows:LOOK({f:'saver'}),sheet:saverInt(60,{cur:'было 10',note:'Это максимум',noteIcon:'block'}),caption:'На границе кнопка «+» гаснет до 30%, строка под числом говорит «Это максимум». Дальше значение не идёт и не заворачивается на минимум. Если у значения нет единицы, справа от числа пусто.'}),
+      this.settings({id:'STR-1',label:'string: поле',cat:'system',rows:SYS({f:'name'}),sheet:nameStr({text:'Arinn в спальне',focus:1,note:'15 из 32 символов',ni:'info',btns:[b('Сохранить','check'),b('Отмена','close')]}),caption:'Поле из редактора ярлыков (h112, r30), текст 36. Курсор в конце, текущее значение уже в поле. Под полем счётчик, если в ограничениях есть длина. Enter сохраняет, Esc — отмена. ↓ из поля — на кнопки.'}),
+      this.settings({id:'STR-2',label:'string: нет клавиатуры',cat:'system',kbOff:1,rows:SYS({f:'name'}),sheet:nameStr({text:'Arinn в гостиной',dim:1,msg:{t:'Для ввода нужна клавиатура',b:'Подключите USB- или Bluetooth-клавиатуру или измените с компьютера:',cmd:'arinnctl settings set'},btns:[b('Назад','arrow_back',{f:1})]}),hints:[K('OK','Назад')],caption:'Как IN-8: поле приглушено до 60%, в строке состояния keyboard_off, ниже объяснение и команда. Единственная кнопка — «Назад». Первое нажатие клавиши на подключённой клавиатуре делает поле активным (STR-1).'})
+    ];
+
+    const saving=[
+      this.settings({id:'SV-1',label:'Сохраняется',cat:'playback',rows:PLAY({f:'subs'}),sheet:{eyebrow:'Воспроизведение',title:'Субтитры по умолчанию',opts:SUBS(3,1,{busy:3}),hints:[K('Назад','Закрыть')]},caption:'Если демон отвечает дольше 300 мс, на выбранном варианте вместо галочки спиннер, прежняя галочка остаётся. Остальные варианты не блокируются. Назад закрывает лист, запрос не отменяется — ответ придёт уведомлением (SV-2…SV-5).'}),
+      this.settings({id:'SV-2',label:'Сохранено и применено',cat:'playback',rows:PLAY({f:'subs',subs:'Английские'}),toast:{t:'Сохранено',s:'Субтитры по умолчанию: Английские',x:'1180px'},caption:'Лист закрыт, в строке новое значение, фокус на строке. Короткое уведомление 3 с. Для переключателей (boolean) уведомления нет: изменение видно на самом переключателе.'}),
+      this.settings({id:'SV-3',label:'Сохранено, применится при следующем запуске',cat:'look',rows:LOOK({f:'saver',saver:'Через 15 мин',saverD:'Применится после перезапуска Arinn',saverDi:'restart_alt',saverDiC:C.amber,saverDc:C.tx}),toast:{icon:'restart_alt',t:'Сохранено',s:'Применится после перезапуска Arinn',x:'1180px'},caption:'Демон ответил «applies at next start». Уведомление с restart_alt, а в строке под названием остаётся пометка «Применится после перезапуска Arinn» — до перезапуска. В строке уже новое значение: оно сохранено.'}),
+      this.settings({id:'SV-4',label:'Отклонено: string',cat:'system',rows:SYS({f:'name'}),sheet:nameStr({text:'Arinn/гостиная',focus:1,err:1,note:'Имя может содержать буквы, цифры, пробел и дефис',btns:[b('Сохранить','check'),b('Отмена','close')]}),caption:'Лист не закрывается, текст в поле остаётся, фокус в поле. Строка ошибки под полем — текст из ответа демона. Исчезает с первым нажатием клавиши.'}),
+      this.settings({id:'SV-5',label:'Отклонено: enum',cat:'audio',rows:AUDIO({f:'out',nightOn:1}),sheet:{eyebrow:'Звук',title:'Выход звука',block:{t:'Не удалось сохранить',b:'HDMI 2 сейчас не подключён.'},opts:OUT(1,0)},caption:'Плашка ошибки над списком, галочка остаётся на прежнем значении, фокус — на варианте, который не приняли. Для integer та же плашка над степпером. Если демон не ответил, текст «Arinn не ответил. Попробуйте ещё раз».'}),
+      this.settings({id:'SV-6',label:'Отклонено: переключатель',cat:'audio',rows:AUDIO({f:'night',nightOn:0,nightD:'Не включилось: выход HDMI не поддерживает',nightDi:'error',nightDiC:C.err,nightDc:C.tx}),toast:{icon:'error',err:1,t:'Не удалось включить «Ночной режим»',s:'Выход HDMI не поддерживает',x:'1180px'},caption:'У переключателя нет листа. Он возвращается в прежнее положение, уведомление в цвете ошибки, причина остаётся в строке, пока фокус не уйдёт с неё.'})
+    ];
+
+    const R2=[{i:0,n:'Фильмы',p:'/mnt/nas/Фильмы'},{i:1,n:'Сериалы',p:'/home/anna/Видео/Сериалы'}];
+    const R2u=[{i:0,n:'Фильмы',p:'/mnt/nas/Фильмы',un:1},{i:1,n:'Сериалы',p:'/home/anna/Видео/Сериалы'}];
+    const many=['Архив 2019','Архив 2020','Архив 2021','Документальные','Концерты','Мультфильмы'].map((n,i)=>({i:i+40,n,p:'/mnt/nas/'+n}));
+    const folders=[
+      this.settings({id:'LF-1',label:'Вход: Настройки › Медиа',cat:'media',rows:MEDIA({f:'folders',v:'2 папки · 1 недоступна'}),caption:'Строка «Папки медиатеки» (path-список) ведёт не в лист, а на свой экран. Значение: число папок; если какая-то недоступна, через точку «1 недоступна».'}),
+      this.folders({id:'LF-2',label:'Пусто',empty:1,count:'',hints:[K('OK','Добавить папку'),K('Назад','К настройкам')],caption:'Сюда же ведёт кнопка «Открыть настройки» из пустой медиатеки (17). Одна кнопка в фокусе, открывает выбор папки (PK-1).'}),
+      this.folders({id:'LF-3',label:'Несколько папок',rows:R2,focus:0,caption:'Строки как в «Открытых сервисах»: чип, название — последняя часть пути, под ним полный путь моноширинным. Справа квадрат 128 «Убрать», →. «Добавить папку» — справа от заголовка, ↑ из первой строки. Порядок — порядок добавления. OK на строке открывает медиатеку с фильтром по этой папке.'}),
+      this.folders({id:'LF-4',label:'Папка недоступна',rows:R2u,xfocus:0,hints:[K('OK','Убрать'),K('←','К строке'),K('Назад','К настройкам')],caption:'Строка остаётся на месте: чип folder_off, название в text-2, строка статуса с причиной. Убрать можно и недоступную — это правка списка, диск не нужен. Когда NAS вернётся, строка сама станет обычной.'}),
+      this.folders({id:'LF-5',label:'Предел: 64 папки',rows:many,count:'64',focus:42,shift:0,addOff:1,note:'Это предел — 64 папки. Уберите одну, чтобы добавить другую.',scroll:{t:62,h:9},hints:[K('OK','Открыть в медиатеке'),K('→','Убрать'),K('Назад','К настройкам')],caption:'«Добавить папку» гаснет до 40%, но фокус на неё попадает, OK показывает то же объяснение уведомлением. Список прокручивается, справа полоса позиции, нижний край затухает.'}),
+      this.folders({id:'LF-6',label:'Подтверждение: убрать папку',rows:R2,xfocus:1,dlg:{t:'Убрать «Сериалы» из медиатеки?',b:'Сериалы из этой папки пропадут из медиатеки. Файлы на диске останутся, удалять их Arinn не будет.',btns:[b('Отмена','close',{f:1}),b('Убрать','remove',{danger:1})]},caption:'Как подтверждение питания (15): фокус на «Отмена», действие тонировано ошибкой. Глагол «Убрать», а не «Удалить» — чтобы не читалось как удаление файлов. После — фокус на соседней строке, уведомление «Папка убрана».'}),
+      this.folders({id:'LF-7',label:'Подтверждение: недоступная папка',rows:R2u,xfocus:0,dlg:{t:'Убрать «Фильмы» из медиатеки?',b:'Папка сейчас недоступна. Фильмы из неё пропадут из медиатеки, на NAS ничего не изменится.',btns:[b('Отмена','close',{f:1}),b('Убрать','remove',{danger:1})]},caption:'Для недоступной папки первая фраза объясняет, почему её фильмы помечены. Остальное как в LF-6.'}),
+      this.folders({id:'LF-8',label:'Папка добавлена',rows:[...R2,{i:2,n:'Мультфильмы',p:'/run/media/anna/KINGSTON/Мультфильмы',st:'Добавляется в медиатеку…',stIcon:'progress_activity',stC:C.amber}],focus:2,toast:{icon:'check_circle',t:'Папка «Мультфильмы» добавлена',s:'Новые фильмы появятся в медиатеке по мере чтения'},caption:'После «Выбрать эту папку» выбор закрывается, новая строка в конце списка и в фокусе. Пока библиотека читает папку, в строке статус с ember-спиннером.'})
+    ];
+
+    const HOME=['Видео','Загрузки','Документы','Изображения','Музыка','Рабочий стол'];
+    const FILMS=['Джанго освобождённый (2012)','Достать ножи (2019)','Дюна (2021)','Дюна: Часть вторая (2024)','Жизнь Пи (2012)','Заводной апельсин (1971)','Зелёная миля (1999)'];
+    const pick=[
+      this.picker({id:'PK-1',label:'Начало: домашняя папка',start:'home',pre:'/home/',last:'anna',eyebrow:'6 папок',rows:HOME,focus:0,caption:'Слева начальные точки: домашняя папка, каждый диск и сетевая папка, которые система подключила в /media, /run/media или /mnt, и весь компьютер (/). Справа вложенные папки, файлов нет. Скрытые (с точкой) не показываются. Строка пути сверху — где вы сейчас.'}),
+      this.picker({id:'PK-2',label:'Много папок',start:'nas',pre:'/mnt/nas/',last:'Фильмы',eyebrow:'148 папок',pos:'4 из 148',rows:FILMS,focus:3,fade:1,scroll:{t:2,h:4},caption:'Сортировка по имени без учёта регистра. Позиция «4 из 148» справа от счётчика, полоса прокрутки у края. Фокус держится в середине, край затухает. Ch+/Ch− — на страницу. Буква с клавиатуры переходит к первой папке на эту букву.'}),
+      this.picker({id:'PK-3',label:'Выбрать папку',start:'nas',pre:'/mnt/nas/Фильмы/',last:'Дюна: Часть вторая (2024)',eyebrow:'2 папки',rows:['Дополнительные материалы','Субтитры'],focus:'choose',hints:[K('OK','Выбрать эту папку'),K('↓','К папкам'),K('Назад','Вверх на уровень')],caption:'«Выбрать эту папку» выбирает папку из строки пути, а не строку в фокусе. Добраться — ↑ из первой строки списка. Здесь выбирать не стоит, но это решает человек: вложенность Arinn не запрещает.'}),
+      this.picker({id:'PK-4',label:'Длинные имена',start:'usb',pre:'/run/media/anna/…/',last:'Мастер и Маргарита (2024) [Режиссёрская версия]',eyebrow:'4 папки',rows:['Мастер и Маргарита. Серия 01. Бал у Сатаны [2160p, HDR10, многоголосый]','Мастер и Маргарита. Серия 02. Поездка в Ялту [2160p, HDR10, многоголосый]','Съёмки и интервью с актёрами — дополнительные материалы к режиссёрской версии','Субтитры'],focus:0,caption:'Имя в списке переносится на две строки, дальше «…». В строке пути середина сворачивается в «/…/», последняя папка видна целиком, пока помещается, иначе обрезается с конца.'}),
+      this.picker({id:'PK-5',label:'Пустая папка',start:'home',pre:'/home/anna/Видео/',last:'Новая папка',eyebrow:'',rows:[],focus:'choose',state:{icon:'folder_open',t:'Вложенных папок нет',b:'Файлы здесь не показываются. Если в этой папке лежат фильмы, выберите её.'},hints:[K('OK','Выбрать эту папку'),K('Назад','Вверх на уровень')],caption:'Фокус сразу на «Выбрать эту папку»: больше идти некуда. Счётчика нет.'}),
+      this.picker({id:'PK-6',label:'Нет доступа',start:'root',pre:'/',last:'root',eyebrow:'',rows:[],focus:'s:root',chooseOff:1,state:{icon:'lock',t:'Нет доступа к папке',b:'У Arinn нет прав читать /root, поэтому выбрать её нельзя.'},hints:[K('Назад','Вверх на уровень')],caption:'Папки без прав на чтение видны в списке родителя с замком вместо значка и без шеврона. Войти можно — объяснение на месте списка. «Выбрать эту папку» гаснет до 40%.'}),
+      this.picker({id:'PK-7',label:'Сетевая папка пропала',start:'nas',gone:'nas',pre:'/mnt/nas/Фильмы/',last:'Дюна (2021)',eyebrow:'',rows:[],focus:0,chooseOff:1,state:{icon:'link_off',err:1,t:'Сетевая папка отключилась',b:'/mnt/nas больше недоступна. Проверьте, включён ли NAS и есть ли сеть.',btns:[b('Повторить','refresh',{f:1}),b('К домашней папке','home')]},hints:[K('OK','Повторить'),K('Назад','Вверх на уровень')],caption:'Список пропадает, на его месте объяснение. Начальная точка слева помечена «Отключена». «Повторить» перечитывает ту же папку; если NAS вернулся, список восстанавливается на той же позиции. Подключать сетевые папки Arinn не умеет и не предлагает.'}),
+      this.picker({id:'PK-8',label:'Путь с клавиатуры',start:'nas',typing:1,pre:'/mnt/nas/',last:'Фи',eyebrow:'Enter — перейти в /mnt/nas/Фильмы',rows:['Фильмы'],focus:0,hints:[K('Tab','Дополнить'),K('Enter','Перейти'),K('Esc','Отменить ввод')],caption:'Нажатие «/» или любой буквы на подключённой клавиатуре превращает строку пути в поле, курсор в конце. Список фильтруется по введённому. Tab дополняет имя, Enter переходит. Только абсолютные пути. Без клавиатуры строка пути только показывает.'}),
+      this.picker({id:'PK-9',label:'Дисков и сетевых папок нет',starts:['home','root'],start:'home',pre:'/home/',last:'anna',eyebrow:'6 папок',rows:HOME,focus:'s:home',startNote:'Диски и сетевые папки появятся здесь, когда система их подключит.',caption:'Начальных точек меньше, под ними одна строка объяснения. Список обновляется сам, когда система подключает диск.'}),
+      this.picker({id:'PK-10',label:'Папку не приняли',start:'nas',pre:'/mnt/nas/Фильмы/',last:'Дюна (2021)',eyebrow:'1 папка',rows:['Дополнительные материалы'],focus:'choose',block:{t:'Эта папка уже в медиатеке',b:'Она внутри «Фильмы» (/mnt/nas/Фильмы).'},hints:[K('OK','Выбрать эту папку'),K('Назад','Вверх на уровень')],caption:'Демон отклонил путь. Плашка над списком с его текстом, выбор остаётся открытым. Так же выглядят «папка уже добавлена» и «достигнут предел».'})
+    ];
+
+    const sections=[
+      {title:'Редакторы по видам значения',hasNote:true,note:'enum, integer и string — лист справа поверх «Настроек», как у субтитров и аудио. Экран за листом остаётся виден: понятно, какую настройку правите. Назад закрывает лист без сохранения, фокус возвращается на строку.',frames:editors},
+      {title:'Сохранение',hasNote:false,note:'',frames:saving},
+      {title:'Папки медиатеки',hasNote:true,note:'Отдельный экран, а не лист: до 64 строк с полными путями, статусами и кнопками «Убрать». Назад — в «Настройки» на строку «Папки медиатеки».',frames:folders},
+      {title:'Выбор папки',hasNote:true,note:'Отдельный экран, второй шаг после «Добавить папку». ↑/↓ по папкам, OK или → — войти, ← — к начальным точкам, Назад — на уровень вверх; из начальной точки Назад переводит фокус в левую колонку, ещё раз — закрывает выбор. Home — по общим правилам: выбор закрывается без изменений.',frames:pick}
+    ];
+    const answers=[
+      {q:'Редакторы — листы поверх «Настроек» или отдельные экраны?',a:'Листы для enum, integer и string',why:'Одно значение и один шаг — как выбор субтитров (10). Строка, с которой пришли, видна за листом. Отдельный экран только для path-списка.'},
+      {q:'Папки медиатеки — свой экран или лист с выбором вторым шагом?',a:'Свой экран, выбор папки — второй экран',why:'Полные пути длинные, строк до 64, у каждой статус и «Убрать». В лист шириной 720 это не помещается. Выбору нужны две колонки и строка пути.'},
+      {q:'Как показать недоступную папку и можно ли её убрать?',a:'Строка на месте, folder_off и статус с причиной; убрать можно',why:'Убрать — это правка списка, NAS для этого не нужен. В подтверждении сказано, что фильмы пропадут из медиатеки, а на диске ничего не изменится (LF-7).'},
+      {q:'Как выглядит настройка с enabled = false?',a:'Видна, получает фокус, замок вместо шеврона',why:'Если пропускать её фокусом, неясно, почему настройку не изменить. OK ничего не открывает, объяснение в строке (ED-2).'},
+      {q:'Когда значение сохраняется?',a:'enum — по OK сразу; integer — по OK после степпера; string — Enter',why:'Сохранять на каждый шаг степпера нельзя: демон может ответить «после перезапуска» или отклонить промежуточное значение.'},
+      {q:'Нужно ли спрашивать при Назад с изменённым значением?',a:'Нет, Назад — отмена',why:'Потеря — одно значение, вернуть его — пара нажатий. В редакторе ярлыков вопрос нужен, потому что там два поля текста.'}
+    ];
+    const rules=[
+      {t:'boolean',h:'Переключатель в строке',d:'OK переключает и сохраняет. Отклонено — возвращается назад, уведомление (SV-6).'},
+      {t:'enum · 2…64',h:'Лист со списком',d:'В строке — подпись текущего варианта. Больше 6 — прокрутка и позиция (EN-2).'},
+      {t:'integer · min / max / step',h:'Лист со степпером',d:'В строке — число с единицей. Границы видны под числом, за них значение не выходит.'},
+      {t:'string · maxLength',h:'Лист с полем',d:'Ввод только с клавиатуры, без неё — IN-8. Счётчик, если есть лимит длины.'},
+      {t:'path[] · до 64',h:'Свой экран и выбор папки',d:'В строке — «N папок». Абсолютные локальные пути, только папки.'},
+      {t:'enabled = false',h:'Видна, с замком',d:'Любой вид. Фокус есть, изменить нельзя (ED-2).'}
+    ];
+    const questions=[
+      {n:'1',t:'Передаёт ли контракт причину для enabled = false? Если да, она встаёт в строку вместо общего «Сейчас изменить нельзя».'},
+      {n:'2',t:'Есть ли у integer единица измерения (мин, мс)? Без неё рядом с числом пусто, а в строке — только число.'},
+      {n:'3',t:'«Применится после перезапуска»: нужна ли в уведомлении кнопка «Перезапустить сейчас», или перезапуск — только из меню питания?'},
+      {n:'4',t:'Сообщает ли провайдер медиатеки, что папка недоступна, событием, или оболочке проверять самой при открытии экрана?'}
+    ];
+    const only=this.state.only;
+    if(only){const fr=sections.flatMap(s=>s.frames).find(f=>f.id===only);if(fr)return{answers:[],rules:[],questions:[],sections:[{title:'',hasNote:false,note:'',frames:[fr]}]}}
+    return{answers,sections,rules,questions};
+  }
+  state={only:(location.hash.match(/only=([\w-]+)/)||[])[1]||null};
+  componentDidMount(){this._h=()=>this.setState({only:(location.hash.match(/only=([\w-]+)/)||[])[1]||null});window.addEventListener('hashchange',this._h)}
+  componentWillUnmount(){window.removeEventListener('hashchange',this._h)}
+  _x(){
+  }
+}
+</script>
+</body>
+</html>

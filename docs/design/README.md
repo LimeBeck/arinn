@@ -1,12 +1,13 @@
 # Arinn design
 
-The current design handoff dates from 2026-10-01 and lives in [`handoff/`](handoff/README.md). The packages delivered by the project owner were copied with the one deliberate change described under *Licensing*; the 2026-10-01 addition was accepted by the owner from an agent brief (see *Licensing*). It answers:
+The current design handoff dates from 2026-10-09 and lives in [`handoff/`](handoff/README.md). The packages delivered by the project owner were copied with the one deliberate change described under *Licensing*; the 2026-10-01 addition was accepted by the owner from an agent brief, and the 2026-10-09 README was merged by hand (see *Licensing*). It answers:
 - the [ADR-0050](../adr/0050-window-per-browser-activity.md) design brief with the *Open services* screen;
 - the [#106](https://github.com/LimeBeck/arinn/issues/106) brief with the *address and search* screen;
 - the [#172](https://github.com/LimeBeck/arinn/issues/172) brief with the Settings value editors, *Library folders* and the folder picker;
-- the [#205](https://github.com/LimeBeck/arinn/issues/205) brief with *closing running applications*: the tile sheet, the Continue Close button and the running applications screen.
+- the [#205](https://github.com/LimeBeck/arinn/issues/205) brief with *closing running applications*: the tile sheet, the Continue Close button and the running applications screen;
+- the *on-screen keyboard* for every text field, operated with the remote only ([#417](https://github.com/LimeBeck/arinn/issues/417)).
 
-Earlier packages are kept in the archive: [before closing applications](archive/2026-10-01-before-closing-apps/README.md) (2026-09-30 to 2026-10-01), [before settings editors](archive/2026-09-30-before-settings-editors/README.md) (2026-09-29 to 2026-09-30), [before address and search](archive/2026-09-29-before-address-search/README.md) (earlier on 2026-09-29), [before Open services](archive/2026-09-29-before-open-services/README.md) (2026-09-27 to 2026-09-29) and [before the brand](archive/2026-09-27-before-brand/README.md). The handoff has no version number; "v2" is part of the design system file name.
+Earlier packages are kept in the archive: [before the on-screen keyboard](archive/2026-10-09-before-on-screen-keyboard/README.md) (2026-10-01 to 2026-10-09), [before closing applications](archive/2026-10-01-before-closing-apps/README.md) (2026-09-30 to 2026-10-01), [before settings editors](archive/2026-09-30-before-settings-editors/README.md) (2026-09-29 to 2026-09-30), [before address and search](archive/2026-09-29-before-address-search/README.md) (earlier on 2026-09-29), [before Open services](archive/2026-09-29-before-open-services/README.md) (2026-09-27 to 2026-09-29) and [before the brand](archive/2026-09-27-before-brand/README.md). The handoff has no version number; "v2" is part of the design system file name.
 
 ## Source materials (historical, not edited)
 
@@ -31,8 +32,12 @@ Earlier packages are kept in the archive: [before closing applications](archive/
     - the running applications screen CL-4…7 and CL-13…15;
     - confirmation and feedback CL-8…11 and CL-16;
     - strings, motion and open questions.
+- [On-screen keyboard](<handoff/design/arinn On-Screen Keyboard.dc.html>) ([#417](https://github.com/LimeBeck/arinn/issues/417)):
+    - the first-round variants 1a/1b/1c, of which 1a was chosen;
+    - fields and layers KB-1…8: site or search, shortcut address and name, a `string` setting, a path in the folder picker, library search, the 123 layer and EN with Shift;
+    - navigation, layers, limits and errors.
 - [Direction study](<handoff/design/arinn Directions.dc.html>).
-- [Screenshots of screen states](handoff/screenshots/): 22 main screens, 13 Open services states (`os-*.png`), 18 address and search states (`in-*.png`), 22 settings editor states (`se-*.png`; the folder picker has frames in the HTML only) and 15 closing applications states (`cl-*.png`).
+- [Screenshots of screen states](handoff/screenshots/): 22 main screens, 13 Open services states (`os-*.png`), 18 address and search states (`in-*.png`), 33 settings editor states (`se-*.png`, including the folder picker `se-pk-*.png`), 15 closing applications states (`cl-*.png`) and 8 on-screen keyboard states (`kb-*.png`).
 - [Logos in image slots](handoff/design/.image-slots.state.json); `support.js` and `image-slot.js` are kept next to the HTML.
 
 To view the prototype, open `handoff/design/arinn.dc.html` in a browser and click it once to give it keyboard focus. The HTML is a design reference, not the production shell. External font and runtime dependencies may need network access; offline use is not confirmed.
@@ -72,3 +77,9 @@ Design materials are licensed CC-BY-SA-4.0 ([ADR-0029](../adr/0029-licensing.md)
 - `design/arinn Closing Apps.dc.html` is the brief canvas with the answers locked in. The rejected variants CL-3b and CL-12 are removed, CL-13…16 are added, and English strings, motion and open questions are included. It uses the unchanged `support.js`.
 - It uses neutral monograms only and has no image slots. Eleven `cl-*.png` screenshots are the brief renders, whose frames are unchanged. The four new ones (CL-13…16) were rendered at 1920×1080 with headless Chrome, as described in the brief.
 - The handoff README gains the *Closing applications* section, a file entry, and notes on the Menu key and the Apps hint.
+
+**The same change for the 2026-10-09 delivery** (on-screen keyboard, [#417](https://github.com/LimeBeck/arinn/issues/417)):
+- The logo file was again replaced by the monogram file, which the repository already had.
+- The package was built on the 2026-09-30 package and does not contain the 2026-10-01 addition. `arinn Closing Apps.dc.html` and the `cl-*.png` screenshots were kept. The README was merged by hand: the delivered README, plus the *Closing applications* section, its file entry and the Menu key and Apps hint lines from the previous README. Nothing else in the README was changed.
+- New: `arinn On-Screen Keyboard.dc.html`, eight `kb-*.png`, and `se-lf-8.png` and `se-pk-1…10.png`. Changed: `arinn.dc.html` (it gains the *Site or search* screen with the keyboard), `arinn Settings Editors.dc.html` (the four open questions are written as the decisions of 2026-09-30) and `se-lf-5.png`. None of these files has image slots, and the new screenshots show no third-party logos; they are added as delivered.
+- The other design files are byte-identical to the previous package. The 22 main, 13 `os-*` and 18 `in-*` screenshots in the package carried the logos, so the sanitized versions were kept. The new prototype screen is not one of the 22 main screens.

@@ -77,6 +77,11 @@ FocusScope {
     // Progress is 0–1, or below 0 when no active download knows its size.
     property bool downloadActive: false
     property real downloadProgress: -1
+    // Platform state (ADR-0100), shown only while known: the default output
+    // is muted; connected over Wi-Fi, with a level 1–4 or 0 when unknown.
+    property bool muted: false
+    property bool wifi: false
+    property int wifiLevel: 0
     // True while an Activity background is shown (ADR-0027): the ambient
     // light field then stays off.
     property bool ambientSuppressed: false
@@ -557,8 +562,8 @@ FocusScope {
                 else root.restoreScreen();
             }
         }
-        // Status area, right to left: clock, downloads, browser state
-        // (handoff 01). Mute and Wi-Fi need platform state (#367).
+        // Status area, right to left: clock, Wi-Fi, mute, downloads, browser
+        // state (handoff 01). Unknown platform state shows nothing (#387).
         Row {
             objectName: "statusArea"
             anchors.right: parent.right; anchors.rightMargin: Theme.safeRight
@@ -600,6 +605,59 @@ FocusScope {
                     text: root.downloadProgress >= 0
                         ? qsTr("%1%").arg(Math.floor(Math.min(1, root.downloadProgress) * 100))
                         : qsTr("Downloading")
+                }
+            }
+            Canvas {
+                objectName: "muteIcon"
+                anchors.verticalCenter: parent.verticalCenter
+                visible: root.muted
+                width: 32; height: 32
+                Accessible.role: Accessible.StaticText
+                Accessible.name: qsTr("Sound muted")
+                onPaint: {
+                    const ctx = getContext("2d");
+                    ctx.clearRect(0, 0, width, height);
+                    ctx.fillStyle = Theme.textSecondary;
+                    ctx.strokeStyle = Theme.textSecondary;
+                    ctx.lineWidth = 2.6;
+                    ctx.lineCap = "round";
+                    // A speaker and a cross: Material Symbols volume_off.
+                    ctx.beginPath();
+                    ctx.moveTo(4, 12); ctx.lineTo(9, 12); ctx.lineTo(16, 6);
+                    ctx.lineTo(16, 26); ctx.lineTo(9, 20); ctx.lineTo(4, 20);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.beginPath();
+                    ctx.moveTo(20, 12); ctx.lineTo(28, 20);
+                    ctx.moveTo(28, 12); ctx.lineTo(20, 20);
+                    ctx.stroke();
+                }
+            }
+            Canvas {
+                objectName: "wifiIcon"
+                anchors.verticalCenter: parent.verticalCenter
+                visible: root.wifi
+                width: 32; height: 32
+                // Dot and three arcs light up to the level; all of them
+                // when the level is unknown.
+                readonly property int lit: root.wifiLevel > 0 ? root.wifiLevel : 4
+                onLitChanged: requestPaint()
+                Accessible.role: Accessible.StaticText
+                Accessible.name: qsTr("Wi-Fi connected")
+                onPaint: {
+                    const ctx = getContext("2d");
+                    ctx.clearRect(0, 0, width, height);
+                    ctx.lineWidth = 3;
+                    ctx.lineCap = "round";
+                    const tone = part => part <= lit ? Theme.textSecondary : Theme.plateFocus;
+                    ctx.fillStyle = tone(1);
+                    ctx.beginPath(); ctx.arc(16, 25, 2.6, 0, Math.PI * 2); ctx.fill();
+                    for (let part = 2; part <= 4; ++part) {
+                        ctx.strokeStyle = tone(part);
+                        ctx.beginPath();
+                        ctx.arc(16, 25, 6 + (part - 2) * 6, Math.PI * 1.22, Math.PI * 1.78);
+                        ctx.stroke();
+                    }
                 }
             }
             UiText {

@@ -2,6 +2,30 @@
 
 Sources: [developer specification v0.3](../specifications/developer-specification-v0.3.md) (historical), the current [specification](../specifications/arinn-specification.md) and the [design handoff](handoff/README.md). No source was edited except the logo removal described in the [design README](README.md#licensing). The original conflicts are kept below as history; decisions come from explicit answers of the project owner and delegated technical choices on 2026-09-27.
 
+## Handoff update of 2026-10-09 (on-screen keyboard)
+
+The designer package adds remote-only text input ([#417](https://github.com/LimeBeck/arinn/issues/417)):
+- it adds `design/arinn On-Screen Keyboard.dc.html` (variants 1a/1b/1c, 1a chosen; KB-1…8), the *On-screen keyboard* section of the README and eight `kb-*.png` screenshots;
+- the prototype gains the *Site or search* screen with the keyboard;
+- *Settings editors* writes the four former open questions as the decisions of 2026-09-30 (DR-24) and adds `se-lf-8.png` and the folder picker screenshots `se-pk-1…10.png`;
+- the package was built on the 2026-09-30 package, so *Closing applications* was kept from the 2026-10-01 handoff and the README was merged by hand ([design README](README.md#licensing));
+- the previous package is in the [archive](archive/2026-10-09-before-on-screen-keyboard/README.md).
+
+The shell work is tracked in [#418](https://github.com/LimeBeck/arinn/issues/418); the owner answered DR-39…DR-41 on 2026-10-09 ([#420](https://github.com/LimeBeck/arinn/issues/420)).
+
+| ID | Point | Resolution / remaining check |
+| --- | --- | --- |
+| DR-39 | The handoff makes the keyboard the way to type without a hardware keyboard and replaces the dead ends IN-8 and STR-2. [Specification §5.1](../specifications/arinn-specification.md#51-home) and [ADR-0051](../adr/0051-address-and-search-entry.md) keep a hardware keyboard in the MVP and call an on-screen keyboard post-MVP. | Closed by the owner on 2026-10-09: the keyboard is part of the MVP ([§6.2](../specifications/arinn-specification.md#62-keys), [ADR-0103](../adr/0103-on-screen-keyboard.md), G-5.6). |
+| DR-40 | KB-1 suggests history and open services. [Specification §7.1](../specifications/arinn-specification.md#71-browser-chromechromium) suggests up to three matching web shortcuts while typing and up to five recent entries in an empty field. | Closed by the owner on 2026-10-09: the suggestion row replaces the §7.1 list, up to four recent entries and open services; web shortcuts are not suggested ([§7.1](../specifications/arinn-specification.md#71-browser-chromechromium), ADR-0103). |
+| DR-41 | KB-6 is a search field in the library. The specification has no library search, and `Library1` has no search or filter method. | Closed by the owner on 2026-10-09: library search is not part of the MVP, and KB-6 is not implemented (ADR-0103). A later scope would need a `contract-change` task for a bounded title query. |
+| DR-42 | KB-1 and KB-2 mark and suggest open services by address. | Technical, no contract change: the addresses come from `Browser1.GetTabs` and are matched by origin, as in DR-14. They are never logged (§13). |
+| DR-43 | KB-3 allows an empty shortcut name and uses the domain. The daemon stores the title as given. | Technical, no contract change: the shell editor puts the host into an empty title before it saves; the daemon keeps accepting any title. |
+| DR-44 | KB-5 suggests subfolders of the typed parent. | Depends on the folder listing method of DR-27. It returns folders only, never files. |
+| DR-45 | The language and the last key are remembered per field. | Technical: shell interaction state (§11). Whether it survives a shell restart is decided in the implementation task; it never holds the typed text. |
+| DR-46 | Back hides the panel first; a hardware keyboard keeps typing into the field while the panel is open. | Technical: it follows [§6.3](../specifications/arinn-specification.md#63-home-and-back) and AC-18. The open panel is one more level for Back, Backspace in a field keeps deleting text, and Home and Menu work as on every screen. |
+| DR-47 | The package carried third-party service logos again. | Replaced with the existing monograms before adding. The `kb-*` and new `se-*` screenshots contain none; see the [design README](README.md#licensing). |
+| DR-48 | The keyboard in the prototype `arinn.dc.html` is a simplified demo and differs from the README: focus opens on the 4th key of the middle letter row, not the 5th, and reopening does not return to the last key; it shows up to 3 suggestions instead of 4; the *123* and language keys are 1.5 keys wide instead of 1; the screen ignores `lang=en`. | Technical, no source change: the README section *On-screen keyboard* and `arinn On-Screen Keyboard.dc.html` are authoritative for the keyboard, as the canvas is for *Closing applications*. The delivered prototype is kept as is. |
+
 ## Handoff update of 2026-10-01 (closing applications)
 
 The package answers the [#205](https://github.com/LimeBeck/arinn/issues/205) brief:

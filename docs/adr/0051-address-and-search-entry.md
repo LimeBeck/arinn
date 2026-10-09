@@ -4,7 +4,7 @@
 - **Date:** 2026-09-29
 - **Deciders:** project owner, explicit choices V-1b, T-1b, V-2b and V-3b and the search engine policy in the session of 2026-09-29 ([issue #106](https://github.com/LimeBeck/arinn/issues/106), [issue #107](https://github.com/LimeBeck/arinn/issues/107)); technical details under delegated authority ([ADR-0037](0037-agent-autonomy-and-owner-gated-decisions.md))
 - **Amends / Supersedes:** amends [ADR-0043](0043-web-shortcuts.md) (web shortcuts are no longer the only stored URLs), [ADR-0048](0048-browser-wire-contract.md) (the shell may open a typed address or search through the daemon) and [ADR-0050](0050-window-per-browser-activity.md) (the generic browser entry)
-- **Amended by / Superseded by:** [ADR-0066](0066-address-and-search-contract.md) — the `Browse1` wire contract and packaged search engines
+- **Amended by / Superseded by:** [ADR-0066](0066-address-and-search-contract.md) — the `Browse1` wire contract and packaged search engines; [ADR-0103](0103-on-screen-keyboard.md) — the on-screen keyboard in the MVP and its suggestion row
 - **Specification:** [§5.1](../specifications/arinn-specification.md#51-home), [§7.1](../specifications/arinn-specification.md#71-browser-chromechromium), [§11](../specifications/arinn-specification.md#11-state-ownership-and-persistence)
 
 ## Context

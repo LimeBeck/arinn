@@ -292,7 +292,7 @@ a{color:oklch(0.75 0.17 50)} a:hover{color:oklch(0.97 0.004 260)}
 </div>
 
 <div style="display:flex;flex-direction:column;gap:20px;max-width:1300px">
-  <div style="font-size:36px;font-weight:700;letter-spacing:-0.015em">Вопросы к контракту</div>
+  <div style="font-size:36px;font-weight:700;letter-spacing:-0.015em">Решения по контракту</div>
   <sc-for list="{{ questions }}" as="q" hint-placeholder-count="4">
     <div style="display:flex;gap:18px;font-size:20px;line-height:1.55;color:oklch(0.88 0.006 260)"><span style="flex:none;font-family:'JetBrains Mono',monospace;font-size:18px;color:oklch(0.75 0.17 50);padding-top:2px">{{ q.n }}</span><span style="text-wrap:pretty">{{ q.t }}</span></div>
   </sc-for>
@@ -445,10 +445,10 @@ class Component extends DCLogic {
       {t:'enabled = false',h:'Видна, с замком',d:'Любой вид. Фокус есть, изменить нельзя (ED-2).'}
     ];
     const questions=[
-      {n:'1',t:'Передаёт ли контракт причину для enabled = false? Если да, она встаёт в строку вместо общего «Сейчас изменить нельзя».'},
-      {n:'2',t:'Есть ли у integer единица измерения (мин, мс)? Без неё рядом с числом пусто, а в строке — только число.'},
-      {n:'3',t:'«Применится после перезапуска»: нужна ли в уведомлении кнопка «Перезапустить сейчас», или перезапуск — только из меню питания?'},
-      {n:'4',t:'Сообщает ли провайдер медиатеки, что папка недоступна, событием, или оболочке проверять самой при открытии экрана?'}
+      {n:'1',t:'enabled = false: причину не показываем. В строке всегда общий текст «Сейчас изменить нельзя» (ED-2).'},
+      {n:'2',t:'integer: единица измерения приходит в constraints (unit). Она стоит рядом с числом в степпере и в значении строки; без unit — только число.'},
+      {n:'3',t:'«Применится после перезапуска»: только тост и отметка в строке (SV-3). Кнопки «Перезапустить сейчас» нет; перезапуск — из меню питания.'},
+      {n:'4',t:'Недоступность папки сообщает провайдер медиатеки событием. Экран «Папки медиатеки» обновляет строку сам, без проверки при открытии (LF-4).'}
     ];
     const only=this.state.only;
     if(only){const fr=sections.flatMap(s=>s.frames).find(f=>f.id===only);if(fr)return{answers:[],rules:[],questions:[],sections:[{title:'',hasNote:false,note:'',frames:[fr]}]}}

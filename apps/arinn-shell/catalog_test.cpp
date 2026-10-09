@@ -536,10 +536,12 @@ private slots:
       QTRY_VERIFY(backend.shortcutEditor().isEmpty());
       QCOMPARE(daemon.mutationArgs.at(1).toULongLong(), qulonglong(3));
       backend.editShortcut();
-      backend.saveShortcut("New", "https://example.test/new");
+      // An empty name saves the host (KB-3, DR-43).
+      backend.saveShortcut(" ", "https://example.test:8443/new");
       QTRY_COMPARE(daemon.mutations, 4);
       QTRY_VERIFY(backend.shortcutEditor().isEmpty());
       QCOMPARE(daemon.mutationMethod, QString("Add"));
+      QCOMPARE(daemon.mutationArgs.at(0).toString(), QString("example.test:8443"));
       QVERIFY(!QUuid(daemon.mutationArgs.at(3).toString()).isNull());
       // A duplicate or regressing snapshot cannot publish a partial list.
       daemon.shortcutRevision = 4;

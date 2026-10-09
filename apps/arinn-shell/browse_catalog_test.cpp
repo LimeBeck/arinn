@@ -183,6 +183,42 @@ private slots:
     QCOMPARE(model.suggestions().size(), 1);
     fake.recent = {"old.example"};
   }
+  // KB-2 and KB-3: open services for a shortcut address, and the open
+  // page's title and the host for its name.
+  void shortcutSuggestions() {
+    BrowseCatalog model;
+    model.setTabs({QVariantMap{{"title", "Jellyfin"},
+                               {"url", "http://jellyfin.local:8096/web/index"},
+                               {"active", true}},
+                   QVariantMap{{"title", "Videos"},
+                               {"url", "https://www.video.example/watch"},
+                               {"active", true}}});
+    auto services = model.openServices("vid");
+    QCOMPARE(services.size(), 1);
+    QCOMPARE(services[0].toMap().value("value").toString(),
+             QString("https://www.video.example"));
+    QCOMPARE(services[0].toMap().value("subtitle").toString(),
+             QString("video.example"));
+    QCOMPARE(model.openServices(QString()).size(), 2);
+    auto names = model.nameSuggestions("jellyfin.local:8096", QString());
+    QCOMPARE(names.size(), 2);
+    QCOMPARE(names[0].toMap().value("kind").toString(), QString("title"));
+    QCOMPARE(names[0].toMap().value("value").toString(), QString("Jellyfin"));
+    QCOMPARE(names[1].toMap().value("kind").toString(), QString("domain"));
+    QCOMPARE(names[1].toMap().value("value").toString(),
+             QString("jellyfin.local:8096"));
+    // Prefixes of what is typed; the exact text is not suggested back.
+    names = model.nameSuggestions("http://jellyfin.local:8096/", "jel");
+    QCOMPARE(names.size(), 2);
+    QCOMPARE(model.nameSuggestions("jellyfin.local:8096", "Jellyfin").size(),
+             1);
+    // No open page there: only the host.
+    names = model.nameSuggestions("https://other.example/path", QString());
+    QCOMPARE(names.size(), 1);
+    QCOMPARE(names[0].toMap().value("value").toString(),
+             QString("other.example"));
+    QVERIFY(model.nameSuggestions(QString(), QString()).isEmpty());
+  }
   void operationFailure() {
     fake.state = "failed";
     fake.failure = "Unavailable";

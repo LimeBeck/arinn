@@ -978,15 +978,23 @@ void Backend::closeShortcutEditor() {
 void Backend::saveShortcut(const QString &title, const QString &url) {
   if (m_shortcutEditor.isEmpty() || m_shortcutSaving)
     return;
+  // An empty name saves the host (handoff KB-3, DR-43).
+  auto name = title;
+  if (name.trimmed().isEmpty()) {
+    const auto address = QUrl::fromUserInput(url.trimmed());
+    name = address.host();
+    if (address.port() != -1)
+      name += ":" + QString::number(address.port());
+  }
   // Preserve the draft on errors. URL policy belongs to the daemon.
-  m_shortcutEditor["title"] = title;
+  m_shortcutEditor["title"] = name;
   m_shortcutEditor["url"] = url;
   const auto id = m_shortcutEditor.value("id").toString();
   const auto icon = m_shortcutEditor.value("icon").toString();
   if (id.isEmpty())
-    mutateShortcut("Add", {title, url, icon, QUuid::createUuid().toString(QUuid::WithoutBraces)});
+    mutateShortcut("Add", {name, url, icon, QUuid::createUuid().toString(QUuid::WithoutBraces)});
   else
-    mutateShortcut("Update", {id, QVariant::fromValue<qulonglong>(m_editorRevision), title, url, icon});
+    mutateShortcut("Update", {id, QVariant::fromValue<qulonglong>(m_editorRevision), name, url, icon});
 }
 void Backend::removeShortcut() {
   const auto id = m_shortcutEditor.value("id").toString();

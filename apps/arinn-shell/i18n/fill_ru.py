@@ -98,7 +98,6 @@ RU = {
     "Edit shortcut": "Изменить ярлык",
     "Title": "Название",
     "Address": "Адрес",
-    "A keyboard is needed to type. Without a keyboard, use arinnctl shortcuts.": "Для ввода нужна клавиатура. Без клавиатуры используйте arinnctl shortcuts.",
     "Remove this shortcut?": "Удалить этот ярлык?",
     "Application actions": "Действия с приложением",
     "Unpin from Home": "Убрать с главной",
@@ -317,6 +316,10 @@ RU = {
     "Hide keyboard": "Скрыть клавиатуру",
     "Suggestions": "Подсказки",
     "No suggestions": "Подсказок нет",
+    "No open services": "Открытых сервисов нет",
+    "Empty · The shortcut will be named after its domain: %1": "Пусто · Ярлык будет называться по домену: %1",
+    "page title": "заголовок страницы",
+    "domain": "домен",
 }
 
 # Context-specific overrides: the same English word reads differently.

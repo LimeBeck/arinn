@@ -31,6 +31,32 @@ QString origin(const QString &text) {
   return url.scheme() + "|" + host + "|" +
          QString::number(url.port(url.scheme() == "https" ? 443 : 80));
 }
+// Word prefixes, as on the address and search screen: "med" finds
+// "Media Library" and "https://media.example".
+bool matchesQuery(const QString &query, const QStringList &texts) {
+  if (query.isEmpty())
+    return true;
+  for (const auto &text : texts) {
+    const auto folded = text.toCaseFolded();
+    auto words = folded.split(QRegularExpression("[^\\p{L}\\p{N}]+"),
+                              Qt::SkipEmptyParts);
+    words << folded;
+    if (std::any_of(
+            words.cbegin(), words.cend(),
+            [&query](const QString &word) { return word.startsWith(query); }))
+      return true;
+  }
+  return false;
+}
+// Host with an explicit port, without "www.", for display and matching.
+QString hostOf(const QUrl &url) {
+  auto host = url.host();
+  if (host.startsWith("www."))
+    host.remove(0, 4);
+  if (url.port() != -1)
+    host += ":" + QString::number(url.port());
+  return host;
+}
 void registerBrowse() {
   qmlRegisterType<BrowseCatalog>("Arinn.Shell", 1, 0, "BrowseCatalog");
 }
@@ -87,25 +113,11 @@ QString BrowseCatalog::openTitle() const {
 QVariantList BrowseCatalog::suggestions() const {
   QVariantList result;
   const auto query = m_text.trimmed().toCaseFolded();
-  const auto matches = [&query](const QStringList &texts) {
-    if (query.isEmpty())
-      return true;
-    for (const auto &text : texts) {
-      const auto folded = text.toCaseFolded();
-      auto words = folded.split(QRegularExpression("[^\\p{L}\\p{N}]+"),
-                                Qt::SkipEmptyParts);
-      words << folded;
-      if (std::any_of(
-              words.cbegin(), words.cend(),
-              [&query](const QString &word) { return word.startsWith(query); }))
-        return true;
-    }
-    return false;
-  };
   for (const auto &entry : m_recent) {
     if (result.size() == 4)
       return result;
-    if (entry.trimmed().toCaseFolded() == query || !matches({entry}))
+    if (entry.trimmed().toCaseFolded() == query ||
+        !matchesQuery(query, {entry}))
       continue;
     result.append(QVariantMap{{"kind", "recent"},
                               {"icon", "history"},
@@ -114,6 +126,16 @@ QVariantList BrowseCatalog::suggestions() const {
                               {"value", entry},
                               {"open", false}});
   }
+  for (const auto &service : openServices(m_text)) {
+    if (result.size() == 4)
+      break;
+    result.append(service);
+  }
+  return result;
+}
+QVariantList BrowseCatalog::openServices(const QString &text) const {
+  QVariantList result;
+  const auto query = text.trimmed().toCaseFolded();
   QStringList origins;
   for (const auto &row : m_tabs) {
     if (result.size() == 4)
@@ -124,23 +146,57 @@ QVariantList BrowseCatalog::suggestions() const {
     if (!tab.value("active").toBool() || key.isEmpty() || origins.contains(key))
       continue;
     origins << key;
-    auto host = url.host();
-    if (url.port() != -1)
-      host += ":" + QString::number(url.port());
+    const auto host = hostOf(url);
     const auto title = tab.value("title").toString();
-    if (!matches({title, host}))
+    // The origin with its scheme: Browse1 and the web shortcut rules take
+    // it as typed.
+    const auto value = url.adjusted(QUrl::RemovePath | QUrl::RemoveQuery |
+                                    QUrl::RemoveFragment | QUrl::RemoveUserInfo)
+                           .toString();
+    if (value.toCaseFolded() == query || !matchesQuery(query, {title, host}))
       continue;
-    // The origin with its scheme: Browse1 resolves it as typed and the
-    // already-open hint names the service.
+    result.append(QVariantMap{{"kind", "open"},
+                              {"icon", "public"},
+                              {"title", title.isEmpty() ? host : title},
+                              {"subtitle", host},
+                              {"value", value},
+                              {"open", true}});
+  }
+  return result;
+}
+QVariantList BrowseCatalog::nameSuggestions(const QString &address,
+                                            const QString &text) const {
+  const auto url = QUrl::fromUserInput(address.trimmed());
+  const auto host = hostOf(url);
+  if (address.trimmed().isEmpty() || url.host().isEmpty())
+    return {};
+  QStringList names;
+  for (const auto &row : m_tabs) {
+    const auto tab = row.toMap();
+    const QUrl open(tab.value("url").toString());
+    const auto title = tab.value("title").toString().trimmed();
+    if (tab.value("active").toBool() && !title.isEmpty() &&
+        hostOf(open) == host) {
+      names << title;
+      break;
+    }
+  }
+  QVariantList result;
+  const auto query = text.trimmed().toCaseFolded();
+  const QStringList kinds{"title", "domain"};
+  names << host;
+  for (int i = 0; i < names.size(); ++i) {
+    const auto folded = names[i].toCaseFolded();
+    const auto kind = i + 1 == names.size() ? kinds[1] : kinds[0];
+    if (folded == query || !folded.startsWith(query))
+      continue;
     result.append(QVariantMap{
-        {"kind", "open"},
-        {"icon", "public"},
-        {"title", title.isEmpty() ? host : title},
-        {"subtitle", host},
-        {"value", url.adjusted(QUrl::RemovePath | QUrl::RemoveQuery |
-                               QUrl::RemoveFragment | QUrl::RemoveUserInfo)
-                      .toString()},
-        {"open", true}});
+        {"kind", kind},
+        {"icon", kind == "domain" ? "public" : QString()},
+        {"title", names[i]},
+        {"subtitle", kind == "domain" ? tr("domain") : tr("page title")},
+        {"value", names[i]},
+        {"open", false}});
   }
   return result;
 }

@@ -30,6 +30,13 @@ public:
   QVariantList tabs() const { return m_tabs; }
   void setTabs(const QVariantList &tabs);
   void setText(const QString &text);
+  // Open services whose title or host matches the text, up to four; the
+  // value is the origin (KB-1, KB-2).
+  Q_INVOKABLE QVariantList openServices(const QString &text) const;
+  // Names for a web shortcut at this address: the title of the open page
+  // there and the host, those that start with the text (KB-3).
+  Q_INVOKABLE QVariantList nameSuggestions(const QString &address,
+                                           const QString &text) const;
   Q_INVOKABLE void open();
   Q_INVOKABLE void reset();
   Q_INVOKABLE void clearRecent();

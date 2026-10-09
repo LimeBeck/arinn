@@ -103,6 +103,17 @@
     </message>
 </context>
 <context>
+    <name>BrowseCatalog</name>
+    <message>
+        <source>domain</source>
+        <translation>домен</translation>
+    </message>
+    <message>
+        <source>page title</source>
+        <translation>заголовок страницы</translation>
+    </message>
+</context>
+<context>
     <name>BrowseView</name>
     <message>
         <source>Site or search</source>
@@ -224,7 +235,7 @@
     </message>
     <message>
         <source>No open services</source>
-        <translation>Нет открытых сервисов</translation>
+        <translation>Открытых сервисов нет</translation>
     </message>
     <message>
         <source>Services you open from Home will appear here.</source>
@@ -582,10 +593,6 @@
         <translation>Адрес</translation>
     </message>
     <message>
-        <source>A keyboard is needed to type. Without a keyboard, use arinnctl shortcuts.</source>
-        <translation>Для ввода нужна клавиатура. Без клавиатуры используйте arinnctl shortcuts.</translation>
-    </message>
-    <message>
         <source>Save</source>
         <translation>Сохранить</translation>
     </message>
@@ -596,6 +603,18 @@
     <message>
         <source>Remove</source>
         <translation>Удалить</translation>
+    </message>
+    <message>
+        <source>Empty · The shortcut will be named after its domain: %1</source>
+        <translation>Пусто · Ярлык будет называться по домену: %1</translation>
+    </message>
+    <message>
+        <source>Done</source>
+        <translation>Готово</translation>
+    </message>
+    <message>
+        <source>No open services</source>
+        <translation>Открытых сервисов нет</translation>
     </message>
     <message>
         <source>Remove this shortcut?</source>

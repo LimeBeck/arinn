@@ -36,7 +36,11 @@ relate to the §7.1 list (DR-40), and whether library search (KB-6) is in scope
   entries and open services that match the text. Web shortcuts are no longer
   suggested; their tiles stay on Home. The recent-entry rules of ADR-0051 stay:
   up to five stored entries, *Clear* deletes them all, and none of them appear
-  in logs or diagnostics.
+  in logs or diagnostics. The keyboard row has no *Clear*. While the panel is
+  hidden and the field is empty, the screen keeps the list of recent entries
+  with *Clear* (handoff V-2b), reached with the remote after Back hides the
+  panel. This placement is a delegated reconciliation: the handoff draws
+  *Clear* only in V-2b.
 - **Library search.** KB-6 is not part of the MVP. The specification gains no
   library search, and `Library1` gains no query method.
 - **Architecture.** The keyboard is one shell component used by every field.

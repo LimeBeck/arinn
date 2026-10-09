@@ -356,6 +356,24 @@ TestCase {
         compare(child("downloadsSummary").text, "2 downloading");
     }
 
+    // #396: pointer mode can turn on after the row under the pointer checked
+    // its hover (the view's handler and the row's see the same move in either
+    // order). The row must take focus then, without another hover event.
+    function test_pointer_mode_turning_on_focuses_the_hovered_row() {
+        focused("job-active");
+        tryCompare(view, "hoverFocusEnabled", true);
+        // D-pad cooldown: the move onto the row cannot enter pointer mode.
+        Ui.InputMode.keyPressed();
+        mouseMove(child("job-waiting"), 40, 40);
+        wait(50);
+        compare(view.pointerMode, false);
+        focused("job-active");
+        // Pointer mode turns on while the pointer rests on the row.
+        Ui.InputMode.reset();
+        Ui.InputMode.pointerMoved();
+        compare(view.pointerMode, true);
+        focused("job-waiting");
+    }
     function test_pointer_moves_focus_and_scroll_suppresses_hover() {
         focused("job-active");
         tryCompare(view, "hoverFocusEnabled", true);

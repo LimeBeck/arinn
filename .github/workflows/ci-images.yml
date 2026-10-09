@@ -1,7 +1,7 @@
 name: CI images
 
 # Builds the Arch Linux and Ubuntu CI images from ci/images/** and publishes
-# them to ghcr.io (ADR-0103). An image's tag is its target plus the Git tree
+# them to ghcr.io (ADR-0104). An image's tag is its target plus the Git tree
 # hash of its directory, so every commit runs on the images built from its
 # own Dockerfiles. CI calls this workflow first and builds only the tags that
 # do not exist yet; the weekly run and manual runs rebuild every tag in place,

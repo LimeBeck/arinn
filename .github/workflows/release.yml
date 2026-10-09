@@ -27,7 +27,7 @@ jobs:
   ci:
     name: Full CI
     needs: check
-    # CI builds missing CI images and pulls them from ghcr.io (ADR-0103).
+    # CI builds missing CI images and pulls them from ghcr.io (ADR-0104).
     permissions:
       contents: read
       packages: write

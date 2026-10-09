@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""CI jobs run in prebuilt images from ci/images/** (#413, ADR-0103)."""
+"""CI jobs run in prebuilt images from ci/images/** (#413, ADR-0104)."""
 
 import pathlib
 import re

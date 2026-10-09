@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The Arch package runs on the minimum supported Qt (#416, ADR-0103)."""
+"""The Arch package runs on the minimum supported Qt (#416, ADR-0104)."""
 
 import contextlib
 import io

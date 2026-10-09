@@ -13,7 +13,7 @@ on:
 
 permissions:
   contents: read
-  # Container jobs pull the CI images from ghcr.io (ADR-0103).
+  # Container jobs pull the CI images from ghcr.io (ADR-0104).
   packages: read
 
 # Superseded PR runs cancel. Each master commit has its own group so every
@@ -30,7 +30,7 @@ env:
 # (for example `self-hosted`), else on GitHub-hosted Ubuntu (ADR-0049). Jobs
 # run in containers, so a self-hosted runner needs only Docker and git. The
 # Arch Linux and Ubuntu jobs use prebuilt images with their dependencies
-# from ci/images/** (ADR-0103).
+# from ci/images/** (ADR-0104).
 
 jobs:
   # A pull request that changes only documentation skips the build jobs
@@ -57,7 +57,7 @@ jobs:
           python3 scripts/ci-scope.py
 
   # Builds the CI images that do not exist yet for this commit's
-  # ci/images/** (ADR-0103).
+  # ci/images/** (ADR-0104).
   images:
     name: CI images
     needs: scope
@@ -98,7 +98,7 @@ jobs:
       - name: Update to the latest Arch Linux
         # The image has every dependency (ci/images/arch). The nightly
         # upgrades it so regressions from rolling dependencies show up before
-        # users update (ADR-0033, ADR-0103).
+        # users update (ADR-0033, ADR-0104).
         if: ${{ github.event_name == 'schedule' }}
         run: pacman -Syu --noconfirm
       - uses: actions/checkout@v7

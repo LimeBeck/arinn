@@ -9,7 +9,7 @@
 # scripts/build_id.py --pkgver in its copy, so each snapshot upgrades the one
 # before it (#357).
 #
-# The shell needs Qt 6.8 or newer, the minimum supported Qt (ADR-0103). CI
+# The shell needs Qt 6.8 or newer, the minimum supported Qt (ADR-0104). CI
 # builds it against a Qt 6.8 SDK named by ARINN_QT_FLOOR_PREFIX, so the
 # package runs on every system whose Qt meets the depends below (#416); a
 # local build uses the system Qt and needs that Qt at run time.

@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-# Arch Linux CI images (ADR-0103), built by .github/workflows/ci-images.yml.
+# Arch Linux CI images (ADR-0104), built by .github/workflows/ci-images.yml.
 #
 #   smoke  current Arch Linux with Python and D-Bus only: the package install
 #          test starts from a clean system, so pacman resolves every

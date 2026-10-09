@@ -4,7 +4,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Check that packaged binaries run on the minimum supported Qt (#416, ADR-0103).
+"""Check that packaged binaries run on the minimum supported Qt (#416, ADR-0104).
 
     python tests/package/qt_floor.py [--floor 6.8] [--qt-lib-dir DIR] ROOT
 
@@ -27,7 +27,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-# The minimum supported Qt (ADR-0103). CMakeLists.txt, packaging/arch/PKGBUILD
+# The minimum supported Qt (ADR-0104). CMakeLists.txt, packaging/arch/PKGBUILD
 # and ci/images/arch/Dockerfile follow it; tests/ci/test_qt_floor.py keeps
 # them in step.
 FLOOR = "6.8"

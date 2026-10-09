@@ -101,7 +101,7 @@ class BuildJobTest(unittest.TestCase):
                  "python tests/integration/phase1.py"]
         positions = [job.index(step) for step in steps]
         self.assertEqual(positions, sorted(positions))
-        # The prebuilt Arch Linux image (ADR-0103).
+        # The prebuilt Arch Linux image (ADR-0104).
         self.assertIn("image: ${{ needs.images.outputs.arch_build }}", job)
         # No other job compiles the workspace in debug mode again.
         for name, body in jobs().items():

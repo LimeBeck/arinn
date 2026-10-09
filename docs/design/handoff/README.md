@@ -300,7 +300,7 @@ What opens behind a Settings row chevron. One generic editor per setting kind; p
   - Empty (PK-5): “Вложенных папок нет” 44/700 with the body “Файлы здесь не показываются…”; focus goes to “Выбрать эту папку”. No access (PK-6): `lock` 80, “Нет доступа к папке”, and choose dims to 40%. Share gone (PK-7): `link_off` in the error colour, “Сетевая папка отключилась”, “Повторить” (focused) and “К домашней папке”; the start point shows “Отключена”. Arinn never offers to mount anything.
   - Keyboard (PK-8): “/” or any letter turns the path line into a field (`keyboard` icon, caret). The list filters as you type, Tab completes, Enter goes there, Esc cancels. Absolute paths only.
   - Rejected (PK-10): an error plate above the list with the daemon text (“Эта папка уже в медиатеке”, limit reached); the picker stays open.
-- **Open questions**: whether `enabled = false` carries a reason; whether integer has a unit; whether “applies at next start” should offer “Перезапустить сейчас”; whether the library provider reports folder availability as an event.
+- **Decisions**: `enabled = false` shows only the general text “Сейчас изменить нельзя”, with no per-setting reason. Integer units come from constraints (`unit`) and are shown next to the value in the stepper and the row; with no unit, only the number is shown. “Applies at next start” gets only the toast and the row mark, with no “Перезапустить сейчас” button (restart is in Power). The library provider reports folder availability as an event, and LF-4 updates live.
 
 ### Closing applications (#205) · CL-1…11, CL-13…16
 Closing a running ordinary application (Steam, a game, ES-DE, a desktop app) from the TV with the D-pad only. Arinn only asks the app to close (`Application1.Terminate`); it never kills a process. Web services are not part of this: they keep closing on Open services without confirmation. The live canvas is `design/arinn Closing Apps.dc.html` (add `#only=CL-4` etc. to render one frame), and the screenshots are `screenshots/cl-*.png`. The frames come from the agent brief and keep its numbering; the owner accepted them as the handoff on 2026-10-01. The interactive prototype `arinn.dc.html` is not updated for these states; the canvas is authoritative.
@@ -320,6 +320,30 @@ Closing a running ordinary application (Steam, a game, ES-DE, a desktop app) fro
 - **Motion**: sheet 320 ms (translateX 64→0 + fade), selection closes it after 180 ms; collapse 220 ms; toast 2.6 s; list scroll 400–450 ms; dialogs as 15b. No new durations.
 - **Not drawn**: the brief variants CL-3b (Close behind Menu on the Continue card) and CL-12 (one list merged with Open services) were not chosen.
 - **Open questions**: whether the tile sheet gains “Изменить ярлык” for web-shortcut tiles instead of the direct Menu binding to the editor; how long Arinn waits before a window counts as “did not close”. Strings in English are in the canvas.
+
+### On-screen keyboard · KB-1…8
+Remote-only text input for every field in the shell. The live canvas is `design/arinn On-Screen Keyboard.dc.html`: KB-1…8 for fields and layers, plus the first-round variants 1a/1b/1c (1a was chosen). Every frame can be driven with the arrows, Enter and Esc. In `design/arinn.dc.html` the keyboard works on “Сайт или поиск”. Screenshots are in `screenshots/kb-*.png` (1920×1080).
+- **Opening**: only through the “Клавиатура” pill in the field (h84, `keyboard` 38 + label 28/600; it reads “Скрыть” with `keyboard_hide` while open). A hardware keyboard types straight into the field and never opens the panel; typing on it while the panel is open does not close the panel. This replaces the dead end in IN-8 and STR-2 when no hardware keyboard is present.
+- **Panel**: full width at the bottom, r44 top corners, glass `oklch(0.22 0.006 260 / .96)`, padding 22/120/30, gap 14. It takes about 600 px and never covers the field or the intent line under it. The screen's title and field move up to y64 / y160.
+- **Rows, top to bottom**:
+  - Suggestions: h76 pills r38, icon 34 + text 28/600 + sub 24 text-3, up to 4. An ember dot marks a service that is already open. When there are none, a single text-3 line explains why.
+  - Context row (per field, optional), 30/600 on white-6%.
+  - Three letter rows of 12 (ЙЦУКЕН or QWERTY), letters 40/500 on white-10%.
+  - Action row: Shift · 123/АБВ · РУ/EN · Пробел (×3) · ‹ · › · Стереть (×1.5) · main key (×1.5, ember 28%).
+  - Below the panel, a key hint line 24.
+- **Keys**: h86, r22, gap 10, flex widths as listed. Focus is a white fill with ink text, ×1.08 and a drop shadow. Shift is one-shot and gets an ember 28% fill while armed.
+- **Navigation**: ←/→ move within a row, with no wrap. ↑/↓ move to the key in the next row that is nearest horizontally. ↑ from the top row goes to the suggestions, then to the field pill. On first open, focus is on the 5th key of the middle letter row; on reopen in the same field, it returns to the last key.
+- **Back**: hides the panel and puts focus on “Клавиатура”. A second Back follows the screen's rules (leave, or ask about unsaved changes, SC).
+- **Layers**: “123” swaps the letter rows for digits and symbols in the same grid and keeps the context row; “АБВ” returns to the same focus position. РУ/EN switches the letters and resets 123. The default language comes from the field: address and path use EN, everything else uses the UI language. The choice is remembered per field.
+- **Per field** (only the context row, suggestion source and main key change):
+  - KB-1 “Сайт или поиск”: context `https://` `www.` `.ru` `.com` `.local` `/` `:` `.` `-`. Suggestions are history plus open services. Main key “Открыть”. The intent line follows IN rules.
+  - KB-2 shortcut address: the same context row; suggestions are the addresses of open services. Main key “Готово”. Validation follows SC (schemes, 2048).
+  - KB-3 shortcut name: no context row. Suggestions are the page title and the domain. Main key “Готово”. An empty name is allowed (the domain is used).
+  - KB-4 `string` setting: no context row. `maxLength` drives the counter and `pattern` drives the error line. Main key “Сохранить”; the result follows SV.
+  - KB-5 path in the folder picker: context `/` `~/` `/media/` `/run/media/` `/mnt/` `..` `-` `_` `.`. Suggestions are subfolders of the typed parent that match the last segment; folders only, never files. Main key “Перейти”; a missing path shows “Нет такой папки”.
+  - KB-6 library search: no context row. Suggestions are library titles; OK on one opens its detail. Main key “Найти”.
+  - KB-7 shows the 123 layer; KB-8 shows EN with Shift armed.
+- **Limits and errors**: input past `maxLength` is ignored. The counter “N / max” (26, tabular) appears from 75% of limits up to 64 and turns error-coloured at the limit. A format error shows in the intent line with the tag “Ошибка”, and the main key does nothing until it is fixed.
 
 ### 20 · Ambient / screensaver
 - Background bg-deep. Clock 160/500 in `oklch(0.60 0.004 260)`, date 32 in `oklch(0.45…)`, optional line “Кинопоиск на паузе” with a dim ember dot.
@@ -360,12 +384,13 @@ Integration points: a browser extension (`tabs` + `nativeMessaging`) that expose
 
 ## Files
 - `screenshots/`: 22 JPEG captures of each screen state (01-home … 22-ambient), matching `arinn Screens.dc.html`.
-- `design/arinn.dc.html`: the interactive prototype covering all screens and states. Logic (data, i18n RU/EN, focus engine, presets) is in the `<script data-dc-script>` block.
+- `design/arinn.dc.html`: the interactive prototype covering all screens and states, including the on-screen keyboard on “Сайт или поиск”. Logic (data, i18n RU/EN, focus engine, presets) is in the `<script data-dc-script>` block.
 - `design/arinn Screens.dc.html`: a canvas of all 22 screen states.
 - `design/arinn Browser Input.dc.html`: the address and search screen (#106): design answers, input states IN-1…9, tile T-1a/b, OS-8, owner-decision variants V-1…3, and input rules. Screenshots are in `screenshots/in-*.png`.
 - `design/arinn Open Services.dc.html`: open services (ADR-0050), switchable RU/EN through the `lang` prop: design answers, the list screen OS-1…7, Home/nav/launch states H-1…6, and the transition spec. Screenshots are in `screenshots/os-*.png`.
-- `design/arinn Settings Editors.dc.html`: Settings value editors per kind (ADR-0065, #169): design answers, editors ED/EN/IN/STR, saving SV-1…6, Library folders LF-1…8, folder picker PK-1…10, the contract-to-UI map and open questions. Add `#only={ID}` to the URL to render one frame.
+- `design/arinn Settings Editors.dc.html`: Settings value editors per kind (ADR-0065, #169): design answers, editors ED/EN/IN/STR, saving SV-1…6, Library folders LF-1…8, folder picker PK-1…10, the contract-to-UI map and open questions. Add `#only={ID}` to the URL to render one frame. Screenshots are in `screenshots/se-*.png` (1920×1080).
 - `design/arinn Closing Apps.dc.html`: closing running applications (#205): owner decisions, design answers Q1–Q9, the tile sheet, the Continue Close button, the running list, confirmation and feedback (CL-1…11, CL-13…16), strings in Russian and English, motion and open questions. Add `#only={ID}` to the URL to render one frame. Screenshots are in `screenshots/cl-*.png`.
+- `design/arinn On-Screen Keyboard.dc.html`: the on-screen keyboard: variants 1a/1b/1c (1a chosen), fields and layers KB-1…8, and rules. Screenshots are in `screenshots/kb-*.png` (1920×1080).
 - `design/arinn Design System v2.dc.html`: tokens, the 3 m viewing-distance check, logo treatments, component state matrix, focus rules, motion, map and keys.
 - `design/arinn Directions.dc.html`: the concept exploration (1a/1b/1c and the chosen 2a).
 - `design/support.js`, `design/image-slot.js`, `design/.image-slots.state.json`: runtime needed to open the files locally.

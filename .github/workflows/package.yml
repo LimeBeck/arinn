@@ -7,7 +7,7 @@ name: Package
 # Cargo cache; pull requests and master pushes skip release-mode package
 # tests, which the build job already covers. The nightly, manual runs and tag
 # builds run them; tag builds are clean (ADR-0047, ADR-0092). Jobs run in the
-# prebuilt CI images (ADR-0103); the Arch package's shell builds against the
+# prebuilt CI images (ADR-0104); the Arch package's shell builds against the
 # minimum supported Qt in the build image, not against the system Qt (#416).
 
 on:
@@ -55,7 +55,7 @@ jobs:
     steps:
       - name: Update to the latest Arch Linux
         # The image has every build dependency and the builder user
-        # (ci/images/arch). The nightly upgrades it (ADR-0033, ADR-0103).
+        # (ci/images/arch). The nightly upgrades it (ADR-0033, ADR-0104).
         if: ${{ github.event_name == 'schedule' }}
         run: pacman -Syu --noconfirm
       - name: Record Rust version
@@ -103,7 +103,7 @@ jobs:
           # cannot fill the runner's disk.
           if [ "$(du -s --block-size=1G "$cache/target" | cut -f1)" -gt 12 ]; then rm -rf "$cache/target"; mkdir "$cache/target"; fi
           chown -R builder "$cache"
-          # The shell builds against the minimum supported Qt (#416, ADR-0103).
+          # The shell builds against the minimum supported Qt (#416, ADR-0104).
           test -f "$ARINN_QT_FLOOR_PREFIX/lib/cmake/Qt6/Qt6Config.cmake"
           su builder -c "cd pkg && CARGO_HOME='$cache/home' CARGO_TARGET_DIR='$cache/target' ARINN_QT_FLOOR_PREFIX='$ARINN_QT_FLOOR_PREFIX' makepkg --noconfirm --cleanbuild $NOCHECK"
           cp "$cache/target/release/examples/private-systemd" pkg/private-systemd

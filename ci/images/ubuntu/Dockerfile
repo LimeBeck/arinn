@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-# Ubuntu 25.04 CI images for the Debian package (ADR-0091, ADR-0103), built by
+# Ubuntu 25.04 CI images for the Debian package (ADR-0091, ADR-0104), built by
 # .github/workflows/ci-images.yml.
 #
 #   smoke  Python and D-Bus only: the install test starts from a clean

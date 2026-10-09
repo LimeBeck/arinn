@@ -110,7 +110,7 @@ Token replay and a second active owner of one provider give `PermissionDenied` o
 
 `Chrome MV3 extension ↔ Native Messaging bridge ↔ arinn-plugin-chrome ↔ arinnd`
 
-Chrome starts the short-lived `arinn-chrome-host` on `connectNative`. The host only validates, frames and forwards messages; the provider stays a long-lived systemd service. Host ↔ provider is a separate typed D-Bus interface on the session bus; the plugin-specific transport never reaches the core. After disconnect the host exits; the Chrome plugin keeps running with its backend unavailable or with the remaining browser connections.
+Chrome starts the short-lived `arinn-chrome-host` on `connectNative`. The host only validates, frames and forwards messages; the provider stays a long-lived systemd service. Host ↔ provider is a separate typed D-Bus interface on the session bus; the plugin-specific transport never reaches the core. After disconnect the host exits, and it also exits when the provider's bridge name loses its owner or moves to a restarted provider, so the extension reconnects through a fresh host; the Chrome plugin keeps running with its backend unavailable or with the remaining browser connections.
 
 Chrome owns the lifetime of the native host and talks over stdin/stdout; `connectNative` creates a persistent port ([Native Messaging](https://developer.chrome.com/docs/extensions/develop/concepts/native-messaging)). So the host is not another instance of the systemd provider.
 

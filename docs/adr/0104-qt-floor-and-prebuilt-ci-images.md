@@ -1,4 +1,4 @@
-# ADR-0103: Minimum supported Qt 6.8 and prebuilt CI images
+# ADR-0104: Minimum supported Qt 6.8 and prebuilt CI images
 
 - **Status:** Accepted
 - **Date:** 2026-10-09

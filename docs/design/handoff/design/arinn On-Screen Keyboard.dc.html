@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,400..600,0..1,0&display=block">
+<style>
+html,body{margin:0;background:oklch(0.13 0.005 260)}
+*{box-sizing:border-box}
+a{color:oklch(0.75 0.17 50)} a:hover{color:oklch(0.97 0.004 260)}
+</style>
+</helmet>
+<div style="min-height:100vh;padding:96px 96px 160px;background:oklch(0.13 0.005 260);font-family:'Onest',sans-serif;color:oklch(0.97 0.004 260);-webkit-font-smoothing:antialiased;display:flex;flex-direction:column;gap:72px">
+
+<div style="display:flex;flex-direction:column;gap:20px;max-width:1300px">
+  <div style="font-size:20px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:oklch(0.75 0.17 50)">Arinn · Экранная клавиатура</div>
+  <div style="font-size:64px;font-weight:700;letter-spacing:-0.025em;line-height:1.05">Ввод с пульта</div>
+  <div style="font-size:22px;line-height:1.55;color:oklch(0.82 0.006 260);text-wrap:pretty">Клавиатура открывается кнопкой «Клавиатура» в поле и встаёт панелью внизу экрана, поле остаётся видно. Выбран вариант 1a: действия нижним рядом. Ниже он показан во всех полях оболочки. Каждый макет живой: щёлкните по нему и управляйте стрелками, Enter = OK, Esc = Назад. Макеты 1920×1080, масштаб 50%. В прототипе arinn.dc.html клавиатура работает на экране «Сайт или поиск».</div>
+</div>
+
+<sc-for list="{{ groups }}" as="g" hint-placeholder-count="2">
+<section style="display:flex;flex-direction:column;gap:28px">
+  <div style="display:flex;flex-direction:column;gap:10px;max-width:1300px">
+    <div style="font-size:36px;font-weight:700;letter-spacing:-0.015em">{{ g.title }}</div>
+    <div style="font-size:20px;line-height:1.5;color:oklch(0.78 0.006 260);text-wrap:pretty">{{ g.note }}</div>
+  </div>
+  <div style="display:flex;flex-wrap:wrap;gap:56px 48px">
+    <sc-for list="{{ g.frames }}" as="f" hint-placeholder-count="3">
+      <div id="{{ f.id }}" data-screen-label="{{ f.id }}" style="display:flex;flex-direction:column;gap:14px;width:960px">
+        <div style="display:flex;align-items:baseline;gap:14px"><div style="padding:4px 10px;border-radius:6px;background:oklch(0.75 0.17 50);color:#111;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:500">{{ f.id }}</div><div style="font-size:24px;font-weight:600">{{ f.label }}</div><sc-if value="{{ f.chosen }}"><div style="padding:3px 10px;border-radius:6px;box-shadow:inset 0 0 0 2px oklch(0.75 0.17 50);color:oklch(0.75 0.17 50);font-size:15px;font-weight:600">Выбран</div></sc-if><div style="margin-left:auto;font-size:16px;font-weight:600;color:{{ f.liveColor }}">{{ f.liveText }}</div></div>
+        <div onClick="{{ f.activate }}" style="position:relative;width:960px;height:540px;border-radius:10px;overflow:hidden;cursor:pointer;box-shadow:{{ f.frameSh }}">
+          <div style="position:absolute;left:0;top:0;width:1920px;height:1080px;transform:scale(.5);transform-origin:0 0;overflow:hidden;background:oklch(0.17 0.005 260)">
+            <div style="position:absolute;inset:0;background:radial-gradient(ellipse 70% 60% at 18% 0%, oklch(0.5 0.12 260 / .3) 0%, oklch(0.5 0.12 260 / 0) 70%)"></div>
+            <div style="position:absolute;top:36px;right:96px;height:64px;display:flex;align-items:center;gap:24px;color:oklch(0.88 0.005 260)"><span style="font-family:'Material Symbols Rounded';font-size:32px;line-height:1;font-feature-settings:'liga';font-variation-settings:'FILL' 1">wifi</span><span style="font-size:30px;font-weight:500;font-variant-numeric:tabular-nums">21:47</span></div>
+            <div style="position:absolute;left:120px;top:64px;display:flex;align-items:baseline;gap:24px"><span style="font-size:56px;font-weight:700;letter-spacing:-0.02em">{{ f.title }}</span><span style="font-size:30px;font-weight:500;color:oklch(0.72 0.008 260)">{{ f.crumb }}</span></div>
+            <div style="position:absolute;left:120px;top:160px;width:1680px;display:flex;flex-direction:column;gap:16px">
+              <div style="position:relative;height:120px;border-radius:34px;padding:0 20px 0 32px;display:flex;align-items:center;gap:24px;background:rgba(255,255,255,.12);box-shadow:inset 0 0 0 3px rgba(255,255,255,.3)">
+                <span style="flex:none;font-family:'Material Symbols Rounded';font-size:56px;line-height:1;color:oklch(0.84 0.006 260);font-feature-settings:'liga'">{{ f.icon }}</span>
+                <sc-if value="{{ f.hasFieldLabel }}"><span style="flex:none;font-size:30px;font-weight:600;color:oklch(0.72 0.008 260)">{{ f.fieldLabel }}</span></sc-if>
+                <div style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;font-size:48px;font-weight:500;line-height:1.3;display:flex;align-items:center;justify-content:{{ f.justify }}"><span style="white-space:pre">{{ f.textA }}</span><span style="flex:none;display:inline-block;width:4px;height:54px;margin:0 2px;border-radius:2px;background:oklch(0.75 0.17 50)"></span><span style="white-space:pre">{{ f.textB }}</span><span style="color:oklch(0.68 0.008 260)">{{ f.ph }}</span></div>
+                <sc-if value="{{ f.hasCounter }}"><span style="flex:none;font-size:26px;font-weight:500;font-variant-numeric:tabular-nums;color:{{ f.counterFg }}">{{ f.counter }}</span></sc-if>
+                <div style="flex:none;height:84px;padding:0 30px 0 24px;border-radius:42px;display:flex;align-items:center;gap:12px;font-size:28px;font-weight:600;background:{{ f.btnBg }};color:{{ f.btnFg }};transform:{{ f.btnTf }};box-shadow:{{ f.btnSh }}"><span style="font-family:'Material Symbols Rounded';font-size:38px;line-height:1;font-feature-settings:'liga'">{{ f.btnIcon }}</span>{{ f.btnLabel }}</div>
+              </div>
+              <div style="display:flex;align-items:center;gap:16px;padding-left:32px;font-size:30px;font-weight:500;color:oklch(0.84 0.006 260);min-height:40px">
+                <sc-if value="{{ f.hasIntent }}"><span style="flex:none;padding:4px 14px;border-radius:12px;background:rgba(255,255,255,.12);font-size:26px;font-weight:600;color:oklch(0.95 0.004 260)">{{ f.intentTag }}</span><span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ f.intent }}</span></sc-if>
+              </div>
+            </div>
+            <sc-if value="{{ f.hasSent }}">
+              <div style="position:absolute;left:50%;top:300px;transform:translateX(-50%);height:88px;padding:0 36px 0 28px;border-radius:44px;display:flex;align-items:center;gap:14px;font-size:30px;font-weight:600;white-space:nowrap;background:oklch(0.26 0.006 260 / .96);box-shadow:0 24px 60px -20px rgba(0,0,0,.8)"><span style="font-family:'Material Symbols Rounded';font-size:36px;line-height:1;color:oklch(0.75 0.17 50);font-feature-settings:'liga'">check_circle</span>{{ f.sent }}</div>
+            </sc-if>
+            <sc-if value="{{ f.closed }}">
+              <div style="position:absolute;left:120px;bottom:64px;display:flex;gap:44px;font-size:24px;font-weight:500;color:oklch(0.72 0.008 260)"><span style="display:flex;align-items:center;gap:12px"><span style="padding:2px 12px;border-radius:10px;background:rgba(255,255,255,.1);color:oklch(0.92 0.005 260);font-weight:600">OK</span>Открыть клавиатуру</span><span style="display:flex;align-items:center;gap:12px"><span style="padding:2px 12px;border-radius:10px;background:rgba(255,255,255,.1);color:oklch(0.92 0.005 260);font-weight:600">Назад</span>Выйти</span></div>
+            </sc-if>
+            <sc-if value="{{ f.open }}">
+              <div style="position:absolute;left:0;right:0;bottom:0;padding:22px 120px 30px;border-radius:44px 44px 0 0;background:oklch(0.22 0.006 260 / .96);box-shadow:0 -30px 80px -20px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,255,255,.08);display:flex;flex-direction:column;gap:14px">
+                <div style="height:76px;display:flex;align-items:center;gap:16px">
+                  <sc-for list="{{ f.sugs }}" as="s" hint-placeholder-count="3">
+                    <div onClick="{{ s.click }}" style="position:relative;flex:none;max-width:560px;height:76px;padding:0 28px 0 20px;border-radius:38px;display:flex;align-items:center;gap:12px;font-size:28px;font-weight:600;background:{{ s.bg }};color:{{ s.fg }};transform:{{ s.tf }};box-shadow:{{ s.sh }};z-index:{{ s.z }}">
+                      <span style="flex:none;font-family:'Material Symbols Rounded';font-size:34px;line-height:1;font-feature-settings:'liga'">{{ s.icon }}</span>
+                      <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ s.t }}</span>
+                      <span style="flex:none;font-size:24px;font-weight:500;color:{{ s.subFg }}">{{ s.sub }}</span>
+                      <sc-if value="{{ s.open }}"><span style="flex:none;width:12px;height:12px;border-radius:6px;background:oklch(0.75 0.17 50)"></span></sc-if>
+                    </div>
+                  </sc-for>
+                  <sc-if value="{{ f.noSugs }}"><div style="padding-left:8px;font-size:26px;font-weight:500;color:oklch(0.68 0.008 260)">{{ f.noSugsText }}</div></sc-if>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:10px">
+                  <sc-for list="{{ f.rows }}" as="row" hint-placeholder-count="5">
+                    <div style="display:flex;gap:10px">
+                      <sc-for list="{{ row.keys }}" as="k" hint-placeholder-count="12">
+                        <div onClick="{{ k.click }}" style="position:relative;flex:{{ k.flex }};min-width:0;height:86px;margin-left:{{ k.ml }}px;border-radius:22px;display:flex;align-items:center;justify-content:center;gap:10px;font-size:{{ k.fs }}px;font-weight:{{ k.fw }};white-space:nowrap;background:{{ k.bg }};color:{{ k.fg }};transform:{{ k.tf }};box-shadow:{{ k.sh }};z-index:{{ k.z }}">
+                          <sc-if value="{{ k.hasIcon }}"><span style="font-family:'Material Symbols Rounded';font-size:38px;line-height:1;font-feature-settings:'liga';font-variation-settings:'FILL' {{ k.fill }}">{{ k.icon }}</span></sc-if>
+                          <span>{{ k.label }}</span>
+                        </div>
+                      </sc-for>
+                    </div>
+                  </sc-for>
+                </div>
+                <div style="display:flex;gap:40px;padding-top:4px;font-size:24px;font-weight:500;color:oklch(0.72 0.008 260)">
+                  <sc-for list="{{ f.hints }}" as="h" hint-placeholder-count="2"><span style="display:flex;align-items:center;gap:12px"><span style="padding:2px 12px;border-radius:10px;background:rgba(255,255,255,.1);color:oklch(0.92 0.005 260);font-weight:600">{{ h.k }}</span>{{ h.v }}</span></sc-for>
+                </div>
+              </div>
+            </sc-if>
+          </div>
+        </div>
+        <div style="font-size:16px;line-height:1.5;color:oklch(0.72 0.008 260);text-wrap:pretty">{{ f.caption }}</div>
+      </div>
+    </sc-for>
+  </div>
+</section>
+</sc-for>
+
+<section style="display:flex;flex-direction:column;gap:20px;max-width:1300px">
+  <div style="font-size:36px;font-weight:700;letter-spacing:-0.015em">Правила</div>
+  <div style="display:flex;flex-direction:column;gap:12px">
+    <sc-for list="{{ rules }}" as="r" hint-placeholder-count="8">
+      <div style="display:grid;grid-template-columns:260px minmax(0,1fr);gap:24px;padding:14px 0;border-top:1px solid rgba(255,255,255,.08)"><div style="font-size:19px;font-weight:600">{{ r.t }}</div><div style="font-size:19px;line-height:1.5;color:oklch(0.8 0.006 260);text-wrap:pretty">{{ r.d }}</div></div>
+    </sc-for>
+  </div>
+</section>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+const C={tx:'oklch(0.97 0.004 260)',tx2:'oklch(0.84 0.006 260)',tx3:'oklch(0.68 0.008 260)',ink:'oklch(0.17 0.006 260)',amber:'oklch(0.75 0.17 50)',red:'oklch(0.72 0.17 25)'};
+const RU=[['й','ц','у','к','е','н','г','ш','щ','з','х','ъ'],['ф','ы','в','а','п','р','о','л','д','ж','э','ё'],['я','ч','с','м','и','т','ь','б','ю','.',',','-']];
+const EN=[['q','w','e','r','t','y','u','i','o','p','@','_'],['a','s','d','f','g','h','j','k','l',':',"'",'"'],['z','x','c','v','b','n','m',',','.','?','!','-']];
+const SY=[['1','2','3','4','5','6','7','8','9','0','-','='],['@','#','№','%','&','*','(',')','_','+','"',"'"],[':',';',',','.','?','!','/','\\','|','~','$','₽']];
+const CTX=[['https://',2],['www.',1.5],['.ru',1.5],['.com',1.5],['.local',1.5],['/',1],[':',1],['.',1],['-',1]];
+const CTXS=[['https://',2],['www.',1.5],['.ru',1.2],['.com',1.3],['/',1]];
+const CTXP=[['/',1],['~/',1],['/media/',1.8],['/run/media/',2.2],['/mnt/',1.5],['..',1],['-',1],['_',1],['.',1]];
+const WEB=[{icon:'history',t:'погода москва',val:'погода москва'},{icon:'dns',t:'Jellyfin',sub:'192.168.1.10:8096',val:'192.168.1.10:8096'},{icon:'smart_display',t:'YouTube',sub:'youtube.com',val:'youtube.com',open:1},{icon:'history',t:'погода в питере',val:'погода в питере'},{icon:'movie',t:'Кинопоиск',sub:'hd.kinopoisk.ru',val:'hd.kinopoisk.ru'}];
+const isUrl=t=>/^https?:\/\//i.test(t)||/^(\d{1,3}\.){3}\d{1,3}(:\d+)?/.test(t)||/^localhost/i.test(t)||(!/\s/.test(t)&&/\.[a-zа-я]{2,}(\/|:|$)/i.test(t));
+const webUrl=t=>{const local=/^(\d{1,3}\.){3}\d{1,3}|^localhost|\.local\b|:\d+/.test(t);return/^https?:/i.test(t)?t:(local?'http://':'https://')+t};
+const DIRS={'/media/nas/':['Фильмы','Фото','Сериалы','Музыка'],'/media/':['nas','usb-sandisk'],'/':['home','media','mnt','run']};
+const LIB=[{t:'Дюна',sub:'2021'},{t:'Дюна: Часть вторая',sub:'2024'},{t:'Сёгун',sub:'сериал'},{t:'Фоллаут',sub:'сериал'}];
+const CTXS_ALL={
+  web:{title:'Сайт или поиск',icon:t=>t&&isUrl(t.trim())?'public':'search',ph:'Адрес сайта или что найти',ctx:CTX,enter:'Открыть',
+    sugs:q=>(q?WEB.filter(s=>(s.t+' '+(s.sub||'')).toLowerCase().includes(q)):WEB.slice(0,3)),
+    intent:t=>t?['Открыть',isUrl(t)?'сайт '+webUrl(t):'искать «'+t+'» в Яндексе']:null,done:t=>'Открывается '+(isUrl(t)?webUrl(t):'поиск')},
+  addr:{title:'Новый ярлык',crumb:'Адрес',fieldLabel:'Адрес',icon:()=>'link',ph:'Например, 192.168.1.10:8096',ctx:CTX,enter:'Готово',max:2048,
+    sugs:q=>[{icon:'movie',t:'Кинопоиск',sub:'hd.kinopoisk.ru',val:'hd.kinopoisk.ru',open:1},{icon:'smart_display',t:'YouTube',sub:'youtube.com',val:'youtube.com',open:1}].filter(s=>!q||(s.t+s.sub).toLowerCase().includes(q)),noSugs:'Открытых сервисов нет',
+    intent:t=>t?(isUrl(t)?['Адрес',webUrl(t)]:['Ошибка','Это не адрес. Пример: 192.168.1.10:8096']):null,done:()=>'Адрес сохранён'},
+  name:{title:'Новый ярлык',crumb:'Название',fieldLabel:'Название',icon:()=>'edit',ph:'jellyfin.local',ctx:null,enter:'Готово',max:40,
+    sugs:q=>[{icon:'title',t:'Jellyfin',sub:'заголовок страницы',val:'Jellyfin'},{icon:'language',t:'jellyfin.local',sub:'домен',val:'jellyfin.local'}].filter(s=>!q||s.t.toLowerCase().startsWith(q)&&s.t.toLowerCase()!==q),noSugs:'',
+    intent:t=>t?null:['Пусто','Ярлык будет называться по домену: jellyfin.local'],done:()=>'Название сохранено'},
+  str:{title:'Настройки',crumb:'Сеть · Имя в сети',fieldLabel:'Имя',icon:()=>'edit',ph:'arinn',ctx:null,enter:'Сохранить',max:32,
+    sugs:()=>[],noSugs:'Латиница, цифры и дефис, до 32 символов',
+    intent:t=>t&&!/^[a-z0-9-]+$/i.test(t)?['Ошибка','Только латиница, цифры и дефис']:null,done:()=>'Сохранено и применено'},
+  path:{title:'Выбор папки',crumb:'Папки медиатеки',icon:()=>'folder',ph:'/media/…',ctx:CTXP,enter:'Перейти',
+    sugs:(q,t)=>{const i=t.lastIndexOf('/')+1,dir=t.slice(0,i),part=t.slice(i).toLowerCase(),list=DIRS[dir]||[];return list.filter(n=>n.toLowerCase().startsWith(part)).map(n=>({icon:'folder',t:n,val:dir+n+'/'}))},noSugs:'Вложенных папок нет',
+    intent:t=>{if(!t)return null;if(!t.startsWith('/')&&!t.startsWith('~'))return['Ошибка','Путь начинается с / или ~'];const i=t.lastIndexOf('/')+1,dir=t.slice(0,i);return DIRS[dir]||t.endsWith('/')?['Перейти',t]:['Нет такой папки',dir]},done:t=>'Открыта папка '+t},
+  lib:{title:'Медиатека',crumb:'Поиск',icon:()=>'search',ph:'Название фильма или сериала',ctx:null,enter:'Найти',
+    sugs:q=>q?LIB.filter(x=>x.t.toLowerCase().includes(q)).map(x=>({icon:'movie',t:x.t,sub:x.sub,val:x.t})):[],noSugs:'Начните вводить название',
+    intent:t=>{if(!t)return null;const n=LIB.filter(x=>x.t.toLowerCase().includes(t.toLowerCase())).length;return n?['Найдено',n+' в медиатеке']:['Ничего','В медиатеке нет «'+t+'»']},done:t=>'Результаты по «'+t+'»'}
+};
+const VARS={
+  '1a':{grp:'v',label:'Действия нижним рядом',chosen:1,ctxKey:'web',lay:'a',caption:'Привычная схема: адресные клавиши сверху, три ряда букв, внизу ряд действий (Shift, 123, язык, пробел, курсор, стереть, открыть). Путь от любой буквы до «Стереть» и «Открыть» — максимум 3 нажатия вниз и несколько вбок.'},
+  '1b':{grp:'v',label:'Действия колонкой справа',ctxKey:'web',lay:'b',caption:'Четыре ряда вместо пяти, панель ниже, над ней видно больше. Частые действия — крупные клавиши в колонке справа: курсор, «Стереть», «Пробел», «Открыть». Переключатели 123 / язык / Shift стоят в начале адресного ряда.'},
+  '1c':{grp:'v',label:'Часть действий на пульте',ctxKey:'web',lay:'c',caption:'Назад стирает символ, при пустом поле скрывает клавиатуру. Ch+ / Ch− двигают курсор. На экране только буквы, переключатели, пробел и «Открыть». Меньше клавиш, но нужно знать пульт: на пультах без Ch± курсор недоступен.'},
+  'KB-1':{grp:'f',label:'Сайт или поиск',ctxKey:'web',lay:'a',init:{text:'погода'},caption:'Адресный ряд, подсказки: история и открытые сервисы (точка — сервис уже открыт). Строка под полем говорит, что сделает «Открыть»: сайт или поиск.'},
+  'KB-2':{grp:'f',label:'Ярлык · адрес',ctxKey:'addr',lay:'a',init:{text:'jellyfin.local:8096',lang:'en'},caption:'Адресный ряд, раскладка EN по умолчанию. Подсказки — адреса открытых сервисов. «Готово» возвращает в форму ярлыка; проверка адреса — правилами SC (схема, длина 2048).'},
+  'KB-3':{grp:'f',label:'Ярлык · название',ctxKey:'name',lay:'a',init:{text:'Jel',lang:'en',shift:false},caption:'Без адресного ряда, клавиатура на ряд ниже. Подсказки — заголовок страницы и домен. Счётчик появляется от 30 символов из 40. Пустое имя допустимо: подставится домен.'},
+  'KB-4':{grp:'f',label:'Настройка string',ctxKey:'str',lay:'a',init:{text:'gostinaya-tv',lang:'en'},caption:'Тот же вид для любой string-настройки. Ограничения приходят из constraints: maxLength — счётчик, pattern — правило в строке подсказок и ошибка под полем. «Сохранить» отдаёт значение демону, ответ — тостом (SV).'},
+  'KB-5':{grp:'f',label:'Путь в выборе папки',ctxKey:'path',lay:'a',init:{text:'/media/nas/Ф',lang:'ru'},caption:'Адресный ряд заменён путевым: /, ~/, /media/, /run/media/, /mnt/, «..». Подсказки — папки внутри уже введённой части, файлов нет. «Перейти» открывает папку в выборе (PK); несуществующий путь — «Нет такой папки».'},
+  'KB-6':{grp:'f',label:'Поиск по медиатеке',ctxKey:'lib',lay:'a',init:{text:'дюн'},caption:'Без адресного ряда. Подсказки — названия из медиатеки по мере ввода; OK на подсказке сразу открывает карточку. «Найти» показывает все результаты.'},
+  'KB-7':{grp:'f',label:'Слой 123',ctxKey:'web',lay:'a',init:{text:'192.168.1.10:',sym:true,lang:'en',r:1,c:7},caption:'Цифры и символы — отдельный слой с той же сеткой, адресный ряд остаётся. Клавиша «АБВ» возвращает буквы на том же месте фокуса.'},
+  'KB-8':{grp:'f',label:'EN и Shift',ctxKey:'web',lay:'a',init:{text:'',lang:'en',shift:true},caption:'Shift действует на одну букву и подсвечен акцентом, пока включён. Язык переключается клавишей РУ/EN и запоминается для поля до следующего открытия.'}
+};
+const base=v=>{const c=CTXS_ALL[v.ctxKey];return{text:'погода',caret:null,z:'k',r:c.ctx?2:1,c:4,lang:'ru',sym:false,shift:false,open:true,sent:'',...(v.init||{})}};
+class Component extends DCLogic {
+  state=(()=>{const fr={};for(const id in VARS){const b=base(VARS[id]);if(b.caret==null)b.caret=b.text.length;fr[id]=b}return{active:'KB-1',fr}})();
+  componentDidMount(){this.kd=e=>this.key(e);addEventListener('keydown',this.kd)}
+  componentWillUnmount(){removeEventListener('keydown',this.kd);clearTimeout(this.st)}
+  layout(id,st){const v=VARS[id],cx=CTXS_ALL[v.ctxKey];
+    const L=st.sym?SY:(st.lang==='en'?EN:RU);
+    const ch=r=>r.map(t=>({t,ins:t,w:1,kind:'ch'}));
+    const ctx=a=>a.map(([t,w])=>({t,ins:t,w,kind:'ctx'}));
+    const shift={act:'shift',icon:'shift',w:1,on:st.shift},lay={act:'lay',t:st.sym?'АБВ':'123',w:1.5},lang={act:'lang',icon:'language',t:st.lang==='en'?'EN':'РУ',w:1.5};
+    const space=w=>({act:'space',t:'Пробел',w}),left={act:'left',icon:'chevron_left',w:1},right={act:'right',icon:'chevron_right',w:1};
+    const bs=(w,t)=>({act:'bs',icon:'backspace',t:t||'',w}),enter=w=>({act:'enter',t:cx.enter,w,kind:'pri'});
+    if(v.lay==='b'){const g={ml:20};return[[{...lay,w:1.2},{...lang,w:1.4},shift,...ctx(CTXS),{...left,w:1.2,...g},{...right,w:1.2}],[...ch(L[0]),{...bs(2.4,'Стереть'),...g}],[...ch(L[1]),{...space(2.4),...g}],[...ch(L[2]),{...enter(2.4),...g}]]}
+    if(v.lay==='c')return[ctx(CTX),ch(L[0]),ch(L[1]),ch(L[2]),[lay,lang,shift,space(5),enter(2.5)]];
+    const rows=[ch(L[0]),ch(L[1]),ch(L[2]),[shift,lay,lang,space(3),left,right,bs(1.5),enter(1.5)]];
+    return cx.ctx?[ctx(cx.ctx),...rows]:rows;
+  }
+  sugs(id,st){const cx=CTXS_ALL[VARS[id].ctxKey];return cx.sugs(st.text.trim().toLowerCase(),st.text).slice(0,4)}
+  upd(id,o){this.setState(s=>({fr:{...s.fr,[id]:{...s.fr[id],...(typeof o==='function'?o(s.fr[id]):o)}}}))}
+  ins(id,str){this.upd(id,st=>{const mx=CTXS_ALL[VARS[id].ctxKey].max;let t=st.shift&&str.length===1?str.toUpperCase():str;if(mx&&st.text.length+t.length>mx)return{};return{text:st.text.slice(0,st.caret)+t+st.text.slice(st.caret),caret:st.caret+t.length,shift:false,sent:''}})}
+  bsp(id){this.upd(id,st=>st.caret?{text:st.text.slice(0,st.caret-1)+st.text.slice(st.caret),caret:st.caret-1,sent:''}:{})}
+  mv(id,d){this.upd(id,st=>({caret:Math.max(0,Math.min(st.text.length,st.caret+d))}))}
+  press(id,k){
+    if(k.ins!=null)return this.ins(id,k.ins);
+    const a=k.act;
+    if(a==='space')return this.ins(id,' ');
+    if(a==='bs')return this.bsp(id);
+    if(a==='left')return this.mv(id,-1);
+    if(a==='right')return this.mv(id,1);
+    if(a==='shift')return this.upd(id,st=>({shift:!st.shift}));
+    if(a==='lay')return this.upd(id,st=>({sym:!st.sym}));
+    if(a==='lang')return this.upd(id,st=>({lang:st.lang==='en'?'ru':'en',sym:false}));
+    if(a==='enter')return this.send(id);
+  }
+  send(id){const st=this.state.fr[id],cx=CTXS_ALL[VARS[id].ctxKey],t=st.text.trim();const it=cx.intent(t);if(it&&/Ошибка|Нет такой/.test(it[0]))return;if(!t&&VARS[id].ctxKey!=='name')return;
+    this.upd(id,{sent:cx.done(t)});clearTimeout(this.st);this.st=setTimeout(()=>this.upd(id,{sent:''}),2200)}
+  cx(row,i){const tot=row.reduce((a,k)=>a+k.w,0);let s=0;for(let j=0;j<i;j++)s+=row[j].w;return(s+row[i].w/2)/tot}
+  near(row,x){let b=0,bd=9;row.forEach((k,i)=>{const d=Math.abs(this.cx(row,i)-x);if(d<bd){bd=d;b=i}});return b}
+  nav(id,dir){const st=this.state.fr[id],rows=this.layout(id,st),sg=this.sugs(id,st);
+    if(st.z==='btn'){if(dir==='down'&&st.open)this.upd(id,sg.length?{z:'sug',c:0}:{z:'k',r:0,c:0});return}
+    if(st.z==='sug'){if(dir==='left')this.upd(id,{c:Math.max(0,st.c-1)});if(dir==='right')this.upd(id,{c:Math.min(sg.length-1,st.c+1)});if(dir==='up')this.upd(id,{z:'btn'});if(dir==='down')this.upd(id,{z:'k',r:0,c:this.near(rows[0],(st.c+.5)/6)});return}
+    const r=Math.min(st.r,rows.length-1),row=rows[r],c=Math.min(st.c,row.length-1);
+    if(dir==='left')return this.upd(id,{r,c:Math.max(0,c-1)});
+    if(dir==='right')return this.upd(id,{r,c:Math.min(row.length-1,c+1)});
+    const x=this.cx(row,c);
+    if(dir==='up'){if(r===0)return this.upd(id,sg.length?{z:'sug',c:Math.min(sg.length-1,Math.floor(x*6))}:{z:'btn'});return this.upd(id,{r:r-1,c:this.near(rows[r-1],x)})}
+    if(dir==='down'&&r<rows.length-1)return this.upd(id,{r:r+1,c:this.near(rows[r+1],x)});
+  }
+  ok(id){const st=this.state.fr[id];
+    if(st.z==='btn')return this.upd(id,st.open?{open:false}:{open:true,z:'k',r:1,c:4});
+    if(st.z==='sug'){const s=this.sugs(id,st)[st.c];if(s){this.upd(id,{text:s.val,caret:s.val.length});if(VARS[id].ctxKey==='lib')this.upd(id,{sent:'Открывается «'+s.val+'»'})}return}
+    const rows=this.layout(id,st),r=Math.min(st.r,rows.length-1),k=rows[r][Math.min(st.c,rows[r].length-1)];if(k)this.press(id,k)}
+  back(id){const st=this.state.fr[id];
+    if(VARS[id].lay==='c'&&st.open&&st.text)return this.bsp(id);
+    if(st.open)return this.upd(id,{open:false,z:'btn'})}
+  key(e){const id=this.state.active;if(!id||e.ctrlKey||e.metaKey||e.altKey)return;const st=this.state.fr[id];const K=e.key;let h=true;
+    if(K.startsWith('Arrow')){if(st.open||st.z!=='btn')this.nav(id,K.slice(5).toLowerCase())}
+    else if(K==='Enter')this.ok(id);
+    else if(K==='Escape')this.back(id);
+    else if(K==='Backspace')this.bsp(id);
+    else if(K==='PageUp')this.mv(id,1);
+    else if(K==='PageDown')this.mv(id,-1);
+    else if(K.length===1)this.ins(id,K);
+    else h=false;
+    if(h)e.preventDefault()}
+  sty(on,kind){if(on)return{bg:C.tx,fg:C.ink,tf:'scale(1.08)',sh:'0 24px 44px -14px rgba(0,0,0,.85)',z:3};
+    if(kind==='pri')return{bg:'oklch(0.75 0.17 50 / .28)',fg:C.tx,tf:'none',sh:'none',z:1};
+    if(kind==='ch')return{bg:'rgba(255,255,255,.1)',fg:C.tx,tf:'none',sh:'none',z:1};
+    if(kind==='ctx')return{bg:'rgba(255,255,255,.06)',fg:C.tx,tf:'none',sh:'none',z:1};
+    return{bg:'rgba(255,255,255,.05)',fg:C.tx2,tf:'none',sh:'none',z:1}}
+  frame(id){const S=this.state,v=VARS[id],cxo=CTXS_ALL[v.ctxKey],st=S.fr[id],act=S.active===id,rows=this.layout(id,st),sg=this.sugs(id,st);
+    const rr=Math.min(st.r,rows.length-1);
+    const activate=()=>{if(!act)this.setState({active:id})};
+    const R=rows.map((row,r)=>({keys:row.map((k,c)=>{const on=act&&st.open&&st.z==='k'&&rr===r&&Math.min(st.c,row.length-1)===c;const lab=k.ins!=null?(st.shift&&k.kind==='ch'?k.t.toUpperCase():k.t):(k.t||'');
+      return{...this.sty(on,k.kind||'fn'),flex:k.w+' 1 0',ml:k.ml||0,label:lab,hasIcon:!!k.icon,icon:k.icon||'',fill:k.on?1:0,fs:k.kind==='ch'?40:(k.kind==='ctx'?30:28),fw:k.kind==='ch'?500:600,
+        ...(k.on&&!on?{bg:'oklch(0.75 0.17 50 / .28)',fg:C.tx}:{}),click:e=>{e.stopPropagation();this.setState({active:id});this.upd(id,{z:'k',r,c});this.press(id,k)}}})}));
+    const sugs=sg.map((s,i)=>{const on=act&&st.z==='sug'&&st.c===i;return{...s,sub:s.sub||'',open:!!s.open,bg:on?C.tx:'rgba(255,255,255,.08)',fg:on?C.ink:C.tx,subFg:on?'oklch(0.4 0.006 260)':C.tx3,tf:on?'scale(1.06)':'none',sh:on?'0 24px 44px -14px rgba(0,0,0,.85)':'none',z:on?3:1,
+      click:e=>{e.stopPropagation();this.setState({active:id});this.upd(id,{text:s.val,caret:s.val.length})}}});
+    const bOn=act&&st.z==='btn',t=st.text,it=cxo.intent(t.trim());
+    const mx=cxo.max,showCnt=mx&&mx<=64&&t.length>=Math.floor(mx*.75);
+    const hints=v.lay==='c'?[{k:'OK',v:'Ввести'},{k:'Назад',v:'Стереть'},{k:'Ch+ / Ch−',v:'Курсор'},{k:'Назад в пустом поле',v:'Скрыть'}]:[{k:'OK',v:'Ввести'},{k:'↑',v:sg.length?'К подсказкам':'К полю'},{k:'Назад',v:'Скрыть клавиатуру'}];
+    return{id,label:v.label,caption:v.caption,chosen:!!v.chosen,activate,liveText:act?'● управление здесь':'щёлкните, чтобы управлять',liveColor:act?C.amber:C.tx3,
+      frameSh:act?'0 0 0 3px oklch(0.75 0.17 50), 0 20px 60px rgba(0,0,0,.5)':'0 20px 60px rgba(0,0,0,.5)',
+      title:cxo.title,crumb:cxo.crumb||'',hasFieldLabel:!!cxo.fieldLabel,fieldLabel:cxo.fieldLabel||'',
+      icon:cxo.icon(t),textA:t.slice(0,st.caret),textB:t.slice(st.caret),ph:t?'':cxo.ph,justify:t.length>44?'flex-end':'flex-start',
+      hasCounter:!!showCnt,counter:t.length+' / '+mx,counterFg:t.length>=mx?C.red:C.tx3,
+      btnBg:bOn?C.tx:'rgba(255,255,255,.1)',btnFg:bOn?C.ink:C.tx,btnTf:bOn?'scale(1.06)':'none',btnSh:bOn?'0 18px 40px -12px rgba(0,0,0,.7)':'none',btnIcon:st.open?'keyboard_hide':'keyboard',btnLabel:st.open?'Скрыть':'Клавиатура',
+      hasIntent:!!it,intentTag:it?it[0]:'',intent:it?it[1]:'',hasSent:!!st.sent,sent:st.sent,open:st.open,closed:!st.open,rows:R,sugs,noSugs:!sg.length,noSugsText:cxo.noSugs??'Подсказок нет',hints}}
+  renderVals(){const ids=Object.keys(VARS);
+    return{groups:[
+      {title:'Поля и слои · вариант 1a',note:'Одна клавиатура для всех полей. Меняются только верхний ряд (адресный, путевой или никакого), источник подсказок и подпись главной клавиши.',frames:ids.filter(i=>VARS[i].grp==='f').map(i=>this.frame(i))},
+      {title:'Варианты раскладки',note:'Первый раунд. Выбран 1a.',frames:ids.filter(i=>VARS[i].grp==='v').map(i=>this.frame(i))}],
+      rules:[
+        {t:'Когда открывается',d:'Только по кнопке «Клавиатура» в поле (OK на ней). С аппаратной клавиатурой ввод идёт сразу, экранная не нужна; если она открыта, нажатия на аппаратной не закрывают её.'},
+        {t:'Фокус при открытии',d:'Средний ряд букв, пятая клавиша. При повторном открытии в том же поле — последняя клавиша.'},
+        {t:'Назад',d:'Скрывает клавиатуру, фокус — на кнопку «Клавиатура». Второй Назад — правило экрана (выход, вопрос о несохранённом).'},
+        {t:'Навигация',d:'↑/↓ переходят в ряд выше или ниже на ближайшую по горизонтали клавишу. Вверх из верхнего ряда — к подсказкам, затем к полю. Без переноса по краям.'},
+        {t:'Shift',d:'На одну букву. Подсвечен акцентом, пока включён.'},
+        {t:'Язык и слой',d:'РУ/EN переключает буквы и сбрасывает слой 123. Язык по умолчанию — из поля: адрес и путь EN, остальные — язык интерфейса.'},
+        {t:'Ограничения',d:'maxLength из контракта: ввод сверх лимита игнорируется, счётчик виден с 75% лимита (для лимитов до 64). Ошибки формата — в строке под полем, главная клавиша не срабатывает.'},
+        {t:'Размеры',d:'Клавиша 86 px, буква 40 px, подписи 28–30 px, фокус — белая клавиша ×1.08. Панель занимает нижние ~600 px и не перекрывает поле и строку под ним.'}
+      ]}}
+}
+</script>
+</body>
+</html>

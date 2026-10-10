@@ -36,6 +36,7 @@ qt_add_executable(arinn-ui-gallery gallery/main.cpp keyboard_model.cpp keyboard_
 qt_add_resources(arinn-ui-gallery gallery_ui PREFIX "/" FILES
     gallery/Gallery.qml gallery/HomeGallery.qml gallery/BrowserGallery.qml
     gallery/SessionGallery.qml gallery/LibraryGallery.qml gallery/SettingsGallery.qml
+    gallery/KeyboardGallery.qml ui/screens/browse/qmldir ui/screens/browse/BrowseView.qml
     gallery/fixture-artwork.svg
     ui/screens/settings/qmldir ui/screens/settings/SettingsView.qml
     ui/screens/browser/qmldir ui/screens/browser/BrowserView.qml

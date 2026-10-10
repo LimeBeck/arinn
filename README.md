@@ -49,7 +49,7 @@ Every integration is a separate plugin process talking to a small core over D-Bu
 
 ## Interface preview
 
-These are screenshots of the **current Qt/QML interface**, rendered by the development gallery at 1920×1080 with fictional fixture data, one shared placeholder image and neutral application monograms. Home, navigation, Library, Applications, Open services, Now playing and Settings use the same views the production shell mounts. The gallery does not connect to a daemon. Names, favorites and settings rows in the fixtures are not a catalogue of finished integrations. See the [UI components](docs/architecture/ui-components.md).
+These are screenshots of the **current Qt/QML interface**, rendered by the development gallery at 1920×1080 with fictional fixture data, one shared placeholder image and neutral application monograms. Home, navigation, Library, Applications, Open services, the on-screen keyboard, Now playing and Settings use the same views the production shell mounts. The gallery does not connect to a daemon. Names, favorites and settings rows in the fixtures are not a catalogue of finished integrations. See the [UI components](docs/architecture/ui-components.md).
 
 **Home** — the Arinn mark, the Now running hero, Continue cards and favorite tiles over the ambient light field, with remote-control focus on the return card. The other Continue cards show the placeholder landscape and a progress bar.
 
@@ -88,6 +88,15 @@ These are screenshots of the **current Qt/QML interface**, rendered by the devel
 **Open services** — open pages, with the on-screen page marked.
 
 ![Current Arinn Qt Open services list with the on-screen page focused](docs/design/current-ui/open-services.png)
+
+</details>
+
+<details>
+<summary>On-screen keyboard screenshot</summary>
+
+**On-screen keyboard** — Site or search typed with the remote alone: recent entries and an open service as suggestions, the address row, English letters with remote-control focus, and the action row with Open.
+
+![Current Arinn Qt on-screen keyboard on Site or search, with suggestions, the address row and a focused key](docs/design/current-ui/keyboard.png)
 
 </details>
 

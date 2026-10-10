@@ -9,8 +9,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SCREENS = (
-    "home", "library", "applications", "open-services", "now-playing",
-    "navigation", "settings",
+    "home", "library", "applications", "open-services", "keyboard",
+    "now-playing", "navigation", "settings",
 )
 PUBLISHED_FILES = frozenset({
     "index.html", "assets/site.css", "assets/site.js", "assets/guide.css",

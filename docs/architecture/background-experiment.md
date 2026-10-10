@@ -34,3 +34,69 @@ python tests/integration/background_preview.py
 Frames are stored in `.phase0/background-probe/` (private, ignored by Git) and never sent anywhere. Repository evidence contains only images of the experiment's own HTML page, no user windows. Do not run this operator test during lock or suspend; the session guard is not connected to the capture pipeline yet.
 
 API sources: [KWin QML effects](https://develop.kde.org/docs/plasma/kwineffect/), [WindowThumbnail implementation](https://invent.kde.org/plasma/kwin/-/blob/Plasma/6.7/src/scripting/windowthumbnailitem.cpp), [QML workspace windows](https://invent.kde.org/plasma/kwin/-/blob/Plasma/6.7/src/scripting/workspace_wrapper.h).
+
+## Production foundation for #149
+
+The transport prerequisite is merged: [ADR-0087](../adr/0087-bounded-activity-background-frames.md)
+and the [bounded frame contract](activity-background.md) replace the prototype's
+PNG/file handoff. The following implementation foundations can be built separately:
+
+- `platform/background`: move-only sealed memfd ownership, physical-size admission,
+  exact-size/seal validation before copying, close-on-exec duplication and positional
+  reads independent of the shared descriptor offset. It accepts only tightly packed
+  straight-alpha RGBA8888; callers perform colour conversion before publication.
+- `platform/kde/background`: conversion of a bounded Qt grab image from premultiplied
+  pixels to straight-alpha RGBA8888, with explicit tagged-colour conversion to sRGB
+  and row packing. Physical dimensions and input storage are checked before conversion;
+  DPR metadata does not expand admission. Untagged Qt grabs are interpreted as sRGB.
+  `encodeGrab` is synchronous and must be called on the producer worker, never inside
+  the compositor callback. This library does not capture a window or publish on D-Bus.
+- `apps/arinn-shell/background`: a consumer admission/lifetime gate. Ready pixels
+  require exact owner/epoch, Return/output and authoritative window evidence, a safe
+  session guard and live provider/producer/shell. Revision floors reject stale or
+  contradictory metadata. Evidence invalidation retires the current request, so
+  unlock or Home recovery cannot resurrect it. An invalidated worker retains the
+  single occupied slot until completion; late/duplicate callbacks cannot install
+  pixels or free a replacement's slot. Invalidated pixel storage is released.
+
+Focused builds (Linux, C++20, CMake ≥ 3.24; the encoder also requires Qt ≥ 6.8):
+
+```sh
+cmake -S apps/arinn-shell/background -B build/background-consumer
+cmake --build build/background-consumer
+ctest --test-dir build/background-consumer --output-on-failure
+cmake -S platform/kde/background -B build/background-encoder
+cmake --build build/background-encoder
+ctest --test-dir build/background-encoder --output-on-failure
+```
+
+The standalone builds also run the shared descriptor tests. Synthetic tests cover
+malformed extents, incomplete seals, writable mappings, non-frame descriptors,
+truncated/extra bytes, maximum admitted pixels, FD ownership/offsets, alpha/colour
+conversion, padded rows, revision/epoch conflicts, wrong echoed identities,
+Return/lock/unknown-guard/provider/owner loss and recovery, cancelled workers and
+replacement lifetimes. These are foundation tests, not private-bus runtime tests
+or production capture evidence.
+
+### Remaining integration and qualification
+
+These modules are not yet registered by the root/shell build or connected to Home.
+Shared Home/shell build integration must be reconciled with active PR
+[#428](https://github.com/LimeBeck/arinn/pull/428). Necessary daemon and X11 work
+requires separately recorded implementation zones after checking active claims.
+The daemon still needs authenticated Background1/BackgroundCapture1 exports,
+explicit-Home arming, authoritative invalidation, the unrenewed 1500 ms deadline
+and producer/reader authorization. KDE still needs an in-process bounded worker,
+exact WindowThumbnail capture and publication from the selected platform owner's
+connection. X11 needs its selected-window producer. The shell still needs
+owner-pinned asynchronous D-Bus reconciliation/copying, independent session-guard
+wiring, a bounded image provider and near/far rendering integration with bounded
+DPR-sensitive effect textures. The existing `ActivityBackground.qml` remains the
+operator prototype, not an enabled production renderer.
+
+Before marking #149/G-5.2 complete, run runtime/private-bus lifecycle tests and
+obtain the owner-run device report specified by the contract: capture/publication
+and focus latency, CPU/GPU allocations and RSS across near/far and repeated
+invalidation, media frame times, visual colour/kernel comparison and both-platform
+lock/Return/protected-content behaviour. No measurement report, GPU/RSS gate,
+real-desktop qualification or phase completion is claimed by these foundations.

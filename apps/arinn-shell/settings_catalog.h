@@ -86,6 +86,8 @@ private:
   void syncDeferred();
   QVariantList m_categories;
   QVariantList m_rows;
+  // The screen state the last catalogChanged announced (#441).
+  QString m_publishedState;
   QList<ProviderRecord> m_providers;
   QSet<QString> m_pending;
   QSet<QString> m_deferred;

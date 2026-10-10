@@ -49,7 +49,9 @@ carry a season. The shell does not invent a plot.
 
 The catalog subscribes to `Changed`, `ProvidersChanged` and `StateChanged`
 before the first read, and those signals reload the snapshot. A 30 s timer
-is only the fallback for a missed signal.
+is only the fallback for a missed signal. `catalogChanged` is emitted only
+when the published catalog or its state changed, so a reload that finds the
+same snapshot leaves bound views alone.
 
 `Launch` for a film is that film. `Launch` for a series is the episode with
 an unfinished resume, or, when none is in progress, the first available

@@ -246,8 +246,19 @@ void LibraryCatalog::publish() {
       entry.insert(QStringLiteral("episodes"), episodes);
     entries.append(entry);
   }
+  // A reload follows every ProvidersChanged. Announcing an unchanged catalog
+  // makes every view bound to it rebuild its cards (#441).
+  const auto changed = tabs != m_tabs || entries != m_entries ||
+                       m_items != m_publishedItems;
   m_tabs = tabs;
   m_entries = entries;
+  if (!changed && libraryState() == m_publishedState)
+    return;
+  // A deep copy: sharing would let the next non-const pass over m_items
+  // detach it and free rows a caller still points to.
+  m_publishedItems = m_items;
+  m_publishedItems.detach();
+  m_publishedState = libraryState();
   emit catalogChanged();
 }
 void LibraryCatalog::refresh() {

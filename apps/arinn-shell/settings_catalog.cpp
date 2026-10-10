@@ -450,8 +450,14 @@ void SettingsCatalog::publish() {
     m_deferred.remove(key);
     m_deferredGeneration.remove(key);
   }
+  // A reload follows every ProvidersChanged. Announcing unchanged rows makes
+  // the open settings screen rebuild (#441).
+  if (categories == m_categories && rows == m_rows &&
+      screenState() == m_publishedState)
+    return;
   m_categories = categories;
   m_rows = rows;
+  m_publishedState = screenState();
   emit catalogChanged();
 }
 QString SettingsCatalog::encodeValue(const ProviderRecord &,

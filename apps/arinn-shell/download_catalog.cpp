@@ -327,7 +327,17 @@ void DownloadCatalog::publish() {
         {QStringLiteral("busy"), m_busy.contains(row.id)},
         {QStringLiteral("enabled"), true}});
   }
+  // A reload follows every ProvidersChanged. Announcing unchanged jobs makes
+  // every view bound to them rebuild (#441).
+  const auto changed = jobs != m_jobs || m_rows != m_publishedRows;
   m_jobs = jobs;
+  if (!changed && downloadsState() == m_publishedState)
+    return;
+  // A deep copy: sharing would let the next non-const pass over m_rows
+  // detach it and free rows a caller still points to (request()).
+  m_publishedRows = m_rows;
+  m_publishedRows.detach();
+  m_publishedState = downloadsState();
   emit catalogChanged();
 }
 

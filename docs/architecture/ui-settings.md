@@ -13,6 +13,7 @@ This screen does not close a Phase 5 gate.
 the session bus. It calls `ListProviders` and `GetSettings`, groups the rows by
 the design categories, and calls `SetValue` as an operation. `SettingsChanged`
 and `ProvidersChanged` reload the snapshot; a missing daemon is unavailable.
+`catalogChanged` is emitted only when the rows or the screen state changed.
 `Main.qml` binds that model to `SettingsView` when Home's screen is Settings.
 The QML does not call a daemon, a plugin process or a provider-supplied widget
 (R-03, R-04). Values are not logged.

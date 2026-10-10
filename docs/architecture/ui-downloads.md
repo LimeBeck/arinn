@@ -112,6 +112,8 @@ asynchronously, the same way `LibraryCatalog` reads `Library1`:
   `ProvidersChanged`. A 30 s timer is only a fallback. A read during which a
   newer notification arrived is dropped and read again instead of published,
   at most three times in a row so a busy queue still updates.
+- `catalogChanged` is emitted only when the jobs or `downloadsState` changed;
+  a reload that finds the same snapshot is silent.
 
 | `downloadsState` | When |
 | --- | --- |

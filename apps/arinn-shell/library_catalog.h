@@ -73,6 +73,7 @@ private:
     bool resumeCompleted = false;
     quint64 resumeObserved = 0;
     QString backend;
+    bool operator==(const ItemRow &) const = default;
   };
   struct CollectionRow {
     QString id;
@@ -111,6 +112,10 @@ private:
   QVariantList m_tabs;
   QVariantList m_entries;
   QList<ItemRow> m_items;
+  // What the last catalogChanged announced, so that an unchanged reload
+  // stays silent (#441).
+  QList<ItemRow> m_publishedItems;
+  QString m_publishedState;
   QList<CollectionRow> m_collections;
   QString m_operation;
   QString m_launchingId;

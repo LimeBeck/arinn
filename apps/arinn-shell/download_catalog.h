@@ -5,6 +5,7 @@
  */
 
 #pragma once
+#include "flow_trace.h"
 #include <QHash>
 #include <QObject>
 #include <QSet>
@@ -112,6 +113,11 @@ private:
   quint64 m_ticket = 0;
   // Reads in a row whose snapshot a newer StateChanged already superseded.
   int m_superseded = 0;
+  // Read timing for diagnostics (ADR-0093): a read is reported when it
+  // changes the state the screen shows or fails, not on every poll.
+  void traceRead();
+  FlowTrace::Flow m_readFlow;
+  QString m_tracedState;
   // Session memory for the completion toast: whether each download was last
   // seen imported, and which downloads were already announced.
   QHash<QString, bool> m_imported;

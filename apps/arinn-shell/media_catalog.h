@@ -5,6 +5,7 @@
  */
 
 #pragma once
+#include "flow_trace.h"
 #include <QObject>
 #include <QStringList>
 #include <QTimer>
@@ -222,6 +223,9 @@ private:
   QString m_daemonOwner;
   QString m_windowGeneration, m_windowToken;
   bool m_windowCheckInFlight = false;
+  // Presentation timing for diagnostics (ADR-0093): present() until the
+  // window check confirms the input layer, or the failure.
+  FlowTrace::Flow m_presentFlow;
   SessionRow m_presentRow;
   SessionRow m_releaseRow;
   quint64 m_releaseEpoch = 0;

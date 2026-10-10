@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Arinn contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "browse_catalog.h"
+#include "flow_trace_recorder.h"
 #include <QtDBus>
 #include <QtTest>
 
@@ -140,10 +141,16 @@ private slots:
                                {"url", "http://latest.example"},
                                {"active", true}}});
     QVERIFY(model.openTitle().isEmpty());
+    recordFlows();
     model.open();
     model.open();
     QTRY_COMPARE(model.operationState(), QString("succeeded"));
     QCOMPARE(fake.opens, 1);
+    // One open, timed as its request and its operation (ADR-0093).
+    const auto flows = flowsNamed("browse.open");
+    QCOMPARE(flows.size(), 1);
+    QCOMPARE(flows.first().outcome, QString("ok"));
+    QCOMPARE(flows.first().steps, QStringList({"request:ok", "operation.wait:ok"}));
     QCOMPARE(fake.opened, QString("latest.example"));
     QTRY_COMPARE(model.recent().first(), QString("latest.example"));
     model.clearRecent();
@@ -183,8 +190,11 @@ private slots:
     BrowseCatalog model;
     model.setText("page.example");
     QTRY_COMPARE(model.kind(), QString("address"));
+    recordFlows();
     model.open();
     QTRY_COMPARE(model.operationState(), QString("Unavailable"));
+    QCOMPARE(flowsNamed("browse.open").size(), 1);
+    QCOMPARE(flowsNamed("browse.open").first().outcome, QString("Unavailable"));
     fake.state = "succeeded";
     fake.failure.clear();
   }

@@ -13,7 +13,9 @@ int main(int argc, char **argv) {
   const auto args = app.arguments();
   const auto fixture = args.indexOf("--state");
   QString qml = QStringLiteral("qrc:/gallery/Gallery.qml");
-  if (args.contains("--browser")) {
+  if (args.contains("--keyboard")) {
+    qml = QStringLiteral("qrc:/gallery/KeyboardGallery.qml");
+  } else if (args.contains("--browser")) {
     qml = QStringLiteral("qrc:/gallery/BrowserGallery.qml");
   } else if (args.contains("--now-playing")) {
     qml = QStringLiteral("qrc:/gallery/SessionGallery.qml");

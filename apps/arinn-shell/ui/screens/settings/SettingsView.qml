@@ -44,6 +44,12 @@ FocusScope {
     property double holdMark: 0
     property bool integerFresh: true
     property string stringPart: "field"
+    // A string setting typed with the on-screen keyboard (KB-4).
+    property bool stringTyping: false
+    onStringSheetChanged: if (!stringSheet && stringTyping) {
+        stringKeyboard.finish();
+        stringTyping = false;
+    }
     property string enumClosingKey: ""
     signal valueChangeRequested(string providerId, string settingId, var value)
     signal errorDismissRequested(string providerId, string settingId)
@@ -384,7 +390,8 @@ FocusScope {
     function openString(row) {
         if (!canEdit(row) || row.type !== "string") return;
         choosingKey = "";
-        stringPart = keyboardReady ? "field" : "back";
+        // Without a hardware keyboard the remote types through the panel.
+        stringPart = keyboardReady ? "field" : "keyboard";
         hiddenStringError = "";
         editingPart = "main";
         editingDraft = row.currentValue === undefined || row.currentValue === null ? "" : String(row.currentValue);
@@ -393,8 +400,12 @@ FocusScope {
     }
     function focusString() {
         if (!stringSheet) return;
-        if (!keyboardReady) {
-            if (keyboardBack) Ui.Focus.take(keyboardBack);
+        if (stringTyping) {
+            stringKeyboard.resume();
+            return;
+        }
+        if (stringPart === "keyboard" || (stringPart === "field" && !keyboardReady)) {
+            if (stringKeyboardButton) Ui.Focus.take(stringKeyboardButton);
             return;
         }
         if (stringPart === "save" && stringSave) Ui.Focus.take(stringSave);
@@ -457,6 +468,26 @@ FocusScope {
     function commitString() {
         finishEdit(true);
     }
+    function startStringTyping() {
+        const row = stringRowData;
+        if (!row || !canEdit(row)) return;
+        stringTyping = true;
+        stringTypingInput.text = editingDraft || "";
+        stringTypingInput.cursorPosition = stringTypingInput.text.length;
+        stringKeyboard.start();
+    }
+    // Save commits the setting (SV); Back returns to the sheet's button.
+    function finishStringTyping(save) {
+        if (!stringTyping) return;
+        stringKeyboard.finish();
+        stringTyping = false;
+        if (save) {
+            commitString();
+            return;
+        }
+        stringPart = "keyboard";
+        Qt.callLater(() => focusString());
+    }
     // Home closes transient UI without committing a draft, then asks the
     // shell for Home (#329). Editors and sheets consume keys, so each calls
     // this before its own handling.
@@ -485,10 +516,15 @@ FocusScope {
         hiddenStringError = rowKey(row) + "\n" + row.error;
         errorDismissRequested(row.providerId || "", row.id);
     }
+    // Typed text a key produced: any printable text, a character outside the
+    // BMP (two UTF-16 units) included; no control characters.
+    function printable(text) {
+        return !!text && text.length > 0 && text.charCodeAt(0) >= 32 && text.charCodeAt(0) !== 127;
+    }
     function wakeKeyboard(text) {
         keyboardSeen = true;
         stringPart = "field";
-        if (text && text.length === 1 && text >= " ") {
+        if (printable(text)) {
             editingDraft = (editingDraft || "") + text;
             noteStringEdit();
         }
@@ -1690,14 +1726,36 @@ FocusScope {
                         width: parent.width
                         height: 112
                         radius: 30
-                        opacity: root.keyboardReady ? 1 : 0.6
                         color: Qt.rgba(1, 1, 1, 0.1)
+                        // Keys the field and its keyboard button leave unhandled.
+                        Keys.onPressed: event => {
+                            if (root.homeKey(event)) return;
+                            const onButton = stringKeyboardButton.activeFocus;
+                            if (event.key === Qt.Key_Right && stringField.activeFocus) {
+                                root.stringPart = "keyboard";
+                                Ui.Focus.take(stringKeyboardButton);
+                            } else if (event.key === Qt.Key_Left && onButton && root.keyboardReady) {
+                                root.stringPart = "field";
+                                Ui.Focus.take(stringField);
+                            } else if (event.key === Qt.Key_Down && onButton) {
+                                root.stringPart = "save";
+                                Ui.Focus.take(stringSave);
+                            } else if ((event.key === Qt.Key_Escape || event.key === Qt.Key_Back) && onButton) {
+                                if (!event.isAutoRepeat) root.cancelEditor();
+                            } else if (onButton && root.printable(event.text)) {
+                                root.wakeKeyboard(event.text);
+                            } else if (!onButton || event.key !== Qt.Key_Up) {
+                                return;
+                            }
+                            event.accepted = true;
+                        }
                         TextInput {
                             id: stringField
                             objectName: root.stringSheet ? "editor-" + root.editingKey : ""
                             anchors.fill: parent
                             anchors.leftMargin: 28
-                            anchors.rightMargin: 28
+                            anchors.rightMargin: stringKeyboardButton.width + 40
+                            opacity: root.keyboardReady ? 1 : 0.6
                             verticalAlignment: Text.AlignVCenter
                             color: Ui.Theme.textPrimary
                             font.family: Ui.Theme.fontFamily
@@ -1734,6 +1792,13 @@ FocusScope {
                                 } else root.noteStringEdit();
                             }
                         }
+                        Ui.KeyboardButton {
+                            id: stringKeyboardButton
+                            objectName: "stringKeyboard"
+                            x: parent.width - width - 14
+                            anchors.verticalCenter: parent.verticalCenter
+                            onActivated: root.startStringTyping()
+                        }
                     }
                     Ui.UiText {
                         objectName: "stringCounter"
@@ -1757,40 +1822,8 @@ FocusScope {
                         color: Ui.Theme.error
                         text: visible ? root.daemonErrorText(root.stringRowData.error) : ""
                     }
-                    Column {
-                        objectName: "keyboardPrompt"
-                        visible: root.stringSheet && !root.keyboardReady
-                        width: parent.width
-                        spacing: 12
-                        Ui.UiText {
-                            objectName: "keyboardOff"
-                            width: parent.width
-                            role: "control"
-                            text: qsTr("A keyboard is needed to type")
-                        }
-                        Ui.UiText {
-                            width: parent.width
-                            role: "meta"
-                            color: Ui.Theme.textSecondary
-                            text: qsTr("Connect a USB or Bluetooth keyboard, or change it from a computer:")
-                        }
-                        Rectangle {
-                            width: commandText.implicitWidth + 36
-                            height: 56
-                            radius: 18
-                            color: Qt.rgba(1, 1, 1, 0.08)
-                            Ui.UiText {
-                                id: commandText
-                                objectName: "settingsCommand"
-                                anchors.centerIn: parent
-                                role: "meta"
-                                text: "arinnctl settings set"
-                            }
-                        }
-                    }
                     Row {
                         spacing: 16
-                        visible: root.keyboardReady
                         T.AbstractButton {
                             id: stringSave
                             objectName: "stringSave"
@@ -1809,8 +1842,8 @@ FocusScope {
                                     Ui.Focus.take(stringCancel);
                                     event.accepted = true;
                                 } else if (event.key === Qt.Key_Up || event.key === Qt.Key_Left) {
-                                    root.stringPart = "field";
-                                    Ui.Focus.take(stringField);
+                                    root.stringPart = root.keyboardReady ? "field" : "keyboard";
+                                    root.focusString();
                                     event.accepted = true;
                                 } else if (event.key === Qt.Key_Escape || event.key === Qt.Key_Back) {
                                     root.cancelEditor();
@@ -1861,39 +1894,145 @@ FocusScope {
                             }
                         }
                     }
-                    T.AbstractButton {
-                        id: keyboardBack
-                        objectName: "keyboardBack"
-                        visible: root.stringSheet && !root.keyboardReady
-                        height: 88
-                        width: Math.max(180, backLabel.implicitWidth + 48)
-                        padding: 0
-                        focusPolicy: Qt.StrongFocus
-                        activeFocusOnTab: false
-                        onClicked: root.cancelEditor()
-                        Keys.onPressed: event => {
-                            if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Escape || event.key === Qt.Key_Back) {
-                                if (!event.isAutoRepeat) root.cancelEditor();
-                                event.accepted = true;
-                            } else if (event.text && event.text.length === 1) {
-                                root.wakeKeyboard(event.text);
-                                event.accepted = true;
-                            }
-                        }
-                        background: Rectangle {
-                            radius: height / 2
-                            color: keyboardBack.activeFocus ? Ui.Theme.textPrimary : Qt.rgba(1, 1, 1, 0.14)
-                        }
-                        contentItem: Ui.UiText {
-                            id: backLabel
-                            text: qsTr("Back")
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                            color: keyboardBack.activeFocus ? Ui.Theme.ink : Ui.Theme.textPrimary
-                        }
-                    }
                 }
             }
+        }
+    }
+
+    // A string setting typed with the on-screen keyboard (KB-4): the field
+    // on top and the panel below. The draft follows each key; Save commits
+    // it as the sheet does, Back returns to the sheet.
+    FocusScope {
+        id: stringTypingLayer
+        objectName: "stringTyping"
+        anchors.fill: parent
+        z: 30
+        visible: root.stringTyping && root.stringSheet
+        enabled: visible
+        readonly property var row: root.stringRowData
+        readonly property int limit: row && root.hasBound(row, "maxLength") ? Number(row.constraints.maxLength) : 0
+        readonly property int count: [...stringTypingInput.text].length
+        Keys.onPressed: event => {
+            if (root.homeKey(event)) return;
+            // Menu reaches the shell's navigation, as on every screen (§6.2).
+            if (event.key === Qt.Key_Menu) return;
+            event.accepted = true;
+            if (event.key === Qt.Key_Escape || event.key === Qt.Key_Back || event.key === Qt.Key_Backspace) {
+                if (!event.isAutoRepeat) root.finishStringTyping(false);
+            } else if (event.key === Qt.Key_Down) {
+                stringKeyboard.enterFromAbove();
+            } else if (root.printable(event.text)
+                       && !(event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier))) {
+                stringKeyboard.insertText(event.text);
+            }
+        }
+        Rectangle { anchors.fill: parent; color: Ui.Theme.background; MouseArea { anchors.fill: parent } }
+        Row {
+            x: 120
+            y: 64
+            spacing: 24
+            Ui.UiText {
+                text: qsTr("Settings")
+                font.pixelSize: 56
+                font.weight: 700
+                wrapMode: Text.NoWrap
+            }
+            Ui.UiText {
+                y: 26
+                text: {
+                    const category = root.currentCategory();
+                    const parts = [category && category.title ? category.title : "",
+                                   stringTypingLayer.row ? stringTypingLayer.row.title || "" : ""];
+                    return parts.filter(part => part.length).join(" · ");
+                }
+                color: Ui.Theme.textHint
+                wrapMode: Text.NoWrap
+            }
+        }
+        Rectangle {
+            x: 120
+            y: 160
+            width: 1680
+            height: 132
+            radius: 34
+            color: Qt.rgba(1, 1, 1, 0.12)
+            border.width: 3
+            border.color: Ui.Theme.ring
+            TextInput {
+                id: stringTypingInput
+                objectName: "stringTypingInput"
+                x: 32
+                // Ends before the counter so the caret stays in view.
+                width: (stringTypingCounter.visible ? stringTypingCounter.x
+                                                    : stringTypingButton.x) - x - 24
+                height: 80
+                anchors.verticalCenter: parent.verticalCenter
+                font.family: Ui.Theme.fontFamily
+                font.pixelSize: 48
+                font.weight: 500
+                color: Ui.Theme.textPrimary
+                verticalAlignment: TextInput.AlignVCenter
+                clip: true
+                cursorVisible: stringTypingLayer.visible
+                cursorDelegate: Rectangle { width: 4; color: Ui.Theme.ember; visible: stringTypingInput.cursorVisible }
+                onTextChanged: if (stringTypingLayer.visible) {
+                    root.editingDraft = text;
+                    stringField.text = text;
+                    root.noteStringEdit();
+                }
+            }
+            Ui.UiText {
+                // From 75% of a limit up to 64 (KB-4); error-coloured at the limit.
+                id: stringTypingCounter
+                objectName: "stringTypingCounter"
+                anchors.right: stringTypingButton.left
+                anchors.rightMargin: 24
+                anchors.verticalCenter: parent.verticalCenter
+                visible: stringTypingLayer.limit > 0 && stringTypingLayer.limit <= 64
+                         && stringTypingLayer.count >= Math.ceil(stringTypingLayer.limit * 0.75)
+                text: stringTypingLayer.count + " / " + stringTypingLayer.limit
+                role: "meta"
+                color: stringTypingLayer.count >= stringTypingLayer.limit ? Ui.Theme.error : Ui.Theme.textSecondary
+            }
+            Ui.KeyboardButton {
+                id: stringTypingButton
+                objectName: "stringTypingKeyboard"
+                x: parent.width - width - 24
+                anchors.verticalCenter: parent.verticalCenter
+                panelOpen: true
+                onActivated: root.finishStringTyping(false)
+            }
+        }
+        Ui.UiText {
+            objectName: "stringTypingError"
+            x: 152
+            y: 320
+            width: 1600
+            role: "body"
+            color: Ui.Theme.error
+            // The provider's answer to the last save (SV-4).
+            visible: text.length > 0
+            text: {
+                const row = stringTypingLayer.row;
+                if (!row || !row.error || row.pending
+                    || root.hiddenStringError === root.rowKey(row) + "\n" + row.error)
+                    return "";
+                return root.daemonErrorText(row.error);
+            }
+        }
+        Ui.OnScreenKeyboard {
+            id: stringKeyboard
+            objectName: "stringOnScreenKeyboard"
+            y: parent.height - implicitHeight
+            target: stringTypingInput
+            memoryKey: "setting-" + root.editingKey
+            // The contract counts characters, not UTF-16 units (ADR-0065).
+            maxCharacters: stringTypingLayer.limit > 0 ? stringTypingLayer.limit : 1024
+            submitLabel: qsTr("Save")
+            emptySuggestions: stringTypingLayer.limit > 0 ? qsTr("Up to %1 characters").arg(stringTypingLayer.limit) : ""
+            onSubmitted: root.finishStringTyping(true)
+            onHideRequested: root.finishStringTyping(false)
+            onLeaveUp: Ui.Focus.take(stringTypingButton)
         }
     }
 

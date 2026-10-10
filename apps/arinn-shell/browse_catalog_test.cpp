@@ -44,32 +44,6 @@ QDBusArgument &operator<<(QDBusArgument &a, const Result &v) {
   return a;
 }
 const QDBusArgument &operator>>(const QDBusArgument &a, Result &) { return a; }
-struct Shortcut {
-  QString id, title, url, icon;
-};
-struct Shortcuts {
-  QList<Shortcut> rows;
-};
-Q_DECLARE_METATYPE(Shortcut)
-Q_DECLARE_METATYPE(Shortcuts)
-QDBusArgument &operator<<(QDBusArgument &a, const Shortcut &v) {
-  a.beginStructure();
-  a << v.id << v.title << v.url << v.icon;
-  a.endStructure();
-  return a;
-}
-const QDBusArgument &operator>>(const QDBusArgument &a, Shortcut &) {
-  return a;
-}
-QDBusArgument &operator<<(QDBusArgument &a, const Shortcuts &v) {
-  a.beginStructure();
-  a << qulonglong(1) << v.rows;
-  a.endStructure();
-  return a;
-}
-const QDBusArgument &operator>>(const QDBusArgument &a, Shortcuts &) {
-  return a;
-}
 class FakeBrowse : public QDBusVirtualObject {
 public:
   QStringList recent{"old.example"};
@@ -79,10 +53,7 @@ public:
   QString introspect(const QString &) const override { return {}; }
   bool handleMessage(const QDBusMessage &m,
                      const QDBusConnection &bus) override {
-    if (m.member() == "List")
-      bus.send(m.createReply(QVariant::fromValue(Shortcuts{
-          {{"s", "Media Library", "https://media.example/path", ""}}})));
-    else if (m.member() == "GetRecent")
+    if (m.member() == "GetRecent")
       bus.send(m.createReply(QVariant::fromValue(recent)));
     else if (m.member() == "ClearRecent") {
       recent.clear();
@@ -112,9 +83,6 @@ class BrowseTest : public QObject {
   Q_OBJECT
 private slots:
   void initTestCase() {
-    qDBusRegisterMetaType<Shortcut>();
-    qDBusRegisterMetaType<QList<Shortcut>>();
-    qDBusRegisterMetaType<Shortcuts>();
     qDBusRegisterMetaType<Resolution>();
     qDBusRegisterMetaType<Effect>();
     qDBusRegisterMetaType<QList<Effect>>();
@@ -150,7 +118,8 @@ private slots:
     const auto flows = flowsNamed("browse.open");
     QCOMPARE(flows.size(), 1);
     QCOMPARE(flows.first().outcome, QString("ok"));
-    QCOMPARE(flows.first().steps, QStringList({"request:ok", "operation.wait:ok"}));
+    QCOMPARE(flows.first().steps,
+             QStringList({"request:ok", "operation.wait:ok"}));
     QCOMPARE(fake.opened, QString("latest.example"));
     QTRY_COMPARE(model.recent().first(), QString("latest.example"));
     model.clearRecent();
@@ -171,18 +140,112 @@ private slots:
     QVERIFY(model.url().isEmpty());
     QVERIFY(model.kind().isEmpty());
   }
-  void suggestionsMatchAddressAndTitlePrefixes() {
+  // ADR-0103: recent entries, then open services, up to four; never web
+  // shortcuts.
+  void suggestionsAreRecentEntriesThenOpenServices() {
+    fake.recent = {"media query", "old.example", "news.example/today",
+                   "third.example"};
     BrowseCatalog model;
-    model.setText("media.example/pa");
-    QTRY_COMPARE(model.suggestions().size(), 1);
-    QCOMPARE(model.suggestions().first().toMap().value("id").toString(),
-             QString("s"));
-    model.setText("lib");
-    QCOMPARE(model.suggestions().size(), 1);
-    model.setText("path");
-    QCOMPARE(model.suggestions().size(), 1);
-    model.setText("unrelated");
+    QTRY_COMPARE(model.recent().size(), 4);
+    model.setTabs({QVariantMap{{"title", "Media Library"},
+                               {"url", "https://media.example/path?x=1"},
+                               {"active", true}},
+                   QVariantMap{{"title", "Background tab"},
+                               {"url", "https://hidden.example/"},
+                               {"active", false}},
+                   QVariantMap{{"title", ""},
+                               {"url", "http://nas.local:8096/web"},
+                               {"active", true}}});
+    // An empty field: recent entries first, four in total.
+    auto rows = model.suggestions();
+    QCOMPARE(rows.size(), 4);
+    QCOMPARE(rows.first().toMap().value("kind").toString(), QString("recent"));
+    QCOMPARE(rows.first().toMap().value("value").toString(),
+             QString("media query"));
+    // Word prefixes of recent entries and of open services' titles and hosts.
+    model.setText("med");
+    rows = model.suggestions();
+    QCOMPARE(rows.size(), 2);
+    QCOMPARE(rows[0].toMap().value("title").toString(), QString("media query"));
+    const auto open = rows[1].toMap();
+    QCOMPARE(open.value("kind").toString(), QString("open"));
+    QCOMPARE(open.value("title").toString(), QString("Media Library"));
+    QCOMPARE(open.value("subtitle").toString(), QString("media.example"));
+    QCOMPARE(open.value("value").toString(), QString("https://media.example"));
+    QVERIFY(open.value("open").toBool());
+    // A service without a title shows its host, with the port.
+    model.setText("nas");
+    rows = model.suggestions();
+    QCOMPARE(rows.size(), 1);
+    QCOMPARE(rows[0].toMap().value("title").toString(),
+             QString("nas.local:8096"));
+    QCOMPARE(rows[0].toMap().value("value").toString(),
+             QString("http://nas.local:8096"));
+    // Inactive tabs are not services on screen; an exact entry is not
+    // suggested back.
+    model.setText("hidden");
     QVERIFY(model.suggestions().isEmpty());
+    model.setText("old.example");
+    QVERIFY(model.suggestions().isEmpty());
+    model.setText("today");
+    QCOMPARE(model.suggestions().size(), 1);
+    fake.recent = {"old.example"};
+  }
+  // KB-2 and KB-3: open services for a shortcut address, and the open
+  // page's title and the host for its name.
+  void shortcutSuggestions() {
+    BrowseCatalog model;
+    model.setTabs({QVariantMap{{"title", "Jellyfin"},
+                               {"url", "http://jellyfin.local:8096/web/index"},
+                               {"active", true}},
+                   QVariantMap{{"title", "Videos"},
+                               {"url", "https://www.video.example/watch"},
+                               {"active", true}}});
+    auto services = model.openServices("vid");
+    QCOMPARE(services.size(), 1);
+    QCOMPARE(services[0].toMap().value("value").toString(),
+             QString("https://www.video.example"));
+    QCOMPARE(services[0].toMap().value("subtitle").toString(),
+             QString("video.example"));
+    QCOMPARE(model.openServices(QString()).size(), 2);
+    // A typed scheme still finds the service by its origin.
+    QCOMPARE(model.openServices("https://www.vid").size(), 1);
+    QCOMPARE(model.openServices("http://jelly").size(), 1);
+    QVERIFY(model.openServices("https://jelly").isEmpty());
+    auto names = model.nameSuggestions("jellyfin.local:8096", QString());
+    QCOMPARE(names.size(), 2);
+    QCOMPARE(names[0].toMap().value("kind").toString(), QString("title"));
+    QCOMPARE(names[0].toMap().value("value").toString(), QString("Jellyfin"));
+    QCOMPARE(names[1].toMap().value("kind").toString(), QString("domain"));
+    QCOMPARE(names[1].toMap().value("value").toString(),
+             QString("jellyfin.local:8096"));
+    // Prefixes of what is typed; the exact text is not suggested back.
+    names = model.nameSuggestions("http://jellyfin.local:8096/", "jel");
+    QCOMPARE(names.size(), 2);
+    QCOMPARE(model.nameSuggestions("jellyfin.local:8096", "Jellyfin").size(),
+             1);
+    // No open page there: only the host.
+    names = model.nameSuggestions("https://other.example/path", QString());
+    QCOMPARE(names.size(), 1);
+    QCOMPARE(names[0].toMap().value("value").toString(),
+             QString("other.example"));
+    QVERIFY(model.nameSuggestions(QString(), QString()).isEmpty());
+    // With a scheme, the page's origin must match: not another scheme, and
+    // a spelled-out default port is the same origin.
+    names = model.nameSuggestions("https://jellyfin.local:8096", QString());
+    QCOMPARE(names.size(), 1);
+    QCOMPARE(names[0].toMap().value("kind").toString(), QString("domain"));
+    names = model.nameSuggestions("https://www.video.example:443/x", QString());
+    QCOMPARE(names.size(), 2);
+    QCOMPARE(names[0].toMap().value("value").toString(), QString("Videos"));
+    // Any word of the title matches, as on the address screen.
+    model.setTabs({QVariantMap{{"title", "Media Library"},
+                               {"url", "https://media.example/"},
+                               {"active", true}}});
+    names = model.nameSuggestions("https://media.example", "lib");
+    QCOMPARE(names.size(), 1);
+    QCOMPARE(names[0].toMap().value("value").toString(),
+             QString("Media Library"));
   }
   void operationFailure() {
     fake.state = "failed";

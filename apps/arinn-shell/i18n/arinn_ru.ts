@@ -103,6 +103,17 @@
     </message>
 </context>
 <context>
+    <name>BrowseCatalog</name>
+    <message>
+        <source>domain</source>
+        <translation>домен</translation>
+    </message>
+    <message>
+        <source>page title</source>
+        <translation>заголовок страницы</translation>
+    </message>
+</context>
+<context>
     <name>BrowseView</name>
     <message>
         <source>Site or search</source>
@@ -129,16 +140,8 @@
         <translation>Arinn открывает только адреса http и https</translation>
     </message>
     <message>
-        <source>A keyboard is needed to type</source>
-        <translation>Для ввода нужна клавиатура</translation>
-    </message>
-    <message>
-        <source>You can still open shortcuts with the remote.</source>
-        <translation>Ярлыки можно открыть и с пульта.</translation>
-    </message>
-    <message>
-        <source>Shortcuts</source>
-        <translation>Ярлыки</translation>
+        <source>Suggestions</source>
+        <translation>Подсказки</translation>
     </message>
     <message>
         <source>Open</source>
@@ -188,6 +191,10 @@
         <source>Back</source>
         <translation>Назад</translation>
     </message>
+    <message>
+        <source>No suggestions</source>
+        <translation>Подсказок нет</translation>
+    </message>
 </context>
 <context>
     <name>BrowserCatalog</name>
@@ -228,7 +235,7 @@
     </message>
     <message>
         <source>No open services</source>
-        <translation>Нет открытых сервисов</translation>
+        <translation>Открытых сервисов нет</translation>
     </message>
     <message>
         <source>Services you open from Home will appear here.</source>
@@ -586,10 +593,6 @@
         <translation>Адрес</translation>
     </message>
     <message>
-        <source>A keyboard is needed to type. Without a keyboard, use arinnctl shortcuts.</source>
-        <translation>Для ввода нужна клавиатура. Без клавиатуры используйте arinnctl shortcuts.</translation>
-    </message>
-    <message>
         <source>Save</source>
         <translation>Сохранить</translation>
     </message>
@@ -600,6 +603,18 @@
     <message>
         <source>Remove</source>
         <translation>Удалить</translation>
+    </message>
+    <message>
+        <source>Empty · The shortcut will be named after its domain: %1</source>
+        <translation>Пусто · Ярлык будет называться по домену: %1</translation>
+    </message>
+    <message>
+        <source>Done</source>
+        <translation>Готово</translation>
+    </message>
+    <message>
+        <source>No open services</source>
+        <translation>Открытых сервисов нет</translation>
     </message>
     <message>
         <source>Remove this shortcut?</source>
@@ -716,6 +731,40 @@
     <message>
         <source>Wi-Fi connected</source>
         <translation>Wi-Fi подключён</translation>
+    </message>
+</context>
+<context>
+    <name>KeyboardButton</name>
+    <message>
+        <source>Hide</source>
+        <translation>Скрыть</translation>
+    </message>
+    <message>
+        <source>Keyboard</source>
+        <translation>Клавиатура</translation>
+    </message>
+    <message>
+        <source>Hide the on-screen keyboard</source>
+        <translation>Скрыть экранную клавиатуру</translation>
+    </message>
+    <message>
+        <source>Open the on-screen keyboard</source>
+        <translation>Открыть экранную клавиатуру</translation>
+    </message>
+</context>
+<context>
+    <name>KeyboardModel</name>
+    <message>
+        <source>RU</source>
+        <translation>РУ</translation>
+    </message>
+    <message>
+        <source>EN</source>
+        <translation>EN</translation>
+    </message>
+    <message>
+        <source>Space</source>
+        <translation>Пробел</translation>
     </message>
 </context>
 <context>
@@ -947,6 +996,33 @@
     <message>
         <source>Off</source>
         <translation>Выкл.</translation>
+    </message>
+</context>
+<context>
+    <name>OnScreenKeyboard</name>
+    <message>
+        <source>OK</source>
+        <translation>OK</translation>
+    </message>
+    <message>
+        <source>Type</source>
+        <translation>Ввести</translation>
+    </message>
+    <message>
+        <source>To suggestions</source>
+        <translation>К подсказкам</translation>
+    </message>
+    <message>
+        <source>To the field</source>
+        <translation>К полю</translation>
+    </message>
+    <message>
+        <source>Back</source>
+        <translation>Назад</translation>
+    </message>
+    <message>
+        <source>Hide keyboard</source>
+        <translation>Скрыть клавиатуру</translation>
     </message>
 </context>
 <context>
@@ -1382,12 +1458,8 @@
         <translation>%1 из %2 символов</translation>
     </message>
     <message>
-        <source>A keyboard is needed to type</source>
-        <translation>Для ввода нужна клавиатура</translation>
-    </message>
-    <message>
-        <source>Connect a USB or Bluetooth keyboard, or change it from a computer:</source>
-        <translation>Подключите USB- или Bluetooth-клавиатуру или измените с компьютера:</translation>
+        <source>Up to %1 characters</source>
+        <translation>До %1 символов</translation>
     </message>
     <message>
         <source>Save</source>
@@ -1396,10 +1468,6 @@
     <message>
         <source>Cancel</source>
         <translation>Отмена</translation>
-    </message>
-    <message>
-        <source>Back</source>
-        <translation>Назад</translation>
     </message>
 </context>
 <context>

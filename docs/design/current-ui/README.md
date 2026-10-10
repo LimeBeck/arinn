@@ -4,9 +4,13 @@
 # Current Qt interface captures
 
 Captured on 2026-10-08 at 1920 × 1080 using Qt 6.11.2, the offscreen platform
-and software Qt Quick renderer. These images show the screens the production
-shell mounts: Home, navigation, Library, Applications, Open services, Now
-playing and Settings. They are not the historical HTML prototype.
+and software Qt Quick renderer; `keyboard.png` was added on 2026-10-10 with
+Qt 6.12.0 in the same mode. These images show the screens the production
+shell mounts: Home, navigation, Library, Applications, Open services, the
+on-screen keyboard on Site or search, Now playing and Settings. They are not
+the historical HTML prototype. The keyboard capture shows fictional history
+and one fictional open service on `north.example`; it opens the panel the way
+the keyboard button does.
 
 The gallery uses fixed fictional content, one original placeholder image
 (`fixture-artwork.svg`) and neutral application monograms. Continue cards,
@@ -44,6 +48,9 @@ QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
 QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
   build/apps/arinn-shell/arinn-ui-gallery --browser \
   --capture docs/design/current-ui/open-services.png
+QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
+  build/apps/arinn-shell/arinn-ui-gallery --keyboard \
+  --capture docs/design/current-ui/keyboard.png
 QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
   build/apps/arinn-shell/arinn-ui-gallery --now-playing \
   --capture docs/design/current-ui/now-playing.png

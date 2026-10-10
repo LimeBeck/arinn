@@ -1,0 +1,2 @@
+- On-screen keyboard: Site or search, the web shortcut editor and string settings can be typed with the remote alone. Its suggestions on Site or search are recent entries and open services; web shortcuts are no longer suggested there. An empty shortcut name now saves the address's host ([#418](https://github.com/LimeBeck/arinn/issues/418), [ADR-0103](docs/adr/0103-on-screen-keyboard.md)).
+- README (English and Russian), the website gallery and the handbook show and describe the on-screen keyboard; the gallery captures it with `arinn-ui-gallery --keyboard`.

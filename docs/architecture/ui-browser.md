@@ -233,9 +233,11 @@ never constructs a search URL or selects an engine by product name.
 
 The already-open hint compares scheme, host (ignoring `www.`) and effective
 port with active browser tabs in the C++ model. The daemon/provider owns
-focus-or-create. Suggestions match word prefixes in shortcut names and addresses,
-up to three; selecting one uses the existing shortcut-open flow. Existing Save
-controls in Open services continue to use `WebShortcuts1.Add`.
+focus-or-create. Suggestions are recent entries, then open services, that match
+word prefixes of the text, up to four; web shortcuts are not suggested
+([ADR-0103](../adr/0103-on-screen-keyboard.md)). Selecting one puts its value in
+the field: an open service's value is its origin, so the already-open hint names
+it. Existing Save controls in Open services continue to use `WebShortcuts1.Add`.
 
 Recent entries come from `GetRecent`, refresh on `RecentChanged` and clear through
 `ClearRecent`. The shell persists no typed text or browser history. Text, resolved
@@ -243,18 +245,19 @@ URLs and recent entries are not logged. Returning with Back clears the current
 text and invalidates outstanding resolution replies. Daemon owner changes clear
 all transient state and reload shortcut/recent data after reconnect.
 
-The hardware-keyboard field and remote controls share one focus scope. Without a
-keyboard, shortcuts remain reachable; a printable key enables input and inserts
-that character. Ordinary browser applications remain in the Home/Applications
+The field, its keyboard button and the remote controls share one focus scope.
+The [on-screen keyboard](ui-keyboard.md) opens from the button; without a
+hardware keyboard the screen starts there, and a printable key still enables the
+field and inserts that character. Ordinary browser applications remain in the Home/Applications
 catalog and are also exposed as secondary launch actions for provider-declared
 Online application entries. These actions use the ordinary application launch
-API, with no product-name matching. The scrollable choices keep recent entries,
-shortcuts and secondary actions reachable on a full catalogue.
+API, with no product-name matching. The scrollable choices keep suggestions,
+recent entries and secondary actions reachable on a full catalogue.
 
 `browse-catalog` checks stale resolution replies, origin hints, duplicate opens,
-operation failure and recent clearing on a private bus. `tst_browse.qml` checks
-input, invalid text, recent-entry navigation, remote-only input and unavailable
-feedback. `phase1.py` exercises the live daemon's resolution, confirmation and
+operation failure, recent clearing and suggestions on a private bus.
+`tst_browse.qml` checks input, invalid text, recent-entry navigation, remote-only
+input, the on-screen keyboard and unavailable feedback. `phase1.py` exercises the live daemon's resolution, confirmation and
 recent clearing, including resolution without recording. Its Qt client fixture
 confirms text through the real daemon, and a synthetic browser provider receives
 the resolved URL. Real browser/KDE/TV

@@ -27,6 +27,33 @@ FocusScope {
     }
     readonly property bool shortcutEditorOpen: shortcutEditor.id !== undefined
     property var shortcutOpener: null
+    // The on-screen keyboard over the shortcut editor (KB-2, KB-3): the
+    // field being typed, "title" or "url", or empty.
+    property string shortcutTypingField: ""
+    readonly property string shortcutTypingText: shortcutTypingInput.text
+    readonly property string shortcutDraftUrl: shortcutUrl.text
+    // Suggestions computed by the shell's C++ catalog from the two above.
+    property var shortcutAddressSuggestions: []
+    property var shortcutNameSuggestions: []
+    function startShortcutTyping(field) {
+        if (root.shortcutSaving) return;
+        const target = field === "url" ? shortcutUrl : shortcutTitle;
+        shortcutTypingField = field;
+        shortcutTypingInput.maximumLength = target.maximumLength;
+        shortcutTypingInput.text = target.text;
+        shortcutTypingInput.cursorPosition = shortcutTypingInput.text.length;
+        shortcutKeyboard.start();
+    }
+    // Done moves on to the next control; Back returns to the field's button.
+    function finishShortcutTyping(done) {
+        const field = shortcutTypingField;
+        if (!field.length) return;
+        shortcutKeyboard.finish();
+        shortcutTypingField = "";
+        if (!done) Focus.take(field === "url" ? shortcutUrlKeyboard : shortcutTitleKeyboard);
+        else if (field === "url") Focus.take(shortcutSave);
+        else Focus.take(keyboardAvailable ? shortcutUrl : shortcutUrlKeyboard);
+    }
     signal editShortcutRequested(string entryId)
     signal closeShortcutEditorRequested()
     signal saveShortcutRequested(string title, string url)
@@ -40,8 +67,13 @@ FocusScope {
             shortcutTitle.text = shortcutEditor.title || "";
             shortcutUrl.text = shortcutEditor.url || "";
             removeConfirmation.visible = false;
-            Qt.callLater(() => keyboardAvailable ? Focus.take(shortcutTitle) : Focus.take(shortcutCancel));
+            // Without a hardware keyboard the remote types through the panel.
+            Qt.callLater(() => keyboardAvailable ? Focus.take(shortcutTitle) : Focus.take(shortcutTitleKeyboard));
         } else {
+            if (shortcutTypingField.length) {
+                shortcutKeyboard.finish();
+                shortcutTypingField = "";
+            }
             shortcutTitle.text = "";
             shortcutUrl.text = "";
             if (shortcutOpener && shortcutOpener.visible && shortcutOpener.enabled)
@@ -968,7 +1000,7 @@ FocusScope {
         Keys.onPressed: event => {
             event.accepted = true;
             if (event.key === Qt.Key_Home) root.homeKey();
-            else if (event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace) {
+            else if (event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace || event.key === Qt.Key_Back) {
                 if (removeConfirmation.visible) {
                     removeConfirmation.visible = false;
                     Focus.take(shortcutDelete);
@@ -990,6 +1022,7 @@ FocusScope {
                     TextInput {
                         id: shortcutTitle; objectName: "shortcutTitle"
                         anchors.fill: parent; anchors.margins: 24
+                        anchors.rightMargin: shortcutTitleKeyboard.width + 32
                         font.family: Theme.fontFamily; font.pixelSize: 36; color: Theme.textPrimary
                         selectByMouse: true; clip: true
                         readOnly: root.shortcutSaving || !root.keyboardAvailable
@@ -998,7 +1031,21 @@ FocusScope {
                         Keys.onReturnPressed: Focus.take(shortcutUrl)
                         Keys.onEnterPressed: Focus.take(shortcutUrl)
                         Keys.onEscapePressed: root.closeShortcutEditorRequested()
-                        Keys.onPressed: event => { if (event.key === Qt.Key_Home) { root.homeKey(); event.accepted = true; } }
+                        Keys.onPressed: event => {
+                            if (event.key === Qt.Key_Home) { root.homeKey(); event.accepted = true; }
+                            // Right at the end of the text reaches the keyboard button.
+                            else if (event.key === Qt.Key_Right && cursorPosition === length) {
+                                Focus.take(shortcutTitleKeyboard); event.accepted = true;
+                            }
+                        }
+                    }
+                    KeyboardButton {
+                        id: shortcutTitleKeyboard; objectName: "shortcutTitleKeyboard"
+                        x: parent.width - width - 8; anchors.verticalCenter: parent.verticalCenter
+                        enabled: !root.shortcutSaving
+                        onActivated: root.startShortcutTyping("title")
+                        Keys.onLeftPressed: if (root.keyboardAvailable) Focus.take(shortcutTitle)
+                        Keys.onDownPressed: Focus.take(root.keyboardAvailable ? shortcutUrl : shortcutUrlKeyboard)
                     }
                 }
                 UiText { text: qsTr("Address"); color: Theme.textSecondary }
@@ -1008,6 +1055,7 @@ FocusScope {
                     TextInput {
                         id: shortcutUrl; objectName: "shortcutUrl"
                         anchors.fill: parent; anchors.margins: 24
+                        anchors.rightMargin: shortcutUrlKeyboard.width + 32
                         font.family: Theme.fontFamily; font.pixelSize: 36; color: Theme.textPrimary
                         selectByMouse: true; clip: true
                         readOnly: root.shortcutSaving || !root.keyboardAvailable
@@ -1017,29 +1065,43 @@ FocusScope {
                         Keys.onReturnPressed: Focus.take(shortcutSave)
                         Keys.onEnterPressed: Focus.take(shortcutSave)
                         Keys.onEscapePressed: root.closeShortcutEditorRequested()
-                        Keys.onPressed: event => { if (event.key === Qt.Key_Home) { root.homeKey(); event.accepted = true; } }
+                        Keys.onPressed: event => {
+                            if (event.key === Qt.Key_Home) { root.homeKey(); event.accepted = true; }
+                            else if (event.key === Qt.Key_Right && cursorPosition === length) {
+                                Focus.take(shortcutUrlKeyboard); event.accepted = true;
+                            }
+                        }
+                    }
+                    KeyboardButton {
+                        id: shortcutUrlKeyboard; objectName: "shortcutUrlKeyboard"
+                        x: parent.width - width - 8; anchors.verticalCenter: parent.verticalCenter
+                        enabled: !root.shortcutSaving
+                        onActivated: root.startShortcutTyping("url")
+                        Keys.onLeftPressed: if (root.keyboardAvailable) Focus.take(shortcutUrl)
+                        Keys.onUpPressed: Focus.take(root.keyboardAvailable ? shortcutTitle : shortcutTitleKeyboard)
+                        Keys.onDownPressed: Focus.take(shortcutSave)
                     }
                 }
                 UiText {
                     width: parent.width; height: 80; font.pixelSize: 28
-                    text: !root.keyboardAvailable ? qsTr("A keyboard is needed to type. Without a keyboard, use arinnctl shortcuts.") : root.shortcutError
+                    text: root.shortcutError
                     color: root.shortcutError.length ? Theme.error : Theme.textSecondary
                 }
                 Row {
                     spacing: 24
                     ActionButton {
                         id: shortcutSave; objectName: "shortcutSave"; text: qsTr("Save")
-                        visible: root.keyboardAvailable; busy: root.shortcutSaving
+                        busy: root.shortcutSaving
                         onActivated: if (!root.shortcutSaving) root.saveShortcutRequested(shortcutTitle.text, shortcutUrl.text)
-                        Keys.onUpPressed: Focus.take(shortcutUrl)
+                        Keys.onUpPressed: Focus.take(root.keyboardAvailable ? shortcutUrl : shortcutUrlKeyboard)
                         Keys.onRightPressed: Focus.take(shortcutCancel)
                     }
                     ActionButton {
                         id: shortcutCancel; objectName: "shortcutCancel"; text: qsTr("Cancel")
                         onActivated: root.closeShortcutEditorRequested()
-                        Keys.onLeftPressed: if (shortcutSave.visible) Focus.take(shortcutSave)
+                        Keys.onLeftPressed: Focus.take(shortcutSave)
                         Keys.onRightPressed: if (shortcutDelete.visible) Focus.take(shortcutDelete)
-                        Keys.onUpPressed: if (root.keyboardAvailable) Focus.take(shortcutUrl)
+                        Keys.onUpPressed: Focus.take(root.keyboardAvailable ? shortcutUrl : shortcutUrlKeyboard)
                     }
                     ActionButton {
                         id: shortcutDelete; objectName: "shortcutDelete"; text: qsTr("Remove"); destructive: true
@@ -1047,6 +1109,106 @@ FocusScope {
                         onActivated: if (!root.shortcutSaving) { removeConfirmation.visible = true; Focus.take(confirmCancel); }
                         Keys.onLeftPressed: Focus.take(shortcutCancel)
                     }
+                }
+            }
+        }
+        // Typing a field with the on-screen keyboard (KB-2, KB-3): the field
+        // on top and the panel below. The text goes into the form at once;
+        // Done moves on, Back returns to the form.
+        FocusScope {
+            id: shortcutTyping; objectName: "shortcutTyping"
+            anchors.fill: parent; z: 10
+            visible: root.shortcutTypingField.length > 0
+            enabled: visible
+            readonly property bool url: root.shortcutTypingField === "url"
+            readonly property string domain: {
+                const names = root.shortcutNameSuggestions || [];
+                for (const entry of names) if (entry.kind === "domain") return entry.value;
+                return "";
+            }
+            Keys.onPressed: event => {
+                if (event.key === Qt.Key_Home) return;
+                event.accepted = true;
+                if (event.key === Qt.Key_Escape || event.key === Qt.Key_Back || event.key === Qt.Key_Backspace) {
+                    if (!event.isAutoRepeat) root.finishShortcutTyping(false);
+                } else if (event.key === Qt.Key_Down) {
+                    shortcutKeyboard.enterFromAbove();
+                } else if (event.text.length && event.text.charCodeAt(0) >= 32
+                           && !(event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier))) {
+                    shortcutKeyboard.insertText(event.text);
+                }
+            }
+            Rectangle { anchors.fill: parent; color: Theme.background; MouseArea { anchors.fill: parent } }
+            Row {
+                x: 120; y: 64; spacing: 24
+                UiText {
+                    text: root.shortcutEditor.id ? qsTr("Edit shortcut") : qsTr("Add application")
+                    font.pixelSize: 56; font.weight: 700; wrapMode: Text.NoWrap
+                }
+                UiText {
+                    y: 26
+                    text: shortcutTyping.url ? qsTr("Address") : qsTr("Title")
+                    color: Theme.textHint; wrapMode: Text.NoWrap
+                }
+            }
+            Rectangle {
+                x: 120; y: 160; width: 1680; height: 132; radius: 34
+                color: Qt.rgba(1, 1, 1, 0.12)
+                border.width: 3; border.color: Theme.ring
+                UiText {
+                    id: shortcutTypingLabel
+                    x: 32; anchors.verticalCenter: parent.verticalCenter
+                    text: shortcutTyping.url ? qsTr("Address") : qsTr("Title")
+                    color: Theme.textHint; wrapMode: Text.NoWrap
+                }
+                TextInput {
+                    id: shortcutTypingInput; objectName: "shortcutTypingInput"
+                    x: shortcutTypingLabel.x + shortcutTypingLabel.width + 24
+                    width: shortcutTypingKeyboard.x - x - 24
+                    height: 80; anchors.verticalCenter: parent.verticalCenter
+                    font.family: Theme.fontFamily; font.pixelSize: 48; font.weight: 500
+                    color: Theme.textPrimary; verticalAlignment: TextInput.AlignVCenter; clip: true
+                    // Focus stays on the panel; a hardware keyboard reaches
+                    // the text through it.
+                    cursorVisible: shortcutTyping.visible
+                    cursorDelegate: Rectangle { width: 4; color: Theme.ember; visible: shortcutTypingInput.cursorVisible }
+                    onTextChanged: if (shortcutTyping.visible) {
+                        if (shortcutTyping.url) shortcutUrl.text = text;
+                        else shortcutTitle.text = text;
+                    }
+                }
+                KeyboardButton {
+                    id: shortcutTypingKeyboard; objectName: "shortcutTypingKeyboard"
+                    x: parent.width - width - 24; anchors.verticalCenter: parent.verticalCenter
+                    panelOpen: true
+                    onActivated: root.finishShortcutTyping(false)
+                }
+            }
+            UiText {
+                objectName: "shortcutTypingIntent"
+                x: 152; y: 320; width: 1600; font.pixelSize: 30; elide: Text.ElideRight
+                color: Theme.textSecondary
+                // KB-3: an empty name is allowed; the host is used.
+                visible: !shortcutTyping.url && !shortcutTypingInput.text.trim().length && shortcutTyping.domain.length > 0
+                text: qsTr("Empty · The shortcut will be named after its domain: %1").arg(shortcutTyping.domain)
+            }
+            OnScreenKeyboard {
+                id: shortcutKeyboard; objectName: "shortcutKeyboard"
+                y: parent.height - implicitHeight
+                target: shortcutTypingInput
+                memoryKey: shortcutTyping.url ? "shortcut-url" : "shortcut-title"
+                context: shortcutTyping.url ? "address" : ""
+                submitLabel: qsTr("Done")
+                suggestions: shortcutTyping.url ? root.shortcutAddressSuggestions : root.shortcutNameSuggestions
+                emptySuggestions: shortcutTyping.url ? qsTr("No open services") : ""
+                onSubmitted: root.finishShortcutTyping(true)
+                onHideRequested: root.finishShortcutTyping(false)
+                onLeaveUp: Focus.take(shortcutTypingKeyboard)
+                onSuggestionChosen: index => {
+                    const entry = suggestions[index];
+                    if (!entry) return;
+                    shortcutTypingInput.text = entry.value;
+                    shortcutTypingInput.cursorPosition = shortcutTypingInput.text.length;
                 }
             }
         }

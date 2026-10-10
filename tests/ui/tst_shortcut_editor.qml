@@ -77,13 +77,104 @@ TestCase {
         verify(!home.shortcutEditorOpen);
         compare(home.screen, "home");
     }
-    function test_keyboard_unavailable_keeps_cancel_reachable() {
+    function key(row, column) { return child("keyboardKey-" + row + "-" + column); }
+    // Without a hardware keyboard the editor is no longer a dead end: the
+    // remote types both fields through the on-screen keyboard (KB-2, KB-3).
+    function test_remote_types_both_fields_and_saves() {
         home.keyboardAvailable = false;
-        keyClick(Qt.Key_Menu); focused("shortcutCancel");
+        keyClick(Qt.Key_Menu); focused("shortcutTitleKeyboard");
         verify(child("shortcutTitle").readOnly);
-        verify(!child("shortcutSave").visible);
+        verify(child("shortcutSave").visible);
+        child("shortcutKeyboard").model.forget();
+        keyClick(Qt.Key_Return);
+        tryCompare(home, "shortcutTypingField", "title");
+        focused("keyboardKeys");
+        compare(child("shortcutTypingInput").text, "Example");
+        // The name field has no context row: the middle letter row is row 1.
+        tryCompare(key(1, 4), "focused", true);
+        keyClick(Qt.Key_Return);
+        compare(child("shortcutTitle").text, "Exampleg");
+        // Done (the main key) moves on to the address field's button.
+        keyClick(Qt.Key_Down); keyClick(Qt.Key_Down);
+        for (let i = 0; i < 8; ++i) keyClick(Qt.Key_Right);
+        tryCompare(key(3, 7), "focused", true);
+        compare(key(3, 7).modelData.label, "Done");
+        keyClick(Qt.Key_Return);
+        tryCompare(home, "shortcutTypingField", "");
+        focused("shortcutUrlKeyboard");
+        // The address field types with the address row; Back keeps the text.
+        child("shortcutKeyboard").model.forget();
+        keyClick(Qt.Key_Return);
+        tryCompare(home, "shortcutTypingField", "url");
+        tryCompare(key(0, 0), "visible", true);
+        compare(key(0, 0).modelData.label, "https://");
+        keyClick(Qt.Key_Up); keyClick(Qt.Key_Up);
+        keyClick(Qt.Key_Return);
+        compare(child("shortcutUrl").text, "https://example.test.ru");
+        keyClick(Qt.Key_Escape);
+        tryCompare(home, "shortcutTypingField", "");
+        focused("shortcutUrlKeyboard");
+        verify(home.shortcutEditorOpen);
+        keyClick(Qt.Key_Down); focused("shortcutSave");
+        keyClick(Qt.Key_Return);
+        compare(saves.count, 1);
+        compare(saves.signalArguments[0][0], "Exampleg");
+        compare(saves.signalArguments[0][1], "https://example.test.ru");
+        keyClick(Qt.Key_Right); focused("shortcutCancel");
         keyClick(Qt.Key_Return);
         verify(!home.shortcutEditorOpen);
         focused("entry-one");
+    }
+    function test_name_suggestions_and_the_empty_name_line() {
+        home.shortcutNameSuggestions = [{kind: "title", title: "Media Library", subtitle: "page title", value: "Media Library"},
+                                        {kind: "domain", icon: "public", title: "example.test", subtitle: "domain", value: "example.test"}];
+        openEditor();
+        keyClick(Qt.Key_End);
+        keyClick(Qt.Key_Right); focused("shortcutTitleKeyboard");
+        keyClick(Qt.Key_Return);
+        tryCompare(home, "shortcutTypingField", "title");
+        // The empty-name line shows the domain that will be used.
+        for (let i = 0; i < 7; ++i) child("shortcutKeyboard").erase();
+        compare(child("shortcutTitle").text, "");
+        verify(child("shortcutTypingIntent").visible);
+        verify(child("shortcutTypingIntent").text.indexOf("example.test") >= 0);
+        // Up from the top letter row reaches the suggestions.
+        keyClick(Qt.Key_Up); keyClick(Qt.Key_Up);
+        tryCompare(child("keyboardSuggestion-0"), "focused", true);
+        keyClick(Qt.Key_Return);
+        compare(child("shortcutTitle").text, "Media Library");
+        verify(!child("shortcutTypingIntent").visible);
+        // Up again leaves the panel for the field's Hide button; Back there
+        // returns to the form.
+        keyClick(Qt.Key_Up); focused("shortcutTypingKeyboard");
+        keyClick(Qt.Key_Escape);
+        tryCompare(home, "shortcutTypingField", "");
+        focused("shortcutTitleKeyboard");
+    }
+    // A remote's Back hides the panel first, then leaves the editor.
+    function test_back_key_hides_the_panel_then_closes_the_editor() {
+        openEditor();
+        keyClick(Qt.Key_End);
+        keyClick(Qt.Key_Right);
+        keyClick(Qt.Key_Return);
+        tryCompare(home, "shortcutTypingField", "title");
+        keyClick(Qt.Key_Back);
+        tryCompare(home, "shortcutTypingField", "");
+        focused("shortcutTitleKeyboard");
+        verify(home.shortcutEditorOpen);
+        keyClick(Qt.Key_Back);
+        verify(!home.shortcutEditorOpen);
+        focused("entry-one");
+    }
+    function test_home_while_typing_closes_the_editor() {
+        openEditor();
+        keyClick(Qt.Key_End);
+        keyClick(Qt.Key_Right);
+        keyClick(Qt.Key_Return);
+        tryCompare(home, "shortcutTypingField", "title");
+        keyClick(Qt.Key_Home);
+        verify(!home.shortcutEditorOpen);
+        compare(home.shortcutTypingField, "");
+        compare(home.screen, "home");
     }
 }

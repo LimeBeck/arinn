@@ -15,6 +15,9 @@ TestCase {
     visible: true
     when: windowShown
     property var view
+    // Keys the view leaves unhandled reach the suite, as they reach Main.qml.
+    property int menuKeys: 0
+    Keys.onPressed: event => { if (event.key === Qt.Key_Menu) ++menuKeys; }
 
     Component {
         id: factory
@@ -492,6 +495,10 @@ TestCase {
         verify(insideView(windowFocus()));
     }
 
+    function keyAt(row, column) { return child("keyboardKey-" + row + "-" + column); }
+
+    // STR-2 is no longer a dead end: without a hardware keyboard, the remote
+    // types through the on-screen keyboard (KB-4, ADR-0103).
     function test_string_without_keyboard() {
         view.keyboardAvailable = false;
         down(4);
@@ -499,19 +506,105 @@ TestCase {
         keyClick(Qt.Key_Right);
         focused("setting-shell-label");
         keyClick(Qt.Key_Return);
-        focused("keyboardBack");
-        compare(child("keyboardPrompt").visible, true);
-        compare(child("keyboardOff").text, "A keyboard is needed to type");
-        compare(child("settingsCommand").text, "arinnctl settings set");
+        focused("stringKeyboard");
+        verify(child("stringSave").visible);
+        child("stringOnScreenKeyboard").model.forget();
         keyClick(Qt.Key_Return);
+        tryCompare(view, "stringTyping", true);
+        focused("keyboardKeys");
+        compare(child("stringTypingInput").text, "note");
+        // No context row: the fifth key of the middle letter row.
+        tryCompare(keyAt(1, 4), "focused", true);
+        keyClick(Qt.Key_Return);
+        compare(child("editor-shell-label").text, "noteg");
+        // Back returns to the sheet's keyboard button without saving.
+        keyClick(Qt.Key_Escape);
+        tryCompare(view, "stringTyping", false);
+        focused("stringKeyboard");
         compare(changes.count, 0);
-        focused("setting-shell-label");
-        keyClick(Qt.Key_Return);
-        focused("keyboardBack");
+        // A key from a hardware keyboard still wakes the field.
         keyClick(Qt.Key_A);
         focused("editor-shell-label");
-        compare(child("editor-shell-label").text, "notea");
+        compare(child("editor-shell-label").text, "notega");
         verify(insideView(windowFocus()));
+    }
+
+    function test_string_panel_saves_with_its_main_key() {
+        down(4);
+        keyClick(Qt.Key_Right);
+        focused("setting-shell-label");
+        keyClick(Qt.Key_Return);
+        focused("editor-shell-label");
+        keyClick(Qt.Key_End);
+        keyClick(Qt.Key_Right);
+        focused("stringKeyboard");
+        child("stringOnScreenKeyboard").model.forget();
+        keyClick(Qt.Key_Return);
+        tryCompare(view, "stringTyping", true);
+        keyClick(Qt.Key_Down);
+        keyClick(Qt.Key_Down);
+        for (let i = 0; i < 8; ++i) keyClick(Qt.Key_Right);
+        tryCompare(keyAt(3, 7), "focused", true);
+        compare(keyAt(3, 7).modelData.label, "Save");
+        keyClick(Qt.Key_Escape);
+        tryCompare(view, "stringTyping", false);
+        compare(changes.count, 0);
+        keyClick(Qt.Key_Return);
+        tryCompare(view, "stringTyping", true);
+        tryCompare(keyAt(3, 7), "focused", true);
+        keyClick(Qt.Key_Return);
+        compare(changes.count, 1);
+        compare(changes.signalArguments[0][2], "note");
+        tryCompare(view, "stringTyping", false);
+    }
+
+    function test_string_panel_counter_and_limit() {
+        down(4);
+        keyClick(Qt.Key_Right);
+        focused("setting-shell-label");
+        keyClick(Qt.Key_Return);
+        focused("editor-shell-label");
+        keyClick(Qt.Key_End);
+        keyClick(Qt.Key_Right);
+        keyClick(Qt.Key_Return);
+        tryCompare(view, "stringTyping", true);
+        const input = child("stringTypingInput");
+        const counter = child("stringTypingCounter");
+        // The fixture allows 40 characters: the counter shows from 30.
+        input.text = "a".repeat(29);
+        verify(!counter.visible);
+        const fullWidth = input.width;
+        input.text = "a".repeat(30);
+        verify(counter.visible);
+        compare(counter.text, "30 / 40");
+        // The field ends before the counter, so the caret is never under it.
+        verify(input.width < fullWidth);
+        verify(input.mapToItem(null, input.width, 0).x
+               <= counter.mapToItem(null, 0, 0).x);
+        // The limit counts characters, as the settings contract does: an
+        // emoji outside the BMP is one character, not two UTF-16 units.
+        input.text = "a".repeat(39);
+        child("stringOnScreenKeyboard").insertText("\u{1F600}");
+        compare([...input.text].length, 40);
+        compare(counter.color, Qt.color("#E8474F"));
+        // Input past the limit is ignored.
+        child("stringOnScreenKeyboard").insertText("b");
+        compare([...input.text].length, 40);
+        compare([...view.editingDraft].length, 40);
+        // Key text outside the BMP counts as typed text for every handler in
+        // the sheet and the layer (QtTest cannot send it as a key).
+        verify(view.printable("\u{1F600}"));
+        verify(view.printable("a"));
+        verify(!view.printable("\u0001"));
+        verify(!view.printable(""));
+        // Menu is left to the shell's navigation, as on every screen.
+        suite.menuKeys = 0;
+        keyClick(Qt.Key_Menu);
+        compare(suite.menuKeys, 1);
+        verify(view.stringTyping);
+        keyClick(Qt.Key_Home);
+        tryCompare(view, "stringTyping", false);
+        compare(changes.count, 0);
     }
 
     function test_saving_feedback() {

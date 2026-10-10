@@ -31,6 +31,32 @@ QString origin(const QString &text) {
   return url.scheme() + "|" + host + "|" +
          QString::number(url.port(url.scheme() == "https" ? 443 : 80));
 }
+// Word prefixes, as on the address and search screen: "med" finds
+// "Media Library" and "https://media.example".
+bool matchesQuery(const QString &query, const QStringList &texts) {
+  if (query.isEmpty())
+    return true;
+  for (const auto &text : texts) {
+    const auto folded = text.toCaseFolded();
+    auto words = folded.split(QRegularExpression("[^\\p{L}\\p{N}]+"),
+                              Qt::SkipEmptyParts);
+    words << folded;
+    if (std::any_of(
+            words.cbegin(), words.cend(),
+            [&query](const QString &word) { return word.startsWith(query); }))
+      return true;
+  }
+  return false;
+}
+// Host with an explicit port, without "www.", for display and matching.
+QString hostOf(const QUrl &url) {
+  auto host = url.host();
+  if (host.startsWith("www."))
+    host.remove(0, 4);
+  if (url.port() != -1)
+    host += ":" + QString::number(url.port());
+  return host;
+}
 void registerBrowse() {
   qmlRegisterType<BrowseCatalog>("Arinn.Shell", 1, 0, "BrowseCatalog");
 }
@@ -40,23 +66,17 @@ BrowseCatalog::BrowseCatalog(QObject *parent) : QObject(parent) {
   auto bus = QDBusConnection::sessionBus();
   bus.connect(service, path, "org.arinn.Browse1", "RecentChanged", this,
               SLOT(refreshRecent()));
-  bus.connect(service, path, "org.arinn.WebShortcuts1", "Changed", this,
-              SLOT(refreshShortcuts()));
   auto *owner = new QDBusServiceWatcher(
       service, bus, QDBusServiceWatcher::WatchForOwnerChange, this);
   connect(owner, &QDBusServiceWatcher::serviceOwnerChanged, this, [this] {
     reset();
     ++m_recentRead;
-    ++m_shortcutRead;
     m_recent.clear();
-    m_shortcuts.clear();
     m_tabs.clear();
     emit changed();
     refreshRecent();
-    refreshShortcuts();
   });
   refreshRecent();
-  refreshShortcuts();
 }
 void BrowseCatalog::reset() {
   ++m_resolve;
@@ -88,37 +108,104 @@ QString BrowseCatalog::openTitle() const {
   }
   return {};
 }
+// Recent entries, then the open services, that match the text: up to four
+// for the on-screen keyboard's suggestion row (spec §7.1, ADR-0103). Web
+// shortcuts are not suggested; their tiles are on Home.
 QVariantList BrowseCatalog::suggestions() const {
   QVariantList result;
   const auto query = m_text.trimmed().toCaseFolded();
-  for (const auto &row : m_shortcuts) {
-    const auto shortcut = row.toMap();
-    const auto title = shortcut.value("title").toString().toCaseFolded();
-    const auto address = shortcut.value("url").toString().toCaseFolded();
-    auto words =
-        (title + " " + address)
-            .split(QRegularExpression("[^\\p{L}\\p{N}]+"), Qt::SkipEmptyParts);
-    words << title << address << address.section("://", 1);
-    if (!query.isEmpty() && std::none_of(words.cbegin(), words.cend(),
-                                         [&query](const QString &word) {
-                                           return word.startsWith(query);
-                                         }))
+  for (const auto &entry : m_recent) {
+    if (result.size() == 4)
+      return result;
+    if (entry.trimmed().toCaseFolded() == query ||
+        !matchesQuery(query, {entry}))
       continue;
-    bool opened = false;
-    const auto wanted = origin(shortcut.value("url").toString());
-    for (const auto &tabRow : m_tabs) {
-      const auto tab = tabRow.toMap();
-      if (!wanted.isEmpty() && tab.value("active").toBool() &&
-          origin(tab.value("url").toString()) == wanted)
-        opened = true;
-    }
-    result.append(QVariantMap{
-        {"id", shortcut.value("id")},
-        {"title", shortcut.value("title")},
-        {"open", opened},
-        {"subtitle", QUrl(shortcut.value("url").toString()).host()}});
-    if (result.size() == 3)
+    result.append(QVariantMap{{"kind", "recent"},
+                              {"icon", "history"},
+                              {"title", entry},
+                              {"subtitle", QString()},
+                              {"value", entry},
+                              {"open", false}});
+  }
+  for (const auto &service : openServices(m_text)) {
+    if (result.size() == 4)
       break;
+    result.append(service);
+  }
+  return result;
+}
+QVariantList BrowseCatalog::openServices(const QString &text) const {
+  QVariantList result;
+  const auto query = text.trimmed().toCaseFolded();
+  QStringList origins;
+  for (const auto &row : m_tabs) {
+    if (result.size() == 4)
+      break;
+    const auto tab = row.toMap();
+    const QUrl url(tab.value("url").toString());
+    const auto key = origin(url.toString());
+    if (!tab.value("active").toBool() || key.isEmpty() || origins.contains(key))
+      continue;
+    origins << key;
+    const auto host = hostOf(url);
+    const auto title = tab.value("title").toString();
+    // The origin with its scheme: Browse1 and the web shortcut rules take
+    // it as typed.
+    const auto value = url.adjusted(QUrl::RemovePath | QUrl::RemoveQuery |
+                                    QUrl::RemoveFragment | QUrl::RemoveUserInfo)
+                           .toString();
+    // The origin too, so a typed scheme ("https://med") still matches.
+    if (value.toCaseFolded() == query ||
+        !matchesQuery(query, {title, host, value}))
+      continue;
+    result.append(QVariantMap{{"kind", "open"},
+                              {"icon", "public"},
+                              {"title", title.isEmpty() ? host : title},
+                              {"subtitle", host},
+                              {"value", value},
+                              {"open", true}});
+  }
+  return result;
+}
+QVariantList BrowseCatalog::nameSuggestions(const QString &address,
+                                            const QString &text) const {
+  const auto url = QUrl::fromUserInput(address.trimmed());
+  const auto host = hostOf(url);
+  if (address.trimmed().isEmpty() || url.host().isEmpty())
+    return {};
+  // With a scheme the page must have the same origin (scheme, host and
+  // effective port); a bare host matches the page's host and port.
+  const bool scheme = address.contains("://");
+  const auto wanted = origin(url.toString());
+  QStringList names;
+  for (const auto &row : m_tabs) {
+    const auto tab = row.toMap();
+    const QUrl open(tab.value("url").toString());
+    const auto title = tab.value("title").toString().trimmed();
+    const bool same =
+        scheme ? !wanted.isEmpty() && origin(open.toString()) == wanted
+               : hostOf(open) == host;
+    if (tab.value("active").toBool() && !title.isEmpty() && same) {
+      names << title;
+      break;
+    }
+  }
+  QVariantList result;
+  const auto query = text.trimmed().toCaseFolded();
+  const QStringList kinds{"title", "domain"};
+  names << host;
+  for (int i = 0; i < names.size(); ++i) {
+    const auto folded = names[i].toCaseFolded();
+    const auto kind = i + 1 == names.size() ? kinds[1] : kinds[0];
+    if (folded == query || !matchesQuery(query, {names[i]}))
+      continue;
+    result.append(QVariantMap{
+        {"kind", kind},
+        {"icon", kind == "domain" ? "public" : QString()},
+        {"title", names[i]},
+        {"subtitle", kind == "domain" ? tr("domain") : tr("page title")},
+        {"value", names[i]},
+        {"open", false}});
   }
   return result;
 }
@@ -182,44 +269,6 @@ void BrowseCatalog::refreshRecent() {
               emit changed();
             }
           });
-}
-void BrowseCatalog::refreshShortcuts() {
-  const auto ticket = ++m_shortcutRead;
-  auto *pending = new QDBusPendingCallWatcher(
-      QDBusConnection::sessionBus().asyncCall(
-          call("List", "org.arinn.WebShortcuts1"), 3000),
-      this);
-  connect(
-      pending, &QDBusPendingCallWatcher::finished, this,
-      [this, ticket](auto *watcher) {
-        const auto reply = watcher->reply();
-        watcher->deleteLater();
-        if (ticket != m_shortcutRead)
-          return;
-        if (reply.signature() != "(ta(ssss))" ||
-            reply.type() == QDBusMessage::ErrorMessage) {
-          m_shortcuts.clear();
-          emit changed();
-          return;
-        }
-        const auto arg = qvariant_cast<QDBusArgument>(reply.arguments().at(0));
-        qulonglong revision;
-        QVariantList rows;
-        QString id, title, url, icon;
-        arg.beginStructure();
-        arg >> revision;
-        arg.beginArray();
-        while (!arg.atEnd()) {
-          arg.beginStructure();
-          arg >> id >> title >> url >> icon;
-          arg.endStructure();
-          rows.append(QVariantMap{{"id", id}, {"title", title}, {"url", url}});
-        }
-        arg.endArray();
-        arg.endStructure();
-        m_shortcuts = rows;
-        emit changed();
-      });
 }
 void BrowseCatalog::dismissError() {
   if (m_busy)
@@ -296,51 +345,53 @@ void BrowseCatalog::watchOperation(const QString &objectPath, quint64 ticket,
                                             "org.arinn.Operation1", "Get");
   auto *pending = new QDBusPendingCallWatcher(
       QDBusConnection::sessionBus().asyncCall(msg, 3000), this);
-  connect(pending, &QDBusPendingCallWatcher::finished, this,
-          [this, objectPath, ticket, polls](auto *watcher) {
-            const auto reply = watcher->reply();
-            watcher->deleteLater();
-            if (ticket != m_command)
-              return;
-            if (reply.type() == QDBusMessage::ErrorMessage ||
-                reply.signature() != "(ssbtta(sss)b)") {
-              endOpen(error(reply));
-              emit changed();
-              return;
-            }
-            const auto arg =
-                qvariant_cast<QDBusArgument>(reply.arguments().at(0));
-            QString state, code;
-            bool retryable;
-            qulonglong started, ended;
-            arg.beginStructure();
-            arg >> state >> code >> retryable >> started >> ended;
-            arg.beginArray();
-            while (!arg.atEnd()) {
-              QString provider, capability, entity;
-              arg.beginStructure();
-              arg >> provider >> capability >> entity;
-              arg.endStructure();
-            }
-            arg.endArray();
-            bool cancellable;
-            arg >> cancellable;
-            arg.endStructure();
-            if (state == "queued" || state == "running") {
-              QTimer::singleShot(200, this, [this, objectPath, ticket, polls] {
-                watchOperation(objectPath, ticket, polls + 1);
-              });
-              return;
-            }
-            endOpen(state == "succeeded"
-                        ? state
-                        : (code.isEmpty() ? QStringLiteral("Unavailable") : code));
-            refreshRecent();
-            emit changed();
+  connect(
+      pending, &QDBusPendingCallWatcher::finished, this,
+      [this, objectPath, ticket, polls](auto *watcher) {
+        const auto reply = watcher->reply();
+        watcher->deleteLater();
+        if (ticket != m_command)
+          return;
+        if (reply.type() == QDBusMessage::ErrorMessage ||
+            reply.signature() != "(ssbtta(sss)b)") {
+          endOpen(error(reply));
+          emit changed();
+          return;
+        }
+        const auto arg = qvariant_cast<QDBusArgument>(reply.arguments().at(0));
+        QString state, code;
+        bool retryable;
+        qulonglong started, ended;
+        arg.beginStructure();
+        arg >> state >> code >> retryable >> started >> ended;
+        arg.beginArray();
+        while (!arg.atEnd()) {
+          QString provider, capability, entity;
+          arg.beginStructure();
+          arg >> provider >> capability >> entity;
+          arg.endStructure();
+        }
+        arg.endArray();
+        bool cancellable;
+        arg >> cancellable;
+        arg.endStructure();
+        if (state == "queued" || state == "running") {
+          QTimer::singleShot(200, this, [this, objectPath, ticket, polls] {
+            watchOperation(objectPath, ticket, polls + 1);
           });
+          return;
+        }
+        endOpen(state == "succeeded"
+                    ? state
+                    : (code.isEmpty() ? QStringLiteral("Unavailable") : code));
+        refreshRecent();
+        emit changed();
+      });
 }
 void BrowseCatalog::endOpen(const QString &operation) {
   m_busy = false;
   m_operation = operation;
-  m_openFlow.finish(operation == QLatin1String("succeeded") ? "ok" : FlowTrace::outcome(operation));
+  m_openFlow.finish(operation == QLatin1String("succeeded")
+                        ? "ok"
+                        : FlowTrace::outcome(operation));
 }

@@ -7,7 +7,9 @@ set(CMAKE_CXX_STANDARD 20)
 find_package(Qt6 6.8 REQUIRED COMPONENTS Quick DBus)
 qt_standard_project_setup()
 enable_testing()
-qt_add_executable(arinn-perf main.cpp)
+# HomeView's on-screen keyboard panel needs its model (ADR-0103).
+qt_add_executable(arinn-perf main.cpp
+    ../../apps/arinn-shell/keyboard_model.cpp ../../apps/arinn-shell/keyboard_model.h)
 target_link_libraries(arinn-perf PRIVATE Qt6::Quick Qt6::DBus)
 target_compile_definitions(arinn-perf PRIVATE
     ARINN_PERF_BUILD_TYPE="${CMAKE_BUILD_TYPE}"

@@ -434,6 +434,9 @@ Window {
             runningEntries: backend.items
             favoritesTitle: qsTr("Favorites")
             returnActivityId: backend.returnWindow
+            // The shortcut editor's on-screen keyboard (KB-2, KB-3).
+            shortcutAddressSuggestions: { browseCatalog.tabs; return browseCatalog.openServices(shortcutTypingText); }
+            shortcutNameSuggestions: { browseCatalog.tabs; return browseCatalog.nameSuggestions(shortcutDraftUrl, shortcutTypingText); }
             openServices: browserCatalog.tabs.map(tab => ({id: tab.id, title: tab.title || tab.domain || "",
                                                             letter: tab.letter || "", icon: tab.icon || ""}))
             downloadActive: downloadCatalog.downloading
@@ -537,10 +540,9 @@ Window {
                 || browseCatalog.operationState === "Unavailable"
             onTextEdited: value => browseCatalog.text = value
             onOpenRequested: browseCatalog.open()
-            onShortcutRequested: entryId => browserCatalog.openShortcut(entryId)
             onApplicationRequested: entryId => backend.launch(entryId)
             onClearRequested: browseCatalog.clearRecent()
-            onRetryRequested: { browseCatalog.dismissError(); browserCatalog.retry(); browseCatalog.refreshRecent(); browseCatalog.refreshShortcuts(); }
+            onRetryRequested: { browseCatalog.dismissError(); browserCatalog.retry(); browseCatalog.refreshRecent(); }
             onBackRequested: root.closeBrowse()
             onHomeRequested: root.goHomeFrom("browse")
         }

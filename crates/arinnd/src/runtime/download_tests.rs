@@ -642,6 +642,56 @@ async fn real_watch_path_exports_snapshot_and_matches_downloads_xml() {
     assert!(api.get_downloads("").await.is_err());
 }
 
+/// An unchanged job snapshot is re-read on every tick and provider signal but
+/// announces nothing; a backend change still emits `ProvidersChanged` (#442).
+#[tokio::test]
+async fn unchanged_snapshot_emits_no_providers_changed() {
+    let f = Fixture::new(vec![job("job", false, 0)]).await;
+    let daemon = arinn_protocol::production::ProductionDaemonProxy::new(&f.client)
+        .await
+        .unwrap();
+    let mut changes = daemon.receive_providers_changed().await.unwrap();
+    let core = f.core.clone();
+    let owner = f.owner();
+    let generation = f.generation.clone();
+    let watcher = tokio::spawn(async move {
+        core.watch_provider("downloads".into(), owner, generation)
+            .await
+    });
+    // The first read publishes revision 1.
+    tokio::time::timeout(Duration::from_secs(5), changes.next())
+        .await
+        .unwrap()
+        .unwrap();
+    // Provider signals and at least one tick re-read the same snapshot.
+    let emitter = SignalEmitter::new(&f.provider, production::PROVIDER_PATH).unwrap();
+    for _ in 0..3 {
+        FakeDownload::state_changed(&emitter, &f.generation, 1)
+            .await
+            .unwrap();
+    }
+    assert!(
+        tokio::time::timeout(Duration::from_millis(1500), changes.next())
+            .await
+            .is_err(),
+        "an unchanged snapshot emitted ProvidersChanged"
+    );
+    *f.fake.backend.lock().unwrap() = "degraded".into();
+    FakeDownload::state_changed(&emitter, &f.generation, 1)
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(5), changes.next())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        f.core.state.lock().await.providers["downloads"]
+            .info
+            .backend_state,
+        "degraded"
+    );
+    watcher.abort();
+}
 #[tokio::test]
 async fn pending_retry_is_throttled_and_keeps_its_library_after_default_changes() {
     let f = Fixture::new(vec![job("job", true, 1)]).await;

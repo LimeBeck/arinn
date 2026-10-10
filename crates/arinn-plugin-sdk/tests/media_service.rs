@@ -17,6 +17,7 @@ use arinn_protocol::{
     production::{self, EntityRef, Registration, RegistrationReply},
     validation::ErrorCode,
 };
+use futures_util::StreamExt;
 use std::{
     future::Future,
     pin::Pin,
@@ -254,6 +255,16 @@ async fn base_scenario() {
         "org.arinn.Error1.Unavailable"
     );
 
+    let mut changes = proxy.receive_provider_state_changed().await.unwrap();
+    let mut next_revision = async || {
+        tokio::time::timeout(Duration::from_secs(3), changes.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .args()
+            .unwrap()
+            .revision
+    };
     service
         .replace(vec![session(&["play", "pause", "seek"])], "available")
         .await
@@ -261,6 +272,22 @@ async fn base_scenario() {
     let (page,) = proxy.get_sessions("").await.unwrap();
     page.validate().unwrap();
     assert_eq!(page.revision, 2);
+    // Skip the registration signal (revision 1) if it arrived after subscribing.
+    let mut revision = next_revision().await;
+    if revision == 1 {
+        revision = next_revision().await;
+    }
+    assert_eq!(revision, 2);
+    // The same sessions keep revision 2 and emit nothing (#442). Give a
+    // duplicate signal time to arrive before the next real change.
+    service
+        .replace(vec![session(&["play", "pause", "seek"])], "available")
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    service.touch().await.unwrap();
+    assert_eq!(next_revision().await, 3);
+    assert_eq!(proxy.get_sessions("").await.unwrap().0.revision, 3);
     proxy.play(&generation, "s1").await.unwrap();
     proxy.seek(&generation, "s1", 1_000).await.unwrap();
     assert_eq!(

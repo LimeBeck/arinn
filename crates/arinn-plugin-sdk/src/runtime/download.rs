@@ -101,7 +101,7 @@ impl DownloadService {
     pub async fn replace(&self, jobs: Vec<Job>, backend: &str) -> Result<(), ErrorCode> {
         download::validate_jobs(&jobs)?;
         backend_state(backend)?;
-        let (generation, revision) = {
+        let update = {
             let mut data = self.data.lock().await;
             let backend_changed = data.backend != backend;
             let before = data.revision;
@@ -119,10 +119,11 @@ impl DownloadService {
             }
             data.jobs = jobs;
             data.backend = backend.into();
-            (data.generation.clone(), revision)
+            // An unchanged snapshot keeps its revision: no StateChanged.
+            (revision > 0 && revision != before).then(|| (data.generation.clone(), revision))
         };
-        if revision > 0 {
-            self.updates.send_replace((generation, revision));
+        if let Some(update) = update {
+            self.updates.send_replace(update);
         }
         Ok(())
     }

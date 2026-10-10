@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Arinn contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "telemetry.h"
+#include "../../apps/arinn-shell/flow_trace.h"
 #include <sentry.h>
 #include <QCoreApplication>
 #include <QDebug>
@@ -46,6 +47,17 @@ int main(int argc, char **argv) {
     sentry_metrics_count("arinn.shell.messages", 1, attributes);
     sentry_capture_event(sentry_value_new_message_event(SENTRY_LEVEL_ERROR, "private-token-fixture", "private-token-fixture"));
   }
+  // A shell flow keeps its fixed name, steps and outcome; unknown names go.
+  FlowTrace::Flow present;
+  present.start("playback.present");
+  present.begin("window.resolve");
+  present.end("window.resolve");
+  present.begin("platform.present");
+  present.begin("private-token-fixture");
+  present.finish("Timeout");
+  FlowTrace::Flow unknown;
+  unknown.start("private-token-fixture");
+  unknown.finish("ok");
   qDebug("private-token-fixture https://private.invalid/page Private tab");
   qInfo("private-token-fixture");
   // Templates keep the QML location and drop quoted text, URLs, paths and numbers.

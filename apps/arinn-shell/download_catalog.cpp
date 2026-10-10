@@ -203,6 +203,18 @@ DownloadCatalog::DownloadCatalog(QObject *parent) : QObject(parent) {
   refresh();
 }
 
+void DownloadCatalog::traceRead() {
+  const auto state = downloadsState();
+  const char *outcome = state == QLatin1String("unavailable") ? "Unavailable"
+                        : state == QLatin1String("error")     ? "failed"
+                                                              : "ok";
+  if (state == m_tracedState && std::strcmp(outcome, "ok") == 0)
+    m_readFlow.discard();
+  else
+    m_readFlow.finish(outcome);
+  m_tracedState = state;
+}
+
 QString DownloadCatalog::downloadsState() const {
   if (!m_loaded)
     return QStringLiteral("loading");
@@ -360,6 +372,8 @@ void DownloadCatalog::refresh() {
   }
   m_refreshing = true;
   m_dirty = false;
+  if (!m_readFlow.active())
+    m_readFlow.start("downloads.read");
   const auto epoch = m_epoch;
   auto pending = new QDBusPendingCallWatcher(
       QDBusConnection::sessionBus().asyncCall(
@@ -383,6 +397,7 @@ void DownloadCatalog::refresh() {
               m_unreachable = false;
               m_rows.clear();
               publish();
+              traceRead();
               if (m_dirty)
                 refresh();
               return;
@@ -736,6 +751,7 @@ void DownloadCatalog::finishCatalog(const std::shared_ptr<Catalog> &catalog,
     announceImports();
   }
   publish();
+  traceRead();
   if (m_dirty)
     QTimer::singleShot(0, this, &DownloadCatalog::refresh);
 }

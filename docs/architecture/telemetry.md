@@ -64,7 +64,7 @@ flag is not evidence that those requirements are implemented.
   are resolved on the server from separately managed debug artifacts.
 
 Opt-in traces measure `daemon.startup`, one transaction per daemon operation named
-by its kind, and `shell.startup`. Metrics count daemon operations/errors and shell
+by its kind, `shell.startup` and the shell flows below. Metrics count daemon operations/errors and shell
 diagnostic messages/errors, and record daemon startup/operation and shell startup
 durations in milliseconds. Names are fixed. No provider instance, request, window or
 browser identity is attached. All these measurements use the same flag, with full
@@ -113,6 +113,19 @@ The completion log line on stderr carries the same `kind` and `reason`.
 - **Fingerprint.** `["arinn-shell", type, location, template]`, rebuilt from the cleaned fields at both boundaries. The transport filter templates a Qt exception value again, so a raw or cached envelope cannot pass its own text off as a template.
 - **Rate limit.** One event per template per 10 minutes, with at most 256 templates tracked. Repeats count in `arinn.shell.messages.suppressed`. Fatal messages are never suppressed.
 - **Known noise.** `Icon is unavailable`, `Site icon is unavailable`, `Artwork is unavailable` and `QWaylandDataOffer` never become events. They count in `arinn.shell.messages.benign` and leave one `qt.noise` breadcrumb per template window.
+
+**Shell flows.** A user-visible shell flow is one transaction with the trace op `shell.flow`, a status, an `outcome` tag and up to 8 child spans with the op `shell.step`. The lists live in `observability/native/flows.h`. The shell models record a flow with `apps/arinn-shell/flow_trace.h`, which does nothing unless the telemetry startup hook installs its sink, so builds and tests without telemetry are unaffected. Nothing else is recorded: no IDs, titles, URLs or paths.
+
+| Flow | Starts | Ends | Steps |
+| --- | --- | --- | --- |
+| `home.load` | Home data becomes `loading` | the first other Home state | — |
+| `downloads.read` | a Downloads read starts | the read is published; reported only when it fails or changes the state the screen shows, not on every 30 s poll | — |
+| `browse.open` | an address or search open | its operation ends | `request`, `operation.wait` |
+| `shortcut.open` | a web shortcut open | its operation ends, it is cancelled, or the daemon owner changes | `request`, `operation.wait` |
+| `activity.return` | Return to the activity | the daemon hides Home, refuses, or 5 s pass (`Timeout`) | — |
+| `playback.present` | `present()` for a managed player | the window check confirms the input layer, or the presentation fails or is cleared | `window.resolve`, `platform.present`, `window.check` |
+
+The outcome is `ok`, `failed`, `updated` (Home found another daemon build) or a public error code (`NotFound`, `Unavailable`, `Unsupported`, `PermissionDenied`, `Timeout`, `InvalidArgument`, `Conflict`, `Internal`, `Cancelled`); any other value is reported as `failed`. The status follows the outcome (`ok`, `not_found`, `unavailable`, `unimplemented`, `permission_denied`, `deadline_exceeded`, `invalid_argument`, `aborted`, `internal_error`, `cancelled` or `unknown_error`). A step still open when its flow ends takes the flow's outcome. The SDK callback and the transport filter both keep only these names, statuses and outcomes.
 
 Unquoted words that code writes into a message survive templating. §13 forbids such logging of user content, so the template holds no more than the local log.
 

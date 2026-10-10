@@ -1,8 +1,10 @@
 // SPDX-FileCopyrightText: 2026 Arinn contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
+#include <QList>
 #include <QObject>
 #include <QString>
+#include <QTimer>
 
 // Reads org.arinn.SystemStatus1 (ADR-0100) for Home's status area. A daemon
 // without the interface, a failed read and any value this build does not
@@ -20,6 +22,8 @@ public:
   bool muted() const { return m_muted; }
   bool wifi() const { return m_wifi; }
   int wifiLevel() const { return m_level; }
+  // Waits before re-reading after a failed read (#409); tests shorten them.
+  void setRetryDelays(const QList<int> &ms) { m_delays = ms; }
 public slots:
   void refresh();
 signals:
@@ -29,6 +33,7 @@ private slots:
 
 private:
   void apply(bool muted, bool wifi, int level);
+  void retryLater(const QString &error);
   QString m_epoch;
   // Bumped on every daemon owner change: older replies are dropped.
   quint64 m_lifetime = 0;
@@ -39,4 +44,9 @@ private:
   bool m_muted = false;
   bool m_wifi = false;
   int m_level = 0;
+  // A failed read is retried after each of these delays in turn, then not
+  // until the next Changed or owner change.
+  QList<int> m_delays{1000, 5000, 30000};
+  int m_attempt = 0;
+  QTimer m_retry;
 };

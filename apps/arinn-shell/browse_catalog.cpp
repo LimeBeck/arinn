@@ -67,6 +67,7 @@ void BrowseCatalog::reset() {
   m_engine.clear();
   m_operation.clear();
   m_busy = false;
+  m_openFlow.finish("Cancelled");
   emit changed();
 }
 void BrowseCatalog::setTabs(const QVariantList &tabs) {
@@ -248,13 +249,14 @@ void BrowseCatalog::open() {
     return;
   m_busy = true;
   m_operation = "running";
+  m_openFlow.start("browse.open");
+  m_openFlow.begin("request");
   const auto ticket = ++m_command;
   QTimer::singleShot(30000, this, [this, ticket] {
     if (ticket != m_command || !m_busy)
       return;
     ++m_command;
-    m_busy = false;
-    m_operation = "Timeout";
+    endOpen("Timeout");
     emit changed();
   });
   emit changed();
@@ -270,11 +272,12 @@ void BrowseCatalog::open() {
               return;
             if (reply.type() == QDBusMessage::ErrorMessage ||
                 reply.signature() != "o") {
-              m_busy = false;
-              m_operation = error(reply);
+              endOpen(error(reply));
               emit changed();
               return;
             }
+            m_openFlow.end("request");
+            m_openFlow.begin("operation.wait");
             watchOperation(
                 qvariant_cast<QDBusObjectPath>(reply.arguments().at(0)).path(),
                 ticket);
@@ -285,8 +288,7 @@ void BrowseCatalog::watchOperation(const QString &objectPath, quint64 ticket,
   if (ticket != m_command)
     return;
   if (polls >= 150) {
-    m_busy = false;
-    m_operation = "Timeout";
+    endOpen("Timeout");
     emit changed();
     return;
   }
@@ -302,8 +304,7 @@ void BrowseCatalog::watchOperation(const QString &objectPath, quint64 ticket,
               return;
             if (reply.type() == QDBusMessage::ErrorMessage ||
                 reply.signature() != "(ssbtta(sss)b)") {
-              m_busy = false;
-              m_operation = error(reply);
+              endOpen(error(reply));
               emit changed();
               return;
             }
@@ -331,12 +332,15 @@ void BrowseCatalog::watchOperation(const QString &objectPath, quint64 ticket,
               });
               return;
             }
-            m_busy = false;
-            m_operation =
-                state == "succeeded"
-                    ? state
-                    : (code.isEmpty() ? QStringLiteral("Unavailable") : code);
+            endOpen(state == "succeeded"
+                        ? state
+                        : (code.isEmpty() ? QStringLiteral("Unavailable") : code));
             refreshRecent();
             emit changed();
           });
+}
+void BrowseCatalog::endOpen(const QString &operation) {
+  m_busy = false;
+  m_operation = operation;
+  m_openFlow.finish(operation == QLatin1String("succeeded") ? "ok" : FlowTrace::outcome(operation));
 }

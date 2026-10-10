@@ -1,7 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Arinn contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "telemetry.h"
+#include "../../apps/arinn-shell/flow_trace.h"
 #include <QCoreApplication>
+#include <algorithm>
 #include <QEvent>
 #include <cstdio>
 namespace {
@@ -34,7 +36,16 @@ void handler(QtMsgType type, const QMessageLogContext &context, const QString &m
     std::fprintf(stderr, "%s\n", formatted.constData());
   }
 }
+// Shell flows reach Sentry only through this hook (ADR-0093).
+void recordFlow(const FlowTrace::Record &record) {
+  ArinnTelemetry::FlowStep steps[FlowTrace::Flow::MaxSteps];
+  const int count = std::clamp(record.stepCount, 0, FlowTrace::Flow::MaxSteps);
+  for (int i = 0; i < count; ++i)
+    steps[i] = {record.steps[i].name, record.steps[i].startMs, record.steps[i].endMs, record.steps[i].outcome};
+  ArinnTelemetry::flow(record.flow, record.startedAtMs, record.durationMs, record.outcome, steps, count);
+}
 void shutdown() {
+  FlowTrace::sink = nullptr;
   qInstallMessageHandler(previous);
   ArinnTelemetry::stop();
 }
@@ -43,6 +54,7 @@ void startup() {
   auto *app = QCoreApplication::instance();
   app->installEventFilter(new Recorder(app));
   previous = qInstallMessageHandler(handler);
+  FlowTrace::sink = recordFlow;
   qAddPostRoutine(shutdown);
   QObject::connect(QCoreApplication::instance(), &QCoreApplication::aboutToQuit,
                    [] { ArinnTelemetry::breadcrumb("about-to-quit"); });

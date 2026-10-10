@@ -5,6 +5,7 @@
  */
 
 #pragma once
+#include "flow_trace.h"
 #include <QDBusMessage>
 #include <QHash>
 #include <QObject>
@@ -124,6 +125,9 @@ private:
                       quint64 epoch);
   void clearShortcuts();
   void publishState();
+  // Home load and Return timing for diagnostics (ADR-0093).
+  void traceFlows();
+  FlowTrace::Flow m_homeFlow, m_returnFlow;
   QVariantList m_publishedItems, m_publishedContinue, m_publishedApplications,
       m_publishedShortcuts;
   QVariantList m_applications, m_webShortcuts;
@@ -136,6 +140,8 @@ private:
   QString m_generation, m_return, m_message, m_daemonEpoch, m_daemonOwner;
   QVariantList m_items;
   static constexpr int resultMessageMs = 3000;
+  // A Return the daemon has not carried out by then is reported as Timeout.
+  static constexpr qint64 returnTraceMs = 5000;
   QTimer m_timer;
   // Clears an action result such as "Done" after resultMessageMs.
   QTimer m_resultTimer;

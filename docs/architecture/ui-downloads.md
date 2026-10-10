@@ -71,7 +71,10 @@ Error and unavailable keep D-pad focus on Retry. Loading shows four `Skeleton`
 rows and does not offer an action. Empty uses `StatusPane` without an action.
 After a focused id disappears, focus moves to the previous index. Reordering
 keeps the same id. Hover focuses a row unless a scroll in the last
-`hoverSuppressMs` has suppressed it. Keys return to D-pad mode, and the shell's
+`hoverSuppressMs` has suppressed it. When pointer mode turns on while the
+pointer rests on a row, that row takes focus without another hover event, as
+`Surface` does ([#396](https://github.com/LimeBeck/arinn/issues/396)). Keys
+return to D-pad mode, and the shell's
 key cooldown applies ([ADR-0095](../adr/0095-shell-input-mode-ownership.md)).
 Escape, Backspace and Back emit `backRequested()` from a row, from Retry, and
 from the loading scope, and stay inside this screen.

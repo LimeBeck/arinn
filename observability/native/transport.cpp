@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Arinn contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "transport.h"
+#include "flows.h"
 #include "telemetry.h"
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -117,15 +118,39 @@ QJsonObject event(const QJsonObject &original) {
   if (!images.isEmpty()) clean.insert("debug_meta", QJsonObject{{"images", images}});
   return clean;
 }
+// A status is kept only when it is one of the fixed span statuses.
+void copyStatus(QJsonObject &out, const QJsonObject &in) {
+  const auto status = in.value("status").toString().toUtf8();
+  if (!status.contains('\0') && ArinnFlows::knownStatus(status.constData())) out.insert("status", QString::fromUtf8(status));
+}
 QJsonObject transaction(const QJsonObject &original) {
-  if (original.value("transaction").toString() != "shell.startup") return {};
-  QJsonObject clean{{"type", "transaction"}, {"transaction", "shell.startup"},
-    {"platform", "native"}, {"release", ARINN_RELEASE},
-    {"tags", QJsonObject{{"component", "arinn-shell"}}}, {"spans", QJsonArray{}}};
+  const auto name = original.value("transaction").toString().toUtf8();
+  const bool startup = name == "shell.startup";
+  if (!startup && (name.contains('\0') || !ArinnFlows::knownFlow(name.constData()))) return {};
+  QJsonObject tags{{"component", "arinn-shell"}};
+  const auto outcome = original.value("tags").toObject().value("outcome").toString().toUtf8();
+  if (!startup && !outcome.contains('\0') && ArinnFlows::knownOutcome(outcome.constData()))
+    tags.insert("outcome", QString::fromUtf8(outcome));
+  // Startup has no spans; a flow keeps its fixed step spans only.
+  QJsonArray spans;
+  for (auto value : startup ? QJsonArray{} : original.value("spans").toArray()) {
+    if (spans.size() == ArinnFlows::maxSteps) break;
+    const auto source = value.toObject();
+    const auto step = source.value("description").toString().toUtf8();
+    if (source.value("op").toString() != QLatin1String(ArinnFlows::stepOp) || step.contains('\0') ||
+        !ArinnFlows::knownStep(step.constData())) continue;
+    QJsonObject span{{"op", ArinnFlows::stepOp}, {"description", QString::fromUtf8(step)}};
+    for (auto key : {"trace_id", "span_id", "parent_span_id", "start_timestamp", "timestamp"}) copy(span, source, key);
+    copyStatus(span, source);
+    spans.append(span);
+  }
+  QJsonObject clean{{"type", "transaction"}, {"transaction", QString::fromUtf8(name)},
+    {"platform", "native"}, {"release", ARINN_RELEASE}, {"tags", tags}, {"spans", spans}};
   for (auto key : {"event_id", "start_timestamp", "timestamp"}) copy(clean, original, key);
   auto source = original.value("contexts").toObject().value("trace").toObject();
-  QJsonObject trace{{"op", "shell.startup"}};
-  for (auto key : {"trace_id", "span_id", "parent_span_id", "status"}) copy(trace, source, key);
+  QJsonObject trace{{"op", startup ? "shell.startup" : ArinnFlows::flowOp}};
+  for (auto key : {"trace_id", "span_id", "parent_span_id"}) copy(trace, source, key);
+  copyStatus(trace, source);
   clean.insert("contexts", QJsonObject{{"trace", trace}});
   return clean;
 }

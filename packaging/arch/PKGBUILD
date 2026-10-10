@@ -8,6 +8,11 @@
 # other build replaces it with `<version>.r<commits>.g<12 hex>` from
 # scripts/build_id.py --pkgver in its copy, so each snapshot upgrades the one
 # before it (#357).
+#
+# The shell needs Qt 6.8 or newer, the minimum supported Qt (ADR-0104). CI
+# builds it against a Qt 6.8 SDK named by ARINN_QT_FLOOR_PREFIX, so the
+# package runs on every system whose Qt meets the depends below (#416); a
+# local build uses the system Qt and needs that Qt at run time.
 
 pkgname=arinn
 pkgver=0.1.0
@@ -16,7 +21,7 @@ pkgdesc='TV-first shell for a Linux HTPC (pre-alpha prototype)'
 arch=('x86_64')
 url='https://github.com/LimeBeck/arinn'
 license=('GPL-3.0-or-later' 'MIT OR Apache-2.0' 'CC-BY-SA-4.0')
-depends=('gcc-libs' 'glibc' 'glib2>=2.86' 'dbus' 'systemd' 'qt6-base' 'qt6-declarative' 'qt6-svg' 'curl' 'libunwind' 'openssl')
+depends=('gcc-libs' 'glibc' 'glib2>=2.86' 'dbus' 'systemd' 'qt6-base>=6.8' 'qt6-declarative>=6.8' 'qt6-svg>=6.8' 'curl' 'libunwind' 'openssl')
 optdepends=('mpv: local file playback' 'ffmpeg: seek thumbnails for the mpv provider; video duration and audio/subtitle languages for the library provider' 'transmission-cli: local Transmission daemon for the download provider')
 makedepends=('cargo' 'cmake' 'ninja' 'python' 'qt6-tools')
 options=('!lto')
@@ -43,7 +48,10 @@ build() {
   export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-target}"
   cargo build --frozen --release
   cargo build --frozen --release --example private-systemd
-  cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+  # No build RPATH: the binary is installed from the build tree and must not
+  # point at the SDK prefix.
+  cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_SKIP_BUILD_RPATH=ON \
+    ${ARINN_QT_FLOOR_PREFIX:+"-DCMAKE_PREFIX_PATH=$ARINN_QT_FLOOR_PREFIX"}
   # Only the installed shell; the Qt test executables, gallery and perf
   # harness are built and run by the CI integration job (ADR-0092).
   cmake --build build --target arinn-shell

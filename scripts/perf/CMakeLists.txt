@@ -4,7 +4,7 @@
 cmake_minimum_required(VERSION 3.24)
 project(ArinnPerformance LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
-find_package(Qt6 6.6 REQUIRED COMPONENTS Quick DBus)
+find_package(Qt6 6.8 REQUIRED COMPONENTS Quick DBus)
 qt_standard_project_setup()
 enable_testing()
 qt_add_executable(arinn-perf main.cpp)

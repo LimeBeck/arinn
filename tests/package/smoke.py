@@ -10,8 +10,8 @@ Run on a private session bus after installing the package:
     dbus-run-session -- python tests/package/smoke.py
 
 Checks that the packaged binaries start, talk to each other over D-Bus and
-that the shell finds its Qt/QML runtime dependencies. It never touches a real
-desktop session.
+that the shell finds its Qt/QML runtime dependencies and owns
+org.arinn.Shell1. It never touches a real desktop session.
 """
 
 import json
@@ -87,6 +87,14 @@ def wait(predicate, timeout=10):
     raise AssertionError("condition timed out")
 
 
+def shell_registered():
+    result = subprocess.run(
+        ["dbus-send", "--session", "--print-reply", "--dest=org.freedesktop.DBus",
+         "/org/freedesktop/DBus", "org.freedesktop.DBus.NameHasOwner", "string:org.arinn.Shell1"],
+        env=env, capture_output=True, text=True, timeout=5)
+    return result.returncode == 0 and "boolean true" in result.stdout
+
+
 for path in (BIN / "arinnd", BIN / "arinnctl", BIN / "arinn-shell", DEMO, DESKTOP, MPRIS, LIBRARY, MPV, TRANSMISSION):
     assert path.is_file() and os.access(path, os.X_OK), f"missing executable {path}"
 
@@ -133,9 +141,16 @@ with tempfile.TemporaryDirectory(prefix="arinn-smoke-") as folder:
         assert desktop["running"] == []
 
         shell = start(BIN / "arinn-shell", QT_QPA_PLATFORM="offscreen", QT_QUICK_BACKEND="software")
-        time.sleep(5)
-        if shell.poll() is not None:
-            raise AssertionError(f"arinn-shell exited early with {shell.returncode}: {shell.stderr.read()}")
+
+        def shell_running():
+            if shell.poll() is not None:
+                raise RuntimeError(f"arinn-shell exited early with {shell.returncode}: {shell.stderr.read()}")
+            return True
+
+        # The shell owns its D-Bus name (#416) and keeps running.
+        wait(lambda: shell_running() and shell_registered(), timeout=20)
+        time.sleep(3)
+        shell_running()
         print("PASS: packaged daemon, demo/desktop providers, CLI and shell start and communicate")
     finally:
         for process in reversed(processes):

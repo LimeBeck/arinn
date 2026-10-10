@@ -1,0 +1,15 @@
+# SPDX-FileCopyrightText: 2026 Arinn contributors
+#
+# SPDX-License-Identifier: CC0-1.0
+
+# SHA-256 of every Qt SDK archive the qt-sdk stage of ci/images/arch/Dockerfile
+# downloads, in `find | sort` order (ADR-0104). The image build fails when the
+# downloaded archives differ and prints the actual list.
+
+# Qt 6.8.3, recorded from the first image build on 2026-10-09; aqtinstall had
+# verified each archive against the Qt repository's SHA-256.
+a2543496e1280c6fa348e0791def5026d5bde9e5749d9fc2244866ab0bee8aed  ./icu-linux-Rhel8.6-x86_64.7z
+d8fe882cae71284a7ca906b70b42840376882fe96f22fce1ba5a7a70ceeec799  ./qtbase-Linux-RHEL_8_10-GCC-Linux-RHEL_8_10-X86_64.7z
+6330a5ed0138393468be3ddcca458606e14a607f7191d8dbad3978004bdf29ee  ./qtdeclarative-Linux-RHEL_8_10-GCC-Linux-RHEL_8_10-X86_64.7z
+e330eb3abed3e0b9c9a278da971ec67306969f35020a3d54350a6ee86d57983d  ./qtsvg-Linux-RHEL_8_10-GCC-Linux-RHEL_8_10-X86_64.7z
+a39477caa537743afb5575e5c65018a7d62e47ccf15a4e3444ecc43208ac1047  ./qttools-Linux-RHEL_8_10-GCC-Linux-RHEL_8_10-X86_64.7z

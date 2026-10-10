@@ -8,7 +8,7 @@ Arinn targets Arch Linux for releases and nightly qualification ([ADR-0033](../.
 
 ## CI suite
 
-Package jobs use **Ubuntu 25.04** (`ubuntu:25.04`) so Qt is at least 6.6. That image is a build and smoke stand only; Ubuntu is not the product target distribution.
+Package jobs use **Ubuntu 25.04** images built from [`ci/images/ubuntu`](../../ci/images/ubuntu/Dockerfile), whose Qt 6.8 is the minimum supported Qt ([ADR-0104](../../docs/adr/0104-qt-floor-and-prebuilt-ci-images.md)). The image is a build and smoke stand only; Ubuntu is not the product target distribution.
 
 ## Build locally
 

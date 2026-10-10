@@ -20,11 +20,11 @@ JavaScript and under a project prefix such as `/arinn/`.
 
 ## GitHub Pages deployment
 
-`.github/workflows/pages.yml` checks the site in pull requests and publishes only
-`index.html`, `assets/site.css`, `assets/home.png`, `assets/arinn-mark.svg`
-and `assets/arinn-icon.svg` on relevant pushes to
-`master`, or a manual run on `master`. PRs and manual runs on other branches
-never deploy. Existing CI, package and release workflows are unchanged.
+The handbook is published as part of the [product website](../site/README.md),
+under `guide/`. `.github/workflows/pages.yml` checks it in pull requests and, on
+relevant pushes to `master` or a manual run on `master`, deploys the site's
+explicit 17-file allowlist. PRs and manual runs on other branches never deploy.
+Existing CI, package and release workflows are unchanged.
 
 The owner must first select **Settings → Pages → Build and deployment → Source →
 GitHub Actions** and confirm the `github-pages` environment permits `master`.

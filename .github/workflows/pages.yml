@@ -1,16 +1,32 @@
-name: User documentation
+name: Arinn website
+
+# Builds the product website (landing page, screenshot gallery and the user
+# handbook under guide/) from an explicit file allowlist and validates it in
+# pull requests; pushes to master deploy it to GitHub Pages (#339).
 
 on:
   push:
     branches: [master]
     paths:
+      - docs/site/**
       - docs/user/**
+      - docs/design/current-ui/*.png
+      - docs/design/handoff/assets/arinn-mark.svg
+      - scripts/build-site.py
+      - scripts/check-site.py
       - scripts/check-user-site.py
+      - tests/ci/test_site.py
       - .github/workflows/pages.yml
   pull_request:
     paths:
+      - docs/site/**
       - docs/user/**
+      - docs/design/current-ui/*.png
+      - docs/design/handoff/assets/arinn-mark.svg
+      - scripts/build-site.py
+      - scripts/check-site.py
       - scripts/check-user-site.py
+      - tests/ci/test_site.py
       - .github/workflows/pages.yml
   workflow_dispatch:
 
@@ -22,15 +38,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  check:
+  build:
     runs-on: ${{ vars.ARINN_RUNNER || 'ubuntu-latest' }}
     container: python:3.12
     steps:
       - uses: actions/checkout@v7
-      - run: python scripts/check-user-site.py
+      - name: Validate handbook and publication boundaries
+        run: |
+          python scripts/check-user-site.py
+          python tests/ci/test_site.py
+      - name: Assemble and validate public website
+        run: |
+          python scripts/build-site.py --output /tmp/arinn-product-site
+          python scripts/check-site.py /tmp/arinn-product-site
+      - uses: actions/upload-pages-artifact@v4
+        if: ${{ github.ref == 'refs/heads/master' && github.event_name != 'pull_request' }}
+        with:
+          path: /tmp/arinn-product-site
 
   deploy:
-    needs: check
+    needs: build
     if: ${{ github.ref == 'refs/heads/master' && github.event_name != 'pull_request' }}
     runs-on: ${{ vars.ARINN_RUNNER || 'ubuntu-latest' }}
     container: python:3.12
@@ -42,17 +69,7 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v7
       - uses: actions/configure-pages@v5
-      # Publish only the user guide, never the repository or historical designs.
-      - name: Stage site
-        run: |
-          mkdir -p /tmp/arinn-user-site/assets
-          cp docs/user/index.html /tmp/arinn-user-site/
-          cp docs/user/assets/site.css docs/user/assets/home.png docs/user/assets/arinn-mark.svg docs/user/assets/arinn-icon.svg /tmp/arinn-user-site/assets/
-      - uses: actions/upload-pages-artifact@v4
-        with:
-          path: /tmp/arinn-user-site
-      - name: Deploy
+      - name: Deploy reviewed website
         id: deployment
         uses: actions/deploy-pages@v4

@@ -168,7 +168,19 @@ class FloorConsistencyTest(unittest.TestCase):
     """CMake, the PKGBUILD, the CI image and the check name the same floor."""
 
     def test_cmake_requires_the_floor(self):
-        self.assertRegex(CMAKE, rf"find_package\(Qt6 {re.escape(qt_floor.FLOOR)} REQUIRED")
+        # The shell and the standalone performance harness.
+        for path in (ROOT / "CMakeLists.txt", ROOT / "scripts" / "perf" / "CMakeLists.txt"):
+            with self.subTest(path=path.relative_to(ROOT)):
+                self.assertRegex(path.read_text(), rf"find_package\(Qt6 {re.escape(qt_floor.FLOOR)} REQUIRED")
+
+    def test_build_requirements_name_the_floor(self):
+        # Contributors who follow the documented setup can configure the build.
+        for name in ("CONTRIBUTING.md", "README.md", "README.ru.md",
+                     "docs/architecture/phase-0-runbook.md", "docs/architecture/performance-harness.md"):
+            with self.subTest(document=name):
+                text = (ROOT / name).read_text()
+                self.assertIn(f"≥ {qt_floor.FLOOR}", text)
+                self.assertNotRegex(text, r"Qt[^.\n]*≥ 6\.[0-7]\b")
 
     def test_pkgbuild_depends_on_the_floor(self):
         depends = re.search(r"^depends=\((.*)\)$", PKGBUILD, re.M).group(1)

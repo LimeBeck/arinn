@@ -11,7 +11,7 @@ An experimental vertical slice: Rust daemon, a separate demo provider, a Qt Quic
 
 ## Build
 
-Requirements: Rust with edition 2024, CMake ≥ 3.24, Ninja, C++20, Qt 6 Quick/Quick Controls/Quick Test/DBus/Test/SVG ≥ 6.6, Python 3, Node.js (adapter regression test), `dbus-run-session`. For the live session: KDE Plasma 6 on Wayland, a systemd user session and `qdbus6`. Verified versions are in the [report](phase-0-report.md).
+Requirements: Rust with edition 2024, CMake ≥ 3.24, Ninja, C++20, Qt 6 Quick/Quick Controls/Quick Test/DBus/Test/SVG ≥ 6.8, Python 3, Node.js (adapter regression test), `dbus-run-session`. For the live session: KDE Plasma 6 on Wayland, a systemd user session and `qdbus6`. Verified versions are in the [report](phase-0-report.md).
 
 From the repository root:
 

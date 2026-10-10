@@ -70,13 +70,17 @@ FocusScope {
     function insertText(text) {
         if (!target || !text.length)
             return;
-        if (target.selectedText.length)
+        // Input past the field's limit is ignored, not truncated: check the
+        // result before touching a selection it would replace.
+        const selected = target.selectedText;
+        if (target.maximumLength > 0
+            && target.length - selected.length + text.length > target.maximumLength)
+            return;
+        if (maxCharacters > 0
+            && [...target.text].length - [...selected].length + [...text].length > maxCharacters)
+            return;
+        if (selected.length)
             target.remove(target.selectionStart, target.selectionEnd);
-        // Input past the field's limit is ignored, not truncated.
-        if (target.maximumLength > 0 && target.length + text.length > target.maximumLength)
-            return;
-        if (maxCharacters > 0 && [...target.text].length + [...text].length > maxCharacters)
-            return;
         // insert() and remove() report textEdited, as typing does.
         target.insert(target.cursorPosition, text);
     }
@@ -86,8 +90,12 @@ FocusScope {
         if (target.selectedText.length) {
             target.remove(target.selectionStart, target.selectionEnd);
         } else if (target.cursorPosition > 0) {
+            // A whole character: never half of a surrogate pair.
             const at = target.cursorPosition;
-            target.remove(at - 1, at);
+            const low = target.text.charCodeAt(at - 1);
+            const high = at > 1 ? target.text.charCodeAt(at - 2) : 0;
+            const pair = low >= 0xDC00 && low <= 0xDFFF && high >= 0xD800 && high <= 0xDBFF;
+            target.remove(at - (pair ? 2 : 1), at);
         }
     }
     function apply(result) {
@@ -205,7 +213,14 @@ FocusScope {
                             readonly property bool focused: root.activeFocus && root.zone === "suggestions"
                                                             && root.suggestionIndex === index
                             objectName: "keyboardSuggestion-" + index
-                            width: Math.min(560, pillRow.implicitWidth + 56)
+                            // Four pills always fit the row: each gets at most
+                            // its share, and its texts elide inside it.
+                            readonly property real share: Math.min(560,
+                                (content.width - 16 * (root.suggestionCount - 1)) / root.suggestionCount)
+                            readonly property real iconPart: pillIcon.visible ? pillIcon.width + 12 : 0
+                            readonly property real dotPart: pillDot.visible ? pillDot.width + 12 : 0
+                            readonly property real subtitlePart: pillSubtitle.visible ? pillSubtitle.width + 12 : 0
+                            width: Math.min(share, pillRow.implicitWidth + 56)
                             height: 76
                             radius: 38
                             color: focused ? Theme.textPrimary : Qt.rgba(1, 1, 1, 0.10)
@@ -218,6 +233,7 @@ FocusScope {
                                 anchors.verticalCenter: parent.verticalCenter
                                 spacing: 12
                                 KeyboardIcon {
+                                    id: pillIcon
                                     width: 34
                                     height: 34
                                     anchors.verticalCenter: parent.verticalCenter
@@ -227,7 +243,8 @@ FocusScope {
                                 }
                                 UiText {
                                     anchors.verticalCenter: parent.verticalCenter
-                                    width: Math.min(implicitWidth, 380)
+                                    width: Math.max(0, Math.min(implicitWidth,
+                                        pill.share - 56 - pill.iconPart - pill.subtitlePart - pill.dotPart))
                                     text: pill.entry.title || ""
                                     font.pixelSize: 28
                                     font.weight: 600
@@ -236,9 +253,10 @@ FocusScope {
                                     color: pill.focused ? Theme.ink : Theme.textPrimary
                                 }
                                 UiText {
+                                    id: pillSubtitle
                                     anchors.verticalCenter: parent.verticalCenter
                                     visible: text.length > 0
-                                    width: Math.min(implicitWidth, 200)
+                                    width: Math.min(implicitWidth, 200, pill.share * 0.3)
                                     text: pill.entry.subtitle || ""
                                     font.pixelSize: 24
                                     font.weight: 500
@@ -247,6 +265,7 @@ FocusScope {
                                     color: pill.focused ? Theme.ink : Theme.textHint
                                 }
                                 Rectangle {
+                                    id: pillDot
                                     objectName: "keyboardSuggestionOpen-" + pill.index
                                     anchors.verticalCenter: parent.verticalCenter
                                     visible: pill.entry.open === true

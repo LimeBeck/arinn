@@ -253,6 +253,50 @@ TestCase {
         tryCompare(child("browseKeyboard"), "activeFocus", true);
     }
 
+    function test_four_long_suggestions_fit_the_panel() {
+        let entries = [];
+        for (let i = 0; i < 4; ++i) entries.push({
+            "icon": i % 2 ? "public" : "history",
+            "title": "a rather long suggestion title number " + i,
+            "subtitle": "long-subtitle-" + i + ".example",
+            "value": "value " + i,
+            "open": i % 2 === 1
+        })
+        view.suggestions = entries;
+        openKeyboard();
+        for (let i = 0; i < 4; ++i) {
+            const pill = child("keyboardSuggestion-" + i);
+            const p = pill.mapToItem(view, 0, 0);
+            verify(p.x >= 120 && p.x + pill.width <= 1800, "pill " + i + " at " + p.x + "+" + pill.width);
+        }
+    }
+
+    // Over the limit nothing changes, not even a selection the key would
+    // have replaced.
+    function test_over_limit_keeps_the_selection() {
+        openKeyboard();
+        const field = child("browseInput");
+        field.maximumLength = 10;
+        field.text = "0123456789";
+        field.select(0, 2);
+        child("browseOnScreenKeyboard").insertText("https://");
+        compare(field.text, "0123456789");
+        compare(field.selectedText, "01");
+        // Replacing the selection with text that fits works.
+        child("browseOnScreenKeyboard").insertText("ab");
+        compare(field.text, "ab23456789");
+    }
+
+    // Backspace removes a whole character, never half of a surrogate pair.
+    function test_backspace_removes_a_whole_emoji() {
+        openKeyboard();
+        const field = child("browseInput");
+        field.text = "a\u{1F600}";
+        field.cursorPosition = field.length;
+        child("browseOnScreenKeyboard").erase();
+        compare(field.text, "a");
+    }
+
     function test_reopen_returns_to_the_last_key() {
         openKeyboard();
         keyClick(Qt.Key_Right);

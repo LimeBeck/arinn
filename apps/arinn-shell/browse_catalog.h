@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Arinn contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
+#include "flow_trace.h"
 #include <QObject>
 #include <QVariantList>
 
@@ -48,6 +49,9 @@ signals:
 
 private:
   void watchOperation(const QString &path, quint64 ticket, int polls = 0);
+  // Ends the running open with its result and reports its timing.
+  void endOpen(const QString &operation);
+  FlowTrace::Flow m_openFlow;
   QString m_text, m_kind, m_url, m_engine, m_operation;
   QStringList m_recent;
   QVariantList m_tabs;

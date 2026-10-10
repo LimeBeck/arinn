@@ -189,7 +189,26 @@ void Backend::publishState() {
     emit webShortcutsChanged();
     emit applicationsChanged();
   }
+  traceFlows();
   emit changed();
+}
+void Backend::traceFlows() {
+  // Home load: from "loading" to the first state Home settles in.
+  const auto state = homeState();
+  if (state == QLatin1String("loading")) {
+    if (!m_homeFlow.active())
+      m_homeFlow.start("home.load");
+  } else if (m_homeFlow.active()) {
+    m_homeFlow.finish(state == QLatin1String("ready") || state == QLatin1String("empty") ? "ok"
+                      : state == QLatin1String("unavailable")                         ? "Unavailable"
+                      : state == QLatin1String("updated")                             ? "updated"
+                                                                                      : "failed");
+  }
+  // Return: done once the daemon hides Home.
+  if (m_returnFlow.active() && !m_home)
+    m_returnFlow.finish("ok");
+  else if (m_returnFlow.active() && m_returnFlow.elapsedMs() > returnTraceMs)
+    m_returnFlow.finish("Timeout");
 }
 QVariantList Backend::continueEntries() const {
   if (!m_connected || m_return.isEmpty())
@@ -677,10 +696,12 @@ void Backend::finishCatalog(const std::shared_ptr<Catalog> &catalog,
     QTimer::singleShot(0, this, &Backend::reloadCatalog);
 }
 void Backend::back() {
+  m_returnFlow.start("activity.return");
   auto call = new QDBusPendingCallWatcher(
       QDBusConnection::sessionBus().asyncCall(request("Back"), 3000), this);
   connect(call, &QDBusPendingCallWatcher::finished, this, [this](auto *call) {
     if (call->isError()) {
+      m_returnFlow.finish(FlowTrace::outcome(call->error().name().section('.', -1)));
       setResultMessage(call->error().message());
       publishState();
     }

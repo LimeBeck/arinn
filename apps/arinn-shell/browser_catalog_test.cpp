@@ -3,6 +3,7 @@
 
 #include "asset_images.h"
 #include "browser_catalog.h"
+#include "flow_trace_recorder.h"
 #include <fcntl.h>
 #include <unistd.h>
 #include <QElapsedTimer>
@@ -128,12 +129,13 @@ public:
       openArgCount = 0, providerReads = 0, restarts = 0, cancels = 0, adds = 0,
       lists = 0;
   bool scripted = false, holdOperation = false, rejectAdd = false,
-       holdAdd = false, holdList = false, recordAdded = true;
+       holdAdd = false, holdList = false, recordAdded = true, holdOpens = false,
+       cancelKeepsHold = false;
   bool homeVisible = false, statusError = false;
   QString returnWindow, daemonEpoch = QStringLiteral("77777777-7777-4777-8777-777777777777");
   QString rejectCode = QStringLiteral("InvalidArgument");
   QString addedTitle, addedUrl, addedIcon, addedRequest;
-  QList<QDBusMessage> heldAdds, heldLists, staleLists;
+  QList<QDBusMessage> heldAdds, heldLists, staleLists, heldOpens;
   QDBusConnection replyBus = QDBusConnection::sessionBus();
   void replyLists(const QList<QDBusMessage> &messages) {
     auto bus = QDBusConnection::sessionBus();
@@ -233,7 +235,8 @@ public:
       return true;
     } else if (message.member() == "Cancel") {
       ++cancels;
-      holdOperation = false;
+      if (!cancelKeepsHold)
+        holdOperation = false;
       bus.send(message.createReply());
       return true;
     } else if (message.member() == "GetTabs") {
@@ -324,6 +327,11 @@ public:
       ++opens;
       openArgCount = message.arguments().size();
       openedId = message.arguments().at(0).toString();
+      if (holdOpens) {
+        message.setDelayedReply(true);
+        heldOpens.append(message);
+        return true;
+      }
       bus.send(message.createReply(
           QVariant::fromValue(QDBusObjectPath("/org/arinn/Daemon1/ops/open"))));
       return true;
@@ -443,6 +451,67 @@ private slots:
     bus.unregisterObject("/org/arinn", QDBusConnection::UnregisterTree);
     bus.unregisterService("org.arinn.Daemon1");
   }
+  void supersededShortcutOpenKeepsItsOwnTrace() {
+    // ADR-0093: a later open replaces the earlier one's trace, and the
+    // earlier open's late reply must not end the later trace. The fixture
+    // has its own connection: a local-loop call cannot be held.
+    auto bus = QDBusConnection::connectToBus(qEnvironmentVariable("DBUS_SESSION_BUS_ADDRESS"), "open-fixture");
+    BrowserDaemon daemon;
+    daemon.scripted = true;
+    daemon.scriptedShortcuts = {{"first", "First", "https://example.test/1", {}},
+                                {"second", "Second", "https://example.test/2", {}}};
+    daemon.holdOperation = true;
+    QVERIFY(bus.registerService("org.arinn.Daemon1"));
+    QVERIFY(bus.registerVirtualObject("/org/arinn", &daemon,
+                                      QDBusConnection::SubPath));
+    {
+      BrowserCatalog catalog;
+      QTRY_COMPARE(catalog.shortcuts().size(), 2);
+      recordFlows();
+      daemon.holdOpens = true;
+      catalog.openShortcut("first");
+      QTRY_COMPARE(daemon.heldOpens.size(), 1);
+      daemon.holdOpens = false;
+      catalog.openShortcut("second");
+      QTRY_COMPARE(daemon.opens, 2);
+      QCOMPARE(flowsNamed("shortcut.open").size(), 1);
+      QCOMPARE(flowsNamed("shortcut.open").first().outcome, QString("Cancelled"));
+      bus.send(daemon.heldOpens.first().createErrorReply(
+          QStringLiteral("org.arinn.Error1.Unavailable"), QStringLiteral("fixture")));
+      QTest::qWait(300);
+      QCOMPARE(flowsNamed("shortcut.open").size(), 1);
+      daemon.holdOperation = false;
+      QTRY_COMPARE(flowsNamed("shortcut.open").size(), 2);
+      QCOMPARE(flowsNamed("shortcut.open").last().outcome, QString("ok"));
+
+      // A later open that is cancelled stays Cancelled even when the
+      // superseded open's late reply arrives in between.
+      daemon.holdOperation = true;
+      daemon.holdOpens = true;
+      catalog.openShortcut("first");
+      QTRY_COMPARE(daemon.heldOpens.size(), 2);
+      daemon.holdOpens = false;
+      catalog.openShortcut("second");
+      QTRY_COMPARE(daemon.opens, 4);
+      QTRY_VERIFY(daemon.operationReads > 0);
+      QTest::qWait(150); // The second open is waiting on its operation.
+      // Cancel, then the superseded open's late reply, then the operation ends.
+      daemon.cancelKeepsHold = true;
+      const auto cancels = daemon.cancels;
+      catalog.cancelOpen();
+      QTRY_VERIFY(daemon.cancels > cancels);
+      bus.send(daemon.heldOpens.last().createErrorReply(
+          QStringLiteral("org.arinn.Error1.Unavailable"), QStringLiteral("fixture")));
+      QTest::qWait(200);
+      QCOMPARE(flowsNamed("shortcut.open").size(), 3);
+      daemon.holdOperation = false;
+      QTRY_COMPARE(flowsNamed("shortcut.open").size(), 4);
+      QCOMPARE(flowsNamed("shortcut.open").last().outcome, QString("Cancelled"));
+    }
+    bus.unregisterObject("/org/arinn", QDBusConnection::UnregisterTree);
+    bus.unregisterService("org.arinn.Daemon1");
+    QDBusConnection::disconnectFromBus("open-fixture");
+  }
   void snapshotActivateAndClose() {
     auto bus = QDBusConnection::sessionBus();
     BrowserDaemon daemon;
@@ -486,14 +555,22 @@ private slots:
     QTRY_COMPARE(daemon.closedId, QString("t2"));
     QCOMPARE(daemon.closes, 1);
     QTRY_COMPARE(catalog.operationState(), QString("succeeded"));
+    recordFlows();
     catalog.openShortcut("known");
     QTRY_COMPARE(daemon.openedId, QString("known"));
     QCOMPARE(daemon.opens, 1);
     QCOMPARE(daemon.openArgCount, 2);
     QTRY_COMPARE(catalog.operationState(), QString("succeeded"));
+    // ADR-0093: one flow per open, with its request and operation steps.
+    QTRY_COMPARE(flowsNamed("shortcut.open").size(), 1);
+    QCOMPARE(flowsNamed("shortcut.open").first().outcome, QString("ok"));
+    QCOMPARE(flowsNamed("shortcut.open").first().steps,
+             QStringList({"request:ok", "operation.wait:ok"}));
     catalog.openShortcut("missing");
     QTRY_COMPARE(catalog.operationState(), QString("NotFound"));
     QCOMPARE(daemon.opens, 1);
+    QCOMPARE(flowsNamed("shortcut.open").size(), 2);
+    QCOMPARE(flowsNamed("shortcut.open").last().outcome, QString("NotFound"));
     const auto reads = daemon.tabReads;
     daemon.mode = "empty";
     catalog.refresh();
@@ -843,6 +920,7 @@ private slots:
     QVERIFY(!catalog.openShortcutIds().contains(QString("plain")));
 
     daemon.holdOperation = true;
+    recordFlows();
     catalog.openShortcut("port");
     QTRY_VERIFY(catalog.opening());
     QCOMPARE(catalog.openingTitle(), QString("Port"));
@@ -850,6 +928,8 @@ private slots:
     QTRY_COMPARE(daemon.cancels, 1);
     QCOMPARE(catalog.opening(), false);
     QCOMPARE(catalog.openingError(), QString());
+    QTRY_COMPARE(flowsNamed("shortcut.open").size(), 1);
+    QCOMPARE(flowsNamed("shortcut.open").first().outcome, QString("Cancelled"));
 
     daemon.mode = "unavailable";
     daemon.runtime = "ready";

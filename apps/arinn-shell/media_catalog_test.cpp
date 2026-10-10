@@ -4,6 +4,7 @@
 
 #include "asset_images.h"
 #include "media_catalog.h"
+#include "flow_trace_recorder.h"
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QDir>
@@ -1603,6 +1604,7 @@ private slots:
                                       QDBusConnection::SubPath));
     MediaCatalog catalog;
     QTRY_VERIFY(catalog.windowAvailable());
+    recordFlows();
     catalog.present();
     QTRY_VERIFY(daemon.windowReads > 0);
     QVERIFY(catalog.inputLayerActive());
@@ -1612,8 +1614,17 @@ private slots:
     QVERIFY(!daemon.windowCommands.contains(QStringLiteral("Present")));
     QCOMPARE(daemon.windowCommands, QStringList({QStringLiteral("Release")}));
     QVERIFY(!catalog.inputLayerActive());
+    // ADR-0093: a presentation released while resolving is cut short.
+    QCOMPARE(flowsNamed("playback.present").size(), 1);
+    QCOMPARE(flowsNamed("playback.present").first().outcome, QString("Cancelled"));
+    QCOMPARE(flowsNamed("playback.present").first().steps, QStringList({"window.resolve:Cancelled"}));
     catalog.present();
     QTRY_COMPARE(catalog.presentationState(), QStringLiteral("active"));
+    // The window check confirms the input layer and ends the flow.
+    QTRY_COMPARE(flowsNamed("playback.present").size(), 2);
+    QCOMPARE(flowsNamed("playback.present").last().outcome, QString("ok"));
+    QCOMPARE(flowsNamed("playback.present").last().steps,
+             QStringList({"window.resolve:ok", "platform.present:ok", "window.check:ok"}));
     QSignalSpy home(&catalog, &MediaCatalog::presentationHomeRequested);
     catalog.homeRequested(QStringLiteral("old-epoch"), {}, {});
     QCOMPARE(home.count(), 0);
@@ -1696,8 +1707,14 @@ private slots:
     QVERIFY(bus.registerVirtualObject(QStringLiteral("/org/arinn"), &daemon, QDBusConnection::SubPath));
     MediaCatalog catalog;
     QTRY_VERIFY(catalog.windowAvailable());
+    recordFlows();
     catalog.present();
     QTRY_COMPARE_WITH_TIMEOUT(catalog.presentationState(), readFailure ? QStringLiteral("Unavailable") : QStringLiteral("Timeout"), 8000);
+    const QString failure = readFailure ? QStringLiteral("Unavailable") : QStringLiteral("Timeout");
+    QCOMPARE(flowsNamed("playback.present").size(), 1);
+    QCOMPARE(flowsNamed("playback.present").first().outcome, failure);
+    QCOMPARE(flowsNamed("playback.present").first().steps,
+             QStringList({"window.resolve:ok", "platform.present:" + failure}));
     QTRY_COMPARE(daemon.windowCommands, QStringList({QStringLiteral("Present"), QStringLiteral("Release")}));
     QVERIFY(!catalog.inputLayerActive());
     QCOMPARE(daemon.lastLocal, QStringLiteral("live"));

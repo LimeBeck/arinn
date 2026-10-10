@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "backend.h"
+#include "flow_trace_recorder.h"
 #include "build_identity.h"
 #include "web_icon_references.h"
 #include <QUuid>
@@ -125,6 +126,9 @@ public:
   // than the method, "self" is this shell's build, anything else is sent.
   QString build;
   int buildCalls = 0;
+  // Home visibility in Status; Back hides Home unless backError is set.
+  bool home = true;
+  QString backError;
   QString introspect(const QString &) const override { return {}; }
   bool handleMessage(const QDBusMessage &m,
                      const QDBusConnection &bus) override {
@@ -140,11 +144,19 @@ public:
       const auto id = build == "self" ? BuildIdentity::shell() : build;
       bus.send(m.createReply(QVariantList{QStringLiteral("0.1.0"), id}));
       return true;
+    } else if (m.member() == "Back") {
+      if (!backError.isEmpty()) {
+        bus.send(m.createErrorReply("org.arinn.Error1." + backError, "fixture"));
+        return true;
+      }
+      home = false;
+      bus.send(m.createReply());
+      return true;
     } else if (m.member() == "Status") {
       a.beginStructure();
       const QString epoch = "77777777-7777-4777-8777-777777777777";
       a << epoch << true << epoch << qulonglong(1)
-        << true << returnedWindow << QString() << QString() << false << platform
+        << home << returnedWindow << QString() << QString() << false << platform
         << QString() << QString();
       a.endStructure();
     } else if (m.member() == "HomeItems") {
@@ -635,11 +647,29 @@ private slots:
       QStringList states;
       QObject::connect(&backend, &Backend::changed, &backend,
                        [&] { states << backend.homeState(); });
+      recordFlows();
       QVERIFY(bus.registerVirtualObject("/org/arinn", &daemon,
                                         QDBusConnection::SubPath));
       QVERIFY(bus.registerService("org.arinn.Daemon1"));
       QTRY_COMPARE(backend.homeState(), QString("empty"));
       QVERIFY(states.contains(QString("loading")));
+      // Home load is timed from "loading" to the state it settles in, once
+      // (ADR-0093); later polls do not report it again.
+      QTest::qWait(1200);
+      QCOMPARE(flowsNamed("home.load").size(), 1);
+      QCOMPARE(flowsNamed("home.load").first().outcome, QString("ok"));
+      // Return is done when the daemon hides Home; a refusal reports its code.
+      daemon.backError = "PermissionDenied";
+      backend.back();
+      QTRY_COMPARE(flowsNamed("activity.return").size(), 1);
+      QCOMPARE(flowsNamed("activity.return").first().outcome, QString("PermissionDenied"));
+      daemon.backError.clear();
+      backend.back();
+      QTRY_COMPARE(flowsNamed("activity.return").size(), 2);
+      QCOMPARE(flowsNamed("activity.return").last().outcome, QString("ok"));
+      QTRY_VERIFY(!backend.homeVisible());
+      daemon.home = true;
+      QTRY_VERIFY(backend.homeVisible());
       QVERIFY(backend.webShortcuts().isEmpty());
 
       const auto north = QStringLiteral("https://example.test/north");

@@ -19,6 +19,8 @@ void registerSystemStatus() {
 Q_COREAPP_STARTUP_FUNCTION(registerSystemStatus)
 
 SystemStatus::SystemStatus(QObject *parent) : QObject(parent) {
+  m_retry.setSingleShot(true);
+  connect(&m_retry, &QTimer::timeout, this, &SystemStatus::refresh);
   auto bus = QDBusConnection::sessionBus();
   // The Changed match is installed before the first Get, so no change
   // between them is missed.
@@ -29,6 +31,8 @@ SystemStatus::SystemStatus(QObject *parent) : QObject(parent) {
   connect(watcher, &QDBusServiceWatcher::serviceOwnerChanged, this,
           [this](const QString &, const QString &, const QString &next) {
             ++m_lifetime;
+            m_retry.stop();
+            m_attempt = 0;
             m_epoch.clear();
             m_revision = 0;
             apply(false, false, 0);
@@ -41,6 +45,8 @@ SystemStatus::SystemStatus(QObject *parent) : QObject(parent) {
 void SystemStatus::statusChanged(const QString &epoch, qulonglong revision) {
   if (!m_epoch.isEmpty() && epoch == m_epoch && revision <= m_revision)
     return;
+  m_retry.stop();
+  m_attempt = 0;
   refresh();
 }
 
@@ -61,6 +67,9 @@ void SystemStatus::refresh() {
                 reply.signature() != QLatin1String("(stsssy)") ||
                 reply.arguments().isEmpty()) {
               apply(false, false, 0);
+              retryLater(reply.type() == QDBusMessage::ErrorMessage
+                             ? reply.errorName()
+                             : QString());
               return;
             }
             const auto arg =
@@ -74,8 +83,10 @@ void SystemStatus::refresh() {
             const QUuid uuid(epoch);
             if (uuid.isNull() || revision == 0) {
               apply(false, false, 0);
+              retryLater(QString());
               return;
             }
+            m_attempt = 0;
             if (epoch != m_epoch) {
               m_epoch = epoch;
               m_revision = 0;
@@ -90,6 +101,19 @@ void SystemStatus::refresh() {
             apply(audio == QLatin1String("muted"), wifi,
                   wifi && level <= maxLevel ? level : 0);
           });
+}
+
+// A failed read is tried again a few times while the daemon has an owner:
+// a timeout, or a daemon that owns its name but has not exported
+// SystemStatus1 yet. A name without an owner is not, because the owner
+// change brings the next read.
+void SystemStatus::retryLater(const QString &error) {
+  static const QStringList noOwner = {
+      QStringLiteral("org.freedesktop.DBus.Error.ServiceUnknown"),
+      QStringLiteral("org.freedesktop.DBus.Error.NameHasNoOwner")};
+  if (noOwner.contains(error) || m_attempt >= m_delays.size())
+    return;
+  m_retry.start(m_delays.at(m_attempt++));
 }
 
 void SystemStatus::apply(bool muted, bool wifi, int level) {

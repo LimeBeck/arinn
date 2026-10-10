@@ -31,25 +31,13 @@ technical documents, historical prototypes, app binaries, configuration and Git
 metadata. The checker rejects extra files, symlinks, broken links and references
 outside the output directory. Build outputs must not be committed.
 
-The [Pages deployment workflow](../../.github/workflows/pages.yml) is owned by
-[the handbook task](https://github.com/LimeBeck/arinn/issues/335). Product-site
-integration must stage the output of `scripts/build-site.py` and validate it with
-`scripts/check-site.py`, preserving master-only deployment and PR validation.
-Merge the handbook dependency before this product-site change. Review deployment
-integration in the owner-approved PR; never deploy competing workflows to the
-same Pages site.
-
-The complete replacement is prepared in [pages.yml](pages.yml). After #335 lands
-and the owner authorizes changing its workflow, install it on this branch:
-
-```sh
-cp docs/site/pages.yml .github/workflows/pages.yml
-```
-
-It validates both the handbook and product site in PRs, uploads only the assembled
-17-file artifact, and deploys only on `master`. Screenshot changes also rebuild
-the website. The template is not an active workflow until it is installed; the
-current handbook workflow continues to publish the handbook by itself.
+The [Pages deployment workflow](../../.github/workflows/pages.yml) publishes this
+site (#339). In pull requests it validates the handbook and the product site. On
+`master` (a push or a manual run) it builds the site with `scripts/build-site.py`,
+checks it with `scripts/check-site.py`, uploads only the assembled 17-file artifact
+and deploys it. Screenshot and mark changes also rebuild the website. Pull
+requests and runs on other branches never deploy. No other workflow deploys to
+the same Pages site.
 
 GitHub Pages activation is an owner action: select **Settings → Pages → Source →
 GitHub Actions**, confirm the intended visibility and the `github-pages`

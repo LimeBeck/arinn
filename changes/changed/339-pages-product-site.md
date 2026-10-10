@@ -1,0 +1,1 @@
+- GitHub Pages publishes the whole product website (landing page, screenshot gallery and the user handbook under `guide/`) instead of the handbook alone ([#339](https://github.com/LimeBeck/arinn/issues/339)).

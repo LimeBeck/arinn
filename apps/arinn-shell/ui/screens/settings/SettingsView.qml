@@ -1962,7 +1962,9 @@ FocusScope {
                 id: stringTypingInput
                 objectName: "stringTypingInput"
                 x: 32
-                width: stringTypingButton.x - x - 24
+                // Ends before the counter so the caret stays in view.
+                width: (stringTypingCounter.visible ? stringTypingCounter.x
+                                                    : stringTypingButton.x) - x - 24
                 height: 80
                 anchors.verticalCenter: parent.verticalCenter
                 font.family: Ui.Theme.fontFamily
@@ -1981,6 +1983,7 @@ FocusScope {
             }
             Ui.UiText {
                 // From 75% of a limit up to 64 (KB-4); error-coloured at the limit.
+                id: stringTypingCounter
                 objectName: "stringTypingCounter"
                 anchors.right: stringTypingButton.left
                 anchors.rightMargin: 24

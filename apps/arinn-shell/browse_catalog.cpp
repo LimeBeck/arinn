@@ -197,7 +197,7 @@ QVariantList BrowseCatalog::nameSuggestions(const QString &address,
   for (int i = 0; i < names.size(); ++i) {
     const auto folded = names[i].toCaseFolded();
     const auto kind = i + 1 == names.size() ? kinds[1] : kinds[0];
-    if (folded == query || !folded.startsWith(query))
+    if (folded == query || !matchesQuery(query, {names[i]}))
       continue;
     result.append(QVariantMap{
         {"kind", kind},

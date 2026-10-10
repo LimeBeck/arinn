@@ -573,9 +573,14 @@ TestCase {
         // The fixture allows 40 characters: the counter shows from 30.
         input.text = "a".repeat(29);
         verify(!counter.visible);
+        const fullWidth = input.width;
         input.text = "a".repeat(30);
         verify(counter.visible);
         compare(counter.text, "30 / 40");
+        // The field ends before the counter, so the caret is never under it.
+        verify(input.width < fullWidth);
+        verify(input.mapToItem(null, input.width, 0).x
+               <= counter.mapToItem(null, 0, 0).x);
         // The limit counts characters, as the settings contract does: an
         // emoji outside the BMP is one character, not two UTF-16 units.
         input.text = "a".repeat(39);

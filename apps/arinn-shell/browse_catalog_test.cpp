@@ -238,6 +238,14 @@ private slots:
     names = model.nameSuggestions("https://www.video.example:443/x", QString());
     QCOMPARE(names.size(), 2);
     QCOMPARE(names[0].toMap().value("value").toString(), QString("Videos"));
+    // Any word of the title matches, as on the address screen.
+    model.setTabs({QVariantMap{{"title", "Media Library"},
+                               {"url", "https://media.example/"},
+                               {"active", true}}});
+    names = model.nameSuggestions("https://media.example", "lib");
+    QCOMPARE(names.size(), 1);
+    QCOMPARE(names[0].toMap().value("value").toString(),
+             QString("Media Library"));
   }
   void operationFailure() {
     fake.state = "failed";

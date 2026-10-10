@@ -1910,6 +1910,8 @@ FocusScope {
         readonly property int count: [...stringTypingInput.text].length
         Keys.onPressed: event => {
             if (root.homeKey(event)) return;
+            // Menu reaches the shell's navigation, as on every screen (§6.2).
+            if (event.key === Qt.Key_Menu) return;
             event.accepted = true;
             if (event.key === Qt.Key_Escape || event.key === Qt.Key_Back || event.key === Qt.Key_Backspace) {
                 if (!event.isAutoRepeat) root.finishStringTyping(false);

@@ -154,7 +154,9 @@ QVariantList BrowseCatalog::openServices(const QString &text) const {
     const auto value = url.adjusted(QUrl::RemovePath | QUrl::RemoveQuery |
                                     QUrl::RemoveFragment | QUrl::RemoveUserInfo)
                            .toString();
-    if (value.toCaseFolded() == query || !matchesQuery(query, {title, host}))
+    // The origin too, so a typed scheme ("https://med") still matches.
+    if (value.toCaseFolded() == query ||
+        !matchesQuery(query, {title, host, value}))
       continue;
     result.append(QVariantMap{{"kind", "open"},
                               {"icon", "public"},
@@ -171,13 +173,19 @@ QVariantList BrowseCatalog::nameSuggestions(const QString &address,
   const auto host = hostOf(url);
   if (address.trimmed().isEmpty() || url.host().isEmpty())
     return {};
+  // With a scheme the page must have the same origin (scheme, host and
+  // effective port); a bare host matches the page's host and port.
+  const bool scheme = address.contains("://");
+  const auto wanted = origin(url.toString());
   QStringList names;
   for (const auto &row : m_tabs) {
     const auto tab = row.toMap();
     const QUrl open(tab.value("url").toString());
     const auto title = tab.value("title").toString().trimmed();
-    if (tab.value("active").toBool() && !title.isEmpty() &&
-        hostOf(open) == host) {
+    const bool same =
+        scheme ? !wanted.isEmpty() && origin(open.toString()) == wanted
+               : hostOf(open) == host;
+    if (tab.value("active").toBool() && !title.isEmpty() && same) {
       names << title;
       break;
     }
@@ -337,51 +345,53 @@ void BrowseCatalog::watchOperation(const QString &objectPath, quint64 ticket,
                                             "org.arinn.Operation1", "Get");
   auto *pending = new QDBusPendingCallWatcher(
       QDBusConnection::sessionBus().asyncCall(msg, 3000), this);
-  connect(pending, &QDBusPendingCallWatcher::finished, this,
-          [this, objectPath, ticket, polls](auto *watcher) {
-            const auto reply = watcher->reply();
-            watcher->deleteLater();
-            if (ticket != m_command)
-              return;
-            if (reply.type() == QDBusMessage::ErrorMessage ||
-                reply.signature() != "(ssbtta(sss)b)") {
-              endOpen(error(reply));
-              emit changed();
-              return;
-            }
-            const auto arg =
-                qvariant_cast<QDBusArgument>(reply.arguments().at(0));
-            QString state, code;
-            bool retryable;
-            qulonglong started, ended;
-            arg.beginStructure();
-            arg >> state >> code >> retryable >> started >> ended;
-            arg.beginArray();
-            while (!arg.atEnd()) {
-              QString provider, capability, entity;
-              arg.beginStructure();
-              arg >> provider >> capability >> entity;
-              arg.endStructure();
-            }
-            arg.endArray();
-            bool cancellable;
-            arg >> cancellable;
-            arg.endStructure();
-            if (state == "queued" || state == "running") {
-              QTimer::singleShot(200, this, [this, objectPath, ticket, polls] {
-                watchOperation(objectPath, ticket, polls + 1);
-              });
-              return;
-            }
-            endOpen(state == "succeeded"
-                        ? state
-                        : (code.isEmpty() ? QStringLiteral("Unavailable") : code));
-            refreshRecent();
-            emit changed();
+  connect(
+      pending, &QDBusPendingCallWatcher::finished, this,
+      [this, objectPath, ticket, polls](auto *watcher) {
+        const auto reply = watcher->reply();
+        watcher->deleteLater();
+        if (ticket != m_command)
+          return;
+        if (reply.type() == QDBusMessage::ErrorMessage ||
+            reply.signature() != "(ssbtta(sss)b)") {
+          endOpen(error(reply));
+          emit changed();
+          return;
+        }
+        const auto arg = qvariant_cast<QDBusArgument>(reply.arguments().at(0));
+        QString state, code;
+        bool retryable;
+        qulonglong started, ended;
+        arg.beginStructure();
+        arg >> state >> code >> retryable >> started >> ended;
+        arg.beginArray();
+        while (!arg.atEnd()) {
+          QString provider, capability, entity;
+          arg.beginStructure();
+          arg >> provider >> capability >> entity;
+          arg.endStructure();
+        }
+        arg.endArray();
+        bool cancellable;
+        arg >> cancellable;
+        arg.endStructure();
+        if (state == "queued" || state == "running") {
+          QTimer::singleShot(200, this, [this, objectPath, ticket, polls] {
+            watchOperation(objectPath, ticket, polls + 1);
           });
+          return;
+        }
+        endOpen(state == "succeeded"
+                    ? state
+                    : (code.isEmpty() ? QStringLiteral("Unavailable") : code));
+        refreshRecent();
+        emit changed();
+      });
 }
 void BrowseCatalog::endOpen(const QString &operation) {
   m_busy = false;
   m_operation = operation;
-  m_openFlow.finish(operation == QLatin1String("succeeded") ? "ok" : FlowTrace::outcome(operation));
+  m_openFlow.finish(operation == QLatin1String("succeeded")
+                        ? "ok"
+                        : FlowTrace::outcome(operation));
 }

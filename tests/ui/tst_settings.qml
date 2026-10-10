@@ -15,6 +15,9 @@ TestCase {
     visible: true
     when: windowShown
     property var view
+    // Keys the view leaves unhandled reach the suite, as they reach Main.qml.
+    property int menuKeys: 0
+    Keys.onPressed: event => { if (event.key === Qt.Key_Menu) ++menuKeys; }
 
     Component {
         id: factory
@@ -579,6 +582,11 @@ TestCase {
         child("stringOnScreenKeyboard").insertText("b");
         compare(input.text.length, 40);
         compare(view.editingDraft.length, 40);
+        // Menu is left to the shell's navigation, as on every screen.
+        suite.menuKeys = 0;
+        keyClick(Qt.Key_Menu);
+        compare(suite.menuKeys, 1);
+        verify(view.stringTyping);
         keyClick(Qt.Key_Home);
         tryCompare(view, "stringTyping", false);
         compare(changes.count, 0);

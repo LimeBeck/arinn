@@ -118,7 +118,8 @@ private slots:
     const auto flows = flowsNamed("browse.open");
     QCOMPARE(flows.size(), 1);
     QCOMPARE(flows.first().outcome, QString("ok"));
-    QCOMPARE(flows.first().steps, QStringList({"request:ok", "operation.wait:ok"}));
+    QCOMPARE(flows.first().steps,
+             QStringList({"request:ok", "operation.wait:ok"}));
     QCOMPARE(fake.opened, QString("latest.example"));
     QTRY_COMPARE(model.recent().first(), QString("latest.example"));
     model.clearRecent();
@@ -207,6 +208,10 @@ private slots:
     QCOMPARE(services[0].toMap().value("subtitle").toString(),
              QString("video.example"));
     QCOMPARE(model.openServices(QString()).size(), 2);
+    // A typed scheme still finds the service by its origin.
+    QCOMPARE(model.openServices("https://www.vid").size(), 1);
+    QCOMPARE(model.openServices("http://jelly").size(), 1);
+    QVERIFY(model.openServices("https://jelly").isEmpty());
     auto names = model.nameSuggestions("jellyfin.local:8096", QString());
     QCOMPARE(names.size(), 2);
     QCOMPARE(names[0].toMap().value("kind").toString(), QString("title"));
@@ -225,6 +230,14 @@ private slots:
     QCOMPARE(names[0].toMap().value("value").toString(),
              QString("other.example"));
     QVERIFY(model.nameSuggestions(QString(), QString()).isEmpty());
+    // With a scheme, the page's origin must match: not another scheme, and
+    // a spelled-out default port is the same origin.
+    names = model.nameSuggestions("https://jellyfin.local:8096", QString());
+    QCOMPARE(names.size(), 1);
+    QCOMPARE(names[0].toMap().value("kind").toString(), QString("domain"));
+    names = model.nameSuggestions("https://www.video.example:443/x", QString());
+    QCOMPARE(names.size(), 2);
+    QCOMPARE(names[0].toMap().value("value").toString(), QString("Videos"));
   }
   void operationFailure() {
     fake.state = "failed";

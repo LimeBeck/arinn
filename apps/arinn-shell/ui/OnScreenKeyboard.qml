@@ -98,12 +98,26 @@ FocusScope {
             target.remove(at - (pair ? 2 : 1), at);
         }
     }
+    // One character left or right, stepping over a whole surrogate pair.
+    function moveCursor(step) {
+        if (!target)
+            return;
+        const text = target.text;
+        const isHigh = code => code >= 0xD800 && code <= 0xDBFF;
+        const isLow = code => code >= 0xDC00 && code <= 0xDFFF;
+        let at = target.cursorPosition;
+        if (step < 0 && at > 0)
+            at -= at > 1 && isLow(text.charCodeAt(at - 1)) && isHigh(text.charCodeAt(at - 2)) ? 2 : 1;
+        else if (step > 0 && at < text.length)
+            at += isHigh(text.charCodeAt(at)) && isLow(text.charCodeAt(at + 1)) ? 2 : 1;
+        target.cursorPosition = at;
+    }
     function apply(result) {
         switch (result.action) {
         case "insert": insertText(result.text); break;
         case "backspace": erase(); break;
-        case "left": if (target) target.cursorPosition = Math.max(0, target.cursorPosition - 1); break;
-        case "right": if (target) target.cursorPosition = Math.min(target.length, target.cursorPosition + 1); break;
+        case "left": moveCursor(-1); break;
+        case "right": moveCursor(1); break;
         case "submit": submitted(); break;
         }
     }

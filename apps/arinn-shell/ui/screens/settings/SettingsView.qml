@@ -516,10 +516,15 @@ FocusScope {
         hiddenStringError = rowKey(row) + "\n" + row.error;
         errorDismissRequested(row.providerId || "", row.id);
     }
+    // Typed text a key produced: any printable text, a character outside the
+    // BMP (two UTF-16 units) included; no control characters.
+    function printable(text) {
+        return !!text && text.length > 0 && text.charCodeAt(0) >= 32 && text.charCodeAt(0) !== 127;
+    }
     function wakeKeyboard(text) {
         keyboardSeen = true;
         stringPart = "field";
-        if (text && text.length === 1 && text >= " ") {
+        if (printable(text)) {
             editingDraft = (editingDraft || "") + text;
             noteStringEdit();
         }
@@ -1737,7 +1742,7 @@ FocusScope {
                                 Ui.Focus.take(stringSave);
                             } else if ((event.key === Qt.Key_Escape || event.key === Qt.Key_Back) && onButton) {
                                 if (!event.isAutoRepeat) root.cancelEditor();
-                            } else if (onButton && event.text && event.text.length === 1 && event.text >= " ") {
+                            } else if (onButton && root.printable(event.text)) {
                                 root.wakeKeyboard(event.text);
                             } else if (!onButton || event.key !== Qt.Key_Up) {
                                 return;
@@ -1916,7 +1921,7 @@ FocusScope {
                 if (!event.isAutoRepeat) root.finishStringTyping(false);
             } else if (event.key === Qt.Key_Down) {
                 stringKeyboard.enterFromAbove();
-            } else if (event.text && event.text.length === 1 && event.text >= " "
+            } else if (root.printable(event.text)
                        && !(event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier))) {
                 stringKeyboard.insertText(event.text);
             }

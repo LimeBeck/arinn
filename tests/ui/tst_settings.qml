@@ -586,6 +586,12 @@ TestCase {
         child("stringOnScreenKeyboard").insertText("b");
         compare([...input.text].length, 40);
         compare([...view.editingDraft].length, 40);
+        // Key text outside the BMP counts as typed text for every handler in
+        // the sheet and the layer (QtTest cannot send it as a key).
+        verify(view.printable("\u{1F600}"));
+        verify(view.printable("a"));
+        verify(!view.printable("\u0001"));
+        verify(!view.printable(""));
         // Menu is left to the shell's navigation, as on every screen.
         suite.menuKeys = 0;
         keyClick(Qt.Key_Menu);

@@ -297,6 +297,24 @@ TestCase {
         compare(field.text, "a");
     }
 
+    // The cursor keys step over a whole character, never into a surrogate
+    // pair.
+    function test_cursor_keys_step_over_a_whole_emoji() {
+        openKeyboard();
+        const field = child("browseInput");
+        const panel = child("browseOnScreenKeyboard");
+        field.text = "a\u{1F600}b";
+        field.cursorPosition = field.length;
+        panel.apply({"action": "left"});
+        compare(field.cursorPosition, 3);
+        panel.apply({"action": "left"});
+        compare(field.cursorPosition, 1);
+        panel.apply({"action": "right"});
+        compare(field.cursorPosition, 3);
+        panel.apply({"action": "right"});
+        compare(field.cursorPosition, 4);
+    }
+
     function test_reopen_returns_to_the_last_key() {
         openKeyboard();
         keyClick(Qt.Key_Right);

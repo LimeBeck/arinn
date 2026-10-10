@@ -27,7 +27,9 @@ X11/EWMH. The open points from the handoff are DR-39…DR-48 in the
   panel, Up from the suggestions (or from the top row without suggestions)
   asks it to take focus back. A hardware keyboard keeps typing into the target
   while the panel is open, and Backspace edits text. Home and Menu are not
-  handled and reach the screen.
+  handled and reach the screen. On Site or search Menu opens navigation; in the
+  shortcut editor and a Settings editor Menu stays with the editor, as it does
+  without the panel, and Home leaves them.
 - `ui/KeyboardButton.qml` is the pill in the field ("Keyboard" / "Hide"), the
   only way to open the panel.
 - `ui/KeyboardIcon.qml` draws the line icons on a `Canvas`, like the other
@@ -80,6 +82,11 @@ and `Backend::saveShortcut` saves the host (DR-43). A string setting shows
   (PK), which waits on the folder-listing method (DR-27). The single-path and
   multiple-path text editors in Settings stay hardware-keyboard fields until
   then ([#426](https://github.com/LimeBeck/arinn/issues/426)).
+- **Shortcut address format.** The address rules belong to the daemon
+  (ADR-0043, ADR-0045), and the shell has no copy of them. Done is not blocked
+  while typing; a rejected address shows as the editor's error after Save. A
+  check while typing needs a daemon validation method (a `contract-change`
+  task).
 - **Pattern errors.** A `pattern` constraint is checked by the provider when
   the value is saved; the shell does not evaluate provider patterns while
   typing, so the main key is not blocked before Save.

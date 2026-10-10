@@ -29,6 +29,8 @@ FocusScope {
     property var suggestions: []
     // Shown in the suggestion row when there are none.
     property string emptySuggestions: ""
+    // A limit in Unicode characters, as settings count them; 0 for none.
+    property int maxCharacters: 0
     readonly property alias model: keyboard
     property string zone: "keys"
     property int suggestionIndex: 0
@@ -72,6 +74,8 @@ FocusScope {
             target.remove(target.selectionStart, target.selectionEnd);
         // Input past the field's limit is ignored, not truncated.
         if (target.maximumLength > 0 && target.length + text.length > target.maximumLength)
+            return;
+        if (maxCharacters > 0 && [...target.text].length + [...text].length > maxCharacters)
             return;
         // insert() and remove() report textEdited, as typing does.
         target.insert(target.cursorPosition, text);

@@ -472,7 +472,6 @@ FocusScope {
         const row = stringRowData;
         if (!row || !canEdit(row)) return;
         stringTyping = true;
-        stringTypingInput.maximumLength = hasBound(row, "maxLength") ? Number(row.constraints.maxLength) : 1024;
         stringTypingInput.text = editingDraft || "";
         stringTypingInput.cursorPosition = stringTypingInput.text.length;
         stringKeyboard.start();
@@ -2019,6 +2018,8 @@ FocusScope {
             y: parent.height - implicitHeight
             target: stringTypingInput
             memoryKey: "setting-" + root.editingKey
+            // The contract counts characters, not UTF-16 units (ADR-0065).
+            maxCharacters: stringTypingLayer.limit > 0 ? stringTypingLayer.limit : 1024
             submitLabel: qsTr("Save")
             emptySuggestions: stringTypingLayer.limit > 0 ? qsTr("Up to %1 characters").arg(stringTypingLayer.limit) : ""
             onSubmitted: root.finishStringTyping(true)

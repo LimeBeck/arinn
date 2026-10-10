@@ -304,8 +304,6 @@ RU = {
     "Open the on-screen keyboard": "Открыть экранную клавиатуру",
     "Hide the on-screen keyboard": "Скрыть экранную клавиатуру",
     "Space": "Пробел",
-    "123": "123",
-    "ABC": "АБВ",
     "RU": "РУ",
     "EN": "EN",
     "Type": "Ввести",

@@ -755,14 +755,6 @@
 <context>
     <name>KeyboardModel</name>
     <message>
-        <source>ABC</source>
-        <translation>АБВ</translation>
-    </message>
-    <message>
-        <source>123</source>
-        <translation>123</translation>
-    </message>
-    <message>
         <source>RU</source>
         <translation>РУ</translation>
     </message>

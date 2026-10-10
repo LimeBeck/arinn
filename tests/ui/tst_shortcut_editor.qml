@@ -151,6 +151,21 @@ TestCase {
         tryCompare(home, "shortcutTypingField", "");
         focused("shortcutTitleKeyboard");
     }
+    // A remote's Back hides the panel first, then leaves the editor.
+    function test_back_key_hides_the_panel_then_closes_the_editor() {
+        openEditor();
+        keyClick(Qt.Key_End);
+        keyClick(Qt.Key_Right);
+        keyClick(Qt.Key_Return);
+        tryCompare(home, "shortcutTypingField", "title");
+        keyClick(Qt.Key_Back);
+        tryCompare(home, "shortcutTypingField", "");
+        focused("shortcutTitleKeyboard");
+        verify(home.shortcutEditorOpen);
+        keyClick(Qt.Key_Back);
+        verify(!home.shortcutEditorOpen);
+        focused("entry-one");
+    }
     function test_home_while_typing_closes_the_editor() {
         openEditor();
         keyClick(Qt.Key_End);

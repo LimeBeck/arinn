@@ -1000,7 +1000,7 @@ FocusScope {
         Keys.onPressed: event => {
             event.accepted = true;
             if (event.key === Qt.Key_Home) root.homeKey();
-            else if (event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace) {
+            else if (event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace || event.key === Qt.Key_Back) {
                 if (removeConfirmation.visible) {
                     removeConfirmation.visible = false;
                     Focus.take(shortcutDelete);

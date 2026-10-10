@@ -188,7 +188,10 @@ QList<QList<KeyboardModel::Key>> KeyboardModel::keyRows() const {
        QStringLiteral("action"),
        QStringLiteral("shift"),
        1},
-      {m_symbols ? tr("ABC") : tr("123"),
+      // The letters key names the alphabet it returns to, not the interface.
+      {m_symbols ? (m_language == QStringLiteral("ru") ? QStringLiteral("АБВ")
+                                                       : QStringLiteral("ABC"))
+                 : QStringLiteral("123"),
        {},
        QStringLiteral("layer"),
        QStringLiteral("action"),

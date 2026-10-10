@@ -576,12 +576,16 @@ TestCase {
         input.text = "a".repeat(30);
         verify(counter.visible);
         compare(counter.text, "30 / 40");
-        input.text = "a".repeat(40);
+        // The limit counts characters, as the settings contract does: an
+        // emoji outside the BMP is one character, not two UTF-16 units.
+        input.text = "a".repeat(39);
+        child("stringOnScreenKeyboard").insertText("\u{1F600}");
+        compare([...input.text].length, 40);
         compare(counter.color, Qt.color("#E8474F"));
         // Input past the limit is ignored.
         child("stringOnScreenKeyboard").insertText("b");
-        compare(input.text.length, 40);
-        compare(view.editingDraft.length, 40);
+        compare([...input.text].length, 40);
+        compare([...view.editingDraft].length, 40);
         // Menu is left to the shell's navigation, as on every screen.
         suite.menuKeys = 0;
         keyClick(Qt.Key_Menu);

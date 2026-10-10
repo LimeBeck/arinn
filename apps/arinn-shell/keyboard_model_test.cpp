@@ -182,6 +182,10 @@ private slots:
     QCOMPARE(model.language(), QStringLiteral("ru"));
     QVERIFY(!model.symbols());
     QCOMPARE(key(model, 1, 0).value("label").toString(), QStringLiteral("й"));
+    // The letters key names the alphabet it returns to.
+    model.focusKey(4, 1);
+    model.activate();
+    QCOMPARE(focused(model).value("label").toString(), QStringLiteral("АБВ"));
   }
 
   void actionKeysReportTheirAction() {

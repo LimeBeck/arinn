@@ -515,6 +515,28 @@ private slots:
                          QDBusConnection::UnregisterTree);
     bus.unregisterService(QStringLiteral("org.arinn.Daemon1"));
   }
+  void collectionTabsUseTheShellsNames() {
+    // #431: a provider's collection title is not translated; the shell
+    // names the contract's kinds itself.
+    LibraryDaemon daemon;
+    daemon.collections = {{QStringLiteral("films"), QStringLiteral("Movies"),
+                           QStringLiteral("film")},
+                          {QStringLiteral("shows"), QStringLiteral("TV"),
+                           QStringLiteral("series")},
+                          {QStringLiteral("rest"), QStringLiteral("Misc"),
+                           QStringLiteral("other")}};
+    daemon.page1 = {film(QStringLiteral("north"), QStringLiteral("North"))};
+    QVERIFY(registerBus(daemon));
+    LibraryCatalog catalog;
+    QTRY_COMPARE(catalog.libraryState(), QStringLiteral("ready"));
+    const auto tabs = catalog.tabs();
+    QCOMPARE(tabs.size(), 3);
+    QStringList titles;
+    for (const auto &tab : tabs)
+      titles << tab.toMap().value(QStringLiteral("title")).toString();
+    QCOMPARE(titles, (QStringList{QStringLiteral("Films"), QStringLiteral("Series"),
+                                  QStringLiteral("Other")}));
+  }
   void catalogueSeriesMissingAndResume() {
     LibraryDaemon daemon;
     daemon.collections = {{QStringLiteral("films"), QStringLiteral("Films"),

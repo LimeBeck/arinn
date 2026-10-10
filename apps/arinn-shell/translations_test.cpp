@@ -26,6 +26,10 @@ private slots:
     QCOMPARE(QCoreApplication::translate("HomeView", "Restart"), QStringLiteral("Перезапустить"));
     QCOMPARE(QCoreApplication::translate("PowerMenu", "Restart"), QStringLiteral("Перезагрузка"));
     QCOMPARE(QCoreApplication::translate("SettingsCatalog", "Media"), QStringLiteral("Медиа"));
+    // Library tabs are named by the shell, not by the provider (#431).
+    QCOMPARE(QCoreApplication::translate("LibraryCatalog", "Films"), QStringLiteral("Фильмы"));
+    QCOMPARE(QCoreApplication::translate("LibraryCatalog", "Series"), QStringLiteral("Сериалы"));
+    QCOMPARE(QCoreApplication::translate("LibraryCatalog", "Other"), QStringLiteral("Другое"));
     QCOMPARE(QCoreApplication::translate("DownloadCatalog", "%1 is ready to watch")
                  .arg(QStringLiteral("X")),
              QStringLiteral("X загружен — можно смотреть"));

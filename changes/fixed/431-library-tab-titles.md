@@ -1,0 +1,1 @@
+- Translate the Library tabs (Films, Series, Other): the shell now names them from the collection kind instead of showing the provider's English title ([#431](https://github.com/LimeBeck/arinn/issues/431)).

@@ -43,7 +43,7 @@ position with no duration is a small fraction so Continue still appears.
 `completed` stays Play. A series uses the resume of the episode Play would
 open, so Continue appears on the series when that episode has progress.
 
-Collections are the tabs. Items with an empty `parent_id` are the posters.
+Collections are the tabs. The shell names the `film`, `series` and `other` kinds itself, in the user's language; a provider's collection title is shown only for any other kind ([#431](https://github.com/LimeBeck/arinn/issues/431)). Items with an empty `parent_id` are the posters.
 Children are that parent's episodes, grouped into season pills when they
 carry a season. The shell does not invent a plot.
 

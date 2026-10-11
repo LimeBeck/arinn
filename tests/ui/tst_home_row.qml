@@ -93,6 +93,8 @@ TestCase {
     }
 
     function test_added_and_removed_entries() {
+        // A removed card must not first bind to an empty entry.
+        failOnWarning(/Unable to assign/);
         row.entries = [
             {id: "c", title: "Gamma"},
             {id: "a", title: "Alpha", subtitle: "One", artwork: ""}

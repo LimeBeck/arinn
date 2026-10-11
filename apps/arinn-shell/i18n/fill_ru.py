@@ -221,6 +221,7 @@ RU = {
     "Try again when you are ready.": "Попробуйте снова, когда будете готовы.",
     "The catalogue is not connected.": "Каталог не подключён.",
     "Series": "Сериалы",
+    "Films": "Фильмы",
     "No file": "Нет файла",
     "Film": "Фильм",
     "This file is no longer available": "Этот файл больше недоступен",

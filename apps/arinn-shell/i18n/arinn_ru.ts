@@ -809,6 +809,18 @@
 <context>
     <name>LibraryCatalog</name>
     <message>
+        <source>Films</source>
+        <translation>Фильмы</translation>
+    </message>
+    <message>
+        <source>Series</source>
+        <translation>Сериалы</translation>
+    </message>
+    <message>
+        <source>Other</source>
+        <translation>Другое</translation>
+    </message>
+    <message>
         <source>Season %1</source>
         <translation>Сезон %1</translation>
     </message>

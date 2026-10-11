@@ -159,8 +159,17 @@ void LibraryCatalog::publish() {
   QVariantList tabs;
   tabs.reserve(m_collections.size());
   for (const auto &collection : m_collections) {
+    // The shell names the contract's collection kinds in the user's
+    // language; a provider title is shown only for any other kind (#431).
+    QString title = collection.title;
+    if (collection.kind == QLatin1String("film"))
+      title = tr("Films");
+    else if (collection.kind == QLatin1String("series"))
+      title = tr("Series");
+    else if (collection.kind == QLatin1String("other"))
+      title = tr("Other");
     tabs.append(QVariantMap{{QStringLiteral("id"), collection.id},
-                            {QStringLiteral("title"), collection.title},
+                            {QStringLiteral("title"), title},
                             {QStringLiteral("kind"), collection.kind}});
   }
   QHash<QString, QList<int>> children;

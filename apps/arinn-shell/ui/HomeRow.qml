@@ -6,6 +6,13 @@ import QtQuick
 FocusScope {
     id: root
     property var entries: []
+    // The entries the cards show. Home builds its rows with map and concat, so
+    // every upstream notification yields a new array, mostly an equal one;
+    // only a different one is taken over (#441).
+    property var shown: []
+    // Entries by card key. A card is keyed by its entry's id, so it follows
+    // that entry, with its focus, when the row's order changes.
+    property var byKey: ({})
     property var busyEntryIds: []
     property var openShortcutIds: []
     property bool browserUnavailable: false
@@ -15,7 +22,7 @@ FocusScope {
     property bool hoverFocusEnabled: true
     property string selectedId: ""
     property int selectedIndex: 0
-    readonly property int count: entries.length
+    readonly property int count: shown.length
     property real cellWidth: variant === "app" ? 264 : variant === "poster" ? 180 : 400
     readonly property real cellHeight: variant === "app" ? 132 : variant === "poster" ? 270 : 225
     readonly property real gap: variant === "content" ? 32 : 24
@@ -29,7 +36,7 @@ FocusScope {
     height: cellHeight + 74
 
     function available(index) {
-        return index >= 0 && index < count && entries[index].enabled !== false;
+        return index >= 0 && index < count && shown[index].enabled !== false;
     }
     function focusIndex(index) {
         index = Math.min(Math.max(index, 0), count - 1);
@@ -48,13 +55,43 @@ FocusScope {
     function restore() { return focusIndex(selectedIndex); }
     function reconcile() {
         const previous = selectedIndex;
-        const found = entries.findIndex(entry => entry.id === selectedId);
+        const found = shown.findIndex(entry => entry.id === selectedId);
         selectedIndex = found >= 0 ? found : Math.max(0, previous - 1);
         if (activeFocus) {
             if (!restore()) focusLost();
         }
     }
-    onEntriesChanged: Qt.callLater(reconcile)
+    function sync() {
+        if (JSON.stringify(entries) === JSON.stringify(shown)) return;
+        const keys = [];
+        const map = {};
+        const seen = {};
+        for (const entry of entries) {
+            // Ids are unique; a repeated one still gets its own card.
+            let key = String(entry.id);
+            if (seen[key] === undefined) seen[key] = 0;
+            else key += "\n" + (++seen[key]);
+            keys.push(key);
+            map[key] = entry;
+        }
+        byKey = map;
+        for (let i = keyModel.count - 1; i >= 0; --i)
+            if (map[keyModel.get(i).key] === undefined) keyModel.remove(i);
+        for (let i = 0; i < keys.length; ++i) {
+            let at = -1;
+            for (let j = i; j < keyModel.count && at < 0; ++j)
+                if (keyModel.get(j).key === keys[i]) at = j;
+            if (at < 0) keyModel.insert(i, {key: keys[i]});
+            else if (at !== i) keyModel.move(at, i, 1);
+        }
+        shown = entries;
+        // The focused card may have moved; D-pad steps from its new place.
+        const found = shown.findIndex(entry => entry.id === selectedId);
+        if (found >= 0) selectedIndex = found;
+        Qt.callLater(reconcile);
+    }
+    onEntriesChanged: sync()
+    Component.onCompleted: sync()
     function reveal(index) {
         const left = index * (cellWidth + gap);
         const margin = pointerMode ? 0 : cellWidth + gap;
@@ -93,11 +130,16 @@ FocusScope {
             spacing: root.gap
             Repeater {
                 id: cards
-                model: root.entries
+                // Cards are keyed by entry and updated in place. An array
+                // model would recreate every card, and reload its artwork,
+                // whenever one entry changes, e.g. a playing session's
+                // position (#441).
+                model: ListModel { id: keyModel }
                 delegate: Loader {
                     id: entryLoader
-                    required property var modelData
+                    required property string key
                     required property int index
+                    readonly property var modelData: root.byKey[key] || ({})
                     width: root.cellWidth; height: root.cellHeight
                     sourceComponent: root.variant === "app" ? tile : card
                     function chosen() {

@@ -1,0 +1,1 @@
+- Home no longer flickers while a provider publishes updates: a row updates its cards in place instead of recreating them, and the library, downloads and settings catalogs notify only when their content changed.

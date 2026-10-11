@@ -69,6 +69,7 @@ public:
                                     : QStringLiteral("g-") + id;
   }
   int operationReads = 0;
+  int settingsReads = 0;
   struct Call {
     QString provider;
     QString generation;
@@ -96,6 +97,7 @@ public:
       return true;
     }
     if (message.member() == QLatin1String("GetSettings")) {
+      ++settingsReads;
       const auto id = message.arguments().value(0).toString();
       if (!settings.contains(id)) {
         bus.send(message.createErrorReply(
@@ -423,6 +425,41 @@ private slots:
                      .value(QStringLiteral("currentValue"))
                      .toBool(),
                  true);
+  }
+  void unchangedReloadDoesNotNotify() {
+    // Every ProvidersChanged reloads the catalog. An unchanged reload must not
+    // announce catalogChanged, or the open screen rebuilds its rows (#441).
+    SettingsDaemon daemon;
+    daemon.providers = {{QStringLiteral("alpha"), QStringLiteral("Alpha")}};
+    daemon.settings.insert(
+        QStringLiteral("alpha"),
+        {setting(QStringLiteral("scan"), QStringLiteral("media"),
+                 QStringLiteral("boolean"), QStringLiteral("false"), QString(),
+                 true)});
+    QVERIFY(registerBus(daemon));
+    SettingsCatalog catalog;
+    QTRY_COMPARE(catalog.screenState(), QStringLiteral("ready"));
+    QTest::qWait(50);
+    QSignalSpy changes(&catalog, &SettingsCatalog::catalogChanged);
+    const auto providersChanged = [] {
+      return QDBusConnection::sessionBus().send(QDBusMessage::createSignal(
+          QStringLiteral("/org/arinn/Daemon1"), QStringLiteral("org.arinn.Daemon1"),
+          QStringLiteral("ProvidersChanged")));
+    };
+    for (int round = 0; round < 3; ++round) {
+      const auto reads = daemon.settingsReads;
+      QVERIFY(providersChanged());
+      QTRY_VERIFY(daemon.settingsReads > reads);
+      QTest::qWait(50);
+    }
+    QCOMPARE(changes.count(), 0);
+    daemon.settings[QStringLiteral("alpha")][0].value = QStringLiteral("true");
+    QVERIFY(providersChanged());
+    QTRY_COMPARE(changes.count(), 1);
+    QCOMPARE(rowAt(catalog, QStringLiteral("alpha"), QStringLiteral("scan"))
+                 .value(QStringLiteral("currentValue"))
+                 .toBool(),
+             true);
   }
   void eachKindAndSavingOutcome() {
     SettingsDaemon daemon;

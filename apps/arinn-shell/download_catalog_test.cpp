@@ -792,6 +792,26 @@ private slots:
     QTRY_COMPARE(jobById(catalog, QStringLiteral("a")).value(QStringLiteral("state")).toString(),
                  QStringLiteral("downloading"));
   }
+  void unchangedReloadDoesNotNotify() {
+    // Every ProvidersChanged reloads the catalog; Home binds its download
+    // state. An unchanged reload must not announce catalogChanged (#441).
+    auto active = job(QStringLiteral("a"), QStringLiteral("downloading"));
+    active.hasTotal = true;
+    active.total = 4000;
+    active.completed = 1000;
+    daemon->page1 = {active};
+    DownloadCatalog catalog;
+    QTRY_COMPARE(catalog.downloadsState(), QStringLiteral("populated"));
+    QTest::qWait(50);
+    QSignalSpy changes(&catalog, &DownloadCatalog::catalogChanged);
+    for (int round = 0; round < 3; ++round)
+      reload(catalog);
+    QCOMPARE(changes.count(), 0);
+    daemon->page1.first().completed = 2000;
+    reload(catalog);
+    QTRY_COMPARE(changes.count(), 1);
+    QCOMPARE(catalog.downloadProgress(), 0.5);
+  }
 };
 
 QTEST_MAIN(DownloadCatalogTest)

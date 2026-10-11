@@ -117,6 +117,9 @@ arrays. Each entry has a unique opaque `id`, `title`, and optional `subtitle`,
 `webShortcut`. Media entries (`kind: "media"`) may carry the provider's reported
 `positionUs` and `durationUs`; Home derives the time left and the card progress
 from them. An entry that stands for an open web service carries its `serviceId`.
+A `HomeRow` takes over a new `entries` array only when its content differs, and
+keeps its cards by position, updating them in place; a changed entry, such as
+a playing session's position, does not recreate the row's cards (#441).
 `HomeView` limits Continue to one Activity plus four further cards (spec §5.1,
 handoff 02); New availability and provider state stay with the caller. Optional
 `currentServiceTitle`, `openServices` (`{id, title, letter, icon}`, the service on

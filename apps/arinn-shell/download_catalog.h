@@ -73,6 +73,7 @@ private:
     // The provider's backend is unavailable: the cached row stays readable
     // and no command is offered (ADR-0067).
     bool backendUnavailable = false;
+    bool operator==(const Row &) const = default;
   };
   struct Catalog;
   void readProviders(const std::shared_ptr<Catalog> &catalog,
@@ -93,6 +94,10 @@ private:
                        bool refsValid);
   QVariantList m_jobs;
   QList<Row> m_rows;
+  // What the last catalogChanged announced, so that an unchanged reload
+  // stays silent (#441).
+  QList<Row> m_publishedRows;
+  QString m_publishedState;
   // Presentation id → the job state when the failure was reported, and the
   // message. The message stays until the job's state changes.
   // A failed command's message, shown on its row until the download changes

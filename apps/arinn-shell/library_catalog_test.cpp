@@ -825,6 +825,36 @@ private slots:
                     QStringLiteral("After"));
     QVERIFY(daemon.libraryReads > reads);
   }
+  void unchangedReloadDoesNotNotify() {
+    // Every ProvidersChanged reloads the catalog. An unchanged reload must not
+    // announce catalogChanged: Home rebuilt its Continue cards on each (#441).
+    LibraryDaemon daemon;
+    daemon.collections = {{QStringLiteral("films"), QStringLiteral("Films"),
+                           QStringLiteral("film")}};
+    daemon.page1 = {film(QStringLiteral("north"), QStringLiteral("North"))};
+    QVERIFY(registerBus(daemon));
+    LibraryCatalog catalog;
+    QTRY_COMPARE(catalog.libraryState(), QStringLiteral("ready"));
+    QTest::qWait(100);
+    QSignalSpy changes(&catalog, &LibraryCatalog::catalogChanged);
+    const auto providersChanged = [] {
+      return QDBusConnection::sessionBus().send(QDBusMessage::createSignal(
+          QStringLiteral("/org/arinn/Daemon1"), QStringLiteral("org.arinn.Daemon1"),
+          QStringLiteral("ProvidersChanged")));
+    };
+    for (int round = 1; round <= 3; ++round) {
+      const auto reads = daemon.libraryReads;
+      QVERIFY(providersChanged());
+      QTRY_VERIFY(daemon.libraryReads > reads);
+      QTest::qWait(50);
+    }
+    QCOMPARE(changes.count(), 0);
+    daemon.page1[0].title = QStringLiteral("Changed");
+    QVERIFY(providersChanged());
+    QTRY_COMPARE(changes.count(), 1);
+    QCOMPARE(catalog.entries().at(0).toMap().value(QStringLiteral("title")).toString(),
+             QStringLiteral("Changed"));
+  }
   void operationWaitIsBounded() {
     LibraryDaemon daemon;
     daemon.holdOperation = true;

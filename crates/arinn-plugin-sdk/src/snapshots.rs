@@ -388,6 +388,11 @@ impl<C: Catalog> Store<C> {
         self.build(first, second, false)
     }
 
+    /// The revision of the current snapshot; 0 before the first publish.
+    pub(crate) fn revision(&self) -> u64 {
+        self.revision
+    }
+
     /// Publish the unchanged entries under a new revision, for a change that
     /// lives outside the entries (such as the backend state).
     pub fn touch(&mut self) -> Result<u64, ErrorCode> {

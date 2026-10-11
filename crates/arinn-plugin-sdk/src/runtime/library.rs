@@ -171,7 +171,7 @@ impl LibraryService {
     ) -> Result<(), ErrorCode> {
         library::validate_entries(&collections, &items)?;
         backend_state(backend)?;
-        let (generation, revision) = {
+        let update = {
             let mut data = self.data.lock().await;
             let backend_changed = data.backend != backend;
             let before = data.revision;
@@ -190,10 +190,11 @@ impl LibraryService {
             data.collections = collections;
             data.items = items;
             data.backend = backend.into();
-            (data.generation.clone(), revision)
+            // An unchanged snapshot keeps its revision: no StateChanged.
+            (revision > 0 && revision != before).then(|| (data.generation.clone(), revision))
         };
-        if revision > 0 {
-            self.updates.send_replace((generation, revision));
+        if let Some(update) = update {
+            self.updates.send_replace(update);
         }
         Ok(())
     }
@@ -205,8 +206,9 @@ impl LibraryService {
             return Err(ErrorCode::Unsupported);
         }
         library::validate_resumes(&resumes)?;
-        let (generation, revision) = {
+        let update = {
             let mut data = self.data.lock().await;
+            let before = data.resume_revision;
             let revision = if let Some(snapshots) = data.resume_snapshots.as_mut() {
                 snapshots.publish(resumes.clone())?
             } else {
@@ -216,10 +218,11 @@ impl LibraryService {
                 data.resume_revision = revision;
             }
             data.resumes = resumes;
-            (data.generation.clone(), revision)
+            // An unchanged snapshot keeps its revision: no StateChanged.
+            (revision > 0 && revision != before).then(|| (data.generation.clone(), revision))
         };
-        if revision > 0 {
-            self.resume_updates.send_replace((generation, revision));
+        if let Some(update) = update {
+            self.resume_updates.send_replace(update);
         }
         Ok(())
     }
@@ -689,4 +692,28 @@ pub async fn run_library_on(
     service: LibraryService,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     run_endpoint(connection, service).await
+}
+
+#[cfg(test)]
+mod unchanged_revision_tests {
+    use super::*;
+    use crate::runtime::unchanged_revision_tests::{Idle, registered, sent};
+
+    #[tokio::test]
+    async fn library_replace_with_same_state_sends_nothing() {
+        let extensions = LibraryExtensions::default().resume(Idle);
+        let service =
+            LibraryService::with_extensions(Idle, vec![], vec![], "available", extensions).unwrap();
+        let (generation, mut updates) = registered(&service).await;
+        let mut resumes = service.resume_updates.subscribe();
+        resumes.borrow_and_update();
+        service.replace(vec![], vec![], "available").await.unwrap();
+        assert_eq!(sent(&mut updates), None);
+        service.replace(vec![], vec![], "degraded").await.unwrap();
+        assert_eq!(sent(&mut updates), Some((generation, 2)));
+        service.replace(vec![], vec![], "degraded").await.unwrap();
+        assert_eq!(sent(&mut updates), None);
+        service.replace_resumes(vec![]).await.unwrap();
+        assert_eq!(sent(&mut resumes), None);
+    }
 }

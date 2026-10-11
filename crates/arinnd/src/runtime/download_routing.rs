@@ -102,6 +102,18 @@ fn project(job: &Job, record: Option<&DownloadImport>) -> Download {
     )
 }
 
+/// The provider fields a download refresh can change. A repeated identical
+/// failure only moves `error_at` and is not announced again.
+fn observed(info: &ProviderInfo) -> (String, String, u64, String, u64) {
+    (
+        info.runtime_state.clone(),
+        info.backend_state.clone(),
+        info.revision,
+        info.last_error.clone(),
+        info.recovered_at,
+    )
+}
+
 async fn read_jobs(
     proxy: &DownloadProviderProxy<'_>,
     generation: &str,
@@ -196,6 +208,7 @@ impl Core {
             if p.owner != owner || p.info.generation != generation {
                 return;
             }
+            let before = observed(&p.info);
             let mut downloads = self.downloads.lock().await;
             let d = downloads.entry(id.clone()).or_default();
             let mut ready = false;
@@ -237,7 +250,18 @@ impl Core {
                 }
                 self.publish_downloads(&id, &owner, &generation).await;
             }
-            self.changed().await;
+            // Every tick re-reads the provider; only a provider entry that
+            // changed is worth a ProvidersChanged (#442).
+            let changed = self
+                .state
+                .lock()
+                .await
+                .providers
+                .get(&id)
+                .is_some_and(|p| observed(&p.info) != before);
+            if changed {
+                self.changed().await;
+            }
         }
     }
     async fn download_current(&self, id: &str, owner: &str, generation: &str) -> bool {

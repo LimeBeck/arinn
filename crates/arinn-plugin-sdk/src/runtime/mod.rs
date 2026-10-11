@@ -109,19 +109,24 @@ impl ApplicationService {
         running: Vec<RunningApplication>,
     ) -> Result<(), ErrorCode> {
         arinn_protocol::application::validate_entries(&applications, &running)?;
-        let (generation, revision) = {
+        let update = {
             let mut data = self.data.lock().await;
-            let revision = if let Some(snapshots) = data.snapshots.as_mut() {
-                snapshots.publish(applications.clone(), running.clone())?
+            let (before, revision) = if let Some(snapshots) = data.snapshots.as_mut() {
+                let before = snapshots.revision();
+                (
+                    before,
+                    snapshots.publish(applications.clone(), running.clone())?,
+                )
             } else {
-                0
+                (0, 0)
             };
             data.applications = applications;
             data.running = running;
-            (data.generation.clone(), revision)
+            // An unchanged snapshot keeps its revision: no StateChanged.
+            (revision > 0 && revision != before).then(|| (data.generation.clone(), revision))
         };
-        if revision > 0 {
-            self.updates.send_replace((generation, revision));
+        if let Some(update) = update {
+            self.updates.send_replace(update);
         }
         Ok(())
     }
@@ -535,7 +540,7 @@ impl BrowserService {
     ) -> Result<(), ErrorCode> {
         arinn_protocol::browser::validate_entries(&windows, &tabs)?;
         backend_state(backend)?;
-        let (generation, revision) = {
+        let update = {
             let mut data = self.data.lock().await;
             let backend_changed = data.backend != backend;
             let before = data.revision;
@@ -555,10 +560,11 @@ impl BrowserService {
             data.windows = windows;
             data.tabs = tabs;
             data.backend = backend.into();
-            (data.generation.clone(), revision)
+            // An unchanged snapshot keeps its revision: no StateChanged.
+            (revision > 0 && revision != before).then(|| (data.generation.clone(), revision))
         };
-        if revision > 0 {
-            self.updates.send_replace((generation, revision));
+        if let Some(update) = update {
+            self.updates.send_replace(update);
         }
         Ok(())
     }
@@ -720,3 +726,124 @@ pub use media::{
     MediaTimelineHandler, MediaTracksHandler, MediaWindowHandler, run_media, run_media_on,
 };
 pub use settings::{SettingsHandler, serve_settings, settings_from_json, startup_settings};
+
+/// A `replace` with unchanged entries keeps its revision and must not wake the
+/// emitter, which would re-send `StateChanged` with that revision (#442).
+#[cfg(test)]
+mod unchanged_revision_tests {
+    use super::*;
+    use tokio::sync::watch::Receiver;
+
+    type Reply = Pin<Box<dyn Future<Output = Result<(), ErrorCode>> + Send + 'static>>;
+    pub(super) struct Idle;
+    impl ApplicationHandler for Idle {
+        fn execute(&self, _: Action, _: String) -> Reply {
+            Box::pin(async { Ok(()) })
+        }
+    }
+    impl BrowserHandler for Idle {
+        fn tab(&self, _: TabAction, _: String) -> Reply {
+            Box::pin(async { Ok(()) })
+        }
+        fn open(&self, _: String) -> Reply {
+            Box::pin(async { Ok(()) })
+        }
+    }
+    impl MediaHandler for Idle {
+        fn control(&self, _: MediaAction, _: String, _: i64) -> Reply {
+            Box::pin(async { Ok(()) })
+        }
+    }
+    impl DownloadHandler for Idle {
+        fn control(&self, _: DownloadAction, _: String) -> Reply {
+            Box::pin(async { Ok(()) })
+        }
+    }
+    impl LibraryHandler for Idle {
+        fn launch(
+            &self,
+            _: String,
+        ) -> Pin<
+            Box<
+                dyn Future<Output = Result<arinn_protocol::media::PlaybackSource, ErrorCode>>
+                    + Send
+                    + '_,
+            >,
+        > {
+            Box::pin(async { Err(ErrorCode::Unsupported) })
+        }
+    }
+    impl LibraryResumeHandler for Idle {
+        fn set_progress(&self, _: String, _: i64, _: i64, _: bool) -> Reply {
+            Box::pin(async { Ok(()) })
+        }
+        fn restart(&self, _: String) -> Reply {
+            Box::pin(async { Ok(()) })
+        }
+    }
+
+    /// Register a fresh generation and return a receiver that has seen
+    /// everything sent so far.
+    pub(super) async fn registered<E: Endpoint>(service: &E) -> (String, Receiver<(String, u64)>) {
+        let generation = uuid::Uuid::new_v4().to_string();
+        service.install(&generation).await.unwrap();
+        let mut updates = service.updates().subscribe();
+        updates.borrow_and_update();
+        (generation, updates)
+    }
+
+    pub(super) fn sent(updates: &mut Receiver<(String, u64)>) -> Option<(String, u64)> {
+        updates
+            .has_changed()
+            .unwrap()
+            .then(|| updates.borrow_and_update().clone())
+    }
+
+    #[tokio::test]
+    async fn application_replace_with_same_entries_sends_nothing() {
+        let service = ApplicationService::new(Idle, vec![], vec![], "available").unwrap();
+        let (_, mut updates) = registered(&service).await;
+        service.replace(vec![], vec![]).await.unwrap();
+        service.replace(vec![], vec![]).await.unwrap();
+        assert_eq!(sent(&mut updates), None);
+    }
+
+    #[tokio::test]
+    async fn browser_replace_with_same_state_sends_nothing() {
+        let service = BrowserService::new(Idle, vec![], vec![], "available").unwrap();
+        let (generation, mut updates) = registered(&service).await;
+        service.replace(vec![], vec![], "available").await.unwrap();
+        assert_eq!(sent(&mut updates), None);
+        service.replace(vec![], vec![], "degraded").await.unwrap();
+        assert_eq!(sent(&mut updates), Some((generation, 2)));
+        service.replace(vec![], vec![], "degraded").await.unwrap();
+        assert_eq!(sent(&mut updates), None);
+    }
+
+    #[tokio::test]
+    async fn media_replace_with_same_state_sends_nothing() {
+        let service = MediaService::new(Idle, vec![], "available").unwrap();
+        let (generation, mut updates) = registered(&service).await;
+        service.replace(vec![], "available").await.unwrap();
+        assert_eq!(sent(&mut updates), None);
+        service.replace(vec![], "degraded").await.unwrap();
+        assert_eq!(sent(&mut updates), Some((generation.clone(), 2)));
+        service.replace(vec![], "degraded").await.unwrap();
+        assert_eq!(sent(&mut updates), None);
+        // touch() always publishes a new revision.
+        service.touch().await.unwrap();
+        assert_eq!(sent(&mut updates), Some((generation, 3)));
+    }
+
+    #[tokio::test]
+    async fn download_replace_with_same_state_sends_nothing() {
+        let service = DownloadService::new(Idle, vec![], "available").unwrap();
+        let (generation, mut updates) = registered(&service).await;
+        service.replace(vec![], "available").await.unwrap();
+        assert_eq!(sent(&mut updates), None);
+        service.replace(vec![], "degraded").await.unwrap();
+        assert_eq!(sent(&mut updates), Some((generation, 2)));
+        service.replace(vec![], "degraded").await.unwrap();
+        assert_eq!(sent(&mut updates), None);
+    }
+}

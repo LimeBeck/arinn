@@ -8,6 +8,9 @@ PartOf=graphical-session.target arinn-session.target arinn-ewmh-session.target
 After=graphical-session.target arinnd.service
 StartLimitIntervalSec=60s
 StartLimitBurst=5
+# The handler may run on every failure (systemd 254 and newer); it tells the
+# user only once the unit stays failed at its start limit (#437).
+OnFailure=arinn-session-failed@%n.service
 
 [Service]
 # Ready once it owns its bus name; a second instance exits without a window.

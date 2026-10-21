@@ -187,7 +187,8 @@ with tempfile.TemporaryDirectory(prefix="arinn-production-") as folder:
                     "org.arinn.KWinMedia1", "org.arinn.KWinReturn1", "org.arinn.PlatformWindows1",
                     "org.arinn.Settings1", "org.arinn.Favorites1", "org.arinn.WebShortcuts1",
                     "org.arinn.WebShortcutIcons1", "org.arinn.MediaAssociation1",
-                    "org.arinn.SystemStatus1", "org.arinn.SystemControl1"}
+                    "org.arinn.SystemStatus1", "org.arinn.SystemControl1",
+                    "org.arinn.ExternalKeyboard1", "org.arinn.KeyboardBridge1"}
         assert expected <= early, sorted(expected - early)
         # Nothing is exported on this path after the name.
         time.sleep(0.5)
@@ -298,6 +299,22 @@ with tempfile.TemporaryDirectory(prefix="arinn-production-") as folder:
         audio, level = control_read("GetVolume")
         assert audio in ("muted", "unmuted", "unknown") and 0 <= level <= 150, (audio, level)
         assert audio != "unknown" or level == 0, (audio, level)
+        # ExternalKeyboard1 and KeyboardBridge1 (ADR-0105): the live export
+        # matches the XML; without a session nothing is typed, and the key
+        # request belongs to the platform adapter alone.
+        wire_contract("org.arinn.Daemon1", "/org/arinn/Daemon1", "org.arinn.ExternalKeyboard1",
+                      "external-keyboard1.xml")
+        wire_contract("org.arinn.Daemon1", "/org/arinn/Daemon1", "org.arinn.KeyboardBridge1",
+                      "keyboard-bridge1.xml")
+        typed = subprocess.run(["busctl", "--user", "call", "org.arinn.Daemon1", "/org/arinn/Daemon1",
+                                "org.arinn.ExternalKeyboard1", "Type", "ss",
+                                "10000000-0000-4000-8000-000000000001", "a"],
+                               env=env, capture_output=True, text=True, timeout=5)
+        assert typed.returncode != 0 and "Conflict" in typed.stderr, typed.stderr
+        request = subprocess.run(["busctl", "--user", "call", "org.arinn.Daemon1", "/org/arinn/Daemon1",
+                                  "org.arinn.KeyboardBridge1", "Request"],
+                                 env=env, capture_output=True, text=True, timeout=5)
+        assert request.returncode != 0 and "PermissionDenied" in request.stderr, request.stderr
         def folders_call(method, signature="", *arguments):
             return subprocess.run(["busctl", "--user", "--json=short", "call",
                                    "org.arinn.Daemon1", "/org/arinn/Daemon1",

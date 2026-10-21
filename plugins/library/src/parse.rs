@@ -66,9 +66,10 @@ pub fn parse_video(root: &Path, path: &Path) -> Option<Parsed> {
     let mut marker = find_marker(&text).map(|(s, e, start, end)| (s, Some(e), start, end));
     if marker.is_none() {
         // Anime names (ADR-0085) keep a `TVn` season or the episode number
-        // in `[...]` groups, which the plain cleaning drops.
+        // in `[...]` groups, which the plain cleaning drops. A standalone
+        // `Snn` season marks a season the same way (ADR-0109).
         let (alt, alt_year) = take_year(&clean(&unwrap_markers(stem)));
-        marker = tv_marker(&alt);
+        marker = season_marker(&alt);
         if marker.is_some() || season_from_dir.is_some() {
             text = alt;
             year = alt_year;
@@ -162,8 +163,9 @@ fn series_title(series_dir: &str, before: &str, stem: &str) -> (String, Option<i
 }
 
 /// Where a video's series lives. `path` is the series directory relative to
-/// the root, or empty; `title` is set by a `<Title> TVn` season folder, which
-/// names the series without being its directory (ADR-0085).
+/// the root, or empty; `title` is set by a `<Title> TVn` or `<Title> Snn`
+/// season folder, which names the series without being its directory
+/// (ADR-0085, ADR-0109).
 #[derive(Default)]
 struct SeriesDir {
     path: String,
@@ -202,10 +204,10 @@ fn series_dir(rel: &Path) -> SeriesDir {
     }
 }
 
-/// `Season N`, or a folder that is only a `TVn` marker.
+/// `Season N`, or a folder that is only a `TVn` or `Snn` marker.
 fn season_dir(name: &str) -> Option<u32> {
     let cleaned = clean(&unwrap_markers(name));
-    if let Some((season, 0, end)) = find_tv(&cleaned)
+    if let Some((season, 0, end)) = find_season_marker(&cleaned)
         && end == cleaned.len()
     {
         return Some(season);
@@ -219,10 +221,11 @@ fn season_dir(name: &str) -> Option<u32> {
     index_token(rest)
 }
 
-/// `<Title> TVn` (an optional year anywhere): season `n` of `<Title>`.
+/// `<Title> TVn` or `<Title> Snn` (an optional year anywhere, `[...]` groups
+/// dropped): season `n` of `<Title>`.
 fn titled_season_dir(name: &str) -> Option<(String, Option<i32>, u32)> {
     let (text, year) = take_year(&clean(&unwrap_markers(name)));
-    let (season, start, end) = find_tv(&text)?;
+    let (season, start, end) = find_season_marker(&text)?;
     let title = trim_seps(&text[..start]);
     if title.is_empty() || !trim_seps(&text[end..]).is_empty() {
         return None;
@@ -469,24 +472,38 @@ fn find_marker(input: &str) -> Option<(u32, u32, usize, usize)> {
     None
 }
 
-/// A standalone `TVn` season marker (`TV1`, `TV-2`, `tv 3`; `.` and `_` are
-/// spaces by now): season, start and end. `MTV2` and `TV 2000` are not.
-fn find_tv(input: &str) -> Option<(u32, usize, usize)> {
+/// A standalone season marker (ADR-0085, ADR-0109): season, start and end.
+/// `.` and `_` are spaces by now.
+/// - `TVn`: `TV1`, `TV-2`, `tv 3`. `MTV2` and `TV 2000` are not markers.
+/// - `Snn`: `S1`, `S01`, with nothing between `S` and the digits. It counts
+///   only when the name has no `SxxEyy`/`NxNN` marker, which keeps
+///   precedence. `MS01`, `S100`, `S01x` and `S01E02` are not markers.
+fn find_season_marker(input: &str) -> Option<(u32, usize, usize)> {
     let lower = input.to_ascii_lowercase();
     let bytes = lower.as_bytes();
+    let mut has_episode_marker = None;
     for index in 0..bytes.len() {
-        if bytes[index] != b't' || !word_edge(lower[..index].chars().next_back()) {
+        if !matches!(bytes[index], b't' | b's') || !word_edge(lower[..index].chars().next_back()) {
             continue;
         }
-        let Some(rest) = lower[index..].strip_prefix("tv") else {
+        let (prefix, gap) = if let Some(rest) = lower[index..].strip_prefix("tv") {
+            (
+                2,
+                usize::from(matches!(rest.as_bytes().first(), Some(b' ' | b'-'))),
+            )
+        } else if bytes[index] == b's' {
+            // Computed once, and only when an `S` could start a marker.
+            if *has_episode_marker.get_or_insert_with(|| find_marker(input).is_some()) {
+                continue;
+            }
+            (1, 0)
+        } else {
             continue;
         };
-        let rest = rest.as_bytes();
-        let gap = usize::from(matches!(rest.first(), Some(b' ' | b'-')));
-        let Some((season, digits)) = take_digits(&rest[gap..], 1, 2) else {
+        let Some((season, digits)) = take_digits(&bytes[index + prefix + gap..], 1, 2) else {
             continue;
         };
-        let end = index + 2 + gap + digits;
+        let end = index + prefix + gap + digits;
         if word_edge(lower[end..].chars().next())
             && let Some(season) = index_token(&season.to_string())
         {
@@ -502,9 +519,10 @@ fn word_edge(neighbour: Option<char>) -> bool {
     !neighbour.is_some_and(char::is_alphanumeric)
 }
 
-/// A `TVn` marker and the episode number right after it, if any.
-fn tv_marker(input: &str) -> Option<(u32, Option<u32>, usize, usize)> {
-    let (season, start, end) = find_tv(input)?;
+/// A `TVn` or `Snn` season marker and the episode number right after it,
+/// if any.
+fn season_marker(input: &str) -> Option<(u32, Option<u32>, usize, usize)> {
+    let (season, start, end) = find_season_marker(input)?;
     match lead_episode(&input[end..], false) {
         Some((episode, len)) => Some((season, Some(episode), start, end + len)),
         None => Some((season, None, start, end)),
@@ -614,7 +632,9 @@ fn unwrap_markers(stem: &str) -> String {
             out.push_str(" - ");
             out.push_str(&token);
             out.push(' ');
-        } else if find_tv(&token).is_some_and(|(_, start, end)| start == 0 && end == token.len()) {
+        } else if find_season_marker(&token)
+            .is_some_and(|(_, start, end)| start == 0 && end == token.len())
+        {
             out.push(' ');
             out.push_str(&token);
             out.push(' ');
@@ -964,6 +984,73 @@ mod tests {
             ("/library/Films/TVs Best.mkv", "TVs Best"),
             ("/library/CaféTV2 - 05.mkv", "CaféTV2 - 05"),
             ("/library/ШоуTV2 05.mkv", "ШоуTV2 05"),
+        ] {
+            let parsed = parse_video(Path::new("/library"), Path::new(path)).unwrap();
+            assert_eq!(parsed.kind, Kind::Film, "{path}");
+            assert_eq!(parsed.title, title, "{path}");
+        }
+    }
+
+    // ADR-0109 (#361): a release folder `<Title> [...] S01` is season 1 of
+    // `<Title>`, and its files' ` - 01` numbers are the episodes.
+    #[test]
+    fn season_only_folder_is_a_season_of_one_series() {
+        for number in 1..=3 {
+            let path = format!(
+                "/library/Show Name [WEB-DL 1080p] S01/Short - {number:02} [1080p AVC] [RUS MVO+SUB] [ENG SUB].mkv"
+            );
+            let parsed = episode(&path);
+            assert_eq!(parsed.series_title, "Show Name", "{path}");
+            assert_eq!(parsed.series_key, "name:show name", "{path}");
+            assert_eq!((parsed.season, parsed.episode), (1, number), "{path}");
+        }
+        // `<Title> S02` joins `<Title> S01`, keyed like `<Title> TVn`; a
+        // year and a bracketed marker are allowed.
+        let second = episode("/library/Show Name (2020) [S02]/02.mkv");
+        assert_eq!(second.series_key, "name:show name");
+        assert_eq!((second.season, second.episode), (2, 2));
+        let tv = episode("/library/Show Name TV1/01.mkv");
+        assert_eq!(tv.series_key, second.series_key);
+        // A folder that is only `Snn` is a season folder.
+        let bare = episode("/library/Show/S02/Show - 04.mkv");
+        assert_eq!(bare.series_key, "dir:Show");
+        assert_eq!(bare.series_title, "Show");
+        assert_eq!((bare.season, bare.episode), (2, 4));
+        let lower = episode("/library/Show/s3/E07.mkv");
+        assert_eq!((lower.season, lower.episode), (3, 7));
+    }
+
+    // ADR-0109: `Snn` in a file name sets the season like `TVn`.
+    #[test]
+    fn season_only_marker_in_the_file_name_is_a_season() {
+        let parsed = episode("/library/Show S01 - 05.mkv");
+        assert_eq!(parsed.series_title, "Show");
+        assert_eq!((parsed.season, parsed.episode), (1, 5));
+        let folder = episode("/library/Show/Show.S2.E06v2.mkv");
+        assert_eq!(folder.series_key, "dir:Show");
+        assert_eq!((folder.season, folder.episode), (2, 6));
+        // `SxxEyy` and `NxNN` keep precedence over a standalone `Snn`.
+        let sxe = episode("/library/Show/Show S01E02 - Pilot.mkv");
+        assert_eq!((sxe.season, sxe.episode), (1, 2));
+        assert_eq!(sxe.title, "Pilot");
+        let both = episode("/library/Show/Show S03 2x04.mkv");
+        assert_eq!((both.season, both.episode), (2, 4));
+        let in_folder = episode("/library/Show S05/Show S01E02.mkv");
+        assert_eq!((in_folder.season, in_folder.episode), (1, 2));
+    }
+
+    #[test]
+    fn season_only_lookalikes_stay_films() {
+        for (path, title) in [
+            ("/library/MS01 Live.mkv", "MS01 Live"),
+            ("/library/Movie S100.mkv", "Movie S100"),
+            ("/library/Movie S01x.mkv", "Movie S01x"),
+            ("/library/Plan S 2.mkv", "Plan S 2"),
+            ("/library/ШоуS01 - 05.mkv", "ШоуS01 - 05"),
+            ("/library/Films/S100/Movie.mkv", "Movie"),
+            ("/library/Films/Bus S01x/Movie.mkv", "Movie"),
+            // A folder name with an `SxxEyy` marker is not a `Snn` season.
+            ("/library/Films/Pack S01E01 S02/Movie.mkv", "Movie"),
         ] {
             let parsed = parse_video(Path::new("/library"), Path::new(path)).unwrap();
             assert_eq!(parsed.kind, Kind::Film, "{path}");

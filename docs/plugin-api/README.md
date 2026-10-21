@@ -236,9 +236,39 @@ A public application command takes generation, opaque local ID and request UUID,
 then returns an operation object. Subscribe to `Changed` before `Get`; completion
 can precede the admission reply. Deduplication uses caller unique name and request
 UUID; changed content gives `Conflict`. Read/registration budget is 3 seconds,
-controls 5 seconds, launch 30 seconds. Commands are never retried automatically.
+controls 5 seconds, launch dispatch 30 seconds. Commands are never retried automatically.
 The private provider command reply completes the daemon's operation; providers do
-not create a second public operation tree. Cancellation is currently unsupported.
+not create a second public operation tree.
+
+**Launch lifetime and cancellation**
+([ADR-0110](../adr/0110-application-launch-lifetime-and-cancellation.md)). A
+provider that observes windows answers `Launch` when a window of the application
+appears, and fails as soon as the launch can no longer show one. The desktop
+provider fails with `Unavailable` when the launch's application unit ends with no
+window of the application. This reply may come long after 30 seconds: the daemon
+keeps the public operation `running` and applies no overall deadline to an
+application launch. Only dispatch (starting the system launcher) is bounded by the
+30-second budget, inside the provider. A provider that cannot observe windows
+answers at dispatch, as before. Provider loss or a new generation still ends the
+operation with `Unavailable`.
+
+An application launch reports `cancellable = true` until it ends; every other
+operation reports `false`. `Operation1.Cancel` is accepted only from the caller
+that started the operation (`PermissionDenied` otherwise) and only for a
+cancellable operation (`Unsupported` otherwise). The daemon then calls the
+private `CancelLaunch(generation, id)`. When the provider confirms, the operation
+ends as `cancelled` with error `Cancelled`. When the provider refuses
+(`Unsupported`, `NotFound`, `Conflict`), `Cancel` returns that error and the
+operation keeps running. A provider reply of `Cancelled` also ends the operation
+as `cancelled`. `Cancel` on an application launch that has already ended
+returns success and changes nothing; clients read the final state with `Get`.
+
+`CancelLaunch` stops every unfinished launch of that application ID, with the
+processes those launches started, and their `Launch` replies fail with
+`Cancelled`. It is authorized like the other provider commands and checks the
+generation, but not the catalogue, so a launch whose entry disappeared stays
+cancellable. The SDK's default handler answers `Unsupported`. Cancellation stops
+processes; it never rolls back other side effects.
 
 `Status`, `HomeItems`, `Home` and `Back` support the minimal shell/platform bridge.
 `HomeItems` is a bounded projection of activatable running instances (up to five),

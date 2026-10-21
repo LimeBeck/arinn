@@ -50,11 +50,24 @@ pub enum Action {
     Terminate,
 }
 pub trait ApplicationHandler: Send + Sync + 'static {
+    /// Run a command. A `Launch` ends when the application has a window, or
+    /// with an error as soon as it can no longer show one; a provider that
+    /// cannot observe windows ends it at dispatch (ADR-0110).
     fn execute(
         &self,
         action: Action,
         id: String,
     ) -> Pin<Box<dyn Future<Output = Result<(), ErrorCode>> + Send + '_>>;
+    /// Stop every unfinished launch of `id` and the processes those launches
+    /// started; their `execute` futures then end with `Cancelled`. `NotFound`
+    /// when no launch of `id` is unfinished. The default cannot cancel
+    /// (ADR-0110).
+    fn cancel_launch(
+        &self,
+        _id: String,
+    ) -> Pin<Box<dyn Future<Output = Result<(), ErrorCode>> + Send + '_>> {
+        Box::pin(async { Err(ErrorCode::Unsupported) })
+    }
 }
 struct Data {
     daemon_owner: String,
@@ -213,6 +226,24 @@ impl ApplicationService {
         #[zbus(header)] h: Header<'_>,
     ) -> production::Result<()> {
         self.command(Action::Launch, generation, id, h).await
+    }
+    /// Not checked against the catalogue: a launch stays cancellable after its
+    /// entry disappears (ADR-0110).
+    async fn cancel_launch(
+        &self,
+        generation: &str,
+        id: &str,
+        #[zbus(header)] h: Header<'_>,
+    ) -> production::Result<()> {
+        self.authorized(&h).await?;
+        validation::id(id)?;
+        if self.data.lock().await.generation != generation {
+            return Err(ErrorCode::Conflict.into());
+        }
+        self.handler
+            .cancel_launch(id.into())
+            .await
+            .map_err(Into::into)
     }
     async fn activate(
         &self,

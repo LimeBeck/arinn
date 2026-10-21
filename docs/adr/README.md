@@ -53,7 +53,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0032](0032-kwin-script-platform-adapter.md) | A packaged KWin script as the first KDE platform adapter | Accepted | 0042 |
 | [0033](0033-ci-cd-and-releases.md) | CI/CD pipeline and release policy | Accepted | 0036, 0044, 0047, 0049, 0091, 0092, 0104 |
 | [0034](0034-provider-data-directory-identity.md) | Provider data directories independent of registry state | Accepted | — |
-| [0035](0035-phase1-application-wire-contract.md) | Phase 1 application wire contract | Accepted | 0059 |
+| [0035](0035-phase1-application-wire-contract.md) | Phase 1 application wire contract | Accepted | 0059, 0110 |
 | [0036](0036-parallel-development.md) | Parallel development by several agents | Accepted | 0037 |
 | [0037](0037-agent-autonomy-and-owner-gated-decisions.md) | Agent autonomy and owner-gated decisions | Accepted | 0068, 0072 |
 | [0038](0038-browser-launch-ownership.md) | Browser launch ownership | Accepted | 0043 |
@@ -122,4 +122,5 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0102](0102-packages-built-for-master-only.md) | Packages are built for master only, never for pull requests | Accepted | — |
 | [0103](0103-on-screen-keyboard.md) | On-screen keyboard in the MVP | Accepted | — |
 | [0104](0104-qt-floor-and-prebuilt-ci-images.md) | Minimum supported Qt 6.8 and prebuilt CI images | Accepted | — |
+| [0110](0110-application-launch-lifetime-and-cancellation.md) | Application launch lifetime and cancellation | Accepted | — |
 <!-- register:end -->

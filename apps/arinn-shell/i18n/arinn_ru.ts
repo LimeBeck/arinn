@@ -50,6 +50,10 @@
         <translation>Ярлык больше недоступен</translation>
     </message>
     <message>
+        <source>The launch could not be stopped</source>
+        <translation>Не удалось прервать запуск</translation>
+    </message>
+    <message>
         <source>Working…</source>
         <translation>Выполняется…</translation>
     </message>
@@ -60,6 +64,10 @@
     <message>
         <source>Done</source>
         <translation>Готово</translation>
+    </message>
+    <message>
+        <source>Launch cancelled</source>
+        <translation>Запуск прерван</translation>
     </message>
     <message>
         <source>Shortcuts are unavailable. Refresh and try again.</source>
@@ -782,8 +790,16 @@
         <translation>Браузер не ответил за 30 секунд. Попробуйте снова.</translation>
     </message>
     <message>
+        <source>The application could not start or closed before it showed a window.</source>
+        <translation>Приложение не запустилось или закрылось, не показав окно.</translation>
+    </message>
+    <message>
         <source>Try again. If this happens again, restart Arinn.</source>
         <translation>Попробуйте снова. Если это повторится, перезапустите Arinn.</translation>
+    </message>
+    <message>
+        <source>Starting %1…</source>
+        <translation>%1 запускается…</translation>
     </message>
     <message>
         <source>Opening %1…</source>
@@ -796,6 +812,22 @@
     <message>
         <source>Cancel</source>
         <translation>Отмена</translation>
+    </message>
+    <message>
+        <source>Stop starting %1?</source>
+        <translation>Прервать запуск %1?</translation>
+    </message>
+    <message>
+        <source>The application and everything it has started so far will be closed.</source>
+        <translation>Приложение и всё, что оно успело запустить, будет закрыто.</translation>
+    </message>
+    <message>
+        <source>Keep starting</source>
+        <translation>Продолжить запуск</translation>
+    </message>
+    <message>
+        <source>Stop</source>
+        <translation>Прервать</translation>
     </message>
     <message>
         <source>Retry</source>

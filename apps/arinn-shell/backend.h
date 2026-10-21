@@ -41,6 +41,12 @@ class Backend : public QObject {
   Q_PROPERTY(QVariantMap shortcutEditor READ shortcutEditor NOTIFY changed)
   Q_PROPERTY(bool shortcutSaving READ shortcutSaving NOTIFY changed)
   Q_PROPERTY(QString shortcutError READ shortcutError NOTIFY changed)
+  // The application launch on screen (spec §6.5, ADR-0110): in flight,
+  // whether the daemon can cancel it, and the error code once it failed.
+  Q_PROPERTY(bool launchActive READ launchActive NOTIFY changed)
+  Q_PROPERTY(QString launchTitle READ launchTitle NOTIFY changed)
+  Q_PROPERTY(bool launchCancellable READ launchCancellable NOTIFY changed)
+  Q_PROPERTY(QString launchError READ launchError NOTIFY changed)
 public:
   explicit Backend(QObject *parent = nullptr);
   bool connected() const { return m_connected; }
@@ -77,6 +83,18 @@ public:
   Q_INVOKABLE void back();
   Q_INVOKABLE void launch(const QString &id);
   Q_INVOKABLE void activate(const QString &id);
+  bool launchActive() const {
+    return !m_launch.id.isEmpty() && m_launch.error.isEmpty();
+  }
+  QString launchTitle() const { return m_launch.title; }
+  bool launchCancellable() const {
+    return launchActive() && m_launch.cancellable && !m_launch.cancelling;
+  }
+  QString launchError() const { return m_launch.error; }
+  // Stop the launch on screen after the user confirmed it (ADR-0110).
+  Q_INVOKABLE void cancelLaunch();
+  Q_INVOKABLE void retryLaunch();
+  Q_INVOKABLE void dismissLaunchFailure();
 public slots:
   void refresh();
 private slots:
@@ -90,6 +108,8 @@ signals:
   void webShortcutsChanged();
   void continueEntriesChanged();
   void screenRequested(const QString &name);
+  // The tile of the launch in flight was chosen again: show it again.
+  void launchShown();
 
 private:
   void readFavorites();
@@ -107,6 +127,11 @@ private:
   bool m_shortcutSaving = false;
   quint64 m_shortcutRevision = 0, m_editorRevision = 0, m_editorTicket = 0;
   QSet<QString> m_pendingIds;
+  struct Launch {
+    QString id, title, operation, error;
+    bool cancellable = false, cancelling = false;
+  };
+  Launch m_launch;
   struct Catalog;
   void readProviders(const std::shared_ptr<Catalog> &catalog,
                      const QString &token = {});

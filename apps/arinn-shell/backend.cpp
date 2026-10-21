@@ -138,6 +138,7 @@ Backend::Backend(QObject *parent) : QObject(parent) {
             // A new daemon owner may be another build: ask it again.
             m_buildRequested = m_buildMismatch = false;
             m_pendingIds.clear();
+            m_launch = {};
             m_connected = false;
             m_available = false;
             m_generation.clear();
@@ -828,8 +829,12 @@ void Backend::activate(const QString &id) {
 }
 void Backend::runApplication(const QString &id, const QVariantList &entries,
                              const char *method) {
-  if (m_pendingIds.contains(id))
+  const bool launching = QByteArray(method) == "Launch";
+  if (m_pendingIds.contains(id)) {
+    if (launching && m_launch.id == id && launchActive())
+      emit launchShown();
     return;
+  }
   QVariantMap selected;
   for (const auto &item : entries) {
     if (item.toMap().value("id").toString() == id) {
@@ -853,7 +858,54 @@ void Backend::runApplication(const QString &id, const QVariantList &entries,
   msg << selected.value("generation").toString()
       << selected.value("localId").toString()
       << QUuid::createUuid().toString(QUuid::WithoutBraces);
+  if (launching) {
+    // One launch is on screen at a time; a newer one replaces it.
+    m_launch = {};
+    m_launch.id = id;
+    m_launch.title = selected.value("title").toString();
+  }
   beginOperation(id, msg);
+}
+void Backend::cancelLaunch() {
+  if (!launchCancellable() || m_launch.operation.isEmpty())
+    return;
+  m_launch.cancelling = true;
+  publishState();
+  const auto epoch = m_connectionEpoch;
+  const auto id = m_launch.id;
+  const auto operation = m_launch.operation;
+  auto msg = QDBusMessage::createMethodCall(service, operation,
+                                            "org.arinn.Operation1", "Cancel");
+  // The provider stops the launch's processes before it answers.
+  auto call = new QDBusPendingCallWatcher(
+      QDBusConnection::sessionBus().asyncCall(msg, 20000), this);
+  connect(call, &QDBusPendingCallWatcher::finished, this,
+          [this, epoch, id, operation](auto *call) {
+            const auto reply = call->reply();
+            call->deleteLater();
+            if (epoch != m_connectionEpoch || m_launch.id != id ||
+                m_launch.operation != operation)
+              return;
+            m_launch.cancelling = false;
+            // Success is read back from the operation, which ends as
+            // cancelled; a refusal leaves the launch starting.
+            if (reply.type() == QDBusMessage::ErrorMessage)
+              setResultMessage(tr("The launch could not be stopped"));
+            publishState();
+          });
+}
+void Backend::retryLaunch() {
+  const auto id = m_launch.id;
+  m_launch = {};
+  publishState();
+  if (!id.isEmpty())
+    launch(id);
+}
+void Backend::dismissLaunchFailure() {
+  if (m_launch.error.isEmpty())
+    return;
+  m_launch = {};
+  publishState();
 }
 void Backend::openShortcut(const QString &id) {
   if (m_pendingIds.contains(id))
@@ -898,24 +950,33 @@ void Backend::beginOperation(const QString &id, const QDBusMessage &msg) {
             if (reply.type() == QDBusMessage::ErrorMessage ||
                 reply.signature() != "o" || reply.arguments().isEmpty()) {
               m_pendingIds.remove(id);
+              if (m_launch.id == id && m_launch.operation.isEmpty())
+                m_launch.error = reply.type() == QDBusMessage::ErrorMessage
+                                     ? reply.errorName().section('.', -1)
+                                     : QStringLiteral("Unavailable");
               setResultMessage(reply.type() == QDBusMessage::ErrorMessage
                                    ? reply.errorMessage()
                                    : tr("Operation is unavailable"));
               publishState();
               return;
             }
-            watchOperation(
-                id,
-                qvariant_cast<QDBusObjectPath>(reply.arguments().at(0)).path(),
-                epoch);
+            const auto operation =
+                qvariant_cast<QDBusObjectPath>(reply.arguments().at(0)).path();
+            if (m_launch.id == id && m_launch.operation.isEmpty())
+              m_launch.operation = operation;
+            watchOperation(id, operation, epoch);
           });
 }
 void Backend::watchOperation(const QString &id, const QString &operationPath,
                              quint64 epoch) {
   auto timer = new QTimer(this);
   timer->setInterval(100);
+  // Whether this operation is the launch on screen.
+  const auto shown = [this, id, operationPath] {
+    return m_launch.id == id && m_launch.operation == operationPath;
+  };
   connect(timer, &QTimer::timeout, this,
-          [this, timer, operationPath, id, epoch] {
+          [this, timer, operationPath, id, epoch, shown] {
             timer->stop();
             if (epoch != m_connectionEpoch) {
               timer->deleteLater();
@@ -926,7 +987,7 @@ void Backend::watchOperation(const QString &id, const QString &operationPath,
             auto p = new QDBusPendingCallWatcher(
                 QDBusConnection::sessionBus().asyncCall(msg, 3000), this);
             connect(p, &QDBusPendingCallWatcher::finished, this,
-                    [this, timer, id, epoch](auto *call) {
+                    [this, timer, id, epoch, shown](auto *call) {
                       const auto reply = call->reply();
                       call->deleteLater();
                       if (epoch != m_connectionEpoch) {
@@ -937,6 +998,8 @@ void Backend::watchOperation(const QString &id, const QString &operationPath,
                           reply.signature() != "(ssbtta(sss)b)" ||
                           reply.arguments().isEmpty()) {
                         m_pendingIds.remove(id);
+                        if (shown())
+                          m_launch.error = QStringLiteral("Unavailable");
                         setResultMessage(tr("Operation is unavailable"));
                         timer->deleteLater();
                         publishState();
@@ -960,12 +1023,28 @@ void Backend::watchOperation(const QString &id, const QString &operationPath,
                       arg >> cancellable;
                       arg.endStructure();
                       if (state == "running" || state == "queued") {
+                        if (shown() && m_launch.cancellable != cancellable) {
+                          m_launch.cancellable = cancellable;
+                          publishState();
+                        }
                         timer->start();
                         return;
                       }
                       m_pendingIds.remove(id);
+                      if (shown()) {
+                        // Success and a confirmed cancel close the launch;
+                        // a failure stays on screen until dismissed.
+                        if (state == "failed")
+                          m_launch.error = error.isEmpty()
+                                               ? QStringLiteral("Unavailable")
+                                               : error;
+                        else
+                          m_launch = {};
+                      }
                       setResultMessage(state == "succeeded" ? tr("Done")
-                                                              : error);
+                                       : state == "cancelled"
+                                           ? tr("Launch cancelled")
+                                           : error);
                       timer->deleteLater();
                       publishState();
                     });

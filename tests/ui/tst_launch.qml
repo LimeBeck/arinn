@@ -24,6 +24,17 @@ TestCase {
             serviceTitle: "Example"
         }
     }
+    Component {
+        id: applicationFactory
+        Ui.LaunchOverlay {
+            anchors.fill: parent
+            kind: "application"
+            revealDelay: 40
+            slowDelay: 80
+            timeoutDelay: 0
+            serviceTitle: "Game"
+        }
+    }
     SignalSpy { id: cancels; signalName: "cancelRequested" }
     SignalSpy { id: retries; signalName: "retryRequested" }
     SignalSpy { id: dismisses; signalName: "dismissRequested" }
@@ -119,6 +130,132 @@ TestCase {
         compare(child("launchDialogTitle").text, "Example did not open");
         compare(child("launchDialogBody").text, "Try again. If this happens again, restart Arinn.");
         focused("launchRetry");
+    }
+
+    function application() {
+        overlay = createTemporaryObject(applicationFactory, suite);
+        verify(overlay);
+        cancels.target = overlay; cancels.clear();
+        retries.target = overlay; retries.clear();
+        dismisses.target = overlay; dismisses.clear();
+        homes.target = overlay; homes.clear();
+    }
+
+    // Spec §6.5: the launch animation runs, then "Starting <app>…" with
+    // Cancel. Cancel asks first and Keep starting has the focus.
+    function test_application_starting_and_confirmed_cancel() {
+        application();
+        overlay.active = true;
+        tryCompare(overlay, "revealed", true);
+        compare(child("launchTitle").text, "Opening Game…");
+        tryCompare(overlay, "slow", true);
+        compare(child("launchTitle").text, "Starting Game…");
+        compare(child("launchSlow").visible, false);
+        focused("launchCancel");
+        keyClick(Qt.Key_Return);
+        compare(cancels.count, 0);
+        compare(overlay.confirming, true);
+        compare(child("launchConfirm").visible, true);
+        compare(child("launchConfirmTitle").text, "Stop starting Game?");
+        focused("launchKeepStarting");
+        keyClick(Qt.Key_Return);
+        compare(overlay.confirming, false);
+        compare(cancels.count, 0);
+        focused("launchCancel");
+        keyClick(Qt.Key_Return);
+        focused("launchKeepStarting");
+        keyClick(Qt.Key_Right);
+        focused("launchConfirmStop");
+        keyClick(Qt.Key_Left);
+        focused("launchKeepStarting");
+        keyClick(Qt.Key_Right);
+        keyClick(Qt.Key_Return);
+        compare(cancels.count, 1);
+        compare(overlay.confirming, false);
+    }
+
+    function test_application_back_asks_and_back_again_keeps_starting() {
+        application();
+        overlay.active = true;
+        tryCompare(overlay, "slow", true);
+        focused("launchCancel");
+        keyClick(Qt.Key_Escape);
+        compare(overlay.confirming, true);
+        focused("launchKeepStarting");
+        keyClick(Qt.Key_Escape);
+        compare(overlay.confirming, false);
+        compare(cancels.count, 0);
+        compare(overlay.visible, true);
+        // Home hides the confirmation and the launch, cancelling nothing.
+        keyClick(Qt.Key_Escape);
+        focused("launchKeepStarting");
+        keyClick(Qt.Key_Home);
+        compare(homes.count, 1);
+        compare(cancels.count, 0);
+        compare(overlay.confirming, false);
+        compare(overlay.visible, false);
+        // Choosing the tile again shows the starting state again.
+        overlay.showAgain();
+        compare(overlay.visible, true);
+        compare(overlay.slow, true);
+        focused("launchCancel");
+    }
+
+    function test_application_has_no_timeout() {
+        application();
+        overlay.active = true;
+        tryCompare(overlay, "slow", true);
+        wait(300);
+        compare(overlay.timedOut, false);
+        compare(overlay.showDialog, false);
+        compare(child("launchTitle").text, "Starting Game…");
+    }
+
+    function test_application_without_cancel() {
+        application();
+        overlay.cancellable = false;
+        overlay.active = true;
+        tryCompare(overlay, "slow", true);
+        compare(child("launchCancel").visible, false);
+        keyClick(Qt.Key_Escape);
+        compare(overlay.confirming, false);
+        compare(cancels.count, 0);
+        // The launch became cancellable: Cancel appears.
+        overlay.cancellable = true;
+        compare(child("launchCancel").visible, true);
+    }
+
+    function test_application_ends_while_confirming() {
+        application();
+        overlay.active = true;
+        tryCompare(overlay, "slow", true);
+        focused("launchCancel");
+        keyClick(Qt.Key_Return);
+        compare(overlay.confirming, true);
+        // The window appeared: the launch is over, nothing is stopped.
+        overlay.active = false;
+        compare(overlay.visible, false);
+        compare(overlay.confirming, false);
+        compare(cancels.count, 0);
+    }
+
+    function test_application_failure_dialog() {
+        application();
+        overlay.active = true;
+        tryCompare(overlay, "slow", true);
+        keyClick(Qt.Key_Return);
+        compare(overlay.confirming, true);
+        overlay.failure = "Unavailable";
+        overlay.active = false;
+        compare(overlay.confirming, false);
+        compare(overlay.showDialog, true);
+        compare(child("launchDialogTitle").text, "Game did not open");
+        compare(child("launchDialogBody").text,
+                "The application could not start or closed before it showed a window.");
+        focused("launchRetry");
+        keyClick(Qt.Key_Return);
+        compare(retries.count, 1);
+        compare(cancels.count, 0);
     }
 
     function child(name) {

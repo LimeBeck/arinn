@@ -3,20 +3,32 @@
 
 import QtQuick
 
-// Opening overlay for a web service. The tint is neutral: service hues wait
-// for the icon contract. The overlay stays hidden when the operation finishes
-// before revealDelay.
+// Opening overlay for a web service or an application. The tint is neutral:
+// service hues wait for the icon contract. The overlay stays hidden when the
+// operation finishes before revealDelay.
+//
+// An application launch (kind "application", spec §6.5) has no timeout of
+// its own: it ends when the application shows a window or fails. After
+// slowDelay it reads "Starting <app>…", and Cancel asks for confirmation
+// with Keep starting focused first.
 FocusScope {
     id: root
+    property string kind: "service"
     property bool active: false
     property string serviceTitle: ""
     property string failure: ""
+    // Whether Cancel can stop the operation now.
+    property bool cancellable: true
     property int revealDelay: 400
     property int slowDelay: 8000
+    // 0 disables the timeout stage.
     property int timeoutDelay: 30000
     property bool revealed: false
     property bool slow: false
     property bool timedOut: false
+    // The stop confirmation of an application launch is open.
+    property bool confirming: false
+    readonly property bool application: kind === "application"
     // Home hides the progress overlay while the open keeps running.
     property bool homeHidden: false
     readonly property bool showDialog: failure.length > 0 || timedOut
@@ -24,7 +36,12 @@ FocusScope {
     readonly property string dialogTitle: qsTr("%1 did not open").arg(serviceTitle.length ? serviceTitle : qsTr("The service"))
     readonly property string dialogBody: timedOut && !failure.length
             ? qsTr("The browser did not respond within 30 seconds. Try again.")
+            : application && failure === "Unavailable"
+            ? qsTr("The application could not start or closed before it showed a window.")
             : qsTr("Try again. If this happens again, restart Arinn.")
+    readonly property string progressTitle: application && slow
+            ? qsTr("Starting %1…").arg(serviceTitle)
+            : qsTr("Opening %1…").arg(serviceTitle)
     signal cancelRequested()
     signal retryRequested()
     signal dismissRequested()
@@ -35,6 +52,7 @@ FocusScope {
         revealed = false;
         slow = false;
         timedOut = false;
+        confirming = false;
         slowTimer.stop();
         timeoutTimer.stop();
         revealTimer.interval = Math.max(0, revealDelay);
@@ -48,6 +66,8 @@ FocusScope {
         slowTimer.restart();
     }
     function scheduleTimeout() {
+        if (timeoutDelay <= 0)
+            return;
         timeoutTimer.interval = Math.max(0, timeoutDelay - slowDelay);
         timeoutTimer.restart();
     }
@@ -59,6 +79,37 @@ FocusScope {
         revealed = false;
         slow = false;
         timedOut = false;
+        confirming = false;
+    }
+    // The operation is still running and the user chose its tile again.
+    function showAgain() {
+        if (!active || showDialog || !homeHidden)
+            return;
+        homeHidden = false;
+        revealed = true;
+        if (slow)
+            Qt.callLater(() => Focus.take(cancelButton));
+        else
+            scheduleSlow();
+    }
+    // Cancel: an application launch asks first; Keep starting is focused.
+    function requestCancel() {
+        if (!cancellable)
+            return;
+        if (!application) {
+            cancelRequested();
+            return;
+        }
+        confirming = true;
+        Qt.callLater(() => Focus.take(keepButton));
+    }
+    function keepStarting() {
+        confirming = false;
+        Qt.callLater(() => Focus.take(cancelButton));
+    }
+    function confirmStop() {
+        confirming = false;
+        cancelRequested();
     }
     // Specification §6.3: opening Home never pauses or stops the operation.
     // Cancel and Back remain the ways to cancel.
@@ -66,6 +117,7 @@ FocusScope {
         revealTimer.stop();
         slowTimer.stop();
         timeoutTimer.stop();
+        confirming = false;
         homeHidden = true;
     }
     onActiveChanged: {
@@ -81,8 +133,10 @@ FocusScope {
     }
     // A later open keeps `active` true, so the title change is what shows it again.
     onServiceTitleChanged: if (active && homeHidden) arm()
+    onCancellableChanged: if (!cancellable && confirming) confirming = false
     onFailureChanged: {
         if (failure.length) {
+            confirming = false;
             revealTimer.stop();
             slowTimer.stop();
             timeoutTimer.stop();
@@ -122,12 +176,13 @@ FocusScope {
         anchors.centerIn: parent
         width: 720
         spacing: 28
-        visible: !root.showDialog
+        visible: !root.showDialog && !root.confirming
         UiText {
+            objectName: "launchTitle"
             width: parent.width
             horizontalAlignment: Text.AlignHCenter
             role: "section"
-            text: qsTr("Opening %1…").arg(root.serviceTitle)
+            text: root.progressTitle
             maximumLineCount: 2
             elide: Text.ElideRight
         }
@@ -143,7 +198,7 @@ FocusScope {
                 radius: 3
                 color: Theme.ember
                 SequentialAnimation on x {
-                    running: root.showOverlay && !root.showDialog
+                    running: root.showOverlay && !root.showDialog && !root.confirming
                     loops: Animation.Infinite
                     NumberAnimation { from: -120; to: 360; duration: 1400; easing.type: Easing.InOutCubic }
                 }
@@ -153,7 +208,7 @@ FocusScope {
             objectName: "launchSlow"
             width: parent.width
             horizontalAlignment: Text.AlignHCenter
-            visible: root.slow
+            visible: root.slow && !root.application
             text: qsTr("The browser is taking longer than usual")
             color: Theme.textSecondary
         }
@@ -161,9 +216,49 @@ FocusScope {
             id: cancelButton
             objectName: "launchCancel"
             anchors.horizontalCenter: parent.horizontalCenter
-            visible: root.slow
+            visible: root.slow && root.cancellable
             text: qsTr("Cancel")
-            onActivated: root.cancelRequested()
+            onActivated: root.requestCancel()
+        }
+    }
+    Column {
+        objectName: "launchConfirm"
+        anchors.centerIn: parent
+        width: 800
+        spacing: 24
+        visible: root.confirming && !root.showDialog
+        UiText {
+            objectName: "launchConfirmTitle"
+            width: parent.width
+            horizontalAlignment: Text.AlignHCenter
+            font.pixelSize: 48
+            font.weight: 700
+            text: qsTr("Stop starting %1?").arg(root.serviceTitle)
+            wrapMode: Text.WordWrap
+        }
+        UiText {
+            width: parent.width
+            horizontalAlignment: Text.AlignHCenter
+            text: qsTr("The application and everything it has started so far will be closed.")
+            color: Theme.textSecondary
+            wrapMode: Text.WordWrap
+        }
+        Row {
+            anchors.horizontalCenter: parent.horizontalCenter
+            spacing: 24
+            ActionButton {
+                id: keepButton
+                objectName: "launchKeepStarting"
+                text: qsTr("Keep starting")
+                onActivated: root.keepStarting()
+            }
+            ActionButton {
+                id: stopButton
+                objectName: "launchConfirmStop"
+                destructive: true
+                text: qsTr("Stop")
+                onActivated: root.confirmStop()
+            }
         }
     }
     Column {
@@ -215,8 +310,18 @@ FocusScope {
             }
         }
     }
-    Keys.onLeftPressed: if (showDialog) Focus.take(retryButton)
-    Keys.onRightPressed: if (showDialog) Focus.take(closeButton)
+    Keys.onLeftPressed: {
+        if (showDialog)
+            Focus.take(retryButton);
+        else if (confirming)
+            Focus.take(keepButton);
+    }
+    Keys.onRightPressed: {
+        if (showDialog)
+            Focus.take(closeButton);
+        else if (confirming)
+            Focus.take(stopButton);
+    }
     Keys.onPressed: event => {
         if (event.key === Qt.Key_Home) {
             if (!root.showOverlay) {
@@ -241,7 +346,9 @@ FocusScope {
             return;
         if (root.showDialog)
             root.dismissRequested();
+        else if (root.confirming)
+            root.keepStarting();
         else if (root.slow)
-            root.cancelRequested();
+            root.requestCancel();
     }
 }

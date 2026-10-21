@@ -806,6 +806,30 @@ Window {
             onDismissRequested: browserCatalog.dismissOpenFailure()
             onHomeRequested: Qt.callLater(home.showHome)
         }
+        // An application launch (spec §6.5): it ends when a window appears,
+        // so it has no timeout here; after 8 s it reads "Starting <app>…".
+        Ui.LaunchOverlay {
+            id: applicationLaunch
+            objectName: "applicationLaunch"
+            anchors.fill: parent
+            z: 20
+            kind: "application"
+            timeoutDelay: 0
+            active: backend.launchActive === true
+            serviceTitle: backend.launchTitle || ""
+            failure: backend.launchError || ""
+            cancellable: backend.launchCancellable === true
+            onCancelRequested: backend.cancelLaunch()
+            onRetryRequested: backend.retryLaunch()
+            onDismissRequested: backend.dismissLaunchFailure()
+            onHomeRequested: Qt.callLater(home.showHome)
+            Connections {
+                target: backend
+                // Test doubles of the backend may lack the signal.
+                ignoreUnknownSignals: true
+                function onLaunchShown() { applicationLaunch.showAgain(); }
+            }
+        }
         Rectangle {
             objectName: "feedbackStrip"
             x: 420; y: 970; width: 1080; height: 72; radius: 36

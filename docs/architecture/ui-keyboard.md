@@ -141,7 +141,9 @@ the value is proposed.
   HTPC, which G-5.6 still needs.
 - 2026-10-21, path editors (KB-5, #426), local build with Qt 6.10.2
   (Ubuntu 26.04 container, offscreen, software renderer):
-  `arinn-ui-test -input tests/ui/tst_settings.qml` passed 25 cases, and the
-  full `ctest` run is recorded in the pull request. The path layer was not
+  `arinn-ui-test -input tests/ui/tst_settings.qml` passed 25 cases. The full
+  `ctest` run passed 22 of 23 tests, `ui-components` included. The one failure
+  was `sentry-isolated`, a known environment failure of that container,
+  where the Sentry sources are overridden. The path layer was not
   compared with `kb-5.png`; the pixel comparison and the operator check are
   still open for G-5.6.

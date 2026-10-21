@@ -188,7 +188,8 @@ class SessionEntry(unittest.TestCase):
         self.assertEqual(len(fixture.calls()), 1, fixture.calls())
 
     def test_anything_but_desktop_starts_arinn(self):
-        for content in ("", "arinn\n", "Desktop\n", "desktop extra\n", " desktop\n", "\n"):
+        for content in ("", "arinn\n", "Desktop\n", "desktop extra\n", " desktop\n", "\n",
+                        "desktop\nextra\n", "desktop\n\narinn\n", "desktop" + " " * 20):
             with self.subTest(content=content):
                 fixture = Fixture(self)
                 fixture.mode_file.parent.mkdir(parents=True)

@@ -22,11 +22,11 @@ xfce) desktop=startxfce4 ;;
 esac
 entry=$1
 
-# The user's choice for this entry. Anything but an exact "desktop" starts
-# Arinn: a missing or damaged file must not hide the TV shell.
+# The user's choice for this entry. Anything but exactly "desktop" (one
+# line) starts Arinn: a missing or damaged file must not hide the TV shell.
 mode_file="${XDG_STATE_HOME:-${HOME:-/nonexistent}/.local/state}/arinn/session-mode"
 mode=arinn
-if [ -f "$mode_file" ] && IFS= read -r line <"$mode_file" && [ "$line" = desktop ]; then
+if [ -f "$mode_file" ] && [ "$(head -c 16 "$mode_file")" = "desktop" ]; then
     mode=desktop
 fi
 if [ "$mode" = desktop ]; then

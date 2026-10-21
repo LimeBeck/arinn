@@ -17,6 +17,8 @@ real suspend, wake and the lock screen are owner operator tests.
 | `apps/arinn-shell/ui/screens/power/PowerMenu.qml` | The power scope: menu, confirmation, refusal and accepted panes, and the ambient screen. Presentation only |
 | `apps/arinn-shell/ui/screens/power/PowerOverlay.qml` | Maps a `SystemControl` (or a test double) to `PowerMenu`, owns the volume keys and the HUD |
 | `apps/arinn-shell/ui/VolumeHud.qml` | The handoff's volume HUD |
+| `apps/arinn-shell/ui/screens/power/AmbientScreen.qml` | The ambient screen (handoff 20) and its consumed wake |
+| `apps/arinn-shell/ui/screens/power/AmbientIdle.qml` | The idle timer and the rules that inhibit automatic ambient |
 | `apps/arinn-shell/Main.qml` | Opens the overlay from global navigation › Power and gives it the power focus scope |
 
 ## Power menu
@@ -49,7 +51,7 @@ sees its refusal; the menu never guesses the outcome.
 | Restart, Shut down | Open the confirmation with Cancel focused. Its body lists the applications that will close and, in the error colour, the row's blocker or permission note, so confirming never hides it. Confirm calls `Reboot` or `PowerOff`; the pill is busy until the answer. |
 | Accepted | A waiting pane: "Going to sleep…", "Restarting…" or "Shutting down…" with "Waiting for the system". This is not success, and no timer produces it or anything after it. Back returns to the screen beneath. |
 | Refused | An error pane titled for the action, with the reason for `inhibited` (the holders' *who (why)*), `denied`, `unsupported`, `unavailable`, `timeout` or `failed`. Back clears it and returns to the step that asked. |
-| Ambient | Unchanged: the full-screen ambient state with a consumed first wake event. The idle timer is [#307](https://github.com/LimeBeck/arinn/issues/307). |
+| Ambient | Starts the shell's ambient screen over the menu (see *Ambient* below). Wake returns to this row. |
 | Back, Home | Esc, Backspace and Back close the confirmation onto its opener and then the menu. Home closes the menu without any action and shows Home (§6.3). |
 
 **Closing list.** The confirmation names each running application from the
@@ -79,6 +81,37 @@ only a level the daemon returned for the change; a failed change shows no
 level and a short "Volume control is not available." toast. Stepping never
 unmutes; the bar is dimmed while muted.
 
+## Ambient
+
+Spec §5.7 and [#307](https://github.com/LimeBeck/arinn/issues/307), P-04:
+ambient is a screensaver, not sleep.
+
+- **Start.** The power menu's Ambient row, or `AmbientIdle` after ten minutes
+  without a key or genuine pointer movement in the shell (the
+  `InputModeSource` events of ADR-0095). The timeout is fixed at the
+  specification's default; there is no setting for it.
+- **No automatic start** while the shell is hidden or its window inactive
+  (an external Activity is in the foreground), while the session is locked,
+  while ambient is already on, while a web service is launching, or while
+  media plays: an MPRIS session in `playing`, managed playback or its input
+  layer, or an audible browser tab. Losing any of these conditions stops the
+  count; regaining them starts a full timeout.
+- **Look.** Handoff 20: `bg-deep` (#050506), the clock at 160/500 and the
+  date at 32 in dim greys, as one block that moves to a random place every
+  8 s with a 4 s ease-in-out move. The optional paused-media line of the
+  handoff is not shown.
+- **Wake.** Ambient is the topmost route (`focusedScreen` is `ambient`) and
+  takes every key and pointer event. The event that opened it is not a wake.
+  After that, a key press and its release, a click, the wheel or a pointer
+  movement away from where the pointer rested wakes it, and that event is
+  consumed. The item that had focus before gets it back, or the screen's
+  preferred item when it is gone. The volume keys are not Arinn's while
+  ambient is on, so they wake it too.
+- **Never more.** Ambient never pauses playback, closes applications or
+  requests suspend; it only draws. A lock or sleep ends it without a wake
+  event, and the session lifecycle guard keeps the shell hidden until it is
+  safe to show.
+
 ## Verification
 
 ```sh
@@ -88,7 +121,17 @@ dbus-run-session -- build/apps/arinn-shell/arinn-system-control-test
 ```
 
 - `tests/ui/tst_power.qml`: the menu itself (focus scope, Cancel default,
-  Esc/Backspace/Back, the explicit refusal, consumed ambient wake, geometry).
+  Esc/Backspace/Back, the explicit refusal, the Ambient row, geometry).
+- `tests/ui/tst_ambient.qml`: the ambient screen (handoff look and drift,
+  consumed first key, opening key not a wake, pointer anchor, consumed click,
+  stop without wake) and the idle timer on a shortened timeout (default ten
+  minutes, reset by activity, each inhibiting condition, hidden shell, what
+  counts as playing).
+- `platform/session/sessionlifecycle_test.cpp` (`powerMenuAcrossSleep`,
+  `ambientAfterIdle`): the production `Main.qml` with fake login1 and
+  screensaver services: the explicit Ambient row and wake back to it, idle
+  ambient on Home with the wake key consumed and focus restored, and a lock
+  that ends ambient.
 - `tests/ui/tst_power_overlay.qml`: the overlay over a `SystemControl` double:
   reading on open, a request that waits for the platform, the accepted pane,
   closing on the lifecycle guard, refusal texts and inhibitor names, the

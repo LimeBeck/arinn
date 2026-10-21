@@ -203,8 +203,10 @@ Window {
     // which refuses hidden or disabled items. Home's navigation menu and
     // shortcut editor cover the library and settings screens, so they win.
     // Home's navigation menu opens over every screen but the player (#329).
-    // The power scope traps focus above everything it covers (§6.1).
-    readonly property string focusedScreen: powerOverlay.open ? "power"
+    // Ambient covers everything and takes every key until it wakes; the power
+    // scope traps focus above everything it covers (§5.7, §6.1).
+    readonly property string focusedScreen: ambientScreen.active ? "ambient"
+        : powerOverlay.open ? "power"
         : playerOpen ? "player"
         : home.navOpen || home.shortcutEditorOpen || home.tileActionsOpen ? "home"
         : sessionOpen ? "session"
@@ -217,11 +219,12 @@ Window {
     function screenItem(name) {
         return ({player: playerView, session: sessionView, browser: browserView, browse: browseView,
                  library: libraryView, downloads: downloadsView, settings: settingsView, home: home,
-                 power: powerOverlay})[name];
+                 power: powerOverlay, ambient: ambientScreen})[name];
     }
     // Focus the screen on display at its preferred item.
     function restoreFocus() {
         switch (focusedScreen) {
+        case "ambient": Ui.Focus.take(ambientScreen); break;
         case "power": powerOverlay.menu.restoreMenuFocus(); break;
         case "player": Ui.Focus.take(playerView); break;
         case "session": sessionView.restore(); break;
@@ -295,6 +298,9 @@ Window {
             if (sessionGuard.blocked) {
                 mediaCatalog.abandonPresentation();
                 powerOverlay.sessionBlocked();
+                // A lock is not a wake: no event to consume, the screen
+                // beneath comes back when the shell is shown again.
+                ambientScreen.stop();
             }
         }
     }
@@ -336,6 +342,35 @@ Window {
         id: systemStatus
         objectName: "systemStatus"
     }
+    // Ambient (§5.7, #307): an explicit start or ten idle minutes on screen,
+    // never while media plays. It never suspends, pauses or closes anything.
+    Power.AmbientIdle {
+        id: ambientIdle
+        objectName: "ambientIdle"
+        shellShown: root.visible && root.active
+        locked: sessionGuard.blocked
+        ambientActive: ambientScreen.active
+        launching: browserCatalog.opening
+        mediaPlaying: root.playerOpen || ambientIdle.playing(mediaCatalog.continueEntries, browserCatalog.tabs,
+                                                             mediaCatalog.inputLayerActive)
+        onIdle: root.startAmbient()
+    }
+    // The item that had focus when ambient started; wake gives it back.
+    property var ambientReturn: null
+    function startAmbient() {
+        if (ambientScreen.active) return;
+        ambientReturn = activeFocusItem;
+        ambientScreen.start();
+    }
+    function finishAmbient() {
+        const target = ambientReturn;
+        ambientReturn = null;
+        Qt.callLater(() => {
+            if (ambientScreen.active) return;
+            if (!target || !focusInside(target, screenItem(focusedScreen)) || !Ui.Focus.take(target))
+                restoreFocus();
+        });
+    }
     // Power actions and volume through the daemon (ADR-0108).
     SystemControl {
         id: systemControl
@@ -352,8 +387,8 @@ Window {
     // mode; it hides the cursor in D-pad mode (spec §6.1, ADR-0095).
     InputModeSource {
         pointerActive: Ui.InputMode.pointerActive
-        onKeyPressed: Ui.InputMode.keyPressed()
-        onPointerMoved: Ui.InputMode.pointerMoved()
+        onKeyPressed: { Ui.InputMode.keyPressed(); ambientIdle.activity(); }
+        onPointerMoved: { Ui.InputMode.pointerMoved(); ambientIdle.activity(); }
         onPointerArrived: Ui.InputMode.forgetPointer()
     }
     Shortcut {
@@ -817,11 +852,20 @@ Window {
             control: systemControl
             runningApplications: backend.items
             registryKnown: backend.applicationsState === "ready" || backend.applicationsState === "empty"
-            keysEnabled: root.visible && root.active && !sessionGuard.blocked
-            clockText: home.clockText
+            keysEnabled: root.visible && root.active && !sessionGuard.blocked && !ambientScreen.active
             onClosed: Qt.callLater(root.restoreFocus)
             onHomeRequested: { root.closeOverlays(); Qt.callLater(home.showHome); }
             onVolumeUnavailable: { feedback.text = qsTr("Volume control is not available."); feedbackTimer.restart(); }
+            onAmbientRequested: root.startAmbient()
+        }
+        Power.AmbientScreen {
+            id: ambientScreen
+            anchors.fill: parent
+            z: 30
+            focus: root.focusedScreen === "ambient"
+            clockText: home.clockText
+            dateText: { home.clockText; return Qt.locale().toString(new Date(), "dddd, d MMMM"); }
+            onActiveChanged: if (!active) root.finishAmbient()
         }
         Ui.LaunchOverlay {
             anchors.fill: parent

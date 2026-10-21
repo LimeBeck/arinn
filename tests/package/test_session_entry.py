@@ -135,7 +135,8 @@ class Fixture:
 
 class SessionEntry(unittest.TestCase):
     def start(self, fixture, entry, **env):
-        process = subprocess.Popen([str(fixture.session), entry], env=fixture.env(**env),
+        process = subprocess.Popen([str(fixture.session), entry], cwd=fixture.root,
+                                   env=fixture.env(**env),
                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         self.addCleanup(lambda: process.poll() is None and process.kill())
         return process
@@ -290,7 +291,7 @@ class SessionEntry(unittest.TestCase):
                 fixture = Fixture(self)
                 fixture.mode_file.parent.mkdir(parents=True)
                 fixture.mode_file.write_text(mode + "\n")
-                process = subprocess.Popen([str(fixture.session), "xfce"], env=fixture.env(),
+                process = subprocess.Popen([str(fixture.session), "xfce"], cwd=fixture.root, env=fixture.env(),
                                            preexec_fn=ignore, stderr=subprocess.PIPE, text=True)
                 self.addCleanup(lambda p=process: p.poll() is None and p.kill())
                 self.assertTrue(fixture.wait_for(lambda c: any(c) and fixture.ignored_signals()))
@@ -302,7 +303,7 @@ class SessionEntry(unittest.TestCase):
     def test_unknown_entry_is_refused(self):
         fixture = Fixture(self)
         for args in ([], ["gnome"], ["Plasma"]):
-            result = subprocess.run([str(fixture.session), *args], env=fixture.env(),
+            result = subprocess.run([str(fixture.session), *args], cwd=fixture.root, env=fixture.env(),
                                     capture_output=True, text=True, timeout=10)
             self.assertEqual(result.returncode, 2, args)
         self.assertEqual(fixture.calls(), [])
@@ -310,7 +311,7 @@ class SessionEntry(unittest.TestCase):
 
 class SessionSwitch(unittest.TestCase):
     def switch(self, fixture, *args, **env):
-        return subprocess.run([str(fixture.switch), *args], env=fixture.env(**env),
+        return subprocess.run([str(fixture.switch), *args], cwd=fixture.root, env=fixture.env(**env),
                               capture_output=True, text=True, timeout=10)
 
     def test_switch_to_desktop_from_the_plasma_entry(self):
@@ -359,6 +360,14 @@ class SessionSwitch(unittest.TestCase):
         result = self.switch(fixture, "desktop", XDG_CURRENT_DESKTOP="ubuntu:XFCE")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("org.xfce.SessionManager", fixture.calls()[0])
+
+    def test_relative_paths_never_leave_the_temporary_directory(self):
+        # Every script runs with the fixture as its working directory, so a
+        # relative state path (or a regression that honours one) stays there.
+        fixture = Fixture(self)
+        self.switch(fixture, "desktop", ARINN_SESSION_ENTRY="plasma", XDG_STATE_HOME="relative",
+                    ARINN_SESSION_MODE="relative/arinn/session-mode")
+        self.assertFalse((Path.cwd() / "relative").exists())
 
     def test_switch_writes_the_file_the_session_read(self):
         # The daemon's environment comes from the user manager, which may lack
@@ -445,13 +454,13 @@ class SessionSwitch(unittest.TestCase):
         fixture = Fixture(self)
         self.assertEqual(self.switch(fixture, "desktop", ARINN_SESSION_ENTRY="plasma").returncode, 0)
         fixture.stop_desktop()
-        subprocess.run([str(fixture.session), "plasma"], env=fixture.env(), timeout=20, check=True)
+        subprocess.run([str(fixture.session), "plasma"], cwd=fixture.root, env=fixture.env(), timeout=20, check=True)
         self.assertFalse(any("start arinn" in c for c in fixture.calls()), fixture.calls())
         fixture.log.write_text("")
         (fixture.root / "stop").unlink()
         self.assertEqual(self.switch(fixture, "arinn", "--prompt",
                                      XDG_CURRENT_DESKTOP="KDE").returncode, 0)
-        process = subprocess.Popen([str(fixture.session), "plasma"], env=fixture.env())
+        process = subprocess.Popen([str(fixture.session), "plasma"], cwd=fixture.root, env=fixture.env())
         self.addCleanup(lambda: process.poll() is None and process.kill())
         self.assertTrue(fixture.wait_for(lambda c: "systemctl --user start arinn-session.target" in c),
                         fixture.calls())

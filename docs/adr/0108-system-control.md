@@ -47,8 +47,11 @@ the [system control contract](../architecture/system-control.md).
   from the session lifecycle guard, never from this reply or from a timer.
 - Arinn **respects every block inhibitor**. Before it asks logind, the daemon
   lists the inhibitors and refuses an action that a `block` inhibitor of its
-  lock holds, even when the user could override it. `delay` inhibitors only
-  delay and do not refuse.
+  lock holds, even when the user could override it. It inspects every record
+  and bounds only the list it publishes. When the list cannot be read, the
+  action is refused with `Unavailable` and `GetPower` reports every action
+  `unknown`: Arinn fails closed rather than risk overriding an inhibitor.
+  `delay` inhibitors only delay and do not refuse.
 - Arinn never asks for authorization. A `challenge` answer is `denied`, and an
   action that needs authorization is refused.
 - Refusals use the existing `org.arinn.Error1` names:
@@ -58,13 +61,15 @@ the [system control contract](../architecture/system-control.md).
   | `Conflict` | A block inhibitor holds the action, or another power operation is in progress. `GetPower` names the holder |
   | `PermissionDenied` | logind or polkit refused it for this user, or the caller is a provider |
   | `Unsupported` | The system cannot do it (`na`, sleep not supported) |
-  | `Unavailable` | No system bus or no logind |
+  | `Unavailable` | No system bus, no logind, or an inhibitor list that cannot be read |
   | `Timeout` | logind did not answer within 10 s |
   | `Internal` | Any other failure |
 
   logind's own error names map as listed in the contract. A permission refusal
   while a block inhibitor exists is reported as `Conflict`, because overriding
-  the inhibitor is what was refused. One power request runs at a time.
+  the inhibitor is what was refused. One power request runs at a time; a
+  request that arrives while another runs is refused with `Conflict` and is
+  never queued.
 
 **Volume.**
 
@@ -107,6 +112,8 @@ never leave the platform layer.
 - The shell can wire the power menu, Sleep availability and the volume HUD
   (#148) without any system dependency of its own. The quick menu (#439) can
   reuse the same volume methods.
+- The shell consumer (power menu, volume HUD) follows in
+  [#148](https://github.com/LimeBeck/arinn/issues/148).
 - The daemon depends at runtime on logind and a PulseAudio-protocol server when
   they exist. Neither is needed to start; without them reads are `unknown` and
   actions are `Unavailable`.
@@ -142,14 +149,19 @@ never leave the platform layer.
 
 - `crates/arinn-protocol/src/system_control.rs`: signatures, roundtrip,
   producer validation, reader fallbacks and step arithmetic.
+- `crates/arinn-protocol/tests/system_control.rs`: a fixture daemon on a
+  private bus. It covers a daemon without the interface, compares the live
+  export with the XML, and covers typed refusals and volume replies on the
+  wire.
 - `platform/system_control_tests.rs`: a fake logind on a private bus (`Can*`
-  answers, block and delay inhibitors, a bounded inhibitor list, refusals,
-  `interactive = false`, no logind, no bus) and a fake `pactl` (mute, toggle,
-  steps with balance, the 100 % stop, a level above 100 %, no server, no tool,
-  the C locale).
+  answers, block and delay inhibitors, one block behind hundreds of
+  irrelevant records, an unreadable list that refuses, a bounded inhibitor
+  list, refusals, `interactive = false`, no logind, no bus) and a fake `pactl`
+  (mute, toggle, steps with balance, the 100 % stop, a level above 100 %, a
+  change whose read-back fails, no server, no tool, the C locale).
 - `crates/arinnd/src/runtime/system_control_tests.rs`: the daemon export
-  against the XML, typed errors on the wire and the refusal of a provider
-  connection.
+  against the XML, typed errors on the wire, a second power request refused
+  while the first runs, and the refusal of a provider connection.
 - `tests/integration/phase1.py`: the real export against the XML and both
   reads. It never calls a power action or changes the volume.
 - Real suspend, reboot, power off and volume on the HTPC are owner operator

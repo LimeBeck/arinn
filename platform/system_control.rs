@@ -22,8 +22,6 @@ use zbus::Connection;
 const READ_TIMEOUT: Duration = Duration::from_secs(2);
 /// A power request: logind asks polkit before it answers.
 const ACTION_TIMEOUT: Duration = Duration::from_secs(10);
-/// `ListInhibitors` records looked at; the rest are ignored.
-const MAX_RECORDS: usize = 256;
 
 #[zbus::proxy(
     interface = "org.freedesktop.login1.Manager",
@@ -155,7 +153,8 @@ impl Control {
     }
 
     /// The block inhibitors of `sleep` and `shutdown`; `None` when they
-    /// cannot be read.
+    /// cannot be read. Every record is inspected; only the published list is
+    /// bounded.
     async fn inhibitors(login: &LoginProxy<'_>) -> Option<Vec<Inhibitor>> {
         let records = tokio::time::timeout(READ_TIMEOUT, login.list_inhibitors())
             .await
@@ -163,7 +162,6 @@ impl Control {
             .ok()?;
         let mut inhibitors: Vec<Inhibitor> = records
             .iter()
-            .take(MAX_RECORDS)
             .flat_map(|(what, who, why, mode, _, _)| inhibitors_from_record(what, who, why, mode))
             .collect();
         // Keep one of each lock first, so an inhibited action always names
@@ -192,7 +190,11 @@ impl Control {
         let Ok(login) = self.login().await else {
             return PowerState::unknown();
         };
-        let inhibitors = Self::inhibitors(&login).await.unwrap_or_default();
+        // Without the inhibitor list nothing can be called available: an
+        // action would be refused anyway (fail closed, see `act`).
+        let Some(inhibitors) = Self::inhibitors(&login).await else {
+            return PowerState::unknown();
+        };
         let mut state = PowerState {
             inhibitors,
             ..PowerState::unknown()
@@ -235,8 +237,13 @@ impl Control {
                 .is_some_and(|list| list.iter().any(|i| i.lock() == action.lock()))
         };
         // Arinn respects every block inhibitor, even one the user may
-        // override: it never ignores an inhibitor on the user's behalf.
-        if blocked(&Self::inhibitors(&login).await) {
+        // override: it never ignores an inhibitor on the user's behalf. A
+        // list it cannot read refuses the action (fail closed).
+        let inhibitors = Self::inhibitors(&login).await;
+        if inhibitors.is_none() {
+            return Err(ErrorCode::Unavailable);
+        }
+        if blocked(&inhibitors) {
             return Err(ErrorCode::Conflict);
         }
         let call = async {
@@ -284,50 +291,51 @@ impl Control {
         }
     }
 
-    async fn read_level(&self) -> Option<u32> {
-        level_from_pactl(
-            &self
-                .run(&["get-sink-volume", "@DEFAULT_SINK@"])
-                .await
-                .ok()?,
-        )
+    async fn read_level(&self) -> Result<u32, ErrorCode> {
+        let output = self.run(&["get-sink-volume", "@DEFAULT_SINK@"]).await?;
+        level_from_pactl(&output).ok_or(ErrorCode::Unavailable)
+    }
+
+    /// The default sink's mute state and level, or why they cannot be read.
+    async fn read_volume(&self) -> Result<Volume, ErrorCode> {
+        let output = self.run(&["get-sink-mute", "@DEFAULT_SINK@"]).await?;
+        let audio = audio_from_pactl(&output);
+        if audio == Audio::Unknown {
+            return Err(ErrorCode::Unavailable);
+        }
+        let level = self.read_level().await?;
+        Ok(Volume {
+            audio: audio.as_str().into(),
+            level,
+        })
     }
 
     /// The default sink's mute state and level; unknown when either cannot
-    /// be read.
+    /// be read. After a change, a failed read is an error instead.
     pub async fn volume(&self) -> Volume {
-        let audio = match self.run(&["get-sink-mute", "@DEFAULT_SINK@"]).await {
-            Ok(output) => audio_from_pactl(&output),
-            Err(_) => Audio::Unknown,
-        };
-        let level = self.read_level().await;
-        match (audio, level) {
-            (Audio::Unknown, _) | (_, None) => Volume::unknown(),
-            (audio, Some(level)) => Volume {
-                audio: audio.as_str().into(),
-                level,
-            },
-        }
+        self.read_volume()
+            .await
+            .unwrap_or_else(|_| Volume::unknown())
     }
 
     pub async fn set_muted(&self, muted: bool) -> Result<Volume, ErrorCode> {
         let value = if muted { "1" } else { "0" };
         self.run(&["set-sink-mute", "@DEFAULT_SINK@", value])
             .await?;
-        Ok(self.volume().await)
+        self.read_volume().await
     }
 
     pub async fn toggle_muted(&self) -> Result<Volume, ErrorCode> {
         self.run(&["set-sink-mute", "@DEFAULT_SINK@", "toggle"])
             .await?;
-        Ok(self.volume().await)
+        self.read_volume().await
     }
 
     /// Changes the level by `steps` (already validated) relative to every
     /// channel, so the balance stays. The loudest channel lands on
     /// [`stepped_level`].
     pub async fn step_volume(&self, steps: i32) -> Result<Volume, ErrorCode> {
-        let current = self.read_level().await.ok_or(ErrorCode::Unavailable)?;
+        let current = self.read_level().await?;
         let target = stepped_level(current, steps);
         if target != current {
             let change = if target > current {
@@ -339,7 +347,7 @@ impl Control {
             self.run(&["set-sink-volume", "--", "@DEFAULT_SINK@", &change])
                 .await?;
         }
-        Ok(self.volume().await)
+        self.read_volume().await
     }
 }
 

@@ -138,15 +138,23 @@ pub(crate) struct FakeLogin {
     /// Refuse every action with this fdo error.
     pub(crate) refuse: Option<fn(String) -> zbus::fdo::Error>,
     pub(crate) calls: Vec<(String, bool)>,
+    /// Answer power requests only after this long.
+    pub(crate) hold: Duration,
+    /// ListInhibitors fails.
+    pub(crate) list_fails: bool,
 }
 pub(crate) type Shared = Arc<Mutex<FakeLogin>>;
 
 struct Manager(Shared);
 impl Manager {
-    fn act(&self, name: &str, interactive: bool) -> zbus::fdo::Result<()> {
-        let mut fake = self.0.lock().unwrap();
-        fake.calls.push((name.into(), interactive));
-        match fake.refuse {
+    async fn act(&self, name: &str, interactive: bool) -> zbus::fdo::Result<()> {
+        let (refuse, hold) = {
+            let mut fake = self.0.lock().unwrap();
+            fake.calls.push((name.into(), interactive));
+            (fake.refuse, fake.hold)
+        };
+        tokio::time::sleep(hold).await;
+        match refuse {
             Some(error) => Err(error("refused by the fixture".into())),
             None => Ok(()),
         }
@@ -163,17 +171,21 @@ impl Manager {
     fn can_power_off(&self) -> String {
         self.0.lock().unwrap().can[2].clone()
     }
-    fn suspend(&self, interactive: bool) -> zbus::fdo::Result<()> {
-        self.act("suspend", interactive)
+    async fn suspend(&self, interactive: bool) -> zbus::fdo::Result<()> {
+        self.act("suspend", interactive).await
     }
-    fn reboot(&self, interactive: bool) -> zbus::fdo::Result<()> {
-        self.act("reboot", interactive)
+    async fn reboot(&self, interactive: bool) -> zbus::fdo::Result<()> {
+        self.act("reboot", interactive).await
     }
-    fn power_off(&self, interactive: bool) -> zbus::fdo::Result<()> {
-        self.act("power-off", interactive)
+    async fn power_off(&self, interactive: bool) -> zbus::fdo::Result<()> {
+        self.act("power-off", interactive).await
     }
-    fn list_inhibitors(&self) -> Vec<Record> {
-        self.0.lock().unwrap().inhibitors.clone()
+    fn list_inhibitors(&self) -> zbus::fdo::Result<Vec<Record>> {
+        let fake = self.0.lock().unwrap();
+        if fake.list_fails {
+            return Err(zbus::fdo::Error::Failed("fixture".into()));
+        }
+        Ok(fake.inhibitors.clone())
     }
 }
 
@@ -308,10 +320,16 @@ async fn power_follows_logind_and_respects_block_inhibitors() {
 #[tokio::test]
 async fn many_inhibitors_are_bounded_and_name_each_lock() {
     let system = Bus::new();
-    let mut inhibitors: Vec<Record> = (0..40).map(|_| record("sleep", "block")).collect();
-    for (i, inhibitor) in inhibitors.iter_mut().enumerate() {
-        inhibitor.1 = format!("Holder {i:02}");
-    }
+    // Hundreds of irrelevant records first: the block that matters comes
+    // last and is still found.
+    let mut inhibitors: Vec<Record> = (0..300)
+        .map(|i| record(if i % 2 == 0 { "idle" } else { "sleep" }, "delay"))
+        .collect();
+    inhibitors.extend((0..40).map(|i| {
+        let mut holder = record("sleep", "block");
+        holder.1 = format!("Holder {i:02}");
+        holder
+    }));
     inhibitors.push(record("shutdown", "block"));
     let (_service, _fake) = logind(
         &system,
@@ -332,6 +350,60 @@ async fn many_inhibitors_are_bounded_and_name_each_lock() {
         state.availability(PowerAction::Reboot),
         Availability::Inhibited
     );
+}
+
+/// Review of #470: a single block far behind hundreds of irrelevant records
+/// still refuses the action, and logind is never asked.
+#[tokio::test]
+async fn one_block_behind_many_records_still_refuses() {
+    let system = Bus::new();
+    let mut inhibitors: Vec<Record> = (0..300).map(|_| record("idle", "block")).collect();
+    inhibitors.push(record("sleep", "block"));
+    let (_service, fake) = logind(
+        &system,
+        FakeLogin {
+            can: ["yes".into(), "yes".into(), "yes".into()],
+            inhibitors,
+            ..FakeLogin::default()
+        },
+    )
+    .await;
+    let control = control(&system, PathBuf::from("/nonexistent/pactl"));
+    let state = control.power().await;
+    state.validate().unwrap();
+    assert_eq!(
+        state.availability(PowerAction::Suspend),
+        Availability::Inhibited
+    );
+    assert_eq!(
+        control.act(PowerAction::Suspend).await,
+        Err(ErrorCode::Conflict)
+    );
+    assert!(fake.lock().unwrap().calls.is_empty());
+}
+
+#[tokio::test]
+async fn an_unreadable_inhibitor_list_refuses() {
+    let system = Bus::new();
+    let (_service, fake) = logind(
+        &system,
+        FakeLogin {
+            can: ["yes".into(), "yes".into(), "yes".into()],
+            list_fails: true,
+            ..FakeLogin::default()
+        },
+    )
+    .await;
+    let control = control(&system, PathBuf::from("/nonexistent/pactl"));
+    // Fail closed: nothing is called available, and nothing is requested.
+    assert_eq!(control.power().await, PowerState::unknown());
+    for action in PowerAction::ALL {
+        assert_eq!(control.act(action).await, Err(ErrorCode::Unavailable));
+    }
+    assert!(fake.lock().unwrap().calls.is_empty());
+    // Readable again: the request goes through.
+    fake.lock().unwrap().list_fails = false;
+    assert_eq!(control.act(PowerAction::Suspend).await, Ok(()));
 }
 
 #[tokio::test]
@@ -371,9 +443,11 @@ dir=$(dirname "$0")
 echo "$*" >> "$dir/calls"
 case "$1" in
 get-sink-mute)
+  [ -e "$dir/fail-reads" ] && exit 1
   [ "$LC_ALL" = C ] || { echo 'Mute: да'; exit 0; }
   echo "Mute: $(cat "$dir/mute")" ;;
 get-sink-volume)
+  [ -e "$dir/fail-reads" ] && exit 1
   read l r < "$dir/volume"
   echo "Volume: front-left: 1 /  $l% / 0.00 dB,   front-right: 1 /  $r% / 0.00 dB"
   echo "        balance 0.00" ;;
@@ -457,6 +531,14 @@ async fn volume_reads_and_changes_the_default_sink() {
     // Stepping does not unmute; mute is its own action.
     control.set_muted(true).await.unwrap();
     assert_eq!(control.step_volume(2).await, Ok(volume("muted", 10)));
+
+    // A change that succeeds but cannot be read back is an error, not an
+    // unknown state reported as done.
+    std::fs::write(folder.join("fail-reads"), "").unwrap();
+    assert_eq!(control.set_muted(false).await, Err(ErrorCode::Unavailable));
+    assert_eq!(control.toggle_muted().await, Err(ErrorCode::Unavailable));
+    assert_eq!(control.volume().await, Volume::unknown());
+    std::fs::remove_file(folder.join("fail-reads")).unwrap();
 
     // A server that goes away: reads are unknown, changes unavailable.
     std::fs::write(folder.join("no-server"), "").unwrap();

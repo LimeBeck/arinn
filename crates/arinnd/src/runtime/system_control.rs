@@ -19,7 +19,7 @@ use zbus::message::Header;
 pub(super) struct ControlExport {
     core: Core,
     control: Arc<Control>,
-    /// One power request at a time.
+    /// One power request at a time; another one meanwhile is refused.
     power: Arc<Mutex<()>>,
     /// Volume changes apply in the order they arrive.
     volume: Arc<Mutex<()>>,
@@ -38,20 +38,24 @@ impl ControlExport {
 
     async fn act(&self, h: &Header<'_>, action: PowerAction) -> production::Result<()> {
         self.caller(h).await?;
-        let _one = self.power.lock().await;
+        // Never queue a power request behind another: it could run long
+        // after the user saw the first one's answer.
+        let Ok(_one) = self.power.try_lock() else {
+            log(action.as_str(), Some(ErrorCode::Conflict), Instant::now());
+            return Err(ErrorCode::Conflict.into());
+        };
         let started = Instant::now();
         let result = self.control.act(action).await;
         log(action.as_str(), result.err(), started);
         Ok(result?)
     }
 
+    /// Each method checks its caller first, before its arguments.
     async fn change(
         &self,
-        h: &Header<'_>,
         operation: &str,
         change: impl std::future::Future<Output = Result<Volume, ErrorCode>>,
     ) -> production::Result<(Volume,)> {
-        self.caller(h).await?;
         let _ordered = self.volume.lock().await;
         let started = Instant::now();
         let result = change.await;
@@ -106,33 +110,30 @@ impl ControlExport {
         #[zbus(header)] h: Header<'_>,
         muted: bool,
     ) -> production::Result<(Volume,)> {
+        self.caller(&h).await?;
         let control = self.control.clone();
-        self.change(
-            &h,
-            "set-muted",
-            async move { control.set_muted(muted).await },
-        )
-        .await
+        self.change("set-muted", async move { control.set_muted(muted).await })
+            .await
     }
     async fn toggle_muted(&self, #[zbus(header)] h: Header<'_>) -> production::Result<(Volume,)> {
+        self.caller(&h).await?;
         let control = self.control.clone();
-        self.change(
-            &h,
-            "toggle-muted",
-            async move { control.toggle_muted().await },
-        )
-        .await
+        self.change("toggle-muted", async move { control.toggle_muted().await })
+            .await
     }
     async fn step_volume(
         &self,
         #[zbus(header)] h: Header<'_>,
         steps: i32,
     ) -> production::Result<(Volume,)> {
+        // A provider is refused before its arguments are looked at.
+        self.caller(&h).await?;
         let steps = system_control::steps(steps)?;
         let control = self.control.clone();
-        self.change(&h, "step-volume", async move {
-            control.step_volume(steps).await
-        })
+        self.change(
+            "step-volume",
+            async move { control.step_volume(steps).await },
+        )
         .await
     }
 }

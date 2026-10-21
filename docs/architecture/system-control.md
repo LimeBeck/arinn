@@ -33,9 +33,10 @@ The producer derives each action from logind's `CanSuspend`, `CanReboot` and
 | A `block` inhibitor of the action's lock exists (`sleep` for suspend, `shutdown` for reboot and power off) | `inhibited` |
 | `Can*` is `yes` | `available` |
 | `Can*` is `no` or `challenge` | `denied` (Arinn never asks for authorization) |
-| No system bus, no logind, a failed or timed-out read, or any other answer | `unknown` |
+| No system bus, no logind, an inhibitor list that cannot be read (then every action), a failed or timed-out `Can*` read, or any other answer | `unknown` |
 
-`inhibited` is published only with at least one inhibitor of that lock. With
+`inhibited` is published only with at least one inhibitor of that lock. Every
+`ListInhibitors` record is inspected; only the published list is bounded. With
 more than 16 inhibitors, the first of each lock is kept, then the rest in
 order up to the bound. `delay` inhibitors and other locks (`idle`,
 `handle-*`) are not listed. User and process IDs are dropped.
@@ -46,10 +47,12 @@ order up to the bound. `delay` inhibitors and other locks (`idle`,
 producer:
 
 1. refuses a caller that owns a registered provider (`PermissionDenied`);
-2. runs one power request at a time;
-3. lists the inhibitors and refuses with `Conflict` when a `block` inhibitor of
-   the action's lock exists, without asking logind. A failed list does not
-   refuse; logind still applies its own rules;
+2. runs one power request at a time and refuses a request that arrives while
+   another runs with `Conflict`, without queueing it;
+3. lists the inhibitors, inspecting every record, and refuses with `Conflict`
+   when a `block` inhibitor of the action's lock exists, without asking
+   logind. A list that cannot be read or times out refuses the action with
+   `Unavailable` (fail closed);
 4. calls logind's method with `interactive = false`, bounded by 10 s
    (`Timeout`).
 
@@ -123,11 +126,20 @@ shell shows inhibitor texts on screen only.
 ## Verification
 
 - `crates/arinn-protocol/src/system_control.rs` unit tests.
-- `platform/system_control_tests.rs`: a fake logind on a private bus and a fake
-  `pactl`.
-- `crates/arinnd/src/runtime/system_control_tests.rs`: the export against the
-  XML, typed errors and the provider refusal.
-- `tests/integration/phase1.py`: the real export and both reads; it never calls
-  a power action or changes the volume.
+- `crates/arinn-protocol/tests/system_control.rs`: a fixture daemon on a private
+  bus; a daemon without the interface, the live export against the XML, typed
+  refusals and volume replies on the wire.
+- `platform/system_control_tests.rs`: the logind and `pactl` mappings, a fake
+  logind on a private bus (`Can*` answers, block and delay inhibitors behind
+  hundreds of irrelevant records, an unreadable list that refuses, the bounded list, refusals,
+  `interactive = false`, no logind, no bus) and a fake `pactl` (mute, toggle,
+  steps with balance, the 100 % stop, a level above 100 %, a change whose
+  read-back fails, no server, no tool, the C locale).
+- `crates/arinnd/src/runtime/system_control_tests.rs`: the daemon export
+  against the XML, typed errors on the wire, a second power request refused
+  while the first runs, and the refusal of a provider connection for every
+  method, before its arguments are checked.
+- `tests/integration/phase1.py`: the real daemon's export against the XML and
+  both reads; it never calls a power action or changes the volume.
 - Real suspend, reboot, power off and volume on the HTPC: owner operator tests
   (AC-19). Not run.

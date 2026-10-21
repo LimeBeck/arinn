@@ -75,6 +75,7 @@ async fn run(started: std::time::Instant) -> Result<(), ErrorCode> {
         .await
         .map_err(|_| ErrorCode::Internal)?;
     core.export_platform().await?;
+    core.export_keyboard().await?;
     core.export_settings().await?;
     core.export_folders().await?;
     core.export_browse().await?;

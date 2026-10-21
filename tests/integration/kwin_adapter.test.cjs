@@ -43,7 +43,7 @@ function fixture(options = {}) {
     let windows = [activity, home];
     let takeCommand, report, tick, control, mediaControl;
     const mediaReports = [], mediaAcks = [], mediaPolls = { count: 0 }, mediaControls = [];
-    const shortcuts = [], handlers = {};
+    const shortcuts = [], handlers = {}, keyboardRequests = [];
     let locked = false, generation = randomUUID(), stage = [];
     let deferLock = false, deferHome = false;
     const homeReplies = [], commitReplies = [], returnReports = [], discoveryReplies = [];
@@ -87,6 +87,12 @@ function fixture(options = {}) {
                 if (method === 'Report') { mediaReports.push(args.slice(0, 4)); callback(); }
                 if (method === 'NextControl') { mediaControl = callback; mediaControls.push(callback); mediaPolls.count++; }
                 if (method === 'CompleteControl') { mediaAcks.push(args.slice(0, 3)); callback(); }
+                return;
+            }
+            if (_interface === 'org.arinn.KeyboardBridge1') {
+                assert.equal(method, 'Request');
+                keyboardRequests.push(_service);
+                args.at(-1)();
                 return;
             }
             if (_interface === 'org.arinn.KWinReturn1') {
@@ -145,6 +151,7 @@ function fixture(options = {}) {
         setManaged(value) { options.managed = value; },
         show: () => handlers.ArinnPhase0Home(), back: () => takeCommand('return'),
         quickMenu: () => handlers.ArinnQuickMenu(),
+        keyboard: () => handlers.ArinnKeyboard(), keyboardRequests,
         shortcuts, homeRequests, quickMenuRequests, lockReplies, returnReports, homeReplies, commitReplies, discoveryReplies,
         deferHome() { deferHome = true; },
         deferLock() { deferLock = true; },
@@ -234,7 +241,8 @@ test('Home requests are not replayed after lock checks or queued commands outliv
 test('an external window keeps Back until Home opens the overlay on that window', () => {
     const f = fixture();
     assert.deepEqual(f.shortcuts, [{ id: 'ArinnPhase0Home', keys: 'Meta+F12' },
-        { id: 'ArinnQuickMenu', keys: 'Meta+F11' }]);
+        { id: 'ArinnQuickMenu', keys: 'Meta+F11' },
+        { id: 'ArinnKeyboard', keys: 'Meta+F10' }]);
     assert.equal(f.workspace.activeWindow, f.activity);
     assert.deepEqual(f.report(), [false, '', '']);
     f.back();
@@ -1072,4 +1080,47 @@ test('a Present without a shell window logs the daemon command context', () => {
     assert.equal(entry.request_id, f.mediaAcks.at(-1)[1]);
     assert.equal(typeof entry.duration_ms, 'number');
     assert.equal(entry.error, 'Unavailable');
+});
+
+test('ADR-0105: the keyboard key asks the daemon only over an unlocked application', () => {
+    const f = fixture();
+    f.keyboard();
+    assert.deepEqual(f.keyboardRequests, [':1.10']);
+    f.lock(true);
+    f.keyboard();
+    assert.equal(f.keyboardRequests.length, 1, 'locked: no request');
+    f.lock(false);
+    f.deferLock();
+    f.keyboard();
+    f.workspace.activeWindow = f.home;
+    f.lockReplies[0](false);
+    assert.equal(f.keyboardRequests.length, 1, 'focus moved during the lock check');
+    f.workspace.activeWindow = f.activity;
+    f.show();
+    f.keyboard();
+    assert.equal(f.keyboardRequests.length, 1, 'Home visible: inside the shell');
+});
+
+test('ADR-0105: the panel window is neither the shell nor an application and sits at the bottom', () => {
+    const f = fixture();
+    const panel = f.window('panel-id', 'org.arinn.Shell');
+    panel.caption = 'org.arinn.KeyboardPanel';
+    panel.frameGeometry = { x: 0, y: 0, width: 1920, height: 400 };
+    f.activity.output = f.workspace.activeScreen;
+    f.workspace.activeScreen.geometry = { x: 0, y: 0, width: 1920, height: 1080 };
+    f.add(panel);
+    assert.deepEqual({ ...panel.frameGeometry }, { x: 0, y: 680, width: 1920, height: 400 });
+    assert.equal(panel.keepAbove, true);
+    f.refresh();
+    assert.ok(f.snapshots.at(-1).rows.every(row => row[0] !== 'panel-id' && !String(row).includes('Shell')));
+    assert.equal(f.snapshots.at(-1).rows.length, 1);
+    // Home raises the real shell, never the panel.
+    f.show();
+    assert.equal(f.workspace.activeWindow, f.home);
+    assert.equal(f.home.keepAbove, true);
+    // The panel is never a keyboard target.
+    f.workspace.activeWindow = panel;
+    f.dismiss();
+    f.keyboard();
+    assert.equal(f.keyboardRequests.length, 0);
 });

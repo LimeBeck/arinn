@@ -101,6 +101,247 @@ pub fn desktop_id(value: &[u8], basename: bool) -> String {
     String::new()
 }
 
+/// The keyboard and modifier mapping the global grabs need (#286, #434).
+pub(crate) struct KeyMap {
+    min: Keycode,
+    per_key: usize,
+    keysyms: Vec<u32>,
+    /// Lock modifiers (Caps, Num, Scroll) a grab must ignore.
+    pub locks: u16,
+    meta: HashSet<u16>,
+    alts: HashSet<u16>,
+}
+impl KeyMap {
+    pub fn read(c: &RustConnection) -> Result<Self> {
+        let setup = c.setup();
+        let count = setup.max_keycode - setup.min_keycode + 1;
+        let mapping = c.get_keyboard_mapping(setup.min_keycode, count)?.reply()?;
+        let per_key = usize::from(mapping.keysyms_per_keycode);
+        ensure!(per_key > 0, "invalid keyboard mapping");
+        let mut locks = u16::from(ModMask::LOCK);
+        let mut supers = HashSet::new();
+        let mut metas = HashSet::new();
+        let mut alts = HashSet::new();
+        let mods = c.get_modifier_mapping()?.reply()?;
+        let per_mod = mods.keycodes.len() / 8;
+        for (index, syms) in mapping.keysyms.chunks(per_key).enumerate() {
+            let key = setup.min_keycode + index as u8;
+            let mask = if per_mod > 0 {
+                mods.keycodes
+                    .chunks(per_mod)
+                    .enumerate()
+                    .filter(|(_, codes)| codes.contains(&key))
+                    .fold(0u16, |mask, (modifier, _)| mask | (1 << modifier))
+            } else {
+                0
+            };
+            if syms.iter().any(|s| [0xffe5, 0xff7f, 0xff14].contains(s)) {
+                locks |= mask;
+            }
+            if mask != 0 {
+                if syms.iter().any(|s| [0xffeb, 0xffec].contains(s)) {
+                    supers.insert(mask);
+                }
+                if syms.iter().any(|s| [0xffe7, 0xffe8].contains(s)) {
+                    metas.insert(mask);
+                }
+                if syms.iter().any(|s| [0xffe9, 0xffea].contains(s)) {
+                    alts.insert(mask);
+                }
+            }
+        }
+        // Qt's Meta transport normally uses Super; fall back to native Meta
+        // only when no mapped Super key exists. Do not treat Alt aliases as Meta.
+        let meta = if supers.is_empty() { metas } else { supers };
+        Ok(Self {
+            min: setup.min_keycode,
+            per_key,
+            keysyms: mapping.keysyms,
+            locks,
+            meta,
+            alts,
+        })
+    }
+    /// Every keycode that carries `keysym` in some column.
+    pub fn codes(&self, keysym: u32) -> Vec<Keycode> {
+        self.keysyms
+            .chunks(self.per_key)
+            .enumerate()
+            .filter(|(_, syms)| syms.contains(&keysym))
+            .map(|(index, _)| self.min + index as u8)
+            .collect()
+    }
+    /// Keycodes without any keysym: free for a temporary mapping.
+    pub fn free(&self) -> Vec<Keycode> {
+        self.keysyms
+            .chunks(self.per_key)
+            .enumerate()
+            .filter(|(_, syms)| syms.iter().all(|s| *s == 0))
+            .map(|(index, _)| self.min + index as u8)
+            .collect()
+    }
+    pub fn per_key(&self) -> usize {
+        self.per_key
+    }
+    /// Modifier masks of `sequence` with every lock variant, per keycode.
+    pub fn combinations(&self, sequence: &Sequence) -> Vec<(u16, Keycode)> {
+        let choices = |wanted: bool, masks: &HashSet<u16>| -> Vec<u16> {
+            if wanted {
+                masks.iter().copied().collect()
+            } else {
+                vec![0]
+            }
+        };
+        let m = sequence.modifiers;
+        let fixed = if m.shift {
+            u16::from(ModMask::SHIFT)
+        } else {
+            0
+        } | if m.ctrl {
+            u16::from(ModMask::CONTROL)
+        } else {
+            0
+        };
+        let codes = self.codes(sequence.keysym());
+        let mut combinations = Vec::new();
+        for meta in choices(m.meta, &self.meta) {
+            for alt in choices(m.alt, &self.alts) {
+                for key in &codes {
+                    for subset in 0u16..256 {
+                        if subset & !self.locks == 0 {
+                            combinations.push((meta | alt | fixed | subset, *key));
+                        }
+                    }
+                }
+            }
+        }
+        combinations
+    }
+}
+
+/// Grabs one key combination list on `root`. Returns false, with every
+/// partial grab released, when another client holds one of them
+/// (BadAccess).
+pub(crate) fn grab_combinations(
+    c: &RustConnection,
+    root: Window,
+    combinations: &[(u16, Keycode)],
+) -> Result<bool> {
+    for (modifiers, key) in combinations {
+        let result = c
+            .grab_key(
+                false,
+                root,
+                (*modifiers).into(),
+                *key,
+                GrabMode::ASYNC,
+                GrabMode::ASYNC,
+            )?
+            .check();
+        match result {
+            Ok(()) => (),
+            Err(x11rb::errors::ReplyError::X11Error(e))
+                if e.error_kind == x11rb::protocol::ErrorKind::Access =>
+            {
+                for (modifiers, key) in combinations {
+                    c.ungrab_key(*key, root, (*modifiers).into())?.check()?;
+                }
+                return Ok(false);
+            }
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(true)
+}
+
+/// Grabs every sequence on `root` and returns the grabbed combinations. A
+/// sequence whose key or modifier is not mapped is skipped (the next
+/// MappingNotify grabs it again); one another client holds costs only that
+/// sequence and is logged with `what`.
+pub(crate) fn grab_sequences(
+    c: &RustConnection,
+    root: Window,
+    map: &KeyMap,
+    sequences: &[Sequence],
+    what: &str,
+) -> Result<HashSet<(u16, Keycode)>> {
+    let mut grabbed = HashSet::new();
+    for sequence in sequences {
+        let combinations = map.combinations(sequence);
+        if combinations.is_empty() {
+            continue;
+        }
+        if grab_combinations(c, root, &combinations)? {
+            grabbed.extend(combinations);
+        } else {
+            eprintln!("arinn-platform-x11: a {what} key is held by another client; skipped");
+        }
+    }
+    Ok(grabbed)
+}
+
+/// The desktop identity of `xid`: `_NET_WM_DESKTOP_FILE`,
+/// `_KDE_NET_WM_DESKTOP_FILE`, then `_GTK_APPLICATION_ID`, the first
+/// non-empty valid one. Invalid or missing metadata counts as empty.
+pub(crate) fn identity(c: &RustConnection, atoms: &Atoms, xid: Window) -> String {
+    [
+        atoms._NET_WM_DESKTOP_FILE,
+        atoms._KDE_NET_WM_DESKTOP_FILE,
+        atoms._GTK_APPLICATION_ID,
+    ]
+    .into_iter()
+    .map(|atom| {
+        let value = c
+            .get_property(false, xid, atom, atoms.UTF8_STRING, 0, 128)
+            .ok()
+            .and_then(|cookie| cookie.reply().ok())
+            .and_then(|r| metadata(r, atoms.UTF8_STRING))
+            .unwrap_or_default();
+        desktop_id(&value, atom != atoms._NET_WM_DESKTOP_FILE)
+    })
+    .find(|id| !id.is_empty())
+    .unwrap_or_default()
+}
+
+/// Whether a desktop identity is the shell's (#283).
+pub(crate) fn is_shell(identity: &str) -> bool {
+    ["org.arinn.Shell", "org.arinn.Shell.desktop"].contains(&identity)
+}
+
+/// `_NET_ACTIVE_WINDOW`: one or two CARD32s, as xfwm4 writes two. The first
+/// non-zero word is the active window; `[0]` and `[0, 0]` mean none (#379).
+pub(crate) fn active_window(
+    c: &RustConnection,
+    root: Window,
+    atom: Atom,
+) -> Result<Option<Window>> {
+    const NAME: &str = "_NET_ACTIVE_WINDOW";
+    let ty = AtomEnum::WINDOW;
+    let r = c.get_property(false, root, atom, ty, 0, 2)?.reply()?;
+    if r.type_ == 0 {
+        return Ok(None);
+    }
+    ensure!(
+        r.type_ == u32::from(ty) && r.format == 32,
+        "invalid property type"
+    );
+    let words: Vec<u32> = r.value32().unwrap().collect();
+    let length = words.len() + r.bytes_after as usize / 4;
+    if length > 2 || r.bytes_after != 0 {
+        bail!("{NAME}: length {length} exceeds maximum 2 CARD32");
+    }
+    let active = match words.as_slice() {
+        [] => bail!("{NAME}: length 0 has no valid window id"),
+        // xfwm4 writes [0, 0] while no client is focused (#379).
+        [0] | [0, 0] => None,
+        [id] => Some(*id),
+        [0, id] => Some(*id),
+        [id, _] => Some(*id),
+        [_, _, _, ..] => bail!("{NAME}: length {length} exceeds maximum 2 CARD32"),
+    };
+    Ok(active)
+}
+
 pub struct Attempt {
     pub saved: Vec<Atom>,
     pub succeeded: bool,
@@ -240,10 +481,7 @@ impl Native {
             .unwrap_or_default()
     }
     fn desktop_identity(&self, xid: Window) -> String {
-        let replies = self
-            .identity_atoms()
-            .map(|atom| self.bytes(xid, atom, self.atoms.UTF8_STRING).ok());
-        self.identity_of(replies)
+        identity(&self.c, &self.atoms, xid)
     }
     fn watch_window(&mut self, xid: Window) -> Result<bool> {
         if self.watched.contains(&xid) {
@@ -307,34 +545,7 @@ impl Native {
             .collect())
     }
     fn net_active_window(&self) -> Result<Option<Window>> {
-        const NAME: &str = "_NET_ACTIVE_WINDOW";
-        let ty = AtomEnum::WINDOW;
-        let r = self
-            .c
-            .get_property(false, self.root, self.atoms._NET_ACTIVE_WINDOW, ty, 0, 2)?
-            .reply()?;
-        if r.type_ == 0 {
-            return Ok(None);
-        }
-        ensure!(
-            r.type_ == u32::from(ty) && r.format == 32,
-            "invalid property type"
-        );
-        let words: Vec<u32> = r.value32().unwrap().collect();
-        let length = words.len() + r.bytes_after as usize / 4;
-        if length > 2 || r.bytes_after != 0 {
-            bail!("{NAME}: length {length} exceeds maximum 2 CARD32");
-        }
-        let active = match words.as_slice() {
-            [] => bail!("{NAME}: length 0 has no valid window id"),
-            // xfwm4 writes [0, 0] while no client is focused (#379).
-            [0] | [0, 0] => None,
-            [id] => Some(*id),
-            [0, id] => Some(*id),
-            [id, _] => Some(*id),
-            [_, _, _, ..] => bail!("{NAME}: length {length} exceeds maximum 2 CARD32"),
-        };
-        Ok(active)
+        active_window(&self.c, self.root, self.atoms._NET_ACTIVE_WINDOW)
     }
     fn bytes(&self, window: Window, property: Atom, ty: Atom) -> Result<Vec<u8>> {
         let r = self
@@ -367,146 +578,17 @@ impl Native {
     }
     fn grab_home(&mut self) -> Result<()> {
         self.c.ungrab_key(0, self.root, ModMask::ANY)?.check()?;
-        let setup = self.c.setup();
-        let count = setup.max_keycode - setup.min_keycode + 1;
-        let mapping = self
-            .c
-            .get_keyboard_mapping(setup.min_keycode, count)?
-            .reply()?;
-        let per_key = usize::from(mapping.keysyms_per_keycode);
-        ensure!(per_key > 0, "invalid keyboard mapping");
-        let mut locks = u16::from(ModMask::LOCK);
-        let mut supers = HashSet::new();
-        let mut metas = HashSet::new();
-        let mut alts = HashSet::new();
-        let mods = self.c.get_modifier_mapping()?.reply()?;
-        let per_mod = mods.keycodes.len() / 8;
-        let keys = mapping.keysyms.chunks(per_key);
-        for (index, syms) in keys.clone().enumerate() {
-            let key = setup.min_keycode + index as u8;
-            let mask = if per_mod > 0 {
-                mods.keycodes
-                    .chunks(per_mod)
-                    .enumerate()
-                    .filter(|(_, codes)| codes.contains(&key))
-                    .fold(0u16, |mask, (modifier, _)| mask | (1 << modifier))
-            } else {
-                0
-            };
-            if syms.iter().any(|s| [0xffe5, 0xff7f, 0xff14].contains(s)) {
-                locks |= mask;
-            }
-            if mask != 0 {
-                if syms.iter().any(|s| [0xffeb, 0xffec].contains(s)) {
-                    supers.insert(mask);
-                }
-                if syms.iter().any(|s| [0xffe7, 0xffe8].contains(s)) {
-                    metas.insert(mask);
-                }
-                if syms.iter().any(|s| [0xffe9, 0xffea].contains(s)) {
-                    alts.insert(mask);
-                }
-            }
-        }
-        // Qt's Meta transport normally uses Super; fall back to native Meta
-        // only when no mapped Super key exists. Do not treat Alt aliases as Meta.
-        let meta_masks = if supers.is_empty() { metas } else { supers };
-        let choices = |wanted: bool, masks: &HashSet<u16>| -> Vec<u16> {
-            if wanted {
-                masks.iter().copied().collect()
-            } else {
-                vec![0]
-            }
-        };
-        let mut grabbed = false;
-        let mut quick_menu_grabs = HashSet::new();
-        let home = self.home.len();
+        let map = KeyMap::read(&self.c)?;
+        let home = grab_sequences(&self.c, self.root, &map, &self.home, "Home")?;
         // Inside the shell Menu keeps its own meaning (owner decision of
         // 2026-10-21, #439): the remote's Menu keys are grabbed only while
         // another window has focus.
-        let shell_focused = self.shell_focused;
-        let quick_menu = self.quick_menu.bound(shell_focused);
-        for (index, sequence) in self.home.iter().chain(quick_menu.iter()).enumerate() {
-            let is_home = index < home;
-            let codes: Vec<Keycode> = keys
-                .clone()
-                .enumerate()
-                .filter(|(_, syms)| syms.contains(&sequence.keysym()))
-                .map(|(index, _)| setup.min_keycode + index as u8)
-                .collect();
-            let m = sequence.modifiers;
-            let fixed = if m.shift {
-                u16::from(ModMask::SHIFT)
-            } else {
-                0
-            } | if m.ctrl {
-                u16::from(ModMask::CONTROL)
-            } else {
-                0
-            };
-            // A sequence whose key or modifier is not mapped is skipped; the
-            // next MappingNotify grabs it again.
-            let mut combinations = Vec::new();
-            for meta in choices(m.meta, &meta_masks) {
-                for alt in choices(m.alt, &alts) {
-                    for key in &codes {
-                        for subset in 0u16..256 {
-                            if subset & !locks == 0 {
-                                combinations.push((meta | alt | fixed | subset, *key));
-                            }
-                        }
-                    }
-                }
-            }
-            if combinations.is_empty() {
-                continue;
-            }
-            // Another client holding this sequence (BadAccess) costs only
-            // this sequence: release its partial grabs and keep the others.
-            let mut conflict = false;
-            for (modifiers, key) in &combinations {
-                let result = self
-                    .c
-                    .grab_key(
-                        false,
-                        self.root,
-                        (*modifiers).into(),
-                        *key,
-                        GrabMode::ASYNC,
-                        GrabMode::ASYNC,
-                    )?
-                    .check();
-                match result {
-                    Ok(()) => (),
-                    Err(x11rb::errors::ReplyError::X11Error(e))
-                        if e.error_kind == x11rb::protocol::ErrorKind::Access =>
-                    {
-                        conflict = true;
-                        break;
-                    }
-                    Err(error) => return Err(error.into()),
-                }
-            }
-            if conflict {
-                for (modifiers, key) in &combinations {
-                    self.c
-                        .ungrab_key(*key, self.root, (*modifiers).into())?
-                        .check()?;
-                }
-                eprintln!(
-                    "arinn-platform-x11: a {} key is held by another client; skipped",
-                    if is_home { "Home" } else { "quick-menu" }
-                );
-            } else if is_home {
-                grabbed = true;
-            } else {
-                quick_menu_grabs.extend(combinations);
-            }
-        }
+        let quick_menu = self.quick_menu.bound(self.shell_focused);
         // Only Home is required; a quick-menu key that cannot be grabbed
         // never stops the adapter (ADR-0106).
-        self.quick_menu_grabs = quick_menu_grabs;
-        ensure!(grabbed, "Home key unavailable");
+        self.quick_menu_grabs =
+            grab_sequences(&self.c, self.root, &map, &quick_menu, "quick-menu")?;
+        ensure!(!home.is_empty(), "Home key unavailable");
         self.c.flush()?;
         Ok(())
     }

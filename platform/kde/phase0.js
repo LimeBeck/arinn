@@ -76,7 +76,13 @@ function diagnose(level, operation, fields) {
         request_id: null, operation, duration_ms: null, error: null }, fields)));
 }
 function id(w) { return w ? w.internalId.toString() : ""; }
-function isShell(w) { return w && (w.desktopFileName === "org.arinn.Shell" || w.resourceClass === "org.arinn.Shell"); }
+function shellIdentity(w) { return w && (w.desktopFileName === "org.arinn.Shell" || w.resourceClass === "org.arinn.Shell"); }
+// The on-screen keyboard panel is a second shell window (ADR-0105). It is
+// neither the shell nor an application: never Home's window, never in the
+// inventory, never a keyboard target.
+const panelTitle = "org.arinn.KeyboardPanel";
+function isPanel(w) { return shellIdentity(w) && w.caption === panelTitle; }
+function isShell(w) { return shellIdentity(w) && !isPanel(w); }
 function shell() { return workspace.windowList().find(isShell); }
 function report(w) { rpc("ReportWindow", id(w), w ? String(w.resourceClass) : "", w ? w.fullScreen : false, w && w.output ? w.output.name : ""); }
 function raiseShell() {
@@ -94,11 +100,11 @@ function raiseShell() {
 function exported(xml, name) {
     return typeof xml === "string" && new RegExp("<interface\\s+name=[\"']" + name.replace(/\./g, "\\.") + "[\"']").test(xml);
 }
-// A restarted daemon owns its bus name before it serves its objects, and a
-// call that reaches it in between is never answered; KWin drops the error
-// callback (#447). The adapter therefore polls an owner only once its
-// introspection lists Daemon1 and KWinBridge1, which the daemon exports
-// after the optional interfaces, and asks again until it does.
+// The daemon serves every object before it owns its bus name (#463). An
+// older daemon owned the name first, and a call that reached it in between
+// was never answered; KWin drops the error callback (#447). The adapter
+// therefore still polls an owner only once its introspection lists Daemon1
+// and KWinBridge1, and asks again until it does.
 function discover(owner) {
     discoveryAt = Date.now();
     callDBus(owner, path, "org.freedesktop.DBus.Introspectable", "Introspect", xml => {
@@ -174,7 +180,7 @@ function showHome(quickMenu) {
         const active = workspace.activeWindow;
         if (!homeVisible) {
             detachedTarget = "";
-            returnObject = playback ? playback.window : (active && !isShell(active) && active.normalWindow ? active : null);
+            returnObject = playback ? playback.window : (active && !shellIdentity(active) && active.normalWindow ? active : null);
             target = id(returnObject);
         }
         if (!homeVisible) homeOutput = returnObject && returnObject.output ? returnObject.output.name : workspace.activeScreen.name;
@@ -287,7 +293,39 @@ function checkDaemon() {
 registerShortcut("ArinnPhase0Home", "Arinn Phase 0: Home", "Meta+F12", () => showHome(false));
 // The daemon writes quick_menu_shortcut to this action (ADR-0106).
 registerShortcut("ArinnQuickMenu", "Arinn: Quick menu", "Meta+F11", () => showHome(true));
+// The global on-screen keyboard key (ADR-0105); the daemon writes
+// keyboard_shortcut and the remapped microphone (Launch1) to this action.
+// It asks the daemon for a session only over an unlocked application
+// window; inside the shell it does nothing. The input method binds the
+// target and delivers; this script never sees typed text.
+function requestKeyboard() {
+    const owner = daemonOwner, active = workspace.activeWindow;
+    if (!owner || homeVisible || !applicationWindow(active)) return;
+    callDBus("org.freedesktop.ScreenSaver", "/ScreenSaver", "org.freedesktop.ScreenSaver", "GetActive", locked => {
+        if (locked !== false || owner !== daemonOwner || homeVisible || workspace.activeWindow !== active) return;
+        callDBus(owner, path, "org.arinn.KeyboardBridge1", "Request", () => {});
+    });
+}
+registerShortcut("ArinnKeyboard", "Arinn: On-screen keyboard", "Meta+F10", requestKeyboard);
+// The panel lies along the bottom edge of the output it opens on, at its
+// own height; the window rule keeps it above and unfocusable.
+function placePanel(w) {
+    const output = (workspace.activeWindow && workspace.activeWindow.output) || workspace.activeScreen;
+    const area = output && output.geometry;
+    if (!area || !w.frameGeometry) return;
+    const height = Math.min(w.frameGeometry.height, area.height);
+    w.frameGeometry = { x: area.x, y: area.y + area.height - height, width: area.width, height };
+    w.keepAbove = true;
+}
 function watchWindow(w) {
+    if (isPanel(w)) {
+        placePanel(w);
+        if (w.frameGeometryChanged) w.frameGeometryChanged.connect(() => {
+            const area = w.output && w.output.geometry;
+            if (area && w.frameGeometry.y + w.frameGeometry.height !== area.y + area.height) placePanel(w);
+        });
+        return;
+    }
     // SDL may unmap/remap its fullscreen window on focus loss. Recover only
     // the exact KWin identity, never another window with the same app class.
     if (homeVisible && detachedTarget && id(w) === detachedTarget) {
@@ -372,7 +410,7 @@ function applicationWindow(w) {
     // isLockScreen() is not exported to KWin JavaScript. WaylandWindow derives
     // resourceClass from the executable basename; exclude Plasma's locker here,
     // like the shell, without using resourceClass for application association.
-    return w && w.normalWindow && !isShell(w) && w.resourceClass !== "kscreenlocker_greet" && !w.inputMethod;
+    return w && w.normalWindow && !shellIdentity(w) && w.resourceClass !== "kscreenlocker_greet" && !w.inputMethod;
 }
 function desktopId(w) {
     // KWin documents a basename WITHOUT extension, or a full path. A full

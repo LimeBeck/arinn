@@ -76,7 +76,9 @@ override_dh_auto_install:
 	install -Dm644 packaging/systemd/arinn-session.target packaging/systemd/arinnd.service \
 		packaging/systemd/arinn-shell.service packaging/systemd/arinn-kwin.service \
 		packaging/systemd/arinn-ewmh.service packaging/systemd/arinn-ewmh-session.target \
+		packaging/systemd/arinn-session-failed@.service \
 		-t debian/arinn/usr/lib/systemd/user/
+	install -Dm755 packaging/systemd/arinn-session-failed debian/arinn/usr/lib/arinn/arinn-session-failed
 	install -Dm644 README.md CHANGELOG.md -t debian/arinn/usr/share/doc/arinn/
 	install -Dm644 build/observability/native/licenses/*-LICENSE -t debian/arinn/usr/share/licenses/arinn/
 	install -Dm644 LICENSES/*.txt -t debian/arinn/usr/share/licenses/arinn/

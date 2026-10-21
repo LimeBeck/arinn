@@ -34,6 +34,16 @@ gets a fresh generation. The adapter creates fresh opaque tokens for all windows
 in each generation; removed tokens are never reused. Identity and association
 follow the [provider-facing contract](platform-windows.md#window-identity).
 
+The KWin script tracks the unique owner of `org.arinn.Daemon1` with a 1 s
+watchdog. A restarted daemon owns its name before it serves its objects, and a
+call that reaches it in between is never answered; KWin drops error callbacks
+entirely. After an owner change the script therefore introspects the new owner,
+every 2 s until the reply lists both `org.arinn.Daemon1` and
+`org.arinn.KWinBridge1`. The daemon exports `KWinBridge1` after `KWinMedia1` and
+`KWinReturn1`, so that reply also decides the optional interfaces. Only then does
+the script restore its Home context and start the `TakeCommand` long poll, which is
+addressed to that unique owner, never to the well-known name (#447).
+
 ## Atomic inventory
 
 The adapter captures a complete immutable inventory locally, then calls

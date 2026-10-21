@@ -19,7 +19,8 @@ playback on the device. That operator check has not been run.
 by a filesystem import (`tests/ui/tst_downloads.qml`). It reuses `Theme`,
 `UiText`, `LogicalCanvas`, `ContentCard`, `ProgressTrack`, `ActionButton`,
 `Skeleton` and `StatusPane` from `apps/arinn-shell/ui`. Those types are not
-modified.
+modified. The row's artwork slot is the screen-local `QueueArtwork`
+([Summary and artwork](#summary-and-artwork)).
 
 QML knows job states and action names (`pause`, `resume`, `start_now`, `retry`)
 and the import marker `imported`. It does not know product names, protocols or
@@ -33,7 +34,7 @@ not emit an intent for it.
 | --- | --- |
 | `viewState` | `populated`, `empty`, `loading`, `error`, `unavailable` |
 | `jobs` | Array of `{id, title, subtitle, state, progress, statusText, errorText, availableActions, importState, artwork, busy, enabled}` |
-| `summaryText`, `statusTitle`, `statusDescription` | Optional copy. Empty values use generic English fallbacks |
+| `summaryText`, `statusTitle`, `statusDescription` | Optional copy. Empty values use generic English fallbacks; see [Summary and artwork](#summary-and-artwork) for the summary |
 | `pointerMode` | Set when the pointer moves; cleared on an arrow key |
 | `toastMessage` | Set when a job already on screen changes `importState` to `imported`, or by `showToast(message)` |
 | `toastQueue` | Notices that arrived while another was shown or while the screen was hidden; each is shown in turn for `toastDurationMs` once the screen is on display. A notice cut short by leaving is shown again on return |
@@ -48,6 +49,41 @@ appears only after import.
 `availableActions` selects Pause, Resume, Start now and Retry. The labels are
 fixed generic strings. The focused row shows its action; other rows keep the
 control hidden. Busy and disabled jobs keep focus and do not emit.
+
+## Summary and artwork
+
+[#360](https://github.com/LimeBeck/arinn/issues/360). Without `summaryText` the
+line under the title is:
+
+| Queue | Summary |
+| --- | --- |
+| At least one row `downloading` | "N downloading" (N counts those rows) |
+| Every row `completed`, imported or not | "N done" |
+| Anything else (queued, paused, verifying or failed rows, nothing downloading) | Hidden |
+| `empty`, `loading`, `error`, `unavailable` | Hidden; the state's own pane is shown |
+
+A hidden summary keeps its line, so the rows do not move when it appears.
+Both strings are plural forms (`%n`) with Russian translations in
+`apps/arinn-shell/i18n`.
+
+The artwork slot (214 × 120, 18 px corners, handoff 13) draws the job's
+`artwork` cropped to the slot. Without artwork, or until it loads, the slot
+shows the handoff's striped queue plate (10 px bands at 135° under a sheen
+at 155°) in neutral grey. The colours are screen-local constants, not theme
+tokens. The slot has no monogram chip and invents no artwork. A row's
+`artworkReady` and its plate's `showsArtwork` report what is drawn.
+
+In the shell, `Main.qml` sets `artwork` only for an imported row: the first
+library ref (`DownloadCatalog.watchTarget`, the id Watch uses) goes to
+`LibraryCatalog.posterFor()`, which returns the poster of the top-level entry
+`entryIdFor()` names, a film or the episode's series. That is the
+`image://arinn-assets/` URL of the library card, so the image loads through
+the asset image provider ([ADR-0062](../adr/0062-asset-contract.md)).
+An entry without a poster leaves the plate; its fanart is not used. The
+binding follows `LibraryCatalog.entries`, so a download imported before the
+library lists the item gets its poster on the library's next read.
+`Downloads1` and the daemon contract are unchanged, and QML makes no
+provider call of its own.
 
 ## Signals
 
@@ -160,11 +196,29 @@ from the screen returns Home.
 ## Known presentation gaps
 
 `ProgressTrack` always fills with the shared progress colour, including while
-paused. Watch uses the shared `ActionButton` focus treatment. The row still is
-a `ContentCard` clipped to the queue artwork size. Full handoff fidelity,
+paused. Watch uses the shared `ActionButton` focus treatment. The summary sits
+under the title rather than beside it, and carries no transfer rate. The
+artwork is not dimmed on unfocused rows as in the handoff. Full handoff fidelity,
 3-metre TV review and AC-17 are not claimed.
 
 ## Verification
+
+Summary and artwork (#360), local run on 2026-10-21, Qt 6.8.3, offscreen,
+software backend:
+
+- `ui-components`, `Downloads::` cases: `test_summary_line` (active, all
+  done, one done, nothing active, paused and failed),
+  `test_empty_queue_keeps_the_empty_state` and
+  `test_artwork_poster_and_placeholder` (a data-URL portrait drawn as a
+  centre crop; the neutral striped plate; the plate again after the
+  artwork goes away). The summary and artwork cases fail on the previous
+  view.
+- `library-catalog`: `posterForUsesTheTopLevelEntrysPoster`, and
+  `downloadsScreenWatchesTheImportedFilm` now checks in `Main.qml` that the
+  imported row carries the film's poster URL, that the running row has none,
+  and that a download imported before the library lists it gets the poster
+  after the library's next read.
+- The TV check was not done.
 
 Shell binding (#233), local run on 2026-10-04, Qt 6.11.2, offscreen:
 

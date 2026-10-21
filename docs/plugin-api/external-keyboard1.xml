@@ -1,0 +1,27 @@
+<!-- SPDX-FileCopyrightText: 2026 Arinn contributors
+SPDX-License-Identifier: MIT OR Apache-2.0 -->
+<node>
+  <interface name="org.arinn.ExternalKeyboard1">
+    <method name="Type">
+      <arg name="session" type="s" direction="in"/>
+      <arg name="text" type="s" direction="in"/>
+    </method>
+    <method name="Press">
+      <arg name="session" type="s" direction="in"/>
+      <arg name="key" type="s" direction="in"/>
+    </method>
+    <method name="Close">
+      <arg name="session" type="s" direction="in"/>
+    </method>
+    <signal name="Opened">
+      <arg name="session" type="s"/>
+    </signal>
+    <signal name="Input">
+      <arg name="session" type="s"/>
+      <arg name="key" type="s"/>
+    </signal>
+    <signal name="Closed">
+      <arg name="session" type="s"/>
+    </signal>
+  </interface>
+</node>

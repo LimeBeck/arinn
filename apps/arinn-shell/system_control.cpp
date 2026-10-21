@@ -179,6 +179,12 @@ void SystemControl::readVolume() {
 void SystemControl::stepVolume(int steps) {
   volumeCall(QStringLiteral("StepVolume"), {steps}, true);
 }
+void SystemControl::raiseVolume() {
+  // Unmuting an unmuted output changes nothing, so the shell never has to
+  // trust a mute state it read earlier.
+  volumeCall(QStringLiteral("SetMuted"), {false}, false,
+             [this] { stepVolume(1); });
+}
 void SystemControl::toggleMuted() {
   volumeCall(QStringLiteral("ToggleMuted"), {}, true);
 }
@@ -187,26 +193,29 @@ void SystemControl::setMuted(bool muted) {
 }
 
 void SystemControl::volumeCall(const QString &member,
-                               const QVariantList &arguments, bool show) {
+                               const QVariantList &arguments, bool show,
+                               std::function<void()> then) {
   auto call = QDBusMessage::createMethodCall(service, path, interface, member);
   call.setArguments(arguments);
   const quint64 request = ++m_volumeRequest;
   auto pending = new QDBusPendingCallWatcher(
       QDBusConnection::sessionBus().asyncCall(call, volumeTimeout), this);
   connect(pending, &QDBusPendingCallWatcher::finished, this,
-          [this, request, show](QDBusPendingCallWatcher *watcher) {
+          [this, request, show, then](QDBusPendingCallWatcher *watcher) {
             const QDBusMessage reply = watcher->reply();
             watcher->deleteLater();
             if (reply.type() == QDBusMessage::ErrorMessage ||
                 reply.signature() != QLatin1String("(su)") ||
                 reply.arguments().isEmpty()) {
-              if (show)
+              if (show || then)
                 emit volumeFailed(
                     reply.type() == QDBusMessage::ErrorMessage
                         ? refusalFor(reply.errorName())
                         : QStringLiteral("failed"));
               return;
             }
+            if (then)
+              then();
             if (request < m_volumeApplied)
               return;
             m_volumeApplied = request;

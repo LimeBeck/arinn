@@ -39,6 +39,7 @@ TestCase {
             function request(action) { calls.push("request:" + action); pendingAction = action; }
             function reset() { calls.push("reset"); acceptedAction = ""; refusal = ""; refusalAction = ""; }
             function stepVolume(steps) { calls.push("step:" + steps); }
+            function raiseVolume() { calls.push("raise"); }
             function toggleMuted() { calls.push("toggle"); }
             // What the model does with the daemon's answer.
             function answer(error) {
@@ -258,7 +259,8 @@ TestCase {
         const hud = child("volumeHud");
         verify(!hud.shown);
         keyClick(Qt.Key_VolumeUp);
-        compare(control.calls, ["step:1"]);
+        // Volume Up also turns the sound back on (owner, 2026-10-21).
+        compare(control.calls, ["raise"]);
         // Nothing is shown before the platform answers.
         verify(!hud.shown);
         control.confirmVolume(55, false);
@@ -267,7 +269,7 @@ TestCase {
         compare(child("volumeHudBar").width, child("volumeHudTrack").width * 0.55);
         keyClick(Qt.Key_VolumeDown);
         keyClick(Qt.Key_VolumeMute);
-        compare(control.calls, ["step:1", "step:-1", "toggle"]);
+        compare(control.calls, ["raise", "step:-1", "toggle"]);
         control.confirmVolume(50, true);
         verify(hud.muted);
         // Non-modal: no focus moves to the HUD.

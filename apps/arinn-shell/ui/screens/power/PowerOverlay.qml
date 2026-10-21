@@ -23,7 +23,6 @@ FocusScope {
     property bool keysEnabled: false
     property string clockText: ""
     property string dateText: ""
-    property bool pointerMode: false
     readonly property bool open: menuOpen
     property bool menuOpen: false
     // The volume HUD and the power menu read nothing else.
@@ -64,7 +63,9 @@ FocusScope {
     // A lock or sleep hides the shell. After an accepted request the menu
     // has done its job: wake returns to the screen underneath (§5.7).
     function sessionBlocked() {
-        if (menuOpen && control && control.acceptedAction.length > 0)
+        // The lifecycle signal and the daemon's reply travel on different
+        // buses: a request still in flight counts too.
+        if (menuOpen && control && (control.acceptedAction.length > 0 || control.pendingAction.length > 0))
             closeMenu();
     }
     function volumeKey(key) {
@@ -115,7 +116,6 @@ FocusScope {
         focus: root.menuOpen
         clockText: root.clockText
         dateText: root.dateText
-        pointerMode: root.pointerMode
         closingApplications: root.runningApplications
         closingKnown: root.registryKnown
         sleepAvailability: root.control ? root.control.suspend : "unknown"

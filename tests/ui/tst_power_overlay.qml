@@ -3,6 +3,7 @@
 
 import QtQuick
 import QtTest
+import "../../apps/arinn-shell/ui" as Ui
 import "../../apps/arinn-shell/ui/screens/power" as Power
 
 // #148: the power scope and volume HUD over a SystemControl double. The menu
@@ -125,6 +126,29 @@ TestCase {
         overlay.sessionBlocked();
         verify(!overlay.open);
         compare(closedSpy.count, 1);
+    }
+
+    // A lock or sleep that arrives before the daemon's reply (another bus)
+    // also closes the menu: no stale waiting pane after wake.
+    function test_session_block_closes_a_pending_request() {
+        openMenu();
+        keyClick(Qt.Key_Return);
+        compare(control.pendingAction, "suspend");
+        overlay.sessionBlocked();
+        verify(!overlay.open);
+        compare(closedSpy.count, 1);
+    }
+
+    // The menu follows the shell's one input mode (ADR-0095).
+    function test_pointer_mode_is_the_shell_input_mode() {
+        openMenu();
+        Ui.InputMode.pointerActive = true;
+        verify(overlay.menu.pointerMode);
+        verify(child("sleepButton").pointerMode);
+        keyClick(Qt.Key_Down);
+        verify(!Ui.InputMode.pointerActive);
+        verify(!overlay.menu.pointerMode);
+        focused("restartButton");
     }
 
     function test_accepted_back_returns_to_arinn() {

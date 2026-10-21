@@ -975,8 +975,8 @@
         <translation>Этот раздел пока недоступен.</translation>
     </message>
     <message>
-        <source>Power controls are not available yet.</source>
-        <translation>Управление питанием пока недоступно.</translation>
+        <source>Volume control is not available.</source>
+        <translation>Управление громкостью недоступно.</translation>
     </message>
     <message>
         <source>Unable to exit playback controls. Press Back to retry.</source>
@@ -1151,6 +1151,10 @@
         <translation>Перезагрузить?</translation>
     </message>
     <message>
+        <source>The list of running applications is not available.</source>
+        <translation>Список запущенных приложений недоступен.</translation>
+    </message>
+    <message>
         <source>No running applications.</source>
         <translation>Нет запущенных приложений.</translation>
     </message>
@@ -1159,12 +1163,92 @@
         <translation>Будут закрыты приложения: %1.</translation>
     </message>
     <message>
+        <source>%1 (%2)</source>
+        <translation>%1 (%2)</translation>
+    </message>
+    <message>
+        <source>Not supported on this computer</source>
+        <translation>Не поддерживается на этом компьютере</translation>
+    </message>
+    <message>
+        <source>Not allowed for this user</source>
+        <translation>Не разрешено для этого пользователя</translation>
+    </message>
+    <message>
+        <source>Blocked by %1</source>
+        <translation>Блокирует: %1</translation>
+    </message>
+    <message>
+        <source>Blocked by an application</source>
+        <translation>Блокирует приложение</translation>
+    </message>
+    <message>
+        <source>Waiting for the system…</source>
+        <translation>Ожидание системы…</translation>
+    </message>
+    <message>
+        <source>An application is preventing it: %1.</source>
+        <translation>Этому мешает приложение: %1.</translation>
+    </message>
+    <message>
+        <source>An application or another power operation is preventing it right now.</source>
+        <translation>Сейчас этому мешает приложение или другая операция питания.</translation>
+    </message>
+    <message>
+        <source>The system does not allow it for this user.</source>
+        <translation>Система не разрешает это для этого пользователя.</translation>
+    </message>
+    <message>
+        <source>This computer does not support it.</source>
+        <translation>Этот компьютер это не поддерживает.</translation>
+    </message>
+    <message>
+        <source>Power control is not available right now. Try again later.</source>
+        <translation>Управление питанием сейчас недоступно. Повторите позже.</translation>
+    </message>
+    <message>
+        <source>The system did not answer in time. Try again.</source>
+        <translation>Система не ответила вовремя. Повторите попытку.</translation>
+    </message>
+    <message>
+        <source>The system could not do it. Try again.</source>
+        <translation>Системе не удалось это сделать. Повторите попытку.</translation>
+    </message>
+    <message>
+        <source>Sleep was refused</source>
+        <translation>Сон отклонён</translation>
+    </message>
+    <message>
+        <source>Restart was refused</source>
+        <translation>Перезагрузка отклонена</translation>
+    </message>
+    <message>
+        <source>Shut down was refused</source>
+        <translation>Выключение отклонено</translation>
+    </message>
+    <message>
         <source>Power</source>
         <translation>Питание</translation>
     </message>
     <message>
         <source>Cancel</source>
         <translation>Отмена</translation>
+    </message>
+    <message>
+        <source>Going to sleep…</source>
+        <translation>Переход в сон…</translation>
+    </message>
+    <message>
+        <source>Restarting…</source>
+        <translation>Перезагрузка…</translation>
+    </message>
+    <message>
+        <source>Shutting down…</source>
+        <translation>Выключение…</translation>
+    </message>
+    <message>
+        <source>Waiting for the system. Press Back to return to Arinn.</source>
+        <translation>Ожидание системы. Нажмите «Назад», чтобы вернуться в Arinn.</translation>
     </message>
     <message>
         <source>Request refused</source>
@@ -1494,6 +1578,17 @@
     <message>
         <source>Loading</source>
         <translation>Загрузка</translation>
+    </message>
+</context>
+<context>
+    <name>VolumeHud</name>
+    <message>
+        <source>Sound muted</source>
+        <translation>Звук выключен</translation>
+    </message>
+    <message>
+        <source>Volume</source>
+        <translation>Громкость</translation>
     </message>
 </context>
 </TS>

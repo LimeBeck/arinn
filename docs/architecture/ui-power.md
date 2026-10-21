@@ -1,70 +1,102 @@
 <!-- SPDX-FileCopyrightText: 2026 Arinn contributors -->
 <!-- SPDX-License-Identifier: CC-BY-SA-4.0 -->
 
-# Power and ambient overlay
+# Power menu and volume HUD
 
-Fixture presentation for [specification §5.7](../specifications/arinn-specification.md#57-system-ui-power-and-ambient)
-(P-04). This is not the platform power path and does not meet AC-19.
+Shell side of [specification §5.7](../specifications/arinn-specification.md#57-system-ui-power-and-ambient)
+(P-04, OQ-04) for [#148](https://github.com/LimeBeck/arinn/issues/148). The
+platform side is `SystemControl1` ([ADR-0108](../adr/0108-system-control.md),
+[system control](system-control.md)). Implementing this does not meet AC-19:
+real suspend, wake and the lock screen are owner operator tests.
 
-`apps/arinn-shell/ui/screens/power/PowerMenu.qml` is a power-scope overlay.
-Tests import that directory from the filesystem (`tests/ui/tst_power.qml`).
-The existing `ui-components` CTest loads every `tests/ui/tst_*.qml` file, so
-this suite needs no CMake change. It is not wired into `HomeView` or
-`Main.qml`. `HomeView` still only emits `powerRequested()`.
+## Pieces
 
-The overlay imports `ActionButton`, `LogicalCanvas`, `Surface`, `StatusPane`,
-`UiText` and `Theme` from `apps/arinn-shell/ui`. It does not modify those
-components.
+| File | Role |
+| --- | --- |
+| `apps/arinn-shell/system_control.{h,cpp}` | `SystemControl` QML type. Calls `SystemControl1` asynchronously and exposes availability, inhibitors, the request in flight, the accepted request, the refusal and the volume reply. The UI thread never waits for D-Bus |
+| `apps/arinn-shell/ui/screens/power/PowerMenu.qml` | The power scope: menu, confirmation, refusal and accepted panes, and the ambient screen. Presentation only |
+| `apps/arinn-shell/ui/screens/power/PowerOverlay.qml` | Maps a `SystemControl` (or a test double) to `PowerMenu`, owns the volume keys and the HUD |
+| `apps/arinn-shell/ui/VolumeHud.qml` | The handoff's volume HUD |
+| `apps/arinn-shell/Main.qml` | Opens the overlay from global navigation › Power and gives it the power focus scope |
 
-The frame is a logical 1920×1080 canvas. A full-screen scrim at
-`rgba(0, 0, 0, 0.55)` covers the shell background. The menu is a centered
-glass panel, 800 wide with radius 48, a translucent dark fill and a light
-border. The title is 52 px at weight 700. Each row is 112 tall with radius
-30, a 64 px round icon plate, a 32 px label and a 26 px description. Focus
-is a light plate. Restart and Shut down replace the rows with two pills,
-96 tall and radius 48. Cancel keeps the default focus. Ambient remains a
-fourth row on that panel and still opens the full-screen ambient state.
+## Power menu
 
-## What the fixture does
+Global navigation › **Power** opens the menu over the current screen. The menu
+is the *power* focus scope of §6.1: `Main.focusedScreen` is `power` while it is
+open, so every screen beneath is inert, and closing it returns focus to the
+opener (the navigation entry). Opening it clears any old answer and reads
+`GetPower`.
+
+The look follows handoff 15: a full-screen scrim at `rgba(0, 0, 0, 0.55)`, a
+centered glass panel 800 wide with radius 48, a 52/700 title, rows 112 tall
+with radius 30, a 64 px icon plate, a 32 px label and a 26 px description.
+Restart and Shut down replace the rows with two 96 px pills; Cancel has the
+default focus and the action pill is destructive.
+
+| Row state (`GetPower`) | Row |
+| --- | --- |
+| `available`, `unknown` | Normal description |
+| `inhibited` | "Blocked by *who (why)*", from the block inhibitors of the row's lock; still selectable |
+| `denied` | "Not allowed for this user"; still selectable |
+| `unsupported` | "Not supported on this computer"; disabled and skipped by the arrows and Tab |
+
+Inhibited and denied rows stay selectable so the platform decides and the user
+sees its refusal; the menu never guesses the outcome.
 
 | Action | Behaviour |
 | --- | --- |
-| Sleep | Emits `sleepRequested()`. Does not call systemd, logind or suspend, and does not open the ambient screen. |
-| Restart, Shut down | Open a confirmation. Cancel has the default focus. The confirm control is destructive. Accepting emits `restartRequested()` or `shutdownRequested()` and leaves the confirmation open. |
-| Closing applications | `closingApplications`, an explicit list of strings or `{title}` records. Empty means no running applications. This file does not read a live registry. |
-| Refusal | `refusalMessage` shows `StatusPane` kind `error`. The overlay never sets that property and has no timer that reports success. |
-| Ambient | `startAmbient()` and the Ambient row emit `ambientRequested()` and show a full-screen state. There is no idle timer. |
-| Wake | The gesture that opens ambient is not a wake. The next key or a pointer move, once ambient is armed, is accepted, emits `wakeRequested()`, and does not activate Sleep, Restart, Shut down or Ambient again. |
-| Back, Home | Esc, Backspace and Back close a confirmation onto its opener and do not confirm a destructive action. Home closes a confirmation without a destructive intent and emits `homeRequested()`. Focus stays inside the overlay. |
+| Sleep | Calls `Suspend`. While the request is in flight the row is busy and says "Waiting for the system…". |
+| Restart, Shut down | Open the confirmation with Cancel focused. Its body lists the applications that will close and, in the error colour, the row's blocker or permission note, so confirming never hides it. Confirm calls `Reboot` or `PowerOff`; the pill is busy until the answer. |
+| Accepted | A waiting pane: "Going to sleep…", "Restarting…" or "Shutting down…" with "Waiting for the system". This is not success, and no timer produces it or anything after it. Back returns to the screen beneath. |
+| Refused | An error pane titled for the action, with the reason for `inhibited` (the holders' *who (why)*), `denied`, `unsupported`, `unavailable`, `timeout` or `failed`. Back clears it and returns to the step that asked. |
+| Ambient | Unchanged: the full-screen ambient state with a consumed first wake event. The idle timer is [#307](https://github.com/LimeBeck/arinn/issues/307). |
+| Back, Home | Esc, Backspace and Back close the confirmation onto its opener and then the menu. Home closes the menu without any action and shows Home (§6.3). |
 
-Local focus is trapped in this overlay (power above the screen): arrows and Tab
-do not leave it. The confirmation is a step inside the same scope. Esc,
-Backspace and Back on that step, and a click on the dimmed area outside the
-panel, match the power-confirmation row of specification §6.3. Clearing
-`refusalMessage` returns focus to that step and does not report success.
+**Closing list.** The confirmation names each running application from the
+live registry (`Backend.items`, the running entries of the application
+providers) once. While the registry cannot be read (no daemon), it says that
+the list is not available instead of "No running applications".
 
-Session lock, OS suspend and the idle ambient timer are out of scope. Lock and
-sleep observation stay in the [session lifecycle](session-lifecycle.md) guard,
-which does not execute power commands. Production must later supply the closing
-list from the live registry and must report a real platform refusal through
-`refusalMessage` ([activity and interaction](activity-and-interaction.md)).
+**Sleep and wake.** The shell does not decide that the computer slept. The
+session lifecycle guard (ADR-0041) hides the shell before sleep and on lock.
+When it does so after an accepted request, the menu closes; after wake the
+shell shows the screen and Activity context it kept, and the daemon reconnects
+providers as before. A suspend that never happens leaves the waiting pane until
+the user presses Back.
+
+## Volume keys and HUD
+
+While the shell window is on screen and active and the session is not locked,
+Volume Up, Volume Down and Mute are window shortcuts: they work over every
+screen, including managed playback, and step the volume by one step (5 %) or
+toggle mute through `SystemControl1`. Outside the shell Plasma keeps them
+(OQ-04).
+
+The HUD follows the handoff (*Toast and volume HUD*): a top-center glass pill
+560×88, a 40 px icon (volume or muted), an 8 px white bar and the value at
+30/600. It hides 1.8 s after the last change and never takes focus. It shows
+only a level the daemon returned for the change; a failed change shows no
+level and a short "Volume control is not available." toast. Stepping never
+unmutes; the bar is dimmed while muted.
 
 ## Verification
 
 ```sh
 QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
   build/apps/arinn-shell/arinn-ui-test -input tests/ui
+dbus-run-session -- build/apps/arinn-shell/arinn-system-control-test
 ```
 
-Local run on 2026-09-29, Qt 6.8.3, offscreen platform and the software scene
-graph: 138 passed, 0 failed. That includes `PowerMenu` (Cancel focused by
-default for Restart and Shut down, sleep intent with no success state, an
-explicit refusal error, a consumed ambient wake for both a key and a
-pointer move, the glass-panel geometry, and Esc, Backspace and Back closing
-Shut down confirmation without a shutdown intent) and the other UI cases
-loaded by the same binary. CI on `9ef6486` (Qt 6.11.2) failed
-`test_consumed_ambient_wake` because the opening key also woke the screen;
-this change keeps that test and does not count the opening gesture as a wake.
-That CI run has not been repeated yet.
-Operator tests were not run. This fixture does not lock the screen or suspend
-the machine. CI has not run for this change.
+- `tests/ui/tst_power.qml`: the menu itself (focus scope, Cancel default,
+  Esc/Backspace/Back, the explicit refusal, consumed ambient wake, geometry).
+- `tests/ui/tst_power_overlay.qml`: the overlay over a `SystemControl` double:
+  reading on open, a request that waits for the platform, the accepted pane,
+  closing on the lifecycle guard, refusal texts and inhibitor names, the
+  confirmation's blocker note and live closing list, disabled unsupported
+  rows, Home, the volume keys and HUD, and the HUD geometry.
+- `apps/arinn-shell/system_control_test.cpp`: the model against a fake
+  `SystemControl1` on a private bus: reader rules, no daemon, no acceptance
+  without a reply, typed refusals and the inhibitor re-read, and volume
+  replies.
+- Real suspend, wake, the lock screen and volume on the HTPC are owner
+  operator tests (AC-19). Not run.

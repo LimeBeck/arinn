@@ -5,7 +5,9 @@ import QtQuick
 import "../.." as Ui
 
 // Power-scope overlay. Presentation only: intents leave this file, and nothing
-// here talks to the session, a registry, or a suspend API.
+// here talks to the session, a registry, or a suspend API. Main supplies the
+// platform's availability, refusals and accepted requests from
+// SystemControl1 (ADR-0108) and the running applications from the registry.
 FocusScope {
     id: root
     objectName: "powerMenu"
@@ -15,9 +17,29 @@ FocusScope {
 
     // Caller-supplied titles. This overlay does not read a live registry.
     property var closingApplications: []
+    // False when the caller cannot know the running applications (no
+    // registry): the confirmation says so instead of "none".
+    property bool closingKnown: true
+    // Platform availability per row: available, inhibited, denied,
+    // unsupported or unknown. Unsupported rows are disabled; the others stay
+    // usable, and the platform's answer decides.
+    property string sleepAvailability: "unknown"
+    property string restartAvailability: "unknown"
+    property string shutdownAvailability: "unknown"
+    // Block inhibitors {what: sleep|shutdown, who, why} that explain a refusal.
+    property var inhibitors: []
+    // The row whose request is in flight, and the row the platform accepted:
+    // sleep, restart or shutdown. Only the caller sets them.
+    property string busyAction: ""
+    property string acceptedAction: ""
+    // Why the platform refused the request of refusalAction: inhibited,
+    // denied, unsupported, unavailable, timeout or failed.
+    property string refusalCode: ""
+    property string refusalAction: ""
     // Non-empty text is the refusal. Nothing in this overlay sets it, and no
     // timer turns a sleep intent into success.
-    property string refusalMessage: ""
+    property string refusalMessage: describeRefusal(refusalCode, refusalAction, inhibitors)
+    readonly property bool accepted: acceptedAction.length > 0 && !refused
     property string clockText: ""
     property string dateText: ""
     property bool pointerMode: false
@@ -45,12 +67,14 @@ FocusScope {
     readonly property string confirmTitle: pendingAction === "shutdown" ? qsTr("Shut down?") : qsTr("Restart?")
     readonly property string confirmActionText: pendingAction === "shutdown" ? qsTr("Shut down") : qsTr("Restart")
     readonly property string closingSummary: {
+        if (!closingKnown)
+            return qsTr("The list of running applications is not available.");
         const names = [];
         const entries = closingApplications || [];
         for (let i = 0; i < entries.length; ++i) {
             const entry = entries[i];
             const title = typeof entry === "string" ? entry : (entry && entry.title ? String(entry.title) : "");
-            if (title.length > 0)
+            if (title.length > 0 && names.indexOf(title) < 0)
                 names.push(title);
         }
         if (names.length === 0)
@@ -65,6 +89,75 @@ FocusScope {
     signal wakeRequested()
     signal dismissRequested()
     signal homeRequested()
+    // Back on a refusal or on an accepted request: the caller clears it.
+    signal refusalDismissed()
+    signal acceptedDismissed()
+
+    function availabilityOf(id) {
+        return id === "sleep" ? sleepAvailability : id === "restart" ? restartAvailability
+             : id === "shutdown" ? shutdownAvailability : "available";
+    }
+    // "who (why)" of the inhibitors that hold a row's action.
+    function holders(id) {
+        const lock = id === "sleep" ? "sleep" : "shutdown";
+        const names = [];
+        const list = inhibitors || [];
+        for (let i = 0; i < list.length; ++i) {
+            const entry = list[i];
+            if (!entry || entry.what !== lock || !entry.who)
+                continue;
+            const text = entry.why ? qsTr("%1 (%2)").arg(entry.who).arg(entry.why) : String(entry.who);
+            if (names.indexOf(text) < 0)
+                names.push(text);
+        }
+        return names;
+    }
+    // Why a row's action may be refused, or "" when nothing is known.
+    function availabilityNote(id) {
+        const availability = availabilityOf(id);
+        if (availability === "unsupported")
+            return qsTr("Not supported on this computer");
+        if (availability === "denied")
+            return qsTr("Not allowed for this user");
+        if (availability === "inhibited") {
+            const names = holders(id);
+            return names.length ? qsTr("Blocked by %1").arg(names.join(", ")) : qsTr("Blocked by an application");
+        }
+        return "";
+    }
+    function rowDescription(entry) {
+        if (busyAction === entry.id)
+            return qsTr("Waiting for the system…");
+        const note = availabilityNote(entry.id);
+        return note.length ? note : entry.description;
+    }
+    function describeRefusal(code, action, list) {
+        if (!code)
+            return "";
+        const id = action === "suspend" ? "sleep" : action === "reboot" ? "restart"
+                 : action === "power-off" ? "shutdown" : action;
+        if (code === "inhibited") {
+            const names = holders(id);
+            return names.length ? qsTr("An application is preventing it: %1.").arg(names.join(", "))
+                                : qsTr("An application or another power operation is preventing it right now.");
+        }
+        if (code === "denied")
+            return qsTr("The system does not allow it for this user.");
+        if (code === "unsupported")
+            return qsTr("This computer does not support it.");
+        if (code === "unavailable")
+            return qsTr("Power control is not available right now. Try again later.");
+        if (code === "timeout")
+            return qsTr("The system did not answer in time. Try again.");
+        return qsTr("The system could not do it. Try again.");
+    }
+    readonly property string refusalTitle: {
+        const id = refusalAction === "suspend" ? "sleep" : refusalAction === "reboot" ? "restart"
+                 : refusalAction === "power-off" ? "shutdown" : refusalAction;
+        return id === "sleep" ? qsTr("Sleep was refused")
+             : id === "restart" ? qsTr("Restart was refused")
+             : id === "shutdown" ? qsTr("Shut down was refused") : qsTr("Request refused");
+    }
 
     function noteDpad() {
         pointerMode = false;
@@ -88,11 +181,20 @@ FocusScope {
         for (let i = 0; i < items.length; ++i)
             if (items[i].activeFocus)
                 index = i;
-        let next = index + delta;
-        if (wrap)
-            next = (next + items.length) % items.length;
-        else
-            next = Math.max(0, Math.min(items.length - 1, next));
+        // Disabled rows (unsupported actions) are skipped.
+        let next = index;
+        for (let tries = 0; tries < items.length; ++tries) {
+            let candidate = next + delta;
+            if (wrap)
+                candidate = (candidate + items.length) % items.length;
+            else if (candidate < 0 || candidate >= items.length)
+                return;
+            next = candidate;
+            if (items[next].enabled)
+                break;
+        }
+        if (!items[next].enabled)
+            return;
         menuFocus = menuNames()[next];
         Ui.Focus.take(items[next]);
     }
@@ -110,13 +212,12 @@ FocusScope {
         const items = menuItems();
         const names = menuNames();
         for (let i = 0; i < names.length; ++i) {
-            if (names[i] === menuFocus) {
-                Ui.Focus.take(items[i]);
+            if (names[i] === menuFocus && Ui.Focus.take(items[i]))
                 return;
-            }
         }
-        if (items.length > 0)
-            Ui.Focus.take(items[0]);
+        for (let i = 0; i < items.length; ++i)
+            if (Ui.Focus.take(items[i]))
+                return;
     }
     function openConfirm(action) {
         pendingAction = action;
@@ -139,11 +240,19 @@ FocusScope {
             shutdownRequested();
     }
     function goBack() {
-        if (step === "confirm" && !refused) {
+        // A refusal stays until the caller clears it. Back does not report success.
+        if (refused) {
+            refusalDismissed();
+            return;
+        }
+        if (accepted) {
+            acceptedDismissed();
+            return;
+        }
+        if (step === "confirm") {
             closeConfirm();
             return;
         }
-        // A refusal stays until the caller clears it. Back does not report success.
         dismissRequested();
     }
     // Esc, Backspace and Back are Back in every power scope (§6.2, AC-18).
@@ -160,7 +269,7 @@ FocusScope {
         }
     }
     function goHome() {
-        if (step === "confirm" && !refused)
+        if (step === "confirm" && !refused && !accepted)
             closeConfirm();
         homeRequested();
     }
@@ -250,7 +359,7 @@ FocusScope {
             border.width: 1
             border.color: Qt.rgba(1, 1, 1, 0.10)
             anchors.centerIn: parent
-            visible: !root.refused && root.step !== "ambient"
+            visible: !root.refused && !root.accepted && root.step !== "ambient"
             height: column.implicitHeight + 96
             Rectangle {
                 anchors.left: parent.left
@@ -293,6 +402,18 @@ FocusScope {
                     role: "body"
                     color: Ui.Theme.textSecondary
                 }
+                // Confirmation never hides an inhibitor or permission problem.
+                Ui.UiText {
+                    objectName: "confirmNote"
+                    width: parent.width
+                    leftPadding: 8
+                    rightPadding: 8
+                    topPadding: 8
+                    visible: root.step === "confirm" && text.length > 0
+                    text: root.availabilityNote(root.pendingAction)
+                    role: "body"
+                    color: Ui.Theme.error
+                }
                 Item {
                     width: 1
                     height: root.step === "menu" ? 22 : 16
@@ -313,6 +434,8 @@ FocusScope {
                             width: 704
                             height: 112
                             text: modelData.title
+                            enabled: root.availabilityOf(modelData.id) !== "unsupported"
+                            busy: root.busyAction === modelData.id
                             cornerRadius: 30
                             focusScale: 1.02
                             restingColor: Qt.rgba(1, 1, 1, 0.05)
@@ -420,7 +543,7 @@ FocusScope {
                                         Ui.UiText {
                                             objectName: row.modelData.id + "Description"
                                             width: parent.width
-                                            text: row.modelData.description
+                                            text: root.rowDescription(row.modelData)
                                             role: "meta"
                                             font.pixelSize: 26
                                             color: row.activeFocus ? Ui.Theme.ink : Ui.Theme.textSecondary
@@ -470,6 +593,7 @@ FocusScope {
                     height: 96
                     text: root.confirmActionText
                     destructive: true
+                    busy: root.busyAction.length > 0 && root.busyAction === root.pendingAction
                     pointerMode: root.pointerMode
                     hoverFocusEnabled: root.hoverFocusEnabled
                     onDpadRequested: root.noteDpad()
@@ -495,7 +619,7 @@ FocusScope {
         visible: root.refused && root.step !== "ambient"
         focus: visible
         kind: "error"
-        title: qsTr("Request refused")
+        title: root.refusalTitle
         description: root.refusalMessage
         actionText: qsTr("Back")
         pointerMode: root.pointerMode
@@ -512,6 +636,41 @@ FocusScope {
             // report success.
             Qt.callLater(() => {
                 if (root.refused || root.step === "ambient")
+                    return;
+                if (root.step === "confirm")
+                    Ui.Focus.take(cancelButton);
+                else
+                    root.restoreMenuFocus();
+            });
+        }
+    }
+
+    // The platform accepted the request. This is not success: the session
+    // lifecycle guard hides the shell when the system really sleeps, and
+    // nothing here turns into success by itself.
+    Ui.StatusPane {
+        id: acceptedPane
+        objectName: "powerAccepted"
+        z: 4
+        anchors.centerIn: parent
+        width: 820
+        visible: root.accepted && root.step !== "ambient"
+        focus: visible
+        kind: "loading"
+        title: root.acceptedAction === "sleep" ? qsTr("Going to sleep…")
+             : root.acceptedAction === "restart" ? qsTr("Restarting…") : qsTr("Shutting down…")
+        description: qsTr("Waiting for the system. Press Back to return to Arinn.")
+        pointerMode: root.pointerMode
+        hoverFocusEnabled: root.hoverFocusEnabled
+        onDpadRequested: root.noteDpad()
+        Keys.onPressed: event => root.handleScopeKey(event, () => root.goBack())
+        onVisibleChanged: {
+            if (visible) {
+                Qt.callLater(() => { if (visible) Ui.Focus.take(acceptedPane); });
+                return;
+            }
+            Qt.callLater(() => {
+                if (root.refused || root.accepted || root.step === "ambient")
                     return;
                 if (root.step === "confirm")
                     Ui.Focus.take(cancelButton);

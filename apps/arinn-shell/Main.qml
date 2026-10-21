@@ -10,6 +10,7 @@ import "ui/screens/browse" as Browse
 import "ui/screens/downloads" as Downloads
 import "ui/screens/library" as Library
 import "ui/screens/player" as Player
+import "ui/screens/power" as Power
 import "ui/screens/session" as Session
 import "ui/screens/settings" as Settings
 
@@ -202,7 +203,9 @@ Window {
     // which refuses hidden or disabled items. Home's navigation menu and
     // shortcut editor cover the library and settings screens, so they win.
     // Home's navigation menu opens over every screen but the player (#329).
-    readonly property string focusedScreen: playerOpen ? "player"
+    // The power scope traps focus above everything it covers (§6.1).
+    readonly property string focusedScreen: powerOverlay.open ? "power"
+        : playerOpen ? "player"
         : home.navOpen || home.shortcutEditorOpen || home.tileActionsOpen ? "home"
         : sessionOpen ? "session"
         : browseOpen ? "browse"
@@ -213,11 +216,13 @@ Window {
         : "home"
     function screenItem(name) {
         return ({player: playerView, session: sessionView, browser: browserView, browse: browseView,
-                 library: libraryView, downloads: downloadsView, settings: settingsView, home: home})[name];
+                 library: libraryView, downloads: downloadsView, settings: settingsView, home: home,
+                 power: powerOverlay})[name];
     }
     // Focus the screen on display at its preferred item.
     function restoreFocus() {
         switch (focusedScreen) {
+        case "power": powerOverlay.menu.restoreMenuFocus(); break;
         case "player": Ui.Focus.take(playerView); break;
         case "session": sessionView.restore(); break;
         case "browser": browserView.settleFocus(); break;
@@ -287,7 +292,10 @@ Window {
         target: sessionGuard
         ignoreUnknownSignals: true
         function onChanged() {
-            if (sessionGuard.blocked) mediaCatalog.abandonPresentation();
+            if (sessionGuard.blocked) {
+                mediaCatalog.abandonPresentation();
+                powerOverlay.sessionBlocked();
+            }
         }
     }
     // Home does not show the library's operation state, so report a failed
@@ -327,6 +335,11 @@ Window {
     SystemStatus {
         id: systemStatus
         objectName: "systemStatus"
+    }
+    // Power actions and volume through the daemon (ADR-0108).
+    SystemControl {
+        id: systemControl
+        objectName: "systemControl"
     }
     DownloadCatalog {
         id: downloadCatalog
@@ -488,7 +501,7 @@ Window {
                     root.openSession(entryId, false);
             }
             onCloseShellRequested: root.close()
-            onPowerRequested: { feedback.text = qsTr("Power controls are not available yet."); feedbackTimer.restart(); }
+            onPowerRequested: powerOverlay.openMenu()
         }
         Browser.BrowserView {
             id: browserView
@@ -794,6 +807,21 @@ Window {
                 root.launchFromHome = false;
                 root.openSession(presentationId, fromLibrary);
             }
+        }
+        // The power scope above every screen, and the volume HUD (§5.7).
+        Power.PowerOverlay {
+            id: powerOverlay
+            anchors.fill: parent
+            z: 7
+            focus: root.focusedScreen === "power"
+            control: systemControl
+            runningApplications: backend.items
+            registryKnown: backend.applicationsState === "ready" || backend.applicationsState === "empty"
+            keysEnabled: root.visible && root.active && !sessionGuard.blocked
+            clockText: home.clockText
+            onClosed: Qt.callLater(root.restoreFocus)
+            onHomeRequested: { root.closeOverlays(); Qt.callLater(home.showHome); }
+            onVolumeUnavailable: { feedback.text = qsTr("Volume control is not available."); feedbackTimer.restart(); }
         }
         Ui.LaunchOverlay {
             anchors.fill: parent

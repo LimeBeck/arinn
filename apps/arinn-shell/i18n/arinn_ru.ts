@@ -975,10 +975,6 @@
         <translation>Этот раздел пока недоступен.</translation>
     </message>
     <message>
-        <source>Volume control is not available.</source>
-        <translation>Управление громкостью недоступно.</translation>
-    </message>
-    <message>
         <source>Unable to exit playback controls. Press Back to retry.</source>
         <translation>Не удалось выйти из управления воспроизведением. Нажмите «Назад», чтобы повторить.</translation>
     </message>
@@ -1589,6 +1585,10 @@
     <message>
         <source>Volume</source>
         <translation>Громкость</translation>
+    </message>
+    <message>
+        <source>Volume control is not available</source>
+        <translation>Управление громкостью недоступно</translation>
     </message>
 </context>
 </TS>

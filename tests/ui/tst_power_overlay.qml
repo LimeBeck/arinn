@@ -276,10 +276,19 @@ TestCase {
         verify(!hud.activeFocus);
         // It hides 1.8 s after the last change.
         tryCompare(hud, "shown", false, 3000);
-        // A failure shows no level.
+        // A failure shows no level, but the HUD says it failed: the
+        // feedback strip is hidden over managed playback.
         control.volumeFailed("unavailable");
         compare(volumeSpy.count, 1);
-        verify(!hud.shown);
+        verify(hud.shown);
+        verify(hud.unavailable);
+        verify(child("volumeHudUnavailable").visible);
+        verify(!child("volumeHudValue").visible);
+        verify(!child("volumeHudTrack").visible);
+        // The next confirmed change shows its level again.
+        control.confirmVolume(40, false);
+        verify(!hud.unavailable);
+        compare(child("volumeHudValue").text, "40");
         // Outside the shell the keys are not Arinn's.
         overlay.keysEnabled = false;
         keyClick(Qt.Key_VolumeUp);

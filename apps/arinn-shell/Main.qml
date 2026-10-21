@@ -819,9 +819,9 @@ Window {
             registryKnown: backend.applicationsState === "ready" || backend.applicationsState === "empty"
             keysEnabled: root.visible && root.active && !sessionGuard.blocked
             clockText: home.clockText
+            dateText: { home.clockText; return Qt.locale().toString(new Date(), "dddd, d MMMM"); }
             onClosed: Qt.callLater(root.restoreFocus)
             onHomeRequested: { root.closeOverlays(); Qt.callLater(home.showHome); }
-            onVolumeUnavailable: { feedback.text = qsTr("Volume control is not available."); feedbackTimer.restart(); }
         }
         Ui.LaunchOverlay {
             anchors.fill: parent

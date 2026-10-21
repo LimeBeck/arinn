@@ -50,7 +50,7 @@ sees its refusal; the menu never guesses the outcome.
 | Accepted | A waiting pane: "Going to sleep…", "Restarting…" or "Shutting down…" with "Waiting for the system". This is not success, and no timer produces it or anything after it. Back returns to the screen beneath. |
 | Refused | An error pane titled for the action, with the reason for `inhibited` (the holders' *who (why)*), `denied`, `unsupported`, `unavailable`, `timeout` or `failed`. Back clears it and returns to the step that asked. |
 | Ambient | Unchanged: the full-screen ambient state with a consumed first wake event. The idle timer is [#307](https://github.com/LimeBeck/arinn/issues/307). |
-| Back, Home | Esc, Backspace and Back close the confirmation onto its opener and then the menu. Home closes the menu without any action and shows Home (§6.3). |
+| Back, Home | Esc, Backspace and Back close the confirmation onto its opener and then the menu, one step per press: a held key's repeats are swallowed. Home closes the menu without any action and shows Home (§6.3). Each opening starts on the first row. |
 
 **Closing list.** The confirmation names each running application from the
 live registry (`Backend.items`, the running entries of the application
@@ -78,8 +78,12 @@ The HUD follows the handoff (*Toast and volume HUD*): a top-center glass pill
 560×88, a 40 px icon (volume or muted), an 8 px white bar and the value at
 30/600. It hides 1.8 s after the last change and never takes focus. It shows
 only a level the daemon returned for the change; a failed change shows no
-level and a short "Volume control is not available." toast; a failed unmute
-does not go on to change the level. The bar is dimmed while muted.
+level: the HUD itself says "Volume control is not available", so the failure
+shows over managed playback too. A failed unmute does not go on to change the
+level. The bar is dimmed while muted. Volume calls run one at a time in the
+order of the keys, so a quick second key never overtakes a Volume Up that is
+still unmuting; at most eight pending calls are kept and further presses are
+dropped.
 
 ## Verification
 

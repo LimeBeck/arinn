@@ -247,6 +247,22 @@ private slots:
     QVERIFY(!control.volumeMuted());
     QCOMPARE(control.volumeLevel(), 55);
 
+    // Keys apply in the order pressed: Up (unmute, then +1) and an
+    // immediate Down never swap (98 → 100 → 95, not 98 → 93 → 98).
+    fake->level = 98;
+    fake->calls.clear();
+    const int queued = shown.count();
+    control.raiseVolume();
+    control.stepVolume(-1);
+    QTRY_COMPARE(shown.count(), queued + 2);
+    QCOMPARE(fake->calls, (QStringList{QStringLiteral("SetMuted"),
+                                       QStringLiteral("StepVolume"),
+                                       QStringLiteral("StepVolume")}));
+    QCOMPARE(control.volumeLevel(), 95);
+    fake->level = 55;
+    control.readVolume();
+    QTRY_COMPARE(control.volumeLevel(), 55);
+
     // A failure shows no level and reports why.
     fake->volumeError = QStringLiteral("org.arinn.Error1.Unavailable");
     control.stepVolume(-1);

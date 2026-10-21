@@ -23,6 +23,10 @@
 
 [Implementation record](architecture/phase-1-progress.md): completed foundations, verification and remaining runtime work.
 
+## Phase 3 operator test
+
+[Runbook](architecture/phase-3-runbook.md) · [Evidence template](architecture/evidence/phase-3-template.md)
+
 ## Phase 0 evidence
 
 [Gate matrix](architecture/phase-0-gate.md) · [Report](architecture/phase-0-report.md) · [Runbook](architecture/phase-0-runbook.md) · [Activity background experiment](architecture/background-experiment.md) · [Evidence files](architecture/evidence/)

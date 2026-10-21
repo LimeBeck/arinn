@@ -471,8 +471,11 @@ class ShellStandIn : public QObject {
   Q_PROPERTY(QString homeState MEMBER m_homeState CONSTANT)
   Q_PROPERTY(QStringList busyEntryIds MEMBER m_busy CONSTANT)
   Q_PROPERTY(QString message MEMBER m_message CONSTANT)
+  Q_PROPERTY(bool connected MEMBER m_connected CONSTANT)
 public:
   bool m_home = true;
+  bool m_connected = false;
+  int backs = 0;
   QVariantMap m_editor;
   QString m_return;
   QString m_homeState = QStringLiteral("ready");
@@ -481,8 +484,9 @@ public:
   QStringList m_busy;
 signals:
   void changed();
+  void quickMenuRequested();
 public:
-  Q_INVOKABLE void back() {}
+  Q_INVOKABLE void back() { ++backs; }
   Q_INVOKABLE void closeShortcutEditor() { m_editor.clear(); emit changed(); }
   Q_INVOKABLE void launch(const QString &) {}
   Q_INVOKABLE void activate(const QString &) {}
@@ -1405,6 +1409,76 @@ private slots:
   }
   // #247: Continue on a stopped film resumes the library item; a stopped
   // session itself cannot be presented again.
+  // ADR-0106: the quick menu over managed playback. Back returns to the
+  // same live player, which takes focus again; Home never shows in between.
+  void quickMenuOverManagedPlaybackReturnsToThePlayer() {
+    MediaDaemon daemon;
+    daemon.features = {QStringLiteral("MediaWindow1")};
+    daemon.page1 = {session(QStringLiteral("live"), QStringLiteral("Piece"),
+                            QStringLiteral("playing"), 4000000, monotonicUs(),
+                            9000000,
+                            {QStringLiteral("play"), QStringLiteral("pause"),
+                             QStringLiteral("stop")})};
+    auto bus = QDBusConnection::sessionBus();
+    QVERIFY(bus.registerService(QStringLiteral("org.arinn.Daemon1")));
+    QVERIFY(bus.registerVirtualObject(QStringLiteral("/org/arinn"), &daemon,
+                                      QDBusConnection::SubPath));
+    ShellStandIn backend;
+    backend.m_connected = true;
+    backend.m_return = QStringLiteral("player-window");
+    SessionGuardStandIn guard;
+    QQmlApplicationEngine engine;
+    installAssetImageProvider(&engine);
+    engine.rootContext()->setContextProperty(QStringLiteral("backend"), &backend);
+    engine.rootContext()->setContextProperty(QStringLiteral("sessionGuard"), &guard);
+    engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
+    auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().value(0));
+    QVERIFY(window);
+    window->show();
+    window->requestActivate();
+    auto catalog = window->findChild<MediaCatalog *>(QStringLiteral("mediaCatalog"));
+    auto player = window->findChild<QQuickItem *>(QStringLiteral("productionPlayer"));
+    auto menu = window->findChild<QQuickItem *>(QStringLiteral("quickMenu"));
+    auto home = window->findChild<QQuickItem *>(QStringLiteral("productionHome"));
+    QVERIFY(catalog && player && menu && home);
+    QTRY_VERIFY(catalog->playerSession());
+    const auto entryId =
+        catalog->continueEntries().at(0).toMap().value(QStringLiteral("id")).toString();
+    QVERIFY(QMetaObject::invokeMethod(window, "openSession", Q_ARG(QVariant, entryId),
+                                      Q_ARG(QVariant, false)));
+    QTRY_COMPARE(catalog->presentationState(), QStringLiteral("active"));
+    QTRY_COMPARE(player->property("activeFocus").toBool(), true);
+    backend.m_home = false;
+    emit backend.changed();
+    // The quick-menu key: the platform reports Home state, then the intent.
+    emit backend.quickMenuRequested();
+    backend.m_home = true;
+    emit backend.changed();
+    QTRY_VERIFY(menu->isVisible());
+    QTRY_VERIFY(menu->property("activeFocus").toBool());
+    QVERIFY(!player->isVisible());
+    QVERIFY(!home->isVisible());
+    QCOMPARE(window->color(), QColor(Qt::transparent));
+    // Now playing is the managed session.
+    auto media = window->findChild<QQuickItem *>(QStringLiteral("quickMenuMediaLabel"));
+    QVERIFY(media);
+    QCOMPARE(media->property("text").toString(), QStringLiteral("Piece"));
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_COMPARE(backend.backs, 1);
+    QVERIFY(!menu->isVisible());
+    QVERIFY(!home->isVisible());
+    // The platform presents the player again and reports Home hidden.
+    backend.m_home = false;
+    emit backend.changed();
+    // At once, not only when the 3 s Return bound expires.
+    QTRY_VERIFY_WITH_TIMEOUT(player->isVisible(), 1000);
+    QTRY_VERIFY_WITH_TIMEOUT(player->property("activeFocus").toBool(), 1000);
+    QCOMPARE(catalog->presentationState(), QStringLiteral("active"));
+    // The bound never shows Home over the video afterwards.
+    QTest::qWait(3200);
+    QVERIFY(player->isVisible());
+    QVERIFY(!home->isVisible());
+  }
   void resumeTargetOnlyForStoppedLibraryContent() {
     MediaDaemon daemon;
     auto stopped = session(QStringLiteral("stopped"), QStringLiteral("Film"), QStringLiteral("stopped"), 0, monotonicUs(), 9000000, {});

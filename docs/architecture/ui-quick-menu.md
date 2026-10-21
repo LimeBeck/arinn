@@ -54,6 +54,8 @@ reports a result it did not get.
   intents, Back/Home/Menu keys, outside click, the Sound row with and without
   platform control, Now playing without play/pause or a session, the degraded
   form and the focus hand-off, the sheet geometry and the scrim.
+- `media-catalog` `quickMenuOverManagedPlaybackReturnsToThePlayer`: over managed
+  playback, Back returns to the live player at once and Home never shows.
 - `arinn-quick-menu-test` (`quick-menu`): Main.qml with the real `Backend` and
   a fake `Daemon1`: Back over an Activity calls `Back` without showing Home,
   Open Home and `HomeRequested` replace the sheet, Back over Home returns focus

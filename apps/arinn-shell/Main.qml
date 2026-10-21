@@ -333,6 +333,12 @@ Window {
         target: backend
         ignoreUnknownSignals: true
         function onChanged() {
+            // The Return of the quick menu is done: the Activity has the
+            // screen again, including a managed player (ADR-0106).
+            if (!backend.homeVisible && !root.quickMenuOpen && root.activityBehind) {
+                returnBound.stop();
+                root.activityBehind = false;
+            }
             if (backend.homeVisible) root.leavingPlayback = false;
             if (!mediaCatalog.inputLayerActive) return;
             if (backend.homeVisible) root.showPlaybackHome();

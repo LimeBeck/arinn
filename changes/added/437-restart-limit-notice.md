@@ -1,0 +1,1 @@
+- When `arinnd` or the shell stops after repeated failures (the systemd start limit), a desktop notification says "Arinn stopped after repeated failures" and names the commands to collect diagnostics and to start Arinn again. Exit status 2 and the restart after an update (status 75) behave as before ([#437](https://github.com/LimeBeck/arinn/issues/437)).

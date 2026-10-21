@@ -108,8 +108,8 @@ waits (`plugins/desktop/src/launches.rs`):
   application launch.
 - **Not observable.** Without a window inventory (no platform adapter), and for
   D-Bus activated entries, which have no Arinn unit, the launch succeeds at
-  dispatch as before. If the inventory disappears during the wait, the launch
-  ends the same way.
+  dispatch as before. If the inventory stays missing for 5 s during the wait
+  (a reconnecting platform adapter is shorter), the launch ends the same way.
 
 `CancelLaunch(generation, id)` signals every unfinished launch of that desktop ID.
 Each one stops its own unit with `StopUnit(…, "replace")`, so systemd stops the

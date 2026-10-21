@@ -108,6 +108,7 @@ impl Handler {
             || async { client.snapshot().await.ok() },
             &unit,
             &mut ticket.cancel,
+            launches::INVENTORY_GRACE,
         )
         .await;
         if ticket.cancelled() {

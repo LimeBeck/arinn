@@ -23,6 +23,10 @@ use tokio::sync::watch;
 pub const POLL: Duration = Duration::from_millis(200);
 /// How long `cancel` waits for a launch to stop its unit.
 const STOP_WAIT: Duration = Duration::from_secs(10);
+/// How long the window inventory may be missing during a launch before the
+/// launch counts as dispatched. A reconnecting platform adapter is a gap,
+/// not the end of the launch.
+pub const INVENTORY_GRACE: Duration = Duration::from_secs(5);
 
 /// What a launch observes; implemented by the systemd unit and by tests.
 pub trait Scope {
@@ -78,8 +82,9 @@ impl Baseline {
 /// Wait for the launched application's window. `cached` returns the latest
 /// inventory the provider holds; `fresh` reads it again, used once the unit
 /// has ended so that a window reported just before is not missed. `None`
-/// means the inventory is gone: the launch then counts as dispatched, as
-/// for a provider that cannot observe windows.
+/// means there is no inventory. If it stays missing for `grace`, the launch
+/// counts as dispatched, as for a provider that cannot observe windows.
+#[allow(clippy::too_many_arguments)] // The inputs of one decision.
 pub async fn wait<S, C, F, Fut>(
     id: &str,
     entries: &BTreeMap<String, Entry>,
@@ -88,6 +93,7 @@ pub async fn wait<S, C, F, Fut>(
     fresh: F,
     scope: &S,
     cancel: &mut watch::Receiver<bool>,
+    grace: Duration,
 ) -> Result<(), ErrorCode>
 where
     S: Scope,
@@ -95,16 +101,25 @@ where
     F: Fn() -> Fut,
     Fut: Future<Output = Option<WindowSnapshot>>,
 {
+    let mut missing_since: Option<tokio::time::Instant> = None;
     loop {
         if *cancel.borrow_and_update() {
             scope.stop().await?;
             return Err(ErrorCode::Cancelled);
         }
-        let Some(snapshot) = cached() else {
-            return Ok(());
-        };
-        if baseline.produced(id, entries, &snapshot) {
-            return Ok(());
+        match cached() {
+            Some(snapshot) => {
+                missing_since = None;
+                if baseline.produced(id, entries, &snapshot) {
+                    return Ok(());
+                }
+            }
+            None => {
+                let since = *missing_since.get_or_insert_with(tokio::time::Instant::now);
+                if since.elapsed() >= grace {
+                    return Ok(());
+                }
+            }
         }
         if !scope.running().await {
             let Some(snapshot) = fresh().await else {
@@ -311,6 +326,7 @@ mod tests {
                 || async { Some(later.clone()) },
                 &scope,
                 &mut cancel_rx,
+                INVENTORY_GRACE,
             ),
         )
         .await
@@ -384,6 +400,7 @@ mod tests {
                 || async { Some(renamed.clone()) },
                 &scope,
                 &mut cancel_rx,
+                INVENTORY_GRACE,
             ),
         )
         .await;
@@ -391,10 +408,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn without_an_inventory_the_launch_counts_as_dispatched() {
+    async fn a_lasting_inventory_gap_counts_as_dispatched_a_short_one_does_not() {
         let scope = Fixture::default();
         scope.running.store(true, Ordering::SeqCst);
         let (_cancel, mut cancel_rx) = watch::channel(false);
+        let grace = Duration::from_millis(500);
+        let started = tokio::time::Instant::now();
         let result = wait(
             "game.desktop",
             &entries(),
@@ -403,9 +422,28 @@ mod tests {
             || async { None },
             &scope,
             &mut cancel_rx,
+            grace,
         )
         .await;
         assert_eq!(result, Ok(()));
+        assert!(started.elapsed() >= grace);
+        // The inventory returns within the grace: still starting.
+        let reads = AtomicU64::new(0);
+        let result = tokio::time::timeout(
+            Duration::from_millis(1500),
+            wait(
+                "game.desktop",
+                &entries(),
+                Baseline::new(&snapshot(vec![])),
+                || (reads.fetch_add(1, Ordering::SeqCst) % 2 == 1).then(|| snapshot(vec![])),
+                || async { Some(snapshot(vec![])) },
+                &scope,
+                &mut cancel_rx,
+                grace,
+            ),
+        )
+        .await;
+        assert!(result.is_err(), "{result:?}");
     }
 
     #[tokio::test]
@@ -427,6 +465,7 @@ mod tests {
                     || async { Some(snapshot(vec![])) },
                     &*scope,
                     &mut ticket.cancel,
+                    INVENTORY_GRACE,
                 )
                 .await;
                 if result == Err(ErrorCode::Cancelled) {

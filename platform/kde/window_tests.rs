@@ -662,6 +662,85 @@ async fn home_requests_reject_untrusted_invalid_and_obsolete_adapter_calls() {
         .unwrap();
 }
 
+/// ADR-0106: the quick-menu key commits the same Home state as an explicit
+/// Home request, but only its own intent: neither request emits the other's
+/// signal, and untrusted or invalid calls emit nothing.
+#[tokio::test]
+async fn quick_menu_requests_are_distinct_from_home_requests() {
+    use arinn_protocol::production::ProductionDaemonProxy;
+    let f = Fixture::new().await;
+    f.core
+        .connection
+        .object_server()
+        .at(
+            production::PATH,
+            Daemon {
+                core: f.core.clone(),
+            },
+        )
+        .await
+        .unwrap();
+    let shell = ProductionDaemonProxy::new(&f.stranger).await.unwrap();
+    let adapter = ProductionDaemonProxy::new(&f.kwin).await.unwrap();
+    let mut menus = shell.receive_quick_menu_requested().await.unwrap();
+    let mut homes = shell.receive_home_requested().await.unwrap();
+    let quiet = Duration::from_millis(50);
+    // Untrusted and invalid calls change no state and emit no intent.
+    assert_eq!(
+        normalize_error(
+            shell
+                .report_quick_menu_request("activity", "screen")
+                .await
+                .unwrap_err()
+        ),
+        ErrorCode::PermissionDenied
+    );
+    assert_eq!(
+        normalize_error(
+            adapter
+                .report_quick_menu_request(&"x".repeat(8193), "screen")
+                .await
+                .unwrap_err()
+        ),
+        ErrorCode::InvalidArgument
+    );
+    assert!(!shell.status().await.unwrap().0.home_visible);
+    assert!(tokio::time::timeout(quiet, menus.next()).await.is_err());
+    // Every press is delivered, identical repeats included.
+    for _ in 0..2 {
+        adapter
+            .report_quick_menu_request("activity", "screen")
+            .await
+            .unwrap();
+        let event = tokio::time::timeout(Duration::from_secs(2), menus.next())
+            .await
+            .unwrap()
+            .unwrap();
+        let args = event.args().unwrap();
+        assert_eq!(args.epoch, f.core.epoch);
+        assert_eq!(args.target, "activity");
+        assert_eq!(args.output, "screen");
+        let (status,) = shell.status().await.unwrap();
+        assert!(status.home_visible);
+        assert_eq!(status.return_window, "activity");
+        assert_eq!(status.home_output, "screen");
+    }
+    assert!(tokio::time::timeout(quiet, homes.next()).await.is_err());
+    // An explicit Home request is not a quick-menu request.
+    adapter
+        .report_home_request("activity", "screen")
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(2), homes.next())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(tokio::time::timeout(quiet, menus.next()).await.is_err());
+    // A late subscriber receives no historical intent.
+    let mut late = shell.receive_quick_menu_requested().await.unwrap();
+    assert!(tokio::time::timeout(quiet, late.next()).await.is_err());
+}
+
 /// ADR-0073 producer: authenticate before validation, publish only exact live
 /// context, and never let a rejected report erase an established association.
 #[tokio::test]

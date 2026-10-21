@@ -571,6 +571,9 @@ The platform layer registers the global Home shortcut, which MUST work while foc
 
 The explicit presentation transport is `Daemon1.ReportHomeRequest` →
 `HomeRequested(epoch, target, output)` ([ADR-0069](../adr/0069-explicit-home-presentation-requests.md)).
+The quick-menu key uses the same path with its own request,
+`Daemon1.ReportQuickMenuRequest` → `QuickMenuRequested(epoch, target, output)`
+([ADR-0106](../adr/0106-quick-menu-presentation.md)).
 Ordinary `ReportHome`/`Changed` updates remain state-only, including reconnect and
 window remap. This implements the existing §6.3 distinction between Home intent
 and state recovery; production shell consumption follows the contract separately.

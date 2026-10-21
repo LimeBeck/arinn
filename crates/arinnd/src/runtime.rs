@@ -1687,6 +1687,37 @@ impl Daemon {
         target: &str,
         output: &str,
     ) -> zbus::Result<()>;
+    /// The quick-menu key (ADR-0106): the same platform state as an explicit
+    /// Home request, but the shell opens the quick menu instead of Home.
+    async fn report_quick_menu_request(
+        &self,
+        target: &str,
+        output: &str,
+        #[zbus(header)] h: Header<'_>,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+    ) -> production::Result<()> {
+        self.core
+            .windows
+            .report_home(
+                &self.core.platform,
+                &self.core.connection,
+                h,
+                true,
+                target,
+                output,
+            )
+            .await?;
+        Self::changed(&emitter).await?;
+        Self::quick_menu_requested(&emitter, &self.core.epoch, target, output).await?;
+        Ok(())
+    }
+    #[zbus(signal)]
+    async fn quick_menu_requested(
+        emitter: &SignalEmitter<'_>,
+        epoch: &str,
+        target: &str,
+        output: &str,
+    ) -> zbus::Result<()>;
     #[zbus(signal)]
     async fn changed(emitter: &SignalEmitter<'_>) -> zbus::Result<()>;
 

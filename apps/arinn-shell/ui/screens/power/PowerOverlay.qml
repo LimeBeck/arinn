@@ -21,7 +21,6 @@ FocusScope {
     property bool registryKnown: true
     // Volume and mute keys work only while the shell is on screen (OQ-04).
     property bool keysEnabled: false
-    property bool pointerMode: false
     readonly property bool open: menuOpen
     property bool menuOpen: false
     // The volume HUD and the power menu read nothing else.
@@ -62,7 +61,9 @@ FocusScope {
     // A lock or sleep hides the shell. After an accepted request the menu
     // has done its job: wake returns to the screen underneath (§5.7).
     function sessionBlocked() {
-        if (menuOpen && control && control.acceptedAction.length > 0)
+        // The lifecycle signal and the daemon's reply travel on different
+        // buses: a request still in flight counts too.
+        if (menuOpen && control && (control.acceptedAction.length > 0 || control.pendingAction.length > 0))
             closeMenu();
     }
     function volumeKey(key) {
@@ -111,7 +112,6 @@ FocusScope {
         visible: root.menuOpen
         enabled: root.menuOpen
         focus: root.menuOpen
-        pointerMode: root.pointerMode
         closingApplications: root.runningApplications
         closingKnown: root.registryKnown
         sleepAvailability: root.control ? root.control.suspend : "unknown"

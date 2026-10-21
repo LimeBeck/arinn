@@ -9,9 +9,14 @@ namespace {
 const QString service = QStringLiteral("org.arinn.Daemon1");
 const QString path = QStringLiteral("/org/arinn/Daemon1");
 const QString interface = QStringLiteral("org.arinn.SystemControl1");
-// The daemon bounds a power request at 10 s and lists inhibitors around it.
-constexpr int powerTimeout = 15000;
-constexpr int readTimeout = 5000;
+// Client bounds cover the whole daemon operation, so the shell never gives
+// up on a change the daemon still makes. A power request: system bus
+// connect 2 s, inhibitor list 2 s, logind 10 s, list again on refusal 2 s.
+constexpr int powerTimeout = 20000;
+// GetPower: connect, list and three Can* reads, 2 s each.
+constexpr int readTimeout = 12000;
+// A volume change: up to four pactl runs of 2 s each.
+constexpr int volumeTimeout = 10000;
 // Reader bounds of the contract.
 constexpr int maxInhibitors = 16;
 constexpr int maxLevel = 150;
@@ -187,7 +192,7 @@ void SystemControl::volumeCall(const QString &member,
   call.setArguments(arguments);
   const quint64 request = ++m_volumeRequest;
   auto pending = new QDBusPendingCallWatcher(
-      QDBusConnection::sessionBus().asyncCall(call, readTimeout), this);
+      QDBusConnection::sessionBus().asyncCall(call, volumeTimeout), this);
   connect(pending, &QDBusPendingCallWatcher::finished, this,
           [this, request, show](QDBusPendingCallWatcher *watcher) {
             const QDBusMessage reply = watcher->reply();

@@ -40,7 +40,9 @@ FocusScope {
     // timer turns a sleep intent into success.
     property string refusalMessage: describeRefusal(refusalCode, refusalAction, inhibitors)
     readonly property bool accepted: acceptedAction.length > 0 && !refused
-    property bool pointerMode: false
+    // The shell's one input mode (spec §6.1, ADR-0095): hover moves focus
+    // only in pointer mode.
+    property bool pointerMode: Ui.InputMode.pointerActive
     property bool hoverFocusEnabled: true
     readonly property bool refused: refusalMessage.length > 0
     property string step: "menu" // menu, confirm
@@ -148,7 +150,7 @@ FocusScope {
     }
 
     function noteDpad() {
-        pointerMode = false;
+        Ui.InputMode.keyPressed();
         hoverFocusEnabled = true;
     }
     function menuItems() {

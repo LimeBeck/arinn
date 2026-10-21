@@ -222,7 +222,7 @@ in `config.toml`, owned by the platform layer like the Home key
 - **volume and mute** of the default audio output, executed by the platform layer;
 - **network status** (`SystemStatus1`);
 - **Sleep** and the **power menu**, as described under *Power* below;
-- **Open Home**, which replaces the sheet with the fullscreen Home, focus on Return;
+- **Open Home**, which replaces the sheet with the fullscreen Home, focus on Return when there is a return Activity and otherwise where Home puts it ([§6.1](#61-focus));
 - **Close Arinn**, as in global navigation.
 
 The sheet is the *sheet* focus scope ([§6.1](#61-focus)); focus starts on its

@@ -113,6 +113,13 @@ package() {
     -t "${pkgdir}/usr/lib/qt6/qml/org/arinn/background/"
   install -Dm755 platform/kde/arinn-kwin-adapter "${pkgdir}/usr/lib/arinn/arinn-kwin-adapter"
   install -Dm755 platform/kde/arinn-shell-launch "${pkgdir}/usr/lib/arinn/arinn-shell-launch"
+  # The global on-screen keyboard on KDE/Wayland (ADR-0105): KWin's input
+  # method and its desktop file, and the remote's microphone remapped to a
+  # key Qt and X11 can name (hwdb, rebuilt by the systemd pacman hook).
+  install -Dm755 "${target}"/release/arinn-input-method "${pkgdir}/usr/lib/arinn/arinn-input-method"
+  install -Dm644 packaging/desktop/org.arinn.InputMethod.desktop \
+    "${pkgdir}/usr/share/applications/org.arinn.InputMethod.desktop"
+  install -Dm644 packaging/udev/70-arinn-remote.hwdb "${pkgdir}/usr/lib/udev/hwdb.d/70-arinn-remote.hwdb"
   # Menu entry and icon (#289); starting Arinn from the menu does not enable autostart.
   install -Dm755 packaging/bin/arinn-open "${pkgdir}/usr/lib/arinn/arinn-open"
   # Restarts running Arinn user services after an upgrade (#355).

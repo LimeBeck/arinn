@@ -83,9 +83,55 @@ The deliverer delivers only into the target bound at `[open, S]`. Before every r
   - `commit_string` and `keysym` deliver.
   - KWin's `deactivate` ends the session at once; the helper reports `locked` unless the lock service explicitly answers unlocked, then `focus`.
 
+## KDE Plasma 6/Wayland
+
+The pieces:
+
+- **The KWin script** registers `ArinnKeyboard`. The daemon writes the keys to it through KGlobalAccel (`platform/kde/global_home.rs`).
+  - The script calls `Request()` only after an explicit unlocked ScreenSaver reply, over an active normal application window, with Home hidden.
+  - It excludes the panel window (shell identity and title `org.arinn.KeyboardPanel`) from the shell, the inventory and the Return target.
+  - It places the panel along the bottom of the active output and keeps it above.
+- **The daemon's KDE code** (`platform/kde/keyboard_config.rs`) runs on each new KWin adapter connection:
+  - it sets `kwinrc [Wayland] InputMethod` to `org.arinn.InputMethod.desktop` only when the entry is empty, and sends KConfig's change notification;
+  - it keeps the `arinn-keyboard-panel` window rule in `kwinrulesrc` (accept focus, above, no border and the skip flags, all forced) and asks KWin to reconfigure;
+  - it never writes a file with immutable markers;
+  - it logs `Conflict` when another input method is chosen.
+- **`arinn-input-method`** (`platform/kde/input-method`) is what KWin starts. A pure state machine (`machine.rs`) decides; the I/O layer carries out its decisions.
+  - `[open, S]`: lock check, `forceActivate()`, wait 1 s for the context, `grab_keyboard`, `Opened`.
+  - Panel keys (evdev 103, 108, 105, 106, 28, 96, 352, 353, 1, 158) become `Input` on press; held arrows repeat at the grab's rate.
+  - Every other key is forwarded with `key`, and modifiers with `modifiers`.
+  - Text goes through `commit_string` with the context's latest `commit_state` serial; editing keys through `keysym`.
+  - A context deactivated by KWin ends the session (`focus`). A lock (checked before each delivery and every 500 ms) ends it (`locked`). Closing releases the context with `VirtualKeyboard.active = false`.
+  - A context without a session (an application's own text-input) shows nothing and forwards every key.
+
 ## Verification status
 
-- **Implemented here:**
+- **Contract.**
   - `arinn-protocol` validation tests;
-  - a private-bus check that a fixture export matches both XML files.
-- **Not implemented yet:** the daemon routing, the deliverers and the shell's external mode. They follow in the implementation of [#434](https://github.com/LimeBeck/arinn/issues/434), which records its own verification and the open operator test (G-5.9).
+  - live introspection of both interfaces against their XML (`arinn-protocol` fixture and the daemon export).
+- **Daemon** (`runtime::keyboard_routing::tests`, private buses):
+  - lifecycle and toggle;
+  - the trust rules, including the KDE child-process check and provider callers;
+  - the open timeout, the poll timeout and deliverer replacement;
+  - a vanished deliverer;
+  - the queue bound and concurrent polls;
+  - no typed text or key name in log records.
+- **KDE configuration** (`keyboard_config` tests) and KGlobalAccel writes (`global_home` tests, `adapter_connection_applies_configured_home_shortcut`).
+- **X11/EWMH:** see [x11-ewmh.md](x11-ewmh.md#on-screen-keyboard) (Xvfb tests).
+- **KDE input method** (`arinn-input-method` tests): the state machine, and a scenario against a fake `zwp_input_method_v1` compositor, a fake `VirtualKeyboard`, lock service and daemon:
+  - no auto-show;
+  - force, grab and Opened;
+  - panel keys and forwarding;
+  - commit with the serial, and keysyms;
+  - a lock ends the session and refuses a new one;
+  - focus loss;
+  - close releases the context.
+- **KWin script:** Node tests.
+- **Shell:** see [ui-keyboard.md](ui-keyboard.md#verification).
+- **Not verified here.** No KWin, no real compositor and no hardware are available here. These need the owner's operator test on the HTPC (G-5.9):
+  - KWin 6 starting the input method from `kwinrc`;
+  - `forceActivate` and the keyboard grab with Chrome;
+  - the window rule keeping the panel unfocused, and the script's placement (it assigns `frameGeometry` from a plain object);
+  - commits in Chrome with and without its Wayland IME;
+  - XFCE with a real window manager;
+  - the hwdb remap of the microphone.

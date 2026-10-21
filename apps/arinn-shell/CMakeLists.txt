@@ -7,6 +7,8 @@ add_subdirectory("${PROJECT_SOURCE_DIR}/platform/session"
 # Activity background consumer foundations (ADR-0087): sealed pixels and the
 # frame admission gate, with their own tests.
 add_subdirectory(background)
+add_subdirectory("${PROJECT_SOURCE_DIR}/platform/keyboard"
+    "${CMAKE_CURRENT_BINARY_DIR}/platform-keyboard")
 
 qt_add_executable(arinn-shell main.cpp backend.cpp backend.h input_bindings.cpp input_bindings.h browser_catalog.cpp browser_catalog.h return_association.cpp return_association.h media_catalog.cpp media_catalog.h library_catalog.cpp library_catalog.h settings_catalog.cpp settings_catalog.h asset_images.cpp asset_images.h)
 target_sources(arinn-shell PRIVATE startup_home.cpp startup_home.h)
@@ -29,7 +31,7 @@ set(ARINN_PRESENTATION_FILES
     ui/HomeRow.qml ui/HomeView.qml ui/BrandLockup.qml ui/BrandButton.qml
     ui/ProgressTrack.qml ui/Skeleton.qml ui/StatusPane.qml ui/LaunchOverlay.qml
     ui/AmbientGlow.qml ui/ActivityBackground.qml ui/VolumeHud.qml ui/OnScreenKeyboard.qml ui/KeyboardButton.qml ui/KeyboardIcon.qml
-    ui/QuickMenu.qml
+    ui/QuickMenu.qml ui/KeyboardPanel.qml
     ui/fonts/Onest.ttf)
 foreach(target arinn-shell arinn-shell-test)
     qt_add_resources(${target} presentation PREFIX "/" FILES ${ARINN_PRESENTATION_FILES})
@@ -180,15 +182,44 @@ foreach(target arinn-shell arinn-shell-test arinn-ui-gallery arinn-ui-test arinn
         FILES "${PROJECT_SOURCE_DIR}/docs/design/handoff/assets/arinn-mark.svg")
 endforeach()
 
+# The global on-screen keyboard (ADR-0105): the daemon client, the panel's
+# external mode and Main.qml's handling of Back, Home and a lock.
+qt_add_executable(arinn-external-keyboard-test external_keyboard_test.cpp
+    browser_catalog.cpp browser_catalog.h return_association.cpp return_association.h
+    media_catalog.cpp media_catalog.h library_catalog.cpp library_catalog.h
+    settings_catalog.cpp settings_catalog.h asset_images.cpp asset_images.h)
+target_link_libraries(arinn-external-keyboard-test PRIVATE Qt6::DBus Qt6::Qml Qt6::Quick Qt6::Test)
+target_compile_definitions(arinn-external-keyboard-test PRIVATE
+    ARINN_MAIN_QML="${CMAKE_CURRENT_SOURCE_DIR}/Main.qml"
+    ARINN_PANEL_QML="${CMAKE_CURRENT_SOURCE_DIR}/ui/KeyboardPanel.qml")
+add_test(NAME external-keyboard COMMAND dbus-run-session -- $<TARGET_FILE:arinn-external-keyboard-test>)
+set_tests_properties(external-keyboard PROPERTIES ENVIRONMENT
+    "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software")
+# The same cases on an isolated Xvfb with Qt's xcb platform: the panel is
+# override-redirect, has WM_HINTS input = False and leaves focus alone.
+find_path(ARINN_XCB_INCLUDE xcb/xcb.h)
+find_library(ARINN_XCB_LIBRARY xcb)
+if(ARINN_XCB_INCLUDE AND ARINN_XCB_LIBRARY)
+    target_compile_definitions(arinn-external-keyboard-test PRIVATE ARINN_TEST_XCB)
+    target_include_directories(arinn-external-keyboard-test PRIVATE "${ARINN_XCB_INCLUDE}")
+    target_link_libraries(arinn-external-keyboard-test PRIVATE "${ARINN_XCB_LIBRARY}")
+endif()
+add_test(NAME external-keyboard-x11 COMMAND dbus-run-session -- $<TARGET_FILE:arinn-external-keyboard-test>)
+set_tests_properties(external-keyboard-x11 PROPERTIES
+    ENVIRONMENT "ARINN_TEST_XVFB=1;QT_QUICK_BACKEND=software"
+    SKIP_RETURN_CODE 77)
+
 foreach(target arinn-shell arinn-shell-test arinn-session-lifecycle-test
     arinn-browser-catalog-test arinn-media-catalog-test arinn-library-catalog-test
-    arinn-quick-menu-test arinn-launch-screen-test)
+    arinn-quick-menu-test arinn-launch-screen-test arinn-external-keyboard-test)
     target_sources(${target} PRIVATE activity_background.cpp activity_background.h)
     target_link_libraries(${target} PRIVATE arinn-background-frame-gate)
     target_sources(${target} PRIVATE browse_catalog.cpp browse_catalog.h
         keyboard_model.cpp keyboard_model.h
         download_catalog.cpp download_catalog.h input_mode.cpp input_mode.h
-        system_status.cpp system_status.h system_control.cpp system_control.h)
+        system_status.cpp system_status.h system_control.cpp system_control.h
+        external_keyboard.cpp external_keyboard.h)
+    target_link_libraries(${target} PRIVATE arinn-keyboard-panel)
 endforeach()
 foreach(target arinn-shell arinn-shell-test arinn-session-lifecycle-test)
     qt_add_resources(${target} downloads_screen PREFIX "/" FILES

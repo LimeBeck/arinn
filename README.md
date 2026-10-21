@@ -190,6 +190,7 @@ The prototype runs as temporary systemd user units and a session-only KWin scrip
 | --- | --- |
 | Meta+F12, remote Home | Global Home: show Arinn over the current application (`home_shortcut` in `config.toml`) |
 | Meta+F11, remote Menu (≡) | Quick menu: a side sheet over the current application (`quick_menu_shortcut` in `config.toml`). Inside Arinn, Menu toggles navigation |
+| Meta+F10, remote microphone | On-screen keyboard over the current application; again to hide it (`keyboard_shortcut` in `config.toml`) |
 | Arrows | Move focus |
 | Enter | Select |
 | Esc / Backspace | Back: close Home and return to the application; without one, open navigation |

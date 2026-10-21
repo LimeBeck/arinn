@@ -784,6 +784,13 @@
     </message>
 </context>
 <context>
+    <name>KeyboardPanel</name>
+    <message>
+        <source>Enter</source>
+        <translation>Ввод</translation>
+    </message>
+</context>
+<context>
     <name>LaunchOverlay</name>
     <message>
         <source>%1 did not open</source>

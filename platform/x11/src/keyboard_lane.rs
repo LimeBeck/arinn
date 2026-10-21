@@ -36,18 +36,10 @@ enum Event {
 }
 
 fn worker(
-    display: Option<String>,
-    keys: Vec<Sequence>,
+    mut keyboard: Keyboard,
     commands: mpsc::Receiver<Command>,
     events: tmpsc::UnboundedSender<Event>,
 ) {
-    let mut keyboard = match Keyboard::connect(display.as_deref(), keys) {
-        Ok(keyboard) => keyboard,
-        Err(_) => {
-            let _ = events.send(Event::Failed);
-            return;
-        }
-    };
     let mut session: Option<String> = None;
     loop {
         let wait = Duration::from_millis(if session.is_some() { 20 } else { 50 });
@@ -120,8 +112,9 @@ fn worker(
 }
 
 /// Starts the keyboard lane on `c` against the daemon at `destination`.
-/// Returns false, with nothing started, when the daemon has no keyboard
-/// bridge (an older daemon): the rest of the adapter keeps working.
+/// Returns false, with nothing started, when the keyboard cannot work here
+/// (no XTest) or the daemon has no keyboard bridge (an older daemon): the
+/// rest of the adapter keeps working.
 pub async fn start<F>(
     c: &Connection,
     destination: &str,
@@ -136,6 +129,16 @@ where
         + Sync
         + 'static,
 {
+    let keyboard =
+        match tokio::task::spawn_blocking(move || Keyboard::connect(display.as_deref(), keys))
+            .await?
+        {
+            Ok(keyboard) => keyboard,
+            Err(_) => {
+                eprintln!("arinn-platform-x11: no XTest; on-screen keyboard off");
+                return Ok(false);
+            }
+        };
     let bridge = KeyboardBridgeProxy::builder(c)
         .destination(destination.to_owned())?
         .build()
@@ -147,7 +150,7 @@ where
     let unlocked = Arc::new(unlocked);
     let (commands, receiver) = mpsc::channel();
     let (sender, mut events) = tmpsc::unbounded_channel();
-    std::thread::spawn(move || worker(display, keys, receiver, sender));
+    std::thread::spawn(move || worker(keyboard, receiver, sender));
     let open: Arc<Mutex<Option<String>>> = Arc::default();
 
     let poll = bridge.clone();

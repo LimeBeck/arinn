@@ -187,6 +187,42 @@ token.
 
   They do not qualify xfwm's compositor, DPI or colour on the TV.
 
+## On-screen keyboard
+
+The adapter is the X11 deliverer of the global on-screen keyboard
+([ADR-0105](../adr/0105-global-on-screen-keyboard-platform-text-delivery.md),
+[transport](external-keyboard.md)). A keyboard worker (`keyboard.rs`) runs on
+its own thread with its own X connection; `keyboard_lane.rs` connects it with
+`KeyboardBridge1`. A daemon without the bridge leaves the keyboard off and the
+rest of the adapter unchanged.
+
+- **The key.** The worker grabs `keyboard_shortcut` (read-only from
+  `config.toml`, default Meta+F10) and XF86Launch1 on the root window, with the
+  lock-modifier variants. Launch1 is the remote's microphone after the packaged
+  hwdb remap. A key that is also a Home or quick-menu key is left out (Home
+  and the quick menu win, ADR-0106), and a key another client holds is
+  skipped. A press requests a session only after an explicit
+  unlocked ScreenSaver reply.
+- **Open.** The target is `_NET_ACTIVE_WINDOW`. It must be listed in
+  `_NET_CLIENT_LIST`, of normal type and not the shell; otherwise the session is
+  `unavailable`. The worker then passively grabs Up, Down, Left, Right, Return,
+  KP_Enter, Escape and XF86Back, unmodified and with lock variants, and needs
+  at least an arrow and Escape or Back. Focus stays with the application; every
+  other key, Backspace and hardware typing included, reaches it.
+- **Delivery.** Before every delivery the lane needs an explicit unlocked reply,
+  and the worker checks that the target still has focus.
+  - Each character is typed through one of up to eight scratch keycodes (keycodes without
+    keysyms), mapped to its keysym in every column: Latin-1 directly,
+    otherwise `0x01000000 + code point`.
+  - A keycode that already carries the keysym is reused; otherwise the next one in rotation is remapped.
+  - The mappings are restored when the session ends.
+- **End.** A change of `_NET_ACTIVE_WINDOW`, a destroyed target, a lock or an
+  unknown lock state ends the session within 500 ms. The worker releases its
+  grabs and reports the reason. Nothing typed is logged.
+
+The shell's panel window is override-redirect, so it is never in
+`_NET_CLIENT_LIST`, never a shell candidate and never focused.
+
 Multi-output placement, real lock/suspend behavior and the transparent overlay
 on actual compositors remain qualification work. No AC or roadmap gate is
 marked passed.
@@ -271,6 +307,15 @@ ARINN_XFCE_SESSION="$PWD/target/debug/arinn-xfce-session" python tests/package/t
 ARINN_XVFB=/absolute/path/to/Xvfb cargo test -p arinn-platform-x11 -- --include-ignored
 ARINN_PLATFORM_BACKEND=ewmh cargo test -p arinnd selected_adapter_owner_excludes_the_other_backend
 ```
+
+The keyboard's ignored tests spawn their own Xvfb too. They check that:
+
+- the key reaches the worker and not the application;
+- XTest types ASCII and Cyrillic with an English keymap;
+- the panel keys are grabbed while other keys pass;
+- the shell and unlisted windows are never targets;
+- focus loss and destruction stop delivery;
+- through the lane, with a fake daemon and lock service: a locked key requests nothing, a session opens and types, and a lock ends it.
 
 The five ignored native tests each spawn their own Xvfb using `-displayfd`, create
 synthetic EWMH metadata and clients, and never read the inherited `DISPLAY`.

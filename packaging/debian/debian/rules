@@ -73,6 +73,9 @@ override_dh_auto_install:
 		-t debian/arinn/usr/lib/$(DEB_HOST_MULTIARCH)/qt6/qml/org/arinn/background/
 	install -Dm755 platform/kde/arinn-kwin-adapter debian/arinn/usr/lib/arinn/arinn-kwin-adapter
 	install -Dm755 platform/kde/arinn-shell-launch debian/arinn/usr/lib/arinn/arinn-shell-launch
+	install -Dm755 "$(CARGO_TARGET_DIR)"/release/arinn-input-method debian/arinn/usr/lib/arinn/arinn-input-method
+	install -Dm644 packaging/desktop/org.arinn.InputMethod.desktop debian/arinn/usr/share/applications/org.arinn.InputMethod.desktop
+	install -Dm644 packaging/udev/70-arinn-remote.hwdb debian/arinn/usr/lib/udev/hwdb.d/70-arinn-remote.hwdb
 	install -Dm755 packaging/bin/arinn-open debian/arinn/usr/lib/arinn/arinn-open
 	install -Dm755 packaging/bin/arinn-restart-user-services debian/arinn/usr/lib/arinn/arinn-restart-user-services
 	install -Dm644 packaging/desktop/org.arinn.Shell.desktop debian/arinn/usr/share/applications/org.arinn.Shell.desktop

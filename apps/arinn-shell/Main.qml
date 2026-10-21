@@ -408,9 +408,41 @@ Window {
                 // A lock is not a wake: no event to consume, the screen
                 // beneath comes back when the shell is shown again.
                 ambientScreen.stop();
+                // Nothing is typed into an application while locked (ADR-0105).
+                externalKeyboard.close();
             }
         }
     }
+    // The on-screen keyboard over an external application (spec §6.2,
+    // ADR-0105): a separate window that never takes focus. It shows only
+    // while the shell is off screen: Home, the quick menu's sheet, the power
+    // scope, ambient, the launch overlay and the player all live in the
+    // shell window, so the shell coming on screen for any of them, or a
+    // lock, hides the panel at once and closes the session. The platform
+    // also ends the session as focus leaves the application.
+    ExternalKeyboard { id: externalKeyboard }
+    readonly property bool shellOnScreen: backend.homeVisible || root.visible
+    Ui.KeyboardPanel {
+        id: keyboardPanel
+        objectName: "keyboardPanelWindow"
+        transientParent: null
+        active: externalKeyboard.open && !root.shellOnScreen && !sessionGuard.blocked
+        prepare: window => externalKeyboard.preparePanel(window)
+        onTyped: text => externalKeyboard.type(text)
+        onEdited: key => externalKeyboard.press(key)
+        onHideRequested: externalKeyboard.close()
+    }
+    Connections {
+        target: externalKeyboard
+        function onInput(key) { keyboardPanel.press(key); }
+        // A session that opens while the shell is on screen has no panel to
+        // show: end it rather than leave the key's second press to close it.
+        function onOpenChanged() {
+            if (externalKeyboard.open && (root.shellOnScreen || sessionGuard.blocked))
+                externalKeyboard.close();
+        }
+    }
+    onShellOnScreenChanged: if (shellOnScreen) externalKeyboard.close()
     // Home does not show the library's operation state, so report a failed
     // resume from a Continue card here.
     property bool resumeFromHome: false

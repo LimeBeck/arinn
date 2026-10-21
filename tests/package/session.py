@@ -149,6 +149,13 @@ for name in NAMES[1:]:
         expected.append("arinn-ewmh-session.target")
     assert part_of == expected, name
 assert (PREFIX / "bin/arinn-platform-x11").is_file(), "missing EWMH adapter"
+# The global on-screen keyboard on KDE/Wayland and the remote's microphone
+# remap (ADR-0105).
+assert (PREFIX / "lib/arinn/arinn-input-method").is_file(), "missing input method"
+input_method = (PREFIX / "share/applications/org.arinn.InputMethod.desktop").read_text()
+assert "X-KDE-Wayland-VirtualKeyboard=true" in input_method
+assert "Exec=/usr/lib/arinn/arinn-input-method" in input_method
+assert "KEYBOARD_KEY_c00cf=prog1" in (PREFIX / "lib/udev/hwdb.d/70-arinn-remote.hwdb").read_text()
 ewmh = unit("arinn-ewmh-session.target")
 assert set(ewmh["Unit"]["Wants"][0].split()) == {"graphical-session.target", "arinnd.service", "arinn-shell.service", "arinn-ewmh.service"}
 # The graphical target refuses direct manual start; pull it as a dependency

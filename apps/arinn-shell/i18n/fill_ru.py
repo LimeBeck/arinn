@@ -318,6 +318,28 @@ RU = {
     "Empty · The shortcut will be named after its domain: %1": "Пусто · Ярлык будет называться по домену: %1",
     "page title": "заголовок страницы",
     "domain": "домен",
+    # Quick menu (#439, ADR-0106)
+    "Quick menu": "Быстрое меню",
+    "Muted": "Звук выключен",
+    "Sound on": "Звук включён",
+    "Sound state unknown": "Состояние звука неизвестно",
+    "Network state unknown": "Состояние сети неизвестно",
+    "Not connected": "Нет подключения",
+    "Connected by cable": "Подключено по кабелю",
+    "Wi-Fi · signal %1 of 4": "Wi-Fi · сигнал %1 из 4",
+    "Wi-Fi": "Wi-Fi",
+    "Connected": "Подключено",
+    "Untitled": "Без названия",
+    "Nothing is playing": "Ничего не воспроизводится",
+    "Not available": "Недоступно",
+    "Cannot be paused from Arinn": "Arinn не может поставить на паузу",
+    "Playing · OK pauses": "Воспроизводится · OK — пауза",
+    "Paused · OK plays": "На паузе · OK — воспроизвести",
+    "%1 · OK mutes, Left and Right change the volume": "%1 · OK выключает звук, влево и вправо меняют громкость",
+    "%1 · volume control is not available yet": "%1 · управление громкостью пока недоступно",
+    "Restart, shut down, ambient": "Перезагрузка, выключение, заставка",
+    "Open Home": "Открыть главную",
+    "Select": "Выбрать",
 }
 
 # Context-specific overrides: the same English word reads differently.

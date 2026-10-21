@@ -25,10 +25,59 @@ Window {
     // backend's one-second status poll with a wide margin.
     property bool leavingPlayback: false
     Timer { id: leavingBound; interval: 10000; onTriggered: root.leavingPlayback = false }
-    color: playerOpen && !leavingStopPending && leaveError === "" ? "transparent" : Ui.Theme.background
+    // The quick menu over an Activity leaves the live window visible.
+    color: (playerOpen && !leavingStopPending && leaveError === "") || activityBehind ? "transparent" : Ui.Theme.background
     title: "Arinn"
     flags: Qt.Window | Qt.FramelessWindowHint
     readonly property bool navOpen: home.navOpen
+    // The quick menu (spec §5.7, ADR-0106). Over an Activity the shell shows
+    // no screen: `activityBehind` stays set while Back hands the screen back
+    // to that Activity, so Home never flashes in between.
+    property bool quickMenuOpen: false
+    property bool activityBehind: false
+    property var quickMenuOpener: null
+    property double shownAt: 0
+    function openQuickMenu() {
+        if (sessionGuard.blocked) return;
+        if (!quickMenuOpen) {
+            // A hidden shell, or managed playback, means an Activity is on
+            // screen. The Status poll may show the shell just before this
+            // request arrives; a shell shown that recently is still that
+            // Activity's.
+            activityBehind = !visible || playerOpen || Date.now() - shownAt < 1500;
+            quickMenuOpener = activityBehind ? null : activeFocusItem;
+            quickMenuOpen = true;
+        }
+        returnBound.stop();
+        Qt.callLater(quickMenu.start);
+    }
+    // Back: over an Activity, activate that same Activity (§6.3); over the
+    // shell, return focus to the opener.
+    function quickMenuBack() {
+        if (!quickMenuOpen) return;
+        quickMenuOpen = false;
+        if (activityBehind && backend.connected && backend.returnWindow) {
+            returnBound.restart();
+            backend.back();
+            return;
+        }
+        if (activityBehind) { quickMenuHome(); return; }
+        const opener = quickMenuOpener;
+        quickMenuOpener = null;
+        Qt.callLater(() => { if (!opener || !Ui.Focus.take(opener)) restoreFocus(); });
+    }
+    // Open Home, the Home key, or a Return that did not happen: the sheet
+    // gives way to the fullscreen Home, focus on Return.
+    function quickMenuHome() {
+        returnBound.stop();
+        quickMenuOpen = false;
+        activityBehind = false;
+        quickMenuOpener = null;
+        closeOverlays();
+        Qt.callLater(home.showHome);
+    }
+    // A Return the platform does not carry out leaves Home on screen.
+    Timer { id: returnBound; interval: 3000; onTriggered: if (root.visible) root.quickMenuHome() }
     property bool browserOpen: false
     property bool browseOpen: false
     function showBrowse() { browseCatalog.reset(); browseOpen = true; }
@@ -202,7 +251,8 @@ Window {
     // which refuses hidden or disabled items. Home's navigation menu and
     // shortcut editor cover the library and settings screens, so they win.
     // Home's navigation menu opens over every screen but the player (#329).
-    readonly property string focusedScreen: playerOpen ? "player"
+    readonly property string focusedScreen: quickMenuOpen ? "quickMenu"
+        : playerOpen ? "player"
         : home.navOpen || home.shortcutEditorOpen || home.tileActionsOpen ? "home"
         : sessionOpen ? "session"
         : browseOpen ? "browse"
@@ -213,11 +263,13 @@ Window {
         : "home"
     function screenItem(name) {
         return ({player: playerView, session: sessionView, browser: browserView, browse: browseView,
-                 library: libraryView, downloads: downloadsView, settings: settingsView, home: home})[name];
+                 library: libraryView, downloads: downloadsView, settings: settingsView, home: home,
+                 quickMenu: quickMenu})[name];
     }
     // Focus the screen on display at its preferred item.
     function restoreFocus() {
         switch (focusedScreen) {
+        case "quickMenu": quickMenu.restoreFocus(); break;
         case "player": Ui.Focus.take(playerView); break;
         case "session": sessionView.restore(); break;
         case "browser": browserView.settleFocus(); break;
@@ -262,12 +314,21 @@ Window {
             restoreFocus();
         });
     }
-    onVisibleChanged: if (visible) Qt.callLater(() => {
-        // Returning from an external activity keeps the displayed route. Home
-        // must not take focus behind Open services or another retained screen.
-        if (focusedScreen === "home") home.showHome();
-        else restoreFocus();
-    })
+    onVisibleChanged: if (!visible) {
+        // Hidden by Return, lock or dismissal: the quick menu does not survive.
+        returnBound.stop();
+        quickMenuOpen = false;
+        activityBehind = false;
+        quickMenuOpener = null;
+    } else {
+        shownAt = Date.now();
+        Qt.callLater(() => {
+            // Returning from an external activity keeps the displayed route. Home
+            // must not take focus behind Open services or another retained screen.
+            if (focusedScreen === "home") home.showHome();
+            else restoreFocus();
+        });
+    }
     Connections {
         target: backend
         ignoreUnknownSignals: true
@@ -282,6 +343,14 @@ Window {
                 Qt.callLater(() => Ui.Focus.take(playerView));
             }
         }
+    }
+    // Explicit platform requests (ADR-0069, ADR-0106).
+    Connections {
+        target: backend
+        ignoreUnknownSignals: true
+        function onQuickMenuRequested() { root.openQuickMenu(); }
+        // The Home key replaces the quick menu with Home (§6.3).
+        function onHomeRequested() { if (root.quickMenuOpen || root.activityBehind) root.quickMenuHome(); }
     }
     Connections {
         target: sessionGuard
@@ -392,6 +461,9 @@ Window {
     }
     Ui.LogicalCanvas {
         anchors.fill: parent
+        objectName: "shellScreens"
+        // Over an Activity the quick menu shows none of the screens.
+        visible: !root.activityBehind
         // Keys bubble here from every screen that left them unaccepted.
         Keys.onPressed: event => root.unhandledKey(event)
         Ui.HomeView {
@@ -821,6 +893,36 @@ Window {
                 text: backend.message
             }
             Timer { id: feedbackTimer; interval: 3000; onTriggered: feedback.text = Qt.binding(() => backend.message) }
+        }
+    }
+    // The quick menu sheet above every screen (ADR-0106).
+    Ui.LogicalCanvas {
+        anchors.fill: parent
+        Ui.QuickMenu {
+            id: quickMenu
+            anchors.fill: parent
+            z: 10
+            visible: root.quickMenuOpen
+            enabled: visible
+            focus: root.focusedScreen === "quickMenu"
+            overActivity: root.activityBehind
+            connected: backend.connected === true
+            nowPlaying: {
+                const media = mediaCatalog.continueEntries.filter(entry => entry.state === "playing" || entry.state === "paused");
+                return media.find(entry => entry.state === "playing") || media[0] || null;
+            }
+            audio: systemStatus.audio
+            network: systemStatus.network
+            wifiLevel: systemStatus.wifiLevel
+            clockText: home.clockText
+            onPlayPauseRequested: sessionId => mediaCatalog.sessionAction(sessionId, "playPause")
+            // Sleep and the power menu follow Home's power entry until the
+            // platform power path lands (#148).
+            onSleepRequested: showNotice(qsTr("Power controls are not available yet."))
+            onPowerMenuRequested: showNotice(qsTr("Power controls are not available yet."))
+            onHomeRequested: root.quickMenuHome()
+            onCloseShellRequested: root.close()
+            onBackRequested: root.quickMenuBack()
         }
     }
 }

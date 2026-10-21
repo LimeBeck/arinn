@@ -26,6 +26,7 @@ set(ARINN_PRESENTATION_FILES
     ui/HomeRow.qml ui/HomeView.qml ui/BrandLockup.qml ui/BrandButton.qml
     ui/ProgressTrack.qml ui/Skeleton.qml ui/StatusPane.qml ui/LaunchOverlay.qml
     ui/AmbientGlow.qml ui/OnScreenKeyboard.qml ui/KeyboardButton.qml ui/KeyboardIcon.qml
+    ui/QuickMenu.qml
     ui/fonts/Onest.ttf)
 foreach(target arinn-shell arinn-shell-test)
     qt_add_resources(${target} presentation PREFIX "/" FILES ${ARINN_PRESENTATION_FILES})
@@ -110,6 +111,17 @@ add_test(NAME media-catalog COMMAND dbus-run-session -- $<TARGET_FILE:arinn-medi
 set_tests_properties(media-catalog PROPERTIES ENVIRONMENT
     "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software")
 
+# The quick menu in Main.qml with the real Backend and a fake daemon (ADR-0106).
+qt_add_executable(arinn-quick-menu-test quick_menu_test.cpp backend.cpp backend.h
+    media_catalog.cpp media_catalog.h browser_catalog.cpp browser_catalog.h return_association.cpp return_association.h
+    library_catalog.cpp library_catalog.h settings_catalog.cpp settings_catalog.h asset_images.cpp asset_images.h)
+target_link_libraries(arinn-quick-menu-test PRIVATE Qt6::DBus Qt6::Qml Qt6::Quick Qt6::Test)
+target_compile_definitions(arinn-quick-menu-test PRIVATE
+    ARINN_MAIN_QML="${CMAKE_CURRENT_SOURCE_DIR}/Main.qml")
+add_test(NAME quick-menu COMMAND dbus-run-session -- $<TARGET_FILE:arinn-quick-menu-test>)
+set_tests_properties(quick-menu PROPERTIES ENVIRONMENT
+    "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software")
+
 qt_add_executable(arinn-library-catalog-test library_catalog_test.cpp library_catalog.cpp library_catalog.h
     media_catalog.cpp media_catalog.h browser_catalog.cpp browser_catalog.h return_association.cpp return_association.h settings_catalog.cpp settings_catalog.h asset_images.cpp asset_images.h)
 target_link_libraries(arinn-library-catalog-test PRIVATE Qt6::DBus Qt6::Qml Qt6::Quick Qt6::Test)
@@ -147,7 +159,8 @@ foreach(target arinn-shell arinn-shell-test arinn-ui-gallery arinn-ui-test arinn
 endforeach()
 
 foreach(target arinn-shell arinn-shell-test arinn-session-lifecycle-test
-    arinn-browser-catalog-test arinn-media-catalog-test arinn-library-catalog-test)
+    arinn-browser-catalog-test arinn-media-catalog-test arinn-library-catalog-test
+    arinn-quick-menu-test)
     target_sources(${target} PRIVATE browse_catalog.cpp browse_catalog.h
         keyboard_model.cpp keyboard_model.h
         download_catalog.cpp download_catalog.h input_mode.cpp input_mode.h

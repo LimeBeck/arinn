@@ -639,6 +639,10 @@ private slots:
     QVERIFY(sawEmptyArtwork);
     QCOMPARE(entries.at(0).toMap().value(QStringLiteral("running")).toBool(),
              true);
+    // The quick menu's Now playing row reads the state and play/pause.
+    QCOMPARE(entries.at(0).toMap().value(QStringLiteral("state")).toString(),
+             QStringLiteral("playing"));
+    QVERIFY(entries.at(0).toMap().value(QStringLiteral("playPause")).toBool());
     QVERIFY(catalog.positionUs() >= 1500000);
     QVERIFY(catalog.positionUs() < 8000000);
     const auto marked = catalog.positionUs();

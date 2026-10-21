@@ -110,6 +110,11 @@ Backend::Backend(QObject *parent) : QObject(parent) {
     publishState();
   });
   auto bus = QDBusConnection::sessionBus();
+  // Presentation intent is transient: subscribe before the first Status.
+  bus.connect(service, path, service, "HomeRequested", this,
+              SLOT(presentHome(QString, QString, QString)));
+  bus.connect(service, path, service, "QuickMenuRequested", this,
+              SLOT(presentQuickMenu(QString, QString, QString)));
   bus.connect(service, path, service, "Changed", this, SLOT(reloadCatalog()));
   bus.connect(service, path, service, "ProvidersChanged", this,
               SLOT(reloadCatalog()));
@@ -169,6 +174,18 @@ Backend::Backend(QObject *parent) : QObject(parent) {
               m_daemonOwner = reply.arguments().first().toString();
             refresh();
           });
+}
+// A request counts only for the daemon this shell is connected to; one from
+// another epoch or before the first Status is dropped, never replayed.
+void Backend::presentHome(const QString &epoch, const QString &,
+                          const QString &) {
+  if (m_connected && !epoch.isEmpty() && epoch == m_daemonEpoch)
+    emit homeRequested();
+}
+void Backend::presentQuickMenu(const QString &epoch, const QString &,
+                               const QString &) {
+  if (m_connected && !epoch.isEmpty() && epoch == m_daemonEpoch)
+    emit quickMenuRequested();
 }
 void Backend::publishState() {
   if (m_publishedItems != m_items) {

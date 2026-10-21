@@ -438,7 +438,14 @@ void MediaCatalog::publish() {
         {QStringLiteral("title"), row.title},
         {QStringLiteral("subtitle"), row.subtitle},
         {QStringLiteral("kind"), QStringLiteral("media")},
-        {QStringLiteral("running"), row.state == QLatin1String("playing")}};
+        {QStringLiteral("running"), row.state == QLatin1String("playing")},
+        // The quick menu's Now playing row (ADR-0106): the session state and
+        // whether it takes play/pause at all.
+        {QStringLiteral("state"), row.state},
+        {QStringLiteral("playPause"),
+         row.wireActions.contains(QStringLiteral("play-pause")) ||
+             row.wireActions.contains(QStringLiteral("play")) ||
+             row.wireActions.contains(QStringLiteral("pause"))}};
     // The provider's reported position, not the advancing clock: the entry
     // changes only with the snapshot, so Home's row is not rebuilt per tick.
     if (row.durationUs > 0) {

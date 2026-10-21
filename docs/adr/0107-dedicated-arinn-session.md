@@ -1,8 +1,8 @@
 # ADR-0107: Dedicated Arinn login session and an unprivileged switch to the desktop
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-21
-- **Deciders:** project owner. The owner made the product decision on 2026-10-10 ([#438](https://github.com/LimeBeck/arinn/issues/438)). The privilege boundary and security posture recommended here await the owner's review in this ADR's pull request.
+- **Deciders:** project owner. The owner made the product decision on 2026-10-10 ([#438](https://github.com/LimeBeck/arinn/issues/438)). On 2026-10-21 the owner approved, in chat, the unprivileged privilege boundary and security posture below ([recorded on #476](https://github.com/LimeBeck/arinn/pull/476#issuecomment-6328132714)), and confirmed Return to Arinn as an application-menu launcher. Technical details are under delegated authority.
 - **Amends / Supersedes:** amends [ADR-0042](0042-opt-in-session-autostart.md) (adds a second, session-based start path next to the opt-in autostart)
 - **Amended by / Superseded by:** —
 - **Specification:** §4.2, §5.7, §11, §12.4, §13, §18
@@ -56,8 +56,8 @@ logout, the greeter still preselects the Arinn entry.
 
 ## Decision
 
-**Proposed for the owner's review:** a third variant with the privilege model
-of option 2. **No privileged code and no display-manager configuration.** The
+A third variant with the privilege model of option 2, approved by the owner
+on 2026-10-21. **No privileged code and no display-manager configuration.** The
 Arinn session entry itself honours a per-user choice, and the switch is that
 user's own logout.
 
@@ -93,12 +93,25 @@ user's own logout.
    - The wrapper forwards `TERM`/`HUP`/`INT` to the desktop and exits with the
      desktop's status. When the desktop exits, it stops the Plasma target and
      removes `ARINN_SESSION_ENTRY`.
+   - Together with `ARINN_SESSION_ENTRY` it exports `ARINN_SESSION_MODE`, the
+     absolute path of the mode file it read. The switch writes that file, so
+     an `XDG_STATE_HOME` set only in the login environment (`~/.profile`) or
+     only in the user manager (`environment.d`) cannot split the two.
+   - The desktop starts with SIGINT and SIGQUIT at their defaults
+     (`env --default-signal=INT,QUIT`, coreutils 8.31 or later). Without job
+     control, sh would start a background command with both ignored, and the
+     whole desktop session would inherit that.
+   - In the desktop mode the wrapper first removes both markers from the user
+     manager, in case an earlier wrapper was killed while the manager outlived
+     it (lingering, or SDDM `Relogin=true`).
    - Without `DBUS_SESSION_BUS_ADDRESS`, the wrapper exports the user bus
      `$XDG_RUNTIME_DIR/bus` when it exists, so the XFCE helper and the desktop
      share one bus.
 3. **Switch** (`arinn-session-switch arinn|desktop [--prompt]`, POSIX shell).
-   It writes the mode atomically into the user's own state directory
-   (directory `0700`, file `0600`, temporary file and rename). It then asks the
+   It writes the mode atomically into the file named by
+   `ARINN_SESSION_MODE`, or else into the user's own state directory (file
+   `0600` via a temporary file and rename; a missing directory is created
+   `0700`, an existing one keeps its mode). It then asks the
    running desktop to log out on the session bus:
    - Plasma: `org.kde.Shutdown.logout`, or `org.kde.LogoutPrompt.promptLogout`
      with `--prompt`;
@@ -107,9 +120,20 @@ user's own logout.
    The desktop is `ARINN_SESSION_ENTRY` when it is set; otherwise the standard
    desktop name in `XDG_CURRENT_DESKTOP` (`KDE`, `XFCE`) identifies it. An
    unsupported desktop changes nothing and fails. If the desktop refuses the
-   logout request, the previous choice is restored, or the file is removed if
-   there was none, and the switch fails. The caller shows the error, and the
-   session continues.
+   logout request (the D-Bus call fails), the previous choice is restored, or
+   the file is removed if there was none, and the switch fails. The caller
+   shows the error, and the session continues.
+
+   A logout the desktop **accepts and cancels later** is not detected. Plasma's
+   `logout()` returns at once and an application's unsaved-work prompt can
+   cancel it afterwards; a second, concurrent request is ignored and still
+   returns success; XFCE's `Logout` behaves alike. The session then continues
+   with `desktop` recorded, without an error, and the next login starts the
+   plain desktop. This is an open point for the daemon and power-menu
+   follow-up (G-5.8). Directions: a pending choice that the session wrapper
+   commits only when the desktop exits soon after the request, or reporting
+   "Logout was cancelled" when the session is still running after a bound and
+   restoring the previous choice; otherwise accept and document it.
 4. **Callers.**
    - "Switch to desktop" calls `arinn-session-switch desktop` without a
      desktop prompt, because Arinn's own confirmation with the live
@@ -161,6 +185,18 @@ user's own logout.
   enabled the autostart gets Arinn in the plain desktop as well. The install
   message tells users of the Arinn session not to enable it.
 - New persisted file: `$XDG_STATE_HOME/arinn/session-mode` (spec §11).
+- Open point (G-5.8 follow-up): a logout cancelled after the desktop accepted
+  it leaves `desktop` recorded without an error (decision 3).
+- Operator-test notes:
+  - On XFCE the wrapper starts `arinn-xfce-session` as soon as
+    `org.xfce.SessionManager` is owned, earlier than the autostart template.
+    If xfwm4 is not up yet, `arinn-platform-x11` fails once with "no EWMH
+    window manager" and recovers through `Restart=on-failure`.
+  - Both entries start `startplasma-wayland`/`startxfce4` directly; Plasma 6's
+    own entry wraps it in `plasma-dbus-run-session-if-needed`, which is a
+    no-op where a systemd user bus exists, as Arinn already requires. The
+    display managers set `XDG_SESSION_DESKTOP`/`DESKTOP_SESSION` to
+    `arinn`/`arinn-xfce` instead of the stock values.
 - Plasma readiness depends on Plasma's systemd startup
   (`graphical-session.target`), the same requirement the ADR-0042 units already
   have.
@@ -208,7 +244,12 @@ user's own logout.
 
 - `tests/package/test_session_entry.py` (CTest `arinn-session-entry`, and
   against the installed copies from `tests/package/session.py`) runs both
-  scripts with stub `systemctl`, `busctl` and desktop commands:
+  scripts with stub `systemctl`, `busctl` and desktop commands. Beyond the
+  cases below it checks that the desktop gets default SIGINT/SIGQUIT in both
+  modes even under a parent that ignores them, that the desktop mode clears
+  stale markers, that the switch writes the file the session exported, and
+  that the write replaces the file by rename and leaves no temporary file
+  when it fails:
   - Plasma and XFCE start only after readiness, with the marker exported
     first;
   - the desktop mode starts the plain desktop only, and damaged choices

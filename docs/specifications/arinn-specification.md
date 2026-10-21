@@ -600,7 +600,7 @@ alone does not imply production capture or close G-5.2.
 
 See [§5.7](#57-system-ui-power-and-ambient) and [session lifecycle](../architecture/session-lifecycle.md).
 
-The dedicated Arinn login session entries and the unprivileged switch between Arinn and the plain desktop are specified in [ADR-0107](../adr/0107-dedicated-arinn-session.md) (proposed) and the [session lifecycle](../architecture/session-lifecycle.md#dedicated-arinn-session).
+The dedicated Arinn login session entries and the unprivileged switch between Arinn and the plain desktop are specified in [ADR-0107](../adr/0107-dedicated-arinn-session.md) and the [session lifecycle](../architecture/session-lifecycle.md#dedicated-arinn-session).
 
 ---
 

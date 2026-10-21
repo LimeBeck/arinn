@@ -151,8 +151,8 @@ protection. Repeated menu close/reopen cycles therefore remain available.
 
 ## Dedicated Arinn session
 
-[ADR-0107](../adr/0107-dedicated-arinn-session.md) (proposed, owner review
-pending) adds two login session entries next to the opt-in autostart of
+[ADR-0107](../adr/0107-dedicated-arinn-session.md) (accepted by the owner on
+2026-10-21) adds two login session entries next to the opt-in autostart of
 [ADR-0042](../adr/0042-opt-in-session-autostart.md):
 
 | Entry | Display manager directory | Starts |
@@ -164,17 +164,24 @@ Both run `/usr/lib/arinn/arinn-session <plasma|xfce>`. The wrapper reads
 `$XDG_STATE_HOME/arinn/session-mode`. When the file holds exactly `desktop`,
 the wrapper replaces itself with the plain desktop. Otherwise it starts the
 desktop as a child, waits up to 120 s for readiness, exports
-`ARINN_SESSION_ENTRY` to the user manager and starts Arinn. Readiness means
+`ARINN_SESSION_ENTRY` and `ARINN_SESSION_MODE` (the mode file it read) to the
+user manager and starts Arinn. Readiness means
 `graphical-session.target` is active on Plasma, or `org.xfce.SessionManager`
 is owned on XFCE. If Arinn cannot start, the desktop keeps running. When the
 desktop exits, the wrapper stops the Plasma target, removes the marker and
-exits with the desktop's status.
+exits with the desktop's status. In both modes the desktop starts with
+SIGINT and SIGQUIT at their defaults, as with the stock entries; the desktop
+mode also clears markers a killed wrapper may have left in the user manager.
 
 `/usr/lib/arinn/arinn-session-switch arinn|desktop [--prompt]` records the
 choice, then asks the desktop to log out through its own session-bus API:
 `org.kde.Shutdown.logout` or `org.kde.LogoutPrompt.promptLogout` on Plasma,
-`org.xfce.Session.Manager.Logout` on XFCE. If the logout is refused, the
-previous choice is restored and the command exits 1. The "Return to Arinn"
+`org.xfce.Session.Manager.Logout` on XFCE. It writes the file named by
+`ARINN_SESSION_MODE` when set, so it matches the file the session read. If the
+desktop refuses the request, the previous choice is restored and the command
+exits 1. A logout the desktop accepts and an application cancels later is not
+detected: the session continues with `desktop` recorded and no error. That is
+an open point for the daemon and power-menu follow-up (G-5.8). The "Return to Arinn"
 menu launcher (`org.arinn.ReturnToArinn.desktop`) runs it with `--prompt`.
 "Switch to desktop" in the power menu will reach it only through the daemon's
 platform layer. That is the follow-up contract change next to
@@ -199,4 +206,7 @@ Verified offline: `tests/package/test_session_entry.py` (CTest
 `tests/package/session.py`) runs both scripts against stub `systemctl`,
 `busctl` and desktop commands. Not verified: a real login, switch and return
 on the HTPC with SDDM and with LightDM. That operator test needs the owner's
-permission (G-5.8).
+permission (G-5.8). Notes for it: on XFCE the EWMH adapter may fail once
+with "no EWMH window manager" when it starts before xfwm4, and recovers
+through `Restart=on-failure`; the display managers set
+`XDG_SESSION_DESKTOP`/`DESKTOP_SESSION` to `arinn`/`arinn-xfce`.

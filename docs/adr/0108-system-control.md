@@ -64,7 +64,9 @@ the [system control contract](../architecture/system-control.md).
 
   logind's own error names map as listed in the contract. A permission refusal
   while a block inhibitor exists is reported as `Conflict`, because overriding
-  the inhibitor is what was refused. One power request runs at a time.
+  the inhibitor is what was refused. One power request runs at a time; a
+  request that arrives while another runs is refused with `Conflict` and is
+  never queued.
 
 **Volume.**
 
@@ -107,6 +109,9 @@ never leave the platform layer.
 - The shell can wire the power menu, Sleep availability and the volume HUD
   (#148) without any system dependency of its own. The quick menu (#439) can
   reuse the same volume methods.
+- The contract is in this change. The daemon producer and the shell consumer
+  follow together in [#148](https://github.com/LimeBeck/arinn/issues/148), as
+  ADR-0100 and ADR-0096 split theirs.
 - The daemon depends at runtime on logind and a PulseAudio-protocol server when
   they exist. Neither is needed to start; without them reads are `unknown` and
   actions are `Unavailable`.
@@ -142,15 +147,16 @@ never leave the platform layer.
 
 - `crates/arinn-protocol/src/system_control.rs`: signatures, roundtrip,
   producer validation, reader fallbacks and step arithmetic.
-- `platform/system_control_tests.rs`: a fake logind on a private bus (`Can*`
+- `crates/arinn-protocol/tests/system_control.rs`: a fixture daemon on a
+  private bus. It covers a daemon without the interface, compares the live
+  export with the XML, and covers typed refusals and volume replies on the
+  wire.
+- In the producer change (#148): a fake logind on a private bus (`Can*`
   answers, block and delay inhibitors, a bounded inhibitor list, refusals,
-  `interactive = false`, no logind, no bus) and a fake `pactl` (mute, toggle,
-  steps with balance, the 100 % stop, a level above 100 %, no server, no tool,
-  the C locale).
-- `crates/arinnd/src/runtime/system_control_tests.rs`: the daemon export
-  against the XML, typed errors on the wire and the refusal of a provider
-  connection.
-- `tests/integration/phase1.py`: the real export against the XML and both
-  reads. It never calls a power action or changes the volume.
+  `interactive = false`, no logind, no bus), a fake `pactl` (mute, toggle,
+  steps with balance, the 100 % stop, a level above 100 %, no server, no
+  tool, the C locale), the daemon export against the XML with the refusal of
+  a provider connection, and `tests/integration/phase1.py` reading the real
+  export without ever calling a power action.
 - Real suspend, reboot, power off and volume on the HTPC are owner operator
   tests (AC-19). Not run.

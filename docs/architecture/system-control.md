@@ -46,7 +46,8 @@ order up to the bound. `delay` inhibitors and other locks (`idle`,
 producer:
 
 1. refuses a caller that owns a registered provider (`PermissionDenied`);
-2. runs one power request at a time;
+2. runs one power request at a time and refuses a request that arrives while
+   another runs with `Conflict`, without queueing it;
 3. lists the inhibitors and refuses with `Conflict` when a `block` inhibitor of
    the action's lock exists, without asking logind. A failed list does not
    refuse; logind still applies its own rules;
@@ -123,11 +124,12 @@ shell shows inhibitor texts on screen only.
 ## Verification
 
 - `crates/arinn-protocol/src/system_control.rs` unit tests.
-- `platform/system_control_tests.rs`: a fake logind on a private bus and a fake
-  `pactl`.
-- `crates/arinnd/src/runtime/system_control_tests.rs`: the export against the
-  XML, typed errors and the provider refusal.
-- `tests/integration/phase1.py`: the real export and both reads; it never calls
-  a power action or changes the volume.
+- `crates/arinn-protocol/tests/system_control.rs`: a fixture daemon on a private
+  bus; a daemon without the interface, the live export against the XML, typed
+  refusals and volume replies on the wire.
+- The producer (`platform/system_control.rs`,
+  `crates/arinnd/src/runtime/system_control.rs`) and its tests against a fake
+  logind and a fake `pactl` land with the shell consumer in
+  [#148](https://github.com/LimeBeck/arinn/issues/148).
 - Real suspend, reboot, power off and volume on the HTPC: owner operator tests
   (AC-19). Not run.

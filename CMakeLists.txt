@@ -29,4 +29,6 @@ add_test(NAME shell-session-selector
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/package/test_shell_launcher.py)
 add_test(NAME desktop-entry-launcher
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/package/test_arinn_open.py)
+add_test(NAME restart-after-upgrade
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/package/test_restart_user_services.py)
 add_subdirectory(observability/native)

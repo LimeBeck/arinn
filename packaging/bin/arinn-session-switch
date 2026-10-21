@@ -65,12 +65,23 @@ case "${ARINN_SESSION_MODE:-}" in
     file="$directory/session-mode"
     ;;
 esac
+# The recorded choice in "$1": desktop only for exactly "desktop", with at
+# most one trailing newline; arinn for any other content; nothing when the
+# file is missing. arinn-session and arinn-session-switch share this rule.
+recorded_mode() {
+    [ -f "$1" ] || return 0
+    content=$(head -c 16 "$1" && printf x) || content=
+    case "$content" in
+    "desktop
+x" | desktopx) echo desktop ;;
+    *) echo arinn ;;
+    esac
+}
+
 umask 077
 mkdir -p "$directory" || exit 1
-previous=
-if [ -f "$file" ]; then
-    IFS= read -r previous <"$file" || :
-fi
+# What the session would start now: restored as such when the logout fails.
+previous=$(recorded_mode "$file")
 
 write() {
     temporary=$(mktemp "$directory/.session-mode.XXXXXX") || return 1

@@ -22,11 +22,24 @@ xfce) desktop=startxfce4 ;;
 esac
 entry=$1
 
-# The user's choice for this entry. Anything but exactly "desktop" (one
-# line) starts Arinn: a missing or damaged file must not hide the TV shell.
+# The recorded choice in "$1": desktop only for exactly "desktop", with at
+# most one trailing newline; arinn for any other content; nothing when the
+# file is missing. arinn-session and arinn-session-switch share this rule.
+recorded_mode() {
+    [ -f "$1" ] || return 0
+    content=$(head -c 16 "$1" && printf x) || content=
+    case "$content" in
+    "desktop
+x" | desktopx) echo desktop ;;
+    *) echo arinn ;;
+    esac
+}
+
+# The user's choice for this entry. Anything but exactly "desktop" starts
+# Arinn: a missing or damaged file must not hide the TV shell.
 mode_file="${XDG_STATE_HOME:-${HOME:-/nonexistent}/.local/state}/arinn/session-mode"
 mode=arinn
-if [ -f "$mode_file" ] && [ "$(head -c 16 "$mode_file")" = "desktop" ]; then
+if [ "$(recorded_mode "$mode_file")" = desktop ]; then
     mode=desktop
 fi
 # Replaces the (sub)shell with the desktop. Without job control, sh starts a
@@ -40,9 +53,15 @@ start_desktop() {
 }
 
 if [ "$mode" = desktop ]; then
-    # A wrapper killed earlier may have left its markers in a user manager
-    # that outlived it (lingering, SDDM Relogin=true).
-    systemctl --user unset-environment ARINN_SESSION_ENTRY ARINN_SESSION_MODE >/dev/null 2>&1
+    # A wrapper killed earlier may have left its entry marker in a user
+    # manager that outlived it (lingering, SDDM Relogin=true). The mode file
+    # is named in both environments, so Return to Arinn writes the file this
+    # login read wherever it is started from.
+    systemctl --user unset-environment ARINN_SESSION_ENTRY >/dev/null 2>&1
+    systemctl --user set-environment "ARINN_SESSION_MODE=$mode_file" >/dev/null 2>&1
+    ARINN_SESSION_MODE=$mode_file
+    export ARINN_SESSION_MODE
+    unset ARINN_SESSION_ENTRY
     start_desktop
 fi
 

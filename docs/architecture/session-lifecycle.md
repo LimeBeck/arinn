@@ -161,8 +161,8 @@ protection. Repeated menu close/reopen cycles therefore remain available.
 | `arinn-xfce.desktop` ("Arinn (XFCE)") | `/usr/share/xsessions` | `startxfce4`, then `arinn-xfce-session` (EWMH target) |
 
 Both run `/usr/lib/arinn/arinn-session <plasma|xfce>`. The wrapper reads
-`$XDG_STATE_HOME/arinn/session-mode`. When the file holds exactly `desktop`,
-the wrapper replaces itself with the plain desktop. Otherwise it starts the
+`$XDG_STATE_HOME/arinn/session-mode`. When the file holds exactly `desktop`
+(at most one trailing newline), the wrapper replaces itself with the plain desktop. Otherwise it starts the
 desktop as a child, waits up to 120 s for readiness, exports
 `ARINN_SESSION_ENTRY` and `ARINN_SESSION_MODE` (the mode file it read) to the
 user manager and starts Arinn. Readiness means
@@ -170,15 +170,18 @@ user manager and starts Arinn. Readiness means
 is owned on XFCE. If Arinn cannot start, the desktop keeps running. When the
 desktop exits, the wrapper stops the Plasma target, removes the marker and
 exits with the desktop's status. In both modes the desktop starts with
-SIGINT and SIGQUIT at their defaults, as with the stock entries; the desktop
-mode also clears markers a killed wrapper may have left in the user manager.
+SIGINT and SIGQUIT at their defaults, as with the stock entries. The desktop
+mode clears an `ARINN_SESSION_ENTRY` a killed wrapper may have left in the
+user manager and exports `ARINN_SESSION_MODE` there and to the desktop, so
+Return to Arinn writes the same file.
 
 `/usr/lib/arinn/arinn-session-switch arinn|desktop [--prompt]` records the
 choice, then asks the desktop to log out through its own session-bus API:
 `org.kde.Shutdown.logout` or `org.kde.LogoutPrompt.promptLogout` on Plasma,
 `org.xfce.Session.Manager.Logout` on XFCE. It writes the file named by
 `ARINN_SESSION_MODE` when set, so it matches the file the session read. If the
-desktop refuses the request, the previous choice is restored and the command
+desktop refuses the request, the previous choice is restored as the session
+would read it (damaged content becomes `arinn`) and the command
 exits 1. A logout the desktop accepts and an application cancels later is not
 detected: the session continues with `desktop` recorded and no error. That is
 an open point for the daemon and power-menu follow-up (G-5.8). The "Return to Arinn"

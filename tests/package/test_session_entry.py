@@ -56,6 +56,7 @@ sigign=$(sed -n 's/^SigIgn:[[:space:]]*//p' /proc/$$/status)
 trap 'echo "desktop terminated" >> "$FAKE_LOG"; exit 0' TERM
 echo "desktop $(basename "$0") bus=${DBUS_SESSION_BUS_ADDRESS:-}" >> "$FAKE_LOG"
 echo "sigign $sigign" >> "$FAKE_LOG"
+echo "markers mode=${ARINN_SESSION_MODE:-} entry=${ARINN_SESSION_ENTRY:-}" >> "$FAKE_LOG"
 n=0
 while [ ! -f "$FAKE_ROOT/stop" ] && [ $n -lt 400 ]; do sleep 0.05; n=$((n + 1)); done
 exit "${FAKE_DESKTOP_STATUS:-0}"
@@ -110,7 +111,12 @@ class Fixture:
         return self.home / ".local/state/arinn/session-mode"
 
     def calls(self):
-        return [c for c in self.log.read_text().splitlines() if not c.startswith("sigign ")]
+        return [c for c in self.log.read_text().splitlines()
+                if not c.startswith(("sigign ", "markers "))]
+
+    def markers(self):
+        """The ARINN_SESSION_* variables the desktop process got."""
+        return [c for c in self.log.read_text().splitlines() if c.startswith("markers ")]
 
     def ignored_signals(self):
         """The desktop's ignored-signal mask (/proc SigIgn)."""
@@ -186,10 +192,24 @@ class SessionEntry(unittest.TestCase):
                 fixture.mode_file.parent.mkdir(parents=True)
                 fixture.mode_file.write_text("desktop\n")
                 fixture.stop_desktop()
-                code, err = self.finish(self.start(fixture, entry, FAKE_DESKTOP_STATUS=4))
+                code, err = self.finish(self.start(fixture, entry, FAKE_DESKTOP_STATUS=4,
+                                                   ARINN_SESSION_ENTRY="plasma"))
                 self.assertEqual(code, 4, err)
-                # Stale markers of an earlier login are cleared; nothing starts.
-                self.assertEqual(fixture.calls(), [UNSET, f"desktop {desktop} bus="])
+                # A stale entry marker is cleared and the mode file named in
+                # both environments, for Return to Arinn; nothing starts.
+                self.assertEqual(fixture.calls(), [
+                    "systemctl --user unset-environment ARINN_SESSION_ENTRY",
+                    f"systemctl --user set-environment ARINN_SESSION_MODE={fixture.mode_file}",
+                    f"desktop {desktop} bus="])
+                self.assertEqual(fixture.markers(), [f"markers mode={fixture.mode_file} entry="])
+
+    def test_exactly_desktop_without_a_newline_is_desktop(self):
+        fixture = Fixture(self)
+        fixture.mode_file.parent.mkdir(parents=True)
+        fixture.mode_file.write_text("desktop")
+        fixture.stop_desktop()
+        self.finish(self.start(fixture, "plasma"))
+        self.assertFalse(any("start arinn" in c for c in fixture.calls()), fixture.calls())
 
     def test_state_home_is_honoured(self):
         fixture = Fixture(self)
@@ -203,7 +223,8 @@ class SessionEntry(unittest.TestCase):
 
     def test_anything_but_desktop_starts_arinn(self):
         for content in ("", "arinn\n", "Desktop\n", "desktop extra\n", " desktop\n", "\n",
-                        "desktop\nextra\n", "desktop\n\narinn\n", "desktop" + " " * 20):
+                        "desktop\nextra\n", "desktop\n\narinn\n", "desktop" + " " * 20,
+                        "desktop\n\n", "desktop\n\n\n", "desktop\r\n", "desktop" + "\n" * 20):
             with self.subTest(content=content):
                 fixture = Fixture(self)
                 fixture.mode_file.parent.mkdir(parents=True)
@@ -432,6 +453,21 @@ class SessionSwitch(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertFalse(fixture.mode_file.exists())
         self.assertEqual(list(fixture.mode_file.parent.iterdir()), [])
+
+    def test_refused_logout_restores_what_the_session_would_start(self):
+        # The previous value is judged by the session's exact rule, so damaged
+        # content that meant Arinn is never restored as the desktop.
+        for before, after in (("desktop\n", "desktop\n"), ("desktop", "desktop\n"),
+                              ("desktop\nextra\n", "arinn\n"), ("desktop\n\n\n", "arinn\n"),
+                              ("garbage", "arinn\n")):
+            with self.subTest(before=before):
+                fixture = Fixture(self)
+                fixture.mode_file.parent.mkdir(parents=True)
+                fixture.mode_file.write_text(before)
+                result = self.switch(fixture, "arinn" if before == "desktop\n" else "desktop",
+                                     ARINN_SESSION_ENTRY="plasma", FAKE_CALL_RC=1)
+                self.assertEqual(result.returncode, 1)
+                self.assertEqual(fixture.mode_file.read_text(), after)
 
     def test_unsupported_desktop_changes_nothing(self):
         for env in ({}, {"XDG_CURRENT_DESKTOP": "GNOME"}, {"ARINN_SESSION_ENTRY": "gnome"}):

@@ -76,7 +76,8 @@ user's own logout.
 2. **Session start** (`arinn-session`, POSIX shell, `packaging/bin`). It reads
    `$XDG_STATE_HOME/arinn/session-mode`, where `~/.local/state` replaces an
    unset `XDG_STATE_HOME`:
-   - If the file holds exactly `desktop`, the wrapper `exec`s the plain desktop
+   - If the file holds exactly `desktop` (at most one trailing newline), the
+     wrapper `exec`s the plain desktop
      (`startplasma-wayland` or `startxfce4`) with nothing from Arinn.
    - Anything else, including a missing or damaged file, starts Arinn. A broken
      file must not hide the TV shell. The wrapper starts the desktop as a child
@@ -101,9 +102,11 @@ user's own logout.
      (`env --default-signal=INT,QUIT`, coreutils 8.31 or later). Without job
      control, sh would start a background command with both ignored, and the
      whole desktop session would inherit that.
-   - In the desktop mode the wrapper first removes both markers from the user
-     manager, in case an earlier wrapper was killed while the manager outlived
-     it (lingering, or SDDM `Relogin=true`).
+   - In the desktop mode the wrapper first removes `ARINN_SESSION_ENTRY` from
+     the user manager, in case an earlier wrapper was killed while the manager
+     outlived it (lingering, or SDDM `Relogin=true`). It names the mode file in
+     `ARINN_SESSION_MODE`, both in the user manager and in the desktop's own
+     environment, so Return to Arinn writes the file this login read.
    - Without `DBUS_SESSION_BUS_ADDRESS`, the wrapper exports the user bus
      `$XDG_RUNTIME_DIR/bus` when it exists, so the XFCE helper and the desktop
      share one bus.
@@ -120,7 +123,9 @@ user's own logout.
    The desktop is `ARINN_SESSION_ENTRY` when it is set; otherwise the standard
    desktop name in `XDG_CURRENT_DESKTOP` (`KDE`, `XFCE`) identifies it. An
    unsupported desktop changes nothing and fails. If the desktop refuses the
-   logout request (the D-Bus call fails), the previous choice is restored, or
+   logout request (the D-Bus call fails), the previous choice is restored as
+   the session would read it (`desktop` only for exactly `desktop`, otherwise
+   `arinn`), or
    the file is removed if there was none, and the switch fails. The caller
    shows the error, and the session continues.
 

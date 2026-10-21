@@ -74,10 +74,63 @@ private paths or arguments; callers receive normalized error codes.
 
 A dedicated D-Bus connection holds an AddRef reference while reading launcher
 completion. Properties are read without caching, so an early zero exit timestamp
-cannot conceal completion. For GIO launches, the exit status acknowledges dispatch, not window
-creation or the application's eventual exit. The reference is released after the
-result or when the connection dies; releasing it never stops the application unit.
-Launch mutations are never retried. A timeout can follow a dispatched side effect.
+cannot conceal completion. For GIO launches, the exit status acknowledges dispatch
+only; the launch lifetime below decides the result. The reference is released when
+the launch ends or when the connection dies; releasing it never stops the
+application unit. Launch mutations are never retried. A dispatch timeout (30 s) can
+follow a dispatched side effect.
+
+## Launch lifetime and cancellation
+
+Spec §6.5 and §7.2, [ADR-0110](../adr/0110-application-launch-lifetime-and-cancellation.md),
+[#436](https://github.com/LimeBeck/arinn/issues/436). Before this change the
+provider answered `Launch` when GIO exited, so a slow game "succeeded" before any
+window existed and an application that exited without a window also "succeeded".
+
+After GIO exits with status 0, the provider keeps its reference on the unit and
+waits (`plugins/desktop/src/launches.rs`):
+
+- **Window.** The launch succeeds when the window inventory shows a window that
+  was not there when the launch started and is not proven to belong to another
+  catalogue application: its desktop ID is the launched entry's, unknown or empty.
+  Games, Proton and wrapper scripts often report no exact desktop ID; the
+  Activity itself is still associated exactly, as above. A new platform
+  generation renames every window, so it resets the starting set instead of
+  counting as a new window.
+- **Unit ended.** With `ExitType=cgroup` the unit stays active after GIO exits
+  until everything the launch started has exited. When its `ActiveState` becomes
+  `inactive` or `failed`, the provider reads the inventory once more. The launch
+  fails at once with `Unavailable` unless a window of the application exists. An
+  existing window counts here because the launch was handed to an instance that
+  was already running (Steam, single-instance applications).
+- **No deadline.** While the unit runs with no window, the launch stays pending.
+  The 30 s budget bounds dispatch only; the daemon applies no deadline to an
+  application launch.
+- **Not observable.** Without a window inventory (no platform adapter), and for
+  D-Bus activated entries, which have no Arinn unit, the launch succeeds at
+  dispatch as before. If the inventory disappears during the wait, the launch
+  ends the same way.
+
+`CancelLaunch(generation, id)` signals every unfinished launch of that desktop ID.
+Each one stops its own unit with `StopUnit(…, "replace")`, so systemd stops the
+processes of that launch's cgroup and nothing else. Its `Launch` reply then fails
+with `Cancelled`. `CancelLaunch` answers after the stops, or `NotFound` when no
+launch was pending or each one ended another way first (for example, its window
+appeared). A cancel during dispatch takes effect when dispatch completes.
+Losing the registration ends the wait with `Unavailable` and only releases the
+reference; the application keeps running.
+
+The daemon keeps the public operation `running` and `cancellable` meanwhile.
+`Operation1.Cancel` from the caller forwards to `CancelLaunch` and ends the
+operation as `cancelled`. The shell shows "Opening <app>…", then after 8 s
+"Starting <app>…" with Cancel. Cancel asks for confirmation, with *Keep starting*
+as the default focus; Home hides the overlay without cancelling, and choosing the
+tile again shows it again. A failed launch shows the error dialog with Retry.
+
+Known limitation: a game entry that hands off to a client that is already running
+elsewhere (for example a `steam steam://rungameid/…` entry while Steam runs)
+ends its own unit at once. If no window of that entry exists yet, the launch
+fails, although the client may still start the game.
 
 The transient-unit reference mechanism is also used by
 [systemd-run](https://github.com/systemd/systemd/blob/main/src/run/run.c).
@@ -149,6 +202,22 @@ Local isolated checks on 2026-09-28:
   `phase1.py` CI entry point also invokes this suite on a separate private bus.
 - The Arch package installs the desktop executable/manifest and requires GIO
   (`glib2>=2.86`). Its smoke test checks discovery through the installed daemon/provider.
+
+Launch lifetime ([#436](https://github.com/LimeBeck/arinn/issues/436), 2026-10-21):
+
+- `cargo test -p arinn-plugin-desktop`: window rules, an ended unit, hand-off to
+  a running instance, a new platform generation, no inventory, and cancel that
+  stops only the launches of one application.
+- `tests/integration/desktop.py` with the extended test manager, which keeps an
+  application unit active while its process group runs (the stand-in for
+  `ExitType=cgroup`) and stops only that group: a launch stays running and
+  cancellable until its window appears; a window that appears after 31 s
+  completes it; a unit that exits with status 0 and no window fails in under 5 s;
+  a hand-off to an existing window succeeds; Cancel from another connection is
+  `PermissionDenied`; Cancel by the caller ends the operation as `cancelled`,
+  stops that fixture and leaves a concurrent launch running. On `master` the
+  suite fails at the first "still starting" check: the launch had already
+  succeeded.
 
 The test manager verifies unit requests and fixture-process lifetime, not kernel
 cgroup membership. No agent-run KDE/Wayland operator tests were run.

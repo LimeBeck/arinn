@@ -5,7 +5,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-21
-- **Deciders:** project owner for the product behaviour (2026-10-10, [#439](https://github.com/LimeBeck/arinn/issues/439): option 2, a quick menu with its own configurable global key, `quick_menu_shortcut`, owned by the platform layer; the default key is proposed for the owner to confirm); the mechanism is a delegated technical choice ([ADR-0037](0037-agent-autonomy-and-owner-gated-decisions.md))
+- **Deciders:** project owner for the product behaviour (2026-10-10, [#439](https://github.com/LimeBeck/arinn/issues/439): option 2, a quick menu with its own configurable global key, `quick_menu_shortcut`, owned by the platform layer; 2026-10-21, [#439](https://github.com/LimeBeck/arinn/issues/439#issuecomment-6312358857): the remote's ≡ Menu button opens the quick menu outside the shell, Menu keeps its meaning inside the shell, and `Meta+F11` is the default); the mechanism is a delegated technical choice ([ADR-0037](0037-agent-autonomy-and-owner-gated-decisions.md))
 - **Amends / Supersedes:** —
 - **Amended by / Superseded by:** —
 - **Specification:** [§5.7](../specifications/arinn-specification.md#57-system-ui-power-and-ambient), [§6.2](../specifications/arinn-specification.md#62-keys), [§6.3](../specifications/arinn-specification.md#63-home-and-back), [§12.1](../specifications/arinn-specification.md#121-global-home)
@@ -27,11 +27,13 @@ The Home keys are configurable through `home_shortcut` in `config.toml` ([ADR-00
 
 `Status` is unchanged. While the quick menu is open the platform state is the Home state: the shell is raised over the Activity and the Return target is remembered. Whether the shell shows Home or the quick menu is shell-local state.
 
-**Keys.** `config.toml` gains `quick_menu_shortcut`, in the syntax of `home_shortcut` (`platform/key_sequence.rs`). An empty or invalid value means the default, with one warning that leaves out the value. No fixed second key is added: the remote's HomePage stays Home's. A quick-menu sequence that is also a Home key is left out, so Home wins. The default value is the one in spec §6.2, proposed as `Meta+F11` for the owner to confirm in review of #439.
+**Keys.** `config.toml` gains `quick_menu_shortcut` (default `Meta+F11`), in the syntax of `home_shortcut` (`platform/key_sequence.rs`). An empty or invalid value means the default, with one warning that leaves out the value. The remote's Menu key follows it, as HomePage follows `home_shortcut`. Which code the remote (G60S PRO BT) sends for ≡ is not captured yet, so both are bound: Qt `Key_Menu` (evdev `KEY_COMPOSE`, X11 `Menu`) and Qt `Key_MenuKB` (evdev `KEY_MENU`, X11 `XF86MenuKB`). A quick-menu sequence that is also a Home key is left out, so Home wins.
 
-**KDE.** The KWin script registers a second action, `ArinnQuickMenu` ("Arinn: Quick menu"). Its callback runs the Home path (unlocked-session check, remember the Return Activity and output, raise the shell) and reports through `ReportQuickMenuRequest` instead of `ReportHomeRequest`. When an adapter connection first polls `TakeCommand`, the daemon writes the configured keys to that action through KGlobalAccel, after the Home keys, with the checks of ADR-0094: a key held by another action is left out, and with no free key the stored keys stay. A missing action is logged as `NotFound`; the Home keys are unaffected.
+**Menu inside the shell.** Menu toggles global navigation inside the shell, and a long press opens the tile action sheet (spec §6.2). A global grab would take it from the shell, so the adapters bind the two Menu keys only while a window other than the shell has focus. The configured key stays bound everywhere and opens the quick menu over the shell too.
 
-**X11/EWMH.** `arinn-platform-x11` reads `quick_menu_shortcut` read-only from `config.toml` and grabs its sequences next to the Home sequences. A press reports `ReportQuickMenuRequest` after the same unlocked check as Home. A quick-menu sequence that is not mapped or is held by another client is skipped and logged. Unlike Home, a quick-menu key that cannot be grabbed never stops the adapter.
+**KDE.** The KWin script registers a second action, `ArinnQuickMenu` ("Arinn: Quick menu"). Its callback runs the Home path (unlocked-session check, remember the Return Activity and output, raise the shell) and reports through `ReportQuickMenuRequest` instead of `ReportHomeRequest`. When an adapter connection first polls `TakeCommand`, the daemon writes the keys to that action through KGlobalAccel, after the Home keys, with the checks of ADR-0094: a key held by another action is left out, and with no free key the stored keys stay. A missing action is logged as `NotFound`; the Home keys are unaffected. The daemon follows the adapter's `ReportWindow`: when the shell's window (`org.arinn.Shell`, or `arinn-shell` under KDE/X11) gains or loses focus, it writes the action's keys again, without or with the Menu keys. Only changes are written, and the latest focus always wins.
+
+**X11/EWMH.** `arinn-platform-x11` reads `quick_menu_shortcut` read-only from `config.toml` and grabs its sequences next to the Home sequences. When a snapshot finds the shell active, it grabs again without the Menu keys, and with them once another window is active. A press reports `ReportQuickMenuRequest` after the same unlocked check as Home. A quick-menu sequence that is not mapped or is held by another client is skipped and logged. Unlike Home, a quick-menu key that cannot be grabbed never stops the adapter.
 
 **Shell.** The shell subscribes to `QuickMenuRequested` before it reads `Status`, and handles a request only for the current daemon owner and epoch. It opens the quick menu over what it shows. Over an Activity the fullscreen Home stays hidden. Back uses the existing `Daemon1.Back` Return path. An explicit `HomeRequested` while the sheet is open replaces it with Home. Media and volume keys outside the shell are not registered (spec §5.7, OQ-04).
 
@@ -41,6 +43,7 @@ The Home keys are configurable through `home_shortcut` in `config.toml` ([ADR-00
 
 - The quick menu reuses the whole Home presentation path: lock check, Return target, output, Back and the Activity background. Only the request that names the intent is new.
 - An old shell ignores `QuickMenuRequested`. With a new adapter the quick-menu key then shows the shell with Home, the state it reports. An old daemon answers `UnknownMethod`, and the KWin script, whose error callbacks KWin drops, shows nothing. The adapter, daemon and shell are installed together.
+- The remote's Menu key no longer reaches other applications, for example as a context-menu key. On KDE, focus changes cost a few KGlobalAccel calls; on X11, the grabs follow focus at the adapter's next snapshot, up to 0.5 s later.
 - Users can move the key in `config.toml`. A change made in KDE's Shortcuts settings is replaced the next time the adapter connects.
 - A key Qt cannot name still cannot be a global shortcut; udev hwdb remapping remains the workaround (ADR-0094).
 
@@ -50,6 +53,7 @@ The Home keys are configurable through `home_shortcut` in `config.toml` ([ADR-00
 - **Change `ReportHomeRequest`/`HomeRequested` to carry a kind.** Breaks existing signatures.
 - **Infer the quick menu in the shell** from `Changed` or `Status`. Forbidden by ADR-0069: state recovery must never become a user action.
 - **A shell-local key only.** The shell does not receive keys while an external application has focus (§12.1).
+- **Menu bound globally at all times.** The shell would never receive Menu, so navigation and the tile action sheet would break (spec §6.2).
 - **A long press of Home.** KWin global shortcuts and X11 grabs report presses, not their duration, and a long press delays every ordinary Home.
 - **Show the quick menu for media and volume keys outside the shell.** Rejected by the owner: Plasma keeps them (OQ-04).
 
@@ -57,5 +61,5 @@ The Home keys are configurable through `home_shortcut` in `config.toml` ([ADR-00
 
 - `runtime::window_tests::quick_menu_requests_are_distinct_from_home_requests`: untrusted and invalid calls emit nothing; repeated requests each emit `QuickMenuRequested` with the epoch, target and output and commit the Home state; neither request emits the other's signal; a late subscriber receives no history.
 - `runtime::input_tests::build_info_reports_this_build_and_matches_the_xml` and `tests/integration/phase1.py` compare the live export with `daemon1.xml`.
-- The key configuration, the KWin action, the X11 grab and the shell sheet follow in #439, with tests named there.
+- The key configuration, the KWin action, the X11 grab and the shell sheet follow in #439, with tests named there. These include the Menu keys following the shell's focus on KDE (`global_home` `remote_menu_keys_follow_the_shell_focus`, `window_tests` `adapter_connection_applies_configured_home_shortcut`) and on X11 (`remote_menu_opens_the_quick_menu_only_outside_the_shell`).
 - Not tested: real KDE Plasma 6 and X11 sessions with the remote (operator tests need the owner's permission).

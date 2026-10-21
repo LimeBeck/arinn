@@ -214,9 +214,9 @@ Removing a folder removes its items from the library and never deletes files. Ar
 Arinn provides one system overlay for Home, Back, Play/Pause, volume, mute, the power menu and Settings. Each action is executed by the platform layer or the matching provider. CEC is not part of the architecture; TV control (for example webOS) is added later through the same plugin mechanism, never in the core.
 
 **Quick menu.** A second global key opens the quick menu: a side sheet over the
-current Activity, without the fullscreen Home. The key is `quick_menu_shortcut`
-in `config.toml`, owned by the platform layer like the Home key
-([§6.2](#62-keys)). The sheet holds, in this order:
+current Activity, without the fullscreen Home. Its keys are `quick_menu_shortcut`
+in `config.toml` and the remote's Menu key, owned by the platform layer like the
+Home keys ([§6.2](#62-keys)). The sheet holds, in this order:
 
 - **Now playing:** the current media session's title with play/pause (`Media1`);
 - **volume and mute** of the default audio output, executed by the platform layer;
@@ -284,8 +284,8 @@ Input modes: **D-pad mode** (cursor hidden, full focus treatment) and **pointer 
 | Enter / OK | Select |
 | Esc, Backspace | Back ([§6.3](#63-home-and-back)). In an editable text field Backspace deletes a character; Esc closes the topmost scope. |
 | Global Home | Global shortcut owned by the platform layer: `home_shortcut` in `config.toml` (default Meta+F12) and the remote's HomePage key. Owner decision of 2026-10-07 ([#286](https://github.com/LimeBeck/arinn/issues/286), [ADR-0094](../adr/0094-configurable-global-home-keys.md)) |
-| Quick menu | Global shortcut owned by the platform layer: `quick_menu_shortcut` in `config.toml` (default Meta+F11). Opens the quick menu ([§5.7](#57-system-ui-power-and-ambient)) over the active application or over the shell. Owner decision of 2026-10-10 ([#439](https://github.com/LimeBeck/arinn/issues/439)) |
-| Menu | Toggle global navigation. A long press on an application tile in Applications or in Home favorites opens the tile action sheet: pin/unpin and, while the application runs, Close ([§5.5](#55-applications)). The sheet replaces the direct pin/unpin. Owner decision on 2026-10-01 ([#205](https://github.com/LimeBeck/arinn/issues/205)) |
+| Quick menu | Global shortcut owned by the platform layer: `quick_menu_shortcut` in `config.toml` (default Meta+F11) and the remote's Menu key (≡ on the G60S PRO BT). Until the code that key sends is captured on the HTPC, the platform registers both Qt Menu and MenuKB. Opens the quick menu ([§5.7](#57-system-ui-power-and-ambient)) over the active application or over the shell. Owner decisions of 2026-10-10 and 2026-10-21 ([#439](https://github.com/LimeBeck/arinn/issues/439)) |
+| Menu | Inside the shell: toggle global navigation. A long press on an application tile in Applications or in Home favorites opens the tile action sheet: pin/unpin and, while the application runs, Close ([§5.5](#55-applications)). The sheet replaces the direct pin/unpin. Owner decision on 2026-10-01 ([#205](https://github.com/LimeBeck/arinn/issues/205)). Outside the shell, Menu opens the quick menu and no longer reaches the active application (Quick menu row; owner decision of 2026-10-21, [#439](https://github.com/LimeBeck/arinn/issues/439)) |
 | Media and volume keys | Media and volume actions; outside the shell Plasma handles them ([§5.7](#57-system-ui-power-and-ambient)) |
 
 Outside the shell, keys belong to the active application. Arinn MUST NOT intercept Esc, Backspace or plain letters globally. The prototype's letter shortcuts (H, M, P, A, O) are development bindings, not product keys. The production mapping uses semantic actions and is configurable per device. First step, owner decision of 2026-10-03 ([#64](https://github.com/LimeBeck/arinn/issues/64)): extra keys per action are set in `config.toml` under `[input.bindings]` and apply inside the shell only; a Settings UI, per-device bindings and gamepads come later ([ADR-0079](../adr/0079-shell-input-bindings.md)).

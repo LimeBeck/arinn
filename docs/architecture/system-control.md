@@ -85,7 +85,7 @@ restarted. logind's refusals map to `org.arinn.Error1` names:
   otherwise), 5 points each. It reads the level, computes the target (never
   below 0, never above 100 when stepping up, and an existing level above 100
   is kept when stepping up) and moves every channel by the difference with
-  `pactl set-sink-volume -- @DEFAULT_SINK@ ±N%`, so the balance stays. Then it
+  `pactl set-sink-volume @DEFAULT_SINK@ ±N%`, so the balance stays. Then it
   reads. Stepping never changes the mute flag.
 - The changes return the state read after the change. A missing `pactl`, a
   server that is not running or no default sink is `Unavailable`; a `pactl`

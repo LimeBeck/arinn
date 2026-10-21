@@ -460,8 +460,10 @@ set-sink-mute)
   *) exit 1 ;;
   esac ;;
 set-sink-volume)
-  [ "$2" = -- ] && [ "$3" = @DEFAULT_SINK@ ] || exit 1
-  n=${4%\%}
+  # As pactl: options end at the command, the next argument is the sink
+  # and the one after it the volume.
+  [ $# -eq 3 ] && [ "$2" = @DEFAULT_SINK@ ] || exit 1
+  n=${3%\%}
   case "$n" in
   +*) n=${n#+} ;;
   -*) n=$((0 - ${n#-})) ;;

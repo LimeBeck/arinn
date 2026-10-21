@@ -29,8 +29,21 @@ mode=arinn
 if [ -f "$mode_file" ] && [ "$(head -c 16 "$mode_file")" = "desktop" ]; then
     mode=desktop
 fi
-if [ "$mode" = desktop ]; then
+# Replaces the (sub)shell with the desktop. Without job control, sh starts a
+# background command with SIGINT and SIGQUIT ignored, and the whole desktop
+# would inherit that; restore the defaults the stock session entries have.
+start_desktop() {
+    if env --default-signal=INT,QUIT true 2>/dev/null; then
+        exec env --default-signal=INT,QUIT "$desktop"
+    fi
     exec "$desktop"
+}
+
+if [ "$mode" = desktop ]; then
+    # A wrapper killed earlier may have left its markers in a user manager
+    # that outlived it (lingering, SDDM Relogin=true).
+    systemctl --user unset-environment ARINN_SESSION_ENTRY ARINN_SESSION_MODE >/dev/null 2>&1
+    start_desktop
 fi
 
 # The XFCE helper and the desktop must share one session bus. pam_systemd
@@ -41,7 +54,8 @@ if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && [ -n "${XDG_RUNTIME_DIR:-}" ] &&
     export DBUS_SESSION_BUS_ADDRESS
 fi
 
-"$desktop" &
+# The background subshell execs the desktop, so $! is the desktop's pid.
+start_desktop &
 pid=$!
 trap 'kill -TERM "$pid" 2>/dev/null' TERM HUP INT
 
@@ -58,8 +72,11 @@ started=false
 while kill -0 "$pid" 2>/dev/null && [ "$tries" -lt 240 ]; do
     if ready; then
         # Marks this login as the dedicated session for the daemon's
-        # "Switch to desktop"; cleared when the desktop exits.
-        systemctl --user set-environment "ARINN_SESSION_ENTRY=$entry" || break
+        # "Switch to desktop", and names the mode file this login read, so
+        # the switch writes the same file whatever XDG_STATE_HOME the user
+        # manager has. Cleared when the desktop exits.
+        systemctl --user set-environment "ARINN_SESSION_ENTRY=$entry" \
+            "ARINN_SESSION_MODE=$mode_file" || break
         case "$entry" in
         plasma) systemctl --user start arinn-session.target && started=true ;;
         # The helper owns the EWMH target and stops it with the XFCE session.
@@ -85,5 +102,5 @@ trap - TERM HUP INT
 if [ "$entry" = plasma ]; then
     systemctl --user stop arinn-session.target >/dev/null 2>&1
 fi
-systemctl --user unset-environment ARINN_SESSION_ENTRY >/dev/null 2>&1
+systemctl --user unset-environment ARINN_SESSION_ENTRY ARINN_SESSION_MODE >/dev/null 2>&1
 exit "$status"

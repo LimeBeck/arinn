@@ -78,6 +78,8 @@ SAMPLE_FILES = [
     "usr/lib/arinn/arinn-shell-launch",
     "usr/lib/arinn/arinn-open",
     "usr/lib/arinn/arinn-session",
+    "usr/lib/arinn/arinn-session-switch",
+    "usr/share/applications/org.arinn.ReturnToArinn.desktop",
     "usr/share/wayland-sessions/arinn.desktop",
     "usr/share/xsessions/arinn-xfce.desktop",
     "usr/share/applications/org.arinn.Shell.desktop",

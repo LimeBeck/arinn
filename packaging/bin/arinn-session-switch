@@ -9,7 +9,9 @@
 # Records what the Arinn login entry starts next for this user, then asks the
 # running desktop to log out. Unprivileged: it writes one file in the user's
 # own state directory and calls the desktop's own logout on the session bus.
-# A failed logout request restores the previous choice and exits 1.
+# A logout request the desktop refuses restores the previous choice and exits
+# 1. A logout the desktop accepts and cancels later (an application's unsaved
+# work prompt) is not detected; the recorded choice stays.
 set -u
 
 [ "$#" -le 2 ] || set -- invalid
@@ -47,12 +49,22 @@ plasma | xfce) ;;
     ;;
 esac
 
-if [ -z "${HOME:-}" ] && [ -z "${XDG_STATE_HOME:-}" ]; then
-    echo "arinn-session-switch: no state directory" >&2
-    exit 1
-fi
-directory="${XDG_STATE_HOME:-$HOME/.local/state}/arinn"
-file="$directory/session-mode"
+# The file the Arinn session read at login (exported by arinn-session);
+# otherwise the same XDG resolution the session uses.
+case "${ARINN_SESSION_MODE:-}" in
+/*/arinn/session-mode)
+    file=$ARINN_SESSION_MODE
+    directory=${file%/session-mode}
+    ;;
+*)
+    if [ -z "${HOME:-}" ] && [ -z "${XDG_STATE_HOME:-}" ]; then
+        echo "arinn-session-switch: no state directory" >&2
+        exit 1
+    fi
+    directory="${XDG_STATE_HOME:-$HOME/.local/state}/arinn"
+    file="$directory/session-mode"
+    ;;
+esac
 umask 077
 mkdir -p "$directory" || exit 1
 previous=

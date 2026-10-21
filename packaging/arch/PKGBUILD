@@ -116,7 +116,10 @@ package() {
   install -Dm644 packaging/systemd/arinn-session.target packaging/systemd/arinnd.service \
     packaging/systemd/arinn-shell.service packaging/systemd/arinn-kwin.service \
     packaging/systemd/arinn-ewmh.service packaging/systemd/arinn-ewmh-session.target \
+    packaging/systemd/arinn-session-failed@.service \
     -t "${pkgdir}/usr/lib/systemd/user/"
+  # OnFailure= handler of the daemon and shell units (#437).
+  install -Dm755 packaging/systemd/arinn-session-failed "${pkgdir}/usr/lib/arinn/arinn-session-failed"
   install -Dm644 README.md CHANGELOG.md -t "${pkgdir}/usr/share/doc/${pkgname}/"
   install -Dm644 build/observability/native/licenses/*-LICENSE -t "${pkgdir}/usr/share/licenses/${pkgname}/"
   install -Dm644 LICENSES/*.txt -t "${pkgdir}/usr/share/licenses/${pkgname}/"

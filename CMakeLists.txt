@@ -25,6 +25,8 @@ configure_file(apps/arinn-shell/arinn_build_id.h.in
 include_directories(${CMAKE_BINARY_DIR}/generated)
 add_subdirectory(apps/arinn-shell)
 add_subdirectory(scripts/perf)
+add_test(NAME session-failure-notice
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/package/test_session_failed.py)
 add_test(NAME shell-session-selector
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/package/test_shell_launcher.py)
 add_test(NAME desktop-entry-launcher

@@ -28,7 +28,7 @@ ADAPTER = PREFIX / "lib/arinn/arinn-kwin-adapter"
 SCRIPT = PREFIX / "share/arinn/kwin/phase0.js"
 NAMES = ["arinn-session.target", "arinnd.service", "arinn-shell.service", "arinn-kwin.service"]
 
-ALL_NAMES = NAMES + ["arinn-ewmh.service", "arinn-ewmh-session.target"]
+ALL_NAMES = NAMES + ["arinn-ewmh.service", "arinn-ewmh-session.target", "arinn-session-failed@.service"]
 
 for name in ALL_NAMES:
     assert (UNITS / name).is_file(), f"missing unit {name}"
@@ -122,6 +122,15 @@ assert "arinnd.service" in unit("arinn-shell.service")["Unit"]["After"][0].split
 # A shell that finds its name taken exits with 2; systemd must not restart it
 # into the start limit (#75).
 assert unit("arinn-shell.service")["Service"]["RestartPreventExitStatus"] == ["2"]
+# At the start limit the daemon and the shell stay failed and their OnFailure=
+# handler shows a notification; below it nothing changes (#437).
+FAILED = PREFIX / "lib/arinn/arinn-session-failed"
+assert FAILED.is_file() and os.access(FAILED, os.X_OK), "missing arinn-session-failed"
+for name in ("arinnd.service", "arinn-shell.service"):
+    assert unit(name)["Unit"]["OnFailure"] == ["arinn-session-failed@%n.service"], name
+assert unit("arinn-session-failed@.service")["Service"]["ExecStart"] == ["/usr/lib/arinn/arinn-session-failed %i"]
+subprocess.run([sys.executable, str(Path(__file__).with_name("test_session_failed.py"))],
+               env={**os.environ, "ARINN_SESSION_FAILED": str(FAILED)}, check=True, timeout=120)
 
 if PREFIX == Path("/usr"):
     # Offline verification; unrelated units of the host may still warn.

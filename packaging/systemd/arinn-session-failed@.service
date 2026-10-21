@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: 2026 Arinn contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# OnFailure= handler of arinnd.service and arinn-shell.service (#437); the
+# instance is the failed unit. When that unit hit its start limit, it shows a
+# desktop notification. It restarts nothing and takes no power action.
+[Unit]
+Description=Arinn failure notice for %i
+Documentation=https://github.com/LimeBeck/arinn
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/arinn/arinn-session-failed %i

@@ -1,0 +1,35 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: 2026 Arinn contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+# ExecStart of arinn-session-failed@.service (#437): tell the user that an
+# Arinn unit stopped after repeated failures. Only the start limit counts:
+# exit status 2 (RestartPreventExitStatus=) also leaves the unit failed and
+# stays silent, as before. Restarts nothing and takes no power action. The
+# message and the journal lines carry only the unit name (spec §13).
+set -u
+unit=${1:-}
+case $unit in
+arinnd.service | arinn-shell.service) ;;
+*) echo "arinn-session-failed: unexpected unit" >&2; exit 2 ;;
+esac
+# systemd passes the result of the unit that triggered the handler; read the
+# unit's Result where it does not.
+result=${MONITOR_SERVICE_RESULT:-}
+if [ -z "$result" ]; then
+    result=$(systemctl --user show --property=Result --value "$unit" 2>/dev/null) || result=
+fi
+if [ "$result" != start-limit-hit ]; then
+    echo "arinn-session-failed: $unit failed below its start limit; no notice" >&2
+    exit 0
+fi
+echo "arinn-session-failed: $unit stopped after repeated failures" >&2
+summary="Arinn stopped after repeated failures"
+body="$unit failed repeatedly and is not restarted. Diagnostics: journalctl --user -u $unit and arinnctl diagnostics. Start again: systemctl --user reset-failed $unit, then systemctl --user start $unit."
+# org.freedesktop.Notifications.Notify: app name, replaces id, icon, summary,
+# body, no actions, critical urgency, never expires.
+busctl --user --timeout=10 call org.freedesktop.Notifications /org/freedesktop/Notifications \
+    org.freedesktop.Notifications Notify 'susssasa{sv}i' \
+    Arinn 0 org.arinn.Shell "$summary" "$body" 0 \
+    2 urgency y 2 desktop-entry s org.arinn.Shell 0 >/dev/null ||
+    echo "arinn-session-failed: no notification service; the notice was not shown" >&2
+exit 0

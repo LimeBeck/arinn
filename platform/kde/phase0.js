@@ -100,13 +100,17 @@ function discoverReturn(owner) {
         publishReturn();
     });
 }
+// explicit: false for a state report, true for the Home key, or "quickMenu"
+// for the quick-menu key: the same state with its own presentation intent
+// (ADR-0106).
 function reportHome(explicit, done) {
     const owner = daemonOwner, serial = ++homeSerial;
     homeAcknowledged = false;
     lastReturnReport = "";
     if (!owner) return;
     const args = explicit ? [target, homeOutput] : [homeVisible, target, homeOutput];
-    callDBus(owner, path, service, explicit ? "ReportHomeRequest" : "ReportHome", ...args, () => {
+    const method = explicit === "quickMenu" ? "ReportQuickMenuRequest" : explicit ? "ReportHomeRequest" : "ReportHome";
+    callDBus(owner, path, service, method, ...args, () => {
         if (owner !== daemonOwner || serial !== homeSerial) return;
         homeAcknowledged = true;
         if (done) done();
@@ -140,7 +144,9 @@ function publishReturn() {
         if (revision !== inventoryRevision) publishReturn();
     });
 }
-function showHome() {
+// The Home key, a queued Home command, or (quickMenu) the quick-menu key,
+// which shows the shell exactly as Home does (ADR-0106).
+function showHome(quickMenu) {
     const owner = daemonOwner;
     if (!owner) return;
     // Do not surface over a locked session. ScreenSaver owns lock state.
@@ -158,7 +164,7 @@ function showHome() {
         homeVisible = true;
         // Pin a transient request to its daemon owner; reconnect only restores
         // state through ReportHome and must never replay presentation intent.
-        reportHome(true, raiseShell);
+        reportHome(quickMenu === true ? "quickMenu" : true, raiseShell);
     });
 }
 // Give the Activity the screen before the shell stops covering it. Clearing
@@ -254,7 +260,9 @@ function checkDaemon() {
         });
     });
 }
-registerShortcut("ArinnPhase0Home", "Arinn Phase 0: Home", "Meta+F12", showHome);
+registerShortcut("ArinnPhase0Home", "Arinn Phase 0: Home", "Meta+F12", () => showHome(false));
+// The daemon writes quick_menu_shortcut to this action (ADR-0106).
+registerShortcut("ArinnQuickMenu", "Arinn: Quick menu", "Meta+F11", () => showHome(true));
 function watchWindow(w) {
     // SDL may unmap/remap its fullscreen window on focus loss. Recover only
     // the exact KWin identity, never another window with the same app class.

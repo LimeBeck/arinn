@@ -1,16 +1,20 @@
 // SPDX-FileCopyrightText: 2026 Arinn contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Global Home key sequences shared by the platform adapters (#286).
+//! Global Home and quick-menu key sequences shared by the platform adapters
+//! (#286, #439).
 //!
-//! `config.toml` `home_shortcut` uses Qt's portable text, for example
-//! `Meta+F12`. Every adapter also binds the remote's HomePage key. The
+//! `config.toml` `home_shortcut` and `quick_menu_shortcut` use Qt's portable
+//! text, for example `Meta+F12`. Every adapter also binds the remote's
+//! HomePage key to Home. The
 //! parser accepts a small, explicit set of keys so that a global shortcut
 //! never takes Esc, Backspace or plain letters from other applications
 //! (specification §6.2).
 
 /// The documented default of `home_shortcut`.
 pub const DEFAULT_HOME: &str = "Meta+F12";
+/// The documented default of `quick_menu_shortcut` (ADR-0106, spec §6.2).
+pub const DEFAULT_QUICK_MENU: &str = "Meta+F11";
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Modifiers {
@@ -117,6 +121,24 @@ pub fn home(configured: &str) -> (Vec<Sequence>, bool) {
     (sequences, fallback)
 }
 
+/// The quick-menu sequences an adapter binds (ADR-0106): the configured
+/// one, or the default when the value is empty or invalid, with no fixed
+/// second key. A sequence that is also one of `home` is left out, so Home
+/// wins. The flag reports that the configured value was replaced by the
+/// default.
+pub fn quick_menu(configured: &str, home: &[Sequence]) -> (Vec<Sequence>, bool) {
+    let (sequence, fallback) = match parse(configured) {
+        Some(sequence) => (sequence, false),
+        None => (parse(DEFAULT_QUICK_MENU).expect("valid default"), true),
+    };
+    let sequences = if home.contains(&sequence) {
+        Vec::new()
+    } else {
+        vec![sequence]
+    };
+    (sequences, fallback)
+}
+
 impl Sequence {
     /// Qt's combined key code (`QKeyCombination::toCombined()`), the form
     /// KGlobalAccel stores.
@@ -219,5 +241,26 @@ mod tests {
         assert!(!fallback);
         assert_eq!(keys, [HOME_PAGE]);
         assert!(home("").1);
+    }
+
+    #[test]
+    fn quick_menu_falls_back_and_yields_to_home() {
+        let home_keys = home(DEFAULT_HOME).0;
+        let (keys, fallback) = quick_menu("Ctrl+Alt+Q", &home_keys);
+        assert!(!fallback);
+        assert_eq!(
+            keys.iter().map(|k| k.qt()).collect::<Vec<_>>(),
+            [0x0C00_0051]
+        );
+        let (keys, fallback) = quick_menu("Backspace", &home_keys);
+        assert!(fallback);
+        assert_eq!(keys, [parse("Meta+F11").unwrap()]);
+        assert_eq!(keys[0].qt(), 0x1100_003a);
+        assert_eq!(keys[0].keysym(), 0xffc8);
+        assert!(quick_menu("", &home_keys).1);
+        // A key Home already uses stays Home's, whatever its spelling.
+        assert_eq!(quick_menu("super+f12", &home_keys), (Vec::new(), false));
+        assert_eq!(quick_menu("HomePage", &home_keys), (Vec::new(), false));
+        assert_eq!(quick_menu("Meta+F12", &home("Ctrl+Alt+H").0).0.len(), 1);
     }
 }

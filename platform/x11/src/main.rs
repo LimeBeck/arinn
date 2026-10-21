@@ -35,6 +35,7 @@ trait HomeBridge {
     fn take_command(&self) -> zbus::Result<String>;
     fn report_home(&self, visible: bool, target: &str, output: &str) -> zbus::Result<()>;
     fn report_home_request(&self, target: &str, output: &str) -> zbus::Result<()>;
+    fn report_quick_menu_request(&self, target: &str, output: &str) -> zbus::Result<()>;
     fn report_window(
         &self,
         id: &str,
@@ -59,12 +60,19 @@ struct Actor {
     presentation: Option<Presentation>,
     media_allowed: bool,
 }
+/// The global key behind an explicit presentation request.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Request {
+    Home,
+    /// ADR-0106: the same Home state, presented as the quick menu.
+    QuickMenu,
+}
 #[derive(Clone)]
 struct Update {
     snapshot: Snapshot,
     home: bool,
     target: String,
-    explicit_home: bool,
+    explicit: Option<Request>,
 }
 #[derive(Clone)]
 enum Command {
@@ -78,7 +86,8 @@ struct Pending {
 }
 impl Actor {
     fn connect() -> Result<Self> {
-        let mut native = Native::connect(&home_shortcut())?;
+        let (home, quick_menu) = shortcuts();
+        let mut native = Native::connect(&home, &quick_menu)?;
         let snapshot = native.snapshot()?;
         Ok(Self {
             native,
@@ -92,7 +101,7 @@ impl Actor {
     fn row(&self, token: &str) -> Option<&Row> {
         self.snapshot.rows.iter().find(|r| r.token == token)
     }
-    fn update(&self, explicit_home: bool) -> Update {
+    fn update(&self, explicit: Option<Request>) -> Update {
         let mut snapshot = self.snapshot.clone();
         if !self.media_allowed {
             for row in &mut snapshot.rows {
@@ -103,7 +112,7 @@ impl Actor {
             snapshot,
             home: self.home,
             target: self.target.clone(),
-            explicit_home,
+            explicit,
         }
     }
     fn release(&mut self) -> &'static str {
@@ -266,11 +275,21 @@ impl Actor {
                 }
             }
         }
-        let mut explicit = false;
-        if self.snapshot.home_key && unlocked {
-            explicit = self
+        let mut explicit = None;
+        let key = if self.snapshot.home_key {
+            Some(Request::Home)
+        } else if self.snapshot.quick_menu_key {
+            Some(Request::QuickMenu)
+        } else {
+            None
+        };
+        if let Some(key) = key
+            && unlocked
+            && self
                 .command(&Command::Home("home".into()), unlocked)
-                .is_empty();
+                .is_empty()
+        {
+            explicit = Some(key);
         }
         if unlocked
             && (self.home || self.presentation.is_some())
@@ -494,7 +513,8 @@ async fn apply(
     Ok(tokio::task::spawn_blocking(move || {
         let mut actor = actor.lock().unwrap();
         let result = actor.command(&command, unlocked);
-        let explicit = matches!(&command, Command::Home(s) if s == "home") && result.is_empty();
+        let explicit = (matches!(&command, Command::Home(s) if s == "home") && result.is_empty())
+            .then_some(Request::Home);
         (result, actor.update(explicit))
     })
     .await?)
@@ -563,8 +583,10 @@ async fn publish(
     )
     .await?;
     let state = (update.home, update.target.clone());
-    if update.explicit_home {
+    if update.explicit == Some(Request::Home) {
         home.report_home_request(&update.target, "").await?;
+    } else if update.explicit == Some(Request::QuickMenu) {
+        home.report_quick_menu_request(&update.target, "").await?;
     } else if previous_home.as_ref() != Some(&state) {
         home.report_home(update.home, &update.target, "").await?;
     }
@@ -723,15 +745,39 @@ async fn shutdown() {
         .expect("SIGTERM handler");
     tokio::select! { _ = tokio::signal::ctrl_c() => (), _ = term.recv() => () }
 }
-/// `home_shortcut` from the daemon's `config.toml`, read only (#286). The
-/// daemon owns the file; a missing or unreadable value means the default.
-fn home_shortcut() -> String {
-    configured_home(
-        std::env::var_os("HOME").as_deref(),
-        std::env::var_os("XDG_CONFIG_HOME").as_deref(),
+/// `home_shortcut` (#286) and `quick_menu_shortcut` (ADR-0106) from the
+/// daemon's `config.toml`, read only. The daemon owns the file; a missing or
+/// unreadable value means the default.
+fn shortcuts() -> (String, String) {
+    let home = std::env::var_os("HOME");
+    let config = std::env::var_os("XDG_CONFIG_HOME");
+    let table = config_table(home.as_deref(), config.as_deref());
+    (
+        shortcut(table.as_ref(), "home_shortcut", key_sequence::DEFAULT_HOME),
+        shortcut(
+            table.as_ref(),
+            "quick_menu_shortcut",
+            key_sequence::DEFAULT_QUICK_MENU,
+        ),
     )
 }
+fn shortcut(table: Option<&toml::Table>, key: &str, default: &str) -> String {
+    table
+        .and_then(|table| table.get(key)?.as_str().map(str::to_owned))
+        .unwrap_or_else(|| default.to_owned())
+}
+#[cfg(test)]
 fn configured_home(home: Option<&std::ffi::OsStr>, config: Option<&std::ffi::OsStr>) -> String {
+    shortcut(
+        config_table(home, config).as_ref(),
+        "home_shortcut",
+        key_sequence::DEFAULT_HOME,
+    )
+}
+fn config_table(
+    home: Option<&std::ffi::OsStr>,
+    config: Option<&std::ffi::OsStr>,
+) -> Option<toml::Table> {
     let path = config
         .map(std::path::PathBuf::from)
         .filter(|p| p.is_absolute())
@@ -743,8 +789,6 @@ fn configured_home(home: Option<&std::ffi::OsStr>, config: Option<&std::ffi::OsS
         .map(|root| root.join("arinn/config.toml"));
     path.and_then(|path| std::fs::read_to_string(path).ok())
         .and_then(|text| text.parse::<toml::Table>().ok())
-        .and_then(|table| table.get("home_shortcut")?.as_str().map(str::to_owned))
-        .unwrap_or_else(|| key_sequence::DEFAULT_HOME.to_owned())
 }
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -792,6 +836,22 @@ mod tests {
             "Meta+F12"
         );
         std::fs::write(root.join("arinn/config.toml"), "not toml [").unwrap();
+        assert_eq!(read(), "Meta+F12");
+        // ADR-0106: quick_menu_shortcut comes from the same file.
+        let quick_menu = || {
+            shortcut(
+                config_table(None, Some(root.as_os_str())).as_ref(),
+                "quick_menu_shortcut",
+                key_sequence::DEFAULT_QUICK_MENU,
+            )
+        };
+        assert_eq!(quick_menu(), "Meta+F11");
+        std::fs::write(
+            root.join("arinn/config.toml"),
+            "schema_version = 1\nquick_menu_shortcut = \"Ctrl+Alt+Q\"\n",
+        )
+        .unwrap();
+        assert_eq!(quick_menu(), "Ctrl+Alt+Q");
         assert_eq!(read(), "Meta+F12");
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -1458,6 +1518,118 @@ mod publication_tests {
         fn report_window(&self, _token: &str, _desktop: &str, _fullscreen: bool, _output: &str) {}
         fn report_home(&self, _visible: bool, _target: &str, _output: &str) {}
     }
+    /// Records the Home reports and requests the adapter sends.
+    struct Requests(Arc<Mutex<Vec<String>>>);
+    #[zbus::interface(name = "org.arinn.Daemon1")]
+    impl Requests {
+        fn report_window(&self, _token: &str, _desktop: &str, _fullscreen: bool, _output: &str) {}
+        fn report_home(&self, visible: bool, _target: &str, _output: &str) {
+            self.0.lock().unwrap().push(format!("state {visible}"));
+        }
+        fn report_home_request(&self, target: &str, _output: &str) {
+            self.0.lock().unwrap().push(format!("home {target}"));
+        }
+        fn report_quick_menu_request(&self, target: &str, _output: &str) {
+            self.0.lock().unwrap().push(format!("quick-menu {target}"));
+        }
+    }
+    struct Returns;
+    #[zbus::interface(name = "org.arinn.KWinReturn1")]
+    impl Returns {
+        fn report(&self, _generation: &str, _revision: i32, _target: &str, _token: &str) {}
+    }
+    /// ADR-0106: the quick-menu key is reported as its own request, with the
+    /// Return target of an explicit Home; Home keeps its request.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn quick_menu_key_reports_its_own_request() -> Result<()> {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            let bus = lock_tests::Bus::new().await;
+            let capture = Arc::new(Mutex::new(Capture::default()));
+            let requests = Arc::new(Mutex::new(Vec::new()));
+            let path = "/org/arinn/Daemon1";
+            let server = zbus::connection::Builder::address(bus.address.trim())?
+                .serve_at(path, Bridge(capture.clone()))?
+                .serve_at(path, Media(capture.clone()))?
+                .serve_at(path, Requests(requests.clone()))?
+                .serve_at(path, Returns)?
+                .build()
+                .await?;
+            let owner = server.unique_name().unwrap().clone();
+            let home = HomeBridgeProxy::builder(&bus.client)
+                .destination(owner.clone())?
+                .build()
+                .await?;
+            let bridge = KWinBridgeProxy::builder(&bus.client)
+                .destination(owner.clone())?
+                .build()
+                .await?;
+            let media = KWinMediaProxy::builder(&bus.client)
+                .destination(owner.clone())?
+                .build()
+                .await?;
+            let returns = KWinReturnProxy::builder(&bus.client)
+                .destination(owner)?
+                .build()
+                .await?;
+            let token = Uuid::new_v4().to_string();
+            let mut update = Update {
+                snapshot: Snapshot {
+                    rows: vec![Row {
+                        xid: 42,
+                        token: token.clone(),
+                        desktop_id: "org.example.Player.desktop".into(),
+                        launch: String::new(),
+                        flags: 4,
+                    }],
+                    shell: Some(43),
+                    shell_token: Uuid::new_v4().to_string(),
+                    active: Some(42),
+                    home_key: false,
+                    quick_menu_key: true,
+                    compositor: true,
+                },
+                home: true,
+                target: token.clone(),
+                explicit: Some(Request::QuickMenu),
+            };
+            let generation = Uuid::new_v4().to_string();
+            let mut revision = 0;
+            let mut previous = Vec::new();
+            let mut previous_home = None;
+            for explicit in [
+                Some(Request::QuickMenu),
+                Some(Request::QuickMenu),
+                None,
+                Some(Request::Home),
+            ] {
+                update.explicit = explicit;
+                publish(
+                    &home,
+                    &bridge,
+                    &media,
+                    &returns,
+                    &generation,
+                    &mut revision,
+                    &mut previous,
+                    &mut previous_home,
+                    &update,
+                )
+                .await?;
+            }
+            // Every press is a request, identical repeats included; an
+            // unchanged state without a press reports nothing.
+            assert_eq!(
+                *requests.lock().unwrap(),
+                [
+                    format!("quick-menu {token}"),
+                    format!("quick-menu {token}"),
+                    format!("home {token}"),
+                ]
+            );
+            Ok(())
+        })
+        .await?
+    }
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn media_identity_changes_do_not_resubmit_identical_inventory() -> Result<()> {
         tokio::time::timeout(Duration::from_secs(5), async {
@@ -1509,11 +1681,12 @@ mod publication_tests {
                     shell_token: Uuid::new_v4().to_string(),
                     active: Some(42),
                     home_key: false,
+                    quick_menu_key: false,
                     compositor: true,
                 },
                 home: false,
                 target: String::new(),
-                explicit_home: false,
+                explicit: None,
             };
             let mut revision = 0;
             let mut previous = Vec::new();

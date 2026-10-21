@@ -36,7 +36,11 @@ pub struct Snapshot {
     pub shell: Option<Window>,
     pub shell_token: String,
     pub active: Option<Window>,
+    /// The latest global key since the last snapshot was Home.
     pub home_key: bool,
+    /// The latest global key since the last snapshot was the quick menu
+    /// (ADR-0106).
+    pub quick_menu_key: bool,
     pub compositor: bool,
 }
 #[derive(Default)]
@@ -113,9 +117,14 @@ pub struct Native {
     watched: HashSet<Window>,
     /// Global Home sequences: `home_shortcut`, then HomePage (#286).
     home: Vec<Sequence>,
+    /// Quick-menu sequences: `quick_menu_shortcut` (ADR-0106).
+    quick_menu: Vec<Sequence>,
+    /// Grabbed quick-menu (modifier mask, keycode) pairs; any other grabbed
+    /// press is Home.
+    quick_menu_grabs: HashSet<(u16, Keycode)>,
 }
 impl Native {
-    pub fn connect(home_shortcut: &str) -> Result<Self> {
+    pub fn connect(home_shortcut: &str, quick_menu_shortcut: &str) -> Result<Self> {
         ensure!(
             std::env::var("XDG_SESSION_TYPE").as_deref() == Ok("x11"),
             "X11 session required"
@@ -124,13 +133,25 @@ impl Native {
         if fallback {
             eprintln!("arinn-platform-x11: invalid home_shortcut; using the default");
         }
-        Self::connect_display_with(None, home)
+        let (quick_menu, fallback) = key_sequence::quick_menu(quick_menu_shortcut, &home);
+        if fallback {
+            eprintln!("arinn-platform-x11: invalid quick_menu_shortcut; using the default");
+        } else if quick_menu.is_empty() {
+            eprintln!("arinn-platform-x11: quick_menu_shortcut is a Home key; skipped");
+        }
+        Self::connect_display_with(None, home, quick_menu)
     }
     #[cfg(test)]
     pub(crate) fn connect_display(display: Option<&str>) -> Result<Self> {
-        Self::connect_display_with(display, key_sequence::home(key_sequence::DEFAULT_HOME).0)
+        let home = key_sequence::home(key_sequence::DEFAULT_HOME).0;
+        let quick_menu = key_sequence::quick_menu(key_sequence::DEFAULT_QUICK_MENU, &home).0;
+        Self::connect_display_with(display, home, quick_menu)
     }
-    pub(crate) fn connect_display_with(display: Option<&str>, home: Vec<Sequence>) -> Result<Self> {
+    pub(crate) fn connect_display_with(
+        display: Option<&str>,
+        home: Vec<Sequence>,
+        quick_menu: Vec<Sequence>,
+    ) -> Result<Self> {
         let (c, screen) = x11rb::connect(display)?;
         let root = c.setup().roots[screen].root;
         let atoms = Atoms::new(&c)?.reply()?;
@@ -148,6 +169,8 @@ impl Native {
             tokens: Tokens::default(),
             watched: HashSet::new(),
             home,
+            quick_menu,
+            quick_menu_grabs: HashSet::new(),
         };
         s.wm = s.wm_owner()?;
         s.supported = s
@@ -339,7 +362,7 @@ impl Native {
         );
         Ok(wm)
     }
-    fn grab_home(&self) -> Result<()> {
+    fn grab_home(&mut self) -> Result<()> {
         self.c.ungrab_key(0, self.root, ModMask::ANY)?.check()?;
         let setup = self.c.setup();
         let count = setup.max_keycode - setup.min_keycode + 1;
@@ -393,7 +416,10 @@ impl Native {
             }
         };
         let mut grabbed = false;
-        for sequence in &self.home {
+        let mut quick_menu_grabs = HashSet::new();
+        let home = self.home.len();
+        for (index, sequence) in self.home.iter().chain(&self.quick_menu).enumerate() {
+            let is_home = index < home;
             let codes: Vec<Keycode> = keys
                 .clone()
                 .enumerate()
@@ -459,11 +485,19 @@ impl Native {
                         .ungrab_key(*key, self.root, (*modifiers).into())?
                         .check()?;
                 }
-                eprintln!("arinn-platform-x11: a Home key is held by another client; skipped");
-            } else {
+                eprintln!(
+                    "arinn-platform-x11: a {} key is held by another client; skipped",
+                    if is_home { "Home" } else { "quick-menu" }
+                );
+            } else if is_home {
                 grabbed = true;
+            } else {
+                quick_menu_grabs.extend(combinations);
             }
         }
+        // Only Home is required; a quick-menu key that cannot be grabbed
+        // never stops the adapter (ADR-0106).
+        self.quick_menu_grabs = quick_menu_grabs;
         ensure!(grabbed, "Home key unavailable");
         self.c.flush()?;
         Ok(())
@@ -472,13 +506,20 @@ impl Native {
         // Establish an X-server barrier before draining lifecycle events.
         self.c.get_input_focus()?.reply()?;
         let mut home_key = false;
+        let mut quick_menu_key = false;
         while let Some(event) = self.c.poll_for_event()? {
             match event {
                 Event::DestroyNotify(e) => {
                     self.tokens.forget(e.window);
                     self.watched.remove(&e.window);
                 }
-                Event::KeyPress(_) => home_key = true,
+                // The latest global key wins; a press of an ungrabbed
+                // combination never reaches the root window.
+                Event::KeyPress(e) => {
+                    let pressed = (u16::from(e.state) & 0xff, e.detail);
+                    quick_menu_key = self.quick_menu_grabs.contains(&pressed);
+                    home_key = !quick_menu_key;
+                }
                 Event::MappingNotify(_) => self.grab_home()?,
                 _ => (),
             }
@@ -578,6 +619,7 @@ impl Native {
             shell_token,
             active,
             home_key,
+            quick_menu_key,
             compositor: self.c.get_selection_owner(self.compositor)?.reply()?.owner != 0,
         })
     }
@@ -977,7 +1019,7 @@ pub(crate) mod fixture {
         // #286: home_shortcut decides the grab, and HomePage is always added.
         let desktop = Desktop::new()?;
         let home = crate::key_sequence::home("Ctrl+Alt+H").0;
-        let mut native = Native::connect_display_with(Some(&desktop.display), home)?;
+        let mut native = Native::connect_display_with(Some(&desktop.display), home, Vec::new())?;
         native.snapshot()?;
         desktop.press(&[0xffe3, 0xffe9], u32::from(b'h'))?; // Control_L, Alt_L
         assert!(native.snapshot()?.home_key);
@@ -987,6 +1029,58 @@ pub(crate) mod fixture {
         assert!(!native.snapshot()?.home_key);
         desktop.home_key()?; // Meta+F12 is no longer bound.
         assert!(!native.snapshot()?.home_key);
+        Ok(())
+    }
+    #[test]
+    #[ignore = "requires Xvfb; spawns an isolated X server, never uses the real DISPLAY"]
+    fn quick_menu_key_is_reported_apart_from_home() -> Result<()> {
+        // ADR-0106: quick_menu_shortcut is grabbed next to the Home keys and
+        // reported as its own key; the latest press wins.
+        let desktop = Desktop::new()?;
+        let home = crate::key_sequence::home("Meta+F12").0;
+        let quick_menu = crate::key_sequence::quick_menu("Ctrl+Alt+Q", &home).0;
+        let mut native = Native::connect_display_with(Some(&desktop.display), home, quick_menu)?;
+        native.snapshot()?;
+        desktop.press(&[0xffe3, 0xffe9], u32::from(b'q'))?; // Control_L, Alt_L
+        let snapshot = native.snapshot()?;
+        assert!(snapshot.quick_menu_key && !snapshot.home_key);
+        desktop.home_key()?;
+        let snapshot = native.snapshot()?;
+        assert!(snapshot.home_key && !snapshot.quick_menu_key);
+        desktop.home_key()?;
+        desktop.press(&[0xffe3, 0xffe9], u32::from(b'q'))?;
+        let snapshot = native.snapshot()?;
+        assert!(snapshot.quick_menu_key && !snapshot.home_key);
+        // The grab survives a mapping change.
+        let mapping = desktop.c.get_modifier_mapping()?.reply()?.keycodes;
+        assert_eq!(
+            desktop.c.set_modifier_mapping(&mapping)?.reply()?.status,
+            x11rb::protocol::xproto::MappingStatus::SUCCESS
+        );
+        native.snapshot()?;
+        desktop.press(&[0xffe3, 0xffe9], u32::from(b'q'))?;
+        assert!(native.snapshot()?.quick_menu_key);
+        Ok(())
+    }
+    #[test]
+    #[ignore = "requires Xvfb; spawns an isolated X server, never uses the real DISPLAY"]
+    fn held_quick_menu_key_never_stops_the_adapter() -> Result<()> {
+        // Another client holds the quick-menu key: Home still works.
+        let desktop = Desktop::new()?;
+        let other = Native::connect_display_with(
+            Some(&desktop.display),
+            crate::key_sequence::home("Ctrl+Alt+Q").0,
+            Vec::new(),
+        )?;
+        let home = crate::key_sequence::home("Meta+F12").0;
+        let quick_menu = crate::key_sequence::quick_menu("Ctrl+Alt+Q", &home).0;
+        let mut native = Native::connect_display_with(Some(&desktop.display), home, quick_menu)?;
+        native.snapshot()?;
+        desktop.press(&[0xffe3, 0xffe9], u32::from(b'q'))?;
+        assert!(!native.snapshot()?.quick_menu_key);
+        desktop.home_key()?;
+        assert!(native.snapshot()?.home_key);
+        drop(other);
         Ok(())
     }
     #[test]
@@ -1033,7 +1127,7 @@ pub(crate) mod fixture {
             .check()?;
         desktop.c.flush()?;
         let home = crate::key_sequence::home("Ctrl+Alt+H").0;
-        let mut native = Native::connect_display_with(Some(&desktop.display), home)?;
+        let mut native = Native::connect_display_with(Some(&desktop.display), home, Vec::new())?;
         native.snapshot()?;
         desktop.press(&[], 0x1008_ff18)?;
         assert!(native.snapshot()?.home_key);

@@ -85,7 +85,11 @@ combinations. A sequence whose key or modifier is not mapped is skipped. Meta de
 mapping, falling back to native Meta only if no mapped Super exists; it does not
 assume Mod4. Keyboard/modifier mapping changes rebuild the grabs. A sequence another
 client already grabs is skipped and logged; the backend is unavailable only
-when no Home sequence can be grabbed. Home snapshots the exact opaque target
+when no Home sequence can be grabbed. `quick_menu_shortcut` (default Meta+F11)
+is grabbed the same way next to the Home keys; a press is reported with
+`ReportQuickMenuRequest` after the same unlocked check and Home state, and a
+quick-menu key that cannot be grabbed is skipped without stopping the backend
+([ADR-0106](../adr/0106-quick-menu-presentation.md)). Home snapshots the exact opaque target
 and keeps it across repeated Home presses. Return validates that token in the
 current inventory before dispatch. The shell receives all-desktops, fullscreen/above and
 activation EWMH messages; ordinary activation and close also use EWMH messages.

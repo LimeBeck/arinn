@@ -117,6 +117,9 @@ pub struct Config {
     pub defaults: BTreeMap<String, String>,
     #[serde(default = "home_shortcut")]
     pub home_shortcut: String,
+    /// The quick-menu key (ADR-0106), in the syntax of `home_shortcut`.
+    #[serde(default = "quick_menu_shortcut")]
+    pub quick_menu_shortcut: String,
     #[serde(default)]
     pub home_output: String,
     #[serde(default = "yes")]
@@ -144,6 +147,9 @@ pub struct InputConfig {
 fn home_shortcut() -> String {
     "Meta+F12".into()
 }
+fn quick_menu_shortcut() -> String {
+    "Meta+F11".into()
+}
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -151,6 +157,7 @@ impl Default for Config {
             providers: BTreeMap::new(),
             defaults: BTreeMap::new(),
             home_shortcut: home_shortcut(),
+            quick_menu_shortcut: quick_menu_shortcut(),
             home_output: String::new(),
             animations: true,
             browser_application: String::new(),
@@ -168,6 +175,7 @@ impl Config {
             return Err(ErrorCode::InvalidArgument);
         }
         validation::text(&self.home_shortcut)?;
+        validation::text(&self.quick_menu_shortcut)?;
         validation::text(&self.home_output)?;
         if !self.browser_application.is_empty() {
             validation::id(&self.browser_application)?;

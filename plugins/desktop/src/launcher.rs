@@ -79,20 +79,75 @@ pub async fn activate_on(connection: &Connection, name: &str) -> Result<(), Erro
     .unwrap_or(Err(ErrorCode::Timeout))
 }
 
-pub async fn launch_on(connection: &Connection, path: &Path) -> Result<(), ErrorCode> {
-    let path = path
-        .to_str()
-        .filter(|_| path.is_absolute())
-        .ok_or(ErrorCode::InvalidArgument)?;
-    let unit = format!("app-arinn-{}.service", uuid::Uuid::new_v4().simple());
-    let manager = Proxy::new(
+/// A dispatched application unit. The connection that started it holds the
+/// AddRef reference, so the unit stays readable after its processes exit;
+/// dropping the connection releases the reference, never stops the unit.
+pub struct LaunchUnit {
+    connection: Connection,
+    name: String,
+    unit: Proxy<'static>,
+}
+impl LaunchUnit {
+    /// Whether processes of the launch still run. With `ExitType=cgroup`
+    /// the unit stays active after GIO exits until its cgroup is empty, so
+    /// `inactive` or `failed` means the application and everything it started
+    /// have exited. An unreadable unit counts as ended.
+    pub async fn running(&self) -> bool {
+        match self.unit.get_property::<String>("ActiveState").await {
+            Ok(state) => !matches!(state.as_str(), "inactive" | "failed"),
+            Err(_) => false,
+        }
+    }
+    /// Stop this unit only: the processes of this launch, nothing else.
+    pub async fn stop(&self) -> Result<(), ErrorCode> {
+        let manager = manager(&self.connection).await?;
+        tokio::time::timeout(
+            Duration::from_secs(5),
+            manager.call::<_, _, OwnedObjectPath>("StopUnit", &(&self.name, "replace")),
+        )
+        .await
+        .map_err(|_| ErrorCode::Timeout)?
+        .map(|_| ())
+        .map_err(|_| ErrorCode::Unavailable)
+    }
+    /// Release the AddRef reference; the unit and its processes keep running.
+    pub async fn release(self) {
+        if let Ok(manager) = manager(&self.connection).await {
+            let _ = tokio::time::timeout(
+                Duration::from_secs(1),
+                manager.call::<_, _, ()>("UnrefUnit", &(&self.name,)),
+            )
+            .await;
+        }
+    }
+}
+async fn manager(connection: &Connection) -> Result<Proxy<'static>, ErrorCode> {
+    Proxy::new(
         connection,
         "org.freedesktop.systemd1",
         "/org/freedesktop/systemd1",
         "org.freedesktop.systemd1.Manager",
     )
     .await
-    .map_err(|_| ErrorCode::Unavailable)?;
+    .map_err(|_| ErrorCode::Unavailable)
+}
+
+/// Dispatch through GIO and release the unit at once: success acknowledges
+/// dispatch only.
+pub async fn launch_on(connection: &Connection, path: &Path) -> Result<(), ErrorCode> {
+    start_on(connection, path).await?.release().await;
+    Ok(())
+}
+
+/// Start GIO in a new application unit and wait, within the dispatch
+/// deadline, until GIO has exited. The returned unit stays referenced.
+pub async fn start_on(connection: &Connection, path: &Path) -> Result<LaunchUnit, ErrorCode> {
+    let path = path
+        .to_str()
+        .filter(|_| path.is_absolute())
+        .ok_or(ErrorCode::InvalidArgument)?;
+    let name = format!("app-arinn-{}.service", uuid::Uuid::new_v4().simple());
+    let manager = manager(connection).await?;
     let command = vec![(
         "/usr/bin/gio",
         vec!["/usr/bin/gio", "launch", path],
@@ -115,25 +170,31 @@ pub async fn launch_on(connection: &Connection, path: &Path) -> Result<(), Error
         let _: OwnedObjectPath = manager
             .call(
                 "StartTransientUnit",
-                &(&unit, "fail", properties, auxiliaries),
+                &(&name, "fail", properties, auxiliaries),
             )
             .await
             .map_err(|_| ErrorCode::Unavailable)?;
         let object: OwnedObjectPath = manager
-            .call("GetUnit", &(&unit,))
+            .call("GetUnit", &(&name,))
             .await
             .map_err(|_| ErrorCode::Unavailable)?;
-        let service = zbus::proxy::Builder::<Proxy<'_>>::new(connection)
-            .destination("org.freedesktop.systemd1")
-            .map_err(|_| ErrorCode::Internal)?
-            .path(object)
-            .map_err(|_| ErrorCode::Internal)?
-            .interface("org.freedesktop.systemd1.Service")
-            .map_err(|_| ErrorCode::Internal)?
-            .cache_properties(zbus::proxy::CacheProperties::No)
-            .build()
-            .await
-            .map_err(|_| ErrorCode::Unavailable)?;
+        let unit = |interface: &'static str| {
+            let object = object.clone();
+            async move {
+                zbus::proxy::Builder::<Proxy<'static>>::new(connection)
+                    .destination("org.freedesktop.systemd1")
+                    .map_err(|_| ErrorCode::Internal)?
+                    .path(object)
+                    .map_err(|_| ErrorCode::Internal)?
+                    .interface(interface)
+                    .map_err(|_| ErrorCode::Internal)?
+                    .cache_properties(zbus::proxy::CacheProperties::No)
+                    .build()
+                    .await
+                    .map_err(|_| ErrorCode::Unavailable)
+            }
+        };
+        let service = unit("org.freedesktop.systemd1.Service").await?;
         loop {
             // GIO's exit acknowledges launch dispatch, not window creation or
             // application lifetime. AddRef keeps even a fast failed job readable.
@@ -151,7 +212,7 @@ pub async fn launch_on(connection: &Connection, path: &Path) -> Result<(), Error
                     .await
                     .map_err(|_| ErrorCode::Unavailable)?;
                 return if code == libc::CLD_EXITED && status == 0 {
-                    Ok(())
+                    unit("org.freedesktop.systemd1.Unit").await
                 } else {
                     Err(ErrorCode::Unavailable)
                 };
@@ -161,10 +222,19 @@ pub async fn launch_on(connection: &Connection, path: &Path) -> Result<(), Error
     })
     .await
     .unwrap_or(Err(ErrorCode::Timeout));
-    let _ = tokio::time::timeout(
-        Duration::from_secs(1),
-        manager.call::<_, _, ()>("UnrefUnit", &(&unit,)),
-    )
-    .await;
-    result
+    match result {
+        Ok(unit) => Ok(LaunchUnit {
+            connection: connection.clone(),
+            name,
+            unit,
+        }),
+        Err(error) => {
+            let _ = tokio::time::timeout(
+                Duration::from_secs(1),
+                manager.call::<_, _, ()>("UnrefUnit", &(&name,)),
+            )
+            .await;
+            Err(error)
+        }
+    }
 }

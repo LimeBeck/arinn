@@ -717,6 +717,10 @@ TestCase {
         keyClick(Qt.Key_Menu);
         compare(suite.menuKeys, 1);
         verify(view.pathTyping);
+        // A catalog publish rebuilds the rows; typing goes on in the panel.
+        view.rows = copyRows();
+        pathKeysFocused();
+        verify(view.pathTyping);
         // Back hides the panel and returns to the pill; the text stays.
         keyClick(Qt.Key_Escape);
         tryCompare(view, "pathTyping", false);

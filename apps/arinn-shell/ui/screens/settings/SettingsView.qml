@@ -756,10 +756,6 @@ FocusScope {
     // The row repeater builds new buttons whenever rows are replaced. Without
     // this, focus falls back to the view and Select does nothing (AC-02).
     function queueRowFocusRestore() {
-        if (pathTyping) {
-            Qt.callLater(() => { if (pathTyping) pathKeyboard.resume(); });
-            return;
-        }
         if (stringSheet || integerSheet || choosingKey.length) {
             Qt.callLater(() => {
                 if (stringSheet) focusString();
@@ -1056,9 +1052,8 @@ FocusScope {
                         // Keeps the focused row when the repeater recreates it. Stay
                         // focused while this row's editor is open so the field
                         // can hold active focus inside the scope.
-                        // The path typing layer holds focus over the row.
                         focus: root.detailFocused && root.focusedRowKey === key && !root.choosingKey
-                               && (!root.editingKey || root.editingKey === key) && !root.pathTyping
+                               && (!root.editingKey || root.editingKey === key)
                         function wants(name) {
                             return focus && !root.editingKey && root.partName === name;
                         }

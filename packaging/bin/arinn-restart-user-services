@@ -1,0 +1,32 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: 2026 Arinn contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Restart the running Arinn user services of every user manager after a
+# package upgrade (#355), so no Arinn process keeps running an old binary.
+# Run as root by the libalpm hook (Arch) and by postinst (Debian).
+#
+# try-restart touches only running units: nothing starts for users who do
+# not run Arinn. Order: daemon, KWin adapter, EWMH adapter, shell. The
+# daemon restarts its providers on start. Never fails the transaction.
+set -u
+units="arinnd.service arinn-kwin.service arinn-ewmh.service arinn-shell.service"
+
+# No running systemd (chroot, container, build root): nothing to restart.
+managers=$(systemctl list-units --plain --no-legend --no-pager --state=running 'user@*.service' 2>/dev/null) ||
+    exit 0
+
+printf '%s\n' "$managers" | while read -r manager _; do
+    uid=${manager#user@}
+    uid=${uid%.service}
+    case $uid in '' | *[!0-9]*) continue ;; esac
+    user=$(getent passwd "$uid" | cut -d: -f1)
+    [ -n "$user" ] || continue
+    # shellcheck disable=SC2086 # $units is a word list
+    systemctl --user -M "$user@" is-active --quiet $units </dev/null 2>/dev/null || continue
+    echo "==> Restarting Arinn for user $user; playback in progress is interrupted."
+    for unit in $units; do
+        systemctl --user -M "$user@" try-restart "$unit" </dev/null ||
+            echo "==> WARNING: $unit of user $user was not restarted; restart Arinn or log in again."
+    done
+done
+exit 0

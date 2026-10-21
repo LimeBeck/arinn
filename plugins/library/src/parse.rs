@@ -476,34 +476,33 @@ fn find_marker(input: &str) -> Option<(u32, u32, usize, usize)> {
 /// `.` and `_` are spaces by now.
 /// - `TVn`: `TV1`, `TV-2`, `tv 3`. `MTV2` and `TV 2000` are not markers.
 /// - `Snn`: `S1`, `S01`, with nothing between `S` and the digits. It counts
-///   only when the name has no `SxxEyy`/`NxNN` marker, which keeps
-///   precedence. `MS01`, `S100`, `S01x` and `S01E02` are not markers.
+///   only when the name has no `TVn` marker anywhere, so `TVn` behaves as
+///   before, and no `SxxEyy`/`NxNN` marker, which keeps precedence. `MS01`,
+///   `S100`, `S01x` and `S01E02` are not markers.
 fn find_season_marker(input: &str) -> Option<(u32, usize, usize)> {
+    find_prefixed_marker(input, "tv", true).or_else(|| {
+        if find_marker(input).is_some() {
+            return None;
+        }
+        find_prefixed_marker(input, "s", false)
+    })
+}
+
+/// The first standalone `<prefix><1-2 digits>` in `input`; `gap` allows one
+/// space or `-` between the prefix and the digits.
+fn find_prefixed_marker(input: &str, prefix: &str, gap: bool) -> Option<(u32, usize, usize)> {
     let lower = input.to_ascii_lowercase();
     let bytes = lower.as_bytes();
-    let mut has_episode_marker = None;
-    for index in 0..bytes.len() {
-        if !matches!(bytes[index], b't' | b's') || !word_edge(lower[..index].chars().next_back()) {
+    for (index, _) in lower.match_indices(prefix) {
+        if !word_edge(lower[..index].chars().next_back()) {
             continue;
         }
-        let (prefix, gap) = if let Some(rest) = lower[index..].strip_prefix("tv") {
-            (
-                2,
-                usize::from(matches!(rest.as_bytes().first(), Some(b' ' | b'-'))),
-            )
-        } else if bytes[index] == b's' {
-            // Computed once, and only when an `S` could start a marker.
-            if *has_episode_marker.get_or_insert_with(|| find_marker(input).is_some()) {
-                continue;
-            }
-            (1, 0)
-        } else {
+        let after = index + prefix.len();
+        let skip = usize::from(gap && matches!(bytes.get(after), Some(b' ' | b'-')));
+        let Some((season, digits)) = take_digits(&bytes[after + skip..], 1, 2) else {
             continue;
         };
-        let Some((season, digits)) = take_digits(&bytes[index + prefix + gap..], 1, 2) else {
-            continue;
-        };
-        let end = index + prefix + gap + digits;
+        let end = after + skip + digits;
         if word_edge(lower[end..].chars().next())
             && let Some(season) = index_token(&season.to_string())
         {
@@ -1037,6 +1036,20 @@ mod tests {
         assert_eq!((both.season, both.episode), (2, 4));
         let in_folder = episode("/library/Show S05/Show S01E02.mkv");
         assert_eq!((in_folder.season, in_folder.episode), (1, 2));
+    }
+
+    // Review of #469: a `TVn` marker anywhere in the name wins over an
+    // earlier standalone `Snn`, so names that worked before ADR-0109 keep
+    // their season and episode.
+    #[test]
+    fn tv_marker_wins_over_an_earlier_season_only_marker() {
+        let folder = episode("/library/Mobile Suit S2 TV1/01.mkv");
+        assert_eq!(folder.series_title, "Mobile Suit S2");
+        assert_eq!(folder.series_key, "name:mobile suit s2");
+        assert_eq!((folder.season, folder.episode), (1, 1));
+        let file = episode("/library/Show S2 TV1 - 05.mkv");
+        assert_eq!(file.series_title, "Show S2");
+        assert_eq!((file.season, file.episode), (1, 5));
     }
 
     #[test]

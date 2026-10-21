@@ -33,15 +33,19 @@ treats a standalone `Snn` as a season marker wherever ADR-0085 accepts `TVn`.
   either side, as for `TVn`. Unlike `TVn` no space or `-` is allowed between
   `S` and the digits: a lone `S` is common in titles (`Plan S 2`). A `[...]`
   group that holds only the marker (`[S02]`) is opened before cleaning.
-- **Precedence.** The marker counts only when the name has no `SxxEyy` or
+- **Precedence.** The marker counts only when the name has no `TVn` marker
+  anywhere, so every name that `TVn` recognised before keeps its season
+  (`Mobile Suit S2 TV1/` is season 1 of `Mobile Suit S2`), and no `SxxEyy` or
   `NxNN` marker; those keep precedence. `S01E02` itself is not a `Snn`
   marker, because the boundary after the digits fails. `MS01`, `S100` and
   `S01x` are not markers either.
 - **Folders.** A folder that is only `Snn` is a season folder like
   `Season N` and `TVn`; the series is the folder above it. A folder
-  `<Title> … Snn` is season `n` of `<Title>`: `[...]` groups and a year are
-  dropped from the title, and the series key is the normalized title, so
-  `<Title> S01/`, `<Title> S02/` and `<Title> TV3/` form one series.
+  `<Title> … Snn` is season `n` of `<Title>`. A year and `[...]` groups are
+  dropped from the title, except a group that holds only an episode number
+  (`[01]`): ADR-0085 opens it as ` - 01`, as it does in `TVn` folders. The
+  series key is the normalized title, so `<Title> S01/`, `<Title> S02/` and
+  `<Title> TV3/` form one series.
 - **File names.** `Show S01 - 05.mkv` is season 1, episode 5, like
   `Show TV1 - 05.mkv`; the episode number right after the marker follows
   ADR-0085.
@@ -75,8 +79,10 @@ All other ADR-0085 rules are unchanged.
 - `plugins/library/src/parse.rs` unit tests:
   - `season_only_folder_is_a_season_of_one_series`;
   - `season_only_marker_in_the_file_name_is_a_season`;
-  - `season_only_lookalikes_stay_films`.
+  - `season_only_lookalikes_stay_films`;
+  - `tv_marker_wins_over_an_earlier_season_only_marker`.
 - The `plugins/library/tests/catalogue.rs` scan test
   `season_only_folders_form_one_series`.
 - Disabling the `S` prefix fails the folder, file-name and scan tests;
-  disabling the `SxxEyy`/`NxNN` precedence check fails the lookalike test.
+  disabling the `SxxEyy`/`NxNN` precedence check fails the lookalike test;
+  searching `Snn` before `TVn` fails the `TVn` precedence test.

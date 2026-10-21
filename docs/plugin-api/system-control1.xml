@@ -1,0 +1,26 @@
+<!-- SPDX-FileCopyrightText: 2026 Arinn contributors
+SPDX-License-Identifier: MIT OR Apache-2.0 -->
+<node>
+  <interface name="org.arinn.SystemControl1">
+    <method name="GetPower">
+      <arg type="(sssa(sss))" direction="out" />
+    </method>
+    <method name="Suspend" />
+    <method name="Reboot" />
+    <method name="PowerOff" />
+    <method name="GetVolume">
+      <arg type="(su)" direction="out" />
+    </method>
+    <method name="SetMuted">
+      <arg name="muted" type="b" direction="in" />
+      <arg type="(su)" direction="out" />
+    </method>
+    <method name="ToggleMuted">
+      <arg type="(su)" direction="out" />
+    </method>
+    <method name="StepVolume">
+      <arg name="steps" type="i" direction="in" />
+      <arg type="(su)" direction="out" />
+    </method>
+  </interface>
+</node>

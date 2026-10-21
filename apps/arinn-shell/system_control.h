@@ -75,10 +75,21 @@ signals:
 
 private:
   void applyPower(const QVariant &value);
-  // `then` runs after a successful reply; a failure is reported when `show`
-  // or `then` is set.
-  void volumeCall(const QString &method, const QVariantList &arguments,
-                  bool show, std::function<void()> then = {});
+  // Volume calls run one at a time, in the order of the keys, so a quick
+  // second key never overtakes a Volume Up that is still unmuting.
+  struct VolumeOp {
+    QString member;
+    QVariantList arguments;
+    // Show the HUD for the reply, or report the failure.
+    bool show = true;
+    // Ops of one key press; a failed op drops the rest of its chain.
+    quint64 chain = 0;
+  };
+  void queueVolume(QList<VolumeOp> ops);
+  void sendVolume();
+  QList<VolumeOp> m_volumeQueue;
+  bool m_volumeBusy = false;
+  quint64 m_volumeChain = 0;
   QString m_powerState;
   QString m_suspend = QStringLiteral("unknown");
   QString m_reboot = QStringLiteral("unknown");
@@ -92,8 +103,6 @@ private:
   quint64 m_powerRead = 0;
   // Volume replies apply in request order; an older one never replaces a
   // newer state.
-  quint64 m_volumeRequest = 0;
-  quint64 m_volumeApplied = 0;
   bool m_volumeKnown = false;
   bool m_volumeMuted = false;
   int m_volumeLevel = 0;

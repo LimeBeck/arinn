@@ -855,7 +855,6 @@ Window {
             keysEnabled: root.visible && root.active && !sessionGuard.blocked && !ambientScreen.active
             onClosed: Qt.callLater(root.restoreFocus)
             onHomeRequested: { root.closeOverlays(); Qt.callLater(home.showHome); }
-            onVolumeUnavailable: { feedback.text = qsTr("Volume control is not available."); feedbackTimer.restart(); }
             onAmbientRequested: root.startAmbient()
         }
         Power.AmbientScreen {

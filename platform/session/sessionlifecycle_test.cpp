@@ -12,6 +12,7 @@
 #include <QDBusVirtualObject>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
+#include <QKeyEvent>
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QtTest>
@@ -287,6 +288,34 @@ private slots:
     QTRY_VERIFY(sleepRow->hasActiveFocus());
     // Home beneath is inert while the power scope is open.
     QVERIFY(!home->isEnabled());
+    // A held Back is one step (§6.3): its repeats neither close the
+    // confirmation nor unwind the scope beneath.
+    auto menu = findItem(window->contentItem(), "powerMenu");
+    QVERIFY(menu);
+    QTest::keyClick(window, Qt::Key_Down);
+    QTest::keyClick(window, Qt::Key_Return);
+    QTRY_COMPARE(menu->property("step").toString(), QString("confirm"));
+    for (int i = 0; i < 3; ++i) {
+      QKeyEvent repeat(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier,
+                       QString(), true);
+      QCoreApplication::sendEvent(window, &repeat);
+    }
+    QTest::qWait(100);
+    QCOMPARE(menu->property("step").toString(), QString("confirm"));
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_COMPARE(menu->property("step").toString(), QString("menu"));
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_COMPARE(window->property("focusedScreen").toString(), QString("home"));
+    for (int i = 0; i < 3; ++i) {
+      QKeyEvent repeat(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier,
+                       QString(), true);
+      QCoreApplication::sendEvent(window, &repeat);
+    }
+    QTest::qWait(100);
+    QVERIFY(!window->property("navOpen").toBool());
+    QVERIFY(QMetaObject::invokeMethod(home, "powerRequested"));
+    // A new opening starts on the first row, not the last one used.
+    QTRY_VERIFY(sleepRow->hasActiveFocus());
     QTest::keyClick(window, Qt::Key_Return);
     QTRY_VERIFY(daemon.calls.contains("Suspend"));
     auto accepted = findItem(window->contentItem(), "powerAccepted");

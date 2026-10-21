@@ -16,11 +16,19 @@ Item {
     property bool muted: false
     property int hideAfter: 1800
     readonly property bool shown: hideTimer.running
+    // The last change failed: no level is shown, only that it failed.
+    property bool unavailable: false
 
     // A change the platform confirmed: show it and restart the hide timer.
     function show(newLevel, newMuted) {
         level = Math.max(0, newLevel);
         muted = newMuted;
+        unavailable = false;
+        hideTimer.restart();
+    }
+    // A change failed. Never a guessed level.
+    function showUnavailable() {
+        unavailable = true;
         hideTimer.restart();
     }
     function hide() {
@@ -51,7 +59,7 @@ Item {
             width: 40
             height: 40
             anchors.verticalCenter: parent.verticalCenter
-            property bool muted: root.muted
+            property bool muted: root.muted || root.unavailable
             onMutedChanged: requestPaint()
             Accessible.role: Accessible.StaticText
             Accessible.name: root.muted ? qsTr("Sound muted") : qsTr("Volume")
@@ -80,8 +88,21 @@ Item {
                 ctx.stroke();
             }
         }
+        UiText {
+            objectName: "volumeHudUnavailable"
+            visible: root.unavailable
+            anchors.verticalCenter: parent.verticalCenter
+            width: 424
+            text: qsTr("Volume control is not available")
+            font.pixelSize: 30
+            font.weight: 600
+            elide: Text.ElideRight
+            maximumLineCount: 1
+            color: Theme.textSecondary
+        }
         Rectangle {
             objectName: "volumeHudTrack"
+            visible: !root.unavailable
             width: 320
             height: 8
             radius: 4
@@ -98,6 +119,7 @@ Item {
         }
         UiText {
             objectName: "volumeHudValue"
+            visible: !root.unavailable
             anchors.verticalCenter: parent.verticalCenter
             width: 80
             text: String(root.level)

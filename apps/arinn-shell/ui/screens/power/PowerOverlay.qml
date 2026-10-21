@@ -48,7 +48,12 @@ FocusScope {
         powerMenu.pendingAction = "";
         powerMenu.menuFocus = "sleep";
         menuOpen = true;
-        Qt.callLater(powerMenu.restoreMenuFocus);
+        // The menu's scope remembers its last row and restores it as soon as
+        // it is shown; a new opening starts on the first row again.
+        Qt.callLater(() => {
+            powerMenu.menuFocus = "sleep";
+            powerMenu.restoreMenuFocus();
+        });
     }
     function closeMenu() {
         if (!menuOpen)
@@ -81,7 +86,9 @@ FocusScope {
         target: root.control
         ignoreUnknownSignals: true
         function onVolumeShown() { volumeHud.show(root.control.volumeLevel, root.control.volumeMuted); }
-        function onVolumeFailed(refusal) { volumeHud.hide(); root.volumeUnavailable(); }
+        // The HUD says so itself, so a failure shows over managed playback
+        // too, where the feedback strip is hidden.
+        function onVolumeFailed(refusal) { volumeHud.showUnavailable(); root.volumeUnavailable(); }
     }
 
     // Window shortcuts: they reach the shell whatever screen holds focus,

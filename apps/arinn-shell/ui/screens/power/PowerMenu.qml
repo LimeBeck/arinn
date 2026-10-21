@@ -250,12 +250,16 @@ FocusScope {
     function handleScopeKey(event, onBack) {
         if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter)
             return;
+        // One step per press (§6.3): a held key's repeats are swallowed, so
+        // they never unwind the scope beneath once this one closes.
         if (event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace || event.key === Qt.Key_Back) {
             event.accepted = true;
-            onBack();
+            if (!event.isAutoRepeat)
+                onBack();
         } else if (event.key === Qt.Key_Home) {
             event.accepted = true;
-            goHome();
+            if (!event.isAutoRepeat)
+                goHome();
         }
     }
     function goHome() {

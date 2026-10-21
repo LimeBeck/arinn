@@ -299,7 +299,7 @@ RU = {
     "Waiting for the system. Press Back to return to Arinn.": "Ожидание системы. Нажмите «Назад», чтобы вернуться в Arinn.",
     # Volume HUD
     "Volume": "Громкость",
-    "Volume control is not available.": "Управление громкостью недоступно.",
+    "Volume control is not available": "Управление громкостью недоступно",
     # Settings
     "Playback": "Воспроизведение",
     "Network": "Сеть",

@@ -173,52 +173,73 @@ void SystemControl::reset() {
   emit requestChanged();
 }
 
+// Pending volume key presses beyond this are dropped; a held key never
+// builds a long backlog.
+constexpr int maxQueuedVolumeOps = 8;
+
 void SystemControl::readVolume() {
-  volumeCall(QStringLiteral("GetVolume"), {}, false);
+  queueVolume({{QStringLiteral("GetVolume"), {}, false}});
 }
 void SystemControl::stepVolume(int steps) {
-  volumeCall(QStringLiteral("StepVolume"), {steps}, true);
+  queueVolume({{QStringLiteral("StepVolume"), {steps}, true}});
 }
 void SystemControl::raiseVolume() {
   // Unmuting an unmuted output changes nothing, so the shell never has to
-  // trust a mute state it read earlier.
-  volumeCall(QStringLiteral("SetMuted"), {false}, false,
-             [this] { stepVolume(1); });
+  // trust a mute state it read earlier. The step waits for the unmute.
+  queueVolume({{QStringLiteral("SetMuted"), {false}, false},
+               {QStringLiteral("StepVolume"), {1}, true}});
 }
 void SystemControl::toggleMuted() {
-  volumeCall(QStringLiteral("ToggleMuted"), {}, true);
+  queueVolume({{QStringLiteral("ToggleMuted"), {}, true}});
 }
 void SystemControl::setMuted(bool muted) {
-  volumeCall(QStringLiteral("SetMuted"), {muted}, true);
+  queueVolume({{QStringLiteral("SetMuted"), {muted}, true}});
 }
 
-void SystemControl::volumeCall(const QString &member,
-                               const QVariantList &arguments, bool show,
-                               std::function<void()> then) {
-  auto call = QDBusMessage::createMethodCall(service, path, interface, member);
-  call.setArguments(arguments);
-  const quint64 request = ++m_volumeRequest;
+void SystemControl::queueVolume(QList<VolumeOp> ops) {
+  if (m_volumeQueue.size() + ops.size() > maxQueuedVolumeOps)
+    return;
+  const quint64 chain = ++m_volumeChain;
+  for (auto &op : ops) {
+    op.chain = chain;
+    m_volumeQueue.append(op);
+  }
+  sendVolume();
+}
+
+void SystemControl::sendVolume() {
+  if (m_volumeBusy || m_volumeQueue.isEmpty())
+    return;
+  m_volumeBusy = true;
+  const VolumeOp op = m_volumeQueue.takeFirst();
+  auto call =
+      QDBusMessage::createMethodCall(service, path, interface, op.member);
+  call.setArguments(op.arguments);
+  // A step that waits for its unmute shows the HUD; the unmute itself does
+  // not, but its failure is still reported.
+  const bool chained = !m_volumeQueue.isEmpty() &&
+                       m_volumeQueue.first().chain == op.chain;
   auto pending = new QDBusPendingCallWatcher(
       QDBusConnection::sessionBus().asyncCall(call, volumeTimeout), this);
   connect(pending, &QDBusPendingCallWatcher::finished, this,
-          [this, request, show, then](QDBusPendingCallWatcher *watcher) {
+          [this, op, chained](QDBusPendingCallWatcher *watcher) {
             const QDBusMessage reply = watcher->reply();
             watcher->deleteLater();
+            m_volumeBusy = false;
             if (reply.type() == QDBusMessage::ErrorMessage ||
                 reply.signature() != QLatin1String("(su)") ||
                 reply.arguments().isEmpty()) {
-              if (show || then)
+              // The rest of this key's chain is dropped.
+              m_volumeQueue.removeIf(
+                  [&op](const VolumeOp &next) { return next.chain == op.chain; });
+              if (op.show || chained)
                 emit volumeFailed(
                     reply.type() == QDBusMessage::ErrorMessage
                         ? refusalFor(reply.errorName())
                         : QStringLiteral("failed"));
+              sendVolume();
               return;
             }
-            if (then)
-              then();
-            if (request < m_volumeApplied)
-              return;
-            m_volumeApplied = request;
             const auto arg =
                 qvariant_cast<QDBusArgument>(reply.arguments().at(0));
             QString audio;
@@ -234,9 +255,10 @@ void SystemControl::volumeCall(const QString &member,
             m_volumeLevel =
                 known ? static_cast<int>(qMin<uint>(level, maxLevel)) : 0;
             emit volumeChanged();
-            if (show && known)
+            if (op.show && known)
               emit volumeShown();
-            else if (show)
+            else if (op.show)
               emit volumeFailed(QStringLiteral("unavailable"));
+            sendVolume();
           });
 }

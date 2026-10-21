@@ -235,17 +235,34 @@ private slots:
     QTRY_VERIFY(!control.volumeMuted());
     QCOMPARE(fake->calls.count(QStringLiteral("StepVolume")), 2);
 
+    // Volume Up while muted: the sound comes back on and the level rises,
+    // in that order, and the HUD shows the result (owner, 2026-10-21).
+    fake->audio = QStringLiteral("muted");
+    fake->calls.clear();
+    const int before = shown.count();
+    control.raiseVolume();
+    QTRY_COMPARE(shown.count(), before + 1);
+    QCOMPARE(fake->calls, (QStringList{QStringLiteral("SetMuted"),
+                                       QStringLiteral("StepVolume")}));
+    QVERIFY(!control.volumeMuted());
+    QCOMPARE(control.volumeLevel(), 55);
+
     // A failure shows no level and reports why.
     fake->volumeError = QStringLiteral("org.arinn.Error1.Unavailable");
     control.stepVolume(-1);
     QTRY_COMPARE(failed.count(), 1);
     QCOMPARE(failed.first().first().toString(), QStringLiteral("unavailable"));
-    QCOMPARE(control.volumeLevel(), 50);
+    QCOMPARE(control.volumeLevel(), 55);
+    // A failed unmute does not go on to step the level.
+    fake->calls.clear();
+    control.raiseVolume();
+    QTRY_COMPARE(failed.count(), 2);
+    QCOMPARE(fake->calls, QStringList{QStringLiteral("SetMuted")});
     // An unknown state is not a level either.
     fake->volumeError.clear();
     fake->audio = QStringLiteral("unknown");
     control.stepVolume(1);
-    QTRY_COMPARE(failed.count(), 2);
+    QTRY_COMPARE(failed.count(), 3);
     QVERIFY(!control.volumeKnown());
     QCOMPARE(control.volumeLevel(), 0);
   }

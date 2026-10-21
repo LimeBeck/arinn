@@ -70,16 +70,18 @@ the user presses Back.
 
 While the shell window is on screen and active and the session is not locked,
 Volume Up, Volume Down and Mute are window shortcuts: they work over every
-screen, including managed playback, and step the volume by one step (5 %) or
-toggle mute through `SystemControl1`. Outside the shell Plasma keeps them
+screen, including managed playback. Volume Up first turns the sound back on
+(`SetMuted(false)`) and then raises the level by one step (5 %); Volume Down
+lowers it by one step; Mute toggles. Volume Up unmuting is the owner's answer
+of 2026-10-21 on #477. The steps go through `SystemControl1`. Outside the shell Plasma keeps them
 (OQ-04).
 
 The HUD follows the handoff (*Toast and volume HUD*): a top-center glass pill
 560×88, a 40 px icon (volume or muted), an 8 px white bar and the value at
 30/600. It hides 1.8 s after the last change and never takes focus. It shows
 only a level the daemon returned for the change; a failed change shows no
-level and a short "Volume control is not available." toast. Stepping never
-unmutes; the bar is dimmed while muted.
+level and a short "Volume control is not available." toast; a failed unmute
+does not go on to change the level. The bar is dimmed while muted.
 
 ## Ambient
 

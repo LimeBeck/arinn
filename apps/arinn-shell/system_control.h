@@ -4,6 +4,7 @@
 #include <QObject>
 #include <QString>
 #include <QVariantList>
+#include <functional>
 
 // Calls org.arinn.SystemControl1 (ADR-0108) for the power menu and the volume
 // HUD. Every call is asynchronous; the UI thread never waits for the daemon
@@ -54,6 +55,9 @@ public:
   Q_INVOKABLE void reset();
   Q_INVOKABLE void readVolume();
   Q_INVOKABLE void stepVolume(int steps);
+  // Volume Up: turns the sound back on, then raises the level by one step
+  // (owner decision of 2026-10-21 on #477).
+  Q_INVOKABLE void raiseVolume();
   Q_INVOKABLE void toggleMuted();
   Q_INVOKABLE void setMuted(bool muted);
 
@@ -71,8 +75,10 @@ signals:
 
 private:
   void applyPower(const QVariant &value);
+  // `then` runs after a successful reply; a failure is reported when `show`
+  // or `then` is set.
   void volumeCall(const QString &method, const QVariantList &arguments,
-                  bool show);
+                  bool show, std::function<void()> then = {});
   QString m_powerState;
   QString m_suspend = QStringLiteral("unknown");
   QString m_reboot = QStringLiteral("unknown");

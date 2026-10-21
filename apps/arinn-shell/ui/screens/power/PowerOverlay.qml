@@ -70,7 +70,7 @@ FocusScope {
         if (!control)
             return;
         if (key === Qt.Key_VolumeUp)
-            control.stepVolume(1);
+            control.raiseVolume();
         else if (key === Qt.Key_VolumeDown)
             control.stepVolume(-1);
         else if (key === Qt.Key_VolumeMute)

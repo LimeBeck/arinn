@@ -38,7 +38,7 @@ The producer derives each action from logind's `CanSuspend`, `CanReboot` and
 `inhibited` is published only with at least one inhibitor of that lock. Every
 `ListInhibitors` record is inspected; only the published list is bounded. With
 more than 16 inhibitors, the first of each lock is kept, then the rest in
-order up to the bound. `delay` inhibitors and other locks (`idle`,
+logind's order up to the bound. `delay` inhibitors and other locks (`idle`,
 `handle-*`) are not listed. User and process IDs are dropped.
 
 ### Power actions

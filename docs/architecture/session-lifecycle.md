@@ -69,3 +69,41 @@ Normal desktop-entry relaunch after a clean shell exit resets the unit start
 counter before starting it. The launcher requires `ActiveState=inactive` and
 `Result=success`; failed units retain the service start limit and crash-loop
 protection. Repeated menu close/reopen cycles therefore remain available.
+
+## Package upgrade
+
+An upgrade replaces the binaries on disk, but running processes keep the old
+ones until they restart ([#355](https://github.com/LimeBeck/arinn/issues/355)).
+A new shell against an old daemon cannot load Home, and KWin keeps running the
+script it loaded at login. Both packages therefore restart the running Arinn
+user services after an upgrade with `/usr/lib/arinn/arinn-restart-user-services`:
+
+- **Arch:** the libalpm hook `/usr/share/libalpm/hooks/arinn-restart-user-services.hook`
+  runs it `PostTransaction`, only on `Operation = Upgrade` of the daemon, shell,
+  EWMH adapter, anything under `/usr/lib/arinn/` (providers, launchers, the
+  Chrome host) or the KWin script. `post_upgrade` in `arinn.install` prints one
+  line saying the restart follows at the end of the transaction.
+- **Debian** ([ADR-0091](../adr/0091-debian-package-ci-artifact.md)): `postinst configure`
+  runs it when `$2` names the previous version, that is on an upgrade.
+
+Install and removal start or stop nothing; `pre_remove` keeps its message.
+
+The script lists the running `user@<uid>.service` managers of the system
+manager and, for each user whose `arinnd`, KWin, EWMH or shell unit is active,
+runs `systemctl --user -M <user>@ try-restart` on `arinnd.service`,
+`arinn-kwin.service`, `arinn-ewmh.service` and `arinn-shell.service`, in that
+order and one at a time. `try-restart` starts no unit that was not running, so
+a user who runs only one session type keeps it. The daemon restarts its
+providers on start, and the reloaded KWin adapter serves the new daemon. The
+managed mpv scope may close with the daemon, so the output says that playback
+in progress is interrupted. Without a running systemd (chroot, container,
+build root) the script does nothing, and a failed restart prints a warning
+without failing the transaction.
+
+`tests/package/test_restart_user_services.py` (CTest `restart-after-upgrade`)
+runs the script, `post_upgrade` and the Debian `postinst` against stub
+`systemctl` and `getent`, and checks that the hook runs after upgrades only and
+that its targets match the binaries the PKGBUILD installs. The Arch package test
+(`tests/package/session.py`) repeats the stub test against the installed script
+and matches the hook targets against the files `pacman -Qlq arinn` lists. A
+restart under a real user manager is an operator test and was not run.

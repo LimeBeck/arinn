@@ -50,6 +50,17 @@ FocusScope {
         stringKeyboard.finish();
         stringTyping = false;
     }
+    // A path editor typed with the on-screen keyboard (KB-5).
+    property bool pathTyping: false
+    readonly property bool pathEditing: {
+        if (!editingKey.length) return false;
+        const row = rowByKey(editingKey);
+        return !!row && row.type === "path";
+    }
+    onPathEditingChanged: if (!pathEditing && pathTyping) {
+        pathKeyboard.finish();
+        pathTyping = false;
+    }
     property string enumClosingKey: ""
     signal valueChangeRequested(string providerId, string settingId, var value)
     signal errorDismissRequested(string providerId, string settingId)
@@ -488,6 +499,70 @@ FocusScope {
         stringPart = "keyboard";
         Qt.callLater(() => focusString());
     }
+    // Path editors (KB-5): the open editor's text field or keyboard pill.
+    function pathControl(kind) {
+        const index = activeRowIndex(editingKey);
+        const scope = index >= 0 ? rowScopeAt(index) : null;
+        return scope ? scope.pathControl(editingPart, kind) : null;
+    }
+    // A path editor opens on its field, or on its keyboard pill when there is
+    // no hardware keyboard, so the remote alone can type the path.
+    function pathEditorOpened(editor, pill) {
+        editor.text = editingDraft;
+        editor.cursorPosition = editor.text.length;
+        if (pathTyping) return;
+        if (keyboardReady) Ui.Focus.take(editor);
+        else Qt.callLater(() => { if (pill.visible && !pathTyping) Ui.Focus.take(pill); });
+    }
+    // Keys a path editor's field and pill leave unhandled.
+    function pathFieldKeys(event, editor, pill) {
+        if (homeKey(event)) return;
+        const onPill = pill.activeFocus;
+        if (event.key === Qt.Key_Right && editor.activeFocus) {
+            Ui.Focus.take(pill);
+        } else if (event.key === Qt.Key_Left && onPill) {
+            if (keyboardReady) Ui.Focus.take(editor);
+        } else if ((event.key === Qt.Key_Up || event.key === Qt.Key_Down) && onPill) {
+            finishEdit(false);
+            moveVertical(event.key === Qt.Key_Up ? -1 : 1);
+        } else if ((event.key === Qt.Key_Escape || event.key === Qt.Key_Back) && onPill) {
+            if (!event.isAutoRepeat) finishEdit(false);
+        } else if (onPill && printable(event.text)
+                   && !(event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier))) {
+            // A key from a hardware keyboard wakes the field, as in the
+            // string sheet.
+            keyboardSeen = true;
+            editingDraft = (editingDraft || "") + event.text;
+            editor.text = editingDraft;
+            editor.cursorPosition = editor.text.length;
+            Ui.Focus.take(editor);
+        } else {
+            return;
+        }
+        event.accepted = true;
+    }
+    function startPathTyping() {
+        const row = pathEditing ? rowByKey(editingKey) : null;
+        if (!row || !canEdit(row)) return;
+        pathTyping = true;
+        pathTypingInput.text = editingDraft || "";
+        pathTypingInput.cursorPosition = pathTypingInput.text.length;
+        pathKeyboard.start();
+    }
+    // Save commits the path as Enter in the editor does; Back returns to the
+    // editor's pill with the typed text kept in the field.
+    function finishPathTyping(save) {
+        if (!pathTyping) return;
+        if (save) {
+            // A committed path closes the editor and, with it, the layer. A
+            // draft that cannot be proposed (an empty list entry) stays.
+            finishEdit(true);
+            return;
+        }
+        pathKeyboard.finish();
+        pathTyping = false;
+        Qt.callLater(() => Ui.Focus.take(pathControl("keyboard")));
+    }
     // Home closes transient UI without committing a draft, then asks the
     // shell for Home (#329). Editors and sheets consume keys, so each calls
     // this before its own handling.
@@ -681,6 +756,10 @@ FocusScope {
     // The row repeater builds new buttons whenever rows are replaced. Without
     // this, focus falls back to the view and Select does nothing (AC-02).
     function queueRowFocusRestore() {
+        if (pathTyping) {
+            Qt.callLater(() => { if (pathTyping) pathKeyboard.resume(); });
+            return;
+        }
         if (stringSheet || integerSheet || choosingKey.length) {
             Qt.callLater(() => {
                 if (stringSheet) focusString();
@@ -977,8 +1056,9 @@ FocusScope {
                         // Keeps the focused row when the repeater recreates it. Stay
                         // focused while this row's editor is open so the field
                         // can hold active focus inside the scope.
+                        // The path typing layer holds focus over the row.
                         focus: root.detailFocused && root.focusedRowKey === key && !root.choosingKey
-                               && (!root.editingKey || root.editingKey === key)
+                               && (!root.editingKey || root.editingKey === key) && !root.pathTyping
                         function wants(name) {
                             return focus && !root.editingKey && root.partName === name;
                         }
@@ -998,6 +1078,18 @@ FocusScope {
                             if (name.indexOf("remove:") === 0) {
                                 const item = pathRepeater.itemAt(Number(name.slice(5)));
                                 return item ? item.removeButton : null;
+                            }
+                            return null;
+                        }
+                        // The text field ("editor") or keyboard pill
+                        // ("keyboard") of a path editor part (KB-5).
+                        function pathControl(part, kind) {
+                            const editor = kind === "editor";
+                            if (part === "main") return editor ? simpleEditor : simpleKeyboard;
+                            if (part === "add") return editor ? addEditor : addKeyboard;
+                            if (part.indexOf("path:") === 0) {
+                                const item = pathRepeater.itemAt(Number(part.slice(5)));
+                                return item ? (editor ? item.editor : item.keyboard) : null;
                             }
                             return null;
                         }
@@ -1043,7 +1135,7 @@ FocusScope {
                                         id: simpleText
                                         x: 32
                                         y: 20
-                                        width: parent.width - 64 - (rowScope.switchRow ? 88 : 280)
+                                        width: parent.width - 64 - (rowScope.switchRow ? 88 : simpleEditor.visible ? 520 : 280)
                                         spacing: 6
                                         Ui.UiText {
                                             width: parent.width
@@ -1117,6 +1209,7 @@ FocusScope {
                                         anchors.rightMargin: 32
                                         anchors.verticalCenter: parent.verticalCenter
                                         spacing: 8
+                                        Keys.onPressed: event => root.pathFieldKeys(event, simpleEditor, simpleKeyboard)
                                         Ui.UiText {
                                             objectName: rowScope.simpleRow && !rowScope.switchRow && root.editingKey !== rowScope.key ? "value-" + rowScope.key : ""
                                             visible: root.editingKey !== rowScope.key || row.type !== "path"
@@ -1132,18 +1225,23 @@ FocusScope {
                                             objectName: rowScope.simpleRow && row.type === "path" ? "editor-" + rowScope.key : ""
                                             visible: row.type === "path" && root.editingKey === rowScope.key && root.editingPart === "main"
                                             width: 220
+                                            anchors.verticalCenter: parent.verticalCenter
                                             horizontalAlignment: Text.AlignRight
                                             color: Ui.Theme.textPrimary
                                             font.family: Ui.Theme.fontFamily
                                             font.pixelSize: 26
                                             clip: true
-                                            onVisibleChanged: if (visible) {
-                                                text = root.editingDraft;
-                                                cursorPosition = text.length;
-                                                Ui.Focus.take(simpleEditor);
-                                            }
+                                            onVisibleChanged: if (visible) root.pathEditorOpened(simpleEditor, simpleKeyboard)
                                             onTextChanged: if (visible && activeFocus) root.editingDraft = text
                                             Keys.onPressed: event => root.editorKeys(event)
+                                        }
+                                        Ui.KeyboardButton {
+                                            id: simpleKeyboard
+                                            objectName: simpleEditor.objectName.length ? "keyboard-" + rowScope.key : ""
+                                            visible: simpleEditor.visible
+                                            height: 72
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            onActivated: root.startPathTyping()
                                         }
                                         Canvas {
                                             objectName: rowScope.locked ? "lock-" + rowScope.key : ""
@@ -1247,6 +1345,8 @@ FocusScope {
                                         required property int index
                                         property alias pathButton: pathButton
                                         property alias removeButton: removeButton
+                                        property alias editor: pathEditor
+                                        property alias keyboard: pathKeyboard
                                         width: pathColumn.width
                                         spacing: 8
                                         T.AbstractButton {
@@ -1264,6 +1364,7 @@ FocusScope {
                                             Keys.onReleased: event => root.selectKey(pathButton, event, true)
                                             background: Rectangle { radius: 18; color: pathButton.activeFocus ? Qt.rgba(1, 1, 1, 0.20) : Qt.rgba(1, 1, 1, 0.06) }
                                             contentItem: Item {
+                                                Keys.onPressed: event => root.pathFieldKeys(event, pathEditor, pathKeyboard)
                                                 Ui.UiText {
                                                     anchors.fill: parent
                                                     anchors.leftMargin: 20
@@ -1278,7 +1379,7 @@ FocusScope {
                                                     id: pathEditor
                                                     anchors.fill: parent
                                                     anchors.leftMargin: 20
-                                                    anchors.rightMargin: 20
+                                                    anchors.rightMargin: pathKeyboard.width + 32
                                                     objectName: "editor-" + rowScope.key + "-" + index
                                                     visible: root.editingKey === rowScope.key && root.editingPart === "path:" + index
                                                     color: Ui.Theme.textPrimary
@@ -1286,13 +1387,19 @@ FocusScope {
                                                     font.pixelSize: 26
                                                     clip: true
                                                     verticalAlignment: Text.AlignVCenter
-                                                    onVisibleChanged: if (visible) {
-                                                        text = root.editingDraft;
-                                                        cursorPosition = text.length;
-                                                        Ui.Focus.take(pathEditor);
-                                                    }
+                                                    onVisibleChanged: if (visible) root.pathEditorOpened(pathEditor, pathKeyboard)
                                                     onTextChanged: if (visible && activeFocus) root.editingDraft = text
                                                     Keys.onPressed: event => root.editorKeys(event)
+                                                }
+                                                Ui.KeyboardButton {
+                                                    id: pathKeyboard
+                                                    objectName: "keyboard-" + rowScope.key + "-" + index
+                                                    visible: pathEditor.visible
+                                                    height: 60
+                                                    anchors.right: parent.right
+                                                    anchors.rightMargin: 6
+                                                    anchors.verticalCenter: parent.verticalCenter
+                                                    onActivated: root.startPathTyping()
                                                 }
                                             }
                                         }
@@ -1338,6 +1445,7 @@ FocusScope {
                                     Keys.onReleased: event => root.selectKey(addButton, event, true)
                                     background: Rectangle { radius: 18; color: addButton.activeFocus ? Qt.rgba(1, 1, 1, 0.20) : Qt.rgba(1, 1, 1, 0.06) }
                                     contentItem: Item {
+                                        Keys.onPressed: event => root.pathFieldKeys(event, addEditor, addKeyboard)
                                         Ui.UiText {
                                             anchors.fill: parent
                                             visible: !(root.editingKey === rowScope.key && root.editingPart === "add")
@@ -1349,7 +1457,8 @@ FocusScope {
                                         TextInput {
                                             id: addEditor
                                             anchors.centerIn: parent
-                                            width: parent.width - 40
+                                            // Clear of the keyboard pill on the right.
+                                            width: parent.width - 2 * (addKeyboard.width + 32)
                                             objectName: rowScope.multiple ? "editor-" + rowScope.key + "-add" : ""
                                             visible: root.editingKey === rowScope.key && root.editingPart === "add"
                                             horizontalAlignment: Text.AlignHCenter
@@ -1357,13 +1466,19 @@ FocusScope {
                                             font.family: Ui.Theme.fontFamily
                                             font.pixelSize: 26
                                             clip: true
-                                            onVisibleChanged: if (visible) {
-                                                text = root.editingDraft;
-                                                cursorPosition = text.length;
-                                                Ui.Focus.take(addEditor);
-                                            }
+                                            onVisibleChanged: if (visible) root.pathEditorOpened(addEditor, addKeyboard)
                                             onTextChanged: if (visible && activeFocus) root.editingDraft = text
                                             Keys.onPressed: event => root.editorKeys(event)
+                                        }
+                                        Ui.KeyboardButton {
+                                            id: addKeyboard
+                                            objectName: rowScope.multiple ? "keyboard-" + rowScope.key + "-add" : ""
+                                            visible: addEditor.visible
+                                            height: 60
+                                            anchors.right: parent.right
+                                            anchors.rightMargin: 6
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            onActivated: root.startPathTyping()
                                         }
                                     }
                                 }
@@ -2033,6 +2148,114 @@ FocusScope {
             onSubmitted: root.finishStringTyping(true)
             onHideRequested: root.finishStringTyping(false)
             onLeaveUp: Ui.Focus.take(stringTypingButton)
+        }
+    }
+
+    // A path typed with the on-screen keyboard (KB-5): the same full-screen
+    // layer, with the path context row and Save as the main key, as in an
+    // inline editor. The draft follows each key into the editor; Save
+    // proposes it as Enter does, Back returns to the editor's pill.
+    // Subfolder suggestions wait for the folder-listing method (DR-27, DR-44),
+    // so the suggestion row stays empty.
+    FocusScope {
+        id: pathTypingLayer
+        objectName: "pathTyping"
+        anchors.fill: parent
+        z: 30
+        visible: root.pathTyping && root.pathEditing
+        enabled: visible
+        readonly property var row: root.pathEditing ? root.rowByKey(root.editingKey) : null
+        Keys.onPressed: event => {
+            if (root.homeKey(event)) return;
+            // Menu reaches the shell's navigation, as on every screen (§6.2).
+            if (event.key === Qt.Key_Menu) return;
+            event.accepted = true;
+            if (event.key === Qt.Key_Escape || event.key === Qt.Key_Back || event.key === Qt.Key_Backspace) {
+                if (!event.isAutoRepeat) root.finishPathTyping(false);
+            } else if (event.key === Qt.Key_Down) {
+                pathKeyboard.enterFromAbove();
+            } else if (root.printable(event.text)
+                       && !(event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier))) {
+                pathKeyboard.insertText(event.text);
+            }
+        }
+        Rectangle { anchors.fill: parent; color: Ui.Theme.background; MouseArea { anchors.fill: parent } }
+        Row {
+            x: 120
+            y: 64
+            spacing: 24
+            Ui.UiText {
+                text: qsTr("Settings")
+                font.pixelSize: 56
+                font.weight: 700
+                wrapMode: Text.NoWrap
+            }
+            Ui.UiText {
+                y: 26
+                text: {
+                    const category = root.currentCategory();
+                    const parts = [category && category.title ? category.title : "",
+                                   pathTypingLayer.row ? pathTypingLayer.row.title || "" : ""];
+                    return parts.filter(part => part.length).join(" · ");
+                }
+                color: Ui.Theme.textHint
+                wrapMode: Text.NoWrap
+            }
+        }
+        Rectangle {
+            objectName: "pathTypingField"
+            x: 120
+            y: 160
+            width: 1680
+            height: 132
+            radius: 34
+            color: Qt.rgba(1, 1, 1, 0.12)
+            border.width: 3
+            border.color: Ui.Theme.ring
+            TextInput {
+                id: pathTypingInput
+                objectName: "pathTypingInput"
+                x: 32
+                width: pathTypingButton.x - x - 24
+                height: 80
+                anchors.verticalCenter: parent.verticalCenter
+                font.family: Ui.Theme.fontFamily
+                font.pixelSize: 48
+                font.weight: 500
+                color: Ui.Theme.textPrimary
+                verticalAlignment: TextInput.AlignVCenter
+                clip: true
+                cursorVisible: pathTypingLayer.visible
+                cursorDelegate: Rectangle { width: 4; color: Ui.Theme.ember; visible: pathTypingInput.cursorVisible }
+                onTextChanged: if (pathTypingLayer.visible) {
+                    root.editingDraft = text;
+                    const editor = root.pathControl("editor");
+                    if (editor) editor.text = text;
+                }
+            }
+            Ui.KeyboardButton {
+                id: pathTypingButton
+                objectName: "pathTypingKeyboard"
+                x: parent.width - width - 24
+                anchors.verticalCenter: parent.verticalCenter
+                panelOpen: true
+                onActivated: root.finishPathTyping(false)
+            }
+        }
+        Ui.OnScreenKeyboard {
+            id: pathKeyboard
+            objectName: "pathOnScreenKeyboard"
+            y: parent.height - implicitHeight
+            target: pathTypingInput
+            context: "path"
+            memoryKey: "path-" + root.editingKey
+            // A path value is at most 4096 bytes (ADR-0065); the daemon
+            // checks the exact rule when the value is proposed.
+            maxCharacters: 4096
+            submitLabel: qsTr("Save")
+            onSubmitted: root.finishPathTyping(true)
+            onHideRequested: root.finishPathTyping(false)
+            onLeaveUp: Ui.Focus.take(pathTypingButton)
         }
     }
 

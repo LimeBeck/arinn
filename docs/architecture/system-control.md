@@ -9,7 +9,7 @@ states what the producer does and how the shell applies the replies.
 
 | Interface | Owner and path | Members |
 | --- | --- | --- |
-| `org.arinn.SystemControl1` | Daemon, `/org/arinn/Daemon1`; [system-control1.xml](../plugin-api/system-control1.xml) | `GetPower() -> (sssa(sss))`, `Suspend()`, `Reboot()`, `PowerOff()`, `GetVolume() -> (su)`, `SetMuted(b muted) -> (su)`, `ToggleMuted() -> (su)`, `StepVolume(i steps) -> (su)` |
+| `org.arinn.SystemControl1` | Daemon, `/org/arinn/Daemon1`; [system-control1.xml](../plugin-api/system-control1.xml) | `GetPower() -> (sssa(sss))`, `Suspend()`, `Reboot()`, `PowerOff()`, `GetVolume() -> (su)`, `SetMuted(b muted) -> (su)`, `ToggleMuted() -> (su)`, `StepVolume(i steps) -> (su)`, `GetSessionSwitch() -> s`, `SwitchToDesktop()` |
 
 Types, validation and the step arithmetic are in
 `arinn_protocol::system_control`. There is no signal: the shell reads when it
@@ -94,11 +94,46 @@ restarted. logind's refusals map to `org.arinn.Error1` names:
 - `SystemStatus1` is unchanged. Its mute flag follows the change through the
   sound server's events ([system status](system-status.md)).
 
+### Switch to desktop
+
+Spec §5.7, [#438](https://github.com/LimeBeck/arinn/issues/438). The
+mechanism is the dedicated Arinn login session and its unprivileged switch
+helper; see the [session lifecycle](session-lifecycle.md).
+
+| Member | Producer | Reader rule |
+| --- | --- | --- |
+| `GetSessionSwitch() -> s` | `available` when the daemon runs in the dedicated Arinn session (its environment has `ARINN_SESSION_ENTRY=plasma` or `xfce`, exported by the session wrapper) and `/usr/lib/arinn/arinn-session-switch` is an executable file; `unsupported` otherwise | Any other value is `unknown`; the shell offers the action only for `available` |
+| `SwitchToDesktop()` | Runs the helper as `arinn-session-switch desktop` with the entry in its environment, no other arguments and no shell, bounded by 10 s | A reply means the desktop accepted the logout request; the session then ends |
+
+The helper records that the user's next login of the Arinn entry starts the
+plain desktop, then asks the desktop to log out through its own session-bus
+API. Errors:
+
+| Condition | Arinn error |
+| --- | --- |
+| Not in the dedicated session, or the helper is not an installed executable file | `Unsupported` |
+| The helper exits 1: no supported desktop, or the desktop refused the logout (the helper restored the previous choice) | `Unavailable` |
+| The helper does not finish within 10 s (it is killed) | `Timeout` |
+| Any other exit or spawn failure | `Internal` |
+
+`SwitchToDesktop` counts as a power request: while one runs, another power request or switch is refused with `Conflict`, and vice versa. The
+shell asks for confirmation first, with the live list of applications that
+will close and Cancel as the default focus, exactly as for Restart and Shut
+down; the daemon does not ask again. The helper's output is discarded; the log
+line has the operation and error code only.
+
+A logout the desktop accepts and an application cancels later (an unsaved-work
+prompt) is not detected: `SwitchToDesktop` has already replied, the session
+continues with `desktop` recorded, and the next login starts the plain desktop.
+This is the open point of [ADR-0107](../adr/0107-dedicated-arinn-session.md)
+(*Decision* 3). This contract does not settle it; the power-menu follow-up
+does, and either direction there keeps these members.
+
 ## Callers
 
 Only the shell calls this interface. A call from a connection that owns a
 registered provider is refused with `PermissionDenied` for every method,
-including the reads. This keeps system actions out of the plugin API; it is
+including the reads and the session switch. This keeps system actions out of the plugin API; it is
 not a sandbox (spec §13: plugins are trusted local software, and any process
 of the user can reach logind and the sound server itself).
 
@@ -128,7 +163,7 @@ shell shows inhibitor texts on screen only.
 - `crates/arinn-protocol/src/system_control.rs` unit tests.
 - `crates/arinn-protocol/tests/system_control.rs`: a fixture daemon on a private
   bus; a daemon without the interface, the live export against the XML, typed
-  refusals and volume replies on the wire.
+  refusals, volume replies and the session switch on the wire.
 - `platform/system_control_tests.rs`: the logind and `pactl` mappings, a fake
   logind on a private bus (`Can*` answers, block and delay inhibitors behind
   hundreds of irrelevant records, an unreadable list that refuses, the bounded list, refusals,
@@ -141,5 +176,10 @@ shell shows inhibitor texts on screen only.
   method, before its arguments are checked.
 - `tests/integration/phase1.py`: the real daemon's export against the XML and
   both reads; it never calls a power action or changes the volume.
+- `platform/system_control_tests.rs` and the daemon tests also run a fake
+  `arinn-session-switch`: unsupported outside the session, the fixed call,
+  exit codes, the timeout and the provider refusal.
 - Real suspend, reboot, power off and volume on the HTPC: owner operator tests
   (AC-19). Not run.
+- Switching to the desktop and back on the HTPC: owner operator test (G-5.8).
+  Not run.

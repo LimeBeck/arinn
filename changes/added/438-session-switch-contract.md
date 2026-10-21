@@ -1,0 +1,1 @@
+- `org.arinn.SystemControl1` gains `GetSessionSwitch` and `SwitchToDesktop`. Inside the dedicated Arinn login session the daemon ends the session through the unprivileged switch helper, and the next login starts the plain desktop. Provider connections are refused ([system control](docs/architecture/system-control.md), [#438](https://github.com/LimeBeck/arinn/issues/438)).

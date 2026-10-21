@@ -1,8 +1,8 @@
 // SPDX-FileCopyrightText: 2026 Arinn contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! `org.arinn.SystemControl1` (ADR-0108): power and volume actions for the
-//! shell. The work is done by `crate::system_control` in the platform layer;
+//! `org.arinn.SystemControl1` (ADR-0108): power, session and volume actions
+//! for the shell. The work is done by `crate::system_control` in the platform layer;
 //! this module checks the caller, serializes the actions and logs outcomes.
 use super::{Core, sender};
 use crate::system_control::Control;
@@ -135,6 +135,33 @@ impl ControlExport {
             async move { control.step_volume(steps).await },
         )
         .await
+    }
+    /// `available` only inside the dedicated Arinn login session (#438).
+    async fn get_session_switch(
+        &self,
+        #[zbus(header)] h: Header<'_>,
+    ) -> production::Result<String> {
+        self.caller(&h).await?;
+        Ok(self.control.session_switch().as_str().to_owned())
+    }
+    /// Ends the dedicated session after the shell's own confirmation; the
+    /// next login starts the plain desktop. It takes the power lock: both
+    /// end what the user is doing.
+    async fn switch_to_desktop(&self, #[zbus(header)] h: Header<'_>) -> production::Result<()> {
+        self.caller(&h).await?;
+        // Like a power request: never queued behind another one.
+        let Ok(_one) = self.power.try_lock() else {
+            log(
+                "switch-to-desktop",
+                Some(ErrorCode::Conflict),
+                Instant::now(),
+            );
+            return Err(ErrorCode::Conflict.into());
+        };
+        let started = Instant::now();
+        let result = self.control.switch_to_desktop().await;
+        log("switch-to-desktop", result.err(), started);
+        Ok(result?)
     }
 }
 

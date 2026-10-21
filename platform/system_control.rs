@@ -22,6 +22,10 @@ use zbus::Connection;
 const READ_TIMEOUT: Duration = Duration::from_secs(2);
 /// A power request: logind asks polkit before it answers.
 const ACTION_TIMEOUT: Duration = Duration::from_secs(10);
+/// The dedicated-session switch helper (#438, ADR-0107).
+pub const SESSION_SWITCH: &str = "/usr/lib/arinn/arinn-session-switch";
+/// The helper writes one file and asks the desktop to log out.
+const SWITCH_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[zbus::proxy(
     interface = "org.freedesktop.login1.Manager",
@@ -143,18 +147,95 @@ pub fn bounded_inhibitors(inhibitors: Vec<Inhibitor>) -> Vec<Inhibitor> {
     kept
 }
 
+/// The desktop of the dedicated Arinn login session, from the
+/// `ARINN_SESSION_ENTRY` its session wrapper exports; `None` for any other
+/// value, including an ordinary desktop session.
+pub fn session_entry(value: Option<&str>) -> Option<String> {
+    match value {
+        Some(entry @ ("plasma" | "xfce")) => Some(entry.to_owned()),
+        _ => None,
+    }
+}
+
+/// "Switch to desktop" of the dedicated Arinn session.
+#[derive(Debug, Clone)]
+pub struct SessionSwitch {
+    /// See [`session_entry`].
+    pub entry: Option<String>,
+    pub helper: PathBuf,
+}
+impl SessionSwitch {
+    /// No dedicated session: the action is unsupported.
+    pub fn none() -> Self {
+        Self {
+            entry: None,
+            helper: PathBuf::from(SESSION_SWITCH),
+        }
+    }
+}
+
 /// Where the platform services are.
 #[derive(Debug, Clone)]
 pub struct Control {
     /// System bus address; `None` is the default system bus.
     pub system_bus: Option<String>,
     pub pactl: PathBuf,
+    pub session: SessionSwitch,
 }
 impl Control {
     pub fn system() -> Self {
         Self {
             system_bus: None,
             pactl: PathBuf::from("pactl"),
+            session: SessionSwitch {
+                entry: session_entry(std::env::var("ARINN_SESSION_ENTRY").ok().as_deref()),
+                helper: PathBuf::from(SESSION_SWITCH),
+            },
+        }
+    }
+
+    /// `Available` inside the dedicated Arinn session with the helper
+    /// installed, `Unsupported` otherwise.
+    pub fn session_switch(&self) -> Availability {
+        use std::os::unix::fs::PermissionsExt;
+        let installed = std::fs::metadata(&self.session.helper)
+            .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0);
+        if self.session.entry.is_some() && installed {
+            Availability::Available
+        } else {
+            Availability::Unsupported
+        }
+    }
+
+    /// Ends the dedicated session; the next login starts the plain desktop.
+    /// `Ok` means the desktop accepted the logout request. The helper takes
+    /// fixed arguments only and restores the user's previous choice when the
+    /// desktop refuses (`Unavailable`).
+    pub async fn switch_to_desktop(&self) -> Result<(), ErrorCode> {
+        // Never run what the read would not offer.
+        let (Some(entry), Availability::Available) = (&self.session.entry, self.session_switch())
+        else {
+            return Err(ErrorCode::Unsupported);
+        };
+        let status = Command::new(&self.session.helper)
+            .arg("desktop")
+            .env("ARINN_SESSION_ENTRY", entry)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            // The helper's own message is not a daemon log line (§13).
+            .stderr(Stdio::null())
+            .kill_on_drop(true)
+            .status();
+        match tokio::time::timeout(SWITCH_TIMEOUT, status).await {
+            Err(_) => Err(ErrorCode::Timeout),
+            Ok(Err(error)) if error.kind() == std::io::ErrorKind::NotFound => {
+                Err(ErrorCode::Unsupported)
+            }
+            Ok(Err(_)) => Err(ErrorCode::Internal),
+            Ok(Ok(status)) if status.success() => Ok(()),
+            // No supported desktop to log out of, or the desktop refused.
+            Ok(Ok(status)) if status.code() == Some(1) => Err(ErrorCode::Unavailable),
+            Ok(Ok(_)) => Err(ErrorCode::Internal),
         }
     }
 

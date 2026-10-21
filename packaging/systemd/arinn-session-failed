@@ -1,0 +1,84 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: 2026 Arinn contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+# ExecStart of arinn-session-failed@.service (#437): tell the user that an
+# Arinn unit stopped after repeated failures. Only the start limit counts:
+# since systemd 254 the handler also runs before every automatic restart,
+# and exit status 2 (RestartPreventExitStatus=) leaves the shell failed;
+# both stay silent, as before. Restarts nothing and takes no power action.
+# The message and the journal lines carry only the unit name (spec §13).
+set -u
+unit=${1:-}
+case $unit in
+arinnd.service | arinn-shell.service) ;;
+*) echo "arinn-session-failed: unexpected unit" >&2; exit 2 ;;
+esac
+
+props=$(systemctl --user show --property=ActiveState,SubState,Result,NRestarts,StartLimitBurst \
+    --property=ExecMainCode,ExecMainStatus,RestartPreventExitStatus,InvocationID "$unit" 2>/dev/null) ||
+    props=
+prop() {
+    printf '%s\n' "$props" | sed -n "s/^$1=//p" | head -n 1
+}
+number() {
+    case $1 in '' | *[!0-9]*) return 1 ;; esac
+}
+
+# systemd passes the state of the unit that triggered the handler; the unit's
+# own properties stand in where it does not.
+result=${MONITOR_SERVICE_RESULT:-$(prop Result)}
+code=${MONITOR_EXIT_CODE:-}
+status=${MONITOR_EXIT_STATUS:-}
+if [ -z "$code" ] && [ "$(prop ExecMainCode)" = 1 ]; then
+    code=exited
+    status=$(prop ExecMainStatus)
+fi
+restarts=$(prop NRestarts)
+burst=$(prop StartLimitBurst)
+
+prevented=false
+if [ "$code" = exited ]; then
+    for prevent in $(prop RestartPreventExitStatus); do
+        [ "$prevent" = "$status" ] && prevented=true
+    done
+fi
+limit=false
+if [ "$prevented" = true ]; then
+    :
+elif [ "$result" = start-limit-hit ]; then
+    # systemd 260 and newer.
+    limit=true
+elif [ "$(prop ActiveState)" = failed ] && [ "$(prop SubState)" = failed ] &&
+    number "$restarts" && number "$burst" && [ "$burst" -gt 0 ] && [ "$restarts" -ge "$burst" ]; then
+    # Before systemd 260 the unit keeps the result of its last crash at the
+    # start limit, but it has used every automatic restart it was allowed.
+    limit=true
+fi
+if [ "$limit" != true ]; then
+    echo "arinn-session-failed: $unit failed below its start limit; no notice" >&2
+    exit 0
+fi
+
+# One notice per failed run: the handler run before the refused restart and
+# the one for the final failure share the unit's invocation ID.
+invocation=${MONITOR_INVOCATION_ID:-$(prop InvocationID)}
+if [ -n "$invocation" ] && [ -n "${XDG_RUNTIME_DIR:-}" ] && [ -d "$XDG_RUNTIME_DIR" ]; then
+    stamp="$XDG_RUNTIME_DIR/arinn-session-failed.$unit"
+    if [ "$(cat "$stamp" 2>/dev/null)" = "$invocation" ]; then
+        echo "arinn-session-failed: $unit was already reported" >&2
+        exit 0
+    fi
+    (umask 077 && printf '%s\n' "$invocation" >"$stamp") 2>/dev/null || true
+fi
+
+echo "arinn-session-failed: $unit stopped after repeated failures" >&2
+summary="Arinn stopped after repeated failures"
+body="$unit failed repeatedly and is not restarted. Diagnostics: journalctl --user -u $unit and arinnctl diagnostics. Start again: systemctl --user reset-failed $unit, then systemctl --user start $unit."
+# org.freedesktop.Notifications.Notify: app name, replaces id, icon, summary,
+# body, no actions, critical urgency, never expires.
+busctl --user --timeout=10 call org.freedesktop.Notifications /org/freedesktop/Notifications \
+    org.freedesktop.Notifications Notify 'susssasa{sv}i' \
+    Arinn 0 org.arinn.Shell "$summary" "$body" 0 \
+    2 urgency y 2 desktop-entry s org.arinn.Shell 0 >/dev/null ||
+    echo "arinn-session-failed: no notification service; the notice was not shown" >&2
+exit 0

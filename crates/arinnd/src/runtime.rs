@@ -33,6 +33,8 @@ const BROWSER_LAUNCH_DEADLINE: Duration = Duration::from_secs(30);
 /// How long opening a URL waits for the browser's next snapshot before it
 /// only hides Home (ADR-0052).
 const OPEN_FOCUS_WAIT: Duration = Duration::from_secs(2);
+/// How long the provider may take to stop a cancelled launch (ADR-0110).
+const LAUNCH_CANCEL_DEADLINE: Duration = Duration::from_secs(15);
 
 struct Provider {
     info: ProviderInfo,
@@ -1304,6 +1306,36 @@ impl Core {
         if !fresh {
             return Ok(path);
         }
+        if action == "launch" {
+            // A launch stays running while the application starts; the user
+            // may stop it through Operation1.Cancel (spec §6.5, ADR-0110).
+            let connection = self.connection.clone();
+            let owner = owner.clone();
+            let generation = generation.to_owned();
+            let local_id = local_id.to_owned();
+            op.cancellable(Arc::new(move || {
+                let connection = connection.clone();
+                let owner = owner.clone();
+                let generation = generation.clone();
+                let local_id = local_id.clone();
+                Box::pin(async move {
+                    let proxy = ApplicationProviderProxy::builder(&connection)
+                        .destination(owner.as_str())
+                        .map_err(|_| ErrorCode::Internal)?
+                        .build()
+                        .await
+                        .map_err(|_| ErrorCode::Unavailable)?;
+                    tokio::time::timeout(
+                        LAUNCH_CANCEL_DEADLINE,
+                        proxy.cancel_launch(&generation, &local_id),
+                    )
+                    .await
+                    .map_err(|_| ErrorCode::Timeout)?
+                    .map_err(normalize_error)
+                })
+            }))
+            .await;
+        }
         let core = self.clone();
         let id = id.to_owned();
         let action = action.to_owned();
@@ -1347,12 +1379,17 @@ impl Core {
                 };
                 result.map_err(normalize_error)
             };
-            let result = tokio::time::timeout(
-                Duration::from_secs(if action == "launch" { 30 } else { 5 }),
-                op.phase("provider.call", op.kind(), work),
-            )
-            .await
-            .unwrap_or(Err(ErrorCode::Timeout));
+            let call = op.phase("provider.call", op.kind(), work);
+            // The provider bounds launch dispatch itself and then answers when
+            // a window appears or the application can no longer show one, so
+            // a slow start has no daemon deadline (spec §9.5, ADR-0110).
+            let result = if action == "launch" {
+                call.await
+            } else {
+                tokio::time::timeout(Duration::from_secs(5), call)
+                    .await
+                    .unwrap_or(Err(ErrorCode::Timeout))
+            };
             let valid = core
                 .state
                 .lock()

@@ -40,12 +40,26 @@ with tempfile.TemporaryDirectory(prefix="arinn-desktop-integration-") as folder:
     # The temporary application exits on explicit release or fixture-directory
     # cleanup. No process-name kill, user application or host session is involved.
     helper = root / "sentinel.sh"
-    helper.write_text(f'#!/bin/sh\nprintf "%s" "$$" > "{root / "pid"}"\n'
+    helper.write_text(f'#!/bin/sh\nprintf "%s" "$$" > "{root / "pid"}"\nprintf "%s" "$$" > "{root / "fixture.pid"}"\n'
                       f'printf x >> "{root / "launches"}"\n'
                       f'while test -d "{root}" && ! test -e "{root / "release"}"; do sleep 0.05; done\n')
     helper.chmod(0o700)
     (applications / "fixture.desktop").write_text(f'[Desktop Entry]\nType=Application\nName=Fixture\nExec={helper} %U\n')
     (applications / "broken.desktop").write_text('[Desktop Entry]\nType=Application\nName=Broken\nExec=/arinn-test-no-such-program\n')
+    # Launch lifetime (#436): named sentinels record their pid and run until
+    # release or cleanup; the client cancels one of them and checks the other.
+    named = root / "named.sh"
+    named.write_text(f'#!/bin/sh\nprintf "%s" "$$" > "{root}/$1.pid"\n'
+                     f'while test -d "{root}" && ! test -e "{root / "release"}"; do sleep 0.05; done\n')
+    named.chmod(0o700)
+    for name in ("slow", "cancel", "keep"):
+        (applications / f"{name}.desktop").write_text(
+            f'[Desktop Entry]\nType=Application\nName={name.title()}\nExec={named} {name}\n')
+    # Exit at once with status 0 and no window; "handoff" already has one.
+    for name in ("nowindow", "handoff"):
+        (applications / f"{name}.desktop").write_text(
+            f'[Desktop Entry]\nType=Application\nName={name.title()}\nExec=/bin/sh -c "exit 0"\n')
+    env["ARINN_DESKTOP_FIXTURE_DIR"] = str(root)
     processes, logs = [], []
     def start(binary):
         log = tempfile.TemporaryFile(mode="w+")
@@ -72,7 +86,7 @@ with tempfile.TemporaryDirectory(prefix="arinn-desktop-integration-") as folder:
         start(BIN / "examples/private-systemd")
         daemon = start(BIN / "arinnd")
         first = wait(ready)
-        result = subprocess.run([str(BIN / "examples/desktop-client")], env=env, capture_output=True, text=True, timeout=35)
+        result = subprocess.run([str(BIN / "examples/desktop-client")], env=env, capture_output=True, text=True, timeout=120)
         assert result.returncode == 0, result.stdout + result.stderr
         wait(alive)
         assert (root / "launches").read_text() == "x", "deduplicated launch started twice"
@@ -88,7 +102,7 @@ with tempfile.TemporaryDirectory(prefix="arinn-desktop-integration-") as folder:
         cli("providers", "reload")
         wait(lambda: providers() == [])
         assert alive(), "provider removal killed the fixture application"
-        print("PASS: desktop provider registration, launch, restart/removal and independent fixture lifetime (mock manager; not cgroup qualification)")
+        print("PASS: desktop provider registration, launch lifetime and cancel, restart/removal and independent fixture lifetime (mock manager; not cgroup qualification)")
     finally:
         (root / "release").touch()
         for process in reversed(processes):

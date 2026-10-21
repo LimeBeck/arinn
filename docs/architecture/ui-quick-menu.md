@@ -8,6 +8,11 @@ Presentation of the quick menu of [specification §5.7](../specifications/arinn-
 The shell behaviour, Back and the platform path are in
 [Activity and interaction](activity-and-interaction.md#quick-menu).
 
+The sheet opens for `quick_menu_shortcut` (default Meta+F11) and, outside
+the shell, for the remote's Menu key. The platform binds Menu only while
+another window has focus. Inside the shell Menu keeps its meaning (navigation,
+tile action sheet), and inside the sheet it does nothing.
+
 `apps/arinn-shell/ui/QuickMenu.qml` is the *sheet* focus scope (§6.1). Main.qml
 routes focus to it while it is open, so no screen beneath can take focus. It
 only emits intents; Main.qml connects them to `MediaCatalog`, `Backend` and the

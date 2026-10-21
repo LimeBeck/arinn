@@ -86,7 +86,9 @@ mapping, falling back to native Meta only if no mapped Super exists; it does not
 assume Mod4. Keyboard/modifier mapping changes rebuild the grabs. A sequence another
 client already grabs is skipped and logged; the backend is unavailable only
 when no Home sequence can be grabbed. `quick_menu_shortcut` (default Meta+F11)
-is grabbed the same way next to the Home keys; a press is reported with
+and the remote's Menu keys (`Menu`, `XF86MenuKB`) are grabbed the same way next to
+the Home keys. The Menu keys are released while the shell is the active window and
+grabbed again at the next snapshot after another window becomes active; a press is reported with
 `ReportQuickMenuRequest` after the same unlocked check and Home state, and a
 quick-menu key that cannot be grabbed is skipped without stopping the backend
 ([ADR-0106](../adr/0106-quick-menu-presentation.md)). Home snapshots the exact opaque target

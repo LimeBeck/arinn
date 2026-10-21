@@ -30,6 +30,8 @@ pub struct Platform {
     state: Arc<Mutex<State>>,
     tx: mpsc::Sender<String>,
     rx: Arc<Mutex<mpsc::Receiver<String>>>,
+    /// The quick-menu keys written to KDE (ADR-0106).
+    pub quick_menu: crate::global_home::QuickMenuKeys,
 }
 impl Default for Platform {
     fn default() -> Self {
@@ -38,6 +40,7 @@ impl Default for Platform {
             state: Arc::default(),
             tx,
             rx: Arc::new(Mutex::new(rx)),
+            quick_menu: Default::default(),
         }
     }
 }

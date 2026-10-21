@@ -122,6 +122,8 @@ pub struct Native {
     /// Grabbed quick-menu (modifier mask, keycode) pairs; any other grabbed
     /// press is Home.
     quick_menu_grabs: HashSet<(u16, Keycode)>,
+    /// The shell has focus: the remote's Menu keys are left to it.
+    shell_focused: bool,
 }
 impl Native {
     pub fn connect(home_shortcut: &str, quick_menu_shortcut: &str) -> Result<Self> {
@@ -171,6 +173,7 @@ impl Native {
             home,
             quick_menu,
             quick_menu_grabs: HashSet::new(),
+            shell_focused: false,
         };
         s.wm = s.wm_owner()?;
         s.supported = s
@@ -418,7 +421,15 @@ impl Native {
         let mut grabbed = false;
         let mut quick_menu_grabs = HashSet::new();
         let home = self.home.len();
-        for (index, sequence) in self.home.iter().chain(&self.quick_menu).enumerate() {
+        // Inside the shell Menu keeps its own meaning (owner decision of
+        // 2026-10-21, #439): the remote's Menu keys are grabbed only while
+        // another window has focus.
+        let shell_focused = self.shell_focused;
+        let quick_menu = self
+            .quick_menu
+            .iter()
+            .filter(|sequence| !shell_focused || !sequence.is_remote_menu());
+        for (index, sequence) in self.home.iter().chain(quick_menu).enumerate() {
             let is_home = index < home;
             let codes: Vec<Keycode> = keys
                 .clone()
@@ -612,6 +623,11 @@ impl Native {
         if let Some(xid) = shell {
             // Observe DestroyNotify for the shell even while it is unlisted.
             self.watch_window(xid)?;
+        }
+        let shell_focused = shell.is_some() && active == shell;
+        if shell_focused != self.shell_focused {
+            self.shell_focused = shell_focused;
+            self.grab_home()?;
         }
         Ok(Snapshot {
             rows,
@@ -1060,6 +1076,36 @@ pub(crate) mod fixture {
         native.snapshot()?;
         desktop.press(&[0xffe3, 0xffe9], u32::from(b'q'))?;
         assert!(native.snapshot()?.quick_menu_key);
+        Ok(())
+    }
+    #[test]
+    #[ignore = "requires Xvfb; spawns an isolated X server, never uses the real DISPLAY"]
+    fn remote_menu_opens_the_quick_menu_only_outside_the_shell() -> Result<()> {
+        // Owner decision of 2026-10-21 (#439): the remote's Menu key opens
+        // the quick menu over another window; the shell keeps Menu.
+        let desktop = Desktop::new()?;
+        let shell = desktop.client("org.arinn.Shell", "")?;
+        let video = desktop.client("org.example.Player.desktop", "")?;
+        desktop.inventory(&[shell, video], video)?;
+        let home = crate::key_sequence::home("Meta+F12").0;
+        let quick_menu = crate::key_sequence::quick_menu("Ctrl+Alt+Q", &home).0;
+        let mut native = Native::connect_display_with(Some(&desktop.display), home, quick_menu)?;
+        native.snapshot()?;
+        desktop.press(&[], 0xff67)?; // Menu
+        assert!(native.snapshot()?.quick_menu_key);
+        // The shell takes focus: the next snapshot releases Menu to it.
+        desktop.inventory(&[shell, video], shell)?;
+        native.snapshot()?;
+        desktop.press(&[], 0xff67)?;
+        assert!(!native.snapshot()?.quick_menu_key);
+        // The configured key still opens the quick menu over the shell.
+        desktop.press(&[0xffe3, 0xffe9], u32::from(b'q'))?;
+        assert!(native.snapshot()?.quick_menu_key);
+        desktop.inventory(&[shell, video], video)?;
+        native.snapshot()?;
+        desktop.press(&[], 0xff67)?;
+        let snapshot = native.snapshot()?;
+        assert!(snapshot.quick_menu_key && !snapshot.home_key);
         Ok(())
     }
     #[test]

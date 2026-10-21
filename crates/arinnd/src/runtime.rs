@@ -1617,6 +1617,7 @@ impl Daemon {
             crate::global_home::adapter_connected(
                 &self.core.connection,
                 self.core.paths.config.clone(),
+                self.core.platform.quick_menu.clone(),
             );
         }
         Ok(self.core.platform.next_command().await)
@@ -1654,7 +1655,14 @@ impl Daemon {
         self.core
             .platform
             .report_window(&self.core.connection, h, id, class, fullscreen, output)
-            .await
+            .await?;
+        // The remote's Menu keys follow the shell's focus (ADR-0106).
+        crate::global_home::window_reported(
+            &self.core.connection,
+            &self.core.platform.quick_menu,
+            class,
+        );
+        Ok(())
     }
     async fn report_home_request(
         &self,

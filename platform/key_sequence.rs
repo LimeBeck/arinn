@@ -36,6 +36,9 @@ pub enum Key {
     Favorites,
     Search,
     Menu,
+    /// The keyboard Menu key of evdev `KEY_MENU` (Qt `Key_MenuKB`, X11
+    /// `XF86MenuKB`); `KEY_COMPOSE` is Qt `Key_Menu`.
+    MenuKb,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -82,6 +85,7 @@ pub fn parse(text: &str) -> Option<Sequence> {
         "favorites" => Key::Favorites,
         "search" => Key::Search,
         "menu" => Key::Menu,
+        "menukb" => Key::MenuKb,
         _ if lower.len() == 1 && lower.as_bytes()[0].is_ascii_lowercase() => {
             Key::Letter(lower.as_bytes()[0].to_ascii_uppercase())
         }
@@ -121,25 +125,45 @@ pub fn home(configured: &str) -> (Vec<Sequence>, bool) {
     (sequences, fallback)
 }
 
+/// The remote's Menu key (owner decision of 2026-10-21, #439). Which code
+/// the G60S PRO BT sends is not captured yet, so both are bound.
+const REMOTE_MENU: [Sequence; 2] = [
+    Sequence {
+        modifiers: HOME_PAGE.modifiers,
+        key: Key::Menu,
+    },
+    Sequence {
+        modifiers: HOME_PAGE.modifiers,
+        key: Key::MenuKb,
+    },
+];
+
 /// The quick-menu sequences an adapter binds (ADR-0106): the configured
-/// one, or the default when the value is empty or invalid, with no fixed
-/// second key. A sequence that is also one of `home` is left out, so Home
-/// wins. The flag reports that the configured value was replaced by the
-/// default.
+/// one, or the default when the value is empty or invalid, followed by the
+/// remote's Menu and MenuKB keys. A sequence that is also one of `home` is
+/// left out, so Home wins. The flag reports that the configured value was
+/// replaced by the default.
 pub fn quick_menu(configured: &str, home: &[Sequence]) -> (Vec<Sequence>, bool) {
     let (sequence, fallback) = match parse(configured) {
         Some(sequence) => (sequence, false),
         None => (parse(DEFAULT_QUICK_MENU).expect("valid default"), true),
     };
-    let sequences = if home.contains(&sequence) {
-        Vec::new()
-    } else {
-        vec![sequence]
-    };
+    let mut sequences = Vec::new();
+    for candidate in std::iter::once(sequence).chain(REMOTE_MENU) {
+        if !home.contains(&candidate) && !sequences.contains(&candidate) {
+            sequences.push(candidate);
+        }
+    }
     (sequences, fallback)
 }
 
 impl Sequence {
+    /// The remote's Menu key, plain Menu or MenuKB. Inside the shell Menu
+    /// keeps its own meaning, so adapters bind it only while another window
+    /// has focus.
+    pub fn is_remote_menu(self) -> bool {
+        REMOTE_MENU.contains(&self)
+    }
     /// Qt's combined key code (`QKeyCombination::toCombined()`), the form
     /// KGlobalAccel stores.
     pub fn qt(self) -> i32 {
@@ -150,6 +174,7 @@ impl Sequence {
             Key::Favorites => 0x0100_0091,
             Key::Search => 0x0100_0092,
             Key::Menu => 0x0100_0055,
+            Key::MenuKb => 0x0100_00dc,
         };
         let m = self.modifiers;
         let mut modifiers = 0;
@@ -175,6 +200,7 @@ impl Sequence {
             Key::Favorites => 0x1008_ff30,
             Key::Search => 0x1008_ff1b,
             Key::Menu => 0xff67,
+            Key::MenuKb => 0x1008_ff65,
         }
     }
 }
@@ -245,22 +271,35 @@ mod tests {
 
     #[test]
     fn quick_menu_falls_back_and_yields_to_home() {
+        let qt = |keys: &[Sequence]| keys.iter().map(|k| k.qt()).collect::<Vec<_>>();
         let home_keys = home(DEFAULT_HOME).0;
         let (keys, fallback) = quick_menu("Ctrl+Alt+Q", &home_keys);
         assert!(!fallback);
+        // The configured key, then the remote's Menu as Qt Menu and MenuKB.
+        assert_eq!(qt(&keys), [0x0C00_0051, 0x0100_0055, 0x0100_00dc]);
         assert_eq!(
-            keys.iter().map(|k| k.qt()).collect::<Vec<_>>(),
-            [0x0C00_0051]
+            keys.iter().map(|k| k.is_remote_menu()).collect::<Vec<_>>(),
+            [false, true, true]
         );
+        assert_eq!(keys[1].keysym(), 0xff67);
+        assert_eq!(keys[2].keysym(), 0x1008_ff65);
         let (keys, fallback) = quick_menu("Backspace", &home_keys);
         assert!(fallback);
-        assert_eq!(keys, [parse("Meta+F11").unwrap()]);
+        assert_eq!(keys[0], parse("Meta+F11").unwrap());
         assert_eq!(keys[0].qt(), 0x1100_003a);
         assert_eq!(keys[0].keysym(), 0xffc8);
         assert!(quick_menu("", &home_keys).1);
         // A key Home already uses stays Home's, whatever its spelling.
-        assert_eq!(quick_menu("super+f12", &home_keys), (Vec::new(), false));
-        assert_eq!(quick_menu("HomePage", &home_keys), (Vec::new(), false));
-        assert_eq!(quick_menu("Meta+F12", &home("Ctrl+Alt+H").0).0.len(), 1);
+        let remote = [0x0100_0055, 0x0100_00dc];
+        assert_eq!(qt(&quick_menu("super+f12", &home_keys).0), remote);
+        assert_eq!(qt(&quick_menu("HomePage", &home_keys).0), remote);
+        assert_eq!(
+            qt(&quick_menu("Ctrl+Alt+Q", &home("Menu").0).0),
+            [0x0C00_0051, 0x0100_00dc]
+        );
+        // A configured Menu is not bound twice.
+        assert_eq!(qt(&quick_menu("menu", &home_keys).0), remote);
+        assert_eq!(parse("MenuKB").unwrap().qt(), 0x0100_00dc);
+        assert!(!parse("Meta+Menu").unwrap().is_remote_menu());
     }
 }

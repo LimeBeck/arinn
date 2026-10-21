@@ -1379,7 +1379,11 @@ async fn adapter_connection_applies_configured_home_shortcut() {
             ),
             (
                 "ArinnQuickMenu".to_owned(),
-                vec![(vec![0x0C00_0051, 0, 0, 0],)]
+                vec![
+                    (vec![0x0C00_0051, 0, 0, 0],),
+                    (vec![0x0100_0055, 0, 0, 0],),
+                    (vec![0x0100_00dc, 0, 0, 0],)
+                ]
             )
         ]
     );
@@ -1389,4 +1393,48 @@ async fn adapter_connection_applies_configured_home_shortcut() {
     tokio::time::sleep(Duration::from_millis(300)).await;
     second.abort();
     assert_eq!(writes.lock().unwrap().len(), 2);
+    // The remote's Menu keys (Menu, MenuKB) are off while the shell has
+    // focus and on again for any other window (owner decision of
+    // 2026-10-21, #439).
+    let report = |class: &'static str| {
+        let kwin = f.kwin.clone();
+        async move {
+            kwin.call_method(
+                Some(production::SERVICE),
+                production::PATH,
+                Some("org.arinn.Daemon1"),
+                "ReportWindow",
+                &("window", class, false, "screen"),
+            )
+            .await
+            .unwrap();
+        }
+    };
+    let wait_for = |count: usize| {
+        let writes = Arc::clone(&writes);
+        async move {
+            for _ in 0..100 {
+                if writes.lock().unwrap().len() >= count {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        }
+    };
+    report("org.arinn.Shell").await;
+    wait_for(3).await;
+    report("org.arinn.Shell").await;
+    report("game").await;
+    wait_for(4).await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let writes = writes.lock().unwrap();
+    assert_eq!(writes.len(), 4);
+    assert_eq!(
+        writes[2],
+        (
+            "ArinnQuickMenu".to_owned(),
+            vec![(vec![0x0C00_0051, 0, 0, 0],)]
+        )
+    );
+    assert_eq!(writes[3], writes[1]);
 }

@@ -102,7 +102,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0082](0082-opt-in-sentry.md) | Optional Sentry diagnostics for the shell and daemon | Proposed | 0093 |
 | [0083](0083-managed-player-stop.md) | Terminate the managed player on Stop and retain its final frame | Proposed | — |
 | [0084](0084-favorites-contract.md) | Revision-guarded daemon-owned favorites | Accepted | — |
-| [0085](0085-anime-tv-season-markers.md) | Anime `TVn` season markers in library names | Accepted | — |
+| [0085](0085-anime-tv-season-markers.md) | Anime `TVn` season markers in library names | Accepted | 0109 |
 | [0086](0086-automatic-master-prereleases.md) | Automatic master pre-releases and ordinary version-tag releases | Proposed | 0088, 0092, 0099 |
 | [0087](0087-bounded-activity-background-frames.md) | Bounded Activity background frames through immutable descriptors | Accepted | — |
 | [0088](0088-single-master-snapshot-retention.md) | Retain one verified master snapshot release | Proposed | — |
@@ -123,4 +123,5 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0103](0103-on-screen-keyboard.md) | On-screen keyboard in the MVP | Accepted | — |
 | [0104](0104-qt-floor-and-prebuilt-ci-images.md) | Minimum supported Qt 6.8 and prebuilt CI images | Accepted | — |
 | [0108](0108-system-control.md) | Power and volume actions through the daemon | Accepted | — |
+| [0109](0109-season-only-snn-markers.md) | Season-only `Snn` markers in library names | Accepted | — |
 <!-- register:end -->

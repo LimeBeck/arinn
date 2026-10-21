@@ -260,6 +260,11 @@ async fn a_provider_connection_is_refused() {
         error_name(control.step_volume(1).await.unwrap_err()),
         denied
     );
+    // Refused before its argument is checked.
+    assert_eq!(
+        error_name(control.step_volume(0).await.unwrap_err()),
+        denied
+    );
     assert!(fake.lock().unwrap().calls.is_empty());
     let calls = std::fs::read_to_string(f.folder.join("pactl").join("calls")).unwrap_or_default();
     assert!(calls.is_empty(), "{calls}");
@@ -271,4 +276,36 @@ async fn a_provider_connection_is_refused() {
         .await
         .unwrap()
         .unwrap();
+}
+
+#[tokio::test]
+async fn a_second_power_request_meanwhile_is_refused_not_queued() {
+    let system = Bus::new();
+    let (_logind, fake) = logind(
+        &system,
+        FakeLogin {
+            can: ["yes".into(), "yes".into(), "yes".into()],
+            hold: Duration::from_millis(500),
+            ..FakeLogin::default()
+        },
+    )
+    .await;
+    let f = fixture(&system).await;
+    let control = proxy(&f, &f.client).await;
+    let other = f._session.connect().await;
+    let second = proxy(&f, &other).await;
+    let (first, overlapping) = tokio::join!(control.suspend(), async {
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        second.power_off().await
+    });
+    first.unwrap();
+    assert_eq!(
+        error_name(overlapping.unwrap_err()),
+        "org.arinn.Error1.Conflict"
+    );
+    // logind only ever saw the first request.
+    assert_eq!(
+        fake.lock().unwrap().calls,
+        vec![("suspend".to_string(), false)]
+    );
 }

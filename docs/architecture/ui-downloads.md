@@ -203,7 +203,7 @@ artwork is not dimmed on unfocused rows as in the handoff. Full handoff fidelity
 
 ## Verification
 
-Summary and artwork (#360), local run on 2026-10-21, Qt 6.8.3, offscreen,
+Summary and artwork (#360), local run on 2026-10-21, Qt 6.10.2 (dev container, Ubuntu 26.04), offscreen,
 software backend:
 
 - `ui-components`, `Downloads::` cases: `test_summary_line` (active, all

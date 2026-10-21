@@ -7,8 +7,8 @@ PartOf=graphical-session.target arinn-session.target arinn-ewmh-session.target
 After=graphical-session.target
 StartLimitIntervalSec=60s
 StartLimitBurst=5
-# Below the start limit a failure restarts the unit and triggers nothing;
-# at the limit the unit stays failed and the handler tells the user (#437).
+# The handler may run on every failure (systemd 254 and newer); it tells the
+# user only once the unit stays failed at its start limit (#437).
 OnFailure=arinn-session-failed@%n.service
 
 [Service]

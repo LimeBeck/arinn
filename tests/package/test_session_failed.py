@@ -34,35 +34,58 @@ def unit(name):
     return sections
 
 
+# systemctl --user show of a unit that reached its start limit through
+# automatic restarts: systemd 260 and newer report start-limit-hit, older
+# versions keep the result of the last crash (#437 review).
+LIMIT_OLD = {"ActiveState": "failed", "SubState": "failed", "Result": "exit-code", "NRestarts": "5",
+             "StartLimitBurst": "5", "ExecMainCode": "1", "ExecMainStatus": "1",
+             "RestartPreventExitStatus": "2", "InvocationID": "0123456789abcdef0123456789abcdef"}
+LIMIT_NEW = dict(LIMIT_OLD, Result="start-limit-hit")
+
+
 class Handler(unittest.TestCase):
-    def run_handler(self, name, monitor=None, shown="", notify_fails=False):
+    def run_handler(self, name, props=None, monitor=None, notify_fails=False, runtime=None):
+        """props: what systemctl show prints (None: systemctl fails);
+        monitor: MONITOR_* variables systemd passes to the handler."""
         with tempfile.TemporaryDirectory(prefix="arinn-failed-test-") as folder:
             root = Path(folder)
             log = root / "log"
             log.write_text("")
+            shown = "".join(f"{key}={value}\n" for key, value in (props or {}).items())
             for tool, body in (
                     ("systemctl", f'echo "systemctl $*" >> {log}\n'
-                                  f'case "$*" in *show*Result*) echo "{shown}" ;; esac\n'),
+                                  f'[ {int(props is not None)} = 1 ] || exit 1\n'
+                                  f'printf "%s" "{shown}"\n'),
                     ("busctl", f'for a in "$@"; do printf "%s\\n" "$a"; done > {root}/notify\n'
                                f'echo "busctl $1 $2 $3 $4" >> {log}\n'
                                f'exit {1 if notify_fails else 0}\n')):
                 path = root / tool
                 path.write_text("#!/bin/sh\n" + body)
                 path.chmod(0o755)
-            env = dict(os.environ, PATH=f"{root}:{os.environ['PATH']}")
-            env.pop("MONITOR_SERVICE_RESULT", None)
-            if monitor is not None:
-                env["MONITOR_SERVICE_RESULT"] = monitor
+            env = {key: value for key, value in os.environ.items()
+                   if not key.startswith("MONITOR_") and key != "XDG_RUNTIME_DIR"}
+            env.update(PATH=f"{root}:{os.environ['PATH']}", **(monitor or {}))
+            if runtime is not None:
+                env["XDG_RUNTIME_DIR"] = str(runtime)
             result = subprocess.run(["sh", str(HANDLER), name], env=env, stdin=subprocess.DEVNULL,
                                     capture_output=True, text=True, timeout=10)
             notify = (root / "notify").read_text().splitlines() if (root / "notify").exists() else None
             return result, log.read_text().splitlines(), notify
 
+    def assert_silent(self, result, log, notify):
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIsNone(notify)
+        self.assertFalse(any(" start" in line or "restart" in line for line in log), log)
+        self.assertIn("below its start limit; no notice", result.stderr)
+
     def test_start_limit_shows_a_notification(self):
         for name in WATCHED:
-            result, log, notify = self.run_handler(name, monitor="start-limit-hit")
+            result, log, notify = self.run_handler(name, LIMIT_OLD)
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(log, ["busctl --user --timeout=10 call org.freedesktop.Notifications"])
+            self.assertEqual(log[0], f"systemctl --user show --property=ActiveState,SubState,Result,NRestarts,"
+                                     f"StartLimitBurst --property=ExecMainCode,ExecMainStatus,"
+                                     f"RestartPreventExitStatus,InvocationID {name}")
+            self.assertEqual(log[1:], ["busctl --user --timeout=10 call org.freedesktop.Notifications"])
             self.assertEqual(notify[:5], ["--user", "--timeout=10", "call", "org.freedesktop.Notifications",
                                           "/org/freedesktop/Notifications"])
             self.assertEqual(notify[5:9], ["org.freedesktop.Notifications", "Notify", "susssasa{sv}i", "Arinn"])
@@ -78,25 +101,76 @@ class Handler(unittest.TestCase):
             self.assertEqual(result.stdout, "")
             self.assertEqual(result.stderr, f"arinn-session-failed: {name} stopped after repeated failures\n")
 
-    def test_reads_the_result_when_systemd_does_not_pass_it(self):
-        result, log, notify = self.run_handler("arinnd.service", shown="start-limit-hit")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(log[0], "systemctl --user show --property=Result --value arinnd.service")
+    def test_start_limit_before_systemd_260_keeps_the_crash_result(self):
+        # The result stays exit-code/signal/core-dump; the restart count shows the limit.
+        for crash in ({"MONITOR_SERVICE_RESULT": "exit-code", "MONITOR_EXIT_CODE": "exited",
+                       "MONITOR_EXIT_STATUS": "1"},
+                      {"MONITOR_SERVICE_RESULT": "signal", "MONITOR_EXIT_CODE": "killed",
+                       "MONITOR_EXIT_STATUS": "SEGV"},
+                      {"MONITOR_SERVICE_RESULT": "core-dump", "MONITOR_EXIT_CODE": "dumped",
+                       "MONITOR_EXIT_STATUS": "ABRT"},
+                      {}):
+            result, _, notify = self.run_handler("arinnd.service", LIMIT_OLD, crash)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIsNotNone(notify, crash)
+        result, _, notify = self.run_handler("arinnd.service", dict(LIMIT_OLD, NRestarts="7"))
         self.assertIsNotNone(notify)
+
+    def test_start_limit_from_systemd_260(self):
+        for monitor in ({"MONITOR_SERVICE_RESULT": "start-limit-hit"}, {}):
+            result, _, notify = self.run_handler("arinn-shell.service", LIMIT_NEW, monitor)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIsNotNone(notify, monitor)
+        # Properties missing: the result systemd passes is enough.
+        result, _, notify = self.run_handler("arinn-shell.service", None,
+                                             {"MONITOR_SERVICE_RESULT": "start-limit-hit"})
+        self.assertIsNotNone(notify)
+
+    def test_failures_before_the_limit_stay_silent(self):
+        # Since systemd 254 the handler runs before each automatic restart.
+        crash = {"MONITOR_SERVICE_RESULT": "exit-code", "MONITOR_EXIT_CODE": "exited", "MONITOR_EXIT_STATUS": "1"}
+        for state in ({"SubState": "failed-before-auto-restart", "NRestarts": "0"},
+                      {"ActiveState": "activating", "SubState": "auto-restart", "NRestarts": "3"},
+                      {"ActiveState": "activating", "SubState": "auto-restart-queued", "NRestarts": "5"},
+                      {"NRestarts": "4"}):
+            self.assert_silent(*self.run_handler("arinnd.service", dict(LIMIT_OLD, **state), crash))
 
     def test_exit_status_2_stays_silent_as_before(self):
         # RestartPreventExitStatus=2 leaves the shell failed with Result=exit-code;
-        # that is a duplicate shell or a wrong backend, not a crash loop.
-        for monitor, shown in (("exit-code", ""), (None, "exit-code"), (None, "")):
-            result, log, notify = self.run_handler("arinn-shell.service", monitor=monitor, shown=shown)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIsNone(notify)
-            self.assertFalse(any("start" in line or "restart" in line for line in log), log)
-            self.assertIn("below its start limit; no notice", result.stderr)
+        # that is a duplicate shell or a wrong backend, not a crash loop. Even
+        # after many earlier restarts (NRestarts survives until a manual start).
+        prevented = dict(LIMIT_OLD, ExecMainStatus="2")
+        for props, monitor in (
+                (prevented, {"MONITOR_SERVICE_RESULT": "exit-code", "MONITOR_EXIT_CODE": "exited",
+                             "MONITOR_EXIT_STATUS": "2"}),
+                (prevented, {}),
+                (dict(prevented, NRestarts="0"), {}),
+                (dict(LIMIT_OLD, NRestarts="0"), {"MONITOR_SERVICE_RESULT": "exit-code"})):
+            self.assert_silent(*self.run_handler("arinn-shell.service", props, monitor))
+
+    def test_missing_or_unknown_properties_stay_silent(self):
+        for props in (None, {}, dict(LIMIT_OLD, NRestarts="[not set]"), dict(LIMIT_OLD, StartLimitBurst="0"),
+                      dict(LIMIT_OLD, StartLimitBurst="")):
+            self.assert_silent(*self.run_handler("arinnd.service", props,
+                                                 {"MONITOR_SERVICE_RESULT": "exit-code"}))
+
+    def test_one_notice_per_failed_run(self):
+        with tempfile.TemporaryDirectory(prefix="arinn-failed-runtime-") as runtime:
+            first = self.run_handler("arinnd.service", LIMIT_OLD, runtime=runtime)
+            again = self.run_handler("arinnd.service", LIMIT_OLD, runtime=runtime)
+            other = self.run_handler("arinn-shell.service", LIMIT_OLD, runtime=runtime)
+            later = self.run_handler("arinnd.service", dict(LIMIT_OLD, InvocationID="f" * 32), runtime=runtime)
+            stamp = Path(runtime, "arinn-session-failed.arinnd.service")
+            self.assertEqual(stamp.read_text(), "f" * 32 + "\n")
+            self.assertEqual(stamp.stat().st_mode & 0o077, 0)
+        self.assertIsNotNone(first[2])
+        self.assertIsNone(again[2])
+        self.assertIn("already reported", again[0].stderr)
+        self.assertIsNotNone(other[2])
+        self.assertIsNotNone(later[2])
 
     def test_missing_notification_service_is_logged(self):
-        result, _, notify = self.run_handler("arinn-shell.service", monitor="start-limit-hit",
-                                             notify_fails=True)
+        result, _, notify = self.run_handler("arinn-shell.service", LIMIT_NEW, notify_fails=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIsNotNone(notify)
         self.assertIn("no notification service", result.stderr)
@@ -133,7 +207,7 @@ class Handler(unittest.TestCase):
 
     def test_other_units_are_refused(self):
         for name in ("", "other.service", "arinn-kwin.service", "arinnd.service; true"):
-            result, log, notify = self.run_handler(name, monitor="start-limit-hit")
+            result, log, notify = self.run_handler(name, LIMIT_NEW)
             self.assertEqual(result.returncode, 2, name)
             self.assertIsNone(notify)
             self.assertEqual(log, [])
@@ -161,6 +235,8 @@ class Units(unittest.TestCase):
     def test_handler_runs_once_and_restarts_nothing(self):
         sections = unit("arinn-session-failed@.service")
         self.assertEqual(sections["Service"]["Type"], ["oneshot"])
+        # It may start before every automatic restart (systemd 254 and newer).
+        self.assertEqual(sections["Unit"]["StartLimitIntervalSec"], ["0"])
         self.assertEqual(sections["Service"]["ExecStart"], ["/usr/lib/arinn/arinn-session-failed %i"])
         self.assertNotIn("Restart", sections["Service"])
         self.assertNotIn("OnFailure", sections["Unit"])

@@ -7,6 +7,9 @@
 [Unit]
 Description=Arinn failure notice for %i
 Documentation=https://github.com/LimeBeck/arinn
+# Since systemd 254 it runs before every automatic restart too, about six
+# times in 10 s in a crash loop; the last start is the one that matters.
+StartLimitIntervalSec=0
 
 [Service]
 Type=oneshot

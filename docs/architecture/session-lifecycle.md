@@ -61,16 +61,37 @@ so both units declare `OnFailure=arinn-session-failed@%n.service`
 oneshot that runs `/usr/lib/arinn/arinn-session-failed <unit>`. Both packages
 install it.
 
-- systemd does not trigger `OnFailure=` for a failure that leads to an automatic
-  restart. It triggers the handler only once the unit has really failed. Exit
-  status 75 (`RestartForceExitStatus=`, [ADR-0098](../adr/0098-restart-after-an-update.md))
-  is always restarted, so it reaches the handler only at the start limit.
-- Exit status 2 (`RestartPreventExitStatus=`) also leaves the shell failed, and
-  so it starts the handler too. That status means a duplicate shell or a wrong
-  backend, not a crash loop. The handler therefore acts only when the result is
-  `start-limit-hit`. It reads `$MONITOR_SERVICE_RESULT`, which systemd passes to
-  a template handler, or the unit's `Result` property when that variable is
-  missing. Any other result writes one journal line and nothing else, as before.
+- **When the handler runs.** Since systemd 254 (`RestartMode=normal`, the
+  default), every failure passes through a transient failed state before its
+  automatic restart, so `OnFailure=` starts the handler on every crash. In a
+  crash loop that is about six runs in 10 s. The template therefore sets
+  `StartLimitIntervalSec=0`, so the user manager's default start limit cannot
+  swallow the last run, the only one that matters. Systemd 253 and older start
+  it only when the unit stays failed.
+- **When it shows the notice.** The handler reads the unit with
+  `systemctl --user show`, and also uses the `$MONITOR_*` variables that
+  systemd passes to a template handler. It shows the notice when:
+  - the result is `start-limit-hit` (systemd 260 and newer), or
+  - the unit is finally failed (`ActiveState=failed`, `SubState=failed`) and
+    `NRestarts` has reached `StartLimitBurst`. Before systemd 260, a unit that
+    hits its limit through automatic restarts keeps the result of its last
+    crash (`exit-code`, `signal`, `core-dump`), so the restart count is the only
+    sign of the limit.
+- **When it stays silent.** Missing or non-numeric properties and every earlier
+  run (sub-state `failed-before-auto-restart` or `auto-restart`, or fewer
+  restarts) produce one journal line and nothing else. Exit status 75
+  (`RestartForceExitStatus=`, [ADR-0098](../adr/0098-restart-after-an-update.md))
+  is always restarted, so it reaches the notice only at the start limit.
+- **Exit status 2.** `RestartPreventExitStatus=` also leaves the shell failed.
+  That status means a duplicate shell or a wrong backend, not a crash loop. When
+  the main process exited with a status listed in `RestartPreventExitStatus`,
+  the handler stays silent, even after earlier restarts, as before.
+- **One notice per failed run.** The run before the refused restart and the run
+  for the final failure share the unit's invocation ID. The handler keeps the
+  last reported ID in `$XDG_RUNTIME_DIR/arinn-session-failed.<unit>` (mode 0600).
+- **Known limit.** A unit that already has `NRestarts` at the burst and then
+  fails without being restarted for another reason (for example, a pending stop
+  at logout) would also show the notice.
 - At the start limit it sends `org.freedesktop.Notifications.Notify` with
   `busctl --user`, which works on Plasma and XFCE. The summary is "Arinn stopped
   after repeated failures". The body names the unit, the diagnostics commands
@@ -84,18 +105,30 @@ install it.
   no `OnFailure=` of its own.
 
 `tests/package/test_session_failed.py` (CTest `session-failure-notice`) runs
-the handler with stub `systemctl` and `busctl`. It covers the notice at the
-start limit, silence for exit status 2 and other results, the fallback to
-`Result`, a missing notification server, and refused unit names. When `busctl`
-and `dbus-monitor` are available, it also captures the real `Notify` call on a
-private bus. Its unit checks pin `OnFailure=`, the start limit,
-`RestartForceExitStatus=75`, `RestartPreventExitStatus=2` and the oneshot
-handler. The package test (`tests/package/session.py`) repeats them against the
-installed handler, and its `systemd-analyze --user verify` run includes the
-template. That run instantiates it and checks the handler executable. A real
-user manager reaching the start limit was not run: the CI and dev containers
-have read-only cgroups and cannot run `systemd --user`. On a desktop it is an
-operator test.
+the handler with stub `systemctl` and `busctl`. It covers the start limit as
+both systemd behaviours report it: `start-limit-hit`, or the crash result
+(`exit-code`/`signal`/`core-dump`) with `NRestarts` at the burst. It also
+covers:
+
+- silence before the limit (each transient state);
+- silence for exit status 2, also after earlier restarts;
+- silence for missing properties;
+- one notice per invocation;
+- a missing notification server;
+- refused unit names.
+
+When `busctl` and `dbus-monitor` are available, it also captures the real
+`Notify` call on a private bus. Its unit checks pin `OnFailure=`, the start
+limit, `RestartForceExitStatus=75`, `RestartPreventExitStatus=2` and the
+oneshot handler with `StartLimitIntervalSec=0`. The package test
+(`tests/package/session.py`) repeats them against the installed handler, and
+its `systemd-analyze --user verify` run includes the template. That run
+instantiates the template and checks the handler executable.
+
+A real user manager reaching the start limit was not run: the CI and dev
+containers have read-only cgroups and cannot run `systemd --user`. On a desktop
+it is an operator test. The systemd behaviour described above comes from the
+systemd sources (`service.c`/`unit.c`, v254–v260).
 
 ## Desktop entry relaunch
 

@@ -51,6 +51,52 @@ For an operator-approved lock/unlock check there is `tests/integration/kwin_lock
 
 A complete MVP power action still needs inhibitor/refusal reporting and provider recovery after wake. `SessionLifecycle` does not implement the suspend command itself.
 
+## Restart limit notice
+
+`arinnd.service` and `arinn-shell.service` restart on failure up to five times
+in 60 s (`StartLimitBurst=5`, `StartLimitIntervalSec=60s`). After that, systemd
+leaves the unit failed. On a TV with only a remote, Arinn would just disappear,
+so both units declare `OnFailure=arinn-session-failed@%n.service`
+([#437](https://github.com/LimeBeck/arinn/issues/437)). The template is a
+oneshot that runs `/usr/lib/arinn/arinn-session-failed <unit>`. Both packages
+install it.
+
+- systemd does not trigger `OnFailure=` for a failure that leads to an automatic
+  restart. It triggers the handler only once the unit has really failed. Exit
+  status 75 (`RestartForceExitStatus=`, [ADR-0098](../adr/0098-restart-after-an-update.md))
+  is always restarted, so it reaches the handler only at the start limit.
+- Exit status 2 (`RestartPreventExitStatus=`) also leaves the shell failed, and
+  so it starts the handler too. That status means a duplicate shell or a wrong
+  backend, not a crash loop. The handler therefore acts only when the result is
+  `start-limit-hit`. It reads `$MONITOR_SERVICE_RESULT`, which systemd passes to
+  a template handler, or the unit's `Result` property when that variable is
+  missing. Any other result writes one journal line and nothing else, as before.
+- At the start limit it sends `org.freedesktop.Notifications.Notify` with
+  `busctl --user`, which works on Plasma and XFCE. The summary is "Arinn stopped
+  after repeated failures". The body names the unit, the diagnostics commands
+  (`journalctl --user -u <unit>`, `arinnctl diagnostics`, spec §14.3) and how to
+  start again (`systemctl --user reset-failed <unit>`, then
+  `systemctl --user start <unit>`). The notification is critical and does not
+  expire. Without a notification server, the handler logs that the notice was
+  not shown.
+- The message and the journal lines contain only the unit name (§13). The
+  handler restarts nothing and takes no power action. It has no `Restart=` and
+  no `OnFailure=` of its own.
+
+`tests/package/test_session_failed.py` (CTest `session-failure-notice`) runs
+the handler with stub `systemctl` and `busctl`. It covers the notice at the
+start limit, silence for exit status 2 and other results, the fallback to
+`Result`, a missing notification server, and refused unit names. When `busctl`
+and `dbus-monitor` are available, it also captures the real `Notify` call on a
+private bus. Its unit checks pin `OnFailure=`, the start limit,
+`RestartForceExitStatus=75`, `RestartPreventExitStatus=2` and the oneshot
+handler. The package test (`tests/package/session.py`) repeats them against the
+installed handler, and its `systemd-analyze --user verify` run includes the
+template. That run instantiates it and checks the handler executable. A real
+user manager reaching the start limit was not run: the CI and dev containers
+have read-only cgroups and cannot run `systemd --user`. On a desktop it is an
+operator test.
+
 ## Desktop entry relaunch
 
 Closing the shell through its menu ends the shell process without stopping the

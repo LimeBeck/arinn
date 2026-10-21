@@ -343,8 +343,9 @@ impl Control {
             } else {
                 format!("-{}%", current - target)
             };
-            // `--` keeps a negative change from being read as an option.
-            self.run(&["set-sink-volume", "--", "@DEFAULT_SINK@", &change])
+            // pactl stops parsing options at its command, so "-5%" after
+            // the sink is a volume, and "--" would be taken as the sink.
+            self.run(&["set-sink-volume", "@DEFAULT_SINK@", &change])
                 .await?;
         }
         self.read_volume().await

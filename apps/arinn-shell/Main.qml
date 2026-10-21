@@ -442,6 +442,8 @@ Window {
             downloadActive: downloadCatalog.downloading
             downloadProgress: downloadCatalog.downloadProgress
             muted: systemStatus.muted
+            // Settings › Appearance › Light field (ADR-0112).
+            ambientEnabled: settingsCatalog.lightField
             wifi: systemStatus.wifi
             wifiLevel: systemStatus.wifiLevel
             currentServiceId: backend.homeVisible && !returnIsWebService ? "" : (browserCatalog.presentedService.id || "")

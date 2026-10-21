@@ -404,6 +404,58 @@ private slots:
     QCOMPARE(daemon.sets.at(0).value, QStringLiteral("\"a\\\"b\""));
     QCOMPARE(daemon.sets.at(1).value, QStringLiteral("[\"/videos\",\"/music\"]"));
   }
+  // ADR-0112: the light field and the ambient timeout come from the daemon's
+  // own settings; the same ids from another provider do not count.
+  void shellPreferencesFromTheCoreSource() {
+    SettingsDaemon daemon;
+    daemon.providers = {{QStringLiteral("alpha"), QStringLiteral("Alpha")},
+                        {QStringLiteral("arinn"), QStringLiteral("Arinn")}};
+    const auto timeouts = QStringLiteral(
+        R"({"options":[{"value":"5","title":"5 min"},{"value":"10","title":"10 min"},{"value":"15","title":"15 min"},{"value":"30","title":"30 min"},{"value":"60","title":"60 min"}]})");
+    daemon.settings.insert(
+        QStringLiteral("alpha"),
+        {setting(QStringLiteral("light_field"), QStringLiteral("appearance"),
+                 QStringLiteral("boolean"), QStringLiteral("true"), QString(),
+                 true)});
+    daemon.settings.insert(
+        QStringLiteral("arinn"),
+        {setting(QStringLiteral("light_field"), QStringLiteral("appearance"),
+                 QStringLiteral("boolean"), QStringLiteral("false"),
+                 QStringLiteral("{}"), true),
+         setting(QStringLiteral("ambient_timeout"), QStringLiteral("appearance"),
+                 QStringLiteral("enum"), QStringLiteral("\"30\""), timeouts,
+                 true)});
+    SettingsCatalog catalog;
+    // Defaults until the daemon has answered.
+    QCOMPARE(catalog.lightField(), true);
+    QCOMPARE(catalog.ambientTimeoutMinutes(), 10);
+    QSignalSpy changes(&catalog, &SettingsCatalog::preferencesChanged);
+    QVERIFY(registerBus(daemon));
+    catalog.refresh();
+    QTRY_COMPARE(catalog.screenState(), QStringLiteral("ready"));
+    QTRY_COMPARE(catalog.lightField(), false);
+    QCOMPARE(catalog.ambientTimeoutMinutes(), 30);
+    const auto row = rowAt(catalog, QStringLiteral("arinn"),
+                           QStringLiteral("ambient_timeout"));
+    QCOMPARE(row.value(QStringLiteral("constraints")).toMap()
+                 .value(QStringLiteral("options")).toList().size(), 5);
+    // A value the daemon does not offer keeps the last one.
+    daemon.settings[QStringLiteral("arinn")][1].value = QStringLiteral("\"7\"");
+    auto signal = QDBusMessage::createSignal(
+        QStringLiteral("/org/arinn/Daemon1"), QStringLiteral("org.arinn.Settings1"),
+        QStringLiteral("SettingsChanged"));
+    signal << QStringLiteral("arinn");
+    QVERIFY(QDBusConnection::sessionBus().send(signal));
+    QTest::qWait(300);
+    QCOMPARE(catalog.ambientTimeoutMinutes(), 30);
+    daemon.settings[QStringLiteral("arinn")][0].value = QStringLiteral("true");
+    daemon.settings[QStringLiteral("arinn")][1].value = QStringLiteral("\"15\"");
+    const int before = changes.count();
+    QVERIFY(QDBusConnection::sessionBus().send(signal));
+    QTRY_COMPARE(catalog.ambientTimeoutMinutes(), 15);
+    QCOMPARE(catalog.lightField(), true);
+    QVERIFY(changes.count() > before);
+  }
   void settingsChangedRefreshes() {
     SettingsDaemon daemon;
     daemon.providers = {{QStringLiteral("alpha"), QStringLiteral("Alpha")}};

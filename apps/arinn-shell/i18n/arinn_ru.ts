@@ -1362,6 +1362,58 @@
         <source>System</source>
         <translation>Система</translation>
     </message>
+    <message>
+        <source>Browser application</source>
+        <translation>Приложение браузера</translation>
+    </message>
+    <message>
+        <source>Application ID launched when a web shortcut opens with no browser running; empty uses the packaged choice</source>
+        <translation>ID приложения, которое запускается, если ярлык сайта открывается без запущенного браузера; пусто — выбор по умолчанию</translation>
+    </message>
+    <message>
+        <source>Search engine</source>
+        <translation>Поисковая система</translation>
+    </message>
+    <message>
+        <source>Used when typed text is not an address</source>
+        <translation>Используется, если введённый текст — не адрес</translation>
+    </message>
+    <message>
+        <source>Light field</source>
+        <translation>Световой фон</translation>
+    </message>
+    <message>
+        <source>Soft light from the focused item&apos;s artwork behind Home</source>
+        <translation>Мягкий свет от обложки выбранного элемента за главным экраном</translation>
+    </message>
+    <message>
+        <source>Ambient after</source>
+        <translation>Заставка через</translation>
+    </message>
+    <message>
+        <source>Idle time on an Arinn screen before the ambient screen appears</source>
+        <translation>Время бездействия на экране Arinn до появления заставки</translation>
+    </message>
+    <message>
+        <source>5 min</source>
+        <translation>5 мин</translation>
+    </message>
+    <message>
+        <source>10 min</source>
+        <translation>10 мин</translation>
+    </message>
+    <message>
+        <source>15 min</source>
+        <translation>15 мин</translation>
+    </message>
+    <message>
+        <source>30 min</source>
+        <translation>30 мин</translation>
+    </message>
+    <message>
+        <source>60 min</source>
+        <translation>60 мин</translation>
+    </message>
 </context>
 <context>
     <name>SettingsView</name>

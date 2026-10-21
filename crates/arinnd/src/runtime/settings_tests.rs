@@ -345,6 +345,77 @@ async fn the_daemon_settings_live_under_arinn() {
     );
 }
 
+/// ADR-0112: the shell's presentation preferences under `arinn`, with their
+/// defaults, stored in `config.toml`.
+#[tokio::test]
+async fn the_shell_preferences_are_core_settings() {
+    let f = Fixture::new().await;
+    let api = f.api().await;
+    let (generation, settings) = api.get_settings("arinn").await.unwrap();
+    settings::validate_schema(&settings).unwrap();
+    let find =
+        |settings: &[Setting], id: &str| settings.iter().find(|s| s.id == id).cloned().unwrap();
+    let light = find(&settings, "light_field");
+    assert_eq!(
+        (
+            light.category.as_str(),
+            light.kind.as_str(),
+            light.value.as_str()
+        ),
+        ("appearance", "boolean", "true")
+    );
+    let ambient = find(&settings, "ambient_timeout");
+    assert_eq!(
+        (
+            ambient.category.as_str(),
+            ambient.kind.as_str(),
+            ambient.value.as_str()
+        ),
+        ("appearance", "enum", r#""10""#)
+    );
+    for value in ["5", "10", "15", "30", "60"] {
+        assert!(
+            ambient
+                .constraints
+                .contains(&format!(r#""value":"{value}""#)),
+            "{value}"
+        );
+    }
+
+    let path = api
+        .set_value("arinn", &generation, "light_field", "false", &rid())
+        .await
+        .unwrap();
+    f.wait(path).await.unwrap();
+    let path = api
+        .set_value("arinn", &generation, "ambient_timeout", r#""30""#, &rid())
+        .await
+        .unwrap();
+    f.wait(path).await.unwrap();
+    let config = Config::load(&f.folder.join("config")).unwrap();
+    assert_eq!((config.light_field, config.ambient_timeout), (false, 30));
+    let (_, settings) = api.get_settings("arinn").await.unwrap();
+    assert_eq!(find(&settings, "light_field").value, "false");
+    assert_eq!(find(&settings, "ambient_timeout").value, r#""30""#);
+    // Only the offered timeouts; nothing is stored for another one.
+    for bad in [r#""7""#, "30", r#""never""#] {
+        assert_eq!(
+            error_name(
+                api.set_value("arinn", &generation, "ambient_timeout", bad, &rid())
+                    .await
+            ),
+            "org.arinn.Error1.InvalidArgument",
+            "{bad}"
+        );
+    }
+    assert_eq!(
+        Config::load(&f.folder.join("config"))
+            .unwrap()
+            .ambient_timeout,
+        30
+    );
+}
+
 #[tokio::test]
 async fn the_daemon_export_matches_the_published_settings1_xml() {
     let f = Fixture::new().await;

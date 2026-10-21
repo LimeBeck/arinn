@@ -368,6 +368,28 @@ fn web_shortcuts_migrate_from_schema_two_and_reject_corrupted_rows() {
     );
 }
 
+/// ADR-0112: a file written before the shell preferences existed loads with
+/// their defaults, and only the offered ambient timeouts are valid.
+#[test]
+fn shell_preferences_default_and_validate() {
+    let dir = std::env::temp_dir().join(format!("arinn-prefs-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir(&dir).unwrap();
+    std::fs::set_permissions(&dir, std::os::unix::fs::PermissionsExt::from_mode(0o700)).unwrap();
+    std::fs::write(dir.join("config.toml"), "schema_version = 1\n").unwrap();
+    let loaded = arinnd::storage::Config::load(&dir).unwrap();
+    assert_eq!((loaded.light_field, loaded.ambient_timeout), (true, 10));
+    let mut config = loaded;
+    for minutes in arinnd::storage::AMBIENT_TIMEOUTS {
+        config.ambient_timeout = minutes;
+        config.validate().unwrap();
+    }
+    for minutes in [0, 7, 61] {
+        config.ambient_timeout = minutes;
+        assert!(config.validate().is_err(), "{minutes}");
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
 #[test]
 fn provider_settings_round_trip_and_old_configs_stay_valid() {
     let dir = std::env::temp_dir().join(format!("arinn-settings-{}", uuid::Uuid::new_v4()));

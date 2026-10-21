@@ -133,6 +133,18 @@ pub struct Config {
     /// Key bindings for the shell (ADR-0079).
     #[serde(default)]
     pub input: InputConfig,
+    /// The light field behind Home (spec §15, ADR-0112).
+    #[serde(default = "yes")]
+    pub light_field: bool,
+    /// Minutes without input before automatic ambient (spec §5.7,
+    /// ADR-0112): one of [`AMBIENT_TIMEOUTS`].
+    #[serde(default = "ambient_timeout")]
+    pub ambient_timeout: u32,
+}
+/// The ambient idle timeouts the shell offers, in minutes (ADR-0112).
+pub const AMBIENT_TIMEOUTS: [u32; 5] = [5, 10, 15, 30, 60];
+fn ambient_timeout() -> u32 {
+    10
 }
 /// `[input]`: extra keys per semantic action, `[input.bindings]`.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -156,6 +168,8 @@ impl Default for Config {
             browser_application: String::new(),
             search_engine: String::new(),
             input: InputConfig::default(),
+            light_field: true,
+            ambient_timeout: ambient_timeout(),
         }
     }
 }
@@ -174,6 +188,9 @@ impl Config {
         }
         if !self.search_engine.is_empty() {
             validation::id(&self.search_engine)?;
+        }
+        if !AMBIENT_TIMEOUTS.contains(&self.ambient_timeout) {
+            return Err(ErrorCode::InvalidArgument);
         }
         for (id, instance) in &self.providers {
             validation::id(id)?;

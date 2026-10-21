@@ -18,6 +18,17 @@ and `ProvidersChanged` reload the snapshot; a missing daemon is unavailable.
 The QML does not call a daemon, a plugin process or a provider-supplied widget
 (R-03, R-04). Values are not logged.
 
+## The shell's own preferences
+
+The daemon's `arinn` source also holds the shell's presentation preferences
+([ADR-0112](../adr/0112-shell-preferences-as-core-settings.md)): `light_field`
+(Appearance › Light field, on by default) and `ambient_timeout` (Appearance ›
+Ambient after: 5, 10, 15, 30 or 60 minutes, 10 by default). They are ordinary
+rows on this screen. `SettingsCatalog` also exposes them as `lightField` and
+`ambientTimeoutMinutes` for `Main.qml`, which binds the light field behind Home
+to `lightField`. The titles, descriptions and option titles of the `arinn`
+source are shown translated; provider texts are shown as sent.
+
 ## What the view receives
 
 Category titles are model data. The QML does not embed those names or any

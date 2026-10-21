@@ -69,3 +69,55 @@ Normal desktop-entry relaunch after a clean shell exit resets the unit start
 counter before starting it. The launcher requires `ActiveState=inactive` and
 `Result=success`; failed units retain the service start limit and crash-loop
 protection. Repeated menu close/reopen cycles therefore remain available.
+
+## Dedicated Arinn session
+
+[ADR-0107](../adr/0107-dedicated-arinn-session.md) (proposed, owner review
+pending) adds two login session entries next to the opt-in autostart of
+[ADR-0042](../adr/0042-opt-in-session-autostart.md):
+
+| Entry | Display manager directory | Starts |
+| --- | --- | --- |
+| `arinn.desktop` ("Arinn") | `/usr/share/wayland-sessions` | `startplasma-wayland`, then `arinn-session.target` |
+| `arinn-xfce.desktop` ("Arinn (XFCE)") | `/usr/share/xsessions` | `startxfce4`, then `arinn-xfce-session` (EWMH target) |
+
+Both run `/usr/lib/arinn/arinn-session <plasma|xfce>`. The wrapper reads
+`$XDG_STATE_HOME/arinn/session-mode`. When the file holds exactly `desktop`,
+the wrapper replaces itself with the plain desktop. Otherwise it starts the
+desktop as a child, waits up to 120 s for readiness, exports
+`ARINN_SESSION_ENTRY` to the user manager and starts Arinn. Readiness means
+`graphical-session.target` is active on Plasma, or `org.xfce.SessionManager`
+is owned on XFCE. If Arinn cannot start, the desktop keeps running. When the
+desktop exits, the wrapper stops the Plasma target, removes the marker and
+exits with the desktop's status.
+
+`/usr/lib/arinn/arinn-session-switch arinn|desktop [--prompt]` records the
+choice, then asks the desktop to log out through its own session-bus API:
+`org.kde.Shutdown.logout` or `org.kde.LogoutPrompt.promptLogout` on Plasma,
+`org.xfce.Session.Manager.Logout` on XFCE. If the logout is refused, the
+previous choice is restored and the command exits 1. The "Return to Arinn"
+menu launcher (`org.arinn.ReturnToArinn.desktop`) runs it with `--prompt`.
+"Switch to desktop" in the power menu will reach it only through the daemon's
+platform layer. That is the follow-up contract change next to
+`SystemControl1`. It is offered only when `ARINN_SESSION_ENTRY` is set.
+Nothing here needs privileges or changes display-manager configuration.
+
+Administrator setup, once per HTPC:
+
+- **SDDM** (Plasma): for a TV without a login prompt, use
+  `/etc/sddm.conf.d/autologin.conf` with `[Autologin]`,
+  `User=<user>`, `Session=arinn.desktop` and `Relogin=true`. With
+  `Relogin=true` a switch logs in again at once; without it, the greeter
+  appears with the Arinn entry preselected.
+- **LightDM** (XFCE): `autologin-user=<user>` and
+  `autologin-session=arinn-xfce` in `[Seat:*]`, or choose "Arinn (XFCE)"
+  once in the greeter.
+- Users of the Arinn session should not also enable the opt-in autostart.
+  Otherwise Arinn starts in the plain desktop as well.
+
+Verified offline: `tests/package/test_session_entry.py` (CTest
+`arinn-session-entry`, and against the installed files from
+`tests/package/session.py`) runs both scripts against stub `systemctl`,
+`busctl` and desktop commands. Not verified: a real login, switch and return
+on the HTPC with SDDM and with LightDM. That operator test needs the owner's
+permission (G-5.8).

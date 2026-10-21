@@ -22,7 +22,7 @@ needs a value.
 | Field | Producer values | Reader rule |
 | --- | --- | --- |
 | `suspend`, `reboot`, `power_off` | `available`, `inhibited`, `denied`, `unsupported`, `unknown` | Any other value is `unknown` |
-| `inhibitors` | At most 16 `(what, who, why)`; `what` is `sleep` or `shutdown`; `who` ≤ 128 and `why` ≤ 256 bytes, single line | An entry whose `what` it does not know is ignored |
+| `inhibitors` | At most 16 `(what, who, why)`; `what` is `sleep` or `shutdown`; `who` ≤ 128 and `why` ≤ 256 bytes, single line (no control characters, no U+2028 or U+2029) | An entry whose `what` it does not know is ignored |
 
 The producer derives each action from logind's `CanSuspend`, `CanReboot` and
 `CanPowerOff` and from `ListInhibitors`:

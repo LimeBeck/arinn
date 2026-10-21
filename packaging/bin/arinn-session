@@ -1,0 +1,89 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: 2026 Arinn contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Login session entry for the dedicated Arinn session (ADR-0107):
+#   arinn-session plasma   /usr/share/wayland-sessions/arinn.desktop
+#   arinn-session xfce     /usr/share/xsessions/arinn-xfce.desktop
+#
+# It starts the desktop and, unless the user switched to the plain desktop
+# (arinn-session-switch), the Arinn session units on top of it. It never
+# needs privileges and changes no display manager configuration.
+set -u
+
+[ "$#" -eq 1 ] || set -- invalid
+case "$1" in
+plasma) desktop=startplasma-wayland ;;
+xfce) desktop=startxfce4 ;;
+*)
+    echo "arinn-session: usage: arinn-session plasma|xfce" >&2
+    exit 2
+    ;;
+esac
+entry=$1
+
+# The user's choice for this entry. Anything but an exact "desktop" starts
+# Arinn: a missing or damaged file must not hide the TV shell.
+mode_file="${XDG_STATE_HOME:-${HOME:-/nonexistent}/.local/state}/arinn/session-mode"
+mode=arinn
+if [ -f "$mode_file" ] && IFS= read -r line <"$mode_file" && [ "$line" = desktop ]; then
+    mode=desktop
+fi
+if [ "$mode" = desktop ]; then
+    exec "$desktop"
+fi
+
+# The XFCE helper and the desktop must share one session bus. pam_systemd
+# normally exports it; without it startxfce4 would start a private bus.
+if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && [ -n "${XDG_RUNTIME_DIR:-}" ] &&
+    [ -S "$XDG_RUNTIME_DIR/bus" ]; then
+    DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+    export DBUS_SESSION_BUS_ADDRESS
+fi
+
+"$desktop" &
+pid=$!
+trap 'kill -TERM "$pid" 2>/dev/null' TERM HUP INT
+
+# Wait until the desktop is ready for Arinn: Plasma has activated
+# graphical-session.target, or the XFCE session manager owns its name.
+ready() {
+    case "$entry" in
+    plasma) systemctl --user is-active --quiet graphical-session.target ;;
+    xfce) busctl --user status org.xfce.SessionManager >/dev/null 2>&1 ;;
+    esac
+}
+tries=0
+started=false
+while kill -0 "$pid" 2>/dev/null && [ "$tries" -lt 240 ]; do
+    if ready; then
+        # Marks this login as the dedicated session for the daemon's
+        # "Switch to desktop"; cleared when the desktop exits.
+        systemctl --user set-environment "ARINN_SESSION_ENTRY=$entry" || break
+        case "$entry" in
+        plasma) systemctl --user start arinn-session.target && started=true ;;
+        # The helper owns the EWMH target and stops it with the XFCE session.
+        xfce) /usr/lib/arinn/arinn-xfce-session & started=true ;;
+        esac
+        break
+    fi
+    tries=$((tries + 1))
+    sleep 0.5
+done
+if [ "$started" != true ] && kill -0 "$pid" 2>/dev/null; then
+    # Fail open: the desktop stays usable, and Return to Arinn is available.
+    echo "arinn-session: Arinn did not start; the desktop continues without it" >&2
+fi
+
+status=0
+while :; do
+    wait "$pid"
+    status=$?
+    kill -0 "$pid" 2>/dev/null || break
+done
+trap - TERM HUP INT
+if [ "$entry" = plasma ]; then
+    systemctl --user stop arinn-session.target >/dev/null 2>&1
+fi
+systemctl --user unset-environment ARINN_SESSION_ENTRY >/dev/null 2>&1
+exit "$status"

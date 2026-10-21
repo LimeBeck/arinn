@@ -1,0 +1,99 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: 2026 Arinn contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Switch between the Arinn session and the plain desktop (ADR-0107):
+#   arinn-session-switch desktop          from Arinn, after its own confirmation
+#   arinn-session-switch arinn --prompt   from the "Return to Arinn" launcher
+#
+# Records what the Arinn login entry starts next for this user, then asks the
+# running desktop to log out. Unprivileged: it writes one file in the user's
+# own state directory and calls the desktop's own logout on the session bus.
+# A failed logout request restores the previous choice and exits 1.
+set -u
+
+[ "$#" -le 2 ] || set -- invalid
+case "${1:-}" in
+arinn | desktop) mode=$1 ;;
+*)
+    echo "arinn-session-switch: usage: arinn-session-switch arinn|desktop [--prompt]" >&2
+    exit 2
+    ;;
+esac
+prompt=false
+case "${2:-}" in
+"") ;;
+--prompt) prompt=true ;;
+*)
+    echo "arinn-session-switch: unknown option" >&2
+    exit 2
+    ;;
+esac
+
+# The desktop to log out of: the dedicated session exports its entry; an
+# ordinary session is recognised by the standard desktop name.
+desktop=${ARINN_SESSION_ENTRY:-}
+if [ -z "$desktop" ]; then
+    case ":${XDG_CURRENT_DESKTOP:-}:" in
+    *:KDE:*) desktop=plasma ;;
+    *:XFCE:*) desktop=xfce ;;
+    esac
+fi
+case "$desktop" in
+plasma | xfce) ;;
+*)
+    echo "arinn-session-switch: no supported desktop session to log out of" >&2
+    exit 1
+    ;;
+esac
+
+if [ -z "${HOME:-}" ] && [ -z "${XDG_STATE_HOME:-}" ]; then
+    echo "arinn-session-switch: no state directory" >&2
+    exit 1
+fi
+directory="${XDG_STATE_HOME:-$HOME/.local/state}/arinn"
+file="$directory/session-mode"
+umask 077
+mkdir -p "$directory" || exit 1
+previous=
+if [ -f "$file" ]; then
+    IFS= read -r previous <"$file" || :
+fi
+
+write() {
+    temporary=$(mktemp "$directory/.session-mode.XXXXXX") || return 1
+    if printf '%s\n' "$1" >"$temporary" && mv -f "$temporary" "$file"; then
+        return 0
+    fi
+    rm -f "$temporary"
+    return 1
+}
+
+write "$mode" || exit 1
+
+logout() {
+    case "$desktop:$prompt" in
+    plasma:true)
+        busctl --user call org.kde.LogoutPrompt /LogoutPrompt org.kde.LogoutPrompt promptLogout
+        ;;
+    plasma:false)
+        busctl --user call org.kde.Shutdown /Shutdown org.kde.Shutdown logout
+        ;;
+    # Logout(show_dialog, allow_save)
+    xfce:*)
+        busctl --user call org.xfce.SessionManager /org/xfce/SessionManager \
+            org.xfce.Session.Manager Logout bb "$prompt" true
+        ;;
+    esac
+}
+
+if logout >/dev/null 2>&1; then
+    exit 0
+fi
+# Never leave a choice behind that the user did not get.
+case "$previous" in
+arinn | desktop) write "$previous" ;;
+*) rm -f "$file" ;;
+esac
+echo "arinn-session-switch: the desktop did not accept the logout request" >&2
+exit 1

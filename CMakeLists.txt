@@ -29,4 +29,6 @@ add_test(NAME shell-session-selector
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/package/test_shell_launcher.py)
 add_test(NAME desktop-entry-launcher
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/package/test_arinn_open.py)
+add_test(NAME arinn-session-entry
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/package/test_session_entry.py)
 add_subdirectory(observability/native)

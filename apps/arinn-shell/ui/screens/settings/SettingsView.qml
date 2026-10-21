@@ -525,7 +525,8 @@ FocusScope {
         } else if ((event.key === Qt.Key_Up || event.key === Qt.Key_Down) && onPill) {
             finishEdit(false);
             moveVertical(event.key === Qt.Key_Up ? -1 : 1);
-        } else if ((event.key === Qt.Key_Escape || event.key === Qt.Key_Back) && onPill) {
+        } else if ((event.key === Qt.Key_Escape || event.key === Qt.Key_Back || event.key === Qt.Key_Backspace) && onPill) {
+            // The pill is not a text field: Backspace is Back (§6.2, AC-18).
             if (!event.isAutoRepeat) finishEdit(false);
         } else if (onPill && printable(event.text)
                    && !(event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier))) {
@@ -1341,7 +1342,7 @@ FocusScope {
                                         property alias pathButton: pathButton
                                         property alias removeButton: removeButton
                                         property alias editor: pathEditor
-                                        property alias keyboard: pathKeyboard
+                                        property alias keyboard: pathItemKeyboard
                                         width: pathColumn.width
                                         spacing: 8
                                         T.AbstractButton {
@@ -1359,7 +1360,7 @@ FocusScope {
                                             Keys.onReleased: event => root.selectKey(pathButton, event, true)
                                             background: Rectangle { radius: 18; color: pathButton.activeFocus ? Qt.rgba(1, 1, 1, 0.20) : Qt.rgba(1, 1, 1, 0.06) }
                                             contentItem: Item {
-                                                Keys.onPressed: event => root.pathFieldKeys(event, pathEditor, pathKeyboard)
+                                                Keys.onPressed: event => root.pathFieldKeys(event, pathEditor, pathItemKeyboard)
                                                 Ui.UiText {
                                                     anchors.fill: parent
                                                     anchors.leftMargin: 20
@@ -1374,7 +1375,7 @@ FocusScope {
                                                     id: pathEditor
                                                     anchors.fill: parent
                                                     anchors.leftMargin: 20
-                                                    anchors.rightMargin: pathKeyboard.width + 32
+                                                    anchors.rightMargin: pathItemKeyboard.width + 32
                                                     objectName: "editor-" + rowScope.key + "-" + index
                                                     visible: root.editingKey === rowScope.key && root.editingPart === "path:" + index
                                                     color: Ui.Theme.textPrimary
@@ -1382,12 +1383,12 @@ FocusScope {
                                                     font.pixelSize: 26
                                                     clip: true
                                                     verticalAlignment: Text.AlignVCenter
-                                                    onVisibleChanged: if (visible) root.pathEditorOpened(pathEditor, pathKeyboard)
+                                                    onVisibleChanged: if (visible) root.pathEditorOpened(pathEditor, pathItemKeyboard)
                                                     onTextChanged: if (visible && activeFocus) root.editingDraft = text
                                                     Keys.onPressed: event => root.editorKeys(event)
                                                 }
                                                 Ui.KeyboardButton {
-                                                    id: pathKeyboard
+                                                    id: pathItemKeyboard
                                                     objectName: "keyboard-" + rowScope.key + "-" + index
                                                     visible: pathEditor.visible
                                                     height: 60
@@ -1850,7 +1851,9 @@ FocusScope {
                             } else if (event.key === Qt.Key_Down && onButton) {
                                 root.stringPart = "save";
                                 Ui.Focus.take(stringSave);
-                            } else if ((event.key === Qt.Key_Escape || event.key === Qt.Key_Back) && onButton) {
+                            } else if ((event.key === Qt.Key_Escape || event.key === Qt.Key_Back
+                                        || event.key === Qt.Key_Backspace) && onButton) {
+                                // The pill is not a text field: Backspace is Back (§6.2, AC-18).
                                 if (!event.isAutoRepeat) root.cancelEditor();
                             } else if (onButton && root.printable(event.text)) {
                                 root.wakeKeyboard(event.text);
@@ -2244,8 +2247,9 @@ FocusScope {
             target: pathTypingInput
             context: "path"
             memoryKey: "path-" + root.editingKey
-            // A path value is at most 4096 bytes (ADR-0065); the daemon
-            // checks the exact rule when the value is proposed.
+            // `arinn_protocol::settings::path` allows at most 4096 bytes. This
+            // bound counts characters, so a longer non-ASCII path still
+            // reaches the daemon, which checks the exact rule on Save.
             maxCharacters: 4096
             submitLabel: qsTr("Save")
             onSubmitted: root.finishPathTyping(true)

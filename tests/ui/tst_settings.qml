@@ -752,6 +752,50 @@ TestCase {
         verify(insideView(windowFocus()));
     }
 
+    // Review of #472: a keyboard pill is not a text field, so Backspace (a
+    // remote's Back on some devices) is Back there (§6.2, AC-18).
+    function test_backspace_on_a_keyboard_pill_is_back() {
+        // A single path without a hardware keyboard opens on its pill.
+        view.keyboardAvailable = false;
+        keyClick(Qt.Key_Right);
+        keyClick(Qt.Key_Down);
+        keyClick(Qt.Key_Down);
+        focused("setting-library-folder");
+        keyClick(Qt.Key_Return);
+        focused("keyboard-library-folder");
+        keyClick(Qt.Key_Backspace);
+        compare(view.editingKey, "");
+        focused("setting-library-folder");
+        // A path list item, from the pill after Back from the panel.
+        keyClick(Qt.Key_Up);
+        focused("path-library-roots-0");
+        keyClick(Qt.Key_Return);
+        focused("keyboard-library-roots-0");
+        keyClick(Qt.Key_Return);
+        tryCompare(view, "pathTyping", true);
+        keyClick(Qt.Key_Escape);
+        tryCompare(view, "pathTyping", false);
+        focused("keyboard-library-roots-0");
+        keyClick(Qt.Key_Backspace);
+        compare(view.editingKey, "");
+        focused("path-library-roots-0");
+        // The string sheet's pill, which predates KB-5, behaves the same.
+        keyClick(Qt.Key_Left);
+        focused("category-media");
+        down(4);
+        focused("category-applications");
+        keyClick(Qt.Key_Right);
+        focused("setting-shell-label");
+        keyClick(Qt.Key_Return);
+        focused("stringKeyboard");
+        keyClick(Qt.Key_Backspace);
+        compare(view.editingKey, "");
+        focused("setting-shell-label");
+        compare(changes.count, 0);
+        compare(dismissals.count, 0);
+        verify(insideView(windowFocus()));
+    }
+
     // KB-5: Add path through the panel; an empty entry is not proposed.
     function test_add_path_with_the_panel() {
         keyClick(Qt.Key_Right);

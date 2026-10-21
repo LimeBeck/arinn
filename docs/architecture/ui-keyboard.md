@@ -87,7 +87,8 @@ English letters. The text goes to the editor at once. Save proposes the path
 as Enter does: a single path is proposed alone, and a list item or *Add path*
 proposes the whole list. An empty list entry is not proposed, and the layer
 stays open. Back returns to the pill with the text kept, and a second Back
-closes the editor without proposing it. Up and Down on the pill close the
+closes the editor without proposing it. The pill is not a text field, so Esc
+and Backspace are Back there, as on the string sheet's pill (§6.2, AC-18). Up and Down on the pill close the
 editor and move to the next row, as they do from its text. Home leaves
 without proposing the draft. Menu reaches the shell. The handoff's main key
 Go belongs to the folder picker; an inline editor saves, so its main key is
@@ -104,6 +105,14 @@ the value is proposed.
   path editors type with the panel and an empty suggestion row
   ([#426](https://github.com/LimeBeck/arinn/issues/426)). The picker's task
   reuses the same panel with Go as its main key.
+- **Path format.** The `path` context row offers `~/` and `..` (KB-5), but
+  `arinn_protocol::settings::path` accepts only absolute local paths with no
+  `.` or `..` segment. The shell has no copy of those rules, so Save is not
+  blocked while typing, unlike §6.2's format error. A rejected path shows as
+  the row's error after Save, and for a single path the typed text is not
+  kept. Blocking Save needs a translated hint in the shell catalogue, and
+  `~/` needs a decision on expanding the home directory. Both belong to a
+  follow-up task, as for the shortcut address below.
 - **Shortcut address format.** The address rules belong to the daemon
   (ADR-0043, ADR-0045), and the shell has no copy of them. Done is not blocked
   while typing; a rejected address shows as the editor's error after Save. A
@@ -128,8 +137,9 @@ the value is proposed.
   up, a hardware keyboard while the panel is open, the panel not covering the
   field, Home while typing, the empty-name line and the counter at the limit.
   The path editors are covered by `test_path_without_keyboard_types_with_the_panel`,
-  `test_path_panel_keys_and_layout` and `test_add_path_with_the_panel`
-  (KB-5). They cover remote-only typing from the pill, the path context row,
+  `test_path_panel_keys_and_layout`, `test_add_path_with_the_panel` and
+  `test_backspace_on_a_keyboard_pill_is_back` (KB-5; the last also covers
+  the string sheet's pill). They cover remote-only typing from the pill, the path context row,
   Save on a single path and on *Add path*, an empty entry kept open, a
   hardware keyboard and Backspace while the panel is open, Menu, Back to the
   pill, Home, and the panel below the field.
@@ -141,7 +151,8 @@ the value is proposed.
   HTPC, which G-5.6 still needs.
 - 2026-10-21, path editors (KB-5, #426), local build with Qt 6.10.2
   (Ubuntu 26.04 container, offscreen, software renderer):
-  `arinn-ui-test -input tests/ui/tst_settings.qml` passed 25 cases. The full
+  `arinn-ui-test -input tests/ui/tst_settings.qml` passed 26 cases after
+  review. The full
   `ctest` run passed 22 of 23 tests, `ui-components` included. The one failure
   was `sentry-isolated`, a known environment failure of that container,
   where the Sentry sources are overridden. The path layer was not

@@ -122,8 +122,9 @@ the field (specification §6.2, AC-18). An enum, integer or string sheet is the
 top scope: Esc closes it without saving and returns focus to the row. Inside
 the integer sheet, Left and Right step the draft. Inside the string sheet,
 Down moves from the field to Save and Cancel. In a path editor, Right at the
-end of the text reaches its keyboard pill and Left returns; Back on the pill
-closes the editor without proposing the draft. Replacing the row list (a
+end of the text reaches its keyboard pill and Left returns. Esc, Back and
+Backspace on a keyboard pill (a path editor's or the string sheet's) close
+the editor without proposing the draft: the pill is not a text field. Replacing the row list (a
 catalog publish) puts focus back on the same row control, or back into an open
 sheet, so Select still reaches it (AC-02). A pending row is not editable until
 that change settles.

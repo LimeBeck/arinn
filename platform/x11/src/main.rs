@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // Qt key codes in this shared module serve the KDE adapter only.
+mod background;
 #[allow(dead_code)]
 #[path = "../../key_sequence.rs"]
 mod key_sequence;
@@ -564,9 +565,11 @@ async fn publish(
     .await?;
     let state = (update.home, update.target.clone());
     if update.explicit_home {
-        home.report_home_request(&update.target, "").await?;
+        home.report_home_request(&update.target, background::OUTPUT)
+            .await?;
     } else if previous_home.as_ref() != Some(&state) {
-        home.report_home(update.home, &update.target, "").await?;
+        home.report_home(update.home, &update.target, background::OUTPUT)
+            .await?;
     }
     *previous_home = Some(state);
     if update.home {
@@ -621,6 +624,16 @@ async fn run(actor: &Arc<Mutex<Actor>>) -> Result<()> {
             eprintln!("arinn-platform-x11: daemon rejected adapter; check ARINN_PLATFORM_BACKEND");
         }
     })?;
+    // Optional Activity background producer (ADR-0087) on this connection,
+    // which owns org.arinn.X11. Its end never ends the session.
+    let (windows, current) = tokio::sync::watch::channel(background::Windows::new());
+    let producer = tokio::spawn(background::run(
+        c.clone(),
+        destination.clone(),
+        current,
+        None,
+    ));
+    let _producer = Abort(producer);
     let (tx, mut rx) = mpsc::channel::<Pending>(8);
     let mut tasks = JoinSet::<Result<()>>::new();
     let home_poll = home.clone();
@@ -713,9 +726,17 @@ async fn run(actor: &Arc<Mutex<Actor>>) -> Result<()> {
             &update,
         )
         .await?;
+        windows.send_replace(previous.iter().map(|r| (r.token.clone(), r.xid)).collect());
         if let Some((done, error)) = completion {
             let _ = done.send(error);
         }
+    }
+}
+/// Aborts a task when the session ends.
+struct Abort<T>(tokio::task::JoinHandle<T>);
+impl<T> Drop for Abort<T> {
+    fn drop(&mut self) {
+        self.0.abort();
     }
 }
 async fn shutdown() {

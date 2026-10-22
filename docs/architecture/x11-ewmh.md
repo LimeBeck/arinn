@@ -73,8 +73,11 @@ Two matching shell windows, listed or not, make identity ambiguous and trigger a
 fail-closed reconnect; run one shell instance, and keep it to one native
 top-level window with the shell identity. Event masks are selected once per
 newly observed XID and reset when its inventory lifetime ends; the unlisted
-shell's mask is selected again on each snapshot. Output names are currently empty: this
-initial backend does not implement RandR output placement.
+shell's mask is selected again on each snapshot. Window output names are currently empty: this
+initial backend does not implement RandR output placement. Home reports the
+fixed output `x11-screen`, which names the X screen rather than a RandR output.
+The Activity background needs a non-empty Home output to bind its frame
+(ADR-0087). No Qt screen has that name, so the shell never moves for it.
 
 ## Home, Return and video
 
@@ -120,9 +123,47 @@ Startup reports the selected fixed backend name. Daemon permission rejection
 reports a backend-selection hint; restoration failure reports a fixed reason
 before reconnecting. These diagnostics contain no window metadata.
 
-XComposite activity background remains the separate work in #149. Multi-output
-placement, real lock/suspend behavior and the transparent overlay on actual
-compositors remain qualification work. No AC or roadmap gate is marked passed.
+### Activity background
+
+The adapter produces the Activity background of specification §12.3 (#149,
+[ADR-0087](../adr/0087-bounded-activity-background-frames.md),
+[contract](activity-background.md)) in `platform/x11/src/background.rs`. An
+optional task follows the daemon's `Background1`, pinned to the owner the
+session connected to. For a pending attempt it captures only the window whose
+current inventory token is both the Return target and the context's window
+token.
+
+- **Capture.** The capture runs off the async runtime on its own X connection.
+  It requires a compositing manager (`_NET_WM_CM_Sn` owned), XComposite ≥ 0.2,
+  a viewable window, an LSB-first 32-bit TrueColor pixmap format (depth 24 or
+  32) and at most 7680×4320 pixels. It names the composited pixmap of the
+  window's top-level frame with `NameWindowPixmap` and reads it with
+  `GetImage`. It never reads the root window or another window.
+- **Conversion.** Depth 32 is unpremultiplied, depth 24 is opaque. A box filter
+  scales the image into 1920×1080, and the result is published as one sealed
+  memfd on the adapter's own connection, the `org.arinn.X11` owner the daemon
+  authenticates.
+- **No frame.** A locked or unknown session, a missing window, no compositor, an
+  unredirected window (some compositors unredirect fullscreen windows), an
+  unsupported format or the 1500 ms local guard cancels the attempt. Home then
+  keeps its normal background.
+- **Lifetime.** Each request is handled once. A daemon without `Background1`
+  leaves the task idle, and the task never ends the adapter session.
+- **Diagnostics.** Normalized `background-capture` lines with an outcome and
+  `duration_ms` are the hook for the G-5.2 report.
+- **Tests.**
+  - Unit tests: pixel conversion, bounds and sealing.
+  - Xvfb tests: the fixture acts as a manual compositing manager. One test
+    captures a composited window, and confirms no capture without a compositor
+    or for an unmapped window. The other runs the whole task against a fake
+    daemon and screensaver on a private bus: publication of the exact window,
+    and cancellation when locked or for a target that is not a current window.
+
+  They do not qualify xfwm's compositor, DPI or colour on the TV.
+
+Multi-output placement, real lock/suspend behavior and the transparent overlay
+on actual compositors remain qualification work. No AC or roadmap gate is
+marked passed.
 
 ## Opt-in setup
 

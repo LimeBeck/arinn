@@ -265,7 +265,7 @@ session units only closes. Owner request on 2026-10-06
 ([#357](https://github.com/LimeBeck/arinn/issues/357),
 [ADR-0098](../adr/0098-restart-after-an-update.md)).
 
-**Ambient (screensaver).** Started by an explicit action or an idle timeout (10 minutes by default). Any key or pointer movement wakes the UI; the first wake event is consumed and triggers no action. Automatic ambient MUST NOT start while an external Activity is in the foreground **or** media is playing. The idle timer never triggers OS suspend. Ambient never stops applications.
+**Ambient (screensaver).** Started by an explicit action or an idle timeout (10 minutes by default; Settings › Appearance offers 5, 10, 15, 30 or 60 minutes, owner decision on 2026-10-21, [ADR-0112](../adr/0112-shell-preferences-as-core-settings.md)). Any key or pointer movement wakes the UI; the first wake event is consumed and triggers no action. Automatic ambient MUST NOT start while an external Activity is in the foreground **or** media is playing. The idle timer never triggers OS suspend. Ambient never stops applications.
 
 **Session lifecycle.** On lock or before sleep the shell hides regardless of daemon state and keeps the Activity context; after wake it re-checks the lock state before showing anything. If the lock state is unknown, the shell treats the session as locked ([session lifecycle](../architecture/session-lifecycle.md)). Lock/sleep observation MUST remain independent of daemon availability through an asynchronous, fail-closed platform lifecycle guard ([ADR-0041](../adr/0041-independent-session-lifecycle-guard.md)). The guard observes session state; it does not execute power or application commands.
 
@@ -698,7 +698,7 @@ The visual direction is **Quiet Spatial OS** — "Calm OS → Cinematic Content"
 - Onest and Material Symbols Rounded; text ≥ 24, action-critical text ≥ 26; tabular numerals; room for Russian labels ~30% longer;
 - interface language: Russian through Qt translations, following the system locale; English strings in the code are the source and the fallback for other locales. Owner decision on 2026-10-06 ([#363](https://github.com/LimeBeck/arinn/issues/363)); the handoff copy is the reference wording. Provider-supplied text (titles, setting names, error messages from plugins) is shown as delivered;
 - Ember `#FF8A3D` marks status, progress and brand only, never focus;
-- light field keyed to artwork hue, crossfaded over 900 ms, can be disabled, absent on system screens;
+- light field keyed to artwork hue, crossfaded over 900 ms, can be disabled (Settings › Appearance › Light field, on by default; [ADR-0112](../adr/0112-shell-preferences-as-core-settings.md)), absent on system screens;
 - all tokens, radii, elevation and motion timings as in the handoff and Design System v2;
 - loading, empty, error, disabled, pressed and focus states per the design system and the 22 screenshots.
 

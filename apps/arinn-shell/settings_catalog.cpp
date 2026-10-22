@@ -12,7 +12,9 @@
 #include <QUuid>
 #include <QtDBus>
 #include <QtQml>
+#include <algorithm>
 #include <cmath>
+#include <iterator>
 #include <limits>
 namespace {
 constexpr auto service = "org.arinn.Daemon1";
@@ -171,6 +173,36 @@ QVariantMap constraintsFor(const QString &kind, const QString &json) {
   }
   return map;
 }
+// The daemon's own settings (provider `arinn`, ADR-0065, ADR-0112) send
+// English source texts; the shell shows them translated. Provider texts are
+// shown as the provider sends them.
+constexpr auto kDaemonProvider = "arinn";
+[[maybe_unused]] constexpr const char *kDaemonTexts[] = {
+    QT_TRANSLATE_NOOP("SettingsCatalog", "Browser application"),
+    QT_TRANSLATE_NOOP("SettingsCatalog",
+                      "Application ID launched when a web shortcut opens with "
+                      "no browser running; empty uses the packaged choice"),
+    QT_TRANSLATE_NOOP("SettingsCatalog", "Search engine"),
+    QT_TRANSLATE_NOOP("SettingsCatalog", "Used when typed text is not an address"),
+    QT_TRANSLATE_NOOP("SettingsCatalog", "Light field"),
+    QT_TRANSLATE_NOOP("SettingsCatalog",
+                      "Soft light from the focused item's artwork behind Home"),
+    QT_TRANSLATE_NOOP("SettingsCatalog", "Ambient after"),
+    QT_TRANSLATE_NOOP("SettingsCatalog", "Idle time on an Arinn screen before "
+                                         "the ambient screen appears"),
+    QT_TRANSLATE_NOOP("SettingsCatalog", "5 min"),
+    QT_TRANSLATE_NOOP("SettingsCatalog", "10 min"),
+    QT_TRANSLATE_NOOP("SettingsCatalog", "15 min"),
+    QT_TRANSLATE_NOOP("SettingsCatalog", "30 min"),
+    QT_TRANSLATE_NOOP("SettingsCatalog", "60 min"),
+};
+QString daemonText(const QString &providerId, const QString &text) {
+  if (providerId != QLatin1String(kDaemonProvider))
+    return text;
+  return QCoreApplication::translate("SettingsCatalog", text.toUtf8().constData());
+}
+// The ambient timeouts the daemon offers, in minutes (ADR-0112).
+constexpr int kAmbientMinutes[] = {5, 10, 15, 30, 60};
 bool categoryKnown(const QString &id) {
   for (const auto &category : kCategories)
     if (id == QLatin1String(category.id))
@@ -385,8 +417,36 @@ void SettingsCatalog::finishLoad(const std::shared_ptr<Load> &load) {
     refresh();
   }
 }
+void SettingsCatalog::readPreferences() {
+  bool light = m_lightField;
+  int minutes = m_ambientMinutes;
+  for (const auto &provider : m_providers) {
+    if (!provider.ok || provider.id != QLatin1String(kDaemonProvider))
+      continue;
+    for (const auto &setting : provider.settings) {
+      const auto value = valueFor(setting.kind, setting.valueJson, false);
+      if (setting.id == QLatin1String("light_field") &&
+          value.typeId() == QMetaType::Bool)
+        light = value.toBool();
+      if (setting.id == QLatin1String("ambient_timeout")) {
+        // Only an offered value applies; anything else keeps the last one.
+        bool ok = false;
+        const int parsed = value.toString().toInt(&ok);
+        if (ok && std::find(std::begin(kAmbientMinutes), std::end(kAmbientMinutes),
+                            parsed) != std::end(kAmbientMinutes))
+          minutes = parsed;
+      }
+    }
+  }
+  if (light == m_lightField && minutes == m_ambientMinutes)
+    return;
+  m_lightField = light;
+  m_ambientMinutes = minutes;
+  emit preferencesChanged();
+}
 void SettingsCatalog::publish() {
   syncDeferred();
+  readPreferences();
   QVariantList categories;
   QVariantList rows;
   QSet<QString> live;
@@ -405,7 +465,20 @@ void SettingsCatalog::publish() {
         for (const auto &setting : provider.settings) {
           if (setting.category != categoryId)
             continue;
-          const auto constraints = constraintsFor(setting.kind, setting.constraints);
+          auto constraints = constraintsFor(setting.kind, setting.constraints);
+          if (provider.id == QLatin1String(kDaemonProvider) &&
+              constraints.contains(QStringLiteral("options"))) {
+            QVariantList options;
+            for (const auto &option :
+                 constraints.value(QStringLiteral("options")).toList()) {
+              auto map = option.toMap();
+              map.insert(QStringLiteral("title"),
+                         daemonText(provider.id,
+                                    map.value(QStringLiteral("title")).toString()));
+              options.append(map);
+            }
+            constraints.insert(QStringLiteral("options"), options);
+          }
           const auto multiple =
               setting.kind == QLatin1String("path") &&
               constraints.value(QStringLiteral("multiple")).toBool();
@@ -416,8 +489,9 @@ void SettingsCatalog::publish() {
               {QStringLiteral("providerName"), provider.name},
               {QStringLiteral("id"), setting.id},
               {QStringLiteral("categoryId"), setting.category},
-              {QStringLiteral("title"), setting.title},
-              {QStringLiteral("description"), setting.description},
+              {QStringLiteral("title"), daemonText(provider.id, setting.title)},
+              {QStringLiteral("description"),
+               daemonText(provider.id, setting.description)},
               {QStringLiteral("type"), setting.kind},
               {QStringLiteral("currentValue"),
                valueFor(setting.kind, setting.valueJson, multiple)},

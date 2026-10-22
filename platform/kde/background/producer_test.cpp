@@ -164,6 +164,9 @@ private slots:
     QCOMPARE(producer.target(), QStringLiteral("activity"));
     QCOMPARE(producer.output(), QStringLiteral("screen"));
     producer.capture(item());
+    // The grab result and its image are released once the image is taken.
+    QPointer<QQuickItemGrabResult> grab = producer.pendingGrab();
+    QVERIFY(grab);
     QTRY_COMPARE_WITH_TIMEOUT(daemon->published.size(), 1, 5000);
     const auto &p = daemon->published.first();
     // Sent from the producer's own (KWin's) connection, never a helper.
@@ -180,6 +183,7 @@ private slots:
     QTRY_COMPARE(finished.size(), 1);
     QCOMPARE(finished.first().at(1).toBool(), true);
     QVERIFY(producer.request().isEmpty());
+    QTRY_VERIFY(grab.isNull());
     // The same request is never captured twice.
     daemon->state = QStringLiteral("pending");
     daemon->changed();
@@ -211,9 +215,15 @@ private slots:
   void supersededAndInvalidatedRequestsAreDropped() {
     BackgroundProducer producer;
     QTRY_COMPARE_WITH_TIMEOUT(producer.request(), first, 5000);
+    // A grab still outstanding when its request is superseded is released.
+    producer.capture(item());
+    QPointer<QQuickItemGrabResult> grab = producer.pendingGrab();
+    QVERIFY(grab);
     daemon->request = second;
     daemon->changed();
     QTRY_COMPARE_WITH_TIMEOUT(producer.request(), second, 5000);
+    QTRY_VERIFY(grab.isNull());
+    QVERIFY(!producer.pendingGrab());
     daemon->state = QStringLiteral("unavailable");
     daemon->changed();
     QTRY_VERIFY_WITH_TIMEOUT(producer.request().isEmpty(), 5000);

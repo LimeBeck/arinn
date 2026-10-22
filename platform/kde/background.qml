@@ -25,7 +25,9 @@ Window {
     visible: false
     opacity: 0
     color: "transparent"
+    // Never takes pointer input over Home while it captures.
     flags: Qt.FramelessWindowHint | Qt.WindowDoesNotAcceptFocus | Qt.BypassWindowManagerHint
+        | Qt.WindowTransparentForInput
     readonly property bool _q_showWithoutActivating: true
     property var client: null
     property bool armed: false
@@ -59,9 +61,11 @@ Window {
             if (w.output && display.name === w.output.name)
                 stage.screen = display;
         }
+        // Keep the window's aspect ratio so the thumbnail is not letterboxed.
         const geometry = w.frameGeometry;
-        stage.width = Math.max(1, Math.min(1920, Math.round(geometry.width)));
-        stage.height = Math.max(1, Math.min(1080, Math.round(geometry.height)));
+        const scale = Math.min(1, 1920 / Math.max(1, geometry.width), 1080 / Math.max(1, geometry.height));
+        stage.width = Math.max(1, Math.round(geometry.width * scale));
+        stage.height = Math.max(1, Math.round(geometry.height * scale));
         armed = true;
         stage.visible = true;
         stage.requestUpdate();

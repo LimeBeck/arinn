@@ -6,6 +6,8 @@
 #include <QObject>
 #include <QPointer>
 #include <QQuickItem>
+#include <QQuickItemGrabResult>
+#include <QSharedPointer>
 #include <QThreadPool>
 #include <QTimer>
 #include <QtQml/qqmlregistration.h>
@@ -45,6 +47,9 @@ public:
   Q_INVOKABLE void fail();
   // The local guard; the daemon's own deadline is authoritative.
   void setDeadline(int ms) { m_deadline.setInterval(ms); }
+  // The outstanding grab result, for tests: at most one, released as soon
+  // as its image is taken or its request ends.
+  QQuickItemGrabResult *pendingGrab() const { return m_grab.data(); }
 signals:
   void requestChanged();
   // One request ended: published, cancelled, superseded or timed out.
@@ -66,11 +71,13 @@ private:
   void publish(const QString &request, std::shared_ptr<arinn::background::Pixels> pixels,
                quint32 width, quint32 height);
   void cancel(const QString &request);
+  void releaseGrab();
   QThreadPool m_pool;
+  QSharedPointer<QQuickItemGrabResult> m_grab;
   QTimer m_deadline;
   QElapsedTimer m_started;
   QString m_owner, m_request, m_target, m_output, m_done;
   Context m_context;
   quint64 m_lifetime = 0;
-  bool m_busy = false, m_dirty = false, m_grabbing = false, m_resolving = false;
+  bool m_busy = false, m_dirty = false, m_resolving = false;
 };

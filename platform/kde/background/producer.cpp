@@ -172,8 +172,9 @@ void BackgroundProducer::refresh() {
 }
 
 void BackgroundProducer::start(const Context &context) {
+  // A grab of a superseded request is released; its result is never used.
+  releaseGrab();
   m_context = context;
-  m_grabbing = false;
   m_request = context.request;
   m_target = context.target;
   m_output = context.output;
@@ -190,6 +191,7 @@ void BackgroundProducer::end(bool published) {
   m_target.clear();
   m_output.clear();
   m_deadline.stop();
+  releaseGrab();
   emit requestChanged();
   emit finished(request, published);
 }
@@ -202,7 +204,7 @@ void BackgroundProducer::fail() {
 }
 
 void BackgroundProducer::capture(QQuickItem *item) {
-  if (m_request.isEmpty() || m_grabbing || !item || !item->window() ||
+  if (m_request.isEmpty() || m_grab || !item || !item->window() ||
       item->width() <= 0 || item->height() <= 0)
     return;
   // Ask for physical pixels within the bounds; DPR can still enlarge the
@@ -217,12 +219,16 @@ void BackgroundProducer::capture(QQuickItem *item) {
     fail();
     return;
   }
-  m_grabbing = true;
+  // The producer owns the only strong reference. The connection captures a
+  // raw pointer, so it never keeps the result (and its image) alive.
+  m_grab = grab;
+  QQuickItemGrabResult *result = grab.data();
   const auto request = m_request;
-  connect(grab.data(), &QQuickItemGrabResult::ready, this, [this, grab, request] {
-    m_grabbing = false;
+  connect(result, &QQuickItemGrabResult::ready, this, [this, result, request] {
+    if (m_grab.data() != result) return;
     // The compositor callback only takes a reference; all work is off-thread.
-    const QImage image = grab->image();
+    const QImage image = result->image();
+    releaseGrab();
     m_pool.start([this, image, request] {
       auto bounded = arinn::background::boundGrab(image);
       auto pixels = std::make_shared<arinn::background::Pixels>(
@@ -233,6 +239,14 @@ void BackgroundProducer::capture(QQuickItem *item) {
           Qt::QueuedConnection);
     });
   });
+}
+
+void BackgroundProducer::releaseGrab() {
+  if (!m_grab) return;
+  // Never delete the result inside its own ready emission: hand the last
+  // reference to a queued no-op, which drops it on the next event loop pass.
+  auto retired = std::move(m_grab);
+  QMetaObject::invokeMethod(this, [retired] {}, Qt::QueuedConnection);
 }
 
 void BackgroundProducer::encoded(const QString &request,

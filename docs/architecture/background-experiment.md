@@ -96,9 +96,11 @@ process and no new bus authority.
 - **Capture.** The script looks up the window whose `internalId` equals the
   target, the exact Return identity. A missing, minimized or deleted window
   cancels the request and is never replaced by another window. The script shows
-  only that window in a `WindowThumbnail` inside an invisible, non-focusable
-  stage on the window's output. After the first rendered frame it calls
-  `capture()`.
+  only that window in a `WindowThumbnail` inside an invisible, non-focusable,
+  input-transparent stage on the window's output, sized to the window's aspect
+  ratio within 1920×1080. After the first rendered frame it calls `capture()`.
+  The producer holds the only reference to the one outstanding grab result and
+  releases it as soon as the image is taken or the request ends.
 - **Encoding and publication.**
   - The grab is requested at physical bounds for the window's DPR.
   - The grab callback only keeps a reference. On a one-thread worker the image
@@ -131,19 +133,12 @@ reloads only the script.
 
 ### Remaining integration and qualification
 
-These modules are not yet registered by the root/shell build or connected to Home.
-Shared Home/shell build integration must be reconciled with active PR
-[#428](https://github.com/LimeBeck/arinn/pull/428). Necessary daemon and X11 work
-requires separately recorded implementation zones after checking active claims.
-The daemon still needs authenticated Background1/BackgroundCapture1 exports,
-explicit-Home arming, authoritative invalidation, the unrenewed 1500 ms deadline
-and producer/reader authorization. KDE still needs an in-process bounded worker,
-exact WindowThumbnail capture and publication from the selected platform owner's
-connection. X11 needs its selected-window producer. The shell still needs
-owner-pinned asynchronous D-Bus reconciliation/copying, independent session-guard
-wiring, a bounded image provider and near/far rendering integration with bounded
-DPR-sensitive effect textures. The existing `ActivityBackground.qml` remains the
-operator prototype, not an enabled production renderer.
+The runtime is split across [#490](https://github.com/LimeBeck/arinn/pull/490)
+(daemon export), [#491](https://github.com/LimeBeck/arinn/pull/491) (shell consumer
+and Home), [#492](https://github.com/LimeBeck/arinn/pull/492) (KDE producer) and
+[#493](https://github.com/LimeBeck/arinn/pull/493) (X11 producer). The sections
+above describe what each delivers. Until the daemon export and a producer are
+both present, Home keeps its normal background.
 
 Before marking #149/G-5.2 complete, run runtime/private-bus lifecycle tests and
 obtain the owner-run device report specified by the contract: capture/publication

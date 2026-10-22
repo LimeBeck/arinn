@@ -118,9 +118,10 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0098](0098-restart-after-an-update.md) | Restart Arinn after an update | Accepted | — |
 | [0099](0099-snapshot-package-version.md) | Snapshot package version with the commit | Accepted | — |
 | [0100](0100-system-status.md) | Read-only system status for Home's status area | Accepted | — |
-| [0101](0101-host-local-ci-caches.md) | Host-local build caches on the self-hosted runner | Accepted | — |
+| [0101](0101-host-local-ci-caches.md) | Host-local build caches on the self-hosted runner | Accepted | 0113 |
 | [0102](0102-packages-built-for-master-only.md) | Packages are built for master only, never for pull requests | Accepted | — |
 | [0103](0103-on-screen-keyboard.md) | On-screen keyboard in the MVP | Accepted | — |
 | [0104](0104-qt-floor-and-prebuilt-ci-images.md) | Minimum supported Qt 6.8 and prebuilt CI images | Accepted | — |
 | [0109](0109-season-only-snn-markers.md) | Season-only `Snn` markers in library names | Accepted | — |
+| [0113](0113-per-runner-ci-target-directories.md) | One Cargo target directory per self-hosted runner instance | Accepted | — |
 <!-- register:end -->

@@ -707,6 +707,7 @@ async fn run(actor: &Arc<Mutex<Actor>>) -> Result<()> {
                 // cannot activate a recycled XID or a removed client.
                 let allowed = unlocked(&c).await;
                 let fresh = refresh(actor, allowed).await?;
+                background::offer(&windows, &fresh.snapshot.rows);
                 publish(&home, &bridge, &media, &returns, &generation, &mut revision, &mut previous, &mut previous_home, &fresh).await?;
                 let (error, update) = apply(actor, pending.command, allowed).await?;
                 (update, Some((pending.done, error)))
@@ -714,6 +715,8 @@ async fn run(actor: &Arc<Mutex<Actor>>) -> Result<()> {
             ended = tasks.join_next() => { ended.ok_or_else(|| anyhow::anyhow!("pollers ended"))???; anyhow::bail!("poller ended"); },
             _ = shutdown() => return Ok(()),
         };
+        // The producer sees the rows before the Home request they belong to.
+        background::offer(&windows, &update.snapshot.rows);
         publish(
             &home,
             &bridge,
@@ -726,7 +729,6 @@ async fn run(actor: &Arc<Mutex<Actor>>) -> Result<()> {
             &update,
         )
         .await?;
-        windows.send_replace(previous.iter().map(|r| (r.token.clone(), r.xid)).collect());
         if let Some((done, error)) = completion {
             let _ = done.send(error);
         }

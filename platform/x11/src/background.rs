@@ -37,11 +37,19 @@ use zbus::Connection;
 pub const OUTPUT: &str = "x11-screen";
 /// The local guard; the daemon's deadline is authoritative.
 const DEADLINE: Duration = Duration::from_millis(1500);
-/// Largest window read from the server: 8K, 128 MiB of 32-bit pixels.
-const MAX_SOURCE_PIXELS: u64 = 7680 * 4320;
+/// Largest window read from the server: 16 Mi pixels, a 64 MiB reply, the
+/// same input bound as the KDE producer (twice a 4K window).
+const MAX_SOURCE_PIXELS: u64 = 16 * 1024 * 1024;
 
 /// A current inventory row: the opaque token and its native window.
 pub type Windows = Vec<(String, Window)>;
+/// The capture worker's result: a bounded sealed frame, or none.
+type Work = tokio::task::JoinHandle<Result<Option<(u32, u32, OwnedFd)>>>;
+
+/// Publishes the current inventory rows to the producer.
+pub fn offer(windows: &watch::Sender<Windows>, rows: &[crate::native::Row]) {
+    windows.send_replace(rows.iter().map(|r| (r.token.clone(), r.xid)).collect());
+}
 
 /// Normalized diagnostics only: no window, token, target or request ID.
 fn log(outcome: &'static str, started: Instant) {
@@ -72,17 +80,32 @@ pub async fn run(
         return Ok(());
     };
     let mut done = String::new();
+    // At most one capture worker: a timed-out one may finish, but no other
+    // starts until it has (ADR-0087).
+    let mut worker: Option<Work> = None;
     loop {
-        let Ok((snapshot,)) = reader.get().await else {
-            return Ok(());
-        };
-        if snapshot.validate().is_ok()
-            && snapshot.state == "pending"
-            && let Some(context) = snapshot.context.first()
-            && context.request_id != done
-        {
-            done = context.request_id.clone();
-            produce(&c, &producer, context, &windows, display.clone()).await;
+        match reader.get().await {
+            Ok((snapshot,)) => {
+                if snapshot.validate().is_ok()
+                    && snapshot.state == "pending"
+                    && let Some(context) = snapshot.context.first()
+                    && context.request_id != done
+                {
+                    done = context.request_id.clone();
+                    produce(
+                        &c,
+                        &producer,
+                        context,
+                        &windows,
+                        display.clone(),
+                        &mut worker,
+                    )
+                    .await;
+                }
+            }
+            // A failed read (an older daemon, an exhausted epoch, a timeout)
+            // waits for the next Changed; nothing is retried in a loop.
+            Err(_) => log("unreadable", Instant::now()),
         }
         if changes.next().await.is_none() {
             return Ok(());
@@ -96,6 +119,7 @@ async fn produce(
     context: &BackgroundContext,
     windows: &watch::Receiver<Windows>,
     display: Option<String>,
+    worker: &mut Option<Work>,
 ) {
     let started = Instant::now();
     // Exact identity: the Return target is the token of one current window.
@@ -104,21 +128,32 @@ async fn produce(
         .iter()
         .find(|(token, _)| *token == context.window.token && *token == context.target)
         .map(|(_, xid)| *xid);
+    if worker.as_ref().is_some_and(|w| w.is_finished()) {
+        *worker = None;
+    }
     let outcome = match xid {
         None => Err("window"),
+        // A previous capture is still running (a stalled or grabbed server).
+        Some(_) if worker.is_some() => Err("busy"),
         Some(_) if !crate::unlocked(c).await => Err("session"),
         Some(xid) => {
-            let work =
-                tokio::task::spawn_blocking(move || -> Result<Option<(u32, u32, OwnedFd)>> {
+            let work = worker.insert(tokio::task::spawn_blocking(
+                move || -> Result<Option<(u32, u32, OwnedFd)>> {
                     let Some((width, height, rgba)) = capture(display.as_deref(), xid)? else {
                         return Ok(None);
                     };
                     Ok(Some((width, height, sealed(&rgba)?)))
-                });
-            match tokio::time::timeout(DEADLINE, work).await {
+                },
+            ));
+            let result = tokio::time::timeout(DEADLINE, work).await;
+            if result.is_ok() {
+                *worker = None;
+            }
+            match result {
                 Ok(Ok(Ok(Some(frame)))) => Ok(frame),
                 Ok(Ok(Ok(None))) => Err("unsupported"),
                 Ok(_) => Err("capture"),
+                // The worker keeps its slot until it finishes.
                 Err(_) => Err("deadline"),
             }
         }
@@ -144,6 +179,11 @@ async fn produce(
 /// Reads the composited pixmap of `xid`'s top-level frame and returns
 /// bounded straight-alpha RGBA, or `None` when no frame can be taken.
 pub fn capture(display: Option<&str>, xid: Window) -> Result<Option<(u32, u32, Vec<u8>)>> {
+    #[cfg(test)]
+    tests::CAPTURES
+        .lock()
+        .unwrap()
+        .push(display.unwrap_or_default().to_owned());
     let (c, screen) = x11rb::connect(display)?;
     let setup = c.setup();
     let root = setup.roots[screen].root;
@@ -212,8 +252,7 @@ pub fn capture(display: Option<&str>, xid: Window) -> Result<Option<(u32, u32, V
         image.data.len() as u64 == u64::from(width) * u64::from(height) * 4,
         "unexpected image size"
     );
-    let rgba = straight_rgba(&image.data, format);
-    Ok(Some(bound(width, height, &rgba)))
+    Ok(Some(bound(width, height, &image.data, format)))
 }
 
 /// How 32-bit server pixels map to colour.
@@ -252,38 +291,19 @@ fn pixel_format(
     }
 }
 
-/// Converts LSB-first 32-bit pixels to straight-alpha RGBA8888.
-pub fn straight_rgba(data: &[u8], format: Format) -> Vec<u8> {
-    let mut out = Vec::with_capacity(data.len());
-    for px in data.as_chunks::<4>().0 {
-        let (b, g, r) = (px[0], px[1], px[2]);
-        match format {
-            Format::Opaque => out.extend_from_slice(&[r, g, b, 255]),
-            Format::Premultiplied => {
-                let a = px[3];
-                let un = |c: u8| {
-                    if a == 0 {
-                        0
-                    } else {
-                        ((u32::from(c) * 255 + u32::from(a) / 2) / u32::from(a)).min(255) as u8
-                    }
-                };
-                out.extend_from_slice(&[un(r), un(g), un(b), a]);
-            }
-        }
-    }
-    out
-}
-
-/// Scales tightly packed RGBA into the physical bounds with a box filter,
-/// keeping the aspect ratio. Smaller images are returned unchanged.
-pub fn bound(width: u32, height: u32, rgba: &[u8]) -> (u32, u32, Vec<u8>) {
-    if width <= MAX_WIDTH && height <= MAX_HEIGHT {
-        return (width, height, rgba.to_vec());
-    }
+/// Scales LSB-first 32-bit server pixels into the physical bounds with a box
+/// filter, keeping the aspect ratio, and converts them to straight-alpha
+/// RGBA8888 in the same pass. Averaging happens on premultiplied values, so
+/// transparent pixels add no dark fringes; each output pixel is then
+/// unpremultiplied. Smaller images keep their size. No full-size copy of the
+/// source is made.
+pub fn bound(width: u32, height: u32, data: &[u8], format: Format) -> (u32, u32, Vec<u8>) {
     let scale = f64::max(
-        f64::from(width) / f64::from(MAX_WIDTH),
-        f64::from(height) / f64::from(MAX_HEIGHT),
+        1.0,
+        f64::max(
+            f64::from(width) / f64::from(MAX_WIDTH),
+            f64::from(height) / f64::from(MAX_HEIGHT),
+        ),
     );
     let w = ((f64::from(width) / scale).round() as u32).clamp(1, MAX_WIDTH);
     let h = ((f64::from(height) / scale).round() as u32).clamp(1, MAX_HEIGHT);
@@ -294,21 +314,34 @@ pub fn bound(width: u32, height: u32, rgba: &[u8]) -> (u32, u32, Vec<u8>) {
         for x in 0..w {
             let x0 = u64::from(x) * u64::from(width) / u64::from(w);
             let x1 = (u64::from(x + 1) * u64::from(width) / u64::from(w)).max(x0 + 1);
+            // Premultiplied sums of R, G, B and alpha.
             let mut sum = [0u64; 4];
             for sy in y0..y1 {
                 let row = (sy * u64::from(width) * 4) as usize;
                 for sx in x0..x1 {
                     let i = row + (sx * 4) as usize;
-                    for (s, v) in sum.iter_mut().zip(&rgba[i..i + 4]) {
-                        *s += u64::from(*v);
-                    }
+                    let alpha = match format {
+                        Format::Opaque => 255,
+                        Format::Premultiplied => data[i + 3],
+                    };
+                    sum[0] += u64::from(data[i + 2]);
+                    sum[1] += u64::from(data[i + 1]);
+                    sum[2] += u64::from(data[i]);
+                    sum[3] += u64::from(alpha);
                 }
             }
             let n = (y1 - y0) * (x1 - x0);
+            let alpha = (sum[3] + n / 2) / n;
             let o = ((y * w + x) * 4) as usize;
-            for (k, s) in sum.iter().enumerate() {
-                out[o + k] = ((s + n / 2) / n) as u8;
+            for k in 0..3 {
+                // Unpremultiply the averaged colour: sum / n * 255 / alpha.
+                out[o + k] = if alpha == 0 {
+                    0
+                } else {
+                    ((sum[k] * 255 + sum[3] / 2) / sum[3]).min(255) as u8
+                };
             }
+            out[o + 3] = alpha as u8;
         }
     }
     (w, h, out)
@@ -342,31 +375,39 @@ pub fn sealed(rgba: &[u8]) -> Result<OwnedFd> {
 mod tests {
     use super::*;
     use std::os::fd::AsRawFd;
+    /// Displays of the captures started, to prove that one worker runs at a
+    /// time per producer.
+    pub(super) static CAPTURES: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
     #[test]
     fn converts_server_pixels_to_straight_rgba() {
         assert_eq!(
-            straight_rgba(&[10, 20, 30, 99], Format::Opaque),
-            vec![30, 20, 10, 255]
+            bound(1, 1, &[10, 20, 30, 99], Format::Opaque),
+            (1, 1, vec![30, 20, 10, 255])
         );
-        // Premultiplied half-transparent white-ish and fully transparent.
+        // Premultiplied half-transparent pixel and a fully transparent one.
         assert_eq!(
-            straight_rgba(&[64, 64, 128, 128, 5, 5, 5, 0], Format::Premultiplied),
+            bound(2, 1, &[64, 64, 128, 128, 5, 5, 5, 0], Format::Premultiplied).2,
             vec![255, 128, 128, 128, 0, 0, 0, 0]
         );
     }
     #[test]
     fn bounds_large_frames_with_aspect_ratio() {
-        let (w, h, out) = bound(4, 2, &[7; 32]);
+        let (w, h, out) = bound(4, 2, &[7; 32], Format::Opaque);
         assert_eq!((w, h, out.len()), (4, 2, 32));
         let source = vec![200u8; 3840 * 2160 * 4];
-        let (w, h, out) = bound(3840, 2160, &source);
+        let (w, h, out) = bound(3840, 2160, &source, Format::Opaque);
         assert_eq!((w, h), (1920, 1080));
         assert_eq!(
             out.len() as u64,
             arinn_protocol::background::pixel_bytes(w, h).unwrap()
         );
-        assert!(out.iter().all(|v| *v == 200));
-        let (w, h, _) = bound(1000, 3000, &vec![0; 1000 * 3000 * 4]);
+        assert!(
+            out.as_chunks::<4>()
+                .0
+                .iter()
+                .all(|px| *px == [200, 200, 200, 255])
+        );
+        let (w, h, _) = bound(1000, 3000, &vec![0; 1000 * 3000 * 4], Format::Opaque);
         assert_eq!((w, h), (360, 1080));
         // Box filter averages a 2×2 block.
         let mut checker = vec![0u8; 3840 * 2 * 4];
@@ -377,9 +418,22 @@ mod tests {
                 &[255, 255, 255, 255]
             });
         }
-        let (w, _, out) = bound(3840, 2, &checker);
+        let (w, _, out) = bound(3840, 2, &checker, Format::Opaque);
         assert_eq!(w, 1920);
         assert_eq!(&out[..4], &[128, 128, 128, 255]);
+    }
+    #[test]
+    fn transparent_neighbours_add_no_dark_fringe() {
+        // Opaque red beside fully transparent pixels (a CSD shadow edge):
+        // averaging in premultiplied space keeps the colour red.
+        let mut source = vec![0u8; 3840 * 2 * 4];
+        for (i, px) in source.as_chunks_mut::<4>().0.iter_mut().enumerate() {
+            if i % 2 == 0 {
+                px.copy_from_slice(&[0, 0, 255, 255]);
+            }
+        }
+        let (_, _, out) = bound(3840, 2, &source, Format::Premultiplied);
+        assert_eq!(&out[..4], &[255, 0, 0, 128]);
     }
     #[test]
     fn sealed_memfd_is_immutable_and_exact() {
@@ -568,6 +622,123 @@ mod tests {
         })
         .await?;
         assert_eq!(daemon.published.lock().unwrap().len(), 1);
+        task.abort();
+        Ok(())
+    }
+    #[tokio::test]
+    #[ignore = "requires Xvfb; private bus and a grabbed isolated server"]
+    async fn a_stalled_capture_blocks_further_workers_until_it_finishes() -> Result<()> {
+        use crate::native::fixture::Desktop;
+        use x11rb::protocol::composite::Redirect;
+        let bus = crate::lock_tests::Bus::new().await;
+        let desktop = Desktop::new()?;
+        let window = desktop.client("org.example.App.desktop", "")?;
+        desktop.c.map_window(window)?.check()?;
+        desktop.c.composite_query_version(0, 4)?.reply()?;
+        desktop
+            .c
+            .composite_redirect_subwindows(desktop.root, Redirect::MANUAL)?
+            .check()?;
+        desktop.compositing(true)?;
+        let daemon = Daemon::default();
+        let lock = Lock::default();
+        bus.server
+            .object_server()
+            .at("/org/arinn/Daemon1", daemon.clone())
+            .await?;
+        bus.server
+            .object_server()
+            .at("/org/arinn/Daemon1", Capture(daemon.clone()))
+            .await?;
+        bus.server.object_server().at("/ScreenSaver", lock).await?;
+        bus.server
+            .request_name("org.freedesktop.ScreenSaver")
+            .await?;
+        let context = |request: &str| BackgroundContext {
+            epoch: EPOCH.into(),
+            request_id: request.into(),
+            target: "token-a".into(),
+            output: OUTPUT.into(),
+            window: arinn_protocol::return_association::WindowRef {
+                generation: "33333333-3333-4333-8333-333333333333".into(),
+                token: "token-a".into(),
+            },
+        };
+        let changed = || async {
+            bus.server
+                .emit_signal(
+                    None::<&str>,
+                    "/org/arinn/Daemon1",
+                    "org.arinn.Background1",
+                    "Changed",
+                    &(EPOCH, 3u64),
+                )
+                .await
+                .unwrap();
+        };
+        let cancelled = |request: &'static str| {
+            let daemon = daemon.clone();
+            async move {
+                tokio::time::timeout(Duration::from_secs(5), async {
+                    while !daemon
+                        .cancelled
+                        .lock()
+                        .unwrap()
+                        .contains(&request.to_string())
+                    {
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                    }
+                })
+                .await
+                .is_ok()
+            }
+        };
+        let captures = || {
+            CAPTURES
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|d| **d == desktop.display)
+                .count()
+        };
+        // Another client holds the server: the first capture stalls.
+        desktop.c.grab_server()?.check()?;
+        let first = "22222222-2222-4222-8222-222222222222";
+        *daemon.context.lock().unwrap() = Some(context(first));
+        let (_windows, current) = watch::channel(vec![("token-a".to_string(), window)]);
+        let task = tokio::spawn(run(
+            bus.client.clone(),
+            bus.server.unique_name().unwrap().to_string(),
+            current,
+            Some(desktop.display.clone()),
+        ));
+        assert!(
+            cancelled(first).await,
+            "deadline cancels the stalled attempt"
+        );
+        assert_eq!(captures(), 1);
+        // The next request is refused at once while that worker still runs.
+        let second = "44444444-4444-4444-8444-444444444444";
+        *daemon.context.lock().unwrap() = Some(context(second));
+        let asked = Instant::now();
+        changed().await;
+        assert!(cancelled(second).await);
+        assert!(asked.elapsed() < DEADLINE, "busy is immediate");
+        assert_eq!(captures(), 1, "no second worker");
+        // Once the server is released the worker finishes and frees its slot.
+        desktop.c.ungrab_server()?.check()?;
+        desktop.c.flush()?;
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        let third = "55555555-5555-4555-8555-555555555555";
+        *daemon.context.lock().unwrap() = Some(context(third));
+        changed().await;
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while daemon.published.lock().unwrap().is_empty() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await?;
+        assert_eq!(captures(), 2);
         task.abort();
         Ok(())
     }

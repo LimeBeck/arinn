@@ -136,28 +136,37 @@ token.
 - **Capture.** The capture runs off the async runtime on its own X connection.
   It requires a compositing manager (`_NET_WM_CM_Sn` owned), XComposite ≥ 0.2,
   a viewable window, an LSB-first 32-bit TrueColor pixmap format (depth 24 or
-  32) and at most 7680×4320 pixels. It names the composited pixmap of the
+  32) and at most 16 Mi pixels (a 64 MiB reply). It names the composited pixmap of the
   window's top-level frame with `NameWindowPixmap` and reads it with
   `GetImage`. It never reads the root window or another window.
-- **Conversion.** Depth 32 is unpremultiplied, depth 24 is opaque. A box filter
-  scales the image into 1920×1080, and the result is published as one sealed
-  memfd on the adapter's own connection, the `org.arinn.X11` owner the daemon
-  authenticates.
+- **Conversion.** One pass reads the server's bytes, box-filters them into
+  1920×1080 in premultiplied space (depth 24 is opaque), and unpremultiplies
+  each output pixel, so transparent edges add no dark fringes and no full-size
+  copy is made. The result is published as one sealed memfd on the adapter's
+  own connection, the `org.arinn.X11` owner the daemon authenticates.
 - **No frame.** A locked or unknown session, a missing window, no compositor, an
   unredirected window (some compositors unredirect fullscreen windows), an
   unsupported format or the 1500 ms local guard cancels the attempt. Home then
   keeps its normal background.
-- **Lifetime.** Each request is handled once. A daemon without `Background1`
-  leaves the task idle, and the task never ends the adapter session.
+- **One worker.** A capture that outlives the guard keeps its worker slot until
+  it finishes. Any request that arrives meanwhile is cancelled at once as
+  `busy`, so a stalled or grabbed server never accumulates threads or X
+  connections.
+- **Lifetime.** Each request is handled once. A failed `Get` (an older daemon,
+  an exhausted epoch) is logged and waits for the next `Changed`. The task
+  never ends the adapter session.
 - **Diagnostics.** Normalized `background-capture` lines with an outcome and
   `duration_ms` are the hook for the G-5.2 report.
 - **Tests.**
   - Unit tests: pixel conversion, bounds and sealing.
   - Xvfb tests: the fixture acts as a manual compositing manager. One test
     captures a composited window, and confirms no capture without a compositor
-    or for an unmapped window. The other runs the whole task against a fake
-    daemon and screensaver on a private bus: publication of the exact window,
-    and cancellation when locked or for a target that is not a current window.
+    or for an unmapped window. Two more run the whole task against a fake
+    daemon and screensaver on a private bus. One covers publication of the
+    exact window, and cancellation when locked or for a target that is not a
+    current window. The other holds a server grab: the stalled attempt is
+    cancelled at the deadline, the next one is cancelled at once without a
+    second capture, and a request after the release is published.
 
   They do not qualify xfwm's compositor, DPI or colour on the TV.
 

@@ -54,9 +54,13 @@ void FrameGate::observe(Evidence evidence) {
   if (evidence.owner != m_evidence.owner || evidence.epoch != m_evidence.epoch) {
     m_floor = m_retiredRevision = 0;
     m_signalEpoch.clear(); m_retiredRequest.clear(); m_snapshot.reset();
-  } else if (m_snapshot && m_snapshot->context) {
+  } else if (m_snapshot && m_snapshot->context &&
+             (m_evidence.accepts(*m_snapshot->context) ||
+              (!m_evidence.sessionSafe && evidence.sessionSafe))) {
     // A restored guard/Home/provider is a new lifetime, never permission to
     // reuse the old capture. Keep one retired request and revision floor.
+    // Evidence that only completes (the Return window resolving after the
+    // snapshot) never admitted the request, so it does not retire it.
     m_retiredRequest = m_snapshot->context->request;
     m_retiredRevision = m_snapshot->revision;
   }

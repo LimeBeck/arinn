@@ -108,6 +108,25 @@ int main() {
     check(!inflight.completeRead(retired, context(), 2, 2, rgba), "unlock cannot admit late pre-lock copy");
     check(!inflight.accept(snapshot()), "in-flight request also stays retired");
   }
+  {
+    // The Return window resolves after the ready metadata: evidence that
+    // only completes never admitted the request and cannot retire it.
+    FrameGate completing;
+    auto partial = evidence();
+    partial.generation.clear(); partial.token.clear();
+    completing.observe(partial);
+    check(completing.accept(snapshot()) && !completing.beginRead(), "incomplete evidence admits no read");
+    completing.observe(evidence());
+    check(completing.accept(snapshot()) && completing.beginRead().has_value(), "completed evidence admits the read");
+    // A guard that was never safe is restored: the request is retired.
+    FrameGate guarded;
+    auto locked = evidence();
+    locked.sessionSafe = false;
+    guarded.observe(locked);
+    check(guarded.accept(snapshot()) && !guarded.beginRead(), "blocked guard admits no read");
+    guarded.observe(evidence());
+    check(!guarded.accept(snapshot()) && !guarded.beginRead(), "unlock retires a request seen while blocked");
+  }
   for (const auto &epoch : {std::string("bad"), std::string("44444444-4444-4444-8444-444444444444")}) {
     FrameGate recovering; install(recovering);
     recovering.notified(epoch, 2);

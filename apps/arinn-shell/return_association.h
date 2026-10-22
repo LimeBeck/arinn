@@ -13,6 +13,12 @@ public:
   QString epoch() const { return m_epoch; }
   QString target() const { return m_target; }
   QString token() const { return m_valid ? m_token : QString(); }
+  // Platform inventory generation of `token()`, empty while not valid.
+  QString generation() const { return m_valid ? m_platform : QString(); }
+  // The retained Home output and platform adapter liveness of the last
+  // Status read; kept while a re-read is pending.
+  QString output() const { return m_output; }
+  bool platformConnected() const { return m_platformConnected; }
   bool valid() const { return m_valid && m_homeKnown && m_home; }
   bool homeKnown() const { return m_homeKnown; }
   bool homeVisible() const { return m_home; }
@@ -33,10 +39,11 @@ private:
   void setOwner(const QString &owner);
   void done(bool again = false);
   void readAssociation(quint64 lifetime, quint64 context);
-  QString m_owner, m_epoch, m_target, m_token, m_platform;
+  QString m_owner, m_epoch, m_target, m_token, m_platform, m_output;
   QString m_signalEpoch, m_inventoryGeneration, m_installedTarget,
       m_installedToken, m_installedPlatform;
   quint64 m_lifetime = 0, m_context = 0, m_floor = 0, m_revision = 0;
+  bool m_platformConnected = false;
   bool m_valid = false, m_homeKnown = false, m_home = false,
        m_known = false, m_supported = false, m_busy = false,
        m_dirty = false, m_resolving = false, m_pending = false;

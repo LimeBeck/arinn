@@ -117,6 +117,12 @@ FocusScope {
     // True while an Activity background is shown (ADR-0027): the ambient
     // light field then stays off.
     property bool ambientSuppressed: false
+    // The last frame of the Activity behind Home (§12.3), empty for none.
+    // Near while the Activity's own card has focus, otherwise far (handoff
+    // Home 16). Never delays focus: it only replaces the plain background.
+    property url activitySource: ""
+    readonly property bool activityNear: screen === "home" && !navOpen && homeRow === "continue"
+        && returnActivityId.length > 0 && focusedEntry.id === returnActivityId
     // The shell's input mode (ADR-0095); tests may assign it directly.
     property bool pointerMode: InputMode.pointerActive
     property bool actionsEnabled: false
@@ -563,6 +569,13 @@ FocusScope {
         }
     }
     Rectangle { anchors.fill: parent; color: Theme.background; visible: !root.coveredByScreen }
+    ActivityBackground {
+        objectName: "activityBackground"
+        anchors.fill: parent
+        visible: !root.coveredByScreen && root.screen === "home" && root.activitySource.toString() !== ""
+        source: root.activitySource
+        near: root.activityNear
+    }
     AmbientGlow {
         id: ambient
         objectName: "ambientGlow"

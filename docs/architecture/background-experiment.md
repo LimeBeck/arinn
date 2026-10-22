@@ -78,21 +78,56 @@ Return/lock/unknown-guard/provider/owner loss and recovery, cancelled workers an
 replacement lifetimes. These are foundation tests, not private-bus runtime tests
 or production capture evidence.
 
+### Shell consumer
+
+The shell build registers `apps/arinn-shell/background`, so its pixel and
+frame-gate tests run under CTest. `ActivityBackgroundSource`
+(`apps/arinn-shell/activity_background.{h,cpp}`, QML type in `Arinn.Shell`)
+reads `Background1` for Home:
+
+- **Owner-pinned and asynchronous.** It subscribes to `Changed` before the first
+  `Get`, pinned to the daemon owner that `ReturnAssociation` resolved. A daemon
+  without the interface leaves the normal background and is not asked again
+  until its owner changes.
+- **Evidence.** The gate's evidence is the shell's own: Home visibility, target
+  and output from `Status`, the Return window from `ReturnAssociation1`,
+  platform liveness, and the session guard bound from `sessionGuard.blocked`.
+  A repeated Home clears the Return association until the adapter reports it
+  again. The last window of the same target is kept meanwhile, because the
+  daemon invalidates the frame itself when that window really goes away.
+- **Lock.** A blocked guard clears the frame synchronously, before any daemon
+  reply. Unlock never brings it back: the gate retires the request, and it also
+  retires a request first seen while blocked.
+- **Reading.** `ReadFrame` runs only for a ready snapshot that the evidence
+  accepts. The descriptor is duplicated and validated (seals, exact size)
+  before a positional copy on a one-thread pool. A failed read is not retried
+  for the same revision, so a persistent failure cannot loop.
+- **Rendering.** The copy becomes a `QImage` served by the `arinn-activity`
+  image provider under a per-frame serial; a released frame's URL resolves to
+  nothing. The provider holds at most one frame (≤ 8 MiB) beside the gate's
+  copy, and MultiEffect's blur textures follow the full-screen item.
+- **Home.** `HomeView` draws `ui/ActivityBackground.qml` behind its content:
+  near while the Activity's own card has focus, otherwise far, and no layer
+  outside the Home screen. While it shows, the ambient light field stays off.
+  Focus never waits for the frame.
+
+The rendering component moved from `apps/arinn-shell/ActivityBackground.qml` to
+`apps/arinn-shell/ui/ActivityBackground.qml`; the operator probe and preview
+copy it from there. Tests: `activity_background_test.cpp` (fake daemon on a
+private bus: ready frame, repeated Home, unavailable and remap, lock without
+IPC, invalid echo and unsealed descriptors, unsupported and pending daemons),
+the frame-gate tests, and `HomeNavigation::test_activity_background_near_and_far`.
+
 ### Remaining integration and qualification
 
-These modules are not yet registered by the root/shell build or connected to Home.
-Shared Home/shell build integration must be reconciled with active PR
-[#428](https://github.com/LimeBeck/arinn/pull/428). Necessary daemon and X11 work
+The shell consumer above is connected to Home. Necessary daemon and X11 work
 requires separately recorded implementation zones after checking active claims.
 The daemon still needs authenticated Background1/BackgroundCapture1 exports,
 explicit-Home arming, authoritative invalidation, the unrenewed 1500 ms deadline
 and producer/reader authorization. KDE still needs an in-process bounded worker,
 exact WindowThumbnail capture and publication from the selected platform owner's
-connection. X11 needs its selected-window producer. The shell still needs
-owner-pinned asynchronous D-Bus reconciliation/copying, independent session-guard
-wiring, a bounded image provider and near/far rendering integration with bounded
-DPR-sensitive effect textures. The existing `ActivityBackground.qml` remains the
-operator prototype, not an enabled production renderer.
+connection. X11 needs its selected-window producer. Until a producer publishes,
+Home keeps its normal background.
 
 Before marking #149/G-5.2 complete, run runtime/private-bus lifecycle tests and
 obtain the owner-run device report specified by the contract: capture/publication

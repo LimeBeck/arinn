@@ -800,6 +800,32 @@ TestCase {
         compare(home.screen, "library");
         verify(!glow.lit);
     }
+    // §12.3: the Activity's last frame replaces the plain background behind
+    // Home, near while its own card has focus and far otherwise. Focus never
+    // waits for it; a missing frame keeps the normal background.
+    function test_activity_background_near_and_far() {
+        const layer = child("activityBackground");
+        verify(!layer.visible);
+        home.returnActivityId = "a";
+        keyClick(Qt.Key_Right); focused("entry-b");
+        keyClick(Qt.Key_Left); focused("entry-a");
+        verify(!layer.visible);
+        home.activitySource = Qt.resolvedUrl("fixture-glow.svg");
+        verify(layer.visible);
+        compare(layer.near, true);
+        keyClick(Qt.Key_Right); focused("entry-b");
+        compare(layer.near, false);
+        keyClick(Qt.Key_Left); focused("entry-a");
+        compare(layer.near, true);
+        keyClick(Qt.Key_Menu); focused("nav-0");
+        compare(layer.near, false);
+        keyClick(Qt.Key_Down); keyClick(Qt.Key_Return);
+        compare(home.screen, "library");
+        verify(!layer.visible);
+        home.screen = "home";
+        home.activitySource = "";
+        verify(!layer.visible);
+    }
     function test_open_services_navigation_item() {
         keyClick(Qt.Key_Menu);
         focused("nav-0");

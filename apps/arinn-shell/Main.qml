@@ -358,6 +358,8 @@ Window {
     Power.AmbientIdle {
         id: ambientIdle
         objectName: "ambientIdle"
+        // Settings › Appearance › Ambient after (ADR-0112), 10 minutes by default.
+        timeout: settingsCatalog.ambientTimeoutMinutes * 60000
         shellShown: root.visible && root.active
         locked: sessionGuard.blocked
         ambientActive: ambientScreen.active

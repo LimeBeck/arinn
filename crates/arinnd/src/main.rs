@@ -104,6 +104,10 @@ async fn run(started: std::time::Instant) -> Result<(), ErrorCode> {
     core.export_media_association().await?;
     core.export_system_status(arinnd::status_sources::Sources::system())
         .await?;
+    // Without a system bus, sleep is seen only through the lock taken first.
+    let system = zbus::Connection::system().await.ok();
+    core.export_background(arinnd::session_lock::watch(connection.clone(), system))
+        .await?;
     connection
         .object_server()
         .at(PATH, shortcuts)

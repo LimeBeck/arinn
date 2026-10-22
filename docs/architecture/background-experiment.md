@@ -84,9 +84,10 @@ These modules are not yet registered by the root/shell build or connected to Hom
 Shared Home/shell build integration must be reconciled with active PR
 [#428](https://github.com/LimeBeck/arinn/pull/428). Necessary daemon and X11 work
 requires separately recorded implementation zones after checking active claims.
-The daemon still needs authenticated Background1/BackgroundCapture1 exports,
-explicit-Home arming, authoritative invalidation, the unrenewed 1500 ms deadline
-and producer/reader authorization. KDE still needs an in-process bounded worker,
+The daemon exports authenticated Background1/BackgroundCapture1 with explicit-Home
+arming, authoritative invalidation, the unrenewed 1500 ms deadline and
+producer/reader authorization ([daemon implementation](activity-background.md#daemon-implementation)).
+KDE still needs an in-process bounded worker,
 exact WindowThumbnail capture and publication from the selected platform owner's
 connection. X11 needs its selected-window producer. The shell still needs
 owner-pinned asynchronous D-Bus reconciliation/copying, independent session-guard

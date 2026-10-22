@@ -255,7 +255,7 @@ fn pixel_format(
 /// Converts LSB-first 32-bit pixels to straight-alpha RGBA8888.
 pub fn straight_rgba(data: &[u8], format: Format) -> Vec<u8> {
     let mut out = Vec::with_capacity(data.len());
-    for px in data.chunks_exact(4) {
+    for px in data.as_chunks::<4>().0 {
         let (b, g, r) = (px[0], px[1], px[2]);
         match format {
             Format::Opaque => out.extend_from_slice(&[r, g, b, 255]),
@@ -370,7 +370,7 @@ mod tests {
         assert_eq!((w, h), (360, 1080));
         // Box filter averages a 2×2 block.
         let mut checker = vec![0u8; 3840 * 2 * 4];
-        for (i, px) in checker.chunks_exact_mut(4).enumerate() {
+        for (i, px) in checker.as_chunks_mut::<4>().0.iter_mut().enumerate() {
             px.copy_from_slice(if i % 2 == 0 {
                 &[0, 0, 0, 255]
             } else {

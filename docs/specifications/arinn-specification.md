@@ -214,7 +214,30 @@ Removing a folder removes its items from the library and never deletes files. Ar
 
 Arinn provides one system overlay for Home, Back, Play/Pause, volume, mute, the power menu and Settings. Each action is executed by the platform layer or the matching provider. CEC is not part of the architecture; TV control (for example webOS) is added later through the same plugin mechanism, never in the core.
 
-**Media and volume keys.** While an external application has focus, Arinn does not register media or volume keys globally: Plasma handles them with its own OSD. Arinn handles them, and shows its own volume HUD, only while the shell is visible. This resolves OQ-04 by owner decision on 2026-09-28.
+**Quick menu.** A second global key opens the quick menu: a side sheet over the
+current Activity, without the fullscreen Home. Its keys are `quick_menu_shortcut`
+in `config.toml` and the remote's Menu key, owned by the platform layer like the
+Home keys ([§6.2](#62-keys)). The sheet holds, in this order:
+
+- **Now playing:** the current media session's title with play/pause (`Media1`);
+- **volume and mute** of the default audio output, executed by the platform layer;
+- **network status** (`SystemStatus1`);
+- **Sleep** and the **power menu**, as described under *Power* below;
+- **Open Home**, which replaces the sheet with the fullscreen Home, focus on Return when there is a return Activity and otherwise where Home puts it ([§6.1](#61-focus));
+- **Close Arinn**, as in global navigation.
+
+The sheet is the *sheet* focus scope ([§6.1](#61-focus)); focus starts on its
+first available row. The Activity stays visible behind it, as the live window or
+its last frame ([§12.3](#123-activity-background)); opening the sheet never
+pauses, stops or closes the Activity. Back closes the sheet and activates the
+same Activity ([§6.3](#63-home-and-back)). Pressing the key again while the sheet
+is open keeps it open; there is no toggle. A row whose source is unavailable says
+so and never pretends to succeed. Without the daemon the sheet stays usable in a
+degraded form: Open Home and Close Arinn remain available. Fullscreen Home and
+its global key are unchanged. Owner decision on 2026-10-10
+([#439](https://github.com/LimeBeck/arinn/issues/439)).
+
+**Media and volume keys.** While an external application has focus, Arinn does not register media or volume keys globally: Plasma handles them with its own OSD. Arinn handles them, and shows its own volume HUD, only while the shell is visible. This resolves OQ-04 by owner decision on 2026-09-28. The quick menu does not change this: media and volume keys pressed outside the shell never open it (owner decision on 2026-10-10, [#439](https://github.com/LimeBeck/arinn/issues/439)).
 
 **Power.**
 
@@ -242,9 +265,9 @@ session units only closes. Owner request on 2026-10-06
 ([#357](https://github.com/LimeBeck/arinn/issues/357),
 [ADR-0098](../adr/0098-restart-after-an-update.md)).
 
-**Ambient (screensaver).** Started by an explicit action or an idle timeout (10 minutes by default). Any key or pointer movement wakes the UI; the first wake event is consumed and triggers no action. Automatic ambient MUST NOT start while an external Activity is in the foreground **or** media is playing. The idle timer never triggers OS suspend. Ambient never stops applications.
+**Ambient (screensaver).** Started by an explicit action or an idle timeout (10 minutes by default; Settings › Appearance offers 5, 10, 15, 30 or 60 minutes, owner decision on 2026-10-21, [ADR-0112](../adr/0112-shell-preferences-as-core-settings.md)). Any key or pointer movement wakes the UI; the first wake event is consumed and triggers no action. Automatic ambient MUST NOT start while an external Activity is in the foreground **or** media is playing. The idle timer never triggers OS suspend. Ambient never stops applications.
 
-**Session lifecycle.** On lock or before sleep the shell hides regardless of daemon state and keeps the Activity context; after wake it re-checks the lock state before showing anything. If the lock state is unknown, the shell treats the session as locked ([session lifecycle](../architecture/session-lifecycle.md)). Lock/sleep observation MUST remain independent of daemon availability through an asynchronous, fail-closed platform lifecycle guard ([ADR-0041](../adr/0041-independent-session-lifecycle-guard.md)). The guard observes session state; it does not execute power or application commands.
+**Session lifecycle.** On lock or before sleep the shell hides regardless of daemon state and keeps the Activity context; after wake it re-checks the lock state before showing anything. If the lock state is unknown, the shell treats the session as locked ([session lifecycle](../architecture/session-lifecycle.md)). Lock/sleep observation MUST remain independent of daemon availability through an asynchronous, fail-closed platform lifecycle guard ([ADR-0041](../adr/0041-independent-session-lifecycle-guard.md)). The guard observes session state; it does not execute power or application commands. The on-screen keyboard delivers nothing to an external application while the session is locked or its lock state is unknown ([§6.2](#62-keys)).
 
 ---
 
@@ -266,13 +289,17 @@ Input modes: **D-pad mode** (cursor hidden, full focus treatment) and **pointer 
 | Enter / OK | Select |
 | Esc, Backspace | Back ([§6.3](#63-home-and-back)). In an editable text field Backspace deletes a character; Esc closes the topmost scope. |
 | Global Home | Global shortcut owned by the platform layer: `home_shortcut` in `config.toml` (default Meta+F12) and the remote's HomePage key. Owner decision of 2026-10-07 ([#286](https://github.com/LimeBeck/arinn/issues/286), [ADR-0094](../adr/0094-configurable-global-home-keys.md)) |
-| Menu | Toggle global navigation. A long press on an application tile in Applications or in Home favorites opens the tile action sheet: pin/unpin and, while the application runs, Close ([§5.5](#55-applications)). The sheet replaces the direct pin/unpin. Owner decision on 2026-10-01 ([#205](https://github.com/LimeBeck/arinn/issues/205)) |
+| Quick menu | Global shortcut owned by the platform layer: `quick_menu_shortcut` in `config.toml` (default Meta+F11) and the remote's Menu key (≡ on the G60S PRO BT). The platform registers the Menu key only while a window other than the shell has focus, so the shell keeps receiving Menu. Until the code that key sends is captured on the HTPC, it registers both Qt Menu and MenuKB. Opens the quick menu ([§5.7](#57-system-ui-power-and-ambient)) over the active application or over the shell. Owner decisions of 2026-10-10 and 2026-10-21 ([#439](https://github.com/LimeBeck/arinn/issues/439)) |
+| On-screen keyboard | Global shortcut owned by the platform layer: `keyboard_shortcut` in `config.toml` (default Meta+F10, distinct from the Home and quick-menu defaults Meta+F12 and Meta+F11) and the remote's microphone button. Over an external application it opens the on-screen keyboard for that application; pressing it again while the panel is open hides the panel. Inside the shell it does nothing: shell fields open the panel with their keyboard button. Owner decisions of 2026-10-11 and 2026-10-21, defaults confirmed on 2026-10-22 ([#434](https://github.com/LimeBeck/arinn/issues/434)) |
+| Menu | Inside the shell: toggle global navigation. A long press on an application tile in Applications or in Home favorites opens the tile action sheet: pin/unpin and, while the application runs, Close ([§5.5](#55-applications)). The sheet replaces the direct pin/unpin. Owner decision on 2026-10-01 ([#205](https://github.com/LimeBeck/arinn/issues/205)). Outside the shell, Menu opens the quick menu and no longer reaches the active application (Quick menu row; owner decision of 2026-10-21, [#439](https://github.com/LimeBeck/arinn/issues/439)) |
 | Media and volume keys | Media and volume actions; outside the shell Plasma handles them ([§5.7](#57-system-ui-power-and-ambient)) |
 | Power (⏻) | Global key owned by the platform layer while Arinn runs: opens the power menu ([§5.7](#57-system-ui-power-and-ambient)) |
 
-Outside the shell, keys belong to the active application. Arinn MUST NOT intercept Esc, Backspace or plain letters globally. The prototype's letter shortcuts (H, M, P, A, O) are development bindings, not product keys. The production mapping uses semantic actions and is configurable per device. First step, owner decision of 2026-10-03 ([#64](https://github.com/LimeBeck/arinn/issues/64)): extra keys per action are set in `config.toml` under `[input.bindings]` and apply inside the shell only; a Settings UI, per-device bindings and gamepads come later ([ADR-0079](../adr/0079-shell-input-bindings.md)).
+Outside the shell, keys belong to the active application. Arinn MUST NOT intercept Esc, Backspace or plain letters globally. The one exception is the open on-screen keyboard over an external application (below): while its panel is shown, arrows, OK and Back/Esc drive the panel instead of the application. The prototype's letter shortcuts (H, M, P, A, O) are development bindings, not product keys. The production mapping uses semantic actions and is configurable per device. First step, owner decision of 2026-10-03 ([#64](https://github.com/LimeBeck/arinn/issues/64)): extra keys per action are set in `config.toml` under `[input.bindings]` and apply inside the shell only; a Settings UI, per-device bindings and gamepads come later ([ADR-0079](../adr/0079-shell-input-bindings.md)).
 
-**On-screen keyboard.** Every text field in the shell can be filled with the remote alone: the address and search field, the web shortcut address and name, a `string` setting and the folder picker path. A keyboard button in the field opens a panel at the bottom of the screen that never covers the field. The panel has a suggestion row, an optional row of characters for the field (for example `https://` or `/media/`), Russian (JCUKEN) or English (QWERTY) letters, a digits and symbols layer, and an action row with the field's main key. Arrows move between keys without wrapping; OK types; Back hides the panel and returns focus to the button, and a second Back follows the screen. Home and Menu work as on every screen. A hardware keyboard types into the field directly, never opens the panel and does not close it. Input past a field's maximum length is ignored, and a format error blocks the main key until it is fixed. The look and the per-field details follow the design handoff (*On-screen keyboard*, KB-1…5, KB-7, KB-8). The keyboard is part of the shell, not a platform input method. Owner decision on 2026-10-09 ([ADR-0103](../adr/0103-on-screen-keyboard.md)).
+**On-screen keyboard.** Every text field in the shell can be filled with the remote alone: the address and search field, the web shortcut address and name, a `string` setting and the folder picker path. A keyboard button in the field opens a panel at the bottom of the screen that never covers the field. The panel has a suggestion row, an optional row of characters for the field (for example `https://` or `/media/`), Russian (JCUKEN) or English (QWERTY) letters, a digits and symbols layer, and an action row with the field's main key. Arrows move between keys without wrapping; OK types; Back hides the panel and returns focus to the button, and a second Back follows the screen. Home and Menu work as on every screen. A hardware keyboard types into the field directly, never opens the panel and does not close it. Input past a field's maximum length is ignored, and a format error blocks the main key until it is fixed. The look and the per-field details follow the design handoff (*On-screen keyboard*, KB-1…5, KB-7, KB-8). Owner decision on 2026-10-09 ([ADR-0103](../adr/0103-on-screen-keyboard.md)).
+
+**On-screen keyboard over external applications.** The same keyboard types into the focused external application, for example a site search or a login form in Chrome, with the remote alone. It opens only with the global keyboard key (table above), never automatically when a text field gets focus, and only while an external application window has focus and the session is unlocked. The panel appears at the bottom of the screen over the application and never takes keyboard focus from it. While the panel is open, arrows move between its keys, OK types and Back (or Esc) hides it; the application keeps focus. Other keys, Backspace and a hardware keyboard included, still reach the application. The suggestion row stays empty: nothing typed in another application is remembered. There is no context row, and the main key sends Enter to the application. Home opens Arinn Home and hides the panel; Menu opens the quick menu as it does over the application without the panel, and the panel closes as focus leaves the application. Text goes only into the window that had focus when the panel opened. When that window loses focus or disappears, the panel closes and nothing more is delivered. Nothing is delivered while the session is locked or its lock state is unknown ([§5.7](#57-system-ui-power-and-ambient)). Only the trusted platform layer delivers the text ([§12.5](#125-on-screen-keyboard-delivery)), never a plugin and never the shell itself. Typed text is never logged, persisted or sent to diagnostics ([§13](#13-security), [§14.4](#144-optional-remote-diagnostics)). Owner decisions on 2026-10-10, 2026-10-11 and 2026-10-21 ([#434](https://github.com/LimeBeck/arinn/issues/434)).
 
 ### 6.3. Home and Back
 
@@ -284,7 +311,10 @@ Back MUST behave predictably and MUST NOT close the active application just beca
 | Nested screen | Go to the parent screen; at the top level of a section, go to Home. | Home. |
 | Home with a return Activity | Close Home and activate the same Activity. | Stay on Home, focus on Return; no toggle. |
 | Home without a return Activity | Open global navigation. | Stay on Home. |
+| Quick menu over an Activity | Close the quick menu and activate the same Activity. | Replace the quick menu with Home, focus on Return. |
 | External application | Back belongs to the external application. | The platform opens the Arinn overlay and remembers the return Activity. |
+
+The quick menu key ([§6.2](#62-keys)) works wherever the global Home key works. Over an external application the platform remembers the return Activity exactly as for Home, and the quick menu opens over that Activity. Over the shell it opens on top of the current screen like any sheet: Back closes it and focus returns to its opener. Without a return Activity, Back from the quick menu over an empty desktop shows Home. Repeating the key keeps the quick menu open.
 
 If the saved Activity disappears, Home stays open, briefly shows an unavailable state and moves focus by the rules of [§6.1](#61-focus). The next Back behaves as "Home without a return Activity". Opening Home by itself never pauses or stops anything.
 
@@ -412,7 +442,7 @@ Plugins supply data, metadata, actions and capabilities. They MUST NOT supply QM
 
 ### 8.5. Platform layer
 
-Platform-specific functions are behind `PlatformService`; the first implementation is `KdePlatformService` for KDE Plasma 6 on Wayland: global shortcuts, application/window activation, overlay and window integration, session state and system actions (volume, network, power). KDE-specific code MUST NOT be spread across the daemon, and window management MUST NOT be spread across plugins. Details: [§12](#12-platform-integration-kde-plasma-6--wayland). Mute and network connectivity for Home's status area reach the shell only as the daemon's read-only `org.arinn.SystemStatus1` snapshot ([ADR-0100](../adr/0100-system-status.md)).
+Platform-specific functions are behind `PlatformService`; the first implementation is `KdePlatformService` for KDE Plasma 6 on Wayland: global shortcuts, application/window activation, overlay and window integration, session state, text delivery for the on-screen keyboard ([§12.5](#125-on-screen-keyboard-delivery)) and system actions (volume, network, power). KDE-specific code MUST NOT be spread across the daemon, and window management MUST NOT be spread across plugins. Details: [§12](#12-platform-integration-kde-plasma-6--wayland). Mute and network connectivity for Home's status area reach the shell only as the daemon's read-only `org.arinn.SystemStatus1` snapshot ([ADR-0100](../adr/0100-system-status.md)).
 
 The shell lifecycle guard uses platform-layer session observation independently of the daemon. Platform-specific transport stays in that layer; QML only consumes the resulting visibility guard. The existing shell-local transport is scheduled for extraction in [task #29](https://github.com/LimeBeck/arinn/issues/29).
 
@@ -602,6 +632,10 @@ alone does not imply production capture or close G-5.2.
 
 See [§5.7](#57-system-ui-power-and-ambient) and [session lifecycle](../architecture/session-lifecycle.md).
 
+### 12.5. On-screen keyboard delivery
+
+The platform layer registers the keyboard key ([§6.2](#62-keys)), binds the panel to the application window that has focus when the key is pressed, routes the panel's keys to the shell while the panel is open and delivers the typed text into that window. On KDE Plasma 6/Wayland Arinn works as KWin's input method: text is committed through the Wayland text-input protocol, or as key events to an application without it. On X11/EWMH the platform adapter injects key events with XTest. The shell draws the panel and sends each typed key to the daemon, which passes it to the platform adapter; the shell never sends input to an application itself (R-03). The microphone button of the owner's remote sends a key that Qt and X11 cannot name, so the platform layer maps it to a key they can name. The mechanism is decided in the ADR of [#434](https://github.com/LimeBeck/arinn/issues/434).
+
 ---
 
 ## 13. Security
@@ -616,7 +650,7 @@ The MVP is **not** a hostile-plugin sandbox: plugins are locally installed trust
 - minimal Chrome extension permissions and no page content access;
 - private runtime directories (0700) and files (0600) for tokens, sockets and snapshots.
 
-Regular logs MUST NOT contain cookies, authorization headers, passwords, session tokens, browser page content, URLs, tab titles or payloads — only IDs, operation, outcome and a safe error code. Debug logging does not lift this rule. Vulnerability reporting: [SECURITY.md](../../SECURITY.md).
+Regular logs MUST NOT contain cookies, authorization headers, passwords, session tokens, browser page content, URLs, tab titles, text typed with the on-screen keyboard or payloads — only IDs, operation, outcome and a safe error code. Debug logging does not lift this rule. Vulnerability reporting: [SECURITY.md](../../SECURITY.md).
 
 ---
 
@@ -671,7 +705,7 @@ The visual direction is **Quiet Spatial OS** — "Calm OS → Cinematic Content"
 - Onest and Material Symbols Rounded; text ≥ 24, action-critical text ≥ 26; tabular numerals; room for Russian labels ~30% longer;
 - interface language: Russian through Qt translations, following the system locale; English strings in the code are the source and the fallback for other locales. Owner decision on 2026-10-06 ([#363](https://github.com/LimeBeck/arinn/issues/363)); the handoff copy is the reference wording. Provider-supplied text (titles, setting names, error messages from plugins) is shown as delivered;
 - Ember `#FF8A3D` marks status, progress and brand only, never focus;
-- light field keyed to artwork hue, crossfaded over 900 ms, can be disabled, absent on system screens;
+- light field keyed to artwork hue, crossfaded over 900 ms, can be disabled (Settings › Appearance › Light field, on by default; [ADR-0112](../adr/0112-shell-preferences-as-core-settings.md)), absent on system screens;
 - all tokens, radii, elevation and motion timings as in the handoff and Design System v2;
 - loading, empty, error, disabled, pressed and focus states per the design system and the 22 screenshots.
 
@@ -789,7 +823,7 @@ The MVP is accepted when all of the following hold on the target HTPC. Verificat
 | ID | Criterion |
 | --- | --- |
 | AC-01 | **Startup.** After logging into the HTPC session Arinn starts automatically and shows Home. |
-| AC-02 | **Remote navigation.** The main interface is fully controlled with arrows/D-pad, Select and Back. |
+| AC-02 | **Remote navigation.** The main interface is fully controlled with arrows/D-pad, Select and Back. Every text field, in the shell and in a focused external application such as Chrome, can be filled with the on-screen keyboard and the remote alone ([§6.2](#62-keys)). |
 | AC-03 | **Browser.** The user opens Chrome or an online service from Home. |
 | AC-04 | **Browser tabs.** Arinn shows existing Chrome tabs and switches between them. |
 | AC-05 | **Global Home.** From Chrome the user invokes Home and gets Arinn over the browser. |
@@ -805,7 +839,7 @@ The MVP is accepted when all of the following hold on the target HTPC. Verificat
 | AC-15 | **Library.** A local folder and a mounted network folder are scanned; metadata or fallback is shown; entries survive an unavailable mount; a film and an episode can be started. |
 | AC-16 | **Playback.** Play/pause/seek, audio and subtitle selection, resume after restart and a correct Continue in the mpv workflow. |
 | AC-17 | **Downloads.** Transmission queue; pause/resume/start now/retry; error and unavailable states; completed media appears in Library exactly once and can be started. |
-| AC-18 | **Home/Back input.** Home/Back follow [§6.3](#63-home-and-back) with standard keyboard and mouse events; Esc and Backspace work with the text-input exception. The G60S Pro uses the same input path; a physical remote check is an extra smoke test. |
+| AC-18 | **Home/Back input.** Home/Back follow [§6.3](#63-home-and-back) with standard keyboard and mouse events; Esc and Backspace work with the text-input exception. With the on-screen keyboard open over an external application, Back hides the panel and leaves the application focused, and Home opens Arinn Home and hides the panel. The G60S Pro uses the same input path; a physical remote check is an extra smoke test. |
 | AC-19 | **Suspend and ambient.** Sleep really suspends the HTPC; wake and provider reconnect work; the shell is never shown over the lock screen. Ambient is checked separately and never triggers suspend. |
 
 ---

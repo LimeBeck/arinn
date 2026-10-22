@@ -68,7 +68,7 @@ private:
   void readDone(const arinn::background::FrameGate::Ticket &ticket,
                 const arinn::background::Context &echoed, quint32 width,
                 quint32 height,
-                std::optional<std::vector<std::uint8_t>> rgba);
+                std::optional<std::vector<std::uint8_t>> rgba, QImage image);
   void publish();
   ReturnAssociation m_association;
   // One bounded copy at a time; the destructor waits for it.
@@ -76,6 +76,8 @@ private:
   arinn::background::FrameGate m_gate;
   std::shared_ptr<ActivityFrameStore> m_store;
   QString m_owner;
+  // The last evidence given to the gate.
+  std::optional<arinn::background::Evidence> m_evidence;
   // Last resolved Return window of the current target. A repeated Home
   // clears the association until the adapter reports it again; the daemon
   // invalidates the frame itself when the window really goes away.

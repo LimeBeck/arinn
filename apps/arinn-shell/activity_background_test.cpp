@@ -176,6 +176,11 @@ private slots:
     QCOMPARE(image.format(), QImage::Format_RGBA8888);
     QCOMPARE(image.pixel(1, 0), qRgba(40, 50, 60, 70));
     QCOMPARE(daemon->reads, 1);
+    // ReturnAssociation polls every second; unchanged evidence asks the
+    // daemon nothing.
+    const auto gets = daemon->gets;
+    QTest::qWait(2500);
+    QCOMPARE(daemon->gets, gets);
     // A repeated Home clears the association until the adapter reports it
     // again; the frame stays for the same Home context.
     daemon->token.clear();

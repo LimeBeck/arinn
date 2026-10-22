@@ -127,6 +127,10 @@ void ActivityBackgroundSource::evidenceChanged() {
   // and the frame's producer.
   evidence.providerLive = evidence.producerLive = a.platformConnected();
   evidence.shellLive = true;
+  // ReturnAssociation reports on every poll; an unchanged reading neither
+  // touches the gate nor asks the daemon again.
+  if (m_evidence && *m_evidence == evidence) return;
+  m_evidence = evidence;
   m_gate.observe(std::move(evidence));
   publish();
   refresh();
@@ -193,8 +197,10 @@ void ActivityBackgroundSource::refresh() {
               else m_gate.accept(snapshot);
             }
             publish();
+            // Read an admitted snapshot first; a dirty reconciliation
+            // follows and cannot starve it.
+            read();
             if (m_dirty) refresh();
-            else read();
           });
 }
 
@@ -214,7 +220,7 @@ void ActivityBackgroundSource::read() {
             p->deleteLater();
             if (reply.type() == QDBusMessage::ErrorMessage ||
                 reply.signature() != QLatin1String("((ssss(ss))uuh)")) {
-              readDone(ticket, {}, 0, 0, std::nullopt);
+              readDone(ticket, {}, 0, 0, std::nullopt, {});
               return;
             }
             const auto a = qvariant_cast<QDBusArgument>(reply.arguments().first());
@@ -228,17 +234,28 @@ void ActivityBackgroundSource::read() {
             auto pixels = std::make_shared<arinn::background::Pixels>(
                 arinn::background::Pixels::duplicate(fd.fileDescriptor(), width, height));
             if (!*pixels) {
-              readDone(ticket, echoed, width, height, std::nullopt);
+              readDone(ticket, echoed, width, height, std::nullopt, {});
               return;
             }
             // The bounded copy runs off the GUI thread; focus never waits.
             m_pool.start([this, pixels, ticket, echoed, width, height] {
               auto rgba = pixels->read(width, height);
               pixels->reset();
+              // The image copy is made here too: the GUI thread only
+              // installs the result.
+              QImage image;
+              if (rgba) {
+                image = QImage(int(width), int(height), QImage::Format_RGBA8888);
+                const auto row = std::size_t(width) * 4;
+                if (!image.isNull())
+                  for (quint32 y = 0; y < height; ++y)
+                    std::memcpy(image.scanLine(int(y)), rgba->data() + y * row, row);
+              }
               QMetaObject::invokeMethod(
                   this,
-                  [this, ticket, echoed, width, height, rgba = std::move(rgba)]() mutable {
-                    readDone(ticket, echoed, width, height, std::move(rgba));
+                  [this, ticket, echoed, width, height, rgba = std::move(rgba),
+                   image = std::move(image)]() mutable {
+                    readDone(ticket, echoed, width, height, std::move(rgba), std::move(image));
                   },
                   Qt::QueuedConnection);
             });
@@ -248,7 +265,7 @@ void ActivityBackgroundSource::read() {
 void ActivityBackgroundSource::readDone(
     const arinn::background::FrameGate::Ticket &ticket,
     const arinn::background::Context &echoed, quint32 width, quint32 height,
-    std::optional<std::vector<std::uint8_t>> rgba) {
+    std::optional<std::vector<std::uint8_t>> rgba, QImage image) {
   m_reading = false;
   // Every ticket completes exactly once, releasing the single worker slot.
   if (!m_gate.completeRead(ticket, echoed, width, height, std::move(rgba))) {
@@ -257,15 +274,10 @@ void ActivityBackgroundSource::readDone(
     refresh();
     return;
   }
-  const auto pixels = m_gate.pixels();
-  QImage image(int(width), int(height), QImage::Format_RGBA8888);
-  if (image.isNull()) {
+  if (image.isNull() || image.size() != QSize(int(width), int(height))) {
     publish();
     return;
   }
-  const auto row = std::size_t(width) * 4;
-  for (quint32 y = 0; y < height; ++y)
-    std::memcpy(image.scanLine(int(y)), pixels.data() + y * row, row);
   quint64 serial;
   {
     QMutexLocker lock(&m_store->mutex);

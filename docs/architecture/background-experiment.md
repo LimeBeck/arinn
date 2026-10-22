@@ -86,7 +86,10 @@ frame-gate tests run under CTest. `ActivityBackgroundSource`
 reads `Background1` for Home:
 
 - **Owner-pinned and asynchronous.** It subscribes to `Changed` before the first
-  `Get`, pinned to the daemon owner that `ReturnAssociation` resolved. A daemon
+  `Get`, pinned to the daemon owner that `ReturnAssociation` resolved. It asks
+  again only on `Changed` or when its evidence actually changes, never on
+  `ReturnAssociation`'s unchanged once-a-second poll, and an admitted snapshot
+  is read before a pending re-read. A daemon
   without the interface leaves the normal background and is not asked again
   until its owner changes.
 - **Evidence.** The gate's evidence is the shell's own: Home visibility, target
@@ -108,7 +111,8 @@ reads `Background1` for Home:
   retire the frame whenever any unrelated window opened or closed.
 - **Reading.** `ReadFrame` runs only for a ready snapshot that the evidence
   accepts. The descriptor is duplicated and validated (seals, exact size)
-  before a positional copy on a one-thread pool. A failed read is not retried
+  before a positional copy on a one-thread pool. That worker also builds the
+  `QImage`, so the GUI thread only installs it. A failed read is not retried
   for the same revision, so a persistent failure cannot loop.
 - **Rendering.** The copy becomes a `QImage` served by the `arinn-activity`
   image provider under a per-frame serial; a released frame's URL resolves to

@@ -27,7 +27,8 @@ Ambient after: 5, 10, 15, 30 or 60 minutes, 10 by default). They are ordinary
 rows on this screen. `SettingsCatalog` also exposes them as `lightField` and
 `ambientTimeoutMinutes` for `Main.qml`, which binds the light field behind Home
 to `lightField`. An invalid hand-edited value of either key in `config.toml`
-reads as its default, with one warning line and no value in the log. The titles, descriptions and option titles of the `arinn`
+reads as its default, with one warning line and no value in the log. The
+titles, descriptions and option titles of the `arinn`
 source are shown translated; provider texts are shown as sent.
 
 ## What the view receives

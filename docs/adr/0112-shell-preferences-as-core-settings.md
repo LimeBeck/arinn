@@ -42,7 +42,9 @@ schema.
   writes one warning line per key and process, with the key name and no value
   (§14.1). Every other key keeps its strict rules. Owner decision on 2026-10-22
   ([#488](https://github.com/LimeBeck/arinn/pull/488)). `SetValue` still accepts
-  only the offered values.
+  only the offered values. The invalid value stays in the file until the
+  daemon next saves it: saving any setting rewrites `config.toml` with the
+  default in its place.
 - **Texts.** The daemon sends English source texts, as before. The shell shows
   the titles, descriptions and option titles of the `arinn` source translated
   (its `SettingsCatalog` context); provider texts are shown as the provider
@@ -86,7 +88,8 @@ schema.
 - `crates/arinnd/tests/storage.rs` (`shell_preferences_default_and_validate`,
   `invalid_hand_edited_preferences_fall_back_to_defaults`): an older file loads
   with the defaults; invalid hand-edited preferences read as the defaults and
-  are reported once, while other keys stay strict.
+  are reported by `Config::load_reporting`, repeated loads keep no state, and
+  other keys stay strict.
 - `crates/arinnd/src/runtime/settings_tests.rs`
   (`an_invalid_hand_edited_timeout_reads_as_the_default`): the daemon still
   serves its settings, with the default timeout.

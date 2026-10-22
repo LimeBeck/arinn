@@ -398,7 +398,6 @@ fn invalid_hand_edited_preferences_fall_back_to_defaults() {
     let dir = std::env::temp_dir().join(format!("arinn-prefs-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir(&dir).unwrap();
     std::fs::set_permissions(&dir, std::os::unix::fs::PermissionsExt::from_mode(0o700)).unwrap();
-    arinnd::storage::take_invalid_preferences();
     for (text, light, minutes, invalid) in [
         ("ambient_timeout = 7\n", true, 10, vec!["ambient_timeout"]),
         (
@@ -427,7 +426,7 @@ fn invalid_hand_edited_preferences_fall_back_to_defaults() {
             format!("schema_version = 1\nsearch_engine = \"kept\"\n{text}"),
         )
         .unwrap();
-        let loaded = arinnd::storage::Config::load(&dir).unwrap();
+        let (loaded, seen) = arinnd::storage::Config::load_reporting(&dir).unwrap();
         assert_eq!(
             (loaded.light_field, loaded.ambient_timeout),
             (light, minutes),
@@ -436,11 +435,21 @@ fn invalid_hand_edited_preferences_fall_back_to_defaults() {
         // The other keys are read as written.
         assert_eq!(loaded.search_engine, "kept");
         // Field order in the file decides the order they are seen.
-        let mut seen = arinnd::storage::take_invalid_preferences();
+        let mut seen = seen;
         seen.sort_unstable();
         let mut invalid = invalid;
         invalid.sort_unstable();
         assert_eq!(seen, invalid, "{text}");
+    }
+    // Repeated loads keep no state: each reports only its own file.
+    std::fs::write(
+        dir.join("config.toml"),
+        "schema_version = 1\nambient_timeout = 7\n",
+    )
+    .unwrap();
+    for _ in 0..3 {
+        let (_, seen) = arinnd::storage::Config::load_reporting(&dir).unwrap();
+        assert_eq!(seen, vec!["ambient_timeout"]);
     }
     // Other keys stay strict: a wrong type is still an invalid file.
     std::fs::write(

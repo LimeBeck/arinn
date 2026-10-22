@@ -118,6 +118,14 @@ jobs:
           mkdir -p /ci-cache/target
           if [ "$(du -s --block-size=1G /ci-cache/target | cut -f1)" -gt 12 ]; then rm -rf /ci-cache/target; mkdir /ci-cache/target; fi
           ln -sfn /ci-cache/target target
+      - name: Drop cached artifacts of the workspace's own crates
+        # A workspace crate's artifact name does not depend on its sources, so
+        # a cache restored from another branch could hand its stale rlib to
+        # the doctests (#485). Third-party dependencies stay cached.
+        run: |
+          cargo metadata --locked --no-deps --format-version 1 \
+            | python -c 'import json, sys; print("\n".join(p["name"] for p in json.load(sys.stdin)["packages"]))' \
+            | while read -r package; do cargo clean --locked -p "$package"; done
       - run: cargo fmt --all --check
       - run: cargo clippy --locked --all-targets -- -D warnings
       - run: cargo test --locked

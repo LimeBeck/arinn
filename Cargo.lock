@@ -38,6 +38,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "arinn-protocol",
+ "futures-util",
+ "libc",
  "tokio",
  "toml",
  "uuid",

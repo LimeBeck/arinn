@@ -15,6 +15,11 @@ case "$1" in
     echo 'to ${XDG_CONFIG_HOME:-$HOME/.config}/autostart/ and log in again.'
     echo 'Or choose the "Arinn" (Plasma) or "Arinn (XFCE)" session at login; do not'
     echo 'enable the autostart above for a user of the Arinn session.'
+    # An upgrade (the old version in $2) restarts the Arinn user services that
+    # still run the old binaries (#355); a first install starts nothing.
+    if [ -n "${2:-}" ]; then
+      /usr/lib/arinn/arinn-restart-user-services || true
+    fi
     ;;
 esac
 

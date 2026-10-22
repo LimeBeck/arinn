@@ -106,6 +106,10 @@ package() {
   install -Dm755 platform/kde/arinn-shell-launch "${pkgdir}/usr/lib/arinn/arinn-shell-launch"
   # Menu entry and icon (#289); starting Arinn from the menu does not enable autostart.
   install -Dm755 packaging/bin/arinn-open "${pkgdir}/usr/lib/arinn/arinn-open"
+  # Restarts running Arinn user services after an upgrade (#355).
+  install -Dm755 packaging/bin/arinn-restart-user-services "${pkgdir}/usr/lib/arinn/arinn-restart-user-services"
+  install -Dm644 packaging/arch/arinn-restart-user-services.hook \
+    "${pkgdir}/usr/share/libalpm/hooks/arinn-restart-user-services.hook"
   install -Dm644 packaging/desktop/org.arinn.Shell.desktop "${pkgdir}/usr/share/applications/org.arinn.Shell.desktop"
   install -Dm644 packaging/icons/org.arinn.Shell.svg "${pkgdir}/usr/share/icons/hicolor/scalable/apps/org.arinn.Shell.svg"
   # Dedicated Arinn login session and the switch to the plain desktop (ADR-0107).

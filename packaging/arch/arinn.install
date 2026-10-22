@@ -16,6 +16,9 @@ post_upgrade() {
   if [ "$(vercmp "$2" 0.1.0)" -le 0 ]; then
     post_install
   fi
+  # The libalpm hook arinn-restart-user-services.hook runs after the
+  # transaction (#355).
+  echo ':: Running Arinn sessions are restarted at the end of this transaction.'
 }
 
 pre_remove() {

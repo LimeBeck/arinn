@@ -64,6 +64,7 @@ override_dh_auto_install:
 	install -Dm755 platform/kde/arinn-kwin-adapter debian/arinn/usr/lib/arinn/arinn-kwin-adapter
 	install -Dm755 platform/kde/arinn-shell-launch debian/arinn/usr/lib/arinn/arinn-shell-launch
 	install -Dm755 packaging/bin/arinn-open debian/arinn/usr/lib/arinn/arinn-open
+	install -Dm755 packaging/bin/arinn-restart-user-services debian/arinn/usr/lib/arinn/arinn-restart-user-services
 	install -Dm644 packaging/desktop/org.arinn.Shell.desktop debian/arinn/usr/share/applications/org.arinn.Shell.desktop
 	install -Dm644 packaging/icons/org.arinn.Shell.svg \
 		debian/arinn/usr/share/icons/hicolor/scalable/apps/org.arinn.Shell.svg

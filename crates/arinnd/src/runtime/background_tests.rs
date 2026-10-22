@@ -579,18 +579,56 @@ async fn invalidation_releases_pending_and_ready_frames_without_resurrection() {
 #[tokio::test]
 async fn a_quick_return_and_home_is_a_new_lifetime() {
     let f = Fixture::new().await;
-    let producer = f.producer(&f.kwin).await;
     let context = f.pending().await;
-    producer
+    f.producer(&f.kwin)
+        .await
         .publish(&frame(&context, 2, 2, memfd(&pixels(), SEALED)))
         .await
         .unwrap();
-    // Hidden and shown again before anything reconciles in between: the
-    // same target and output still start a fresh request.
-    f.hide().await;
-    f.home("activity", "screen").await;
+    // Hold the attempt state so nothing reconciles while Home is hidden and
+    // shown again with the same target and output.
+    let background = f.core.background.get().unwrap().clone();
+    let held = background.inner.lock().await;
+    zbus::Proxy::new(
+        &f.kwin,
+        production::SERVICE,
+        production::PATH,
+        production::SERVICE,
+    )
+    .await
+    .unwrap()
+    .call::<_, _, ()>("ReportHome", &(false, "activity", "screen"))
+    .await
+    .unwrap();
+    let kwin = f.kwin.clone();
+    let request = tokio::spawn(async move {
+        ProductionDaemonProxy::new(&kwin)
+            .await
+            .unwrap()
+            .report_home_request("activity", "screen")
+            .await
+            .unwrap();
+    });
+    // Both reports are committed before the held state is released.
+    tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            let evidence = f.core.windows.home_evidence(&f.core.platform, None).await;
+            // The hide was committed above, so visible means the request is.
+            if evidence.visible {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    drop(held);
+    request.await.unwrap();
     let snapshot = f.get().await;
-    assert_eq!(snapshot.state, "pending");
+    assert_eq!(
+        snapshot.state, "pending",
+        "a new lifetime, not the old frame"
+    );
     assert!(snapshot.context.is_empty());
     error(
         f.reader(&f.shell)
@@ -610,33 +648,50 @@ async fn a_new_shell_owner_never_reads_the_previous_frame() {
         .publish(&frame(&context, 2, 2, memfd(&pixels(), SEALED)))
         .await
         .unwrap();
-    // The successor reads at once, possibly before the owner change is
-    // processed: the frame is bound to the shell that owned the name.
+    // Keep the reconciler busy (an evidence change that invalidates nothing
+    // waits behind the held state), so it cannot process the owner change
+    // before the successor reads.
+    let background = f.core.background.get().unwrap().clone();
+    let held = background.inner.lock().await;
+    f.associate("activity", &f.tokens[0]).await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
     f.shell.release_name(SHELL_SERVICE).await.unwrap();
     f.stranger.request_name(SHELL_SERVICE).await.unwrap();
-    assert!(
-        f.reader(&f.stranger)
+    let stranger = f.stranger.clone();
+    let request = context.request_id.clone();
+    let read = tokio::spawn(async move {
+        BackgroundProxy::new(&stranger)
             .await
-            .read_frame(&context.request_id)
+            .unwrap()
+            .read_frame(&request)
             .await
-            .is_err()
-    );
+    });
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    drop(held);
+    // The frame is bound to the shell that owned the name at publication.
+    error(read.await.unwrap(), "PermissionDenied");
 }
 
 #[tokio::test]
 async fn a_closed_session_guard_fails_closed() {
     let mut f = Fixture::new().await;
     let context = f.pending().await;
+    f.producer(&f.kwin)
+        .await
+        .publish(&frame(&context, 2, 2, memfd(&pixels(), SEALED)))
+        .await
+        .unwrap();
+    // A ready frame has no deadline. The guard's sender goes away with its
+    // last value "unblocked": that is unknown, so the frame is dropped.
     let (replacement, _) = watch::channel(false);
-    // The guard's sender goes away with its last value "unblocked".
     drop(std::mem::replace(&mut f.blocked, replacement));
     f.wait_state("unavailable", true).await;
     error(
-        f.producer(&f.kwin)
+        f.reader(&f.shell)
             .await
-            .publish(&frame(&context, 2, 2, memfd(&pixels(), SEALED)))
+            .read_frame(&context.request_id)
             .await,
-        "Conflict",
+        "Unavailable",
     );
 }
 

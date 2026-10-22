@@ -444,10 +444,13 @@ mod tests {
             })
         };
         // The session locks while the probe still waits for its stale reply.
+        // The service announces it on its other endpoint path, which the
+        // probe has not selected, so only the probe fence notices it.
         tokio::time::sleep(Duration::from_millis(150)).await;
         lock.0.store(true, Ordering::SeqCst);
         let emitter =
-            zbus::object_server::SignalEmitter::new(&screensaver, "/ScreenSaver").unwrap();
+            zbus::object_server::SignalEmitter::new(&screensaver, "/org/freedesktop/ScreenSaver")
+                .unwrap();
         SlowLock::active_changed(&emitter, true).await.unwrap();
         tokio::time::sleep(Duration::from_millis(1500)).await;
         assert!(

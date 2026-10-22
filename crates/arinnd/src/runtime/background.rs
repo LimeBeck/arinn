@@ -409,7 +409,15 @@ impl Background {
         let now = Instant::now();
         let change = Self::reconcile(&mut inner, &evidence, self.blocked(), now);
         let mut outcome = Self::commit(&mut inner, change, now);
-        let result = if evidence.owner != sender {
+        // Revalidate the selected platform owner at commit: an owner change
+        // queued after authorization never lets the former owner install.
+        let platform_owner = match crate::platform::adapter_service() {
+            Some(service) => self.owner_of(service).await.ok().flatten(),
+            None => None,
+        };
+        let result = if evidence.owner != sender
+            || platform_owner.as_deref() != Some(sender.as_str())
+        {
             Err(ErrorCode::PermissionDenied)
         } else if frame.context.epoch != self.epoch || inner.exhausted {
             Err(ErrorCode::Conflict)

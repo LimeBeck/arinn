@@ -147,7 +147,8 @@ and the existing [runtime experiment](background-experiment.md).
 root ([#149](https://github.com/LimeBeck/arinn/issues/149)). It follows the
 contract above; these are the implementation choices within it:
 
-- **Arming.** Only a committed `Daemon1.ReportHomeRequest` arms an attempt, and
+- **Arming.** The handoff is exported before `Daemon1`, so no Home request
+  arrives before it exists. Only a committed `Daemon1.ReportHomeRequest` arms an attempt, and
   only with a non-empty target and output that still match the committed Home
   report. The EWMH adapter reports no output yet, so it arms nothing until its
   producer supplies one. `ReportHome` and adapter reconnects never arm.
@@ -186,6 +187,9 @@ contract above; these are the implementation choices within it:
   invalidates; publication without a shell owner is `Conflict`. A ready frame
   is bound to the shell owner at publication, so a successor never reads it,
   even before the owner change is processed.
+- **Publisher.** At commit, `Publish` re-reads the selected platform service's
+  owner, so a former owner cannot install a frame after an owner change it
+  raced with.
 - **Descriptors.** `Publish` checks `fstat` (regular file, exact size) and
   `F_GET_SEALS` (write, grow and shrink) before taking the state lock. The
   daemon never maps or reads pixels. `ReadFrame` returns a close-on-exec

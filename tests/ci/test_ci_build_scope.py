@@ -45,23 +45,34 @@ def value(text: str, key: str) -> str:
     return match.group(1)
 
 
+# The arinn-kwin-background target's QML module (ADR-0087).
+KWIN_BACKGROUND = {
+    f"build/platform/kde/background/qml/org/arinn/background/{name}"
+    for name in ("qmldir", "arinn-kwin-background.qmltypes", "libarinn-kwin-background.so")
+}
+
+
 class PackageBuildTest(unittest.TestCase):
     def test_package_builds_only_the_installed_shell_target(self):
-        self.assertIn("cmake --build build --target arinn-shell\n", function("build"))
+        self.assertIn("cmake --build build --target arinn-shell arinn-kwin-background\n",
+                      function("build"))
         # Everything package() takes from the CMake tree must come from that
         # target or from configure time; anything else would not be built.
         used = set(re.findall(r"\bbuild/[^\s\"]+", function("package")))
         self.assertEqual(used, {
             "build/apps/arinn-shell/arinn-shell",
+            *KWIN_BACKGROUND,
             "build/observability/native/licenses/*-LICENSE",
         })
 
     def test_debian_package_builds_only_the_installed_shell_target(self):
         build = re.search(r"^override_dh_auto_build:\n(.*?)\n\n", DEB_RULES, re.M | re.S).group(1)
-        self.assertIn("cmake --build build --target arinn-shell\n", build + "\n")
+        self.assertIn("cmake --build build --target arinn-shell arinn-kwin-background\n",
+                      build + "\n")
         install = re.search(r"^override_dh_auto_install:\n(.*?)\n\n", DEB_RULES, re.M | re.S).group(1)
         self.assertEqual(set(re.findall(r"\bbuild/[^\s\"]+", install)), {
             "build/apps/arinn-shell/arinn-shell",
+            *KWIN_BACKGROUND,
             "build/observability/native/licenses/*-LICENSE",
         })
 

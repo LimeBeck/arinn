@@ -24,6 +24,8 @@ configure_file(apps/arinn-shell/arinn_build_id.h.in
     ${CMAKE_BINARY_DIR}/generated/arinn_build_id.h @ONLY)
 include_directories(${CMAKE_BINARY_DIR}/generated)
 add_subdirectory(apps/arinn-shell)
+# In-process KWin producer of Activity background frames (ADR-0087).
+add_subdirectory(platform/kde/background)
 add_subdirectory(scripts/perf)
 add_test(NAME session-failure-notice
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/package/test_session_failed.py)

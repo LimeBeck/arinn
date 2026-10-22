@@ -26,6 +26,7 @@ PREFIX = Path(os.environ.get("ARINN_PREFIX", "/usr"))
 UNITS = PREFIX / "lib/systemd/user"
 ADAPTER = PREFIX / "lib/arinn/arinn-kwin-adapter"
 SCRIPT = PREFIX / "share/arinn/kwin/phase0.js"
+BACKGROUND = PREFIX / "share/arinn/kwin/background.qml"
 NAMES = ["arinn-session.target", "arinnd.service", "arinn-shell.service", "arinn-kwin.service"]
 
 ALL_NAMES = NAMES + ["arinn-ewmh.service", "arinn-ewmh-session.target", "arinn-session-failed@.service"]
@@ -34,6 +35,14 @@ for name in ALL_NAMES:
     assert (UNITS / name).is_file(), f"missing unit {name}"
 assert ADAPTER.is_file() and os.access(ADAPTER, os.X_OK), "missing KWin adapter loader"
 assert SCRIPT.is_file(), "missing KWin script"
+# Activity background producer (ADR-0087): the declarative script and the
+# org.arinn.background QML module it imports, in the distribution's Qt QML dir.
+assert BACKGROUND.is_file(), "missing KWin background script"
+modules = list(PREFIX.glob("lib/qt6/qml/org/arinn/background/qmldir")) + \
+    list(PREFIX.glob("lib/*/qt6/qml/org/arinn/background/qmldir"))
+assert len(modules) == 1, f"missing org.arinn.background QML module: {modules}"
+assert "module org.arinn.background" in modules[0].read_text()
+assert any(p.suffix == ".so" for p in modules[0].parent.iterdir()), "missing QML plugin"
 assert (PREFIX / "lib/arinn/arinn-shell-launch").is_file(), "missing shell launcher"
 XFCE = PREFIX / "lib/arinn/arinn-xfce-session"
 assert XFCE.is_file() and os.access(XFCE, os.X_OK), "missing XFCE session helper"
@@ -73,7 +82,7 @@ if shutil.which("pacman") and PREFIX == Path("/usr"):
                 if Path(path).is_file() and os.access(path, os.X_OK)
                 and path.startswith(("/usr/bin/", "/usr/lib/arinn/")) and path != "/usr/bin/arinnctl"]
     assert "/usr/bin/arinnd" in binaries, binaries
-    for path in binaries + ["/usr/share/arinn/kwin/phase0.js"]:
+    for path in binaries + ["/usr/share/arinn/kwin/phase0.js", "/usr/share/arinn/kwin/background.qml"]:
         assert any(fnmatch.fnmatchcase(path[1:], target) for target in targets), path
 else:
     print("SKIP: the libalpm hook is checked only for the installed Arch package")
@@ -148,7 +157,9 @@ FAKE_BUSCTL = """#!/bin/sh
 echo "$*" >> "$FAKE_LOG"
 case "$*" in
 *"isScriptLoaded s arinn-phase0"*) echo "b ${FAKE_PHASE0:-false}" ;;
+*"isScriptLoaded s arinn-background"*) echo "b ${FAKE_BACKGROUND_LOADED:-false}" ;;
 *"isScriptLoaded s arinn"*) echo "b ${FAKE_LOADED:-false}" ;;
+*loadDeclarativeScript*) echo "${FAKE_BACKGROUND_LOAD:-i 8}" ;;
 *loadScript*) echo "${FAKE_LOAD:-i 7}" ;;
 *"org.kde.kwin.Script run"*) ;;
 *unloadScript*) exit "${FAKE_UNLOAD_RC:-0}" ;;
@@ -165,19 +176,29 @@ with tempfile.TemporaryDirectory(prefix="arinn-kwin-") as folder:
     def adapter(action, **fake):
         log.write_text("")
         env = {**os.environ, "PATH": f"{root}:{os.environ['PATH']}", "FAKE_LOG": str(log),
-               "ARINN_KWIN_SCRIPT": str(SCRIPT), **fake}
+               "ARINN_KWIN_SCRIPT": str(SCRIPT), "ARINN_KWIN_BACKGROUND_SCRIPT": str(BACKGROUND), **fake}
         result = subprocess.run([str(ADAPTER), action], env=env, capture_output=True, text=True, timeout=30)
         return result.returncode, log.read_text().splitlines()
 
     code, calls = adapter("start")
     assert code == 0, calls
-    assert calls[-2] == (f"--user call org.kde.KWin /Scripting org.kde.kwin.Scripting "
+    assert calls[-5] == (f"--user call org.kde.KWin /Scripting org.kde.kwin.Scripting "
                          f"loadScript ss {SCRIPT} arinn"), calls
-    assert calls[-1] == "--user call org.kde.KWin /Scripting/Script7 org.kde.kwin.Script run", calls
+    assert calls[-4] == "--user call org.kde.KWin /Scripting/Script7 org.kde.kwin.Script run", calls
+    # The background producer follows; it never fails the unit.
+    assert calls[-2] == (f"--user call org.kde.KWin /Scripting org.kde.kwin.Scripting "
+                         f"loadDeclarativeScript ss {BACKGROUND} arinn-background"), calls
+    assert calls[-1] == "--user call org.kde.KWin /Scripting/Script8 org.kde.kwin.Script run", calls
+    code, calls = adapter("start", FAKE_BACKGROUND_LOAD="i -1")
+    assert code == 0 and calls[-1].endswith("arinn-background"), calls
 
     # Already loaded (unit restart): nothing is loaded twice.
+    code, calls = adapter("start", FAKE_LOADED="true", FAKE_BACKGROUND_LOADED="true")
+    assert code == 0 and not any("loadScript" in c or "loadDeclarativeScript" in c for c in calls), calls
+    # A main script left from before an upgrade still gets its producer.
     code, calls = adapter("start", FAKE_LOADED="true")
-    assert code == 0 and not any("loadScript" in c for c in calls), calls
+    assert code == 0 and not any(" loadScript " in c for c in calls), calls
+    assert any("loadDeclarativeScript" in c for c in calls), calls
 
     # KWin refusal and the competing developer adapter both fail the unit.
     code, calls = adapter("start", FAKE_LOAD="i -1")
@@ -187,7 +208,9 @@ with tempfile.TemporaryDirectory(prefix="arinn-kwin-") as folder:
 
     # Stopping never fails, even when KWin has already gone away.
     code, calls = adapter("stop")
-    assert code == 0 and calls == ["--user call org.kde.KWin /Scripting org.kde.kwin.Scripting unloadScript s arinn"]
+    assert code == 0 and calls == [
+        "--user call org.kde.KWin /Scripting org.kde.kwin.Scripting unloadScript s arinn-background",
+        "--user call org.kde.KWin /Scripting org.kde.kwin.Scripting unloadScript s arinn"], calls
     assert adapter("stop", FAKE_UNLOAD_RC="1")[0] == 0
     assert adapter("bogus")[0] == 2
 

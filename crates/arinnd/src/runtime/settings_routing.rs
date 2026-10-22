@@ -15,8 +15,14 @@ const SCHEMA_TIMEOUT: Duration = Duration::from_secs(2);
 const APPLY_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// The daemon's own settings. `search_engine` is listed only when engines
-/// are packaged (ADR-0066); its default is the first one.
+/// are packaged (ADR-0066); its default is the first one. `light_field` and
+/// `ambient_timeout` are the shell's presentation preferences (ADR-0112).
+/// Titles are English source texts; the shell translates them.
 fn daemon_schema(engines: &[crate::browse::Engine]) -> Vec<Setting> {
+    let timeouts: Vec<Value> = crate::storage::AMBIENT_TIMEOUTS
+        .iter()
+        .map(|minutes| serde_json::json!({"value": minutes.to_string(), "title": format!("{minutes} min")}))
+        .collect();
     let mut schema = vec![Setting {
         id: "browser_application".into(),
         category: "applications".into(),
@@ -25,6 +31,24 @@ fn daemon_schema(engines: &[crate::browse::Engine]) -> Vec<Setting> {
         kind: settings::KIND_STRING.into(),
         value: "\"\"".into(),
         constraints: r#"{"max_length":255}"#.into(),
+        enabled: true,
+    }, Setting {
+        id: "light_field".into(),
+        category: "appearance".into(),
+        title: "Light field".into(),
+        description: "Soft light from the focused item's artwork behind Home".into(),
+        kind: settings::KIND_BOOLEAN.into(),
+        value: "true".into(),
+        constraints: "{}".into(),
+        enabled: true,
+    }, Setting {
+        id: "ambient_timeout".into(),
+        category: "appearance".into(),
+        title: "Ambient after".into(),
+        description: "Idle time on an Arinn screen before the ambient screen appears".into(),
+        kind: settings::KIND_ENUM.into(),
+        value: r#""10""#.into(),
+        constraints: serde_json::json!({ "options": timeouts }).to_string(),
         enabled: true,
     }];
     if let Some(first) = engines.first() {
@@ -60,6 +84,11 @@ fn stored_values(config: &Config, provider: &str) -> Map<String, Value> {
                 Value::String(config.search_engine.clone()),
             );
         }
+        map.insert("light_field".into(), Value::Bool(config.light_field));
+        map.insert(
+            "ambient_timeout".into(),
+            Value::String(config.ambient_timeout.to_string()),
+        );
         return map;
     }
     config
@@ -296,10 +325,17 @@ impl Core {
         let mut config = Config::load(&directory)?;
         let previous = config.clone();
         if id == DAEMON_PROVIDER_ID {
-            let value = value.as_str().unwrap_or_default().to_owned();
+            // The value already passed the schema check.
             match setting {
-                "search_engine" => config.search_engine = value,
-                _ => config.browser_application = value,
+                "light_field" => config.light_field = value.as_bool().unwrap_or(true),
+                "ambient_timeout" => {
+                    config.ambient_timeout = value
+                        .as_str()
+                        .and_then(|minutes| minutes.parse().ok())
+                        .ok_or(ErrorCode::InvalidArgument)?
+                }
+                "search_engine" => config.search_engine = value.as_str().unwrap_or_default().into(),
+                _ => config.browser_application = value.as_str().unwrap_or_default().into(),
             }
             return config.save(&directory);
         }

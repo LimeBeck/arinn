@@ -121,8 +121,12 @@ FocusScope {
     // Near while the Activity's own card has focus, otherwise far (handoff
     // Home 16). Never delays focus: it only replaces the plain background.
     property url activitySource: ""
+    // A Return Activity verified as a browser service is shown by the
+    // current-service card instead of its opaque entry.
     readonly property bool activityNear: screen === "home" && !navOpen && homeRow === "continue"
-        && returnActivityId.length > 0 && focusedEntry.id === returnActivityId
+        && returnActivityId.length > 0
+        && (focusedEntry.id === returnActivityId
+            || (returnIsWebService && focusedEntry.id === "current-service"))
     // Settings › Appearance › Light field (spec §15, ADR-0112).
     property bool ambientEnabled: true
     // The shell's input mode (ADR-0095); tests may assign it directly.

@@ -831,6 +831,29 @@ TestCase {
         home.activitySource = "";
         verify(!layer.visible);
     }
+    // A Return Activity verified as a browser service is the current-service
+    // card: focusing it brings the background near too.
+    function test_activity_background_near_for_a_web_service() {
+        const layer = child("activityBackground");
+        home.returnActivityId = "a";
+        home.activitySource = Qt.resolvedUrl("fixture-glow.svg");
+        home.continueEntries = [{id: "a", title: "Return"}, {id: "b", title: "Second"}];
+        home.showHome(); focused("entry-a");
+        // As in Main.qml: the verified service replaces the opaque entry.
+        home.currentServiceId = "tab";
+        home.currentServiceTitle = "Page";
+        home.returnIsWebService = true;
+        home.continueEntries = [{id: "b", title: "Second"}];
+        focused("entry-current-service");
+        compare(layer.near, true);
+        keyClick(Qt.Key_Right); focused("entry-b");
+        compare(layer.near, false);
+        keyClick(Qt.Key_Left); focused("entry-current-service");
+        compare(layer.near, true);
+        // Not a verified Return service: the card is not the Activity.
+        home.returnIsWebService = false;
+        compare(layer.near, false);
+    }
     function test_open_services_navigation_item() {
         keyClick(Qt.Key_Menu);
         focused("nav-0");

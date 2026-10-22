@@ -95,9 +95,17 @@ reads `Background1` for Home:
   A repeated Home clears the Return association until the adapter reports it
   again. The last window of the same target is kept meanwhile, because the
   daemon invalidates the frame itself when that window really goes away.
-- **Lock.** A blocked guard clears the frame synchronously, before any daemon
-  reply. Unlock never brings it back: the gate retires the request, and it also
-  retires a request first seen while blocked.
+- **Lock and lost evidence.** A blocked guard clears the frame synchronously,
+  before any daemon reply. Restoration never brings a frame back: the gate
+  retires the request on every evidence change. That includes a request first
+  seen while blocked, while Home was hidden or while the provider was down.
+  The only exemption is the Return window resolving after the snapshot while
+  everything else is live and unchanged.
+- **Inventory changes.** The shell keeps the resolved Return window while the
+  association is re-read. The daemon is the authority for removal: it
+  checks the token against the committed inventory atomically and publishes
+  the invalidation with `Changed`. Clearing on every `WindowsChanged` would
+  retire the frame whenever any unrelated window opened or closed.
 - **Reading.** `ReadFrame` runs only for a ready snapshot that the evidence
   accepts. The descriptor is duplicated and validated (seals, exact size)
   before a positional copy on a one-thread pool. A failed read is not retried
@@ -107,7 +115,8 @@ reads `Background1` for Home:
   nothing. The provider holds at most one frame (≤ 8 MiB) beside the gate's
   copy, and MultiEffect's blur textures follow the full-screen item.
 - **Home.** `HomeView` draws `ui/ActivityBackground.qml` behind its content:
-  near while the Activity's own card has focus, otherwise far, and no layer
+  near while the Activity's own card has focus (the current-service card for a
+  Return Activity verified as a browser service), otherwise far, and no layer
   outside the Home screen. While it shows, the ambient light field stays off.
   Focus never waits for the frame.
 

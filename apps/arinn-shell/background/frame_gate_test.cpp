@@ -118,6 +118,31 @@ int main() {
     check(completing.accept(snapshot()) && !completing.beginRead(), "incomplete evidence admits no read");
     completing.observe(evidence());
     check(completing.accept(snapshot()) && completing.beginRead().has_value(), "completed evidence admits the read");
+    // Home hidden or the provider down when the ready snapshot is first
+    // seen: restoring it is a new lifetime, never a read of that request.
+    for (int down = 0; down < 4; ++down) {
+      FrameGate lost;
+      auto e = evidence();
+      if (down == 0) e.home = false;
+      if (down == 1) e.providerLive = false;
+      if (down == 2) e.producerLive = false;
+      if (down == 3) e.shellLive = false;
+      lost.observe(e);
+      check(lost.accept(snapshot()) && !lost.beginRead(), "lost evidence admits no read");
+      lost.observe(evidence());
+      check(!lost.accept(snapshot()) && !lost.beginRead(), "restoration retires a request first seen while lost");
+    }
+    // Completion only while everything else is live: a window resolving
+    // together with a restored Home still retires.
+    {
+      FrameGate both;
+      auto e = evidence();
+      e.generation.clear(); e.token.clear(); e.home = false;
+      both.observe(e);
+      check(both.accept(snapshot()), "metadata accepted");
+      both.observe(evidence());
+      check(!both.accept(snapshot()), "window and Home together are not a completion");
+    }
     // A guard that was never safe is restored: the request is retired.
     FrameGate guarded;
     auto locked = evidence();

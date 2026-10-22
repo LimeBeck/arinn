@@ -795,6 +795,11 @@ TestCase {
         home.ambientSuppressed = true;
         verify(!glow.lit);
         home.ambientSuppressed = false;
+        // Settings › Appearance › Light field off (#389, ADR-0112).
+        home.ambientEnabled = false;
+        verify(!glow.lit);
+        home.ambientEnabled = true;
+        verify(glow.lit);
         keyClick(Qt.Key_Menu); focused("nav-0");
         keyClick(Qt.Key_Down); keyClick(Qt.Key_Return);
         compare(home.screen, "library");

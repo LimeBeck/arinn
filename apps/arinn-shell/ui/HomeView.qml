@@ -117,6 +117,8 @@ FocusScope {
     // True while an Activity background is shown (ADR-0027): the ambient
     // light field then stays off.
     property bool ambientSuppressed: false
+    // Settings › Appearance › Light field (spec §15, ADR-0112).
+    property bool ambientEnabled: true
     // The shell's input mode (ADR-0095); tests may assign it directly.
     property bool pointerMode: InputMode.pointerActive
     property bool actionsEnabled: false
@@ -569,6 +571,7 @@ FocusScope {
         anchors.fill: parent
         visible: !root.coveredByScreen
         lit: root.screen === "home" && root.homeState === "ready" && !root.ambientSuppressed
+             && root.ambientEnabled
              && root.ambientEntry !== null && root.homeRow !== "new"
         source: root.ambientEntry ? (root.ambientEntry.artwork || "") : ""
         tint: root.ambientEntry ? Theme.identityColor(root.ambientEntry.visualIdentity || root.ambientEntry.id) : "transparent"

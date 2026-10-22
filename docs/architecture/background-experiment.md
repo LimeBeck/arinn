@@ -120,14 +120,12 @@ the frame-gate tests, and `HomeNavigation::test_activity_background_near_and_far
 
 ### Remaining integration and qualification
 
-The shell consumer above is connected to Home. Necessary daemon and X11 work
-requires separately recorded implementation zones after checking active claims.
-The daemon still needs authenticated Background1/BackgroundCapture1 exports,
-explicit-Home arming, authoritative invalidation, the unrenewed 1500 ms deadline
-and producer/reader authorization. KDE still needs an in-process bounded worker,
-exact WindowThumbnail capture and publication from the selected platform owner's
-connection. X11 needs its selected-window producer. Until a producer publishes,
-Home keeps its normal background.
+The runtime is split across [#490](https://github.com/LimeBeck/arinn/pull/490)
+(daemon export), [#491](https://github.com/LimeBeck/arinn/pull/491) (shell consumer
+and Home), [#492](https://github.com/LimeBeck/arinn/pull/492) (KDE producer) and
+[#493](https://github.com/LimeBeck/arinn/pull/493) (X11 producer). The sections
+above describe what each delivers. Until the daemon export and a producer are
+both present, Home keeps its normal background.
 
 Before marking #149/G-5.2 complete, run runtime/private-bus lifecycle tests and
 obtain the owner-run device report specified by the contract: capture/publication

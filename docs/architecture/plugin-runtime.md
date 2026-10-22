@@ -158,6 +158,7 @@ The desktop ApplicationProvider owns browser application launch. The Chrome prov
   - `Browse1` ([ADR-0066](../adr/0066-address-and-search-contract.md), [#177](https://github.com/LimeBeck/arinn/issues/177)):
     - resolves typed text with `browse::resolve_input` and the selected engine, then opens the URL through the same path as `WebShortcuts1.Open`;
     - engines come from the packaged `/usr/share/arinn/search-engines.toml`, read once at start. The daemon setting `search_engine` (provider `arinn`) is an enum over them, and an empty or unknown value uses the first engine. With no engines, the setting is not listed and every search is `invalid`;
+    - the same `arinn` source holds the shell's preferences `light_field` and `ambient_timeout` ([ADR-0112](../adr/0112-shell-preferences-as-core-settings.md));
     - an accepted `Open` records the trimmed text in `browse_recent` in `state.sqlite3` (introduced in schema version 4), newest first, deduplicated, keeping five, and emits `RecentChanged`. Typed text and URLs are never logged.
 
 Verification:

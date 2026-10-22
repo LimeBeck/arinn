@@ -133,6 +133,59 @@ pub struct Config {
     /// Key bindings for the shell (ADR-0079).
     #[serde(default)]
     pub input: InputConfig,
+    /// The light field behind Home (spec §15, ADR-0112). A hand-edited
+    /// value of another type reads as the default.
+    #[serde(default = "yes")]
+    pub light_field: bool,
+    /// Minutes without input before automatic ambient (spec §5.7,
+    /// ADR-0112): one of [`AMBIENT_TIMEOUTS`]. Any other hand-edited value
+    /// reads as the default.
+    #[serde(default = "ambient_timeout")]
+    pub ambient_timeout: u32,
+}
+/// The ambient idle timeouts the shell offers, in minutes (ADR-0112).
+pub const AMBIENT_TIMEOUTS: [u32; 5] = [5, 10, 15, 30, 60];
+fn ambient_timeout() -> u32 {
+    10
+}
+
+static WARNED_LIGHT_FIELD: std::sync::Once = std::sync::Once::new();
+static WARNED_AMBIENT_TIMEOUT: std::sync::Once = std::sync::Once::new();
+
+/// Owner decision on #488: an invalid hand-edited preference never makes
+/// `config.toml` invalid. It is dropped from the parsed table, so it reads as
+/// the default. Returns the keys dropped. Nothing is kept between loads.
+fn drop_invalid_preferences(table: &mut toml::Table) -> Vec<&'static str> {
+    let mut dropped = Vec::new();
+    if table.get("light_field").is_some_and(|v| !v.is_bool()) {
+        table.remove("light_field");
+        dropped.push("light_field");
+    }
+    if let Some(value) = table.get("ambient_timeout") {
+        let offered = value
+            .as_integer()
+            .and_then(|minutes| u32::try_from(minutes).ok())
+            .is_some_and(|minutes| AMBIENT_TIMEOUTS.contains(&minutes));
+        if !offered {
+            table.remove("ambient_timeout");
+            dropped.push("ambient_timeout");
+        }
+    }
+    dropped
+}
+
+/// One warning line per key and process: the key, never the value (§14.1).
+fn warn_invalid_preference(key: &'static str) {
+    let once = match key {
+        "light_field" => &WARNED_LIGHT_FIELD,
+        _ => &WARNED_AMBIENT_TIMEOUT,
+    };
+    once.call_once(|| {
+        eprintln!(
+            "{}",
+            serde_json::json!({"level":"warn","component":"arinnd","provider_id":null,"request_id":null,"operation":"config-preference","setting":key,"error":"InvalidArgument","duration_ms":0})
+        );
+    });
 }
 /// `[input]`: extra keys per semantic action, `[input.bindings]`.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -156,6 +209,8 @@ impl Default for Config {
             browser_application: String::new(),
             search_engine: String::new(),
             input: InputConfig::default(),
+            light_field: true,
+            ambient_timeout: ambient_timeout(),
         }
     }
 }
@@ -175,6 +230,9 @@ impl Config {
         if !self.search_engine.is_empty() {
             validation::id(&self.search_engine)?;
         }
+        if !AMBIENT_TIMEOUTS.contains(&self.ambient_timeout) {
+            return Err(ErrorCode::InvalidArgument);
+        }
         for (id, instance) in &self.providers {
             validation::id(id)?;
             validation::id(&instance.plugin_id)?;
@@ -187,6 +245,11 @@ impl Config {
         Ok(())
     }
     pub fn load(directory: &Path) -> Result<Self, ErrorCode> {
+        Self::load_reporting(directory).map(|(config, _)| config)
+    }
+    /// [`Config::load`], plus the preference keys that were invalid and read
+    /// as their defaults (ADR-0112).
+    pub fn load_reporting(directory: &Path) -> Result<(Self, Vec<&'static str>), ErrorCode> {
         private_dir(directory)?;
         let path = directory.join("config.toml");
         let contents = match bounded_read(&path) {
@@ -194,7 +257,7 @@ impl Config {
             Err(ErrorCode::NotFound) => {
                 let config = Self::default();
                 config.save(directory)?;
-                return Ok(config);
+                return Ok((config, Vec::new()));
             }
             Err(error) => return Err(error),
         };
@@ -213,6 +276,10 @@ impl Config {
             "schema_version".into(),
             toml::Value::Integer(i64::from(SCHEMA)),
         );
+        let invalid = drop_invalid_preferences(table);
+        for key in &invalid {
+            warn_invalid_preference(key);
+        }
         let config: Self = document
             .try_into()
             .map_err(|_| ErrorCode::InvalidArgument)?;
@@ -220,7 +287,7 @@ impl Config {
         if version != i64::from(SCHEMA) {
             config.save(directory)?;
         }
-        Ok(config)
+        Ok((config, invalid))
     }
     pub fn save(&self, directory: &Path) -> Result<(), ErrorCode> {
         self.validate()?;

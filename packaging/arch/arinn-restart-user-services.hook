@@ -1,0 +1,18 @@
+# SPDX-FileCopyrightText: 2026 Arinn contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# After an upgrade, restart the Arinn user services that are running on the
+# old binaries (#355). Install and removal start or stop nothing.
+[Trigger]
+Type = Path
+Operation = Upgrade
+Target = usr/bin/arinnd
+Target = usr/bin/arinn-shell
+Target = usr/bin/arinn-platform-x11
+Target = usr/lib/arinn/*
+Target = usr/share/arinn/kwin/phase0.js
+
+[Action]
+Description = Restarting running Arinn user services...
+When = PostTransaction
+Exec = /usr/lib/arinn/arinn-restart-user-services

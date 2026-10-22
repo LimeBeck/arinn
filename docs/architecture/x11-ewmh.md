@@ -138,7 +138,10 @@ token.
   a viewable window, an LSB-first 32-bit TrueColor pixmap format (depth 24 or
   32) and at most 16 Mi pixels (a 64 MiB reply). It names the composited pixmap of the
   window's top-level frame with `NameWindowPixmap` and reads it with
-  `GetImage`. It never reads the root window or another window.
+  `GetImage`. The frame must show that window alone. A virtual root
+  (`__SWM_VROOT`), or a container that also holds another viewable client
+  window (one with `WM_STATE`), is declined. It never reads the root window or
+  another window.
 - **Conversion.** One pass reads the server's bytes, box-filters them into
   1920×1080 in premultiplied space (depth 24 is opaque), and unpremultiplies
   each output pixel, so transparent edges add no dark fringes and no full-size
@@ -149,7 +152,7 @@ token.
   unsupported format or the 1500 ms local guard cancels the attempt. Home then
   keeps its normal background.
 - **One worker.** A capture that outlives the guard keeps its worker slot until
-  it finishes. Any request that arrives meanwhile is cancelled at once as
+  it finishes, then drops its frame and descriptor at once. Any request that arrives meanwhile is cancelled at once as
   `busy`, so a stalled or grabbed server never accumulates threads or X
   connections.
 - **Lifetime.** Each request is handled once. A failed `Get` (an older daemon,
@@ -167,6 +170,9 @@ token.
     current window. The other holds a server grab: the stalled attempt is
     cancelled at the deadline, the next one is cancelled at once without a
     second capture, and a request after the release is published.
+
+  Another Xvfb test declines a container shared by two clients and a virtual
+  root, while capturing a frame that holds its client alone.
 
   They do not qualify xfwm's compositor, DPI or colour on the TV.
 

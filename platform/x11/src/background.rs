@@ -43,8 +43,8 @@ const MAX_SOURCE_PIXELS: u64 = 16 * 1024 * 1024;
 
 /// A current inventory row: the opaque token and its native window.
 pub type Windows = Vec<(String, Window)>;
-/// The capture worker's result: a bounded sealed frame, or none.
-type Work = tokio::task::JoinHandle<Result<Option<(u32, u32, OwnedFd)>>>;
+/// Set while a capture worker runs; the worker clears it when it finishes.
+type Busy = std::sync::Arc<std::sync::atomic::AtomicBool>;
 
 /// Publishes the current inventory rows to the producer.
 pub fn offer(windows: &watch::Sender<Windows>, rows: &[crate::native::Row]) {
@@ -82,7 +82,7 @@ pub async fn run(
     let mut done = String::new();
     // At most one capture worker: a timed-out one may finish, but no other
     // starts until it has (ADR-0087).
-    let mut worker: Option<Work> = None;
+    let worker = Busy::default();
     loop {
         match reader.get().await {
             Ok((snapshot,)) => {
@@ -92,15 +92,7 @@ pub async fn run(
                     && context.request_id != done
                 {
                     done = context.request_id.clone();
-                    produce(
-                        &c,
-                        &producer,
-                        context,
-                        &windows,
-                        display.clone(),
-                        &mut worker,
-                    )
-                    .await;
+                    produce(&c, &producer, context, &windows, display.clone(), &worker).await;
                 }
             }
             // A failed read (an older daemon, an exhausted epoch, a timeout)
@@ -119,7 +111,7 @@ async fn produce(
     context: &BackgroundContext,
     windows: &watch::Receiver<Windows>,
     display: Option<String>,
-    worker: &mut Option<Work>,
+    worker: &Busy,
 ) {
     let started = Instant::now();
     // Exact identity: the Return target is the token of one current window.
@@ -128,32 +120,33 @@ async fn produce(
         .iter()
         .find(|(token, _)| *token == context.window.token && *token == context.target)
         .map(|(_, xid)| *xid);
-    if worker.as_ref().is_some_and(|w| w.is_finished()) {
-        *worker = None;
-    }
+    use std::sync::atomic::Ordering;
     let outcome = match xid {
         None => Err("window"),
         // A previous capture is still running (a stalled or grabbed server).
-        Some(_) if worker.is_some() => Err("busy"),
+        Some(_) if worker.load(Ordering::SeqCst) => Err("busy"),
         Some(_) if !crate::unlocked(c).await => Err("session"),
         Some(xid) => {
-            let work = worker.insert(tokio::task::spawn_blocking(
-                move || -> Result<Option<(u32, u32, OwnedFd)>> {
+            worker.store(true, Ordering::SeqCst);
+            let slot = worker.clone();
+            let (sender, receiver) = tokio::sync::oneshot::channel();
+            tokio::task::spawn_blocking(move || {
+                let result = (|| -> Result<Option<(u32, u32, OwnedFd)>> {
                     let Some((width, height, rgba)) = capture(display.as_deref(), xid)? else {
                         return Ok(None);
                     };
                     Ok(Some((width, height, sealed(&rgba)?)))
-                },
-            ));
-            let result = tokio::time::timeout(DEADLINE, work).await;
-            if result.is_ok() {
-                *worker = None;
-            }
-            match result {
+                })();
+                slot.store(false, Ordering::SeqCst);
+                // After the deadline nobody waits: the frame and its sealed
+                // descriptor are dropped here, as soon as the worker ends.
+                let _ = sender.send(result);
+            });
+            match tokio::time::timeout(DEADLINE, receiver).await {
                 Ok(Ok(Ok(Some(frame)))) => Ok(frame),
                 Ok(Ok(Ok(None))) => Err("unsupported"),
                 Ok(_) => Err("capture"),
-                // The worker keeps its slot until it finishes.
+                // The worker keeps the slot until it finishes.
                 Err(_) => Err("deadline"),
             }
         }
@@ -214,6 +207,9 @@ pub fn capture(display: Option<&str>, xid: Window) -> Result<Option<(u32, u32, V
         }
         frame = tree.parent;
     }
+    if !exclusive(&c, frame, xid)? {
+        return Ok(None);
+    }
     let attributes = c.get_window_attributes(frame)?.reply()?;
     if attributes.map_state != MapState::VIEWABLE {
         return Ok(None);
@@ -253,6 +249,54 @@ pub fn capture(display: Option<&str>, xid: Window) -> Result<Option<(u32, u32, V
         "unexpected image size"
     );
     Ok(Some(bound(width, height, &image.data, format)))
+}
+
+/// Whether the root-level `frame` shows `client` alone. A virtual root
+/// (`__SWM_VROOT`) or a container that also holds another viewable client
+/// window (one with `WM_STATE`) would put other windows, or the desktop,
+/// into the frame's pixmap: such an ancestor is never captured. Window
+/// manager decorations below the frame carry no `WM_STATE` and are allowed.
+fn exclusive(
+    c: &impl x11rb::connection::Connection,
+    frame: Window,
+    client: Window,
+) -> Result<bool> {
+    if frame == client {
+        return Ok(true);
+    }
+    let atom = |name: &[u8]| -> Result<Atom> { Ok(c.intern_atom(false, name)?.reply()?.atom) };
+    let (vroot, wm_state) = (atom(b"__SWM_VROOT")?, atom(b"WM_STATE")?);
+    let mut stack = vec![frame];
+    let mut seen = 0usize;
+    while let Some(window) = stack.pop() {
+        seen += 1;
+        // Bounded walk: an unusually deep or wide tree is declined.
+        if seen > 1024 {
+            return Ok(false);
+        }
+        if window == client {
+            continue;
+        }
+        let has = |property: Atom| -> Result<bool> {
+            Ok(
+                c.get_property(false, window, property, AtomEnum::ANY, 0, 0)?
+                    .reply()?
+                    .type_
+                    != x11rb::NONE,
+            )
+        };
+        if has(vroot)? {
+            return Ok(false);
+        }
+        if window != frame
+            && has(wm_state)?
+            && c.get_window_attributes(window)?.reply()?.map_state == MapState::VIEWABLE
+        {
+            return Ok(false);
+        }
+        stack.extend(c.query_tree(window)?.reply()?.children);
+    }
+    Ok(true)
 }
 
 /// How 32-bit server pixels map to colour.
@@ -726,20 +770,96 @@ mod tests {
         assert!(asked.elapsed() < DEADLINE, "busy is immediate");
         assert_eq!(captures(), 1, "no second worker");
         // Once the server is released the worker finishes and frees its slot.
+        // Until then a request may still be refused as busy, so new requests
+        // follow until one is published.
         desktop.c.ungrab_server()?.check()?;
         desktop.c.flush()?;
-        tokio::time::sleep(Duration::from_millis(500)).await;
-        let third = "55555555-5555-4555-8555-555555555555";
-        *daemon.context.lock().unwrap() = Some(context(third));
-        changed().await;
-        tokio::time::timeout(Duration::from_secs(5), async {
+        tokio::time::timeout(Duration::from_secs(10), async {
+            let mut n = 0u32;
             while daemon.published.lock().unwrap().is_empty() {
-                tokio::time::sleep(Duration::from_millis(10)).await;
+                n += 1;
+                let request = format!("55555555-5555-4555-8555-{n:012}");
+                *daemon.context.lock().unwrap() = Some(context(&request));
+                changed().await;
+                tokio::time::sleep(Duration::from_millis(200)).await;
             }
         })
         .await?;
-        assert_eq!(captures(), 2);
+        assert_eq!(captures(), 2, "busy refusals never start a capture");
         task.abort();
+        Ok(())
+    }
+    #[test]
+    #[ignore = "requires Xvfb; isolated composited container capture"]
+    fn never_captures_a_container_shared_with_other_clients() -> Result<()> {
+        use crate::native::fixture::Desktop;
+        use x11rb::{protocol::composite::Redirect, wrapper::ConnectionExt as _};
+        let desktop = Desktop::new()?;
+        desktop.c.composite_query_version(0, 4)?.reply()?;
+        desktop
+            .c
+            .composite_redirect_subwindows(desktop.root, Redirect::MANUAL)?
+            .check()?;
+        desktop.compositing(true)?;
+        let wm_state = desktop.c.intern_atom(false, b"WM_STATE")?.reply()?.atom;
+        let frame = |w: u16| -> Result<Window> {
+            let id = desktop.c.generate_id()?;
+            desktop
+                .c
+                .create_window(
+                    0,
+                    id,
+                    desktop.root,
+                    0,
+                    0,
+                    w,
+                    100,
+                    0,
+                    WindowClass::INPUT_OUTPUT,
+                    0,
+                    &CreateWindowAux::new(),
+                )?
+                .check()?;
+            desktop.c.map_window(id)?.check()?;
+            Ok(id)
+        };
+        let client = |parent: Window, x: i16| -> Result<Window> {
+            let id = desktop.client("org.example.App.desktop", "")?;
+            desktop.c.reparent_window(id, parent, x, 0)?.check()?;
+            desktop
+                .c
+                .change_property32(PropMode::REPLACE, id, wm_state, wm_state, &[1, 0])?
+                .check()?;
+            desktop.c.map_window(id)?.check()?;
+            Ok(id)
+        };
+        // A reparenting manager's frame holding only the target: captured.
+        let own = frame(100)?;
+        let alone = client(own, 0)?;
+        desktop.c.flush()?;
+        assert!(capture(Some(&desktop.display), alone)?.is_some());
+        // A shared container (two clients), as under some EWMH managers.
+        let shared = frame(200)?;
+        let target = client(shared, 0)?;
+        let _other = client(shared, 100)?;
+        desktop.c.flush()?;
+        assert!(capture(Some(&desktop.display), target)?.is_none());
+        // A virtual root is never captured, even with one client.
+        let vroot = desktop.c.intern_atom(false, b"__SWM_VROOT")?.reply()?.atom;
+        let virtual_root = frame(100)?;
+        desktop
+            .c
+            .change_property32(
+                PropMode::REPLACE,
+                virtual_root,
+                vroot,
+                AtomEnum::WINDOW,
+                &[virtual_root],
+            )?
+            .check()?;
+        let inside = client(virtual_root, 0)?;
+        desktop.c.flush()?;
+        assert!(capture(Some(&desktop.display), inside)?.is_none());
         Ok(())
     }
     #[test]

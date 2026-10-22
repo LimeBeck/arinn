@@ -64,6 +64,8 @@ struct State {
     polling: bool,
     home: bool,
     home_revision: u64,
+    /// Counts Home becoming visible: one Home lifetime per value.
+    home_lifetime: u64,
     association: ReturnAssociation,
     exhausted: bool,
     media: MediaState,
@@ -86,6 +88,7 @@ impl Default for State {
             polling: false,
             home: false,
             home_revision: 0,
+            home_lifetime: 0,
             association: ReturnAssociation {
                 epoch: String::new(),
                 revision: 1,
@@ -104,10 +107,12 @@ impl State {
             let _ = command.reply.send(Err(ErrorCode::Unavailable));
         }
         let home = self.home;
+        let home_lifetime = self.home_lifetime;
         let association = self.association.clone();
         let exhausted = self.exhausted;
         *self = Self::default();
         self.home = home;
+        self.home_lifetime = home_lifetime;
         self.association = association;
         self.exhausted = exhausted;
         self.publish(self.association.target.clone(), Vec::new());
@@ -221,6 +226,9 @@ pub struct Windows {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HomeEvidence {
     pub visible: bool,
+    /// Changes each time Home becomes visible, so a quick Return and Home
+    /// with the same target is a new lifetime even if no reader saw it hidden.
+    pub lifetime: u64,
     pub target: String,
     pub output: String,
     /// The committed Return window of `target`, if the adapter reported it.
@@ -304,6 +312,7 @@ impl Windows {
         let output = platform.home_output().await;
         HomeEvidence {
             visible: s.home,
+            lifetime: s.home_lifetime,
             target: s.association.target.clone(),
             output,
             window: if s.exhausted {
@@ -371,6 +380,9 @@ impl Windows {
         platform.commit_home(visible, target, output).await;
         s.home_revision = next;
         let previous = s.association.revision;
+        if visible && !s.home {
+            s.home_lifetime = s.home_lifetime.wrapping_add(1);
+        }
         s.home = visible;
         s.publish(target.into(), Vec::new());
         s.announce_return(c, previous).await;

@@ -40,11 +40,15 @@ enum Phase {
         pixels: OwnedFd,
         width: u32,
         height: u32,
+        /// The Shell1 owner when the frame was installed: the only reader.
+        reader: String,
     },
     Unavailable,
 }
 struct Attempt {
     request_id: String,
+    /// The Home lifetime that armed it.
+    lifetime: u64,
     target: String,
     output: String,
     window: Option<WindowRef>,
@@ -146,6 +150,12 @@ impl Background {
         }
     }
 
+    /// The session guard; a guard that stopped reporting is unknown, hence
+    /// blocked (fail closed).
+    fn blocked(&self) -> bool {
+        *self.blocked.borrow() || self.blocked.has_changed().is_err()
+    }
+
     /// Home evidence, probing the attempt's resolved Return window.
     async fn evidence(&self, inner: &Inner) -> HomeEvidence {
         let probe = inner.attempt.as_ref().and_then(|a| a.window.as_ref());
@@ -175,8 +185,10 @@ impl Background {
         now: Instant,
     ) -> Option<Option<Reason>> {
         let attempt = inner.attempt.as_mut()?;
-        // Return, Home hide, target or output change end the Home lifetime.
+        // Return, Home hide (even one no reader saw), target or output change
+        // end the Home lifetime.
         if !evidence.visible
+            || evidence.lifetime != attempt.lifetime
             || evidence.target != attempt.target
             || evidence.output != attempt.output
         {
@@ -265,7 +277,7 @@ impl Background {
         let mut inner = self.inner.lock().await;
         let evidence = self.evidence(&inner).await;
         let now = Instant::now();
-        let change = Self::reconcile(&mut inner, &evidence, *self.blocked.borrow(), now);
+        let change = Self::reconcile(&mut inner, &evidence, self.blocked(), now);
         let outcome = Self::commit(&mut inner, change, now);
         drop(inner);
         self.emit(outcome).await;
@@ -281,7 +293,7 @@ impl Background {
         }
         let evidence = self.evidence(&inner).await;
         let now = Instant::now();
-        let blocked = *self.blocked.borrow();
+        let blocked = self.blocked();
         // A stale continuation or a lifetime that already ended is reconciled
         // first, so the check below sees only a live context.
         let change = Self::reconcile(&mut inner, &evidence, blocked, now);
@@ -294,13 +306,13 @@ impl Background {
             && evidence.visible
             && evidence.target == target
             && evidence.output == output;
-        let repeated = inner
-            .attempt
-            .as_ref()
-            .is_some_and(|a| a.target == target && a.output == output);
+        let repeated = inner.attempt.as_ref().is_some_and(|a| {
+            a.lifetime == evidence.lifetime && a.target == target && a.output == output
+        });
         if eligible && !repeated {
             inner.attempt = Some(Attempt {
                 request_id: uuid::Uuid::new_v4().to_string(),
+                lifetime: evidence.lifetime,
                 target: target.into(),
                 output: output.into(),
                 window: None,
@@ -326,7 +338,7 @@ impl Background {
         let mut inner = self.inner.lock().await;
         let evidence = self.evidence(&inner).await;
         let now = Instant::now();
-        let change = Self::reconcile(&mut inner, &evidence, *self.blocked.borrow(), now);
+        let change = Self::reconcile(&mut inner, &evidence, self.blocked(), now);
         let outcome = Self::commit(&mut inner, change, now);
         let snapshot = if inner.exhausted {
             Err(ErrorCode::Unavailable)
@@ -395,7 +407,7 @@ impl Background {
         let mut inner = self.inner.lock().await;
         let evidence = self.evidence(&inner).await;
         let now = Instant::now();
-        let change = Self::reconcile(&mut inner, &evidence, *self.blocked.borrow(), now);
+        let change = Self::reconcile(&mut inner, &evidence, self.blocked(), now);
         let mut outcome = Self::commit(&mut inner, change, now);
         let result = if evidence.owner != sender {
             Err(ErrorCode::PermissionDenied)
@@ -419,6 +431,7 @@ impl Background {
                             pixels,
                             width: frame.width,
                             height: frame.height,
+                            reader: shell.clone().unwrap_or_default(),
                         };
                         outcome.revision = Self::bump(&mut inner).or(outcome.revision);
                         outcome.log = Some(("background-ready", None, None, elapsed as u64));
@@ -444,7 +457,7 @@ impl Background {
             return Err(ErrorCode::PermissionDenied);
         }
         let now = Instant::now();
-        let change = Self::reconcile(&mut inner, &evidence, *self.blocked.borrow(), now);
+        let change = Self::reconcile(&mut inner, &evidence, self.blocked(), now);
         let mut outcome = Self::commit(&mut inner, change, now);
         let result = match inner.attempt.as_mut() {
             Some(attempt) if attempt.request_id == request_id => {
@@ -481,14 +494,21 @@ impl Background {
         let mut inner = self.inner.lock().await;
         let evidence = self.evidence(&inner).await;
         let now = Instant::now();
-        let change = Self::reconcile(&mut inner, &evidence, *self.blocked.borrow(), now);
+        let change = Self::reconcile(&mut inner, &evidence, self.blocked(), now);
         let outcome = Self::commit(&mut inner, change, now);
         let result = match &inner.attempt {
             Some(attempt) if attempt.request_id == request_id => match &attempt.phase {
+                // Bound to the shell that owned the reader name at
+                // publication: a successor never reads it, even before the
+                // owner change is processed.
+                Phase::Ready { reader, .. } if Some(reader) != sender.as_ref() => {
+                    Err(ErrorCode::PermissionDenied)
+                }
                 Phase::Ready {
                     pixels,
                     width,
                     height,
+                    ..
                 } => match (attempt.context(&self.epoch), pixels.try_clone()) {
                     // try_clone duplicates with close-on-exec.
                     (Some(context), Ok(copy)) => Ok(BackgroundFrame {
@@ -541,6 +561,7 @@ impl Background {
     async fn run(self) {
         let mut evidence = self.windows.subscribe_evidence();
         let mut blocked = self.blocked.clone();
+        let mut guard_open = true;
         let shells = match zbus::fdo::DBusProxy::new(&self.connection).await {
             Ok(bus) => bus
                 .receive_name_owner_changed_with_args(&[(0, SHELL_SERVICE)])
@@ -564,8 +585,10 @@ impl Background {
                     if changed.is_err() { return; }
                     self.refresh().await;
                 }
-                changed = blocked.changed() => {
-                    if changed.is_err() { return; }
+                changed = blocked.changed(), if guard_open => {
+                    // A closed guard is blocked from now on; keep following
+                    // everything else instead of stopping silently.
+                    guard_open = changed.is_ok();
                     self.refresh().await;
                 }
                 change = shells.next() => {

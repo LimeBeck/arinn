@@ -577,6 +577,70 @@ async fn invalidation_releases_pending_and_ready_frames_without_resurrection() {
 }
 
 #[tokio::test]
+async fn a_quick_return_and_home_is_a_new_lifetime() {
+    let f = Fixture::new().await;
+    let producer = f.producer(&f.kwin).await;
+    let context = f.pending().await;
+    producer
+        .publish(&frame(&context, 2, 2, memfd(&pixels(), SEALED)))
+        .await
+        .unwrap();
+    // Hidden and shown again before anything reconciles in between: the
+    // same target and output still start a fresh request.
+    f.hide().await;
+    f.home("activity", "screen").await;
+    let snapshot = f.get().await;
+    assert_eq!(snapshot.state, "pending");
+    assert!(snapshot.context.is_empty());
+    error(
+        f.reader(&f.shell)
+            .await
+            .read_frame(&context.request_id)
+            .await,
+        "Conflict",
+    );
+}
+
+#[tokio::test]
+async fn a_new_shell_owner_never_reads_the_previous_frame() {
+    let f = Fixture::new().await;
+    let context = f.pending().await;
+    f.producer(&f.kwin)
+        .await
+        .publish(&frame(&context, 2, 2, memfd(&pixels(), SEALED)))
+        .await
+        .unwrap();
+    // The successor reads at once, possibly before the owner change is
+    // processed: the frame is bound to the shell that owned the name.
+    f.shell.release_name(SHELL_SERVICE).await.unwrap();
+    f.stranger.request_name(SHELL_SERVICE).await.unwrap();
+    assert!(
+        f.reader(&f.stranger)
+            .await
+            .read_frame(&context.request_id)
+            .await
+            .is_err()
+    );
+}
+
+#[tokio::test]
+async fn a_closed_session_guard_fails_closed() {
+    let mut f = Fixture::new().await;
+    let context = f.pending().await;
+    let (replacement, _) = watch::channel(false);
+    // The guard's sender goes away with its last value "unblocked".
+    drop(std::mem::replace(&mut f.blocked, replacement));
+    f.wait_state("unavailable", true).await;
+    error(
+        f.producer(&f.kwin)
+            .await
+            .publish(&frame(&context, 2, 2, memfd(&pixels(), SEALED)))
+            .await,
+        "Conflict",
+    );
+}
+
+#[tokio::test]
 async fn the_unrenewed_deadline_ends_a_pending_attempt() {
     let f = Fixture::new().await;
     let started = Instant::now();

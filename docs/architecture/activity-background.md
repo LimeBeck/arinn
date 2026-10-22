@@ -159,11 +159,23 @@ contract above; these are the implementation choices within it:
 - **Repeated Home.** A repeated `ReportHomeRequest` clears the Return
   association until the adapter reports it again (ADR-0073). That transient
   empty association does not invalidate the attempt; a removed token, a new
-  inventory generation or a different reported window does.
+  inventory generation or a different reported window does. Every attempt is
+  bound to the Home lifetime that armed it (a counter of Home becoming
+  visible), so a quick Return and Home with the same target and output starts
+  a fresh request even if nothing reconciled while Home was hidden.
 - **Session guard.** `platform/session_lock.rs` mirrors the shell's guard on the
   daemon side: the first answering freedesktop/XFCE screensaver endpoint, pinned
-  to its owner, and `PrepareForSleep` on the system bus. Unknown state,
-  including no endpoint or an owner change, is blocked. Without a system bus,
+  to its owner, and `PrepareForSleep` on the system bus, accepted only from
+  the current `org.freedesktop.login1` owner and seeded from its
+  `PreparingForSleep` property. Unknown state is blocked, including:
+  - no endpoint, or an owner change;
+  - a failed or timed-out owner lookup of a preferred endpoint, which never
+    falls through to a weaker one;
+  - a probe reply overtaken by a lock, owner or sleep event, so the guard stays
+    blocked and probes again;
+  - a lagged or closed subscription, so the guard blocks and subscribes again.
+
+  A guard that stops reporting altogether counts as blocked. Without a system bus,
   sleep is seen only through the lock that KDE and XFCE take before suspend.
   The shell keeps its own guard and never waits for this one.
 - **Provider and owner loss.** The relevant provider is the selected platform
@@ -171,7 +183,9 @@ contract above; these are the implementation choices within it:
   attempt. An application provider's loss reaches the attempt through the
   inventory when its window goes away; the opaque target is never mapped to a
   provider. A change of the `org.arinn.Shell1` owner, including none, also
-  invalidates; publication without a shell owner is `Conflict`.
+  invalidates; publication without a shell owner is `Conflict`. A ready frame
+  is bound to the shell owner at publication, so a successor never reads it,
+  even before the owner change is processed.
 - **Descriptors.** `Publish` checks `fstat` (regular file, exact size) and
   `F_GET_SEALS` (write, grow and shrink) before taking the state lock. The
   daemon never maps or reads pixels. `ReadFrame` returns a close-on-exec

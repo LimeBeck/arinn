@@ -214,7 +214,30 @@ Removing a folder removes its items from the library and never deletes files. Ar
 
 Arinn provides one system overlay for Home, Back, Play/Pause, volume, mute, the power menu and Settings. Each action is executed by the platform layer or the matching provider. CEC is not part of the architecture; TV control (for example webOS) is added later through the same plugin mechanism, never in the core.
 
-**Media and volume keys.** While an external application has focus, Arinn does not register media or volume keys globally: Plasma handles them with its own OSD. Arinn handles them, and shows its own volume HUD, only while the shell is visible. This resolves OQ-04 by owner decision on 2026-09-28.
+**Quick menu.** A second global key opens the quick menu: a side sheet over the
+current Activity, without the fullscreen Home. Its keys are `quick_menu_shortcut`
+in `config.toml` and the remote's Menu key, owned by the platform layer like the
+Home keys ([§6.2](#62-keys)). The sheet holds, in this order:
+
+- **Now playing:** the current media session's title with play/pause (`Media1`);
+- **volume and mute** of the default audio output, executed by the platform layer;
+- **network status** (`SystemStatus1`);
+- **Sleep** and the **power menu**, as described under *Power* below;
+- **Open Home**, which replaces the sheet with the fullscreen Home, focus on Return when there is a return Activity and otherwise where Home puts it ([§6.1](#61-focus));
+- **Close Arinn**, as in global navigation.
+
+The sheet is the *sheet* focus scope ([§6.1](#61-focus)); focus starts on its
+first available row. The Activity stays visible behind it, as the live window or
+its last frame ([§12.3](#123-activity-background)); opening the sheet never
+pauses, stops or closes the Activity. Back closes the sheet and activates the
+same Activity ([§6.3](#63-home-and-back)). Pressing the key again while the sheet
+is open keeps it open; there is no toggle. A row whose source is unavailable says
+so and never pretends to succeed. Without the daemon the sheet stays usable in a
+degraded form: Open Home and Close Arinn remain available. Fullscreen Home and
+its global key are unchanged. Owner decision on 2026-10-10
+([#439](https://github.com/LimeBeck/arinn/issues/439)).
+
+**Media and volume keys.** While an external application has focus, Arinn does not register media or volume keys globally: Plasma handles them with its own OSD. Arinn handles them, and shows its own volume HUD, only while the shell is visible. This resolves OQ-04 by owner decision on 2026-09-28. The quick menu does not change this: media and volume keys pressed outside the shell never open it (owner decision on 2026-10-10, [#439](https://github.com/LimeBeck/arinn/issues/439)).
 
 **Power.**
 
@@ -222,6 +245,8 @@ Arinn provides one system overlay for Home, Back, Play/Pause, volume, mute, the 
 - **Restart** and **Shut down** require confirmation, with Cancel as the default focus. The list of applications that will be closed comes from the live registry. Confirmation never hides inhibitor or permission errors.
 - **Switch to desktop** is offered in the power menu while Arinn runs as the dedicated Arinn session. It ends the session and makes the next login of that user start the plain desktop session without Arinn. It requires the same confirmation as Restart and Shut down: the live list of applications that will be closed, Cancel as the default focus. A failed switch is shown as an error and the session continues. Inside an ordinary desktop session the action is not offered. Plugins never get this action ([§13](#13-security)).
 - **Return to Arinn** is a launcher on the plain desktop (its application menu). It does the reverse: it ends the desktop session through the desktop's own logout confirmation and makes the next login start the Arinn session. Owner decision on 2026-10-10 ([#438](https://github.com/LimeBeck/arinn/issues/438)).
+
+**Power button.** While Arinn runs, the remote's ⏻ power button (`KEY_POWER`) opens Arinn's power menu instead of the desktop's power dialog. The platform layer owns the key as a global key, like Global Home ([§12.1](#121-global-home)), so it works over an external Activity as well as inside the shell. Over an Activity the shell comes up as for Home, with the power menu open. Closing the menu with Back or Cancel leaves the shell where the request put it (§6.3). Pressing the key again while the menu is open keeps it open. Every action in the menu keeps its confirmation and its inhibitor and permission reporting above; the key itself never suspends or powers off. During ambient the key ends ambient and opens the menu. While the session is locked the shell stays hidden and the key opens nothing (see *Session lifecycle* below). The desktop's own power handling (Plasma PowerDevil, xfce4-power-manager) MUST NOT act on the key at the same time. Arinn arranges this only while it runs, through an inhibitor or a setting scoped to the running Arinn session, and never by a permanent change of the user's desktop settings; when Arinn stops, the desktop handles the key again. Owner decision on 2026-10-21 ([#481](https://github.com/LimeBeck/arinn/issues/481)).
 
 **Close Arinn.** Global navigation includes a **Close Arinn** action, reachable
 with D-pad/Select or the pointer even when the daemon is unavailable. It closes
@@ -240,7 +265,7 @@ session units only closes. Owner request on 2026-10-06
 ([#357](https://github.com/LimeBeck/arinn/issues/357),
 [ADR-0098](../adr/0098-restart-after-an-update.md)).
 
-**Ambient (screensaver).** Started by an explicit action or an idle timeout (10 minutes by default). Any key or pointer movement wakes the UI; the first wake event is consumed and triggers no action. Automatic ambient MUST NOT start while an external Activity is in the foreground **or** media is playing. The idle timer never triggers OS suspend. Ambient never stops applications.
+**Ambient (screensaver).** Started by an explicit action or an idle timeout (10 minutes by default; Settings › Appearance offers 5, 10, 15, 30 or 60 minutes, owner decision on 2026-10-21, [ADR-0112](../adr/0112-shell-preferences-as-core-settings.md)). Any key or pointer movement wakes the UI; the first wake event is consumed and triggers no action. Automatic ambient MUST NOT start while an external Activity is in the foreground **or** media is playing. The idle timer never triggers OS suspend. Ambient never stops applications.
 
 **Session lifecycle.** On lock or before sleep the shell hides regardless of daemon state and keeps the Activity context; after wake it re-checks the lock state before showing anything. If the lock state is unknown, the shell treats the session as locked ([session lifecycle](../architecture/session-lifecycle.md)). Lock/sleep observation MUST remain independent of daemon availability through an asynchronous, fail-closed platform lifecycle guard ([ADR-0041](../adr/0041-independent-session-lifecycle-guard.md)). The guard observes session state; it does not execute power or application commands.
 
@@ -264,8 +289,10 @@ Input modes: **D-pad mode** (cursor hidden, full focus treatment) and **pointer 
 | Enter / OK | Select |
 | Esc, Backspace | Back ([§6.3](#63-home-and-back)). In an editable text field Backspace deletes a character; Esc closes the topmost scope. |
 | Global Home | Global shortcut owned by the platform layer: `home_shortcut` in `config.toml` (default Meta+F12) and the remote's HomePage key. Owner decision of 2026-10-07 ([#286](https://github.com/LimeBeck/arinn/issues/286), [ADR-0094](../adr/0094-configurable-global-home-keys.md)) |
-| Menu | Toggle global navigation. A long press on an application tile in Applications or in Home favorites opens the tile action sheet: pin/unpin and, while the application runs, Close ([§5.5](#55-applications)). The sheet replaces the direct pin/unpin. Owner decision on 2026-10-01 ([#205](https://github.com/LimeBeck/arinn/issues/205)) |
+| Quick menu | Global shortcut owned by the platform layer: `quick_menu_shortcut` in `config.toml` (default Meta+F11) and the remote's Menu key (≡ on the G60S PRO BT). The platform registers the Menu key only while a window other than the shell has focus, so the shell keeps receiving Menu. Until the code that key sends is captured on the HTPC, it registers both Qt Menu and MenuKB. Opens the quick menu ([§5.7](#57-system-ui-power-and-ambient)) over the active application or over the shell. Owner decisions of 2026-10-10 and 2026-10-21 ([#439](https://github.com/LimeBeck/arinn/issues/439)) |
+| Menu | Inside the shell: toggle global navigation. A long press on an application tile in Applications or in Home favorites opens the tile action sheet: pin/unpin and, while the application runs, Close ([§5.5](#55-applications)). The sheet replaces the direct pin/unpin. Owner decision on 2026-10-01 ([#205](https://github.com/LimeBeck/arinn/issues/205)). Outside the shell, Menu opens the quick menu and no longer reaches the active application (Quick menu row; owner decision of 2026-10-21, [#439](https://github.com/LimeBeck/arinn/issues/439)) |
 | Media and volume keys | Media and volume actions; outside the shell Plasma handles them ([§5.7](#57-system-ui-power-and-ambient)) |
+| Power (⏻) | Global key owned by the platform layer while Arinn runs: opens the power menu ([§5.7](#57-system-ui-power-and-ambient)) |
 
 Outside the shell, keys belong to the active application. Arinn MUST NOT intercept Esc, Backspace or plain letters globally. The prototype's letter shortcuts (H, M, P, A, O) are development bindings, not product keys. The production mapping uses semantic actions and is configurable per device. First step, owner decision of 2026-10-03 ([#64](https://github.com/LimeBeck/arinn/issues/64)): extra keys per action are set in `config.toml` under `[input.bindings]` and apply inside the shell only; a Settings UI, per-device bindings and gamepads come later ([ADR-0079](../adr/0079-shell-input-bindings.md)).
 
@@ -281,7 +308,10 @@ Back MUST behave predictably and MUST NOT close the active application just beca
 | Nested screen | Go to the parent screen; at the top level of a section, go to Home. | Home. |
 | Home with a return Activity | Close Home and activate the same Activity. | Stay on Home, focus on Return; no toggle. |
 | Home without a return Activity | Open global navigation. | Stay on Home. |
+| Quick menu over an Activity | Close the quick menu and activate the same Activity. | Replace the quick menu with Home, focus on Return. |
 | External application | Back belongs to the external application. | The platform opens the Arinn overlay and remembers the return Activity. |
+
+The quick menu key ([§6.2](#62-keys)) works wherever the global Home key works. Over an external application the platform remembers the return Activity exactly as for Home, and the quick menu opens over that Activity. Over the shell it opens on top of the current screen like any sheet: Back closes it and focus returns to its opener. Without a return Activity, Back from the quick menu over an empty desktop shows Home. Repeating the key keeps the quick menu open.
 
 If the saved Activity disappears, Home stays open, briefly shows an unavailable state and moves focus by the rules of [§6.1](#61-focus). The next Back behaves as "Home without a return Activity". Opening Home by itself never pauses or stops anything.
 
@@ -668,7 +698,7 @@ The visual direction is **Quiet Spatial OS** — "Calm OS → Cinematic Content"
 - Onest and Material Symbols Rounded; text ≥ 24, action-critical text ≥ 26; tabular numerals; room for Russian labels ~30% longer;
 - interface language: Russian through Qt translations, following the system locale; English strings in the code are the source and the fallback for other locales. Owner decision on 2026-10-06 ([#363](https://github.com/LimeBeck/arinn/issues/363)); the handoff copy is the reference wording. Provider-supplied text (titles, setting names, error messages from plugins) is shown as delivered;
 - Ember `#FF8A3D` marks status, progress and brand only, never focus;
-- light field keyed to artwork hue, crossfaded over 900 ms, can be disabled, absent on system screens;
+- light field keyed to artwork hue, crossfaded over 900 ms, can be disabled (Settings › Appearance › Light field, on by default; [ADR-0112](../adr/0112-shell-preferences-as-core-settings.md)), absent on system screens;
 - all tokens, radii, elevation and motion timings as in the handoff and Design System v2;
 - loading, empty, error, disabled, pressed and focus states per the design system and the 22 screenshots.
 

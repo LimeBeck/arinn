@@ -18,6 +18,19 @@ and `ProvidersChanged` reload the snapshot; a missing daemon is unavailable.
 The QML does not call a daemon, a plugin process or a provider-supplied widget
 (R-03, R-04). Values are not logged.
 
+## The shell's own preferences
+
+The daemon's `arinn` source also holds the shell's presentation preferences
+([ADR-0112](../adr/0112-shell-preferences-as-core-settings.md)): `light_field`
+(Appearance › Light field, on by default) and `ambient_timeout` (Appearance ›
+Ambient after: 5, 10, 15, 30 or 60 minutes, 10 by default). They are ordinary
+rows on this screen. `SettingsCatalog` also exposes them as `lightField` and
+`ambientTimeoutMinutes` for `Main.qml`, which binds the light field behind Home
+to `lightField`. An invalid hand-edited value of either key in `config.toml`
+reads as its default, with one warning line and no value in the log. The
+titles, descriptions and option titles of the `arinn`
+source are shown translated; provider texts are shown as sent.
+
 ## What the view receives
 
 Category titles are model data. The QML does not embed those names or any
@@ -72,10 +85,13 @@ that button; Save and Cancel stay available. `KeyboardMonitor` reports a
 keyboard only when an input device of that type is present. Arrow keys and other
 remote navigation do not mark one. The first character key enables the field.
 
-A single path, and a path with `multiple`, stay plain text fields with Add and
-Remove. The folder list and the folder picker in specification §5.6 wait on
-the folder-listing contract
-([DR-27](../design/integration-review.md)).
+A single path, and a path with `multiple`, stay inline text fields with Add and
+Remove. While a path editor is open, its keyboard pill opens the
+[on-screen keyboard](ui-keyboard.md) in the same full-screen typing layer, with
+the `path` context row (KB-5); its main key saves as Enter does. Without a
+keyboard the editor opens on that pill. Subfolder suggestions, the folder list
+and the folder picker in specification §5.6 wait on the folder-listing
+contract ([DR-27](../design/integration-review.md)).
 
 ## Changes
 
@@ -118,7 +134,10 @@ and Back leave the row list for the categories, and on the category list emit
 the field (specification §6.2, AC-18). An enum, integer or string sheet is the
 top scope: Esc closes it without saving and returns focus to the row. Inside
 the integer sheet, Left and Right step the draft. Inside the string sheet,
-Down moves from the field to Save and Cancel. Replacing the row list (a
+Down moves from the field to Save and Cancel. In a path editor, Right at the
+end of the text reaches its keyboard pill and Left returns. Esc, Back and
+Backspace on a keyboard pill (a path editor's or the string sheet's) close
+the editor without proposing the draft: the pill is not a text field. Replacing the row list (a
 catalog publish) puts focus back on the same row control, or back into an open
 sheet, so Select still reaches it (AC-02). A pending row is not editable until
 that change settles.
@@ -128,7 +147,7 @@ that change settles.
 `tests/ui/tst_settings.qml` covers D-pad focus, the boolean, the integer sheet
 (bounds, hold acceleration, unit when present), the enum sheet (paging and a
 wrapping label), the string sheet, typing it with the on-screen keyboard, single-path and
-multiple-path text, a disabled row, pending and error text, an over-long
+multiple-path text, typing a path, a list item and *Add path* with the on-screen keyboard, a disabled row, pending and error text, an over-long
 string, saving toasts, a deferred row note, Back, the unavailable screen,
 focus kept across a row republish, and Select on a pending boolean.
 `apps/arinn-shell/settings_catalog_test.cpp` drives a fake `Settings1`:

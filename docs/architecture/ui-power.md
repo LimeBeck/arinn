@@ -94,8 +94,11 @@ ambient is a screensaver, not sleep.
 
 - **Start.** The power menu's Ambient row, or `AmbientIdle` after ten minutes
   without a key or genuine pointer movement in the shell (the
-  `InputModeSource` events of ADR-0095). The timeout is fixed at the
-  specification's default; there is no setting for it.
+  `InputModeSource` events of ADR-0095). The timeout is 10 minutes, the
+  specification's default, held in one place: `AmbientIdle.timeout`. By the
+  owner's answer of 2026-10-21 it becomes a setting under Settings ›
+  Appearance next to Light field, which replaces that single value
+  ([#389](https://github.com/LimeBeck/arinn/issues/389)).
 - **No automatic start** while the shell is hidden or its window inactive
   (an external Activity is in the foreground), while the session is locked,
   while ambient is already on, while a web service is launching, or while

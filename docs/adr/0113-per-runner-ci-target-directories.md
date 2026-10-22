@@ -24,8 +24,9 @@ runs `./target/debug` binaries. So a job on one instance rebuilt
 `arinn_protocol` from `master` while a pull request's job on the other instance
 was running its doctests and `phase1.py`. Three pull requests failed that way
 on 2026-10-22 (#470, #476 and #478; job timelines in
-[#485](https://github.com/LimeBeck/arinn/issues/485)), while `master` stayed
-green.
+[#485](https://github.com/LimeBeck/arinn/issues/485)). `master` runs passed in
+the same period only because no overlapping job replaced their artifacts at
+the wrong moment.
 
 ## Decision
 
@@ -37,9 +38,13 @@ green.
   `/ci-cache/target` that `actions/cache` restores and saves, because every
   hosted job starts on its own machine.
 - The 12 GB limit of ADR-0101 applies to each target directory.
-- The package jobs are unchanged. They build only for `master` and tags
-  ([ADR-0102](0102-packages-built-for-master-only.md)) and use their target
-  directories only for `cargo build` inside `makepkg` or `debuild`.
+- The package jobs are not changed here. They build only for `master`, the
+  nightly and tags ([ADR-0102](0102-packages-built-for-master-only.md)), but
+  they also run tests from their target directories (`check()` in the
+  PKGBUILD) and install from `target/release`, and both runner instances share
+  those directories too. Two overlapping master or nightly runs can therefore
+  race the same way; that is tracked separately
+  ([#489](https://github.com/LimeBeck/arinn/issues/489)).
 
 ## Consequences
 
@@ -50,6 +55,9 @@ green.
 - The first run on each instance after this change builds the workspace from
   scratch once; dependencies from the shared Cargo home are not downloaded
   again.
+- The old shared `/var/cache/arinn-ci/arch-ci/target` is no longer used and
+  keeps up to 12 GB on the runner host. It is deleted by hand once, when no job
+  from before this change is running.
 
 ## Alternatives considered
 

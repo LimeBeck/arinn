@@ -51,8 +51,10 @@ exit 9
 # The desktop runs until the test creates `stop`, or the wrapper forwards a
 # termination signal; it reports the bus address it was started with.
 DESKTOP = """#!/bin/sh
-# The mask is read before the trap below changes the signal dispositions.
-sigign=$(sed -n 's/^SigIgn:[[:space:]]*//p' /proc/$$/status)
+# The mask of a program the desktop starts (sed's own), read before the trap
+# below changes anything. Not the shell's own mask: bash ignores SIGQUIT for
+# itself and restores the inherited disposition for its children.
+sigign=$(sed -n 's/^SigIgn:[[:space:]]*//p' /proc/self/status)
 trap 'echo "desktop terminated" >> "$FAKE_LOG"; exit 0' TERM
 echo "desktop $(basename "$0") bus=${DBUS_SESSION_BUS_ADDRESS:-}" >> "$FAKE_LOG"
 echo "sigign $sigign" >> "$FAKE_LOG"

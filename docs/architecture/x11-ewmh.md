@@ -140,8 +140,9 @@ token.
   window's top-level frame with `NameWindowPixmap` and reads it with
   `GetImage`. The frame must show that window alone. A virtual root
   (`__SWM_VROOT`), or a container that also holds another viewable client
-  window (one with `WM_STATE`), is declined. It never reads the root window or
-  another window.
+  window (one with `WM_STATE`), is declined, and so is a frame in which the
+  target is no longer found or no longer viewable. It never reads the root
+  window or another window.
 - **Conversion.** One pass reads the server's bytes, box-filters them into
   1920×1080 in premultiplied space (depth 24 is opaque), and unpremultiplies
   each output pixel, so transparent edges add no dark fringes and no full-size
@@ -152,7 +153,8 @@ token.
   unsupported format or the 1500 ms local guard cancels the attempt. Home then
   keeps its normal background.
 - **One worker.** A capture that outlives the guard keeps its worker slot until
-  it finishes, then drops its frame and descriptor at once. Any request that arrives meanwhile is cancelled at once as
+  it finishes, then drops its frame and descriptor at once. A drop guard frees
+  the slot even if the worker panics. Any request that arrives meanwhile is cancelled at once as
   `busy`, so a stalled or grabbed server never accumulates threads or X
   connections.
 - **Lifetime.** Each request is handled once. A failed `Get` (an older daemon,

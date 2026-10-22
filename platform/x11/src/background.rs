@@ -128,16 +128,18 @@ async fn produce(
         Some(_) if !crate::unlocked(c).await => Err("session"),
         Some(xid) => {
             worker.store(true, Ordering::SeqCst);
-            let slot = worker.clone();
+            let slot = Release(worker.clone());
             let (sender, receiver) = tokio::sync::oneshot::channel();
             tokio::task::spawn_blocking(move || {
+                // Frees the slot when the worker ends, also by a panic.
+                let _slot = slot;
                 let result = (|| -> Result<Option<(u32, u32, OwnedFd)>> {
                     let Some((width, height, rgba)) = capture(display.as_deref(), xid)? else {
                         return Ok(None);
                     };
                     Ok(Some((width, height, sealed(&rgba)?)))
                 })();
-                slot.store(false, Ordering::SeqCst);
+                drop(_slot);
                 // After the deadline nobody waits: the frame and its sealed
                 // descriptor are dropped here, as soon as the worker ends.
                 let _ = sender.send(result);
@@ -251,6 +253,14 @@ pub fn capture(display: Option<&str>, xid: Window) -> Result<Option<(u32, u32, V
     Ok(Some(bound(width, height, &image.data, format)))
 }
 
+/// Clears the worker slot when dropped.
+struct Release(Busy);
+impl Drop for Release {
+    fn drop(&mut self) {
+        self.0.store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
 /// Whether the root-level `frame` shows `client` alone. A virtual root
 /// (`__SWM_VROOT`) or a container that also holds another viewable client
 /// window (one with `WM_STATE`) would put other windows, or the desktop,
@@ -261,6 +271,9 @@ fn exclusive(
     frame: Window,
     client: Window,
 ) -> Result<bool> {
+    let viewable = |window: Window| -> Result<bool> {
+        Ok(c.get_window_attributes(window)?.reply()?.map_state == MapState::VIEWABLE)
+    };
     if frame == client {
         return Ok(true);
     }
@@ -268,6 +281,7 @@ fn exclusive(
     let (vroot, wm_state) = (atom(b"__SWM_VROOT")?, atom(b"WM_STATE")?);
     let mut stack = vec![frame];
     let mut seen = 0usize;
+    let mut found = false;
     while let Some(window) = stack.pop() {
         seen += 1;
         // Bounded walk: an unusually deep or wide tree is declined.
@@ -275,6 +289,11 @@ fn exclusive(
             return Ok(false);
         }
         if window == client {
+            // Unmapped, or reparented elsewhere during the walk: no frame.
+            if !viewable(client)? {
+                return Ok(false);
+            }
+            found = true;
             continue;
         }
         let has = |property: Atom| -> Result<bool> {
@@ -288,15 +307,12 @@ fn exclusive(
         if has(vroot)? {
             return Ok(false);
         }
-        if window != frame
-            && has(wm_state)?
-            && c.get_window_attributes(window)?.reply()?.map_state == MapState::VIEWABLE
-        {
+        if window != frame && has(wm_state)? && viewable(window)? {
             return Ok(false);
         }
         stack.extend(c.query_tree(window)?.reply()?.children);
     }
-    Ok(true)
+    Ok(found)
 }
 
 /// How 32-bit server pixels map to colour.
@@ -737,7 +753,8 @@ mod tests {
                 .is_ok()
             }
         };
-        let captures = || {
+        // Xvfb reuses display numbers across tests: count from a baseline.
+        let count = || {
             CAPTURES
                 .lock()
                 .unwrap()
@@ -745,6 +762,8 @@ mod tests {
                 .filter(|d| **d == desktop.display)
                 .count()
         };
+        let baseline = count();
+        let captures = || count() - baseline;
         // Another client holds the server: the first capture stalls.
         desktop.c.grab_server()?.check()?;
         let first = "22222222-2222-4222-8222-222222222222";
@@ -838,6 +857,21 @@ mod tests {
         let alone = client(own, 0)?;
         desktop.c.flush()?;
         assert!(capture(Some(&desktop.display), alone)?.is_some());
+        // The client unmapped under a still-mapped frame: no stale frame.
+        desktop.c.unmap_window(alone)?.check()?;
+        desktop.c.flush()?;
+        assert!(capture(Some(&desktop.display), alone)?.is_none());
+        // Reparented out of its frame: the frame no longer holds it.
+        let moved = client(own, 0)?;
+        desktop
+            .c
+            .reparent_window(moved, desktop.root, 0, 0)?
+            .check()?;
+        desktop.c.flush()?;
+        assert!(
+            capture(Some(&desktop.display), moved)?.is_some(),
+            "now its own top level"
+        );
         // A shared container (two clients), as under some EWMH managers.
         let shared = frame(200)?;
         let target = client(shared, 0)?;

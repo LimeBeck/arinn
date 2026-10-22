@@ -133,18 +133,73 @@ pub struct Config {
     /// Key bindings for the shell (ADR-0079).
     #[serde(default)]
     pub input: InputConfig,
-    /// The light field behind Home (spec §15, ADR-0112).
-    #[serde(default = "yes")]
+    /// The light field behind Home (spec §15, ADR-0112). A hand-edited
+    /// value of another type reads as the default.
+    #[serde(default = "yes", deserialize_with = "lenient_light_field")]
     pub light_field: bool,
     /// Minutes without input before automatic ambient (spec §5.7,
-    /// ADR-0112): one of [`AMBIENT_TIMEOUTS`].
-    #[serde(default = "ambient_timeout")]
+    /// ADR-0112): one of [`AMBIENT_TIMEOUTS`]. Any other hand-edited value
+    /// reads as the default.
+    #[serde(
+        default = "ambient_timeout",
+        deserialize_with = "lenient_ambient_timeout"
+    )]
     pub ambient_timeout: u32,
 }
 /// The ambient idle timeouts the shell offers, in minutes (ADR-0112).
 pub const AMBIENT_TIMEOUTS: [u32; 5] = [5, 10, 15, 30, 60];
 fn ambient_timeout() -> u32 {
     10
+}
+
+thread_local! {
+    /// Preference keys this thread read as invalid, for tests.
+    static INVALID_PREFERENCES: std::cell::RefCell<Vec<&'static str>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+static WARNED_LIGHT_FIELD: std::sync::Once = std::sync::Once::new();
+static WARNED_AMBIENT_TIMEOUT: std::sync::Once = std::sync::Once::new();
+
+/// Owner decision on #488: an invalid hand-edited preference never makes
+/// `config.toml` invalid. It reads as the default, with one warning line per
+/// key and process. The value itself is never logged.
+fn invalid_preference(key: &'static str, once: &'static std::sync::Once) {
+    INVALID_PREFERENCES.with(|seen| seen.borrow_mut().push(key));
+    once.call_once(|| {
+        eprintln!(
+            "{}",
+            serde_json::json!({"level":"warn","component":"arinnd","provider_id":null,"request_id":null,"operation":"config-preference","setting":key,"error":"InvalidArgument","duration_ms":0})
+        );
+    });
+}
+
+/// The preference keys read as invalid on this thread since the last call.
+pub fn take_invalid_preferences() -> Vec<&'static str> {
+    INVALID_PREFERENCES.with(|seen| std::mem::take(&mut *seen.borrow_mut()))
+}
+
+fn lenient_light_field<'de, D: serde::Deserializer<'de>>(d: D) -> Result<bool, D::Error> {
+    match toml::Value::deserialize(d)? {
+        toml::Value::Boolean(value) => Ok(value),
+        _ => {
+            invalid_preference("light_field", &WARNED_LIGHT_FIELD);
+            Ok(true)
+        }
+    }
+}
+
+fn lenient_ambient_timeout<'de, D: serde::Deserializer<'de>>(d: D) -> Result<u32, D::Error> {
+    let value = match toml::Value::deserialize(d)? {
+        toml::Value::Integer(minutes) => u32::try_from(minutes).ok(),
+        _ => None,
+    };
+    match value.filter(|minutes| AMBIENT_TIMEOUTS.contains(minutes)) {
+        Some(minutes) => Ok(minutes),
+        None => {
+            invalid_preference("ambient_timeout", &WARNED_AMBIENT_TIMEOUT);
+            Ok(ambient_timeout())
+        }
+    }
 }
 /// `[input]`: extra keys per semantic action, `[input.bindings]`.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

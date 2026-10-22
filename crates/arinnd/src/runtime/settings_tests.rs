@@ -416,6 +416,27 @@ async fn the_shell_preferences_are_core_settings() {
     );
 }
 
+/// Owner decision on #488: a hand-edited invalid timeout does not break the
+/// daemon's settings; it reads as the default.
+#[tokio::test]
+async fn an_invalid_hand_edited_timeout_reads_as_the_default() {
+    let f = Fixture::new().await;
+    let api = f.api().await;
+    api.get_settings("arinn").await.unwrap();
+    let path = f.folder.join("config").join("config.toml");
+    let text = std::fs::read_to_string(&path).unwrap();
+    let text: String = text
+        .lines()
+        .filter(|line| !line.starts_with("ambient_timeout"))
+        .map(|line| format!("{line}\n"))
+        .collect();
+    // Top-level keys come before the first table.
+    std::fs::write(&path, format!("ambient_timeout = 7\n{text}")).unwrap();
+    let (_, settings) = api.get_settings("arinn").await.unwrap();
+    let ambient = settings.iter().find(|s| s.id == "ambient_timeout").unwrap();
+    assert_eq!(ambient.value, r#""10""#);
+}
+
 #[tokio::test]
 async fn the_daemon_export_matches_the_published_settings1_xml() {
     let f = Fixture::new().await;

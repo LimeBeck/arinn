@@ -35,8 +35,14 @@ schema.
 
 - **Ambient timeout.** The value is an `enum` of minutes rather than an
   `integer`, so the remote reaches each choice in one press. There is no
-  "never" value: the owner set only the default. A file with another number is
-  invalid, as for any other `config.toml` field.
+  "never" value: the owner set only the default.
+- **Hand-edited values.** An invalid hand-edited `light_field` or
+  `ambient_timeout` in `config.toml` (a wrong type, or a timeout that is not
+  offered) reads as the default and never makes the file invalid. The daemon
+  writes one warning line per key and process, with the key name and no value
+  (§14.1). Every other key keeps its strict rules. Owner decision on 2026-10-22
+  ([#488](https://github.com/LimeBeck/arinn/pull/488)). `SetValue` still accepts
+  only the offered values.
 - **Texts.** The daemon sends English source texts, as before. The shell shows
   the titles, descriptions and option titles of the `arinn` source translated
   (its `SettingsCatalog` context); provider texts are shown as the provider
@@ -77,9 +83,13 @@ schema.
   (`the_shell_preferences_are_core_settings`): the schema validates, the
   defaults are listed, the values are stored and read back, and an unoffered
   timeout is `InvalidArgument` with nothing stored.
-- `crates/arinnd/tests/storage.rs` (`shell_preferences_default_and_validate`):
-  an older file loads with the defaults, and only the offered timeouts are
-  valid.
+- `crates/arinnd/tests/storage.rs` (`shell_preferences_default_and_validate`,
+  `invalid_hand_edited_preferences_fall_back_to_defaults`): an older file loads
+  with the defaults; invalid hand-edited preferences read as the defaults and
+  are reported once, while other keys stay strict.
+- `crates/arinnd/src/runtime/settings_tests.rs`
+  (`an_invalid_hand_edited_timeout_reads_as_the_default`): the daemon still
+  serves its settings, with the default timeout.
 - `apps/arinn-shell/settings_catalog_test.cpp`
   (`shellPreferencesFromTheCoreSource`): defaults before the daemon answers,
   values from `arinn` only, an unoffered value ignored, and a change through

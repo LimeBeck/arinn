@@ -390,6 +390,68 @@ fn shell_preferences_default_and_validate() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
+/// Owner decision on #488: an invalid hand-edited preference reads as its
+/// default with a warning; the rest of the file still loads. Other keys keep
+/// their strict rules.
+#[test]
+fn invalid_hand_edited_preferences_fall_back_to_defaults() {
+    let dir = std::env::temp_dir().join(format!("arinn-prefs-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir(&dir).unwrap();
+    std::fs::set_permissions(&dir, std::os::unix::fs::PermissionsExt::from_mode(0o700)).unwrap();
+    arinnd::storage::take_invalid_preferences();
+    for (text, light, minutes, invalid) in [
+        ("ambient_timeout = 7\n", true, 10, vec!["ambient_timeout"]),
+        (
+            "ambient_timeout = \"30\"\n",
+            true,
+            10,
+            vec!["ambient_timeout"],
+        ),
+        ("ambient_timeout = -5\n", true, 10, vec!["ambient_timeout"]),
+        ("light_field = \"off\"\n", true, 10, vec!["light_field"]),
+        (
+            "light_field = 0\nambient_timeout = 9999999999\n",
+            true,
+            10,
+            vec!["light_field", "ambient_timeout"],
+        ),
+        (
+            "light_field = false\nambient_timeout = 30\n",
+            false,
+            30,
+            vec![],
+        ),
+    ] {
+        std::fs::write(
+            dir.join("config.toml"),
+            format!("schema_version = 1\nsearch_engine = \"kept\"\n{text}"),
+        )
+        .unwrap();
+        let loaded = arinnd::storage::Config::load(&dir).unwrap();
+        assert_eq!(
+            (loaded.light_field, loaded.ambient_timeout),
+            (light, minutes),
+            "{text}"
+        );
+        // The other keys are read as written.
+        assert_eq!(loaded.search_engine, "kept");
+        // Field order in the file decides the order they are seen.
+        let mut seen = arinnd::storage::take_invalid_preferences();
+        seen.sort_unstable();
+        let mut invalid = invalid;
+        invalid.sort_unstable();
+        assert_eq!(seen, invalid, "{text}");
+    }
+    // Other keys stay strict: a wrong type is still an invalid file.
+    std::fs::write(
+        dir.join("config.toml"),
+        "schema_version = 1\nanimations = \"no\"\n",
+    )
+    .unwrap();
+    assert!(arinnd::storage::Config::load(&dir).is_err());
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
 #[test]
 fn provider_settings_round_trip_and_old_configs_stay_valid() {
     let dir = std::env::temp_dir().join(format!("arinn-settings-{}", uuid::Uuid::new_v4()));

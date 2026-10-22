@@ -123,5 +123,6 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0103](0103-on-screen-keyboard.md) | On-screen keyboard in the MVP | Accepted | — |
 | [0104](0104-qt-floor-and-prebuilt-ci-images.md) | Minimum supported Qt 6.8 and prebuilt CI images | Accepted | — |
 | [0109](0109-season-only-snn-markers.md) | Season-only `Snn` markers in library names | Accepted | — |
+| [0112](0112-shell-preferences-as-core-settings.md) | The shell's preferences are core settings of the daemon | Accepted | — |
 | [0113](0113-per-runner-ci-target-directories.md) | One Cargo target directory per self-hosted runner instance | Accepted | — |
 <!-- register:end -->

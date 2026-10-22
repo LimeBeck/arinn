@@ -216,14 +216,20 @@ private slots:
     BackgroundProducer producer;
     QTRY_COMPARE_WITH_TIMEOUT(producer.request(), first, 5000);
     // A grab still outstanding when its request is superseded is released.
+    // Hide the window right after the grab starts, before the event loop
+    // runs: an unexposed window renders nothing, so the grab stays
+    // outstanding until the supersede is seen.
     producer.capture(item());
     QPointer<QQuickItemGrabResult> grab = producer.pendingGrab();
+    window->hide();
     QVERIFY(grab);
     daemon->request = second;
     daemon->changed();
     QTRY_COMPARE_WITH_TIMEOUT(producer.request(), second, 5000);
     QTRY_VERIFY(grab.isNull());
     QVERIFY(!producer.pendingGrab());
+    window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(window));
     daemon->state = QStringLiteral("unavailable");
     daemon->changed();
     QTRY_VERIFY_WITH_TIMEOUT(producer.request().isEmpty(), 5000);

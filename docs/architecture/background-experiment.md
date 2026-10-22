@@ -109,13 +109,15 @@ process and no new bus authority.
   - The frame is published with `BackgroundCapture1.Publish` from KWin's own
     session connection, the `org.kde.KWin` owner the daemon authenticates.
 - **Limits.**
-  - Each request is captured at most once.
+  - Each request is captured at most once, and at most one grab or encoding
+    runs at a time: a request that arrives while an earlier image is still
+    being encoded is cancelled as `busy` instead of queueing a second image.
   - A superseded or invalidated request drops its result, and the descriptor is
     closed.
   - An encoding failure, a rejected publication or the local 1500 ms guard ends
     the attempt; the daemon's deadline stays authoritative.
 - **Diagnostics.** Lines named `background-capture`, with outcome `published`,
-  `rejected`, `deadline`, `window` or `encode` and `duration_ms` from the
+  `rejected`, `deadline`, `window`, `encode` or `busy` and `duration_ms` from the
   request, are the producer's G-5.2 hook. They contain no identifiers.
 
 `producer_test.cpp` drives the producer against a fake daemon on a private bus,

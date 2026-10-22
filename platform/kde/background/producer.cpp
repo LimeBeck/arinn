@@ -204,7 +204,16 @@ void BackgroundProducer::fail() {
 }
 
 void BackgroundProducer::capture(QQuickItem *item) {
-  if (m_request.isEmpty() || m_grab || !item || !item->window() ||
+  if (m_request.isEmpty() || m_grab) return;
+  // At most one grab/worker (ADR-0087): while an earlier image is still being
+  // encoded, this request gets no frame instead of a queued second image.
+  if (m_encoding) {
+    log("background-capture", "busy", m_started.elapsed());
+    cancel(m_request);
+    end(false);
+    return;
+  }
+  if (!item || !item->window() ||
       item->width() <= 0 || item->height() <= 0)
     return;
   // Ask for physical pixels within the bounds; DPR can still enlarge the
@@ -229,6 +238,7 @@ void BackgroundProducer::capture(QQuickItem *item) {
     // The compositor callback only takes a reference; all work is off-thread.
     const QImage image = result->image();
     releaseGrab();
+    m_encoding = true;
     m_pool.start([this, image, request] {
       auto bounded = arinn::background::boundGrab(image);
       auto pixels = std::make_shared<arinn::background::Pixels>(
@@ -252,6 +262,7 @@ void BackgroundProducer::releaseGrab() {
 void BackgroundProducer::encoded(const QString &request,
                                  std::shared_ptr<arinn::background::Pixels> pixels,
                                  quint32 width, quint32 height) {
+  m_encoding = false;
   // A superseded or timed-out request closes its descriptor here.
   if (request != m_request) return;
   if (!*pixels) {

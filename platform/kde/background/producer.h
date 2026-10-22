@@ -41,7 +41,8 @@ public:
   QString target() const { return m_target; }
   QString output() const { return m_output; }
   // Grab `item` for the current request. Ignored without a request or while
-  // a grab is already running.
+  // its grab is already running; cancelled as busy while an earlier image is
+  // still being encoded.
   Q_INVOKABLE void capture(QQuickItem *item);
   // The window is missing or cannot be shown: cancel the current request.
   Q_INVOKABLE void fail();
@@ -80,4 +81,6 @@ private:
   Context m_context;
   quint64 m_lifetime = 0;
   bool m_busy = false, m_dirty = false, m_resolving = false;
+  // An image is on the encoding worker; cleared when encoded() runs.
+  bool m_encoding = false;
 };

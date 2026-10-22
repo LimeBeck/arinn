@@ -122,7 +122,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0102](0102-packages-built-for-master-only.md) | Packages are built for master only, never for pull requests | Accepted | — |
 | [0103](0103-on-screen-keyboard.md) | On-screen keyboard in the MVP | Accepted | 0105 |
 | [0104](0104-qt-floor-and-prebuilt-ci-images.md) | Minimum supported Qt 6.8 and prebuilt CI images | Accepted | — |
-| [0105](0105-global-on-screen-keyboard-platform-text-delivery.md) | Global on-screen keyboard: platform text delivery | Proposed | — |
+| [0105](0105-global-on-screen-keyboard-platform-text-delivery.md) | Global on-screen keyboard: platform text delivery | Accepted | — |
 | [0106](0106-quick-menu-presentation.md) | Quick menu key and presentation request | Accepted | — |
 | [0107](0107-dedicated-arinn-session.md) | Dedicated Arinn login session and an unprivileged switch to the desktop | Accepted | — |
 | [0108](0108-system-control.md) | Power and volume actions through the daemon | Accepted | — |

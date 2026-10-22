@@ -3,14 +3,15 @@
 <!-- SPDX-FileCopyrightText: 2026 Arinn contributors -->
 <!-- SPDX-License-Identifier: CC-BY-SA-4.0 -->
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-21
 - **Deciders:** project owner for the product behaviour and the security posture ([#434](https://github.com/LimeBeck/arinn/issues/434)):
   - 2026-10-10: the keyboard becomes global;
   - 2026-10-11: a separate global key `keyboard_shortcut` owned by the platform layer, no auto-show, the recommended security posture, an empty suggestion row, option C (hybrid), part of the MVP;
-  - 2026-10-21: the remote's microphone button is an additional default key.
+  - 2026-10-21: the remote's microphone button is an additional default key;
+  - 2026-10-22: the four points under *Owner decisions* accepted as recommended ([#480](https://github.com/LimeBeck/arinn/pull/480#issuecomment-6334717118)).
 
-  The mechanism is a delegated technical choice ([ADR-0037](0037-agent-autonomy-and-owner-gated-decisions.md)). The points under *Owner review* go beyond those answers and wait for the owner in this ADR's pull request.
+  The rest of the mechanism is a delegated technical choice ([ADR-0037](0037-agent-autonomy-and-owner-gated-decisions.md)).
 - **Amends / Supersedes:** amends [ADR-0103](0103-on-screen-keyboard.md): the keyboard is no longer shell-only. It stays one shell component, and the platform layer delivers its text to external applications.
 - **Amended by / Superseded by:** —
 - **Specification:** §5.7, §6.2, §8.5, §12.5, §13, §14.4; AC-02, AC-18; R-02, R-03, R-05
@@ -178,16 +179,14 @@ The shell shows the panel in an **override-redirect** window with `WM_HINTS inpu
 - **The input method setting.** When `kwinrc [Wayland] InputMethod` is empty, the daemon sets it to the Arinn desktop file and sends KConfig's change notification, so KWin starts the helper. The daemon never replaces another input method. In that case `Request()` reports `Unavailable`, the log names the reason, and the user can select *Arinn* under System Settings → Keyboard → Virtual Keyboard.
 - **KDE/X11** (ADR-0077) has no input method and no XTest deliverer, so the key reports `Unavailable` there.
 
-### Owner review
+### Owner decisions
 
-These points go beyond the owner's answers on #434:
+These points go beyond the owner's answers of 2026-10-11 and 2026-10-21 on #434. The owner accepted all four on 2026-10-22 ([#480](https://github.com/LimeBeck/arinn/pull/480#issuecomment-6334717118)):
 
-1. **The default key** `Meta+F10`. The owner confirms the default in review (answer of 2026-10-11).
-2. **The packaged udev hwdb entry.** It changes what the microphone button sends system-wide, for this vendor/product only, from `KEY_VOICECOMMAND` to `KEY_PROG1`. The owner earlier preferred configuration bindings to hwdb (ADR-0079), but no binding can reach a key that X11 drops and Qt cannot name.
-3. **The daemon changing KDE configuration.** It sets `kwinrc [Wayland] InputMethod` only when it is empty, and keeps one window rule for its own panel. Alternative: documented manual steps only, with no automatic writes.
-4. **The trust rule for the KDE deliverer:** a direct child of the KWin process that owns `org.arinn.InputMethod`.
-
-Recommendation: accept all four as written. Without 2 the microphone cannot work. Without 3 the feature needs two manual desktop settings on the HTPC.
+1. **The default key** is `Meta+F10`, next to `home_shortcut` `Meta+F12` and `quick_menu_shortcut` `Meta+F11`. A second press hides the panel; inside the shell the key does nothing.
+2. **The microphone** is the second default key, through the packaged udev hwdb entry. It changes what the button sends system-wide, for this vendor and product only, from `KEY_VOICECOMMAND` to `KEY_PROG1`. A configuration binding cannot do this: X11 drops the key and Qt cannot name it (ADR-0079).
+3. **KDE configuration.** The daemon sets `kwinrc [Wayland] InputMethod` once, only when it is empty, and keeps one window rule for its own panel window.
+4. **The trust rule for the KDE deliverer:** the owner of `org.arinn.InputMethod` must be a direct child of the KWin process.
 
 ## Consequences
 

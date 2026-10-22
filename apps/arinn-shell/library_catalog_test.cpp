@@ -1331,6 +1331,21 @@ private slots:
     QTRY_COMPARE(view->property("viewState").toString(),
                  QStringLiteral("populated"));
     QCOMPARE(view->property("jobs").toList().size(), 2);
+    auto libraryCatalog = window->findChild<LibraryCatalog *>(QStringLiteral("libraryCatalog"));
+    QVERIFY(libraryCatalog);
+    const auto northPoster = libraryCatalog->posterFor(
+        QStringLiteral("library-provider"), QStringLiteral("north"));
+    QVERIFY(northPoster.startsWith(QStringLiteral("image://arinn-assets/")));
+    // #360: the imported download carries its library item's poster; the
+    // running one has none and keeps the view's plate.
+    const auto artworkOf = [&](const QString &local) {
+      for (const auto &job : view->property("jobs").toList())
+        if (job.toMap().value(QStringLiteral("id")) == downloadId(local))
+          return job.toMap().value(QStringLiteral("artwork")).toString();
+      return QStringLiteral("<no row>");
+    };
+    QTRY_COMPARE(artworkOf(QStringLiteral("done")), northPoster);
+    QCOMPARE(artworkOf(QStringLiteral("running")), QString());
 
     home->setProperty("screen", QStringLiteral("downloads"));
     QTRY_COMPARE(view->property("visible").toBool(), true);
@@ -1338,6 +1353,14 @@ private slots:
         downloadId( QStringLiteral("done"));
     const auto runningId =
         downloadId( QStringLiteral("running"));
+    {
+      auto slot = findItem(view, QStringLiteral("artwork-") + doneId);
+      QVERIFY(slot);
+      QCOMPARE(slot->property("source").toUrl(), QUrl(northPoster));
+      auto plain = findItem(view, QStringLiteral("artwork-") + runningId);
+      QVERIFY(plain);
+      QVERIFY(plain->property("source").toUrl().isEmpty());
+    }
     // Rows are looked up on every check: a catalog reload replaces the
     // jobs array and the Repeater recreates its delegates.
     const auto focused = [&](const QString &id) {
@@ -1381,6 +1404,8 @@ private slots:
     QVERIFY(catalog);
     QVERIFY(QMetaObject::invokeMethod(catalog, "refresh"));
     QTRY_COMPARE(view->property("jobs").toList().size(), 3);
+    // Not in the library yet: no poster.
+    QCOMPARE(artworkOf(QStringLiteral("late")), QString());
     // The view keeps the selected download; the new one is above it.
     QTRY_VERIFY(focused(doneId));
     QTest::keyClick(window, Qt::Key_Up);
@@ -1393,11 +1418,14 @@ private slots:
     home->setProperty("screen", QStringLiteral("library"));
     QVERIFY(window->property("pendingWatch").isNull());
     daemon.page1.append(film(QStringLiteral("west"), QStringLiteral("West")));
-    auto libraryCatalog = window->findChild<QObject *>(QStringLiteral("libraryCatalog"));
-    QVERIFY(libraryCatalog);
     QVERIFY(QMetaObject::invokeMethod(libraryCatalog, "refresh"));
     QTest::qWait(300);
     QCOMPARE(library->property("detailOpen").toBool(), false);
+    // Once the library lists it, the row follows with the poster.
+    QTRY_COMPARE(artworkOf(QStringLiteral("late")),
+                 libraryCatalog->posterFor(QStringLiteral("library-provider"),
+                                           QStringLiteral("west")));
+    QVERIFY(!artworkOf(QStringLiteral("late")).isEmpty());
     // With the item listed, Watch opens it directly.
     home->setProperty("screen", QStringLiteral("downloads"));
     QTRY_VERIFY(focused(lateId));
@@ -1879,6 +1907,39 @@ private slots:
     QVERIFY(catalog.artworkFor(provider, QStringLiteral("bare")).isEmpty());
     QVERIFY(catalog.artworkFor(provider, QStringLiteral("missing")).isEmpty());
     QVERIFY(catalog.artworkFor(QStringLiteral("other"), QStringLiteral("north")).isEmpty());
+  }
+  // #360: Downloads shows the poster of the entry Watch opens.
+  void posterForUsesTheTopLevelEntrysPoster() {
+    LibraryDaemon daemon;
+    daemon.collections = {{QStringLiteral("films"), QStringLiteral("Films"),
+                           QStringLiteral("film")},
+                          {QStringLiteral("shows"), QStringLiteral("Series"),
+                           QStringLiteral("series")}};
+    auto fanartOnly = film(QStringLiteral("fanart"), QStringLiteral("Fanart"));
+    fanartOnly.poster.clear();
+    daemon.page1 = {film(QStringLiteral("north"), QStringLiteral("North")), fanartOnly,
+                    showItem(), episodeItem(QStringLiteral("ep1"), QStringLiteral("Pilot"), 1, 1)};
+    daemon.page1.last().poster = QStringLiteral("still-not-fetched");
+    QVERIFY(registerBus(daemon));
+    LibraryCatalog catalog;
+    QTRY_COMPARE(catalog.libraryState(), QStringLiteral("ready"));
+    QHash<QString, QVariantMap> byTitle;
+    for (const auto &entry : catalog.entries())
+      byTitle.insert(entry.toMap().value(QStringLiteral("title")).toString(), entry.toMap());
+    const auto provider = QStringLiteral("library-provider");
+    const auto north = catalog.posterFor(provider, QStringLiteral("north"));
+    QVERIFY(north.startsWith(QStringLiteral("image://arinn-assets/")));
+    QCOMPARE(north, byTitle.value(QStringLiteral("North")).value(QStringLiteral("artwork")).toString());
+    QVERIFY(north != byTitle.value(QStringLiteral("North")).value(QStringLiteral("fanart")).toString());
+    // An episode resolves to its series' poster, not its own still.
+    const auto pilot = catalog.posterFor(provider, QStringLiteral("ep1"));
+    QCOMPARE(pilot, byTitle.value(QStringLiteral("Serial")).value(QStringLiteral("artwork")).toString());
+    QVERIFY(!pilot.isEmpty());
+    // No poster, no invented artwork: the fanart is not used.
+    QVERIFY(catalog.posterFor(provider, QStringLiteral("fanart")).isEmpty());
+    QVERIFY(catalog.posterFor(provider, QStringLiteral("missing")).isEmpty());
+    QVERIFY(catalog.posterFor(QStringLiteral("other"), QStringLiteral("north")).isEmpty());
+    QVERIFY(catalog.posterFor(provider, QString()).isEmpty());
   }
   void emptyPosterAndFanartStayGeneric() {
     LibraryDaemon daemon;

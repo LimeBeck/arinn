@@ -80,7 +80,7 @@ TestCase {
         compare(child("status-active").text, "82%");
         verify(child("progress-active").visible);
         compare(child("progress-active").fraction, 0.82);
-        compare(child("artwork-active").text, "");
+        verify(!child("artwork-active").artworkReady);
         tryCompare(child("action-active"), "visible", true);
         compare(child("action-active").text, "Pause");
         compare(child("status-waiting").text, "Queued");
@@ -343,6 +343,107 @@ TestCase {
         }
         view.viewState = "populated";
         focused("job-active");
+    }
+
+    // #360: the summary counts active downloads, says "N done" when every
+    // row is finished, and is hidden otherwise.
+    function test_summary_line_data() {
+        return [
+            {tag: "active", jobs: [
+                {id: "a", title: "A", state: "downloading", progress: 0.2},
+                {id: "b", title: "B", state: "downloading", progress: 0.4},
+                {id: "c", title: "C", state: "completed", importState: "imported"}
+            ], text: "2 downloading"},
+            {tag: "all done", jobs: [
+                {id: "a", title: "A", state: "completed", importState: "imported"},
+                {id: "b", title: "B", state: "completed", importState: "unsupported"}
+            ], text: "2 done"},
+            {tag: "one done", jobs: [
+                {id: "a", title: "A", state: "completed", importState: "imported"}
+            ], text: "1 done"},
+            {tag: "nothing active", jobs: [
+                {id: "a", title: "A", state: "queued", availableActions: ["start_now"]},
+                {id: "b", title: "B", state: "completed", importState: "imported"}
+            ], text: ""},
+            {tag: "paused and failed", jobs: [
+                {id: "a", title: "A", state: "paused", progress: 0.5},
+                {id: "b", title: "B", state: "error"}
+            ], text: ""}
+        ];
+    }
+    function test_summary_line(data) {
+        view.jobs = data.jobs;
+        focused("job-a");
+        compare(view.summaryLine, data.text);
+        compare(child("downloadsSummary").text, data.text);
+        compare(child("downloadsSummary").visible, data.text.length > 0);
+        verify(!/0 downloading/.test(child("downloadsSummary").text));
+    }
+    function test_empty_queue_keeps_the_empty_state() {
+        view.jobs = [];
+        view.viewState = "empty";
+        tryCompare(child("downloadsStatus"), "visible", true);
+        compare(child("downloadsStatus").title, "No downloads");
+        verify(!child("downloadsSummary").visible);
+        verify(!child("downloadsQueue").visible);
+    }
+
+    // grabImage() crops the window at the item's parent-relative x/y, so
+    // grab the window and read the item's scene position instead.
+    function pixelAt(pixels, item, x, y) {
+        const at = item.mapToItem(suite, x, y);
+        return {r: pixels.red(at.x, at.y), g: pixels.green(at.x, at.y), b: pixels.blue(at.x, at.y)};
+    }
+    // A 20×30 portrait: blue top and bottom thirds, a red middle (#360).
+    readonly property string posterFixture: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABQAAAAeCAIAAACjcKk8AAAAJUlEQVR42mPQ0LhDNmIY1TwyNN+hQPeo5lHNg1nzaGEwqpkQAgBlZb8/WLTFKQAAAABJRU5ErkJggg=="
+    function test_artwork_poster_and_placeholder() {
+        view.jobs = [
+            {id: "ready", title: "Ready item", state: "completed", importState: "imported", artwork: posterFixture},
+            {id: "plain", title: "Queued item", state: "queued", availableActions: ["start_now"]}
+        ];
+        focused("job-ready");
+        const poster = child("artwork-ready");
+        compare(poster.width, 214);
+        compare(poster.height, 120);
+        tryCompare(poster, "artworkReady", true);
+        const posterPlate = findChild(poster, "artworkPlate");
+        verify(posterPlate);
+        tryCompare(posterPlate, "showsArtwork", true);
+        // Centre crop: a stretched poster would show its blue top third at
+        // the top of the slot; the crop shows the red middle there.
+        tryVerify(() => {
+            const pixels = grabImage(suite);
+            const top = pixelAt(pixels, poster, 107, 10), middle = pixelAt(pixels, poster, 107, 60);
+            return top.r > 150 && top.b < 100 && middle.r > 150 && middle.b < 100;
+        });
+
+        const plain = child("artwork-plain");
+        compare(plain.source, "");
+        verify(!plain.artworkReady);
+        const plainPlate = findChild(plain, "artworkPlate");
+        verify(plainPlate);
+        compare(plainPlate.showsArtwork, false);
+        // The neutral striped plate: grey everywhere, no identity-coloured
+        // chip, and both stripe tones present.
+        tryVerify(() => {
+            const pixels = grabImage(suite);
+            const tones = {};
+            for (let x = 30; x < 190; x += 7) {
+                const p = pixelAt(pixels, plain, x, 70);
+                if (Math.abs(p.r - p.g) > 3 || Math.abs(p.g - p.b) > 3 || p.r < 25 || p.r > 120) return false;
+                tones[p.r] = true;
+            }
+            for (const [x, y] of [[180, 24], [190, 30]]) {
+                const p = pixelAt(pixels, plain, x, y);
+                if (Math.abs(p.r - p.g) > 3 || Math.abs(p.g - p.b) > 3) return false;
+            }
+            return Object.keys(tones).length >= 2;
+        });
+
+        // Losing the artwork falls back to the plate.
+        view.jobs = [{id: "ready", title: "Ready item", state: "completed", importState: "imported"}];
+        tryCompare(child("artwork-ready"), "artworkReady", false);
+        tryCompare(findChild(child("artwork-ready"), "artworkPlate"), "showsArtwork", false);
     }
 
     function test_explicit_summary_and_status_copy() {

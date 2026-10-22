@@ -172,6 +172,7 @@ RU = {
     "The browser is taking longer than usual": "Браузер открывается дольше обычного",
     # Downloads
     "%n downloading": "Загружается: %n",
+    "%n done": "Готово: %n",
     "No downloads": "Нет загрузок",
     "Downloads could not be loaded": "Не удалось загрузить список загрузок",
     "Downloads unavailable": "Загрузки недоступны",

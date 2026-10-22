@@ -358,6 +358,14 @@
             <numerusform>Загружается: %n</numerusform>
         </translation>
     </message>
+    <message numerus="yes">
+        <source>%n done</source>
+        <translation>
+            <numerusform>Готово: %n</numerusform>
+            <numerusform>Готово: %n</numerusform>
+            <numerusform>Готово: %n</numerusform>
+        </translation>
+    </message>
     <message>
         <source>No downloads</source>
         <translation>Нет загрузок</translation>

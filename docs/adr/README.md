@@ -124,4 +124,5 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0104](0104-qt-floor-and-prebuilt-ci-images.md) | Minimum supported Qt 6.8 and prebuilt CI images | Accepted | — |
 | [0108](0108-system-control.md) | Power and volume actions through the daemon | Accepted | — |
 | [0109](0109-season-only-snn-markers.md) | Season-only `Snn` markers in library names | Accepted | — |
+| [0112](0112-shell-preferences-as-core-settings.md) | The shell's preferences are core settings of the daemon | Accepted | — |
 <!-- register:end -->

@@ -408,14 +408,19 @@ private slots:
   // own settings; the same ids from another provider do not count.
   void shellPreferencesFromTheCoreSource() {
     SettingsDaemon daemon;
-    daemon.providers = {{QStringLiteral("alpha"), QStringLiteral("Alpha")},
-                        {QStringLiteral("arinn"), QStringLiteral("Arinn")}};
+    // `alpha` comes after `arinn`: without the provider filter its values
+    // would be read last and win.
+    daemon.providers = {{QStringLiteral("arinn"), QStringLiteral("Arinn")},
+                        {QStringLiteral("alpha"), QStringLiteral("Alpha")}};
     const auto timeouts = QStringLiteral(
         R"({"options":[{"value":"5","title":"5 min"},{"value":"10","title":"10 min"},{"value":"15","title":"15 min"},{"value":"30","title":"30 min"},{"value":"60","title":"60 min"}]})");
     daemon.settings.insert(
         QStringLiteral("alpha"),
         {setting(QStringLiteral("light_field"), QStringLiteral("appearance"),
                  QStringLiteral("boolean"), QStringLiteral("true"), QString(),
+                 true),
+         setting(QStringLiteral("ambient_timeout"), QStringLiteral("appearance"),
+                 QStringLiteral("enum"), QStringLiteral("\"60\""), timeouts,
                  true)});
     daemon.settings.insert(
         QStringLiteral("arinn"),

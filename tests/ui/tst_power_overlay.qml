@@ -81,6 +81,7 @@ TestCase {
         }
     }
     SignalSpy { id: closedSpy; signalName: "closed" }
+    SignalSpy { id: ambientSpy; signalName: "ambientRequested" }
     SignalSpy { id: homeSpy; signalName: "homeRequested" }
     SignalSpy { id: volumeSpy; signalName: "volumeUnavailable" }
 
@@ -343,6 +344,32 @@ TestCase {
         keyClick(Qt.Key_Return);
         compare(overlay.menu.step, "confirm");
         compare(overlay.menu.pendingAction, "restart");
+    }
+
+    // Ambient waits for the answer too: the refusal is never shown behind
+    // the ambient screen (#307).
+    function test_ambient_row_is_held_while_a_request_is_in_flight() {
+        ambientSpy.target = overlay;
+        ambientSpy.clear();
+        openMenu();
+        keyClick(Qt.Key_Return);
+        compare(control.pendingAction, "suspend");
+        keyClick(Qt.Key_Down);
+        keyClick(Qt.Key_Down);
+        keyClick(Qt.Key_Down);
+        focused("ambientButton");
+        compare(child("ambientDescription").text, "Available after the system answers");
+        keyClick(Qt.Key_Return);
+        mouseClick(child("ambientButton"));
+        compare(ambientSpy.count, 0);
+        control.answer("denied");
+        tryCompare(child("powerError"), "visible", true);
+        keyClick(Qt.Key_Escape);
+        tryCompare(child("ambientButton"), "opacity", 1);
+        focused("ambientButton");
+        keyClick(Qt.Key_Return);
+        compare(ambientSpy.count, 1);
+        ambientSpy.target = null;
     }
 
     // A late refusal never takes focus behind a dialog drawn above the power

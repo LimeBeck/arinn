@@ -133,10 +133,12 @@ FocusScope {
         }
         return "";
     }
-    // A power row that cannot be used while another request is in flight:
-    // the model sends one request at a time, so it would send nothing.
+    // A row that cannot be used while another request is in flight: the
+    // model sends one request at a time, so a power row would send nothing.
+    // Ambient waits too, so the answer is never shown behind the ambient
+    // screen.
     function heldBack(id) {
-        return requestInFlight && busyAction !== id && id !== "ambient";
+        return requestInFlight && busyAction !== id;
     }
     function rowDescription(entry) {
         if (busyAction === entry.id)

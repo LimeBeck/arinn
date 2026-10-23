@@ -878,8 +878,9 @@ Window {
             runningApplications: backend.items
             registryKnown: backend.applicationsState === "ready" || backend.applicationsState === "empty"
             keysEnabled: root.visible && root.active && !sessionGuard.blocked && !ambientScreen.active
-            // A late refusal never takes focus behind the launch dialog.
-            holdLateAnswer: launchOverlay.visible
+            // A late refusal never takes focus behind the launch dialog or
+            // the ambient screen; it appears once they are gone.
+            holdLateAnswer: launchOverlay.visible || ambientScreen.active
             onClosed: Qt.callLater(() => { if (!powerOverlay.restoreLateFocus()) root.restoreFocus(); })
             onHomeRequested: { root.closeOverlays(); Qt.callLater(home.showHome); }
             onAmbientRequested: root.startAmbient()

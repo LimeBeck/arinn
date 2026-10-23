@@ -57,8 +57,8 @@ sees its refusal; the menu never guesses the outcome.
 **One request at a time.** The model sends one power request at a time
 and ignores a second. While a request is in flight the other power rows
 stay focusable but are held: they are dimmed, say "Available after the
-system answers", and open no confirmation. Ambient sends nothing and stays
-available.
+system answers", and open no confirmation. The Ambient row is held as
+well, so the answer is never shown behind the ambient screen.
 
 **Answer after Home.** When Home leaves the menu while a request is in
 flight, the overlay remembers it. On success nothing more is shown: the
@@ -69,9 +69,9 @@ shown.
 - Back on that pane closes it, and focus returns to the item the user was
   on. If that item is gone, focus goes to the screen's preferred item. Home
   on the pane goes to Home.
-- While the launch overlay's dialog is on screen (it is drawn above the
-  power overlay), the refusal waits. It appears once the dialog closes, so
-  it never takes focus behind a visible dialog.
+- While the launch overlay's dialog or the ambient screen is on screen
+  (both are drawn above the power overlay), the refusal waits. It appears
+  once they are gone, so it never takes focus behind them.
 - If an external application is in front when the answer arrives, the pane
   appears when the user returns to Arinn. The shell does not raise itself
   over the application for it.

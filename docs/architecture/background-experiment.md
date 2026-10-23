@@ -89,7 +89,9 @@ reads `Background1` for Home:
   `Get`, pinned to the daemon owner that `ReturnAssociation` resolved. It asks
   again only on `Changed` or when its evidence actually changes, never on
   `ReturnAssociation`'s unchanged once-a-second poll, and an admitted snapshot
-  is read before a pending re-read. A daemon
+  is read before a pending re-read. A `Get` reply that spans any evidence
+  change (a lock, a hidden Home or a lost provider, even if restored by then)
+  is discarded and asked again. A daemon
   without the interface leaves the normal background and is not asked again
   until its owner changes.
 - **Evidence.** The gate's evidence is the shell's own: Home visibility, target

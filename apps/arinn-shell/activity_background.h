@@ -78,6 +78,9 @@ private:
   QString m_owner;
   // The last evidence given to the gate.
   std::optional<arinn::background::Evidence> m_evidence;
+  // Bumped on every evidence change; a Get reply from an older value is
+  // discarded.
+  quint64 m_evidenceSerial = 0;
   // Last resolved Return window of the current target. A repeated Home
   // clears the association until the adapter reports it again; the daemon
   // invalidates the frame itself when the window really goes away.

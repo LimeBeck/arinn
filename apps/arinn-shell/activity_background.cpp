@@ -131,6 +131,7 @@ void ActivityBackgroundSource::evidenceChanged() {
   // touches the gate nor asks the daemon again.
   if (m_evidence && *m_evidence == evidence) return;
   m_evidence = evidence;
+  ++m_evidenceSerial;
   m_gate.observe(std::move(evidence));
   publish();
   refresh();
@@ -151,17 +152,24 @@ void ActivityBackgroundSource::refresh() {
   }
   m_busy = true;
   m_dirty = false;
-  const auto lifetime = m_lifetime;
+  const auto lifetime = m_lifetime, serial = m_evidenceSerial;
   auto call = QDBusMessage::createMethodCall(m_owner, path, interface,
                                              QStringLiteral("Get"));
   auto watcher = new QDBusPendingCallWatcher(
       QDBusConnection::sessionBus().asyncCall(call, callTimeout), this);
   connect(watcher, &QDBusPendingCallWatcher::finished, this,
-          [this, lifetime](QDBusPendingCallWatcher *p) {
+          [this, lifetime, serial](QDBusPendingCallWatcher *p) {
             const auto reply = p->reply();
             p->deleteLater();
             if (lifetime != m_lifetime) return;
             m_busy = false;
+            // A reply that spans an evidence change (a lock, a hidden Home or
+            // a lost provider, even if already restored) belongs to another
+            // lifetime: it is never admitted, only asked again.
+            if (serial != m_evidenceSerial) {
+              refresh();
+              return;
+            }
             if (reply.type() == QDBusMessage::ErrorMessage) {
               const auto name = reply.errorName();
               // An older daemon: no Activity background until it changes.

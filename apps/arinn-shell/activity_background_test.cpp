@@ -53,6 +53,14 @@ public:
   qulonglong associationRevision = 1, revision = 2;
   ContextWire echoed;
   int reads = 0, gets = 0;
+  // Get replies built when the call arrived, held back until released.
+  bool holdGets = false;
+  QList<QDBusMessage> heldGets;
+  void releaseGets() {
+    const auto replies = heldGets;
+    heldGets.clear();
+    for (const auto &reply : replies) bus.send(reply);
+  }
   ContextWire context() const {
     return {epoch, request, target, output, {generation, QStringLiteral("window-token")}};
   }
@@ -105,6 +113,10 @@ public:
       body.endArray();
       body << state;
       body.endStructure();
+      if (holdGets) {
+        heldGets.append(message.createReply(QVariant::fromValue(body)));
+        return true;
+      }
     } else if (member == QLatin1String("ReadFrame")) {
       ++reads;
       if (state != QLatin1String("ready")) {
@@ -211,6 +223,23 @@ private slots:
     // Unlock never resurrects the retired request.
     source.setBlocked(false);
     QTest::qWait(500);
+    QVERIFY(!source.available());
+  }
+
+  void aGetSpanningALockIsNeverRead() {
+    // The first Get is answered "ready" only after the session was locked
+    // and unlocked again; by then the daemon has invalidated the frame.
+    daemon->holdGets = true;
+    ActivityBackgroundSource source;
+    source.setBlocked(false);
+    QTRY_VERIFY_WITH_TIMEOUT(!daemon->heldGets.isEmpty(), 5000);
+    source.setBlocked(true);
+    source.setBlocked(false);
+    daemon->state = QStringLiteral("unavailable");
+    daemon->holdGets = false;
+    daemon->releaseGets();
+    QTest::qWait(500);
+    QCOMPARE(daemon->reads, 0);
     QVERIFY(!source.available());
   }
 

@@ -49,7 +49,7 @@ The Home keys are configurable through `home_shortcut` in `config.toml` ([ADR-00
 
 ## Alternatives considered
 
-- **A presentation kind argument on a new generic method** (`ReportPresentationRequest(kind, target, output)` → `PresentationRequested(epoch, kind, target, output)`). More general, but it needs a kind vocabulary, validation of unknown kinds and a rule for `kind = "home"` next to the existing `HomeRequested`. Two named members are explicit and old consumers ignore them.
+- **A presentation kind argument on a new generic method** (`ReportPresentationRequest(kind, target, output)` → `PresentationRequested(epoch, kind, target, output)`). More general, but it needs a kind vocabulary, validation of unknown kinds and a rule for `kind = "home"` next to the existing `HomeRequested`. Two named members are explicit and old consumers ignore them. Reconsidered on 2026-10-23 for the remote's power key ([#481](https://github.com/LimeBeck/arinn/issues/481), spec §5.7 *Power button*), which needs the same path for the power menu: a kind would save that key one contract change, but the shell would dispatch on a string the daemon must still validate, and the quick-menu implementation in #439 already consumes the named members. The power key adds its own additive pair in a separate `contract-change` task, following this pattern.
 - **Change `ReportHomeRequest`/`HomeRequested` to carry a kind.** Breaks existing signatures.
 - **Infer the quick menu in the shell** from `Changed` or `Status`. Forbidden by ADR-0069: state recovery must never become a user action.
 - **A shell-local key only.** The shell does not receive keys while an external application has focus (§12.1).

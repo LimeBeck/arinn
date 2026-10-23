@@ -25,6 +25,13 @@ FocusScope {
     property string dateText: ""
     readonly property bool open: menuOpen
     property bool menuOpen: false
+    // Home left the menu while a request was in flight (spec §6.3, owner
+    // decision 2026-10-23): the request goes on, and a refusal or timeout
+    // that arrives later reopens the power scope on that refusal.
+    property bool awaitingAnswer: false
+    // The menu is open only to show such a late refusal: Back closes it.
+    property bool lateRefusal: false
+    readonly property string controlPending: control ? control.pendingAction : ""
     // The volume HUD and the power menu read nothing else.
     readonly property alias menu: powerMenu
     readonly property alias hud: volumeHud
@@ -46,6 +53,8 @@ FocusScope {
             control.reset();
             control.readPower();
         }
+        awaitingAnswer = false;
+        lateRefusal = false;
         powerMenu.step = "menu";
         powerMenu.pendingAction = "";
         powerMenu.menuFocus = "sleep";
@@ -61,9 +70,32 @@ FocusScope {
         if (!menuOpen)
             return;
         menuOpen = false;
+        lateRefusal = false;
         if (control)
             control.reset();
         closed();
+    }
+    function leaveHome() {
+        // The request is not cancelled; its answer is shown later.
+        awaitingAnswer = controlPending.length > 0;
+        closeMenu();
+        homeRequested();
+    }
+    // The answer to a request left behind by Home. Success needs nothing:
+    // the system suspends or powers off. A refusal or timeout reopens the
+    // power scope on the refusal pane, which stays until Back, so it also
+    // reaches a user who is in another application when it arrives.
+    onControlPendingChanged: if (controlPending.length === 0) Qt.callLater(settleLateAnswer)
+    function settleLateAnswer() {
+        if (!awaitingAnswer || !control || controlPending.length > 0)
+            return;
+        awaitingAnswer = false;
+        if (menuOpen || control.refusal.length === 0)
+            return;
+        powerMenu.step = "menu";
+        powerMenu.pendingAction = "";
+        lateRefusal = true;
+        menuOpen = true;
     }
     // A lock or sleep hides the shell. After an accepted request the menu
     // has done its job: wake returns to the screen underneath (§5.7).
@@ -139,10 +171,15 @@ FocusScope {
         onSleepRequested: if (root.control) root.control.request("suspend")
         onRestartRequested: if (root.control) root.control.request("reboot")
         onShutdownRequested: if (root.control) root.control.request("power-off")
-        onRefusalDismissed: if (root.control) root.control.reset()
+        onRefusalDismissed: {
+            if (root.lateRefusal)
+                root.closeMenu();
+            else if (root.control)
+                root.control.reset();
+        }
         onAcceptedDismissed: root.closeMenu()
         onDismissRequested: root.closeMenu()
-        onHomeRequested: { root.closeMenu(); root.homeRequested(); }
+        onHomeRequested: root.leaveHome()
         onAmbientRequested: root.ambientRequested()
     }
 

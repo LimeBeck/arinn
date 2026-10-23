@@ -260,7 +260,9 @@ FocusScope {
             shutdownRequested();
     }
     // A request already sent to the system cannot be taken back. While it is
-    // in flight the menu stays put, so leaving never looks like cancelling.
+    // in flight Back and Cancel do nothing, so nothing looks like cancelling;
+    // Home still leaves, and the caller shows a later refusal (spec §6.3,
+    // owner decision 2026-10-23).
     readonly property bool requestInFlight: busyAction.length > 0
     function goBack() {
         if (requestInFlight)
@@ -298,8 +300,6 @@ FocusScope {
         }
     }
     function goHome() {
-        if (requestInFlight)
-            return;
         if (step === "confirm" && !refused && !accepted)
             closeConfirm();
         homeRequested();

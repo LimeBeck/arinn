@@ -50,7 +50,18 @@ sees its refusal; the menu never guesses the outcome.
 | Accepted | A waiting pane: "Going to sleep…", "Restarting…" or "Shutting down…" with "Waiting for the system". This is not success, and no timer produces it or anything after it. Back returns to the screen beneath. |
 | Refused | An error pane titled for the action, with the reason for `inhibited` (the holders' *who (why)*), `denied`, `unsupported`, `unavailable`, `timeout` or `failed`. Back clears it and returns to the step that asked. |
 | Ambient | Unchanged: the full-screen ambient state with a consumed first wake event. The idle timer is [#307](https://github.com/LimeBeck/arinn/issues/307). |
-| Back, Home | Esc, Backspace and Back close the confirmation onto its opener and then the menu, one step per press: a held key's repeats are swallowed. Home closes the menu without any action and shows Home (§6.3). While a Sleep, Restart or Shut down request is in flight (at most 20 s, the shell's power timeout), Cancel is disabled and Back and Home are ignored until the system answers, so a sent request never looks cancelled; this is a deliberate exception to §6.3. Each opening starts on the first row. |
+| Back, Home | Esc, Backspace and Back close the confirmation onto its opener and then the menu, one step per press: a held key's repeats are swallowed. Home closes the menu without any action and shows Home (§6.3). While a request is in flight (at most 20 s, the shell's power timeout), Back is ignored and Cancel (Restart, Shut down) is disabled until the system answers, so a sent request never looks cancelled. Home still leaves to Home and does not cancel it (§6.3, owner decision on 2026-10-23); see *Answer after Home* below. Each opening starts on the first row. |
+
+**Answer after Home.** When Home leaves the menu while a request is in
+flight, the overlay remembers it. Success needs nothing more: the system
+suspends or powers off. A refusal or timeout that arrives later reopens the
+power scope on the refusal pane, over whatever screen is shown. Back or Home
+on that pane closes it and returns to that screen. The pane is used instead
+of the feedback strip, which holds one line for 3 s and is hidden over
+managed playback. The pane can show the holders, and it stays until the
+user dismisses it, so it still reaches a user who was in another
+application when the answer arrived. Opening the menu again before the
+answer shows the answer in the menu as usual.
 
 **Closing list.** The confirmation names each running application from the
 live registry (`Backend.items`, the running entries of the application

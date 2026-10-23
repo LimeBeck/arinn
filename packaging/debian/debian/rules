@@ -78,6 +78,12 @@ override_dh_auto_install:
 	install -Dm644 packaging/desktop/org.arinn.Shell.desktop debian/arinn/usr/share/applications/org.arinn.Shell.desktop
 	install -Dm644 packaging/icons/org.arinn.Shell.svg \
 		debian/arinn/usr/share/icons/hicolor/scalable/apps/org.arinn.Shell.svg
+	install -Dm755 packaging/bin/arinn-session debian/arinn/usr/lib/arinn/arinn-session
+	install -Dm755 packaging/bin/arinn-session-switch debian/arinn/usr/lib/arinn/arinn-session-switch
+	install -Dm644 packaging/sessions/arinn.desktop debian/arinn/usr/share/wayland-sessions/arinn.desktop
+	install -Dm644 packaging/sessions/arinn-xfce.desktop debian/arinn/usr/share/xsessions/arinn-xfce.desktop
+	install -Dm644 packaging/desktop/org.arinn.ReturnToArinn.desktop \
+		debian/arinn/usr/share/applications/org.arinn.ReturnToArinn.desktop
 	install -Dm644 packaging/systemd/arinn-session.target packaging/systemd/arinnd.service \
 		packaging/systemd/arinn-shell.service packaging/systemd/arinn-kwin.service \
 		packaging/systemd/arinn-ewmh.service packaging/systemd/arinn-ewmh-session.target \

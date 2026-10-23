@@ -557,6 +557,7 @@ Arinn persists only its own state:
 | --- | --- |
 | `$XDG_CONFIG_HOME/arinn/config.toml` | UI preferences, provider configuration and defaults, Home settings; atomic write, schema version and migration |
 | `$XDG_STATE_HOME/arinn/state.sqlite3` | favorites and order, web shortcuts ([ADR-0043](../adr/0043-web-shortcuts.md)), provider-instance mapping, recent launch targets (≤ 100, 30 days), diagnostic counters |
+| `$XDG_STATE_HOME/arinn/session-mode` | what the dedicated Arinn login session starts next for this user: `arinn` or `desktop` ([ADR-0107](../adr/0107-dedicated-arinn-session.md)) |
 | `$XDG_CACHE_HOME/arinn/` | artwork cache (LRU, 512 MiB); clearing it loses nothing else |
 | `$XDG_DATA_HOME/arinn/` | plugin manifests; provider-owned data in `providers/<digest>/` directories ([ADR-0034](../adr/0034-provider-data-directory-identity.md)) |
 
@@ -631,6 +632,8 @@ alone does not imply production capture or close G-5.2.
 ### 12.4. Session lifecycle
 
 See [§5.7](#57-system-ui-power-and-ambient) and [session lifecycle](../architecture/session-lifecycle.md).
+
+The dedicated Arinn login session entries and the unprivileged switch between Arinn and the plain desktop are specified in [ADR-0107](../adr/0107-dedicated-arinn-session.md) and the [session lifecycle](../architecture/session-lifecycle.md#dedicated-arinn-session).
 
 ### 12.5. On-screen keyboard delivery
 

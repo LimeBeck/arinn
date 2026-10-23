@@ -673,6 +673,33 @@ async fn a_new_shell_owner_never_reads_the_previous_frame() {
 }
 
 #[tokio::test]
+async fn a_busy_background_never_delays_the_home_request() {
+    let f = Fixture::new().await;
+    let mut requests = ProductionDaemonProxy::new(&f.stranger)
+        .await
+        .unwrap()
+        .receive_home_requested()
+        .await
+        .unwrap();
+    // A publication or reconciliation holds the background state.
+    let background = f.core.background.get().unwrap().clone();
+    let held = background.inner.lock().await;
+    let started = Instant::now();
+    tokio::time::timeout(Duration::from_millis(500), f.home("activity", "screen"))
+        .await
+        .expect("the Home request is answered while the state is held");
+    tokio::time::timeout(Duration::from_millis(500), requests.next())
+        .await
+        .expect("HomeRequested is emitted while the state is held")
+        .unwrap();
+    assert!(started.elapsed() < Duration::from_millis(500));
+    // Arming still happens once the state is free, with the deadline
+    // counted from the request.
+    drop(held);
+    f.wait_state("pending", false).await;
+}
+
+#[tokio::test]
 async fn a_closed_session_guard_fails_closed() {
     let mut f = Fixture::new().await;
     let context = f.pending().await;

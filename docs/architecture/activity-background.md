@@ -148,7 +148,10 @@ root ([#149](https://github.com/LimeBeck/arinn/issues/149)). It follows the
 contract above; these are the implementation choices within it:
 
 - **Arming.** The handoff is exported before `Daemon1`, so no Home request
-  arrives before it exists. Only a committed `Daemon1.ReportHomeRequest` arms an attempt, and
+  arrives before it exists. `HomeRequested` is emitted before arming, and arming
+  runs in the background whenever a publication or reconciliation holds the
+  state, so a Home press never waits for capture work. The deadline and the
+  reported latency count from the committed request. Only a committed `Daemon1.ReportHomeRequest` arms an attempt, and
   only with a non-empty target and output that still match the committed Home
   report. The EWMH adapter reports no output yet, so it arms nothing until its
   producer supplies one. `ReportHome` and adapter reconnects never arm.
@@ -187,7 +190,7 @@ contract above; these are the implementation choices within it:
   invalidates; publication without a shell owner is `Conflict`. A ready frame
   is bound to the shell owner at publication, so a successor never reads it,
   even before the owner change is processed.
-- **Publisher.** At commit, `Publish` re-reads the selected platform service's
+- **Publisher.** At commit, `Publish` and `Cancel` re-read the selected platform service's
   owner, so a former owner cannot install a frame after an owner change it
   raced with.
 - **Descriptors.** `Publish` checks `fstat` (regular file, exact size) and

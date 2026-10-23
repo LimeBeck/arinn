@@ -286,8 +286,21 @@ impl Background {
     /// An explicit Home presentation request for `target` on `output` was
     /// committed. Arms one attempt for this Home context; repeated Home on
     /// the same context never recaptures, even after a failure.
-    pub(super) async fn arm(&self, target: &str, output: &str) {
-        let mut inner = self.inner.lock().await;
+    pub(super) async fn arm(&self, target: &str, output: &str, requested: Instant) {
+        let inner = self.inner.lock().await;
+        self.arm_locked(inner, target, output, requested).await;
+    }
+
+    /// Arms with the state already locked. `requested` is when the Home
+    /// request was committed: the deadline and the reported latency count
+    /// from it, not from when the state became free.
+    async fn arm_locked(
+        &self,
+        mut inner: tokio::sync::MutexGuard<'_, Inner>,
+        target: &str,
+        output: &str,
+        requested: Instant,
+    ) {
         if inner.exhausted {
             return;
         }
@@ -316,8 +329,8 @@ impl Background {
                 target: target.into(),
                 output: output.into(),
                 window: None,
-                armed: now,
-                deadline: now + DEADLINE,
+                armed: requested,
+                deadline: requested + DEADLINE,
                 phase: Phase::Pending,
             });
             let change = Self::reconcile(&mut inner, &evidence, blocked, now);
@@ -461,7 +474,12 @@ impl Background {
         arinn_protocol::platform::generation(request_id)?;
         let mut inner = self.inner.lock().await;
         let evidence = self.evidence(&inner).await;
-        if evidence.owner != sender {
+        // As for Publish: the selected platform owner is rechecked at commit.
+        let platform_owner = match crate::platform::adapter_service() {
+            Some(service) => self.owner_of(service).await.ok().flatten(),
+            None => None,
+        };
+        if evidence.owner != sender || platform_owner.as_deref() != Some(sender.as_str()) {
             return Err(ErrorCode::PermissionDenied);
         }
         let now = Instant::now();
@@ -696,10 +714,26 @@ impl Core {
         Ok(())
     }
 
-    /// Called after a committed explicit Home presentation request.
+    /// Called after a committed explicit Home presentation request. Arms
+    /// inline when the state is free; otherwise (a publication or
+    /// reconciliation holds it) in the background, so the Home request is
+    /// never delayed by capture work (§6.5).
     pub(super) async fn background_home_requested(&self, target: &str, output: &str) {
-        if let Some(background) = self.background.get() {
-            background.arm(target, output).await;
+        let Some(background) = self.background.get() else {
+            return;
+        };
+        let requested = Instant::now();
+        match background.inner.try_lock() {
+            Ok(inner) => {
+                background
+                    .arm_locked(inner, target, output, requested)
+                    .await
+            }
+            Err(_) => {
+                let background = background.clone();
+                let (target, output) = (target.to_owned(), output.to_owned());
+                tokio::spawn(async move { background.arm(&target, &output, requested).await });
+            }
         }
     }
 }

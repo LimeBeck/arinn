@@ -1681,10 +1681,10 @@ impl Daemon {
             )
             .await?;
         Self::changed(&emitter).await?;
-        // Arms at most one Activity background capture for this Home context;
-        // presentation never waits for it.
-        self.core.background_home_requested(target, output).await;
+        // Presentation intent first; arming at most one Activity background
+        // capture for this Home context never delays it.
         Self::home_requested(&emitter, &self.core.epoch, target, output).await?;
+        self.core.background_home_requested(target, output).await;
         Ok(())
     }
     #[zbus(signal)]

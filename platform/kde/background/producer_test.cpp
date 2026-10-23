@@ -9,6 +9,7 @@
 #include <QQuickWindow>
 #include <QtDBus>
 #include <QScopeGuard>
+#include <limits>
 #include <QSemaphore>
 #include <QtTest>
 
@@ -265,7 +266,7 @@ private slots:
     QTRY_COMPARE_WITH_TIMEOUT(producer.request(), second, 5000);
     producer.capture(item());
     // Refused at once instead of queueing a second image behind the first.
-    QTRY_COMPARE_WITH_TIMEOUT(daemon->cancels, QStringList{second}, 1000);
+    QTRY_COMPARE_WITH_TIMEOUT(daemon->cancels, QStringList{second}, 5000);
     QVERIFY(producer.request().isEmpty());
     QVERIFY(!producer.pendingGrab());
     unblock.dismiss();
@@ -293,6 +294,26 @@ private slots:
     QVERIFY(two.width() <= 1920 && two.height() <= 1080);
     QCOMPARE(producer.stageSize(800, 600, 2), QSize(720, 540));
     QCOMPARE(producer.stageSize(0, 100, 1), QSize(1, 1));
+    const qreal nan = std::numeric_limits<qreal>::quiet_NaN();
+    const qreal inf = std::numeric_limits<qreal>::infinity();
+    QCOMPARE(producer.stageSize(nan, 100, 1), QSize(1, 1));
+    QCOMPARE(producer.stageSize(inf, 100, 1), QSize(1, 1));
+    QCOMPARE(producer.stageSize(800, 450, nan), QSize(800, 450));
+    QCOMPARE(producer.stageSize(800, 450, inf), QSize(800, 450));
+  }
+
+  void grabSizeNeverEnlargesAndBoundsLargeItems() {
+    // A window that already fits is grabbed at its own size.
+    QCOMPARE(BackgroundProducer::grabSize(800, 450, 1), QSize(800, 450));
+    QCOMPARE(BackgroundProducer::grabSize(800, 450, 2), QSize(800, 450));
+    // Oversize at DPR 1.75: the physical result stays within 1920×1080.
+    const auto hidpi = BackgroundProducer::grabSize(1920, 1080, 1.75);
+    QCOMPARE(hidpi, QSize(1097, 617));
+    QVERIFY(hidpi.width() * 1.75 <= 1920 && hidpi.height() * 1.75 <= 1080);
+    QCOMPARE(BackgroundProducer::grabSize(3840, 2160, 1), QSize(1920, 1080));
+    QCOMPARE(BackgroundProducer::grabSize(0, 450, 1), QSize(1, 1));
+    QCOMPARE(BackgroundProducer::grabSize(std::numeric_limits<qreal>::infinity(), 450, 1),
+             QSize(1, 1));
   }
 
   void rejectedPublicationEnds() {

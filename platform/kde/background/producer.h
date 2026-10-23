@@ -55,6 +55,10 @@ public:
   // on an output with `dpr`: its backing surface stays within the physical
   // frame bounds (ADR-0087), keeping the aspect ratio.
   Q_INVOKABLE QSize stageSize(qreal width, qreal height, qreal dpr) const;
+  // The logical target size passed to grabToImage for an item of
+  // `width`×`height` logical pixels at `dpr`: scaled down into the physical
+  // bounds when larger, unchanged otherwise.
+  static QSize grabSize(qreal width, qreal height, qreal dpr);
   // The outstanding grab result, for tests: at most one, released as soon
   // as its image is taken or its request ends.
   QQuickItemGrabResult *pendingGrab() const { return m_grab.data(); }

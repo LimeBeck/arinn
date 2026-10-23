@@ -198,9 +198,24 @@ void BackgroundProducer::end(bool published) {
   emit finished(request, published);
 }
 
+QSize BackgroundProducer::grabSize(qreal width, qreal height, qreal dpr) {
+  if (!std::isfinite(width) || !std::isfinite(height) || !(width > 0) || !(height > 0))
+    return {1, 1};
+  if (!std::isfinite(dpr) || !(dpr >= 1)) dpr = 1;
+  // Only an item larger than the physical bounds is scaled down; a smaller
+  // one is grabbed at its own size, never enlarged.
+  QSizeF physical = QSizeF(width, height) * dpr;
+  if (physical.width() > arinn::background::maxWidth ||
+      physical.height() > arinn::background::maxHeight)
+    physical.scale(QSizeF(arinn::background::maxWidth, arinn::background::maxHeight),
+                   Qt::KeepAspectRatio);
+  return (physical / dpr).toSize().expandedTo(QSize(1, 1));
+}
+
 QSize BackgroundProducer::stageSize(qreal width, qreal height, qreal dpr) const {
-  if (!(width > 0) || !(height > 0)) return {1, 1};
-  if (!(dpr >= 1)) dpr = 1;
+  if (!std::isfinite(width) || !std::isfinite(height) || !(width > 0) || !(height > 0))
+    return {1, 1};
+  if (!std::isfinite(dpr) || !(dpr >= 1)) dpr = 1;
   // Bound the stage's backing surface, which is logical size times DPR, to
   // the physical frame bounds, keeping the window's aspect ratio. Floor, so
   // the backing never exceeds them.
@@ -233,11 +248,8 @@ void BackgroundProducer::capture(QQuickItem *item) {
     return;
   // Ask for physical pixels within the bounds; DPR can still enlarge the
   // result, which the worker scales down before encoding.
-  const qreal dpr = qMax<qreal>(1.0, item->window()->effectiveDevicePixelRatio());
-  QSizeF physical = QSizeF(item->width(), item->height()) * dpr;
-  physical.scale(QSizeF(arinn::background::maxWidth, arinn::background::maxHeight),
-                 Qt::KeepAspectRatio);
-  const QSize size = (physical / dpr).toSize().expandedTo(QSize(1, 1));
+  const QSize size = grabSize(item->width(), item->height(),
+                              item->window()->effectiveDevicePixelRatio());
   auto grab = item->grabToImage(size);
   if (!grab) {
     fail();

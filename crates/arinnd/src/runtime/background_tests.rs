@@ -432,6 +432,44 @@ async fn explicit_home_arms_one_attempt_and_only_the_shell_reads_it() {
     assert_eq!(failed.context[0].request_id, next.request_id);
 }
 
+/// ADR-0106: the quick-menu request commits the Home state, so it arms the
+/// same capture as an explicit Home request. Home opened from the quick menu
+/// then shows the Activity's last frame (§12.3), and a later Home press on
+/// that context does not recapture. Rejected calls arm nothing.
+#[tokio::test]
+async fn quick_menu_request_arms_the_activity_background() {
+    let f = Fixture::new().await;
+    error(
+        ProductionDaemonProxy::new(&f.stranger)
+            .await
+            .unwrap()
+            .report_quick_menu_request("activity", "screen")
+            .await,
+        "PermissionDenied",
+    );
+    assert_eq!(f.get().await.state, "idle");
+    let adapter = ProductionDaemonProxy::new(&f.kwin).await.unwrap();
+    adapter
+        .report_quick_menu_request("activity", "screen")
+        .await
+        .unwrap();
+    let pending = f.get().await;
+    assert_eq!(pending.state, "pending");
+    f.associate("activity", &f.tokens[0]).await;
+    let snapshot = f.wait_state("pending", true).await;
+    let context = &snapshot.context[0];
+    assert_eq!(context.epoch, f.core.epoch);
+    assert_eq!(
+        (context.target.as_str(), context.output.as_str()),
+        ("activity", "screen")
+    );
+    assert_eq!(context.window.token, "token-0");
+    // One attempt per visible Home context: Home from the quick menu keeps it.
+    f.home("activity", "screen").await;
+    let after = f.get().await;
+    assert_eq!(after.context[0].request_id, context.request_id);
+}
+
 #[tokio::test]
 async fn home_without_an_activity_or_output_keeps_the_normal_background() {
     let f = Fixture::new().await;

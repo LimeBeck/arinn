@@ -1725,7 +1725,11 @@ impl Daemon {
             )
             .await?;
         Self::changed(&emitter).await?;
+        // As for Home: intent first, then arm the Activity background for
+        // the Home state this request committed, so Home opened from the
+        // quick menu shows the Activity's last frame (§12.3).
         Self::quick_menu_requested(&emitter, &self.core.epoch, target, output).await?;
+        self.core.background_home_requested(target, output).await;
         Ok(())
     }
     #[zbus(signal)]

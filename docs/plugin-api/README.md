@@ -310,7 +310,10 @@ after #45 merges. This contract alone does not complete AC-18.
 
 `ReportHomeRequest` never emits `QuickMenuRequested`, and
 `ReportQuickMenuRequest` never emits `HomeRequested`. `Status.home_visible` is
-true while either is shown; which one the shell shows is its own state.
+true while either is shown; which one the shell shows is its own state. Both
+requests arm the [Activity background](../architecture/activity-background.md)
+capture after their signal, so Home opened from the quick menu shows the
+Activity's last frame.
 
 ### Optional Return/window association
 

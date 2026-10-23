@@ -152,6 +152,82 @@ TestCase {
         focused("restartButton");
     }
 
+    // A Restart or Shut down still in flight survives an unrelated lock:
+    // its refusal is shown after unlock instead of being lost.
+    function test_lock_keeps_a_pending_restart() {
+        openMenu();
+        keyClick(Qt.Key_Down);
+        focused("restartButton");
+        keyClick(Qt.Key_Return);
+        focused("cancelButton");
+        keyClick(Qt.Key_Right);
+        keyClick(Qt.Key_Return);
+        compare(control.pendingAction, "reboot");
+        overlay.sessionBlocked();
+        verify(overlay.open);
+        control.answer("denied");
+        tryCompare(child("powerError"), "visible", true);
+    }
+
+    // Once a request is sent it cannot be cancelled: Cancel, Back and Home
+    // do nothing until the system answers.
+    function test_a_dispatched_request_cannot_look_cancelled() {
+        openMenu();
+        keyClick(Qt.Key_Down);
+        keyClick(Qt.Key_Return);
+        focused("cancelButton");
+        keyClick(Qt.Key_Right);
+        keyClick(Qt.Key_Return);
+        compare(control.pendingAction, "reboot");
+        verify(!child("cancelButton").enabled);
+        keyClick(Qt.Key_Escape);
+        keyClick(Qt.Key_Home);
+        verify(overlay.open);
+        compare(overlay.menu.step, "confirm");
+        compare(homeSpy.count, 0);
+        control.answer("");
+        tryCompare(child("powerAccepted"), "visible", true);
+    }
+
+    // A row reported unsupported after the menu opened gives up focus.
+    function test_focus_leaves_a_row_that_becomes_unsupported() {
+        openMenu();
+        focused("sleepButton");
+        control.suspend = "unsupported";
+        focused("restartButton");
+        keyClick(Qt.Key_Down);
+        focused("shutdownButton");
+    }
+
+    // Long lists never push the buttons off the canvas.
+    function test_long_lists_are_bounded() {
+        const many = [];
+        for (let i = 0; i < 12; ++i)
+            many.push({title: "Application " + i});
+        overlay.runningApplications = many;
+        const holders = [];
+        for (let i = 0; i < 16; ++i)
+            holders.push({what: "shutdown", who: "Holder " + i + " " + "x".repeat(120), why: "y".repeat(250)});
+        control.reboot = "inhibited";
+        control.inhibitors = holders;
+        openMenu();
+        keyClick(Qt.Key_Down);
+        keyClick(Qt.Key_Return);
+        focused("cancelButton");
+        const list = child("closingList");
+        verify(list.text.indexOf("and 8 more") >= 0, list.text);
+        compare(list.maximumLineCount, 3);
+        verify(child("confirmNote").text.length < 300, child("confirmNote").text.length);
+        verify(child("confirmNote").text.indexOf("and 13 more") >= 0);
+        const panel = child("powerPanel");
+        verify(panel.y >= 0 && panel.y + panel.height <= 1080, panel.y + " " + panel.height);
+        keyClick(Qt.Key_Right);
+        keyClick(Qt.Key_Return);
+        control.answer("inhibited");
+        tryCompare(child("powerError"), "visible", true);
+        verify(child("powerError").description.length < 300);
+    }
+
     function test_accepted_back_returns_to_arinn() {
         openMenu();
         keyClick(Qt.Key_Return);

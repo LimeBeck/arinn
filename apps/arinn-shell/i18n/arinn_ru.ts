@@ -1163,8 +1163,16 @@
         <translation>Нет запущенных приложений.</translation>
     </message>
     <message>
+        <source>These applications will close: %1 and %2 more.</source>
+        <translation>Будут закрыты приложения: %1 и ещё %2.</translation>
+    </message>
+    <message>
         <source>These applications will close: %1.</source>
         <translation>Будут закрыты приложения: %1.</translation>
+    </message>
+    <message>
+        <source>%1 and %2 more</source>
+        <translation>%1 и ещё %2</translation>
     </message>
     <message>
         <source>%1 (%2)</source>

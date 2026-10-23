@@ -70,7 +70,10 @@ FocusScope {
     function sessionBlocked() {
         // The lifecycle signal and the daemon's reply travel on different
         // buses: a request still in flight counts too.
-        if (menuOpen && control && (control.acceptedAction.length > 0 || control.pendingAction.length > 0))
+        // A pending Suspend may be the reason for the block; its reply can
+        // arrive after it. A pending Restart or Shut down blocked by an
+        // unrelated lock stays open, so its answer is shown after unlock.
+        if (menuOpen && control && (control.acceptedAction.length > 0 || control.pendingAction === "suspend"))
             closeMenu();
     }
     function volumeKey(key) {

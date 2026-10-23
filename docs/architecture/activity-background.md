@@ -4,9 +4,14 @@ Contract prerequisite [#348](https://github.com/LimeBeck/arinn/issues/348) for
 [#149](https://github.com/LimeBeck/arinn/issues/149), implementing existing
 specification §12.3 / G-5.2 and [ADR-0027](../adr/0027-activity-background-snapshot.md).
 Technical transport choice: [ADR-0087](../adr/0087-bounded-activity-background-frames.md).
-**Status:** the daemon export is implemented (see [Daemon implementation](#daemon-implementation));
-the KDE and X11 producers and the shell consumer are not yet connected, so no
-automatic capture runs. No target-device budget or operator gate is passed.
+**Status:** implemented end to end. The [daemon export](#daemon-implementation),
+the shell consumer and Home rendering, the X11 producer
+([x11-ewmh.md](x11-ewmh.md#activity-background)) and the KDE producer
+([background experiment](background-experiment.md#kde-producer)) are connected:
+an explicit Home over an Activity captures, publishes and shows its last frame.
+The G-5.2 device and operator gates remain pending: the target-device budget
+report and the real KDE/Wayland and XFCE/X11 qualification are owner-run, and
+none is passed.
 
 ## Optional interfaces and identities
 

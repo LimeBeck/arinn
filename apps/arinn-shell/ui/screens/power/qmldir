@@ -3,3 +3,4 @@
 
 module Arinn.Power
 PowerMenu 1.0 PowerMenu.qml
+PowerOverlay 1.0 PowerOverlay.qml

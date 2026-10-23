@@ -57,15 +57,20 @@ Window {
             return;
         }
         client = w;
+        let dpr = 1;
         for (const display of Qt.application.screens) {
-            if (w.output && display.name === w.output.name)
+            if (w.output && display.name === w.output.name) {
                 stage.screen = display;
+                dpr = display.devicePixelRatio || 1;
+            }
         }
-        // Keep the window's aspect ratio so the thumbnail is not letterboxed.
+        // The backing surface (logical size times DPR) stays within the
+        // physical frame bounds, keeping the window's aspect ratio so the
+        // thumbnail is not letterboxed.
         const geometry = w.frameGeometry;
-        const scale = Math.min(1, 1920 / Math.max(1, geometry.width), 1080 / Math.max(1, geometry.height));
-        stage.width = Math.max(1, Math.round(geometry.width * scale));
-        stage.height = Math.max(1, Math.round(geometry.height * scale));
+        const size = producer.stageSize(geometry.width, geometry.height, dpr);
+        stage.width = size.width;
+        stage.height = size.height;
         armed = true;
         stage.visible = true;
         stage.requestUpdate();

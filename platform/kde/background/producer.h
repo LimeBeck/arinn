@@ -11,6 +11,7 @@
 #include <QThreadPool>
 #include <QTimer>
 #include <QtQml/qqmlregistration.h>
+#include <functional>
 #include <memory>
 
 // The trusted in-process KWin producer of Activity background frames
@@ -48,6 +49,12 @@ public:
   Q_INVOKABLE void fail();
   // The local guard; the daemon's own deadline is authoritative.
   void setDeadline(int ms) { m_deadline.setInterval(ms); }
+  // Test seam: runs on the encoding worker before each encoding.
+  void setEncodeHook(std::function<void()> hook) { m_encodeHook = std::move(hook); }
+  // The logical stage size for a window of `width`×`height` logical pixels
+  // on an output with `dpr`: its backing surface stays within the physical
+  // frame bounds (ADR-0087), keeping the aspect ratio.
+  Q_INVOKABLE QSize stageSize(qreal width, qreal height, qreal dpr) const;
   // The outstanding grab result, for tests: at most one, released as soon
   // as its image is taken or its request ends.
   QQuickItemGrabResult *pendingGrab() const { return m_grab.data(); }
@@ -74,6 +81,7 @@ private:
   void cancel(const QString &request);
   void releaseGrab();
   QThreadPool m_pool;
+  std::function<void()> m_encodeHook;
   QSharedPointer<QQuickItemGrabResult> m_grab;
   QTimer m_deadline;
   QElapsedTimer m_started;

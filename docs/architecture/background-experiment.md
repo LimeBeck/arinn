@@ -98,7 +98,8 @@ process and no new bus authority.
   cancels the request and is never replaced by another window. The script shows
   only that window in a `WindowThumbnail` inside an invisible, non-focusable,
   input-transparent stage on the window's output, sized to the window's aspect
-  ratio within 1920×1080. After the first rendered frame it calls `capture()`.
+  ratio so that its backing surface (logical size times the output's DPR) stays
+  within 1920×1080 physical pixels. After the first rendered frame it calls `capture()`.
   The producer holds the only reference to the one outstanding grab result and
   releases it as soon as the image is taken or the request ends.
 - **Encoding and publication.**

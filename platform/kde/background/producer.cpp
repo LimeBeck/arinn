@@ -6,6 +6,8 @@
 #include <QQuickWindow>
 #include <QUuid>
 #include <QtDBus>
+#include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <optional>
 
@@ -196,6 +198,19 @@ void BackgroundProducer::end(bool published) {
   emit finished(request, published);
 }
 
+QSize BackgroundProducer::stageSize(qreal width, qreal height, qreal dpr) const {
+  if (!(width > 0) || !(height > 0)) return {1, 1};
+  if (!(dpr >= 1)) dpr = 1;
+  // Bound the stage's backing surface, which is logical size times DPR, to
+  // the physical frame bounds, keeping the window's aspect ratio. Floor, so
+  // the backing never exceeds them.
+  const qreal scale = std::min({qreal(1),
+                                qreal(arinn::background::maxWidth) / (width * dpr),
+                                qreal(arinn::background::maxHeight) / (height * dpr)});
+  return {std::max(1, int(std::floor(width * scale))),
+          std::max(1, int(std::floor(height * scale)))};
+}
+
 void BackgroundProducer::fail() {
   if (m_request.isEmpty()) return;
   log("background-capture", "window", m_started.elapsed());
@@ -239,7 +254,8 @@ void BackgroundProducer::capture(QQuickItem *item) {
     const QImage image = result->image();
     releaseGrab();
     m_encoding = true;
-    m_pool.start([this, image, request] {
+    m_pool.start([this, image, request, hook = m_encodeHook] {
+      if (hook) hook();
       auto bounded = arinn::background::boundGrab(image);
       auto pixels = std::make_shared<arinn::background::Pixels>(
           arinn::background::encodeGrab(bounded));

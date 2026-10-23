@@ -8,6 +8,8 @@
 #include <QQmlEngine>
 #include <QQuickWindow>
 #include <QtDBus>
+#include <QScopeGuard>
+#include <QSemaphore>
 #include <QtTest>
 
 namespace {
@@ -240,6 +242,57 @@ private slots:
     daemon->changed();
     QTest::qWait(200);
     QVERIFY(producer.request().isEmpty());
+  }
+
+  void aReplacementWhileEncodingIsCancelledAsBusy() {
+    // The encoding worker is held: the first image stays on it.
+    QSemaphore entered, release;
+    BackgroundProducer producer;
+    producer.setDeadline(10000);
+    producer.setEncodeHook([&] {
+      entered.release();
+      release.acquire();
+    });
+    // Never leave the worker blocked, also when an assertion fails: the
+    // producer waits for its worker when destroyed.
+    auto unblock = qScopeGuard([&] { release.release(100); });
+    QTRY_COMPARE_WITH_TIMEOUT(producer.request(), first, 5000);
+    producer.capture(item());
+    QTRY_VERIFY_WITH_TIMEOUT(entered.available() == 1, 5000);
+    // A replacement request arrives while that image is still encoding.
+    daemon->request = second;
+    daemon->changed();
+    QTRY_COMPARE_WITH_TIMEOUT(producer.request(), second, 5000);
+    producer.capture(item());
+    // Refused at once instead of queueing a second image behind the first.
+    QTRY_COMPARE_WITH_TIMEOUT(daemon->cancels, QStringList{second}, 1000);
+    QVERIFY(producer.request().isEmpty());
+    QVERIFY(!producer.pendingGrab());
+    unblock.dismiss();
+    release.release();
+    QTest::qWait(300);
+    // The superseded first image is dropped, never published.
+    QCOMPARE(daemon->published.size(), 0);
+  }
+
+  void stageSizeBoundsTheBackingSurface() {
+    BackgroundProducer producer;
+    const auto physical = [&](qreal w, qreal h, qreal dpr) {
+      const auto size = producer.stageSize(w, h, dpr);
+      return QSizeF(size.width() * dpr, size.height() * dpr);
+    };
+    QCOMPARE(producer.stageSize(3840, 2160, 1), QSize(1920, 1080));
+    QCOMPARE(producer.stageSize(800, 450, 1), QSize(800, 450));
+    QCOMPARE(producer.stageSize(1000, 3000, 1), QSize(360, 1080));
+    // A 1920×1080 logical window on a DPR 1.75 output: the backing surface,
+    // not just the logical size, stays within 1920×1080.
+    const auto hidpi = physical(1920, 1080, 1.75);
+    QVERIFY2(hidpi.width() <= 1920 && hidpi.height() <= 1080, "DPR 1.75");
+    QCOMPARE(producer.stageSize(1920, 1080, 1.75), QSize(1097, 617));
+    const auto two = physical(800, 600, 2);
+    QVERIFY(two.width() <= 1920 && two.height() <= 1080);
+    QCOMPARE(producer.stageSize(800, 600, 2), QSize(720, 540));
+    QCOMPARE(producer.stageSize(0, 100, 1), QSize(1, 1));
   }
 
   void rejectedPublicationEnds() {

@@ -85,6 +85,7 @@ mod media_links;
 mod media_routing;
 mod progress;
 mod settings_routing;
+mod system_control;
 mod system_status;
 mod web_icons;
 
@@ -169,6 +170,15 @@ impl Core {
             supervision: Arc::new(tokio::sync::OnceCell::new()),
             background: Arc::default(),
         }
+    }
+    /// Whether `name` is the bus connection of a registered provider.
+    pub(crate) async fn is_provider_owner(&self, name: &str) -> bool {
+        self.state
+            .lock()
+            .await
+            .providers
+            .values()
+            .any(|p| !p.owner.is_empty() && p.owner == name)
     }
     async fn supervision(&self) -> Arc<Supervision> {
         self.supervision

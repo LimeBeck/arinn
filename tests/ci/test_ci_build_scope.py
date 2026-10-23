@@ -203,5 +203,17 @@ class ConcurrencyTest(unittest.TestCase):
         self.assertIn("github.ref == 'refs/heads/master' && github.sha", CI)
 
 
+class ArtifactRetentionTest(unittest.TestCase):
+    def test_package_artifacts_expire_after_a_week(self):
+        # Every download of a package artifact happens in the same workflow
+        # run; the default 90-day retention filled the artifact storage quota.
+        text = (ROOT / ".github/workflows/package.yml").read_text()
+        uploads = re.findall(r"uses: actions/upload-artifact@v\d+\n        with:\n((?:          .*\n)+)", text)
+        self.assertEqual(len(uploads), 2)
+        for block in uploads:
+            with self.subTest(block=block.splitlines()[0]):
+                self.assertIn("retention-days: 7\n", block)
+
+
 if __name__ == "__main__":
     unittest.main()

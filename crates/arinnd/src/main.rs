@@ -110,6 +110,8 @@ async fn run(started: std::time::Instant) -> Result<(), ErrorCode> {
     core.export_media_association().await?;
     core.export_system_status(arinnd::status_sources::Sources::system())
         .await?;
+    core.export_system_control(arinnd::system_control::Control::system())
+        .await?;
     connection
         .object_server()
         .at(PATH, shortcuts)

@@ -21,6 +21,8 @@ pub mod shortcuts;
 pub mod status_sources;
 pub mod storage;
 pub mod supervisor;
+#[path = "../../../platform/system_control.rs"]
+pub mod system_control;
 
 pub mod telemetry;
 #[path = "../../../platform/kde/windows.rs"]

@@ -55,6 +55,40 @@ entry = DESKTOP.read_text()
 assert "Exec=/usr/lib/arinn/arinn-open" in entry and "Icon=org.arinn.Shell" in entry, entry
 assert (PREFIX / "share/icons/hicolor/scalable/apps/org.arinn.Shell.svg").is_file(), "missing icon"
 
+# Dedicated Arinn login session and the switch to the plain desktop (ADR-0107).
+SESSION_ENTRY = PREFIX / "lib/arinn/arinn-session"
+SESSION_SWITCH = PREFIX / "lib/arinn/arinn-session-switch"
+for helper in (SESSION_ENTRY, SESSION_SWITCH):
+    assert helper.is_file() and os.access(helper, os.X_OK), f"missing {helper.name}"
+SESSIONS = {
+    PREFIX / "share/wayland-sessions/arinn.desktop":
+        ("Exec=/usr/lib/arinn/arinn-session plasma", "TryExec=startplasma-wayland", "DesktopNames=KDE"),
+    PREFIX / "share/xsessions/arinn-xfce.desktop":
+        ("Exec=/usr/lib/arinn/arinn-session xfce", "TryExec=startxfce4", "DesktopNames=XFCE"),
+}
+for path, keys in SESSIONS.items():
+    assert path.is_file(), f"missing session entry {path}"
+    lines = path.read_text().splitlines()
+    assert all(key in lines for key in keys), (path, lines)
+RETURN = PREFIX / "share/applications/org.arinn.ReturnToArinn.desktop"
+assert RETURN.is_file(), "missing Return to Arinn launcher"
+assert "Exec=/usr/lib/arinn/arinn-session-switch arinn --prompt" in RETURN.read_text().splitlines()
+VALIDATE = shutil.which("desktop-file-validate")
+if VALIDATE:
+    for path in [*SESSIONS, DESKTOP, RETURN]:
+        result = subprocess.run([VALIDATE, str(path)], capture_output=True, text=True, timeout=30)
+        # DesktopNames belongs to session entries only; the validator does not
+        # know it (desktop-file-utils issue 61). Any other error fails.
+        output = (result.stdout + result.stderr).splitlines()
+        errors = [line for line in output
+                  if "error:" in line and not (path in SESSIONS and "DesktopNames" in line)]
+        assert not errors, output
+else:
+    print("SKIP: desktop-file-validate is not installed; session entry keys were checked above")
+subprocess.run([sys.executable, str(Path(__file__).with_name("test_session_entry.py"))],
+               env={**os.environ, "ARINN_SESSION_SCRIPT": str(SESSION_ENTRY),
+                    "ARINN_SESSION_SWITCH": str(SESSION_SWITCH)}, check=True, timeout=120)
+
 # Running user services restart after an upgrade (#355).
 RESTART = PREFIX / "lib/arinn/arinn-restart-user-services"
 assert RESTART.is_file() and os.access(RESTART, os.X_OK), "missing arinn-restart-user-services"
@@ -215,4 +249,4 @@ if PREFIX == Path("/usr"):
 else:
     print(f"SKIP: native messaging manifests are checked only for the /usr prefix, not {PREFIX}")
 
-print("PASS: session units are installed, disabled by default and valid; KWin adapter loader behaves; Chrome integration files are installed")
+print("PASS: session units are installed, disabled by default and valid; Arinn session entries and the switch behave; KWin adapter loader behaves; Chrome integration files are installed")

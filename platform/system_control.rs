@@ -122,6 +122,27 @@ pub fn audio_from_pactl(output: &str) -> Audio {
     crate::status_sources::audio_from_pactl(output)
 }
 
+/// The published inhibitor list: the first inhibitor of each lock, so an
+/// inhibited action always names a holder, then the others in the order
+/// logind listed them, without duplicates, up to [`MAX_INHIBITORS`].
+pub fn bounded_inhibitors(inhibitors: Vec<Inhibitor>) -> Vec<Inhibitor> {
+    let mut reserved: Vec<usize> = [Lock::Sleep, Lock::Shutdown]
+        .iter()
+        .filter_map(|lock| inhibitors.iter().position(|i| i.lock() == *lock))
+        .collect();
+    reserved.sort_unstable();
+    let mut kept: Vec<Inhibitor> = reserved.iter().map(|&i| inhibitors[i].clone()).collect();
+    for (index, inhibitor) in inhibitors.into_iter().enumerate() {
+        if kept.len() >= MAX_INHIBITORS {
+            break;
+        }
+        if !reserved.contains(&index) && !kept.contains(&inhibitor) {
+            kept.push(inhibitor);
+        }
+    }
+    kept
+}
+
 /// Where the platform services are.
 #[derive(Debug, Clone)]
 pub struct Control {
@@ -160,28 +181,11 @@ impl Control {
             .await
             .ok()?
             .ok()?;
-        let mut inhibitors: Vec<Inhibitor> = records
+        let inhibitors: Vec<Inhibitor> = records
             .iter()
             .flat_map(|(what, who, why, mode, _, _)| inhibitors_from_record(what, who, why, mode))
             .collect();
-        // Keep one of each lock first, so an inhibited action always names
-        // a holder even when many inhibitors exist.
-        inhibitors.sort_by_key(|i| i.what.clone());
-        let mut kept: Vec<Inhibitor> = vec![];
-        for lock in [Lock::Sleep, Lock::Shutdown] {
-            if let Some(first) = inhibitors.iter().find(|i| i.lock() == lock) {
-                kept.push(first.clone());
-            }
-        }
-        for inhibitor in inhibitors {
-            if kept.len() >= MAX_INHIBITORS {
-                break;
-            }
-            if !kept.contains(&inhibitor) {
-                kept.push(inhibitor);
-            }
-        }
-        Some(kept)
+        Some(bounded_inhibitors(inhibitors))
     }
 
     /// The current availability of every power action. Read on each call:

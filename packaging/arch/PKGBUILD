@@ -112,6 +112,14 @@ package() {
     "${pkgdir}/usr/share/libalpm/hooks/arinn-restart-user-services.hook"
   install -Dm644 packaging/desktop/org.arinn.Shell.desktop "${pkgdir}/usr/share/applications/org.arinn.Shell.desktop"
   install -Dm644 packaging/icons/org.arinn.Shell.svg "${pkgdir}/usr/share/icons/hicolor/scalable/apps/org.arinn.Shell.svg"
+  # Dedicated Arinn login session and the switch to the plain desktop (ADR-0107).
+  # The package changes no display manager configuration.
+  install -Dm755 packaging/bin/arinn-session "${pkgdir}/usr/lib/arinn/arinn-session"
+  install -Dm755 packaging/bin/arinn-session-switch "${pkgdir}/usr/lib/arinn/arinn-session-switch"
+  install -Dm644 packaging/sessions/arinn.desktop "${pkgdir}/usr/share/wayland-sessions/arinn.desktop"
+  install -Dm644 packaging/sessions/arinn-xfce.desktop "${pkgdir}/usr/share/xsessions/arinn-xfce.desktop"
+  install -Dm644 packaging/desktop/org.arinn.ReturnToArinn.desktop \
+    "${pkgdir}/usr/share/applications/org.arinn.ReturnToArinn.desktop"
   # Session units are installed but never enabled by the package (ADR-0042).
   install -Dm644 packaging/systemd/arinn-session.target packaging/systemd/arinnd.service \
     packaging/systemd/arinn-shell.service packaging/systemd/arinn-kwin.service \

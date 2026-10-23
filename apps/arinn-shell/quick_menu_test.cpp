@@ -18,6 +18,7 @@ namespace {
 const QString epoch = QStringLiteral("66666666-6666-4666-8666-666666666666");
 const QString service = QStringLiteral("org.arinn.Daemon1");
 const QString path = QStringLiteral("/org/arinn/Daemon1");
+const QString control = QStringLiteral("org.arinn.SystemControl1");
 
 // Home state as the platform reports it; Back hands the screen back.
 class QuickMenuDaemon : public QDBusVirtualObject {
@@ -25,9 +26,42 @@ public:
   bool home = false;
   QString returnWindow;
   int backs = 0;
+  // SystemControl1 (ADR-0108): the calls in order, the default output, and
+  // a suspend the platform refuses with a block inhibitor.
+  QStringList controlCalls;
+  uint level = 30;
+  bool muted = false;
   QString introspect(const QString &) const override { return {}; }
   bool handleMessage(const QDBusMessage &m,
                      const QDBusConnection &bus) override {
+    if (m.interface() == control) {
+      controlCalls << m.member();
+      const QString member = m.member();
+      if (member == QLatin1String("StepVolume"))
+        level = uint(qBound(0, int(level) + 5 * m.arguments().value(0).toInt(),
+                            150));
+      else if (member == QLatin1String("ToggleMuted"))
+        muted = !muted;
+      else if (member == QLatin1String("SetMuted"))
+        muted = m.arguments().value(0).toBool();
+      if (member == QLatin1String("GetVolume") ||
+          member == QLatin1String("StepVolume") ||
+          member == QLatin1String("ToggleMuted") ||
+          member == QLatin1String("SetMuted")) {
+        QDBusArgument a;
+        a.beginStructure();
+        a << (muted ? QStringLiteral("muted") : QStringLiteral("unmuted"))
+          << level;
+        a.endStructure();
+        bus.send(m.createReply(QVariant::fromValue(a)));
+      } else if (member == QLatin1String("Suspend")) {
+        bus.send(m.createErrorReply(QStringLiteral("org.arinn.Error1.Conflict"),
+                                    QStringLiteral("inhibited")));
+      } else {
+        bus.send(m.createErrorReply(QDBusError::NotSupported, "fixture"));
+      }
+      return true;
+    }
     if (m.interface() != service) {
       bus.send(m.createErrorReply(QDBusError::NotSupported, "fixture"));
       return true;
@@ -109,6 +143,9 @@ private slots:
     daemon.home = false;
     daemon.returnWindow.clear();
     daemon.backs = 0;
+    daemon.controlCalls.clear();
+    daemon.level = 30;
+    daemon.muted = false;
     guard.m_blocked = false;
     auto bus = QDBusConnection::sessionBus();
     bus.unregisterObject(path);
@@ -147,7 +184,8 @@ private slots:
     QTRY_VERIFY(menuOpen());
     QVERIFY(!screens->isVisible());
     QCOMPARE(window->color(), QColor(Qt::transparent));
-    QVERIFY(child(window, "quickMenuSleep")->hasActiveFocus());
+    // Nothing plays, so focus starts on Sound, the first available row.
+    QVERIFY(child(window, "quickMenuVolume")->hasActiveFocus());
     QTest::keyClick(window, Qt::Key_Escape);
     QTRY_COMPARE(daemon.backs, 1);
     // Home never shows on the way back.
@@ -169,7 +207,7 @@ private slots:
     QTRY_VERIFY(window->isVisible());
     window->requestActivate();
     QTRY_VERIFY(menuOpen());
-    for (int i = 0; i < 2; ++i)
+    for (int i = 0; i < 3; ++i)
       QTest::keyClick(window, Qt::Key_Down);
     QTRY_VERIFY(child(window, "quickMenuHome")->hasActiveFocus());
     QTest::keyClick(window, Qt::Key_Return);
@@ -197,6 +235,86 @@ private slots:
     QTRY_VERIFY(focusIn(home));
   }
 
+  // Sound: the platform's level when the sheet opens, and the volume keys'
+  // semantics on the row (SystemControl1, ADR-0108).
+  void soundRowControlsThePlatformVolume() {
+    daemon.returnWindow = QStringLiteral("activity");
+    daemon.request("QuickMenuRequested");
+    QTRY_VERIFY(window->isVisible());
+    window->requestActivate();
+    QTRY_VERIFY(menuOpen());
+    auto *volume = child(window, "quickMenuVolume");
+    QVERIFY(volume->hasActiveFocus());
+    auto description = [this] {
+      return child(window, "quickMenuVolumeDescription")
+          ->property("text")
+          .toString();
+    };
+    QTRY_VERIFY(description().startsWith(QStringLiteral("Sound on · 30%")));
+    QCOMPARE(daemon.controlCalls, QStringList{QStringLiteral("GetVolume")});
+    // Right turns the sound back on, then raises it.
+    daemon.muted = true;
+    QTest::keyClick(window, Qt::Key_Right);
+    QTRY_VERIFY(description().startsWith(QStringLiteral("Sound on · 35%")));
+    QTest::keyClick(window, Qt::Key_Left);
+    QTRY_VERIFY(description().startsWith(QStringLiteral("Sound on · 30%")));
+    QTest::keyClick(window, Qt::Key_Return);
+    QTRY_VERIFY(description().startsWith(QStringLiteral("Muted")));
+    QCOMPARE(daemon.controlCalls,
+             (QStringList{"GetVolume", "SetMuted", "StepVolume", "StepVolume",
+                          "ToggleMuted"}));
+    // The sheet stays open over the Activity, focus on Sound.
+    QVERIFY(menuOpen());
+    QVERIFY(volume->hasActiveFocus());
+    QVERIFY(!screens->isVisible());
+  }
+
+  // Sleep and Power hand over to the shell's power scope. Over an Activity
+  // the shell comes up as for Home; Sleep sends one request and a refusal is
+  // shown, never a success. Over the shell the power menu opens over it.
+  void sleepAndPowerOpenThePowerMenu() {
+    daemon.returnWindow = QStringLiteral("activity");
+    daemon.request("QuickMenuRequested");
+    QTRY_VERIFY(window->isVisible());
+    window->requestActivate();
+    QTRY_VERIFY(menuOpen());
+    QTest::keyClick(window, Qt::Key_Down);
+    QTRY_VERIFY(child(window, "quickMenuSleep")->hasActiveFocus());
+    QTest::keyClick(window, Qt::Key_Return);
+    QTRY_VERIFY(!menu->isVisible());
+    QVERIFY(screens->isVisible());
+    auto *power = child(window, "powerOverlay");
+    QTRY_VERIFY(child(window, "powerError")->isVisible());
+    QTRY_VERIFY(focusIn(power));
+    QCOMPARE(daemon.controlCalls.count(QStringLiteral("Suspend")), 1);
+    QCOMPARE(daemon.backs, 0);
+    // Back clears the refusal, Back again closes the menu onto Home, whose
+    // Return is still that Activity.
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_VERIFY(!child(window, "powerError")->isVisible());
+    QVERIFY(child(window, "powerMenu")->isVisible());
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_VERIFY(!child(window, "powerMenu")->isVisible());
+    QTRY_VERIFY(focusIn(home));
+    QCOMPARE(daemon.backs, 0);
+    // Over the shell, Power opens the menu and sends nothing.
+    QTest::qWait(1600);
+    daemon.request("QuickMenuRequested");
+    QTRY_VERIFY(menuOpen());
+    QVERIFY(screens->isVisible());
+    QTest::keyClick(window, Qt::Key_Down);
+    QTest::keyClick(window, Qt::Key_Down);
+    QTRY_VERIFY(child(window, "quickMenuPower")->hasActiveFocus());
+    QTest::keyClick(window, Qt::Key_Return);
+    QTRY_VERIFY(!menu->isVisible());
+    QTRY_VERIFY(child(window, "powerMenu")->isVisible());
+    QTRY_VERIFY(focusIn(power));
+    QCOMPARE(daemon.controlCalls.count(QStringLiteral("Suspend")), 1);
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_VERIFY(!child(window, "powerMenu")->isVisible());
+    QTRY_VERIFY(focusIn(home));
+  }
+
   // A repeated key keeps the sheet; a request of another daemon epoch is
   // not this daemon's intent.
   void repeatsAndForeignEpochs() {
@@ -213,7 +331,7 @@ private slots:
     QTest::keyClick(window, Qt::Key_Down);
     daemon.request("QuickMenuRequested");
     QTRY_COMPARE(requests.count(), 2);
-    QTRY_VERIFY(child(window, "quickMenuSleep")->hasActiveFocus());
+    QTRY_VERIFY(child(window, "quickMenuVolume")->hasActiveFocus());
     QVERIFY(menu->isVisible());
   }
 

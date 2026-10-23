@@ -65,7 +65,7 @@ TestCase {
 
     function test_rows_in_order_and_network_is_not_focusable() {
         focused("quickMenuMedia");
-        // Volume control is not available yet: the row says so and is skipped.
+        // Without platform volume control the row says so and is skipped.
         verify(!child("quickMenuVolume").enabled);
         verify(child("quickMenuVolumeDescription").text.indexOf("Muted") === 0);
         compare(child("quickMenuNetworkState").text, "Wi-Fi · signal 3 of 4");
@@ -132,6 +132,22 @@ TestCase {
         keyClick(Qt.Key_Return);
         compare(muteSpy.count, 1);
         focused("quickMenuVolume");
+    }
+
+    // The platform's reply (SystemControl1) wins over SystemStatus1's mute
+    // state and is the only source of a level; none is ever guessed.
+    function test_volume_row_shows_the_platform_level() {
+        menu.volumeControl = true;
+        menu.audio = "unmuted";
+        compare(child("quickMenuVolumeDescription").text, "Sound on · Left/Right: volume, OK: mute");
+        menu.volumeKnown = true;
+        menu.volumeLevel = 40;
+        compare(child("quickMenuVolumeDescription").text, "Sound on · 40% · Left/Right: volume, OK: mute");
+        menu.volumeMuted = true;
+        compare(child("quickMenuVolumeDescription").text, "Muted · Left/Right: volume, OK: sound on");
+        verify(child("quickMenuVolumeDescription").text.indexOf("40") < 0);
+        menu.volumeKnown = false;
+        compare(child("quickMenuVolumeDescription").text, "Sound on · Left/Right: volume, OK: mute");
     }
 
     function test_media_without_play_pause_or_session() {

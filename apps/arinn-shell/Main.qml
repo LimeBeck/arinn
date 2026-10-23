@@ -40,6 +40,9 @@ Window {
     property double shownAt: 0
     function openQuickMenu() {
         if (sessionGuard.blocked) return;
+        // The key ends ambient and opens the sheet, as the power key opens
+        // its menu (§5.7).
+        ambientScreen.stop();
         if (!quickMenuOpen) {
             // A hidden shell, or managed playback, means an Activity is on
             // screen. The Status poll may show the shell just before this
@@ -48,6 +51,8 @@ Window {
             activityBehind = !visible || playerOpen || Date.now() - shownAt < 1500;
             quickMenuOpener = activityBehind ? null : activeFocusItem;
             quickMenuOpen = true;
+            // The Sound row shows the platform's current level.
+            if (backend.connected) systemControl.readVolume();
         }
         returnBound.stop();
         Qt.callLater(quickMenu.start);
@@ -76,6 +81,24 @@ Window {
         quickMenuOpener = null;
         closeOverlays();
         Qt.callLater(home.showHome);
+    }
+    // Sleep and Power hand over to the shell's power scope (§5.7, ADR-0108),
+    // with its confirmations, in-flight rules and refusals. Over an Activity
+    // the shell first comes up as for Home, as the power key does, so Back
+    // from the power menu leaves Home with that Activity as Return. Over the
+    // shell the sheet closes and the power menu opens over the screen.
+    function quickMenuPower(sleep) {
+        if (!quickMenuOpen) return;
+        if (activityBehind) {
+            quickMenuHome();
+        } else {
+            quickMenuOpen = false;
+            quickMenuOpener = null;
+        }
+        powerOverlay.openMenu();
+        // A request already in flight is shown as it is; SystemControl sends
+        // one request at a time.
+        if (sleep) systemControl.request("suspend");
     }
     // A Return the platform does not carry out leaves Home on screen.
     Timer { id: returnBound; interval: 3000; onTriggered: if (root.visible) root.quickMenuHome() }
@@ -1018,17 +1041,32 @@ Window {
                 return media.find(entry => entry.state === "playing") || media[0] || null;
             }
             audio: systemStatus.audio
+            volumeControl: backend.connected === true
+            volumeKnown: systemControl.volumeKnown
+            volumeMuted: systemControl.volumeMuted
+            volumeLevel: systemControl.volumeLevel
             network: systemStatus.network
             wifiLevel: systemStatus.wifiLevel
             clockText: home.clockText
             onPlayPauseRequested: sessionId => mediaCatalog.sessionAction(sessionId, "playPause")
-            // Sleep and the power menu follow Home's power entry until the
-            // platform power path lands (#148).
-            onSleepRequested: showNotice(qsTr("Power controls are not available yet."))
-            onPowerMenuRequested: showNotice(qsTr("Power controls are not available yet."))
+            // The volume keys' semantics: Right turns the sound back on, then
+            // raises it (owner decision of 2026-10-21 on #477).
+            onMuteToggleRequested: systemControl.toggleMuted()
+            onVolumeStepRequested: step => { if (step > 0) systemControl.raiseVolume(); else systemControl.stepVolume(-1); }
+            onSleepRequested: root.quickMenuPower(true)
+            onPowerMenuRequested: root.quickMenuPower(false)
             onHomeRequested: root.quickMenuHome()
             onCloseShellRequested: root.close()
             onBackRequested: root.quickMenuBack()
+        }
+        // The volume HUD sits with the screens, hidden over an Activity: the
+        // sheet says a failed change itself and never shows a guessed level.
+        Connections {
+            target: systemControl
+            ignoreUnknownSignals: true
+            function onVolumeFailed(refusal) {
+                if (root.quickMenuOpen) quickMenu.showNotice(qsTr("Volume control is not available"));
+            }
         }
     }
 }

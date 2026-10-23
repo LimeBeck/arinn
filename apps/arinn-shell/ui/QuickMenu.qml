@@ -23,9 +23,14 @@ FocusScope {
     property var nowPlaying: null
     // "muted", "unmuted", or empty when unknown (SystemStatus1).
     property string audio: ""
-    // Volume and mute are executed by the platform layer. Until it offers
-    // them the row shows the state only.
+    // Volume and mute are executed by the platform layer through
+    // SystemControl1 (ADR-0108). Without it the row shows the state only.
     property bool volumeControl: false
+    // The platform's last volume reply (SystemControl1); while it is not
+    // known the row falls back to `audio` and shows no level.
+    property bool volumeKnown: false
+    property bool volumeMuted: false
+    property int volumeLevel: 0
     // "wifi", "wired", "other", "disconnected", or empty when unknown.
     property string network: ""
     property int wifiLevel: 0
@@ -50,7 +55,10 @@ FocusScope {
 
     readonly property bool mediaAvailable: connected && !!nowPlaying && !!nowPlaying.id
     readonly property bool playing: mediaAvailable && nowPlaying.state === "playing"
-    readonly property string audioText: audio === "muted" ? qsTr("Muted")
+    readonly property bool muted: volumeKnown ? volumeMuted : audio === "muted"
+    readonly property string audioText: volumeKnown
+        ? (volumeMuted ? qsTr("Muted") : qsTr("Sound on · %1%").arg(volumeLevel))
+        : audio === "muted" ? qsTr("Muted")
         : audio === "unmuted" ? qsTr("Sound on") : qsTr("Sound state unknown")
     readonly property string networkText: {
         if (!connected || network === "") return qsTr("Network state unknown");
@@ -263,11 +271,12 @@ FocusScope {
             SheetRow {
                 id: volumeRow
                 objectName: "quickMenuVolume"
-                glyph: root.audio === "muted" ? "muted" : "sound"
+                glyph: root.muted ? "muted" : "sound"
                 text: qsTr("Sound")
                 description: !root.connected ? qsTr("Not available")
-                    : root.volumeControl ? qsTr("%1 · OK mutes, Left and Right change the volume").arg(root.audioText)
-                    : qsTr("%1 · volume control is not available yet").arg(root.audioText)
+                    : root.volumeControl ? (root.muted ? qsTr("%1 · Left/Right: volume, OK: sound on")
+                                                       : qsTr("%1 · Left/Right: volume, OK: mute")).arg(root.audioText)
+                    : qsTr("%1 · volume control is not available").arg(root.audioText)
                 enabled: root.connected && root.volumeControl
                 onActivated: root.muteToggleRequested()
                 Keys.onLeftPressed: root.volumeStepRequested(-1)

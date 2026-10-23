@@ -995,6 +995,10 @@
         <translation>Воспроизведение недоступно. Нажмите «Домой», чтобы выйти, или подождите остановки запущенного сеанса.</translation>
     </message>
     <message>
+        <source>Volume control is not available</source>
+        <translation>Управление громкостью недоступно</translation>
+    </message>
+    <message>
         <source>Type an address or a search</source>
         <translation>Введите адрес или запрос</translation>
     </message>
@@ -1344,6 +1348,10 @@
         <translation>Звук выключен</translation>
     </message>
     <message>
+        <source>Sound on · %1%</source>
+        <translation>Звук включён · %1%</translation>
+    </message>
+    <message>
         <source>Sound on</source>
         <translation>Звук включён</translation>
     </message>
@@ -1412,12 +1420,16 @@
         <translation>Звук</translation>
     </message>
     <message>
-        <source>%1 · OK mutes, Left and Right change the volume</source>
-        <translation>%1 · OK выключает звук, влево и вправо меняют громкость</translation>
+        <source>%1 · Left/Right: volume, OK: sound on</source>
+        <translation>%1 · Влево/вправо: громкость, OK: включить звук</translation>
     </message>
     <message>
-        <source>%1 · volume control is not available yet</source>
-        <translation>%1 · управление громкостью пока недоступно</translation>
+        <source>%1 · Left/Right: volume, OK: mute</source>
+        <translation>%1 · Влево/вправо: громкость, OK: выключить звук</translation>
+    </message>
+    <message>
+        <source>%1 · volume control is not available</source>
+        <translation>%1 · управление громкостью недоступно</translation>
     </message>
     <message>
         <source>Network</source>

@@ -23,6 +23,7 @@ pub mod platform;
 pub mod production;
 pub mod return_association;
 pub mod settings;
+pub mod system_control;
 pub mod system_status;
 pub mod validation;
 pub mod web;

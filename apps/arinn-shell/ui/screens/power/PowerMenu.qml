@@ -145,9 +145,16 @@ FocusScope {
         }
         return "";
     }
+    // A power row that cannot be used while another request is in flight:
+    // the model sends one request at a time, so it would send nothing.
+    function heldBack(id) {
+        return requestInFlight && busyAction !== id && id !== "ambient";
+    }
     function rowDescription(entry) {
         if (busyAction === entry.id)
             return qsTr("Waiting for the system…");
+        if (heldBack(entry.id))
+            return qsTr("Available after the system answers");
         const note = availabilityNote(entry.id);
         return note.length ? note : entry.description;
     }
@@ -240,6 +247,8 @@ FocusScope {
                 return;
     }
     function openConfirm(action) {
+        if (requestInFlight)
+            return;
         pendingAction = action;
         menuFocus = action;
         step = "confirm";
@@ -254,6 +263,8 @@ FocusScope {
         Qt.callLater(restoreMenuFocus);
     }
     function confirmAction() {
+        if (requestInFlight)
+            return;
         if (pendingAction === "restart")
             restartRequested();
         else if (pendingAction === "shutdown")
@@ -264,6 +275,24 @@ FocusScope {
     // Home still leaves, and the caller shows a later refusal (spec §6.3,
     // owner decision 2026-10-23).
     readonly property bool requestInFlight: busyAction.length > 0
+    // The menu opened again while a request is in flight (after Home): it
+    // shows that request as it was left, busy, and nothing else can be sent.
+    function showPending(id) {
+        if (id === "restart" || id === "shutdown") {
+            pendingAction = id;
+            menuFocus = id;
+            step = "confirm";
+            Qt.callLater(() => {
+                if (step === "confirm" && !refused && !accepted)
+                    Ui.Focus.take(confirmButton);
+            });
+        } else {
+            step = "menu";
+            pendingAction = "";
+            menuFocus = id.length ? id : "sleep";
+            Qt.callLater(restoreMenuFocus);
+        }
+    }
     function goBack() {
         if (requestInFlight)
             return;
@@ -483,6 +512,9 @@ FocusScope {
                             text: modelData.title
                             enabled: root.availabilityOf(modelData.id) !== "unsupported"
                             busy: root.busyAction === modelData.id
+                            // Focusable, but it reads and acts as unavailable.
+                            readonly property bool held: root.heldBack(modelData.id)
+                            opacity: enabled && !held ? 1 : 0.4
                             cornerRadius: 30
                             focusScale: 1.02
                             restingColor: Qt.rgba(1, 1, 1, 0.05)
@@ -492,6 +524,8 @@ FocusScope {
                             onDpadRequested: root.noteDpad()
                             onActiveFocusChanged: if (activeFocus) root.menuFocus = modelData.id
                             onActivated: {
+                                if (held)
+                                    return;
                                 if (modelData.id === "sleep")
                                     root.sleepRequested();
                                 else if (modelData.id === "restart")

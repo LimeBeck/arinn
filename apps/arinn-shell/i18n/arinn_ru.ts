@@ -1199,6 +1199,10 @@
         <translation>Ожидание системы…</translation>
     </message>
     <message>
+        <source>Available after the system answers</source>
+        <translation>Доступно после ответа системы</translation>
+    </message>
+    <message>
         <source>An application is preventing it: %1.</source>
         <translation>Этому мешает приложение: %1.</translation>
     </message>

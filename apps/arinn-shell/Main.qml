@@ -843,10 +843,13 @@ Window {
             keysEnabled: root.visible && root.active && !sessionGuard.blocked
             clockText: home.clockText
             dateText: { home.clockText; return Qt.locale().toString(new Date(), "dddd, d MMMM"); }
-            onClosed: Qt.callLater(root.restoreFocus)
+            // A late refusal never takes focus behind the launch dialog.
+            holdLateAnswer: launchOverlay.visible
+            onClosed: Qt.callLater(() => { if (!powerOverlay.restoreLateFocus()) root.restoreFocus(); })
             onHomeRequested: { root.closeOverlays(); Qt.callLater(home.showHome); }
         }
         Ui.LaunchOverlay {
+            id: launchOverlay
             anchors.fill: parent
             z: 20
             active: browserCatalog.opening

@@ -31,6 +31,12 @@ FocusScope {
     property bool awaitingAnswer: false
     // The menu is open only to show such a late refusal: Back closes it.
     property bool lateRefusal: false
+    // True while a dialog above this overlay is on screen (the launch
+    // overlay): a late refusal waits for it to close instead of taking focus
+    // behind it.
+    property bool holdLateAnswer: false
+    // The item that had focus when a late refusal opened; focus returns there.
+    property Item lateFocusItem: null
     readonly property string controlPending: control ? control.pendingAction : ""
     // The volume HUD and the power menu read nothing else.
     readonly property alias menu: powerMenu
@@ -55,13 +61,20 @@ FocusScope {
         }
         awaitingAnswer = false;
         lateRefusal = false;
+        lateFocusItem = null;
         powerMenu.step = "menu";
         powerMenu.pendingAction = "";
         powerMenu.menuFocus = "sleep";
         menuOpen = true;
         // The menu's scope remembers its last row and restores it as soon as
         // it is shown; a new opening starts on the first row again.
+        // A request left in flight by Home is shown as it was left.
         Qt.callLater(() => {
+            const pending = control ? idFor(control.pendingAction) : "";
+            if (pending.length > 0) {
+                powerMenu.showPending(pending);
+                return;
+            }
             powerMenu.menuFocus = "sleep";
             powerMenu.restoreMenuFocus();
         });
@@ -78,6 +91,7 @@ FocusScope {
     function leaveHome() {
         // The request is not cancelled; its answer is shown later.
         awaitingAnswer = controlPending.length > 0;
+        lateFocusItem = null;
         closeMenu();
         homeRequested();
     }
@@ -86,12 +100,19 @@ FocusScope {
     // power scope on the refusal pane, which stays until Back, so it also
     // reaches a user who is in another application when it arrives.
     onControlPendingChanged: if (controlPending.length === 0) Qt.callLater(settleLateAnswer)
+    onHoldLateAnswerChanged: if (!holdLateAnswer) Qt.callLater(settleLateAnswer)
     function settleLateAnswer() {
         if (!awaitingAnswer || !control || controlPending.length > 0)
             return;
-        awaitingAnswer = false;
-        if (menuOpen || control.refusal.length === 0)
+        if (menuOpen || control.refusal.length === 0) {
+            awaitingAnswer = false;
             return;
+        }
+        // Shown once the dialog above has closed.
+        if (holdLateAnswer)
+            return;
+        awaitingAnswer = false;
+        lateFocusItem = Window.activeFocusItem;
         powerMenu.step = "menu";
         powerMenu.pendingAction = "";
         lateRefusal = true;
@@ -107,6 +128,13 @@ FocusScope {
         // unrelated lock stays open, so its answer is shown after unlock.
         if (menuOpen && control && (control.acceptedAction.length > 0 || control.pendingAction === "suspend"))
             closeMenu();
+    }
+    // After a late refusal is dismissed with Back, focus returns to the item
+    // the user was on. Returns false when there is none to return to.
+    function restoreLateFocus() {
+        const item = lateFocusItem;
+        lateFocusItem = null;
+        return item !== null && Ui.Focus.take(item);
     }
     function volumeKey(key) {
         if (!control)

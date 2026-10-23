@@ -279,6 +279,7 @@ RU = {
     "Request refused": "Запрос отклонён",
     "These applications will close: %1 and %2 more.": "Будут закрыты приложения: %1 и ещё %2.",
     "%1 and %2 more": "%1 и ещё %2",
+    "Available after the system answers": "Доступно после ответа системы",
     "The list of running applications is not available.": "Список запущенных приложений недоступен.",
     "%1 (%2)": "%1 (%2)",
     "Not supported on this computer": "Не поддерживается на этом компьютере",

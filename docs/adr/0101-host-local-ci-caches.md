@@ -4,7 +4,7 @@
 - **Date:** 2026-10-08
 - **Deciders:** project owner asked to speed up CI on the self-hosted runner (2026-10-08); mechanism under delegated authority ([ADR-0037](0037-agent-autonomy-and-owner-gated-decisions.md))
 - **Amends / Supersedes:** amends [ADR-0047](0047-faster-package-builds.md) and [ADR-0092](0092-less-repeated-ci-work.md) (where the build caches are kept)
-- **Amended by / Superseded by:** —
+- **Amended by / Superseded by:** [ADR-0113](0113-per-runner-ci-target-directories.md) (one target directory per self-hosted runner instance)
 - **Specification:** [§17.1](../specifications/arinn-specification.md#171-continuous-integration-and-delivery)
 
 ## Context

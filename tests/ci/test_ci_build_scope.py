@@ -129,10 +129,20 @@ class BuildJobTest(unittest.TestCase):
         self.assertIn("CCACHE_DIR: /ci-cache/ccache", job)
         self.assertIn("CMAKE_CXX_COMPILER_LAUNCHER: ccache", job)
         self.assertRegex(ARCH_IMAGE[ARCH_IMAGE.index("AS build"):], r"pacman -Syu [^\n]*\bccache\b")
-        self.assertIn("ln -sfn /ci-cache/target target", job)
+        self.assertIn('ln -sfn "$target" target', job)
         # Caches are in place before the builds that use them.
         self.assertLess(job.index("cache/restore"), job.index("cargo fmt"))
         self.assertLess(job.index("ln -sfn"), job.index("cargo fmt"))
+
+    def test_each_self_hosted_runner_instance_has_its_own_target_directory(self):
+        # ADR-0113: runner instances on one host share /ci-cache; a shared
+        # target directory let one job overwrite another's rlibs and binaries
+        # while its tests and phase1.py ran (#485). GitHub-hosted runs keep
+        # the single cached /ci-cache/target.
+        job = jobs()["build"]
+        self.assertIn("RUNNER_SLOT: ${{ vars.ARINN_RUNNER && runner.name || '' }}", job)
+        self.assertIn('target="$target-', job)
+        self.assertIn("target=/ci-cache/target\n", job)
 
     def test_no_build_job_uses_the_shared_runner_home_for_cargo(self):
         # On the self-hosted runner /github/home is shared by every job:

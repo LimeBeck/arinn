@@ -73,6 +73,19 @@ collected. Build type and CPU architecture are recorded too; use a Release build
 for target measurements. `target_qualification` always remains `not_run`: an owner must review
 target-device results alongside end-to-end input and production IPC evidence.
 
+## Activity background (G-5.2)
+
+G-5.2 needs its own owner-run report on the target device
+([background contract](activity-background.md#budgets-and-verification-obligations)).
+This harness does not capture windows. The daemon writes normalized journal
+lines for each capture attempt: `background-ready` carries `duration_ms` from
+the explicit Home request to the accepted frame, and `background-unavailable`
+carries the reason (`deadline`, `session`, `window`, `adapter`, `shell` or
+`cancelled`). Read them with `journalctl --user -u arinnd -o cat | grep
+'"operation":"background-'`. Producer readback, shell copy, RSS and GPU
+allocation figures come from the producer and shell integrations, which are
+still pending.
+
 ## Verification
 
 On 2026-09-30, Qt 6.11.2 offscreen/software runs passed the 20-sample CTest

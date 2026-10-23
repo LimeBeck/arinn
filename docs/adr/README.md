@@ -60,7 +60,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0039](0039-platform-window-contract.md) | Platform window snapshot and control contract | Accepted | — |
 | [0040](0040-kwin-inventory-transport.md) | Trusted KWin inventory transport and SDK registration context | Accepted | 0078 |
 | [0041](0041-independent-session-lifecycle-guard.md) | Daemon-independent session lifecycle guard | Accepted | — |
-| [0042](0042-opt-in-session-autostart.md) | Opt-in session autostart through packaged systemd user units | Accepted | 0077 |
+| [0042](0042-opt-in-session-autostart.md) | Opt-in session autostart through packaged systemd user units | Accepted | 0077, 0107 |
 | [0043](0043-web-shortcuts.md) | Arinn-owned web shortcuts for online-service tiles | Accepted | 0045, 0051, 0075 |
 | [0044](0044-docs-only-ci-scope.md) | Documentation-only pull requests skip the build jobs | Accepted | 0049 |
 | [0045](0045-local-http-web-shortcuts.md) | Plain HTTP web shortcuts for local-network hosts | Accepted | — |
@@ -118,10 +118,12 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0098](0098-restart-after-an-update.md) | Restart Arinn after an update | Accepted | — |
 | [0099](0099-snapshot-package-version.md) | Snapshot package version with the commit | Accepted | — |
 | [0100](0100-system-status.md) | Read-only system status for Home's status area | Accepted | — |
-| [0101](0101-host-local-ci-caches.md) | Host-local build caches on the self-hosted runner | Accepted | — |
+| [0101](0101-host-local-ci-caches.md) | Host-local build caches on the self-hosted runner | Accepted | 0113 |
 | [0102](0102-packages-built-for-master-only.md) | Packages are built for master only, never for pull requests | Accepted | — |
 | [0103](0103-on-screen-keyboard.md) | On-screen keyboard in the MVP | Accepted | — |
 | [0104](0104-qt-floor-and-prebuilt-ci-images.md) | Minimum supported Qt 6.8 and prebuilt CI images | Accepted | — |
+| [0107](0107-dedicated-arinn-session.md) | Dedicated Arinn login session and an unprivileged switch to the desktop | Accepted | — |
 | [0109](0109-season-only-snn-markers.md) | Season-only `Snn` markers in library names | Accepted | — |
 | [0112](0112-shell-preferences-as-core-settings.md) | The shell's preferences are core settings of the daemon | Accepted | — |
+| [0113](0113-per-runner-ci-target-directories.md) | One Cargo target directory per self-hosted runner instance | Accepted | — |
 <!-- register:end -->

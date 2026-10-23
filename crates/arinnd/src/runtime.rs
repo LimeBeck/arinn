@@ -76,6 +76,7 @@ impl Provider {
     }
 }
 mod assets;
+mod background;
 mod browse_routing;
 mod download_routing;
 mod folders_routing;
@@ -124,6 +125,8 @@ pub struct Core {
     windows: crate::windows::Windows,
     playback_exits: Arc<Mutex<media_routing::ExitFences>>,
     supervision: Arc<tokio::sync::OnceCell<Arc<Supervision>>>,
+    /// Activity background handoff (ADR-0087), once exported.
+    background: Arc<std::sync::OnceLock<background::Background>>,
 }
 fn sender(h: &Header<'_>) -> Result<String, ErrorCode> {
     h.sender()
@@ -164,6 +167,7 @@ impl Core {
             windows,
             playback_exits: Arc::default(),
             supervision: Arc::new(tokio::sync::OnceCell::new()),
+            background: Arc::default(),
         }
     }
     async fn supervision(&self) -> Arc<Supervision> {
@@ -1677,7 +1681,10 @@ impl Daemon {
             )
             .await?;
         Self::changed(&emitter).await?;
+        // Presentation intent first; arming at most one Activity background
+        // capture for this Home context never delays it.
         Self::home_requested(&emitter, &self.core.epoch, target, output).await?;
+        self.core.background_home_requested(target, output).await;
         Ok(())
     }
     #[zbus(signal)]

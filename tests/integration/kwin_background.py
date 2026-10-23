@@ -32,7 +32,7 @@ name = 'arinn-phase0-background-probe'
 with tempfile.TemporaryDirectory(prefix='arinn-background-') as folder:
     file = Path(folder)/'main.qml'
     file.write_text(source)
-    shutil.copy(ROOT/"apps/arinn-shell/ActivityBackground.qml", Path(folder)/"ActivityBackground.qml")
+    shutil.copy(ROOT/"apps/arinn-shell/ui/ActivityBackground.qml", Path(folder)/"ActivityBackground.qml")
     try:
         i = call('org.kde.KWin', '/Scripting', 'org.kde.kwin.Scripting.loadDeclarativeScript', str(file), name)
         call('org.kde.KWin', f'/Scripting/Script{i}', 'org.kde.kwin.Script.run')

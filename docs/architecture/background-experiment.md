@@ -133,6 +133,61 @@ Because KWin keeps a loaded QML plugin, an upgraded plugin takes effect at the
 next KWin start, that is the next login; restarting `arinn-kwin.service`
 reloads only the script.
 
+### Shell consumer
+
+The shell build registers `apps/arinn-shell/background`, so its pixel and
+frame-gate tests run under CTest. `ActivityBackgroundSource`
+(`apps/arinn-shell/activity_background.{h,cpp}`, QML type in `Arinn.Shell`)
+reads `Background1` for Home:
+
+- **Owner-pinned and asynchronous.** It subscribes to `Changed` before the first
+  `Get`, pinned to the daemon owner that `ReturnAssociation` resolved. It asks
+  again only on `Changed` or when its evidence actually changes, never on
+  `ReturnAssociation`'s unchanged once-a-second poll, and an admitted snapshot
+  is read before a pending re-read. A `Get` reply that spans any evidence
+  change (a lock, a hidden Home or a lost provider, even if restored by then)
+  is discarded and asked again. A daemon
+  without the interface leaves the normal background and is not asked again
+  until its owner changes.
+- **Evidence.** The gate's evidence is the shell's own: Home visibility, target
+  and output from `Status`, the Return window from `ReturnAssociation1`,
+  platform liveness, and the session guard bound from `sessionGuard.blocked`.
+  A repeated Home clears the Return association until the adapter reports it
+  again. The last window of the same target is kept meanwhile, because the
+  daemon invalidates the frame itself when that window really goes away.
+- **Lock and lost evidence.** A blocked guard clears the frame synchronously,
+  before any daemon reply. Restoration never brings a frame back: the gate
+  retires the request on every evidence change. That includes a request first
+  seen while blocked, while Home was hidden or while the provider was down.
+  The only exemption is the Return window resolving after the snapshot while
+  everything else is live and unchanged.
+- **Inventory changes.** The shell keeps the resolved Return window while the
+  association is re-read. The daemon is the authority for removal: it
+  checks the token against the committed inventory atomically and publishes
+  the invalidation with `Changed`. Clearing on every `WindowsChanged` would
+  retire the frame whenever any unrelated window opened or closed.
+- **Reading.** `ReadFrame` runs only for a ready snapshot that the evidence
+  accepts. The descriptor is duplicated and validated (seals, exact size)
+  before a positional copy on a one-thread pool. That worker also builds the
+  `QImage`, so the GUI thread only installs it. A failed read is not retried
+  for the same revision, so a persistent failure cannot loop.
+- **Rendering.** The copy becomes a `QImage` served by the `arinn-activity`
+  image provider under a per-frame serial; a released frame's URL resolves to
+  nothing. The provider holds at most one frame (≤ 8 MiB) beside the gate's
+  copy, and MultiEffect's blur textures follow the full-screen item.
+- **Home.** `HomeView` draws `ui/ActivityBackground.qml` behind its content:
+  near while the Activity's own card has focus (the current-service card for a
+  Return Activity verified as a browser service), otherwise far, and no layer
+  outside the Home screen. While it shows, the ambient light field stays off.
+  Focus never waits for the frame.
+
+The rendering component moved from `apps/arinn-shell/ActivityBackground.qml` to
+`apps/arinn-shell/ui/ActivityBackground.qml`; the operator probe and preview
+copy it from there. Tests: `activity_background_test.cpp` (fake daemon on a
+private bus: ready frame, repeated Home, unavailable and remap, lock without
+IPC, invalid echo and unsealed descriptors, unsupported and pending daemons),
+the frame-gate tests, and `HomeNavigation::test_activity_background_near_and_far`.
+
 ### Remaining integration and qualification
 
 The runtime is split across [#490](https://github.com/LimeBeck/arinn/pull/490)

@@ -159,8 +159,9 @@ contract above; these are the implementation choices within it:
   commits the same Home state, so Home opened from it shows the frame).
   `QuickMenuRequested` is emitted before arming, as `HomeRequested` is. Either
   request arms only with a non-empty target and output that still match the
-  committed Home report. The EWMH adapter reports no output yet, so it arms nothing until its
-  producer supplies one. `ReportHome` and adapter reconnects never arm.
+  committed Home report. The X11/EWMH adapter reports its one output,
+  `x11-screen`, with both requests ([X11/EWMH](x11-ewmh.md)), so they arm there
+  too. `ReportHome` and adapter reconnects never arm.
 - **Home evidence.** The daemon reads Home visibility, target and output, the
   Return association, the adapter's unique owner and liveness, and whether the
   resolved window token is still in the committed inventory generation, in one

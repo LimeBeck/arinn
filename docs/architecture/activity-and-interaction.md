@@ -36,7 +36,7 @@ The quick menu (spec §5.7, [ADR-0106](../adr/0106-quick-menu-presentation.md), 
 - **Degraded:** without the daemon the daemon-backed rows are disabled and say so; Open Home and Close Arinn stay. Back then shows Home, because no Return is possible.
 - A lock, a dismissal or Return hides the shell and ends the sheet; it never comes back by itself.
 
-Now playing is the playing media session, otherwise a paused one; OK sends play/pause to it. Network status comes from `SystemStatus1`. Volume and mute rows show the `SystemStatus1` mute state; changing them waits for the platform volume control, and Sleep and the power menu share Home's power entry until the platform power path lands ([#148](https://github.com/LimeBeck/arinn/issues/148)).
+Now playing is the playing media session, otherwise a paused one; OK sends play/pause to it. Network status comes from `SystemStatus1`. The Sound row reads and changes the default output through `SystemControl1` ([system control](system-control.md)) with the volume keys' semantics: OK toggles mute, Left steps down, Right turns the sound back on and steps up; until the platform answers it shows the `SystemStatus1` mute state and no level. Sleep and Power hand over to the shell's power scope ([power menu](ui-power.md)) with its confirmations, in-flight rules and refusals. Over an Activity the shell first comes up as for Home, as the power key does (spec §5.7 *Power button*), so Back from the power menu leaves Home with that Activity as Return; over the shell the power menu opens over the current screen. Sleep sends the suspend request at once; a request already in flight is shown as it is.
 
 ## Settings, system actions and diagnostics
 

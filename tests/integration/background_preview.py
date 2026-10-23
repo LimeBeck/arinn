@@ -15,7 +15,7 @@ output = ROOT/'.phase0/background-probe/external-shell.png'
 assert source.is_file(), 'Run kwin_background.py first'
 output.unlink(missing_ok=True)
 qml = (ROOT/'tests/ui/background-preview.qml.in').read_text()
-qml = qml.replace('@COMPONENT_DIR@', (ROOT/'apps/arinn-shell').as_uri())
+qml = qml.replace('@COMPONENT_DIR@', (ROOT/'apps/arinn-shell/ui').as_uri())
 qml = qml.replace('@SOURCE@', json.dumps(source.as_uri())).replace('@OUTPUT@', json.dumps(str(output)))
 with tempfile.TemporaryDirectory(prefix='arinn-background-preview-') as folder:
     file = Path(folder)/'main.qml'

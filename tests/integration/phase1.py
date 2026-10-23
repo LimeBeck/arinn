@@ -206,6 +206,23 @@ with tempfile.TemporaryDirectory(prefix="arinn-production-") as folder:
         _, revision, audio, network, _, level = json.loads(status.stdout)["data"][0]
         assert revision >= 1 and audio in ("muted", "unmuted", "unknown"), status.stdout
         assert network in ("connected", "disconnected", "unknown") and 0 <= level <= 4, status.stdout
+        # SystemControl1 (ADR-0108): the export and the two reads only. This
+        # suite never calls a power action or changes the volume.
+        wire_contract("org.arinn.Daemon1", "/org/arinn/Daemon1", "org.arinn.SystemControl1",
+                      "system-control1.xml")
+        def control_read(method):
+            reply = subprocess.run(["busctl", "--user", "--json=short", "call", "org.arinn.Daemon1",
+                                    "/org/arinn/Daemon1", "org.arinn.SystemControl1", method],
+                                   env=env, capture_output=True, text=True, timeout=10)
+            assert reply.returncode == 0, reply.stderr
+            return json.loads(reply.stdout)["data"][0]
+        *availability, inhibitors = control_read("GetPower")
+        assert all(value in ("available", "inhibited", "denied", "unsupported", "unknown")
+                   for value in availability), availability
+        assert len(inhibitors) <= 16 and all(what in ("sleep", "shutdown") for what, _, _ in inhibitors)
+        audio, level = control_read("GetVolume")
+        assert audio in ("muted", "unmuted", "unknown") and 0 <= level <= 150, (audio, level)
+        assert audio != "unknown" or level == 0, (audio, level)
         def folders_call(method, signature="", *arguments):
             return subprocess.run(["busctl", "--user", "--json=short", "call",
                                    "org.arinn.Daemon1", "/org/arinn/Daemon1",

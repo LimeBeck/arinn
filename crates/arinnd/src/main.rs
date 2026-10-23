@@ -64,6 +64,12 @@ async fn run(started: std::time::Instant) -> Result<(), ErrorCode> {
     .await
     .map_err(|_| ErrorCode::Internal)?;
     let core = Core::new(&connection, paths, runtime).with_search_engines(engines);
+    // Before Daemon1 is reachable, so no explicit Home request can arrive
+    // while the background handoff is missing. Without a system bus, sleep is
+    // seen only through the lock taken first.
+    let system = zbus::Connection::system().await.ok();
+    core.export_background(arinnd::session_lock::watch(connection.clone(), system))
+        .await?;
     connection
         .object_server()
         .at(PATH, Daemon { core: core.clone() })
@@ -103,6 +109,8 @@ async fn run(started: std::time::Instant) -> Result<(), ErrorCode> {
     core.export_web_icons(shortcuts.clone()).await?;
     core.export_media_association().await?;
     core.export_system_status(arinnd::status_sources::Sources::system())
+        .await?;
+    core.export_system_control(arinnd::system_control::Control::system())
         .await?;
     connection
         .object_server()

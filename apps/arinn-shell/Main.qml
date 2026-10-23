@@ -343,6 +343,14 @@ Window {
         });
     }
     LibraryCatalog { id: libraryCatalog; objectName: "libraryCatalog" }
+    // The Activity's last frame behind Home (§12.3, ADR-0087). Optional and
+    // asynchronous: Home and its focus never wait for it, and the shell's own
+    // session guard clears it before any daemon reply.
+    ActivityBackgroundSource {
+        id: activityBackground
+        objectName: "activityBackground"
+        blocked: sessionGuard.blocked
+    }
     SystemStatus {
         id: systemStatus
         objectName: "systemStatus"
@@ -458,6 +466,8 @@ Window {
             runningEntries: backend.items
             favoritesTitle: qsTr("Favorites")
             returnActivityId: backend.returnWindow
+            activitySource: backend.homeVisible ? activityBackground.source : ""
+            ambientSuppressed: activitySource.toString() !== ""
             // The shortcut editor's on-screen keyboard (KB-2, KB-3).
             shortcutAddressSuggestions: { browseCatalog.tabs; return browseCatalog.openServices(shortcutTypingText); }
             shortcutNameSuggestions: { browseCatalog.tabs; return browseCatalog.nameSuggestions(shortcutDraftUrl, shortcutTypingText); }

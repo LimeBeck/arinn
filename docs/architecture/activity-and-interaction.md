@@ -42,7 +42,7 @@ Now playing is the playing media session, otherwise a paused one; OK sends play/
 
 UI preferences (light background, language, input mapping) belong to the daemon config. Provider settings have a typed schema: id, title, description, type, current_value, constraints, enabled; types boolean, enum, string, integer, path reference. No arbitrary QML widgets or raw RPC are passed. The schema and wire interface come before the provider settings screen, not in Phase 0.
 
-The core settings UI shows only registered capabilities; a missing playback, download or network function never pretends to succeed. System volume, network and power are executed by PlatformService. Running application names for the power confirmation come from the live registry, not a hard-coded "Kinopoisk". The confirm button never hides system inhibitor or permission errors.
+The core settings UI shows only registered capabilities; a missing playback, download or network function never pretends to succeed. System volume, network and power are executed by PlatformService. The daemon exposes power and volume to the shell as `SystemControl1` ([system control](system-control.md)). Running application names for the power confirmation come from the live registry, not a hard-coded "Kinopoisk". The confirm button never hides system inhibitor or permission errors.
 
 ## Resolved design questions
 

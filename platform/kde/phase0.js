@@ -18,6 +18,10 @@ let detachedTarget = "";
 let homeVisible = false;
 let homeOutput = "";
 let daemonOwner = "";
+// The owner whose introspection listed the adapter's interfaces, and when
+// discovery last asked: TakeCommand polls only a ready owner (#447).
+let readyOwner = "";
+let discoveryAt = 0;
 let mediaSupported = false;
 let playbackGuardAt = 0, playbackGuardSerial = 0;
 // mediaSerial changes with playback; mediaPollSerial only marks which media poll
@@ -87,14 +91,27 @@ function raiseShell() {
 }
 // Discovery and evidence are scoped to one unique daemon owner. Home never
 // waits for either optional interface or a mapping acknowledgement.
-function discoverReturn(owner) {
-    returnSupported = false;
-    lastReturnReport = "";
+function exported(xml, name) {
+    return typeof xml === "string" && new RegExp("<interface\\s+name=[\"']" + name.replace(/\./g, "\\.") + "[\"']").test(xml);
+}
+// A restarted daemon owns its bus name before it serves its objects, and a
+// call that reaches it in between is never answered; KWin drops the error
+// callback (#447). The adapter therefore polls an owner only once its
+// introspection lists Daemon1 and KWinBridge1, which the daemon exports
+// after the optional interfaces, and asks again until it does.
+function discover(owner) {
+    discoveryAt = Date.now();
     callDBus(owner, path, "org.freedesktop.DBus.Introspectable", "Introspect", xml => {
-        if (owner !== daemonOwner) return;
-        returnSupported = typeof xml === "string" && /<interface\s+name=["']org\.arinn\.KWinReturn1["']/.test(xml);
-        mediaSupported = typeof xml === "string" && /<interface\s+name=["']org\.arinn\.KWinMedia1["']/.test(xml);
+        if (owner !== daemonOwner || owner === readyOwner) return;
+        if (!exported(xml, service) || !exported(xml, "org.arinn.KWinBridge1")) return;
+        readyOwner = owner;
+        returnSupported = exported(xml, "org.arinn.KWinReturn1");
+        mediaSupported = exported(xml, "org.arinn.KWinMedia1");
         diagnose("info", "media.channel", { outcome: mediaSupported ? "attached" : "absent" });
+        // KWin retains the Activity context across daemon restarts.
+        reportHome(false);
+        report(workspace.activeWindow);
+        poll();
         publishMedia();
         pollMediaControl();
         publishReturn();
@@ -210,11 +227,14 @@ function dismissHome() {
     reportHome(false);
 }
 function poll() {
-    if (!daemonOwner) return;
+    // Pinned to the owner that answered discovery: a poll sent while the
+    // daemon restarts never reaches a successor the script has not seen.
+    const owner = daemonOwner;
+    if (!owner || owner !== readyOwner) return;
     const serial = ++pollSerial;
     pollStarted = Date.now();
-    rpc("TakeCommand", command => {
-        if (serial !== pollSerial) return; // reply from an obsolete owner/request
+    callDBus(owner, path, service, "TakeCommand", command => {
+        if (serial !== pollSerial || owner !== daemonOwner) return; // reply from an obsolete owner/request
         pollStarted = 0;
         if (command === "home") showHome();
         else if (command === "dismiss") dismissHome();
@@ -232,7 +252,7 @@ function checkDaemon() {
         if (probe !== ownerProbe) return;
         if (!exists) {
             probeStarted = 0;
-            daemonOwner = "";
+            daemonOwner = readyOwner = "";
             homeAcknowledged = false;
             returnSupported = false;
             mediaSupported = false;
@@ -247,12 +267,16 @@ function checkDaemon() {
             probeStarted = 0;
             if (owner !== daemonOwner) {
                 daemonOwner = owner;
+                readyOwner = "";
+                returnSupported = mediaSupported = homeAcknowledged = false;
+                lastReturnReport = "";
+                ++homeSerial;
                 ++pollSerial;
-                // KWin retains the Activity context across daemon restarts.
-                reportHome(false);
-                discoverReturn(owner);
-                report(workspace.activeWindow);
-                poll();
+                pollStarted = 0;
+                discover(owner);
+            } else if (owner !== readyOwner) {
+                // No callback for a call the starting daemon did not answer.
+                if (Date.now() - discoveryAt >= 2000) discover(owner);
             } else if (!pollStarted || Date.now() - pollStarted > 26000) {
                 poll();
             }

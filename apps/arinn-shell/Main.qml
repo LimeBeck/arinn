@@ -10,6 +10,7 @@ import "ui/screens/browse" as Browse
 import "ui/screens/downloads" as Downloads
 import "ui/screens/library" as Library
 import "ui/screens/player" as Player
+import "ui/screens/power" as Power
 import "ui/screens/session" as Session
 import "ui/screens/settings" as Settings
 
@@ -251,7 +252,12 @@ Window {
     // which refuses hidden or disabled items. Home's navigation menu and
     // shortcut editor cover the library and settings screens, so they win.
     // Home's navigation menu opens over every screen but the player (#329).
-    readonly property string focusedScreen: quickMenuOpen ? "quickMenu"
+    // Ambient covers everything and takes every key until it wakes; the power
+    // scope traps focus above everything it covers (§5.7, §6.1), the quick
+    // menu's Power entry included.
+    readonly property string focusedScreen: ambientScreen.active ? "ambient"
+        : powerOverlay.open ? "power"
+        : quickMenuOpen ? "quickMenu"
         : playerOpen ? "player"
         : home.navOpen || home.shortcutEditorOpen || home.tileActionsOpen ? "home"
         : sessionOpen ? "session"
@@ -264,11 +270,13 @@ Window {
     function screenItem(name) {
         return ({player: playerView, session: sessionView, browser: browserView, browse: browseView,
                  library: libraryView, downloads: downloadsView, settings: settingsView, home: home,
-                 quickMenu: quickMenu})[name];
+                 power: powerOverlay, ambient: ambientScreen, quickMenu: quickMenu})[name];
     }
     // Focus the screen on display at its preferred item.
     function restoreFocus() {
         switch (focusedScreen) {
+        case "ambient": Ui.Focus.take(ambientScreen); break;
+        case "power": powerOverlay.menu.restoreMenuFocus(); break;
         case "quickMenu": quickMenu.restoreFocus(); break;
         case "player": Ui.Focus.take(playerView); break;
         case "session": sessionView.restore(); break;
@@ -362,7 +370,13 @@ Window {
         target: sessionGuard
         ignoreUnknownSignals: true
         function onChanged() {
-            if (sessionGuard.blocked) mediaCatalog.abandonPresentation();
+            if (sessionGuard.blocked) {
+                mediaCatalog.abandonPresentation();
+                powerOverlay.sessionBlocked();
+                // A lock is not a wake: no event to consume, the screen
+                // beneath comes back when the shell is shown again.
+                ambientScreen.stop();
+            }
         }
     }
     // Home does not show the library's operation state, so report a failed
@@ -398,10 +412,65 @@ Window {
             return artwork ? Object.assign({}, entry, {artwork: artwork}) : entry;
         });
     }
+    // An imported download shows the poster of the library entry its Watch
+    // opens: the first library ref, through entryIdFor (#360, ADR-0062).
+    // Other rows keep the view's neutral plate. `library` only makes the
+    // binding follow catalog changes.
+    function downloadJobs(jobs, library) {
+        return jobs.map(job => {
+            const target = downloadCatalog.watchTarget(job.id);
+            const poster = target.local ? libraryCatalog.posterFor(target.provider, target.local) : "";
+            return poster ? Object.assign({}, job, {artwork: poster}) : job;
+        });
+    }
     LibraryCatalog { id: libraryCatalog; objectName: "libraryCatalog" }
+    // The Activity's last frame behind Home (§12.3, ADR-0087). Optional and
+    // asynchronous: Home and its focus never wait for it, and the shell's own
+    // session guard clears it before any daemon reply.
+    ActivityBackgroundSource {
+        id: activityBackground
+        objectName: "activityBackground"
+        blocked: sessionGuard.blocked
+    }
     SystemStatus {
         id: systemStatus
         objectName: "systemStatus"
+    }
+    // Ambient (§5.7, #307): an explicit start or ten idle minutes on screen,
+    // never while media plays. It never suspends, pauses or closes anything.
+    Power.AmbientIdle {
+        id: ambientIdle
+        objectName: "ambientIdle"
+        // Settings › Appearance › Ambient after (ADR-0112), 10 minutes by default.
+        timeout: settingsCatalog.ambientTimeoutMinutes * 60000
+        shellShown: root.visible && root.active
+        locked: sessionGuard.blocked
+        ambientActive: ambientScreen.active
+        launching: browserCatalog.opening
+        mediaPlaying: root.playerOpen || ambientIdle.playing(mediaCatalog.continueEntries, browserCatalog.tabs,
+                                                             mediaCatalog.inputLayerActive)
+        onIdle: root.startAmbient()
+    }
+    // The item that had focus when ambient started; wake gives it back.
+    property var ambientReturn: null
+    function startAmbient() {
+        if (ambientScreen.active) return;
+        ambientReturn = activeFocusItem;
+        ambientScreen.start();
+    }
+    function finishAmbient() {
+        const target = ambientReturn;
+        ambientReturn = null;
+        Qt.callLater(() => {
+            if (ambientScreen.active) return;
+            if (!target || !focusInside(target, screenItem(focusedScreen)) || !Ui.Focus.take(target))
+                restoreFocus();
+        });
+    }
+    // Power actions and volume through the daemon (ADR-0108).
+    SystemControl {
+        id: systemControl
+        objectName: "systemControl"
     }
     DownloadCatalog {
         id: downloadCatalog
@@ -414,8 +483,8 @@ Window {
     // mode; it hides the cursor in D-pad mode (spec §6.1, ADR-0095).
     InputModeSource {
         pointerActive: Ui.InputMode.pointerActive
-        onKeyPressed: Ui.InputMode.keyPressed()
-        onPointerMoved: Ui.InputMode.pointerMoved()
+        onKeyPressed: { Ui.InputMode.keyPressed(); ambientIdle.activity(); }
+        onPointerMoved: { Ui.InputMode.pointerMoved(); ambientIdle.activity(); }
         onPointerArrived: Ui.InputMode.forgetPointer()
     }
     Shortcut {
@@ -512,6 +581,8 @@ Window {
             runningEntries: backend.items
             favoritesTitle: qsTr("Favorites")
             returnActivityId: backend.returnWindow
+            activitySource: backend.homeVisible ? activityBackground.source : ""
+            ambientSuppressed: activitySource.toString() !== ""
             // The shortcut editor's on-screen keyboard (KB-2, KB-3).
             shortcutAddressSuggestions: { browseCatalog.tabs; return browseCatalog.openServices(shortcutTypingText); }
             shortcutNameSuggestions: { browseCatalog.tabs; return browseCatalog.nameSuggestions(shortcutDraftUrl, shortcutTypingText); }
@@ -520,6 +591,8 @@ Window {
             downloadActive: downloadCatalog.downloading
             downloadProgress: downloadCatalog.downloadProgress
             muted: systemStatus.muted
+            // Settings › Appearance › Light field (ADR-0112).
+            ambientEnabled: settingsCatalog.lightField
             wifi: systemStatus.wifi
             wifiLevel: systemStatus.wifiLevel
             currentServiceId: backend.homeVisible && !returnIsWebService ? "" : (browserCatalog.presentedService.id || "")
@@ -566,7 +639,7 @@ Window {
                     root.openSession(entryId, false);
             }
             onCloseShellRequested: root.close()
-            onPowerRequested: { feedback.text = qsTr("Power controls are not available yet."); feedbackTimer.restart(); }
+            onPowerRequested: powerOverlay.openMenu()
         }
         Browser.BrowserView {
             id: browserView
@@ -709,7 +782,7 @@ Window {
             z: 4
             autoToast: false
             viewState: downloadCatalog.downloadsState
-            jobs: downloadCatalog.jobs
+            jobs: root.downloadJobs(downloadCatalog.jobs, libraryCatalog.entries)
             onPauseRequested: id => downloadCatalog.request(id, "pause")
             onResumeRequested: id => downloadCatalog.request(id, "resume")
             onStartNowRequested: id => downloadCatalog.request(id, "start_now")
@@ -873,7 +946,34 @@ Window {
                 root.openSession(presentationId, fromLibrary);
             }
         }
+        // The power scope above every screen, and the volume HUD (§5.7).
+        Power.PowerOverlay {
+            id: powerOverlay
+            anchors.fill: parent
+            z: 7
+            focus: root.focusedScreen === "power"
+            control: systemControl
+            runningApplications: backend.items
+            registryKnown: backend.applicationsState === "ready" || backend.applicationsState === "empty"
+            keysEnabled: root.visible && root.active && !sessionGuard.blocked && !ambientScreen.active
+            // A late refusal never takes focus behind the launch dialog or
+            // the ambient screen; it appears once they are gone.
+            holdLateAnswer: launchOverlay.visible || ambientScreen.active
+            onClosed: Qt.callLater(() => { if (!powerOverlay.restoreLateFocus()) root.restoreFocus(); })
+            onHomeRequested: { root.closeOverlays(); Qt.callLater(home.showHome); }
+            onAmbientRequested: root.startAmbient()
+        }
+        Power.AmbientScreen {
+            id: ambientScreen
+            anchors.fill: parent
+            z: 30
+            focus: root.focusedScreen === "ambient"
+            clockText: home.clockText
+            dateText: { home.clockText; return Qt.locale().toString(new Date(), "dddd, d MMMM"); }
+            onActiveChanged: if (!active) root.finishAmbient()
+        }
         Ui.LaunchOverlay {
+            id: launchOverlay
             anchors.fill: parent
             z: 20
             active: browserCatalog.opening

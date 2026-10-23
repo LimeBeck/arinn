@@ -169,7 +169,7 @@ systemctl --user disable arinn-session.target   # stop starting it at login
 systemctl --user stop arinn-session.target      # stop it in the current session
 ```
 
-To start it once, or to bring up Home when it already runs, open **Arinn** from the application menu; this does not enable autostart. Disable the target before removing the package. To build and run the current prototype in your own Plasma session from source instead:
+To start it once, or to bring up Home when it already runs, open **Arinn** from the application menu; this does not enable autostart. Disable the target before removing the package. Instead of autostart, you can choose the **Arinn** (Plasma, Wayland) or **Arinn (XFCE)** session at login, or make it the display manager's autologin session; the **Return to Arinn** menu entry, and **Switch to desktop** once the power menu offers it, move between it and the plain desktop ([session lifecycle](docs/architecture/session-lifecycle.md#dedicated-arinn-session)). To build and run the current prototype in your own Plasma session from source instead:
 
 ```sh
 git clone https://github.com/LimeBeck/arinn.git

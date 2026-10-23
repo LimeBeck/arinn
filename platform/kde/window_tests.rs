@@ -695,23 +695,50 @@ async fn quick_menu_requests_are_distinct_from_home_requests() {
         ),
         ErrorCode::PermissionDenied
     );
-    assert_eq!(
-        normalize_error(
-            adapter
-                .report_quick_menu_request(&"x".repeat(8193), "screen")
-                .await
-                .unwrap_err()
-        ),
-        ErrorCode::InvalidArgument
-    );
+    for (target, output) in [
+        ("x".repeat(8193), "screen".to_owned()),
+        ("activity".to_owned(), "x".repeat(8193)),
+    ] {
+        assert_eq!(
+            normalize_error(
+                adapter
+                    .report_quick_menu_request(&target, &output)
+                    .await
+                    .unwrap_err()
+            ),
+            ErrorCode::InvalidArgument
+        );
+    }
     assert!(!shell.status().await.unwrap().0.home_visible);
     assert!(tokio::time::timeout(quiet, menus.next()).await.is_err());
+    // All Daemon1 signals in delivery order: `Changed` precedes the intent.
+    let rule = zbus::MatchRule::builder()
+        .msg_type(zbus::message::Type::Signal)
+        .interface(production::SERVICE)
+        .unwrap()
+        .path(production::PATH)
+        .unwrap()
+        .build();
+    let mut ordered = zbus::MessageStream::for_match_rule(rule, &f.stranger, None)
+        .await
+        .unwrap();
     // Every press is delivered, identical repeats included.
     for _ in 0..2 {
         adapter
             .report_quick_menu_request("activity", "screen")
             .await
             .unwrap();
+        let mut members = Vec::new();
+        while members.last().map(String::as_str) != Some("QuickMenuRequested") {
+            let message = tokio::time::timeout(Duration::from_secs(2), ordered.next())
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap();
+            let header = message.header();
+            members.push(header.member().unwrap().to_string());
+        }
+        assert_eq!(members, ["Changed", "QuickMenuRequested"]);
         let event = tokio::time::timeout(Duration::from_secs(2), menus.next())
             .await
             .unwrap()

@@ -124,6 +124,10 @@ impl Platform {
         s.target = target.into();
         s.home_output = output.into();
     }
+    /// The output of the last committed Home report.
+    pub async fn home_output(&self) -> String {
+        self.state.lock().await.home_output.clone()
+    }
     pub async fn report_window(
         &self,
         c: &Connection,

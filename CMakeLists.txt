@@ -25,8 +25,14 @@ configure_file(apps/arinn-shell/arinn_build_id.h.in
 include_directories(${CMAKE_BINARY_DIR}/generated)
 add_subdirectory(apps/arinn-shell)
 add_subdirectory(scripts/perf)
+add_test(NAME session-failure-notice
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/package/test_session_failed.py)
 add_test(NAME shell-session-selector
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/package/test_shell_launcher.py)
 add_test(NAME desktop-entry-launcher
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/package/test_arinn_open.py)
+add_test(NAME arinn-session-entry
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/package/test_session_entry.py)
+add_test(NAME restart-after-upgrade
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/package/test_restart_user_services.py)
 add_subdirectory(observability/native)

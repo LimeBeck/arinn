@@ -358,6 +358,14 @@
             <numerusform>Загружается: %n</numerusform>
         </translation>
     </message>
+    <message numerus="yes">
+        <source>%n done</source>
+        <translation>
+            <numerusform>Готово: %n</numerusform>
+            <numerusform>Готово: %n</numerusform>
+            <numerusform>Готово: %n</numerusform>
+        </translation>
+    </message>
     <message>
         <source>No downloads</source>
         <translation>Нет загрузок</translation>
@@ -975,10 +983,6 @@
         <translation>Этот раздел пока недоступен.</translation>
     </message>
     <message>
-        <source>Power controls are not available yet.</source>
-        <translation>Управление питанием пока недоступно.</translation>
-    </message>
-    <message>
         <source>Unable to exit playback controls. Press Back to retry.</source>
         <translation>Не удалось выйти из управления воспроизведением. Нажмите «Назад», чтобы повторить.</translation>
     </message>
@@ -1151,12 +1155,92 @@
         <translation>Перезагрузить?</translation>
     </message>
     <message>
+        <source>The list of running applications is not available.</source>
+        <translation>Список запущенных приложений недоступен.</translation>
+    </message>
+    <message>
         <source>No running applications.</source>
         <translation>Нет запущенных приложений.</translation>
     </message>
     <message>
+        <source>These applications will close: %1 and %2 more.</source>
+        <translation>Будут закрыты приложения: %1 и ещё %2.</translation>
+    </message>
+    <message>
         <source>These applications will close: %1.</source>
         <translation>Будут закрыты приложения: %1.</translation>
+    </message>
+    <message>
+        <source>%1 and %2 more</source>
+        <translation>%1 и ещё %2</translation>
+    </message>
+    <message>
+        <source>%1 (%2)</source>
+        <translation>%1 (%2)</translation>
+    </message>
+    <message>
+        <source>Not supported on this computer</source>
+        <translation>Не поддерживается на этом компьютере</translation>
+    </message>
+    <message>
+        <source>Not allowed for this user</source>
+        <translation>Не разрешено для этого пользователя</translation>
+    </message>
+    <message>
+        <source>Blocked by %1</source>
+        <translation>Блокирует: %1</translation>
+    </message>
+    <message>
+        <source>Blocked by an application</source>
+        <translation>Блокирует приложение</translation>
+    </message>
+    <message>
+        <source>Waiting for the system…</source>
+        <translation>Ожидание системы…</translation>
+    </message>
+    <message>
+        <source>Available after the system answers</source>
+        <translation>Доступно после ответа системы</translation>
+    </message>
+    <message>
+        <source>An application is preventing it: %1.</source>
+        <translation>Этому мешает приложение: %1.</translation>
+    </message>
+    <message>
+        <source>An application or another power operation is preventing it right now.</source>
+        <translation>Сейчас этому мешает приложение или другая операция питания.</translation>
+    </message>
+    <message>
+        <source>The system does not allow it for this user.</source>
+        <translation>Система не разрешает это для этого пользователя.</translation>
+    </message>
+    <message>
+        <source>This computer does not support it.</source>
+        <translation>Этот компьютер это не поддерживает.</translation>
+    </message>
+    <message>
+        <source>Power control is not available right now. Try again later.</source>
+        <translation>Управление питанием сейчас недоступно. Повторите позже.</translation>
+    </message>
+    <message>
+        <source>The system did not answer in time. Try again.</source>
+        <translation>Система не ответила вовремя. Повторите попытку.</translation>
+    </message>
+    <message>
+        <source>The system could not do it. Try again.</source>
+        <translation>Системе не удалось это сделать. Повторите попытку.</translation>
+    </message>
+    <message>
+        <source>Sleep was refused</source>
+        <translation>Сон отклонён</translation>
+    </message>
+    <message>
+        <source>Restart was refused</source>
+        <translation>Перезагрузка отклонена</translation>
+    </message>
+    <message>
+        <source>Shut down was refused</source>
+        <translation>Выключение отклонено</translation>
     </message>
     <message>
         <source>Power</source>
@@ -1165,6 +1249,22 @@
     <message>
         <source>Cancel</source>
         <translation>Отмена</translation>
+    </message>
+    <message>
+        <source>Going to sleep…</source>
+        <translation>Переход в сон…</translation>
+    </message>
+    <message>
+        <source>Restarting…</source>
+        <translation>Перезагрузка…</translation>
+    </message>
+    <message>
+        <source>Shutting down…</source>
+        <translation>Выключение…</translation>
+    </message>
+    <message>
+        <source>Waiting for the system. Press Back to return to Arinn.</source>
+        <translation>Ожидание системы. Нажмите «Назад», чтобы вернуться в Arinn.</translation>
     </message>
     <message>
         <source>Request refused</source>
@@ -1493,6 +1593,58 @@
         <source>System</source>
         <translation>Система</translation>
     </message>
+    <message>
+        <source>Browser application</source>
+        <translation>Приложение браузера</translation>
+    </message>
+    <message>
+        <source>Application ID launched when a web shortcut opens with no browser running; empty uses the packaged choice</source>
+        <translation>ID приложения, которое запускается, если ярлык сайта открывается без запущенного браузера; пусто — выбор по умолчанию</translation>
+    </message>
+    <message>
+        <source>Search engine</source>
+        <translation>Поисковая система</translation>
+    </message>
+    <message>
+        <source>Used when typed text is not an address</source>
+        <translation>Используется, если введённый текст — не адрес</translation>
+    </message>
+    <message>
+        <source>Light field</source>
+        <translation>Световой фон</translation>
+    </message>
+    <message>
+        <source>Soft light from the focused item&apos;s artwork behind Home</source>
+        <translation>Мягкий свет от обложки выбранного элемента за главным экраном</translation>
+    </message>
+    <message>
+        <source>Ambient after</source>
+        <translation>Заставка через</translation>
+    </message>
+    <message>
+        <source>Idle time on an Arinn screen before the ambient screen appears</source>
+        <translation>Время бездействия на экране Arinn до появления заставки</translation>
+    </message>
+    <message>
+        <source>5 min</source>
+        <translation>5 мин</translation>
+    </message>
+    <message>
+        <source>10 min</source>
+        <translation>10 мин</translation>
+    </message>
+    <message>
+        <source>15 min</source>
+        <translation>15 мин</translation>
+    </message>
+    <message>
+        <source>30 min</source>
+        <translation>30 мин</translation>
+    </message>
+    <message>
+        <source>60 min</source>
+        <translation>60 мин</translation>
+    </message>
 </context>
 <context>
     <name>SettingsView</name>
@@ -1625,6 +1777,21 @@
     <message>
         <source>Loading</source>
         <translation>Загрузка</translation>
+    </message>
+</context>
+<context>
+    <name>VolumeHud</name>
+    <message>
+        <source>Sound muted</source>
+        <translation>Звук выключен</translation>
+    </message>
+    <message>
+        <source>Volume</source>
+        <translation>Громкость</translation>
+    </message>
+    <message>
+        <source>Volume control is not available</source>
+        <translation>Управление громкостью недоступно</translation>
     </message>
 </context>
 </TS>

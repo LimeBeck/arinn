@@ -19,6 +19,7 @@ Item {
         fillMode: Image.PreserveAspectFit
         visible: false
         cache: false
+        asynchronous: true
     }
     MultiEffect {
         anchors.fill: parent

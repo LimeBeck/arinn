@@ -323,7 +323,26 @@ Window {
             return artwork ? Object.assign({}, entry, {artwork: artwork}) : entry;
         });
     }
+    // An imported download shows the poster of the library entry its Watch
+    // opens: the first library ref, through entryIdFor (#360, ADR-0062).
+    // Other rows keep the view's neutral plate. `library` only makes the
+    // binding follow catalog changes.
+    function downloadJobs(jobs, library) {
+        return jobs.map(job => {
+            const target = downloadCatalog.watchTarget(job.id);
+            const poster = target.local ? libraryCatalog.posterFor(target.provider, target.local) : "";
+            return poster ? Object.assign({}, job, {artwork: poster}) : job;
+        });
+    }
     LibraryCatalog { id: libraryCatalog; objectName: "libraryCatalog" }
+    // The Activity's last frame behind Home (§12.3, ADR-0087). Optional and
+    // asynchronous: Home and its focus never wait for it, and the shell's own
+    // session guard clears it before any daemon reply.
+    ActivityBackgroundSource {
+        id: activityBackground
+        objectName: "activityBackground"
+        blocked: sessionGuard.blocked
+    }
     SystemStatus {
         id: systemStatus
         objectName: "systemStatus"
@@ -434,6 +453,8 @@ Window {
             runningEntries: backend.items
             favoritesTitle: qsTr("Favorites")
             returnActivityId: backend.returnWindow
+            activitySource: backend.homeVisible ? activityBackground.source : ""
+            ambientSuppressed: activitySource.toString() !== ""
             // The shortcut editor's on-screen keyboard (KB-2, KB-3).
             shortcutAddressSuggestions: { browseCatalog.tabs; return browseCatalog.openServices(shortcutTypingText); }
             shortcutNameSuggestions: { browseCatalog.tabs; return browseCatalog.nameSuggestions(shortcutDraftUrl, shortcutTypingText); }
@@ -442,6 +463,8 @@ Window {
             downloadActive: downloadCatalog.downloading
             downloadProgress: downloadCatalog.downloadProgress
             muted: systemStatus.muted
+            // Settings › Appearance › Light field (ADR-0112).
+            ambientEnabled: settingsCatalog.lightField
             wifi: systemStatus.wifi
             wifiLevel: systemStatus.wifiLevel
             currentServiceId: backend.homeVisible && !returnIsWebService ? "" : (browserCatalog.presentedService.id || "")
@@ -631,7 +654,7 @@ Window {
             z: 4
             autoToast: false
             viewState: downloadCatalog.downloadsState
-            jobs: downloadCatalog.jobs
+            jobs: root.downloadJobs(downloadCatalog.jobs, libraryCatalog.entries)
             onPauseRequested: id => downloadCatalog.request(id, "pause")
             onResumeRequested: id => downloadCatalog.request(id, "resume")
             onStartNowRequested: id => downloadCatalog.request(id, "start_now")

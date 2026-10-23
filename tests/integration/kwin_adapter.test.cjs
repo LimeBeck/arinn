@@ -50,7 +50,8 @@ function fixture(options = {}) {
     const acknowledgeHome = callback => { if (deferHome) homeReplies.push(callback); else callback(); };
     const lockReplies = [], homeRequests = [];
     const snapshots = [], acknowledgements = [], controls = [];
-    let owner = ":1.10"; const polls = [];
+    let owner = ":1.10"; const polls = [], pollTargets = [], lost = [];
+    let daemon = 'serving';
     let activeWindow = activity;
     const workspace = { activeScreen: output, screens: [output],
         get activeWindow() { return activeWindow; },
@@ -66,8 +67,19 @@ function fixture(options = {}) {
         print: line => { printed.push(line); channels.push('print'); },
         console: options.noConsole ? undefined : { warn: line => { printed.push(line); channels.push('warn'); } },
         callDBus: (_service, _path, _interface, method, ...args) => {
+            // A restarting daemon owns its name before it serves its objects:
+            // a call that reaches it then gets no reply, and KWin drops the
+            // error callback. Next it serves Daemon1 alone, then the rest.
+            if (daemon === 'silent' && !['org.freedesktop.DBus', 'org.freedesktop.ScreenSaver'].includes(_service)) {
+                lost.push({ service: _service, method });
+                return;
+            }
             if (method === 'Introspect') {
-                const reply = () => args[0](options.unsupported ? '<node/>' : '<node><interface name="org.arinn.KWinReturn1"/>' + (options.managed ? '<interface name="org.arinn.KWinMedia1"/>' : '') + '</node>');
+                const iface = name => '<interface name="' + name + '"/>';
+                const xml = daemon === 'partial' ? '<node>' + iface('org.arinn.Daemon1') + '</node>'
+                    : '<node>' + iface('org.arinn.Daemon1') + (options.unsupported ? '' : iface('org.arinn.KWinReturn1')) +
+                        (options.managed ? iface('org.arinn.KWinMedia1') : '') + iface('org.arinn.KWinBridge1') + '</node>';
+                const reply = () => args[0](xml);
                 if (options.deferDiscovery) discoveryReplies.push(reply); else reply();
             }
             if (_interface === 'org.arinn.KWinMedia1') {
@@ -102,7 +114,7 @@ function fixture(options = {}) {
             }
             if (method === 'NameHasOwner') args[1](!!owner);
             if (method === 'GetNameOwner') args[1](owner);
-            if (method === 'TakeCommand') { takeCommand = args[0]; polls.push(takeCommand); }
+            if (method === 'TakeCommand') { takeCommand = args[0]; polls.push(takeCommand); pollTargets.push(_service); }
             if (method === 'ReportHome') {
                 report = args.slice(0, 3);
                 trace.push({ kind: 'ReportHome', visible: args[0] });
@@ -122,6 +134,9 @@ function fixture(options = {}) {
         refresh() { tick(); }, lock(value) { locked = value; },
         command(action, token) { control([randomUUID(), action, token]); },
         reconnect(value) { owner = value; tick(); },
+        // 'silent' (name owned, nothing served), 'partial' (Daemon1 only) or 'serving'.
+        daemonState(value) { daemon = value; },
+        pollTargets, lost,
         setManaged(value) { options.managed = value; },
         show: () => shortcut(), back: () => takeCommand('return'),
         shortcuts, homeRequests, lockReplies, returnReports, homeReplies, commitReplies, discoveryReplies,
@@ -241,6 +256,49 @@ test('daemon owner change restores Home context and ignores late old commands', 
     f.back();
     assert.equal(f.workspace.activeWindow, f.activity);
     assert.equal(f.report()[0], false);
+});
+
+// Steps the watchdog one second at a time.
+function seconds(f, count) {
+    for (let i = 0; i < count; i++) { f.advance(1000); f.refresh(); }
+}
+
+test('#447: TakeCommand polling resumes on a restarted daemon that answered nothing at first', () => {
+    const f = fixture();
+    assert.deepEqual(f.pollTargets, [':1.10']);
+    // systemctl --user restart arinnd: the old owner's poll never returns,
+    // the new daemon owns the name before it serves its objects.
+    f.daemonState('silent');
+    f.reconnect(':1.20');
+    seconds(f, 1);
+    f.daemonState('partial');
+    seconds(f, 2);
+    assert.deepEqual(f.pollTargets, [':1.10'], 'no poll before the daemon serves the adapter interfaces');
+    f.daemonState('serving');
+    // The daemon reports the adapter connected only while TakeCommand polls
+    // arrive (Status.platform_connected, 30 s): resume within seconds.
+    seconds(f, 3);
+    assert.deepEqual(f.pollTargets, [':1.10', ':1.20'], 'exactly one poll, pinned to the new owner');
+    f.daemonHome();
+    assert.deepEqual(f.homeRequests.at(-1), { owner: ':1.20', args: ['original-id', 'second-screen'] });
+    assert.deepEqual(f.pollTargets, [':1.10', ':1.20', ':1.20'], 'the poll loop continues');
+    // A further restart is noticed the same way.
+    f.reconnect(':1.30');
+    assert.equal(f.pollTargets.at(-1), ':1.30');
+});
+
+test('#447: discovery asks a starting daemon again until its KWin interfaces are exported', () => {
+    const f = fixture({ managed: true });
+    const polls = f.mediaPolls.count;
+    f.daemonState('partial');
+    f.reconnect(':1.20');
+    seconds(f, 1);
+    f.daemonState('serving');
+    seconds(f, 3);
+    const channel = f.printed.map(line => JSON.parse(line)).filter(entry => entry.operation === 'media.channel');
+    assert.equal(channel.at(-1).outcome, 'attached', 'the media channel is not left absent');
+    assert.ok(f.mediaPolls.count > polls, 'media control is polled on the new owner');
+    assert.equal(f.pollTargets.at(-1), ':1.20');
 });
 
 

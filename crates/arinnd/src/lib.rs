@@ -14,11 +14,15 @@ pub mod operations;
 pub mod platform;
 pub mod registry;
 pub mod runtime;
+#[path = "../../../platform/session_lock.rs"]
+pub mod session_lock;
 pub mod shortcuts;
 #[path = "../../../platform/status_sources.rs"]
 pub mod status_sources;
 pub mod storage;
 pub mod supervisor;
+#[path = "../../../platform/system_control.rs"]
+pub mod system_control;
 
 pub mod telemetry;
 #[path = "../../../platform/kde/windows.rs"]

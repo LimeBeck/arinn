@@ -13,8 +13,10 @@ to a real systemd user manager or KWin: units are verified offline and the
 loader runs against a fake busctl.
 """
 
+import fnmatch
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -26,7 +28,7 @@ ADAPTER = PREFIX / "lib/arinn/arinn-kwin-adapter"
 SCRIPT = PREFIX / "share/arinn/kwin/phase0.js"
 NAMES = ["arinn-session.target", "arinnd.service", "arinn-shell.service", "arinn-kwin.service"]
 
-ALL_NAMES = NAMES + ["arinn-ewmh.service", "arinn-ewmh-session.target"]
+ALL_NAMES = NAMES + ["arinn-ewmh.service", "arinn-ewmh-session.target", "arinn-session-failed@.service"]
 
 for name in ALL_NAMES:
     assert (UNITS / name).is_file(), f"missing unit {name}"
@@ -52,6 +54,63 @@ assert DESKTOP.is_file(), "missing desktop entry"
 entry = DESKTOP.read_text()
 assert "Exec=/usr/lib/arinn/arinn-open" in entry and "Icon=org.arinn.Shell" in entry, entry
 assert (PREFIX / "share/icons/hicolor/scalable/apps/org.arinn.Shell.svg").is_file(), "missing icon"
+
+# Dedicated Arinn login session and the switch to the plain desktop (ADR-0107).
+SESSION_ENTRY = PREFIX / "lib/arinn/arinn-session"
+SESSION_SWITCH = PREFIX / "lib/arinn/arinn-session-switch"
+for helper in (SESSION_ENTRY, SESSION_SWITCH):
+    assert helper.is_file() and os.access(helper, os.X_OK), f"missing {helper.name}"
+SESSIONS = {
+    PREFIX / "share/wayland-sessions/arinn.desktop":
+        ("Exec=/usr/lib/arinn/arinn-session plasma", "TryExec=startplasma-wayland", "DesktopNames=KDE"),
+    PREFIX / "share/xsessions/arinn-xfce.desktop":
+        ("Exec=/usr/lib/arinn/arinn-session xfce", "TryExec=startxfce4", "DesktopNames=XFCE"),
+}
+for path, keys in SESSIONS.items():
+    assert path.is_file(), f"missing session entry {path}"
+    lines = path.read_text().splitlines()
+    assert all(key in lines for key in keys), (path, lines)
+RETURN = PREFIX / "share/applications/org.arinn.ReturnToArinn.desktop"
+assert RETURN.is_file(), "missing Return to Arinn launcher"
+assert "Exec=/usr/lib/arinn/arinn-session-switch arinn --prompt" in RETURN.read_text().splitlines()
+VALIDATE = shutil.which("desktop-file-validate")
+if VALIDATE:
+    for path in [*SESSIONS, DESKTOP, RETURN]:
+        result = subprocess.run([VALIDATE, str(path)], capture_output=True, text=True, timeout=30)
+        # DesktopNames belongs to session entries only; the validator does not
+        # know it (desktop-file-utils issue 61). Any other error fails.
+        output = (result.stdout + result.stderr).splitlines()
+        errors = [line for line in output
+                  if "error:" in line and not (path in SESSIONS and "DesktopNames" in line)]
+        assert not errors, output
+else:
+    print("SKIP: desktop-file-validate is not installed; session entry keys were checked above")
+subprocess.run([sys.executable, str(Path(__file__).with_name("test_session_entry.py"))],
+               env={**os.environ, "ARINN_SESSION_SCRIPT": str(SESSION_ENTRY),
+                    "ARINN_SESSION_SWITCH": str(SESSION_SWITCH)}, check=True, timeout=120)
+
+# Running user services restart after an upgrade (#355).
+RESTART = PREFIX / "lib/arinn/arinn-restart-user-services"
+assert RESTART.is_file() and os.access(RESTART, os.X_OK), "missing arinn-restart-user-services"
+subprocess.run([sys.executable, str(Path(__file__).with_name("test_restart_user_services.py"))],
+               env={**os.environ, "ARINN_RESTART_SCRIPT": str(RESTART)}, check=True, timeout=60)
+if shutil.which("pacman") and PREFIX == Path("/usr"):
+    HOOK = PREFIX / "share/libalpm/hooks/arinn-restart-user-services.hook"
+    assert HOOK.is_file(), "missing libalpm hook"
+    targets = [line.split("=", 1)[1].strip() for line in HOOK.read_text().splitlines()
+               if line.startswith("Target")]
+    # Every installed long-running binary triggers the hook; libalpm matches
+    # package-relative paths with fnmatch(3), where * also spans slashes.
+    owned = subprocess.run(["pacman", "-Qlq", "arinn"], capture_output=True, text=True,
+                           check=True, timeout=60).stdout.split()
+    binaries = [path for path in owned
+                if Path(path).is_file() and os.access(path, os.X_OK)
+                and path.startswith(("/usr/bin/", "/usr/lib/arinn/")) and path != "/usr/bin/arinnctl"]
+    assert "/usr/bin/arinnd" in binaries, binaries
+    for path in binaries + ["/usr/share/arinn/kwin/phase0.js"]:
+        assert any(fnmatch.fnmatchcase(path[1:], target) for target in targets), path
+else:
+    print("SKIP: the libalpm hook is checked only for the installed Arch package")
 
 # The package installs units but never enables them for anyone.
 for wants in UNITS.glob("*.wants"):
@@ -97,6 +156,15 @@ assert "arinnd.service" in unit("arinn-shell.service")["Unit"]["After"][0].split
 # A shell that finds its name taken exits with 2; systemd must not restart it
 # into the start limit (#75).
 assert unit("arinn-shell.service")["Service"]["RestartPreventExitStatus"] == ["2"]
+# At the start limit the daemon and the shell stay failed and their OnFailure=
+# handler shows a notification; below it nothing changes (#437).
+FAILED = PREFIX / "lib/arinn/arinn-session-failed"
+assert FAILED.is_file() and os.access(FAILED, os.X_OK), "missing arinn-session-failed"
+for name in ("arinnd.service", "arinn-shell.service"):
+    assert unit(name)["Unit"]["OnFailure"] == ["arinn-session-failed@%n.service"], name
+assert unit("arinn-session-failed@.service")["Service"]["ExecStart"] == ["/usr/lib/arinn/arinn-session-failed %i"]
+subprocess.run([sys.executable, str(Path(__file__).with_name("test_session_failed.py"))],
+               env={**os.environ, "ARINN_SESSION_FAILED": str(FAILED)}, check=True, timeout=120)
 
 if PREFIX == Path("/usr"):
     # Offline verification; unrelated units of the host may still warn.
@@ -181,4 +249,4 @@ if PREFIX == Path("/usr"):
 else:
     print(f"SKIP: native messaging manifests are checked only for the /usr prefix, not {PREFIX}")
 
-print("PASS: session units are installed, disabled by default and valid; KWin adapter loader behaves; Chrome integration files are installed")
+print("PASS: session units are installed, disabled by default and valid; Arinn session entries and the switch behave; KWin adapter loader behaves; Chrome integration files are installed")

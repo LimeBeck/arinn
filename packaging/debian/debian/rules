@@ -64,13 +64,22 @@ override_dh_auto_install:
 	install -Dm755 platform/kde/arinn-kwin-adapter debian/arinn/usr/lib/arinn/arinn-kwin-adapter
 	install -Dm755 platform/kde/arinn-shell-launch debian/arinn/usr/lib/arinn/arinn-shell-launch
 	install -Dm755 packaging/bin/arinn-open debian/arinn/usr/lib/arinn/arinn-open
+	install -Dm755 packaging/bin/arinn-restart-user-services debian/arinn/usr/lib/arinn/arinn-restart-user-services
 	install -Dm644 packaging/desktop/org.arinn.Shell.desktop debian/arinn/usr/share/applications/org.arinn.Shell.desktop
 	install -Dm644 packaging/icons/org.arinn.Shell.svg \
 		debian/arinn/usr/share/icons/hicolor/scalable/apps/org.arinn.Shell.svg
+	install -Dm755 packaging/bin/arinn-session debian/arinn/usr/lib/arinn/arinn-session
+	install -Dm755 packaging/bin/arinn-session-switch debian/arinn/usr/lib/arinn/arinn-session-switch
+	install -Dm644 packaging/sessions/arinn.desktop debian/arinn/usr/share/wayland-sessions/arinn.desktop
+	install -Dm644 packaging/sessions/arinn-xfce.desktop debian/arinn/usr/share/xsessions/arinn-xfce.desktop
+	install -Dm644 packaging/desktop/org.arinn.ReturnToArinn.desktop \
+		debian/arinn/usr/share/applications/org.arinn.ReturnToArinn.desktop
 	install -Dm644 packaging/systemd/arinn-session.target packaging/systemd/arinnd.service \
 		packaging/systemd/arinn-shell.service packaging/systemd/arinn-kwin.service \
 		packaging/systemd/arinn-ewmh.service packaging/systemd/arinn-ewmh-session.target \
+		packaging/systemd/arinn-session-failed@.service \
 		-t debian/arinn/usr/lib/systemd/user/
+	install -Dm755 packaging/systemd/arinn-session-failed debian/arinn/usr/lib/arinn/arinn-session-failed
 	install -Dm644 README.md CHANGELOG.md -t debian/arinn/usr/share/doc/arinn/
 	install -Dm644 build/observability/native/licenses/*-LICENSE -t debian/arinn/usr/share/licenses/arinn/
 	install -Dm644 LICENSES/*.txt -t debian/arinn/usr/share/licenses/arinn/

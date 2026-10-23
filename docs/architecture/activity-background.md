@@ -190,9 +190,12 @@ contract above; these are the implementation choices within it:
   invalidates; publication without a shell owner is `Conflict`. A ready frame
   is bound to the shell owner at publication, so a successor never reads it,
   even before the owner change is processed.
-- **Publisher.** At commit, `Publish` and `Cancel` re-read the selected platform service's
-  owner, so a former owner cannot install a frame after an owner change it
-  raced with.
+- **Publisher.** `Publish` and `Cancel` read the selected platform service's
+  owner just before taking the state lock and require it, together with the
+  inventory owner, at commit. No bus round trip separates the evidence check
+  from the commit, and a former owner cannot install a frame after an owner
+  change it raced with. A Home request queued behind the state arms only the
+  Home lifetime it was made in.
 - **Descriptors.** `Publish` checks `fstat` (regular file, exact size) and
   `F_GET_SEALS` (write, grow and shrink) before taking the state lock. The
   daemon never maps or reads pixels. `ReadFrame` returns a close-on-exec

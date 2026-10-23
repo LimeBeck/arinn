@@ -700,6 +700,35 @@ async fn a_busy_background_never_delays_the_home_request() {
 }
 
 #[tokio::test]
+async fn a_queued_request_never_arms_a_later_home_lifetime() {
+    let f = Fixture::new().await;
+    // Requests queue behind a held state: the first one, then (after its
+    // deadline would have passed) a Return and a second Home.
+    let background = f.core.background.get().unwrap().clone();
+    let held = background.inner.lock().await;
+    f.home("activity", "screen").await;
+    tokio::time::sleep(DEADLINE + Duration::from_millis(100)).await;
+    zbus::Proxy::new(
+        &f.kwin,
+        production::SERVICE,
+        production::PATH,
+        production::SERVICE,
+    )
+    .await
+    .unwrap()
+    .call::<_, _, ()>("ReportHome", &(false, "activity", "screen"))
+    .await
+    .unwrap();
+    f.home("activity", "screen").await;
+    drop(held);
+    // The second lifetime is armed by its own request, with a live deadline,
+    // not by the first request's expired one.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let snapshot = f.get().await;
+    assert_eq!(snapshot.state, "pending", "{snapshot:?}");
+}
+
+#[tokio::test]
 async fn a_closed_session_guard_fails_closed() {
     let mut f = Fixture::new().await;
     let context = f.pending().await;

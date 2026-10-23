@@ -286,9 +286,10 @@ impl Background {
     /// An explicit Home presentation request for `target` on `output` was
     /// committed. Arms one attempt for this Home context; repeated Home on
     /// the same context never recaptures, even after a failure.
-    pub(super) async fn arm(&self, target: &str, output: &str, requested: Instant) {
+    pub(super) async fn arm(&self, target: &str, output: &str, requested: Instant, lifetime: u64) {
         let inner = self.inner.lock().await;
-        self.arm_locked(inner, target, output, requested).await;
+        self.arm_locked(inner, target, output, requested, lifetime)
+            .await;
     }
 
     /// Arms with the state already locked. `requested` is when the Home
@@ -300,6 +301,7 @@ impl Background {
         target: &str,
         output: &str,
         requested: Instant,
+        lifetime: u64,
     ) {
         if inner.exhausted {
             return;
@@ -314,8 +316,11 @@ impl Background {
         // Home without an external Activity keeps the normal background. An
         // adapter without an output, or a request another Home report already
         // superseded, arms nothing. ReportHomeRequest validated both texts.
+        // A queued request belongs to the Home lifetime it was made in; a
+        // later lifetime is armed by its own request, with its own deadline.
         let eligible = !target.is_empty()
             && !output.is_empty()
+            && evidence.lifetime == lifetime
             && evidence.visible
             && evidence.target == target
             && evidence.output == output;
@@ -396,6 +401,12 @@ impl Background {
         }
     }
 
+    /// The current unique owner of the selected platform service, if any.
+    async fn platform_owner(&self) -> Option<String> {
+        let service = crate::platform::adapter_service()?;
+        self.owner_of(service).await.ok().flatten()
+    }
+
     /// The caller must be the current owner of the selected platform service
     /// and the adapter connection that owns the inventory.
     async fn authorize_platform(&self, header: &Header<'_>) -> Result<String, ErrorCode> {
@@ -417,17 +428,16 @@ impl Background {
         sealed(&pixels, bytes)?;
         // A shell must own the reader name; otherwise nobody may read.
         let shell = self.owner_of(SHELL_SERVICE).await?;
+        // The selected platform owner is read here, before the state lock, so
+        // no bus round trip separates the evidence check from the commit. An
+        // owner change after this read resets the inventory owner, which the
+        // commit checks atomically.
+        let platform_owner = self.platform_owner().await;
         let mut inner = self.inner.lock().await;
         let evidence = self.evidence(&inner).await;
         let now = Instant::now();
         let change = Self::reconcile(&mut inner, &evidence, self.blocked(), now);
         let mut outcome = Self::commit(&mut inner, change, now);
-        // Revalidate the selected platform owner at commit: an owner change
-        // queued after authorization never lets the former owner install.
-        let platform_owner = match crate::platform::adapter_service() {
-            Some(service) => self.owner_of(service).await.ok().flatten(),
-            None => None,
-        };
         let result = if evidence.owner != sender
             || platform_owner.as_deref() != Some(sender.as_str())
         {
@@ -472,13 +482,11 @@ impl Background {
     async fn cancel(&self, request_id: &str, header: &Header<'_>) -> Result<(), ErrorCode> {
         let sender = self.authorize_platform(header).await?;
         arinn_protocol::platform::generation(request_id)?;
+        // As for Publish: the selected platform owner is read before the
+        // state lock and checked with the inventory owner at commit.
+        let platform_owner = self.platform_owner().await;
         let mut inner = self.inner.lock().await;
         let evidence = self.evidence(&inner).await;
-        // As for Publish: the selected platform owner is rechecked at commit.
-        let platform_owner = match crate::platform::adapter_service() {
-            Some(service) => self.owner_of(service).await.ok().flatten(),
-            None => None,
-        };
         if evidence.owner != sender || platform_owner.as_deref() != Some(sender.as_str()) {
             return Err(ErrorCode::PermissionDenied);
         }
@@ -723,16 +731,24 @@ impl Core {
             return;
         };
         let requested = Instant::now();
+        // The Home lifetime this request committed in.
+        let lifetime = self
+            .windows
+            .home_evidence(&self.platform, None)
+            .await
+            .lifetime;
         match background.inner.try_lock() {
             Ok(inner) => {
                 background
-                    .arm_locked(inner, target, output, requested)
+                    .arm_locked(inner, target, output, requested, lifetime)
                     .await
             }
             Err(_) => {
                 let background = background.clone();
                 let (target, output) = (target.to_owned(), output.to_owned());
-                tokio::spawn(async move { background.arm(&target, &output, requested).await });
+                tokio::spawn(
+                    async move { background.arm(&target, &output, requested, lifetime).await },
+                );
             }
         }
     }

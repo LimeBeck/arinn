@@ -109,6 +109,43 @@ fn logind_answers_map_to_the_contract() {
     }
 }
 
+/// The contract: the first of each lock, then the rest in logind's order.
+#[test]
+fn the_published_list_keeps_arrival_order() {
+    let list: Vec<Inhibitor> = (0..20)
+        .map(|i| Inhibitor {
+            what: if i % 2 == 0 { "sleep" } else { "shutdown" }.into(),
+            who: format!("H{i:02}"),
+            why: String::new(),
+        })
+        .collect();
+    let kept = bounded_inhibitors(list);
+    let names: Vec<&str> = kept.iter().map(|i| i.who.as_str()).collect();
+    let expected: Vec<String> = (0..16).map(|i| format!("H{i:02}")).collect();
+    assert_eq!(names, expected);
+    // Many of one lock first: the other lock's first holder is still kept,
+    // right after the first holder of the earlier lock.
+    let mut list: Vec<Inhibitor> = (0..30)
+        .map(|i| Inhibitor {
+            what: "sleep".into(),
+            who: format!("S{i:02}"),
+            why: String::new(),
+        })
+        .collect();
+    list.push(Inhibitor {
+        what: "shutdown".into(),
+        who: "Late".into(),
+        why: String::new(),
+    });
+    let kept = bounded_inhibitors(list);
+    assert_eq!(kept.len(), MAX_INHIBITORS);
+    assert_eq!(
+        (kept[0].who.as_str(), kept[1].who.as_str()),
+        ("S00", "Late")
+    );
+    assert_eq!(kept[2].who, "S01");
+}
+
 #[test]
 fn pactl_levels() {
     let stereo = "Volume: front-left: 32768 /  50% / -18.06 dB,   front-right: 36045 /  55% / -15.58 dB\n        balance 0.10\n";

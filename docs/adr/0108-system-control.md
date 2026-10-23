@@ -112,8 +112,6 @@ never leave the platform layer.
 - The shell can wire the power menu, Sleep availability and the volume HUD
   (#148) without any system dependency of its own. The quick menu (#439) can
   reuse the same volume methods.
-- The shell consumer (power menu, volume HUD) follows in
-  [#148](https://github.com/LimeBeck/arinn/issues/148).
 - The daemon depends at runtime on logind and a PulseAudio-protocol server when
   they exist. Neither is needed to start; without them reads are `unknown` and
   actions are `Unavailable`.

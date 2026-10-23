@@ -69,7 +69,10 @@ FocusScope {
         }
         if (names.length === 0)
             return qsTr("No running applications.");
-        return qsTr("These applications will close: %1.").arg(names.join(", "));
+        if (names.length > maxNames)
+            return qsTr("These applications will close: %1 and %2 more.")
+                .arg(names.slice(0, maxNames).map(shortText).join(", ")).arg(names.length - maxNames);
+        return qsTr("These applications will close: %1.").arg(names.map(shortText).join(", "));
     }
 
     signal sleepRequested()
@@ -83,6 +86,21 @@ FocusScope {
     signal refusalDismissed()
     signal acceptedDismissed()
 
+    // Names shown in one line of text before "and N more", and the longest
+    // name or holder shown; the rest is elided.
+    readonly property int maxNames: 4
+    readonly property int maxNameLength: 48
+    function shortText(text) {
+        const value = String(text);
+        return value.length > maxNameLength ? value.slice(0, maxNameLength - 1) + "…" : value;
+    }
+    // The holders of a row's action as one bounded text.
+    function holderText(id) {
+        const names = holders(id).map(shortText);
+        if (names.length > 3)
+            return qsTr("%1 and %2 more").arg(names.slice(0, 3).join(", ")).arg(names.length - 3);
+        return names.join(", ");
+    }
     function availabilityOf(id) {
         return id === "sleep" ? sleepAvailability : id === "restart" ? restartAvailability
              : id === "shutdown" ? shutdownAvailability : "available";
@@ -111,13 +129,20 @@ FocusScope {
             return qsTr("Not allowed for this user");
         if (availability === "inhibited") {
             const names = holders(id);
-            return names.length ? qsTr("Blocked by %1").arg(names.join(", ")) : qsTr("Blocked by an application");
+            return names.length ? qsTr("Blocked by %1").arg(holderText(id)) : qsTr("Blocked by an application");
         }
         return "";
+    }
+    // A power row that cannot be used while another request is in flight:
+    // the model sends one request at a time, so it would send nothing.
+    function heldBack(id) {
+        return requestInFlight && busyAction !== id && id !== "ambient";
     }
     function rowDescription(entry) {
         if (busyAction === entry.id)
             return qsTr("Waiting for the system…");
+        if (heldBack(entry.id))
+            return qsTr("Available after the system answers");
         const note = availabilityNote(entry.id);
         return note.length ? note : entry.description;
     }
@@ -128,7 +153,7 @@ FocusScope {
                  : action === "power-off" ? "shutdown" : action;
         if (code === "inhibited") {
             const names = holders(id);
-            return names.length ? qsTr("An application is preventing it: %1.").arg(names.join(", "))
+            return names.length ? qsTr("An application is preventing it: %1.").arg(holderText(id))
                                 : qsTr("An application or another power operation is preventing it right now.");
         }
         if (code === "denied")
@@ -210,6 +235,8 @@ FocusScope {
                 return;
     }
     function openConfirm(action) {
+        if (requestInFlight)
+            return;
         pendingAction = action;
         menuFocus = action;
         step = "confirm";
@@ -224,12 +251,39 @@ FocusScope {
         Qt.callLater(restoreMenuFocus);
     }
     function confirmAction() {
+        if (requestInFlight)
+            return;
         if (pendingAction === "restart")
             restartRequested();
         else if (pendingAction === "shutdown")
             shutdownRequested();
     }
+    // A request already sent to the system cannot be taken back. While it is
+    // in flight Back and Cancel do nothing, so nothing looks like cancelling;
+    // Home still leaves, and the caller shows a later refusal (spec §6.3,
+    // owner decision 2026-10-23).
+    readonly property bool requestInFlight: busyAction.length > 0
+    // The menu opened again while a request is in flight (after Home): it
+    // shows that request as it was left, busy, and nothing else can be sent.
+    function showPending(id) {
+        if (id === "restart" || id === "shutdown") {
+            pendingAction = id;
+            menuFocus = id;
+            step = "confirm";
+            Qt.callLater(() => {
+                if (step === "confirm" && !refused && !accepted)
+                    Ui.Focus.take(confirmButton);
+            });
+        } else {
+            step = "menu";
+            pendingAction = "";
+            menuFocus = id.length ? id : "sleep";
+            Qt.callLater(restoreMenuFocus);
+        }
+    }
     function goBack() {
+        if (requestInFlight)
+            return;
         // A refusal stays until the caller clears it. Back does not report success.
         if (refused) {
             refusalDismissed();
@@ -270,6 +324,18 @@ FocusScope {
     function startAmbient() {
         ambientRequested();
     }
+
+    // A row the platform reports as unsupported after the menu opened is
+    // disabled; focus moves on so the menu never becomes keyboard-inert.
+    function settleDisabledFocus() {
+        if (step !== "menu" || !visible)
+            return;
+        if (availabilityOf(menuFocus) === "unsupported")
+            Qt.callLater(restoreMenuFocus);
+    }
+    onSleepAvailabilityChanged: settleDisabledFocus()
+    onRestartAvailabilityChanged: settleDisabledFocus()
+    onShutdownAvailabilityChanged: settleDisabledFocus()
 
     // Fallback when focus is on this scope rather than a row or pill.
     Keys.onPressed: event => handleScopeKey(event, () => goBack())
@@ -353,6 +419,10 @@ FocusScope {
                     rightPadding: 8
                     visible: root.step === "confirm"
                     text: root.closingSummary
+                    // A long title or list never pushes the buttons off the
+                    // canvas.
+                    maximumLineCount: 3
+                    elide: Text.ElideRight
                     role: "body"
                     color: Ui.Theme.textSecondary
                 }
@@ -390,6 +460,9 @@ FocusScope {
                             text: modelData.title
                             enabled: root.availabilityOf(modelData.id) !== "unsupported"
                             busy: root.busyAction === modelData.id
+                            // Focusable, but it reads and acts as unavailable.
+                            readonly property bool held: root.heldBack(modelData.id)
+                            opacity: enabled && !held ? 1 : 0.4
                             cornerRadius: 30
                             focusScale: 1.02
                             restingColor: Qt.rgba(1, 1, 1, 0.05)
@@ -399,6 +472,8 @@ FocusScope {
                             onDpadRequested: root.noteDpad()
                             onActiveFocusChanged: if (activeFocus) root.menuFocus = modelData.id
                             onActivated: {
+                                if (held)
+                                    return;
                                 if (modelData.id === "sleep")
                                     root.sleepRequested();
                                 else if (modelData.id === "restart")
@@ -524,6 +599,7 @@ FocusScope {
                     Ui.ActionButton {
                         id: cancelButton
                         objectName: "cancelButton"
+                        enabled: !root.requestInFlight
                         width: 342
                         height: 96
                         restingColor: Qt.rgba(1, 1, 1, 0.13)

@@ -1163,8 +1163,16 @@
         <translation>Нет запущенных приложений.</translation>
     </message>
     <message>
+        <source>These applications will close: %1 and %2 more.</source>
+        <translation>Будут закрыты приложения: %1 и ещё %2.</translation>
+    </message>
+    <message>
         <source>These applications will close: %1.</source>
         <translation>Будут закрыты приложения: %1.</translation>
+    </message>
+    <message>
+        <source>%1 and %2 more</source>
+        <translation>%1 и ещё %2</translation>
     </message>
     <message>
         <source>%1 (%2)</source>
@@ -1189,6 +1197,10 @@
     <message>
         <source>Waiting for the system…</source>
         <translation>Ожидание системы…</translation>
+    </message>
+    <message>
+        <source>Available after the system answers</source>
+        <translation>Доступно после ответа системы</translation>
     </message>
     <message>
         <source>An application is preventing it: %1.</source>

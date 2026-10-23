@@ -36,7 +36,8 @@ TestCase {
             signal volumeShown()
             signal volumeFailed(string refusal)
             function readPower() { calls.push("readPower"); powerState = "ready"; }
-            function request(action) { calls.push("request:" + action); pendingAction = action; }
+            // Like SystemControl: one request at a time, a second is ignored.
+            function request(action) { calls.push("request:" + action); if (!pendingAction) pendingAction = action; }
             function reset() { calls.push("reset"); acceptedAction = ""; refusal = ""; refusalAction = ""; }
             function stepVolume(steps) { calls.push("step:" + steps); }
             function raiseVolume() { calls.push("raise"); }
@@ -59,6 +60,24 @@ TestCase {
         Power.PowerOverlay {
             keysEnabled: true
             runningApplications: [{title: "Player"}, {title: "Player"}, {title: "Browser"}]
+        }
+    }
+    Component {
+        id: launchFactory
+        Ui.LaunchOverlay {
+            width: 1920
+            height: 1080
+            z: 20
+            serviceTitle: "Service"
+        }
+    }
+    Component {
+        id: beneathFactory
+        Rectangle {
+            objectName: "beneath"
+            width: 200
+            height: 100
+            activeFocusOnTab: true
         }
     }
     SignalSpy { id: closedSpy; signalName: "closed" }
@@ -150,6 +169,282 @@ TestCase {
         verify(!Ui.InputMode.pointerActive);
         verify(!overlay.menu.pointerMode);
         focused("restartButton");
+    }
+
+    // A Restart or Shut down still in flight survives an unrelated lock:
+    // its refusal is shown after unlock instead of being lost.
+    function test_lock_keeps_a_pending_restart() {
+        openMenu();
+        keyClick(Qt.Key_Down);
+        focused("restartButton");
+        keyClick(Qt.Key_Return);
+        focused("cancelButton");
+        keyClick(Qt.Key_Right);
+        keyClick(Qt.Key_Return);
+        compare(control.pendingAction, "reboot");
+        overlay.sessionBlocked();
+        verify(overlay.open);
+        control.answer("denied");
+        tryCompare(child("powerError"), "visible", true);
+    }
+
+    // Once a request is sent it cannot be cancelled: Cancel and Back do
+    // nothing until the system answers (spec §6.3, owner decision 2026-10-23).
+    function test_a_dispatched_request_cannot_look_cancelled() {
+        openMenu();
+        keyClick(Qt.Key_Down);
+        keyClick(Qt.Key_Return);
+        focused("cancelButton");
+        keyClick(Qt.Key_Right);
+        keyClick(Qt.Key_Return);
+        compare(control.pendingAction, "reboot");
+        verify(!child("cancelButton").enabled);
+        keyClick(Qt.Key_Escape);
+        keyClick(Qt.Key_Backspace);
+        mouseClick(child("cancelButton"));
+        verify(overlay.open);
+        compare(overlay.menu.step, "confirm");
+        compare(closedSpy.count, 0);
+        compare(control.pendingAction, "reboot");
+        control.answer("");
+        tryCompare(child("powerAccepted"), "visible", true);
+    }
+
+    function restartInFlight() {
+        openMenu();
+        keyClick(Qt.Key_Down);
+        keyClick(Qt.Key_Return);
+        focused("cancelButton");
+        keyClick(Qt.Key_Right);
+        keyClick(Qt.Key_Return);
+        compare(control.pendingAction, "reboot");
+    }
+
+    // Home leaves while a request is in flight and does not cancel it; the
+    // system's success needs nothing more (spec §6.3, §6.5 pattern).
+    function test_home_leaves_without_cancelling_the_request() {
+        restartInFlight();
+        keyClick(Qt.Key_Home);
+        verify(!overlay.open);
+        compare(homeSpy.count, 1);
+        compare(control.pendingAction, "reboot");
+        verify(overlay.awaitingAnswer);
+        control.answer("");
+        wait(100);
+        verify(!overlay.open);
+        verify(!overlay.awaitingAnswer);
+        compare(control.calls.filter(call => call.indexOf("request:") === 0), ["request:reboot"]);
+    }
+
+    // A refusal or timeout that arrives after Home reopens the power scope
+    // on the refusal; Back closes it again.
+    function test_late_refusal_reaches_the_user_data() {
+        return [
+            {tag: "restart timeout", rows: 1, code: "timeout", title: "Restart was refused",
+             text: "The system did not answer in time. Try again."},
+            {tag: "restart inhibited", rows: 1, code: "inhibited", title: "Restart was refused",
+             text: "An application or another power operation is preventing it right now."},
+            {tag: "sleep denied", rows: 0, code: "denied", title: "Sleep was refused",
+             text: "The system does not allow it for this user."}
+        ];
+    }
+    function test_late_refusal_reaches_the_user(data) {
+        if (data.rows === 0) {
+            openMenu();
+            keyClick(Qt.Key_Return);
+            compare(control.pendingAction, "suspend");
+        } else {
+            restartInFlight();
+        }
+        keyClick(Qt.Key_Home);
+        verify(!overlay.open);
+        compare(homeSpy.count, 1);
+        control.answer(data.code);
+        tryCompare(overlay, "open", true);
+        tryCompare(child("powerError"), "visible", true);
+        focused("powerError");
+        compare(child("powerError").title, data.title);
+        compare(child("powerError").description, data.text);
+        keyClick(Qt.Key_Escape);
+        verify(!overlay.open);
+        compare(control.refusal, "");
+        compare(homeSpy.count, 1);
+    }
+
+    function requestCalls() {
+        return control.calls.filter(call => call.indexOf("request:") === 0);
+    }
+    // Reopened after Home while Restart is in flight, the menu shows that
+    // confirmation as it was left: busy, Cancel disabled, Back ignored,
+    // nothing more is sent. Home still leaves.
+    function test_reopened_menu_shows_the_pending_restart() {
+        restartInFlight();
+        keyClick(Qt.Key_Home);
+        overlay.openMenu();
+        tryCompare(overlay.menu, "step", "confirm");
+        compare(overlay.menu.pendingAction, "restart");
+        focused("confirmButton");
+        verify(child("confirmButton").busy);
+        verify(!child("cancelButton").enabled);
+        keyClick(Qt.Key_Escape);
+        keyClick(Qt.Key_Return);
+        mouseClick(child("confirmButton"));
+        compare(overlay.menu.step, "confirm");
+        compare(requestCalls(), ["request:reboot"]);
+        keyClick(Qt.Key_Home);
+        verify(!overlay.open);
+        compare(homeSpy.count, 2);
+        control.answer("denied");
+        tryCompare(overlay, "open", true);
+        tryCompare(child("powerError"), "visible", true);
+    }
+
+    // While Sleep is in flight, the other power rows are held: Restart and
+    // Shut down open no confirmation and send nothing, on a reopened menu
+    // as on the first one.
+    function test_other_power_rows_are_held_while_a_request_is_in_flight_data() {
+        return [{tag: "reopened", reopen: true}, {tag: "same opening", reopen: false}];
+    }
+    function test_other_power_rows_are_held_while_a_request_is_in_flight(data) {
+        openMenu();
+        keyClick(Qt.Key_Return);
+        compare(control.pendingAction, "suspend");
+        if (data.reopen) {
+            keyClick(Qt.Key_Home);
+            verify(!overlay.open);
+            overlay.openMenu();
+            // The opening settles its focus on the next event loop turn.
+            wait(50);
+            focused("sleepButton");
+        }
+        compare(child("restartDescription").text, "Available after the system answers");
+        compare(child("restartButton").opacity, 0.4);
+        keyClick(Qt.Key_Down);
+        focused("restartButton");
+        keyClick(Qt.Key_Return);
+        compare(overlay.menu.step, "menu");
+        keyClick(Qt.Key_Down);
+        focused("shutdownButton");
+        keyClick(Qt.Key_Return);
+        mouseClick(child("shutdownButton"));
+        compare(overlay.menu.step, "menu");
+        verify(!child("powerConfirm").visible);
+        keyClick(Qt.Key_Up);
+        keyClick(Qt.Key_Up);
+        focused("sleepButton");
+        keyClick(Qt.Key_Return);
+        compare(requestCalls(), ["request:suspend"]);
+        // The answer frees the rows again.
+        control.answer("inhibited");
+        tryCompare(child("powerError"), "visible", true);
+        keyClick(Qt.Key_Escape);
+        tryCompare(child("restartButton"), "opacity", 1);
+        keyClick(Qt.Key_Down);
+        keyClick(Qt.Key_Return);
+        compare(overlay.menu.step, "confirm");
+        compare(overlay.menu.pendingAction, "restart");
+    }
+
+    // A late refusal never takes focus behind a dialog drawn above the power
+    // overlay: it waits until the dialog closes, then appears.
+    function test_late_refusal_waits_for_the_launch_dialog() {
+        const launch = createTemporaryObject(launchFactory, suite);
+        overlay.holdLateAnswer = Qt.binding(() => launch.visible);
+        restartInFlight();
+        keyClick(Qt.Key_Home);
+        launch.failure = "failed";
+        verify(launch.visible);
+        tryCompare(findChild(launch, "launchRetry"), "activeFocus", true);
+        control.answer("timeout");
+        wait(100);
+        verify(!overlay.open);
+        verify(findChild(launch, "launchRetry").activeFocus);
+        verify(overlay.awaitingAnswer);
+        launch.failure = "";
+        verify(!launch.visible);
+        tryCompare(overlay, "open", true);
+        focused("powerError");
+        compare(child("powerError").description, "The system did not answer in time. Try again.");
+    }
+
+    // Back on a late refusal returns focus to the item the user was on.
+    function test_late_refusal_returns_focus_to_the_user() {
+        const beneath = createTemporaryObject(beneathFactory, suite);
+        restartInFlight();
+        keyClick(Qt.Key_Home);
+        beneath.forceActiveFocus();
+        verify(beneath.activeFocus);
+        control.answer("failed");
+        tryCompare(overlay, "open", true);
+        focused("powerError");
+        keyClick(Qt.Key_Escape);
+        verify(!overlay.open);
+        // Main calls this when the overlay closes.
+        verify(overlay.restoreLateFocus());
+        verify(beneath.activeFocus);
+        verify(!overlay.restoreLateFocus());
+    }
+
+    // Home on the late refusal goes Home; reopening the menu before the
+    // answer shows it there as usual.
+    function test_late_refusal_home_and_reopened_menu() {
+        restartInFlight();
+        keyClick(Qt.Key_Home);
+        control.answer("failed");
+        tryCompare(overlay, "open", true);
+        focused("powerError");
+        keyClick(Qt.Key_Home);
+        verify(!overlay.open);
+        compare(homeSpy.count, 2);
+
+        restartInFlight();
+        keyClick(Qt.Key_Home);
+        overlay.openMenu();
+        verify(!overlay.awaitingAnswer);
+        control.answer("denied");
+        tryCompare(child("powerError"), "visible", true);
+        keyClick(Qt.Key_Escape);
+        verify(overlay.open);
+        compare(control.refusal, "");
+    }
+
+    // A row reported unsupported after the menu opened gives up focus.
+    function test_focus_leaves_a_row_that_becomes_unsupported() {
+        openMenu();
+        focused("sleepButton");
+        control.suspend = "unsupported";
+        focused("restartButton");
+        keyClick(Qt.Key_Down);
+        focused("shutdownButton");
+    }
+
+    // Long lists never push the buttons off the canvas.
+    function test_long_lists_are_bounded() {
+        const many = [];
+        for (let i = 0; i < 12; ++i)
+            many.push({title: "Application " + i});
+        overlay.runningApplications = many;
+        const holders = [];
+        for (let i = 0; i < 16; ++i)
+            holders.push({what: "shutdown", who: "Holder " + i + " " + "x".repeat(120), why: "y".repeat(250)});
+        control.reboot = "inhibited";
+        control.inhibitors = holders;
+        openMenu();
+        keyClick(Qt.Key_Down);
+        keyClick(Qt.Key_Return);
+        focused("cancelButton");
+        const list = child("closingList");
+        verify(list.text.indexOf("and 8 more") >= 0, list.text);
+        compare(list.maximumLineCount, 3);
+        verify(child("confirmNote").text.length < 300, child("confirmNote").text.length);
+        verify(child("confirmNote").text.indexOf("and 13 more") >= 0);
+        const panel = child("powerPanel");
+        verify(panel.y >= 0 && panel.y + panel.height <= 1080, panel.y + " " + panel.height);
+        keyClick(Qt.Key_Right);
+        keyClick(Qt.Key_Return);
+        control.answer("inhibited");
+        tryCompare(child("powerError"), "visible", true);
+        verify(child("powerError").description.length < 300);
     }
 
     function test_accepted_back_returns_to_arinn() {

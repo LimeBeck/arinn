@@ -159,8 +159,7 @@ impl PowerState {
     /// inhibitors of a known lock, and `inhibited` only with an inhibitor
     /// that holds the action.
     pub fn validate(&self) -> Result<(), ErrorCode> {
-        let bounded =
-            |text: &str, max: usize| text.len() <= max && !text.chars().any(char::is_control);
+        let bounded = |text: &str, max: usize| text.len() <= max && !text.chars().any(breaks_line);
         let inhibitors_ok = self.inhibitors.len() <= MAX_INHIBITORS
             && self.inhibitors.iter().all(|i| {
                 i.lock() != Lock::Unknown
@@ -185,13 +184,20 @@ impl PowerState {
     }
 }
 
+/// A character that is not allowed in single-line text: a control character
+/// or a Unicode line or paragraph separator (U+2028, U+2029), which renderers
+/// break lines at although they are not control characters.
+fn breaks_line(c: char) -> bool {
+    c.is_control() || matches!(c, '\u{2028}' | '\u{2029}')
+}
+
 /// Producer helper: an inhibitor text as the contract allows it. Control
-/// characters become spaces, the ends are trimmed and the text is cut at a
+/// characters and line or paragraph separators become spaces, the ends are trimmed and the text is cut at a
 /// character boundary to `max` bytes.
 pub fn bounded_text(text: &str, max: usize) -> String {
     let clean: String = text
         .chars()
-        .map(|c| if c.is_control() { ' ' } else { c })
+        .map(|c| if breaks_line(c) { ' ' } else { c })
         .collect();
     let clean = clean.trim();
     let mut end = clean.len().min(max);
@@ -367,6 +373,11 @@ mod tests {
         let mut v = sample();
         v.inhibitors[0].why = "x".repeat(MAX_WHY_BYTES + 1);
         invalid.push(v);
+        for separator in ['\u{2028}', '\u{2029}'] {
+            let mut v = sample();
+            v.inhibitors[0].why = format!("two{separator}lines");
+            invalid.push(v);
+        }
         let mut v = sample();
         v.inhibitors = vec![inhibitor("sleep"); MAX_INHIBITORS + 1];
         invalid.push(v);
@@ -391,6 +402,8 @@ mod tests {
     #[test]
     fn inhibitor_text_is_bounded() {
         assert_eq!(bounded_text("  a\tb\nc  ", 64), "a b c");
+        // Unicode line and paragraph separators break lines too.
+        assert_eq!(bounded_text("a\u{2028}b\u{2029}c\u{85}d", 64), "a b c d");
         // Cut at a character boundary, never inside one.
         assert_eq!(bounded_text("ёёё", 3), "ё");
         assert_eq!(bounded_text(&"x".repeat(300), MAX_WHY_BYTES).len(), 256);

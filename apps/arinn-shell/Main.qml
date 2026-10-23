@@ -349,6 +349,14 @@ Window {
         });
     }
     LibraryCatalog { id: libraryCatalog; objectName: "libraryCatalog" }
+    // The Activity's last frame behind Home (§12.3, ADR-0087). Optional and
+    // asynchronous: Home and its focus never wait for it, and the shell's own
+    // session guard clears it before any daemon reply.
+    ActivityBackgroundSource {
+        id: activityBackground
+        objectName: "activityBackground"
+        blocked: sessionGuard.blocked
+    }
     SystemStatus {
         id: systemStatus
         objectName: "systemStatus"
@@ -495,6 +503,8 @@ Window {
             runningEntries: backend.items
             favoritesTitle: qsTr("Favorites")
             returnActivityId: backend.returnWindow
+            activitySource: backend.homeVisible ? activityBackground.source : ""
+            ambientSuppressed: activitySource.toString() !== ""
             // The shortcut editor's on-screen keyboard (KB-2, KB-3).
             shortcutAddressSuggestions: { browseCatalog.tabs; return browseCatalog.openServices(shortcutTypingText); }
             shortcutNameSuggestions: { browseCatalog.tabs; return browseCatalog.nameSuggestions(shortcutDraftUrl, shortcutTypingText); }
@@ -868,7 +878,9 @@ Window {
             runningApplications: backend.items
             registryKnown: backend.applicationsState === "ready" || backend.applicationsState === "empty"
             keysEnabled: root.visible && root.active && !sessionGuard.blocked && !ambientScreen.active
-            onClosed: Qt.callLater(root.restoreFocus)
+            // A late refusal never takes focus behind the launch dialog.
+            holdLateAnswer: launchOverlay.visible
+            onClosed: Qt.callLater(() => { if (!powerOverlay.restoreLateFocus()) root.restoreFocus(); })
             onHomeRequested: { root.closeOverlays(); Qt.callLater(home.showHome); }
             onAmbientRequested: root.startAmbient()
         }
@@ -882,6 +894,7 @@ Window {
             onActiveChanged: if (!active) root.finishAmbient()
         }
         Ui.LaunchOverlay {
+            id: launchOverlay
             anchors.fill: parent
             z: 20
             active: browserCatalog.opening

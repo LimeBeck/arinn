@@ -50,7 +50,7 @@ sees its refusal; the menu never guesses the outcome.
 | Accepted | A waiting pane: "Going to sleep…", "Restarting…" or "Shutting down…" with "Waiting for the system". This is not success, and no timer produces it or anything after it. Back returns to the screen beneath. |
 | Refused | An error pane titled for the action, with the reason for `inhibited` (the holders' *who (why)*), `denied`, `unsupported`, `unavailable`, `timeout` or `failed`. Back clears it and returns to the step that asked. |
 | Ambient | Unchanged: the full-screen ambient state with a consumed first wake event. The idle timer is [#307](https://github.com/LimeBeck/arinn/issues/307). |
-| Back, Home | Esc, Backspace and Back close the confirmation onto its opener and then the menu, one step per press: a held key's repeats are swallowed. Home closes the menu without any action and shows Home (§6.3). Each opening starts on the first row. |
+| Back, Home | Esc, Backspace and Back close the confirmation onto its opener and then the menu, one step per press: a held key's repeats are swallowed. Home closes the menu without any action and shows Home (§6.3). While a Sleep, Restart or Shut down request is in flight (at most 20 s, the shell's power timeout), Cancel is disabled and Back and Home are ignored until the system answers, so a sent request never looks cancelled; this is a deliberate exception to §6.3. Each opening starts on the first row. |
 
 **Closing list.** The confirmation names each running application from the
 live registry (`Backend.items`, the running entries of the application

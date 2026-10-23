@@ -227,11 +227,17 @@ private slots:
   }
 
   void aGetSpanningALockIsNeverRead() {
-    // The first Get is answered "ready" only after the session was locked
-    // and unlocked again; by then the daemon has invalidated the frame.
-    daemon->holdGets = true;
+    // Start idle and let the evidence complete, so the next ready snapshot
+    // would be admitted at once.
+    daemon->state = QStringLiteral("idle");
     ActivityBackgroundSource source;
     source.setBlocked(false);
+    QTest::qWait(1500);
+    // The Get for a new ready request is answered only after the session was
+    // locked and unlocked again; by then the daemon has invalidated it.
+    daemon->holdGets = true;
+    daemon->state = QStringLiteral("ready");
+    daemon->changed();
     QTRY_VERIFY_WITH_TIMEOUT(!daemon->heldGets.isEmpty(), 5000);
     source.setBlocked(true);
     source.setBlocked(false);

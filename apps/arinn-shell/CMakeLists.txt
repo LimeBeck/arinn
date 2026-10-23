@@ -100,7 +100,8 @@ foreach(target arinn-shell arinn-shell-test arinn-session-lifecycle-test)
 endforeach()
 
 set(ARINN_POWER_FILES ui/screens/power/qmldir ui/screens/power/PowerMenu.qml
-    ui/screens/power/PowerOverlay.qml)
+    ui/screens/power/PowerOverlay.qml ui/screens/power/AmbientScreen.qml
+    ui/screens/power/AmbientIdle.qml)
 foreach(target arinn-shell arinn-shell-test arinn-session-lifecycle-test)
     qt_add_resources(${target} power_screen PREFIX "/" FILES ${ARINN_POWER_FILES})
 endforeach()

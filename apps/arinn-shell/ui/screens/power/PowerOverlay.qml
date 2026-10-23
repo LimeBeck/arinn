@@ -21,8 +21,6 @@ FocusScope {
     property bool registryKnown: true
     // Volume and mute keys work only while the shell is on screen (OQ-04).
     property bool keysEnabled: false
-    property string clockText: ""
-    property string dateText: ""
     readonly property bool open: menuOpen
     property bool menuOpen: false
     // Home left the menu while a request was in flight (spec §6.3, owner
@@ -184,8 +182,6 @@ FocusScope {
         visible: root.menuOpen
         enabled: root.menuOpen
         focus: root.menuOpen
-        clockText: root.clockText
-        dateText: root.dateText
         closingApplications: root.runningApplications
         closingKnown: root.registryKnown
         sleepAvailability: root.control ? root.control.suspend : "unknown"

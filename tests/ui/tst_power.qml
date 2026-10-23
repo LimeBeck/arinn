@@ -16,16 +16,12 @@ TestCase {
     property var menu
     Component {
         id: factory
-        Power.PowerMenu {
-            clockText: "12:00"
-            dateText: "Monday"
-        }
+        Power.PowerMenu {}
     }
     SignalSpy { id: sleepSpy; signalName: "sleepRequested" }
     SignalSpy { id: restartSpy; signalName: "restartRequested" }
     SignalSpy { id: shutdownSpy; signalName: "shutdownRequested" }
     SignalSpy { id: ambientSpy; signalName: "ambientRequested" }
-    SignalSpy { id: wakeSpy; signalName: "wakeRequested" }
     SignalSpy { id: homeSpy; signalName: "homeRequested" }
 
     function child(name) {
@@ -46,7 +42,6 @@ TestCase {
         restartSpy.target = menu; restartSpy.clear();
         shutdownSpy.target = menu; shutdownSpy.clear();
         ambientSpy.target = menu; ambientSpy.clear();
-        wakeSpy.target = menu; wakeSpy.clear();
         homeSpy.target = menu; homeSpy.clear();
         focused("sleepButton");
     }
@@ -55,7 +50,6 @@ TestCase {
         restartSpy.target = null;
         shutdownSpy.target = null;
         ambientSpy.target = null;
-        wakeSpy.target = null;
         homeSpy.target = null;
         if (menu)
             menu.destroy();
@@ -171,44 +165,21 @@ TestCase {
         verify(findChild(menu, "powerSuccess") === null);
     }
 
-    function test_consumed_ambient_wake() {
+    // The Ambient row asks the shell for its ambient screen (#307); the menu
+    // itself shows nothing else and requests no power action.
+    function test_ambient_row_requests_ambient() {
         keyClick(Qt.Key_Down);
         keyClick(Qt.Key_Down);
         keyClick(Qt.Key_Down);
         focused("ambientButton");
         keyClick(Qt.Key_Return);
         compare(ambientSpy.count, 1);
-        compare(menu.step, "ambient");
-        verify(child("ambientScreen").visible);
-        tryCompare(menu, "ambientArmed", true);
-        compare(menu.step, "ambient");
-        keyClick(Qt.Key_Return);
-        compare(wakeSpy.count, 1);
-        compare(ambientSpy.count, 1);
         compare(sleepSpy.count, 0);
         compare(restartSpy.count, 0);
         compare(shutdownSpy.count, 0);
         compare(menu.step, "menu");
+        verify(findChild(menu, "ambientScreen") === null);
         focused("ambientButton");
-        keyClick(Qt.Key_Up);
-        focused("shutdownButton");
-
-        mouseMove(menu, 10, 10);
-        menu.startAmbient();
-        // The resting pointer is the wake anchor at once; waiting for a hover
-        // sample made the first real movement the anchor instead (flaky).
-        verify(menu.ambientAnchorKnown);
-        compare(ambientSpy.count, 2);
-        tryCompare(menu, "ambientArmed", true);
-        compare(menu.step, "ambient");
-        mouseMove(menu, 640, 360);
-        tryCompare(wakeSpy, "count", 2);
-        compare(menu.step, "menu");
-        compare(sleepSpy.count, 0);
-        compare(restartSpy.count, 0);
-        compare(shutdownSpy.count, 0);
-        compare(ambientSpy.count, 2);
-        focused("shutdownButton");
     }
 
     function test_focus_stays_in_power_scope() {

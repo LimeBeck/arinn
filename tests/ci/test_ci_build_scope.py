@@ -182,10 +182,6 @@ class ConcurrencyTest(unittest.TestCase):
         self.assertIn("github.ref == 'refs/heads/master' && github.sha", CI)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class ArtifactRetentionTest(unittest.TestCase):
     def test_package_artifacts_expire_after_a_week(self):
         # Every download of a package artifact happens in the same workflow
@@ -197,3 +193,6 @@ class ArtifactRetentionTest(unittest.TestCase):
             with self.subTest(block=block.splitlines()[0]):
                 self.assertIn("retention-days: 7\n", block)
 
+
+if __name__ == "__main__":
+    unittest.main()

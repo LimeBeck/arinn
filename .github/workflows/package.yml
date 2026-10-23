@@ -127,6 +127,9 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: arinn-arch-package
+          # Only jobs of the same run download it; a short retention keeps the
+          # repository's artifact storage quota free.
+          retention-days: 7
           path: |
             pkg/*.pkg.tar.zst
             pkg/*.tar.gz
@@ -216,6 +219,9 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: arinn-deb-package
+          # Only jobs of the same run download it; a short retention keeps the
+          # repository's artifact storage quota free.
+          retention-days: 7
           path: |
             packaging/debian/*.deb
             packaging/debian/private-systemd

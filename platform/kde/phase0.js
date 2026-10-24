@@ -123,16 +123,17 @@ function discover(owner) {
         publishReturn();
     });
 }
-// explicit: false for a state report, true for the Home key, or "quickMenu"
-// for the quick-menu key: the same state with its own presentation intent
-// (ADR-0106).
+// explicit: false for a state report, true for the Home key, "quickMenu"
+// for the quick-menu key or "power" for the power key: the same state with
+// its own presentation intent (ADR-0106, ADR-0111).
+const homeRequests = { quickMenu: "ReportQuickMenuRequest", power: "ReportPowerMenuRequest" };
 function reportHome(explicit, done) {
     const owner = daemonOwner, serial = ++homeSerial;
     homeAcknowledged = false;
     lastReturnReport = "";
     if (!owner) return;
     const args = explicit ? [target, homeOutput] : [homeVisible, target, homeOutput];
-    const method = explicit === "quickMenu" ? "ReportQuickMenuRequest" : explicit ? "ReportHomeRequest" : "ReportHome";
+    const method = homeRequests[explicit] || (explicit ? "ReportHomeRequest" : "ReportHome");
     callDBus(owner, path, service, method, ...args, () => {
         if (owner !== daemonOwner || serial !== homeSerial) return;
         homeAcknowledged = true;
@@ -167,9 +168,10 @@ function publishReturn() {
         if (revision !== inventoryRevision) publishReturn();
     });
 }
-// The Home key, a queued Home command, or (quickMenu) the quick-menu key,
-// which shows the shell exactly as Home does (ADR-0106).
-function showHome(quickMenu) {
+// The Home key, a queued Home command, or the quick-menu ("quickMenu") or
+// power ("power") key, which show the shell exactly as Home does (ADR-0106,
+// ADR-0111). A locked session shows nothing, for every key (spec §5.7).
+function showHome(request) {
     const owner = daemonOwner;
     if (!owner) return;
     // Do not surface over a locked session. ScreenSaver owns lock state.
@@ -187,7 +189,7 @@ function showHome(quickMenu) {
         homeVisible = true;
         // Pin a transient request to its daemon owner; reconnect only restores
         // state through ReportHome and must never replay presentation intent.
-        reportHome(quickMenu === true ? "quickMenu" : true, raiseShell);
+        reportHome(homeRequests[request] ? request : true, raiseShell);
     });
 }
 // Give the Activity the screen before the shell stops covering it. Clearing
@@ -292,7 +294,7 @@ function checkDaemon() {
 }
 registerShortcut("ArinnPhase0Home", "Arinn Phase 0: Home", "Meta+F12", () => showHome(false));
 // The daemon writes quick_menu_shortcut to this action (ADR-0106).
-registerShortcut("ArinnQuickMenu", "Arinn: Quick menu", "Meta+F11", () => showHome(true));
+registerShortcut("ArinnQuickMenu", "Arinn: Quick menu", "Meta+F11", () => showHome("quickMenu"));
 // The global on-screen keyboard key (ADR-0105); the daemon writes
 // keyboard_shortcut and the remapped microphone (Launch1) to this action.
 // It asks the daemon for a session only over an unlocked application
@@ -307,6 +309,9 @@ function requestKeyboard() {
     });
 }
 registerShortcut("ArinnKeyboard", "Arinn: On-screen keyboard", "Meta+F10", requestKeyboard);
+// The remote's power key (spec §5.7, ADR-0111). No default key: the daemon
+// takes the power keys from PowerDevil for this session and writes them here.
+registerShortcut("ArinnPower", "Arinn: Power menu", "", () => showHome("power"));
 // The panel lies along the bottom edge of the output it opens on, at its
 // own height; the window rule keeps it above and unfocusable.
 function placePanel(w) {

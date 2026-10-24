@@ -48,7 +48,7 @@ function fixture(options = {}) {
     let deferLock = false, deferHome = false;
     const homeReplies = [], commitReplies = [], returnReports = [], discoveryReplies = [];
     const acknowledgeHome = callback => { if (deferHome) homeReplies.push(callback); else callback(); };
-    const lockReplies = [], homeRequests = [], quickMenuRequests = [];
+    const lockReplies = [], homeRequests = [], quickMenuRequests = [], powerMenuRequests = [];
     const snapshots = [], acknowledgements = [], controls = [];
     let owner = ":1.10"; const polls = [], pollTargets = [], lost = [];
     let daemon = 'serving';
@@ -136,6 +136,11 @@ function fixture(options = {}) {
                 report = [true, ...args.slice(0, 2)];
                 acknowledgeHome(args[2]);
             }
+            if (method === 'ReportPowerMenuRequest') {
+                powerMenuRequests.push({ owner: _service, args: args.slice(0, 2) });
+                report = [true, ...args.slice(0, 2)];
+                acknowledgeHome(args[2]);
+            }
         } });
     vm.runInContext(fs.readFileSync(path.join(__dirname, '../../platform/kde/phase0.js'), 'utf8'), context);
     return { activity, home, workspace, window, polls, snapshots, acknowledgements, controls, trace, mediaReports, mediaAcks, printed, channels, mediaPolls, mediaControls,
@@ -152,7 +157,8 @@ function fixture(options = {}) {
         show: () => handlers.ArinnPhase0Home(), back: () => takeCommand('return'),
         quickMenu: () => handlers.ArinnQuickMenu(),
         keyboard: () => handlers.ArinnKeyboard(), keyboardRequests,
-        shortcuts, homeRequests, quickMenuRequests, lockReplies, returnReports, homeReplies, commitReplies, discoveryReplies,
+        power: () => handlers.ArinnPower(),
+        shortcuts, homeRequests, quickMenuRequests, powerMenuRequests, lockReplies, returnReports, homeReplies, commitReplies, discoveryReplies,
         deferHome() { deferHome = true; },
         deferLock() { deferLock = true; },
         daemonHome: () => takeCommand('home'),
@@ -218,6 +224,47 @@ test('ADR-0106: the quick-menu key shows the shell like Home with its own reques
     assert.deepEqual(f.quickMenuRequests.at(-1), { owner: ':1.20', args: ['original-id', 'second-screen'] });
 });
 
+test('ADR-0111: the power key shows the shell like Home with its own request', () => {
+    const f = fixture();
+    // The daemon writes the power keys; the script registers none itself.
+    assert.deepEqual(f.shortcuts.find(s => s.id === 'ArinnPower'), { id: 'ArinnPower', keys: '' });
+    f.power();
+    f.power();
+    assert.deepEqual(f.powerMenuRequests, Array.from({ length: 2 }, () => ({
+        owner: ':1.10', args: ['original-id', 'second-screen'],
+    })));
+    assert.equal(f.homeRequests.length, 0, 'the power key is not a Home request');
+    assert.equal(f.quickMenuRequests.length, 0, 'nor a quick-menu request');
+    assert.deepEqual(f.report(), [true, 'original-id', 'second-screen']);
+    assert.equal(f.workspace.activeWindow, f.home);
+    assert.equal(f.home.keepAbove, true);
+    // The quick menu and Home over the power menu keep the same Return target.
+    f.quickMenu();
+    f.show();
+    assert.deepEqual(f.quickMenuRequests, [{ owner: ':1.10', args: ['original-id', 'second-screen'] }]);
+    assert.deepEqual(f.homeRequests, [{ owner: ':1.10', args: ['original-id', 'second-screen'] }]);
+    assert.equal(f.powerMenuRequests.length, 2);
+    // Back from Home returns to the same Activity.
+    f.back();
+    assert.equal(f.workspace.activeWindow, f.activity);
+    assert.equal(f.home.keepAbove, false);
+    // Spec §5.7: on a locked session the key opens nothing.
+    f.lock(true);
+    f.power();
+    assert.equal(f.powerMenuRequests.length, 2);
+    assert.equal(f.workspace.activeWindow, f.activity);
+    assert.equal(f.home.keepAbove, false);
+    f.lock(false);
+    // Not without a daemon, and reconnect never replays it.
+    f.reconnect('');
+    f.power();
+    assert.equal(f.powerMenuRequests.length, 2);
+    f.reconnect(':1.20');
+    assert.equal(f.powerMenuRequests.length, 2);
+    f.power();
+    assert.deepEqual(f.powerMenuRequests.at(-1), { owner: ':1.20', args: ['original-id', 'second-screen'] });
+});
+
 test('Home requests are not replayed after lock checks or queued commands outlive the owner', () => {
     const f = fixture();
     f.lock(true);
@@ -242,7 +289,7 @@ test('an external window keeps Back until Home opens the overlay on that window'
     const f = fixture();
     assert.deepEqual(f.shortcuts, [{ id: 'ArinnPhase0Home', keys: 'Meta+F12' },
         { id: 'ArinnQuickMenu', keys: 'Meta+F11' },
-        { id: 'ArinnKeyboard', keys: 'Meta+F10' }]);
+        { id: 'ArinnKeyboard', keys: 'Meta+F10' }, { id: 'ArinnPower', keys: '' }]);
     assert.equal(f.workspace.activeWindow, f.activity);
     assert.deepEqual(f.report(), [false, '', '']);
     f.back();

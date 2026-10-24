@@ -41,6 +41,11 @@ pub struct Snapshot {
     /// The latest global key since the last snapshot was the quick menu
     /// (ADR-0106).
     pub quick_menu_key: bool,
+    /// The latest global key since the last snapshot was the power key
+    /// (ADR-0111).
+    pub power_key: bool,
+    /// The power key is grabbed, so logind must leave it alone (ADR-0111).
+    pub power_grabbed: bool,
     pub compositor: bool,
 }
 #[derive(Default)]
@@ -361,8 +366,12 @@ pub struct Native {
     /// Quick-menu sequences: `quick_menu_shortcut` (ADR-0106).
     quick_menu: key_sequence::QuickMenu,
     /// Grabbed quick-menu (modifier mask, keycode) pairs; any other grabbed
-    /// press is Home.
+    /// press is Home unless it is a power key.
     quick_menu_grabs: HashSet<(u16, Keycode)>,
+    /// The power keys (`key_sequence::power`, ADR-0111); not configurable.
+    power: Vec<Sequence>,
+    /// Grabbed power-key (modifier mask, keycode) pairs.
+    power_grabs: HashSet<(u16, Keycode)>,
     /// The shell has focus: the remote's Menu keys are left to it.
     shell_focused: bool,
 }
@@ -414,6 +423,8 @@ impl Native {
             home,
             quick_menu,
             quick_menu_grabs: HashSet::new(),
+            power: key_sequence::power(),
+            power_grabs: HashSet::new(),
             shell_focused: false,
         };
         s.wm = s.wm_owner()?;
@@ -588,6 +599,17 @@ impl Native {
         // never stops the adapter (ADR-0106).
         self.quick_menu_grabs =
             grab_sequences(&self.c, self.root, &map, &quick_menu, "quick-menu")?;
+        // The power keys come last, also while the shell has focus; Home
+        // and the quick menu keep a key they name. A power key another
+        // client holds (xfce4-power-manager) stays that client's and never
+        // stops the adapter (ADR-0111).
+        let power: Vec<Sequence> = self
+            .power
+            .iter()
+            .copied()
+            .filter(|key| !self.home.contains(key) && !quick_menu.contains(key))
+            .collect();
+        self.power_grabs = grab_sequences(&self.c, self.root, &map, &power, "power")?;
         ensure!(!home.is_empty(), "Home key unavailable");
         self.c.flush()?;
         Ok(())
@@ -597,6 +619,7 @@ impl Native {
         self.c.get_input_focus()?.reply()?;
         let mut home_key = false;
         let mut quick_menu_key = false;
+        let mut power_key = false;
         while let Some(event) = self.c.poll_for_event()? {
             match event {
                 Event::DestroyNotify(e) => {
@@ -608,7 +631,8 @@ impl Native {
                 Event::KeyPress(e) => {
                     let pressed = (u16::from(e.state) & 0xff, e.detail);
                     quick_menu_key = self.quick_menu_grabs.contains(&pressed);
-                    home_key = !quick_menu_key;
+                    power_key = self.power_grabs.contains(&pressed);
+                    home_key = !quick_menu_key && !power_key;
                 }
                 Event::MappingNotify(_) => self.grab_home()?,
                 _ => (),
@@ -715,6 +739,8 @@ impl Native {
             active,
             home_key,
             quick_menu_key,
+            power_key,
+            power_grabbed: !self.power_grabs.is_empty(),
             compositor: self.c.get_selection_owner(self.compositor)?.reply()?.owner != 0,
         })
     }
@@ -1207,6 +1233,90 @@ pub(crate) mod fixture {
         desktop.home_key()?;
         assert!(native.snapshot()?.home_key);
         drop(other);
+        Ok(())
+    }
+    /// ADR-0111: XF86PowerOff is grabbed next to the Home and quick-menu
+    /// keys and reported as its own key, also while the shell has focus.
+    #[test]
+    #[ignore = "requires Xvfb; spawns an isolated X server, never uses the real DISPLAY"]
+    fn power_key_is_reported_apart_from_home_and_the_quick_menu() -> Result<()> {
+        let desktop = Desktop::new()?;
+        let shell = desktop.client("org.arinn.Shell", "")?;
+        let video = desktop.client("org.example.Player.desktop", "")?;
+        desktop.inventory(&[shell, video], video)?;
+        let home = crate::key_sequence::home("Meta+F12").0;
+        let quick_menu = crate::key_sequence::quick_menu("Ctrl+Alt+Q", &home).0;
+        let mut native = Native::connect_display_with(Some(&desktop.display), home, quick_menu)?;
+        assert!(native.snapshot()?.power_grabbed);
+        desktop.press(&[], 0x1008_ff2a)?; // XF86PowerOff
+        let snapshot = native.snapshot()?;
+        assert!(snapshot.power_key && !snapshot.home_key && !snapshot.quick_menu_key);
+        desktop.home_key()?;
+        let snapshot = native.snapshot()?;
+        assert!(snapshot.home_key && !snapshot.power_key);
+        desktop.press(&[0xffe3, 0xffe9], u32::from(b'q'))?;
+        let snapshot = native.snapshot()?;
+        assert!(snapshot.quick_menu_key && !snapshot.power_key);
+        // The latest press wins.
+        desktop.home_key()?;
+        desktop.press(&[], 0x1008_ff2a)?;
+        let snapshot = native.snapshot()?;
+        assert!(snapshot.power_key && !snapshot.home_key);
+        // Unlike Menu, the shell's focus keeps the power key grabbed.
+        desktop.inventory(&[shell, video], shell)?;
+        native.snapshot()?;
+        desktop.press(&[], 0x1008_ff2a)?;
+        assert!(native.snapshot()?.power_key);
+        // The grab survives a mapping change.
+        let mapping = desktop.c.get_modifier_mapping()?.reply()?.keycodes;
+        assert_eq!(
+            desktop.c.set_modifier_mapping(&mapping)?.reply()?.status,
+            x11rb::protocol::xproto::MappingStatus::SUCCESS
+        );
+        native.snapshot()?;
+        desktop.press(&[], 0x1008_ff2a)?;
+        let snapshot = native.snapshot()?;
+        assert!(snapshot.power_key && snapshot.power_grabbed);
+        Ok(())
+    }
+    /// ADR-0111: a power key another client holds (xfce4-power-manager)
+    /// stays that client's; Arinn changes no desktop setting, does not
+    /// report the key as grabbed, and Home still works.
+    #[test]
+    #[ignore = "requires Xvfb; spawns an isolated X server, never uses the real DISPLAY"]
+    fn held_power_key_stays_with_the_desktop() -> Result<()> {
+        let desktop = Desktop::new()?;
+        let setup = desktop.c.setup();
+        let mapping = desktop
+            .c
+            .get_keyboard_mapping(setup.min_keycode, setup.max_keycode - setup.min_keycode + 1)?
+            .reply()?;
+        let power = mapping
+            .keysyms
+            .chunks(usize::from(mapping.keysyms_per_keycode))
+            .position(|syms| syms.contains(&0x1008_ff2a))
+            .map(|i| setup.min_keycode + i as u8)
+            .unwrap();
+        // The power manager grabs the key without modifiers, as xfpm does.
+        desktop
+            .c
+            .grab_key(
+                false,
+                desktop.root,
+                ModMask::from(0u16),
+                power,
+                GrabMode::ASYNC,
+                GrabMode::ASYNC,
+            )?
+            .check()?;
+        desktop.c.flush()?;
+        let mut native = Native::connect_display(Some(&desktop.display))?;
+        let snapshot = native.snapshot()?;
+        assert!(!snapshot.power_grabbed);
+        desktop.press(&[], 0x1008_ff2a)?;
+        assert!(!native.snapshot()?.power_key);
+        desktop.home_key()?;
+        assert!(native.snapshot()?.home_key);
         Ok(())
     }
     #[test]

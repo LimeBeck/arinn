@@ -169,6 +169,7 @@ assert unit("arinn-ewmh.service")["Unit"]["PartOf"] == ["graphical-session.targe
 assert unit("arinnd.service")["Service"]["BusName"] == ["org.arinn.Daemon1"]
 # The desktop gets the power key back whenever the daemon stops (ADR-0111).
 assert unit("arinnd.service")["Service"]["ExecStopPost"] == ["-/usr/bin/arinnd --release-power-key"]
+assert unit("arinn-ewmh.service")["Service"]["ExecStopPost"] == ["-/usr/bin/arinn-platform-x11 --release-power-key"]
 assert unit("arinn-shell.service")["Service"]["BusName"] == ["org.arinn.Shell1"]
 assert "arinnd.service" in unit("arinn-shell.service")["Unit"]["After"][0].split()
 # A shell that finds its name taken exits with 2; systemd must not restart it

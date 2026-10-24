@@ -53,10 +53,10 @@ Constraints:
 
 - **`keyboard_shortcut`** in `config.toml` uses the syntax and the parser of `home_shortcut` (ADR-0094, `platform/key_sequence.rs`). Its proposed default is **`Meta+F10`**:
   - Meta+F12 is Home;
-  - Meta+F11 is proposed for the quick menu (ADR-0106);
+  - Meta+F11 is the quick menu (ADR-0106);
   - Plasma has no default binding on Meta+F10.
 - **The microphone.** Each adapter also binds **Launch1** (Qt `Key_Launch1`, X11 `XF86Launch1`) as the microphone button, as HomePage is bound for Home.
-- **Conflicts.** An invalid value falls back to the default with one warning. A keyboard key that is also a Home key is left out, and the conflict is logged. An edited value applies when the daemon (KDE) or the X11 adapter restarts, as for Home.
+- **Conflicts.** An invalid value falls back to the default with one warning. A keyboard key that is also a Home key or a quick-menu key (ADR-0106, including the remote's Menu keys) is left out, and the conflict is logged: Home and the quick menu win a shared key. An edited value applies when the daemon (KDE) or the X11 adapter restarts, as for Home.
 - **The microphone remap.** The package installs `/usr/lib/udev/hwdb.d/70-arinn-remote.hwdb`:
 
   ```
@@ -156,7 +156,7 @@ The shell shows the panel in an **override-redirect** window with `WM_HINTS inpu
 
 ### KDE Plasma 6/Wayland delivery
 
-- **The key.** The KWin script registers the action `ArinnKeyboard` ("Arinn: On-screen keyboard"). The daemon writes the keyboard keys to it through KGlobalAccel when the adapter connects, with the conflict checks of ADR-0094.
+- **The key.** The KWin script registers the action `ArinnKeyboard` ("Arinn: On-screen keyboard"). The daemon writes the keyboard keys to it through KGlobalAccel when the adapter connects, after Home and the quick menu, with the conflict checks of ADR-0094 and ADR-0106.
   - The callback requires an explicit unlocked ScreenSaver reply.
   - It also requires an active normal application window that is neither the shell nor the panel, and Home must be hidden.
   - Then it calls `Request()`.

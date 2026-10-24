@@ -130,7 +130,9 @@ tile again shows it again. A failed launch shows the error dialog with Retry.
 Known limitation: a game entry that hands off to a client that is already running
 elsewhere (for example a `steam steam://rungameid/…` entry while Steam runs)
 ends its own unit at once. If no window of that entry exists yet, the launch
-fails, although the client may still start the game.
+fails, although the client may still start the game. The owner kept this as a
+known limitation on 2026-10-24; §6.5 is unchanged, and a fix is tracked in
+[#508](https://github.com/LimeBeck/arinn/issues/508).
 
 The transient-unit reference mechanism is also used by
 [systemd-run](https://github.com/systemd/systemd/blob/main/src/run/run.c).

@@ -97,7 +97,13 @@ same output (`x11-screen`) as a Home request, so it arms the Activity background
 For a quick-menu press the adapter raises and activates the shell only after that
 request is published, so the shell never has focus before the request; a
 quick-menu key that cannot be grabbed is skipped without stopping the backend
-([ADR-0106](../adr/0106-quick-menu-presentation.md)). Home snapshots the exact opaque target
+([ADR-0106](../adr/0106-quick-menu-presentation.md)). The power keys
+(`XF86PowerOff`, and `XF86PowerDown` where mapped) are grabbed after them, also
+while the shell is active, and a press is reported with `ReportPowerMenuRequest`
+after the same unlocked check and Home state; the shell is raised at once, as for
+Home. A power key another client holds (xfce4-power-manager) is skipped and logged
+and stays that client's. While a power key is grabbed the adapter holds logind's
+`handle-power-key` inhibitor ([ADR-0111](../adr/0111-power-key.md)). Home snapshots the exact opaque target
 and keeps it across repeated Home presses. Return validates that token in the
 current inventory before dispatch. The shell receives all-desktops, fullscreen/above and
 activation EWMH messages; ordinary activation and close also use EWMH messages.

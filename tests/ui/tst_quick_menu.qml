@@ -153,6 +153,10 @@ TestCase {
     function test_media_without_play_pause_or_session() {
         menu.nowPlaying = {id: "radio", title: "Radio", state: "playing", playPause: false};
         verify(!child("quickMenuMedia").enabled);
+        compare(child("quickMenuMediaDescription").text, "Cannot be paused from Arinn");
+        menu.nowPlaying = {id: "radio", title: "Radio", state: "paused", playPause: false};
+        verify(!child("quickMenuMedia").enabled);
+        compare(child("quickMenuMediaDescription").text, "Cannot be resumed from Arinn");
         menu.nowPlaying = null;
         compare(child("quickMenuMediaLabel").text, "Nothing is playing");
         menu.start();

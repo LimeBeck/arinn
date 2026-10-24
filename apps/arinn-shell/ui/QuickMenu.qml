@@ -263,7 +263,8 @@ FocusScope {
                 glyph: root.playing ? "pause" : "play"
                 text: root.mediaAvailable ? (root.nowPlaying.title || qsTr("Untitled")) : qsTr("Nothing is playing")
                 description: !root.mediaAvailable ? (root.connected ? qsTr("Now playing") : qsTr("Not available"))
-                    : !root.nowPlaying.playPause ? qsTr("Cannot be paused from Arinn")
+                    : !root.nowPlaying.playPause ? (root.playing ? qsTr("Cannot be paused from Arinn")
+                                                                 : qsTr("Cannot be resumed from Arinn"))
                     : root.playing ? qsTr("Playing · OK pauses") : qsTr("Paused · OK plays")
                 enabled: root.mediaAvailable && !!root.nowPlaying.playPause
                 onActivated: root.playPauseRequested(root.nowPlaying.id)

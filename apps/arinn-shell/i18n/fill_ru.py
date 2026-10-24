@@ -373,6 +373,7 @@ RU = {
     "Nothing is playing": "Ничего не воспроизводится",
     "Not available": "Недоступно",
     "Cannot be paused from Arinn": "Arinn не может поставить на паузу",
+    "Cannot be resumed from Arinn": "Arinn не может продолжить воспроизведение",
     "Playing · OK pauses": "Воспроизводится · OK — пауза",
     "Paused · OK plays": "На паузе · OK — воспроизвести",
     "Sound on · %1%": "Звук включён · %1%",

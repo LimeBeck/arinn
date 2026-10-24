@@ -15,7 +15,12 @@ only while another window has focus. Inside the shell Menu keeps its meaning
 `quick_menu_shortcut` that is itself Menu or MenuKB stays bound everywhere, as
 ADR-0106 says for the configured key. That key then never reaches the shell, so
 it no longer toggles global navigation or opens the tile action sheet there; it
-opens the quick menu instead. That is the user's explicit choice.
+opens the quick menu instead. That is the user's explicit choice. Home wins a
+key both want. On KDE, KGlobalAccel keeps each action's stored keys (the KWin
+script registers the quick menu with Meta+F11), so the daemon first removes
+Home's configured keys from the quick-menu action, then writes Home, then the
+quick menu without Home's keys (`global_home::write_all`). A key that a
+third-party action holds stays a conflict for both.
 
 **Over an Activity or over the shell.** The sheet is over the shell only when
 the shell was on screen and had focus when the request arrived; otherwise, and
@@ -80,7 +85,7 @@ sheet follows the tile action sheet (handoff `cl-1`) and the power menu rows:
 
 | Row | Source | OK | Unavailable when |
 | --- | --- | --- | --- |
-| Now playing | `MediaCatalog` Continue entries: the playing session, else a paused one | play/pause to that session | no session, no daemon, or the session lacks the action its state needs (the toggle, Pause while playing, Play while paused): it says "Cannot be paused from Arinn" |
+| Now playing | `MediaCatalog` Continue entries: the playing session, else a paused one | play/pause to that session | no session, no daemon, or the session lacks the action its state needs (the toggle, Pause while playing, Play while paused): it says "Cannot be paused from Arinn", or "Cannot be resumed from Arinn" while paused |
 | Sound | `SystemControl1` level and mute (read when the sheet opens, and after each change); `SystemStatus1` mute state until then | toggle mute; Left steps down, Right turns the sound on and steps up | no daemon |
 | Network | `SystemStatus1`: Wi-Fi with its level, cable, other, not connected, unknown | — (not focusable) | — |
 | Sleep | power scope | power menu with the suspend request sent | no daemon |
@@ -141,6 +146,9 @@ the sheet. The ⏻ exception of §5.7 does not apply to it.
   without the daemon, and the session lock.
 - `arinn-platform-x11` `quick_menu_raises_the_shell_only_after_its_request`
   (Xvfb).
-- `key_sequence` `a_configured_menu_key_stays_bound_inside_the_shell`.
+- `key_sequence` `a_configured_menu_key_stays_bound_inside_the_shell`;
+  `global_home` `home_wins_a_key_the_quick_menu_action_still_holds`,
+  `swapped_home_and_quick_menu_keys_follow_the_configuration` and
+  `a_third_party_key_is_still_a_conflict`.
 - Not tested: real KDE and X11 sessions with the remote, and a visual
   comparison (no handoff yet).

@@ -1404,6 +1404,10 @@
         <translation>Arinn не может поставить на паузу</translation>
     </message>
     <message>
+        <source>Cannot be resumed from Arinn</source>
+        <translation>Arinn не может продолжить воспроизведение</translation>
+    </message>
+    <message>
         <source>Playing · OK pauses</source>
         <translation>Воспроизводится · OK — пауза</translation>
     </message>

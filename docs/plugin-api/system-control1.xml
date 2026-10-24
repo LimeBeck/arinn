@@ -22,5 +22,9 @@ SPDX-License-Identifier: MIT OR Apache-2.0 -->
       <arg name="steps" type="i" direction="in" />
       <arg type="(su)" direction="out" />
     </method>
+    <method name="GetSessionSwitch">
+      <arg type="s" direction="out" />
+    </method>
+    <method name="SwitchToDesktop" />
   </interface>
 </node>

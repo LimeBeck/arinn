@@ -22,6 +22,15 @@ use zbus::Connection;
 const READ_TIMEOUT: Duration = Duration::from_secs(2);
 /// A power request: logind asks polkit before it answers.
 const ACTION_TIMEOUT: Duration = Duration::from_secs(10);
+/// The dedicated-session switch helper (#438, ADR-0107).
+pub const SESSION_SWITCH: &str = "/usr/lib/arinn/arinn-session-switch";
+/// The helper writes one file and asks the desktop to log out, bounding
+/// that call to 5 s itself so it always gets to restore the previous choice.
+/// This limit is only the backstop, and it stays well below the shell's 20 s
+/// wait for a power reply.
+const SWITCH_TIMEOUT: Duration = Duration::from_secs(10);
+/// Helper exit statuses (`packaging/bin/arinn-session-switch`).
+const SWITCH_REFUSED: i32 = 1;
 
 #[zbus::proxy(
     interface = "org.freedesktop.login1.Manager",
@@ -143,18 +152,129 @@ pub fn bounded_inhibitors(inhibitors: Vec<Inhibitor>) -> Vec<Inhibitor> {
     kept
 }
 
+/// The desktop of the dedicated Arinn login session, from the
+/// `ARINN_SESSION_ENTRY` its session wrapper exports; `None` for any other
+/// value, including an ordinary desktop session.
+pub fn session_entry(value: Option<&str>) -> Option<String> {
+    match value {
+        Some(entry @ ("plasma" | "xfce")) => Some(entry.to_owned()),
+        _ => None,
+    }
+}
+
+/// "Switch to desktop" of the dedicated Arinn session.
+#[derive(Debug, Clone)]
+pub struct SessionSwitch {
+    /// See [`session_entry`].
+    pub entry: Option<String>,
+    pub helper: PathBuf,
+}
+impl SessionSwitch {
+    /// No dedicated session: the action is unsupported.
+    pub fn none() -> Self {
+        Self {
+            entry: None,
+            helper: PathBuf::from(SESSION_SWITCH),
+        }
+    }
+}
+
+/// The switch helper as the leader of its own process group. Killing the
+/// group ends everything it started, such as a pending logout call, so a
+/// `Timeout` reply or a dropped request leaves no logout request behind.
+struct Group(tokio::process::Child);
+impl Group {
+    fn kill(&mut self) {
+        // `id` is `None` once the leader has been reaped; until then its pid
+        // names this group and cannot have been reused.
+        if let Some(pid) = self.0.id() {
+            // SAFETY: plain syscall on our own child's process group.
+            let _ = unsafe { libc::killpg(pid as libc::pid_t, libc::SIGKILL) };
+        }
+    }
+}
+impl Drop for Group {
+    fn drop(&mut self) {
+        self.kill();
+    }
+}
+
 /// Where the platform services are.
 #[derive(Debug, Clone)]
 pub struct Control {
     /// System bus address; `None` is the default system bus.
     pub system_bus: Option<String>,
     pub pactl: PathBuf,
+    pub session: SessionSwitch,
 }
 impl Control {
     pub fn system() -> Self {
         Self {
             system_bus: None,
             pactl: PathBuf::from("pactl"),
+            session: SessionSwitch {
+                entry: session_entry(std::env::var("ARINN_SESSION_ENTRY").ok().as_deref()),
+                helper: PathBuf::from(SESSION_SWITCH),
+            },
+        }
+    }
+
+    /// `Available` inside the dedicated Arinn session with the helper
+    /// installed, `Unsupported` otherwise.
+    pub async fn session_switch(&self) -> Availability {
+        use std::os::unix::fs::PermissionsExt;
+        let installed = tokio::fs::metadata(&self.session.helper)
+            .await
+            .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0);
+        if self.session.entry.is_some() && installed {
+            Availability::Available
+        } else {
+            Availability::Unsupported
+        }
+    }
+
+    /// Ends the dedicated session; the next login starts the plain desktop.
+    /// `Ok` means the desktop accepted the logout request. The helper takes
+    /// fixed arguments only and restores the user's previous choice when the
+    /// desktop refuses or does not answer (`Unavailable`).
+    pub async fn switch_to_desktop(&self) -> Result<(), ErrorCode> {
+        // Never run what the read would not offer.
+        let (Some(entry), Availability::Available) =
+            (&self.session.entry, self.session_switch().await)
+        else {
+            return Err(ErrorCode::Unsupported);
+        };
+        let child = Command::new(&self.session.helper)
+            .arg("desktop")
+            .env("ARINN_SESSION_ENTRY", entry)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            // The helper's own message is not a daemon log line (§13).
+            .stderr(Stdio::null())
+            // Its own group, so a timeout ends the logout call it started too.
+            .process_group(0)
+            .kill_on_drop(true)
+            .spawn();
+        let mut group = match child {
+            Ok(child) => Group(child),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Err(ErrorCode::Unsupported);
+            }
+            Err(_) => return Err(ErrorCode::Internal),
+        };
+        match tokio::time::timeout(SWITCH_TIMEOUT, group.0.wait()).await {
+            Err(_) => {
+                group.kill();
+                let _ = group.0.wait().await;
+                Err(ErrorCode::Timeout)
+            }
+            Ok(Err(_)) => Err(ErrorCode::Internal),
+            Ok(Ok(status)) if status.success() => Ok(()),
+            // No supported desktop to log out of, or the desktop refused or
+            // did not answer; the helper restored the previous choice.
+            Ok(Ok(status)) if status.code() == Some(SWITCH_REFUSED) => Err(ErrorCode::Unavailable),
+            // The choice could not be recorded (3), bad usage (2), a signal.
+            Ok(Ok(_)) => Err(ErrorCode::Internal),
         }
     }
 

@@ -269,6 +269,18 @@ pub fn stepped_level(current: u32, steps: i32) -> u32 {
     }
 }
 
+/// Whether "Switch to desktop" can be requested ([#438]): `available` only
+/// inside the dedicated Arinn login session, `unsupported` elsewhere. A
+/// reader treats any other value as `unknown`, which it does not offer.
+///
+/// [#438]: https://github.com/LimeBeck/arinn/issues/438
+pub fn session_switch(value: &str) -> Availability {
+    match Availability::parse(value) {
+        availability @ (Availability::Available | Availability::Unsupported) => availability,
+        _ => Availability::Unknown,
+    }
+}
+
 #[zbus::proxy(
     interface = "org.arinn.SystemControl1",
     default_service = "org.arinn.Daemon1",
@@ -283,6 +295,8 @@ pub trait SystemControlApi {
     fn set_muted(&self, muted: bool) -> zbus::Result<(Volume,)>;
     fn toggle_muted(&self) -> zbus::Result<(Volume,)>;
     fn step_volume(&self, steps: i32) -> zbus::Result<(Volume,)>;
+    fn get_session_switch(&self) -> zbus::Result<String>;
+    fn switch_to_desktop(&self) -> zbus::Result<()>;
 }
 
 #[cfg(test)]
@@ -396,6 +410,15 @@ mod tests {
                 level,
             };
             assert_eq!(volume.validate().is_ok(), ok, "{volume:?}");
+        }
+    }
+
+    #[test]
+    fn session_switch_has_two_producer_values() {
+        assert_eq!(session_switch("available"), Availability::Available);
+        assert_eq!(session_switch("unsupported"), Availability::Unsupported);
+        for value in ["inhibited", "denied", "unknown", "Available", ""] {
+            assert_eq!(session_switch(value), Availability::Unknown, "{value}");
         }
     }
 

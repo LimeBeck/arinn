@@ -43,7 +43,14 @@ case "$*" in
 *"status org.xfce.SessionManager"*)
     n=$(cat "$FAKE_ROOT/ready"); n=$((n + 1)); echo $n > "$FAKE_ROOT/ready"
     [ "$n" -gt "${FAKE_READY_AFTER:-0}" ]; exit $? ;;
-*" call "*) exit "${FAKE_CALL_RC:-0}" ;;
+*" call "*)
+    # A desktop that never answers: only a bounded call returns, failed, as
+    # busctl does when its --timeout expires.
+    if [ -n "${FAKE_CALL_HANG:-}" ]; then
+        case "$*" in *--timeout=*) exit 1 ;; esac
+        exec sleep 60
+    fi
+    exit "${FAKE_CALL_RC:-0}" ;;
 esac
 exit 9
 """
@@ -343,7 +350,8 @@ class SessionSwitch(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(fixture.mode_file.read_text(), "desktop\n")
         self.assertEqual(fixture.calls(),
-                         ["busctl --user call org.kde.Shutdown /Shutdown org.kde.Shutdown logout"])
+                         ["busctl --user --timeout=5 call org.kde.Shutdown /Shutdown "
+                          "org.kde.Shutdown logout"])
         self.assertEqual(stat.S_IMODE(fixture.mode_file.stat().st_mode), 0o600)
         self.assertEqual(stat.S_IMODE(fixture.mode_file.parent.stat().st_mode), 0o700)
         self.assertEqual(sorted(p.name for p in fixture.mode_file.parent.iterdir()), ["session-mode"])
@@ -370,7 +378,7 @@ class SessionSwitch(unittest.TestCase):
         result = self.switch(fixture, "desktop", ARINN_SESSION_ENTRY="xfce")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(fixture.calls(), [
-            "busctl --user call org.xfce.SessionManager /org/xfce/SessionManager "
+            "busctl --user --timeout=5 call org.xfce.SessionManager /org/xfce/SessionManager "
             "org.xfce.Session.Manager Logout bb false true"])
 
     def test_session_entry_wins_over_the_desktop_name(self):
@@ -435,7 +443,8 @@ class SessionSwitch(unittest.TestCase):
         fixture.mode_file.write_text("arinn\n")
         fixture.executable(fixture.bin / "mv", "#!/bin/sh\nexit 1\n")
         result = self.switch(fixture, "desktop", ARINN_SESSION_ENTRY="plasma")
-        self.assertEqual(result.returncode, 1)
+        # Distinct from a refused logout: the daemon reports Internal (#501).
+        self.assertEqual(result.returncode, 3)
         self.assertEqual(fixture.mode_file.read_text(), "arinn\n")
         self.assertEqual(sorted(p.name for p in fixture.mode_file.parent.iterdir()),
                          ["session-mode"])
@@ -455,6 +464,28 @@ class SessionSwitch(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertFalse(fixture.mode_file.exists())
         self.assertEqual(list(fixture.mode_file.parent.iterdir()), [])
+
+    def test_unwritable_state_directory_is_a_distinct_failure(self):
+        fixture = Fixture(self)
+        fixture.mode_file.parent.parent.mkdir(parents=True)
+        fixture.mode_file.parent.write_text("not a directory")
+        result = self.switch(fixture, "desktop", ARINN_SESSION_ENTRY="plasma")
+        self.assertEqual(result.returncode, 3)
+        self.assertEqual(fixture.calls(), [])
+
+    def test_a_logout_call_that_does_not_answer_restores_the_previous_choice(self):
+        # The daemon's switch: busctl gives up after its bound and the helper
+        # restores the choice before the daemon's own limit (#501).
+        fixture = Fixture(self)
+        fixture.mode_file.parent.mkdir(parents=True)
+        fixture.mode_file.write_text("arinn\n")
+        for entry in ("plasma", "xfce"):
+            with self.subTest(entry=entry):
+                result = self.switch(fixture, "desktop", ARINN_SESSION_ENTRY=entry,
+                                     FAKE_CALL_HANG="1")
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("did not accept", result.stderr)
+                self.assertEqual(fixture.mode_file.read_text(), "arinn\n")
 
     def test_refused_logout_restores_what_the_session_would_start(self):
         # The previous value is judged by the session's exact rule, so damaged

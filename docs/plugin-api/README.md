@@ -243,33 +243,52 @@ not create a second public operation tree.
 
 **Launch lifetime and cancellation**
 ([ADR-0110](../adr/0110-application-launch-lifetime-and-cancellation.md)). A
-provider that observes windows answers `Launch` when a window of the application
-appears, and fails as soon as the launch can no longer show one. The desktop
-provider fails with `Unavailable` when the launch's application unit ends with no
-window of the application. This reply may come long after 30 seconds: the daemon
-keeps the public operation `running` and applies no overall deadline to an
-application launch. Only dispatch (starting the system launcher) is bounded by the
-30-second budget, inside the provider. A provider that cannot observe windows
-answers at dispatch, as before. Provider loss or a new generation still ends the
-operation with `Unavailable`.
+provider that observes windows answers `Launch` when a new window of the
+application appears, and fails as soon as the launch can no longer show one: when
+the launch's processes end with no window of the application. A window that
+already existed counts at that moment, because the launch was handed to a running
+instance (spec §7.2). The desktop provider fails with `Unavailable` in that case.
+The reply may come long after 30 seconds: the daemon keeps the public operation
+`running` and applies no overall deadline to an application launch. Only dispatch
+(starting the system launcher) is bounded by the 30-second budget, inside the
+provider. A provider that cannot observe windows answers at dispatch, as before.
+Provider loss or a new generation still ends the operation with `Unavailable`.
 
 An application launch reports `cancellable = true` until it ends; every other
-operation reports `false`. `Operation1.Cancel` is accepted only from the caller
-that started the operation (`PermissionDenied` otherwise) and only for a
-cancellable operation (`Unsupported` otherwise). The daemon then calls the
-private `CancelLaunch(generation, id)`. When the provider confirms, the operation
-ends as `cancelled` with error `Cancelled`. When the provider refuses
-(`Unsupported`, `NotFound`, `Conflict`), `Cancel` returns that error and the
-operation keeps running. A provider reply of `Cancelled` also ends the operation
-as `cancelled`. `Cancel` on an application launch that has already ended
-returns success and changes nothing; clients read the final state with `Get`.
+operation reports `false`. `cancellable` is a daemon property: it does not mean
+that the provider implements `CancelLaunch`. `Operation1.Cancel` is accepted only
+from the caller that started the operation (`PermissionDenied` otherwise) and only
+for a cancellable operation (`Unsupported` otherwise). One `Cancel` stops at most
+that launch:
+
+- The daemon forwards `CancelLaunch(generation, id)` only while the operation is
+  the only running launch of that provider, generation and ID, from any caller.
+  Otherwise `Cancel` answers `Conflict`, a second `Cancel` of the same launch in
+  flight included, and nothing is stopped.
+- A new `Launch` of that ID waits to be dispatched until an in-flight
+  `CancelLaunch` has been answered, so a cancel never reaches a launch started
+  after it.
+
+When the provider confirms, the operation ends as `cancelled` with error
+`Cancelled`. When the provider refuses (`Unsupported`, `NotFound`, `Conflict`),
+`Cancel` returns that error and the operation keeps running. A provider without
+the method (`org.freedesktop.DBus.Error.UnknownMethod`) counts as `Unsupported`.
+A provider that does not answer within 15 seconds makes `Cancel` return
+`Timeout`; the operation keeps running, and the launch's processes may still be
+starting. A provider reply of `Cancelled` also ends the operation as `cancelled`.
+`Cancel` on an application launch that has already ended returns success and
+changes nothing; clients read the final state with `Get`.
 
 `CancelLaunch` stops every unfinished launch of that application ID, with the
 processes those launches started, and their `Launch` replies fail with
-`Cancelled`. It is authorized like the other provider commands and checks the
-generation, but not the catalogue, so a launch whose entry disappeared stays
-cancellable. The SDK's default handler answers `Unsupported`. Cancellation stops
-processes; it never rolls back other side effects.
+`Cancelled`. The daemon's rule above keeps that set to the one launch being
+cancelled. It is authorized like the other provider commands and checks that the
+generation is the provider's current one, but not the catalogue, so a launch
+whose entry disappeared stays cancellable. The handler receives only the ID, so a
+launch that the provider still tracks from its previous registration (an earlier
+generation, whose operation the daemon already ended with `Unavailable`) is
+stopped as well. The SDK's default handler answers `Unsupported`.
+Cancellation stops processes; it never rolls back other side effects.
 
 `Status`, `HomeItems`, `Home` and `Back` support the minimal shell/platform bridge.
 `HomeItems` is a bounded projection of activatable running instances (up to five),

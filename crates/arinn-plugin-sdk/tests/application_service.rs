@@ -42,7 +42,9 @@ impl ApplicationHandler for Cancelling {
         id: String,
     ) -> Pin<Box<dyn Future<Output = Result<(), ErrorCode>> + Send + '_>> {
         self.calls.lock().unwrap().push(format!("Cancel:{id}"));
-        self.stop.notify_waiters();
+        // A permit, so the stop holds even if the launch future has not
+        // started waiting yet.
+        self.stop.notify_one();
         Box::pin(async { Ok(()) })
     }
 }

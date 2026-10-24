@@ -1327,29 +1327,34 @@ async fn invalid_backend_rejects_even_a_claimed_sentinel_name() {
         ErrorCode::PermissionDenied
     );
 }
-/// Records the keys the daemon writes to KGlobalAccel.
+/// Records the keys the daemon writes to KGlobalAccel, per action.
 type AccelKeys = Vec<(Vec<i32>,)>;
-struct RecordingAccel(Arc<std::sync::Mutex<Vec<AccelKeys>>>);
+type AccelWrites = Arc<std::sync::Mutex<Vec<(String, AccelKeys)>>>;
+struct RecordingAccel(AccelWrites);
 #[zbus::interface(name = "org.kde.KGlobalAccel")]
 impl RecordingAccel {
     #[zbus(name = "setForeignShortcutKeys")]
     fn set_foreign_shortcut_keys(&self, action: Vec<String>, keys: AccelKeys) {
-        assert_eq!(action[..2], ["kwin", "ArinnPhase0Home"]);
-        self.0.lock().unwrap().push(keys);
+        assert_eq!(action[0], "kwin");
+        self.0.lock().unwrap().push((action[1].clone(), keys));
     }
     #[zbus(name = "shortcutKeys")]
-    fn shortcut_keys(&self, _action: Vec<String>) -> AccelKeys {
-        self.0.lock().unwrap().last().cloned().unwrap_or_default()
+    fn shortcut_keys(&self, action: Vec<String>) -> AccelKeys {
+        let writes = self.0.lock().unwrap();
+        let last = writes.iter().rev().find(|(name, _)| *name == action[1]);
+        last.map(|(_, keys)| keys.clone()).unwrap_or_default()
     }
 }
 /// `home_shortcut` from config.toml and HomePage reach KDE's global shortcut
 /// once per adapter connection (#286). Without the fix the configured value
-/// was only validated, and KWin kept its hardcoded Meta+F12.
+/// was only validated, and KWin kept its hardcoded Meta+F12. The quick-menu
+/// key follows on its own action (ADR-0106).
 #[tokio::test]
 async fn adapter_connection_applies_configured_home_shortcut() {
     let f = Fixture::new().await;
     let mut config = Config::load(&f.core.paths.config).unwrap();
     config.home_shortcut = "Ctrl+Alt+H".into();
+    config.quick_menu_shortcut = "Ctrl+Alt+Q".into();
     config.save(&f.core.paths.config).unwrap();
     let writes = Arc::default();
     f.stranger
@@ -1387,22 +1392,76 @@ async fn adapter_connection_applies_configured_home_shortcut() {
     };
     let first = poll();
     for _ in 0..100 {
-        if !writes.lock().unwrap().is_empty() {
+        if writes.lock().unwrap().len() >= 2 {
             break;
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
     assert_eq!(
         *writes.lock().unwrap(),
-        [vec![
-            (vec![0x0C00_0048, 0, 0, 0],),
-            (vec![0x0100_0090, 0, 0, 0],)
-        ]]
+        [
+            (
+                "ArinnPhase0Home".to_owned(),
+                vec![(vec![0x0C00_0048, 0, 0, 0],), (vec![0x0100_0090, 0, 0, 0],)]
+            ),
+            (
+                "ArinnQuickMenu".to_owned(),
+                vec![
+                    (vec![0x0C00_0051, 0, 0, 0],),
+                    (vec![0x0100_0055, 0, 0, 0],),
+                    (vec![0x0100_00dc, 0, 0, 0],)
+                ]
+            )
+        ]
     );
     // Later polls of the same adapter connection leave the keys alone.
     first.abort();
     let second = poll();
     tokio::time::sleep(Duration::from_millis(300)).await;
     second.abort();
-    assert_eq!(writes.lock().unwrap().len(), 1);
+    assert_eq!(writes.lock().unwrap().len(), 2);
+    // The remote's Menu keys (Menu, MenuKB) are off while the shell has
+    // focus and on again for any other window (owner decision of
+    // 2026-10-21, #439).
+    let report = |class: &'static str| {
+        let kwin = f.kwin.clone();
+        async move {
+            kwin.call_method(
+                Some(production::SERVICE),
+                production::PATH,
+                Some("org.arinn.Daemon1"),
+                "ReportWindow",
+                &("window", class, false, "screen"),
+            )
+            .await
+            .unwrap();
+        }
+    };
+    let wait_for = |count: usize| {
+        let writes = Arc::clone(&writes);
+        async move {
+            for _ in 0..100 {
+                if writes.lock().unwrap().len() >= count {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        }
+    };
+    report("org.arinn.Shell").await;
+    wait_for(3).await;
+    report("org.arinn.Shell").await;
+    report("game").await;
+    wait_for(4).await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let writes = writes.lock().unwrap();
+    assert_eq!(writes.len(), 4);
+    assert_eq!(
+        writes[2],
+        (
+            "ArinnQuickMenu".to_owned(),
+            vec![(vec![0x0C00_0051, 0, 0, 0],)]
+        )
+    );
+    assert_eq!(writes[3], writes[1]);
 }

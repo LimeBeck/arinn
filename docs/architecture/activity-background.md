@@ -4,9 +4,14 @@ Contract prerequisite [#348](https://github.com/LimeBeck/arinn/issues/348) for
 [#149](https://github.com/LimeBeck/arinn/issues/149), implementing existing
 specification §12.3 / G-5.2 and [ADR-0027](../adr/0027-activity-background-snapshot.md).
 Technical transport choice: [ADR-0087](../adr/0087-bounded-activity-background-frames.md).
-**Status:** the daemon export is implemented (see [Daemon implementation](#daemon-implementation));
-the KDE and X11 producers and the shell consumer are not yet connected, so no
-automatic capture runs. No target-device budget or operator gate is passed.
+**Status:** implemented end to end. The [daemon export](#daemon-implementation),
+the shell consumer and Home rendering, the X11 producer
+([x11-ewmh.md](x11-ewmh.md#activity-background)) and the KDE producer
+([background experiment](background-experiment.md#kde-producer)) are connected:
+an explicit Home over an Activity captures, publishes and shows its last frame.
+The G-5.2 device and operator gates remain pending: the target-device budget
+report and the real KDE/Wayland and XFCE/X11 qualification are owner-run, and
+none is passed.
 
 ## Optional interfaces and identities
 
@@ -159,8 +164,9 @@ contract above; these are the implementation choices within it:
   commits the same Home state, so Home opened from it shows the frame).
   `QuickMenuRequested` is emitted before arming, as `HomeRequested` is. Either
   request arms only with a non-empty target and output that still match the
-  committed Home report. The EWMH adapter reports no output yet, so it arms nothing until its
-  producer supplies one. `ReportHome` and adapter reconnects never arm.
+  committed Home report. The X11/EWMH adapter reports its one output,
+  `x11-screen`, with both requests ([X11/EWMH](x11-ewmh.md)), so they arm there
+  too. `ReportHome` and adapter reconnects never arm.
 - **Home evidence.** The daemon reads Home visibility, target and output, the
   Return association, the adapter's unique owner and liveness, and whether the
   resolved window token is still in the committed inventory generation, in one

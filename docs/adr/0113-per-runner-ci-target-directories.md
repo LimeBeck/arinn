@@ -4,7 +4,7 @@
 - **Date:** 2026-10-22
 - **Deciders:** delegated technical choice ([ADR-0037](0037-agent-autonomy-and-owner-gated-decisions.md)), after a CI failure analysis ([#485](https://github.com/LimeBeck/arinn/issues/485))
 - **Amends / Supersedes:** amends [ADR-0101](0101-host-local-ci-caches.md) (sharing of the target directory)
-- **Amended by / Superseded by:** —
+- **Amended by / Superseded by:** [ADR-0114](0114-per-runner-package-target-directories.md) (one package target directory per self-hosted runner instance)
 - **Specification:** [§17.1](../specifications/arinn-specification.md#171-continuous-integration-and-delivery)
 
 ## Context

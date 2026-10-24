@@ -41,5 +41,18 @@ int main() {
   std::vector<std::uint8_t> padding(maxBytes + 4);
   QImage hostile(padding.data(), 1, 1, static_cast<int>(padding.size()), QImage::Format_RGBA8888);
   check(!encodeGrab(hostile), "reject oversized wrapped image storage");
+  QImage hidpi(3360, 1890, QImage::Format_ARGB32_Premultiplied);
+  hidpi.fill(QColor(10, 20, 30));
+  hidpi.setDevicePixelRatio(1.75);
+  const auto bounded = boundGrab(hidpi);
+  check(bounded.width() == 1920 && bounded.height() == 1080, "high-DPR grab scaled into bounds");
+  check(encodeGrab(bounded).read(1920, 1080).has_value(), "bounded grab encodes");
+  QImage portrait(1000, 3000, QImage::Format_ARGB32_Premultiplied);
+  portrait.fill(Qt::white);
+  check(boundGrab(portrait).size() == QSize(360, 1080), "aspect ratio kept");
+  check(boundGrab(image).size() == image.size(), "small grab unchanged");
+  check(boundGrab(QImage()).isNull(), "empty grab rejected");
+  QImage huge(8192, 4096, QImage::Format_ARGB32_Premultiplied);
+  check(boundGrab(huge).isNull(), "oversized input storage rejected before scaling");
   std::cout << "Qt background encoding checks passed\n";
 }

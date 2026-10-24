@@ -35,7 +35,7 @@ SystemStatus::SystemStatus(QObject *parent) : QObject(parent) {
             m_attempt = 0;
             m_epoch.clear();
             m_revision = 0;
-            apply(false, false, 0);
+            apply({}, {}, 0);
             if (!next.isEmpty())
               refresh();
           });
@@ -66,7 +66,7 @@ void SystemStatus::refresh() {
             if (reply.type() == QDBusMessage::ErrorMessage ||
                 reply.signature() != QLatin1String("(stsssy)") ||
                 reply.arguments().isEmpty()) {
-              apply(false, false, 0);
+              apply({}, {}, 0);
               retryLater(reply.type() == QDBusMessage::ErrorMessage
                              ? reply.errorName()
                              : QString());
@@ -82,7 +82,7 @@ void SystemStatus::refresh() {
             arg.endStructure();
             const QUuid uuid(epoch);
             if (uuid.isNull() || revision == 0) {
-              apply(false, false, 0);
+              apply({}, {}, 0);
               retryLater(QString());
               return;
             }
@@ -96,9 +96,18 @@ void SystemStatus::refresh() {
             m_revision = revision;
             // Reader rules: anything unknown or inconsistent shows nothing,
             // field by field.
-            const bool wifi = network == QLatin1String("connected") &&
-                              link == QLatin1String("wifi");
-            apply(audio == QLatin1String("muted"), wifi,
+            const bool known = audio == QLatin1String("muted") ||
+                               audio == QLatin1String("unmuted");
+            QString connectivity;
+            if (network == QLatin1String("disconnected"))
+              connectivity = network;
+            else if (network == QLatin1String("connected") &&
+                     (link == QLatin1String("wifi") ||
+                      link == QLatin1String("wired") ||
+                      link == QLatin1String("other")))
+              connectivity = link;
+            const bool wifi = connectivity == QLatin1String("wifi");
+            apply(known ? audio : QString(), connectivity,
                   wifi && level <= maxLevel ? level : 0);
           });
 }
@@ -116,11 +125,12 @@ void SystemStatus::retryLater(const QString &error) {
   m_retry.start(m_delays.at(m_attempt++));
 }
 
-void SystemStatus::apply(bool muted, bool wifi, int level) {
-  if (muted == m_muted && wifi == m_wifi && level == m_level)
+void SystemStatus::apply(const QString &audio, const QString &network,
+                         int level) {
+  if (audio == m_audio && network == m_network && level == m_level)
     return;
-  m_muted = muted;
-  m_wifi = wifi;
+  m_audio = audio;
+  m_network = network;
   m_level = level;
   emit changed();
 }

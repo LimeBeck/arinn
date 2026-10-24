@@ -93,7 +93,9 @@ and the remote's Menu keys (`Menu`, `XF86MenuKB`) are grabbed the same way next 
 the Home keys. The Menu keys are released while the shell is the active window and
 grabbed again at the next snapshot after another window becomes active; a press is reported with
 `ReportQuickMenuRequest` after the same unlocked check and Home state, with the
-same output (`x11-screen`) as a Home request, so it arms the Activity background too, and a
+same output (`x11-screen`) as a Home request, so it arms the Activity background too.
+For a quick-menu press the adapter raises and activates the shell only after that
+request is published, so the shell never has focus before the request; a
 quick-menu key that cannot be grabbed is skipped without stopping the backend
 ([ADR-0106](../adr/0106-quick-menu-presentation.md)). Home snapshots the exact opaque target
 and keeps it across repeated Home presses. Return validates that token in the

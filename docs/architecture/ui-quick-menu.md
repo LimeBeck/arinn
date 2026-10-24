@@ -13,22 +13,50 @@ the shell, for the remote's Menu key. The platform binds the remote's Menu keys
 only while another window has focus. Inside the shell Menu keeps its meaning
 (navigation, tile action sheet), and inside the sheet it does nothing. A
 `quick_menu_shortcut` that is itself Menu or MenuKB stays bound everywhere, as
-ADR-0106 says for the configured key.
+ADR-0106 says for the configured key. That key then never reaches the shell, so
+it no longer toggles global navigation or opens the tile action sheet there; it
+opens the quick menu instead. That is the user's explicit choice.
 
 **Over an Activity or over the shell.** The sheet is over the shell only when
 the shell was on screen and had focus when the request arrived; otherwise, and
-over managed playback, it is over an Activity. Both platforms activate the
-shell only after the request, so a shell that a `Status` read has just shown
-is not active yet. No timing window is involved: the quick-menu key right
-after Home is over the shell.
+over managed playback, it is over an Activity. Both adapters activate the shell
+only after the request is sent: the KWin script raises it in the
+`ReportQuickMenuRequest` reply callback, and the X11 adapter holds the raise
+for a quick-menu press until the request is published (`raise_deferred`). A
+shell that a `Status` read has just shown is therefore not active yet. No
+timing window is involved: the quick-menu key right after Home is over the
+shell.
 
-**Behind the sheet.** Over an Activity the window is transparent and the live
-window shows through. When the Activity background has a frame for this Home
-context (`ActivityBackgroundSource`, ADR-0087; the quick-menu request arms the
-capture), the sheet shows that last frame instead, full-screen and unblurred, so
-it never sits on an empty or black screen: X11 without a compositor, or a game
-that unmaps on focus loss. The frame stays until the platform hides the shell
-after Back. Over managed playback the player stays live.
+**Behind the sheet: the live window.** Over an Activity the window is
+transparent and the live window shows through (§5.7 allows "the live window or
+its last frame"). The last frame would be used only where the live window
+cannot show, but neither adapter can tell the shell that today, so both use the
+live window:
+
+- **X11 without a compositing manager:** the X11 adapter knows (it refuses
+  managed presentation then), but `Daemon1` carries no such state, and the X11
+  producer makes no frame without a compositor either (ADR-0087). The sheet
+  then sits over whatever the X server leaves behind the transparent window.
+- **An Activity that unmaps or closes its window** (a game on focus loss):
+  the frame is invalidated with the window by contract (§12.3, "window
+  disappearance/remap"), so there is none to show.
+- **A minimized Activity:** it stays in both inventories, and neither adapter
+  reports the minimized state to the shell.
+
+Showing the frame whenever one exists was rejected: a playing video would look
+frozen, the frame arrives after the sheet, and a windowed Activity would jump to
+a centred fit. Using the frame where the live window cannot show needs an
+adapter-reported visibility state, which is a contract change for a later task.
+
+**Launch progress.** The "Opening …" progress of a web service never covers the
+sheet: opening the sheet hides it as Home does (`hideForHome`, §6.5), and the
+launch keeps running. Only the launch dialog (failure or timeout) is drawn above
+the sheet (§6.1: dialog › power › sheet). Home on that dialog replaces the sheet
+with Home too.
+
+**Automatic ambient** does not count while the sheet is over an Activity: the
+Activity is in the foreground behind it (§5.7). Over the shell it counts as
+usual.
 
 `apps/arinn-shell/ui/QuickMenu.qml` is the *sheet* focus scope (§6.1). Main.qml
 routes focus to it while it is open, so no screen beneath can take focus. It
@@ -105,10 +133,14 @@ the sheet. The ⏻ exception of §5.7 does not apply to it.
   row's level and its `GetVolume`/`SetMuted`/`StepVolume`/`ToggleMuted` calls,
   Power over the sheet and Back to the Power row over an Activity and over the
   shell, Sleep (one `Suspend`, its refusal, Back to the Sleep row), a late
-  refusal after Home left the sheet, the quick-menu key right after Home,
-  ambient waking alike for Menu and a request, the Activity frame behind the
-  sheet, repeats and a foreign epoch, the degraded form without the daemon, and
-  the session lock.
+  refusal after Home inside the scope and after the global Home key, the
+  quick-menu key right after Home, a shown but inactive shell counting as an
+  Activity, ambient waking alike for Menu and a request, automatic ambient
+  waiting over an Activity, the launch progress giving way to the sheet and
+  Home on the launch dialog, repeats and a foreign epoch, the degraded form
+  without the daemon, and the session lock.
+- `arinn-platform-x11` `quick_menu_raises_the_shell_only_after_its_request`
+  (Xvfb).
 - `key_sequence` `a_configured_menu_key_stays_bound_inside_the_shell`.
 - Not tested: real KDE and X11 sessions with the remote, and a visual
   comparison (no handoff yet).

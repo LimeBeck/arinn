@@ -470,6 +470,43 @@ async fn quick_menu_request_arms_the_activity_background() {
     assert_eq!(after.context[0].request_id, context.request_id);
 }
 
+/// ADR-0111: the power-menu request commits the Home state, so it arms the
+/// same capture as an explicit Home request: the power menu opens over Home
+/// with the Activity's last frame behind it (§5.7, §12.3). Rejected calls
+/// arm nothing, and a later Home press on that context does not recapture.
+#[tokio::test]
+async fn power_menu_request_arms_the_activity_background() {
+    let f = Fixture::new().await;
+    error(
+        ProductionDaemonProxy::new(&f.stranger)
+            .await
+            .unwrap()
+            .report_power_menu_request("activity", "screen")
+            .await,
+        "PermissionDenied",
+    );
+    assert_eq!(f.get().await.state, "idle");
+    let adapter = ProductionDaemonProxy::new(&f.kwin).await.unwrap();
+    adapter
+        .report_power_menu_request("activity", "screen")
+        .await
+        .unwrap();
+    let pending = f.get().await;
+    assert_eq!(pending.state, "pending");
+    f.associate("activity", &f.tokens[0]).await;
+    let snapshot = f.wait_state("pending", true).await;
+    let context = &snapshot.context[0];
+    assert_eq!(context.epoch, f.core.epoch);
+    assert_eq!(
+        (context.target.as_str(), context.output.as_str()),
+        ("activity", "screen")
+    );
+    assert_eq!(context.window.token, "token-0");
+    f.home("activity", "screen").await;
+    let after = f.get().await;
+    assert_eq!(after.context[0].request_id, context.request_id);
+}
+
 #[tokio::test]
 async fn home_without_an_activity_or_output_keeps_the_normal_background() {
     let f = Fixture::new().await;

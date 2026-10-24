@@ -615,6 +615,8 @@ The explicit presentation transport is `Daemon1.ReportHomeRequest` →
 The quick-menu key uses the same path with its own request,
 `Daemon1.ReportQuickMenuRequest` → `QuickMenuRequested(epoch, target, output)`
 ([ADR-0106](../adr/0106-quick-menu-presentation.md)).
+The power key does the same with `Daemon1.ReportPowerMenuRequest` →
+`PowerMenuRequested(epoch, target, output)` ([ADR-0111](../adr/0111-power-key.md)).
 Ordinary `ReportHome`/`Changed` updates remain state-only, including reconnect and
 window remap. This implements the existing §6.3 distinction between Home intent
 and state recovery; production shell consumption follows the contract separately.

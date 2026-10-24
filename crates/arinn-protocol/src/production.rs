@@ -133,6 +133,13 @@ pub trait ProductionDaemon {
     /// An explicit quick-menu presentation intent, never a state refresh or replay.
     #[zbus(signal)]
     fn quick_menu_requested(&self, epoch: &str, target: &str, output: &str) -> zbus::Result<()>;
+    /// Trusted platform input (ADR-0111): the power key. Commits the same
+    /// Home state as `report_home_request`, then emits `PowerMenuRequested`
+    /// instead of `HomeRequested`.
+    fn report_power_menu_request(&self, target: &str, output: &str) -> zbus::Result<()>;
+    /// An explicit power-menu presentation intent, never a state refresh or replay.
+    #[zbus(signal)]
+    fn power_menu_requested(&self, epoch: &str, target: &str, output: &str) -> zbus::Result<()>;
 
     #[zbus(name = "Providers")]
     fn provider_page(&self, token: &str) -> zbus::Result<(ProviderPage,)>;

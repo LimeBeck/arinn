@@ -1876,6 +1876,40 @@ impl Daemon {
         target: &str,
         output: &str,
     ) -> zbus::Result<()>;
+    /// The power key (ADR-0111): the same platform state as an explicit Home
+    /// request, but the shell opens the power menu over Home.
+    async fn report_power_menu_request(
+        &self,
+        target: &str,
+        output: &str,
+        #[zbus(header)] h: Header<'_>,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+    ) -> production::Result<()> {
+        self.core
+            .windows
+            .report_home(
+                &self.core.platform,
+                &self.core.connection,
+                h,
+                true,
+                target,
+                output,
+            )
+            .await?;
+        Self::changed(&emitter).await?;
+        // As for Home: intent first, then arm the Activity background for
+        // the Home state this request committed (§12.3).
+        Self::power_menu_requested(&emitter, &self.core.epoch, target, output).await?;
+        self.core.background_home_requested(target, output).await;
+        Ok(())
+    }
+    #[zbus(signal)]
+    async fn power_menu_requested(
+        emitter: &SignalEmitter<'_>,
+        epoch: &str,
+        target: &str,
+        output: &str,
+    ) -> zbus::Result<()>;
     #[zbus(signal)]
     async fn changed(emitter: &SignalEmitter<'_>) -> zbus::Result<()>;
 

@@ -1,0 +1,1 @@
+- `Daemon1.ReportPowerMenuRequest` and the `PowerMenuRequested` signal: the platform adapter reports the remote's power key with the Home state of an explicit Home request, and the shell receives its own presentation intent to open the power menu ([ADR-0111](docs/adr/0111-power-key.md), [#481](https://github.com/LimeBeck/arinn/issues/481)).

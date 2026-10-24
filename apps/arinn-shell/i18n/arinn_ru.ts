@@ -1171,6 +1171,14 @@
         <translation>Полностью выключить компьютер</translation>
     </message>
     <message>
+        <source>Switch to desktop</source>
+        <translation>Перейти на рабочий стол</translation>
+    </message>
+    <message>
+        <source>Log out; the next login starts the desktop</source>
+        <translation>Выход из сеанса; при следующем входе запустится рабочий стол</translation>
+    </message>
+    <message>
         <source>Ambient</source>
         <translation>Заставка</translation>
     </message>
@@ -1185,6 +1193,18 @@
     <message>
         <source>Restart?</source>
         <translation>Перезагрузить?</translation>
+    </message>
+    <message>
+        <source>Switch to desktop?</source>
+        <translation>Перейти на рабочий стол?</translation>
+    </message>
+    <message>
+        <source>Switch</source>
+        <translation>Перейти</translation>
+    </message>
+    <message>
+        <source>The session ends. Your next login starts the desktop without Arinn until you choose Return to Arinn.</source>
+        <translation>Сеанс завершится. При следующем входе будет запускаться рабочий стол без Arinn, пока вы не выберете «Return to Arinn».</translation>
     </message>
     <message>
         <source>The list of running applications is not available.</source>
@@ -1235,6 +1255,30 @@
         <translation>Доступно после ответа системы</translation>
     </message>
     <message>
+        <source>Another power request is still running. Arinn keeps running; try again when it is done.</source>
+        <translation>Ещё выполняется другой запрос питания. Arinn продолжает работу; повторите, когда он завершится.</translation>
+    </message>
+    <message>
+        <source>The system does not allow it for this user. Arinn keeps running.</source>
+        <translation>Система не разрешает это для этого пользователя. Arinn продолжает работу.</translation>
+    </message>
+    <message>
+        <source>This session cannot switch to the desktop. Arinn keeps running.</source>
+        <translation>Этот сеанс не может перейти на рабочий стол. Arinn продолжает работу.</translation>
+    </message>
+    <message>
+        <source>The desktop did not accept the logout. Arinn keeps running; try again later.</source>
+        <translation>Рабочий стол не принял выход из сеанса. Arinn продолжает работу; повторите позже.</translation>
+    </message>
+    <message>
+        <source>The desktop did not answer in time. Arinn keeps running; try again.</source>
+        <translation>Рабочий стол не ответил вовремя. Arinn продолжает работу; повторите попытку.</translation>
+    </message>
+    <message>
+        <source>Arinn could not prepare the switch. Arinn keeps running; try again.</source>
+        <translation>Arinn не удалось подготовить переход. Arinn продолжает работу; повторите попытку.</translation>
+    </message>
+    <message>
         <source>An application is preventing it: %1.</source>
         <translation>Этому мешает приложение: %1.</translation>
     </message>
@@ -1275,6 +1319,10 @@
         <translation>Выключение отклонено</translation>
     </message>
     <message>
+        <source>Could not switch to the desktop</source>
+        <translation>Не удалось перейти на рабочий стол</translation>
+    </message>
+    <message>
         <source>Power</source>
         <translation>Питание</translation>
     </message>
@@ -1293,6 +1341,10 @@
     <message>
         <source>Shutting down…</source>
         <translation>Выключение…</translation>
+    </message>
+    <message>
+        <source>Switching to the desktop…</source>
+        <translation>Переход на рабочий стол…</translation>
     </message>
     <message>
         <source>Waiting for the system. Press Back to return to Arinn.</source>

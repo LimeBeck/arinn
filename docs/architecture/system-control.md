@@ -127,9 +127,13 @@ well below the shell's 20 s wait for a power reply. Errors:
 | The helper exits 3: the choice could not be recorded (no logout was requested), or 2 (usage), a signal, a wait or spawn failure | `Internal` |
 
 On `Timeout` the daemon kills the helper's whole process group, including a
-logout call still waiting, and reaps it before it replies. No logout request
-the helper started is then still pending, and the power lock is released only
-after that. The helper may have been killed after it recorded `desktop` and
+logout call still waiting, and reaps it before it replies. No logout call
+is then still waiting on Arinn's side; a request the desktop already queued
+may still be processed late. The power lock is released only after that.
+The same holds for the helper's own 5 s bound: a desktop that freezes for
+about that long may still log out after the helper restored the previous
+choice and the shell showed the error. That is the fail-safe direction,
+because the next login starts Arinn again. The helper may have been killed after it recorded `desktop` and
 before it could restore the previous choice, so `Timeout` may leave `desktop`
 recorded. That needs a helper stalled for 10 s outside its bounded logout
 call (for example, on a hung state file system), and its effect is the
@@ -146,8 +150,10 @@ A logout the desktop accepts and an application cancels later (an unsaved-work
 prompt) is not detected: `SwitchToDesktop` has already replied, the session
 continues with `desktop` recorded, and the next login starts the plain desktop.
 This is the open point of [ADR-0107](../adr/0107-dedicated-arinn-session.md)
-(*Decision* 3). This contract does not settle it; the power-menu follow-up
-does, and either direction there keeps these members.
+(*Decision* 3). Neither this contract nor the shell's power-menu entry
+([power menu](ui-power.md)) settles it; it stays open on
+[#438](https://github.com/LimeBeck/arinn/issues/438), and either direction
+keeps these members.
 
 ## Callers
 
@@ -164,7 +170,12 @@ of the user can reach logind and the sound server itself).
   disabled. `inhibited` and `denied` stay focusable and explain why; the
   request still goes to the daemon, which refuses it with the typed error.
   `unknown` behaves as `available`.
-- After `Conflict` the shell reads `GetPower` again and shows the holders'
+- The power menu also reads `GetSessionSwitch` when it opens and shows
+  **Switch to desktop** only for `available`. A refused switch is an error
+  pane and the session continues; no inhibitor is named for it, and after
+  `Unsupported` the shell reads `GetSessionSwitch` again
+  ([power menu](ui-power.md)).
+- After `Conflict` on a power action the shell reads `GetPower` again and shows the holders'
   `who` and `why`. Other errors show their own text. An accepted request
   never shows success by itself: the session lifecycle guard hides the shell
   before sleep, and the shell treats a wake as described in the

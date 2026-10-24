@@ -37,25 +37,34 @@ Window {
     property bool quickMenuOpen: false
     property bool activityBehind: false
     property var quickMenuOpener: null
-    property double shownAt: 0
+    // The Activity's last frame (§12.3, ADR-0087), shown behind the sheet
+    // over an Activity when there is one; otherwise the live window shows
+    // through the transparent window.
+    property url activityFrame: activityBackground.source
     function openQuickMenu() {
         if (sessionGuard.blocked) return;
-        // The key ends ambient and opens the sheet, as the power key opens
-        // its menu (§5.7).
-        ambientScreen.stop();
+        // During ambient the key only wakes, and that first event triggers
+        // nothing, as Menu pressed inside the shell does (§5.7 Ambient).
+        if (ambientScreen.active) {
+            if (ambientScreen.armed) ambientScreen.wake();
+            return;
+        }
         if (!quickMenuOpen) {
-            // A hidden shell, or managed playback, means an Activity is on
-            // screen. The Status poll may show the shell just before this
-            // request arrives; a shell shown that recently is still that
-            // Activity's.
-            activityBehind = !visible || playerOpen || Date.now() - shownAt < 1500;
+            // The sheet is over the shell only when the shell was on screen
+            // with focus when the key was pressed. Over an Activity the
+            // platform activates the shell only after this request, so a
+            // shell that a Status read has just shown is not active yet.
+            // Managed playback is an Activity too.
+            activityBehind = playerOpen || !(visible && active);
             quickMenuOpener = activityBehind ? null : activeFocusItem;
             quickMenuOpen = true;
             // The Sound row shows the platform's current level.
             if (backend.connected) systemControl.readVolume();
         }
         returnBound.stop();
-        Qt.callLater(quickMenu.start);
+        // A repeated key keeps the sheet; one under the power scope keeps
+        // that scope on top.
+        Qt.callLater(() => { if (focusedScreen === "quickMenu") quickMenu.start(); });
     }
     // Back: over an Activity, activate that same Activity (§6.3); over the
     // shell, return focus to the opener.
@@ -82,19 +91,12 @@ Window {
         closeOverlays();
         Qt.callLater(home.showHome);
     }
-    // Sleep and Power hand over to the shell's power scope (§5.7, ADR-0108),
-    // with its confirmations, in-flight rules and refusals. Over an Activity
-    // the shell first comes up as for Home, as the power key does, so Back
-    // from the power menu leaves Home with that Activity as Return. Over the
-    // shell the sheet closes and the power menu opens over the screen.
+    // Sleep and Power open the shell's power scope over the sheet (§5.7,
+    // §6.1, ADR-0108), with its confirmations, in-flight rules and refusals.
+    // The Activity stays behind; Back closes the power scope and focus
+    // returns to the sheet's row (§6.3).
     function quickMenuPower(sleep) {
         if (!quickMenuOpen) return;
-        if (activityBehind) {
-            quickMenuHome();
-        } else {
-            quickMenuOpen = false;
-            quickMenuOpener = null;
-        }
         powerOverlay.openMenu();
         // A request already in flight is shown as it is; SystemControl sends
         // one request at a time.
@@ -352,7 +354,6 @@ Window {
         activityBehind = false;
         quickMenuOpener = null;
     } else {
-        shownAt = Date.now();
         Qt.callLater(() => {
             // Returning from an external activity keeps the displayed route. Home
             // must not take focus behind Open services or another retained screen.
@@ -386,8 +387,14 @@ Window {
         target: backend
         ignoreUnknownSignals: true
         function onQuickMenuRequested() { root.openQuickMenu(); }
-        // The Home key replaces the quick menu with Home (§6.3).
-        function onHomeRequested() { if (root.quickMenuOpen || root.activityBehind) root.quickMenuHome(); }
+        // The Home key replaces the quick menu with Home (§6.3). With the
+        // power scope open over the sheet it leaves as Home inside that scope
+        // does: a request in flight goes on and a late refusal comes back.
+        function onHomeRequested() {
+            if (!root.quickMenuOpen && !root.activityBehind) return;
+            if (powerOverlay.open) powerOverlay.leaveHome();
+            else root.quickMenuHome();
+        }
     }
     Connections {
         target: sessionGuard
@@ -969,44 +976,6 @@ Window {
                 root.openSession(presentationId, fromLibrary);
             }
         }
-        // The power scope above every screen, and the volume HUD (§5.7).
-        Power.PowerOverlay {
-            id: powerOverlay
-            anchors.fill: parent
-            z: 7
-            focus: root.focusedScreen === "power"
-            control: systemControl
-            runningApplications: backend.items
-            registryKnown: backend.applicationsState === "ready" || backend.applicationsState === "empty"
-            keysEnabled: root.visible && root.active && !sessionGuard.blocked && !ambientScreen.active
-            // A late refusal never takes focus behind the launch dialog or
-            // the ambient screen; it appears once they are gone.
-            holdLateAnswer: launchOverlay.visible || ambientScreen.active
-            onClosed: Qt.callLater(() => { if (!powerOverlay.restoreLateFocus()) root.restoreFocus(); })
-            onHomeRequested: { root.closeOverlays(); Qt.callLater(home.showHome); }
-            onAmbientRequested: root.startAmbient()
-        }
-        Power.AmbientScreen {
-            id: ambientScreen
-            anchors.fill: parent
-            z: 30
-            focus: root.focusedScreen === "ambient"
-            clockText: home.clockText
-            dateText: { home.clockText; return Qt.locale().toString(new Date(), "dddd, d MMMM"); }
-            onActiveChanged: if (!active) root.finishAmbient()
-        }
-        Ui.LaunchOverlay {
-            id: launchOverlay
-            anchors.fill: parent
-            z: 20
-            active: browserCatalog.opening
-            serviceTitle: browserCatalog.openingTitle
-            failure: browserCatalog.openingError
-            onCancelRequested: browserCatalog.cancelOpen()
-            onRetryRequested: browserCatalog.retryOpen()
-            onDismissRequested: browserCatalog.dismissOpenFailure()
-            onHomeRequested: Qt.callLater(home.showHome)
-        }
         Rectangle {
             objectName: "feedbackStrip"
             x: 420; y: 970; width: 1080; height: 72; radius: 36
@@ -1027,6 +996,22 @@ Window {
     // The quick menu sheet above every screen (ADR-0106).
     Ui.LogicalCanvas {
         anchors.fill: parent
+        // Over an Activity: its last frame when there is one, so the sheet
+        // never sits on an empty or black screen (no compositor, a game
+        // that unmaps on focus loss). Managed playback stays live.
+        Item {
+            objectName: "quickMenuActivityFrame"
+            anchors.fill: parent
+            visible: root.activityBehind && !root.playerOpen && root.activityFrame.toString() !== ""
+            Rectangle { anchors.fill: parent; color: "black" }
+            Image {
+                anchors.fill: parent
+                source: parent.visible ? root.activityFrame : ""
+                fillMode: Image.PreserveAspectFit
+                cache: false
+                asynchronous: true
+            }
+        }
         Ui.QuickMenu {
             id: quickMenu
             anchors.fill: parent
@@ -1059,14 +1044,59 @@ Window {
             onCloseShellRequested: root.close()
             onBackRequested: root.quickMenuBack()
         }
-        // The volume HUD sits with the screens, hidden over an Activity: the
-        // sheet says a failed change itself and never shows a guessed level.
-        Connections {
-            target: systemControl
-            ignoreUnknownSignals: true
-            function onVolumeFailed(refusal) {
-                if (root.quickMenuOpen) quickMenu.showNotice(qsTr("Volume control is not available"));
+    }
+    // The system scopes above the screens and the sheet, also over an
+    // Activity: power, the launch dialog, then ambient (§6.1).
+    Ui.LogicalCanvas {
+        anchors.fill: parent
+        // Keys they leave unaccepted bubble as from the screens.
+        Keys.onPressed: event => root.unhandledKey(event)
+        // The power scope above every screen and the quick menu, and the
+        // volume HUD (§5.7, §6.1: dialog › power › sheet).
+        Power.PowerOverlay {
+            id: powerOverlay
+            anchors.fill: parent
+            z: 7
+            focus: root.focusedScreen === "power"
+            control: systemControl
+            runningApplications: backend.items
+            registryKnown: backend.applicationsState === "ready" || backend.applicationsState === "empty"
+            keysEnabled: root.visible && root.active && !sessionGuard.blocked && !ambientScreen.active
+            // A late refusal never takes focus behind the launch dialog or
+            // the ambient screen; it appears once they are gone.
+            holdLateAnswer: launchOverlay.visible || ambientScreen.active
+            onClosed: Qt.callLater(() => { if (!powerOverlay.restoreLateFocus()) root.restoreFocus(); })
+            onHomeRequested: {
+                if (root.quickMenuOpen || root.activityBehind) {
+                    root.quickMenuHome();
+                    return;
+                }
+                root.closeOverlays();
+                Qt.callLater(home.showHome);
             }
+            onAmbientRequested: root.startAmbient()
+        }
+        // The launch dialog is drawn above the power scope (ui-power.md).
+        Ui.LaunchOverlay {
+            id: launchOverlay
+            anchors.fill: parent
+            z: 20
+            active: browserCatalog.opening
+            serviceTitle: browserCatalog.openingTitle
+            failure: browserCatalog.openingError
+            onCancelRequested: browserCatalog.cancelOpen()
+            onRetryRequested: browserCatalog.retryOpen()
+            onDismissRequested: browserCatalog.dismissOpenFailure()
+            onHomeRequested: Qt.callLater(home.showHome)
+        }
+        Power.AmbientScreen {
+            id: ambientScreen
+            anchors.fill: parent
+            z: 30
+            focus: root.focusedScreen === "ambient"
+            clockText: home.clockText
+            dateText: { home.clockText; return Qt.locale().toString(new Date(), "dddd, d MMMM"); }
+            onActiveChanged: if (!active) root.finishAmbient()
         }
     }
 }

@@ -10,6 +10,7 @@
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QSignalSpy>
+#include <QTemporaryDir>
 #include <QTest>
 #include <QTimer>
 #include <QtDBus>
@@ -31,6 +32,18 @@ public:
   QStringList controlCalls;
   uint level = 30;
   bool muted = false;
+  // Holds Suspend until releaseSuspend() refuses it: a request in flight.
+  // The fake has its own connection, so a held call is really pending (a
+  // call within one connection is answered when the handler returns).
+  bool holdSuspend = false;
+  QDBusMessage heldSuspend;
+  QDBusConnection bus = QDBusConnection::connectToBus(
+      QDBusConnection::SessionBus, QStringLiteral("quick-menu-fake"));
+  void releaseSuspend() {
+    bus.send(heldSuspend.createErrorReply(
+        QStringLiteral("org.arinn.Error1.Conflict"), QStringLiteral("inhibited")));
+    heldSuspend = {};
+  }
   QString introspect(const QString &) const override { return {}; }
   bool handleMessage(const QDBusMessage &m,
                      const QDBusConnection &bus) override {
@@ -55,8 +68,11 @@ public:
         a.endStructure();
         bus.send(m.createReply(QVariant::fromValue(a)));
       } else if (member == QLatin1String("Suspend")) {
-        bus.send(m.createErrorReply(QStringLiteral("org.arinn.Error1.Conflict"),
-                                    QStringLiteral("inhibited")));
+        if (holdSuspend)
+          heldSuspend = m;
+        else
+          bus.send(m.createErrorReply(QStringLiteral("org.arinn.Error1.Conflict"),
+                                      QStringLiteral("inhibited")));
       } else {
         bus.send(m.createErrorReply(QDBusError::NotSupported, "fixture"));
       }
@@ -88,7 +104,7 @@ public:
     return true;
   }
   void changed() {
-    QDBusConnection::sessionBus().send(
+    bus.send(
         QDBusMessage::createSignal(path, service, QStringLiteral("Changed")));
   }
   // The platform's explicit request: state first, then the intent.
@@ -97,7 +113,7 @@ public:
     changed();
     auto message = QDBusMessage::createSignal(path, service, signal);
     message << requestEpoch << returnWindow << QString();
-    QDBusConnection::sessionBus().send(message);
+    bus.send(message);
   }
 };
 class SessionGuardStandIn : public QObject {
@@ -129,6 +145,7 @@ class QuickMenuTest : public QObject {
   std::unique_ptr<QQmlApplicationEngine> engine;
   QQuickWindow *window = nullptr;
   QQuickItem *menu = nullptr, *screens = nullptr, *home = nullptr;
+  QTemporaryDir frames;
 
   bool focusIn(QQuickItem *scope) {
     for (auto *item = window->activeFocusItem(); item; item = item->parentItem())
@@ -146,8 +163,11 @@ private slots:
     daemon.controlCalls.clear();
     daemon.level = 30;
     daemon.muted = false;
+    daemon.holdSuspend = false;
+    daemon.heldSuspend = {};
     guard.m_blocked = false;
-    auto bus = QDBusConnection::sessionBus();
+    auto bus = daemon.bus;
+    QVERIFY(bus.isConnected());
     bus.unregisterObject(path);
     QVERIFY(bus.registerVirtualObject(path, &daemon));
     QVERIFY(bus.registerService(service));
@@ -169,7 +189,7 @@ private slots:
   void cleanup() {
     engine.reset();
     backend.reset();
-    auto bus = QDBusConnection::sessionBus();
+    auto bus = daemon.bus;
     bus.unregisterService(service);
     bus.unregisterObject(path);
   }
@@ -217,8 +237,6 @@ private slots:
     QTRY_VERIFY(focusIn(home));
     QCOMPARE(daemon.backs, 0);
     // Over Home: the sheet opens on top and Back returns focus to Home.
-    // (A shell shown in the last 1.5 s still counts as the Activity's.)
-    QTest::qWait(1600);
     const auto opener = window->activeFocusItem();
     daemon.request("QuickMenuRequested");
     QTRY_VERIFY(menuOpen());
@@ -269,50 +287,199 @@ private slots:
     QVERIFY(!screens->isVisible());
   }
 
-  // Sleep and Power hand over to the shell's power scope. Over an Activity
-  // the shell comes up as for Home; Sleep sends one request and a refusal is
-  // shown, never a success. Over the shell the power menu opens over it.
-  void sleepAndPowerOpenThePowerMenu() {
+  // Opens the sheet over an Activity, or over Home when `overShell`.
+  void openSheet(bool overShell) {
     daemon.returnWindow = QStringLiteral("activity");
+    if (overShell) {
+      daemon.request("HomeRequested");
+      QTRY_VERIFY(window->isVisible());
+      window->requestActivate();
+      QTRY_VERIFY(window->isActive());
+      QTRY_VERIFY(focusIn(home));
+    }
     daemon.request("QuickMenuRequested");
     QTRY_VERIFY(window->isVisible());
     window->requestActivate();
     QTRY_VERIFY(menuOpen());
-    QTest::keyClick(window, Qt::Key_Down);
-    QTRY_VERIFY(child(window, "quickMenuSleep")->hasActiveFocus());
+    QCOMPARE(screens->isVisible(), overShell);
+  }
+  QQuickItem *row(const char *name) { return child(window, name); }
+  void moveTo(const char *name) {
+    for (int i = 0; i < 6 && !row(name)->hasActiveFocus(); ++i)
+      QTest::keyClick(window, Qt::Key_Down);
+    QTRY_VERIFY(row(name)->hasActiveFocus());
+  }
+
+  // Power opens the power scope over the sheet (§6.1: power › sheet). The
+  // Activity stays behind; Back closes the scope and focus returns to the
+  // Power row (§6.3). The same over the shell.
+  void powerOpensOverTheSheetAndBackReturnsToIt_data() {
+    QTest::addColumn<bool>("overShell");
+    QTest::newRow("over an Activity") << false;
+    QTest::newRow("over the shell") << true;
+  }
+  void powerOpensOverTheSheetAndBackReturnsToIt() {
+    QFETCH(bool, overShell);
+    openSheet(overShell);
+    moveTo("quickMenuPower");
     QTest::keyClick(window, Qt::Key_Return);
-    QTRY_VERIFY(!menu->isVisible());
-    QVERIFY(screens->isVisible());
     auto *power = child(window, "powerOverlay");
-    QTRY_VERIFY(child(window, "powerError")->isVisible());
+    QTRY_VERIFY(child(window, "powerMenu")->isVisible());
     QTRY_VERIFY(focusIn(power));
-    QCOMPARE(daemon.controlCalls.count(QStringLiteral("Suspend")), 1);
+    QVERIFY(menu->isVisible());
+    QCOMPARE(screens->isVisible(), overShell);
+    QCOMPARE(window->color() == QColor(Qt::transparent), !overShell);
+    QCOMPARE(daemon.controlCalls.count(QStringLiteral("Suspend")), 0);
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_VERIFY(!child(window, "powerMenu")->isVisible());
+    QTRY_VERIFY(row("quickMenuPower")->hasActiveFocus());
+    QVERIFY(menuOpen());
+    QCOMPARE(screens->isVisible(), overShell);
     QCOMPARE(daemon.backs, 0);
-    // Back clears the refusal, Back again closes the menu onto Home, whose
-    // Return is still that Activity.
+    // A repeated key under the power scope keeps that scope on top.
+    QTest::keyClick(window, Qt::Key_Return);
+    QTRY_VERIFY(focusIn(power));
+    daemon.request("QuickMenuRequested");
+    QTest::qWait(200);
+    QVERIFY(focusIn(power));
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_VERIFY(row("quickMenuPower")->hasActiveFocus());
+    // Back from the sheet then leaves as usual.
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_VERIFY(!menu->isVisible());
+    QTRY_COMPARE(daemon.backs, overShell ? 0 : 1);
+  }
+
+  // Sleep sends one request at once, without confirmation; the refusal is
+  // shown in the power scope over the sheet, never a success, and Back
+  // returns to the Sleep row with the Activity still behind.
+  void sleepRequestsSuspendOverTheSheet() {
+    openSheet(false);
+    moveTo("quickMenuSleep");
+    QTest::keyClick(window, Qt::Key_Return);
+    QTRY_VERIFY(child(window, "powerError")->isVisible());
+    QTRY_VERIFY(focusIn(child(window, "powerOverlay")));
+    QVERIFY(menu->isVisible());
+    QVERIFY(!screens->isVisible());
+    QCOMPARE(daemon.controlCalls.count(QStringLiteral("Suspend")), 1);
     QTest::keyClick(window, Qt::Key_Escape);
     QTRY_VERIFY(!child(window, "powerError")->isVisible());
     QVERIFY(child(window, "powerMenu")->isVisible());
     QTest::keyClick(window, Qt::Key_Escape);
     QTRY_VERIFY(!child(window, "powerMenu")->isVisible());
-    QTRY_VERIFY(focusIn(home));
-    QCOMPARE(daemon.backs, 0);
-    // Over the shell, Power opens the menu and sends nothing.
-    QTest::qWait(1600);
-    daemon.request("QuickMenuRequested");
-    QTRY_VERIFY(menuOpen());
-    QVERIFY(screens->isVisible());
-    QTest::keyClick(window, Qt::Key_Down);
-    QTest::keyClick(window, Qt::Key_Down);
-    QTRY_VERIFY(child(window, "quickMenuPower")->hasActiveFocus());
-    QTest::keyClick(window, Qt::Key_Return);
-    QTRY_VERIFY(!menu->isVisible());
-    QTRY_VERIFY(child(window, "powerMenu")->isVisible());
-    QTRY_VERIFY(focusIn(power));
+    QTRY_VERIFY(row("quickMenuSleep")->hasActiveFocus());
+    QVERIFY(!screens->isVisible());
     QCOMPARE(daemon.controlCalls.count(QStringLiteral("Suspend")), 1);
+    QCOMPARE(daemon.backs, 0);
+  }
+
+  // Home leaves the power scope while Sleep is in flight (#477): the sheet
+  // gives way to Home, the request goes on, and its late refusal reopens the
+  // power scope over Home. Back on it returns to Home.
+  void lateRefusalAfterLeavingTheSheet() {
+    daemon.holdSuspend = true;
+    openSheet(false);
+    moveTo("quickMenuSleep");
+    QTest::keyClick(window, Qt::Key_Return);
+    QTRY_COMPARE(daemon.controlCalls.count(QStringLiteral("Suspend")), 1);
+    QTRY_VERIFY(focusIn(child(window, "powerOverlay")));
+    // In flight: Back does nothing, Home leaves.
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTest::qWait(100);
+    QVERIFY(child(window, "powerMenu")->isVisible());
+    QTest::keyClick(window, Qt::Key_Home);
+    QTRY_VERIFY(!child(window, "powerMenu")->isVisible());
+    QTRY_VERIFY(!menu->isVisible());
+    QVERIFY(screens->isVisible());
+    QTRY_VERIFY(focusIn(home));
+    daemon.releaseSuspend();
+    QTRY_VERIFY(child(window, "powerError")->isVisible());
+    QTRY_VERIFY(focusIn(child(window, "powerOverlay")));
+    QVERIFY(!menu->isVisible());
     QTest::keyClick(window, Qt::Key_Escape);
     QTRY_VERIFY(!child(window, "powerMenu")->isVisible());
     QTRY_VERIFY(focusIn(home));
+    QCOMPARE(daemon.controlCalls.count(QStringLiteral("Suspend")), 1);
+    QCOMPARE(daemon.backs, 0);
+  }
+
+  // Regression (review of #502): the quick-menu key right after Home is
+  // over the shell, however recently the shell was shown. Back closes the
+  // sheet and focus returns to Home; the Activity is not activated.
+  void quickMenuRightAfterHomeIsOverTheShell() {
+    daemon.returnWindow = QStringLiteral("activity");
+    daemon.request("HomeRequested");
+    QTRY_VERIFY(window->isVisible());
+    window->requestActivate();
+    QTRY_VERIFY(window->isActive());
+    QTRY_VERIFY(focusIn(home));
+    // Home settles its focus on Return; still well inside 1.5 s.
+    QTRY_COMPARE(window->activeFocusItem()->objectName(), QStringLiteral("entry-activity"));
+    const auto opener = window->activeFocusItem();
+    daemon.request("QuickMenuRequested");
+    QTRY_VERIFY(menuOpen());
+    QVERIFY(screens->isVisible());
+    QCOMPARE(window->color(), QColor(QStringLiteral("#131416")));
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_VERIFY(!menu->isVisible());
+    QTRY_COMPARE(window->activeFocusItem(), opener);
+    QTest::qWait(200);
+    QCOMPARE(daemon.backs, 0);
+    QVERIFY(window->isVisible());
+  }
+
+  // During ambient the quick-menu key only wakes, and that first event
+  // triggers nothing: the same for Meta+F11 (a request) and for the
+  // remote's Menu, which reaches the shell while it has focus (§5.7).
+  void ambientOnlyWakesForBothQuickMenuKeys() {
+    daemon.returnWindow = QStringLiteral("activity");
+    daemon.request("HomeRequested");
+    QTRY_VERIFY(window->isVisible());
+    window->requestActivate();
+    QTRY_VERIFY(window->isActive());
+    QTRY_VERIFY(focusIn(home));
+    auto *ambient = child(window, "ambientScreen");
+    for (const bool remote : {true, false}) {
+      QVERIFY(QMetaObject::invokeMethod(window, "startAmbient"));
+      QTRY_VERIFY(ambient->property("armed").toBool());
+      if (remote)
+        QTest::keyClick(window, Qt::Key_Menu);
+      else
+        daemon.request("QuickMenuRequested");
+      QTRY_VERIFY(!ambient->property("active").toBool());
+      QTest::qWait(200);
+      QVERIFY2(!menu->isVisible(), remote ? "Menu" : "request");
+      QVERIFY2(!home->property("navOpen").toBool(), remote ? "Menu" : "request");
+      QTRY_VERIFY(focusIn(home));
+    }
+    // Awake, the key opens the sheet as usual.
+    daemon.request("QuickMenuRequested");
+    QTRY_VERIFY(menuOpen());
+  }
+
+  // Over an Activity the sheet shows the Activity's last frame when there is
+  // one (§5.7, §12.3); otherwise the live window behind the transparent
+  // window. Over the shell no frame is drawn.
+  void activityFrameBehindTheSheet() {
+    QImage image(32, 18, QImage::Format_RGB32);
+    image.fill(Qt::darkCyan);
+    const QString file = frames.filePath(QStringLiteral("frame.png"));
+    QVERIFY(image.save(file));
+    auto *frame = child(window, "quickMenuActivityFrame");
+    openSheet(false);
+    QVERIFY(!frame->isVisible());
+    // The source the shell reads for Home (ActivityBackgroundSource).
+    window->setProperty("activityFrame", QUrl::fromLocalFile(file));
+    QTRY_VERIFY(frame->isVisible());
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_COMPARE(daemon.backs, 1);
+    // The frame stays until the platform hides the shell, so nothing
+    // flashes on the way back.
+    QVERIFY(frame->isVisible());
+    QTRY_VERIFY(!window->isVisible());
+    QVERIFY(!frame->isVisible());
+    openSheet(true);
+    QVERIFY(!frame->isVisible());
   }
 
   // A repeated key keeps the sheet; a request of another daemon epoch is
@@ -344,7 +511,7 @@ private slots:
     window->requestActivate();
     QTRY_VERIFY(menuOpen());
     QVERIFY(child(window, "quickMenuSleep")->isEnabled());
-    QDBusConnection::sessionBus().unregisterService(service);
+    daemon.bus.unregisterService(service);
     QTRY_VERIFY(!backend->connected());
     QTRY_VERIFY(!child(window, "quickMenuSleep")->isEnabled());
     QVERIFY(!child(window, "quickMenuPower")->isEnabled());

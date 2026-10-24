@@ -995,10 +995,6 @@
         <translation>Воспроизведение недоступно. Нажмите «Домой», чтобы выйти, или подождите остановки запущенного сеанса.</translation>
     </message>
     <message>
-        <source>Volume control is not available</source>
-        <translation>Управление громкостью недоступно</translation>
-    </message>
-    <message>
         <source>Type an address or a search</source>
         <translation>Введите адрес или запрос</translation>
     </message>

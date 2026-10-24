@@ -369,6 +369,27 @@ requests arm the [Activity background](../architecture/activity-background.md)
 capture after their signal, so Home opened from the quick menu shows the
 Activity's last frame.
 
+### Power-menu presentation
+
+[ADR-0111](../adr/0111-power-key.md) adds two more members to
+[Daemon1](daemon1.xml) for the remote's power key, preserving every existing
+signature:
+
+- `ReportPowerMenuRequest(target: s, output: s)` has the authentication and
+  validation of `ReportHomeRequest`. It commits the same visible Home state with
+  that Return target/output, emits `Changed`, then emits one
+  `PowerMenuRequested(epoch: s, target: s, output: s)`, including for identical
+  repeats. A rejected call publishes neither state nor intent.
+- `PowerMenuRequested` asks the shell to open the power menu (spec §5.7
+  *Power button*) over what it shows, which over an Activity is Home. It is a
+  transient intent with the delivery rules of `HomeRequested`.
+
+None of `ReportHomeRequest`, `ReportQuickMenuRequest` and
+`ReportPowerMenuRequest` emits another's signal. `Status.home_visible` is true
+while the power menu is shown over Home. The power-menu request arms the
+[Activity background](../architecture/activity-background.md) capture after its
+signal, as the other two do.
+
 ### Optional Return/window association
 
 [ADR-0073](../adr/0073-return-window-association.md) defines optional

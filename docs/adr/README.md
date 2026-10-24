@@ -128,6 +128,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0108](0108-system-control.md) | Power and volume actions through the daemon | Accepted | — |
 | [0109](0109-season-only-snn-markers.md) | Season-only `Snn` markers in library names | Accepted | — |
 | [0110](0110-application-launch-lifetime-and-cancellation.md) | Application launch lifetime and cancellation | Accepted | — |
+| [0111](0111-power-key.md) | The remote's power key opens Arinn's power menu | Accepted | — |
 | [0112](0112-shell-preferences-as-core-settings.md) | The shell's preferences are core settings of the daemon | Accepted | — |
 | [0113](0113-per-runner-ci-target-directories.md) | One Cargo target directory per self-hosted runner instance | Accepted | 0114 |
 | [0114](0114-per-runner-package-target-directories.md) | One package target directory per self-hosted runner instance | Accepted | — |

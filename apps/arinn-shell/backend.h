@@ -43,6 +43,7 @@ class Backend : public QObject {
   Q_PROPERTY(QString shortcutError READ shortcutError NOTIFY changed)
   // The application launch on screen (spec §6.5, ADR-0110): in flight,
   // whether the daemon can cancel it, and the error code once it failed.
+  // Other launches keep running behind it, one per application.
   Q_PROPERTY(bool launchActive READ launchActive NOTIFY changed)
   Q_PROPERTY(QString launchTitle READ launchTitle NOTIFY changed)
   Q_PROPERTY(bool launchCancellable READ launchCancellable NOTIFY changed)
@@ -84,13 +85,23 @@ public:
   Q_INVOKABLE void launch(const QString &id);
   Q_INVOKABLE void activate(const QString &id);
   bool launchActive() const {
-    return !m_launch.id.isEmpty() && m_launch.error.isEmpty();
+    const auto *launch = shownLaunch();
+    return launch && launch->error.isEmpty();
   }
-  QString launchTitle() const { return m_launch.title; }
+  QString launchTitle() const {
+    const auto *launch = shownLaunch();
+    return launch ? launch->title : QString();
+  }
   bool launchCancellable() const {
-    return launchActive() && m_launch.cancellable && !m_launch.cancelling;
+    const auto *launch = shownLaunch();
+    return launchActive() && launch->cancellable && !launch->cancelling;
   }
-  QString launchError() const { return m_launch.error; }
+  QString launchError() const {
+    const auto *launch = shownLaunch();
+    return launch ? launch->error : QString();
+  }
+  // How long the launch on screen has been running, for showing it again.
+  Q_INVOKABLE qint64 launchElapsed() const;
   // Stop the launch on screen after the user confirmed it (ADR-0110).
   Q_INVOKABLE void cancelLaunch();
   Q_INVOKABLE void retryLaunch();
@@ -113,8 +124,13 @@ signals:
   void webShortcutsChanged();
   void continueEntriesChanged();
   void screenRequested(const QString &name);
-  // The tile of the launch in flight was chosen again: show it again.
+  // The tile of a launch in flight was chosen again: show it again.
   void launchShown();
+  // A new launch is on screen: start its overlay from the beginning.
+  void launchStarted();
+  // A dismissed failure leaves another launch running: keep it hidden, as
+  // Home does, until its tile is chosen again.
+  void launchHidden();
   // The global Home key or a queued Home, for the current daemon epoch.
   void homeRequested();
   // The quick-menu key, for the current daemon epoch (ADR-0106).
@@ -136,11 +152,33 @@ private:
   bool m_shortcutSaving = false;
   quint64 m_shortcutRevision = 0, m_editorRevision = 0, m_editorTicket = 0;
   QSet<QString> m_pendingIds;
+  // One record per application ID with a launch in flight or a failure not
+  // dismissed yet; m_shownLaunch is the one the overlay shows (§6.5).
   struct Launch {
     QString id, title, operation, error;
     bool cancellable = false, cancelling = false;
+    qint64 started = 0;
   };
-  Launch m_launch;
+  QHash<QString, Launch> m_launches;
+  QString m_shownLaunch;
+  const Launch *shownLaunch() const {
+    const auto found = m_launches.constFind(m_shownLaunch);
+    return found == m_launches.constEnd() ? nullptr : &found.value();
+  }
+  Launch *launchRecord(const QString &id, const QString &operation) {
+    const auto found = m_launches.find(id);
+    return found != m_launches.end() && found->operation == operation
+               ? &found.value()
+               : nullptr;
+  }
+  // The launch on screen ended or was dismissed: the most recent launch
+  // still in flight takes its place, hidden.
+  void forgetShownLaunch();
+  // After a failure left the screen: publish, and hide the launch that took
+  // its place.
+  void dismissed();
+  // A launch failed: its dialog comes on screen at once.
+  void failLaunch(Launch &launch, const QString &error);
   struct Catalog;
   void readProviders(const std::shared_ptr<Catalog> &catalog,
                      const QString &token = {});

@@ -190,6 +190,53 @@ impl Fixture {
             .cancel()
             .await
     }
+    /// A browser provider that is registered but not connected yet, and the
+    /// browser application to launch for a web open (ADR-0055).
+    async fn closed_browser(&self) {
+        crate::storage::Config {
+            browser_application: "browser.desktop".into(),
+            ..Default::default()
+        }
+        .save(&self.core.paths.config)
+        .unwrap();
+        let mut browser = provider("chrome", "browser", ":1.999", &self.generation);
+        browser.info.backend_state = "unavailable".into();
+        self.core
+            .state
+            .lock()
+            .await
+            .providers
+            .insert("chrome".into(), browser);
+    }
+    /// A web open with no browser: the daemon launches it.
+    fn open_without_browser(
+        &self,
+        wait: Duration,
+    ) -> tokio::task::JoinHandle<Result<(), ErrorCode>> {
+        let core = self.core.clone();
+        tokio::spawn(async move {
+            let op = crate::operations::Operation::detached(Label::new("browse.open"));
+            core.launch_browser(&op, tokio::time::Instant::now() + wait)
+                .await
+        })
+    }
+    async fn cancel_in_background(
+        &self,
+        path: &OwnedObjectPath,
+    ) -> tokio::task::JoinHandle<zbus::Result<()>> {
+        let client = self.client.clone();
+        let path = path.clone();
+        tokio::spawn(async move {
+            ProductionOperationProxy::builder(&client)
+                .path(path)
+                .unwrap()
+                .build()
+                .await
+                .unwrap()
+                .cancel()
+                .await
+        })
+    }
     fn log(&self) -> Vec<String> {
         self.apps.log.lock().unwrap().clone()
     }
@@ -222,20 +269,7 @@ async fn a_launch_waits_for_a_slow_cancel_beyond_its_timeout() {
     })
     .await;
     // The provider takes longer than the daemon's cancel deadline.
-    let cancel = {
-        let client = f.client.clone();
-        let first = first.clone();
-        tokio::spawn(async move {
-            ProductionOperationProxy::builder(&client)
-                .path(first)
-                .unwrap()
-                .build()
-                .await
-                .unwrap()
-                .cancel()
-                .await
-        })
-    };
+    let cancel = f.cancel_in_background(&first).await;
     f.until("CancelLaunch reached the provider", |log| {
         log.contains(&"cancel game.desktop".to_string())
     })
@@ -287,35 +321,53 @@ async fn a_launch_waits_for_a_slow_cancel_beyond_its_timeout() {
 }
 
 #[tokio::test]
+async fn the_daemons_browser_launch_waits_for_a_cancel_in_flight() {
+    let f = Fixture::new().await;
+    f.closed_browser().await;
+    // The browser started from its tile, and its slow cancel is in flight.
+    let tile = f.launch("browser.desktop").await;
+    f.until("the tile launch is sent", |log| {
+        launches(log, "browser.desktop") == 1
+    })
+    .await;
+    let cancel = f.cancel_in_background(&tile).await;
+    f.until("CancelLaunch reached the provider", |log| {
+        log.contains(&"cancel browser.desktop".to_string())
+    })
+    .await;
+    // A web open now launches the browser: held until the provider answers.
+    let open = f.open_without_browser(Duration::from_secs(5));
+    assert_eq!(
+        error_name(cancel.await.unwrap()),
+        "org.arinn.Error1.Timeout"
+    );
+    tokio::time::sleep(LAUNCH_CANCEL_DEADLINE).await;
+    assert_eq!(launches(&f.log(), "browser.desktop"), 1, "{:?}", f.log());
+    f.apps.release_cancel.notify_one();
+    f.until("the browser launch is sent", |log| {
+        launches(log, "browser.desktop") == 2
+    })
+    .await;
+    let log = f.log();
+    let answered = log
+        .iter()
+        .position(|e| e == "cancelled browser.desktop")
+        .unwrap();
+    let sent = log
+        .iter()
+        .rposition(|e| e == "launch browser.desktop")
+        .unwrap();
+    assert!(answered < sent, "{log:?}");
+    open.abort();
+}
+
+#[tokio::test]
 async fn the_daemons_browser_launch_counts_for_a_tile_cancel() {
     let f = Fixture::new().await;
-    crate::storage::Config {
-        browser_application: "browser.desktop".into(),
-        ..Default::default()
-    }
-    .save(&f.core.paths.config)
-    .unwrap();
-    // A browser provider is registered but not connected yet.
-    {
-        let mut browser = provider("chrome", "browser", ":1.999", &f.generation);
-        browser.info.backend_state = "unavailable".into();
-        f.core
-            .state
-            .lock()
-            .await
-            .providers
-            .insert("chrome".into(), browser);
-    }
+    f.closed_browser().await;
     // A web shortcut opens with no browser: the daemon launches it, and the
     // open gives up waiting long before the provider answers.
-    let open = {
-        let core = f.core.clone();
-        tokio::spawn(async move {
-            let op = crate::operations::Operation::detached(Label::new("browse.open"));
-            let deadline = tokio::time::Instant::now() + Duration::from_millis(300);
-            core.launch_browser(&op, deadline).await
-        })
-    };
+    let open = f.open_without_browser(Duration::from_millis(300));
     f.until("the browser launch is sent", |log| {
         launches(log, "browser.desktop") == 1
     })

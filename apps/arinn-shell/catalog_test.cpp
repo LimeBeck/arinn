@@ -135,6 +135,11 @@ public:
   QString cancelError;
   int cancels = 0;
   static constexpr auto launchPath = "/org/arinn/Daemon1/operations/launch";
+  // One operation per application (launchPath_<local id>), with its own
+  // state and error, and the second application launchable too.
+  bool perApplication = false;
+  QHash<QString, QString> states, errors;
+  QStringList cancelled;
   QString backError;
   QString introspect(const QString &) const override { return {}; }
   bool handleMessage(const QDBusMessage &m,
@@ -193,7 +198,7 @@ public:
       a << (mode == "generation" && !first ? QString("stale")
                                            : QString("generation"))
         << qulonglong(mode == "revision" && !first ? 2 : 1)
-        << QList<AppWire>{{first ? "first" : "second", first,
+        << QList<AppWire>{{first ? "first" : "second", first || perApplication,
                            first ? "games" : "future-group",
                            first ? QStringLiteral("applications-games")
                                  : QStringLiteral("/usr/share/icons/hicolor/"
@@ -211,12 +216,32 @@ public:
       ++launches;
       invokedMethod = m.member();
       invokedId = m.arguments().at(1).toString();
-      if (launchOperation)
+      if (launchOperation && perApplication) {
+        states.insert(invokedId, QStringLiteral("running"));
+        errors.remove(invokedId);
+        bus.send(m.createReply(QVariant::fromValue(QDBusObjectPath(
+            QString::fromLatin1(launchPath) + "_" + invokedId))));
+      } else if (launchOperation)
         bus.send(m.createReply(QVariant::fromValue(QDBusObjectPath(launchPath))));
       else
         bus.send(m.createErrorReply(QDBusError::Failed,
                                     "fixture operation failure"));
       return true;
+    } else if (perApplication &&
+               m.path().startsWith(QString::fromLatin1(launchPath) + "_")) {
+      const auto id = m.path().section('_', -1);
+      if (m.member() == "Cancel") {
+        cancelled << id;
+        states[id] = QStringLiteral("cancelled");
+        errors[id] = QStringLiteral("Cancelled");
+        bus.send(m.createReply());
+        return true;
+      }
+      const bool running = states.value(id) == QLatin1String("running");
+      a.beginStructure();
+      a << states.value(id) << errors.value(id) << false << qulonglong(1)
+        << qulonglong(running ? 0 : 2) << QList<TargetWire>{} << running;
+      a.endStructure();
     } else if (m.path() == launchPath && m.member() == "Cancel") {
       ++cancels;
       if (!cancelError.isEmpty()) {
@@ -878,6 +903,72 @@ private slots:
       QVERIFY(backend.launchError().isEmpty());
       backend.dismissLaunchFailure();
       QCOMPARE(backend.launchTitle(), QString());
+    }
+    bus.unregisterObject("/org/arinn", QDBusConnection::UnregisterTree);
+    bus.unregisterService("org.arinn.Daemon1");
+  }
+  // Spec §6.5: a launch hidden by Home and then by a newer launch of
+  // another application still shows again on its tile, stays cancellable,
+  // and its failure comes on screen as a dialog (review of #511).
+  void launchBehindANewerLaunchShowsAgainAndFails() {
+    auto bus = QDBusConnection::sessionBus();
+    CatalogDaemon daemon;
+    daemon.mode = "populated";
+    daemon.launchOperation = true;
+    daemon.perApplication = true;
+    QVERIFY(bus.registerService("org.arinn.Daemon1"));
+    QVERIFY(bus.registerVirtualObject("/org/arinn", &daemon,
+                                      QDBusConnection::SubPath));
+    {
+      Backend backend;
+      QTRY_COMPARE(backend.applications().size(), 2);
+      const auto a = backend.applications()[0].toMap()["id"].toString();
+      const auto b = backend.applications()[1].toMap()["id"].toString();
+      QSignalSpy shown(&backend, &Backend::launchShown);
+      QSignalSpy started(&backend, &Backend::launchStarted);
+      QSignalSpy hidden(&backend, &Backend::launchHidden);
+      backend.launch(a);
+      QTRY_VERIFY(backend.launchCancellable());
+      backend.launch(b);
+      QCOMPARE(started.count(), 2);
+      QTRY_VERIFY(backend.launchCancellable());
+      QCOMPARE(daemon.launches, 2);
+      // A's tile again: A's starting screen, no relaunch, still cancellable.
+      backend.launch(a);
+      QCOMPARE(shown.count(), 1);
+      QCOMPARE(daemon.launches, 2);
+      QVERIFY(backend.launchActive());
+      QVERIFY(backend.launchCancellable());
+      QVERIFY(backend.launchElapsed() >= 0);
+      // Cancel reaches A's operation, not B's.
+      backend.cancelLaunch();
+      QTRY_COMPARE(daemon.cancelled, QStringList{"first"});
+      // A ended; B, still starting, takes its place hidden.
+      QTRY_COMPARE(hidden.count(), 1);
+      QVERIFY(backend.launchActive());
+      QCOMPARE(backend.busyEntryIds(), QStringList{b});
+      // A again, and this time it fails while B is on screen: its dialog
+      // comes on screen at once.
+      backend.launch(a);
+      QTRY_VERIFY(backend.launchCancellable());
+      backend.launch(b);
+      QCOMPARE(shown.count(), 2);
+      daemon.states["first"] = "failed";
+      daemon.errors["first"] = "Unavailable";
+      QTRY_COMPARE(backend.launchError(), QString("Unavailable"));
+      QVERIFY(!backend.launchActive());
+      // Dismissing it leaves B starting, hidden until its tile is chosen.
+      const auto hiddenBefore = hidden.count();
+      backend.dismissLaunchFailure();
+      QVERIFY(backend.launchError().isEmpty());
+      QVERIFY(backend.launchActive());
+      QCOMPARE(hidden.count(), hiddenBefore + 1);
+      backend.launch(b);
+      QCOMPARE(shown.count(), 3);
+      QCOMPARE(daemon.launches, 3);
+      daemon.states["second"] = "succeeded";
+      QTRY_VERIFY(!backend.launchActive());
+      QVERIFY(backend.launchError().isEmpty());
     }
     bus.unregisterObject("/org/arinn", QDBusConnection::UnregisterTree);
     bus.unregisterService("org.arinn.Daemon1");

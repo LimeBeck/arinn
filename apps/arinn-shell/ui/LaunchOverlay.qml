@@ -81,16 +81,26 @@ FocusScope {
         timedOut = false;
         confirming = false;
     }
-    // The operation is still running and the user chose its tile again.
-    function showAgain() {
-        if (!active || showDialog || !homeHidden)
+    // The operation is still running and the user chose its tile again,
+    // `elapsed` ms after it started: it shows at once, and "Starting…" when
+    // it has run for slowDelay already. It may be another launch than the
+    // one shown before (one launch per application, §6.5).
+    function showAgain(elapsed) {
+        if (!active || showDialog)
             return;
+        revealTimer.stop();
+        timeoutTimer.stop();
+        confirming = false;
         homeHidden = false;
         revealed = true;
-        if (slow)
+        slow = (elapsed || 0) >= slowDelay;
+        if (slow) {
+            slowTimer.stop();
             Qt.callLater(() => Focus.take(cancelButton));
-        else
-            scheduleSlow();
+        } else {
+            slowTimer.interval = Math.max(0, slowDelay - (elapsed || 0));
+            slowTimer.restart();
+        }
     }
     // Cancel: an application launch asks first; Keep starting is focused.
     function requestCancel() {

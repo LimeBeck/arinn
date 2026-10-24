@@ -159,8 +159,9 @@ ambient is a screensaver, not sleep.
   `SettingsCatalog.ambientTimeoutMinutes`, so a change applies at once.
 - **No automatic start** while the shell is hidden or its window inactive
   (an external Activity is in the foreground), while the session is locked,
-  while ambient is already on, while a web service or an application is
-  launching (`Backend.launchActive`, ADR-0110), or while
+  while ambient is already on, while a web service is launching or an
+  application's starting screen is on screen (ADR-0110; a launch hidden by
+  Home may run for hours and does not count), or while
   media plays: an MPRIS session in `playing`, managed playback or its input
   layer, or an audible browser tab. Losing any of these conditions stops the
   count; regaining them starts a full timeout.

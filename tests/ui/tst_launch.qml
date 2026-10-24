@@ -195,10 +195,33 @@ TestCase {
         compare(overlay.confirming, false);
         compare(overlay.visible, false);
         // Choosing the tile again shows the starting state again.
-        overlay.showAgain();
+        overlay.showAgain(overlay.slowDelay);
         compare(overlay.visible, true);
         compare(overlay.slow, true);
         focused("launchCancel");
+    }
+
+    // Another application's launch, chosen again behind a newer one, shows
+    // at once: "Starting…" when it has run that long, else when it has.
+    function test_application_show_again_follows_the_launch_shown() {
+        application();
+        overlay.active = true;
+        tryCompare(overlay, "slow", true);
+        keyClick(Qt.Key_Home);
+        compare(overlay.visible, false);
+        overlay.serviceTitle = "Other";
+        overlay.showAgain(0);
+        compare(overlay.visible, true);
+        compare(overlay.slow, false);
+        compare(child("launchTitle").text, "Opening Other…");
+        tryCompare(overlay, "slow", true);
+        compare(child("launchTitle").text, "Starting Other…");
+        focused("launchCancel");
+        // Shown while visible, for a launch that has run long enough.
+        overlay.serviceTitle = "Game";
+        overlay.showAgain(overlay.slowDelay + 1);
+        compare(overlay.slow, true);
+        compare(child("launchTitle").text, "Starting Game…");
     }
 
     function test_application_has_no_timeout() {

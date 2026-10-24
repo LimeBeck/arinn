@@ -530,6 +530,36 @@ private slots:
     QTRY_VERIFY(idle->property("eligible").toBool());
   }
 
+  // Automatic ambient waits while an application's starting screen is on
+  // screen, not while the launch runs hidden behind Home: an application
+  // launch has no time limit (§5.7, §6.5).
+  void ambientWaitsOnlyForAShownApplicationLaunch() {
+    daemon.request("HomeRequested");
+    QTRY_VERIFY(window->isVisible());
+    window->requestActivate();
+    QTRY_VERIFY(window->isActive());
+    QTRY_VERIFY(focusIn(home));
+    auto *idle = engine->rootObjects().value(0)->findChild<QObject *>(
+        QStringLiteral("ambientIdle"));
+    auto *launch = child(window, "applicationLaunch");
+    QVERIFY(idle && launch);
+    QTRY_VERIFY(idle->property("eligible").toBool());
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("revealDelay"), 0));
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("slowDelay"), 0));
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("cancellable"), true));
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("serviceTitle"), QStringLiteral("Game")));
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("active"), true));
+    QTRY_VERIFY(launch->isVisible());
+    QVERIFY(!idle->property("eligible").toBool());
+    // Home hides the starting screen; the launch goes on, ambient may count.
+    QTRY_VERIFY(findItem(launch, QStringLiteral("launchCancel"))->hasActiveFocus());
+    QTest::keyClick(window, Qt::Key_Home);
+    QTRY_VERIFY(!launch->isVisible());
+    QVERIFY(launch->property("active").toBool());
+    QTRY_VERIFY(idle->property("eligible").toBool());
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("active"), false));
+  }
+
   // A shell that is shown but has no focus when the request arrives is not
   // the screen the user is on: the sheet is over the Activity (the guard
   // against a Status read that showed the shell first).

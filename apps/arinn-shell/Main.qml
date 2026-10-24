@@ -479,7 +479,9 @@ Window {
         shellShown: root.visible && root.active && !root.activityBehind
         locked: sessionGuard.blocked
         ambientActive: ambientScreen.active
-        launching: browserCatalog.opening || backend.launchActive === true
+        // An application launch only while its overlay is on screen: it may
+        // keep running hidden for hours (§6.5).
+        launching: browserCatalog.opening || applicationLaunch.visible
         mediaPlaying: root.playerOpen || ambientIdle.playing(mediaCatalog.continueEntries, browserCatalog.tabs,
                                                              mediaCatalog.inputLayerActive)
         onIdle: root.startAmbient()
@@ -1107,7 +1109,11 @@ Window {
                 target: backend
                 // Test doubles of the backend may lack the signal.
                 ignoreUnknownSignals: true
-                function onLaunchShown() { applicationLaunch.showAgain(); }
+                function onLaunchShown() { applicationLaunch.showAgain(backend.launchElapsed()); }
+                // A launch that replaces another on screen starts over.
+                function onLaunchStarted() { applicationLaunch.arm(); }
+                // A dismissed failure leaves a launch behind it hidden.
+                function onLaunchHidden() { applicationLaunch.hideForHome(); }
             }
         }
         Power.AmbientScreen {

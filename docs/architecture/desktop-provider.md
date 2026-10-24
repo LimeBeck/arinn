@@ -138,6 +138,13 @@ stay held meanwhile. The shell shows "Opening <app>…", then after 8 s
 "Starting <app>…" with Cancel. Cancel asks for confirmation, with *Keep starting*
 as the default focus; Home hides the overlay without cancelling, and choosing the
 tile again shows it again. A failed launch shows the error dialog with Retry.
+`Backend` keeps one launch record per application, and the newest one is on
+screen. Choosing the tile of a launch hidden behind a newer one shows that
+launch again at once, as "Starting <app>…" once it has run for 8 s, with its own
+Cancel. A launch that fails behind another one brings its error dialog on
+screen at once; after it is dismissed, the newest launch still in flight stays
+hidden until its tile is chosen. Home and the quick menu hide whichever launch
+is on screen.
 
 Known limitation: a game entry that hands off to a client that is already running
 elsewhere (for example a `steam steam://rungameid/…` entry while Steam runs)
@@ -240,7 +247,11 @@ Launch lifetime ([#436](https://github.com/LimeBeck/arinn/issues/436), 2026-10-2
   answer; the daemon's browser launch for a web open, also after the open
   timed out, makes a tile's Cancel answer `Conflict`. Removing the dispatch
   hold, ending the marker at the timeout, or not counting the browser launch
-  each fails one of them. On `master` the
+  each fails one of them; a browser launch for a web open is also held while
+  a tile's cancel is in flight. `application-catalog`
+  `launchBehindANewerLaunchShowsAgainAndFails`: launch A, launch B, choose A
+  again shows A, Cancel reaches A's operation, and A's failure behind B
+  comes on screen. On `master` the
   suite fails at the first "still starting" check: the launch had already
   succeeded.
 

@@ -1338,6 +1338,149 @@
     </message>
 </context>
 <context>
+    <name>QuickMenu</name>
+    <message>
+        <source>Muted</source>
+        <translation>Звук выключен</translation>
+    </message>
+    <message>
+        <source>Sound on · %1%</source>
+        <translation>Звук включён · %1%</translation>
+    </message>
+    <message>
+        <source>Sound on</source>
+        <translation>Звук включён</translation>
+    </message>
+    <message>
+        <source>Sound state unknown</source>
+        <translation>Состояние звука неизвестно</translation>
+    </message>
+    <message>
+        <source>Network state unknown</source>
+        <translation>Состояние сети неизвестно</translation>
+    </message>
+    <message>
+        <source>Not connected</source>
+        <translation>Нет подключения</translation>
+    </message>
+    <message>
+        <source>Connected by cable</source>
+        <translation>Подключено по кабелю</translation>
+    </message>
+    <message>
+        <source>Wi-Fi · signal %1 of 4</source>
+        <translation>Wi-Fi · сигнал %1 из 4</translation>
+    </message>
+    <message>
+        <source>Wi-Fi</source>
+        <translation>Wi-Fi</translation>
+    </message>
+    <message>
+        <source>Connected</source>
+        <translation>Подключено</translation>
+    </message>
+    <message>
+        <source>Quick menu</source>
+        <translation>Быстрое меню</translation>
+    </message>
+    <message>
+        <source>Untitled</source>
+        <translation>Без названия</translation>
+    </message>
+    <message>
+        <source>Nothing is playing</source>
+        <translation>Ничего не воспроизводится</translation>
+    </message>
+    <message>
+        <source>Now playing</source>
+        <translation>Сейчас играет</translation>
+    </message>
+    <message>
+        <source>Not available</source>
+        <translation>Недоступно</translation>
+    </message>
+    <message>
+        <source>Cannot be paused from Arinn</source>
+        <translation>Arinn не может поставить на паузу</translation>
+    </message>
+    <message>
+        <source>Cannot be resumed from Arinn</source>
+        <translation>Arinn не может продолжить воспроизведение</translation>
+    </message>
+    <message>
+        <source>Playing · OK pauses</source>
+        <translation>Воспроизводится · OK — пауза</translation>
+    </message>
+    <message>
+        <source>Paused · OK plays</source>
+        <translation>На паузе · OK — воспроизвести</translation>
+    </message>
+    <message>
+        <source>Sound</source>
+        <translation>Звук</translation>
+    </message>
+    <message>
+        <source>%1 · Left/Right: volume, OK: sound on</source>
+        <translation>%1 · Влево/вправо: громкость, OK: включить звук</translation>
+    </message>
+    <message>
+        <source>%1 · Left/Right: volume, OK: mute</source>
+        <translation>%1 · Влево/вправо: громкость, OK: выключить звук</translation>
+    </message>
+    <message>
+        <source>%1 · volume control is not available</source>
+        <translation>%1 · управление громкостью недоступно</translation>
+    </message>
+    <message>
+        <source>Network</source>
+        <translation>Сеть</translation>
+    </message>
+    <message>
+        <source>Sleep</source>
+        <translation>Сон</translation>
+    </message>
+    <message>
+        <source>Request system suspend</source>
+        <translation>Перевести систему в сон</translation>
+    </message>
+    <message>
+        <source>Power</source>
+        <translation>Питание</translation>
+    </message>
+    <message>
+        <source>Restart, shut down, ambient</source>
+        <translation>Перезагрузка, выключение, заставка</translation>
+    </message>
+    <message>
+        <source>Open Home</source>
+        <translation>Открыть главную</translation>
+    </message>
+    <message>
+        <source>Close Arinn</source>
+        <translation>Закрыть Arinn</translation>
+    </message>
+    <message>
+        <source>OK</source>
+        <translation>OK</translation>
+    </message>
+    <message>
+        <source>Select</source>
+        <translation>Выбрать</translation>
+    </message>
+    <message>
+        <source>Back</source>
+        <translation>Назад</translation>
+    </message>
+    <message>
+        <source>Return</source>
+        <translation>Вернуться</translation>
+    </message>
+    <message>
+        <source>Close</source>
+        <translation>Закрыть</translation>
+    </message>
+</context>
+<context>
     <name>SessionView</name>
     <message>
         <source>That control is not available.</source>

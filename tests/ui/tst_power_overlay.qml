@@ -25,6 +25,8 @@ TestCase {
             property string reboot: "available"
             property string powerOff: "available"
             property var inhibitors: []
+            // GetSessionSwitch; unknown until a test sets it.
+            property string sessionSwitch: "unknown"
             property string pendingAction: ""
             property string acceptedAction: ""
             property string refusal: ""
@@ -627,5 +629,179 @@ TestCase {
         compare(child("volumeHudValue").font.pixelSize, 30);
         compare(child("volumeHudValue").font.weight, 600);
         compare(hud.hideAfter, 1800);
+    }
+
+    // #438: Switch to desktop through the overlay (spec §5.7, ADR-0107).
+    function switchInFlight() {
+        control.sessionSwitch = "available";
+        openMenu();
+        for (let i = 0; i < 3; ++i)
+            keyClick(Qt.Key_Down);
+        focused("desktopButton");
+        keyClick(Qt.Key_Return);
+        focused("cancelButton");
+        keyClick(Qt.Key_Right);
+        keyClick(Qt.Key_Return);
+        compare(control.pendingAction, "switch-to-desktop");
+    }
+
+    // The entry follows the model's GetSessionSwitch: only "available" shows
+    // it, and an older control without the property offers none.
+    function test_switch_entry_follows_the_session_switch() {
+        openMenu();
+        verify(!child("desktopButton").visible);
+        control.sessionSwitch = "available";
+        verify(child("desktopButton").visible);
+        // Focus on the row when it goes away moves to a row that exists.
+        keyClick(Qt.Key_Down);
+        keyClick(Qt.Key_Down);
+        keyClick(Qt.Key_Down);
+        focused("desktopButton");
+        control.sessionSwitch = "unsupported";
+        verify(!child("desktopButton").visible);
+        focused("sleepButton");
+        // An open confirmation for it closes too, before anything is sent.
+        control.sessionSwitch = "available";
+        keyClick(Qt.Key_Down);
+        keyClick(Qt.Key_Down);
+        keyClick(Qt.Key_Down);
+        focused("desktopButton");
+        keyClick(Qt.Key_Return);
+        focused("cancelButton");
+        control.sessionSwitch = "unknown";
+        tryCompare(overlay.menu, "step", "menu");
+        verify(!child("powerConfirm").visible);
+        focused("sleepButton");
+        compare(requestCalls(), []);
+        keyClick(Qt.Key_Escape);
+        verify(!overlay.open);
+    }
+
+    // Confirmed, the switch is a request like Restart: busy, Cancel disabled
+    // and Back ignored until the daemon answers; acceptance is a waiting
+    // pane, never success.
+    function test_switch_request_waits_for_the_answer() {
+        switchInFlight();
+        compare(overlay.menu.busyAction, "desktop");
+        verify(child("confirmButton").busy);
+        verify(!child("cancelButton").enabled);
+        keyClick(Qt.Key_Escape);
+        keyClick(Qt.Key_Backspace);
+        mouseClick(child("cancelButton"));
+        verify(overlay.open);
+        compare(overlay.menu.step, "confirm");
+        compare(closedSpy.count, 0);
+        compare(requestCalls(), ["request:switch-to-desktop"]);
+        wait(300);
+        verify(!child("powerAccepted").visible);
+        control.answer("");
+        tryCompare(child("powerAccepted"), "visible", true);
+        compare(child("powerAccepted").title, "Switching to the desktop…");
+        compare(child("powerAccepted").kind, "loading");
+        keyClick(Qt.Key_Escape);
+        verify(!overlay.open);
+    }
+
+    // The power rows hold each other in both directions: one request at a
+    // time, as the daemon's shared power lock.
+    function test_switch_and_power_rows_hold_each_other() {
+        switchInFlight();
+        keyClick(Qt.Key_Home);
+        overlay.openMenu();
+        // Reopened: the pending switch as it was left.
+        tryCompare(overlay.menu, "step", "confirm");
+        compare(overlay.menu.pendingAction, "desktop");
+        focused("confirmButton");
+        verify(!child("cancelButton").enabled);
+        keyClick(Qt.Key_Return);
+        compare(requestCalls(), ["request:switch-to-desktop"]);
+        control.answer("unavailable");
+        tryCompare(child("powerError"), "visible", true);
+        keyClick(Qt.Key_Escape);
+        tryCompare(child("powerError"), "visible", false);
+        focused("cancelButton");
+        keyClick(Qt.Key_Return);
+        compare(overlay.menu.step, "menu");
+        // Sleep in flight holds the switch row.
+        keyClick(Qt.Key_Up);
+        keyClick(Qt.Key_Up);
+        keyClick(Qt.Key_Up);
+        focused("sleepButton");
+        keyClick(Qt.Key_Return);
+        compare(control.pendingAction, "suspend");
+        keyClick(Qt.Key_Down);
+        keyClick(Qt.Key_Down);
+        keyClick(Qt.Key_Down);
+        focused("desktopButton");
+        compare(child("desktopDescription").text, "Available after the system answers");
+        compare(child("desktopButton").opacity, 0.4);
+        keyClick(Qt.Key_Return);
+        compare(overlay.menu.step, "menu");
+        compare(requestCalls(), ["request:switch-to-desktop", "request:suspend"]);
+    }
+
+    // Home leaves while the switch is in flight and does not cancel it; a
+    // late refusal comes back, titled for the switch (owner decision
+    // 2026-10-23). Success needs nothing more: the session ends.
+    function test_switch_late_refusal_after_home() {
+        switchInFlight();
+        keyClick(Qt.Key_Home);
+        verify(!overlay.open);
+        compare(homeSpy.count, 1);
+        verify(overlay.awaitingAnswer);
+        control.answer("timeout");
+        tryCompare(overlay, "open", true);
+        focused("powerError");
+        compare(child("powerError").title, "Could not switch to the desktop");
+        compare(child("powerError").description, "The desktop did not answer in time. Arinn keeps running; try again.");
+        keyClick(Qt.Key_Escape);
+        verify(!overlay.open);
+        compare(control.refusal, "");
+
+        switchInFlight();
+        keyClick(Qt.Key_Home);
+        control.answer("");
+        wait(100);
+        verify(!overlay.open);
+        verify(!overlay.awaitingAnswer);
+    }
+
+    // A failed switch is an error and the session continues (spec §5.7).
+    function test_switch_refusal_texts_data() {
+        return [
+            {tag: "unavailable", text: "The desktop did not accept the logout. Arinn keeps running; try again later."},
+            {tag: "timeout", text: "The desktop did not answer in time. Arinn keeps running; try again."},
+            {tag: "failed", text: "Arinn could not prepare the switch. Arinn keeps running; try again."},
+            {tag: "unsupported", text: "This session cannot switch to the desktop. Arinn keeps running."},
+            {tag: "inhibited", text: "Another power request is still running. Arinn keeps running; try again when it is done."},
+            {tag: "denied", text: "The system does not allow it for this user. Arinn keeps running."}
+        ];
+    }
+    function test_switch_refusal_texts(data) {
+        // A shutdown holder is not a reason for the switch.
+        control.inhibitors = [{what: "shutdown", who: "Updater", why: "Installing"}];
+        switchInFlight();
+        control.answer(data.tag);
+        tryCompare(child("powerError"), "visible", true);
+        focused("powerError");
+        compare(child("powerError").title, "Could not switch to the desktop");
+        compare(child("powerError").description, data.text);
+        verify(!child("powerAccepted").visible);
+        if (data.tag === "unsupported") {
+            // The model reads GetSessionSwitch again: the switch goes, and
+            // Back leaves its confirmation for the first row.
+            control.sessionSwitch = "unsupported";
+            keyClick(Qt.Key_Escape);
+            tryCompare(child("powerError"), "visible", false);
+            tryCompare(overlay.menu, "step", "menu");
+            focused("sleepButton");
+            verify(!child("desktopButton").visible);
+            return;
+        }
+        // Back returns to the confirmation, Cancel focused.
+        keyClick(Qt.Key_Escape);
+        tryCompare(child("powerError"), "visible", false);
+        focused("cancelButton");
+        compare(overlay.menu.pendingAction, "desktop");
     }
 }

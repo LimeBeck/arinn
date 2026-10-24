@@ -15,6 +15,8 @@ const QString interface = QStringLiteral("org.arinn.SystemControl1");
 constexpr int powerTimeout = 20000;
 // GetPower: connect, list and three Can* reads, 2 s each.
 constexpr int readTimeout = 12000;
+// GetSessionSwitch only reads the daemon's environment and one file.
+constexpr int sessionSwitchTimeout = 5000;
 // A volume change: up to four pactl runs of 2 s each.
 constexpr int volumeTimeout = 10000;
 // Reader bounds of the contract.
@@ -35,6 +37,10 @@ QString method(const QString &action) {
     return QStringLiteral("Reboot");
   if (action == QLatin1String("power-off"))
     return QStringLiteral("PowerOff");
+  // The dedicated session's Switch to desktop (#438, ADR-0107). The daemon
+  // shares the power lock with the actions above.
+  if (action == QLatin1String("switch-to-desktop"))
+    return QStringLiteral("SwitchToDesktop");
   return {};
 }
 } // namespace
@@ -92,6 +98,43 @@ void SystemControl::readPower() {
             else
               applyPower(reply.arguments().at(0));
           });
+  readSessionSwitch();
+}
+
+void SystemControl::readSessionSwitch() {
+  const quint64 read = ++m_sessionSwitchRead;
+  const auto call = QDBusMessage::createMethodCall(
+      service, path, interface, QStringLiteral("GetSessionSwitch"));
+  auto pending = new QDBusPendingCallWatcher(
+      QDBusConnection::sessionBus().asyncCall(call, sessionSwitchTimeout),
+      this);
+  connect(pending, &QDBusPendingCallWatcher::finished, this,
+          [this, read](QDBusPendingCallWatcher *watcher) {
+            const QDBusMessage reply = watcher->reply();
+            watcher->deleteLater();
+            if (read != m_sessionSwitchRead)
+              return;
+            // No daemon, a daemon without the method, or a wrong reply:
+            // unknown, and the action is not offered.
+            if (reply.type() == QDBusMessage::ErrorMessage ||
+                reply.signature() != QLatin1String("s") ||
+                reply.arguments().isEmpty())
+              applySessionSwitch({});
+            else
+              applySessionSwitch(reply.arguments().at(0).toString());
+          });
+}
+
+// Reader rule of the contract: any value but these two is unknown.
+void SystemControl::applySessionSwitch(const QString &value) {
+  const QString state = value == QLatin1String("available") ||
+                                value == QLatin1String("unsupported")
+                            ? value
+                            : QStringLiteral("unknown");
+  if (state == m_sessionSwitch)
+    return;
+  m_sessionSwitch = state;
+  emit sessionSwitchChanged();
 }
 
 // A failed or unreadable reply is "unknown" for every action: the menu keeps
@@ -157,6 +200,14 @@ void SystemControl::request(const QString &action) {
               m_accepted = action;
             }
             emit requestChanged();
+            if (action == QLatin1String("switch-to-desktop")) {
+              // No inhibitor holds the switch; Conflict means another power
+              // request. Unsupported means the session cannot switch: read
+              // it again so the menu stops offering it.
+              if (m_refusal == QLatin1String("unsupported"))
+                readSessionSwitch();
+              return;
+            }
             // An inhibitor refusal names its holder: read who holds it now.
             if (m_refusal == QLatin1String("inhibited") ||
                 m_refusal == QLatin1String("denied"))

@@ -37,6 +37,9 @@ public:
   // call within one connection is answered when the handler returns).
   bool holdSuspend = false;
   QDBusMessage heldSuspend;
+  // GetSessionSwitch (#438); empty answers NotSupported as an older daemon.
+  // SwitchToDesktop is refused: the desktop did not accept the logout.
+  QString sessionSwitch;
   QDBusConnection bus = QDBusConnection::connectToBus(
       QDBusConnection::SessionBus, QStringLiteral("quick-menu-fake"));
   void releaseSuspend() {
@@ -67,6 +70,12 @@ public:
           << level;
         a.endStructure();
         bus.send(m.createReply(QVariant::fromValue(a)));
+      } else if (member == QLatin1String("GetSessionSwitch") &&
+                 !sessionSwitch.isEmpty()) {
+        bus.send(m.createReply(sessionSwitch));
+      } else if (member == QLatin1String("SwitchToDesktop")) {
+        bus.send(m.createErrorReply(
+            QStringLiteral("org.arinn.Error1.Unavailable"), QStringLiteral("refused")));
       } else if (member == QLatin1String("Suspend")) {
         if (holdSuspend)
           heldSuspend = m;
@@ -164,6 +173,7 @@ private slots:
     daemon.muted = false;
     daemon.holdSuspend = false;
     daemon.heldSuspend = {};
+    daemon.sessionSwitch.clear();
     guard.m_blocked = false;
     auto bus = daemon.bus;
     QVERIFY(bus.isConnected());
@@ -347,6 +357,54 @@ private slots:
     QTest::keyClick(window, Qt::Key_Escape);
     QTRY_VERIFY(!menu->isVisible());
     QTRY_COMPARE(daemon.backs, overShell ? 0 : 1);
+  }
+
+  // #438: in the dedicated session the power scope over the sheet offers
+  // Switch to desktop with its confirmation (Cancel first, the live list);
+  // a refusal is an error over the sheet and Back walks back to the
+  // sheet's Power row. Outside the dedicated session it is not offered.
+  void switchToDesktopFromTheSheet() {
+    openSheet(false);
+    moveTo("quickMenuPower");
+    QTest::keyClick(window, Qt::Key_Return);
+    QTRY_VERIFY(child(window, "powerMenu")->isVisible());
+    QTRY_VERIFY(daemon.controlCalls.contains(QStringLiteral("GetSessionSwitch")));
+    QTest::qWait(100);
+    QVERIFY(!child(window, "desktopButton")->isVisible());
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_VERIFY(row("quickMenuPower")->hasActiveFocus());
+
+    daemon.sessionSwitch = QStringLiteral("available");
+    QTest::keyClick(window, Qt::Key_Return);
+    QTRY_VERIFY(child(window, "desktopButton")->isVisible());
+    QTRY_VERIFY(child(window, "sleepButton")->hasActiveFocus());
+    for (int i = 0; i < 3; ++i)
+      QTest::keyClick(window, Qt::Key_Down);
+    QTRY_VERIFY(child(window, "desktopButton")->hasActiveFocus());
+    QTest::keyClick(window, Qt::Key_Return);
+    QTRY_VERIFY(child(window, "cancelButton")->hasActiveFocus());
+    QCOMPARE(child(window, "powerTitle")->property("text").toString(),
+             QStringLiteral("Switch to desktop?"));
+    QVERIFY(child(window, "closingList")->isVisible());
+    QVERIFY(!screens->isVisible());
+    QCOMPARE(daemon.controlCalls.count(QStringLiteral("SwitchToDesktop")), 0);
+    QTest::keyClick(window, Qt::Key_Right);
+    QTRY_VERIFY(child(window, "confirmButton")->hasActiveFocus());
+    QTest::keyClick(window, Qt::Key_Return);
+    QTRY_VERIFY(child(window, "powerError")->isVisible());
+    QCOMPARE(child(window, "powerError")->property("title").toString(),
+             QStringLiteral("Could not switch to the desktop"));
+    QCOMPARE(daemon.controlCalls.count(QStringLiteral("SwitchToDesktop")), 1);
+    QVERIFY(menu->isVisible());
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_VERIFY(child(window, "cancelButton")->hasActiveFocus());
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_VERIFY(child(window, "desktopButton")->hasActiveFocus());
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_VERIFY(!child(window, "powerMenu")->isVisible());
+    QTRY_VERIFY(row("quickMenuPower")->hasActiveFocus());
+    QCOMPARE(daemon.controlCalls.count(QStringLiteral("SwitchToDesktop")), 1);
+    QCOMPARE(daemon.backs, 0);
   }
 
   // Sleep sends one request at once, without confirmation; the refusal is

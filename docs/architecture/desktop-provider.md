@@ -122,7 +122,14 @@ reference; the application keeps running.
 
 The daemon keeps the public operation `running` and `cancellable` meanwhile.
 `Operation1.Cancel` from the caller forwards to `CancelLaunch` and ends the
-operation as `cancelled`. The shell shows "Opening <app>…", then after 8 s
+operation as `cancelled`. Because `CancelLaunch` names a desktop ID, the daemon
+(`crates/arinnd/src/runtime/launch_guard.rs`) forwards it only while that
+operation is the only running launch of the provider, generation and ID, from
+any client, and otherwise answers `Conflict` without stopping anything. A new
+launch of that ID waits to be dispatched until an in-flight `CancelLaunch` has
+been answered, so a cancel never stops a launch started after it (ADR-0110). A
+provider without the method counts as `Unsupported`; one that does not answer
+within 15 s makes `Cancel` return `Timeout`, and the launch keeps running. The shell shows "Opening <app>…", then after 8 s
 "Starting <app>…" with Cancel. Cancel asks for confirmation, with *Keep starting*
 as the default focus; Home hides the overlay without cancelling, and choosing the
 tile again shows it again. A failed launch shows the error dialog with Retry.
@@ -217,7 +224,11 @@ Launch lifetime ([#436](https://github.com/LimeBeck/arinn/issues/436), 2026-10-2
   completes it; a unit that exits with status 0 and no window fails in under 5 s;
   a hand-off to an existing window succeeds; Cancel from another connection is
   `PermissionDenied`; Cancel by the caller ends the operation as `cancelled`,
-  stops that fixture and leaves a concurrent launch running. On `master` the
+  stops that fixture and leaves a concurrent launch running. A second client's
+  launch of the same entry makes the first caller's Cancel answer `Conflict`,
+  and both launches keep running (the suite fails without the daemon's guard).
+  `cargo test -p arinnd launch_guard`: the same rule, and a launch admitted
+  while a `CancelLaunch` is in flight is dispatched only after it. On `master` the
   suite fails at the first "still starting" check: the launch had already
   succeeded.
 

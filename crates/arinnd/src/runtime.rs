@@ -82,6 +82,7 @@ mod background;
 mod browse_routing;
 mod download_routing;
 mod folders_routing;
+mod launch_guard;
 mod library_routing;
 mod media_links;
 mod media_routing;
@@ -130,6 +131,9 @@ pub struct Core {
     supervision: Arc<tokio::sync::OnceCell<Arc<Supervision>>>,
     /// Activity background handoff (ADR-0087), once exported.
     background: Arc<std::sync::OnceLock<background::Background>>,
+    /// Running application launches per provider, generation and ID, so a
+    /// cancel stops only its own launch (ADR-0110).
+    launches: launch_guard::LaunchGuard,
 }
 fn sender(h: &Header<'_>) -> Result<String, ErrorCode> {
     h.sender()
@@ -171,6 +175,7 @@ impl Core {
             playback_exits: Arc::default(),
             supervision: Arc::new(tokio::sync::OnceCell::new()),
             background: Arc::default(),
+            launches: launch_guard::LaunchGuard::default(),
         }
     }
     /// Whether `name` is the bus connection of a registered provider.
@@ -1320,32 +1325,53 @@ impl Core {
         if !fresh {
             return Ok(path);
         }
+        // A launch counts as running from its admission until its operation
+        // has ended, so a cancel stops only its own launch (ADR-0110).
+        let mut launch_ticket = (action == "launch").then(|| {
+            self.launches.admit(
+                launch_guard::LaunchKey {
+                    provider: id.to_owned(),
+                    owner: owner.clone(),
+                    generation: generation.to_owned(),
+                    local_id: local_id.to_owned(),
+                },
+                path.as_str(),
+            )
+        });
         if action == "launch" {
             // A launch stays running while the application starts; the user
             // may stop it through Operation1.Cancel (spec §6.5, ADR-0110).
             let connection = self.connection.clone();
-            let owner = owner.clone();
-            let generation = generation.to_owned();
-            let local_id = local_id.to_owned();
+            let launches = self.launches.clone();
+            let key = launch_guard::LaunchKey {
+                provider: id.to_owned(),
+                owner: owner.clone(),
+                generation: generation.to_owned(),
+                local_id: local_id.to_owned(),
+            };
+            let operation = path.to_string();
             op.cancellable(Arc::new(move || {
                 let connection = connection.clone();
-                let owner = owner.clone();
-                let generation = generation.clone();
-                let local_id = local_id.clone();
+                let launches = launches.clone();
+                let key = key.clone();
+                let operation = operation.clone();
                 Box::pin(async move {
+                    // Only the only running launch of this ID is forwarded;
+                    // a new launch of it waits until the provider answered.
+                    let _cancel = launches.begin_cancel(&key, &operation)?;
                     let proxy = ApplicationProviderProxy::builder(&connection)
-                        .destination(owner.as_str())
+                        .destination(key.owner.as_str())
                         .map_err(|_| ErrorCode::Internal)?
                         .build()
                         .await
                         .map_err(|_| ErrorCode::Unavailable)?;
                     tokio::time::timeout(
                         LAUNCH_CANCEL_DEADLINE,
-                        proxy.cancel_launch(&generation, &local_id),
+                        proxy.cancel_launch(&key.generation, &key.local_id),
                     )
                     .await
                     .map_err(|_| ErrorCode::Timeout)?
-                    .map_err(normalize_error)
+                    .map_err(cancel_error)
                 })
             }))
             .await;
@@ -1386,6 +1412,9 @@ impl Core {
                     .build()
                     .await
                     .map_err(|_| ErrorCode::Unavailable)?;
+                if let Some(ticket) = launch_ticket.as_mut() {
+                    ticket.dispatchable().await;
+                }
                 let result = match action.as_str() {
                     "launch" => proxy.launch(&generation, &local_id).await,
                     "activate" => proxy.activate(&generation, &local_id).await,
@@ -1456,6 +1485,9 @@ impl Core {
                 }),
             )
             .await;
+            // Ended: from now on a cancel of another launch of this ID may be
+            // forwarded.
+            drop(launch_ticket);
         });
         Ok(path)
     }
@@ -1493,6 +1525,17 @@ fn provider_env(
     ])
 }
 
+/// A provider built before ADR-0110 has no `CancelLaunch`: it cannot cancel.
+fn cancel_error(error: zbus::Error) -> ErrorCode {
+    match &error {
+        zbus::Error::MethodError(name, _, _)
+            if name.as_str() == "org.freedesktop.DBus.Error.UnknownMethod" =>
+        {
+            ErrorCode::Unsupported
+        }
+        _ => normalize_error(error),
+    }
+}
 fn normalize_error(error: zbus::Error) -> ErrorCode {
     if let zbus::Error::MethodError(name, _, _) = error {
         match name.as_str() {

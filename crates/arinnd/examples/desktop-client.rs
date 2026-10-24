@@ -243,6 +243,27 @@ async fn main() -> anyhow::Result<()> {
     operation(&c, cancel, "Cancelled").await;
     starting(&c, &keep).await;
     assert!(alive(kept), "cancel stopped another launch");
+    // Another client launches the same application: CancelLaunch would stop
+    // both, so a Cancel stops neither and answers Conflict (ADR-0110).
+    let twin = ApplicationApiProxy::builder(&stranger)
+        .path(app.inner().path().to_owned())?
+        .build()
+        .await?
+        .launch(
+            &current.generation,
+            "keep.desktop",
+            &Uuid::new_v4().to_string(),
+        )
+        .await?;
+    let keep_canceller = ProductionOperationProxy::builder(&c)
+        .path(keep.clone())?
+        .build()
+        .await?;
+    error(keep_canceller.cancel().await, "Conflict");
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    starting(&c, &keep).await;
+    starting(&stranger, &twin).await;
+    assert!(alive(kept), "a refused cancel stopped a launch");
 
     operation(
         &c,

@@ -17,7 +17,7 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, OwnedMutexGuard};
 use zbus::{Connection, message::Header, object_server::SignalEmitter, zvariant::OwnedObjectPath};
 
 const DEFAULTS_FILE: &str = "arinn/web-shortcuts.toml";
@@ -182,14 +182,19 @@ impl WebShortcuts {
         self.browser = Some(core);
         self
     }
-    /// Seeds the packaged defaults once; call before exporting.
+    /// Seeds the packaged defaults once.
     pub async fn seed(&self, defaults: Option<Vec<WebShortcut>>) -> Result<(), ErrorCode> {
-        let Some(defaults) = defaults else {
-            return Ok(());
-        };
-        self.store(move |store| store.seed_web_shortcuts(&defaults))
-            .await
-            .map(|_| ())
+        self.startup().await.seed(defaults).await
+    }
+    /// Holds the store lock until the returned guard is dropped. The daemon
+    /// takes it before it exports this interface and owns its bus name, so a
+    /// call that arrives early waits for the preset migrations and the seed
+    /// instead of reading the store before them (#463).
+    pub async fn startup(&self) -> Startup {
+        Startup {
+            state: self.state.clone(),
+            _guard: Arc::clone(&self.lock).lock_owned().await,
+        }
     }
     /// Snapshot lookup for the optional icon route. No caller-supplied URL.
     pub(crate) async fn icon_shortcut(
@@ -210,25 +215,52 @@ impl WebShortcuts {
         })
         .await
     }
-    pub async fn migrate_presets(&self, migrations: Vec<PresetMigration>) -> Result<(), ErrorCode> {
-        self.store(move |store| store.migrate_web_presets(&migrations))
-            .await
-    }
     async fn store<T: Send + 'static>(
         &self,
         work: impl FnOnce(&mut Store) -> Result<T, ErrorCode> + Send + 'static,
     ) -> Result<T, ErrorCode> {
         let _guard = self.lock.lock().await;
-        let state = self.state.clone();
-        tokio::task::spawn_blocking(move || work(&mut Store::open(&state)?))
-            .await
-            .map_err(|_| ErrorCode::Internal)?
+        run_store(&self.state, work).await
     }
     async fn changed(&self, connection: &Connection, revision: u64) {
         if let Ok(emitter) = SignalEmitter::new(connection, PATH) {
             let _ = Self::changed_signal(&emitter, revision).await;
         }
     }
+}
+/// Exclusive store access while the daemon starts; see [`WebShortcuts::startup`].
+pub struct Startup {
+    state: PathBuf,
+    _guard: OwnedMutexGuard<()>,
+}
+impl Startup {
+    pub async fn migrate_presets(&self, migrations: Vec<PresetMigration>) -> Result<(), ErrorCode> {
+        run_store(&self.state, move |store| {
+            store.migrate_web_presets(&migrations)
+        })
+        .await
+    }
+    /// Seeds the packaged defaults once.
+    pub async fn seed(&self, defaults: Option<Vec<WebShortcut>>) -> Result<(), ErrorCode> {
+        let Some(defaults) = defaults else {
+            return Ok(());
+        };
+        run_store(&self.state, move |store| {
+            store.seed_web_shortcuts(&defaults)
+        })
+        .await
+        .map(|_| ())
+    }
+}
+/// Callers hold the store lock.
+async fn run_store<T: Send + 'static>(
+    state: &Path,
+    work: impl FnOnce(&mut Store) -> Result<T, ErrorCode> + Send + 'static,
+) -> Result<T, ErrorCode> {
+    let state = state.to_path_buf();
+    tokio::task::spawn_blocking(move || work(&mut Store::open(&state)?))
+        .await
+        .map_err(|_| ErrorCode::Internal)?
 }
 fn caller(header: &Header<'_>) -> Result<String, ErrorCode> {
     header
@@ -400,5 +432,38 @@ mod browser_candidate_tests {
         std::fs::write(first.join(BROWSER_APPLICATIONS_FILE), "unknown = 1").unwrap();
         assert!(browser_candidates(&[first, second]).is_empty());
         std::fs::remove_dir_all(base).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod startup_tests {
+    use super::*;
+
+    // #463: the daemon exports this interface and owns its name before it
+    // seeds, so an early call must wait for the seed instead of missing it.
+    #[tokio::test]
+    async fn calls_wait_for_the_startup_seed() {
+        let state = std::env::temp_dir().join(format!("arinn-startup-{}", uuid::Uuid::new_v4()));
+        let shortcuts = WebShortcuts::new(&state, Operations::default());
+        let startup = shortcuts.startup().await;
+        let early = tokio::spawn({
+            let shortcuts = shortcuts.clone();
+            async move { shortcuts.list().await }
+        });
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(!early.is_finished());
+        let defaults = vec![WebShortcut {
+            id: "seeded".into(),
+            title: "Example".into(),
+            url: "https://example.invalid/".into(),
+            icon: String::new(),
+        }];
+        startup.migrate_presets(Vec::new()).await.unwrap();
+        startup.seed(Some(defaults)).await.unwrap();
+        drop(startup);
+        let (list,) = early.await.unwrap().unwrap();
+        assert_eq!(list.revision, 2);
+        assert_eq!(list.shortcuts[0].id, "seeded");
+        std::fs::remove_dir_all(state).unwrap();
     }
 }

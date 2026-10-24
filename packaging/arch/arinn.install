@@ -8,6 +8,8 @@ post_install() {
   echo '   and log in again. Disable with: systemctl --user disable arinn-session.target'
   echo '   For XFCE/X11, copy /usr/share/arinn/autostart/org.arinn.XfceSession.desktop'
   echo '   to ${XDG_CONFIG_HOME:-$HOME/.config}/autostart/ and log in again.'
+  echo '   Or choose the "Arinn" (Plasma) or "Arinn (XFCE)" session at login; do not'
+  echo '   enable the autostart above for a user of the Arinn session.'
 }
 
 post_upgrade() {

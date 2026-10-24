@@ -28,6 +28,7 @@ capability, but **has not been released as a stable Plugin API**. Requirements:
 | `org.arinn.BrowserProcess1` | Optional browser-provider interface, daemon callers only; [browser-process1.xml](browser-process1.xml) ([ADR-0096](../adr/0096-browser-media-session-association.md)) |
 | `org.arinn.MediaAssociation1` | Optional daemon-root media-session ↔ tab links; [media-association1.xml](media-association1.xml) ([ADR-0096](../adr/0096-browser-media-session-association.md)). Exported by the daemon |
 | `org.arinn.SystemStatus1` | Optional daemon-root mute and network state; [system-status1.xml](system-status1.xml) ([ADR-0100](../adr/0100-system-status.md), [contract](../architecture/system-status.md)). Exported by the daemon; Home shows the mute and Wi-Fi icons from it ([#387](https://github.com/LimeBeck/arinn/issues/387), [#407](https://github.com/LimeBeck/arinn/pull/407)) |
+| `org.arinn.SystemControl1` | Optional daemon-root power actions and volume for the shell; [system-control1.xml](system-control1.xml) ([ADR-0108](../adr/0108-system-control.md), [contract](../architecture/system-control.md)). Exported by the daemon, which refuses provider connections. The shell's power menu and volume HUD follow in [#148](https://github.com/LimeBeck/arinn/issues/148) |
 | `org.arinn.Library1` | Daemon-owned provider path of a `library` provider; [library1.xml](library1.xml). Exported by the daemon ([ADR-0060](../adr/0060-library-routing.md)) |
 | `org.arinn.LibraryProvider1` | Provider unique bus owner, `/org/arinn/Provider1`; [library-provider1.xml](library-provider1.xml) |
 | `org.arinn.LibraryResume1` | Optional provider interface; [library-resume1.xml](library-resume1.xml) |
@@ -321,6 +322,28 @@ The matching adapter/daemon must be installed together. Old shells ignore the
 signal and keep their existing status path; old adapters cannot report explicit
 intent. Production shell consumption and QML focus regression are a follow-up
 after #45 merges. This contract alone does not complete AC-18.
+
+### Quick-menu presentation
+
+[ADR-0106](../adr/0106-quick-menu-presentation.md) adds two members to
+[Daemon1](daemon1.xml), preserving every existing signature:
+
+- `ReportQuickMenuRequest(target: s, output: s)` has the authentication and
+  validation of `ReportHomeRequest`. It commits the same visible Home state with
+  that Return target/output, emits `Changed`, then emits one
+  `QuickMenuRequested(epoch: s, target: s, output: s)`, including for identical
+  repeats. A rejected call publishes neither state nor intent.
+- `QuickMenuRequested` asks the shell to open the quick menu (spec §5.7) over
+  what it shows. It is a transient intent with the delivery rules of
+  `HomeRequested` above: bound to the current unique owner and epoch, never
+  persisted, replayed or inferred from `Status` or `Changed`.
+
+`ReportHomeRequest` never emits `QuickMenuRequested`, and
+`ReportQuickMenuRequest` never emits `HomeRequested`. `Status.home_visible` is
+true while either is shown; which one the shell shows is its own state. Both
+requests arm the [Activity background](../architecture/activity-background.md)
+capture after their signal, so Home opened from the quick menu shows the
+Activity's last frame.
 
 ### Optional Return/window association
 

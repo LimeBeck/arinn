@@ -662,6 +662,112 @@ async fn home_requests_reject_untrusted_invalid_and_obsolete_adapter_calls() {
         .unwrap();
 }
 
+/// ADR-0106: the quick-menu key commits the same Home state as an explicit
+/// Home request, but only its own intent: neither request emits the other's
+/// signal, and untrusted or invalid calls emit nothing.
+#[tokio::test]
+async fn quick_menu_requests_are_distinct_from_home_requests() {
+    use arinn_protocol::production::ProductionDaemonProxy;
+    let f = Fixture::new().await;
+    f.core
+        .connection
+        .object_server()
+        .at(
+            production::PATH,
+            Daemon {
+                core: f.core.clone(),
+            },
+        )
+        .await
+        .unwrap();
+    let shell = ProductionDaemonProxy::new(&f.stranger).await.unwrap();
+    let adapter = ProductionDaemonProxy::new(&f.kwin).await.unwrap();
+    let mut menus = shell.receive_quick_menu_requested().await.unwrap();
+    let mut homes = shell.receive_home_requested().await.unwrap();
+    let quiet = Duration::from_millis(50);
+    // Untrusted and invalid calls change no state and emit no intent.
+    assert_eq!(
+        normalize_error(
+            shell
+                .report_quick_menu_request("activity", "screen")
+                .await
+                .unwrap_err()
+        ),
+        ErrorCode::PermissionDenied
+    );
+    for (target, output) in [
+        ("x".repeat(8193), "screen".to_owned()),
+        ("activity".to_owned(), "x".repeat(8193)),
+    ] {
+        assert_eq!(
+            normalize_error(
+                adapter
+                    .report_quick_menu_request(&target, &output)
+                    .await
+                    .unwrap_err()
+            ),
+            ErrorCode::InvalidArgument
+        );
+    }
+    assert!(!shell.status().await.unwrap().0.home_visible);
+    assert!(tokio::time::timeout(quiet, menus.next()).await.is_err());
+    // All Daemon1 signals in delivery order: `Changed` precedes the intent.
+    let rule = zbus::MatchRule::builder()
+        .msg_type(zbus::message::Type::Signal)
+        .interface(production::SERVICE)
+        .unwrap()
+        .path(production::PATH)
+        .unwrap()
+        .build();
+    let mut ordered = zbus::MessageStream::for_match_rule(rule, &f.stranger, None)
+        .await
+        .unwrap();
+    // Every press is delivered, identical repeats included.
+    for _ in 0..2 {
+        adapter
+            .report_quick_menu_request("activity", "screen")
+            .await
+            .unwrap();
+        let mut members = Vec::new();
+        while members.last().map(String::as_str) != Some("QuickMenuRequested") {
+            let message = tokio::time::timeout(Duration::from_secs(2), ordered.next())
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap();
+            let header = message.header();
+            members.push(header.member().unwrap().to_string());
+        }
+        assert_eq!(members, ["Changed", "QuickMenuRequested"]);
+        let event = tokio::time::timeout(Duration::from_secs(2), menus.next())
+            .await
+            .unwrap()
+            .unwrap();
+        let args = event.args().unwrap();
+        assert_eq!(args.epoch, f.core.epoch);
+        assert_eq!(args.target, "activity");
+        assert_eq!(args.output, "screen");
+        let (status,) = shell.status().await.unwrap();
+        assert!(status.home_visible);
+        assert_eq!(status.return_window, "activity");
+        assert_eq!(status.home_output, "screen");
+    }
+    assert!(tokio::time::timeout(quiet, homes.next()).await.is_err());
+    // An explicit Home request is not a quick-menu request.
+    adapter
+        .report_home_request("activity", "screen")
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(2), homes.next())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(tokio::time::timeout(quiet, menus.next()).await.is_err());
+    // A late subscriber receives no historical intent.
+    let mut late = shell.receive_quick_menu_requested().await.unwrap();
+    assert!(tokio::time::timeout(quiet, late.next()).await.is_err());
+}
+
 /// ADR-0073 producer: authenticate before validation, publish only exact live
 /// context, and never let a rejected report erase an established association.
 #[tokio::test]
@@ -1221,29 +1327,34 @@ async fn invalid_backend_rejects_even_a_claimed_sentinel_name() {
         ErrorCode::PermissionDenied
     );
 }
-/// Records the keys the daemon writes to KGlobalAccel.
+/// Records the keys the daemon writes to KGlobalAccel, per action.
 type AccelKeys = Vec<(Vec<i32>,)>;
-struct RecordingAccel(Arc<std::sync::Mutex<Vec<AccelKeys>>>);
+type AccelWrites = Arc<std::sync::Mutex<Vec<(String, AccelKeys)>>>;
+struct RecordingAccel(AccelWrites);
 #[zbus::interface(name = "org.kde.KGlobalAccel")]
 impl RecordingAccel {
     #[zbus(name = "setForeignShortcutKeys")]
     fn set_foreign_shortcut_keys(&self, action: Vec<String>, keys: AccelKeys) {
-        assert_eq!(action[..2], ["kwin", "ArinnPhase0Home"]);
-        self.0.lock().unwrap().push(keys);
+        assert_eq!(action[0], "kwin");
+        self.0.lock().unwrap().push((action[1].clone(), keys));
     }
     #[zbus(name = "shortcutKeys")]
-    fn shortcut_keys(&self, _action: Vec<String>) -> AccelKeys {
-        self.0.lock().unwrap().last().cloned().unwrap_or_default()
+    fn shortcut_keys(&self, action: Vec<String>) -> AccelKeys {
+        let writes = self.0.lock().unwrap();
+        let last = writes.iter().rev().find(|(name, _)| *name == action[1]);
+        last.map(|(_, keys)| keys.clone()).unwrap_or_default()
     }
 }
 /// `home_shortcut` from config.toml and HomePage reach KDE's global shortcut
 /// once per adapter connection (#286). Without the fix the configured value
-/// was only validated, and KWin kept its hardcoded Meta+F12.
+/// was only validated, and KWin kept its hardcoded Meta+F12. The quick-menu
+/// key follows on its own action (ADR-0106).
 #[tokio::test]
 async fn adapter_connection_applies_configured_home_shortcut() {
     let f = Fixture::new().await;
     let mut config = Config::load(&f.core.paths.config).unwrap();
     config.home_shortcut = "Ctrl+Alt+H".into();
+    config.quick_menu_shortcut = "Ctrl+Alt+Q".into();
     config.save(&f.core.paths.config).unwrap();
     let writes = Arc::default();
     f.stranger
@@ -1281,22 +1392,76 @@ async fn adapter_connection_applies_configured_home_shortcut() {
     };
     let first = poll();
     for _ in 0..100 {
-        if !writes.lock().unwrap().is_empty() {
+        if writes.lock().unwrap().len() >= 2 {
             break;
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
     assert_eq!(
         *writes.lock().unwrap(),
-        [vec![
-            (vec![0x0C00_0048, 0, 0, 0],),
-            (vec![0x0100_0090, 0, 0, 0],)
-        ]]
+        [
+            (
+                "ArinnPhase0Home".to_owned(),
+                vec![(vec![0x0C00_0048, 0, 0, 0],), (vec![0x0100_0090, 0, 0, 0],)]
+            ),
+            (
+                "ArinnQuickMenu".to_owned(),
+                vec![
+                    (vec![0x0C00_0051, 0, 0, 0],),
+                    (vec![0x0100_0055, 0, 0, 0],),
+                    (vec![0x0100_00dc, 0, 0, 0],)
+                ]
+            )
+        ]
     );
     // Later polls of the same adapter connection leave the keys alone.
     first.abort();
     let second = poll();
     tokio::time::sleep(Duration::from_millis(300)).await;
     second.abort();
-    assert_eq!(writes.lock().unwrap().len(), 1);
+    assert_eq!(writes.lock().unwrap().len(), 2);
+    // The remote's Menu keys (Menu, MenuKB) are off while the shell has
+    // focus and on again for any other window (owner decision of
+    // 2026-10-21, #439).
+    let report = |class: &'static str| {
+        let kwin = f.kwin.clone();
+        async move {
+            kwin.call_method(
+                Some(production::SERVICE),
+                production::PATH,
+                Some("org.arinn.Daemon1"),
+                "ReportWindow",
+                &("window", class, false, "screen"),
+            )
+            .await
+            .unwrap();
+        }
+    };
+    let wait_for = |count: usize| {
+        let writes = Arc::clone(&writes);
+        async move {
+            for _ in 0..100 {
+                if writes.lock().unwrap().len() >= count {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        }
+    };
+    report("org.arinn.Shell").await;
+    wait_for(3).await;
+    report("org.arinn.Shell").await;
+    report("game").await;
+    wait_for(4).await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let writes = writes.lock().unwrap();
+    assert_eq!(writes.len(), 4);
+    assert_eq!(
+        writes[2],
+        (
+            "ArinnQuickMenu".to_owned(),
+            vec![(vec![0x0C00_0051, 0, 0, 0],)]
+        )
+    );
+    assert_eq!(writes[3], writes[1]);
 }

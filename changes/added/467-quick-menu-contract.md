@@ -1,0 +1,1 @@
+- `Daemon1.ReportQuickMenuRequest` and the `QuickMenuRequested` signal: the platform adapter reports the quick-menu key with the Home state of an explicit Home request, and the shell receives its own presentation intent ([ADR-0106](docs/adr/0106-quick-menu-presentation.md), [#467](https://github.com/LimeBeck/arinn/issues/467)).

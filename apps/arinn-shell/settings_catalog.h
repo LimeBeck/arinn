@@ -37,11 +37,19 @@ class SettingsCatalog : public QObject {
   Q_PROPERTY(QString screenState READ screenState NOTIFY catalogChanged)
   Q_PROPERTY(QVariantList categories READ categories NOTIFY catalogChanged)
   Q_PROPERTY(QVariantList rows READ rows NOTIFY catalogChanged)
+  // The shell's own preferences from the daemon's `arinn` settings
+  // (ADR-0112). Defaults until the daemon has answered; the last known value
+  // while it is away.
+  Q_PROPERTY(bool lightField READ lightField NOTIFY preferencesChanged)
+  Q_PROPERTY(int ambientTimeoutMinutes READ ambientTimeoutMinutes NOTIFY
+                 preferencesChanged)
 public:
   explicit SettingsCatalog(QObject *parent = nullptr);
   QString screenState() const;
   QVariantList categories() const { return m_categories; }
   QVariantList rows() const { return m_rows; }
+  bool lightField() const { return m_lightField; }
+  int ambientTimeoutMinutes() const { return m_ambientMinutes; }
   Q_INVOKABLE void setValue(const QString &providerId, const QString &settingId,
                             const QVariant &value);
   Q_INVOKABLE void dismissError(const QString &providerId,
@@ -51,6 +59,7 @@ public slots:
   void onSettingsChanged(const QString &providerId);
 signals:
   void catalogChanged();
+  void preferencesChanged();
 
 private:
   struct SettingRecord {
@@ -84,6 +93,9 @@ private:
   void settle(const QString &key, quint64 ticket, quint64 epoch,
               const QString &error, bool deferred = false);
   void syncDeferred();
+  void readPreferences();
+  bool m_lightField = true;
+  int m_ambientMinutes = 10;
   QVariantList m_categories;
   QVariantList m_rows;
   // The screen state the last catalogChanged announced (#441).

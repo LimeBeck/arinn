@@ -4,6 +4,9 @@
 
 add_subdirectory("${PROJECT_SOURCE_DIR}/platform/session"
     "${CMAKE_CURRENT_BINARY_DIR}/platform-session")
+# Activity background consumer foundations (ADR-0087): sealed pixels and the
+# frame admission gate, with their own tests.
+add_subdirectory(background)
 
 qt_add_executable(arinn-shell main.cpp backend.cpp backend.h input_bindings.cpp input_bindings.h browser_catalog.cpp browser_catalog.h return_association.cpp return_association.h media_catalog.cpp media_catalog.h library_catalog.cpp library_catalog.h settings_catalog.cpp settings_catalog.h asset_images.cpp asset_images.h)
 target_sources(arinn-shell PRIVATE startup_home.cpp startup_home.h)
@@ -25,7 +28,8 @@ set(ARINN_PRESENTATION_FILES
     ui/Surface.qml ui/ActionButton.qml ui/ContentCard.qml ui/AppTile.qml
     ui/HomeRow.qml ui/HomeView.qml ui/BrandLockup.qml ui/BrandButton.qml
     ui/ProgressTrack.qml ui/Skeleton.qml ui/StatusPane.qml ui/LaunchOverlay.qml
-    ui/AmbientGlow.qml ui/OnScreenKeyboard.qml ui/KeyboardButton.qml ui/KeyboardIcon.qml
+    ui/AmbientGlow.qml ui/ActivityBackground.qml ui/VolumeHud.qml ui/OnScreenKeyboard.qml ui/KeyboardButton.qml ui/KeyboardIcon.qml
+    ui/QuickMenu.qml
     ui/fonts/Onest.ttf)
 foreach(target arinn-shell arinn-shell-test)
     qt_add_resources(${target} presentation PREFIX "/" FILES ${ARINN_PRESENTATION_FILES})
@@ -96,6 +100,13 @@ foreach(target arinn-shell arinn-shell-test arinn-session-lifecycle-test)
     qt_add_resources(${target} session_screen PREFIX "/" FILES ${ARINN_SESSION_FILES})
 endforeach()
 
+set(ARINN_POWER_FILES ui/screens/power/qmldir ui/screens/power/PowerMenu.qml
+    ui/screens/power/PowerOverlay.qml ui/screens/power/AmbientScreen.qml
+    ui/screens/power/AmbientIdle.qml)
+foreach(target arinn-shell arinn-shell-test arinn-session-lifecycle-test)
+    qt_add_resources(${target} power_screen PREFIX "/" FILES ${ARINN_POWER_FILES})
+endforeach()
+
 set(ARINN_PLAYER_FILES ui/screens/player/qmldir ui/screens/player/PlayerView.qml)
 foreach(target arinn-shell arinn-shell-test arinn-session-lifecycle-test)
     qt_add_resources(${target} player_screen PREFIX "/" FILES ${ARINN_PLAYER_FILES})
@@ -108,6 +119,17 @@ target_compile_definitions(arinn-media-catalog-test PRIVATE
     ARINN_MAIN_QML="${CMAKE_CURRENT_SOURCE_DIR}/Main.qml")
 add_test(NAME media-catalog COMMAND dbus-run-session -- $<TARGET_FILE:arinn-media-catalog-test>)
 set_tests_properties(media-catalog PROPERTIES ENVIRONMENT
+    "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software")
+
+# The quick menu in Main.qml with the real Backend and a fake daemon (ADR-0106).
+qt_add_executable(arinn-quick-menu-test quick_menu_test.cpp backend.cpp backend.h
+    media_catalog.cpp media_catalog.h browser_catalog.cpp browser_catalog.h return_association.cpp return_association.h
+    library_catalog.cpp library_catalog.h settings_catalog.cpp settings_catalog.h asset_images.cpp asset_images.h)
+target_link_libraries(arinn-quick-menu-test PRIVATE Qt6::DBus Qt6::Qml Qt6::Quick Qt6::Test)
+target_compile_definitions(arinn-quick-menu-test PRIVATE
+    ARINN_MAIN_QML="${CMAKE_CURRENT_SOURCE_DIR}/Main.qml")
+add_test(NAME quick-menu COMMAND dbus-run-session -- $<TARGET_FILE:arinn-quick-menu-test>)
+set_tests_properties(quick-menu PROPERTIES ENVIRONMENT
     "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software")
 
 qt_add_executable(arinn-library-catalog-test library_catalog_test.cpp library_catalog.cpp library_catalog.h
@@ -147,11 +169,14 @@ foreach(target arinn-shell arinn-shell-test arinn-ui-gallery arinn-ui-test arinn
 endforeach()
 
 foreach(target arinn-shell arinn-shell-test arinn-session-lifecycle-test
-    arinn-browser-catalog-test arinn-media-catalog-test arinn-library-catalog-test)
+    arinn-browser-catalog-test arinn-media-catalog-test arinn-library-catalog-test
+    arinn-quick-menu-test)
+    target_sources(${target} PRIVATE activity_background.cpp activity_background.h)
+    target_link_libraries(${target} PRIVATE arinn-background-frame-gate)
     target_sources(${target} PRIVATE browse_catalog.cpp browse_catalog.h
         keyboard_model.cpp keyboard_model.h
         download_catalog.cpp download_catalog.h input_mode.cpp input_mode.h
-        system_status.cpp system_status.h)
+        system_status.cpp system_status.h system_control.cpp system_control.h)
 endforeach()
 foreach(target arinn-shell arinn-shell-test arinn-session-lifecycle-test)
     qt_add_resources(${target} downloads_screen PREFIX "/" FILES
@@ -166,11 +191,22 @@ qt_add_executable(arinn-system-status-test system_status_test.cpp
     system_status.cpp system_status.h)
 target_link_libraries(arinn-system-status-test PRIVATE Qt6::DBus Qt6::Qml Qt6::Test)
 add_test(NAME system-status COMMAND dbus-run-session -- $<TARGET_FILE:arinn-system-status-test>)
+qt_add_executable(arinn-system-control-test system_control_test.cpp
+    system_control.cpp system_control.h)
+target_link_libraries(arinn-system-control-test PRIVATE Qt6::DBus Qt6::Qml Qt6::Test)
+add_test(NAME system-control COMMAND dbus-run-session -- $<TARGET_FILE:arinn-system-control-test>)
 foreach(target arinn-shell arinn-shell-test arinn-session-lifecycle-test)
     qt_add_resources(${target} browse_screen PREFIX "/" FILES
         ui/screens/browse/qmldir ui/screens/browse/BrowseView.qml)
 endforeach()
 
+qt_add_executable(arinn-activity-background-test activity_background_test.cpp
+    activity_background.cpp activity_background.h return_association.cpp return_association.h)
+target_link_libraries(arinn-activity-background-test PRIVATE arinn-background-frame-gate
+    Qt6::DBus Qt6::Qml Qt6::Quick Qt6::Test)
+add_test(NAME activity-background COMMAND dbus-run-session -- $<TARGET_FILE:arinn-activity-background-test>)
+set_tests_properties(activity-background PROPERTIES ENVIRONMENT
+    "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software")
 qt_add_executable(arinn-keyboard-model-test keyboard_model_test.cpp
     keyboard_model.cpp keyboard_model.h)
 target_link_libraries(arinn-keyboard-model-test PRIVATE Qt6::Qml Qt6::Test)

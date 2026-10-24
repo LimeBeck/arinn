@@ -7,8 +7,27 @@
 set -eu
 script=${ARINN_KWIN_SCRIPT:-/usr/share/arinn/kwin/phase0.js}
 name=arinn
+# Optional Activity background producer (ADR-0087): a declarative script that
+# needs the org.arinn.background QML module. Its failure never fails the unit.
+background=${ARINN_KWIN_BACKGROUND_SCRIPT:-/usr/share/arinn/kwin/background.qml}
+background_name=arinn-background
 scripting() {
     busctl --user call org.kde.KWin /Scripting org.kde.kwin.Scripting "$@"
+}
+start_background() {
+    [ -r "$background" ] || return 0
+    [ "$(scripting isScriptLoaded s "$background_name" 2>/dev/null)" = "b true" ] && return 0
+    reply=$(scripting loadDeclarativeScript ss "$background" "$background_name" 2>/dev/null) || reply=
+    id=${reply#i }
+    case "$id" in
+    '' | *[!0-9]*)
+        echo "arinn-kwin-adapter: KWin refused the background script; Home keeps its normal background" >&2
+        return 0
+        ;;
+    esac
+    busctl --user call org.kde.KWin "/Scripting/Script$id" org.kde.kwin.Script run ||
+        echo "arinn-kwin-adapter: the background script did not start" >&2
+    return 0
 }
 case "${1:-}" in
 start)
@@ -20,7 +39,10 @@ start)
         [ "$tries" -lt 20 ] || { echo "arinn-kwin-adapter: KWin scripting unavailable" >&2; exit 1; }
         sleep 0.5
     done
-    [ "$loaded" = "b true" ] && exit 0
+    if [ "$loaded" = "b true" ]; then
+        start_background
+        exit 0
+    fi
     # The developer session loads the same adapter; two copies would compete.
     if [ "$(scripting isScriptLoaded s arinn-phase0)" = "b true" ]; then
         echo "arinn-kwin-adapter: the Phase 0 session adapter is loaded; stop it first" >&2
@@ -35,9 +57,11 @@ start)
         ;;
     esac
     busctl --user call org.kde.KWin "/Scripting/Script$id" org.kde.kwin.Script run
+    start_background
     ;;
 stop)
     # KWin may already be gone when the graphical session ends.
+    scripting unloadScript s "$background_name" >/dev/null 2>&1 || true
     scripting unloadScript s "$name" >/dev/null 2>&1 || true
     ;;
 *)

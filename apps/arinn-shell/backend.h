@@ -98,6 +98,11 @@ public:
 public slots:
   void refresh();
 private slots:
+  // Explicit presentation requests of the platform (ADR-0069, ADR-0106).
+  void presentHome(const QString &epoch, const QString &target,
+                   const QString &output);
+  void presentQuickMenu(const QString &epoch, const QString &target,
+                        const QString &output);
   void reloadCatalog();
   void reloadShortcuts();
   void reloadFavorites();
@@ -110,6 +115,10 @@ signals:
   void screenRequested(const QString &name);
   // The tile of the launch in flight was chosen again: show it again.
   void launchShown();
+  // The global Home key or a queued Home, for the current daemon epoch.
+  void homeRequested();
+  // The quick-menu key, for the current daemon epoch (ADR-0106).
+  void quickMenuRequested();
 
 private:
   void readFavorites();

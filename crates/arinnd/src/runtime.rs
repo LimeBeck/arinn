@@ -78,6 +78,7 @@ impl Provider {
     }
 }
 mod assets;
+mod background;
 mod browse_routing;
 mod download_routing;
 mod folders_routing;
@@ -86,6 +87,7 @@ mod media_links;
 mod media_routing;
 mod progress;
 mod settings_routing;
+mod system_control;
 mod system_status;
 mod web_icons;
 
@@ -126,6 +128,8 @@ pub struct Core {
     windows: crate::windows::Windows,
     playback_exits: Arc<Mutex<media_routing::ExitFences>>,
     supervision: Arc<tokio::sync::OnceCell<Arc<Supervision>>>,
+    /// Activity background handoff (ADR-0087), once exported.
+    background: Arc<std::sync::OnceLock<background::Background>>,
 }
 fn sender(h: &Header<'_>) -> Result<String, ErrorCode> {
     h.sender()
@@ -166,7 +170,17 @@ impl Core {
             windows,
             playback_exits: Arc::default(),
             supervision: Arc::new(tokio::sync::OnceCell::new()),
+            background: Arc::default(),
         }
+    }
+    /// Whether `name` is the bus connection of a registered provider.
+    pub(crate) async fn is_provider_owner(&self, name: &str) -> bool {
+        self.state
+            .lock()
+            .await
+            .providers
+            .values()
+            .any(|p| !p.owner.is_empty() && p.owner == name)
     }
     async fn supervision(&self) -> Arc<Supervision> {
         self.supervision
@@ -1654,6 +1668,7 @@ impl Daemon {
             crate::global_home::adapter_connected(
                 &self.core.connection,
                 self.core.paths.config.clone(),
+                self.core.platform.quick_menu.clone(),
             );
         }
         Ok(self.core.platform.next_command().await)
@@ -1691,7 +1706,14 @@ impl Daemon {
         self.core
             .platform
             .report_window(&self.core.connection, h, id, class, fullscreen, output)
-            .await
+            .await?;
+        // The remote's Menu keys follow the shell's focus (ADR-0106).
+        crate::global_home::window_reported(
+            &self.core.connection,
+            &self.core.platform.quick_menu,
+            class,
+        );
+        Ok(())
     }
     async fn report_home_request(
         &self,
@@ -1714,11 +1736,49 @@ impl Daemon {
             )
             .await?;
         Self::changed(&emitter).await?;
+        // Presentation intent first; arming at most one Activity background
+        // capture for this Home context never delays it.
         Self::home_requested(&emitter, &self.core.epoch, target, output).await?;
+        self.core.background_home_requested(target, output).await;
         Ok(())
     }
     #[zbus(signal)]
     async fn home_requested(
+        emitter: &SignalEmitter<'_>,
+        epoch: &str,
+        target: &str,
+        output: &str,
+    ) -> zbus::Result<()>;
+    /// The quick-menu key (ADR-0106): the same platform state as an explicit
+    /// Home request, but the shell opens the quick menu instead of Home.
+    async fn report_quick_menu_request(
+        &self,
+        target: &str,
+        output: &str,
+        #[zbus(header)] h: Header<'_>,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+    ) -> production::Result<()> {
+        self.core
+            .windows
+            .report_home(
+                &self.core.platform,
+                &self.core.connection,
+                h,
+                true,
+                target,
+                output,
+            )
+            .await?;
+        Self::changed(&emitter).await?;
+        // As for Home: intent first, then arm the Activity background for
+        // the Home state this request committed, so Home opened from the
+        // quick menu shows the Activity's last frame (§12.3).
+        Self::quick_menu_requested(&emitter, &self.core.epoch, target, output).await?;
+        self.core.background_home_requested(target, output).await;
+        Ok(())
+    }
+    #[zbus(signal)]
+    async fn quick_menu_requested(
         emitter: &SignalEmitter<'_>,
         epoch: &str,
         target: &str,

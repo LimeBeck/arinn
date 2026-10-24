@@ -9,6 +9,8 @@ mod key_sequence;
 mod keyboard;
 mod keyboard_lane;
 mod native;
+#[path = "../../power_inhibitor.rs"]
+mod power_inhibitor;
 use anyhow::{Result, ensure};
 use arinn_protocol::{
     kwin::{self, KWinBridgeProxy},
@@ -39,6 +41,7 @@ trait HomeBridge {
     fn report_home(&self, visible: bool, target: &str, output: &str) -> zbus::Result<()>;
     fn report_home_request(&self, target: &str, output: &str) -> zbus::Result<()>;
     fn report_quick_menu_request(&self, target: &str, output: &str) -> zbus::Result<()>;
+    fn report_power_menu_request(&self, target: &str, output: &str) -> zbus::Result<()>;
     fn report_window(
         &self,
         id: &str,
@@ -73,6 +76,8 @@ enum Request {
     Home,
     /// ADR-0106: the same Home state, presented as the quick menu.
     QuickMenu,
+    /// ADR-0111: the same Home state, with the power menu open.
+    PowerMenu,
 }
 #[derive(Clone)]
 struct Update {
@@ -288,6 +293,8 @@ impl Actor {
             Some(Request::Home)
         } else if self.snapshot.quick_menu_key {
             Some(Request::QuickMenu)
+        } else if self.snapshot.power_key {
+            Some(Request::PowerMenu)
         } else {
             None
         };
@@ -620,6 +627,11 @@ async fn publish(
         // (ADR-0106).
         home.report_quick_menu_request(&update.target, background::OUTPUT)
             .await?;
+    } else if update.explicit == Some(Request::PowerMenu) {
+        // The power menu opens over Home, so it arms the background too
+        // (ADR-0111).
+        home.report_power_menu_request(&update.target, background::OUTPUT)
+            .await?;
     } else if previous_home.as_ref() != Some(&state) {
         home.report_home(update.home, &update.target, background::OUTPUT)
             .await?;
@@ -771,6 +783,7 @@ async fn run(actor: &Arc<Mutex<Actor>>) -> Result<()> {
     .await?;
     let mut tick = tokio::time::interval(Duration::from_millis(500));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut power = PowerLock::default();
     let mut revision = 0;
     let mut previous = Vec::new();
     let mut previous_home = None;
@@ -811,8 +824,41 @@ async fn run(actor: &Arc<Mutex<Actor>>) -> Result<()> {
         if update.explicit == Some(Request::QuickMenu) {
             raise_deferred(actor).await?;
         }
+        power.follow(update.snapshot.power_grabbed).await;
         if let Some((done, error)) = completion {
             let _ = done.send(error);
+        }
+    }
+}
+/// logind's `handle-power-key` inhibitor, held exactly while the power key is
+/// grabbed, so logind never powers off next to the menu (ADR-0111). It ends
+/// with the grab or the process.
+#[derive(Default)]
+struct PowerLock {
+    system: Option<Connection>,
+    inhibitor: Option<power_inhibitor::Inhibitor>,
+    /// A failed attempt is not repeated for the same grab.
+    tried: bool,
+}
+impl PowerLock {
+    async fn follow(&mut self, grabbed: bool) {
+        if !grabbed {
+            self.inhibitor = None;
+            self.tried = false;
+            return;
+        }
+        if self.inhibitor.is_some() || self.tried {
+            return;
+        }
+        self.tried = true;
+        if self.system.is_none() {
+            self.system = Connection::system().await.ok();
+        }
+        if let Some(system) = self.system.as_ref() {
+            self.inhibitor = power_inhibitor::inhibit(system).await;
+        }
+        if self.inhibitor.is_none() {
+            eprintln!("arinn-platform-x11: logind power-key inhibitor unavailable");
         }
     }
 }
@@ -1039,6 +1085,50 @@ mod tests {
         let update = actor.refresh(true)?;
         assert_eq!(update.explicit, Some(Request::Home));
         assert!(activations(desktop.messages()?) >= 1);
+        Ok(())
+    }
+    /// ADR-0111, spec §5.7: the power key shows the shell as Home does and
+    /// asks for the power menu; on a locked session it does nothing.
+    #[test]
+    #[ignore = "requires Xvfb; spawns an isolated server and synthetic EWMH manager"]
+    fn power_key_opens_the_power_menu_only_when_unlocked() -> Result<()> {
+        let desktop = native::fixture::Desktop::new()?;
+        let shell = desktop.client("org.arinn.Shell", "")?;
+        let video = desktop.client("org.example.Player.desktop", "")?;
+        desktop.inventory(&[shell, video], video)?;
+        let mut native = Native::connect_display(Some(&desktop.display))?;
+        let snapshot = native.snapshot()?;
+        let mut actor = Actor {
+            snapshot,
+            native,
+            home: false,
+            target: String::new(),
+            presentation: None,
+            media_allowed: true,
+            raise_after_publish: false,
+        };
+        actor.refresh(true)?;
+        let activations = |messages: Vec<x11rb::protocol::xproto::ClientMessageEvent>| {
+            messages
+                .iter()
+                .filter(|m| m.window == shell && m.type_ == desktop.atoms._NET_ACTIVE_WINDOW)
+                .count()
+        };
+        // Locked: no request, no Home, the shell stays where it is.
+        desktop.messages()?;
+        desktop.press(&[], 0x1008_ff2a)?;
+        let update = actor.refresh(false)?;
+        assert_eq!(update.explicit, None);
+        assert!(!update.home);
+        assert_eq!(activations(desktop.messages()?), 0);
+        // Unlocked: the Home state over the video, raised at once.
+        desktop.press(&[], 0x1008_ff2a)?;
+        let update = actor.refresh(true)?;
+        assert_eq!(update.explicit, Some(Request::PowerMenu));
+        assert!(update.home);
+        assert!(!update.target.is_empty());
+        assert!(activations(desktop.messages()?) >= 1);
+        assert!(update.snapshot.power_grabbed);
         Ok(())
     }
     #[test]
@@ -1709,6 +1799,12 @@ mod publication_tests {
                 .unwrap()
                 .push(format!("quick-menu {target} {output}"));
         }
+        fn report_power_menu_request(&self, target: &str, output: &str) {
+            self.0
+                .lock()
+                .unwrap()
+                .push(format!("power-menu {target} {output}"));
+        }
     }
     struct Returns;
     #[zbus::interface(name = "org.arinn.KWinReturn1")]
@@ -1718,6 +1814,7 @@ mod publication_tests {
     /// ADR-0106: the quick-menu key is reported as its own request, with the
     /// Return target and the output of an explicit Home; Home keeps its
     /// request. The output arms the Activity background on X11 too (#499).
+    /// ADR-0111: the power key likewise, with its own request.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn quick_menu_key_reports_its_own_request() -> Result<()> {
         tokio::time::timeout(Duration::from_secs(5), async {
@@ -1764,6 +1861,8 @@ mod publication_tests {
                     active: Some(42),
                     home_key: false,
                     quick_menu_key: true,
+                    power_key: false,
+                    power_grabbed: false,
                     compositor: true,
                 },
                 home: true,
@@ -1779,6 +1878,8 @@ mod publication_tests {
                 Some(Request::QuickMenu),
                 None,
                 Some(Request::Home),
+                Some(Request::PowerMenu),
+                Some(Request::PowerMenu),
             ] {
                 update.explicit = explicit;
                 publish(
@@ -1803,6 +1904,8 @@ mod publication_tests {
                     format!("quick-menu {token} {output}"),
                     format!("quick-menu {token} {output}"),
                     format!("home {token} {output}"),
+                    format!("power-menu {token} {output}"),
+                    format!("power-menu {token} {output}"),
                 ]
             );
             Ok(())
@@ -1861,6 +1964,8 @@ mod publication_tests {
                     active: Some(42),
                     home_key: false,
                     quick_menu_key: false,
+                    power_key: false,
+                    power_grabbed: false,
                     compositor: true,
                 },
                 home: false,

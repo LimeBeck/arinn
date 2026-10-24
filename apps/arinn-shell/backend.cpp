@@ -116,6 +116,8 @@ Backend::Backend(QObject *parent) : QObject(parent) {
               SLOT(presentHome(QString, QString, QString)));
   bus.connect(service, path, service, "QuickMenuRequested", this,
               SLOT(presentQuickMenu(QString, QString, QString)));
+  bus.connect(service, path, service, "PowerMenuRequested", this,
+              SLOT(presentPowerMenu(QString, QString, QString)));
   bus.connect(service, path, service, "Changed", this, SLOT(reloadCatalog()));
   bus.connect(service, path, service, "ProvidersChanged", this,
               SLOT(reloadCatalog()));
@@ -189,6 +191,11 @@ void Backend::presentQuickMenu(const QString &epoch, const QString &,
                                const QString &) {
   if (m_connected && !epoch.isEmpty() && epoch == m_daemonEpoch)
     emit quickMenuRequested();
+}
+void Backend::presentPowerMenu(const QString &epoch, const QString &,
+                               const QString &) {
+  if (m_connected && !epoch.isEmpty() && epoch == m_daemonEpoch)
+    emit powerMenuRequested();
 }
 void Backend::publishState() {
   if (m_publishedItems != m_items) {

@@ -100,6 +100,9 @@ private slots:
     fake.level = 0;
     changed(epoch1, 2);
     QTRY_VERIFY(shows(status, false, false, 0));
+    // The quick menu reads the known values themselves (ADR-0106).
+    QCOMPARE(status.audio(), QStringLiteral("unmuted"));
+    QCOMPARE(status.network(), QStringLiteral("wired"));
 
     // A Changed for an applied revision is not read again.
     const int reads = fake.reads;
@@ -122,17 +125,22 @@ private slots:
     fake.level = 9;
     changed(epoch1, 4);
     QTRY_VERIFY(shows(status, false, true, 0));
+    QCOMPARE(status.audio(), QString());
+    QCOMPARE(status.network(), QStringLiteral("wifi"));
     fake.revision = 5;
     fake.audio = QStringLiteral("muted");
     fake.network = QStringLiteral("limited");
     fake.level = 2;
     changed(epoch1, 5);
     QTRY_VERIFY(shows(status, true, false, 0));
+    QCOMPARE(status.audio(), QStringLiteral("muted"));
+    QCOMPARE(status.network(), QString());
 
     // A failed read clears what was shown.
     fake.fail = true;
     changed(epoch1, 6);
     QTRY_VERIFY(shows(status, false, false, 0));
+    QCOMPARE(status.network(), QString());
     fake.fail = false;
     fake.revision = 6;
     fake.network = QStringLiteral("connected");
@@ -172,6 +180,11 @@ private slots:
     fake.level = 4;
     up();
     QTRY_VERIFY(shows(status, true, true, 4));
+    fake.revision = 2;
+    fake.network = QStringLiteral("disconnected");
+    changed(epoch2, 2);
+    QTRY_COMPARE(status.network(), QStringLiteral("disconnected"));
+    QVERIFY(shows(status, true, false, 0));
     down();
   }
 

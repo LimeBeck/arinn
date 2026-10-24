@@ -52,9 +52,10 @@ build() {
   # point at the SDK prefix.
   cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_SKIP_BUILD_RPATH=ON \
     ${ARINN_QT_FLOOR_PREFIX:+"-DCMAKE_PREFIX_PATH=$ARINN_QT_FLOOR_PREFIX"}
-  # Only the installed shell; the Qt test executables, gallery and perf
-  # harness are built and run by the CI integration job (ADR-0092).
-  cmake --build build --target arinn-shell
+  # Only the installed shell and KWin QML module; the Qt test executables,
+  # gallery and perf harness are built and run by the CI integration job
+  # (ADR-0092).
+  cmake --build build --target arinn-shell arinn-kwin-background
 }
 
 check() {
@@ -102,6 +103,14 @@ package() {
   install -Dm644 packaging/browser/browser-applications.toml "${pkgdir}/usr/share/arinn/browser-applications.toml"
   install -Dm644 packaging/browser/search-engines.toml "${pkgdir}/usr/share/arinn/search-engines.toml"
   install -Dm644 platform/kde/phase0.js "${pkgdir}/usr/share/arinn/kwin/phase0.js"
+  # Activity background producer (ADR-0087): KWin loads the declarative
+  # script, which imports the org.arinn.background QML module.
+  install -Dm644 platform/kde/background.qml "${pkgdir}/usr/share/arinn/kwin/background.qml"
+  install -Dm644 build/platform/kde/background/qml/org/arinn/background/qmldir \
+    build/platform/kde/background/qml/org/arinn/background/arinn-kwin-background.qmltypes \
+    -t "${pkgdir}/usr/lib/qt6/qml/org/arinn/background/"
+  install -Dm755 build/platform/kde/background/qml/org/arinn/background/libarinn-kwin-background.so \
+    -t "${pkgdir}/usr/lib/qt6/qml/org/arinn/background/"
   install -Dm755 platform/kde/arinn-kwin-adapter "${pkgdir}/usr/lib/arinn/arinn-kwin-adapter"
   install -Dm755 platform/kde/arinn-shell-launch "${pkgdir}/usr/lib/arinn/arinn-shell-launch"
   # Menu entry and icon (#289); starting Arinn from the menu does not enable autostart.
@@ -112,6 +121,14 @@ package() {
     "${pkgdir}/usr/share/libalpm/hooks/arinn-restart-user-services.hook"
   install -Dm644 packaging/desktop/org.arinn.Shell.desktop "${pkgdir}/usr/share/applications/org.arinn.Shell.desktop"
   install -Dm644 packaging/icons/org.arinn.Shell.svg "${pkgdir}/usr/share/icons/hicolor/scalable/apps/org.arinn.Shell.svg"
+  # Dedicated Arinn login session and the switch to the plain desktop (ADR-0107).
+  # The package changes no display manager configuration.
+  install -Dm755 packaging/bin/arinn-session "${pkgdir}/usr/lib/arinn/arinn-session"
+  install -Dm755 packaging/bin/arinn-session-switch "${pkgdir}/usr/lib/arinn/arinn-session-switch"
+  install -Dm644 packaging/sessions/arinn.desktop "${pkgdir}/usr/share/wayland-sessions/arinn.desktop"
+  install -Dm644 packaging/sessions/arinn-xfce.desktop "${pkgdir}/usr/share/xsessions/arinn-xfce.desktop"
+  install -Dm644 packaging/desktop/org.arinn.ReturnToArinn.desktop \
+    "${pkgdir}/usr/share/applications/org.arinn.ReturnToArinn.desktop"
   # Session units are installed but never enabled by the package (ADR-0042).
   install -Dm644 packaging/systemd/arinn-session.target packaging/systemd/arinnd.service \
     packaging/systemd/arinn-shell.service packaging/systemd/arinn-kwin.service \

@@ -52,7 +52,8 @@ void ReturnAssociation::setOwner(const QString &owner) {
   ++m_lifetime; ++m_context;
   m_owner = owner;
   m_busy = m_dirty = m_known = m_supported = m_valid = m_homeKnown = m_pending = false;
-  m_epoch.clear(); m_target.clear(); m_token.clear(); m_platform.clear();
+  m_epoch.clear(); m_target.clear(); m_token.clear(); m_platform.clear(); m_output.clear();
+  m_platformConnected = false;
   m_signalEpoch.clear(); m_inventoryGeneration.clear();
   m_revision = m_floor = 0;
   if (!owner.isEmpty()) {
@@ -126,9 +127,10 @@ void ReturnAssociation::refresh() {
     qulonglong revision; bool available, home, fullscreen, platform;
     a.beginStructure(); a >> epoch >> available >> generation >> revision >> home >> target
         >> active >> klass >> fullscreen >> platform >> output >> activeOutput; a.endStructure();
-    if (!uuid(epoch) || generation != epoch || !text(target, 8192)) {
+    if (!uuid(epoch) || generation != epoch || !text(target, 8192) || !text(output, 8192)) {
       m_pending = false; m_valid = m_homeKnown = false; emit changed(); done(); return;
     }
+    m_output = output; m_platformConnected = platform;
     if (epoch != m_epoch || target != m_target || home != m_home) m_valid = false;
     if (epoch != m_epoch) m_revision = 0;
     m_epoch = epoch; m_target = target; m_home = home; m_homeKnown = true;

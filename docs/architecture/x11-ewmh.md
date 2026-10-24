@@ -73,8 +73,11 @@ Two matching shell windows, listed or not, make identity ambiguous and trigger a
 fail-closed reconnect; run one shell instance, and keep it to one native
 top-level window with the shell identity. Event masks are selected once per
 newly observed XID and reset when its inventory lifetime ends; the unlisted
-shell's mask is selected again on each snapshot. Output names are currently empty: this
-initial backend does not implement RandR output placement.
+shell's mask is selected again on each snapshot. Window output names are currently empty: this
+initial backend does not implement RandR output placement. Home reports the
+fixed output `x11-screen`, which names the X screen rather than a RandR output.
+The Activity background needs a non-empty Home output to bind its frame
+(ADR-0087). No Qt screen has that name, so the shell never moves for it.
 
 ## Home, Return and video
 
@@ -85,7 +88,16 @@ combinations. A sequence whose key or modifier is not mapped is skipped. Meta de
 mapping, falling back to native Meta only if no mapped Super exists; it does not
 assume Mod4. Keyboard/modifier mapping changes rebuild the grabs. A sequence another
 client already grabs is skipped and logged; the backend is unavailable only
-when no Home sequence can be grabbed. Home snapshots the exact opaque target
+when no Home sequence can be grabbed. `quick_menu_shortcut` (default Meta+F11)
+and the remote's Menu keys (`Menu`, `XF86MenuKB`) are grabbed the same way next to
+the Home keys. The Menu keys are released while the shell is the active window and
+grabbed again at the next snapshot after another window becomes active; a press is reported with
+`ReportQuickMenuRequest` after the same unlocked check and Home state, with the
+same output (`x11-screen`) as a Home request, so it arms the Activity background too.
+For a quick-menu press the adapter raises and activates the shell only after that
+request is published, so the shell never has focus before the request; a
+quick-menu key that cannot be grabbed is skipped without stopping the backend
+([ADR-0106](../adr/0106-quick-menu-presentation.md)). Home snapshots the exact opaque target
 and keeps it across repeated Home presses. Return validates that token in the
 current inventory before dispatch. The shell receives all-desktops, fullscreen/above and
 activation EWMH messages; ordinary activation and close also use EWMH messages.
@@ -120,9 +132,64 @@ Startup reports the selected fixed backend name. Daemon permission rejection
 reports a backend-selection hint; restoration failure reports a fixed reason
 before reconnecting. These diagnostics contain no window metadata.
 
-XComposite activity background remains the separate work in #149. Multi-output
-placement, real lock/suspend behavior and the transparent overlay on actual
-compositors remain qualification work. No AC or roadmap gate is marked passed.
+### Activity background
+
+The adapter produces the Activity background of specification §12.3 (#149,
+[ADR-0087](../adr/0087-bounded-activity-background-frames.md),
+[contract](activity-background.md)) in `platform/x11/src/background.rs`. An
+optional task follows the daemon's `Background1`, pinned to the owner the
+session connected to. For a pending attempt it captures only the window whose
+current inventory token is both the Return target and the context's window
+token.
+
+- **Capture.** The capture runs off the async runtime on its own X connection.
+  It requires a compositing manager (`_NET_WM_CM_Sn` owned), XComposite ≥ 0.2,
+  a viewable window, an LSB-first 32-bit TrueColor pixmap format (depth 24 or
+  32) and at most 16 Mi pixels (a 64 MiB reply). It names the composited pixmap of the
+  window's top-level frame with `NameWindowPixmap` and reads it with
+  `GetImage`. The frame must show that window alone. A virtual root
+  (`__SWM_VROOT`), or a container that also holds another viewable client
+  window (one with `WM_STATE`), is declined, and so is a frame in which the
+  target is no longer found or no longer viewable. It never reads the root
+  window or another window.
+- **Conversion.** One pass reads the server's bytes, box-filters them into
+  1920×1080 in premultiplied space (depth 24 is opaque), and unpremultiplies
+  each output pixel, so transparent edges add no dark fringes and no full-size
+  copy is made. The result is published as one sealed memfd on the adapter's
+  own connection, the `org.arinn.X11` owner the daemon authenticates.
+- **No frame.** A locked or unknown session, a missing window, no compositor, an
+  unredirected window (some compositors unredirect fullscreen windows), an
+  unsupported format or the 1500 ms local guard cancels the attempt. Home then
+  keeps its normal background.
+- **One worker.** A capture that outlives the guard keeps its worker slot until
+  it finishes, then drops its frame and descriptor at once. A drop guard frees
+  the slot even if the worker panics. Any request that arrives meanwhile is cancelled at once as
+  `busy`, so a stalled or grabbed server never accumulates threads or X
+  connections.
+- **Lifetime.** Each request is handled once. A failed `Get` (an older daemon,
+  an exhausted epoch) is logged and waits for the next `Changed`. The task
+  never ends the adapter session.
+- **Diagnostics.** Normalized `background-capture` lines with an outcome and
+  `duration_ms` are the hook for the G-5.2 report.
+- **Tests.**
+  - Unit tests: pixel conversion, bounds and sealing.
+  - Xvfb tests: the fixture acts as a manual compositing manager. One test
+    captures a composited window, and confirms no capture without a compositor
+    or for an unmapped window. Two more run the whole task against a fake
+    daemon and screensaver on a private bus. One covers publication of the
+    exact window, and cancellation when locked or for a target that is not a
+    current window. The other holds a server grab: the stalled attempt is
+    cancelled at the deadline, the next one is cancelled at once without a
+    second capture, and a request after the release is published.
+
+  Another Xvfb test declines a container shared by two clients and a virtual
+  root, while capturing a frame that holds its client alone.
+
+  They do not qualify xfwm's compositor, DPI or colour on the TV.
+
+Multi-output placement, real lock/suspend behavior and the transparent overlay
+on actual compositors remain qualification work. No AC or roadmap gate is
+marked passed.
 
 ## Opt-in setup
 

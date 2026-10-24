@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // Qt key codes in this shared module serve the KDE adapter only.
+mod background;
 #[allow(dead_code)]
 #[path = "../../key_sequence.rs"]
 mod key_sequence;
@@ -35,6 +36,7 @@ trait HomeBridge {
     fn take_command(&self) -> zbus::Result<String>;
     fn report_home(&self, visible: bool, target: &str, output: &str) -> zbus::Result<()>;
     fn report_home_request(&self, target: &str, output: &str) -> zbus::Result<()>;
+    fn report_quick_menu_request(&self, target: &str, output: &str) -> zbus::Result<()>;
     fn report_window(
         &self,
         id: &str,
@@ -58,13 +60,24 @@ struct Actor {
     target: String,
     presentation: Option<Presentation>,
     media_allowed: bool,
+    /// A quick-menu press raises the shell only after its request is
+    /// published, so the shell never has focus before it learns the request
+    /// came from over an Activity (ADR-0106, review of #502).
+    raise_after_publish: bool,
+}
+/// The global key behind an explicit presentation request.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Request {
+    Home,
+    /// ADR-0106: the same Home state, presented as the quick menu.
+    QuickMenu,
 }
 #[derive(Clone)]
 struct Update {
     snapshot: Snapshot,
     home: bool,
     target: String,
-    explicit_home: bool,
+    explicit: Option<Request>,
 }
 #[derive(Clone)]
 enum Command {
@@ -78,7 +91,8 @@ struct Pending {
 }
 impl Actor {
     fn connect() -> Result<Self> {
-        let mut native = Native::connect(&home_shortcut())?;
+        let (home, quick_menu) = shortcuts();
+        let mut native = Native::connect(&home, &quick_menu)?;
         let snapshot = native.snapshot()?;
         Ok(Self {
             native,
@@ -87,12 +101,13 @@ impl Actor {
             target: String::new(),
             presentation: None,
             media_allowed: false,
+            raise_after_publish: false,
         })
     }
     fn row(&self, token: &str) -> Option<&Row> {
         self.snapshot.rows.iter().find(|r| r.token == token)
     }
-    fn update(&self, explicit_home: bool) -> Update {
+    fn update(&self, explicit: Option<Request>) -> Update {
         let mut snapshot = self.snapshot.clone();
         if !self.media_allowed {
             for row in &mut snapshot.rows {
@@ -103,7 +118,7 @@ impl Actor {
             snapshot,
             home: self.home,
             target: self.target.clone(),
-            explicit_home,
+            explicit,
         }
     }
     fn release(&mut self) -> &'static str {
@@ -266,19 +281,46 @@ impl Actor {
                 }
             }
         }
-        let mut explicit = false;
-        if self.snapshot.home_key && unlocked {
-            explicit = self
+        let mut explicit = None;
+        let key = if self.snapshot.home_key {
+            Some(Request::Home)
+        } else if self.snapshot.quick_menu_key {
+            Some(Request::QuickMenu)
+        } else {
+            None
+        };
+        if let Some(key) = key
+            && unlocked
+        {
+            self.raise_after_publish = key == Request::QuickMenu;
+            if self
                 .command(&Command::Home("home".into()), unlocked)
-                .is_empty();
+                .is_empty()
+            {
+                explicit = Some(key);
+            } else {
+                self.raise_after_publish = false;
+            }
         }
         if unlocked
+            && !self.raise_after_publish
             && (self.home || self.presentation.is_some())
             && let Some(shell) = self.snapshot.shell
         {
             self.native.raise_shell(shell, true)?;
         }
         Ok(self.update(explicit))
+    }
+    /// Raises the shell held back for a quick-menu request, once the request
+    /// is published.
+    fn raise_deferred(&mut self) -> Result<()> {
+        if !std::mem::take(&mut self.raise_after_publish) || !self.home {
+            return Ok(());
+        }
+        if let Some(shell) = self.snapshot.shell {
+            self.native.raise_shell(shell, true)?;
+        }
+        Ok(())
     }
     fn command(&mut self, command: &Command, unlocked: bool) -> &'static str {
         match command {
@@ -366,7 +408,7 @@ impl Actor {
                             })
                             .unwrap_or_default();
                     }
-                    if self.native.raise_shell(shell, true).is_err() {
+                    if !self.raise_after_publish && self.native.raise_shell(shell, true).is_err() {
                         return "Unavailable";
                     }
                     self.home = true;
@@ -485,6 +527,10 @@ async fn refresh(actor: &Arc<Mutex<Actor>>, unlocked: bool) -> Result<Update> {
     let actor = actor.clone();
     tokio::task::spawn_blocking(move || actor.lock().unwrap().refresh(unlocked)).await?
 }
+async fn raise_deferred(actor: &Arc<Mutex<Actor>>) -> Result<()> {
+    let actor = actor.clone();
+    tokio::task::spawn_blocking(move || actor.lock().unwrap().raise_deferred()).await?
+}
 async fn apply(
     actor: &Arc<Mutex<Actor>>,
     command: Command,
@@ -494,7 +540,8 @@ async fn apply(
     Ok(tokio::task::spawn_blocking(move || {
         let mut actor = actor.lock().unwrap();
         let result = actor.command(&command, unlocked);
-        let explicit = matches!(&command, Command::Home(s) if s == "home") && result.is_empty();
+        let explicit = (matches!(&command, Command::Home(s) if s == "home") && result.is_empty())
+            .then_some(Request::Home);
         (result, actor.update(explicit))
     })
     .await?)
@@ -563,10 +610,17 @@ async fn publish(
     )
     .await?;
     let state = (update.home, update.target.clone());
-    if update.explicit_home {
-        home.report_home_request(&update.target, "").await?;
+    if update.explicit == Some(Request::Home) {
+        home.report_home_request(&update.target, background::OUTPUT)
+            .await?;
+    } else if update.explicit == Some(Request::QuickMenu) {
+        // The quick menu arms the Activity background on this output too
+        // (ADR-0106).
+        home.report_quick_menu_request(&update.target, background::OUTPUT)
+            .await?;
     } else if previous_home.as_ref() != Some(&state) {
-        home.report_home(update.home, &update.target, "").await?;
+        home.report_home(update.home, &update.target, background::OUTPUT)
+            .await?;
     }
     *previous_home = Some(state);
     if update.home {
@@ -621,6 +675,16 @@ async fn run(actor: &Arc<Mutex<Actor>>) -> Result<()> {
             eprintln!("arinn-platform-x11: daemon rejected adapter; check ARINN_PLATFORM_BACKEND");
         }
     })?;
+    // Optional Activity background producer (ADR-0087) on this connection,
+    // which owns org.arinn.X11. Its end never ends the session.
+    let (windows, current) = tokio::sync::watch::channel(background::Windows::new());
+    let producer = tokio::spawn(background::run(
+        c.clone(),
+        destination.clone(),
+        current,
+        None,
+    ));
+    let _producer = Abort(producer);
     let (tx, mut rx) = mpsc::channel::<Pending>(8);
     let mut tasks = JoinSet::<Result<()>>::new();
     let home_poll = home.clone();
@@ -694,13 +758,19 @@ async fn run(actor: &Arc<Mutex<Actor>>) -> Result<()> {
                 // cannot activate a recycled XID or a removed client.
                 let allowed = unlocked(&c).await;
                 let fresh = refresh(actor, allowed).await?;
+                background::offer(&windows, &fresh.snapshot.rows);
                 publish(&home, &bridge, &media, &returns, &generation, &mut revision, &mut previous, &mut previous_home, &fresh).await?;
+                if fresh.explicit == Some(Request::QuickMenu) {
+                    raise_deferred(actor).await?;
+                }
                 let (error, update) = apply(actor, pending.command, allowed).await?;
                 (update, Some((pending.done, error)))
             },
             ended = tasks.join_next() => { ended.ok_or_else(|| anyhow::anyhow!("pollers ended"))???; anyhow::bail!("poller ended"); },
             _ = shutdown() => return Ok(()),
         };
+        // The producer sees the rows before the Home request they belong to.
+        background::offer(&windows, &update.snapshot.rows);
         publish(
             &home,
             &bridge,
@@ -713,9 +783,19 @@ async fn run(actor: &Arc<Mutex<Actor>>) -> Result<()> {
             &update,
         )
         .await?;
+        if update.explicit == Some(Request::QuickMenu) {
+            raise_deferred(actor).await?;
+        }
         if let Some((done, error)) = completion {
             let _ = done.send(error);
         }
+    }
+}
+/// Aborts a task when the session ends.
+struct Abort<T>(tokio::task::JoinHandle<T>);
+impl<T> Drop for Abort<T> {
+    fn drop(&mut self) {
+        self.0.abort();
     }
 }
 async fn shutdown() {
@@ -723,15 +803,39 @@ async fn shutdown() {
         .expect("SIGTERM handler");
     tokio::select! { _ = tokio::signal::ctrl_c() => (), _ = term.recv() => () }
 }
-/// `home_shortcut` from the daemon's `config.toml`, read only (#286). The
-/// daemon owns the file; a missing or unreadable value means the default.
-fn home_shortcut() -> String {
-    configured_home(
-        std::env::var_os("HOME").as_deref(),
-        std::env::var_os("XDG_CONFIG_HOME").as_deref(),
+/// `home_shortcut` (#286) and `quick_menu_shortcut` (ADR-0106) from the
+/// daemon's `config.toml`, read only. The daemon owns the file; a missing or
+/// unreadable value means the default.
+fn shortcuts() -> (String, String) {
+    let home = std::env::var_os("HOME");
+    let config = std::env::var_os("XDG_CONFIG_HOME");
+    let table = config_table(home.as_deref(), config.as_deref());
+    (
+        shortcut(table.as_ref(), "home_shortcut", key_sequence::DEFAULT_HOME),
+        shortcut(
+            table.as_ref(),
+            "quick_menu_shortcut",
+            key_sequence::DEFAULT_QUICK_MENU,
+        ),
     )
 }
+fn shortcut(table: Option<&toml::Table>, key: &str, default: &str) -> String {
+    table
+        .and_then(|table| table.get(key)?.as_str().map(str::to_owned))
+        .unwrap_or_else(|| default.to_owned())
+}
+#[cfg(test)]
 fn configured_home(home: Option<&std::ffi::OsStr>, config: Option<&std::ffi::OsStr>) -> String {
+    shortcut(
+        config_table(home, config).as_ref(),
+        "home_shortcut",
+        key_sequence::DEFAULT_HOME,
+    )
+}
+fn config_table(
+    home: Option<&std::ffi::OsStr>,
+    config: Option<&std::ffi::OsStr>,
+) -> Option<toml::Table> {
     let path = config
         .map(std::path::PathBuf::from)
         .filter(|p| p.is_absolute())
@@ -743,8 +847,6 @@ fn configured_home(home: Option<&std::ffi::OsStr>, config: Option<&std::ffi::OsS
         .map(|root| root.join("arinn/config.toml"));
     path.and_then(|path| std::fs::read_to_string(path).ok())
         .and_then(|text| text.parse::<toml::Table>().ok())
-        .and_then(|table| table.get("home_shortcut")?.as_str().map(str::to_owned))
-        .unwrap_or_else(|| key_sequence::DEFAULT_HOME.to_owned())
 }
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -793,6 +895,22 @@ mod tests {
         );
         std::fs::write(root.join("arinn/config.toml"), "not toml [").unwrap();
         assert_eq!(read(), "Meta+F12");
+        // ADR-0106: quick_menu_shortcut comes from the same file.
+        let quick_menu = || {
+            shortcut(
+                config_table(None, Some(root.as_os_str())).as_ref(),
+                "quick_menu_shortcut",
+                key_sequence::DEFAULT_QUICK_MENU,
+            )
+        };
+        assert_eq!(quick_menu(), "Meta+F11");
+        std::fs::write(
+            root.join("arinn/config.toml"),
+            "schema_version = 1\nquick_menu_shortcut = \"Ctrl+Alt+Q\"\n",
+        )
+        .unwrap();
+        assert_eq!(quick_menu(), "Ctrl+Alt+Q");
+        assert_eq!(read(), "Meta+F12");
         std::fs::remove_dir_all(root).unwrap();
     }
     #[test]
@@ -811,11 +929,66 @@ mod tests {
             target: String::new(),
             presentation: None,
             media_allowed: true,
+            raise_after_publish: false,
         };
         assert_eq!(
             actor.command(&Command::Home("home".into()), true),
             "Unavailable"
         );
+        Ok(())
+    }
+    /// The quick-menu key raises the shell only after its request is
+    /// published (`raise_deferred`), so the shell is never active when the
+    /// request arrives over an Activity; Home raises at once (review of #502).
+    #[test]
+    #[ignore = "requires Xvfb; spawns an isolated server and synthetic EWMH manager"]
+    fn quick_menu_raises_the_shell_only_after_its_request() -> Result<()> {
+        let desktop = native::fixture::Desktop::new()?;
+        let shell = desktop.client("org.arinn.Shell", "")?;
+        let video = desktop.client("org.example.Player.desktop", "")?;
+        desktop.inventory(&[shell, video], video)?;
+        let home = crate::key_sequence::home("Ctrl+Alt+H").0;
+        let quick_menu = crate::key_sequence::quick_menu("Ctrl+Alt+Q", &home).0;
+        let mut native = Native::connect_display_with(Some(&desktop.display), home, quick_menu)?;
+        let snapshot = native.snapshot()?;
+        let mut actor = Actor {
+            snapshot,
+            native,
+            home: false,
+            target: String::new(),
+            presentation: None,
+            media_allowed: true,
+            raise_after_publish: false,
+        };
+        actor.refresh(true)?;
+        let activations = |messages: Vec<x11rb::protocol::xproto::ClientMessageEvent>| {
+            messages
+                .iter()
+                .filter(|m| m.window == shell && m.type_ == desktop.atoms._NET_ACTIVE_WINDOW)
+                .count()
+        };
+        desktop.messages()?;
+        desktop.press(&[0xffe3, 0xffe9], u32::from(b'q'))?;
+        let update = actor.refresh(true)?;
+        assert_eq!(update.explicit, Some(Request::QuickMenu));
+        assert!(update.home);
+        assert_eq!(activations(desktop.messages()?), 0);
+        actor.raise_deferred()?;
+        assert_eq!(activations(desktop.messages()?), 1);
+        // Nothing is held back afterwards: the next snapshot raises as usual.
+        actor.raise_deferred()?;
+        assert_eq!(activations(desktop.messages()?), 0);
+        actor.refresh(true)?;
+        assert_eq!(activations(desktop.messages()?), 1);
+        // Home raises in the same snapshot.
+        actor.home = false;
+        desktop.inventory(&[shell, video], video)?;
+        actor.refresh(true)?;
+        desktop.messages()?;
+        desktop.press(&[0xffe3, 0xffe9], u32::from(b'h'))?;
+        let update = actor.refresh(true)?;
+        assert_eq!(update.explicit, Some(Request::Home));
+        assert!(activations(desktop.messages()?) >= 1);
         Ok(())
     }
     #[test]
@@ -839,6 +1012,7 @@ mod tests {
             target: String::new(),
             presentation: None,
             media_allowed: true,
+            raise_after_publish: false,
         };
         assert_eq!(actor.present(&token), "Unavailable");
         assert!(actor.presentation.is_none());
@@ -871,6 +1045,7 @@ mod tests {
             target: String::new(),
             presentation: None,
             media_allowed: true,
+            raise_after_publish: false,
         };
         assert_eq!(
             actor.command(&Command::Home("home".into()), false),
@@ -967,6 +1142,7 @@ mod tests {
                 target: String::new(),
                 presentation: None,
                 media_allowed: true,
+                raise_after_publish: false,
             };
             assert_eq!(actor.present(&token), "");
             desktop.messages()?;
@@ -1038,6 +1214,7 @@ mod tests {
             target: String::new(),
             presentation: None,
             media_allowed: true,
+            raise_after_publish: false,
         };
         assert_eq!(actor.present(&token), "");
         desktop.messages()?;
@@ -1085,6 +1262,7 @@ mod tests {
             target: String::new(),
             presentation: None,
             media_allowed: true,
+            raise_after_publish: false,
         };
         assert_eq!(actor.present(&token), "");
         desktop.messages()?;
@@ -1137,6 +1315,7 @@ mod tests {
                 target: String::new(),
                 presentation: None,
                 media_allowed: true,
+                raise_after_publish: false,
             };
             assert_eq!(actor.present(&token), "");
             desktop.messages()?;
@@ -1184,6 +1363,7 @@ mod tests {
             target: String::new(),
             presentation: None,
             media_allowed: true,
+            raise_after_publish: false,
         };
         assert_eq!(actor.present(&token), "");
         desktop.messages()?;
@@ -1227,6 +1407,7 @@ mod tests {
             target: String::new(),
             presentation: None,
             media_allowed: true,
+            raise_after_publish: false,
         };
         desktop.c.destroy_window(shell)?.check()?;
         assert_eq!(actor.present(&token), "Unavailable");
@@ -1458,6 +1639,126 @@ mod publication_tests {
         fn report_window(&self, _token: &str, _desktop: &str, _fullscreen: bool, _output: &str) {}
         fn report_home(&self, _visible: bool, _target: &str, _output: &str) {}
     }
+    /// Records the Home reports and requests the adapter sends.
+    struct Requests(Arc<Mutex<Vec<String>>>);
+    #[zbus::interface(name = "org.arinn.Daemon1")]
+    impl Requests {
+        fn report_window(&self, _token: &str, _desktop: &str, _fullscreen: bool, _output: &str) {}
+        fn report_home(&self, visible: bool, _target: &str, _output: &str) {
+            self.0.lock().unwrap().push(format!("state {visible}"));
+        }
+        fn report_home_request(&self, target: &str, output: &str) {
+            self.0
+                .lock()
+                .unwrap()
+                .push(format!("home {target} {output}"));
+        }
+        fn report_quick_menu_request(&self, target: &str, output: &str) {
+            self.0
+                .lock()
+                .unwrap()
+                .push(format!("quick-menu {target} {output}"));
+        }
+    }
+    struct Returns;
+    #[zbus::interface(name = "org.arinn.KWinReturn1")]
+    impl Returns {
+        fn report(&self, _generation: &str, _revision: i32, _target: &str, _token: &str) {}
+    }
+    /// ADR-0106: the quick-menu key is reported as its own request, with the
+    /// Return target and the output of an explicit Home; Home keeps its
+    /// request. The output arms the Activity background on X11 too (#499).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn quick_menu_key_reports_its_own_request() -> Result<()> {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            let bus = lock_tests::Bus::new().await;
+            let capture = Arc::new(Mutex::new(Capture::default()));
+            let requests = Arc::new(Mutex::new(Vec::new()));
+            let path = "/org/arinn/Daemon1";
+            let server = zbus::connection::Builder::address(bus.address.trim())?
+                .serve_at(path, Bridge(capture.clone()))?
+                .serve_at(path, Media(capture.clone()))?
+                .serve_at(path, Requests(requests.clone()))?
+                .serve_at(path, Returns)?
+                .build()
+                .await?;
+            let owner = server.unique_name().unwrap().clone();
+            let home = HomeBridgeProxy::builder(&bus.client)
+                .destination(owner.clone())?
+                .build()
+                .await?;
+            let bridge = KWinBridgeProxy::builder(&bus.client)
+                .destination(owner.clone())?
+                .build()
+                .await?;
+            let media = KWinMediaProxy::builder(&bus.client)
+                .destination(owner.clone())?
+                .build()
+                .await?;
+            let returns = KWinReturnProxy::builder(&bus.client)
+                .destination(owner)?
+                .build()
+                .await?;
+            let token = Uuid::new_v4().to_string();
+            let mut update = Update {
+                snapshot: Snapshot {
+                    rows: vec![Row {
+                        xid: 42,
+                        token: token.clone(),
+                        desktop_id: "org.example.Player.desktop".into(),
+                        launch: String::new(),
+                        flags: 4,
+                    }],
+                    shell: Some(43),
+                    shell_token: Uuid::new_v4().to_string(),
+                    active: Some(42),
+                    home_key: false,
+                    quick_menu_key: true,
+                    compositor: true,
+                },
+                home: true,
+                target: token.clone(),
+                explicit: Some(Request::QuickMenu),
+            };
+            let generation = Uuid::new_v4().to_string();
+            let mut revision = 0;
+            let mut previous = Vec::new();
+            let mut previous_home = None;
+            for explicit in [
+                Some(Request::QuickMenu),
+                Some(Request::QuickMenu),
+                None,
+                Some(Request::Home),
+            ] {
+                update.explicit = explicit;
+                publish(
+                    &home,
+                    &bridge,
+                    &media,
+                    &returns,
+                    &generation,
+                    &mut revision,
+                    &mut previous,
+                    &mut previous_home,
+                    &update,
+                )
+                .await?;
+            }
+            // Every press is a request, identical repeats included; an
+            // unchanged state without a press reports nothing.
+            let output = background::OUTPUT;
+            assert_eq!(
+                *requests.lock().unwrap(),
+                [
+                    format!("quick-menu {token} {output}"),
+                    format!("quick-menu {token} {output}"),
+                    format!("home {token} {output}"),
+                ]
+            );
+            Ok(())
+        })
+        .await?
+    }
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn media_identity_changes_do_not_resubmit_identical_inventory() -> Result<()> {
         tokio::time::timeout(Duration::from_secs(5), async {
@@ -1509,11 +1810,12 @@ mod publication_tests {
                     shell_token: Uuid::new_v4().to_string(),
                     active: Some(42),
                     home_key: false,
+                    quick_menu_key: false,
                     compositor: true,
                 },
                 home: false,
                 target: String::new(),
-                explicit_home: false,
+                explicit: None,
             };
             let mut revision = 0;
             let mut previous = Vec::new();

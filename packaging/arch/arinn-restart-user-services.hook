@@ -11,6 +11,7 @@ Target = usr/bin/arinn-shell
 Target = usr/bin/arinn-platform-x11
 Target = usr/lib/arinn/*
 Target = usr/share/arinn/kwin/phase0.js
+Target = usr/share/arinn/kwin/background.qml
 
 [Action]
 Description = Restarting running Arinn user services...

@@ -6,6 +6,7 @@
 
 import pathlib
 import re
+import subprocess
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -45,23 +46,34 @@ def value(text: str, key: str) -> str:
     return match.group(1)
 
 
+# The arinn-kwin-background target's QML module (ADR-0087).
+KWIN_BACKGROUND = {
+    f"build/platform/kde/background/qml/org/arinn/background/{name}"
+    for name in ("qmldir", "arinn-kwin-background.qmltypes", "libarinn-kwin-background.so")
+}
+
+
 class PackageBuildTest(unittest.TestCase):
     def test_package_builds_only_the_installed_shell_target(self):
-        self.assertIn("cmake --build build --target arinn-shell\n", function("build"))
+        self.assertIn("cmake --build build --target arinn-shell arinn-kwin-background\n",
+                      function("build"))
         # Everything package() takes from the CMake tree must come from that
         # target or from configure time; anything else would not be built.
         used = set(re.findall(r"\bbuild/[^\s\"]+", function("package")))
         self.assertEqual(used, {
             "build/apps/arinn-shell/arinn-shell",
+            *KWIN_BACKGROUND,
             "build/observability/native/licenses/*-LICENSE",
         })
 
     def test_debian_package_builds_only_the_installed_shell_target(self):
         build = re.search(r"^override_dh_auto_build:\n(.*?)\n\n", DEB_RULES, re.M | re.S).group(1)
-        self.assertIn("cmake --build build --target arinn-shell\n", build + "\n")
+        self.assertIn("cmake --build build --target arinn-shell arinn-kwin-background\n",
+                      build + "\n")
         install = re.search(r"^override_dh_auto_install:\n(.*?)\n\n", DEB_RULES, re.M | re.S).group(1)
         self.assertEqual(set(re.findall(r"\bbuild/[^\s\"]+", install)), {
             "build/apps/arinn-shell/arinn-shell",
+            *KWIN_BACKGROUND,
             "build/observability/native/licenses/*-LICENSE",
         })
 
@@ -129,10 +141,20 @@ class BuildJobTest(unittest.TestCase):
         self.assertIn("CCACHE_DIR: /ci-cache/ccache", job)
         self.assertIn("CMAKE_CXX_COMPILER_LAUNCHER: ccache", job)
         self.assertRegex(ARCH_IMAGE[ARCH_IMAGE.index("AS build"):], r"pacman -Syu [^\n]*\bccache\b")
-        self.assertIn("ln -sfn /ci-cache/target target", job)
+        self.assertIn('ln -sfn "$target" target', job)
         # Caches are in place before the builds that use them.
         self.assertLess(job.index("cache/restore"), job.index("cargo fmt"))
         self.assertLess(job.index("ln -sfn"), job.index("cargo fmt"))
+
+    def test_each_self_hosted_runner_instance_has_its_own_target_directory(self):
+        # ADR-0113: runner instances on one host share /ci-cache; a shared
+        # target directory let one job overwrite another's rlibs and binaries
+        # while its tests and phase1.py ran (#485). GitHub-hosted runs keep
+        # the single cached /ci-cache/target.
+        job = jobs()["build"]
+        self.assertIn("RUNNER_SLOT: ${{ vars.ARINN_RUNNER && runner.name || '' }}", job)
+        self.assertIn('target="$target-', job)
+        self.assertIn("target=/ci-cache/target\n", job)
 
     def test_no_build_job_uses_the_shared_runner_home_for_cargo(self):
         # On the self-hosted runner /github/home is shared by every job:
@@ -164,6 +186,79 @@ class BuildJobTest(unittest.TestCase):
                 self.assertFalse(evaluate(condition, event_name=event, ref=ref, runner="self-hosted"))
 
 
+def package_target_directory(job: str, variable: str, **env: str) -> str:
+    """Run a package job's target directory selection and return the result.
+
+    The selection is the shell between the first `cache=` or `target=`
+    assignment of the build step and its first `mkdir -p`.
+    """
+    script = re.search(r"^ +((?:cache|target)=.*?)^ +mkdir -p ", job, re.M | re.S)
+    assert script, job.splitlines()[0]
+    lines = "\n".join(line.strip() for line in script.group(1).splitlines())
+    environment = {"PATH": "/usr/bin:/bin", "GITHUB_WORKSPACE": "/__w/arinn/arinn",
+                   "GITHUB_REF_TYPE": "branch", "RUNNER_SLOT": "", **env}
+    result = subprocess.run(["bash", "-euc", f'{lines}\nprintf %s "${variable}"'],
+                            env=environment, capture_output=True, text=True, check=True)
+    return result.stdout
+
+
+class PackageTargetDirectoryTest(unittest.TestCase):
+    # ADR-0114 (amends ADR-0113): the package jobs run check() tests from
+    # their target directories and install from target/release, so two
+    # overlapping master or nightly runs on runner instances that share
+    # /ci-cache replaced each other's artifacts (#489).
+    JOBS = {"build": "target", "build-deb": "CARGO_TARGET_DIR"}
+
+    def test_each_self_hosted_runner_instance_has_its_own_package_target_directory(self):
+        cases = {
+            # GitHub-hosted: the single directory actions/cache restores.
+            "": "/ci-cache/target",
+            "alma10": "/ci-cache/target-alma10",
+            "alma10-2": "/ci-cache/target-alma10-2",
+            "rack 1/alma10": "/ci-cache/target-rack_1_alma10",
+        }
+        for name, variable in self.JOBS.items():
+            job = package_jobs()[name]
+            with self.subTest(job=name):
+                self.assertIn("RUNNER_SLOT: ${{ vars.ARINN_RUNNER && runner.name || '' }}", job)
+            for slot, expected in cases.items():
+                with self.subTest(job=name, runner=slot):
+                    self.assertEqual(package_target_directory(job, variable, RUNNER_SLOT=slot), expected)
+
+    def test_tag_builds_keep_a_clean_workspace_target_directory(self):
+        expected = {"build": "/__w/arinn/arinn/cargo-cache/target",
+                    "build-deb": "/__w/arinn/arinn/cargo-target"}
+        for name, variable in self.JOBS.items():
+            for slot in ("", "alma10"):
+                with self.subTest(job=name, runner=slot):
+                    self.assertEqual(package_target_directory(package_jobs()[name], variable,
+                                                              GITHUB_REF_TYPE="tag", RUNNER_SLOT=slot),
+                                     expected[name])
+
+    def test_hosted_cache_still_covers_the_package_target_directory(self):
+        for name, path in (("build", "/ci-cache\n"), ("build-deb", "/ci-cache/target\n")):
+            job = package_jobs()[name]
+            with self.subTest(job=name):
+                self.assertIn(f"path: {path}", job)
+
+    def test_arch_package_builds_checks_and_installs_from_the_selected_directory(self):
+        job = package_jobs()["build"]
+        self.assertIn("CARGO_TARGET_DIR='$target'", job)
+        self.assertIn('cp "$target/release/examples/private-systemd"', job)
+        # The 12 GB limit of ADR-0101 applies to each directory.
+        self.assertIn('du -s --block-size=1G "$target"', job)
+        # Only the assignments name the shared directory.
+        self.assertEqual(job.count('$cache/target"'), 2)
+        # chown never walks the other instance's target directory.
+        self.assertIn('chown -R builder "$cache/home" "$target"\n', job)
+
+    def test_debian_package_builds_from_the_selected_directory(self):
+        job = package_jobs()["build-deb"]
+        self.assertIn('export CARGO_TARGET_DIR="$target"', job)
+        self.assertNotIn("      CARGO_TARGET_DIR:", job)
+        self.assertIn('du -s --block-size=1G "$CARGO_TARGET_DIR"', job)
+
+
 class ConcurrencyTest(unittest.TestCase):
     def test_only_pull_requests_and_duplicate_master_runs_cancel(self):
         cancel = value(CI, "cancel-in-progress")
@@ -180,6 +275,18 @@ class ConcurrencyTest(unittest.TestCase):
             with self.subTest(event=event, ref=ref):
                 self.assertEqual(evaluate(cancel, event_name=event, ref=ref), expected)
         self.assertIn("github.ref == 'refs/heads/master' && github.sha", CI)
+
+
+class ArtifactRetentionTest(unittest.TestCase):
+    def test_package_artifacts_expire_after_a_week(self):
+        # Every download of a package artifact happens in the same workflow
+        # run; the default 90-day retention filled the artifact storage quota.
+        text = (ROOT / ".github/workflows/package.yml").read_text()
+        uploads = re.findall(r"uses: actions/upload-artifact@v\d+\n        with:\n((?:          .*\n)+)", text)
+        self.assertEqual(len(uploads), 2)
+        for block in uploads:
+            with self.subTest(block=block.splitlines()[0]):
+                self.assertIn("retention-days: 7\n", block)
 
 
 if __name__ == "__main__":

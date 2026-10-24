@@ -15,7 +15,7 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
-use tokio::sync::{Mutex, Notify, oneshot};
+use tokio::sync::{Mutex, Notify, oneshot, watch};
 use zbus::{Connection, message::Header};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -64,6 +64,8 @@ struct State {
     polling: bool,
     home: bool,
     home_revision: u64,
+    /// Counts Home becoming visible: one Home lifetime per value.
+    home_lifetime: u64,
     association: ReturnAssociation,
     exhausted: bool,
     media: MediaState,
@@ -86,6 +88,7 @@ impl Default for State {
             polling: false,
             home: false,
             home_revision: 0,
+            home_lifetime: 0,
             association: ReturnAssociation {
                 epoch: String::new(),
                 revision: 1,
@@ -104,10 +107,12 @@ impl State {
             let _ = command.reply.send(Err(ErrorCode::Unavailable));
         }
         let home = self.home;
+        let home_lifetime = self.home_lifetime;
         let association = self.association.clone();
         let exhausted = self.exhausted;
         *self = Self::default();
         self.home = home;
+        self.home_lifetime = home_lifetime;
         self.association = association;
         self.exhausted = exhausted;
         self.publish(self.association.target.clone(), Vec::new());
@@ -213,6 +218,28 @@ pub struct Windows {
     notify: Arc<Notify>,
     media_changed: Arc<Notify>,
     media_invalidated: Arc<Notify>,
+    /// Bumped after every change that can alter `HomeEvidence`.
+    evidence: Arc<watch::Sender<u64>>,
+}
+/// Home and Return evidence for the Activity background (ADR-0087), read
+/// atomically under the inventory lock and then the Home bridge lock.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HomeEvidence {
+    pub visible: bool,
+    /// Changes each time Home becomes visible, so a quick Return and Home
+    /// with the same target is a new lifetime even if no reader saw it hidden.
+    pub lifetime: u64,
+    pub target: String,
+    pub output: String,
+    /// The committed Return window of `target`, if the adapter reported it.
+    /// A repeated Home clears it until the adapter reports it again.
+    pub window: Option<WindowRef>,
+    /// The probed window is in the current committed inventory generation.
+    pub present: bool,
+    /// Unique name of the connected platform adapter, empty when none is.
+    pub owner: String,
+    /// The adapter connection is current and polled recently.
+    pub live: bool,
 }
 async fn owner_lookup(c: &Connection) -> Result<Option<String>, ErrorCode> {
     let Some(service) = crate::platform::adapter_service() else {
@@ -263,6 +290,41 @@ impl Windows {
             notify: Arc::default(),
             media_changed: Arc::default(),
             media_invalidated: Arc::default(),
+            evidence: Arc::default(),
+        }
+    }
+    /// Notifies `subscribe_evidence` receivers.
+    fn touched(&self) {
+        self.evidence.send_modify(|v| *v = v.wrapping_add(1));
+    }
+    /// A receiver that changes after every Home, Return association,
+    /// inventory or adapter-lifetime change.
+    pub fn subscribe_evidence(&self) -> watch::Receiver<u64> {
+        self.evidence.subscribe()
+    }
+    /// `probe` is a previously resolved Return window to check for presence.
+    pub async fn home_evidence(
+        &self,
+        platform: &crate::platform::Platform,
+        probe: Option<&WindowRef>,
+    ) -> HomeEvidence {
+        let s = self.state.lock().await;
+        let output = platform.home_output().await;
+        HomeEvidence {
+            visible: s.home,
+            lifetime: s.home_lifetime,
+            target: s.association.target.clone(),
+            output,
+            window: if s.exhausted {
+                None
+            } else {
+                s.association.window.first().cloned()
+            },
+            present: probe.is_some_and(|w| {
+                w.generation == s.generation && s.windows.iter().any(|x| x.token == w.token)
+            }),
+            owner: s.owner.clone(),
+            live: !s.owner.is_empty() && s.live(&s.owner).is_ok(),
         }
     }
     // Lock order: inventory, then Home bridge. Every production Home write goes
@@ -318,9 +380,14 @@ impl Windows {
         platform.commit_home(visible, target, output).await;
         s.home_revision = next;
         let previous = s.association.revision;
+        if visible && !s.home {
+            s.home_lifetime = s.home_lifetime.wrapping_add(1);
+        }
         s.home = visible;
         s.publish(target.into(), Vec::new());
         s.announce_return(c, previous).await;
+        drop(s);
+        self.touched();
         Ok(())
     }
     pub async fn live_tokens(&self, c: &Connection) -> HashSet<String> {
@@ -363,6 +430,7 @@ impl Windows {
                     drop(s);
                     backend.notify.notify_waiters();
                     backend.invalidate_media();
+                    backend.touched();
                     announce(&connection, &generation_id, 1).await;
                 }
             }
@@ -582,6 +650,7 @@ impl Windows {
         drop(s);
         self.notify.notify_waiters();
         self.invalidate_media();
+        self.touched();
         announce(c, &generation_id, 1).await;
         Ok(generation_id)
     }
@@ -708,6 +777,7 @@ impl Windows {
             s.announce_return(c, previous).await;
             let generation_id = s.generation.clone();
             drop(s);
+            self.touched();
             announce(c, &generation_id, 1).await;
             return Err(ErrorCode::Unavailable.into());
         }
@@ -736,6 +806,7 @@ impl Windows {
         s.announce_return(c, previous).await;
         drop(s);
         self.invalidate_media();
+        self.touched();
         announce(c, generation, revision as u64).await;
         Ok(())
     }
@@ -831,6 +902,9 @@ impl ReturnEndpoint {
                 .map_err(|e| *e),
         )?;
         s.announce_return(c, previous).await;
+        if previous != s.association.revision {
+            self.0.touched();
+        }
         if s.exhausted {
             return Err(ErrorCode::Unavailable.into());
         }
@@ -885,7 +959,10 @@ impl ReturnBridge {
         let previous = s.association.revision;
         s.publish(target.into(), window);
         s.announce_return(c, previous).await;
-        if s.exhausted {
+        let exhausted = s.exhausted;
+        drop(s);
+        self.0.touched();
+        if exhausted {
             return Err(ErrorCode::Unavailable.into());
         }
         Ok(())

@@ -169,7 +169,7 @@ systemctl --user disable arinn-session.target   # stop starting it at login
 systemctl --user stop arinn-session.target      # stop it in the current session
 ```
 
-To start it once, or to bring up Home when it already runs, open **Arinn** from the application menu; this does not enable autostart. Disable the target before removing the package. To build and run the current prototype in your own Plasma session from source instead:
+To start it once, or to bring up Home when it already runs, open **Arinn** from the application menu; this does not enable autostart. Disable the target before removing the package. Instead of autostart, you can choose the **Arinn** (Plasma, Wayland) or **Arinn (XFCE)** session at login, or make it the display manager's autologin session; the **Return to Arinn** menu entry, and **Switch to desktop** once the power menu offers it, move between it and the plain desktop ([session lifecycle](docs/architecture/session-lifecycle.md#dedicated-arinn-session)). To build and run the current prototype in your own Plasma session from source instead:
 
 ```sh
 git clone https://github.com/LimeBeck/arinn.git
@@ -189,6 +189,7 @@ The prototype runs as temporary systemd user units and a session-only KWin scrip
 | Key | Action |
 | --- | --- |
 | Meta+F12, remote Home | Global Home: show Arinn over the current application (`home_shortcut` in `config.toml`) |
+| Meta+F11, remote Menu (≡) | Quick menu: a side sheet over the current application (`quick_menu_shortcut` in `config.toml`). Inside Arinn, Menu toggles navigation |
 | Arrows | Move focus |
 | Enter | Select |
 | Esc / Backspace | Back: close Home and return to the application; without one, open navigation |

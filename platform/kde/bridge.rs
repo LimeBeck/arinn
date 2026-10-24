@@ -30,6 +30,8 @@ pub struct Platform {
     state: Arc<Mutex<State>>,
     tx: mpsc::Sender<String>,
     rx: Arc<Mutex<mpsc::Receiver<String>>>,
+    /// The quick-menu keys written to KDE (ADR-0106).
+    pub quick_menu: crate::global_home::QuickMenuKeys,
 }
 impl Default for Platform {
     fn default() -> Self {
@@ -38,6 +40,7 @@ impl Default for Platform {
             state: Arc::default(),
             tx,
             rx: Arc::new(Mutex::new(rx)),
+            quick_menu: Default::default(),
         }
     }
 }
@@ -120,6 +123,10 @@ impl Platform {
         s.home = visible;
         s.target = target.into();
         s.home_output = output.into();
+    }
+    /// The output of the last committed Home report.
+    pub async fn home_output(&self) -> String {
+        self.state.lock().await.home_output.clone()
     }
     pub async fn report_window(
         &self,

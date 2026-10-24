@@ -71,7 +71,8 @@ jobs:
   # tests, the Qt shell and the private-bus suite (ADR-0092). The Cargo home,
   # the Cargo target directory and ccache live in /ci-cache: a directory on
   # the self-hosted runner's disk, or the GitHub cache on hosted runners
-  # (ADR-0101). A cache miss only means a full build.
+  # (ADR-0101); each self-hosted runner instance has its own target directory
+  # (ADR-0113). A cache miss only means a full build.
   build:
     name: Rust, Qt shell and integration (Arch Linux)
     needs: [scope, images]
@@ -113,11 +114,17 @@ jobs:
       - name: Link the cached target directory
         # tests/integration/phase1.py runs ./target/debug binaries. A target
         # directory past 12 GB is dropped so stale artifacts cannot fill the
-        # runner's disk.
+        # runner's disk. Each self-hosted runner instance gets its own target
+        # directory: instances on one host share /ci-cache, and a job on one
+        # of them overwrote another's artifacts while its tests ran (ADR-0113).
+        env:
+          RUNNER_SLOT: ${{ vars.ARINN_RUNNER && runner.name || '' }}
         run: |
-          mkdir -p /ci-cache/target
-          if [ "$(du -s --block-size=1G /ci-cache/target | cut -f1)" -gt 12 ]; then rm -rf /ci-cache/target; mkdir /ci-cache/target; fi
-          ln -sfn /ci-cache/target target
+          target=/ci-cache/target
+          if [ -n "$RUNNER_SLOT" ]; then target="$target-$(printf '%s' "$RUNNER_SLOT" | tr -c 'A-Za-z0-9_.-' '_')"; fi
+          mkdir -p "$target"
+          if [ "$(du -s --block-size=1G "$target" | cut -f1)" -gt 12 ]; then rm -rf "$target"; mkdir "$target"; fi
+          ln -sfn "$target" target
       - run: cargo fmt --all --check
       - run: cargo clippy --locked --all-targets -- -D warnings
       - run: cargo test --locked

@@ -4,8 +4,14 @@ Contract prerequisite [#348](https://github.com/LimeBeck/arinn/issues/348) for
 [#149](https://github.com/LimeBeck/arinn/issues/149), implementing existing
 specification §12.3 / G-5.2 and [ADR-0027](../adr/0027-activity-background-snapshot.md).
 Technical transport choice: [ADR-0087](../adr/0087-bounded-activity-background-frames.md).
-**Contract only:** no automatic capture, daemon export or shell consumer is
-implemented by this change. No target-device budget or operator gate is passed.
+**Status:** implemented end to end. The [daemon export](#daemon-implementation),
+the shell consumer and Home rendering, the X11 producer
+([x11-ewmh.md](x11-ewmh.md#activity-background)) and the KDE producer
+([background experiment](background-experiment.md#kde-producer)) are connected:
+an explicit Home over an Activity captures, publishes and shows its last frame.
+The G-5.2 device and operator gates remain pending: the target-device budget
+report and the real KDE/Wayland and XFCE/X11 qualification are owner-run, and
+none is passed.
 
 ## Optional interfaces and identities
 
@@ -82,7 +88,9 @@ sandbox. Compositor protections are not disabled or bypassed.
 
 ## Capture and invalidation lifecycle
 
-Only an eligible **explicit Home presentation intent** arms capture. Ordinary
+Only an eligible **explicit Home presentation intent** arms capture: an
+explicit Home request, or a quick-menu request, which commits the same Home
+state ([ADR-0106](../adr/0106-quick-menu-presentation.md)). Ordinary
 Status/ReportHome recovery or reconnect does not. Home without an associated
 external Activity stays on the normal background. One attempt per visible Home
 context: repeated Home on that context does not recapture, even after failure.
@@ -139,3 +147,83 @@ by defining this contract.
 Sources: [Qt grab result](https://doc.qt.io/qt-6/qquickitemgrabresult.html),
 [Qt QML grab](https://doc.qt.io/qt-6/qml-qtquick-item.html#grabToImage-method),
 and the existing [runtime experiment](background-experiment.md).
+
+## Daemon implementation
+
+`crates/arinnd/src/runtime/background.rs` exports both interfaces at the daemon
+root ([#149](https://github.com/LimeBeck/arinn/issues/149)). It follows the
+contract above; these are the implementation choices within it:
+
+- **Arming.** The handoff is exported before `Daemon1`, so no Home request
+  arrives before it exists. `HomeRequested` is emitted before arming, and arming
+  runs in the background whenever a publication or reconciliation holds the
+  state, so a Home press never waits for capture work. The deadline and the
+  reported latency count from the committed request. Only a committed
+  `Daemon1.ReportHomeRequest` or `Daemon1.ReportQuickMenuRequest` arms an
+  attempt ([ADR-0106](../adr/0106-quick-menu-presentation.md): the quick menu
+  commits the same Home state, so Home opened from it shows the frame).
+  `QuickMenuRequested` is emitted before arming, as `HomeRequested` is. Either
+  request arms only with a non-empty target and output that still match the
+  committed Home report. The X11/EWMH adapter reports its one output,
+  `x11-screen`, with both requests ([X11/EWMH](x11-ewmh.md)), so they arm there
+  too. `ReportHome` and adapter reconnects never arm.
+- **Home evidence.** The daemon reads Home visibility, target and output, the
+  Return association, the adapter's unique owner and liveness, and whether the
+  resolved window token is still in the committed inventory generation, in one
+  step under the inventory lock (`platform/kde/windows.rs`, `HomeEvidence`).
+  Every Home, Return, inventory or adapter-lifetime change wakes the reconciler.
+- **Repeated Home.** A repeated `ReportHomeRequest` clears the Return
+  association until the adapter reports it again (ADR-0073). That transient
+  empty association does not invalidate the attempt; a removed token, a new
+  inventory generation or a different reported window does. Every attempt is
+  bound to the Home lifetime that armed it (a counter of Home becoming
+  visible), so a quick Return and Home with the same target and output starts
+  a fresh request even if nothing reconciled while Home was hidden.
+- **Session guard.** `platform/session_lock.rs` mirrors the shell's guard on the
+  daemon side: the first answering freedesktop/XFCE screensaver endpoint, pinned
+  to its owner, and `PrepareForSleep` on the system bus, accepted only from
+  the current `org.freedesktop.login1` owner and seeded from its
+  `PreparingForSleep` property. Unknown state is blocked, including:
+  - no endpoint, or an owner change;
+  - a failed or timed-out owner lookup of a preferred endpoint, which never
+    falls through to a weaker one;
+  - a probe reply overtaken by a lock, owner or sleep event, so the guard stays
+    blocked and probes again;
+  - a lagged or closed subscription, so the guard blocks and subscribes again.
+
+  A guard that stops reporting altogether counts as blocked. Without a system bus,
+  sleep is seen only through the lock that KDE and XFCE take before suspend.
+  The shell keeps its own guard and never waits for this one.
+- **Provider and owner loss.** The relevant provider is the selected platform
+  adapter, the producer: its owner loss, staleness or reconnect invalidates the
+  attempt. An application provider's loss reaches the attempt through the
+  inventory when its window goes away; the opaque target is never mapped to a
+  provider. A change of the `org.arinn.Shell1` owner, including none, also
+  invalidates; publication without a shell owner is `Conflict`. A ready frame
+  is bound to the shell owner at publication, so a successor never reads it,
+  even before the owner change is processed.
+- **Publisher.** `Publish` and `Cancel` read the selected platform service's
+  owner just before taking the state lock and require it, together with the
+  inventory owner, at commit. No bus round trip separates the evidence check
+  from the commit, and a former owner cannot install a frame after an owner
+  change it raced with. A Home request queued behind the state arms only the
+  Home lifetime it was made in.
+- **Descriptors.** `Publish` checks `fstat` (regular file, exact size) and
+  `F_GET_SEALS` (write, grow and shrink) before taking the state lock. The
+  daemon never maps or reads pixels. `ReadFrame` returns a close-on-exec
+  duplicate. Receivers must read positionally because duplicates share one
+  file offset.
+- **Diagnostics.** Normalized JSON lines with no identifiers:
+  `background-armed`, `background-ready` (`duration_ms` from the Home request to
+  accepted publication), `background-unavailable` (`outcome` is one of
+  `deadline`, `session`, `window`, `adapter`, `shell` or `cancelled`) and
+  `background-released`. They are the daemon's hooks for the owner's G-5.2
+  latency report ([performance harness](performance-harness.md#activity-background-g-52)).
+
+Private-bus tests in `crates/arinnd/src/runtime/background_tests.rs` cover exact
+identity, wrong publisher and reader, missing association, repeated Home,
+late and duplicate publication, Return, target change, window removal and
+remap, adapter reconnect, lock and blocked publication, shell owner loss,
+cancellation, malformed, oversized and unsealed descriptors, the unrenewed
+deadline and the absence of runtime files. They use synthetic pixels and fake
+windows; they are not producer, consumer or device evidence.

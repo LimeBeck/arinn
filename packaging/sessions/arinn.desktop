@@ -1,0 +1,10 @@
+# SPDX-FileCopyrightText: 2026 Arinn contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Dedicated Arinn login session on KDE Plasma (Wayland), ADR-0107.
+[Desktop Entry]
+Type=Application
+Name=Arinn
+Comment=TV shell on KDE Plasma (Wayland)
+Exec=/usr/lib/arinn/arinn-session plasma
+TryExec=startplasma-wayland
+DesktopNames=KDE

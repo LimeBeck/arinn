@@ -1101,6 +1101,19 @@ test('ADR-0105: the keyboard key asks the daemon only over an unlocked applicati
     assert.equal(f.keyboardRequests.length, 1, 'Home visible: inside the shell');
 });
 
+test('ADR-0105 after ADR-0106: the keyboard key does nothing over the quick menu', () => {
+    const f = fixture();
+    f.quickMenu();
+    assert.equal(f.workspace.activeWindow, f.home);
+    f.keyboard();
+    assert.equal(f.keyboardRequests.length, 0, 'the sheet is the shell on screen');
+    // Back hands the screen to the same Activity, and the key works again.
+    f.back();
+    assert.equal(f.workspace.activeWindow, f.activity);
+    f.keyboard();
+    assert.deepEqual(f.keyboardRequests, [':1.10']);
+});
+
 test('ADR-0105: the panel window is neither the shell nor an application and sits at the bottom', () => {
     const f = fixture();
     const panel = f.window('panel-id', 'org.arinn.Shell');

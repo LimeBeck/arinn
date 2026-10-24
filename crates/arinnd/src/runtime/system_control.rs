@@ -38,15 +38,25 @@ impl ControlExport {
 
     async fn act(&self, h: &Header<'_>, action: PowerAction) -> production::Result<()> {
         self.caller(h).await?;
-        // Never queue a power request behind another: it could run long
-        // after the user saw the first one's answer.
+        self.exclusive(action.as_str(), self.control.act(action))
+            .await
+    }
+
+    /// A power request or the session switch: both end what the user is
+    /// doing, so they share one lock. Never queue one behind another: it
+    /// could run long after the user saw the first one's answer.
+    async fn exclusive(
+        &self,
+        operation: &str,
+        request: impl std::future::Future<Output = Result<(), ErrorCode>>,
+    ) -> production::Result<()> {
         let Ok(_one) = self.power.try_lock() else {
-            log(action.as_str(), Some(ErrorCode::Conflict), Instant::now());
+            log(operation, Some(ErrorCode::Conflict), Instant::now());
             return Err(ErrorCode::Conflict.into());
         };
         let started = Instant::now();
-        let result = self.control.act(action).await;
-        log(action.as_str(), result.err(), started);
+        let result = request.await;
+        log(operation, result.err(), started);
         Ok(result?)
     }
 
@@ -142,26 +152,14 @@ impl ControlExport {
         #[zbus(header)] h: Header<'_>,
     ) -> production::Result<String> {
         self.caller(&h).await?;
-        Ok(self.control.session_switch().as_str().to_owned())
+        Ok(self.control.session_switch().await.as_str().to_owned())
     }
     /// Ends the dedicated session after the shell's own confirmation; the
-    /// next login starts the plain desktop. It takes the power lock: both
-    /// end what the user is doing.
+    /// next login starts the plain desktop. It takes the power lock.
     async fn switch_to_desktop(&self, #[zbus(header)] h: Header<'_>) -> production::Result<()> {
         self.caller(&h).await?;
-        // Like a power request: never queued behind another one.
-        let Ok(_one) = self.power.try_lock() else {
-            log(
-                "switch-to-desktop",
-                Some(ErrorCode::Conflict),
-                Instant::now(),
-            );
-            return Err(ErrorCode::Conflict.into());
-        };
-        let started = Instant::now();
-        let result = self.control.switch_to_desktop().await;
-        log("switch-to-desktop", result.err(), started);
-        Ok(result?)
+        self.exclusive("switch-to-desktop", self.control.switch_to_desktop())
+            .await
     }
 }
 

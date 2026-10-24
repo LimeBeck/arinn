@@ -601,8 +601,10 @@ async fn volume_reads_and_changes_the_default_sink() {
 }
 
 /// A fake `arinn-session-switch`: logs its arguments and the session entry
-/// it was given, then exits with the code in `exit` (0 when absent) or
-/// sleeps while `hang` exists.
+/// it was given, sleeps for the seconds in `delay` if present, then exits
+/// with the code in `exit` (0 when absent). While
+/// `hang` exists it waits for a child that never ends, like the real
+/// helper's pending logout call, and writes that child's pid to `child`.
 pub(crate) fn fake_session_switch(folder: &Path) -> PathBuf {
     std::fs::create_dir_all(folder).unwrap();
     let script = folder.join("arinn-session-switch");
@@ -612,13 +614,37 @@ pub(crate) fn fake_session_switch(folder: &Path) -> PathBuf {
 dir=$(dirname "$0")
 echo "$* entry=$ARINN_SESSION_ENTRY" >> "$dir/calls"
 echo "a message the daemon must not log" >&2
-[ -e "$dir/hang" ] && exec sleep 60
+[ -e "$dir/delay" ] && sleep "$(cat "$dir/delay")"
+if [ -e "$dir/hang" ]; then
+    sleep 60 &
+    echo $! > "$dir/child"
+    wait $!
+fi
 exit "$(cat "$dir/exit" 2>/dev/null || echo 0)"
 "#,
     )
     .unwrap();
     std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
     script
+}
+
+/// Whether a process has ended: no longer listed, or a zombie whose parent
+/// (an orphan's reaper) has not collected it yet.
+async fn gone(pid: &str) -> bool {
+    for _ in 0..40 {
+        match std::fs::read_to_string(format!("/proc/{pid}/stat")) {
+            Err(_) => return true,
+            Ok(stat)
+                if stat
+                    .rsplit_once(") ")
+                    .is_some_and(|(_, rest)| rest.starts_with('Z')) =>
+            {
+                return true;
+            }
+            Ok(_) => tokio::time::sleep(Duration::from_millis(50)).await,
+        }
+    }
+    false
 }
 
 #[test]
@@ -652,7 +678,7 @@ async fn switch_to_desktop_runs_the_helper_inside_the_arinn_session() {
 
     // Outside the dedicated session nothing runs.
     let ordinary = control(None, helper.clone());
-    assert_eq!(ordinary.session_switch(), Availability::Unsupported);
+    assert_eq!(ordinary.session_switch().await, Availability::Unsupported);
     assert_eq!(
         ordinary.switch_to_desktop().await,
         Err(ErrorCode::Unsupported)
@@ -665,35 +691,44 @@ async fn switch_to_desktop_runs_the_helper_inside_the_arinn_session() {
 
     // Inside it: fixed arguments, the entry passed on explicitly.
     let arinn = control(Some("xfce"), helper.clone());
-    assert_eq!(arinn.session_switch(), Availability::Available);
+    assert_eq!(arinn.session_switch().await, Availability::Available);
     assert_eq!(arinn.switch_to_desktop().await, Ok(()));
     assert_eq!(calls(), "desktop entry=xfce\n");
 
     // The desktop refused the logout: the helper restored the choice.
     std::fs::write(folder.join("exit"), "1").unwrap();
     assert_eq!(arinn.switch_to_desktop().await, Err(ErrorCode::Unavailable));
-    // Bad usage or any other failure is an internal error.
-    std::fs::write(folder.join("exit"), "2").unwrap();
-    assert_eq!(arinn.switch_to_desktop().await, Err(ErrorCode::Internal));
+    // Bad usage (2), a choice it could not record (3) or any other failure
+    // is an internal error.
+    for code in ["2", "3"] {
+        std::fs::write(folder.join("exit"), code).unwrap();
+        assert_eq!(arinn.switch_to_desktop().await, Err(ErrorCode::Internal));
+    }
     std::fs::remove_file(folder.join("exit")).unwrap();
 
-    // A helper that does not finish is stopped after the timeout.
+    // A helper that does not finish is stopped after the timeout, with
+    // everything it started: no logout call outlives the reply.
     std::fs::write(folder.join("hang"), "").unwrap();
     let started = std::time::Instant::now();
     assert_eq!(arinn.switch_to_desktop().await, Err(ErrorCode::Timeout));
     assert!(started.elapsed() < Duration::from_secs(20));
+    let child = std::fs::read_to_string(folder.join("child")).unwrap();
+    assert!(
+        gone(child.trim()).await,
+        "the helper's child {child} survived"
+    );
     std::fs::remove_file(folder.join("hang")).unwrap();
 
     // Not installed, or not executable: unsupported.
     let missing = control(Some("plasma"), folder.join("missing"));
-    assert_eq!(missing.session_switch(), Availability::Unsupported);
+    assert_eq!(missing.session_switch().await, Availability::Unsupported);
     assert_eq!(
         missing.switch_to_desktop().await,
         Err(ErrorCode::Unsupported)
     );
     std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o644)).unwrap();
-    assert_eq!(arinn.session_switch(), Availability::Unsupported);
+    assert_eq!(arinn.session_switch().await, Availability::Unsupported);
     assert_eq!(arinn.switch_to_desktop().await, Err(ErrorCode::Unsupported));
-    assert_eq!(calls().lines().count(), 4, "{}", calls());
+    assert_eq!(calls().lines().count(), 5, "{}", calls());
     let _ = std::fs::remove_dir_all(&folder);
 }

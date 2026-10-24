@@ -182,7 +182,10 @@ choice, then asks the desktop to log out through its own session-bus API:
 `ARINN_SESSION_MODE` when set, so it matches the file the session read. If the
 desktop refuses the request, the previous choice is restored as the session
 would read it (damaged content becomes `arinn`) and the command
-exits 1. A logout the desktop accepts and an application cancels later is not
+exits 1. Without `--prompt` the logout call is bounded to 5 s
+(`busctl --timeout=5`), and a desktop that does not answer counts as a
+refusal. A choice that cannot be recorded exits 3 without a logout request;
+usage errors exit 2. A logout the desktop accepts and an application cancels later is not
 detected: the session continues with `desktop` recorded and no error. That is
 an open point for the daemon and power-menu follow-up (G-5.8). The "Return to Arinn"
 menu launcher (`org.arinn.ReturnToArinn.desktop`) runs it with `--prompt`.

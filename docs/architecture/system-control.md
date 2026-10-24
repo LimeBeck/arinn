@@ -103,18 +103,38 @@ helper; see the [session lifecycle](session-lifecycle.md).
 | Member | Producer | Reader rule |
 | --- | --- | --- |
 | `GetSessionSwitch() -> s` | `available` when the daemon runs in the dedicated Arinn session (its environment has `ARINN_SESSION_ENTRY=plasma` or `xfce`, exported by the session wrapper) and `/usr/lib/arinn/arinn-session-switch` is an executable file; `unsupported` otherwise | Any other value is `unknown`; the shell offers the action only for `available` |
-| `SwitchToDesktop()` | Runs the helper as `arinn-session-switch desktop` with the entry in its environment, no other arguments and no shell, bounded by 10 s | A reply means the desktop accepted the logout request; the session then ends |
+| `SwitchToDesktop()` | Runs the helper as `arinn-session-switch desktop` with the entry in its environment, no other arguments and no shell, in its own process group, bounded by 10 s | A reply means the desktop accepted the logout request; the session then ends |
+
+The daemon reads `ARINN_SESSION_ENTRY` once, when it starts. A daemon that
+started before the wrapper exported it (for example through the opt-in
+`arinn-session.target` of [ADR-0042](../adr/0042-opt-in-session-autostart.md),
+which ADR-0107 says not to combine with the Arinn entry) reports
+`unsupported` for that whole login: the switch is not offered, and nothing
+else changes.
 
 The helper records that the user's next login of the Arinn entry starts the
 plain desktop, then asks the desktop to log out through its own session-bus
-API. Errors:
+API. It bounds that call to 5 s itself (`busctl --timeout=5`), so a desktop
+that does not answer is handled like a refusal and the previous choice is
+restored before the daemon's limit. The daemon's 10 s limit is a backstop,
+well below the shell's 20 s wait for a power reply. Errors:
 
 | Condition | Arinn error |
 | --- | --- |
 | Not in the dedicated session, or the helper is not an installed executable file | `Unsupported` |
-| The helper exits 1: no supported desktop, or the desktop refused the logout (the helper restored the previous choice) | `Unavailable` |
-| The helper does not finish within 10 s (it is killed) | `Timeout` |
-| Any other exit or spawn failure | `Internal` |
+| The helper exits 1: no supported desktop, or the desktop refused the logout or did not answer within 5 s (the helper restored the previous choice) | `Unavailable` |
+| The helper does not finish within 10 s | `Timeout` |
+| The helper exits 3: the choice could not be recorded (no logout was requested), or 2 (usage), a signal, a wait or spawn failure | `Internal` |
+
+On `Timeout` the daemon kills the helper's whole process group, including a
+logout call still waiting, and reaps it before it replies. No logout request
+the helper started is then still pending, and the power lock is released only
+after that. The helper may have been killed after it recorded `desktop` and
+before it could restore the previous choice, so `Timeout` may leave `desktop`
+recorded. That needs a helper stalled for 10 s outside its bounded logout
+call (for example, on a hung state file system), and its effect is the
+outcome the user asked for at the next login. The shell reports the error and
+the session continues.
 
 `SwitchToDesktop` counts as a power request: while one runs, another power request or switch is refused with `Conflict`, and vice versa. The
 shell asks for confirmation first, with the live list of applications that
@@ -178,7 +198,11 @@ shell shows inhibitor texts on screen only.
   both reads; it never calls a power action or changes the volume.
 - `platform/system_control_tests.rs` and the daemon tests also run a fake
   `arinn-session-switch`: unsupported outside the session, the fixed call,
-  exit codes, the timeout and the provider refusal.
+  exit codes, the timeout (a child the helper started is dead afterwards),
+  the provider refusal, and the shared power lock in both directions.
+- `tests/package/test_session_entry.py`: the helper's bounded logout call, its
+  restore when the desktop does not answer, and exit 3 for an unrecorded
+  choice.
 - Real suspend, reboot, power off and volume on the HTPC: owner operator tests
   (AC-19). Not run.
 - Switching to the desktop and back on the HTPC: owner operator test (G-5.8).

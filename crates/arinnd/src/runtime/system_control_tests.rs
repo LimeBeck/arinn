@@ -31,6 +31,9 @@ impl Drop for Fixture {
     }
 }
 async fn fixture(system: &Bus) -> Fixture {
+    fixture_with(system, SessionSwitch::none()).await
+}
+async fn fixture_with(system: &Bus, switch: SessionSwitch) -> Fixture {
     let session = Bus::new();
     let server = session.connect().await;
     let client = session.connect().await;
@@ -48,7 +51,7 @@ async fn fixture(system: &Bus) -> Fixture {
     core.export_system_control(Control {
         system_bus: Some(system.1.clone()),
         pactl,
-        session: SessionSwitch::none(),
+        session: switch,
     })
     .await
     .unwrap();
@@ -375,4 +378,62 @@ async fn switch_to_desktop_only_inside_the_arinn_session() {
         "org.arinn.Error1.Unavailable"
     );
     let _ = std::fs::remove_dir_all(&folder);
+}
+
+#[tokio::test]
+async fn the_switch_and_a_power_request_exclude_each_other() {
+    let system = Bus::new();
+    let (_logind, fake) = logind(
+        &system,
+        FakeLogin {
+            can: ["yes".into(), "yes".into(), "yes".into()],
+            hold: Duration::from_millis(500),
+            ..FakeLogin::default()
+        },
+    )
+    .await;
+    let helpers = std::env::temp_dir().join(format!("arinn-switch-{}", Uuid::new_v4()));
+    let helper = fake_session_switch(&helpers);
+    let f = fixture_with(
+        &system,
+        SessionSwitch {
+            entry: Some("plasma".into()),
+            helper,
+        },
+    )
+    .await;
+    let control = proxy(&f, &f.client).await;
+    let other = f._session.connect().await;
+    let second = proxy(&f, &other).await;
+    let calls = || std::fs::read_to_string(helpers.join("calls")).unwrap_or_default();
+
+    // A power request is running: the switch is refused, not queued.
+    let (first, overlapping) = tokio::join!(control.suspend(), async {
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        second.switch_to_desktop().await
+    });
+    first.unwrap();
+    assert_eq!(
+        error_name(overlapping.unwrap_err()),
+        "org.arinn.Error1.Conflict"
+    );
+    assert_eq!(calls(), "");
+
+    // The switch is running: a power request is refused.
+    std::fs::write(helpers.join("delay"), "0.5").unwrap();
+    let (first, overlapping) = tokio::join!(control.switch_to_desktop(), async {
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        second.reboot().await
+    });
+    first.unwrap();
+    assert_eq!(
+        error_name(overlapping.unwrap_err()),
+        "org.arinn.Error1.Conflict"
+    );
+    assert_eq!(calls(), "desktop entry=plasma\n");
+    assert_eq!(
+        fake.lock().unwrap().calls,
+        vec![("suspend".to_string(), false)]
+    );
+    let _ = std::fs::remove_dir_all(&helpers);
 }

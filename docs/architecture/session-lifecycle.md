@@ -182,13 +182,17 @@ choice, then asks the desktop to log out through its own session-bus API:
 `ARINN_SESSION_MODE` when set, so it matches the file the session read. If the
 desktop refuses the request, the previous choice is restored as the session
 would read it (damaged content becomes `arinn`) and the command
-exits 1. A logout the desktop accepts and an application cancels later is not
+exits 1. Without `--prompt` the logout call is bounded to 5 s
+(`busctl --timeout=5`), and a desktop that does not answer counts as a
+refusal. A choice that cannot be recorded exits 3 without a logout request;
+usage errors exit 2. A logout the desktop accepts and an application cancels later is not
 detected: the session continues with `desktop` recorded and no error. That is
 an open point for the daemon and power-menu follow-up (G-5.8). The "Return to Arinn"
 menu launcher (`org.arinn.ReturnToArinn.desktop`) runs it with `--prompt`.
-"Switch to desktop" in the power menu will reach it only through the daemon's
-platform layer. That is the follow-up contract change next to
-`SystemControl1`. It is offered only when `ARINN_SESSION_ENTRY` is set.
+"Switch to desktop" in the power menu reaches it only through the daemon's
+platform layer: `SystemControl1.GetSessionSwitch` and `SwitchToDesktop`
+([system control](system-control.md#switch-to-desktop)). It is offered only
+when the daemon's environment has `ARINN_SESSION_ENTRY` set.
 Nothing here needs privileges or changes display-manager configuration.
 
 Administrator setup, once per HTPC:

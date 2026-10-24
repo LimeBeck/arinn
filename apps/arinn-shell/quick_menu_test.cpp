@@ -10,7 +10,7 @@
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QSignalSpy>
-#include <QTemporaryDir>
+#include <QQmlProperty>
 #include <QTest>
 #include <QTimer>
 #include <QtDBus>
@@ -145,7 +145,6 @@ class QuickMenuTest : public QObject {
   std::unique_ptr<QQmlApplicationEngine> engine;
   QQuickWindow *window = nullptr;
   QQuickItem *menu = nullptr, *screens = nullptr, *home = nullptr;
-  QTemporaryDir frames;
 
   bool focusIn(QQuickItem *scope) {
     for (auto *item = window->activeFocusItem(); item; item = item->parentItem())
@@ -457,29 +456,103 @@ private slots:
     QTRY_VERIFY(menuOpen());
   }
 
-  // Over an Activity the sheet shows the Activity's last frame when there is
-  // one (§5.7, §12.3); otherwise the live window behind the transparent
-  // window. Over the shell no frame is drawn.
-  void activityFrameBehindTheSheet() {
-    QImage image(32, 18, QImage::Format_RGB32);
-    image.fill(Qt::darkCyan);
-    const QString file = frames.filePath(QStringLiteral("frame.png"));
-    QVERIFY(image.save(file));
-    auto *frame = child(window, "quickMenuActivityFrame");
+  // Automatic ambient never counts while the sheet is over an Activity: the
+  // Activity is in the foreground behind it (§5.7). Over the shell it does.
+  void ambientIdleWaitsOverAnActivity() {
+    auto *idle = engine->rootObjects().value(0)->findChild<QObject *>(
+        QStringLiteral("ambientIdle"));
+    QVERIFY(idle);
     openSheet(false);
-    QVERIFY(!frame->isVisible());
-    // The source the shell reads for Home (ActivityBackgroundSource).
-    window->setProperty("activityFrame", QUrl::fromLocalFile(file));
-    QTRY_VERIFY(frame->isVisible());
+    QTest::qWait(100);
+    QVERIFY(!idle->property("eligible").toBool());
+    QVERIFY(!idle->property("counting").toBool());
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_VERIFY(!window->isVisible());
+    openSheet(true);
+    QTRY_VERIFY(idle->property("eligible").toBool());
+  }
+
+  // A shell that is shown but has no focus when the request arrives is not
+  // the screen the user is on: the sheet is over the Activity (the guard
+  // against a Status read that showed the shell first).
+  void shownButInactiveShellIsNotTheContext() {
+    daemon.returnWindow = QStringLiteral("activity");
+    daemon.request("HomeRequested");
+    QTRY_VERIFY(window->isVisible());
+    // Another window has focus: the shell was shown by a Status read and
+    // is not yet activated by the platform.
+    QQuickWindow other;
+    other.resize(64, 64);
+    other.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&other));
+    other.requestActivate();
+    QTRY_VERIFY(other.isActive() && !window->isActive());
+    // The request's handler, in the same turn: the shell is shown, not active.
+    QVERIFY(QMetaObject::invokeMethod(window, "openQuickMenu"));
+    QVERIFY(menu->isVisible());
+    QVERIFY(!screens->isVisible());
+    window->requestActivate();
+    QTRY_VERIFY(menuOpen());
     QTest::keyClick(window, Qt::Key_Escape);
     QTRY_COMPARE(daemon.backs, 1);
-    // The frame stays until the platform hides the shell, so nothing
-    // flashes on the way back.
-    QVERIFY(frame->isVisible());
-    QTRY_VERIFY(!window->isVisible());
-    QVERIFY(!frame->isVisible());
-    openSheet(true);
-    QVERIFY(!frame->isVisible());
+  }
+
+  // The global Home key with the power scope over the sheet leaves as Home
+  // inside the scope does (#477): a request in flight goes on, and its late
+  // refusal reopens the scope over Home.
+  void globalHomeLeavesThePowerScopeOverTheSheet() {
+    daemon.holdSuspend = true;
+    openSheet(false);
+    moveTo("quickMenuSleep");
+    QTest::keyClick(window, Qt::Key_Return);
+    QTRY_COMPARE(daemon.controlCalls.count(QStringLiteral("Suspend")), 1);
+    QTRY_VERIFY(focusIn(child(window, "powerOverlay")));
+    daemon.request("HomeRequested");
+    QTRY_VERIFY(!child(window, "powerMenu")->isVisible());
+    QTRY_VERIFY(!menu->isVisible());
+    QVERIFY(screens->isVisible());
+    QTRY_VERIFY(focusIn(home));
+    daemon.releaseSuspend();
+    QTRY_VERIFY(child(window, "powerError")->isVisible());
+    QTRY_VERIFY(focusIn(child(window, "powerOverlay")));
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_VERIFY(!child(window, "powerMenu")->isVisible());
+    QTRY_VERIFY(focusIn(home));
+    QCOMPARE(daemon.backs, 0);
+  }
+
+  // The "Opening…" progress never hides a focused sheet: the sheet takes
+  // its place, as Home does, and the launch goes on. Only the launch dialog
+  // is drawn above the sheet, and Home on it replaces the sheet with Home.
+  void launchProgressGivesWayToTheSheet() {
+    daemon.returnWindow = QStringLiteral("activity");
+    daemon.request("HomeRequested");
+    QTRY_VERIFY(window->isVisible());
+    window->requestActivate();
+    QTRY_VERIFY(window->isActive());
+    QTRY_VERIFY(focusIn(home));
+    auto *launch = child(window, "launchOverlay");
+    // A web service is opening (the binding to the browser catalog is
+    // replaced for the test).
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("serviceTitle"), QStringLiteral("Service")));
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("active"), true));
+    QTRY_VERIFY(launch->isVisible());
+    daemon.request("QuickMenuRequested");
+    QTRY_VERIFY(menuOpen());
+    QVERIFY(!launch->isVisible());
+    QVERIFY(launch->property("active").toBool());
+    // The launch fails: its dialog comes up above the sheet with focus.
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("failure"), QStringLiteral("failed")));
+    QTRY_VERIFY(launch->isVisible());
+    QTRY_VERIFY(focusIn(launch));
+    QVERIFY(menu->isVisible());
+    QTest::keyClick(window, Qt::Key_Home);
+    QTRY_VERIFY(!menu->isVisible());
+    QVERIFY(!window->property("quickMenuOpen").toBool());
+    QVERIFY(screens->isVisible());
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("failure"), QString()));
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("active"), false));
+    QTRY_VERIFY(!launch->isVisible());
   }
 
   // A repeated key keeps the sheet; a request of another daemon epoch is

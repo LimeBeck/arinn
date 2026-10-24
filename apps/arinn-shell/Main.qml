@@ -37,10 +37,6 @@ Window {
     property bool quickMenuOpen: false
     property bool activityBehind: false
     property var quickMenuOpener: null
-    // The Activity's last frame (§12.3, ADR-0087), shown behind the sheet
-    // over an Activity when there is one; otherwise the live window shows
-    // through the transparent window.
-    property url activityFrame: activityBackground.source
     function openQuickMenu() {
         if (sessionGuard.blocked) return;
         // During ambient the key only wakes, and that first event triggers
@@ -58,6 +54,10 @@ Window {
             activityBehind = playerOpen || !(visible && active);
             quickMenuOpener = activityBehind ? null : activeFocusItem;
             quickMenuOpen = true;
+            // The sheet takes the place of the "Opening…" progress, as Home
+            // does (§6.5): the launch keeps running, and only its dialog
+            // (failure or timeout) is drawn above the sheet (§6.1).
+            if (launchOverlay.active && !launchOverlay.showDialog) launchOverlay.hideForHome();
             // The Sound row shows the platform's current level.
             if (backend.connected) systemControl.readVolume();
         }
@@ -473,7 +473,8 @@ Window {
         objectName: "ambientIdle"
         // Settings › Appearance › Ambient after (ADR-0112), 10 minutes by default.
         timeout: settingsCatalog.ambientTimeoutMinutes * 60000
-        shellShown: root.visible && root.active
+        // An Activity behind the quick menu is in the foreground (§5.7).
+        shellShown: root.visible && root.active && !root.activityBehind
         locked: sessionGuard.blocked
         ambientActive: ambientScreen.active
         launching: browserCatalog.opening
@@ -996,22 +997,6 @@ Window {
     // The quick menu sheet above every screen (ADR-0106).
     Ui.LogicalCanvas {
         anchors.fill: parent
-        // Over an Activity: its last frame when there is one, so the sheet
-        // never sits on an empty or black screen (no compositor, a game
-        // that unmaps on focus loss). Managed playback stays live.
-        Item {
-            objectName: "quickMenuActivityFrame"
-            anchors.fill: parent
-            visible: root.activityBehind && !root.playerOpen && root.activityFrame.toString() !== ""
-            Rectangle { anchors.fill: parent; color: "black" }
-            Image {
-                anchors.fill: parent
-                source: parent.visible ? root.activityFrame : ""
-                fillMode: Image.PreserveAspectFit
-                cache: false
-                asynchronous: true
-            }
-        }
         Ui.QuickMenu {
             id: quickMenu
             anchors.fill: parent
@@ -1079,6 +1064,7 @@ Window {
         // The launch dialog is drawn above the power scope (ui-power.md).
         Ui.LaunchOverlay {
             id: launchOverlay
+            objectName: "launchOverlay"
             anchors.fill: parent
             z: 20
             active: browserCatalog.opening
@@ -1087,7 +1073,11 @@ Window {
             onCancelRequested: browserCatalog.cancelOpen()
             onRetryRequested: browserCatalog.retryOpen()
             onDismissRequested: browserCatalog.dismissOpenFailure()
-            onHomeRequested: Qt.callLater(home.showHome)
+            // Home replaces a quick menu under the dialog too (§6.3).
+            onHomeRequested: {
+                if (root.quickMenuOpen || root.activityBehind) root.quickMenuHome();
+                else Qt.callLater(home.showHome);
+            }
         }
         Power.AmbientScreen {
             id: ambientScreen

@@ -124,6 +124,29 @@ shell shows the screen and Activity context it kept, and the daemon reconnects
 providers as before. A suspend that never happens leaves the waiting pane until
 the user presses Back.
 
+## Power key
+
+The remote's ⏻ opens this menu too (spec §5.7 *Power button*,
+[ADR-0111](../adr/0111-power-key.md), [#481](https://github.com/LimeBeck/arinn/issues/481)).
+The platform owns the key globally and reports `Daemon1.ReportPowerMenuRequest`,
+which commits the Home state and emits `PowerMenuRequested`. `Backend` passes the
+request on for the current daemon epoch only, and `Main.openPowerFromKey()` acts
+on it:
+
+| Where | Result |
+| --- | --- |
+| Over an external Activity | The platform shows the shell as for Home; the power scope opens over Home, with the Activity's last frame behind it. Back and Cancel leave Home on screen with Return to the Activity; the Activity is not activated |
+| Inside the shell | The scope opens over the current screen; Back returns focus to where it was |
+| Quick menu over an Activity | The sheet gives way to Home, as for the Home key, and the scope opens over Home |
+| Quick menu over the shell | The scope opens over the sheet, as from its Power row; Back returns to the sheet |
+| Scope already open | Nothing changes: no toggle, the step and focus stay (a confirmation or a request in flight included) |
+| Ambient | Ambient ends without a consumed wake, and the scope opens |
+| Locked or unknown lock state | Nothing; the shell stays hidden |
+
+The key itself never requests a power action; every action keeps its
+confirmation and refusal rules above. The platform side is in
+[system control](system-control.md#power-key).
+
 ## Volume keys and HUD
 
 While the shell window is on screen and active and the session is not locked,
@@ -224,6 +247,12 @@ dbus-run-session -- build/apps/arinn-shell/arinn-system-control-test
   over the sheet, which offers the entry only when the fake daemon says
   `available`, confirms with Cancel first, shows the refusal and walks back
   to the sheet's Power row.
+- `apps/arinn-shell/quick_menu_test.cpp` (`powerKey*`): the production
+  `Main.qml` and `Backend` against `PowerMenuRequested` from the fake daemon:
+  over an Activity the menu opens over Home and Back leaves Home without a
+  Return, a repeated key keeps the menu and its focus, another epoch is
+  ignored, inside the shell Back returns to the opener, both quick-menu
+  cases, ambient ends and the menu opens, and nothing happens while locked.
 - Real suspend, wake, the lock screen and volume on the HTPC are owner
   operator tests (AC-19). Not run.
 - Switching to the desktop and back on the HTPC is the owner operator test

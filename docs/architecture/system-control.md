@@ -155,6 +155,43 @@ This is the open point of [ADR-0107](../adr/0107-dedicated-arinn-session.md)
 [#438](https://github.com/LimeBeck/arinn/issues/438), and either direction
 keeps these members.
 
+## Power key
+
+The remote's ⏻ opens the power menu instead of the desktop's power dialog
+while Arinn runs (spec §5.7 *Power button*, [ADR-0111](../adr/0111-power-key.md)).
+The key never calls this interface by itself; the shell opens the menu and
+every action goes through the methods above.
+
+- **KDE.** The KWin action `ArinnPower` reports `ReportPowerMenuRequest` after
+  the unlocked check. When the adapter connects, the daemon
+  (`platform/kde/power_key.rs`) marks PowerDevil's `PowerOff` and `PowerDown`
+  KGlobalAccel actions not present for this KGlobalAccel run (`setInactive`,
+  nothing written to `kglobalshortcutsrc`) and gives `ArinnPower` `Key_PowerOff`
+  and `Key_PowerDown` (KWin's long press). A key another action holds is left
+  out, and a key `ArinnPower` does not get goes back to PowerDevil at once.
+  `arinnd --release-power-key` (`ExecStopPost=` of `arinnd.service` and
+  `arinn-kwin-adapter stop`) clears `ArinnPower` and makes PowerDevil's actions
+  present again with the keys KGlobalAccel stores.
+- **X11/EWMH.** `arinn-platform-x11` grabs `XF86PowerOff` (and
+  `XF86PowerDown` where mapped). A key another client holds, such as
+  xfce4-power-manager's grab, stays that client's; Arinn changes no
+  xfce4-power-manager setting.
+- **logind.** While Arinn holds the key (the daemon on KDE, the adapter on
+  X11) it holds a `handle-power-key` block inhibitor (`platform/power_inhibitor.rs`),
+  so logind's own `HandlePowerKey=` never runs next to the menu. The lock ends
+  with the process. `GetPower` never lists `handle-power-key` inhibitors, so
+  this one never blocks Sleep, Restart or Shut down.
+
+Tests: `platform/kde/power_key.rs` (a fake KGlobalAccel with shared keys and a
+fake logind on a private bus: takeover without a write, an older KGlobalAccel,
+a third-party key, no PowerDevil, no KGlobalAccel, and the release),
+`platform/power_inhibitor.rs`, the Xvfb tests
+`power_key_is_reported_apart_from_home_and_the_quick_menu`,
+`held_power_key_stays_with_the_desktop` and
+`power_key_opens_the_power_menu_only_when_unlocked`, and
+`tests/integration/kwin_adapter.test.cjs`. Real KDE and XFCE sessions with the
+remote are owner operator tests; not run.
+
 ## Callers
 
 Only the shell calls this interface. A call from a connection that owns a

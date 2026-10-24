@@ -1105,6 +1105,11 @@ Window {
                 if (root.quickMenuOpen || root.activityBehind) root.quickMenuHome();
                 else Qt.callLater(home.showHome);
             }
+            // What the backend needs to put this screen back after another
+            // launch's failure dialog, and to hold that dialog while the
+            // stop confirmation is open (§6.1, §6.5).
+            onHomeHiddenChanged: if (typeof backend.setLaunchHidden === "function") backend.setLaunchHidden(homeHidden)
+            onConfirmingChanged: if (typeof backend.setLaunchConfirming === "function") backend.setLaunchConfirming(confirming)
             Connections {
                 target: backend
                 // Test doubles of the backend may lack the signal.
@@ -1112,7 +1117,8 @@ Window {
                 function onLaunchShown() { applicationLaunch.showAgain(backend.launchElapsed()); }
                 // A launch that replaces another on screen starts over.
                 function onLaunchStarted() { applicationLaunch.arm(); }
-                // A dismissed failure leaves a launch behind it hidden.
+                // The launch that takes the screen after a failure or after
+                // the launch on screen ended had been hidden: keep it hidden.
                 function onLaunchHidden() { applicationLaunch.hideForHome(); }
             }
         }

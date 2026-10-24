@@ -853,7 +853,8 @@ void Backend::runApplication(const QString &id, const QVariantList &entries,
     // Its starting screen comes back, also behind a newer launch (§6.5).
     const auto found = m_launches.constFind(id);
     if (launching && found != m_launches.constEnd() && found->error.isEmpty()) {
-      m_shownLaunch = id;
+      showLaunch(id);
+      m_launches[id].hidden = false;
       publishState();
       emit launchShown();
     }
@@ -889,7 +890,7 @@ void Backend::runApplication(const QString &id, const QVariantList &entries,
     launch.title = selected.value("title").toString();
     launch.started = QDateTime::currentMSecsSinceEpoch();
     m_launches.insert(id, launch);
-    m_shownLaunch = id;
+    showLaunch(id);
   }
   beginOperation(id, msg);
   if (launching && m_launches.contains(id))
@@ -900,6 +901,42 @@ qint64 Backend::launchElapsed() const {
   return launch && launch->started > 0
              ? QDateTime::currentMSecsSinceEpoch() - launch->started
              : 0;
+}
+void Backend::showLaunch(const QString &id) {
+  if (m_shownLaunch != id) {
+    const auto previous = m_launches.find(m_shownLaunch);
+    if (previous != m_launches.end())
+      previous->hidden = true;
+    m_launchConfirming = false;
+  }
+  m_shownLaunch = id;
+}
+void Backend::setLaunchHidden(bool hidden) {
+  const auto found = m_launches.find(m_shownLaunch);
+  if (found != m_launches.end() && found->error.isEmpty())
+    found->hidden = hidden;
+}
+void Backend::setLaunchConfirming(bool confirming) {
+  if (m_launchConfirming == confirming)
+    return;
+  m_launchConfirming = confirming;
+  // A failure that waited behind the confirmation comes on screen now.
+  if (!confirming && showQueuedFailure())
+    publishState();
+}
+bool Backend::showQueuedFailure() {
+  const auto *shown = shownLaunch();
+  if (m_launchConfirming || (shown && !shown->error.isEmpty()))
+    return false;
+  const Launch *oldest = nullptr;
+  for (const auto &launch : std::as_const(m_launches))
+    if (!launch.error.isEmpty() && (!oldest || launch.started < oldest->started))
+      oldest = &launch;
+  if (!oldest)
+    return false;
+  // The launch it covers keeps its visibility for when the dialog closes.
+  m_shownLaunch = oldest->id;
+  return true;
 }
 void Backend::forgetShownLaunch() {
   m_launches.remove(m_shownLaunch);
@@ -920,10 +957,16 @@ void Backend::forgetShownLaunch() {
 void Backend::failLaunch(Launch &launch, const QString &error) {
   launch.error = error.isEmpty() ? QStringLiteral("Unavailable") : error;
   launch.cancellable = launch.cancelling = false;
-  // Another failure already on screen stays until it is dismissed.
+  // Another failure already on screen stays until it is dismissed, and an
+  // open stop confirmation is not interrupted: an OK meant for it must not
+  // land on this dialog. The launch it covers keeps its visibility.
   const auto *shown = shownLaunch();
-  if (!shown || shown->error.isEmpty())
-    m_shownLaunch = launch.id;
+  if (shown && shown != &launch &&
+      (!shown->error.isEmpty() || m_launchConfirming))
+    return;
+  if (shown != &launch)
+    m_launchConfirming = false;
+  m_shownLaunch = launch.id;
 }
 void Backend::cancelLaunch() {
   auto found = m_launches.find(m_shownLaunch);
@@ -966,6 +1009,10 @@ void Backend::retryLaunch() {
   // Nothing was started (the entry is gone): show what still runs.
   if (!m_launches.contains(id))
     dismissed();
+  // Another failure waited behind this dialog: it comes next, over the
+  // new launch.
+  else if (showQueuedFailure())
+    publishState();
 }
 void Backend::dismissLaunchFailure() {
   const auto *shown = shownLaunch();
@@ -976,8 +1023,14 @@ void Backend::dismissLaunchFailure() {
 }
 void Backend::dismissed() {
   publishState();
-  if (launchActive())
+  if (!launchActive())
+    return;
+  // Closing a dialog returns to what it covered (§6.1): a starting screen
+  // that was on screen comes back; one that Home hid stays hidden (§6.5).
+  if (shownLaunch()->hidden)
     emit launchHidden();
+  else
+    emit launchShown();
 }
 void Backend::openShortcut(const QString &id) {
   if (m_pendingIds.contains(id))
@@ -1104,7 +1157,7 @@ void Backend::watchOperation(const QString &id, const QString &operationPath,
                         return;
                       }
                       m_pendingIds.remove(id);
-                      bool hide = false;
+                      bool next = false;
                       if (auto *launch = shown()) {
                         // Success and a confirmed cancel close the launch;
                         // a failure comes on screen and stays until it is
@@ -1113,7 +1166,7 @@ void Backend::watchOperation(const QString &id, const QString &operationPath,
                           failLaunch(*launch, error);
                         } else if (launch->id == m_shownLaunch) {
                           forgetShownLaunch();
-                          hide = launchActive();
+                          next = true;
                         } else {
                           m_launches.remove(launch->id);
                         }
@@ -1123,9 +1176,10 @@ void Backend::watchOperation(const QString &id, const QString &operationPath,
                                            ? tr("Launch cancelled")
                                            : error);
                       timer->deleteLater();
-                      publishState();
-                      if (hide)
-                        emit launchHidden();
+                      if (next)
+                        dismissed();
+                      else
+                        publishState();
                     });
           });
   timer->start();

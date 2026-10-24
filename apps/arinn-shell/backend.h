@@ -102,6 +102,10 @@ public:
   }
   // How long the launch on screen has been running, for showing it again.
   Q_INVOKABLE qint64 launchElapsed() const;
+  // The overlay reports whether Home or the quick menu hid the launch on
+  // screen, and whether its stop confirmation is open (§6.1, §6.5).
+  Q_INVOKABLE void setLaunchHidden(bool hidden);
+  Q_INVOKABLE void setLaunchConfirming(bool confirming);
   // Stop the launch on screen after the user confirmed it (ADR-0110).
   Q_INVOKABLE void cancelLaunch();
   Q_INVOKABLE void retryLaunch();
@@ -124,12 +128,13 @@ signals:
   void webShortcutsChanged();
   void continueEntriesChanged();
   void screenRequested(const QString &name);
-  // The tile of a launch in flight was chosen again: show it again.
+  // The tile of a launch in flight was chosen again, or the dialog that
+  // covered its starting screen closed: show it again.
   void launchShown();
   // A new launch is on screen: start its overlay from the beginning.
   void launchStarted();
-  // A dismissed failure leaves another launch running: keep it hidden, as
-  // Home does, until its tile is chosen again.
+  // The launch that took the screen had been hidden (by Home, the quick
+  // menu or a newer launch): keep it hidden until its tile is chosen.
   void launchHidden();
   // The global Home key or a queued Home, for the current daemon epoch.
   void homeRequested();
@@ -157,8 +162,17 @@ private:
   struct Launch {
     QString id, title, operation, error;
     bool cancellable = false, cancelling = false;
+    // Hidden by Home or the quick menu, or replaced on screen by a newer
+    // launch; a launch that a failure dialog covered is not hidden.
+    bool hidden = false;
     qint64 started = 0;
   };
+  bool m_launchConfirming = false;
+  // Put `id` on screen; the launch it replaces counts as hidden.
+  void showLaunch(const QString &id);
+  // A failure that waited (behind another dialog or a stop confirmation)
+  // comes on screen if nothing holds it any more; true if it did.
+  bool showQueuedFailure();
   QHash<QString, Launch> m_launches;
   QString m_shownLaunch;
   const Launch *shownLaunch() const {
@@ -174,8 +188,8 @@ private:
   // The launch on screen ended or was dismissed: the most recent launch
   // still in flight takes its place, hidden.
   void forgetShownLaunch();
-  // After a failure left the screen: publish, and hide the launch that took
-  // its place.
+  // After a failure or the launch on screen left it: publish, and show the
+  // launch that took its place again, or keep it hidden if it was hidden.
   void dismissed();
   // A launch failed: its dialog comes on screen at once.
   void failLaunch(Launch &launch, const QString &error);

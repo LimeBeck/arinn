@@ -909,7 +909,9 @@ private slots:
   }
   // Spec §6.5: a launch hidden by Home and then by a newer launch of
   // another application still shows again on its tile, stays cancellable,
-  // and its failure comes on screen as a dialog (review of #511).
+  // and its failure comes on screen as a dialog. Closing that dialog returns
+  // to the starting screen it covered (§6.1); one that Home hid stays hidden.
+  // Failures queue behind each other (review of #511).
   void launchBehindANewerLaunchShowsAgainAndFails() {
     auto bus = QDBusConnection::sessionBus();
     CatalogDaemon daemon;
@@ -927,8 +929,11 @@ private slots:
       QSignalSpy shown(&backend, &Backend::launchShown);
       QSignalSpy started(&backend, &Backend::launchStarted);
       QSignalSpy hidden(&backend, &Backend::launchHidden);
+      // The overlay reports Home as it hides the starting screen.
+      const auto home = [&backend] { backend.setLaunchHidden(true); };
       backend.launch(a);
       QTRY_VERIFY(backend.launchCancellable());
+      home();
       backend.launch(b);
       QCOMPARE(started.count(), 2);
       QTRY_VERIFY(backend.launchCancellable());
@@ -943,31 +948,91 @@ private slots:
       // Cancel reaches A's operation, not B's.
       backend.cancelLaunch();
       QTRY_COMPARE(daemon.cancelled, QStringList{"first"});
-      // A ended; B, still starting, takes its place hidden.
+      // A ended; B, which A's screen had replaced, takes its place hidden.
       QTRY_COMPARE(hidden.count(), 1);
+      QCOMPARE(shown.count(), 1);
       QVERIFY(backend.launchActive());
       QCOMPARE(backend.busyEntryIds(), QStringList{b});
-      // A again, and this time it fails while B is on screen: its dialog
-      // comes on screen at once.
+
+      // A again, Home, then B's tile: "Starting B…" is on screen.
       backend.launch(a);
       QTRY_VERIFY(backend.launchCancellable());
+      home();
       backend.launch(b);
       QCOMPARE(shown.count(), 2);
+      // A fails behind it: its dialog comes on screen at once.
       daemon.states["first"] = "failed";
       daemon.errors["first"] = "Unavailable";
       QTRY_COMPARE(backend.launchError(), QString("Unavailable"));
       QVERIFY(!backend.launchActive());
-      // Dismissing it leaves B starting, hidden until its tile is chosen.
-      const auto hiddenBefore = hidden.count();
+      // Closing it returns to B's starting screen, which it covered.
       backend.dismissLaunchFailure();
       QVERIFY(backend.launchError().isEmpty());
       QVERIFY(backend.launchActive());
-      QCOMPARE(hidden.count(), hiddenBefore + 1);
-      backend.launch(b);
       QCOMPARE(shown.count(), 3);
-      QCOMPARE(daemon.launches, 3);
+      QCOMPARE(hidden.count(), 1);
+
+      // B hidden by Home this time: after A's dialog, B stays hidden.
+      backend.launch(a);
+      QTRY_VERIFY(backend.launchCancellable());
+      backend.launch(b);
+      home();
+      daemon.states["first"] = "failed";
+      QTRY_COMPARE(backend.launchError(), QString("Unavailable"));
+      backend.dismissLaunchFailure();
+      QVERIFY(backend.launchActive());
+      QCOMPARE(hidden.count(), 2);
+      QCOMPARE(shown.count(), 4);
+
+      // A second failure waits behind the dialog on screen: A fails while
+      // B's screen is up, then B fails too. Retry relaunches A, and B's
+      // dialog comes next.
+      backend.launch(a);
+      QTRY_VERIFY(backend.launchCancellable());
+      home();
+      backend.launch(b);
+      daemon.states["first"] = "failed";
+      QTRY_COMPARE(backend.launchError(), QString("Unavailable"));
+      daemon.states["second"] = "failed";
+      daemon.errors["second"] = "Unavailable";
+      QTRY_VERIFY(!backend.busyEntryIds().contains(b));
+      daemon.invokedId.clear();
+      backend.retryLaunch();
+      QCOMPARE(daemon.invokedId, QString("first"));
+      QCOMPARE(backend.launchError(), QString("Unavailable"));
+      // Closing B's dialog returns to A's new launch.
+      const auto shownBefore = shown.count();
+      backend.dismissLaunchFailure();
+      QVERIFY(backend.launchActive());
+      QCOMPARE(shown.count(), shownBefore + 1);
+
+      // A failure waits while the stop confirmation of the launch on screen
+      // is open, so an OK meant for it cannot land on Retry.
+      QTRY_VERIFY(backend.launchCancellable());
+      home();
+      backend.launch(b);
+      QTRY_VERIFY(backend.launchCancellable());
+      backend.setLaunchConfirming(true);
+      daemon.states["first"] = "failed";
+      QTRY_VERIFY(!backend.busyEntryIds().contains(a));
+      QVERIFY(backend.launchActive());
+      QVERIFY(backend.launchError().isEmpty());
+      backend.setLaunchConfirming(false);
+      QCOMPARE(backend.launchError(), QString("Unavailable"));
+      backend.dismissLaunchFailure();
+      QVERIFY(backend.launchActive());
+
+      // A background launch that ends leaves nothing behind: once the launch
+      // on screen ends too, no launch is left on screen.
+      home();
+      backend.launch(a);
+      QTRY_VERIFY(backend.launchCancellable());
       daemon.states["second"] = "succeeded";
-      QTRY_VERIFY(!backend.launchActive());
+      QTRY_VERIFY(!backend.busyEntryIds().contains(b));
+      QVERIFY(backend.launchActive());
+      daemon.states["first"] = "succeeded";
+      QTRY_VERIFY(backend.busyEntryIds().isEmpty());
+      QVERIFY(!backend.launchActive());
       QVERIFY(backend.launchError().isEmpty());
     }
     bus.unregisterObject("/org/arinn", QDBusConnection::UnregisterTree);

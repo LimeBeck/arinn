@@ -102,8 +102,16 @@ quick-menu key that cannot be grabbed is skipped without stopping the backend
 while the shell is active, and a press is reported with `ReportPowerMenuRequest`
 after the same unlocked check and Home state; the shell is raised at once, as for
 Home. A power key another client holds (xfce4-power-manager) is skipped and logged
-and stays that client's. While a power key is grabbed the adapter holds logind's
-`handle-power-key` inhibitor ([ADR-0111](../adr/0111-power-key.md)). Home snapshots the exact opaque target
+and stays that client's. Only in the dedicated Arinn XFCE session
+(`ARINN_SESSION_ENTRY=xfce`, owner decision of 2026-10-24) the adapter first sets
+xfce4-power-manager's `/xfce4-power-manager/power-button-action` to 0 ("do
+nothing") through xfconf, keeping the user's value in
+`$XDG_STATE_HOME/arinn/xfce-power-button` until it is restored (clean stop,
+`ExecStopPost=-/usr/bin/arinn-platform-x11 --release-power-key`, or the next
+start in any session); a power key xfce4-power-manager still grabs is then read
+from XInput2 raw key presses on the root window. While Arinn owns a power key,
+by grab or raw events, the adapter holds logind's `handle-power-key` inhibitor
+([ADR-0111](../adr/0111-power-key.md)). Home snapshots the exact opaque target
 and keeps it across repeated Home presses. Return validates that token in the
 current inventory before dispatch. The shell receives all-desktops, fullscreen/above and
 activation EWMH messages; ordinary activation and close also use EWMH messages.

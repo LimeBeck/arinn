@@ -174,8 +174,15 @@ every action goes through the methods above.
   present again with the keys KGlobalAccel stores.
 - **X11/EWMH.** `arinn-platform-x11` grabs `XF86PowerOff` (and
   `XF86PowerDown` where mapped). A key another client holds, such as
-  xfce4-power-manager's grab, stays that client's; Arinn changes no
-  xfce4-power-manager setting.
+  xfce4-power-manager's grab, stays that client's.
+- **XFCE, dedicated Arinn session only** (owner decision of 2026-10-24). With
+  `ARINN_SESSION_ENTRY=xfce` the adapter (`platform/x11/src/xfce_power.rs`) sets
+  xfce4-power-manager's power-button action to "do nothing" through xfconf
+  while it runs and reads the key from XInput2 raw events. The user's value is
+  kept in `$XDG_STATE_HOME/arinn/xfce-power-button` before the change and
+  restored on a clean stop, by `arinn-platform-x11 --release-power-key`
+  (`ExecStopPost=` of `arinn-ewmh.service`) and at the next start; a value the
+  user set meanwhile is kept. The ordinary XFCE desktop is not changed.
 - **logind.** While Arinn holds the key (the daemon on KDE, the adapter on
   X11) it holds a `handle-power-key` block inhibitor (`platform/power_inhibitor.rs`),
   so logind's own `HandlePowerKey=` never runs next to the menu. The lock ends
@@ -187,9 +194,9 @@ fake logind on a private bus: takeover without a write, an older KGlobalAccel,
 a third-party key, no PowerDevil, no KGlobalAccel, and the release),
 `platform/power_inhibitor.rs`, the Xvfb tests
 `power_key_is_reported_apart_from_home_and_the_quick_menu`,
-`held_power_key_stays_with_the_desktop` and
-`power_key_opens_the_power_menu_only_when_unlocked`, and
-`tests/integration/kwin_adapter.test.cjs`. Real KDE and XFCE sessions with the
+`held_power_key_is_read_from_raw_events_only_when_its_manager_does_nothing` and
+`power_key_opens_the_power_menu_only_when_unlocked`, `xfce_power` (a fake
+xfconf on a private bus), and `tests/integration/kwin_adapter.test.cjs`. Real KDE and XFCE sessions with the
 remote are owner operator tests; not run.
 
 ## Callers

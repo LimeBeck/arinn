@@ -432,7 +432,26 @@ async fn links_hold_move_and_reach_the_shell() {
         .unwrap();
     assert_eq!(signal.args().unwrap().epoch(), &f.core.epoch);
     // Process IDs are never part of what the shell reads.
-    assert!(!format!("{snapshot:?}").contains(&BROWSER_PID.to_string()));
+    assert!(!mentions_value(&format!("{snapshot:?}"), BROWSER_PID));
+}
+
+/// Whether `pid` appears in `text` as a value of its own. Matching a
+/// substring would also find it inside a random UUID (#504).
+fn mentions_value(text: &str, pid: u32) -> bool {
+    let pid = pid.to_string();
+    text.split(|c: char| !c.is_ascii_alphanumeric() && c != '-')
+        .any(|token| token == pid)
+}
+
+#[test]
+fn a_pid_inside_a_uuid_is_not_a_leaked_pid() {
+    assert!(mentions_value("Link { pid: 4100, id: \"x\" }", 4100));
+    assert!(mentions_value("[4100]", 4100));
+    assert!(!mentions_value(
+        "Snapshot { epoch: \"0f3a4100-4100-4b2c-9a41-a4100b2c3d4e\" }",
+        4100
+    ));
+    assert!(!mentions_value("pid: 41000", 4100));
 }
 
 #[tokio::test]

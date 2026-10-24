@@ -40,8 +40,17 @@ async fn run(started: std::time::Instant) -> Result<(), ErrorCode> {
             Err(ErrorCode::InvalidArgument)
         };
     }
+    if args == ["--release-power-key"] {
+        // ExecStopPost of arinnd.service and `arinn-kwin-adapter stop`: the
+        // desktop handles the power key again once Arinn stops (ADR-0111).
+        // A session without a bus or KGlobalAccel has nothing to give back.
+        if let Ok(connection) = zbus::Connection::session().await {
+            arinnd::power_key::release(&connection).await;
+        }
+        return Ok(());
+    }
     if !args.is_empty() {
-        eprintln!("usage: arinnd [--check-plugins]");
+        eprintln!("usage: arinnd [--check-plugins | --release-power-key]");
         std::process::exit(2);
     }
     let paths = Paths::from_env()?;

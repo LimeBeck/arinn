@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! Global key sequences shared by the platform adapters: Home (#286), the
-//! quick menu (#439, ADR-0106) and the on-screen keyboard (#434, ADR-0105).
+//! quick menu (#439, ADR-0106), the on-screen keyboard (#434, ADR-0105) and
+//! the power key (#481, ADR-0111).
 //!
 //! `config.toml` `home_shortcut`, `quick_menu_shortcut` and
 //! `keyboard_shortcut` use Qt's portable text, for example `Meta+F12`.
@@ -46,6 +47,12 @@ pub enum Key {
     /// XF86Launch1: the remote's microphone after the packaged hwdb remap
     /// (ADR-0105). Bound by the adapters, never parsed from configuration.
     Launch1,
+    /// evdev `KEY_POWER` (Qt `Key_PowerOff`, X11 `XF86PowerOff`). Never
+    /// parsed from `config.toml`: only `power()` names it (ADR-0111).
+    PowerOff,
+    /// Qt `Key_PowerDown` (X11 `XF86PowerDown`): KWin reports a power key
+    /// held for a second as this key on Wayland.
+    PowerDown,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -225,6 +232,21 @@ pub fn reserved(home_shortcut: &str, quick_menu_shortcut: &str) -> Vec<Sequence>
     keys
 }
 
+/// The power key (spec §5.7 *Power button*, ADR-0111). Which code the
+/// remote's ⏻ sends is not captured yet; `KEY_POWER` is assumed. KWin turns a
+/// long press of it into PowerDown, so both are bound. The key is not
+/// configurable, and `parse` never returns these keys, so no Home or
+/// quick-menu key can be one of them.
+pub fn power() -> Vec<Sequence> {
+    [Key::PowerOff, Key::PowerDown]
+        .into_iter()
+        .map(|key| Sequence {
+            modifiers: Modifiers::default(),
+            key,
+        })
+        .collect()
+}
+
 impl Sequence {
     /// The remote's Menu key, plain Menu or MenuKB. Inside the shell Menu
     /// keeps its own meaning, so adapters bind it only while another window
@@ -244,6 +266,8 @@ impl Sequence {
             Key::Menu => 0x0100_0055,
             Key::MenuKb => 0x0100_00dc,
             Key::Launch1 => 0x0100_00a3,
+            Key::PowerOff => 0x0100_00b7,
+            Key::PowerDown => 0x0100_010b,
         };
         let m = self.modifiers;
         let mut modifiers = 0;
@@ -271,6 +295,8 @@ impl Sequence {
             Key::Menu => 0xff67,
             Key::MenuKb => 0x1008_ff65,
             Key::Launch1 => 0x1008_ff41,
+            Key::PowerOff => 0x1008_ff2a,
+            Key::PowerDown => 0x1008_ff21,
         }
     }
 }
@@ -294,6 +320,36 @@ mod tests {
         assert_eq!(parse("homepage").unwrap().keysym(), 0x1008_ff18);
         assert_eq!(parse("F35").unwrap().keysym(), 0xffe0);
         assert_eq!(parse("Meta+1").unwrap().qt(), 0x1000_0031);
+    }
+
+    /// ADR-0111: the power key is never configurable, so no configured
+    /// Home or quick-menu key can take it.
+    #[test]
+    fn power_keys_are_fixed_and_never_parsed() {
+        let power = power();
+        assert_eq!(
+            power.iter().map(|key| key.qt()).collect::<Vec<_>>(),
+            [0x0100_00b7, 0x0100_010b]
+        );
+        assert_eq!(
+            power.iter().map(|key| key.keysym()).collect::<Vec<_>>(),
+            [0x1008_ff2a, 0x1008_ff21]
+        );
+        assert!(
+            power
+                .iter()
+                .all(|key| key.modifiers == Modifiers::default())
+        );
+        for text in [
+            "PowerOff",
+            "poweroff",
+            "PowerDown",
+            "Power",
+            "Meta+PowerOff",
+        ] {
+            assert_eq!(parse(text), None, "{text}");
+        }
+        assert!(power.iter().all(|key| !key.is_remote_menu()));
     }
 
     #[test]

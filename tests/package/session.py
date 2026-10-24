@@ -167,6 +167,8 @@ assert unit("arinn-ewmh.service")["Service"]["BusName"] == ["org.arinn.X11"]
 assert unit("arinn-ewmh.service")["Unit"]["PartOf"] == ["graphical-session.target arinn-ewmh-session.target"]
 # One daemon and one shell: readiness and uniqueness follow their bus names.
 assert unit("arinnd.service")["Service"]["BusName"] == ["org.arinn.Daemon1"]
+# The desktop gets the power key back whenever the daemon stops (ADR-0111).
+assert unit("arinnd.service")["Service"]["ExecStopPost"] == ["-/usr/bin/arinnd --release-power-key"]
 assert unit("arinn-shell.service")["Service"]["BusName"] == ["org.arinn.Shell1"]
 assert "arinnd.service" in unit("arinn-shell.service")["Unit"]["After"][0].split()
 # A shell that finds its name taken exits with 2; systemd must not restart it
@@ -212,12 +214,16 @@ with tempfile.TemporaryDirectory(prefix="arinn-kwin-") as folder:
     root = Path(folder)
     (root / "busctl").write_text(FAKE_BUSCTL)
     (root / "busctl").chmod(0o755)
+    # The daemon binary the adapter calls on stop (ADR-0111).
+    (root / "arinnd").write_text('#!/bin/sh\necho "arinnd $*" >> "$FAKE_LOG"\n')
+    (root / "arinnd").chmod(0o755)
     log = root / "log"
 
     def adapter(action, **fake):
         log.write_text("")
         env = {**os.environ, "PATH": f"{root}:{os.environ['PATH']}", "FAKE_LOG": str(log),
-               "ARINN_KWIN_SCRIPT": str(SCRIPT), "ARINN_KWIN_BACKGROUND_SCRIPT": str(BACKGROUND), **fake}
+               "ARINN_KWIN_SCRIPT": str(SCRIPT), "ARINN_KWIN_BACKGROUND_SCRIPT": str(BACKGROUND),
+               "ARINN_DAEMON": str(root / "arinnd"), **fake}
         result = subprocess.run([str(ADAPTER), action], env=env, capture_output=True, text=True, timeout=30)
         return result.returncode, log.read_text().splitlines()
 
@@ -247,9 +253,11 @@ with tempfile.TemporaryDirectory(prefix="arinn-kwin-") as folder:
     code, calls = adapter("start", FAKE_PHASE0="true")
     assert code == 1 and not any("loadScript" in c for c in calls), calls
 
-    # Stopping never fails, even when KWin has already gone away.
+    # Stopping never fails, even when KWin has already gone away. The desktop
+    # gets the power key back first (ADR-0111).
     code, calls = adapter("stop")
     assert code == 0 and calls == [
+        "arinnd --release-power-key",
         "--user call org.kde.KWin /Scripting org.kde.kwin.Scripting unloadScript s arinn-background",
         "--user call org.kde.KWin /Scripting org.kde.kwin.Scripting unloadScript s arinn"], calls
     assert adapter("stop", FAKE_UNLOAD_RC="1")[0] == 0

@@ -1761,6 +1761,7 @@ impl Daemon {
                 self.core.paths.config.clone(),
                 self.core.paths.state.clone(),
                 self.core.platform.quick_menu.clone(),
+                self.core.platform.power_key.clone(),
             );
         }
         Ok(self.core.platform.next_command().await)

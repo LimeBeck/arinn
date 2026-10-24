@@ -32,6 +32,8 @@ pub struct Platform {
     rx: Arc<Mutex<mpsc::Receiver<String>>>,
     /// The quick-menu keys written to KDE (ADR-0106).
     pub quick_menu: crate::global_home::QuickMenuKeys,
+    /// The power keys taken on KDE and their logind inhibitor (ADR-0111).
+    pub power_key: crate::power_key::PowerKey,
 }
 impl Default for Platform {
     fn default() -> Self {
@@ -41,6 +43,7 @@ impl Default for Platform {
             tx,
             rx: Arc::new(Mutex::new(rx)),
             quick_menu: Default::default(),
+            power_key: Default::default(),
         }
     }
 }

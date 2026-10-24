@@ -14,6 +14,10 @@ mod listings;
 pub mod operations;
 #[path = "../../../platform/kde/bridge.rs"]
 pub mod platform;
+#[path = "../../../platform/power_inhibitor.rs"]
+pub mod power_inhibitor;
+#[path = "../../../platform/kde/power_key.rs"]
+pub mod power_key;
 pub mod registry;
 pub mod runtime;
 #[path = "../../../platform/session_lock.rs"]

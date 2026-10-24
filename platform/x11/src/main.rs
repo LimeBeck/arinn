@@ -11,6 +11,7 @@ mod keyboard_lane;
 mod native;
 #[path = "../../power_inhibitor.rs"]
 mod power_inhibitor;
+mod xfce_power;
 use anyhow::{Result, ensure};
 use arinn_protocol::{
     kwin::{self, KWinBridgeProxy},
@@ -97,9 +98,12 @@ struct Pending {
     done: oneshot::Sender<&'static str>,
 }
 impl Actor {
-    fn connect() -> Result<Self> {
+    /// `raw_power`: the desktop's power manager leaves the power key alone,
+    /// so a key it grabs is read from raw events (ADR-0111).
+    fn connect(raw_power: bool) -> Result<Self> {
         let (home, quick_menu) = shortcuts();
         let mut native = Native::connect(&home, &quick_menu)?;
+        native.set_raw_power(raw_power)?;
         let snapshot = native.snapshot()?;
         Ok(Self {
             native,
@@ -648,9 +652,9 @@ async fn publish(
     }
     Ok(())
 }
-async fn session() -> Result<()> {
+async fn session(raw_power: bool) -> Result<()> {
     let actor = Arc::new(Mutex::new(
-        tokio::task::spawn_blocking(Actor::connect).await??,
+        tokio::task::spawn_blocking(move || Actor::connect(raw_power)).await??,
     ));
     let result = run(&actor).await;
     let cleanup = actor.clone();
@@ -929,20 +933,72 @@ fn config_table(
     path.and_then(|path| std::fs::read_to_string(path).ok())
         .and_then(|text| text.parse::<toml::Table>().ok())
 }
+/// xfce4-power-manager's power button while this adapter runs (owner
+/// decision of 2026-10-24, ADR-0111): "do nothing" only in the dedicated
+/// Arinn XFCE session; elsewhere only a copy left by an earlier run is
+/// given back.
+struct PowerButton {
+    bus: Option<Connection>,
+    record: Option<std::path::PathBuf>,
+    taken: bool,
+}
+impl PowerButton {
+    async fn start() -> Self {
+        let record = xfce_power::record(
+            std::env::var_os("HOME").as_deref(),
+            std::env::var_os("XDG_STATE_HOME").as_deref(),
+        );
+        let bus = Connection::session().await.ok();
+        let mut taken = false;
+        if let (Some(bus), Some(record)) = (bus.as_ref(), record.as_ref()) {
+            let entry = std::env::var("ARINN_SESSION_ENTRY").ok();
+            taken = xfce_power::start(bus, record, entry.as_deref()).await;
+        }
+        Self { bus, record, taken }
+    }
+    async fn stop(&self) {
+        if let (Some(bus), Some(record)) = (self.bus.as_ref(), self.record.as_ref()) {
+            xfce_power::release(bus, record).await;
+        }
+    }
+}
 #[tokio::main]
 async fn main() -> Result<()> {
+    if std::env::args_os().nth(1).as_deref() == Some(std::ffi::OsStr::new("--release-power-key")) {
+        // ExecStopPost= of arinn-ewmh.service: the desktop's power button
+        // setting comes back however the adapter ended (ADR-0111).
+        PowerButton {
+            bus: Connection::session().await.ok(),
+            record: xfce_power::record(
+                std::env::var_os("HOME").as_deref(),
+                std::env::var_os("XDG_STATE_HOME").as_deref(),
+            ),
+            taken: false,
+        }
+        .stop()
+        .await;
+        return Ok(());
+    }
     ensure!(
         std::env::var("ARINN_PLATFORM_BACKEND").as_deref() == Ok("ewmh"),
         "explicit EWMH backend selection required"
     );
     eprintln!("arinn-platform-x11: selected backend ewmh (org.arinn.X11)");
+    let button = PowerButton::start().await;
     // No native payloads in logs. Reconnect creates fresh tokens and bridge generation.
     loop {
-        if session().await.is_ok() {
+        if session(button.taken).await.is_ok() {
+            button.stop().await;
             return Ok(());
         }
         eprintln!("arinn-platform-x11: backend unavailable; retrying");
-        tokio::select! { _ = tokio::time::sleep(Duration::from_secs(3)) => (), _ = shutdown() => return Ok(()) }
+        tokio::select! {
+            _ = tokio::time::sleep(Duration::from_secs(3)) => (),
+            _ = shutdown() => {
+                button.stop().await;
+                return Ok(());
+            }
+        }
     }
 }
 

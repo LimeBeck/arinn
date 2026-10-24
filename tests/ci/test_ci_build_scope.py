@@ -6,6 +6,7 @@
 
 import pathlib
 import re
+import subprocess
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -183,6 +184,79 @@ class BuildJobTest(unittest.TestCase):
                 self.assertEqual(bool(evaluate(condition, event_name=event, ref=ref)), saved)
                 # The self-hosted runner keeps the cache on its own disk.
                 self.assertFalse(evaluate(condition, event_name=event, ref=ref, runner="self-hosted"))
+
+
+def package_target_directory(job: str, variable: str, **env: str) -> str:
+    """Run a package job's target directory selection and return the result.
+
+    The selection is the shell between the first `cache=` or `target=`
+    assignment of the build step and its first `mkdir -p`.
+    """
+    script = re.search(r"^ +((?:cache|target)=.*?)^ +mkdir -p ", job, re.M | re.S)
+    assert script, job.splitlines()[0]
+    lines = "\n".join(line.strip() for line in script.group(1).splitlines())
+    environment = {"PATH": "/usr/bin:/bin", "GITHUB_WORKSPACE": "/__w/arinn/arinn",
+                   "GITHUB_REF_TYPE": "branch", "RUNNER_SLOT": "", **env}
+    result = subprocess.run(["bash", "-euc", f'{lines}\nprintf %s "${variable}"'],
+                            env=environment, capture_output=True, text=True, check=True)
+    return result.stdout
+
+
+class PackageTargetDirectoryTest(unittest.TestCase):
+    # ADR-0114 (amends ADR-0113): the package jobs run check() tests from
+    # their target directories and install from target/release, so two
+    # overlapping master or nightly runs on runner instances that share
+    # /ci-cache replaced each other's artifacts (#489).
+    JOBS = {"build": "target", "build-deb": "CARGO_TARGET_DIR"}
+
+    def test_each_self_hosted_runner_instance_has_its_own_package_target_directory(self):
+        cases = {
+            # GitHub-hosted: the single directory actions/cache restores.
+            "": "/ci-cache/target",
+            "alma10": "/ci-cache/target-alma10",
+            "alma10-2": "/ci-cache/target-alma10-2",
+            "rack 1/alma10": "/ci-cache/target-rack_1_alma10",
+        }
+        for name, variable in self.JOBS.items():
+            job = package_jobs()[name]
+            with self.subTest(job=name):
+                self.assertIn("RUNNER_SLOT: ${{ vars.ARINN_RUNNER && runner.name || '' }}", job)
+            for slot, expected in cases.items():
+                with self.subTest(job=name, runner=slot):
+                    self.assertEqual(package_target_directory(job, variable, RUNNER_SLOT=slot), expected)
+
+    def test_tag_builds_keep_a_clean_workspace_target_directory(self):
+        expected = {"build": "/__w/arinn/arinn/cargo-cache/target",
+                    "build-deb": "/__w/arinn/arinn/cargo-target"}
+        for name, variable in self.JOBS.items():
+            for slot in ("", "alma10"):
+                with self.subTest(job=name, runner=slot):
+                    self.assertEqual(package_target_directory(package_jobs()[name], variable,
+                                                              GITHUB_REF_TYPE="tag", RUNNER_SLOT=slot),
+                                     expected[name])
+
+    def test_hosted_cache_still_covers_the_package_target_directory(self):
+        for name, path in (("build", "/ci-cache\n"), ("build-deb", "/ci-cache/target\n")):
+            job = package_jobs()[name]
+            with self.subTest(job=name):
+                self.assertIn(f"path: {path}", job)
+
+    def test_arch_package_builds_checks_and_installs_from_the_selected_directory(self):
+        job = package_jobs()["build"]
+        self.assertIn("CARGO_TARGET_DIR='$target'", job)
+        self.assertIn('cp "$target/release/examples/private-systemd"', job)
+        # The 12 GB limit of ADR-0101 applies to each directory.
+        self.assertIn('du -s --block-size=1G "$target"', job)
+        # Only the assignments name the shared directory.
+        self.assertEqual(job.count('$cache/target"'), 2)
+        # chown never walks the other instance's target directory.
+        self.assertIn('chown -R builder "$cache/home" "$target"\n', job)
+
+    def test_debian_package_builds_from_the_selected_directory(self):
+        job = package_jobs()["build-deb"]
+        self.assertIn('export CARGO_TARGET_DIR="$target"', job)
+        self.assertNotIn("      CARGO_TARGET_DIR:", job)
+        self.assertIn('du -s --block-size=1G "$CARGO_TARGET_DIR"', job)
 
 
 class ConcurrencyTest(unittest.TestCase):

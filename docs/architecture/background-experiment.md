@@ -78,6 +78,62 @@ Return/lock/unknown-guard/provider/owner loss and recovery, cancelled workers an
 replacement lifetimes. These are foundation tests, not private-bus runtime tests
 or production capture evidence.
 
+### KDE producer
+
+The producer runs inside KWin, as ADR-0087 requires: it needs no helper
+process and no new bus authority.
+
+- **Script.** `platform/kde/background.qml` is a packaged declarative KWin script
+  that `arinn-kwin-adapter` loads as `arinn-background` after the adapter script
+  and unloads first. If KWin refuses it, Home keeps the normal background, and
+  the unit does not fail.
+- **Module.** The script imports the `org.arinn.background` QML module
+  (`platform/kde/background`, plugin `libarinn-kwin-background.so`). The
+  packages install it into the distribution's Qt QML directory.
+- **Producer.** `BackgroundProducer` follows `Background1`, pinned to the daemon
+  owner. For a pending attempt with a resolved context, it exposes the request
+  and its target.
+- **Capture.** The script looks up the window whose `internalId` equals the
+  target, the exact Return identity. A missing, minimized or deleted window
+  cancels the request and is never replaced by another window. The script shows
+  only that window in a `WindowThumbnail` inside an invisible, non-focusable,
+  input-transparent stage on the window's output, sized to the window's aspect
+  ratio so that its backing surface (logical size times the output's DPR) stays
+  within 1920×1080 physical pixels. After the first rendered frame it calls `capture()`.
+  The producer holds the only reference to the one outstanding grab result and
+  releases it as soon as the image is taken or the request ends.
+- **Encoding and publication.**
+  - The grab is requested at physical bounds for the window's DPR.
+  - The grab callback only keeps a reference. On a one-thread worker the image
+    is scaled into 1920×1080 (input storage ≤ 64 MiB) and converted to sealed
+    straight-alpha RGBA by `encodeGrab`.
+  - The frame is published with `BackgroundCapture1.Publish` from KWin's own
+    session connection, the `org.kde.KWin` owner the daemon authenticates.
+- **Limits.**
+  - Each request is captured at most once, and at most one grab or encoding
+    runs at a time: a request that arrives while an earlier image is still
+    being encoded is cancelled as `busy` instead of queueing a second image.
+  - A superseded or invalidated request drops its result, and the descriptor is
+    closed.
+  - An encoding failure, a rejected publication or the local 1500 ms guard ends
+    the attempt; the daemon's deadline stays authoritative.
+- **Diagnostics.** Lines named `background-capture`, with outcome `published`,
+  `rejected`, `deadline`, `window`, `encode` or `busy` and `duration_ms` from the
+  request, are the producer's G-5.2 hook. They contain no identifiers.
+
+`producer_test.cpp` drives the producer against a fake daemon on a private bus,
+with a plain Qt Quick item in place of `WindowThumbnail`. It covers publication
+from the producer's own connection with a sealed frame of exact size and
+colour, a single capture per request, the deadline and missing-window
+cancellation, superseded and invalidated requests, rejected publication and
+daemon owner loss. `encode_test.cpp` covers scaling a DPR 1.75 grab into the
+bounds. The KWin script itself and the real `WindowThumbnail` capture are not
+exercised by any automated test. They need the owner's KDE run.
+
+Because KWin keeps a loaded QML plugin, an upgraded plugin takes effect at the
+next KWin start, that is the next login; restarting `arinn-kwin.service`
+reloads only the script.
+
 ### Shell consumer
 
 The shell build registers `apps/arinn-shell/background`, so its pixel and

@@ -4,7 +4,9 @@
 # Power menu and volume HUD
 
 Shell side of [specification §5.7](../specifications/arinn-specification.md#57-system-ui-power-and-ambient)
-(P-04, OQ-04) for [#148](https://github.com/LimeBeck/arinn/issues/148). The
+(P-04, OQ-04) for [#148](https://github.com/LimeBeck/arinn/issues/148), and its
+**Switch to desktop** entry for [#438](https://github.com/LimeBeck/arinn/issues/438)
+([ADR-0107](../adr/0107-dedicated-arinn-session.md)). The
 platform side is `SystemControl1` ([ADR-0108](../adr/0108-system-control.md),
 [system control](system-control.md)). Implementing this does not meet AC-19:
 real suspend, wake and the lock screen are owner operator tests.
@@ -13,7 +15,7 @@ real suspend, wake and the lock screen are owner operator tests.
 
 | File | Role |
 | --- | --- |
-| `apps/arinn-shell/system_control.{h,cpp}` | `SystemControl` QML type. Calls `SystemControl1` asynchronously and exposes availability, inhibitors, the request in flight, the accepted request, the refusal and the volume reply. The UI thread never waits for D-Bus |
+| `apps/arinn-shell/system_control.{h,cpp}` | `SystemControl` QML type. Calls `SystemControl1` asynchronously and exposes availability, inhibitors, whether the session can switch to the desktop, the request in flight, the accepted request, the refusal and the volume reply. The UI thread never waits for D-Bus |
 | `apps/arinn-shell/ui/screens/power/PowerMenu.qml` | The power scope: menu, confirmation, refusal and accepted panes, and the ambient screen. Presentation only |
 | `apps/arinn-shell/ui/screens/power/PowerOverlay.qml` | Maps a `SystemControl` (or a test double) to `PowerMenu`, owns the volume keys and the HUD |
 | `apps/arinn-shell/ui/VolumeHud.qml` | The handoff's volume HUD |
@@ -27,7 +29,7 @@ Global navigation › **Power** opens the menu over the current screen. The menu
 is the *power* focus scope of §6.1: `Main.focusedScreen` is `power` while it is
 open, so every screen beneath is inert, and closing it returns focus to the
 opener (the navigation entry). Opening it clears any old answer and reads
-`GetPower`.
+`GetPower` and `GetSessionSwitch`.
 
 The look follows handoff 15: a full-screen scrim at `rgba(0, 0, 0, 0.55)`, a
 centered glass panel 800 wide with radius 48, a 52/700 title, rows 112 tall
@@ -49,13 +51,15 @@ sees its refusal; the menu never guesses the outcome.
 | --- | --- |
 | Sleep | Calls `Suspend`. While the request is in flight the row is busy and says "Waiting for the system…". |
 | Restart, Shut down | Open the confirmation with Cancel focused. Its body lists the applications that will close and, in the error colour, the row's blocker or permission note, so confirming never hides it. Confirm calls `Reboot` or `PowerOff`; the pill is busy until the answer. |
-| Accepted | A waiting pane: "Going to sleep…", "Restarting…" or "Shutting down…" with "Waiting for the system". This is not success, and no timer produces it or anything after it. Back returns to the screen beneath. |
+| Switch to desktop | See *Switch to desktop* below. The same confirmation, titled "Switch to desktop?", with one more line saying that the next login starts the desktop until Return to Arinn. Confirm (the "Switch" pill) calls `SwitchToDesktop`. |
+| Accepted | A waiting pane: "Going to sleep…", "Restarting…", "Shutting down…" or "Switching to the desktop…" with "Waiting for the system". This is not success, and no timer produces it or anything after it. Back returns to the screen beneath. |
 | Refused | An error pane titled for the action, with the reason for `inhibited` (the holders' *who (why)*), `denied`, `unsupported`, `unavailable`, `timeout` or `failed`. Back clears it and returns to the step that asked. |
 | Ambient | Starts the shell's ambient screen over the menu (see *Ambient* below). Wake returns to this row. |
-| Back, Home | Esc, Backspace and Back close the confirmation onto its opener and then the menu, one step per press: a held key's repeats are swallowed. Home closes the menu without any action and shows Home (§6.3). While a request is in flight (at most 20 s, the shell's power timeout), Back is ignored and Cancel (Restart, Shut down) is disabled until the system answers, so a sent request never looks cancelled. Home still leaves to Home and does not cancel it (§6.3, owner decision on 2026-10-23); see *Answer after Home* below. Each opening starts on the first row. |
+| Back, Home | Esc, Backspace and Back close the confirmation onto its opener and then the menu, one step per press: a held key's repeats are swallowed. Home closes the menu without any action and shows Home (§6.3). While a request is in flight (at most 20 s, the shell's power timeout), Back is ignored and Cancel (Restart, Shut down, Switch to desktop) is disabled until the system answers, so a sent request never looks cancelled. Home still leaves to Home and does not cancel it (§6.3, owner decision on 2026-10-23); see *Answer after Home* below. Each opening starts on the first row. |
 
 **One request at a time.** The model sends one power request at a time
-and ignores a second. While a request is in flight the other power rows
+and ignores a second; Switch to desktop counts as one, as it shares the
+daemon's power lock. While a request is in flight the other power rows
 stay focusable but are held: they are dimmed, say "Available after the
 system answers", and open no confirmation. The Ambient row is held as
 well, so the answer is never shown behind the ambient screen.
@@ -79,9 +83,33 @@ shown.
   for 3 s and is hidden over managed playback. The pane can show the
   holders and stays until the user dismisses it.
 - Opening the menu again before the answer shows the request as it was
-  left: the busy Sleep row, or the busy Restart or Shut down confirmation
-  with Cancel disabled and Back ignored. The answer then appears in the
-  menu as usual.
+  left: the busy Sleep row, or the busy Restart, Shut down or Switch to
+  desktop confirmation with Cancel disabled and Back ignored. The answer
+  then appears in the menu as usual.
+
+**Switch to desktop** (spec §5.7, [system control](system-control.md#switch-to-desktop)).
+
+- The row exists only while `GetSessionSwitch` says `available`, which
+  means Arinn runs as the dedicated Arinn session. `unsupported`, `unknown`,
+  an error, no daemon and a daemon without the method hide it; a hidden row
+  is skipped by the arrows and Tab. It sits after Shut down.
+- If the value changes while the menu is open, the row appears or goes. Focus
+  on it, or its open confirmation, moves to the first available row before
+  anything is sent. A request already sent goes on.
+- The confirmation is the one of Restart and Shut down: Cancel focused, the
+  same live closing list. The daemon does not ask again.
+- No inhibitor holds the switch, so the row shows no blocker note and a
+  refusal names no holder. A refusal is titled "Could not switch to the
+  desktop" and says that Arinn keeps running. The texts per code: `unavailable` (the
+  desktop did not accept the logout or did not answer within the helper's
+  5 s), `timeout`, `failed` (`Internal`), `unsupported`, `inhibited`
+  (`Conflict`: another power request runs) and `denied`. After `unsupported`
+  the model reads `GetSessionSwitch` again, so the row goes.
+- The reopened menu, Home and the late refusal behave as for Restart.
+- An accepted request means the desktop accepted the logout. The waiting
+  pane stays until the session ends or the user presses Back. A logout the
+  desktop accepts and an application cancels later is not detected; that is
+  the open point of ADR-0107 (*Decision* 3) and is not settled here.
 
 **Closing list.** The confirmation names each running application from the
 live registry (`Backend.items`, the running entries of the application
@@ -159,7 +187,10 @@ dbus-run-session -- build/apps/arinn-shell/arinn-system-control-test
 ```
 
 - `tests/ui/tst_power.qml`: the menu itself (focus scope, Cancel default,
-  Esc/Backspace/Back, the explicit refusal, the Ambient row, geometry).
+  Esc/Backspace/Back, the explicit refusal, the Ambient row, geometry), and
+  Switch to desktop: hidden unless available, its place, its confirmation
+  with Cancel first and the live list, Back and Home, and the panel with five
+  rows.
 - `tests/ui/tst_ambient.qml`: the ambient screen (handoff look and drift,
   consumed first key, opening key not a wake, pointer anchor, consumed click,
   stop without wake) and the idle timer on a shortened timeout (default ten
@@ -174,10 +205,23 @@ dbus-run-session -- build/apps/arinn-shell/arinn-system-control-test
   reading on open, a request that waits for the platform, the accepted pane,
   closing on the lifecycle guard, refusal texts and inhibitor names, the
   confirmation's blocker note and live closing list, disabled unsupported
-  rows, Home, the volume keys and HUD, and the HUD geometry.
+  rows, Home, the volume keys and HUD, and the HUD geometry. For Switch to
+  desktop: the row following `sessionSwitch` (focus and an open
+  confirmation leave a row that goes), the request in flight (busy, Cancel
+  disabled, Back ignored, the waiting pane), the power rows and the switch
+  holding each other, the reopened menu, Home with a late refusal, and every
+  refusal text.
 - `apps/arinn-shell/system_control_test.cpp`: the model against a fake
   `SystemControl1` on a private bus: reader rules, no daemon, no acceptance
-  without a reply, typed refusals and the inhibitor re-read, and volume
-  replies.
+  without a reply, typed refusals and the inhibitor re-read, volume
+  replies, the `GetSessionSwitch` reader rules, and `SwitchToDesktop` under
+  the one-request rule in both directions with its typed refusals.
+- `apps/arinn-shell/quick_menu_test.cpp` (`switchToDesktopFromTheSheet`):
+  the production `Main.qml`; the quick menu's Power row opens the power scope
+  over the sheet, which offers the entry only when the fake daemon says
+  `available`, confirms with Cancel first, shows the refusal and walks back
+  to the sheet's Power row.
 - Real suspend, wake, the lock screen and volume on the HTPC are owner
   operator tests (AC-19). Not run.
+- Switching to the desktop and back on the HTPC is the owner operator test
+  of G-5.8. Not run.

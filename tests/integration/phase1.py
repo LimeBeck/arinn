@@ -292,6 +292,9 @@ with tempfile.TemporaryDirectory(prefix="arinn-production-") as folder:
         assert all(value in ("available", "inhibited", "denied", "unsupported", "unknown")
                    for value in availability), availability
         assert len(inhibitors) <= 16 and all(what in ("sleep", "shutdown") for what, _, _ in inhibitors)
+        # Outside the dedicated Arinn session the switch is never offered;
+        # this suite never calls SwitchToDesktop.
+        assert control_read("GetSessionSwitch") in ("available", "unsupported")
         audio, level = control_read("GetVolume")
         assert audio in ("muted", "unmuted", "unknown") and 0 <= level <= 150, (audio, level)
         assert audio != "unknown" or level == 0, (audio, level)

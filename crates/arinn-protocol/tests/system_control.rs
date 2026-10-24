@@ -93,6 +93,12 @@ impl Daemon {
         drop(state);
         Ok((self.volume(),))
     }
+    fn get_session_switch(&self) -> production::Result<String> {
+        Ok("available".into())
+    }
+    fn switch_to_desktop(&self) -> production::Result<()> {
+        self.act("switch-to-desktop")
+    }
 }
 
 struct Bus(Child, String);
@@ -236,6 +242,21 @@ async fn contract() {
         assert_eq!(error_name(public.power_off().await.unwrap_err()), name);
     }
 
+    // Switch to desktop (#438): the reader accepts only the two producer
+    // values; refusals are typed like the power actions.
+    let switch = public.get_session_switch().await.unwrap();
+    assert_eq!(
+        system_control::session_switch(&switch),
+        Availability::Available
+    );
+    state.lock().unwrap().refuse = Some(ErrorCode::Unavailable);
+    assert_eq!(
+        error_name(public.switch_to_desktop().await.unwrap_err()),
+        "org.arinn.Error1.Unavailable"
+    );
+    state.lock().unwrap().refuse = None;
+    public.switch_to_desktop().await.unwrap();
+
     let (volume,) = public.step_volume(2).await.unwrap();
     volume.validate().unwrap();
     assert_eq!((volume.audio.as_str(), volume.level), ("unmuted", 60));
@@ -258,7 +279,9 @@ async fn contract() {
             "power-off",
             "power-off",
             "power-off",
-            "power-off"
+            "power-off",
+            "switch-to-desktop",
+            "switch-to-desktop"
         ]
     );
 }

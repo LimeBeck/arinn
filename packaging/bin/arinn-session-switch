@@ -12,6 +12,14 @@
 # A logout request the desktop refuses restores the previous choice and exits
 # 1. A logout the desktop accepts and cancels later (an application's unsaved
 # work prompt) is not detected; the recorded choice stays.
+#
+# Without --prompt (the daemon's "Switch to desktop") the logout call is
+# bounded to 5 s, below the daemon's 10 s limit, so a desktop that does not
+# answer is handled like a refusal: the previous choice is restored.
+#
+# Exit status: 0 the desktop accepted the logout request; 1 no supported
+# desktop, or the desktop refused or did not answer (previous choice
+# restored); 2 usage; 3 the choice could not be recorded (no logout asked).
 set -u
 
 [ "$#" -le 2 ] || set -- invalid
@@ -59,7 +67,7 @@ case "${ARINN_SESSION_MODE:-}" in
 *)
     if [ -z "${HOME:-}" ] && [ -z "${XDG_STATE_HOME:-}" ]; then
         echo "arinn-session-switch: no state directory" >&2
-        exit 1
+        exit 3
     fi
     directory="${XDG_STATE_HOME:-$HOME/.local/state}/arinn"
     file="$directory/session-mode"
@@ -79,7 +87,7 @@ x" | desktopx) echo desktop ;;
 }
 
 umask 077
-mkdir -p "$directory" || exit 1
+mkdir -p "$directory" || exit 3
 # What the session would start now: restored as such when the logout fails.
 previous=$(recorded_mode "$file")
 
@@ -92,19 +100,25 @@ write() {
     return 1
 }
 
-write "$mode" || exit 1
+write "$mode" || exit 3
 
+# The desktop's own dialog waits for the user; a direct logout is bounded.
+if [ "$prompt" = true ]; then
+    bound=
+else
+    bound=--timeout=5
+fi
 logout() {
     case "$desktop:$prompt" in
     plasma:true)
         busctl --user call org.kde.LogoutPrompt /LogoutPrompt org.kde.LogoutPrompt promptLogout
         ;;
     plasma:false)
-        busctl --user call org.kde.Shutdown /Shutdown org.kde.Shutdown logout
+        busctl --user "$bound" call org.kde.Shutdown /Shutdown org.kde.Shutdown logout
         ;;
     # Logout(show_dialog, allow_save)
     xfce:*)
-        busctl --user call org.xfce.SessionManager /org/xfce/SessionManager \
+        busctl --user ${bound:+"$bound"} call org.xfce.SessionManager /org/xfce/SessionManager \
             org.xfce.Session.Manager Logout bb "$prompt" true
         ;;
     esac

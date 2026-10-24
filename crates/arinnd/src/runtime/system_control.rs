@@ -1,8 +1,8 @@
 // SPDX-FileCopyrightText: 2026 Arinn contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! `org.arinn.SystemControl1` (ADR-0108): power and volume actions for the
-//! shell. The work is done by `crate::system_control` in the platform layer;
+//! `org.arinn.SystemControl1` (ADR-0108): power, session and volume actions
+//! for the shell. The work is done by `crate::system_control` in the platform layer;
 //! this module checks the caller, serializes the actions and logs outcomes.
 use super::{Core, sender};
 use crate::system_control::Control;
@@ -38,15 +38,25 @@ impl ControlExport {
 
     async fn act(&self, h: &Header<'_>, action: PowerAction) -> production::Result<()> {
         self.caller(h).await?;
-        // Never queue a power request behind another: it could run long
-        // after the user saw the first one's answer.
+        self.exclusive(action.as_str(), self.control.act(action))
+            .await
+    }
+
+    /// A power request or the session switch: both end what the user is
+    /// doing, so they share one lock. Never queue one behind another: it
+    /// could run long after the user saw the first one's answer.
+    async fn exclusive(
+        &self,
+        operation: &str,
+        request: impl std::future::Future<Output = Result<(), ErrorCode>>,
+    ) -> production::Result<()> {
         let Ok(_one) = self.power.try_lock() else {
-            log(action.as_str(), Some(ErrorCode::Conflict), Instant::now());
+            log(operation, Some(ErrorCode::Conflict), Instant::now());
             return Err(ErrorCode::Conflict.into());
         };
         let started = Instant::now();
-        let result = self.control.act(action).await;
-        log(action.as_str(), result.err(), started);
+        let result = request.await;
+        log(operation, result.err(), started);
         Ok(result?)
     }
 
@@ -135,6 +145,21 @@ impl ControlExport {
             async move { control.step_volume(steps).await },
         )
         .await
+    }
+    /// `available` only inside the dedicated Arinn login session (#438).
+    async fn get_session_switch(
+        &self,
+        #[zbus(header)] h: Header<'_>,
+    ) -> production::Result<String> {
+        self.caller(&h).await?;
+        Ok(self.control.session_switch().await.as_str().to_owned())
+    }
+    /// Ends the dedicated session after the shell's own confirmation; the
+    /// next login starts the plain desktop. It takes the power lock.
+    async fn switch_to_desktop(&self, #[zbus(header)] h: Header<'_>) -> production::Result<()> {
+        self.caller(&h).await?;
+        self.exclusive("switch-to-desktop", self.control.switch_to_desktop())
+            .await
     }
 }
 

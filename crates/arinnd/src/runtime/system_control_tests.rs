@@ -7,7 +7,10 @@ use super::*;
 use crate::{
     status_sources::tests::Bus,
     storage::Paths,
-    system_control::tests::{FakeLogin, fake_pactl, logind, record},
+    system_control::{
+        SessionSwitch,
+        tests::{FakeLogin, fake_pactl, fake_session_switch, logind, record},
+    },
 };
 use arinn_protocol::{
     production::ProviderInfo,
@@ -28,6 +31,9 @@ impl Drop for Fixture {
     }
 }
 async fn fixture(system: &Bus) -> Fixture {
+    fixture_with(system, SessionSwitch::none()).await
+}
+async fn fixture_with(system: &Bus, switch: SessionSwitch) -> Fixture {
     let session = Bus::new();
     let server = session.connect().await;
     let client = session.connect().await;
@@ -45,6 +51,7 @@ async fn fixture(system: &Bus) -> Fixture {
     core.export_system_control(Control {
         system_bus: Some(system.1.clone()),
         pactl,
+        session: switch,
     })
     .await
     .unwrap();
@@ -265,6 +272,14 @@ async fn a_provider_connection_is_refused() {
         error_name(control.step_volume(0).await.unwrap_err()),
         denied
     );
+    assert_eq!(
+        error_name(control.get_session_switch().await.unwrap_err()),
+        denied
+    );
+    assert_eq!(
+        error_name(control.switch_to_desktop().await.unwrap_err()),
+        denied
+    );
     assert!(fake.lock().unwrap().calls.is_empty());
     let calls = std::fs::read_to_string(f.folder.join("pactl").join("calls")).unwrap_or_default();
     assert!(calls.is_empty(), "{calls}");
@@ -308,4 +323,117 @@ async fn a_second_power_request_meanwhile_is_refused_not_queued() {
         fake.lock().unwrap().calls,
         vec![("suspend".to_string(), false)]
     );
+}
+
+#[tokio::test]
+async fn switch_to_desktop_only_inside_the_arinn_session() {
+    let system = Bus::new();
+    // An ordinary desktop session: offered as unsupported, refused typed.
+    let f = fixture(&system).await;
+    let control = proxy(&f, &f.client).await;
+    assert_eq!(control.get_session_switch().await.unwrap(), "unsupported");
+    assert_eq!(
+        error_name(control.switch_to_desktop().await.unwrap_err()),
+        "org.arinn.Error1.Unsupported"
+    );
+
+    // The dedicated session: the helper runs once per request.
+    let session = Bus::new();
+    let server = session.connect().await;
+    let client = session.connect().await;
+    let folder = std::env::temp_dir().join(format!("arinn-control-{}", Uuid::new_v4()));
+    let helper = fake_session_switch(&folder.join("switch"));
+    let core = Core::new(
+        &server,
+        Paths {
+            config: folder.join("config"),
+            data: folder.join("data"),
+            state: folder.join("state"),
+        },
+        folder.clone(),
+    );
+    core.export_system_control(Control {
+        system_bus: Some(system.1.clone()),
+        pactl: PathBuf::from("/nonexistent/pactl"),
+        session: SessionSwitch {
+            entry: Some("plasma".into()),
+            helper,
+        },
+    })
+    .await
+    .unwrap();
+    let control = SystemControlApiProxy::builder(&client)
+        .destination(server.unique_name().unwrap().to_string())
+        .unwrap()
+        .build()
+        .await
+        .unwrap();
+    assert_eq!(control.get_session_switch().await.unwrap(), "available");
+    control.switch_to_desktop().await.unwrap();
+    let calls = || std::fs::read_to_string(folder.join("switch").join("calls")).unwrap();
+    assert_eq!(calls(), "desktop entry=plasma\n");
+    std::fs::write(folder.join("switch").join("exit"), "1").unwrap();
+    assert_eq!(
+        error_name(control.switch_to_desktop().await.unwrap_err()),
+        "org.arinn.Error1.Unavailable"
+    );
+    let _ = std::fs::remove_dir_all(&folder);
+}
+
+#[tokio::test]
+async fn the_switch_and_a_power_request_exclude_each_other() {
+    let system = Bus::new();
+    let (_logind, fake) = logind(
+        &system,
+        FakeLogin {
+            can: ["yes".into(), "yes".into(), "yes".into()],
+            hold: Duration::from_millis(500),
+            ..FakeLogin::default()
+        },
+    )
+    .await;
+    let helpers = std::env::temp_dir().join(format!("arinn-switch-{}", Uuid::new_v4()));
+    let helper = fake_session_switch(&helpers);
+    let f = fixture_with(
+        &system,
+        SessionSwitch {
+            entry: Some("plasma".into()),
+            helper,
+        },
+    )
+    .await;
+    let control = proxy(&f, &f.client).await;
+    let other = f._session.connect().await;
+    let second = proxy(&f, &other).await;
+    let calls = || std::fs::read_to_string(helpers.join("calls")).unwrap_or_default();
+
+    // A power request is running: the switch is refused, not queued.
+    let (first, overlapping) = tokio::join!(control.suspend(), async {
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        second.switch_to_desktop().await
+    });
+    first.unwrap();
+    assert_eq!(
+        error_name(overlapping.unwrap_err()),
+        "org.arinn.Error1.Conflict"
+    );
+    assert_eq!(calls(), "");
+
+    // The switch is running: a power request is refused.
+    std::fs::write(helpers.join("delay"), "0.5").unwrap();
+    let (first, overlapping) = tokio::join!(control.switch_to_desktop(), async {
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        second.reboot().await
+    });
+    first.unwrap();
+    assert_eq!(
+        error_name(overlapping.unwrap_err()),
+        "org.arinn.Error1.Conflict"
+    );
+    assert_eq!(calls(), "desktop entry=plasma\n");
+    assert_eq!(
+        fake.lock().unwrap().calls,
+        vec![("suspend".to_string(), false)]
+    );
+    let _ = std::fs::remove_dir_all(&helpers);
 }

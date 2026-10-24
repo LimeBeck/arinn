@@ -34,7 +34,13 @@ const BROWSER_LAUNCH_DEADLINE: Duration = Duration::from_secs(30);
 /// only hides Home (ADR-0052).
 const OPEN_FOCUS_WAIT: Duration = Duration::from_secs(2);
 /// How long the provider may take to stop a cancelled launch (ADR-0110).
-const LAUNCH_CANCEL_DEADLINE: Duration = Duration::from_secs(15);
+/// How long `Cancel` waits for the provider to stop a launch (ADR-0110).
+/// Short in tests, which check what happens after it.
+const LAUNCH_CANCEL_DEADLINE: Duration = if cfg!(test) {
+    Duration::from_millis(400)
+} else {
+    Duration::from_secs(15)
+};
 
 struct Provider {
     info: ProviderInfo,
@@ -1169,19 +1175,47 @@ impl Core {
         // Losing the application provider while it launches the browser ends
         // the open; once Launch has answered, the provider is no longer needed.
         op.depends_on(&id);
-        let launched = async {
-            let proxy = ApplicationProviderProxy::builder(&self.connection)
-                .destination(owner.as_str())
-                .map_err(|_| ErrorCode::Internal)?
-                .build()
-                .await
-                .map_err(|_| ErrorCode::Unavailable)?;
-            tokio::time::timeout_at(deadline, proxy.launch(&generation, &application))
-                .await
-                .map_err(|_| ErrorCode::Timeout)?
-                .map_err(normalize_error)
-        }
-        .await;
+        // Counted like an application launch for as long as the provider has
+        // not answered, so a tile's Cancel never stops it (ADR-0110). The
+        // call is awaited in its own task, which keeps it counted after this
+        // open stops waiting at its deadline.
+        let mut ticket = self.launches.admit(
+            launch_guard::LaunchKey {
+                provider: id.clone(),
+                owner: owner.clone(),
+                generation: generation.clone(),
+                local_id: application.clone(),
+            },
+            &format!("browser-launch:{}", Uuid::new_v4()),
+        );
+        let connection = self.connection.clone();
+        let (answer, answered) = tokio::sync::oneshot::channel();
+        tokio::spawn(async move {
+            ticket.dispatchable().await;
+            // This open gave up while a cancel held the launch back.
+            if answer.is_closed() {
+                return;
+            }
+            let result = async {
+                let proxy = ApplicationProviderProxy::builder(&connection)
+                    .destination(owner.as_str())
+                    .map_err(|_| ErrorCode::Internal)?
+                    .build()
+                    .await
+                    .map_err(|_| ErrorCode::Unavailable)?;
+                proxy
+                    .launch(&generation, &application)
+                    .await
+                    .map_err(normalize_error)
+            }
+            .await;
+            let _ = answer.send(result);
+            drop(ticket);
+        });
+        let launched = tokio::time::timeout_at(deadline, answered)
+            .await
+            .map_err(|_| ErrorCode::Timeout)
+            .and_then(|answer| answer.unwrap_or(Err(ErrorCode::Internal)));
         op.no_longer_depends_on(&id);
         launched?;
         loop {
@@ -1358,20 +1392,30 @@ impl Core {
                 Box::pin(async move {
                     // Only the only running launch of this ID is forwarded;
                     // a new launch of it waits until the provider answered.
-                    let _cancel = launches.begin_cancel(&key, &operation)?;
+                    let cancel = launches.begin_cancel(&key, &operation)?;
                     let proxy = ApplicationProviderProxy::builder(&connection)
-                        .destination(key.owner.as_str())
+                        .destination(key.owner.clone())
                         .map_err(|_| ErrorCode::Internal)?
                         .build()
                         .await
                         .map_err(|_| ErrorCode::Unavailable)?;
-                    tokio::time::timeout(
-                        LAUNCH_CANCEL_DEADLINE,
-                        proxy.cancel_launch(&key.generation, &key.local_id),
-                    )
-                    .await
-                    .map_err(|_| ErrorCode::Timeout)?
-                    .map_err(cancel_error)
+                    // The marker lives until the provider really answers (or
+                    // the bus reports it gone), also after `Cancel` gave up
+                    // with Timeout: a late CancelLaunch must not reach a
+                    // launch dispatched after it.
+                    let (answer, answered) = tokio::sync::oneshot::channel();
+                    tokio::spawn(async move {
+                        let result = proxy
+                            .cancel_launch(&key.generation, &key.local_id)
+                            .await
+                            .map_err(cancel_error);
+                        let _ = answer.send(result);
+                        drop(cancel);
+                    });
+                    tokio::time::timeout(LAUNCH_CANCEL_DEADLINE, answered)
+                        .await
+                        .map_err(|_| ErrorCode::Timeout)?
+                        .unwrap_or(Err(ErrorCode::Internal))
                 })
             }))
             .await;
@@ -2535,6 +2579,9 @@ impl WindowEndpoint {
 #[cfg(test)]
 #[path = "../../../platform/kde/browser_tests.rs"]
 mod browser_tests;
+#[cfg(test)]
+#[path = "runtime/launch_tests.rs"]
+mod launch_tests;
 #[cfg(test)]
 #[path = "../../../platform/kde/window_tests.rs"]
 mod window_tests;

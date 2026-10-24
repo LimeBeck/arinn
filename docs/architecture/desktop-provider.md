@@ -128,8 +128,13 @@ operation is the only running launch of the provider, generation and ID, from
 any client, and otherwise answers `Conflict` without stopping anything. A new
 launch of that ID waits to be dispatched until an in-flight `CancelLaunch` has
 been answered, so a cancel never stops a launch started after it (ADR-0110). A
-provider without the method counts as `Unsupported`; one that does not answer
-within 15 s makes `Cancel` return `Timeout`, and the launch keeps running. The shell shows "Opening <app>…", then after 8 s
+launch counts until the provider has answered its `Launch`, including the
+daemon's own browser launch for a web open (ADR-0055), whose call is awaited in
+its own task after the open stops waiting. A provider without the method counts
+as `Unsupported`; one that does not answer within 15 s makes `Cancel` return
+`Timeout`, and the launch keeps running. The in-flight marker stays until the
+provider really answers or the bus reports it gone, so new launches of that ID
+stay held meanwhile. The shell shows "Opening <app>…", then after 8 s
 "Starting <app>…" with Cancel. Cancel asks for confirmation, with *Keep starting*
 as the default focus; Home hides the overlay without cancelling, and choosing the
 tile again shows it again. A failed launch shows the error dialog with Retry.
@@ -228,7 +233,14 @@ Launch lifetime ([#436](https://github.com/LimeBeck/arinn/issues/436), 2026-10-2
   launch of the same entry makes the first caller's Cancel answer `Conflict`,
   and both launches keep running (the suite fails without the daemon's guard).
   `cargo test -p arinnd launch_guard`: the same rule, and a launch admitted
-  while a `CancelLaunch` is in flight is dispatched only after it. On `master` the
+  while a `CancelLaunch` is in flight is dispatched only after it.
+  `cargo test -p arinnd launch_tests` (provider double on a private bus): a
+  `CancelLaunch` slower than the cancel deadline gives the caller `Timeout`,
+  and a new launch of the same ID is sent only after the provider's late
+  answer; the daemon's browser launch for a web open, also after the open
+  timed out, makes a tile's Cancel answer `Conflict`. Removing the dispatch
+  hold, ending the marker at the timeout, or not counting the browser launch
+  each fails one of them. On `master` the
   suite fails at the first "still starting" check: the launch had already
   succeeded.
 

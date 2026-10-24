@@ -60,6 +60,10 @@ struct Actor {
     target: String,
     presentation: Option<Presentation>,
     media_allowed: bool,
+    /// A quick-menu press raises the shell only after its request is
+    /// published, so the shell never has focus before it learns the request
+    /// came from over an Activity (ADR-0106, review of #502).
+    raise_after_publish: bool,
 }
 /// The global key behind an explicit presentation request.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -97,6 +101,7 @@ impl Actor {
             target: String::new(),
             presentation: None,
             media_allowed: false,
+            raise_after_publish: false,
         })
     }
     fn row(&self, token: &str) -> Option<&Row> {
@@ -286,19 +291,36 @@ impl Actor {
         };
         if let Some(key) = key
             && unlocked
-            && self
+        {
+            self.raise_after_publish = key == Request::QuickMenu;
+            if self
                 .command(&Command::Home("home".into()), unlocked)
                 .is_empty()
-        {
-            explicit = Some(key);
+            {
+                explicit = Some(key);
+            } else {
+                self.raise_after_publish = false;
+            }
         }
         if unlocked
+            && !self.raise_after_publish
             && (self.home || self.presentation.is_some())
             && let Some(shell) = self.snapshot.shell
         {
             self.native.raise_shell(shell, true)?;
         }
         Ok(self.update(explicit))
+    }
+    /// Raises the shell held back for a quick-menu request, once the request
+    /// is published.
+    fn raise_deferred(&mut self) -> Result<()> {
+        if !std::mem::take(&mut self.raise_after_publish) || !self.home {
+            return Ok(());
+        }
+        if let Some(shell) = self.snapshot.shell {
+            self.native.raise_shell(shell, true)?;
+        }
+        Ok(())
     }
     fn command(&mut self, command: &Command, unlocked: bool) -> &'static str {
         match command {
@@ -386,7 +408,7 @@ impl Actor {
                             })
                             .unwrap_or_default();
                     }
-                    if self.native.raise_shell(shell, true).is_err() {
+                    if !self.raise_after_publish && self.native.raise_shell(shell, true).is_err() {
                         return "Unavailable";
                     }
                     self.home = true;
@@ -504,6 +526,10 @@ async fn unlocked(c: &Connection) -> bool {
 async fn refresh(actor: &Arc<Mutex<Actor>>, unlocked: bool) -> Result<Update> {
     let actor = actor.clone();
     tokio::task::spawn_blocking(move || actor.lock().unwrap().refresh(unlocked)).await?
+}
+async fn raise_deferred(actor: &Arc<Mutex<Actor>>) -> Result<()> {
+    let actor = actor.clone();
+    tokio::task::spawn_blocking(move || actor.lock().unwrap().raise_deferred()).await?
 }
 async fn apply(
     actor: &Arc<Mutex<Actor>>,
@@ -734,6 +760,9 @@ async fn run(actor: &Arc<Mutex<Actor>>) -> Result<()> {
                 let fresh = refresh(actor, allowed).await?;
                 background::offer(&windows, &fresh.snapshot.rows);
                 publish(&home, &bridge, &media, &returns, &generation, &mut revision, &mut previous, &mut previous_home, &fresh).await?;
+                if fresh.explicit == Some(Request::QuickMenu) {
+                    raise_deferred(actor).await?;
+                }
                 let (error, update) = apply(actor, pending.command, allowed).await?;
                 (update, Some((pending.done, error)))
             },
@@ -754,6 +783,9 @@ async fn run(actor: &Arc<Mutex<Actor>>) -> Result<()> {
             &update,
         )
         .await?;
+        if update.explicit == Some(Request::QuickMenu) {
+            raise_deferred(actor).await?;
+        }
         if let Some((done, error)) = completion {
             let _ = done.send(error);
         }
@@ -897,11 +929,66 @@ mod tests {
             target: String::new(),
             presentation: None,
             media_allowed: true,
+            raise_after_publish: false,
         };
         assert_eq!(
             actor.command(&Command::Home("home".into()), true),
             "Unavailable"
         );
+        Ok(())
+    }
+    /// The quick-menu key raises the shell only after its request is
+    /// published (`raise_deferred`), so the shell is never active when the
+    /// request arrives over an Activity; Home raises at once (review of #502).
+    #[test]
+    #[ignore = "requires Xvfb; spawns an isolated server and synthetic EWMH manager"]
+    fn quick_menu_raises_the_shell_only_after_its_request() -> Result<()> {
+        let desktop = native::fixture::Desktop::new()?;
+        let shell = desktop.client("org.arinn.Shell", "")?;
+        let video = desktop.client("org.example.Player.desktop", "")?;
+        desktop.inventory(&[shell, video], video)?;
+        let home = crate::key_sequence::home("Ctrl+Alt+H").0;
+        let quick_menu = crate::key_sequence::quick_menu("Ctrl+Alt+Q", &home).0;
+        let mut native = Native::connect_display_with(Some(&desktop.display), home, quick_menu)?;
+        let snapshot = native.snapshot()?;
+        let mut actor = Actor {
+            snapshot,
+            native,
+            home: false,
+            target: String::new(),
+            presentation: None,
+            media_allowed: true,
+            raise_after_publish: false,
+        };
+        actor.refresh(true)?;
+        let activations = |messages: Vec<x11rb::protocol::xproto::ClientMessageEvent>| {
+            messages
+                .iter()
+                .filter(|m| m.window == shell && m.type_ == desktop.atoms._NET_ACTIVE_WINDOW)
+                .count()
+        };
+        desktop.messages()?;
+        desktop.press(&[0xffe3, 0xffe9], u32::from(b'q'))?;
+        let update = actor.refresh(true)?;
+        assert_eq!(update.explicit, Some(Request::QuickMenu));
+        assert!(update.home);
+        assert_eq!(activations(desktop.messages()?), 0);
+        actor.raise_deferred()?;
+        assert_eq!(activations(desktop.messages()?), 1);
+        // Nothing is held back afterwards: the next snapshot raises as usual.
+        actor.raise_deferred()?;
+        assert_eq!(activations(desktop.messages()?), 0);
+        actor.refresh(true)?;
+        assert_eq!(activations(desktop.messages()?), 1);
+        // Home raises in the same snapshot.
+        actor.home = false;
+        desktop.inventory(&[shell, video], video)?;
+        actor.refresh(true)?;
+        desktop.messages()?;
+        desktop.press(&[0xffe3, 0xffe9], u32::from(b'h'))?;
+        let update = actor.refresh(true)?;
+        assert_eq!(update.explicit, Some(Request::Home));
+        assert!(activations(desktop.messages()?) >= 1);
         Ok(())
     }
     #[test]
@@ -925,6 +1012,7 @@ mod tests {
             target: String::new(),
             presentation: None,
             media_allowed: true,
+            raise_after_publish: false,
         };
         assert_eq!(actor.present(&token), "Unavailable");
         assert!(actor.presentation.is_none());
@@ -957,6 +1045,7 @@ mod tests {
             target: String::new(),
             presentation: None,
             media_allowed: true,
+            raise_after_publish: false,
         };
         assert_eq!(
             actor.command(&Command::Home("home".into()), false),
@@ -1053,6 +1142,7 @@ mod tests {
                 target: String::new(),
                 presentation: None,
                 media_allowed: true,
+                raise_after_publish: false,
             };
             assert_eq!(actor.present(&token), "");
             desktop.messages()?;
@@ -1124,6 +1214,7 @@ mod tests {
             target: String::new(),
             presentation: None,
             media_allowed: true,
+            raise_after_publish: false,
         };
         assert_eq!(actor.present(&token), "");
         desktop.messages()?;
@@ -1171,6 +1262,7 @@ mod tests {
             target: String::new(),
             presentation: None,
             media_allowed: true,
+            raise_after_publish: false,
         };
         assert_eq!(actor.present(&token), "");
         desktop.messages()?;
@@ -1223,6 +1315,7 @@ mod tests {
                 target: String::new(),
                 presentation: None,
                 media_allowed: true,
+                raise_after_publish: false,
             };
             assert_eq!(actor.present(&token), "");
             desktop.messages()?;
@@ -1270,6 +1363,7 @@ mod tests {
             target: String::new(),
             presentation: None,
             media_allowed: true,
+            raise_after_publish: false,
         };
         assert_eq!(actor.present(&token), "");
         desktop.messages()?;
@@ -1313,6 +1407,7 @@ mod tests {
             target: String::new(),
             presentation: None,
             media_allowed: true,
+            raise_after_publish: false,
         };
         desktop.c.destroy_window(shell)?.check()?;
         assert_eq!(actor.present(&token), "Unavailable");

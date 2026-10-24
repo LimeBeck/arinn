@@ -69,9 +69,10 @@ shown.
 - Back on that pane closes it, and focus returns to the item the user was
   on. If that item is gone, focus goes to the screen's preferred item. Home
   on the pane goes to Home.
-- While the launch overlay's dialog or the ambient screen is on screen
-  (both are drawn above the power overlay), the refusal waits. It appears
-  once they are gone, so it never takes focus behind them.
+- While a launch overlay (a web service's or an application's) or the
+  ambient screen is on screen (all are drawn above the power overlay), the
+  refusal waits. It appears once they are gone, so it never takes focus
+  behind them.
 - If an external application is in front when the answer arrives, the pane
   appears when the user returns to Arinn. The shell does not raise itself
   over the application for it.
@@ -130,7 +131,8 @@ ambient is a screensaver, not sleep.
   `SettingsCatalog.ambientTimeoutMinutes`, so a change applies at once.
 - **No automatic start** while the shell is hidden or its window inactive
   (an external Activity is in the foreground), while the session is locked,
-  while ambient is already on, while a web service is launching, or while
+  while ambient is already on, while a web service or an application is
+  launching (`Backend.launchActive`, ADR-0110), or while
   media plays: an MPRIS session in `playing`, managed playback or its input
   layer, or an audible browser tab. Losing any of these conditions stops the
   count; regaining them starts a full timeout.

@@ -54,10 +54,12 @@ Window {
             activityBehind = playerOpen || !(visible && active);
             quickMenuOpener = activityBehind ? null : activeFocusItem;
             quickMenuOpen = true;
-            // The sheet takes the place of the "Opening…" progress, as Home
-            // does (§6.5): the launch keeps running, and only its dialog
-            // (failure or timeout) is drawn above the sheet (§6.1).
+            // The sheet takes the place of the "Opening…" and "Starting…"
+            // progress, as Home does (§6.5): the launch keeps running, and
+            // only its dialog (failure or timeout) is drawn above the sheet
+            // (§6.1). A stop confirmation closes and the launch goes on.
             if (launchOverlay.active && !launchOverlay.showDialog) launchOverlay.hideForHome();
+            if (applicationLaunch.active && !applicationLaunch.showDialog) applicationLaunch.hideForHome();
             // The Sound row shows the platform's current level.
             if (backend.connected) systemControl.readVolume();
         }
@@ -477,7 +479,7 @@ Window {
         shellShown: root.visible && root.active && !root.activityBehind
         locked: sessionGuard.blocked
         ambientActive: ambientScreen.active
-        launching: browserCatalog.opening
+        launching: browserCatalog.opening || backend.launchActive === true
         mediaPlaying: root.playerOpen || ambientIdle.playing(mediaCatalog.continueEntries, browserCatalog.tabs,
                                                              mediaCatalog.inputLayerActive)
         onIdle: root.startAmbient()
@@ -1047,9 +1049,9 @@ Window {
             runningApplications: backend.items
             registryKnown: backend.applicationsState === "ready" || backend.applicationsState === "empty"
             keysEnabled: root.visible && root.active && !sessionGuard.blocked && !ambientScreen.active
-            // A late refusal never takes focus behind the launch dialog or
+            // A late refusal never takes focus behind a launch overlay or
             // the ambient screen; it appears once they are gone.
-            holdLateAnswer: launchOverlay.visible || ambientScreen.active
+            holdLateAnswer: launchOverlay.visible || applicationLaunch.visible || ambientScreen.active
             onClosed: Qt.callLater(() => { if (!powerOverlay.restoreLateFocus()) root.restoreFocus(); })
             onHomeRequested: {
                 if (root.quickMenuOpen || root.activityBehind) {

@@ -293,6 +293,28 @@ signal and keep their existing status path; old adapters cannot report explicit
 intent. Production shell consumption and QML focus regression are a follow-up
 after #45 merges. This contract alone does not complete AC-18.
 
+### Quick-menu presentation
+
+[ADR-0106](../adr/0106-quick-menu-presentation.md) adds two members to
+[Daemon1](daemon1.xml), preserving every existing signature:
+
+- `ReportQuickMenuRequest(target: s, output: s)` has the authentication and
+  validation of `ReportHomeRequest`. It commits the same visible Home state with
+  that Return target/output, emits `Changed`, then emits one
+  `QuickMenuRequested(epoch: s, target: s, output: s)`, including for identical
+  repeats. A rejected call publishes neither state nor intent.
+- `QuickMenuRequested` asks the shell to open the quick menu (spec §5.7) over
+  what it shows. It is a transient intent with the delivery rules of
+  `HomeRequested` above: bound to the current unique owner and epoch, never
+  persisted, replayed or inferred from `Status` or `Changed`.
+
+`ReportHomeRequest` never emits `QuickMenuRequested`, and
+`ReportQuickMenuRequest` never emits `HomeRequested`. `Status.home_visible` is
+true while either is shown; which one the shell shows is its own state. Both
+requests arm the [Activity background](../architecture/activity-background.md)
+capture after their signal, so Home opened from the quick menu shows the
+Activity's last frame.
+
 ### Optional Return/window association
 
 [ADR-0073](../adr/0073-return-window-association.md) defines optional

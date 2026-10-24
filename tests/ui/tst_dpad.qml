@@ -344,8 +344,6 @@ TestCase {
     Component {
         id: powerFactory
         Power.PowerMenu {
-            clockText: "12:00"
-            dateText: "Monday"
             closingApplications: ["One", "Two"]
         }
     }

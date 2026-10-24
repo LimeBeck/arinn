@@ -40,26 +40,14 @@ FocusScope {
     // timer turns a sleep intent into success.
     property string refusalMessage: describeRefusal(refusalCode, refusalAction, inhibitors)
     readonly property bool accepted: acceptedAction.length > 0 && !refused
-    property string clockText: ""
-    property string dateText: ""
     // The shell's one input mode (spec §6.1, ADR-0095): hover moves focus
     // only in pointer mode.
     property bool pointerMode: Ui.InputMode.pointerActive
     property bool hoverFocusEnabled: true
     readonly property bool refused: refusalMessage.length > 0
-    property string step: "menu" // menu, confirm, ambient
+    property string step: "menu" // menu, confirm
     property string pendingAction: "" // restart, shutdown
     property string menuFocus: "sleep"
-    property string returnStep: "menu"
-    property bool ambientArmed: false
-    // Set on the ambient key press so the matching release performs the wake.
-    // Restoring focus before that release would activate the control underneath.
-    property bool waking: false
-    // The pointer position already inside the screen when it appears. A hover
-    // delivered for that same point is not a wake.
-    property bool ambientAnchorKnown: false
-    property real ambientAnchorX: 0
-    property real ambientAnchorY: 0
     readonly property var menuEntries: [
         {id: "sleep", glyph: "sleep", title: qsTr("Sleep"), description: qsTr("Request system suspend")},
         {id: "restart", glyph: "restart", title: qsTr("Restart"), description: qsTr("Takes about a minute")},
@@ -90,8 +78,8 @@ FocusScope {
     signal sleepRequested()
     signal restartRequested()
     signal shutdownRequested()
+    // The Ambient row: the shell shows its ambient screen over this menu.
     signal ambientRequested()
-    signal wakeRequested()
     signal dismissRequested()
     signal homeRequested()
     // Back on a refusal or on an accepted request: the caller clears it.
@@ -145,10 +133,12 @@ FocusScope {
         }
         return "";
     }
-    // A power row that cannot be used while another request is in flight:
-    // the model sends one request at a time, so it would send nothing.
+    // A row that cannot be used while another request is in flight: the
+    // model sends one request at a time, so a power row would send nothing.
+    // Ambient waits too, so the answer is never shown behind the ambient
+    // screen.
     function heldBack(id) {
-        return requestInFlight && busyAction !== id && id !== "ambient";
+        return requestInFlight && busyAction !== id;
     }
     function rowDescription(entry) {
         if (busyAction === entry.id)
@@ -334,44 +324,7 @@ FocusScope {
         homeRequested();
     }
     function startAmbient() {
-        if (step === "ambient")
-            return;
-        returnStep = step === "confirm" ? "confirm" : "menu";
         ambientRequested();
-        // The key or pointer that opened this screen is still in flight.
-        waking = false;
-        ambientArmed = false;
-        ambientAnchorKnown = false;
-        // The pointer already rests here: its position is the anchor, so the
-        // first real movement wakes. Waiting for the ambient layer's first
-        // hover sample instead could take that movement as the anchor.
-        if (pointerTracker.hovered)
-            rememberAmbientPointer(pointerTracker.point.position.x, pointerTracker.point.position.y);
-        step = "ambient";
-    }
-    function rememberAmbientPointer(x, y) {
-        ambientAnchorX = x;
-        ambientAnchorY = y;
-        ambientAnchorKnown = true;
-    }
-    function wakeFromAmbient() {
-        if (step !== "ambient")
-            return;
-        const back = returnStep === "confirm" ? "confirm" : "menu";
-        step = back;
-        ambientArmed = false;
-        waking = false;
-        ambientAnchorKnown = false;
-        // The wake event itself must not move focus onto a control.
-        hoverFocusEnabled = false;
-        wakeRequested();
-        Qt.callLater(() => {
-            if (step === "confirm")
-                Ui.Focus.take(cancelButton);
-            else
-                restoreMenuFocus();
-            Qt.callLater(() => { hoverFocusEnabled = true; });
-        });
     }
 
     // A row the platform reports as unsupported after the menu opened is
@@ -387,7 +340,6 @@ FocusScope {
     onShutdownAvailabilityChanged: settleDisabledFocus()
 
     // Fallback when focus is on this scope rather than a row or pill.
-    // Ambient accepts the key first and wakes, so this does not dismiss it.
     Keys.onPressed: event => handleScopeKey(event, () => goBack())
 
     Ui.LogicalCanvas {
@@ -401,11 +353,9 @@ FocusScope {
             objectName: "powerScrim"
             anchors.fill: parent
             color: Qt.rgba(0, 0, 0, 0.55)
-            visible: root.step !== "ambient"
         }
         MouseArea {
             anchors.fill: parent
-            enabled: root.step !== "ambient"
             z: 0
             onClicked: root.goBack()
         }
@@ -431,7 +381,7 @@ FocusScope {
             border.width: 1
             border.color: Qt.rgba(1, 1, 1, 0.10)
             anchors.centerIn: parent
-            visible: !root.refused && !root.accepted && root.step !== "ambient"
+            visible: !root.refused && !root.accepted
             height: column.implicitHeight + 96
             Rectangle {
                 anchors.left: parent.left
@@ -698,7 +648,7 @@ FocusScope {
         z: 4
         anchors.centerIn: parent
         width: 820
-        visible: root.refused && root.step !== "ambient"
+        visible: root.refused
         focus: visible
         kind: "error"
         title: root.refusalTitle
@@ -717,7 +667,7 @@ FocusScope {
             // Clearing an explicit refusal returns to the power step. It does not
             // report success.
             Qt.callLater(() => {
-                if (root.refused || root.step === "ambient")
+                if (root.refused)
                     return;
                 if (root.step === "confirm")
                     Ui.Focus.take(cancelButton);
@@ -736,7 +686,7 @@ FocusScope {
         z: 4
         anchors.centerIn: parent
         width: 820
-        visible: root.accepted && root.step !== "ambient"
+        visible: root.accepted
         focus: visible
         kind: "loading"
         title: root.acceptedAction === "sleep" ? qsTr("Going to sleep…")
@@ -752,7 +702,7 @@ FocusScope {
                 return;
             }
             Qt.callLater(() => {
-                if (root.refused || root.accepted || root.step === "ambient")
+                if (root.refused || root.accepted)
                     return;
                 if (root.step === "confirm")
                     Ui.Focus.take(cancelButton);
@@ -761,89 +711,6 @@ FocusScope {
             });
         }
     }
-
-    Rectangle {
-        id: ambientLayer
-        objectName: "ambientScreen"
-        anchors.fill: parent
-        z: 3
-        visible: root.step === "ambient"
-        color: Ui.Theme.background
-        onVisibleChanged: {
-            root.ambientArmed = false;
-            root.waking = false;
-            if (!visible) {
-                root.ambientAnchorKnown = false;
-                return;
-            }
-            // Take focus after the opening key release, so that release is not
-            // also the wake. Qt 6.11 delivers it to whatever is focused now.
-            Qt.callLater(() => {
-                if (!visible)
-                    return;
-                Ui.Focus.take(ambientLayer);
-                Qt.callLater(() => {
-                    if (visible)
-                        root.ambientArmed = true;
-                });
-            });
-        }
-        Column {
-            anchors.centerIn: parent
-            spacing: 16
-            width: 1200
-            Ui.UiText {
-                objectName: "ambientClock"
-                width: parent.width
-                horizontalAlignment: Text.AlignHCenter
-                role: "display"
-                color: Ui.Theme.textSecondary
-                text: root.clockText
-            }
-            Ui.UiText {
-                objectName: "ambientDate"
-                width: parent.width
-                horizontalAlignment: Text.AlignHCenter
-                role: "section"
-                color: Ui.Theme.textHint
-                text: root.dateText
-            }
-        }
-        Keys.onPressed: event => {
-            event.accepted = true;
-            if (root.ambientArmed)
-                root.waking = true;
-        }
-        Keys.onReleased: event => {
-            event.accepted = true;
-            if (root.waking && root.ambientArmed && root.step === "ambient")
-                root.wakeFromAmbient();
-            else
-                root.waking = false;
-        }
-        MouseArea {
-            id: ambientPointer
-            anchors.fill: parent
-            hoverEnabled: true
-            onPressed: mouse => {
-                mouse.accepted = true;
-                if (root.ambientArmed)
-                    root.wakeFromAmbient();
-            }
-            onPositionChanged: mouse => {
-                // The first sample is the pointer already inside the screen.
-                if (!root.ambientAnchorKnown) {
-                    root.rememberAmbientPointer(mouse.x, mouse.y);
-                    return;
-                }
-                if (root.ambientArmed && (mouse.x !== root.ambientAnchorX || mouse.y !== root.ambientAnchorY))
-                    root.wakeFromAmbient();
-            }
-        }
-    }
-
-    // Where the pointer rests, for the ambient wake anchor.
-    HoverHandler { id: pointerTracker }
 
     Component.onCompleted: Qt.callLater(restoreMenuFocus)
     }

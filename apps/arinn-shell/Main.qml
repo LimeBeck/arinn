@@ -104,6 +104,32 @@ Window {
         // one request at a time.
         if (sleep) systemControl.request("suspend");
     }
+    // The remote's power key (spec §5.7 *Power button*, ADR-0111). Over an
+    // Activity the platform shows the shell as for Home, and the power scope
+    // opens over it; Back and Cancel then leave Home on screen (§6.3). A
+    // quick menu over an Activity gives way to Home as for the Home key; one
+    // over the shell keeps the sheet under the scope, as its Power row does.
+    // Ambient ends without a consumed wake. A repeated key keeps the scope as
+    // it is. Nothing happens while the session is locked or unknown.
+    function openPowerFromKey() {
+        if (sessionGuard.blocked) return;
+        ambientIdle.activity();
+        if (ambientScreen.active) ambientScreen.stop();
+        if (powerOverlay.open) return;
+        // The scope takes the place of the "Opening…" progress, as Home does.
+        if (launchOverlay.active && !launchOverlay.showDialog) launchOverlay.hideForHome();
+        if (quickMenuOpen && !activityBehind) {
+            quickMenuPower(false);
+            return;
+        }
+        if (quickMenuOpen || activityBehind) {
+            quickMenuHome();
+            // After Home has taken focus, so the scope keeps it.
+            Qt.callLater(powerOverlay.openMenu);
+            return;
+        }
+        powerOverlay.openMenu();
+    }
     // A Return the platform does not carry out leaves Home on screen.
     Timer { id: returnBound; interval: 3000; onTriggered: if (root.visible) root.quickMenuHome() }
     property bool browserOpen: false
@@ -384,11 +410,12 @@ Window {
             }
         }
     }
-    // Explicit platform requests (ADR-0069, ADR-0106).
+    // Explicit platform requests (ADR-0069, ADR-0106, ADR-0111).
     Connections {
         target: backend
         ignoreUnknownSignals: true
         function onQuickMenuRequested() { root.openQuickMenu(); }
+        function onPowerMenuRequested() { root.openPowerFromKey(); }
         // The Home key replaces the quick menu with Home (§6.3). With the
         // power scope open over the sheet it leaves as Home inside that scope
         // does: a request in flight goes on and a late refusal comes back.

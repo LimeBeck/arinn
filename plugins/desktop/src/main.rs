@@ -85,7 +85,7 @@ impl Handler {
         let unit = launcher::start_on(&connection, &entry.path).await;
         if ticket.cancelled() {
             let result = match &unit {
-                Ok(unit) => unit.stop().await,
+                Ok(unit) => launches::stop(unit).await,
                 Err(_) => Ok(()),
             };
             ticket.stopped(result);
@@ -95,17 +95,21 @@ impl Handler {
             return result.and(Err(ErrorCode::Cancelled));
         }
         let unit = unit?;
-        let Some((client, snapshot)) = start else {
-            // No window inventory: the launch counts as dispatched.
-            unit.release().await;
-            return Ok(());
-        };
+        // No window inventory right now (an adapter reconnecting): the wait
+        // gives it the same grace as a gap during the launch, and counts the
+        // launch as dispatched only if it stays missing.
+        let baseline = start.map(|(_, snapshot)| Baseline::new(&snapshot));
         let result = launches::wait(
             id,
             entries,
-            Baseline::new(&snapshot),
+            baseline,
             || self.windows(registration).map(|(_, snapshot)| snapshot),
-            || async { client.snapshot().await.ok() },
+            || async {
+                match self.windows(registration) {
+                    Some((client, _)) => client.snapshot().await.ok(),
+                    None => None,
+                }
+            },
             &unit,
             &mut ticket.cancel,
             launches::INVENTORY_GRACE,

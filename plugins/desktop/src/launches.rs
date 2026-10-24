@@ -23,6 +23,24 @@ use tokio::sync::watch;
 pub const POLL: Duration = Duration::from_millis(200);
 /// How long `cancel` waits for a launch to stop its unit.
 const STOP_WAIT: Duration = Duration::from_secs(10);
+/// How long a stopped launch waits for its processes to exit. `StopUnit`
+/// only queues the stop; systemd escalates to SIGKILL after the unit's
+/// stop timeout (90 s by default), so this is a backstop.
+const STOP_SETTLE: Duration = Duration::from_secs(100);
+
+/// Stop the launch's unit and wait until its processes have exited, so a
+/// cancel is reported only once they are gone. `Timeout` if they outlive
+/// [`STOP_SETTLE`].
+pub async fn stop<S: Scope>(scope: &S) -> Result<(), ErrorCode> {
+    scope.stop().await?;
+    tokio::time::timeout(STOP_SETTLE, async {
+        while scope.running().await {
+            tokio::time::sleep(POLL).await;
+        }
+    })
+    .await
+    .map_err(|_| ErrorCode::Timeout)
+}
 /// How long the window inventory may be missing during a launch before the
 /// launch counts as dispatched. A reconnecting platform adapter is a gap,
 /// not the end of the launch.
@@ -56,6 +74,20 @@ impl Baseline {
             tokens: snapshot.windows.iter().map(|w| w.token.clone()).collect(),
         }
     }
+    /// The first inventory after a launch that started without one: what
+    /// was there before is unknown, so a window with exactly the launched
+    /// desktop ID counts as new; every other window counts as present before.
+    pub fn after_gap(snapshot: &WindowSnapshot, id: &str) -> Self {
+        Self {
+            generation: snapshot.generation.clone(),
+            tokens: snapshot
+                .windows
+                .iter()
+                .filter(|w| w.desktop_id != id)
+                .map(|w| w.token.clone())
+                .collect(),
+        }
+    }
     /// A window this launch produced: new since the launch started, and not
     /// proven to belong to another catalogue application. Exact desktop IDs
     /// are often missing for games and wrapped launchers, so an unknown or
@@ -83,12 +115,14 @@ impl Baseline {
 /// inventory the provider holds; `fresh` reads it again, used once the unit
 /// has ended so that a window reported just before is not missed. `None`
 /// means there is no inventory. If it stays missing for `grace`, the launch
-/// counts as dispatched, as for a provider that cannot observe windows.
+/// counts as dispatched, as for a provider that cannot observe windows; that
+/// includes an inventory that is missing when the launch starts (`baseline`
+/// is `None`), whose first snapshot then becomes the baseline.
 #[allow(clippy::too_many_arguments)] // The inputs of one decision.
 pub async fn wait<S, C, F, Fut>(
     id: &str,
     entries: &BTreeMap<String, Entry>,
-    mut baseline: Baseline,
+    baseline: Option<Baseline>,
     cached: C,
     fresh: F,
     scope: &S,
@@ -102,15 +136,19 @@ where
     Fut: Future<Output = Option<WindowSnapshot>>,
 {
     let mut missing_since: Option<tokio::time::Instant> = None;
+    let mut baseline = baseline;
     loop {
         if *cancel.borrow_and_update() {
-            scope.stop().await?;
+            stop(scope).await?;
             return Err(ErrorCode::Cancelled);
         }
         match cached() {
             Some(snapshot) => {
                 missing_since = None;
-                if baseline.produced(id, entries, &snapshot) {
+                if baseline
+                    .get_or_insert_with(|| Baseline::after_gap(&snapshot, id))
+                    .produced(id, entries, &snapshot)
+                {
                     return Ok(());
                 }
             }
@@ -127,6 +165,7 @@ where
             };
             // Handed to a running instance: its existing window is the
             // Activity (spec §7.2).
+            let mut baseline = baseline.unwrap_or_else(|| Baseline::after_gap(&snapshot, id));
             return if baseline.produced(id, entries, &snapshot)
                 || snapshot.windows.iter().any(|w| w.desktop_id == id)
             {
@@ -256,14 +295,27 @@ mod tests {
     struct Fixture {
         running: AtomicBool,
         stops: AtomicU64,
+        /// After a stop, the processes still run for this many reads, as
+        /// while systemd stops the unit.
+        linger: AtomicU64,
     }
     impl Scope for Fixture {
         async fn running(&self) -> bool {
+            if self.stops.load(Ordering::SeqCst) > 0
+                && self
+                    .linger
+                    .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+                    .is_ok_and(|n| n == 1)
+            {
+                self.running.store(false, Ordering::SeqCst);
+            }
             self.running.load(Ordering::SeqCst)
         }
         async fn stop(&self) -> Result<(), ErrorCode> {
             self.stops.fetch_add(1, Ordering::SeqCst);
-            self.running.store(false, Ordering::SeqCst);
+            if self.linger.load(Ordering::SeqCst) == 0 {
+                self.running.store(false, Ordering::SeqCst);
+            }
             Ok(())
         }
     }
@@ -321,7 +373,7 @@ mod tests {
             wait(
                 "game.desktop",
                 &entries(),
-                baseline,
+                Some(baseline),
                 || Some(later.clone()),
                 || async { Some(later.clone()) },
                 &scope,
@@ -395,7 +447,10 @@ mod tests {
             wait(
                 "game.desktop",
                 &entries(),
-                Baseline::new(&snapshot(vec![window("old", "game.desktop")])),
+                Some(Baseline::new(&snapshot(vec![window(
+                    "old",
+                    "game.desktop",
+                )]))),
                 || Some(renamed.clone()),
                 || async { Some(renamed.clone()) },
                 &scope,
@@ -405,6 +460,54 @@ mod tests {
         )
         .await;
         assert!(result.is_err(), "{result:?}");
+    }
+
+    /// An inventory missing when the launch starts gets the same grace as a
+    /// gap during it; its first snapshot is the baseline, where only a window
+    /// with the launched desktop ID counts as new.
+    #[tokio::test]
+    async fn a_launch_started_without_an_inventory_waits_for_one() {
+        let scope = Fixture::default();
+        scope.running.store(true, Ordering::SeqCst);
+        let (_cancel, mut cancel_rx) = watch::channel(false);
+        let reads = AtomicU64::new(0);
+        let inventory = Mutex::new(snapshot(vec![window("old", "unproven")]));
+        let result = tokio::time::timeout(
+            Duration::from_secs(5),
+            wait(
+                "game.desktop",
+                &entries(),
+                None,
+                || {
+                    // Missing for the first reads, as while an adapter reconnects.
+                    (reads.fetch_add(1, Ordering::SeqCst) >= 3)
+                        .then(|| inventory.lock().unwrap().clone())
+                },
+                || async { Some(inventory.lock().unwrap().clone()) },
+                &scope,
+                &mut cancel_rx,
+                Duration::from_secs(2),
+            ),
+        )
+        .await;
+        // A window that was there before is not the launch's: still waiting.
+        assert!(result.is_err(), "{result:?}");
+        *inventory.lock().unwrap() = snapshot(vec![
+            window("old", "unproven"),
+            window("new", "game.desktop"),
+        ]);
+        let result = wait(
+            "game.desktop",
+            &entries(),
+            None,
+            || Some(inventory.lock().unwrap().clone()),
+            || async { Some(inventory.lock().unwrap().clone()) },
+            &scope,
+            &mut cancel_rx,
+            Duration::from_secs(2),
+        )
+        .await;
+        assert_eq!(result, Ok(()));
     }
 
     #[tokio::test]
@@ -417,7 +520,7 @@ mod tests {
         let result = wait(
             "game.desktop",
             &entries(),
-            Baseline::new(&snapshot(vec![])),
+            Some(Baseline::new(&snapshot(vec![]))),
             || None,
             || async { None },
             &scope,
@@ -434,7 +537,7 @@ mod tests {
             wait(
                 "game.desktop",
                 &entries(),
-                Baseline::new(&snapshot(vec![])),
+                Some(Baseline::new(&snapshot(vec![]))),
                 || (reads.fetch_add(1, Ordering::SeqCst) % 2 == 1).then(|| snapshot(vec![])),
                 || async { Some(snapshot(vec![])) },
                 &scope,
@@ -460,7 +563,7 @@ mod tests {
                 let result = wait(
                     "game.desktop",
                     &entries(),
-                    Baseline::new(&snapshot(vec![])),
+                    Some(Baseline::new(&snapshot(vec![]))),
                     || Some(snapshot(vec![])),
                     || async { Some(snapshot(vec![])) },
                     &*scope,
@@ -488,6 +591,38 @@ mod tests {
         tasks[0].abort();
         let _ = tasks.pop().unwrap().await;
         assert_eq!(launches.cancel("other").await, Err(ErrorCode::NotFound));
+    }
+
+    /// `StopUnit` only queues the stop: the launch counts as cancelled once
+    /// its processes have exited, not when the stop was queued.
+    #[tokio::test]
+    async fn a_cancelled_launch_ends_once_its_processes_have_exited() {
+        let scope = Fixture::default();
+        scope.running.store(true, Ordering::SeqCst);
+        scope.linger.store(3, Ordering::SeqCst);
+        let (cancel, mut cancel_rx) = watch::channel(true);
+        let result = tokio::time::timeout(
+            Duration::from_secs(5),
+            wait(
+                "game.desktop",
+                &entries(),
+                Some(Baseline::new(&snapshot(vec![]))),
+                || Some(snapshot(vec![])),
+                || async { Some(snapshot(vec![])) },
+                &scope,
+                &mut cancel_rx,
+                INVENTORY_GRACE,
+            ),
+        )
+        .await
+        .unwrap();
+        drop(cancel);
+        assert_eq!(result, Err(ErrorCode::Cancelled));
+        assert_eq!(scope.stops.load(Ordering::SeqCst), 1);
+        assert!(
+            !scope.running.load(Ordering::SeqCst),
+            "reported cancelled while the processes still run"
+        );
     }
 
     #[tokio::test]

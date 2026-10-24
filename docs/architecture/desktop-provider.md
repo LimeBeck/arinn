@@ -110,11 +110,17 @@ waits (`plugins/desktop/src/launches.rs`):
   D-Bus activated entries, which have no Arinn unit, the launch succeeds at
   dispatch as before. If the inventory stays missing for 5 s during the wait
   (a reconnecting platform adapter is shorter), the launch ends the same way.
+  An inventory missing when the launch starts gets the same 5 s; its first
+  snapshot then becomes the starting set, where only a window with exactly the
+  launched desktop ID counts as new.
 
 `CancelLaunch(generation, id)` signals every unfinished launch of that desktop ID.
 Each one stops its own unit with `StopUnit(…, "replace")`, so systemd stops the
-processes of that launch's cgroup and nothing else. Its `Launch` reply then fails
-with `Cancelled`. `CancelLaunch` answers after the stops, or `NotFound` when no
+processes of that launch's cgroup and nothing else. `StopUnit` only queues the
+stop, so the launch then waits until the unit is `inactive` or `failed` (its
+processes have exited; systemd sends SIGKILL after the unit's stop timeout), at
+most 100 s, before its `Launch` reply fails with `Cancelled`. `CancelLaunch`
+answers after those stops, within 10 s (`Timeout` otherwise), or `NotFound` when no
 launch was pending or each one ended another way first (for example, its window
 appeared). A cancel during dispatch takes effect when dispatch completes.
 Losing the registration ends the wait with `Unavailable` and only releases the
@@ -142,9 +148,12 @@ tile again shows it again. A failed launch shows the error dialog with Retry.
 screen. Choosing the tile of a launch hidden behind a newer one shows that
 launch again at once, as "Starting <app>…" once it has run for 8 s, with its own
 Cancel. A launch that fails behind another one brings its error dialog on
-screen at once; after it is dismissed, the newest launch still in flight stays
+screen at once, unless another failure dialog or the stop confirmation of the
+launch on screen is open; then it waits for that to close. Closing the dialog
+returns to what it covered (§6.1): a starting screen that was on screen comes
+back, and one that Home, the quick menu or a newer launch had hidden stays
 hidden until its tile is chosen. Home and the quick menu hide whichever launch
-is on screen.
+is on screen; the overlay reports that (and an open confirmation) to `Backend`.
 
 Known limitation: a game entry that hands off to a client that is already running
 elsewhere (for example a `steam steam://rungameid/…` entry while Steam runs)
@@ -227,8 +236,10 @@ Local isolated checks on 2026-09-28:
 Launch lifetime ([#436](https://github.com/LimeBeck/arinn/issues/436), 2026-10-21):
 
 - `cargo test -p arinn-plugin-desktop`: window rules, an ended unit, hand-off to
-  a running instance, a new platform generation, no inventory, and cancel that
-  stops only the launches of one application.
+  a running instance, a new platform generation, no inventory (also when it is
+  missing as the launch starts), cancel that stops only the launches of one
+  application, and a cancelled launch that ends only once its processes have
+  exited.
 - `tests/integration/desktop.py` with the extended test manager, which keeps an
   application unit active while its process group runs (the stand-in for
   `ExitType=cgroup`) and stops only that group: a launch stays running and
@@ -250,8 +261,10 @@ Launch lifetime ([#436](https://github.com/LimeBeck/arinn/issues/436), 2026-10-2
   each fails one of them; a browser launch for a web open is also held while
   a tile's cancel is in flight. `application-catalog`
   `launchBehindANewerLaunchShowsAgainAndFails`: launch A, launch B, choose A
-  again shows A, Cancel reaches A's operation, and A's failure behind B
-  comes on screen. On `master` the
+  again shows A, Cancel reaches A's operation, A's failure behind B comes on
+  screen, and closing it brings back B's screen if it was on screen or keeps
+  B hidden if Home hid it; a second failure, and one during a stop
+  confirmation, waits; a background launch that ends leaves no record. On `master` the
   suite fails at the first "still starting" check: the launch had already
   succeeded.
 

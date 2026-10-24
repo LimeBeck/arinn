@@ -26,10 +26,16 @@ FocusScope {
     property string sleepAvailability: "unknown"
     property string restartAvailability: "unknown"
     property string shutdownAvailability: "unknown"
+    // GetSessionSwitch (#438, ADR-0107): the Switch to desktop row exists only
+    // for "available", which means Arinn runs as the dedicated Arinn session.
+    // Inside an ordinary desktop session, or while unknown, it is not offered
+    // (spec §5.7).
+    property string desktopSwitchAvailability: "unknown"
+    readonly property bool desktopSwitchOffered: desktopSwitchAvailability === "available"
     // Block inhibitors {what: sleep|shutdown, who, why} that explain a refusal.
     property var inhibitors: []
     // The row whose request is in flight, and the row the platform accepted:
-    // sleep, restart or shutdown. Only the caller sets them.
+    // sleep, restart, shutdown or desktop. Only the caller sets them.
     property string busyAction: ""
     property string acceptedAction: ""
     // Why the platform refused the request of refusalAction: inhibited,
@@ -46,16 +52,23 @@ FocusScope {
     property bool hoverFocusEnabled: true
     readonly property bool refused: refusalMessage.length > 0
     property string step: "menu" // menu, confirm
-    property string pendingAction: "" // restart, shutdown
+    property string pendingAction: "" // restart, shutdown, desktop
     property string menuFocus: "sleep"
     readonly property var menuEntries: [
         {id: "sleep", glyph: "sleep", title: qsTr("Sleep"), description: qsTr("Request system suspend")},
         {id: "restart", glyph: "restart", title: qsTr("Restart"), description: qsTr("Takes about a minute")},
         {id: "shutdown", glyph: "shutdown", title: qsTr("Shut down"), description: qsTr("Turn the computer off completely")},
+        {id: "desktop", glyph: "desktop", title: qsTr("Switch to desktop"), description: qsTr("Log out; the next login starts the desktop")},
         {id: "ambient", glyph: "ambient", title: qsTr("Ambient"), description: qsTr("Show the ambient screen")}
     ]
-    readonly property string confirmTitle: pendingAction === "shutdown" ? qsTr("Shut down?") : qsTr("Restart?")
-    readonly property string confirmActionText: pendingAction === "shutdown" ? qsTr("Shut down") : qsTr("Restart")
+    readonly property string confirmTitle: pendingAction === "shutdown" ? qsTr("Shut down?")
+                                         : pendingAction === "desktop" ? qsTr("Switch to desktop?") : qsTr("Restart?")
+    readonly property string confirmActionText: pendingAction === "shutdown" ? qsTr("Shut down")
+                                              : pendingAction === "desktop" ? qsTr("Switch") : qsTr("Restart")
+    // What the switch does beyond closing the applications (spec §5.7).
+    readonly property string confirmDetail: pendingAction === "desktop"
+        ? qsTr("The session ends. Your next login starts the desktop without Arinn until you choose Return to Arinn.")
+        : ""
     readonly property string closingSummary: {
         if (!closingKnown)
             return qsTr("The list of running applications is not available.");
@@ -78,6 +91,7 @@ FocusScope {
     signal sleepRequested()
     signal restartRequested()
     signal shutdownRequested()
+    signal desktopSwitchRequested()
     // The Ambient row: the shell shows its ambient screen over this menu.
     signal ambientRequested()
     signal dismissRequested()
@@ -103,10 +117,19 @@ FocusScope {
     }
     function availabilityOf(id) {
         return id === "sleep" ? sleepAvailability : id === "restart" ? restartAvailability
-             : id === "shutdown" ? shutdownAvailability : "available";
+             : id === "shutdown" ? shutdownAvailability
+             : id === "desktop" ? (desktopSwitchOffered ? "available" : "unsupported") : "available";
     }
-    // "who (why)" of the inhibitors that hold a row's action.
+    // Rows that exist in this session. Switch to desktop is not offered
+    // outside the dedicated session: hidden, not disabled.
+    function rowOffered(id) {
+        return id !== "desktop" || desktopSwitchOffered;
+    }
+    // "who (why)" of the inhibitors that hold a row's action. No inhibitor
+    // holds the session switch.
     function holders(id) {
+        if (id !== "sleep" && id !== "restart" && id !== "shutdown")
+            return [];
         const lock = id === "sleep" ? "sleep" : "shutdown";
         const names = [];
         const list = inhibitors || [];
@@ -148,11 +171,31 @@ FocusScope {
         const note = availabilityNote(entry.id);
         return note.length ? note : entry.description;
     }
+    function idForAction(action) {
+        return action === "suspend" ? "sleep" : action === "reboot" ? "restart"
+             : action === "power-off" ? "shutdown" : action === "switch-to-desktop" ? "desktop" : action;
+    }
+    // A failed switch is an error and the session continues (spec §5.7,
+    // system-control.md).
+    function describeSwitchRefusal(code) {
+        if (code === "inhibited")
+            return qsTr("Another power request is still running. Arinn keeps running; try again when it is done.");
+        if (code === "denied")
+            return qsTr("The system does not allow it for this user. Arinn keeps running.");
+        if (code === "unsupported")
+            return qsTr("This session cannot switch to the desktop. Arinn keeps running.");
+        if (code === "unavailable")
+            return qsTr("The desktop did not accept the logout. Arinn keeps running; try again later.");
+        if (code === "timeout")
+            return qsTr("The desktop did not answer in time. Arinn keeps running; try again.");
+        return qsTr("Arinn could not prepare the switch. Arinn keeps running; try again.");
+    }
     function describeRefusal(code, action, list) {
         if (!code)
             return "";
-        const id = action === "suspend" ? "sleep" : action === "reboot" ? "restart"
-                 : action === "power-off" ? "shutdown" : action;
+        const id = idForAction(action);
+        if (id === "desktop")
+            return describeSwitchRefusal(code);
         if (code === "inhibited") {
             const names = holders(id);
             return names.length ? qsTr("An application is preventing it: %1.").arg(holderText(id))
@@ -169,11 +212,11 @@ FocusScope {
         return qsTr("The system could not do it. Try again.");
     }
     readonly property string refusalTitle: {
-        const id = refusalAction === "suspend" ? "sleep" : refusalAction === "reboot" ? "restart"
-                 : refusalAction === "power-off" ? "shutdown" : refusalAction;
+        const id = idForAction(refusalAction);
         return id === "sleep" ? qsTr("Sleep was refused")
              : id === "restart" ? qsTr("Restart was refused")
-             : id === "shutdown" ? qsTr("Shut down was refused") : qsTr("Request refused");
+             : id === "shutdown" ? qsTr("Shut down was refused")
+             : id === "desktop" ? qsTr("Could not switch to the desktop") : qsTr("Request refused");
     }
 
     function noteDpad() {
@@ -259,6 +302,8 @@ FocusScope {
             restartRequested();
         else if (pendingAction === "shutdown")
             shutdownRequested();
+        else if (pendingAction === "desktop" && desktopSwitchOffered)
+            desktopSwitchRequested();
     }
     // A request already sent to the system cannot be taken back. While it is
     // in flight Back and Cancel do nothing, so nothing looks like cancelling;
@@ -268,7 +313,7 @@ FocusScope {
     // The menu opened again while a request is in flight (after Home): it
     // shows that request as it was left, busy, and nothing else can be sent.
     function showPending(id) {
-        if (id === "restart" || id === "shutdown") {
+        if (id === "restart" || id === "shutdown" || id === "desktop") {
             pendingAction = id;
             menuFocus = id;
             step = "confirm";
@@ -330,7 +375,16 @@ FocusScope {
     // A row the platform reports as unsupported after the menu opened is
     // disabled; focus moves on so the menu never becomes keyboard-inert.
     function settleDisabledFocus() {
-        if (step !== "menu" || !visible)
+        if (!visible)
+            return;
+        // A switch that stops being offered also closes its confirmation,
+        // unless its request is already on the way.
+        if (step === "confirm" && pendingAction === "desktop" && !desktopSwitchOffered
+                && !requestInFlight && !refused && !accepted) {
+            closeConfirm();
+            return;
+        }
+        if (step !== "menu")
             return;
         if (availabilityOf(menuFocus) === "unsupported")
             Qt.callLater(restoreMenuFocus);
@@ -338,6 +392,10 @@ FocusScope {
     onSleepAvailabilityChanged: settleDisabledFocus()
     onRestartAvailabilityChanged: settleDisabledFocus()
     onShutdownAvailabilityChanged: settleDisabledFocus()
+    onDesktopSwitchOfferedChanged: settleDisabledFocus()
+    // A switch refused as unsupported stops being offered; Back on that
+    // refusal leaves its confirmation too.
+    onRefusedChanged: if (!refused) settleDisabledFocus()
 
     // Fallback when focus is on this scope rather than a row or pill.
     Keys.onPressed: event => handleScopeKey(event, () => goBack())
@@ -415,6 +473,19 @@ FocusScope {
                     visible: root.step === "confirm"
                 }
                 Ui.UiText {
+                    objectName: "confirmDetail"
+                    width: parent.width
+                    leftPadding: 8
+                    rightPadding: 8
+                    bottomPadding: 8
+                    visible: root.step === "confirm" && text.length > 0
+                    text: root.confirmDetail
+                    maximumLineCount: 3
+                    elide: Text.ElideRight
+                    role: "body"
+                    color: Ui.Theme.textSecondary
+                }
+                Ui.UiText {
                     objectName: "closingList"
                     width: parent.width
                     leftPadding: 8
@@ -460,6 +531,7 @@ FocusScope {
                             width: 704
                             height: 112
                             text: modelData.title
+                            visible: root.rowOffered(modelData.id)
                             enabled: root.availabilityOf(modelData.id) !== "unsupported"
                             busy: root.busyAction === modelData.id
                             // Focusable, but it reads and acts as unavailable.
@@ -482,6 +554,8 @@ FocusScope {
                                     root.openConfirm("restart");
                                 else if (modelData.id === "shutdown")
                                     root.openConfirm("shutdown");
+                                else if (modelData.id === "desktop")
+                                    root.openConfirm("desktop");
                                 else
                                     root.startAmbient();
                             }
@@ -532,6 +606,17 @@ FocusScope {
                                                     ctx.lineTo(cx + 2, cy - 6);
                                                     ctx.closePath();
                                                     ctx.fill();
+                                                } else if (kind === "desktop") {
+                                                    // A monitor on its stand.
+                                                    ctx.beginPath();
+                                                    ctx.rect(cx - 14, cy - 12, 28, 19);
+                                                    ctx.stroke();
+                                                    ctx.beginPath();
+                                                    ctx.moveTo(cx, cy + 7);
+                                                    ctx.lineTo(cx, cy + 13);
+                                                    ctx.moveTo(cx - 8, cy + 13);
+                                                    ctx.lineTo(cx + 8, cy + 13);
+                                                    ctx.stroke();
                                                 } else if (kind === "shutdown") {
                                                     ctx.beginPath();
                                                     ctx.arc(cx, cy + 2, 11, 0.85, Math.PI - 0.85, true);
@@ -690,7 +775,8 @@ FocusScope {
         focus: visible
         kind: "loading"
         title: root.acceptedAction === "sleep" ? qsTr("Going to sleep…")
-             : root.acceptedAction === "restart" ? qsTr("Restarting…") : qsTr("Shutting down…")
+             : root.acceptedAction === "restart" ? qsTr("Restarting…")
+             : root.acceptedAction === "desktop" ? qsTr("Switching to the desktop…") : qsTr("Shutting down…")
         description: qsTr("Waiting for the system. Press Back to return to Arinn.")
         pointerMode: root.pointerMode
         hoverFocusEnabled: root.hoverFocusEnabled

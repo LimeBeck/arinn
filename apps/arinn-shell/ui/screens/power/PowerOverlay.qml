@@ -48,7 +48,7 @@ FocusScope {
 
     function idFor(action) {
         return action === "suspend" ? "sleep" : action === "reboot" ? "restart"
-             : action === "power-off" ? "shutdown" : "";
+             : action === "power-off" ? "shutdown" : action === "switch-to-desktop" ? "desktop" : "";
     }
     function openMenu() {
         if (menuOpen)
@@ -187,6 +187,8 @@ FocusScope {
         sleepAvailability: root.control ? root.control.suspend : "unknown"
         restartAvailability: root.control ? root.control.reboot : "unknown"
         shutdownAvailability: root.control ? root.control.powerOff : "unknown"
+        // A control without the session switch (an older double) offers none.
+        desktopSwitchAvailability: root.control && root.control.sessionSwitch ? root.control.sessionSwitch : "unknown"
         inhibitors: root.control ? root.control.inhibitors : []
         busyAction: root.control ? root.idFor(root.control.pendingAction) : ""
         acceptedAction: root.control ? root.idFor(root.control.acceptedAction) : ""
@@ -195,6 +197,7 @@ FocusScope {
         onSleepRequested: if (root.control) root.control.request("suspend")
         onRestartRequested: if (root.control) root.control.request("reboot")
         onShutdownRequested: if (root.control) root.control.request("power-off")
+        onDesktopSwitchRequested: if (root.control) root.control.request("switch-to-desktop")
         onRefusalDismissed: {
             if (root.lateRefusal)
                 root.closeMenu();

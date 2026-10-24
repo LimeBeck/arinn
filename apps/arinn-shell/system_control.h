@@ -20,7 +20,12 @@ class SystemControl : public QObject {
   Q_PROPERTY(QString powerOff READ powerOff NOTIFY powerChanged)
   // Block inhibitors: {what: sleep|shutdown, who, why}.
   Q_PROPERTY(QVariantList inhibitors READ inhibitors NOTIFY powerChanged)
-  // The action whose request is in flight: suspend, reboot or power-off.
+  // GetSessionSwitch (#438, ADR-0107): available or unsupported; unknown
+  // before the first reply, on an error and for any other value. The power
+  // menu offers Switch to desktop only for available.
+  Q_PROPERTY(QString sessionSwitch READ sessionSwitch NOTIFY sessionSwitchChanged)
+  // The action whose request is in flight: suspend, reboot, power-off or
+  // switch-to-desktop.
   Q_PROPERTY(QString pendingAction READ pendingAction NOTIFY requestChanged)
   // The last action the platform accepted, until reset().
   Q_PROPERTY(QString acceptedAction READ acceptedAction NOTIFY requestChanged)
@@ -39,6 +44,7 @@ public:
   QString reboot() const { return m_reboot; }
   QString powerOff() const { return m_powerOff; }
   QVariantList inhibitors() const { return m_inhibitors; }
+  QString sessionSwitch() const { return m_sessionSwitch; }
   QString pendingAction() const { return m_pending; }
   QString acceptedAction() const { return m_accepted; }
   QString refusal() const { return m_refusal; }
@@ -47,9 +53,11 @@ public:
   bool volumeMuted() const { return m_volumeMuted; }
   int volumeLevel() const { return m_volumeLevel; }
 
-  // Reads power availability; called when the power menu opens.
+  // Reads power availability and whether the session can switch to the
+  // desktop; called when the power menu opens.
   Q_INVOKABLE void readPower();
-  // Requests suspend, reboot or power-off. Ignored while one is in flight.
+  // Requests suspend, reboot, power-off or switch-to-desktop. They share the
+  // daemon's power lock: one is in flight at a time and a second is ignored.
   Q_INVOKABLE void request(const QString &action);
   // Forgets the last refusal and accepted action.
   Q_INVOKABLE void reset();
@@ -66,6 +74,7 @@ public:
 
 signals:
   void powerChanged();
+  void sessionSwitchChanged();
   void requestChanged();
   void volumeChanged();
   // A volume change succeeded: the HUD shows the new state.
@@ -75,6 +84,8 @@ signals:
 
 private:
   void applyPower(const QVariant &value);
+  void readSessionSwitch();
+  void applySessionSwitch(const QString &value);
   // Volume calls run one at a time, in the order of the keys, so a quick
   // second key never overtakes a Volume Up that is still unmuting.
   struct VolumeOp {
@@ -95,12 +106,14 @@ private:
   QString m_reboot = QStringLiteral("unknown");
   QString m_powerOff = QStringLiteral("unknown");
   QVariantList m_inhibitors;
+  QString m_sessionSwitch = QStringLiteral("unknown");
   QString m_pending;
   QString m_accepted;
   QString m_refusal;
   QString m_refusalAction;
   // Only the reply to the latest power read applies.
   quint64 m_powerRead = 0;
+  quint64 m_sessionSwitchRead = 0;
   // Volume replies apply in request order; an older one never replaces a
   // newer state.
   bool m_volumeKnown = false;

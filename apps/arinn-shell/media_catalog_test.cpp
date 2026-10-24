@@ -589,6 +589,41 @@ private slots:
     native.appId = QStringLiteral("org.arinn.Playback.00000000-0000-0000-0000-000000000000");
     QCOMPARE(launch.call({wrapped}).toString(), QString());
   }
+  // ADR-0106, review of #502: the quick menu offers play/pause only when the
+  // action the state needs is supported, the toggle or Pause while playing or
+  // Play while paused; sessionAction would otherwise send a rejected action.
+  void playPauseFollowsTheActionTheStateNeeds() {
+    MediaDaemon daemon;
+    const auto now = monotonicUs();
+    const auto row = [now](const char *id, const char *state, const QStringList &actions) {
+      return session(QString::fromLatin1(id), QString::fromLatin1(id),
+                     QString::fromLatin1(state), 1000000, now, 8000000, actions);
+    };
+    daemon.page1 = {
+        row("toggle", "playing", {QStringLiteral("play-pause")}),
+        row("pausable", "playing", {QStringLiteral("pause")}),
+        row("live", "playing", {QStringLiteral("play"), QStringLiteral("stop")}),
+        row("resumable", "paused", {QStringLiteral("play")}),
+        row("stuck", "paused", {QStringLiteral("pause")}),
+    };
+    auto bus = QDBusConnection::sessionBus();
+    QVERIFY(bus.registerService(QStringLiteral("org.arinn.Daemon1")));
+    QVERIFY(bus.registerVirtualObject(QStringLiteral("/org/arinn"), &daemon,
+                                      QDBusConnection::SubPath));
+    MediaCatalog catalog;
+    QTRY_COMPARE(catalog.continueEntries().size(), 5);
+    QMap<QString, bool> offered;
+    for (const auto &entry : catalog.continueEntries()) {
+      const auto map = entry.toMap();
+      offered.insert(map.value(QStringLiteral("title")).toString(),
+                     map.value(QStringLiteral("playPause")).toBool());
+    }
+    QCOMPARE(offered.value(QStringLiteral("toggle")), true);
+    QCOMPARE(offered.value(QStringLiteral("pausable")), true);
+    QCOMPARE(offered.value(QStringLiteral("live")), false);
+    QCOMPARE(offered.value(QStringLiteral("resumable")), true);
+    QCOMPARE(offered.value(QStringLiteral("stuck")), false);
+  }
   void pagingAnchorAndActions() {
     MediaDaemon daemon;
     const auto now = monotonicUs();

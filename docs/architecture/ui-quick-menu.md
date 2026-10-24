@@ -80,7 +80,7 @@ sheet follows the tile action sheet (handoff `cl-1`) and the power menu rows:
 
 | Row | Source | OK | Unavailable when |
 | --- | --- | --- | --- |
-| Now playing | `MediaCatalog` Continue entries: the playing session, else a paused one | play/pause to that session | no session, no play/pause, no daemon |
+| Now playing | `MediaCatalog` Continue entries: the playing session, else a paused one | play/pause to that session | no session, no daemon, or the session lacks the action its state needs (the toggle, Pause while playing, Play while paused): it says "Cannot be paused from Arinn" |
 | Sound | `SystemControl1` level and mute (read when the sheet opens, and after each change); `SystemStatus1` mute state until then | toggle mute; Left steps down, Right turns the sound on and steps up | no daemon |
 | Network | `SystemStatus1`: Wi-Fi with its level, cable, other, not connected, unknown | — (not focusable) | — |
 | Sleep | power scope | power menu with the suspend request sent | no daemon |

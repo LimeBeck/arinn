@@ -118,7 +118,7 @@ pub struct Native {
     /// Global Home sequences: `home_shortcut`, then HomePage (#286).
     home: Vec<Sequence>,
     /// Quick-menu sequences: `quick_menu_shortcut` (ADR-0106).
-    quick_menu: Vec<Sequence>,
+    quick_menu: key_sequence::QuickMenu,
     /// Grabbed quick-menu (modifier mask, keycode) pairs; any other grabbed
     /// press is Home.
     quick_menu_grabs: HashSet<(u16, Keycode)>,
@@ -138,7 +138,7 @@ impl Native {
         let (quick_menu, fallback) = key_sequence::quick_menu(quick_menu_shortcut, &home);
         if fallback {
             eprintln!("arinn-platform-x11: invalid quick_menu_shortcut; using the default");
-        } else if quick_menu.is_empty() {
+        } else if quick_menu.keys.is_empty() {
             eprintln!("arinn-platform-x11: quick_menu_shortcut is a Home key; skipped");
         }
         Self::connect_display_with(None, home, quick_menu)
@@ -152,7 +152,7 @@ impl Native {
     pub(crate) fn connect_display_with(
         display: Option<&str>,
         home: Vec<Sequence>,
-        quick_menu: Vec<Sequence>,
+        quick_menu: key_sequence::QuickMenu,
     ) -> Result<Self> {
         let (c, screen) = x11rb::connect(display)?;
         let root = c.setup().roots[screen].root;
@@ -425,11 +425,8 @@ impl Native {
         // 2026-10-21, #439): the remote's Menu keys are grabbed only while
         // another window has focus.
         let shell_focused = self.shell_focused;
-        let quick_menu = self
-            .quick_menu
-            .iter()
-            .filter(|sequence| !shell_focused || !sequence.is_remote_menu());
-        for (index, sequence) in self.home.iter().chain(quick_menu).enumerate() {
+        let quick_menu = self.quick_menu.bound(shell_focused);
+        for (index, sequence) in self.home.iter().chain(quick_menu.iter()).enumerate() {
             let is_home = index < home;
             let codes: Vec<Keycode> = keys
                 .clone()
@@ -1035,7 +1032,8 @@ pub(crate) mod fixture {
         // #286: home_shortcut decides the grab, and HomePage is always added.
         let desktop = Desktop::new()?;
         let home = crate::key_sequence::home("Ctrl+Alt+H").0;
-        let mut native = Native::connect_display_with(Some(&desktop.display), home, Vec::new())?;
+        let mut native =
+            Native::connect_display_with(Some(&desktop.display), home, Default::default())?;
         native.snapshot()?;
         desktop.press(&[0xffe3, 0xffe9], u32::from(b'h'))?; // Control_L, Alt_L
         assert!(native.snapshot()?.home_key);
@@ -1116,7 +1114,7 @@ pub(crate) mod fixture {
         let other = Native::connect_display_with(
             Some(&desktop.display),
             crate::key_sequence::home("Ctrl+Alt+Q").0,
-            Vec::new(),
+            Default::default(),
         )?;
         let home = crate::key_sequence::home("Meta+F12").0;
         let quick_menu = crate::key_sequence::quick_menu("Ctrl+Alt+Q", &home).0;
@@ -1173,7 +1171,8 @@ pub(crate) mod fixture {
             .check()?;
         desktop.c.flush()?;
         let home = crate::key_sequence::home("Ctrl+Alt+H").0;
-        let mut native = Native::connect_display_with(Some(&desktop.display), home, Vec::new())?;
+        let mut native =
+            Native::connect_display_with(Some(&desktop.display), home, Default::default())?;
         native.snapshot()?;
         desktop.press(&[], 0x1008_ff18)?;
         assert!(native.snapshot()?.home_key);

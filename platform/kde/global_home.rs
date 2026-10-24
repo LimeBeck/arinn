@@ -95,7 +95,7 @@ pub struct QuickMenuKeys {
 #[derive(Default)]
 struct QuickMenuState {
     /// Every quick-menu key, set when the adapter connects.
-    keys: Option<Vec<Sequence>>,
+    keys: Option<key_sequence::QuickMenu>,
     /// The focus the stored keys were written for.
     written: Option<bool>,
 }
@@ -131,11 +131,7 @@ impl QuickMenuKeys {
         let Some(keys) = state.keys.as_ref() else {
             return false;
         };
-        let keys: Vec<Sequence> = keys
-            .iter()
-            .copied()
-            .filter(|key| !shell || !key.is_remote_menu())
-            .collect();
+        let keys: Vec<Sequence> = keys.bound(shell);
         state.written = Some(shell);
         if keys.is_empty() && !shell {
             // Every key is one of Home's.

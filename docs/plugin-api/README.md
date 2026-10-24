@@ -268,6 +268,10 @@ that launch:
 - A new `Launch` of that ID waits to be dispatched until an in-flight
   `CancelLaunch` has been answered, so a cancel never reaches a launch started
   after it.
+- A launch counts as running until the provider has answered its
+  `Provider1.Launch`, whatever the operation's state. The daemon's own launch of
+  the browser application for a web open
+  ([ADR-0055](../adr/0055-launching-a-closed-browser.md)) counts too.
 
 When the provider confirms, the operation ends as `cancelled` with error
 `Cancelled`. When the provider refuses (`Unsupported`, `NotFound`, `Conflict`),

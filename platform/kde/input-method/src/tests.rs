@@ -40,6 +40,8 @@ enum Command_ {
 #[derive(Default)]
 struct Compositor {
     log: Log,
+    /// The grab's `repeat_info` (rate per second, delay in ms).
+    repeat: Arc<Mutex<(i32, i32)>>,
     input_method: Option<ServerInputMethod>,
     context: Option<ServerContext>,
     keyboard: Option<ServerKeyboard>,
@@ -95,7 +97,8 @@ impl ServerDispatch<ServerContext, ()> for Compositor {
             }
             ContextRequest::GrabKeyboard { keyboard } => {
                 let keyboard = data_init.init(keyboard, ());
-                keyboard.repeat_info(0, 0);
+                let (rate, delay) = *state.repeat.lock().unwrap();
+                keyboard.repeat_info(rate, delay);
                 state.keyboard = Some(keyboard);
                 "grab".into()
             }
@@ -119,7 +122,10 @@ impl ServerDispatch<ServerKeyboard, ()> for Compositor {
 
 /// Runs the fake compositor on its own thread; returns the client socket
 /// and the command channel.
-fn compositor(log: Log) -> (UnixStream, std::sync::mpsc::Sender<Command_>) {
+fn compositor(
+    log: Log,
+    repeat: Arc<Mutex<(i32, i32)>>,
+) -> (UnixStream, std::sync::mpsc::Sender<Command_>) {
     let (client, server) = UnixStream::pair().unwrap();
     let (commands, receiver) = std::sync::mpsc::channel::<Command_>();
     std::thread::spawn(move || {
@@ -129,6 +135,7 @@ fn compositor(log: Log) -> (UnixStream, std::sync::mpsc::Sender<Command_>) {
         let client = handle.insert_client(server, Arc::new(Data)).unwrap();
         let mut state = Compositor {
             log,
+            repeat,
             ..Compositor::default()
         };
         loop {
@@ -210,6 +217,8 @@ struct FakeDaemon {
     calls: Log,
     /// `Next` fails, as for a daemon that restarted or replaced the lane.
     fail: Arc<AtomicBool>,
+    /// `Input` answers late, so repeats back up in the helper.
+    slow_input: Arc<AtomicBool>,
 }
 #[zbus::interface(name = "org.arinn.KeyboardBridge1")]
 impl FakeDaemon {
@@ -235,8 +244,11 @@ impl FakeDaemon {
     fn opened(&self, _generation: &str, session: &str) {
         self.calls.lock().unwrap().push(format!("opened:{session}"));
     }
-    fn input(&self, _generation: &str, _session: &str, key: &str) {
+    async fn input(&self, _generation: &str, _session: &str, key: &str) {
         self.calls.lock().unwrap().push(format!("input:{key}"));
+        if self.slow_input.load(Ordering::SeqCst) {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
     }
     fn closed(&self, _generation: &str, session: &str, reason: &str) {
         self.calls
@@ -309,6 +321,7 @@ struct Env {
     daemon: FakeDaemon,
     kwin_log: Log,
     locked: Arc<AtomicBool>,
+    repeat: Arc<Mutex<(i32, i32)>>,
     task: tokio::task::JoinHandle<Result<()>>,
     _connections: Vec<zbus::Connection>,
 }
@@ -317,7 +330,8 @@ impl Env {
     async fn new(lock_tick: Duration) -> Self {
         let bus = bus();
         let surface = Log::default();
-        let (socket, commands) = compositor(surface.clone());
+        let repeat = Arc::new(Mutex::new((0, 0)));
+        let (socket, commands) = compositor(surface.clone(), repeat.clone());
         let daemon = FakeDaemon::default();
         let daemon_connection = zbus::connection::Builder::address(bus.1.as_str())
             .unwrap()
@@ -372,6 +386,7 @@ impl Env {
             daemon,
             kwin_log,
             locked,
+            repeat,
             task,
             _connections: vec![daemon_connection, kwin, _screensaver],
         }
@@ -392,9 +407,10 @@ async fn scenario() {
         daemon,
         kwin_log,
         locked,
+        repeat: _,
         task,
         _connections,
-    } = Env::new(Duration::from_millis(500)).await;
+    } = Env::new(Duration::from_secs(3600)).await;
     let _ = &bus;
 
     // A text-input context of some application without a session shows
@@ -578,6 +594,85 @@ async fn a_deactivate_while_locked_is_reported_as_locked() {
                 .lock()
                 .unwrap()
                 .contains(&format!("closed:{S}:focus"))
+        );
+        env.task.abort();
+    })
+    .await
+    .unwrap();
+}
+
+/// Mutation I6 of the #484 review: after a lost lane, keys the old grab had
+/// queued are dropped, while KWin's context changes still reach the
+/// machine.
+#[test]
+fn keys_queued_before_a_lost_lane_are_dropped() {
+    let (sender, mut events) = mpsc::unbounded_channel();
+    let mut machine = Machine::default();
+    machine.handle(In::Open(S.into()));
+    machine.handle(In::Activated);
+    assert_eq!(machine.handle(In::Lost), [Out::Release]);
+    for code in [28, 30] {
+        sender
+            .send(In::Key {
+                code,
+                pressed: true,
+                serial: 1,
+                time: 1,
+            })
+            .unwrap();
+    }
+    sender.send(In::Activated).unwrap();
+    assert_eq!(drain_after_lost(&mut events, &mut machine), []);
+    assert!(events.try_recv().is_err());
+    // The context KWin activated meanwhile is known: the next session
+    // binds it without forcing.
+    assert_eq!(
+        machine.handle(In::Open(T.into())),
+        [Out::Grab, Out::Opened(T.into())]
+    );
+}
+
+/// Mutation I8 of the #484 review: a held arrow repeats fast, and the
+/// session closes under it. Repeats already queued then are dropped; none
+/// reaches the application as a press.
+#[tokio::test]
+async fn repeats_queued_when_a_session_ends_never_reach_the_application() {
+    tokio::time::timeout(Duration::from_secs(60), async {
+        let env = Env::new(Duration::from_secs(3600)).await;
+        *env.repeat.lock().unwrap() = (1000, 0);
+        env.daemon.slow_input.store(true, Ordering::SeqCst);
+        env.open(S).await;
+        env.commands.send(Command_::Key(103, true)).unwrap();
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while env
+                .daemon
+                .calls
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|c| *c == "input:up")
+                .count()
+                < 5
+            {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .unwrap();
+        push(&env.daemon, Record::Close(S.into()));
+        wait_for(&env.kwin_log, "active:false").await;
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let forwarded: Vec<String> = env
+            .surface
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|e| e.starts_with("key:103"))
+            .cloned()
+            .collect();
+        assert!(
+            forwarded.is_empty(),
+            "stale repeats forwarded: {forwarded:?}"
         );
         env.task.abort();
     })

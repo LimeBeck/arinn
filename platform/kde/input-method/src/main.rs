@@ -581,14 +581,23 @@ async fn session(
         lane.act(Out::Release).await;
     }
     lane.open = None;
-    while let Ok(event) = events.try_recv() {
-        if !matches!(event, In::Key { .. }) {
-            for out in machine.handle(event) {
-                lane.act(out).await;
-            }
-        }
+    for out in drain_after_lost(events, machine) {
+        lane.act(out).await;
     }
     result
+}
+
+/// After a lost lane: drops every key the old grab queued, so none reaches
+/// the application late, and feeds the other events (KWin's context
+/// changes) to the machine. Returns what the machine decided.
+fn drain_after_lost(events: &mut mpsc::UnboundedReceiver<In>, machine: &mut Machine) -> Vec<Out> {
+    let mut outs = Vec::new();
+    while let Ok(event) = events.try_recv() {
+        if !matches!(event, In::Key { .. }) {
+            outs.extend(machine.handle(event));
+        }
+    }
+    outs
 }
 
 /// Serves the daemon until the Wayland connection ends, connecting again to

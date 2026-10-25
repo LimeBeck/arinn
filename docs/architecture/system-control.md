@@ -224,7 +224,9 @@ every action goes through the methods above.
   runs at every adapter start and in `--release-power-key`, after a crash,
   but only when this display's adapter held a power grab (its marker in
   `$XDG_RUNTIME_DIR/arinn/power-grab-<display>`), and never when no power key is
-  mapped. A restart drops idle inhibitors applications held through
+  mapped. The marker stays until that check has seen the key held or a new
+  xfce4-power-manager own its name, so an unconfirmed repair is tried again at
+  the next start. A restart drops idle inhibitors applications held through
   xfce4-power-manager; normally the instance is about half a second old.
 - **XFCE, dedicated Arinn session only** (owner decision of 2026-10-24). With
   `ARINN_SESSION_ENTRY=xfce` the adapter never grabs the power keys, so
@@ -234,7 +236,8 @@ every action goes through the methods above.
   that was xfce4-power-manager's and is dropped. xfconfd is per user, so it
   takes the key only while logind lists no other graphical session of the
   user (its own from `ARINN_LOGIN_SESSION_ID`, passed by
-  `arinn-xfce-session`); one appearing gives everything back
+  `arinn-xfce-session`; each logind query is bounded by 250 ms, and no answer
+  takes nothing); one appearing gives everything back
   (`platform/x11/src/xfce_power.rs`). The user's live value (or "not set",
   when the user's own channel file does not name it and it equals the system
   default) is kept in
@@ -243,7 +246,10 @@ every action goes through the methods above.
   --release-power-key` (`ExecStopPost=` of `arinn-ewmh.service`), at the next
   start in any X11/EWMH session, and at every XFCE login by
   `/etc/xdg/autostart/org.arinn.PowerButtonRestore.desktop`
-  (`--restore-power-button`, a no-op while the adapter owns `org.arinn.X11`).
+  (`--restore-power-button`, a no-op while the adapter owns `org.arinn.X11`;
+  a copy the adapter could not give back at its start is retried every 30 s
+  off its loop until it succeeds, never while the key is held and with no take
+  while a retry runs).
   A take first gives a stale copy back; a value the user set meanwhile is kept.
   With the copy, the adapter also writes a per-user XDG autostart entry,
   `$XDG_CONFIG_HOME/autostart/arinn-power-button-restore.desktop`
@@ -277,8 +283,9 @@ and the key following a live shell and adapter),
 a shell exit, a crash loop, a reader that never works or stops, no inhibitor, a
 grab, the ordinary XFCE desktop, another desktop until xfce4-power-manager
 appears and is restarted when its grab failed, the dedicated session never
-grabbing, a crash repaired at the next start, XFCE recognised by its bus
-names), `xfce_power` (a fake xfconf: stale copies, a
+grabbing, a crash repaired at the next start, a marker kept until the repair
+is confirmed, a stale copy retried after a failed start-up restore, XFCE
+recognised by its bus names), `xfce_power` (a fake xfconf: stale copies, a
 newer user choice, a system default, a fresh value not yet in the file, the login restore, and the per-user entry
 run with a fake `xfconf-query` after Arinn is removed), `an_ended_session_gives_the_power_key_back`,
 `tests/package/test_xfce_session.py` (the opt-in bridge starts only with the

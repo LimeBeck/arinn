@@ -305,7 +305,7 @@ pub(crate) mod tests {
         let adapter = logind::connect(&bus.1).await;
         let dbus = zbus::fdo::DBusProxy::new(&adapter).await.unwrap();
         assert!(!xfce_on_bus(&dbus).await);
-        for name in XFCE_NAMES {
+        for name in ["org.xfce.SessionManager", "org.xfce.PowerManager"] {
             let owner = logind::connect(&bus.1).await;
             owner.request_name(name).await.unwrap();
             assert!(xfce_on_bus(&dbus).await, "{name}");

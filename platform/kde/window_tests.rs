@@ -1501,6 +1501,9 @@ async fn adapter_connection_applies_configured_home_shortcut() {
         .request_name("org.kde.kglobalaccel")
         .await
         .unwrap();
+    // A live shell and logind: the power keys follow (ADR-0111).
+    crate::power_inhibitor::tests::serve(&f.provider, Default::default()).await;
+    f.provider.request_name("org.arinn.Shell1").await.unwrap();
     f.core
         .connection
         .object_server()

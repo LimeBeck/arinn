@@ -108,6 +108,27 @@ impl Platform {
         s.seen = Some(Instant::now());
         Ok(std::mem::replace(&mut s.adapter, sender.clone()) != sender)
     }
+    /// The adapter polled within the last 45 s: its long poll answers
+    /// within 20 s, so a live adapter is never older (ADR-0111).
+    pub async fn adapter_alive(&self) -> bool {
+        self.state
+            .lock()
+            .await
+            .seen
+            .is_some_and(|t| t.elapsed() < Duration::from_secs(45))
+    }
+    /// On KDE, holds the power key only while the shell and this adapter
+    /// are alive (ADR-0111). Starts the watcher once.
+    pub fn watch_power_key(&self, connection: &Connection) {
+        if adapter_service() != Some("org.kde.KWin") {
+            return;
+        }
+        let platform = self.clone();
+        self.power_key.watch(connection, move || {
+            let platform = platform.clone();
+            async move { platform.adapter_alive().await }
+        });
+    }
     /// The next queued command after an authorized `poll`, or `idle`.
     pub async fn next_command(&self) -> String {
         tokio::time::timeout(Duration::from_secs(20), self.rx.lock().await.recv())

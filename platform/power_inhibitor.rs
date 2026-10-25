@@ -133,13 +133,17 @@ pub(crate) mod tests {
     /// A fake logind on `bus`; the returned connection owns its name.
     pub(crate) async fn logind(bus: &Bus, fake: Shared) -> Connection {
         let service = connect(&bus.1).await;
+        serve(&service, fake).await;
+        service
+    }
+    /// Serves a fake logind on `service`, which takes logind's name.
+    pub(crate) async fn serve(service: &Connection, fake: Shared) {
         service
             .object_server()
             .at(PATH, Manager(fake))
             .await
             .unwrap();
         service.request_name(SERVICE).await.unwrap();
-        service
     }
 
     #[tokio::test]

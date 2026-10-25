@@ -138,14 +138,32 @@ pub struct GrabMarker {
     display: String,
 }
 impl GrabMarker {
+    /// `$XDG_RUNTIME_DIR/arinn/power-grab-<display>`, one per X display of
+    /// the user, so two displays never overwrite each other's marker.
     pub fn from_env() -> Self {
+        let display = std::env::var("DISPLAY").unwrap_or_default();
         Self::at(
             std::env::var_os("XDG_RUNTIME_DIR")
                 .map(PathBuf::from)
                 .filter(|dir| dir.is_absolute())
-                .map(|dir| dir.join("arinn/power-grab")),
-            std::env::var("DISPLAY").unwrap_or_default(),
+                .map(|dir| dir.join("arinn").join(Self::file_name(&display))),
+            display,
         )
+    }
+    /// The marker's file name for `display`, with anything but letters,
+    /// digits, `.`, `-` and `_` replaced.
+    fn file_name(display: &str) -> String {
+        let display: String = display
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+        format!("power-grab-{display}")
     }
     pub fn at(path: Option<PathBuf>, display: String) -> Self {
         Self { path, display }
@@ -313,7 +331,12 @@ impl PowerOwner {
         xfce: Xfce,
         reading: Reading,
     ) -> Result<()> {
-        let wanted = allowed(self.dedicated, xfce.any()) && shell;
+        // The dedicated session's marker counts only on an XFCE desktop: a
+        // stale one (a killed wrapper, a lingering user manager) on another
+        // desktop falls back to the grab, never to raw reading next to that
+        // desktop's own handler (review of #516).
+        let dedicated = self.dedicated && xfce.session;
+        let wanted = allowed(dedicated, xfce.any()) && shell;
         if self.owned != Reading::None {
             // The shell is gone, or the reader stopped or changed (a regrab
             // after a mapping change lost the key, or moved it from a grab
@@ -333,7 +356,7 @@ impl PowerOwner {
         }
         // The dedicated session reads raw events only, and needs xfconf to
         // set xfce4-power-manager to "do nothing" first.
-        if self.dedicated && self.xfconf.is_none() {
+        if dedicated && self.xfconf.is_none() {
             return Ok(());
         }
         self.retry = Some(Instant::now() + self.retry_after);
@@ -353,7 +376,7 @@ impl PowerOwner {
         }
         // The dedicated session never grabs: xfce4-power-manager's grab must
         // succeed whenever it starts (review of #516). Other desktops grab.
-        let raw = self.dedicated;
+        let raw = dedicated;
         match reader.set(true, raw)? {
             Reading::Grab if !raw => {
                 self.owned = Reading::Grab;
@@ -785,6 +808,33 @@ pub(crate) mod tests {
             .unwrap();
         assert_eq!(r.armed, None);
         assert_eq!(f.owner.owned(), Reading::None);
+    }
+
+    /// Review of #516: a stale dedicated marker on a desktop without XFCE
+    /// (the manual recipe on LXQt, MATE or Openbox after a killed wrapper)
+    /// does not count: the adapter grabs as on any other desktop, so that
+    /// desktop's handler never acts on the same press, and xfconf is never
+    /// touched there.
+    #[tokio::test]
+    async fn a_stale_dedicated_marker_without_xfce_grabs() {
+        let mut f = fixture(true).await;
+        let mut r = reader(Reading::Grab);
+        f.owner
+            .follow(&mut r, true, OTHER, Reading::None)
+            .await
+            .unwrap();
+        assert_eq!(r.calls, [(true, false)]);
+        assert_eq!(f.owner.owned(), Reading::Grab);
+        assert_eq!(f.xfconf.writes(), 0);
+        assert!(!f.xfconf.files.entry.exists());
+    }
+
+    #[test]
+    fn the_grab_marker_is_named_per_display() {
+        assert_eq!(GrabMarker::file_name(":0"), "power-grab-_0");
+        assert_eq!(GrabMarker::file_name("host:10.0"), "power-grab-host_10.0");
+        assert_eq!(GrabMarker::file_name("../x"), "power-grab-.._x");
+        assert_ne!(GrabMarker::file_name(":0"), GrabMarker::file_name(":1"));
     }
 
     /// Review of #516: the dedicated session never grabs the power key; it

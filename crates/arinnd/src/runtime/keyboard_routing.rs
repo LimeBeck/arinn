@@ -65,7 +65,14 @@ struct State {
 pub struct Keyboard {
     state: Arc<Mutex<State>>,
     wake: Arc<Notify>,
+    /// Tests pause `Opened` here, the state lock held.
+    #[cfg(test)]
+    opened_pause: Arc<std::sync::Mutex<Option<Pause>>>,
 }
+
+/// A test pause: notified when reached, then waits for the release.
+#[cfg(test)]
+type Pause = (Arc<Notify>, Arc<Notify>);
 
 impl Default for Keyboard {
     fn default() -> Self {
@@ -79,6 +86,8 @@ impl Default for Keyboard {
                 poll_timeout: POLL_TIMEOUT,
             })),
             wake: Arc::new(Notify::new()),
+            #[cfg(test)]
+            opened_pause: Arc::default(),
         }
     }
 }
@@ -480,13 +489,25 @@ impl KeyboardBridge {
             return Ok(());
         }
         current.opened = true;
-        drop(state);
+        #[cfg(test)]
+        {
+            let pause = self.core.keyboard.opened_pause.lock().unwrap().take();
+            if let Some((reached, release)) = pause {
+                reached.notify_one();
+                release.notified().await;
+            }
+        }
         log("opened", None);
+        // `Opened(S)` leaves under the state lock. Every `Closed(S)` is sent
+        // after the session ended, and ending it takes that lock, so a
+        // second press, a replacement or a timeout can never send
+        // `Closed(S)` before `Opened(S)` (Codex P2 on #484): the shell would
+        // ignore that `Closed` and then show a panel for an ended session.
         let emitter = SignalEmitter::new(&self.core.connection, production::PATH)
             .map_err(|_| ErrorCode::Internal)?;
-        ShellKeyboard::opened(&emitter, session)
-            .await
-            .map_err(|_| ErrorCode::Internal)?;
+        let sent = ShellKeyboard::opened(&emitter, session).await;
+        drop(state);
+        sent.map_err(|_| ErrorCode::Internal)?;
         Ok(())
     }
 

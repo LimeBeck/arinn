@@ -588,6 +588,74 @@ async fn fast_toggles_leave_no_records_behind() {
     .unwrap();
 }
 
+/// Codex P2 on #484: a second key press while the deliverer's `Opened` is
+/// on its way must not send `Closed(S)` before `Opened(S)`. The test pauses
+/// `Opened` after it marked the session open and presses the key then.
+#[tokio::test]
+async fn closed_never_overtakes_opened() {
+    within(async {
+        let f = Fixture::new().await;
+        let rule = zbus::MatchRule::builder()
+            .msg_type(zbus::message::Type::Signal)
+            .interface(keyboard::SHELL_INTERFACE)
+            .unwrap()
+            .build();
+        let mut signals = zbus::MessageStream::for_match_rule(rule, &f.shell, None)
+            .await
+            .unwrap();
+        let bridge = f.bridge(&f.deliverer).await;
+        let generation = bridge.connect(&Uuid::new_v4().to_string()).await.unwrap();
+        f.bridge(&f.kwin).await.request().await.unwrap();
+        let Record::Open(session) = next(&bridge, &generation).await else {
+            panic!("open record expected");
+        };
+        let (reached, release) = (Arc::new(Notify::new()), Arc::new(Notify::new()));
+        *f.core.keyboard.opened_pause.lock().unwrap() = Some((reached.clone(), release.clone()));
+        let proxy = |c: Connection, daemon: String| async move {
+            KeyboardBridgeProxy::builder(&c)
+                .destination(daemon)
+                .unwrap()
+                .build()
+                .await
+                .unwrap()
+                .into_inner()
+        };
+        let opened = {
+            let bridge = proxy(f.deliverer.clone(), f.daemon.clone()).await;
+            let (generation, session) = (generation.clone(), session.clone());
+            tokio::spawn(async move {
+                bridge
+                    .call_method("Opened", &(generation.as_str(), session.as_str()))
+                    .await
+                    .map(|_| ())
+            })
+        };
+        reached.notified().await;
+        // The key is pressed again while `Opened` waits.
+        let press = {
+            let kwin = proxy(f.kwin.clone(), f.daemon.clone()).await;
+            tokio::spawn(async move { kwin.call_method("Request", &()).await.map(|_| ()) })
+        };
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        release.notify_one();
+        opened.await.unwrap().unwrap();
+        press.await.unwrap().unwrap();
+        let mut order = Vec::new();
+        while order.len() < 2 {
+            let message = signals.next().await.unwrap().unwrap();
+            let header = message.header();
+            let member = header.member().unwrap().to_string();
+            let (signalled,): (String,) = message.body().deserialize().unwrap();
+            assert_eq!(signalled, session);
+            order.push(member);
+        }
+        assert_eq!(order, ["Opened", "Closed"]);
+        drop(f.bus);
+    })
+    .await
+    .unwrap();
+}
+
 #[tokio::test]
 async fn a_vanished_deliverer_ends_the_session() {
     within(async {

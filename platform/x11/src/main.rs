@@ -980,9 +980,10 @@ async fn main() -> Result<()> {
     if argument.as_deref() == Some(std::ffi::OsStr::new("--restore-power-button")) {
         // The system XDG autostart entry at every XFCE login: a copy an
         // unclean end of the dedicated session left goes back, unless the
-        // adapter runs and holds the key (ADR-0111).
+        // adapter runs and holds the key (ADR-0111), under a temporary
+        // logind inhibitor (#519).
         if let Some((bus, files)) = power_button().await {
-            xfce_power::restore_at_login(&bus, &files).await;
+            power_owner::restore_at_login(&bus, &files, None).await;
         }
         return Ok(());
     }

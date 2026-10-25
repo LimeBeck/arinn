@@ -228,8 +228,47 @@ every action goes through the methods above.
   `$XDG_RUNTIME_DIR/arinn/power-grab-<display>`), and never when no power key is
   mapped. The marker stays until that check has seen the key held or a new
   xfce4-power-manager own its name, so an unconfirmed repair is tried again at
-  the next start. A restart drops idle inhibitors applications held through
-  xfce4-power-manager; normally the instance is about half a second old.
+  the next start; [ADR-0111](../adr/0111-power-key.md)'s "removed once the
+  check after letting go has run" means exactly this. A new instance has 10 s
+  to own the name; while the name has no owner at all (the old instance quit,
+  the new one starts slowly) the adapter waits a little longer, still holding
+  the inhibitor and taking no key, so a slow instance grabs the key itself.
+  The whole restart, the `Restart` call included, holds the inhibitor at most
+  15 s, as ADR-0111 states. A `Restart` call not answered within 5 s may
+  still take effect, so the name is watched the same way after it; only an
+  error reply ends the restart at once. The running adapter tries an
+  unconfirmed repair again as well (the grab check fails, `Restart` returns
+  an error, the old instance stays, or no new instance owns the name in
+  time): every 30 s at most, never sooner, each restart under logind's
+  inhibitor (a temporary one once Arinn's is gone; without one nothing is
+  restarted and the next attempt waits for the backoff), until one is
+  confirmed. Only a restart after which
+  the old instance went away and no new one came counts: after 3 of them in
+  a row the adapter gives up and logs it. It restarts nothing more and grabs
+  no key until the adapter restarts, and the marker stays for the next
+  start; a late instance then grabs the key itself. A restart that changed
+  nothing never counts, so an xfce4-power-manager whose grab is broken keeps
+  being retried rather than left with nobody reading the key; but when the
+  old instance, still there at the 10 s, goes away before the next restart
+  (it acted on `Restart` late), that counts as one that did not come back.
+  Between
+  retries Arinn holds no inhibitor. While xfce4-power-manager runs it holds
+  its own `handle-power-key` inhibitor, so while a repair is pending (or
+  after giving up) the key does nothing rather than logind acting on it,
+  unless the user set xfce4-power-manager to leave the key to logind. While
+  no xfce4-power-manager runs after giving up (no instance came back),
+  nobody inhibits logind, and its configured `HandlePowerKey=` acts
+  (power-off by default) until the adapter restarts. An
+  xfce4-power-manager that is gone meanwhile (stopped by the user) ends the
+  repair and clears the marker; `Restart` is never called while its name has
+  no owner, so it is never started, and one started again later grabs the
+  key itself. A confirmed or ended repair resets the 30 s backoff, except
+  after a restart that no instance came back from: then the backoff stays,
+  so a successor that comes late is not restarted sooner than 30 s after
+  the last restart. The count of missing instances is reset only by a
+  confirmed repair. A restart drops
+  idle inhibitors applications held through xfce4-power-manager; normally
+  the instance is about half a second old.
 - **XFCE, dedicated Arinn session only** (owner decision of 2026-10-24). With
   `ARINN_SESSION_ENTRY=xfce` the adapter never grabs the power keys, so
   xfce4-power-manager's grab succeeds whenever it starts; it reads them from
@@ -248,10 +287,17 @@ every action goes through the methods above.
   --release-power-key` (`ExecStopPost=` of `arinn-ewmh.service`), at the next
   start in any X11/EWMH session, and at every XFCE login by
   `/etc/xdg/autostart/org.arinn.PowerButtonRestore.desktop`
-  (`--restore-power-button`, a no-op while the adapter owns `org.arinn.X11`;
+  (`--restore-power-button`, a no-op while the adapter owns `org.arinn.X11`,
+  and with a copy to give back held under a temporary logind inhibitor like
+  the other restores when logind grants one; without one the restore still
+  runs: it does not touch xfce4-power-manager's own `handle-power-key`
+  inhibitor, which it holds by default, so logind cannot act meanwhile, and
+  skipping it would leave "do nothing" in the user's XFCE settings for good;
   a copy the adapter could not give back at its start, or that xfconf refused
   when Arinn let go, is retried every 30 s off its loop until it succeeds,
-  each time under a temporary logind inhibitor, never while the key is held
+  each time under a temporary logind inhibitor (the system bus is opened
+  again for each retry while the adapter has none, so a failed connection at
+  its start does not leave them without it), never while the key is held
   and with no take while a retry runs; after a refused release Arinn's
   inhibitor also stays until the value is back).
   A take first gives a stale copy back; a value the user set meanwhile is kept.
@@ -288,8 +334,19 @@ a shell exit, a crash loop, a reader that never works or stops, no inhibitor, a
 grab, the ordinary XFCE desktop, another desktop until xfce4-power-manager
 appears and is restarted when its grab failed, the dedicated session never
 grabbing, a crash repaired at the next start, a marker kept until the repair
-is confirmed, a stale copy retried under an inhibitor after a failed start-up
-restore or a refused release, no take during a retry, XFCE
+is confirmed, an unconfirmed restart or a failed grab check retried after the
+backoff until confirmed, a slow new instance waited for, the inhibitor held
+at most 15 s when no instance comes (a slow `Restart` call included), a
+late `Restart` answer still watched, a late successor waiting for the
+backoff, instances that act on `Restart` late stopping at the cap,
+no restart without the inhibitor, restarts whose instance never came
+capped, a restart that changed nothing retried without counting, a confirmed
+repair resetting the count, no restart when the name is gone, the backoff
+reset after a repair, a
+stopped xfce4-power-manager never restarted, a
+stale copy retried under an inhibitor after a failed start-up restore (also
+when the start found no system bus) or a refused release, the login restore
+under an inhibitor, no take during a retry, XFCE
 recognised by its bus names), `xfce_power` (a fake xfconf: stale copies, a
 newer user choice, a system default, a fresh value not yet in the file, the login restore, and the per-user entry
 run with a fake `xfconf-query` after Arinn is removed), `an_ended_session_gives_the_power_key_back`,

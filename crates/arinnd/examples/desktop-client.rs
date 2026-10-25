@@ -326,6 +326,14 @@ async fn main() -> anyhow::Result<()> {
     // Lost authoritative inventory clears running instances, not the launch catalogue.
     c.release_name("org.kde.KWin").await?;
     page(&app, |p| p.running.is_empty() && p.applications.len() == 7).await;
+    // A launch that starts while the inventory is missing gets the same
+    // grace as a gap during a launch before it counts as dispatched.
+    let at = Instant::now();
+    let gap = launch("fixture.desktop").await?;
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    starting(&c, &gap).await;
+    operation(&c, gap, "").await;
+    assert!(at.elapsed() >= Duration::from_secs(4), "{:?}", at.elapsed());
     poll.abort();
     let _ = poll.await;
     println!(

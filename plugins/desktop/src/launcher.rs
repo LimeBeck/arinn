@@ -91,12 +91,11 @@ impl LaunchUnit {
     /// Whether processes of the launch still run. With `ExitType=cgroup`
     /// the unit stays active after GIO exits until its cgroup is empty, so
     /// `inactive` or `failed` means the application and everything it started
-    /// have exited. An unreadable unit counts as ended.
+    /// have exited, as does a unit that systemd has already collected. A read
+    /// that fails some other way says nothing, so the launch keeps waiting;
+    /// callers bound how long.
     pub async fn running(&self) -> bool {
-        match self.unit.get_property::<String>("ActiveState").await {
-            Ok(state) => !matches!(state.as_str(), "inactive" | "failed"),
-            Err(_) => false,
-        }
+        exited(&self.unit.get_property::<String>("ActiveState").await).is_none_or(|exited| !exited)
     }
     /// Stop this unit only: the processes of this launch, nothing else.
     pub async fn stop(&self) -> Result<(), ErrorCode> {
@@ -120,6 +119,31 @@ impl LaunchUnit {
             .await;
         }
     }
+}
+/// What one read of a launch unit's `ActiveState` says: `Some(true)` when
+/// its processes have exited (inactive, failed, or the unit is gone after
+/// garbage collection), `Some(false)` while they run, `None` when the read
+/// failed and nothing is known.
+fn exited(read: &zbus::Result<String>) -> Option<bool> {
+    use zbus::DBusError as _;
+    match read {
+        Ok(state) => Some(matches!(state.as_str(), "inactive" | "failed")),
+        Err(zbus::Error::MethodError(name, _, _)) if gone(name.as_str()) => Some(true),
+        Err(zbus::Error::FDO(error)) if gone(error.name().as_str()) => Some(true),
+        Err(_) => None,
+    }
+}
+/// D-Bus errors that mean the unit no longer exists.
+fn gone(name: &str) -> bool {
+    matches!(
+        name,
+        "org.freedesktop.DBus.Error.UnknownObject"
+            | "org.freedesktop.DBus.Error.UnknownInterface"
+            | "org.freedesktop.DBus.Error.UnknownProperty"
+            | "org.freedesktop.DBus.Error.UnknownMethod"
+            | "org.freedesktop.systemd1.NoSuchUnit"
+            | "org.freedesktop.systemd1.LoadFailed"
+    )
 }
 async fn manager(connection: &Connection) -> Result<Proxy<'static>, ErrorCode> {
     Proxy::new(
@@ -236,5 +260,40 @@ pub async fn start_on(connection: &Connection, path: &Path) -> Result<LaunchUnit
             .await;
             Err(error)
         }
+    }
+}
+
+#[cfg(test)]
+mod state_tests {
+    use super::{exited, gone};
+    use zbus::fdo;
+
+    /// A failed read is not an exit: a cancel must not be confirmed, nor a
+    /// launch failed, while the processes may still run.
+    #[test]
+    fn only_a_known_state_or_a_collected_unit_counts_as_exited() {
+        assert_eq!(exited(&Ok("active".into())), Some(false));
+        assert_eq!(exited(&Ok("deactivating".into())), Some(false));
+        assert_eq!(exited(&Ok("inactive".into())), Some(true));
+        assert_eq!(exited(&Ok("failed".into())), Some(true));
+        let fdo_error = |error| Err(zbus::Error::FDO(Box::new(error)));
+        assert_eq!(
+            exited(&fdo_error(fdo::Error::UnknownObject("gone".into()))),
+            Some(true)
+        );
+        assert_eq!(exited(&fdo_error(fdo::Error::NoReply("slow".into()))), None);
+        assert_eq!(
+            exited(&fdo_error(fdo::Error::TimedOut("slow".into()))),
+            None
+        );
+        assert_eq!(
+            exited(&Err(zbus::Error::InputOutput(std::sync::Arc::new(
+                std::io::Error::other("bus")
+            )))),
+            None
+        );
+        assert!(gone("org.freedesktop.systemd1.NoSuchUnit"));
+        assert!(!gone("org.freedesktop.DBus.Error.NoReply"));
+        assert!(!gone("org.freedesktop.DBus.Error.ServiceUnknown"));
     }
 }

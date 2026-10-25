@@ -161,7 +161,17 @@ where
         }
         if !scope.running().await {
             let Some(snapshot) = fresh().await else {
-                return Ok(());
+                // Nothing to decide with: dispatched, but only once the
+                // inventory has been missing for the grace, as above.
+                let since = *missing_since.get_or_insert_with(tokio::time::Instant::now);
+                if since.elapsed() >= grace {
+                    return Ok(());
+                }
+                tokio::select! {
+                    _ = tokio::time::sleep(POLL) => {}
+                    _ = cancel.changed() => {}
+                }
+                continue;
             };
             // Handed to a running instance: its existing window is the
             // Activity (spec §7.2).
@@ -297,23 +307,24 @@ mod tests {
         stops: AtomicU64,
         /// After a stop, the processes still run for this many reads, as
         /// while systemd stops the unit.
-        linger: AtomicU64,
+        linger: Mutex<u64>,
     }
     impl Scope for Fixture {
         async fn running(&self) -> bool {
-            if self.stops.load(Ordering::SeqCst) > 0
-                && self
-                    .linger
-                    .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
-                    .is_ok_and(|n| n == 1)
-            {
-                self.running.store(false, Ordering::SeqCst);
+            if self.stops.load(Ordering::SeqCst) > 0 {
+                let mut linger = self.linger.lock().unwrap();
+                if *linger > 0 {
+                    *linger -= 1;
+                    if *linger == 0 {
+                        self.running.store(false, Ordering::SeqCst);
+                    }
+                }
             }
             self.running.load(Ordering::SeqCst)
         }
         async fn stop(&self) -> Result<(), ErrorCode> {
             self.stops.fetch_add(1, Ordering::SeqCst);
-            if self.linger.load(Ordering::SeqCst) == 0 {
+            if *self.linger.lock().unwrap() == 0 {
                 self.running.store(false, Ordering::SeqCst);
             }
             Ok(())
@@ -496,18 +507,66 @@ mod tests {
             window("old", "unproven"),
             window("new", "game.desktop"),
         ]);
+        let result = tokio::time::timeout(
+            Duration::from_secs(5),
+            wait(
+                "game.desktop",
+                &entries(),
+                None,
+                || Some(inventory.lock().unwrap().clone()),
+                || async { Some(inventory.lock().unwrap().clone()) },
+                &scope,
+                &mut cancel_rx,
+                Duration::from_secs(2),
+            ),
+        )
+        .await;
+        assert_eq!(result, Ok(Ok(())));
+    }
+
+    /// The unit already ended and there is no inventory to decide with: the
+    /// launch is dispatched only after the grace, and an inventory that
+    /// arrives within it decides as usual.
+    #[tokio::test]
+    async fn an_early_exit_without_an_inventory_waits_for_the_grace() {
+        let scope = Fixture::default();
+        let (_cancel, mut cancel_rx) = watch::channel(false);
+        let grace = Duration::from_millis(600);
+        let started = tokio::time::Instant::now();
         let result = wait(
             "game.desktop",
             &entries(),
             None,
-            || Some(inventory.lock().unwrap().clone()),
-            || async { Some(inventory.lock().unwrap().clone()) },
+            || None,
+            || async { None },
             &scope,
             &mut cancel_rx,
-            Duration::from_secs(2),
+            grace,
         )
         .await;
         assert_eq!(result, Ok(()));
+        assert!(started.elapsed() >= grace, "{:?}", started.elapsed());
+        // An inventory with no window of the application arrives in time:
+        // the ended unit fails the launch.
+        let reads = AtomicU64::new(0);
+        let result = tokio::time::timeout(
+            Duration::from_secs(5),
+            wait(
+                "game.desktop",
+                &entries(),
+                None,
+                || None,
+                || async {
+                    (reads.fetch_add(1, Ordering::SeqCst) >= 2)
+                        .then(|| snapshot(vec![window("old", "unproven")]))
+                },
+                &scope,
+                &mut cancel_rx,
+                grace,
+            ),
+        )
+        .await;
+        assert_eq!(result, Ok(Err(ErrorCode::Unavailable)));
     }
 
     #[tokio::test]
@@ -599,7 +658,7 @@ mod tests {
     async fn a_cancelled_launch_ends_once_its_processes_have_exited() {
         let scope = Fixture::default();
         scope.running.store(true, Ordering::SeqCst);
-        scope.linger.store(3, Ordering::SeqCst);
+        *scope.linger.lock().unwrap() = 3;
         let (cancel, mut cancel_rx) = watch::channel(true);
         let result = tokio::time::timeout(
             Duration::from_secs(5),

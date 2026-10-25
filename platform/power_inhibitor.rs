@@ -94,6 +94,10 @@ pub(crate) mod tests {
         pub(crate) calls: Vec<(String, String, String, String)>,
         pub(crate) held: Vec<UnixStream>,
         pub(crate) refuse: bool,
+        /// `ListSessions`: id, uid, user, seat, object path.
+        pub(crate) sessions: Vec<Listed>,
+        /// `ListSessions` fails.
+        pub(crate) no_sessions: bool,
     }
     impl Fake {
         /// How many handed-out inhibitors are still open.
@@ -110,9 +114,18 @@ pub(crate) mod tests {
         }
     }
     pub(crate) type Shared = Arc<Mutex<Fake>>;
+    /// One `ListSessions` entry.
+    pub(crate) type Listed = (String, u32, String, String, zbus::zvariant::OwnedObjectPath);
     struct Manager(Shared);
     #[zbus::interface(name = "org.freedesktop.login1.Manager")]
     impl Manager {
+        fn list_sessions(&self) -> zbus::fdo::Result<Vec<Listed>> {
+            let fake = self.0.lock().unwrap();
+            if fake.no_sessions {
+                return Err(zbus::fdo::Error::Failed("fixture".into()));
+            }
+            Ok(fake.sessions.clone())
+        }
         fn inhibit(
             &self,
             what: String,

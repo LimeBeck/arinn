@@ -240,6 +240,61 @@ pub async fn release_stale(
     xfce_power::release(bus, files).await;
 }
 
+/// Whether user `uid` has a graphical session (`x11` or `wayland`, not
+/// closing) other than `own` in logind. xfconfd is per user, so in such a
+/// session xfce4-power-manager would do nothing as well while Arinn is on
+/// another display (review of #516, Codex P1). A query logind does not
+/// answer counts as another session.
+pub async fn other_graphical_session(system: &Connection, own: &str, uid: u32) -> bool {
+    type Sessions = Vec<(String, u32, String, String, zbus::zvariant::OwnedObjectPath)>;
+    let Ok(Ok(reply)) = tokio::time::timeout(
+        Duration::from_secs(2),
+        system.call_method(
+            Some("org.freedesktop.login1"),
+            "/org/freedesktop/login1",
+            Some("org.freedesktop.login1.Manager"),
+            "ListSessions",
+            &(),
+        ),
+    )
+    .await
+    else {
+        return true;
+    };
+    let Ok(sessions) = reply.body().deserialize::<Sessions>() else {
+        return true;
+    };
+    for (id, owner, _, _, path) in sessions {
+        if owner != uid || id == own {
+            continue;
+        }
+        let property = async |name: &str| -> Option<String> {
+            let reply = tokio::time::timeout(
+                Duration::from_secs(2),
+                system.call_method(
+                    Some("org.freedesktop.login1"),
+                    path.as_str(),
+                    Some("org.freedesktop.DBus.Properties"),
+                    "Get",
+                    &("org.freedesktop.login1.Session", name),
+                ),
+            )
+            .await
+            .ok()?
+            .ok()?;
+            let value: zbus::zvariant::OwnedValue = reply.body().deserialize().ok()?;
+            String::try_from(value).ok()
+        };
+        let (Some(kind), Some(state)) = (property("Type").await, property("State").await) else {
+            return true;
+        };
+        if matches!(kind.as_str(), "x11" | "wayland") && state != "closing" {
+            return true;
+        }
+    }
+    false
+}
+
 /// Whether this session may take the power key: the dedicated Arinn XFCE
 /// session, and any X11/EWMH desktop where no XFCE name is on the bus. The
 /// ordinary XFCE desktop, and any desktop where xfce4-power-manager runs,
@@ -258,6 +313,11 @@ pub struct PowerOwner {
     inhibitor: Option<power_inhibitor::Inhibitor>,
     /// The session bus, to restart xfce4-power-manager.
     bus: Option<Connection>,
+    /// The login's logind session (`ARINN_LOGIN_SESSION_ID`, passed by
+    /// `arinn-xfce-session`) and user: the dedicated session sets xfconf
+    /// only while the user has no other graphical session.
+    own_session: Option<String>,
+    uid: u32,
     /// Arinn may have broken xfce4-power-manager's grab: it held the key by
     /// a grab (or an earlier adapter did, by `marker`), and nobody has
     /// checked since it let go.
@@ -285,6 +345,9 @@ impl PowerOwner {
         Self {
             dedicated,
             bus,
+            own_session: None,
+            // SAFETY: getuid has no preconditions and cannot fail.
+            uid: unsafe { libc::getuid() },
             heal: false,
             marker: GrabMarker::default(),
             restart_wait: Duration::from_secs(10),
@@ -313,7 +376,11 @@ impl PowerOwner {
         // The dedicated session changes xfconf only with the login's own
         // directories; without them it takes nothing.
         let files = xfce_power::Files::from_vars(var, dedicated);
-        Self::new(dedicated, bus.clone(), bus.zip(files), None).with_marker(GrabMarker::from_env())
+        let mut owner = Self::new(dedicated, bus.clone(), bus.zip(files), None);
+        owner.own_session = std::env::var("ARINN_LOGIN_SESSION_ID")
+            .ok()
+            .filter(|id| !id.is_empty());
+        owner.with_marker(GrabMarker::from_env())
     }
     /// Uses `marker`; one an earlier adapter of this display left is
     /// checked at the first pass.
@@ -346,7 +413,11 @@ impl PowerOwner {
         // desktop falls back to the grab, never to raw reading next to that
         // desktop's own handler (review of #516).
         let dedicated = self.dedicated && xfce.session;
-        let wanted = allowed(dedicated, xfce.any()) && shell;
+        // The dedicated session's "do nothing" is per user (xfconfd): it
+        // holds only while the user has no other graphical session, where
+        // xfce4-power-manager would do nothing as well (review of #516).
+        let alone = !dedicated || !shell || self.alone().await;
+        let wanted = allowed(dedicated, xfce.any()) && shell && alone;
         if self.owned != Reading::None {
             // The shell is gone, or the reader stopped or changed (a regrab
             // after a mapping change lost the key, or moved it from a grab
@@ -424,6 +495,21 @@ impl PowerOwner {
             self.retry = None;
         }
         Ok(())
+    }
+    /// Whether the user has no graphical session besides this login's.
+    /// Without this login's session id, or without an answer, it counts as
+    /// not alone.
+    async fn alone(&mut self) -> bool {
+        let Some(own) = self.own_session.clone() else {
+            return false;
+        };
+        if self.system.is_none() {
+            self.system = Connection::system().await.ok();
+        }
+        match self.system.as_ref() {
+            Some(system) => !other_graphical_session(system, &own, self.uid).await,
+            None => false,
+        }
     }
     /// Gives everything back: the reader first, then a restart of
     /// xfce4-power-manager if Arinn's grab broke its own, then the desktop's
@@ -532,6 +618,22 @@ pub(crate) mod tests {
         }
     }
 
+    /// This login's logind session id in the fixture.
+    const OWN: &str = "c1";
+    /// A logind session's `Type` and `State`.
+    struct Session(String, String);
+    #[zbus::interface(name = "org.freedesktop.login1.Session")]
+    impl Session {
+        #[zbus(property, name = "Type")]
+        fn kind(&self) -> String {
+            self.0.clone()
+        }
+        #[zbus(property, name = "State")]
+        fn state(&self) -> String {
+            self.1.clone()
+        }
+    }
+
     /// xfce4-power-manager's `Restart`; records how many logind inhibitors
     /// Arinn held at each call.
     struct Xfpm(logind::Shared, Arc<Mutex<Vec<usize>>>);
@@ -565,6 +667,8 @@ pub(crate) mod tests {
         );
         owner.retry_after = Duration::ZERO;
         owner.restart_wait = Duration::from_millis(50);
+        // This login's logind session; the fake lists no other.
+        owner.own_session = Some(OWN.into());
         let run = xfconf
             .files
             .record
@@ -582,6 +686,25 @@ pub(crate) mod tests {
         }
     }
     impl Fixture {
+        /// logind lists session `id` of user `uid`, of `kind` in `state`.
+        async fn add_session(&mut self, id: &str, uid: u32, kind: &str, state: &str) {
+            let path = format!("/org/freedesktop/login1/session/_{id}");
+            self._logind
+                .object_server()
+                .at(path.as_str(), Session(kind.into(), state.into()))
+                .await
+                .unwrap();
+            self.login.lock().unwrap().sessions.push((
+                id.into(),
+                uid,
+                "user".into(),
+                "seat0".into(),
+                zbus::zvariant::OwnedObjectPath::try_from(path).unwrap(),
+            ));
+        }
+        fn remove_session(&mut self, id: &str) {
+            self.login.lock().unwrap().sessions.retain(|s| s.0 != id);
+        }
         /// xfce4-power-manager starts: it owns its name and answers
         /// `Restart`.
         async fn start_xfpm(&mut self) {
@@ -851,6 +974,90 @@ pub(crate) mod tests {
         assert_eq!(GrabMarker::file_name("host:10.0"), "power-grab-host_10.0");
         assert_eq!(GrabMarker::file_name("../x"), "power-grab-.._x");
         assert_ne!(GrabMarker::file_name(":0"), GrabMarker::file_name(":1"));
+    }
+
+    /// Review of #516 (Codex P1): xfconfd is per user, so a second,
+    /// ordinary XFCE session of the same user (another VT) would get "do
+    /// nothing" as well while Arinn is on another display. The dedicated
+    /// session takes the key only while logind lists no other graphical
+    /// session of the user; one that appears gives everything back, and the
+    /// key is taken again when it is gone.
+    #[tokio::test]
+    async fn another_graphical_session_of_the_user_keeps_the_desktop_key() {
+        let mut f = fixture(true).await;
+        // SAFETY: getuid has no preconditions.
+        let uid = unsafe { libc::getuid() };
+        f.add_session(OWN, uid, "x11", "active").await;
+        // Not counted: another user's session, a closing one, a tty.
+        f.add_session("c7", uid + 1, "x11", "active").await;
+        f.add_session("c8", uid, "x11", "closing").await;
+        f.add_session("c9", uid, "tty", "online").await;
+        let mut r = reader(Reading::Raw);
+        f.owner
+            .follow(&mut r, true, XFCE, Reading::None)
+            .await
+            .unwrap();
+        assert_eq!(f.owner.owned(), Reading::Raw);
+        assert_eq!(f.xfconf.value(), Some(xfce_power::Saved::Uint(0)));
+        // An ordinary XFCE login of the same user on another VT.
+        f.add_session("c2", uid, "x11", "online").await;
+        f.owner
+            .follow(&mut r, true, XFCE, Reading::Raw)
+            .await
+            .unwrap();
+        assert_eq!(f.owner.owned(), Reading::None);
+        assert_eq!(f.xfconf.value(), Some(xfce_power::Saved::Uint(3)));
+        f.owner
+            .follow(&mut r, true, XFCE, Reading::None)
+            .await
+            .unwrap();
+        assert_eq!(f.owner.owned(), Reading::None);
+        // A Wayland session counts too.
+        f.remove_session("c2");
+        f.add_session("c3", uid, "wayland", "active").await;
+        f.owner
+            .follow(&mut r, true, XFCE, Reading::None)
+            .await
+            .unwrap();
+        assert_eq!(f.owner.owned(), Reading::None);
+        // Gone: taken again.
+        f.remove_session("c3");
+        f.owner
+            .follow(&mut r, true, XFCE, Reading::None)
+            .await
+            .unwrap();
+        assert_eq!(f.owner.owned(), Reading::Raw);
+    }
+
+    /// An unanswered logind query, or no session id for this login, counts
+    /// as another session: nothing is taken. Other desktops do not ask.
+    #[tokio::test]
+    async fn the_dedicated_session_needs_logind_to_answer() {
+        let mut f = fixture(true).await;
+        f.login.lock().unwrap().no_sessions = true;
+        let mut r = reader(Reading::Raw);
+        f.owner
+            .follow(&mut r, true, XFCE, Reading::None)
+            .await
+            .unwrap();
+        assert!(r.calls.is_empty());
+        assert_eq!(f.xfconf.writes(), 0);
+        let mut f = fixture(true).await;
+        f.owner.own_session = None;
+        let mut r = reader(Reading::Raw);
+        f.owner
+            .follow(&mut r, true, XFCE, Reading::None)
+            .await
+            .unwrap();
+        assert!(r.calls.is_empty());
+        let mut f = fixture(false).await;
+        f.login.lock().unwrap().no_sessions = true;
+        let mut r = reader(Reading::Grab);
+        f.owner
+            .follow(&mut r, true, OTHER, Reading::None)
+            .await
+            .unwrap();
+        assert_eq!(f.owner.owned(), Reading::Grab);
     }
 
     /// Review of #516: the dedicated session never grabs the power key; it

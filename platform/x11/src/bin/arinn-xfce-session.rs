@@ -110,6 +110,19 @@ async fn start() -> Result<()> {
         }
     };
     ensure!(folders, "login folder update failed");
+    // ADR-0111: this login's logind session, so the dedicated session can
+    // tell whether the user has another graphical session sharing xfconfd.
+    let session = match env::var("XDG_SESSION_ID")
+        .ok()
+        .filter(|id| !id.is_empty() && id.chars().all(|c| c.is_ascii_alphanumeric()))
+    {
+        Some(id) => {
+            systemctl(&["set-environment", &format!("ARINN_LOGIN_SESSION_ID={id}")]).await?
+        }
+        // Unknown: the dedicated session then takes no power key.
+        None => systemctl(&["unset-environment", "ARINN_LOGIN_SESSION_ID"]).await?,
+    };
+    ensure!(session, "login session update failed");
     ensure!(systemctl(&["start", TARGET]).await?, "session start failed");
     Ok(())
 }
@@ -211,6 +224,7 @@ async fn run() -> Result<()> {
         "ARINN_SESSION_BACKEND",
         "ARINN_LOGIN_STATE_HOME",
         "ARINN_LOGIN_CONFIG_HOME",
+        "ARINN_LOGIN_SESSION_ID",
     ])
     .await;
     outcome?;

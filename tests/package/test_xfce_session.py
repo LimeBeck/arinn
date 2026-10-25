@@ -57,7 +57,7 @@ exit 0
                     "DISPLAY": ":987", "XDG_SESSION_TYPE": "x11",
                     "XAUTHORITY": str(self.root / "synthetic-authority"),
                     "PATH": f"{self.root}:{os.environ['PATH']}", "CALL_LOG": str(self.log)}
-        for name in ("ARINN_SESSION_ENTRY", "XDG_STATE_HOME", "XDG_CONFIG_HOME"):
+        for name in ("ARINN_SESSION_ENTRY", "XDG_STATE_HOME", "XDG_CONFIG_HOME", "XDG_SESSION_ID"):
             self.env.pop(name, None)
         self.env["HOME"] = str(self.root / "home")
 
@@ -96,7 +96,7 @@ exit 0
     def assert_cleanup(self):
         calls = self.log.read_text().splitlines()
         self.assertEqual(sum(" stop arinn-ewmh-session.target" in call for call in calls), 1)
-        self.assertTrue(calls[-1].endswith("unset-environment DISPLAY XAUTHORITY XDG_SESSION_TYPE ARINN_PLATFORM_BACKEND ARINN_SESSION_BACKEND ARINN_LOGIN_STATE_HOME ARINN_LOGIN_CONFIG_HOME"))
+        self.assertTrue(calls[-1].endswith("unset-environment DISPLAY XAUTHORITY XDG_SESSION_TYPE ARINN_PLATFORM_BACKEND ARINN_SESSION_BACKEND ARINN_LOGIN_STATE_HOME ARINN_LOGIN_CONFIG_HOME ARINN_LOGIN_SESSION_ID"))
         self.assertFalse(any(" enable " in call for call in calls))
 
     def test_login_imports_environment_before_start_and_logout_stops(self):
@@ -148,6 +148,24 @@ exit 0
                     folders = calls.index("--user --no-ask-password unset-environment "
                                           "ARINN_LOGIN_STATE_HOME ARINN_LOGIN_CONFIG_HOME")
                 self.assertLess(folders, start)
+                child.terminate()
+                self.assertEqual(child.wait(timeout=5), 0)
+
+    def test_login_session_reaches_the_user_manager(self):
+        # ADR-0111: the dedicated session checks with logind that the user
+        # has no other graphical session; it needs this login's session id.
+        for changes, expected in (
+            ({"XDG_SESSION_ID": "c4"}, "set-environment ARINN_LOGIN_SESSION_ID=c4"),
+            ({}, "unset-environment ARINN_LOGIN_SESSION_ID"),
+            ({"XDG_SESSION_ID": "c4 x"}, "unset-environment ARINN_LOGIN_SESSION_ID"),
+        ):
+            with self.subTest(changes=changes):
+                self.log.write_text("")
+                child = self.launch(**changes)
+                self.wait_for_start(child)
+                calls = self.log.read_text().splitlines()
+                start = calls.index("--user --no-ask-password start arinn-ewmh-session.target")
+                self.assertLess(calls.index(f"--user --no-ask-password {expected}"), start)
                 child.terminate()
                 self.assertEqual(child.wait(timeout=5), 0)
 

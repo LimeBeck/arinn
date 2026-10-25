@@ -3,7 +3,7 @@
 
 use crate::key_sequence::{self, Sequence};
 use anyhow::{Result, bail, ensure};
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use uuid::Uuid;
 use x11rb::{
     CURRENT_TIME,
@@ -449,8 +449,14 @@ pub struct Native {
     /// presses are selected on the root window.
     raw_power_codes: HashSet<Keycode>,
     raw_selected: bool,
-    /// The power keys are read at all: only while the shell is alive
-    /// (ADR-0111). On by default for the isolated tests.
+    /// Raw power presses count: set by `arm_raw` once the power manager
+    /// does nothing with the key; a press before that is the desktop's.
+    raw_armed: bool,
+    /// Events read while arming, before the next snapshot handles them.
+    held_events: VecDeque<Event>,
+    /// The power keys are read at all: only once `PowerOwner` decided it
+    /// (a live shell, the inhibitor held). Off at every connection, so no
+    /// grab ever precedes that decision (Codex on #517).
     power_enabled: bool,
     /// The shell has focus: the remote's Menu keys are left to it.
     shell_focused: bool,
@@ -507,8 +513,10 @@ impl Native {
             power_grabs: HashSet::new(),
             raw_power: false,
             raw_power_codes: HashSet::new(),
-            power_enabled: true,
+            power_enabled: false,
             raw_selected: false,
+            raw_armed: false,
+            held_events: VecDeque::new(),
             shell_focused: false,
         };
         s.wm = s.wm_owner()?;
@@ -721,10 +729,27 @@ impl Native {
         let raw = enabled && raw;
         if self.power_enabled != enabled || self.raw_power != raw {
             self.power_enabled = enabled;
+            if raw != self.raw_power {
+                self.raw_armed = false;
+            }
             self.raw_power = raw;
             self.grab_home()?;
         }
         Ok(self.reading())
+    }
+    /// Raw power presses count from now on: the power manager does nothing
+    /// with the key. A press read before, while it still acted on the key,
+    /// is dropped, so one press never reaches both (Codex on #517); every
+    /// other event is kept for the next snapshot.
+    pub fn arm_raw(&mut self) -> Result<()> {
+        self.c.get_input_focus()?.reply()?;
+        while let Some(event) = self.c.poll_for_event()? {
+            if !matches!(&event, Event::XinputRawKeyPress(_)) {
+                self.held_events.push_back(event);
+            }
+        }
+        self.raw_armed = true;
+        Ok(())
     }
     /// Whether another client grabs a power key now (xfce4-power-manager
     /// after a successful start). Call it while Arinn grabs none.
@@ -790,7 +815,14 @@ impl Native {
         let mut home_key = false;
         let mut quick_menu_key = false;
         let mut power_key = false;
-        while let Some(event) = self.c.poll_for_event()? {
+        loop {
+            let event = match self.held_events.pop_front() {
+                Some(event) => event,
+                None => match self.c.poll_for_event()? {
+                    Some(event) => event,
+                    None => break,
+                },
+            };
             match event {
                 Event::DestroyNotify(e) => {
                     self.tokens.forget(e.window);
@@ -807,7 +839,8 @@ impl Native {
                 // A power key the desktop's power manager grabs but no
                 // longer acts on; repeats of a held key are not presses.
                 Event::XinputRawKeyPress(e)
-                    if raw_power_press(&self.raw_power_codes, e.detail, e.flags) =>
+                    if self.raw_armed
+                        && raw_power_press(&self.raw_power_codes, e.detail, e.flags) =>
                 {
                     power_key = true;
                     quick_menu_key = false;
@@ -1442,6 +1475,11 @@ pub(crate) mod fixture {
         let home = crate::key_sequence::home("Meta+F12").0;
         let quick_menu = crate::key_sequence::quick_menu("Ctrl+Alt+Q", &home).0;
         let mut native = Native::connect_display_with(Some(&desktop.display), home, quick_menu)?;
+        // Codex on #517: a new connection grabs no power key before
+        // PowerOwner decides; another client could grab it now.
+        assert_eq!(native.snapshot()?.power_reading, Reading::None);
+        assert!(!native.power_held_elsewhere()?);
+        native.set_power(true, false)?;
         assert_eq!(native.snapshot()?.power_reading, Reading::Grab);
         desktop.press(&[], 0x1008_ff2a)?; // XF86PowerOff
         let snapshot = native.snapshot()?;
@@ -1519,6 +1557,11 @@ pub(crate) mod fixture {
         let snapshot = native.snapshot()?;
         assert!(snapshot.power_reading == Reading::Raw && !snapshot.power_key);
         assert_eq!(snapshot.power_reading, Reading::Raw);
+        // Codex on #517: a press before the power manager was set to do
+        // nothing is its own; it never reaches Arinn after the arming.
+        desktop.press(&[], 0x1008_ff2a)?;
+        native.arm_raw()?;
+        assert!(!native.snapshot()?.power_key);
         desktop.press(&[], 0x1008_ff2a)?;
         let snapshot = native.snapshot()?;
         assert!(snapshot.power_key && !snapshot.home_key && !snapshot.quick_menu_key);
@@ -1590,6 +1633,7 @@ pub(crate) mod fixture {
         let mut native = Native::connect_display(Some(&desktop.display))?;
         native.snapshot()?;
         assert_eq!(native.set_power(true, true)?, Reading::Raw);
+        native.arm_raw()?;
         assert_eq!(native.snapshot()?.power_reading, Reading::Raw);
         desktop.press(&[], 0x1008_ff21)?;
         assert!(native.snapshot()?.power_key);
@@ -1636,6 +1680,7 @@ pub(crate) mod fixture {
         let mut native = Native::connect_display(Some(&desktop.display))?;
         native.snapshot()?;
         assert_eq!(native.set_power(true, true)?, Reading::Raw);
+        native.arm_raw()?;
         assert!(!native.power_held_elsewhere()?);
         let setup = desktop.c.setup();
         let mapping = desktop

@@ -39,6 +39,8 @@ pub trait Reader {
     /// Whether another client grabs a power key now; called while Arinn
     /// grabs none.
     fn held_elsewhere(&mut self) -> Result<bool>;
+    /// Raw presses count from now on; one read before is dropped.
+    fn arm(&mut self) -> Result<()>;
 }
 
 /// The session-bus names of an XFCE desktop: its session manager
@@ -265,6 +267,9 @@ impl PowerOwner {
                 if xfce_power::take(bus, files).await {
                     self.taken_xfconf = true;
                     self.owned = Reading::Raw;
+                    // A press read while xfce4-power-manager still acted on
+                    // the key was its own (Codex on #517).
+                    reader.arm()?;
                 } else {
                     // xfce4-power-manager still acts on the key: leave it.
                     reader.set(false, false)?;
@@ -332,6 +337,10 @@ pub(crate) mod tests {
         pub(crate) calls: Vec<(bool, bool)>,
         /// Another client grabs a power key.
         pub(crate) held: bool,
+        /// `arm` was called, with xfconf's value at that moment.
+        pub(crate) armed: Option<Option<xfce_power::Saved>>,
+        /// xfconf, to see its value when `arm` is called.
+        pub(crate) xfconf: Option<Arc<dyn Fn() -> Option<xfce_power::Saved> + Send + Sync>>,
     }
     impl Reader for FakeReader {
         fn set(&mut self, enabled: bool, raw: bool) -> Result<Reading> {
@@ -341,12 +350,18 @@ pub(crate) mod tests {
         fn held_elsewhere(&mut self) -> Result<bool> {
             Ok(self.held)
         }
+        fn arm(&mut self) -> Result<()> {
+            self.armed = Some(self.xfconf.as_ref().and_then(|value| value()));
+            Ok(())
+        }
     }
     pub(crate) fn reader(answer: Reading) -> FakeReader {
         FakeReader {
             answer,
             calls: Vec::new(),
             held: true,
+            armed: None,
+            xfconf: None,
         }
     }
 
@@ -476,6 +491,18 @@ pub(crate) mod tests {
         }
     }
 
+    /// Mutation B3 of the #517 review: a bus that does not answer counts
+    /// as XFCE, so the key stays the desktop's.
+    #[tokio::test]
+    async fn an_unanswered_bus_counts_as_xfce() {
+        let bus = logind::bus();
+        let adapter = logind::connect(&bus.1).await;
+        let dbus = zbus::fdo::DBusProxy::new(&adapter).await.unwrap();
+        drop(bus);
+        assert_eq!(xfce_on_bus(&dbus).await, XFCE);
+        assert!(!allowed(false, xfce_on_bus(&dbus).await.any()));
+    }
+
     /// The ordinary XFCE desktop (an XFCE name, no dedicated marker, also
     /// with no variable set): nothing is read, inhibited or written.
     #[tokio::test]
@@ -597,6 +624,30 @@ pub(crate) mod tests {
         assert_eq!(f.xfconf.writes(), 0);
         assert_eq!(f.xfconf.value(), Some(xfce_power::Saved::Uint(3)));
         f.settle(0).await;
+    }
+
+    /// Codex on #517: raw presses count only once xfconf holds "do
+    /// nothing"; a failed take arms nothing.
+    #[tokio::test]
+    async fn raw_presses_count_only_after_the_take() {
+        let mut f = fixture(true).await;
+        let mut r = reader(Reading::Raw);
+        let value = f.xfconf.value_fn();
+        r.xfconf = Some(value);
+        f.owner
+            .follow(&mut r, true, XFCE, Reading::None)
+            .await
+            .unwrap();
+        assert_eq!(r.armed, Some(Some(xfce_power::Saved::Uint(0))));
+        let mut f = fixture(true).await;
+        f.xfconf.lock();
+        let mut r = reader(Reading::Raw);
+        f.owner
+            .follow(&mut r, true, XFCE, Reading::None)
+            .await
+            .unwrap();
+        assert_eq!(r.armed, None);
+        assert_eq!(f.owner.owned(), Reading::None);
     }
 
     /// Review of #516: the dedicated session never grabs the power key; it

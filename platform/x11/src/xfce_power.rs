@@ -685,6 +685,26 @@ pub(crate) mod tests {
                 .properties
                 .insert((CHANNEL.into(), PROPERTY.into()), value.try_into().unwrap());
         }
+        /// The value, readable later from another place.
+        pub(crate) fn value_fn(&self) -> std::sync::Arc<dyn Fn() -> Option<Saved> + Send + Sync> {
+            let store = self.store.clone();
+            std::sync::Arc::new(move || {
+                store
+                    .lock()
+                    .unwrap()
+                    .properties
+                    .get(&(CHANNEL.into(), PROPERTY.into()))
+                    .map(|v| match &**v {
+                        Value::U32(n) => Saved::Uint(*n),
+                        Value::I32(n) => Saved::Int(*n),
+                        other => panic!("{other:?}"),
+                    })
+            })
+        }
+        /// Locks the property: xfconf refuses changes.
+        pub(crate) fn lock(&self) {
+            self.store.lock().unwrap().locked = true;
+        }
         pub(crate) fn writes(&self) -> usize {
             self.store.lock().unwrap().writes.len()
         }

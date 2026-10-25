@@ -661,6 +661,9 @@ impl power_owner::Reader for ActorReader<'_> {
     fn held_elsewhere(&mut self) -> Result<bool> {
         tokio::task::block_in_place(|| self.0.lock().unwrap().native.power_held_elsewhere())
     }
+    fn arm(&mut self) -> Result<()> {
+        tokio::task::block_in_place(|| self.0.lock().unwrap().native.arm_raw())
+    }
 }
 async fn session(power: &mut power_owner::PowerOwner) -> Result<()> {
     let actor = Arc::new(Mutex::new(
@@ -1183,6 +1186,8 @@ mod tests {
         let video = desktop.client("org.example.Player.desktop", "")?;
         desktop.inventory(&[shell, video], video)?;
         let mut native = Native::connect_display(Some(&desktop.display))?;
+        // PowerOwner's decision (a live shell, the inhibitor held).
+        native.set_power(true, false)?;
         let snapshot = native.snapshot()?;
         let mut actor = Actor {
             snapshot,

@@ -161,6 +161,8 @@ pub mod provider {
     pub trait ApplicationProvider {
         fn get_applications(&self, token: &str) -> zbus::Result<(ApplicationPage,)>;
         fn launch(&self, generation: &str, id: &str) -> zbus::Result<()>;
+        /// Stop the unfinished launches of `id` (ADR-0110).
+        fn cancel_launch(&self, generation: &str, id: &str) -> zbus::Result<()>;
         fn activate(&self, generation: &str, id: &str) -> zbus::Result<()>;
         fn terminate(&self, generation: &str, id: &str) -> zbus::Result<()>;
         fn backend_state(&self) -> zbus::Result<String>;

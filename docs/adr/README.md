@@ -53,7 +53,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0032](0032-kwin-script-platform-adapter.md) | A packaged KWin script as the first KDE platform adapter | Accepted | 0042 |
 | [0033](0033-ci-cd-and-releases.md) | CI/CD pipeline and release policy | Accepted | 0036, 0044, 0047, 0049, 0091, 0092, 0104 |
 | [0034](0034-provider-data-directory-identity.md) | Provider data directories independent of registry state | Accepted | — |
-| [0035](0035-phase1-application-wire-contract.md) | Phase 1 application wire contract | Accepted | 0059 |
+| [0035](0035-phase1-application-wire-contract.md) | Phase 1 application wire contract | Accepted | 0059, 0110 |
 | [0036](0036-parallel-development.md) | Parallel development by several agents | Accepted | 0037 |
 | [0037](0037-agent-autonomy-and-owner-gated-decisions.md) | Agent autonomy and owner-gated decisions | Accepted | 0068, 0072 |
 | [0038](0038-browser-launch-ownership.md) | Browser launch ownership | Accepted | 0043 |
@@ -126,6 +126,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0107](0107-dedicated-arinn-session.md) | Dedicated Arinn login session and an unprivileged switch to the desktop | Accepted | — |
 | [0108](0108-system-control.md) | Power and volume actions through the daemon | Accepted | — |
 | [0109](0109-season-only-snn-markers.md) | Season-only `Snn` markers in library names | Accepted | — |
+| [0110](0110-application-launch-lifetime-and-cancellation.md) | Application launch lifetime and cancellation | Accepted | — |
 | [0112](0112-shell-preferences-as-core-settings.md) | The shell's preferences are core settings of the daemon | Accepted | — |
 | [0113](0113-per-runner-ci-target-directories.md) | One Cargo target directory per self-hosted runner instance | Accepted | 0114 |
 | [0114](0114-per-runner-package-target-directories.md) | One package target directory per self-hosted runner instance | Accepted | — |

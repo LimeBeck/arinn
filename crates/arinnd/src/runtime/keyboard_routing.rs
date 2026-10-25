@@ -286,7 +286,9 @@ impl ShellKeyboard {
         self.core.keyboard_caller(&h).await?;
         let closed = {
             let mut state = self.core.keyboard.state.lock().await;
-            if state.current(session).is_none() {
+            // Only the opened session: the shell learns S from `Opened`, and
+            // a session that never opens ends by the open timeout (ADR-0105).
+            if !state.current(session).is_some_and(|s| s.opened) {
                 return Err(ErrorCode::Conflict.into());
             }
             state.end(true)
@@ -412,30 +414,29 @@ impl KeyboardBridge {
             d.seen = Instant::now();
         }
         let deadline = tokio::time::Instant::now() + NEXT_WAIT;
-        let record = loop {
+        loop {
             let notified = self.core.keyboard.wake.notified();
-            {
-                let mut state = self.core.keyboard.state.lock().await;
-                if state.deliverer(&sender, generation).is_err() {
-                    break None;
-                }
-                if let Some(record) = state.queue.pop_front() {
-                    break Some(record);
-                }
+            let mut state = self.core.keyboard.state.lock().await;
+            // The generation is checked, the record taken and the poll ended
+            // under one lock: a replacing `Connect` can never come between
+            // them, so an old generation never receives a record or touches
+            // the new deliverer's poll (review of #484).
+            state.deliverer(&sender, generation)?;
+            let record = match state.queue.pop_front() {
+                Some(record) => Some(record),
+                None if tokio::time::Instant::now() >= deadline => Some(Record::Idle),
+                None => None,
+            };
+            if let Some(record) = record {
+                let d = state.deliverer.as_mut().expect("checked");
+                d.polling = None;
+                d.seen = Instant::now();
+                return Ok(record.fields());
             }
-            if tokio::time::timeout_at(deadline, notified).await.is_err() {
-                break Some(Record::Idle);
-            }
-        };
-        let mut state = self.core.keyboard.state.lock().await;
-        let Some(record) = record else {
-            return Err(ErrorCode::Conflict.into());
-        };
-        if let Some(d) = state.deliverer.as_mut() {
-            d.polling = None;
-            d.seen = Instant::now();
+            drop(state);
+            // A timeout loops once more to answer `[]` under the lock.
+            let _ = tokio::time::timeout_at(deadline, notified).await;
         }
-        Ok(record.fields())
     }
 
     async fn opened(

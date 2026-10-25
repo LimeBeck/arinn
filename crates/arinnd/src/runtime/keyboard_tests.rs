@@ -246,6 +246,46 @@ async fn a_session_runs_from_the_key_to_the_shell_and_back() {
     .unwrap();
 }
 
+/// ADR-0105: `Type`, `Press` and `Close` before `Opened` return `Conflict`
+/// (mutation M5 of the #484 review); the session stays and opens normally.
+#[tokio::test]
+async fn nothing_reaches_a_session_before_it_opens() {
+    within(async {
+        let f = Fixture::new().await;
+        let bridge = f.bridge(&f.deliverer).await;
+        let generation = bridge.connect(&Uuid::new_v4().to_string()).await.unwrap();
+        f.bridge(&f.kwin).await.request().await.unwrap();
+        let Record::Open(session) = next(&bridge, &generation).await else {
+            panic!("open record expected");
+        };
+        let shell = f.shell(&f.shell).await;
+        assert!(named(
+            shell.type_text(&session, "a").await.unwrap_err(),
+            "Conflict"
+        ));
+        assert!(named(
+            shell.press(&session, "return").await.unwrap_err(),
+            "Conflict"
+        ));
+        assert!(named(shell.close(&session).await.unwrap_err(), "Conflict"));
+        // Nothing was queued for the deliverer, and the session still opens.
+        assert_eq!(
+            Record::parse(&bridge.next(&generation).await.unwrap()).unwrap(),
+            Record::Idle
+        );
+        bridge.opened(&generation, &session).await.unwrap();
+        shell.type_text(&session, "a").await.unwrap();
+        assert_eq!(
+            next(&bridge, &generation).await,
+            Record::Type(session.clone(), "a".into())
+        );
+        shell.close(&session).await.unwrap();
+        drop(f.bus);
+    })
+    .await
+    .unwrap();
+}
+
 #[tokio::test]
 async fn the_key_toggles_and_the_deliverer_ends_sessions() {
     within(async {

@@ -732,6 +732,9 @@ pub(crate) mod tests {
         pub(crate) fn lock(&self) {
             self.store.lock().unwrap().locked = true;
         }
+        pub(crate) fn unlock(&self) {
+            self.store.lock().unwrap().locked = false;
+        }
         pub(crate) fn writes(&self) -> usize {
             self.store.lock().unwrap().writes.len()
         }

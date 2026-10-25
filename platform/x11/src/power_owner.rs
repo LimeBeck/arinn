@@ -86,7 +86,7 @@ pub async fn xfce_on_bus(bus: &zbus::fdo::DBusProxy<'_>) -> Xfce {
 /// Restarts xfce4-power-manager through its own D-Bus `Restart`, so that
 /// it grabs the power key again: its grab failed while Arinn held the key,
 /// and it never grabs again by itself (review of #516). Waits up to `wait`
-/// for the new instance to own its name. Returns whether it was asked.
+/// for the new instance to own its name. Returns whether that was seen.
 pub async fn restart_power_manager(bus: &Connection, wait: Duration) -> bool {
     let Ok(dbus) = zbus::fdo::DBusProxy::new(bus).await else {
         return false;
@@ -115,15 +115,20 @@ pub async fn restart_power_manager(bus: &Connection, wait: Duration) -> bool {
             "its restart failed"
         }
     );
+    if !asked {
+        return false;
+    }
     let deadline = Instant::now() + wait;
-    while asked && Instant::now() < deadline {
+    loop {
         let now = dbus.get_name_owner(name.clone()).await.ok();
         if now.is_some() && now != before {
-            break;
+            return true;
         }
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        if Instant::now() >= deadline {
+            return false;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
     }
-    asked
 }
 
 /// `$XDG_RUNTIME_DIR/arinn/power-grab-<display>`, naming this X display: its adapter
@@ -215,13 +220,21 @@ pub async fn release_after_adapter<H: FnOnce() -> Option<bool>>(
         xfce_power::release(bus, files).await;
     }
     if marker.present() {
-        if let Ok(dbus) = zbus::fdo::DBusProxy::new(bus).await
-            && xfce_on_bus(&dbus).await.power_manager
-            && held() == Some(false)
-        {
-            restart_power_manager(bus, wait).await;
+        // The marker goes only once nothing is left to repair: no
+        // xfce4-power-manager, its grab held, or a confirmed restart.
+        // Otherwise a later adapter start tries again (Codex on #517).
+        let repaired = match zbus::fdo::DBusProxy::new(bus).await {
+            Ok(dbus) if !xfce_on_bus(&dbus).await.power_manager => true,
+            Ok(_) => match held() {
+                Some(true) => true,
+                Some(false) => restart_power_manager(bus, wait).await,
+                None => false,
+            },
+            Err(_) => false,
+        };
+        if repaired {
+            marker.clear();
         }
-        marker.clear();
     }
 }
 
@@ -232,13 +245,18 @@ pub async fn release_stale(
     bus: &Connection,
     files: &xfce_power::Files,
     system: Option<&Connection>,
-) {
+) -> bool {
     let _inhibitor = match system {
         Some(system) => power_inhibitor::inhibit(system).await,
         None => None,
     };
-    xfce_power::release(bus, files).await;
+    xfce_power::release(bus, files).await
 }
+
+/// How long each logind query of the session check may take: it runs on
+/// the adapter's loop, so a hung logind delays Home and the quick menu by
+/// little; no answer counts as another session (review of #517).
+const LOGIND: Duration = Duration::from_millis(250);
 
 /// Whether user `uid` has a graphical session (`x11` or `wayland`, not
 /// closing) other than `own` in logind. xfconfd is per user, so in such a
@@ -248,7 +266,7 @@ pub async fn release_stale(
 pub async fn other_graphical_session(system: &Connection, own: &str, uid: u32) -> bool {
     type Sessions = Vec<(String, u32, String, String, zbus::zvariant::OwnedObjectPath)>;
     let Ok(Ok(reply)) = tokio::time::timeout(
-        Duration::from_secs(2),
+        LOGIND,
         system.call_method(
             Some("org.freedesktop.login1"),
             "/org/freedesktop/login1",
@@ -270,7 +288,7 @@ pub async fn other_graphical_session(system: &Connection, own: &str, uid: u32) -
         }
         let property = async |name: &str| -> Option<String> {
             let reply = tokio::time::timeout(
-                Duration::from_secs(2),
+                LOGIND,
                 system.call_method(
                     Some("org.freedesktop.login1"),
                     path.as_str(),
@@ -327,6 +345,12 @@ pub struct PowerOwner {
     restart_wait: Duration,
     /// A restart running off the loop.
     restarting: Option<tokio::task::JoinHandle<()>>,
+    /// A stale XFCE copy the start could not give back, and its files.
+    stale: Option<(Connection, xfce_power::Files)>,
+    /// A retry of it running off the loop, and when the next may start.
+    stale_retry: Option<tokio::task::JoinHandle<bool>>,
+    stale_at: Option<Instant>,
+    stale_every: Duration,
     /// xfce4-power-manager's power button is Arinn's "do nothing".
     taken_xfconf: bool,
     /// How Arinn reads the key; `None` while it does not hold it.
@@ -352,6 +376,10 @@ impl PowerOwner {
             marker: GrabMarker::default(),
             restart_wait: Duration::from_secs(10),
             restarting: None,
+            stale: None,
+            stale_retry: None,
+            stale_at: None,
+            stale_every: Duration::from_secs(30),
             xfconf,
             system,
             inhibitor: None,
@@ -369,14 +397,21 @@ impl PowerOwner {
         let bus = Connection::session().await.ok();
         // A copy an earlier dedicated run left goes back first, in any
         // X11/EWMH session, under a temporary inhibitor (Codex on #517).
+        let mut stale = None;
         if let (Some(bus), Some(files)) = (bus.as_ref(), xfce_power::Files::from_vars(var, false)) {
             let system = Connection::system().await.ok();
-            release_stale(bus, &files, system.as_ref()).await;
+            // A copy that could not be given back is retried on later passes
+            // (Codex on #517): the login restore leaves it to a running
+            // adapter.
+            if !release_stale(bus, &files, system.as_ref()).await {
+                stale = Some((bus.clone(), files));
+            }
         }
         // The dedicated session changes xfconf only with the login's own
         // directories; without them it takes nothing.
         let files = xfce_power::Files::from_vars(var, dedicated);
         let mut owner = Self::new(dedicated, bus.clone(), bus.zip(files), None);
+        owner.stale = stale;
         owner.own_session = std::env::var("ARINN_LOGIN_SESSION_ID")
             .ok()
             .filter(|id| !id.is_empty());
@@ -432,12 +467,14 @@ impl PowerOwner {
         }
         // An earlier adapter may have held the key by a grab (a crash).
         self.heal(reader, xfce).await;
+        self.retry_stale();
         // Never while an xfce4-power-manager restart is in flight: the old
         // instance's name is gone for a moment, and a grab now would make
         // the new instance's grab fail again (review of #517, Codex P1).
         if !wanted
             || self.retry.is_some_and(|at| Instant::now() < at)
             || self.restarting.as_ref().is_some_and(|t| !t.is_finished())
+            || self.stale_retry.is_some()
         {
             return Ok(());
         }
@@ -529,20 +566,26 @@ impl PowerOwner {
         if !std::mem::take(&mut self.heal) {
             return;
         }
-        self.marker.clear();
+        // The marker goes only once nothing is left to repair, so a later
+        // start retries an unconfirmed one (Codex on #517).
         if !xfce.power_manager {
+            self.marker.clear();
             return;
         }
-        let (Ok(false), Some(bus)) = (reader.held_elsewhere(), self.bus.clone()) else {
+        let held = reader.held_elsewhere();
+        if matches!(held, Ok(true)) {
+            self.marker.clear();
+        }
+        let (Ok(false), Some(bus)) = (held, self.bus.clone()) else {
             return;
         };
         // Off the adapter's loop (it can take seconds), with logind's
         // inhibitor held until the new instance owns its name: Arinn's own,
         // which `end` then no longer drops, or a temporary one at a start.
-        let held = self.inhibitor.take();
-        let (system, wait) = (self.system.clone(), self.restart_wait);
+        let ours = self.inhibitor.take();
+        let (system, wait, marker) = (self.system.clone(), self.restart_wait, self.marker.clone());
         let restart = tokio::spawn(async move {
-            let _inhibitor = match held {
+            let _inhibitor = match ours {
                 Some(inhibitor) => Some(inhibitor),
                 None => match system {
                     Some(system) => power_inhibitor::inhibit(&system).await,
@@ -552,9 +595,47 @@ impl PowerOwner {
                     },
                 },
             };
-            restart_power_manager(&bus, wait).await;
+            if restart_power_manager(&bus, wait).await {
+                marker.clear();
+            }
         });
         self.restarting = Some(restart);
+    }
+    /// Gives a stale copy back, off the loop, until it succeeds: every
+    /// `stale_every`, while Arinn does not hold the key (no take runs
+    /// meanwhile). An ordinary XFCE login's restore entry leaves the copy to
+    /// the running adapter, so it must not stay behind (Codex on #517).
+    fn retry_stale(&mut self) {
+        if let Some(task) = &self.stale_retry {
+            if !task.is_finished() {
+                return;
+            }
+            let task = self.stale_retry.take().expect("checked");
+            if futures_util::FutureExt::now_or_never(task).is_some_and(|done| done.unwrap_or(false))
+            {
+                self.stale = None;
+            }
+        }
+        if self.owned != Reading::None || self.stale_at.is_some_and(|at| Instant::now() < at) {
+            return;
+        }
+        let Some((bus, files)) = self.stale.clone() else {
+            return;
+        };
+        self.stale_at = Some(Instant::now() + self.stale_every);
+        let system = self.system.clone();
+        self.stale_retry = Some(tokio::spawn(async move {
+            release_stale(&bus, &files, system.as_ref()).await
+        }));
+    }
+    /// Waits for a stale retry (tests).
+    #[cfg(test)]
+    pub async fn stale_retried(&mut self) {
+        if let Some(task) = &mut self.stale_retry {
+            while !task.is_finished() {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        }
     }
     /// Waits for a restart `heal` started (tests).
     #[cfg(test)]
@@ -636,12 +717,27 @@ pub(crate) mod tests {
 
     /// xfce4-power-manager's `Restart`; records how many logind inhibitors
     /// Arinn held at each call.
-    struct Xfpm(logind::Shared, Arc<Mutex<Vec<usize>>>);
+    struct Xfpm {
+        login: logind::Shared,
+        restarts: Arc<Mutex<Vec<usize>>>,
+        /// The bus, to start the new instance on; `None`: a restart that
+        /// never comes back.
+        address: Option<String>,
+        next: Arc<Mutex<Vec<Connection>>>,
+    }
     #[zbus::interface(name = "org.xfce.Power.Manager")]
     impl Xfpm {
-        fn restart(&self) {
-            let open = self.0.lock().unwrap().open();
-            self.1.lock().unwrap().push(open);
+        /// As xfpm_manager_dbus_restart: the old instance quits and a new
+        /// one owns the name.
+        async fn restart(&self, #[zbus(connection)] connection: &Connection) {
+            let open = self.login.lock().unwrap().open();
+            self.restarts.lock().unwrap().push(open);
+            if let Some(address) = &self.address {
+                let _ = connection.release_name(POWER_MANAGER).await;
+                let next = logind::connect(address).await;
+                next.request_name(POWER_MANAGER).await.unwrap();
+                self.next.lock().unwrap().push(next);
+            }
         }
     }
 
@@ -708,11 +804,20 @@ pub(crate) mod tests {
         /// xfce4-power-manager starts: it owns its name and answers
         /// `Restart`.
         async fn start_xfpm(&mut self) {
+            self.start_xfpm_with(true).await;
+        }
+        /// `comes_back`: a restart brings a new instance up.
+        async fn start_xfpm_with(&mut self, comes_back: bool) {
             let xfpm = logind::connect(&self.xfconf.bus.1).await;
             xfpm.object_server()
                 .at(
                     POWER_MANAGER_PATH,
-                    Xfpm(self.login.clone(), self.restarts.clone()),
+                    Xfpm {
+                        login: self.login.clone(),
+                        restarts: self.restarts.clone(),
+                        address: comes_back.then(|| self.xfconf.bus.1.clone()),
+                        next: Arc::default(),
+                    },
                 )
                 .await
                 .unwrap();
@@ -1245,6 +1350,113 @@ pub(crate) mod tests {
         )
         .await;
         assert_eq!(f.restarts.lock().unwrap().len(), 1);
+    }
+
+    /// The same in the adapter: a restart whose new instance never comes
+    /// keeps the marker for a later start; a confirmed one clears it.
+    #[tokio::test]
+    async fn the_adapter_keeps_the_marker_until_the_restart_is_confirmed() {
+        for comes_back in [false, true] {
+            let mut f = fixture(false).await;
+            let mut r = reader(Reading::Grab);
+            r.held = false;
+            f.owner
+                .follow(&mut r, true, OTHER, Reading::None)
+                .await
+                .unwrap();
+            f.start_xfpm_with(comes_back).await;
+            f.owner
+                .follow(&mut r, true, XFPM, Reading::Grab)
+                .await
+                .unwrap();
+            assert_eq!(f.restarts().await.len(), 1);
+            assert_eq!(f.owner.marker.present(), !comes_back, "{comes_back}");
+        }
+    }
+
+    /// Codex on #517: the stop helper keeps the grab marker unless the
+    /// repair is confirmed (a restart whose new instance owns the name), so
+    /// a later start tries again.
+    #[tokio::test]
+    async fn an_unconfirmed_repair_keeps_the_marker() {
+        let mut f = fixture(false).await;
+        f.owner.marker.set();
+        f.start_xfpm_with(false).await;
+        let system = logind::connect(&f.xfconf.bus.1).await;
+        release_after_adapter(
+            &f.xfconf.adapter,
+            None,
+            &f.owner.marker,
+            || Some(false),
+            Some(&system),
+            Duration::from_millis(100),
+        )
+        .await;
+        assert_eq!(f.restarts.lock().unwrap().len(), 1);
+        assert!(f.owner.marker.present());
+        // Unknown whether a key is grabbed (no display): kept as well.
+        release_after_adapter(
+            &f.xfconf.adapter,
+            None,
+            &f.owner.marker,
+            || None,
+            Some(&system),
+            Duration::from_millis(100),
+        )
+        .await;
+        assert!(f.owner.marker.present());
+        // Its grab is held: nothing to repair, the marker goes.
+        release_after_adapter(
+            &f.xfconf.adapter,
+            None,
+            &f.owner.marker,
+            || Some(true),
+            Some(&system),
+            Duration::from_millis(100),
+        )
+        .await;
+        assert!(!f.owner.marker.present());
+    }
+
+    /// Codex on #517: a stale copy the start could not give back (here
+    /// xfconf refused) is retried off the loop until it succeeds, since an
+    /// ordinary XFCE login's restore entry leaves it to a running adapter.
+    #[tokio::test]
+    async fn a_stale_copy_the_start_could_not_restore_is_retried() {
+        let mut f = fixture(false).await;
+        assert!(xfce_power::take(&f.xfconf.adapter, &f.xfconf.files).await);
+        f.xfconf.lock();
+        let system = logind::connect(&f.xfconf.bus.1).await;
+        assert!(!release_stale(&f.xfconf.adapter, &f.xfconf.files, Some(&system)).await);
+        f.owner.stale = Some((f.xfconf.adapter.clone(), f.xfconf.files.clone()));
+        f.owner.stale_every = Duration::from_millis(100);
+        let mut r = reader(Reading::Grab);
+        // Still refused: no take while the retry runs, and it stays stale.
+        f.owner
+            .follow(&mut r, false, OTHER, Reading::None)
+            .await
+            .unwrap();
+        f.owner.stale_retried().await;
+        f.owner
+            .follow(&mut r, false, OTHER, Reading::None)
+            .await
+            .unwrap();
+        assert!(f.owner.stale.is_some());
+        assert_eq!(f.xfconf.value(), Some(xfce_power::Saved::Uint(0)));
+        // xfconf answers again: the next retry gives the user's value back.
+        f.xfconf.unlock();
+        tokio::time::sleep(Duration::from_millis(120)).await;
+        f.owner
+            .follow(&mut r, false, OTHER, Reading::None)
+            .await
+            .unwrap();
+        f.owner.stale_retried().await;
+        f.owner
+            .follow(&mut r, false, OTHER, Reading::None)
+            .await
+            .unwrap();
+        assert!(f.owner.stale.is_none());
+        assert_eq!(f.xfconf.value(), Some(xfce_power::Saved::Uint(3)));
     }
 
     /// Review of #517: a crash loop restarts xfce4-power-manager at most

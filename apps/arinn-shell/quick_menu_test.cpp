@@ -877,6 +877,23 @@ private slots:
     QVERIFY(!ambient->property("active").toBool());
   }
 
+  // Review of #517: the key again while the sheet's Power row has the scope
+  // open over an Activity changes nothing; the sheet stays under it.
+  void powerKeyKeepsAScopeTheSheetOpened() {
+    openSheet(false);
+    moveTo("quickMenuPower");
+    QTest::keyClick(window, Qt::Key_Return);
+    QTRY_VERIFY(powerOpen());
+    daemon.request("PowerMenuRequested");
+    QTest::qWait(300);
+    QVERIFY(powerOpen());
+    QVERIFY(menu->isVisible());
+    QVERIFY(!screens->isVisible());
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_VERIFY(!child(window, "powerMenu")->isVisible());
+    QTRY_VERIFY(row("quickMenuPower")->hasActiveFocus());
+  }
+
   // A pending launch follows the quick menu's rules (#511): "Opening…" and
   // "Starting…" give way to the power menu without stopping the launch, a
   // stop confirmation closes, and a failure dialog is drawn above the menu.

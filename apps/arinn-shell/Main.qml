@@ -115,6 +115,10 @@ Window {
         if (sessionGuard.blocked) return;
         ambientIdle.activity();
         if (ambientScreen.active) ambientScreen.stop();
+        // No toggle and no change underneath: an open scope (also one the
+        // sheet's Power row opened over an Activity) stays exactly as it is.
+        // openMenu() alone would keep the scope but let the Activity case
+        // below replace the sheet with Home.
         if (powerOverlay.open) return;
         // As for the quick menu: the scope takes the place of the "Opening…"
         // and "Starting…" progress, as Home does (§6.5); the launch goes on,

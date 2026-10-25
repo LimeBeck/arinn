@@ -162,42 +162,64 @@ while Arinn runs (spec §5.7 *Power button*, [ADR-0111](../adr/0111-power-key.md
 The key never calls this interface by itself; the shell opens the menu and
 every action goes through the methods above.
 
+- **Only with a live shell.** Arinn holds the key only while the shell owns
+  `org.arinn.Shell1` and the key is really read: on KDE while the adapter
+  polls (a `TakeCommand` within 45 s), on X11 while the grab or raw reading
+  works. Close Arinn, a shell crash loop at its start limit, a stopped KWin
+  script or a failing reader give everything back at once; a returning shell
+  takes it again.
 - **KDE.** The KWin action `ArinnPower` reports `ReportPowerMenuRequest` after
-  the unlocked check. When the adapter connects, the daemon
-  (`platform/kde/power_key.rs`) marks PowerDevil's `PowerOff` and `PowerDown`
-  KGlobalAccel actions not present for this KGlobalAccel run (`setInactive`,
-  nothing written to `kglobalshortcutsrc`) and gives `ArinnPower` `Key_PowerOff`
-  and `Key_PowerDown` (KWin's long press). A key another action holds is left
-  out, and a key `ArinnPower` does not get goes back to PowerDevil at once.
-  `arinnd --release-power-key` (`ExecStopPost=` of `arinnd.service` and
-  `arinn-kwin-adapter stop`) clears `ArinnPower` and makes PowerDevil's actions
-  present again with the keys KGlobalAccel stores.
-- **X11/EWMH.** `arinn-platform-x11` grabs `XF86PowerOff` (and
-  `XF86PowerDown` where mapped). A key another client holds, such as
-  xfce4-power-manager's grab, stays that client's.
+  the unlocked check. The daemon (`platform/kde/power_key.rs`) takes the logind
+  inhibitor first, then marks PowerDevil's `PowerOff` and `PowerDown`
+  KGlobalAccel actions not present for this KGlobalAccel run (`setInactive`;
+  nothing about them is written to `kglobalshortcutsrc`) and gives `ArinnPower`
+  `Key_PowerOff` and `Key_PowerDown` (KWin's long press), written after every
+  configured key. A key another action holds is left out, and a key
+  `ArinnPower` does not get goes back to PowerDevil at once. Giving the key
+  back clears `ArinnPower` and makes PowerDevil's actions present again with
+  the keys KGlobalAccel stores; the daemon does it when the shell or the
+  adapter is lost, and `arinnd --release-power-key` does it as `ExecStopPost=`
+  of `arinnd.service` and from `arinn-kwin-adapter stop`.
+- **X11/EWMH** (`platform/x11/src/power_owner.rs`). Never on an ordinary XFCE
+  desktop, which keeps its dialog. Elsewhere, with a live shell, the adapter
+  takes the logind inhibitor, then grabs `XF86PowerOff` (and `XF86PowerDown`
+  where mapped). A key another client holds stays that client's.
 - **XFCE, dedicated Arinn session only** (owner decision of 2026-10-24). With
-  `ARINN_SESSION_ENTRY=xfce` the adapter (`platform/x11/src/xfce_power.rs`) sets
+  `ARINN_SESSION_ENTRY=xfce` the adapter reads the key xfce4-power-manager
+  grabs from XInput2 raw events, and only once that works sets
   xfce4-power-manager's power-button action to "do nothing" through xfconf
-  while it runs and reads the key from XInput2 raw events. The user's value is
-  kept in `$XDG_STATE_HOME/arinn/xfce-power-button` before the change and
-  restored on a clean stop, by `arinn-platform-x11 --release-power-key`
-  (`ExecStopPost=` of `arinn-ewmh.service`) and at the next start; a value the
-  user set meanwhile is kept. The ordinary XFCE desktop is not changed.
+  (`platform/x11/src/xfce_power.rs`). The user's value (or "not set", when the
+  user's own channel file does not name it) is kept in
+  `$XDG_STATE_HOME/arinn/xfce-power-button` before the change and restored
+  when the shell is lost, on a clean stop, by `arinn-platform-x11
+  --release-power-key` (`ExecStopPost=` of `arinn-ewmh.service`), at the next
+  start in any X11/EWMH session, and at every XFCE login by
+  `/etc/xdg/autostart/org.arinn.PowerButtonRestore.desktop`
+  (`--restore-power-button`, a no-op while the adapter owns `org.arinn.X11`).
+  A take first gives a stale copy back; a value the user set meanwhile is kept.
+  If the package is removed after an unclean end and before the next XFCE
+  login, the copy stays and the action stays "do nothing" until the user picks
+  one in *Power Manager*.
 - **logind.** While Arinn holds the key (the daemon on KDE, the adapter on
   X11) it holds a `handle-power-key` block inhibitor (`platform/power_inhibitor.rs`),
-  so logind's own `HandlePowerKey=` never runs next to the menu. The lock ends
-  with the process. `GetPower` never lists `handle-power-key` inhibitors, so
-  this one never blocks Sleep, Restart or Shut down.
+  taken before the key, so logind's own `HandlePowerKey=` never runs next to
+  the menu. The lock ends with the key or the process. `GetPower` never lists
+  `handle-power-key` inhibitors, so this one never blocks Sleep, Restart or
+  Shut down.
 
 Tests: `platform/kde/power_key.rs` (a fake KGlobalAccel with shared keys and a
 fake logind on a private bus: takeover without a write, an older KGlobalAccel,
-a third-party key, no PowerDevil, no KGlobalAccel, and the release),
-`platform/power_inhibitor.rs`, the Xvfb tests
+a third-party key, no PowerDevil, no KGlobalAccel, no inhibitor, a reconnect
+without a key, the release, and the key following a live shell and adapter),
+`platform/power_inhibitor.rs`, `power_owner` (a fake reader, xfconf and logind:
+a shell exit, a crash loop, a reader that never works or stops, no inhibitor, a
+grab, the ordinary XFCE desktop), `xfce_power` (a fake xfconf: stale copies, a
+newer user choice, a system default, the login restore), the Xvfb tests
 `power_key_is_reported_apart_from_home_and_the_quick_menu`,
 `held_power_key_is_read_from_raw_events_only_when_its_manager_does_nothing` and
-`power_key_opens_the_power_menu_only_when_unlocked`, `xfce_power` (a fake
-xfconf on a private bus), and `tests/integration/kwin_adapter.test.cjs`. Real KDE and XFCE sessions with the
-remote are owner operator tests; not run.
+`power_key_opens_the_power_menu_only_when_unlocked`, `tests/ci/test_power_button_restore.py`,
+and `tests/integration/kwin_adapter.test.cjs`. Real KDE and XFCE sessions with
+the remote are owner operator tests; not run.
 
 ## Callers
 

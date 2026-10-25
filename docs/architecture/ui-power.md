@@ -145,7 +145,15 @@ on it:
 | Locked or unknown lock state | Nothing; the shell stays hidden |
 
 The key itself never requests a power action; every action keeps its
-confirmation and refusal rules above. The platform side is in
+confirmation and refusal rules above.
+
+**The computer's own power button.** It sends the same `KEY_POWER`, so while
+Arinn holds the key (a live shell, see [system control](system-control.md#power-key))
+it also opens this menu, and on the lock screen it does nothing at all: Arinn
+opens nothing there (§5.7), and the desktop's handling and logind's are set
+aside. Only the firmware's long press (a hard power-off after about four
+seconds) still works there. When the shell is gone, the desktop handles the
+button again, on the lock screen too. The platform side is in
 [system control](system-control.md#power-key).
 
 ## Volume keys and HUD

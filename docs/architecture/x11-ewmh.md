@@ -98,19 +98,23 @@ For a quick-menu press the adapter raises and activates the shell only after tha
 request is published, so the shell never has focus before the request; a
 quick-menu key that cannot be grabbed is skipped without stopping the backend
 ([ADR-0106](../adr/0106-quick-menu-presentation.md)). The power keys
-(`XF86PowerOff`, and `XF86PowerDown` where mapped) are grabbed after them, also
-while the shell is active, and a press is reported with `ReportPowerMenuRequest`
-after the same unlocked check and Home state; the shell is raised at once, as for
-Home. A power key another client holds (xfce4-power-manager) is skipped and logged
-and stays that client's. Only in the dedicated Arinn XFCE session
-(`ARINN_SESSION_ENTRY=xfce`, owner decision of 2026-10-24) the adapter first sets
-xfce4-power-manager's `/xfce4-power-manager/power-button-action` to 0 ("do
-nothing") through xfconf, keeping the user's value in
-`$XDG_STATE_HOME/arinn/xfce-power-button` until it is restored (clean stop,
-`ExecStopPost=-/usr/bin/arinn-platform-x11 --release-power-key`, or the next
-start in any session); a power key xfce4-power-manager still grabs is then read
-from XInput2 raw key presses on the root window. While Arinn owns a power key,
-by grab or raw events, the adapter holds logind's `handle-power-key` inhibitor
+(`XF86PowerOff`, and `XF86PowerDown` where mapped) are read only while the shell
+owns `org.arinn.Shell1` (`power_owner.rs`), never on an ordinary XFCE desktop
+(`XDG_CURRENT_DESKTOP` names XFCE without `ARINN_SESSION_ENTRY=xfce`), and only
+after logind's `handle-power-key` inhibitor is held. They are grabbed after the
+other keys, also while the shell is active, and a press is reported with
+`ReportPowerMenuRequest` after the same unlocked check and Home state; the shell
+is raised at once, as for Home. A power key another client holds is skipped and
+logged and stays that client's. In the dedicated Arinn XFCE session
+(owner decision of 2026-10-24) a power key xfce4-power-manager still grabs is read
+from XInput2 raw key presses on the root window (only the power keycodes are
+looked at), and only once that works the adapter sets xfce4-power-manager's
+`/xfce4-power-manager/power-button-action` to 0 ("do nothing") through xfconf,
+keeping the user's value in `$XDG_STATE_HOME/arinn/xfce-power-button` until it is
+restored: when the shell is lost or the reader stops, on a clean stop, by
+`ExecStopPost=-/usr/bin/arinn-platform-x11 --release-power-key`, at the next start
+in any X11/EWMH session, and at every XFCE login by the system autostart entry
+`org.arinn.PowerButtonRestore.desktop` (`--restore-power-button`)
 ([ADR-0111](../adr/0111-power-key.md)). Home snapshots the exact opaque target
 and keeps it across repeated Home presses. Return validates that token in the
 current inventory before dispatch. The shell receives all-desktops, fullscreen/above and

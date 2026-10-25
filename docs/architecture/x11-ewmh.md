@@ -325,7 +325,7 @@ The keyboard's ignored tests spawn their own Xvfb too. They check that:
 - a session without every direction, a Select and a Back key does not open and keeps no grab;
 - through the lane, with a fake daemon and lock service:
   - a locked key requests nothing, a session opens and types, and a lock ends it;
-  - each character waits for its own lock check, without the 500 ms tick;
+  - each character, and each editing key, waits for its own lock check, without the 500 ms tick;
   - the worker ends a session whose target loses focus (`focus`), types nothing more and gives the panel keys back.
 
 The five ignored native tests each spawn their own Xvfb using `-displayfd`, create

@@ -431,14 +431,23 @@ mod tests {
         )
         .unwrap();
 
-        let mut bus = std::process::Command::new("dbus-daemon")
+        /// Kills the private bus also when an assertion fails, so it never
+        /// outlives the test and holds its output open (review of #484).
+        struct Bus(std::process::Child);
+        impl Drop for Bus {
+            fn drop(&mut self) {
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+            }
+        }
+        let mut bus = Bus(std::process::Command::new("dbus-daemon")
             .args(["--session", "--nofork", "--print-address=1"])
             .stdout(std::process::Stdio::piped())
             .spawn()
-            .unwrap();
+            .unwrap());
         let mut address = String::new();
         std::io::BufRead::read_line(
-            &mut std::io::BufReader::new(bus.stdout.take().unwrap()),
+            &mut std::io::BufReader::new(bus.0.stdout.take().unwrap()),
             &mut address,
         )
         .unwrap();
@@ -543,8 +552,7 @@ mod tests {
         );
         assert!(found.exists());
         drop(kwin);
-        let _ = bus.kill();
-        let _ = bus.wait();
+        drop(bus);
         let _ = std::fs::remove_dir_all(dir);
     }
 }

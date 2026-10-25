@@ -116,7 +116,8 @@ The pieces:
   - lifecycle and toggle;
   - the trust rules, including the KDE child-process check and provider callers;
   - the open timeout, the poll timeout and deliverer replacement;
-  - a vanished deliverer;
+  - a vanished deliverer, and a replacement that connects while the sweep asks the bus about its predecessor;
+  - fast toggles leave no records behind;
   - the queue bound and concurrent polls;
   - no typed text or key name in log records.
 - **KDE configuration** (`keyboard_config` tests) and KGlobalAccel writes (`global_home` tests, `adapter_connection_applies_configured_home_shortcut`).
@@ -130,7 +131,8 @@ The pieces:
   - the 500 ms lock tick alone ends an open session;
   - focus loss, and a deactivate while locked reported as `locked`;
   - close releases the context;
-  - a lost daemon lane releases the grab, sets `active = false` and forwards no queued key; the next connection opens sessions again.
+  - a lost daemon lane releases the grab, sets `active = false` and forwards no queued key; the next connection opens sessions again;
+  - repeats queued when a session ends never reach the application.
 - **KWin script:** Node tests.
 - **Shell:** see [ui-keyboard.md](ui-keyboard.md#verification).
 - **Not verified here.** No KWin, no real compositor and no hardware are available here. These need the owner's operator test on the HTPC (G-5.9):

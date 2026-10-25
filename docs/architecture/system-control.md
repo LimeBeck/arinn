@@ -231,7 +231,10 @@ every action goes through the methods above.
   xfce4-power-manager's grab succeeds whenever it starts; it reads them from
   XInput2 raw events, and only once that works sets xfce4-power-manager's
   power-button action to "do nothing" through xfconf; a raw press read before
-  that was xfce4-power-manager's and is dropped
+  that was xfce4-power-manager's and is dropped. xfconfd is per user, so it
+  takes the key only while logind lists no other graphical session of the
+  user (its own from `ARINN_LOGIN_SESSION_ID`, passed by
+  `arinn-xfce-session`); one appearing gives everything back
   (`platform/x11/src/xfce_power.rs`). The user's live value (or "not set",
   when the user's own channel file does not name it and it equals the system
   default) is kept in

@@ -31,8 +31,10 @@ pub fn session(value: &str) -> Result<(), ErrorCode> {
     platform::generation(value)
 }
 
-/// Text for one delivery: 1–256 UTF-8 bytes and no control characters.
-/// Line breaks and tabs are keys (`return`), never text.
+/// Text for one delivery: 1–256 UTF-8 bytes and no control characters
+/// (Unicode category Cc, `char::is_control`), so tab, newline and carriage
+/// return are never text; Enter is the `return` key. Other separators and
+/// format characters (U+2028, U+2029, Cf) are not rejected.
 pub fn text(value: &str) -> Result<(), ErrorCode> {
     if value.is_empty() || value.len() > MAX_TEXT_BYTES || value.chars().any(char::is_control) {
         return Err(ErrorCode::InvalidArgument);

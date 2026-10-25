@@ -32,19 +32,20 @@ end: Close(S) from the shell, Request() again, Closed(S, reason) from the delive
 
 - **One session at a time.** S is a fresh non-nil UUID. A second `Request()` while a session exists ends it: the key toggles the panel. A session ended by the shell or by `Request()` is sent to the deliverer as `[close, S]`.
 - **Shell signals.** The shell sees only `Opened`, `Input` and `Closed` for the current S. A `Closed` for another session is stale and ignored. On a daemon owner change the shell hides the panel.
-- **Errors.** `Type`, `Press` and `Close` for anything but the current opened session return `Conflict`.
+- **Errors.** `Type`, `Press` and `Close` for anything but the current opened session return `Conflict`. A session not yet opened counts as not current: the shell learns S only from `Opened`, and a session that never opens ends after 3 s.
   - `Close` of an ended session is not an error for the shell to report: the panel is already hiding.
   - `Type` and `Press` return `Unavailable` when 64 records already wait.
 - **The deliverer's lane.**
   - `Next(generation)` waits at most 1 s and returns one record. The records are `[]` (idle), `[open, S]`, `[type, S, text]`, `[press, S, key]` and `[close, S]`. They are fixed records, never a command line.
   - A poll refreshes the deliverer's heartbeat.
   - At most one poll may be pending per deliverer; another returns `Conflict`.
-- **Deliverer loss.** `Connect(instance)` returns a new generation, and a new instance replaces the previous deliverer. Replacement, 5 s without a poll, or the loss of the deliverer's bus name ends the current session. Calls with an old generation return `Conflict`.
+- **The request.** `Request()` from a caller that is not the current platform owner returns `PermissionDenied`. Without a connected deliverer it returns `Unavailable`, and no session starts.
+- **Deliverer loss.** `Connect(instance)` takes a fresh canonical non-nil UUID (anything else is `InvalidArgument`) and returns a new generation, and a new instance replaces the previous deliverer. Replacement, 5 s without a poll, or the loss of the deliverer's bus name ends the current session. Calls with an old generation return `Conflict`.
 - **Limits.**
-  - Text: 1–256 UTF-8 bytes and no control characters (`char::is_control`). Line breaks and tabs are keys, never text.
+  - Text: 1–256 UTF-8 bytes and no control characters (`char::is_control`, Unicode category Cc). Tab, newline and carriage return are therefore never text; Enter is the `return` key. Other separators and format characters (U+2028, U+2029, category Cf) are not rejected: the shell's panel never produces them, and a deliverer types them as characters.
   - Input keys: `up`, `down`, `left`, `right`, `select`, `back`.
   - Press keys: `backspace`, `return`, `left`, `right`.
-  - Close reasons: `focus`, `locked`, `unavailable`.
+  - Close reasons: `focus` (the target lost focus or disappeared while the session is unlocked), `locked` (locked or unknown lock state, whatever else happened), `unavailable` (cannot bind the target or capture the panel keys).
 
 ## Authorization
 
@@ -52,9 +53,10 @@ end: Close(S) from the shell, Request() again, Closed(S, reason) from the delive
 | --- | --- |
 | Current owner of the selected platform name (`org.kde.KWin` or `org.arinn.X11`, `ARINN_PLATFORM_BACKEND`) | `Request` |
 | The deliverer: on EWMH the owner of `org.arinn.X11`; on KDE the owner of `org.arinn.InputMethod` whose process is a direct child of the `org.kde.KWin` owner's process | `Connect`, `Next`, `Opened`, `Input`, `Closed` |
-| Any other client except registered providers and the platform adapter | `ExternalKeyboard1.Type`, `Press`, `Close` |
+| Any other connection except a registered provider's, the platform adapter's and the deliverer's | `ExternalKeyboard1.Type`, `Press`, `Close` |
 
 - Other callers receive `PermissionDenied`.
+- The rules are per bus connection, as for `SystemControl1`. A provider's registered connection can never type; a plugin process that opens another connection is a same-user process like any other (§13).
 - Same-user processes stay inside the existing trust boundary (§13). The session ID protects against stale and foreign sessions; it does not authenticate the shell.
 
 ## Privacy
@@ -66,18 +68,19 @@ end: Close(S) from the shell, Request() again, Closed(S, reason) from the delive
 
 ## Delivery
 
-The deliverer delivers only into the target bound at `[open, S]`. Before every delivery it needs an explicit unlocked reply from the lock service; a locked or unknown state ends the session (`locked`). Each platform is described in detail in ADR-0105:
+The deliverer delivers only into the target bound at `[open, S]`. Before every record it needs an explicit unlocked reply from the lock service; a locked or unknown state ends the session (`locked`). As soon as the target loses focus, nothing more is delivered, also within one `type` record. Each platform is described in detail in ADR-0105:
 
 - **X11/EWMH:** `arinn-platform-x11`.
   - The target is `_NET_ACTIVE_WINDOW`.
-  - Passive root grabs capture the panel keys; focus stays with the application.
+  - Passive root grabs capture the panel keys; focus stays with the application. The session opens only when all four directions, one Select key (Return or KP_Enter) and one Back key (Escape or XF86Back) are grabbed; otherwise it is `unavailable`.
   - XTest types every character through a scratch keycode mapped to its keysym, independent of the layout.
+  - Before each character and each editing key the worker checks that `_NET_ACTIVE_WINDOW` is still the target and that the X input focus (`GetInputFocus`) is the target or one of its descendants. At the first failed check it drops the rest of the record and ends the session.
   - The session ends on focus change or destruction of the target.
 - **KDE Plasma 6/Wayland:** `arinn-input-method`, the input method KWin starts.
   - `forceActivate()` binds the context of the focused surface.
   - A keyboard grab captures the panel keys and forwards all other keys to the application.
   - `commit_string` and `keysym` deliver.
-  - KWin's `deactivate` ends the session.
+  - KWin's `deactivate` ends the session at once; the helper reports `locked` unless the lock service explicitly answers unlocked, then `focus`.
 
 ## Verification status
 

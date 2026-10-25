@@ -4,8 +4,11 @@
 //! The X11 keyboard deliverer's lane to the daemon (ADR-0105): a worker
 //! thread owns the X connection of [`crate::keyboard::Keyboard`]; two tasks
 //! connect it with `org.arinn.KeyboardBridge1`. The lock state is checked
-//! here, with the adapter's probe order, before every key request and every
-//! delivery; a locked or unknown state ends the session.
+//! here, with the adapter's probe order, before every key request, before
+//! each character and each editing key, and every 500 ms while a session is
+//! open; a locked or unknown state ends the session. A screen locker
+//! usually holds an active keyboard grab, which the worker's focus check
+//! cannot see, so the lock is not checked only once per record.
 use crate::key_sequence::Sequence;
 use crate::keyboard::{Keyboard, Seen};
 use anyhow::Result;
@@ -14,14 +17,23 @@ use std::{
     sync::{Arc, Mutex, mpsc},
     time::Duration,
 };
-use tokio::{sync::mpsc as tmpsc, task::JoinSet};
+use tokio::{
+    sync::{mpsc as tmpsc, oneshot},
+    task::JoinSet,
+};
 use uuid::Uuid;
 use zbus::Connection;
 
+/// How often an open session checks the lock state by itself.
+const LOCK_TICK: Duration = Duration::from_millis(500);
+
+/// Worker commands. A delivery carries one character or one editing key
+/// and answers whether it was delivered, so the lane checks the lock again
+/// before the next one.
 enum Command {
     Open(String),
-    Type(String, String),
-    Press(String, String),
+    Type(String, String, oneshot::Sender<bool>),
+    Press(String, String, oneshot::Sender<bool>),
     Close(String),
     Locked(String),
 }
@@ -70,15 +82,19 @@ fn worker(
                     }
                 }
             }
-            Some(Command::Type(s, text)) if current(&s, &session) => {
-                if keyboard.type_text(&text).is_err() {
+            Some(Command::Type(s, text, done)) if current(&s, &session) => {
+                let typed = keyboard.type_text(&text).is_ok();
+                if !typed {
                     end(&mut keyboard, &mut session, "focus");
                 }
+                let _ = done.send(typed);
             }
-            Some(Command::Press(s, key)) if current(&s, &session) => {
-                if keyboard.press(&key).is_err() {
+            Some(Command::Press(s, key, done)) if current(&s, &session) => {
+                let pressed = keyboard.press(&key).is_ok();
+                if !pressed {
                     end(&mut keyboard, &mut session, "focus");
                 }
+                let _ = done.send(pressed);
             }
             Some(Command::Close(s)) if current(&s, &session) => {
                 let _ = keyboard.close();
@@ -121,6 +137,26 @@ pub async fn start<F>(
     display: Option<String>,
     keys: Vec<Sequence>,
     unlocked: F,
+    tasks: &mut JoinSet<Result<()>>,
+) -> Result<bool>
+where
+    F: Fn(Connection) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send>>
+        + Send
+        + Sync
+        + 'static,
+{
+    start_with(c, destination, display, keys, unlocked, LOCK_TICK, tasks).await
+}
+
+/// [`start`] with the lock tick of an open session; tests lengthen it to
+/// prove the per-character check on its own.
+async fn start_with<F>(
+    c: &Connection,
+    destination: &str,
+    display: Option<String>,
+    keys: Vec<Sequence>,
+    unlocked: F,
+    lock_tick: Duration,
     tasks: &mut JoinSet<Result<()>>,
 ) -> Result<bool>
 where
@@ -172,18 +208,30 @@ where
                     }
                     Command::Open(s)
                 }
+                // One character at a time, each after its own lock check;
+                // the first failure drops the rest of the record.
                 Record::Type(s, text) => {
-                    if check(lock.clone()).await {
-                        Command::Type(s, text)
-                    } else {
-                        Command::Locked(s)
+                    for ch in text.chars() {
+                        if !check(lock.clone()).await {
+                            send.send(Command::Locked(s.clone()))?;
+                            break;
+                        }
+                        let (done, typed) = oneshot::channel();
+                        send.send(Command::Type(s.clone(), ch.to_string(), done))?;
+                        if !typed.await.unwrap_or(false) {
+                            break;
+                        }
                     }
+                    continue;
                 }
                 Record::Press(s, key) => {
-                    if check(lock.clone()).await {
-                        Command::Press(s, key)
-                    } else {
+                    if !check(lock.clone()).await {
                         Command::Locked(s)
+                    } else {
+                        let (done, pressed) = oneshot::channel();
+                        send.send(Command::Press(s, key, done))?;
+                        let _ = pressed.await;
+                        continue;
                     }
                 }
             };
@@ -195,7 +243,7 @@ where
     let g = generation;
     let lock = c.clone();
     tasks.spawn(async move {
-        let mut tick = tokio::time::interval(Duration::from_millis(500));
+        let mut tick = tokio::time::interval(lock_tick);
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             tokio::select! {
@@ -248,7 +296,7 @@ mod tests {
     use std::{
         io::{BufRead, BufReader},
         process::{Child, Command as Process, Stdio},
-        sync::atomic::{AtomicBool, Ordering},
+        sync::atomic::{AtomicBool, AtomicUsize, Ordering},
     };
     use x11rb::{
         CURRENT_TIME,
@@ -445,6 +493,138 @@ mod tests {
             }
         }
         assert!(late.is_empty());
+        tasks.abort_all();
+        Ok(())
+    }
+
+    /// The keysyms `app` received so far, without held modifiers.
+    fn typed(app: &RustConnection) -> Result<Vec<u32>> {
+        app.get_input_focus()?.reply()?;
+        let mut text = Vec::new();
+        while let Some(event) = app.poll_for_event()? {
+            if let XEvent::KeyPress(e) = event {
+                let map = app.get_keyboard_mapping(e.detail, 1)?.reply()?;
+                if !(0xffe1..=0xffee).contains(&map.keysyms[0]) {
+                    text.push(map.keysyms[0]);
+                }
+            }
+        }
+        Ok(text)
+    }
+
+    /// Starts a lane against a fake daemon on a private bus.
+    async fn lane(
+        desktop: &Desktop,
+        unlocked: impl Fn() -> bool + Send + Sync + 'static,
+        lock_tick: Duration,
+    ) -> Result<(Bus, FakeDaemon, Connection, JoinSet<Result<()>>)> {
+        let bus = bus();
+        let daemon = FakeDaemon::default();
+        let server = zbus::connection::Builder::address(bus.1.as_str())?
+            .serve_at("/org/arinn/Daemon1", daemon.clone())?
+            .build()
+            .await?;
+        let lane = zbus::connection::Builder::address(bus.1.as_str())?
+            .build()
+            .await?;
+        let unlocked = Arc::new(unlocked);
+        let mut tasks = JoinSet::new();
+        assert!(
+            start_with(
+                &lane,
+                server.unique_name().unwrap().as_str(),
+                Some(desktop.display.clone()),
+                vec![crate::key_sequence::MICROPHONE],
+                move |_| {
+                    let unlocked = unlocked.clone();
+                    Box::pin(async move { unlocked() })
+                },
+                lock_tick,
+                &mut tasks,
+            )
+            .await?
+        );
+        Ok((bus, daemon, server, tasks))
+    }
+
+    /// Review of #512 and mutation X3 of the #484 review: the lock is
+    /// checked before each character, not once per record, and without the
+    /// 500 ms tick's help. The lock service answers unlocked twice (the
+    /// open record and the first character), then locked.
+    #[tokio::test]
+    #[ignore = "requires Xvfb; spawns an isolated X server, never uses the real DISPLAY"]
+    async fn each_character_waits_for_its_own_lock_check() -> Result<()> {
+        let desktop = Desktop::new()?;
+        let (app, xid) = focused_window(&desktop)?;
+        desktop.inventory(&[xid], xid)?;
+        let budget = Arc::new(AtomicUsize::new(2));
+        let left = budget.clone();
+        let (_bus, daemon, _server, mut tasks) = lane(
+            &desktop,
+            move || {
+                left.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+                    .is_ok()
+            },
+            Duration::from_secs(3600),
+        )
+        .await?;
+        daemon
+            .queue
+            .lock()
+            .unwrap()
+            .push(Record::Open(SESSION.into()).fields());
+        wait_for(&daemon.calls, &format!("opened:{SESSION}")).await;
+        daemon
+            .queue
+            .lock()
+            .unwrap()
+            .push(Record::Type(SESSION.into(), "abc".into()).fields());
+        wait_for(&daemon.calls, "closed:locked").await;
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        // One key press only: 'a'. The session's end has emptied its scratch
+        // keycode already, so the press resolves to no keysym now.
+        assert_eq!(typed(&app)?.len(), 1);
+        assert_eq!(budget.load(Ordering::SeqCst), 0);
+        tasks.abort_all();
+        Ok(())
+    }
+
+    /// Mutation X6 of the #484 review: the worker itself ends the session
+    /// when the target loses focus, reports `focus`, types nothing more and
+    /// gives the panel keys back.
+    #[tokio::test]
+    #[ignore = "requires Xvfb; spawns an isolated X server, never uses the real DISPLAY"]
+    async fn the_worker_ends_the_session_when_focus_moves() -> Result<()> {
+        let desktop = Desktop::new()?;
+        let (other, other_xid) = focused_window(&desktop)?;
+        let (app, xid) = focused_window(&desktop)?;
+        desktop.inventory(&[xid, other_xid], xid)?;
+        let (_bus, daemon, _server, mut tasks) =
+            lane(&desktop, || true, Duration::from_secs(3600)).await?;
+        daemon
+            .queue
+            .lock()
+            .unwrap()
+            .push(Record::Open(SESSION.into()).fields());
+        wait_for(&daemon.calls, &format!("opened:{SESSION}")).await;
+        // Another window becomes active and takes the input focus.
+        desktop.inventory(&[xid, other_xid], other_xid)?;
+        other
+            .set_input_focus(InputFocus::POINTER_ROOT, other_xid, CURRENT_TIME)?
+            .check()?;
+        other.flush()?;
+        wait_for(&daemon.calls, "closed:focus").await;
+        daemon
+            .queue
+            .lock()
+            .unwrap()
+            .push(Record::Type(SESSION.into(), "no".into()).fields());
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert_eq!(typed(&app)?, Vec::<u32>::new());
+        // The panel grabs are gone: Up reaches the focused window.
+        desktop.press(&[], 0xff52)?;
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert_eq!(typed(&other)?, [0xff52]);
         tasks.abort_all();
         Ok(())
     }

@@ -12,10 +12,12 @@
 //!   focus stays with the application and every other key still reaches it;
 //! - types text with XTest through scratch keycodes mapped to each
 //!   character's keysym, so neither the layout nor Shift matters;
+//! - checks before each character and each editing key that the target
+//!   still has focus: `_NET_ACTIVE_WINDOW` and the X input focus;
 //! - ends the session when the target loses focus or disappears.
 //!
-//! The lock state is checked by the caller (`main.rs`) before a key request
-//! and before every delivery. Nothing typed is ever logged.
+//! The lock state is checked by the lane (`keyboard_lane.rs`) before a key
+//! request and before each character. Nothing typed is ever logged.
 use crate::{
     key_sequence::Sequence,
     native::{self, Atoms, KeyMap},
@@ -40,6 +42,9 @@ const PANEL_KEYS: [(u32, &str); 8] = [
     (0xff1b, "back"),      // Escape
     (0x1008_ff26, "back"), // XF86Back
 ];
+
+/// The panel keys a session needs; each name stands for its keysyms above.
+const REQUIRED_KEYS: [&str; 6] = ["up", "down", "left", "right", "select", "back"];
 
 /// What the worker saw.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -229,8 +234,7 @@ impl Keyboard {
         };
         let map = KeyMap::read(&self.c)?;
         let mut grabs = Vec::new();
-        let mut arrows = false;
-        let mut back = false;
+        let mut grabbed: HashSet<&str> = HashSet::new();
         for (sym, name) in PANEL_KEYS {
             let combinations: Vec<(u16, Keycode)> = map
                 .codes(sym)
@@ -246,8 +250,7 @@ impl Keyboard {
             }
             if native::grab_combinations(&self.c, self.root, &combinations)? {
                 grabs.extend(combinations);
-                arrows |= ["up", "down", "left", "right"].contains(&name);
-                back |= name == "back";
+                grabbed.insert(name);
             }
         }
         let scratch: Vec<(Keycode, u32)> = map
@@ -263,7 +266,10 @@ impl Keyboard {
             scratch,
             next: 0,
         };
-        let usable = arrows && back && !open.scratch.is_empty();
+        // The remote must be able to move, select and leave: all four
+        // directions, Return or KP_Enter, and Escape or XF86Back (ADR-0105).
+        let usable =
+            REQUIRED_KEYS.iter().all(|name| grabbed.contains(name)) && !open.scratch.is_empty();
         self.open = Some(open);
         if !usable {
             self.close()?;
@@ -292,7 +298,10 @@ impl Keyboard {
         Ok(())
     }
 
-    /// Whether the open session's target still has focus. False ends it.
+    /// Whether the open session's target still has focus: it is
+    /// `_NET_ACTIVE_WINDOW`, it exists, and the X input focus, which XTest
+    /// events follow, is the target or one of its descendants. False ends
+    /// the session.
     pub fn target_focused(&self) -> Result<bool> {
         let Some(open) = &self.open else {
             return Ok(false);
@@ -300,15 +309,40 @@ impl Keyboard {
         Ok(
             native::active_window(&self.c, self.root, self.atoms._NET_ACTIVE_WINDOW)?
                 == Some(open.target)
-                && self.c.get_window_attributes(open.target)?.reply().is_ok(),
+                && self.c.get_window_attributes(open.target)?.reply().is_ok()
+                && self.input_focus_in(open.target)?,
         )
     }
 
-    /// Types `text` into the target. Fails without typing anything when the
-    /// target no longer has focus.
+    /// Whether the X input focus is `target` or below it. `None` and
+    /// `PointerRoot` are not: keys would go wherever the pointer is.
+    fn input_focus_in(&self, target: Window) -> Result<bool> {
+        let mut window = self.c.get_input_focus()?.reply()?.focus;
+        // A tree deeper than this is not an application's.
+        for _ in 0..64 {
+            if window == target {
+                return Ok(true);
+            }
+            if window == x11rb::NONE
+                || window == u32::from(InputFocus::POINTER_ROOT)
+                || window == self.root
+            {
+                return Ok(false);
+            }
+            match self.c.query_tree(window)?.reply() {
+                Ok(tree) => window = tree.parent,
+                Err(_) => return Ok(false),
+            }
+        }
+        Ok(false)
+    }
+
+    /// Types `text` into the target, checking before each character that
+    /// the target still has focus. At the first failed check nothing more is
+    /// typed and the error ends the session.
     pub fn type_text(&mut self, text: &str) -> Result<()> {
-        ensure!(self.target_focused()?, "target lost focus");
         for ch in text.chars() {
+            ensure!(self.target_focused()?, "target lost focus");
             self.type_keysym(keysym(ch))?;
         }
         Ok(())
@@ -418,6 +452,14 @@ mod tests {
             c.flush()?;
             Ok(Self { c, xid })
         }
+        /// Gives this window the X input focus.
+        fn focus(&self) -> Result<()> {
+            self.c
+                .set_input_focus(InputFocus::POINTER_ROOT, self.xid, CURRENT_TIME)?
+                .check()?;
+            self.c.flush()?;
+            Ok(())
+        }
         fn keysyms(&self) -> Result<Vec<u32>> {
             self.c.get_input_focus()?.reply()?;
             let mut out = Vec::new();
@@ -510,7 +552,19 @@ mod tests {
         desktop.inventory(&[app.xid], other.xid)?;
         assert!(keyboard.open().is_err());
         desktop.inventory(&[app.xid, other.xid, shell.xid], app.xid)?;
+        app.focus()?;
         keyboard.open()?;
+        assert!(keyboard.target_focused()?);
+        // Review of #512: the X input focus moves to another window while
+        // `_NET_ACTIVE_WINDOW` still names the target (a popup, a grabbing
+        // client's window): XTest would type there, so the target has lost
+        // focus.
+        other.focus()?;
+        assert!(!keyboard.target_focused()?);
+        assert!(keyboard.type_text("x").is_err());
+        settle();
+        assert_eq!(other.keysyms()?, Vec::<u32>::new());
+        app.focus()?;
         assert!(keyboard.target_focused()?);
         // Another window becomes active: nothing more is delivered.
         desktop.inventory(&[app.xid, other.xid, shell.xid], other.xid)?;
@@ -522,11 +576,60 @@ mod tests {
         assert_eq!(other.keysyms()?, Vec::<u32>::new());
         // A destroyed target ends the session too.
         desktop.inventory(&[app.xid, other.xid, shell.xid], app.xid)?;
+        app.focus()?;
         assert!(keyboard.target_focused()?);
         app.c.destroy_window(app.xid)?.check()?;
         assert!(!keyboard.target_focused()?);
         keyboard.close()?;
         let _ = desktop.c.flush();
+        Ok(())
+    }
+
+    /// Review of #484 (Codex P2 on #512): a session opens only when all four
+    /// directions, a Select key and a Back key are grabbed; otherwise the
+    /// remote could move but not type or leave.
+    #[test]
+    #[ignore = "requires Xvfb; spawns an isolated X server, never uses the real DISPLAY"]
+    fn a_session_needs_every_direction_select_and_back() -> Result<()> {
+        let desktop = Desktop::new()?;
+        let app = Target::new(&desktop, "org.example.Browser")?;
+        desktop.inventory(&[app.xid], app.xid)?;
+        let mut keyboard = Keyboard::connect(Some(&desktop.display), vec![])?;
+        // Another client holds every Select key.
+        let map = KeyMap::read(&keyboard.c)?;
+        let (other, screen) = x11rb::connect(Some(&desktop.display))?;
+        let root = other.setup().roots[screen].root;
+        let select: Vec<Keycode> = [0xff0d, 0xff8d]
+            .into_iter()
+            .flat_map(|sym| map.codes(sym))
+            .collect();
+        assert!(!select.is_empty());
+        for code in &select {
+            other
+                .grab_key(
+                    false,
+                    root,
+                    ModMask::ANY,
+                    *code,
+                    GrabMode::ASYNC,
+                    GrabMode::ASYNC,
+                )?
+                .check()?;
+        }
+        assert!(keyboard.open().is_err());
+        assert!(keyboard.open.is_none());
+        // Nothing of the refused session stays grabbed: Up reaches the
+        // application.
+        desktop.press(&[], 0xff52)?;
+        settle();
+        assert_eq!(keyboard.poll()?, Vec::<Seen>::new());
+        assert_eq!(app.keysyms()?, [0xff52]);
+        for code in &select {
+            other.ungrab_key(*code, root, ModMask::ANY)?.check()?;
+        }
+        keyboard.open()?;
+        assert!(keyboard.target_focused()?);
+        keyboard.close()?;
         Ok(())
     }
 }

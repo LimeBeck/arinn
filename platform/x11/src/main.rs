@@ -858,11 +858,7 @@ async fn run(actor: &Arc<Mutex<Actor>>, power: &mut power_owner::PowerOwner) -> 
         // or xfce4-power-manager that appears later takes it back within
         // one tick (ADR-0111).
         let xfce = power_owner::xfce_on_bus(&bus).await;
-        let reading = if update.snapshot.power_grabbed {
-            power.owned()
-        } else {
-            native::Reading::None
-        };
+        let reading = update.snapshot.power_reading;
         power
             .follow(&mut ActorReader(actor), shell, xfce, reading)
             .await?;
@@ -1193,7 +1189,7 @@ mod tests {
         assert!(update.home);
         assert!(!update.target.is_empty());
         assert!(activations(desktop.messages()?) >= 1);
-        assert!(update.snapshot.power_grabbed);
+        assert_eq!(update.snapshot.power_reading, native::Reading::Grab);
         Ok(())
     }
     #[test]
@@ -1927,7 +1923,7 @@ mod publication_tests {
                     home_key: false,
                     quick_menu_key: true,
                     power_key: false,
-                    power_grabbed: false,
+                    power_reading: native::Reading::None,
                     compositor: true,
                 },
                 home: true,
@@ -2030,7 +2026,7 @@ mod publication_tests {
                     home_key: false,
                     quick_menu_key: false,
                     power_key: false,
-                    power_grabbed: false,
+                    power_reading: native::Reading::None,
                     compositor: true,
                 },
                 home: false,

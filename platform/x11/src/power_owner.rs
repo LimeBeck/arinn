@@ -118,6 +118,7 @@ impl PowerOwner {
         )
     }
     /// Whether Arinn holds the key, and how it reads it.
+    #[cfg(test)]
     pub fn owned(&self) -> Reading {
         self.owned
     }
@@ -137,18 +138,13 @@ impl PowerOwner {
     ) -> Result<()> {
         let wanted = allowed(self.dedicated, xfce) && shell;
         if self.owned != Reading::None {
-            // The shell is gone, or the reader stopped (a regrab after a
-            // mapping change lost the key): everything goes back.
-            //
-            // A narrow race remains in the dedicated session: when Arinn
-            // grabbed the key (xfce4-power-manager was not running) and a
-            // regrab after a mapping change loses it to a restarting
-            // xfce4-power-manager, the native layer reads the key from raw
-            // events instead. `reading` still reports the key as read, so
-            // xfconf is not set to "do nothing" until the shell or the
-            // reader changes, and a press in that window reaches both. It
-            // needs a keymap change while xfce4-power-manager restarts.
-            if !wanted || reading == Reading::None {
+            // The shell is gone, or the reader stopped or changed (a regrab
+            // after a mapping change lost the key, or moved it from a grab
+            // to raw events because a restarting xfce4-power-manager won
+            // the grab): everything goes back, and the next pass takes it
+            // again the right way, with xfconf for raw reading (Codex P2 on
+            // #517).
+            if !wanted || reading != self.owned {
                 self.give_back(reader).await?;
             }
             return Ok(());
@@ -227,7 +223,7 @@ pub(crate) mod tests {
 
     /// A reader that answers `Grab`, `Raw` or `None` when enabled.
     pub(crate) struct FakeReader {
-        answer: Reading,
+        pub(crate) answer: Reading,
         pub(crate) calls: Vec<(bool, bool)>,
     }
     impl Reader for FakeReader {
@@ -435,6 +431,36 @@ pub(crate) mod tests {
         assert_eq!(f.xfconf.writes(), 0);
         assert_eq!(f.xfconf.value(), Some(xfce_power::Saved::Uint(3)));
         f.settle(0).await;
+    }
+
+    /// Codex P2 on #517: in the dedicated session Arinn grabbed the key
+    /// (xfce4-power-manager was not running); a regrab after a mapping
+    /// change lost it to a restarting xfce4-power-manager and reads it from
+    /// raw events instead. The change gives everything back, and the next
+    /// pass takes it again with xfconf at "do nothing", so the two never
+    /// both act on one press.
+    #[tokio::test]
+    async fn a_reading_that_moves_from_grab_to_raw_takes_xfconf() {
+        let mut f = fixture(true).await;
+        let mut r = reader(Reading::Grab);
+        f.owner
+            .follow(&mut r, true, XFCE, Reading::None)
+            .await
+            .unwrap();
+        assert_eq!(f.owner.owned(), Reading::Grab);
+        assert_eq!(f.xfconf.writes(), 0);
+        r.answer = Reading::Raw;
+        f.owner
+            .follow(&mut r, true, XFCE, Reading::Raw)
+            .await
+            .unwrap();
+        assert_eq!(f.owner.owned(), Reading::None);
+        f.owner
+            .follow(&mut r, true, XFCE, Reading::None)
+            .await
+            .unwrap();
+        assert_eq!(f.owner.owned(), Reading::Raw);
+        assert_eq!(f.xfconf.value(), Some(xfce_power::Saved::Uint(0)));
     }
 
     /// A reader that stops later (a regrab lost the key) gives everything

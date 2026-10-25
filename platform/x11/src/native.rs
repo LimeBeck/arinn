@@ -69,10 +69,10 @@ pub struct Snapshot {
     /// The latest global key since the last snapshot was the power key
     /// (ADR-0111).
     pub power_key: bool,
-    /// Arinn owns the power key (grabbed, or read from raw events while the
-    /// power manager does nothing with it), so logind must leave it alone
-    /// (ADR-0111).
-    pub power_grabbed: bool,
+    /// How Arinn reads the power key now (grabbed, or read from raw events
+    /// while the power manager does nothing with it; `None`: not at all).
+    /// It changes when a regrab moves the key between the two (ADR-0111).
+    pub power_reading: Reading,
     pub compositor: bool,
 }
 #[derive(Default)]
@@ -686,10 +686,13 @@ impl Native {
     }
     /// How the power key is read now.
     pub fn reading(&self) -> Reading {
-        if !self.power_grabs.is_empty() {
-            Reading::Grab
-        } else if !self.raw_power_codes.is_empty() {
+        // Any key read from raw events means another client still grabs
+        // it: its manager must do nothing with it (xfconf), also when
+        // another power key is grabbed (Codex on #517).
+        if !self.raw_power_codes.is_empty() {
             Reading::Raw
+        } else if !self.power_grabs.is_empty() {
+            Reading::Grab
         } else {
             Reading::None
         }
@@ -869,7 +872,7 @@ impl Native {
             home_key,
             quick_menu_key,
             power_key,
-            power_grabbed: self.reading() != Reading::None,
+            power_reading: self.reading(),
             compositor: self.c.get_selection_owner(self.compositor)?.reply()?.owner != 0,
         })
     }
@@ -1392,7 +1395,7 @@ pub(crate) mod fixture {
         let home = crate::key_sequence::home("Meta+F12").0;
         let quick_menu = crate::key_sequence::quick_menu("Ctrl+Alt+Q", &home).0;
         let mut native = Native::connect_display_with(Some(&desktop.display), home, quick_menu)?;
-        assert!(native.snapshot()?.power_grabbed);
+        assert_eq!(native.snapshot()?.power_reading, Reading::Grab);
         desktop.press(&[], 0x1008_ff2a)?; // XF86PowerOff
         let snapshot = native.snapshot()?;
         assert!(snapshot.power_key && !snapshot.home_key && !snapshot.quick_menu_key);
@@ -1421,7 +1424,7 @@ pub(crate) mod fixture {
         native.snapshot()?;
         desktop.press(&[], 0x1008_ff2a)?;
         let snapshot = native.snapshot()?;
-        assert!(snapshot.power_key && snapshot.power_grabbed);
+        assert!(snapshot.power_key && snapshot.power_reading == Reading::Grab);
         Ok(())
     }
     /// ADR-0111: a power key another client holds (xfce4-power-manager)
@@ -1457,7 +1460,7 @@ pub(crate) mod fixture {
         desktop.c.flush()?;
         let mut native = Native::connect_display(Some(&desktop.display))?;
         let snapshot = native.snapshot()?;
-        assert!(!snapshot.power_grabbed);
+        assert_eq!(snapshot.power_reading, Reading::None);
         desktop.press(&[], 0x1008_ff2a)?;
         assert!(!native.snapshot()?.power_key);
         desktop.home_key()?;
@@ -1467,7 +1470,8 @@ pub(crate) mod fixture {
         // and Arinn reads it from raw events.
         native.set_power(true, true)?;
         let snapshot = native.snapshot()?;
-        assert!(snapshot.power_grabbed && !snapshot.power_key);
+        assert!(snapshot.power_reading == Reading::Raw && !snapshot.power_key);
+        assert_eq!(snapshot.power_reading, Reading::Raw);
         desktop.press(&[], 0x1008_ff2a)?;
         let snapshot = native.snapshot()?;
         assert!(snapshot.power_key && !snapshot.home_key && !snapshot.quick_menu_key);
@@ -1483,9 +1487,67 @@ pub(crate) mod fixture {
         assert!(native.snapshot()?.power_key);
         // Back in an ordinary desktop the key is not read any more.
         native.set_power(true, false)?;
-        assert!(!native.snapshot()?.power_grabbed);
+        assert_eq!(native.snapshot()?.power_reading, Reading::None);
         desktop.press(&[], 0x1008_ff2a)?;
         assert!(!native.snapshot()?.power_key);
+        Ok(())
+    }
+    /// Codex P1 on #517: with `XF86PowerDown` mapped as well, Arinn grabs
+    /// that key while the power manager holds `XF86PowerOff`. Any key read
+    /// from raw events makes the reading `Raw`, so the power manager is set
+    /// to do nothing; a mixed reading never counts as a plain grab.
+    #[test]
+    #[ignore = "requires Xvfb; spawns an isolated X server, never uses the real DISPLAY"]
+    fn a_power_key_read_raw_beside_a_grabbed_one_reads_raw() -> Result<()> {
+        let desktop = Desktop::new()?;
+        let setup = desktop.c.setup();
+        let count = setup.max_keycode - setup.min_keycode + 1;
+        let mapping = desktop
+            .c
+            .get_keyboard_mapping(setup.min_keycode, count)?
+            .reply()?;
+        let per = usize::from(mapping.keysyms_per_keycode);
+        let rows: Vec<&[u32]> = mapping.keysyms.chunks(per).collect();
+        let code = |sym: u32| {
+            rows.iter()
+                .position(|syms| syms.contains(&sym))
+                .map(|i| setup.min_keycode + i as u8)
+        };
+        let power = code(0x1008_ff2a).unwrap();
+        if code(0x1008_ff21).is_none() {
+            // Map XF86PowerDown on a free keycode.
+            let free = rows
+                .iter()
+                .position(|syms| syms.iter().all(|s| *s == 0))
+                .map(|i| setup.min_keycode + i as u8)
+                .unwrap();
+            let mut syms = vec![0u32; per];
+            syms[0] = 0x1008_ff21;
+            desktop
+                .c
+                .change_keyboard_mapping(1, free, mapping.keysyms_per_keycode, &syms)?
+                .check()?;
+        }
+        desktop
+            .c
+            .grab_key(
+                false,
+                desktop.root,
+                ModMask::from(0u16),
+                power,
+                GrabMode::ASYNC,
+                GrabMode::ASYNC,
+            )?
+            .check()?;
+        desktop.c.flush()?;
+        let mut native = Native::connect_display(Some(&desktop.display))?;
+        native.snapshot()?;
+        assert_eq!(native.set_power(true, true)?, Reading::Raw);
+        assert_eq!(native.snapshot()?.power_reading, Reading::Raw);
+        desktop.press(&[], 0x1008_ff21)?;
+        assert!(native.snapshot()?.power_key);
+        desktop.press(&[], 0x1008_ff2a)?;
+        assert!(native.snapshot()?.power_key);
         Ok(())
     }
     #[test]

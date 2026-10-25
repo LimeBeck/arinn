@@ -68,13 +68,13 @@ end: Close(S) from the shell, Request() again, Closed(S, reason) from the delive
 
 ## Delivery
 
-The deliverer delivers only into the target bound at `[open, S]`. Before every record it needs an explicit unlocked reply from the lock service; a locked or unknown state ends the session (`locked`). As soon as the target loses focus, nothing more is delivered, also within one `type` record. Each platform is described in detail in ADR-0105:
+The deliverer delivers only into the target bound at `[open, S]`. Before every record, and on X11 before every character, it needs an explicit unlocked reply from the lock service; a locked or unknown state ends the session (`locked`). As soon as the target loses focus, nothing more is delivered, also within one `type` record. Each platform is described in detail in ADR-0105:
 
 - **X11/EWMH:** `arinn-platform-x11`.
   - The target is `_NET_ACTIVE_WINDOW`.
   - Passive root grabs capture the panel keys; focus stays with the application. The session opens only when all four directions, one Select key (Return or KP_Enter) and one Back key (Escape or XF86Back) are grabbed; otherwise it is `unavailable`.
-  - XTest types every character through a scratch keycode mapped to its keysym, independent of the layout.
-  - Before each character and each editing key the worker checks that `_NET_ACTIVE_WINDOW` is still the target and that the X input focus (`GetInputFocus`) is the target or one of its descendants. At the first failed check it drops the rest of the record and ends the session.
+  - XTest types every character through one of up to eight scratch keycodes mapped to its keysym, independent of the layout; they are emptied when the session ends.
+  - Before each character and each editing key the worker checks two things. The lock: an explicit unlocked reply; a locker's keyboard grab is invisible to `GetInputFocus`. The focus: `_NET_ACTIVE_WINDOW` is still the target, and the X input focus (`GetInputFocus`) is the target or one of its descendants. At the first failed check it drops the rest of the record and ends the session (`locked` or `focus`).
   - The session ends on focus change or destruction of the target.
 - **KDE Plasma 6/Wayland:** `arinn-input-method`, the input method KWin starts.
   - `forceActivate()` binds the context of the focused surface.

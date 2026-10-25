@@ -141,16 +141,20 @@ A keyboard worker with its own X connection does the following:
    - A key another client holds is skipped. The session opens only when all four directions, at least one Select key (Return or KP_Enter) and at least one Back key (Escape or XF86Back) are grabbed; otherwise the worker releases its grabs and reports `unavailable`, so the remote can always move, select and leave.
    - Passive grabs leave focus with the application, so all other keys, Backspace and a hardware keyboard included, reach it.
    - The X server's auto-repeat repeats grabbed arrows.
-4. **Delivery.** Before each record (`type` or `press`) the worker needs an explicit unlocked ScreenSaver reply. Then, before **each character** of a `type` record and before each editing key, it checks that the target still has focus:
-   - `_NET_ACTIVE_WINDOW` is still the target;
-   - the X input focus (`GetInputFocus`) is the target or one of its descendants. XTest events follow the input focus, not `_NET_ACTIVE_WINDOW`; `PointerRoot` or `None` fails the check.
+4. **Delivery.** Before **each character** of a `type` record and before each editing key, the worker checks two things:
+   - **The lock:** an explicit unlocked ScreenSaver reply. A screen locker usually holds an active keyboard grab, which `GetInputFocus` does not report, so the lock is checked per character and not only per record. Otherwise the rest of a record could reach the locker's password prompt.
+   - **The focus:**
+     - `_NET_ACTIVE_WINDOW` is still the target;
+     - the X input focus (`GetInputFocus`) is the target or one of its descendants. XTest events follow the input focus, not `_NET_ACTIVE_WINDOW`; `PointerRoot` or `None` fails the check.
 
-   At the first failed check the worker drops the rest of the record, delivers nothing more and ends the session with `focus` (or `locked`, under the rule of the reason table). A lock screen takes the input focus, so a lock during a long record also stops it at the next character.
+   At the first failed check the worker drops the rest of the record and delivers nothing more. It ends the session with `locked` when the lock check failed, otherwise with `focus` (the reason table applies).
 
-   Each character, and each editing key, is typed through a scratch keycode:
-   - an unused keycode is mapped to the character's keysym in every column (`ChangeKeyboardMapping`), so neither the layout nor Shift matters;
+   Each character, and each editing key, is typed through one of up to eight scratch keycodes, keycodes that have no keysym:
+   - a scratch keycode that already carries the keysym is reused;
+   - otherwise the next one in rotation is mapped to the keysym in every column (`ChangeKeyboardMapping`), so neither the layout nor Shift matters, and a client still reading the previous mapping never sees its character change under it;
    - the keysym is the Latin-1 value or `0x01000000 + code point`;
-   - the worker sends an XTest press and release, then restores the empty mapping.
+   - the worker sends an XTest press and release;
+   - when the session ends, every scratch keycode gets its empty mapping back.
 
    This is how `xdotool type` handles characters missing from the layout; Cyrillic needs no layout switch.
 5. **End.** A change of `_NET_ACTIVE_WINDOW` or of the input focus away from the target, the target's destruction, a lock or an unknown lock state ends the session. The worker reports it and releases its panel grabs.
@@ -182,7 +186,7 @@ The shell shows the panel in an **override-redirect** window with `WM_HINTS inpu
 - **The panel window** is a separate shell window titled `org.arinn.KeyboardPanel`. Two pieces of KDE configuration keep it from taking focus:
   - **A window rule.** The daemon's KDE platform code keeps one rule `arinn-keyboard-panel` in `kwinrulesrc`: window class `org.arinn.Shell`, exact title `org.arinn.KeyboardPanel`, *Accept focus: No* (forced). It then asks KWin to reconfigure. Only this group and the `[General]` `rules`/`count` entries are touched; a file that cannot be parsed safely is left alone.
   - **The KWin script.** It excludes that title from the shell identity and the inventory. It places the panel at the bottom of the shell's output, keeps it above and skips taskbar, pager and switcher.
-- **The input method setting.** When `kwinrc [Wayland] InputMethod` is empty, the daemon sets it to the Arinn desktop file and sends KConfig's change notification, so KWin starts the helper. The daemon never replaces another input method. In that case `Request()` reports `Unavailable`, the log names the reason, and the user can select *Arinn* under System Settings → Keyboard → Virtual Keyboard.
+- **The input method setting.** When `kwinrc [Wayland] InputMethod` is empty, the daemon sets it to the Arinn desktop file and sends KConfig's change notification, so KWin starts the helper. It does this **once**: a marker in Arinn's state directory records that it wrote the value, and it never writes it again. Plasma stores *None* by deleting the key, so a user who later picks *None* keeps it. The daemon never replaces another input method. Uninstalling Arinn reverses neither the value nor the window rule. Both are harmless: the rule matches only Arinn's panel, and a missing desktop file only turns KWin's input method off. In that case `Request()` reports `Unavailable`, the log names the reason, and the user can select *Arinn* under System Settings → Keyboard → Virtual Keyboard.
 - **KDE/X11** (ADR-0077) has no input method and no XTest deliverer, so the key reports `Unavailable` there.
 
 ### Owner decisions
@@ -202,7 +206,7 @@ These points go beyond the owner's answers of 2026-10-11 and 2026-10-21 on #434.
 - **Wayland needs the application to have keyboard focus and KWin's input method.**
   - On Plasma 6.3–6.5 an application without text-input receives only characters of the active layout.
   - Chrome without its Wayland IME flag is such an application; Cyrillic there needs Plasma 6.6 or the IME flag.
-- **XTest changes the keyboard mapping briefly for every delivered character.** Clients see MappingNotify events, as with `xdotool type`.
+- **XTest remaps up to eight unused keycodes during a session.** Clients see MappingNotify events, as with `xdotool type`, and the keycodes are emptied again when the session ends.
 - **A panel that loses its rule takes focus on Wayland.** Then KWin deactivates the context and the session ends at once: fail closed, logged.
 - The hwdb entry is the first system-wide file Arinn installs for an input device. Other remotes need their own entry or the configured key.
 - Operator tests on the HTPC are still needed: the real KWin input-method path, Chrome on Wayland and on XFCE, and the hwdb remap.

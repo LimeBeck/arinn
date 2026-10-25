@@ -234,11 +234,15 @@ every action goes through the methods above.
   the new one starts slowly) the adapter waits a little longer, still holding
   the inhibitor and taking no key, so a slow instance grabs the key itself.
   The whole restart, the `Restart` call included, holds the inhibitor at most
-  15 s, as ADR-0111 states. The running adapter tries an unconfirmed repair
-  again as well (the grab check fails, `Restart` fails or times out, the old
-  instance stays, or no new instance owns the name in time): every 30 s at
-  most, never sooner, each restart under logind's inhibitor (a temporary one
-  once Arinn's is gone), until one is confirmed. Only a restart after which
+  15 s, as ADR-0111 states. A `Restart` call not answered within 5 s may
+  still take effect, so the name is watched the same way after it; only an
+  error reply ends the restart at once. The running adapter tries an
+  unconfirmed repair again as well (the grab check fails, `Restart` returns
+  an error, the old instance stays, or no new instance owns the name in
+  time): every 30 s at most, never sooner, each restart under logind's
+  inhibitor (a temporary one once Arinn's is gone; without one nothing is
+  restarted and the next attempt waits for the backoff), until one is
+  confirmed. Only a restart after which
   the old instance went away and no new one came counts: after 3 of them in
   a row the adapter gives up and logs it. It restarts nothing more and grabs
   no key until the adapter restarts, and the marker stays for the next
@@ -323,7 +327,8 @@ appears and is restarted when its grab failed, the dedicated session never
 grabbing, a crash repaired at the next start, a marker kept until the repair
 is confirmed, an unconfirmed restart or a failed grab check retried after the
 backoff until confirmed, a slow new instance waited for, the inhibitor held
-at most 15 s when no instance comes, restarts whose instance never came
+at most 15 s when no instance comes, a late `Restart` answer still watched,
+no restart without the inhibitor, restarts whose instance never came
 capped, a restart that changed nothing retried without counting, a confirmed
 repair resetting the count, no restart when the name is gone, the backoff
 reset after a repair, a

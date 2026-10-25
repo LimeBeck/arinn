@@ -57,7 +57,9 @@ exit 0
                     "DISPLAY": ":987", "XDG_SESSION_TYPE": "x11",
                     "XAUTHORITY": str(self.root / "synthetic-authority"),
                     "PATH": f"{self.root}:{os.environ['PATH']}", "CALL_LOG": str(self.log)}
-        self.env.pop("ARINN_SESSION_ENTRY", None)
+        for name in ("ARINN_SESSION_ENTRY", "XDG_STATE_HOME", "XDG_CONFIG_HOME"):
+            self.env.pop(name, None)
+        self.env["HOME"] = str(self.root / "home")
 
     @staticmethod
     def stop_process(child):
@@ -94,7 +96,7 @@ exit 0
     def assert_cleanup(self):
         calls = self.log.read_text().splitlines()
         self.assertEqual(sum(" stop arinn-ewmh-session.target" in call for call in calls), 1)
-        self.assertTrue(calls[-1].endswith("unset-environment DISPLAY XAUTHORITY XDG_SESSION_TYPE ARINN_PLATFORM_BACKEND ARINN_SESSION_BACKEND"))
+        self.assertTrue(calls[-1].endswith("unset-environment DISPLAY XAUTHORITY XDG_SESSION_TYPE ARINN_PLATFORM_BACKEND ARINN_SESSION_BACKEND ARINN_LOGIN_STATE_HOME ARINN_LOGIN_CONFIG_HOME"))
         self.assertFalse(any(" enable " in call for call in calls))
 
     def test_login_imports_environment_before_start_and_logout_stops(self):
@@ -121,6 +123,33 @@ exit 0
         self.close_owner()
         self.assertEqual(child.wait(timeout=5), 0)
         self.assert_cleanup()
+
+    def test_login_folders_reach_the_user_manager(self):
+        # ADR-0111: the adapter in the user manager uses the login's own
+        # state and config folders for the XFCE power button's copy and
+        # restore entry, so it meets the system login entry. Defaults below
+        # HOME, a login's own values, and unknown folders (unset).
+        for changes, expected in (
+            ({}, f"ARINN_LOGIN_STATE_HOME={self.root}/home/.local/state "
+                 f"ARINN_LOGIN_CONFIG_HOME={self.root}/home/.config"),
+            ({"XDG_STATE_HOME": "/login/state", "XDG_CONFIG_HOME": "/login/config"},
+             "ARINN_LOGIN_STATE_HOME=/login/state ARINN_LOGIN_CONFIG_HOME=/login/config"),
+            ({"HOME": "relative", "XDG_STATE_HOME": "relative"}, None),
+        ):
+            with self.subTest(changes=changes):
+                self.log.write_text("")
+                child = self.launch(**changes)
+                self.wait_for_start(child)
+                calls = self.log.read_text().splitlines()
+                start = calls.index("--user --no-ask-password start arinn-ewmh-session.target")
+                if expected:
+                    folders = calls.index(f"--user --no-ask-password set-environment {expected}")
+                else:
+                    folders = calls.index("--user --no-ask-password unset-environment "
+                                          "ARINN_LOGIN_STATE_HOME ARINN_LOGIN_CONFIG_HOME")
+                self.assertLess(folders, start)
+                child.terminate()
+                self.assertEqual(child.wait(timeout=5), 0)
 
     def test_dedicated_login_keeps_its_marker(self):
         # ADR-0111: the dedicated session's wrapper puts the marker into the

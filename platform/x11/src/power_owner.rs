@@ -126,7 +126,7 @@ pub async fn restart_power_manager(bus: &Connection, wait: Duration) -> bool {
     asked
 }
 
-/// `$XDG_RUNTIME_DIR/arinn/power-grab`, naming this X display: its adapter
+/// `$XDG_RUNTIME_DIR/arinn/power-grab-<display>`, naming this X display: its adapter
 /// grabs, or grabbed, the power key and has not checked
 /// xfce4-power-manager since it let go. Only then may an adapter start or
 /// `--release-power-key` restart xfce4-power-manager (review of #516); the
@@ -286,24 +286,18 @@ impl PowerOwner {
     /// From the environment of the adapter.
     pub async fn from_env() -> Self {
         let entry = std::env::var("ARINN_SESSION_ENTRY").ok();
-        let files = xfce_power::Files::from_env(
-            std::env::var_os("HOME").as_deref(),
-            std::env::var_os("XDG_STATE_HOME").as_deref(),
-            std::env::var_os("XDG_CONFIG_HOME").as_deref(),
-        );
+        let dedicated = xfce_power::dedicated(entry.as_deref());
+        let var = |name: &str| std::env::var_os(name);
         let bus = Connection::session().await.ok();
         // A copy an earlier dedicated run left goes back first, in any
         // X11/EWMH session.
-        if let (Some(bus), Some(files)) = (bus.as_ref(), files.as_ref()) {
-            xfce_power::release(bus, files).await;
+        if let (Some(bus), Some(files)) = (bus.as_ref(), xfce_power::Files::from_vars(var, false)) {
+            xfce_power::release(bus, &files).await;
         }
-        Self::new(
-            xfce_power::dedicated(entry.as_deref()),
-            bus.clone(),
-            bus.zip(files),
-            None,
-        )
-        .with_marker(GrabMarker::from_env())
+        // The dedicated session changes xfconf only with the login's own
+        // directories; without them it takes nothing.
+        let files = xfce_power::Files::from_vars(var, dedicated);
+        Self::new(dedicated, bus.clone(), bus.zip(files), None).with_marker(GrabMarker::from_env())
     }
     /// Uses `marker`; one an earlier adapter of this display left is
     /// checked at the first pass.

@@ -946,11 +946,7 @@ fn config_table(
 }
 /// The files and session bus for xfce4-power-manager's power button.
 async fn power_button() -> Option<(Connection, xfce_power::Files)> {
-    let files = xfce_power::Files::from_env(
-        std::env::var_os("HOME").as_deref(),
-        std::env::var_os("XDG_STATE_HOME").as_deref(),
-        std::env::var_os("XDG_CONFIG_HOME").as_deref(),
-    )?;
+    let files = xfce_power::Files::from_vars(|name| std::env::var_os(name), false)?;
     Some((Connection::session().await.ok()?, files))
 }
 #[tokio::main]
@@ -964,11 +960,7 @@ async fn main() -> Result<()> {
         // xfce4-power-manager runs while nobody grabs a mapped power key,
         // its grab failed meanwhile and it is restarted (review of #516).
         if let Ok(bus) = Connection::session().await {
-            let files = xfce_power::Files::from_env(
-                std::env::var_os("HOME").as_deref(),
-                std::env::var_os("XDG_STATE_HOME").as_deref(),
-                std::env::var_os("XDG_CONFIG_HOME").as_deref(),
-            );
+            let files = xfce_power::Files::from_vars(|name| std::env::var_os(name), false);
             let system = Connection::system().await.ok();
             power_owner::release_after_adapter(
                 &bus,

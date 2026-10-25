@@ -6,6 +6,7 @@ use anyhow::{Result, bail, ensure};
 use std::{
     env,
     future::poll_fn,
+    path::PathBuf,
     pin::Pin,
     process::{Command, Stdio},
     time::Duration,
@@ -81,8 +82,51 @@ async fn start() -> Result<()> {
         systemctl(&["unset-environment", "ARINN_SESSION_ENTRY"]).await?
     };
     ensure!(marked, "session marker update failed");
+    // ADR-0111: the login's own state and config folders, for the XFCE
+    // power button's saved copy and restore entry. The system login entry
+    // runs in this login and uses these; the adapter runs in the user
+    // manager, which may disagree, and prefers these Arinn-only values.
+    // No XDG_* value changes for other units.
+    let folders = match (
+        login_folder("XDG_STATE_HOME", ".local/state"),
+        login_folder("XDG_CONFIG_HOME", ".config"),
+    ) {
+        (Some(state), Some(config)) => {
+            systemctl(&[
+                "set-environment",
+                &format!("ARINN_LOGIN_STATE_HOME={state}"),
+                &format!("ARINN_LOGIN_CONFIG_HOME={config}"),
+            ])
+            .await?
+        }
+        // Unknown: the dedicated session then takes no power key.
+        _ => {
+            systemctl(&[
+                "unset-environment",
+                "ARINN_LOGIN_STATE_HOME",
+                "ARINN_LOGIN_CONFIG_HOME",
+            ])
+            .await?
+        }
+    };
+    ensure!(folders, "login folder update failed");
     ensure!(systemctl(&["start", TARGET]).await?, "session start failed");
     Ok(())
+}
+
+/// `variable` of this login as an absolute path, or the XDG default below
+/// `$HOME`; `None` when neither is known or it is not UTF-8.
+fn login_folder(variable: &str, fallback: &str) -> Option<String> {
+    let absolute =
+        |value: std::ffi::OsString| Some(PathBuf::from(value)).filter(|p| p.is_absolute());
+    env::var_os(variable)
+        .and_then(absolute)
+        .or_else(|| {
+            env::var_os("HOME")
+                .and_then(absolute)
+                .map(|home| home.join(fallback))
+        })
+        .and_then(|path| path.into_os_string().into_string().ok())
 }
 
 async fn run() -> Result<()> {
@@ -165,6 +209,8 @@ async fn run() -> Result<()> {
         "XDG_SESSION_TYPE",
         "ARINN_PLATFORM_BACKEND",
         "ARINN_SESSION_BACKEND",
+        "ARINN_LOGIN_STATE_HOME",
+        "ARINN_LOGIN_CONFIG_HOME",
     ])
     .await;
     outcome?;

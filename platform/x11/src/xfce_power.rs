@@ -167,6 +167,33 @@ impl Files {
             installed: adapter_binary(),
         })
     }
+    /// From an environment `var`: the login's directories that
+    /// `arinn-xfce-session` passes to the user manager
+    /// (`ARINN_LOGIN_STATE_HOME`, `ARINN_LOGIN_CONFIG_HOME`) win over the
+    /// process's own `XDG_*`, so the adapter, its `ExecStopPost=` helper and
+    /// the system login entry (which runs in the login and has its own
+    /// `XDG_*`) find the same copy and the same autostart folder, also when
+    /// the login and the user manager disagree (review of #516, Codex P1).
+    /// With `require_login` (the dedicated session takes the key) both must
+    /// be set and absolute, or there are no files and nothing is taken.
+    pub fn from_vars<V>(var: V, require_login: bool) -> Option<Self>
+    where
+        V: Fn(&str) -> Option<std::ffi::OsString>,
+    {
+        let absolute = |name: &str| var(name).filter(|value| Path::new(value).is_absolute());
+        let (state, config) = (
+            absolute("ARINN_LOGIN_STATE_HOME"),
+            absolute("ARINN_LOGIN_CONFIG_HOME"),
+        );
+        if require_login && (state.is_none() || config.is_none()) {
+            return None;
+        }
+        Self::from_env(
+            var("HOME").as_deref(),
+            state.or_else(|| var("XDG_STATE_HOME")).as_deref(),
+            config.or_else(|| var("XDG_CONFIG_HOME")).as_deref(),
+        )
+    }
     /// The script the restore entry runs.
     pub fn script(&self) -> PathBuf {
         self.entry.with_extension("sh")
@@ -714,6 +741,80 @@ pub(crate) mod tests {
         fn path(&self) -> &Path {
             &self.files.record
         }
+    }
+
+    /// An environment from `pairs`.
+    fn vars(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<std::ffi::OsString> + use<> {
+        let pairs: Vec<(String, String)> = pairs
+            .iter()
+            .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+            .collect();
+        move |name| pairs.iter().find(|(k, _)| k == name).map(|(_, v)| v.into())
+    }
+    fn same(a: &Files, b: &Files) {
+        assert_eq!(a.record, b.record);
+        assert_eq!(a.channel, b.channel);
+        assert_eq!(a.entry, b.entry);
+    }
+
+    /// Review of #516 (Codex P1): the login sets its own XDG directories,
+    /// the user manager does not. The adapter (user manager, with the
+    /// directories `arinn-xfce-session` passed) and the system login entry
+    /// (the login) find the same copy and the same autostart folder.
+    #[test]
+    fn the_login_directories_win_when_only_the_login_sets_them() {
+        let login = vars(&[
+            ("HOME", "/home/u"),
+            ("XDG_STATE_HOME", "/login/state"),
+            ("XDG_CONFIG_HOME", "/login/config"),
+        ]);
+        let manager = vars(&[
+            ("HOME", "/home/u"),
+            ("ARINN_LOGIN_STATE_HOME", "/login/state"),
+            ("ARINN_LOGIN_CONFIG_HOME", "/login/config"),
+        ]);
+        let adapter = Files::from_vars(manager, true).unwrap();
+        same(&adapter, &Files::from_vars(login, false).unwrap());
+        assert!(adapter.record.starts_with("/login/state"));
+        assert!(adapter.entry.starts_with("/login/config/autostart"));
+    }
+
+    /// The other direction: the user manager sets its own XDG directories,
+    /// the login uses the defaults. The login's defaults win.
+    #[test]
+    fn the_login_directories_win_when_only_the_manager_sets_them() {
+        let login = vars(&[("HOME", "/home/u")]);
+        let manager = vars(&[
+            ("HOME", "/home/u"),
+            ("XDG_STATE_HOME", "/manager/state"),
+            ("XDG_CONFIG_HOME", "/manager/config"),
+            ("ARINN_LOGIN_STATE_HOME", "/home/u/.local/state"),
+            ("ARINN_LOGIN_CONFIG_HOME", "/home/u/.config"),
+        ]);
+        let adapter = Files::from_vars(manager, true).unwrap();
+        same(&adapter, &Files::from_vars(login, false).unwrap());
+        assert!(!adapter.record.starts_with("/manager"));
+    }
+
+    /// The dedicated session without the login's directories takes
+    /// nothing; a relative value does not count. Other sessions fall back
+    /// to their own `XDG_*` for giving a stale copy back.
+    #[test]
+    fn the_dedicated_session_needs_the_login_directories() {
+        let manager = vars(&[("HOME", "/home/u"), ("XDG_STATE_HOME", "/manager/state")]);
+        assert!(Files::from_vars(&manager, true).is_none());
+        assert!(
+            Files::from_vars(&manager, false)
+                .unwrap()
+                .record
+                .starts_with("/manager/state")
+        );
+        let relative = vars(&[
+            ("HOME", "/home/u"),
+            ("ARINN_LOGIN_STATE_HOME", "state"),
+            ("ARINN_LOGIN_CONFIG_HOME", "/c"),
+        ]);
+        assert!(Files::from_vars(relative, true).is_none());
     }
 
     #[test]

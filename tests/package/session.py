@@ -53,6 +53,15 @@ assert "OnlyShowIn=XFCE;" in xfce_entry
 assert "Exec=/usr/lib/arinn/arinn-xfce-session" in xfce_entry
 for directory in (PREFIX / "../etc/xdg/autostart", PREFIX / "etc/xdg/autostart"):
     assert not (directory / template.name).exists(), "XFCE autostart enabled globally"
+# The XFCE power button restore runs at every XFCE login (ADR-0111); it
+# starts no part of Arinn.
+restores = [directory / "org.arinn.PowerButtonRestore.desktop"
+            for directory in (PREFIX / "../etc/xdg/autostart", PREFIX / "etc/xdg/autostart")]
+restore = next((path for path in restores if path.is_file()), None)
+assert restore, "missing XFCE power button restore"
+restore_entry = restore.read_text()
+assert "OnlyShowIn=XFCE;" in restore_entry
+assert "Exec=/usr/bin/arinn-platform-x11 --restore-power-button" in restore_entry
 subprocess.run([sys.executable, str(Path(__file__).with_name("test_xfce_session.py"))],
                env={**os.environ, "ARINN_XFCE_SESSION": str(XFCE)}, check=True, timeout=60)
 # Menu entry and icon (#289).

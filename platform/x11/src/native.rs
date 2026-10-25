@@ -14,6 +14,29 @@ use x11rb::{
 /// XInput2's `XIAllMasterDevices`.
 const ALL_MASTER_DEVICES: xinput::DeviceId = 1;
 
+/// How the adapter reads the power key now (ADR-0111).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Reading {
+    /// Not read: off, or held by another client and not readable.
+    None,
+    /// Grabbed on the root window.
+    Grab,
+    /// Read from XInput2 raw key presses while another client grabs it.
+    Raw,
+}
+
+/// A raw key press that is a power key: only the power keycodes are looked
+/// at, and a repeat of a held key is not a press. Nothing else of the raw
+/// event is kept (§13).
+pub(crate) fn raw_power_press(
+    codes: &HashSet<Keycode>,
+    detail: u32,
+    flags: xinput::KeyEventFlags,
+) -> bool {
+    u8::try_from(detail).is_ok_and(|code| codes.contains(&code))
+        && !flags.contains(xinput::KeyEventFlags::KEY_REPEAT)
+}
+
 x11rb::atom_manager! {
     pub Atoms: AtomsCookie {
         _NET_SUPPORTING_WM_CHECK, _NET_SUPPORTED, _NET_CLIENT_LIST,
@@ -384,6 +407,9 @@ pub struct Native {
     /// presses are selected on the root window.
     raw_power_codes: HashSet<Keycode>,
     raw_selected: bool,
+    /// The power keys are read at all: only while the shell is alive
+    /// (ADR-0111). On by default for the isolated tests.
+    power_enabled: bool,
     /// The shell has focus: the remote's Menu keys are left to it.
     shell_focused: bool,
 }
@@ -439,6 +465,7 @@ impl Native {
             power_grabs: HashSet::new(),
             raw_power: false,
             raw_power_codes: HashSet::new(),
+            power_enabled: true,
             raw_selected: false,
             shell_focused: false,
         };
@@ -618,12 +645,15 @@ impl Native {
         // and the quick menu keep a key they name. A power key another
         // client holds (xfce4-power-manager) stays that client's and never
         // stops the adapter (ADR-0111).
-        let power: Vec<Sequence> = self
-            .power
-            .iter()
-            .copied()
-            .filter(|key| !self.home.contains(key) && !quick_menu.contains(key))
-            .collect();
+        let power: Vec<Sequence> = if self.power_enabled {
+            self.power
+                .iter()
+                .copied()
+                .filter(|key| !self.home.contains(key) && !quick_menu.contains(key))
+                .collect()
+        } else {
+            Vec::new()
+        };
         self.power_grabs = grab_sequences(&self.c, self.root, &map, &power, "power")?;
         // A power key the desktop's power manager still grabs while it does
         // nothing with it (the dedicated Arinn XFCE session) is read from raw
@@ -642,15 +672,27 @@ impl Native {
         self.c.flush()?;
         Ok(())
     }
-    /// In the dedicated Arinn XFCE session, after the power manager's power
-    /// button action is set to nothing: read a power key it still grabs from
-    /// raw events (ADR-0111).
-    pub fn set_raw_power(&mut self, raw: bool) -> Result<()> {
-        if self.raw_power == raw {
-            return Ok(());
+    /// Reads the power keys (`enabled`) or leaves them alone, and with
+    /// `raw` reads one another client grabs from raw events (the dedicated
+    /// Arinn XFCE session, ADR-0111). Returns how the key is read now.
+    pub fn set_power(&mut self, enabled: bool, raw: bool) -> Result<Reading> {
+        let raw = enabled && raw;
+        if self.power_enabled != enabled || self.raw_power != raw {
+            self.power_enabled = enabled;
+            self.raw_power = raw;
+            self.grab_home()?;
         }
-        self.raw_power = raw;
-        self.grab_home()
+        Ok(self.reading())
+    }
+    /// How the power key is read now.
+    pub fn reading(&self) -> Reading {
+        if !self.power_grabs.is_empty() {
+            Reading::Grab
+        } else if !self.raw_power_codes.is_empty() {
+            Reading::Raw
+        } else {
+            Reading::None
+        }
     }
     /// Selects XInput2 raw key presses on the root window while a power key
     /// is read from them; raw events reach every client that selects them,
@@ -715,9 +757,7 @@ impl Native {
                 // A power key the desktop's power manager grabs but no
                 // longer acts on; repeats of a held key are not presses.
                 Event::XinputRawKeyPress(e)
-                    if u8::try_from(e.detail)
-                        .is_ok_and(|code| self.raw_power_codes.contains(&code))
-                        && !e.flags.contains(xinput::KeyEventFlags::KEY_REPEAT) =>
+                    if raw_power_press(&self.raw_power_codes, e.detail, e.flags) =>
                 {
                     power_key = true;
                     quick_menu_key = false;
@@ -829,7 +869,7 @@ impl Native {
             home_key,
             quick_menu_key,
             power_key,
-            power_grabbed: !self.power_grabs.is_empty() || !self.raw_power_codes.is_empty(),
+            power_grabbed: self.reading() != Reading::None,
             compositor: self.c.get_selection_owner(self.compositor)?.reply()?.owner != 0,
         })
     }
@@ -942,6 +982,22 @@ impl Native {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn only_power_keycodes_count_and_never_a_repeat() {
+        // Review of #517: raw events report every key press; only the power
+        // keycodes are looked at, and a held key's repeats are no presses.
+        let codes: HashSet<Keycode> = [124].into_iter().collect();
+        let none = xinput::KeyEventFlags::from(0u32);
+        assert!(raw_power_press(&codes, 124, none));
+        assert!(!raw_power_press(&codes, 38, none));
+        assert!(!raw_power_press(&codes, 124 + 256, none));
+        assert!(!raw_power_press(
+            &codes,
+            124,
+            xinput::KeyEventFlags::KEY_REPEAT
+        ));
+        assert!(!raw_power_press(&HashSet::new(), 124, none));
+    }
     #[test]
     fn recycled_xids_get_fresh_opaque_tokens() {
         let mut tokens = Tokens::default();
@@ -1409,7 +1465,7 @@ pub(crate) mod fixture {
         // The dedicated Arinn XFCE session (owner decision of 2026-10-24):
         // the power manager keeps its grab but does nothing with the key,
         // and Arinn reads it from raw events.
-        native.set_raw_power(true)?;
+        native.set_power(true, true)?;
         let snapshot = native.snapshot()?;
         assert!(snapshot.power_grabbed && !snapshot.power_key);
         desktop.press(&[], 0x1008_ff2a)?;
@@ -1426,7 +1482,7 @@ pub(crate) mod fixture {
         desktop.press(&[], 0x1008_ff2a)?;
         assert!(native.snapshot()?.power_key);
         // Back in an ordinary desktop the key is not read any more.
-        native.set_raw_power(false)?;
+        native.set_power(true, false)?;
         assert!(!native.snapshot()?.power_grabbed);
         desktop.press(&[], 0x1008_ff2a)?;
         assert!(!native.snapshot()?.power_key);

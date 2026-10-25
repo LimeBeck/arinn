@@ -73,6 +73,10 @@ package() {
   # Template only: users opt in by copying it to their XDG autostart directory.
   install -Dm644 packaging/autostart/org.arinn.XfceSession.desktop \
     "${pkgdir}/usr/share/arinn/autostart/org.arinn.XfceSession.desktop"
+  # Enabled for every XFCE login: restores the desktop's power button after
+  # an unclean end of the dedicated session; starts no part of Arinn (ADR-0111).
+  install -Dm644 packaging/autostart/org.arinn.PowerButtonRestore.desktop \
+    "${pkgdir}/etc/xdg/autostart/org.arinn.PowerButtonRestore.desktop"
   install -Dm755 "${target}"/release/arinnd "${pkgdir}/usr/bin/arinnd"
   install -Dm755 "${target}"/release/arinnctl "${pkgdir}/usr/bin/arinnctl"
   install -Dm755 build/apps/arinn-shell/arinn-shell "${pkgdir}/usr/bin/arinn-shell"

@@ -33,6 +33,8 @@ const PROPERTY: &str = "/xfce4-power-manager/power-button-action";
 /// xfce4-power-manager's "Do nothing".
 const NOTHING: u32 = 0;
 const TIMEOUT: Duration = Duration::from_secs(5);
+/// The adapter's bus name: while it is owned, the adapter decides.
+const ADAPTER: &str = "org.arinn.X11";
 
 /// The user's setting before Arinn changed it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -72,17 +74,59 @@ pub fn dedicated(entry: Option<&str>) -> bool {
     entry == Some("xfce")
 }
 
-/// `$XDG_STATE_HOME/arinn/xfce-power-button`, or under `~/.local/state`.
-pub fn record(home: Option<&std::ffi::OsStr>, state: Option<&std::ffi::OsStr>) -> Option<PathBuf> {
-    state
-        .map(PathBuf::from)
-        .filter(|p| p.is_absolute())
-        .or_else(|| {
-            home.map(PathBuf::from)
+/// The files behind the user's setting.
+#[derive(Clone, Debug)]
+pub struct Files {
+    /// `$XDG_STATE_HOME/arinn/xfce-power-button`: the user's value while
+    /// Arinn holds the key. A lock file next to it orders the adapter and
+    /// the login restore.
+    pub record: PathBuf,
+    /// The user's own xfconf channel file. Only a property named there is
+    /// the user's value; xfconf otherwise returns a system default.
+    pub channel: PathBuf,
+}
+impl Files {
+    pub fn from_env(
+        home: Option<&std::ffi::OsStr>,
+        state: Option<&std::ffi::OsStr>,
+        config: Option<&std::ffi::OsStr>,
+    ) -> Option<Self> {
+        let base = |value: Option<&std::ffi::OsStr>, fallback: &str| {
+            value
+                .map(PathBuf::from)
                 .filter(|p| p.is_absolute())
-                .map(|p| p.join(".local/state"))
+                .or_else(|| {
+                    home.map(PathBuf::from)
+                        .filter(|p| p.is_absolute())
+                        .map(|p| p.join(fallback))
+                })
+        };
+        Some(Self {
+            record: base(state, ".local/state")?.join("arinn/xfce-power-button"),
+            channel: base(config, ".config")?
+                .join("xfce4/xfconf/xfce-perchannel-xml/xfce4-power-manager.xml"),
         })
-        .map(|root| root.join("arinn/xfce-power-button"))
+    }
+    /// The user set the property: their channel file names it.
+    fn explicit(&self) -> bool {
+        std::fs::read_to_string(&self.channel)
+            .is_ok_and(|text| text.contains(r#"name="power-button-action""#))
+    }
+    /// An exclusive lock next to the record, held while it is read or
+    /// changed; released when dropped.
+    fn lock(&self) -> Option<std::fs::File> {
+        use std::os::fd::AsRawFd;
+        let folder = self.record.parent()?;
+        std::fs::create_dir_all(folder).ok()?;
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(self.record.with_extension("lock"))
+            .ok()?;
+        // SAFETY: flock on a descriptor this function owns.
+        (unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } == 0).then_some(file)
+    }
 }
 
 fn log(message: &str) {
@@ -166,50 +210,42 @@ fn load(path: &Path) -> std::io::Result<Option<Saved>> {
     }
 }
 
-/// The adapter starts: in the dedicated Arinn XFCE session (`entry`) take
-/// the power button; in any other session only give back a copy an earlier
-/// dedicated run left. Returns whether the power button was taken.
-pub async fn start(c: &Connection, path: &Path, entry: Option<&str>) -> bool {
-    if dedicated(entry) {
-        take(c, path).await
-    } else {
-        release(c, path).await;
-        false
-    }
-}
-
 /// Sets the power button action to "do nothing" for the time Arinn runs.
-/// Returns whether xfce4-power-manager now leaves the key alone, so the
-/// adapter may read it from raw events. Never changes the setting without a
-/// stored copy of the user's value.
-pub async fn take(c: &Connection, path: &Path) -> bool {
-    if !available(c).await {
+/// Returns whether xfce4-power-manager now leaves the key alone. Never
+/// changes the setting without a stored copy of the user's value. A copy an
+/// earlier run left is given back first (review of #517): a value the user
+/// chose since then is theirs and must survive this run.
+pub async fn take(c: &Connection, files: &Files) -> bool {
+    let Some(_lock) = files.lock() else {
+        log("cannot lock the XFCE power button record; left unchanged");
+        return false;
+    };
+    if !available(c).await || !release_locked(c, files).await {
         return false;
     }
-    let original = match load(path) {
-        // A copy left by an earlier run is the user's value; the setting
-        // still holds Arinn's "do nothing".
-        Ok(Some(saved)) => saved,
-        Ok(None) => match current(c).await {
-            Ok(Some(saved)) if saved.is_nothing() => return true,
-            Ok(Some(saved)) => {
-                if store(path, saved).is_err() {
-                    log("cannot keep the XFCE power button setting; left unchanged");
-                    return false;
-                }
+    let path = files.record.as_path();
+    let original = match current(c).await {
+        Ok(Some(saved)) if saved.is_nothing() => return true,
+        Ok(Some(saved)) => {
+            // Without a value in the user's own file xfconf answered
+            // a system default: the user set nothing.
+            let saved = if files.explicit() {
                 saved
-            }
-            Ok(None) => {
-                log("unexpected XFCE power button setting type; left unchanged");
+            } else {
+                Saved::Absent
+            };
+            if store(path, saved).is_err() {
+                log("cannot keep the XFCE power button setting; left unchanged");
                 return false;
             }
-            Err(_) => {
-                log("xfconf did not answer; the XFCE power button is unchanged");
-                return false;
-            }
-        },
+            saved
+        }
+        Ok(None) => {
+            log("unexpected XFCE power button setting type; left unchanged");
+            return false;
+        }
         Err(_) => {
-            log("unreadable stored XFCE power button setting; left unchanged");
+            log("xfconf did not answer; the XFCE power button is unchanged");
             return false;
         }
     };
@@ -219,8 +255,8 @@ pub async fn take(c: &Connection, path: &Path) -> bool {
     };
     if write_setting(c, nothing).await.is_err() {
         log("xfconf refused the XFCE power button setting (locked?); left unchanged");
-        // The copy stays until a release finds the setting as it was.
-        let _ = release(c, path).await;
+        // The setting is as it was: the copy goes.
+        let _ = release_locked(c, files).await;
         return false;
     }
     true
@@ -229,7 +265,32 @@ pub async fn take(c: &Connection, path: &Path) -> bool {
 /// Gives the user's setting back and forgets the stored copy. A setting
 /// that no longer holds Arinn's "do nothing" was changed by the user in the
 /// meantime and is kept. Returns false when a copy remains to restore later.
-pub async fn release(c: &Connection, path: &Path) -> bool {
+pub async fn release(c: &Connection, files: &Files) -> bool {
+    match files.lock() {
+        Some(_lock) => release_locked(c, files).await,
+        None => false,
+    }
+}
+
+/// At an XFCE login (`--restore-power-button`, system XDG autostart): gives
+/// back a copy an unclean end of the dedicated session left, unless the
+/// adapter runs and owns the key in this session.
+pub async fn restore_at_login(c: &Connection, files: &Files) -> bool {
+    let Some(_lock) = files.lock() else {
+        return false;
+    };
+    let adapter = async {
+        let bus = zbus::fdo::DBusProxy::new(c).await.ok()?;
+        bus.name_has_owner(ADAPTER.try_into().ok()?).await.ok()
+    };
+    if adapter.await.unwrap_or(false) {
+        return true;
+    }
+    release_locked(c, files).await
+}
+
+async fn release_locked(c: &Connection, files: &Files) -> bool {
+    let path = files.record.as_path();
     let saved = match load(path) {
         Ok(Some(saved)) => saved,
         Ok(None) => return true,
@@ -254,7 +315,7 @@ pub async fn release(c: &Connection, path: &Path) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use std::{
         collections::HashMap,
@@ -263,7 +324,7 @@ mod tests {
         sync::{Arc, Mutex},
     };
 
-    struct Bus(Child, String);
+    pub(crate) struct Bus(Child, pub(crate) String);
     impl Drop for Bus {
         fn drop(&mut self) {
             let _ = self.0.kill();
@@ -346,19 +407,22 @@ mod tests {
         PermissionDenied(String),
     }
 
-    struct Fixture {
-        _bus: Bus,
+    pub(crate) struct Fixture {
+        pub(crate) bus: Bus,
         _service: Connection,
-        adapter: Connection,
+        pub(crate) adapter: Connection,
         store: Shared,
-        path: PathBuf,
+        pub(crate) files: Files,
+        root: PathBuf,
     }
     impl Drop for Fixture {
         fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(self.path.parent().unwrap().parent().unwrap());
+            let _ = std::fs::remove_dir_all(&self.root);
         }
     }
-    async fn fixture(value: Option<Value<'static>>) -> Fixture {
+    /// A fake xfconf holding `value`; `explicit`: the user's channel file
+    /// names the property (otherwise the value is a system default).
+    async fn fixture_with(value: Option<Value<'static>>, explicit: bool) -> Fixture {
         let bus = bus();
         let store = Shared::default();
         if let Some(value) = value {
@@ -376,17 +440,35 @@ mod tests {
             .unwrap();
         service.request_name(SERVICE).await.unwrap();
         let root = std::env::temp_dir().join(format!("arinn-xfce-{}", uuid::Uuid::new_v4()));
-        let path = record(None, Some(root.as_os_str())).unwrap();
+        let files = Files::from_env(
+            None,
+            Some(root.join("state").as_os_str()),
+            Some(root.join("config").as_os_str()),
+        )
+        .unwrap();
+        if explicit {
+            std::fs::create_dir_all(files.channel.parent().unwrap()).unwrap();
+            std::fs::write(
+                &files.channel,
+                r#"<channel name="xfce4-power-manager" version="1.0"><property name="xfce4-power-manager" type="empty"><property name="power-button-action" type="uint" value="3"/></property></channel>"#,
+            )
+            .unwrap();
+        }
         Fixture {
             adapter: connect(&bus.1).await,
-            _bus: bus,
+            bus,
             _service: service,
             store,
-            path,
+            files,
+            root,
         }
     }
+    pub(crate) async fn fixture(value: Option<Value<'static>>) -> Fixture {
+        let explicit = value.is_some();
+        fixture_with(value, explicit).await
+    }
     impl Fixture {
-        fn value(&self) -> Option<Saved> {
+        pub(crate) fn value(&self) -> Option<Saved> {
             let store = self.store.lock().unwrap();
             store
                 .properties
@@ -397,11 +479,21 @@ mod tests {
                     other => panic!("{other:?}"),
                 })
         }
-        fn writes(&self) -> usize {
+        fn set(&self, value: Value<'static>) {
+            self.store
+                .lock()
+                .unwrap()
+                .properties
+                .insert((CHANNEL.into(), PROPERTY.into()), value.try_into().unwrap());
+        }
+        pub(crate) fn writes(&self) -> usize {
             self.store.lock().unwrap().writes.len()
         }
         fn stored(&self) -> Option<Saved> {
-            load(&self.path).unwrap()
+            load(&self.files.record).unwrap()
+        }
+        fn path(&self) -> &Path {
+            &self.files.record
         }
     }
 
@@ -417,19 +509,29 @@ mod tests {
         for text in ["", "uint", "uint x", "string 3", "absent extra"] {
             assert_eq!(Saved::decode(text), None, "{text}");
         }
+        let files = Files::from_env(Some("/home/u".as_ref()), None, None).unwrap();
         assert_eq!(
-            record(Some("/home/u".as_ref()), None),
-            Some(PathBuf::from(
-                "/home/u/.local/state/arinn/xfce-power-button"
-            ))
+            files.record,
+            PathBuf::from("/home/u/.local/state/arinn/xfce-power-button")
         );
         assert_eq!(
-            record(Some("/home/u".as_ref()), Some("relative".as_ref())),
-            Some(PathBuf::from(
-                "/home/u/.local/state/arinn/xfce-power-button"
-            ))
+            files.channel,
+            PathBuf::from(
+                "/home/u/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-power-manager.xml"
+            )
         );
-        assert_eq!(record(None, None), None);
+        let files = Files::from_env(
+            Some("/home/u".as_ref()),
+            Some("relative".as_ref()),
+            Some("/c".as_ref()),
+        )
+        .unwrap();
+        assert_eq!(
+            files.record,
+            PathBuf::from("/home/u/.local/state/arinn/xfce-power-button")
+        );
+        assert!(files.channel.starts_with("/c/xfce4"));
+        assert!(Files::from_env(None, None, None).is_none());
     }
 
     /// Owner decision of 2026-10-24: "do nothing" while Arinn runs, the
@@ -437,30 +539,45 @@ mod tests {
     #[tokio::test]
     async fn sets_nothing_while_arinn_runs_and_restores_the_users_value() {
         let f = fixture(Some(Value::U32(3))).await;
-        assert!(take(&f.adapter, &f.path).await);
+        assert!(take(&f.adapter, &f.files).await);
         assert_eq!(f.value(), Some(Saved::Uint(0)));
         assert_eq!(f.stored(), Some(Saved::Uint(3)));
-        assert!(release(&f.adapter, &f.path).await);
+        assert!(release(&f.adapter, &f.files).await);
         assert_eq!(f.value(), Some(Saved::Uint(3)));
-        assert!(!f.path.exists());
+        assert!(!f.path().exists());
         // A second release has nothing left to do.
         let writes = f.writes();
-        assert!(release(&f.adapter, &f.path).await);
+        assert!(release(&f.adapter, &f.files).await);
         assert_eq!(f.writes(), writes);
     }
 
-    /// A crash or power loss leaves the copy; the next start keeps it as the
-    /// user's value instead of reading Arinn's "do nothing", and the next
-    /// release restores it.
+    /// A crash or power loss leaves the copy; the next take gives it back
+    /// first, never reads Arinn's "do nothing" as the user's value, and the
+    /// next release restores it.
     #[tokio::test]
     async fn a_stale_copy_survives_a_crash_and_is_never_overwritten() {
         let f = fixture(Some(Value::U32(4))).await;
-        assert!(take(&f.adapter, &f.path).await);
+        assert!(take(&f.adapter, &f.files).await);
         // Crash: no release. The next run takes over again.
-        assert!(take(&f.adapter, &f.path).await);
+        assert!(take(&f.adapter, &f.files).await);
         assert_eq!(f.stored(), Some(Saved::Uint(4)));
         assert_eq!(f.value(), Some(Saved::Uint(0)));
-        assert!(release(&f.adapter, &f.path).await);
+        assert!(release(&f.adapter, &f.files).await);
+        assert_eq!(f.value(), Some(Saved::Uint(4)));
+    }
+
+    /// Review of #517 (Codex P2, the reviewer's probe): a power loss leaves
+    /// copy 3; in the plain desktop the user then chooses 4. The next
+    /// dedicated run must keep 4, not write the old copy back.
+    #[tokio::test]
+    async fn a_stale_copy_never_overwrites_the_users_newer_choice() {
+        let f = fixture(Some(Value::U32(3))).await;
+        assert!(take(&f.adapter, &f.files).await);
+        f.set(Value::U32(4));
+        assert!(take(&f.adapter, &f.files).await);
+        assert_eq!(f.stored(), Some(Saved::Uint(4)));
+        assert_eq!(f.value(), Some(Saved::Uint(0)));
+        assert!(release(&f.adapter, &f.files).await);
         assert_eq!(f.value(), Some(Saved::Uint(4)));
     }
 
@@ -469,56 +586,93 @@ mod tests {
     #[tokio::test]
     async fn unset_and_nothing_settings() {
         let f = fixture(None).await;
-        assert!(take(&f.adapter, &f.path).await);
+        assert!(take(&f.adapter, &f.files).await);
         assert_eq!(f.value(), Some(Saved::Uint(0)));
         assert_eq!(f.stored(), Some(Saved::Absent));
-        assert!(release(&f.adapter, &f.path).await);
+        assert!(release(&f.adapter, &f.files).await);
         assert_eq!(f.value(), None);
         let f = fixture(Some(Value::I32(0))).await;
-        assert!(take(&f.adapter, &f.path).await);
+        assert!(take(&f.adapter, &f.files).await);
         assert_eq!(f.writes(), 0);
-        assert!(!f.path.exists());
-        assert!(release(&f.adapter, &f.path).await);
+        assert!(!f.path().exists());
+        assert!(release(&f.adapter, &f.files).await);
         assert_eq!(f.value(), Some(Saved::Int(0)));
         // An int setting stays an int.
         let f = fixture(Some(Value::I32(1))).await;
-        assert!(take(&f.adapter, &f.path).await);
+        assert!(take(&f.adapter, &f.files).await);
         assert_eq!(f.value(), Some(Saved::Int(0)));
-        assert!(release(&f.adapter, &f.path).await);
+        assert!(release(&f.adapter, &f.files).await);
         assert_eq!(f.value(), Some(Saved::Int(1)));
     }
 
-    /// Owner decision of 2026-10-24: the ordinary XFCE desktop (opt-in
-    /// autostart) is never changed, but a copy a crashed dedicated session
-    /// left is given back there too.
+    /// Review of #516: xfconf answers a system default for a property the
+    /// user never set. It is recorded as "not set" and reset afterwards,
+    /// never pinned as a user value.
     #[tokio::test]
-    async fn only_the_dedicated_session_takes_the_power_button() {
-        let f = fixture(Some(Value::U32(3))).await;
-        for entry in [None, Some("plasma")] {
-            assert!(!start(&f.adapter, &f.path, entry).await);
-        }
-        assert_eq!(f.writes(), 0);
-        assert_eq!(f.value(), Some(Saved::Uint(3)));
-        assert!(start(&f.adapter, &f.path, Some("xfce")).await);
+    async fn a_system_default_is_reset_not_pinned() {
+        let f = fixture_with(Some(Value::U32(3)), false).await;
+        assert!(take(&f.adapter, &f.files).await);
+        assert_eq!(f.stored(), Some(Saved::Absent));
         assert_eq!(f.value(), Some(Saved::Uint(0)));
-        // Crash, then a login to the ordinary desktop with autostart.
-        assert!(!start(&f.adapter, &f.path, None).await);
+        assert!(release(&f.adapter, &f.files).await);
+        assert_eq!(f.value(), None);
+        assert!(
+            f.store
+                .lock()
+                .unwrap()
+                .writes
+                .last()
+                .unwrap()
+                .starts_with("reset ")
+        );
+    }
+
+    /// Review of #516: at an XFCE login the system autostart entry gives a
+    /// copy back that an unclean end of the dedicated session left, but
+    /// never while the adapter owns its name and holds the key.
+    #[tokio::test]
+    async fn the_login_restore_gives_a_stale_copy_back_unless_the_adapter_runs() {
+        let f = fixture(Some(Value::U32(3))).await;
+        assert!(restore_at_login(&f.adapter, &f.files).await);
+        assert_eq!(f.writes(), 0);
+        assert!(take(&f.adapter, &f.files).await);
+        // The adapter runs: the login restore leaves the key alone.
+        let adapter = connect(&f.bus.1).await;
+        adapter.request_name(ADAPTER).await.unwrap();
+        assert!(restore_at_login(&f.adapter, &f.files).await);
+        assert_eq!(f.value(), Some(Saved::Uint(0)));
+        assert!(f.path().exists());
+        // A power cut: the next login in the plain desktop restores it.
+        adapter.release_name(ADAPTER).await.unwrap();
+        adapter_gone(&f).await;
+        assert!(restore_at_login(&f.adapter, &f.files).await);
         assert_eq!(f.value(), Some(Saved::Uint(3)));
-        assert!(!f.path.exists());
+        assert!(!f.path().exists());
+    }
+    async fn adapter_gone(f: &Fixture) {
+        let bus = zbus::fdo::DBusProxy::new(&f.adapter).await.unwrap();
+        for _ in 0..100 {
+            if !bus
+                .name_has_owner(ADAPTER.try_into().unwrap())
+                .await
+                .unwrap()
+            {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        panic!("the adapter's name stayed");
     }
 
     /// A value the user chose while Arinn ran is kept.
     #[tokio::test]
     async fn a_change_the_user_made_meanwhile_is_kept() {
         let f = fixture(Some(Value::U32(3))).await;
-        assert!(take(&f.adapter, &f.path).await);
-        f.store.lock().unwrap().properties.insert(
-            (CHANNEL.into(), PROPERTY.into()),
-            Value::U32(1).try_into().unwrap(),
-        );
-        assert!(release(&f.adapter, &f.path).await);
+        assert!(take(&f.adapter, &f.files).await);
+        f.set(Value::U32(1));
+        assert!(release(&f.adapter, &f.files).await);
         assert_eq!(f.value(), Some(Saved::Uint(1)));
-        assert!(!f.path.exists());
+        assert!(!f.path().exists());
     }
 
     /// A locked setting, a value of another type or a missing xfconf: no
@@ -527,27 +681,28 @@ mod tests {
     async fn changes_nothing_it_cannot_restore() {
         let f = fixture(Some(Value::U32(3))).await;
         f.store.lock().unwrap().locked = true;
-        assert!(!take(&f.adapter, &f.path).await);
+        assert!(!take(&f.adapter, &f.files).await);
         assert_eq!(f.value(), Some(Saved::Uint(3)));
-        assert!(!f.path.exists());
+        assert!(!f.path().exists());
         let f = fixture(Some(Value::from("suspend"))).await;
-        assert!(!take(&f.adapter, &f.path).await);
+        assert!(!take(&f.adapter, &f.files).await);
         assert_eq!(f.writes(), 0);
-        assert!(!f.path.exists());
+        assert!(!f.path().exists());
         // An unreadable copy is kept for the user and nothing changes.
         let f = fixture(Some(Value::U32(3))).await;
-        std::fs::create_dir_all(f.path.parent().unwrap()).unwrap();
-        std::fs::write(&f.path, "garbage").unwrap();
-        assert!(!take(&f.adapter, &f.path).await);
-        assert!(!release(&f.adapter, &f.path).await);
+        std::fs::create_dir_all(f.path().parent().unwrap()).unwrap();
+        std::fs::write(f.path(), "garbage").unwrap();
+        assert!(!take(&f.adapter, &f.files).await);
+        assert!(!release(&f.adapter, &f.files).await);
+        assert!(!restore_at_login(&f.adapter, &f.files).await);
         assert_eq!(f.writes(), 0);
-        assert!(f.path.exists());
+        assert!(f.path().exists());
         // No xfconf on the bus: nothing is started or written; a copy waits.
         let bus = bus();
         let adapter = connect(&bus.1).await;
-        assert!(!take(&adapter, &f.path).await);
-        std::fs::write(&f.path, Saved::Uint(3).encode()).unwrap();
-        assert!(!release(&adapter, &f.path).await);
-        assert!(f.path.exists());
+        assert!(!take(&adapter, &f.files).await);
+        std::fs::write(f.path(), Saved::Uint(3).encode()).unwrap();
+        assert!(!release(&adapter, &f.files).await);
+        assert!(f.path().exists());
     }
 }

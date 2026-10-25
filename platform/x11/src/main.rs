@@ -11,6 +11,7 @@ mod keyboard_lane;
 mod native;
 #[path = "../../power_inhibitor.rs"]
 mod power_inhibitor;
+mod power_owner;
 mod xfce_power;
 use anyhow::{Result, ensure};
 use arinn_protocol::{
@@ -98,12 +99,11 @@ struct Pending {
     done: oneshot::Sender<&'static str>,
 }
 impl Actor {
-    /// `raw_power`: the desktop's power manager leaves the power key alone,
-    /// so a key it grabs is read from raw events (ADR-0111).
-    fn connect(raw_power: bool) -> Result<Self> {
+    fn connect() -> Result<Self> {
         let (home, quick_menu) = shortcuts();
         let mut native = Native::connect(&home, &quick_menu)?;
-        native.set_raw_power(raw_power)?;
+        // The power key waits for a live shell (ADR-0111, `PowerOwner`).
+        native.set_power(false, false)?;
         let snapshot = native.snapshot()?;
         Ok(Self {
             native,
@@ -652,11 +652,20 @@ async fn publish(
     }
     Ok(())
 }
-async fn session(raw_power: bool) -> Result<()> {
+/// The adapter's native layer as the power key's reader.
+struct ActorReader<'a>(&'a Arc<Mutex<Actor>>);
+impl power_owner::Reader for ActorReader<'_> {
+    fn set(&mut self, enabled: bool, raw: bool) -> Result<native::Reading> {
+        tokio::task::block_in_place(|| self.0.lock().unwrap().native.set_power(enabled, raw))
+    }
+}
+async fn session(power: &mut power_owner::PowerOwner) -> Result<()> {
     let actor = Arc::new(Mutex::new(
-        tokio::task::spawn_blocking(move || Actor::connect(raw_power)).await??,
+        tokio::task::spawn_blocking(Actor::connect).await??,
     ));
-    let result = run(&actor).await;
+    let result = run(&actor, power).await;
+    // The reader is gone with this session: the desktop gets the key back.
+    power.end().await;
     let cleanup = actor.clone();
     let restored = tokio::task::spawn_blocking(move || cleanup.lock().unwrap().cleanup()).await?;
     if restored.is_err() {
@@ -664,7 +673,7 @@ async fn session(raw_power: bool) -> Result<()> {
     }
     result.and(restored)
 }
-async fn run(actor: &Arc<Mutex<Actor>>) -> Result<()> {
+async fn run(actor: &Arc<Mutex<Actor>>, power: &mut power_owner::PowerOwner) -> Result<()> {
     let c = zbus::connection::Builder::session()?
         .name("org.arinn.X11")?
         .build()
@@ -787,7 +796,6 @@ async fn run(actor: &Arc<Mutex<Actor>>) -> Result<()> {
     .await?;
     let mut tick = tokio::time::interval(Duration::from_millis(500));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    let mut power = PowerLock::default();
     let mut revision = 0;
     let mut previous = Vec::new();
     let mut previous_home = None;
@@ -828,43 +836,28 @@ async fn run(actor: &Arc<Mutex<Actor>>) -> Result<()> {
         if update.explicit == Some(Request::QuickMenu) {
             raise_deferred(actor).await?;
         }
-        power.follow(update.snapshot.power_grabbed).await;
+        // The power key follows the shell: only while it owns its name and
+        // the key is read (ADR-0111).
+        let shell = bus
+            .name_has_owner(power_key_shell().try_into()?)
+            .await
+            .unwrap_or(false);
+        let reading = if update.snapshot.power_grabbed {
+            power.owned()
+        } else {
+            native::Reading::None
+        };
+        power
+            .follow(&mut ActorReader(actor), shell, reading)
+            .await?;
         if let Some((done, error)) = completion {
             let _ = done.send(error);
         }
     }
 }
-/// logind's `handle-power-key` inhibitor, held exactly while the power key is
-/// grabbed, so logind never powers off next to the menu (ADR-0111). It ends
-/// with the grab or the process.
-#[derive(Default)]
-struct PowerLock {
-    system: Option<Connection>,
-    inhibitor: Option<power_inhibitor::Inhibitor>,
-    /// A failed attempt is not repeated for the same grab.
-    tried: bool,
-}
-impl PowerLock {
-    async fn follow(&mut self, grabbed: bool) {
-        if !grabbed {
-            self.inhibitor = None;
-            self.tried = false;
-            return;
-        }
-        if self.inhibitor.is_some() || self.tried {
-            return;
-        }
-        self.tried = true;
-        if self.system.is_none() {
-            self.system = Connection::system().await.ok();
-        }
-        if let Some(system) = self.system.as_ref() {
-            self.inhibitor = power_inhibitor::inhibit(system).await;
-        }
-        if self.inhibitor.is_none() {
-            eprintln!("arinn-platform-x11: logind power-key inhibitor unavailable");
-        }
-    }
+/// The shell's bus name; its owner is the live shell.
+fn power_key_shell() -> &'static str {
+    "org.arinn.Shell1"
 }
 /// Aborts a task when the session ends.
 struct Abort<T>(tokio::task::JoinHandle<T>);
@@ -933,50 +926,33 @@ fn config_table(
     path.and_then(|path| std::fs::read_to_string(path).ok())
         .and_then(|text| text.parse::<toml::Table>().ok())
 }
-/// xfce4-power-manager's power button while this adapter runs (owner
-/// decision of 2026-10-24, ADR-0111): "do nothing" only in the dedicated
-/// Arinn XFCE session; elsewhere only a copy left by an earlier run is
-/// given back.
-struct PowerButton {
-    bus: Option<Connection>,
-    record: Option<std::path::PathBuf>,
-    taken: bool,
-}
-impl PowerButton {
-    async fn start() -> Self {
-        let record = xfce_power::record(
-            std::env::var_os("HOME").as_deref(),
-            std::env::var_os("XDG_STATE_HOME").as_deref(),
-        );
-        let bus = Connection::session().await.ok();
-        let mut taken = false;
-        if let (Some(bus), Some(record)) = (bus.as_ref(), record.as_ref()) {
-            let entry = std::env::var("ARINN_SESSION_ENTRY").ok();
-            taken = xfce_power::start(bus, record, entry.as_deref()).await;
-        }
-        Self { bus, record, taken }
-    }
-    async fn stop(&self) {
-        if let (Some(bus), Some(record)) = (self.bus.as_ref(), self.record.as_ref()) {
-            xfce_power::release(bus, record).await;
-        }
-    }
+/// The files and session bus for xfce4-power-manager's power button.
+async fn power_button() -> Option<(Connection, xfce_power::Files)> {
+    let files = xfce_power::Files::from_env(
+        std::env::var_os("HOME").as_deref(),
+        std::env::var_os("XDG_STATE_HOME").as_deref(),
+        std::env::var_os("XDG_CONFIG_HOME").as_deref(),
+    )?;
+    Some((Connection::session().await.ok()?, files))
 }
 #[tokio::main]
 async fn main() -> Result<()> {
-    if std::env::args_os().nth(1).as_deref() == Some(std::ffi::OsStr::new("--release-power-key")) {
+    let argument = std::env::args_os().nth(1);
+    if argument.as_deref() == Some(std::ffi::OsStr::new("--release-power-key")) {
         // ExecStopPost= of arinn-ewmh.service: the desktop's power button
         // setting comes back however the adapter ended (ADR-0111).
-        PowerButton {
-            bus: Connection::session().await.ok(),
-            record: xfce_power::record(
-                std::env::var_os("HOME").as_deref(),
-                std::env::var_os("XDG_STATE_HOME").as_deref(),
-            ),
-            taken: false,
+        if let Some((bus, files)) = power_button().await {
+            xfce_power::release(&bus, &files).await;
         }
-        .stop()
-        .await;
+        return Ok(());
+    }
+    if argument.as_deref() == Some(std::ffi::OsStr::new("--restore-power-button")) {
+        // The system XDG autostart entry at every XFCE login: a copy an
+        // unclean end of the dedicated session left goes back, unless the
+        // adapter runs and holds the key (ADR-0111).
+        if let Some((bus, files)) = power_button().await {
+            xfce_power::restore_at_login(&bus, &files).await;
+        }
         return Ok(());
     }
     ensure!(
@@ -984,20 +960,16 @@ async fn main() -> Result<()> {
         "explicit EWMH backend selection required"
     );
     eprintln!("arinn-platform-x11: selected backend ewmh (org.arinn.X11)");
-    let button = PowerButton::start().await;
+    let mut power = power_owner::PowerOwner::from_env().await;
     // No native payloads in logs. Reconnect creates fresh tokens and bridge generation.
     loop {
-        if session(button.taken).await.is_ok() {
-            button.stop().await;
+        if session(&mut power).await.is_ok() {
             return Ok(());
         }
         eprintln!("arinn-platform-x11: backend unavailable; retrying");
         tokio::select! {
             _ = tokio::time::sleep(Duration::from_secs(3)) => (),
-            _ = shutdown() => {
-                button.stop().await;
-                return Ok(());
-            }
+            _ = shutdown() => return Ok(()),
         }
     }
 }

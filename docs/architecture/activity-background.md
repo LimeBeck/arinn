@@ -89,8 +89,9 @@ sandbox. Compositor protections are not disabled or bypassed.
 ## Capture and invalidation lifecycle
 
 Only an eligible **explicit Home presentation intent** arms capture: an
-explicit Home request, or a quick-menu request, which commits the same Home
-state ([ADR-0106](../adr/0106-quick-menu-presentation.md)). Ordinary
+explicit Home request, or a quick-menu or power-menu request, which commits the
+same Home state ([ADR-0106](../adr/0106-quick-menu-presentation.md),
+[ADR-0111](../adr/0111-power-key.md)). Ordinary
 Status/ReportHome recovery or reconnect does not. Home without an associated
 external Activity stays on the normal background. One attempt per visible Home
 context: repeated Home on that context does not recapture, even after failure.
@@ -159,13 +160,15 @@ contract above; these are the implementation choices within it:
   runs in the background whenever a publication or reconciliation holds the
   state, so a Home press never waits for capture work. The deadline and the
   reported latency count from the committed request. Only a committed
-  `Daemon1.ReportHomeRequest` or `Daemon1.ReportQuickMenuRequest` arms an
-  attempt ([ADR-0106](../adr/0106-quick-menu-presentation.md): the quick menu
-  commits the same Home state, so Home opened from it shows the frame).
-  `QuickMenuRequested` is emitted before arming, as `HomeRequested` is. Either
-  request arms only with a non-empty target and output that still match the
+  `Daemon1.ReportHomeRequest`, `Daemon1.ReportQuickMenuRequest` or
+  `Daemon1.ReportPowerMenuRequest` arms an attempt
+  ([ADR-0106](../adr/0106-quick-menu-presentation.md),
+  [ADR-0111](../adr/0111-power-key.md): both commit the same Home state, so
+  Home opened from the quick menu, or under the power menu, shows the frame).
+  `QuickMenuRequested` and `PowerMenuRequested` are emitted before arming, as
+  `HomeRequested` is. Each request arms only with a non-empty target and output that still match the
   committed Home report. The X11/EWMH adapter reports its one output,
-  `x11-screen`, with both requests ([X11/EWMH](x11-ewmh.md)), so they arm there
+  `x11-screen`, with all three requests ([X11/EWMH](x11-ewmh.md)), so they arm there
   too. `ReportHome` and adapter reconnects never arm.
 - **Home evidence.** The daemon reads Home visibility, target and output, the
   Return association, the adapter's unique owner and liveness, and whether the

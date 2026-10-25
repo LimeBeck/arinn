@@ -1759,6 +1759,7 @@ impl Daemon {
             crate::global_home::adapter_connected(
                 &self.core.connection,
                 self.core.paths.config.clone(),
+                self.core.paths.state.clone(),
                 self.core.platform.quick_menu.clone(),
             );
         }

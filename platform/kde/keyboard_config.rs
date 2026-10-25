@@ -6,9 +6,12 @@
 //! When the KWin adapter connects, the daemon makes sure that:
 //!
 //! - KWin starts Arinn's input method: `kwinrc [Wayland] InputMethod` names
-//!   `org.arinn.InputMethod.desktop`, but only when no input method is set.
-//!   Another choice is never replaced; the keyboard then reports
-//!   `Unavailable` and this module logs `Conflict`.
+//!   `org.arinn.InputMethod.desktop`, but only when no input method is set,
+//!   and only once: a marker in Arinn's state directory records that the
+//!   value was written (or found), so a later *None* in Plasma's settings,
+//!   which deletes the key, is respected. Another choice is never replaced;
+//!   the keyboard then reports `Unavailable` and this module logs
+//!   `Conflict`. Uninstalling Arinn reverses neither the value nor the rule.
 //! - The shell's panel window never takes focus: one KWin rule,
 //!   `arinn-keyboard-panel` in `kwinrulesrc`, forces *Accept focus: No* for
 //!   the window class `org.arinn.Shell` with the exact title
@@ -24,6 +27,9 @@ pub const INPUT_METHOD_DESKTOP: &str = "org.arinn.InputMethod.desktop";
 /// The title of the shell's keyboard panel window.
 pub const PANEL_TITLE: &str = "org.arinn.KeyboardPanel";
 const RULE: &str = "arinn-keyboard-panel";
+/// The marker in Arinn's state directory: `kwinrc` names Arinn's input
+/// method, written by Arinn or found there, and is never written again.
+pub const INPUT_METHOD_MARKER: &str = "kde-input-method-selected";
 /// Forced (`…rule=2`): no focus, above other windows, no border, and out of
 /// the taskbar, pager and switcher. The KWin script places the window.
 const RULE_ENTRIES: [(&str, &str); 17] = [
@@ -62,33 +68,60 @@ pub struct Outcome {
 
 /// Prepares KDE in the background of an adapter connection. `arinn_config`
 /// is the daemon's own configuration directory (`$XDG_CONFIG_HOME/arinn`);
-/// KDE's files are next to it.
-pub async fn prepare(connection: &Connection, arinn_config: &Path) {
+/// KDE's files are next to it. `arinn_state` holds the one-time marker.
+pub async fn prepare(connection: &Connection, arinn_config: &Path, arinn_state: &Path) {
     let Some(config) = arinn_config.parent().filter(|p| p.is_absolute()) else {
         return;
     };
+    if !arinn_state.is_absolute() {
+        return;
+    }
     let data = data_dirs();
-    let _ = prepare_in(connection, config, &data).await;
+    let marker = arinn_state.join(INPUT_METHOD_MARKER);
+    let _ = prepare_in(connection, config, &data, &marker).await;
+}
+
+/// Records that `kwinrc` names Arinn's input method. A marker that cannot
+/// be written means another write on a later connection, never a lost
+/// choice of the user's: the value is written only when it is empty.
+fn mark(marker: &Path) {
+    let written = marker
+        .parent()
+        .is_some_and(|dir| std::fs::create_dir_all(dir).is_ok())
+        && std::fs::write(marker, "").is_ok();
+    if !written {
+        log("warn", "keyboard-input-method", Some("Unavailable"));
+    }
 }
 
 /// Prepares the files under `config` (the XDG config home) and notifies KWin
-/// of what changed.
-pub async fn prepare_in(connection: &Connection, config: &Path, data: &[PathBuf]) -> Outcome {
+/// of what changed. The input method is set at most once, recorded by
+/// `marker`; the panel rule is kept on every pass.
+pub async fn prepare_in(
+    connection: &Connection,
+    config: &Path,
+    data: &[PathBuf],
+    marker: &Path,
+) -> Outcome {
     let mut outcome = Outcome::default();
     let desktop = data
         .iter()
         .map(|dir| dir.join("applications").join(INPUT_METHOD_DESKTOP))
         .find(|path| path.is_file());
     match desktop {
+        // Arinn chose its input method once; whatever the user set since,
+        // an empty value (Plasma's None) included, stays.
+        _ if marker.exists() => (),
         None => log("warn", "keyboard-input-method", Some("NotFound")),
         Some(desktop) => {
             let path = config.join("kwinrc");
             let text = read(&path);
             match input_method(text.as_deref().unwrap_or(""), &desktop.to_string_lossy()) {
-                Edit::Unchanged => (),
+                Edit::Unchanged => mark(marker),
                 Edit::Refused(error) => log("warn", "keyboard-input-method", Some(error)),
                 Edit::Changed(next) => {
                     if write(&path, &next).is_ok() {
+                        mark(marker);
                         outcome.input_method = true;
                         notify(connection).await;
                         log("info", "keyboard-input-method", None);
@@ -444,7 +477,8 @@ mod tests {
             .await
             .unwrap();
         let daemon = connect().await;
-        let outcome = prepare_in(&daemon, &config, std::slice::from_ref(&data)).await;
+        let marker = dir.join("state").join(INPUT_METHOD_MARKER);
+        let outcome = prepare_in(&daemon, &config, std::slice::from_ref(&data), &marker).await;
         assert_eq!(
             outcome,
             Outcome {
@@ -472,12 +506,42 @@ mod tests {
             note.body().deserialize().unwrap();
         assert_eq!(changed["Wayland"], [b"InputMethod".to_vec()]);
         assert_eq!(*reconfigured.lock().unwrap(), 1);
+        assert!(marker.exists());
         // A second pass changes nothing and does not reconfigure KWin.
         assert_eq!(
-            prepare_in(&daemon, &config, std::slice::from_ref(&data)).await,
+            prepare_in(&daemon, &config, std::slice::from_ref(&data), &marker).await,
             Outcome::default()
         );
         assert_eq!(*reconfigured.lock().unwrap(), 1);
+        // The user picks None in Plasma's settings, which deletes the key:
+        // Arinn wrote the value once and never writes it again (review of
+        // #484). The panel rule is still kept.
+        std::fs::write(
+            config.join("kwinrc"),
+            "[Wayland]\nVirtualKeyboardEnabled=true\n",
+        )
+        .unwrap();
+        std::fs::remove_file(config.join("kwinrulesrc")).unwrap();
+        assert_eq!(
+            prepare_in(&daemon, &config, std::slice::from_ref(&data), &marker).await,
+            Outcome {
+                input_method: false,
+                rule: true
+            }
+        );
+        assert!(
+            !std::fs::read_to_string(config.join("kwinrc"))
+                .unwrap()
+                .contains("InputMethod")
+        );
+        // A value Arinn finds already in place is recorded the same way.
+        let found = dir.join("found-marker");
+        std::fs::write(config.join("kwinrc"), &kwinrc).unwrap();
+        assert_eq!(
+            prepare_in(&daemon, &config, std::slice::from_ref(&data), &found).await,
+            Outcome::default()
+        );
+        assert!(found.exists());
         drop(kwin);
         let _ = bus.kill();
         let _ = bus.wait();

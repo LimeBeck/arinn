@@ -49,7 +49,12 @@ fn warn(operation: &str, error: &str) {
 /// script has registered its actions by then; write the configured keys
 /// to them in the background (`write_all`), then prepare KDE for the
 /// on-screen keyboard (ADR-0105).
-pub fn adapter_connected(connection: &Connection, config: PathBuf, quick_menu: QuickMenuKeys) {
+pub fn adapter_connected(
+    connection: &Connection,
+    config: PathBuf,
+    state: PathBuf,
+    quick_menu: QuickMenuKeys,
+) {
     if crate::platform::adapter_service() != Some("org.kde.KWin") {
         return;
     }
@@ -66,7 +71,7 @@ pub fn adapter_connected(connection: &Connection, config: PathBuf, quick_menu: Q
             keyboard: config.keyboard_shortcut,
         });
         write_all(&connection, &quick_menu, &shortcuts).await;
-        crate::keyboard_config::prepare(&connection, &directory).await;
+        crate::keyboard_config::prepare(&connection, &directory, &state).await;
     });
 }
 

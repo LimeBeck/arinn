@@ -29,6 +29,7 @@ capability, but **has not been released as a stable Plugin API**. Requirements:
 | `org.arinn.MediaAssociation1` | Optional daemon-root media-session ↔ tab links; [media-association1.xml](media-association1.xml) ([ADR-0096](../adr/0096-browser-media-session-association.md)). Exported by the daemon |
 | `org.arinn.SystemStatus1` | Optional daemon-root mute and network state; [system-status1.xml](system-status1.xml) ([ADR-0100](../adr/0100-system-status.md), [contract](../architecture/system-status.md)). Exported by the daemon; Home shows the mute and Wi-Fi icons from it ([#387](https://github.com/LimeBeck/arinn/issues/387), [#407](https://github.com/LimeBeck/arinn/pull/407)) |
 | `org.arinn.SystemControl1` | Optional daemon-root power actions, the dedicated session's "Switch to desktop" ([#438](https://github.com/LimeBeck/arinn/issues/438)) and volume for the shell; [system-control1.xml](system-control1.xml) ([ADR-0108](../adr/0108-system-control.md), [contract](../architecture/system-control.md)). Exported by the daemon, which refuses provider connections. The shell's power menu and volume HUD follow in [#148](https://github.com/LimeBeck/arinn/issues/148) |
+| `org.arinn.ExternalKeyboard1` | Daemon root, shell only; [external-keyboard1.xml](external-keyboard1.xml) ([ADR-0105](../adr/0105-global-on-screen-keyboard-platform-text-delivery.md), [contract](../architecture/external-keyboard.md)). The on-screen keyboard over an external application: panel signals and typed keys; implementation status in the contract document ([#434](https://github.com/LimeBeck/arinn/issues/434)) |
 | `org.arinn.Library1` | Daemon-owned provider path of a `library` provider; [library1.xml](library1.xml). Exported by the daemon ([ADR-0060](../adr/0060-library-routing.md)) |
 | `org.arinn.LibraryProvider1` | Provider unique bus owner, `/org/arinn/Provider1`; [library-provider1.xml](library-provider1.xml) |
 | `org.arinn.LibraryResume1` | Optional provider interface; [library-resume1.xml](library-resume1.xml) |
@@ -427,6 +428,11 @@ license ([ADR-0029](../adr/0029-licensing.md)).
 define trusted adapter inventory/control transport. This is not a provider capability.
 SDK registration contexts expose the registered connection for authenticated platform
 access. Production daemon/KDE implementation remains in issue #20.
+
+[KeyboardBridge1](keyboard-bridge1.xml) is the trusted adapter lane of the global
+on-screen keyboard: the platform's key request and the deliverer's records
+([ADR-0105](../adr/0105-global-on-screen-keyboard-platform-text-delivery.md),
+[contract](../architecture/external-keyboard.md)). It is not a provider capability.
 
 Managed playback window association: [contract](../architecture/managed-playback.md),
 [MediaWindow1](media-window1.xml), [MediaWindowProvider1](media-window-provider1.xml)

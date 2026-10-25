@@ -14,6 +14,7 @@ pub mod download;
 pub mod favorites;
 pub mod folders;
 pub mod input;
+pub mod keyboard;
 pub mod kwin;
 pub mod library;
 pub mod media;

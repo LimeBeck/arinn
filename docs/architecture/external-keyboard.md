@@ -40,11 +40,12 @@ end: Close(S) from the shell, Request() again, Closed(S, reason) from the delive
   - A poll refreshes the deliverer's heartbeat.
   - At most one poll may be pending per deliverer; another returns `Conflict`.
 - **The request.** `Request()` from a caller that is not the current platform owner returns `PermissionDenied`. Without a connected deliverer it returns `Unavailable`, and no session starts.
-- **Deliverer loss.** `Connect(instance)` takes a fresh canonical non-nil UUID (anything else is `InvalidArgument`) and returns a new generation, and a new instance replaces the previous deliverer. Replacement, 5 s without a poll, or the loss of the deliverer's bus name ends the current session. Calls with an old generation return `Conflict`.
+- **Deliverer loss.** `Connect(instance)` takes a fresh non-nil UUID in canonical form (lowercase, hyphenated) (anything else is `InvalidArgument`) and returns a new generation, and a new instance replaces the previous deliverer. Replacement, 5 s without a poll, or the loss of the deliverer's bus name ends the current session. Calls with an old generation return `Conflict`.
 - **Limits.**
   - Text: 1–256 UTF-8 bytes and no control characters (`char::is_control`, Unicode category Cc). Tab, newline and carriage return are therefore never text; Enter is the `return` key. Other separators and format characters (U+2028, U+2029, category Cf) are not rejected: the shell's panel never produces them, and a deliverer types them as characters.
   - Input keys: `up`, `down`, `left`, `right`, `select`, `back`.
   - Press keys: `backspace`, `return`, `left`, `right`.
+  - Session IDs, generations and instances: non-nil UUIDs in canonical form only (lowercase, hyphenated); uppercase, braced, URN and unhyphenated spellings are `InvalidArgument`.
   - Close reasons: `focus` (the target lost focus or disappeared while the session is unlocked), `locked` (locked or unknown lock state, whatever else happened), `unavailable` (cannot bind the target or capture the panel keys).
 
 ## Authorization

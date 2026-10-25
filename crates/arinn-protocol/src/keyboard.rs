@@ -28,7 +28,14 @@ pub const CLOSE_REASONS: [&str; 3] = ["focus", "locked", "unavailable"];
 
 /// A session or generation: a canonical non-nil UUID.
 pub fn session(value: &str) -> Result<(), ErrorCode> {
-    platform::generation(value)
+    platform::generation(value)?;
+    // One spelling per ID: lowercase and hyphenated, as `Uuid` writes it.
+    // Uppercase, braced, URN or unhyphenated forms of the same UUID would
+    // otherwise be distinct strings for one session (ADR-0105).
+    match uuid::Uuid::parse_str(value) {
+        Ok(uuid) if uuid.to_string() == value => Ok(()),
+        _ => Err(ErrorCode::InvalidArgument),
+    }
 }
 
 /// Text for one delivery: 1–256 UTF-8 bytes and no control characters
@@ -181,6 +188,17 @@ mod tests {
         assert!(session(S).is_ok());
         assert!(session("00000000-0000-0000-0000-000000000000").is_err());
         assert!(session("not-a-uuid").is_err());
+        // Only the canonical spelling (review of #512): lowercase and
+        // hyphenated, never uppercase, braced, URN or simple.
+        for other in [
+            "10000000-0000-4000-8000-00000000000A",
+            "{10000000-0000-4000-8000-000000000001}",
+            "urn:uuid:10000000-0000-4000-8000-000000000001",
+            "10000000000040008000000000000001",
+        ] {
+            assert_eq!(session(other), Err(ErrorCode::InvalidArgument), "{other}");
+        }
+        assert!(session("10000000-0000-4000-8000-00000000000a").is_ok());
     }
 
     #[test]

@@ -109,7 +109,7 @@ The two internal interfaces live at `/org/arinn/Daemon1` on `org.arinn.Daemon1`.
 | Member | Caller | Meaning |
 | --- | --- | --- |
 | `Request()` | platform owner | The keyboard key was pressed over an unlocked application window. Opens a session or, while one is open, closes it. Another caller receives `PermissionDenied`; without a connected deliverer the call returns `Unavailable`. |
-| `Connect(s instance) → s generation` | deliverer | Attach a deliverer instance, named by a fresh canonical non-nil UUID (anything else is `InvalidArgument`); a new instance replaces the old one and ends its session. |
+| `Connect(s instance) → s generation` | deliverer | Attach a deliverer instance, named by a fresh non-nil UUID in canonical form (lowercase, hyphenated) (anything else is `InvalidArgument`); a new instance replaces the old one and ends its session. |
 | `Next(s generation) → as` | deliverer | Waits at most 1 s. Returns one record: `[]` idle, `[open, S]`, `[type, S, text]`, `[press, S, key]` or `[close, S]`. |
 | `Opened(s generation, s session)` | deliverer | The target is bound and the panel keys are captured. |
 | `Input(s generation, s session, s key)` | deliverer | A captured panel key. |
@@ -117,7 +117,7 @@ The two internal interfaces live at `/org/arinn/Daemon1` on `org.arinn.Daemon1`.
 
 Rules:
 
-- **Sessions.** A session ID is a fresh UUID. A deliverer that does not confirm `Opened` within 3 s, or does not poll `Next` for 5 s, ends the session.
+- **Sessions.** A session ID is a fresh UUID. Session IDs, generations and instances travel in canonical form only: lowercase and hyphenated, non-nil; any other spelling is `InvalidArgument`. A deliverer that does not confirm `Opened` within 3 s, or does not poll `Next` for 5 s, ends the session.
   - Late calls for an ended session or an old generation return `Conflict`.
   - At most 64 records wait for the deliverer; beyond that `Type` and `Press` return `Unavailable`.
   - `Type`, `Press` and `Close` before `Opened` also return `Conflict`: the shell learns a session only from `Opened`. A session that never opens ends by the 3 s rule.
@@ -186,7 +186,7 @@ The shell shows the panel in an **override-redirect** window with `WM_HINTS inpu
 - **The panel window** is a separate shell window titled `org.arinn.KeyboardPanel`. Two pieces of KDE configuration keep it from taking focus:
   - **A window rule.** The daemon's KDE platform code keeps one rule `arinn-keyboard-panel` in `kwinrulesrc`: window class `org.arinn.Shell`, exact title `org.arinn.KeyboardPanel`, *Accept focus: No* (forced). It then asks KWin to reconfigure. Only this group and the `[General]` `rules`/`count` entries are touched; a file that cannot be parsed safely is left alone.
   - **The KWin script.** It excludes that title from the shell identity and the inventory. It places the panel at the bottom of the shell's output, keeps it above and skips taskbar, pager and switcher.
-- **The input method setting.** When `kwinrc [Wayland] InputMethod` is empty, the daemon sets it to the Arinn desktop file and sends KConfig's change notification, so KWin starts the helper. It does this **once**: a marker in Arinn's state directory records that it wrote the value, and it never writes it again. Plasma stores *None* by deleting the key, so a user who later picks *None* keeps it. The daemon never replaces another input method. Uninstalling Arinn reverses neither the value nor the window rule. Both are harmless: the rule matches only Arinn's panel, and a missing desktop file only turns KWin's input method off. In that case `Request()` reports `Unavailable`, the log names the reason, and the user can select *Arinn* under System Settings → Keyboard → Virtual Keyboard.
+- **The input method setting.** When `kwinrc [Wayland] InputMethod` is empty, the daemon sets it to the Arinn desktop file and sends KConfig's change notification, so KWin starts the helper. It does this **once**: a marker in Arinn's state directory records that it wrote the value, and it never writes it again. Plasma stores *None* by deleting the key, so a user who later picks *None* keeps it. The daemon never replaces another input method. When another one is selected, `Request()` reports `Unavailable`, the log names the reason, and the user can select *Arinn* under System Settings → Keyboard → Virtual Keyboard. Uninstalling Arinn reverses neither the value nor the window rule. Both are harmless: the rule matches only Arinn's panel, and a missing desktop file only turns KWin's input method off.
 - **KDE/X11** (ADR-0077) has no input method and no XTest deliverer, so the key reports `Unavailable` there.
 
 ### Owner decisions

@@ -201,11 +201,13 @@ every action goes through the methods above.
   not from `XDG_CURRENT_DESKTOP`, which does not reach `arinn-ewmh.service` on
   every distribution: while `org.xfce.SessionManager` or xfce4-power-manager's
   `org.xfce.PowerManager` has an owner, only the dedicated Arinn XFCE session
-  (`ARINN_SESSION_ENTRY=xfce`) takes the key. Its wrapper exports the marker
-  into the desktop's environment as well, and `arinn-xfce-session` mirrors
-  that into the user manager before it starts the target, clearing a marker
-  a killed wrapper left there, so a stock XFCE login never counts as the
-  dedicated session. Any
+  (`ARINN_SESSION_ENTRY=xfce`, counted only while `org.xfce.SessionManager`
+  has an owner) takes the key. Its wrapper exports the marker into the
+  desktop's environment as well, and `arinn-xfce-session` mirrors that into
+  the user manager before it starts the target, clearing a marker a killed
+  wrapper left there; the manual recipe in [X11/EWMH](x11-ewmh.md#opt-in-setup)
+  clears it too. A stale marker on a desktop without XFCE falls back to the
+  grab. Any
   other X11/EWMH desktop takes it. Both names are checked with the shell's on
   every loop (500 ms), so an XFCE name that appears later gives the key back.
   Every adapter connection starts with the power keys neither grabbed nor
@@ -219,7 +221,7 @@ every action goes through the methods above.
   name. The same check
   runs at every adapter start and in `--release-power-key`, after a crash,
   but only when this display's adapter held a power grab (its marker in
-  `$XDG_RUNTIME_DIR/arinn/power-grab`), and never when no power key is
+  `$XDG_RUNTIME_DIR/arinn/power-grab-<display>`), and never when no power key is
   mapped. A restart drops idle inhibitors applications held through
   xfce4-power-manager; normally the instance is about half a second old.
 - **XFCE, dedicated Arinn session only** (owner decision of 2026-10-24). With

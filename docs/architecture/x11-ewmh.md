@@ -268,8 +268,13 @@ trial inside an X11 graphical session:
 systemctl --user stop arinn-session.target arinn-ewmh-session.target
 systemctl --user import-environment DISPLAY XAUTHORITY
 systemctl --user set-environment XDG_SESSION_TYPE=x11 ARINN_PLATFORM_BACKEND=ewmh ARINN_SESSION_BACKEND=x11
+systemctl --user unset-environment ARINN_SESSION_ENTRY
 systemctl --user start arinn-ewmh-session.target
 ```
+
+Clearing `ARINN_SESSION_ENTRY` drops a dedicated-session marker a killed
+`arinn-session` may have left in a lingering user manager, so a manual trial is
+never taken for the dedicated Arinn XFCE session ([ADR-0111](../adr/0111-power-key.md)).
 
 The two session targets conflict. Shared daemon and shell units stop with either
 target. A daemon started separately must be stopped before changing selection.

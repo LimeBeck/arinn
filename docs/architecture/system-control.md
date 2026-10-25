@@ -184,7 +184,8 @@ every action goes through the methods above.
   PowerDevil's actions present again with the keys KGlobalAccel stores, and
   only then drops the inhibitor; the daemon does it when the shell or the
   adapter is lost, and `arinnd --release-power-key` does it as `ExecStopPost=`
-  of `arinnd.service` and from `arinn-kwin-adapter stop`. When PowerDevil's
+  of `arinnd.service` and from `arinn-kwin-adapter stop`, under a temporary
+  logind inhibitor (the daemon's ended with it). When PowerDevil's
   bus name `org.kde.Solid.PowerManagement` gets a new owner (a restart), the
   daemon takes the key again at once and after 5 and 30 s, since PowerDevil
   registers its actions present again after it owns the name. Without the
@@ -213,8 +214,9 @@ every action goes through the methods above.
   holds stays that client's. xfce4-power-manager grabs the key only once,
   when it starts, and ignores a failure; so when Arinn lets go of a grab
   while xfce4-power-manager runs and nobody grabs the key, the adapter
-  restarts it over its D-Bus `Restart` (`org.xfce.Power.Manager`), keeping
-  logind's inhibitor until the new instance owns its name. The same check
+  restarts it over its D-Bus `Restart` (`org.xfce.Power.Manager`), off the
+  adapter's loop, keeping logind's inhibitor until the new instance owns its
+  name. The same check
   runs at every adapter start and in `--release-power-key`, after a crash,
   but only when this display's adapter held a power grab (its marker in
   `$XDG_RUNTIME_DIR/arinn/power-grab`), and never when no power key is

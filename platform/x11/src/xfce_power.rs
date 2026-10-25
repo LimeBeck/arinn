@@ -15,9 +15,19 @@
 //! `$XDG_STATE_HOME/arinn/xfce-power-button` (durably, before the setting
 //! changes), and it stays there until it has been restored. `release`
 //! restores it on a clean stop, from `ExecStopPost=` of `arinn-ewmh.service`
-//! (`arinn-platform-x11 --release-power-key`) and on the next start of the
-//! adapter in any session. A value the user set in the meantime is kept.
-//! Without xfconf nothing is done.
+//! (`arinn-platform-x11 --release-power-key`), on the next start of the
+//! adapter in any session and at every XFCE login (`restore_at_login`). A
+//! value the user set in the meantime is kept. Without xfconf nothing is
+//! done.
+//!
+//! The restore also survives removing Arinn after an unclean end (review of
+//! #516, Codex P1): with the copy, the adapter writes a per-user XDG
+//! autostart entry, `$XDG_CONFIG_HOME/autostart/arinn-power-button-restore.desktop`
+//! (`OnlyShowIn=XFCE;`), and a small `sh` script next to it that holds the
+//! value. It uses only `sh` and XFCE's own `xfconf-query`. While Arinn is
+//! installed it does nothing (Arinn restores the value itself, with its
+//! lock); once Arinn's adapter is gone, it gives the value back at the next
+//! XFCE login and removes itself and the copy. Every release removes it.
 use std::{
     io::Write,
     path::{Path, PathBuf},
@@ -35,6 +45,11 @@ const NOTHING: u32 = 0;
 const TIMEOUT: Duration = Duration::from_secs(5);
 /// The adapter's bus name: while it is owned, the adapter decides.
 const ADAPTER: &str = "org.arinn.X11";
+/// The installed adapter. While it exists, the per-user restore entry
+/// leaves the setting to it.
+const INSTALLED: &str = "/usr/bin/arinn-platform-x11";
+/// The per-user restore entry in `$XDG_CONFIG_HOME/autostart`.
+const ENTRY: &str = "autostart/arinn-power-button-restore.desktop";
 
 /// The user's setting before Arinn changed it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -67,6 +82,14 @@ impl Saved {
     fn is_nothing(self) -> bool {
         matches!(self, Saved::Uint(0) | Saved::Int(0))
     }
+    /// The `xfconf-query` arguments that give this value back.
+    fn query(self) -> String {
+        match self {
+            Saved::Absent => "-r".into(),
+            Saved::Uint(value) => format!("-n -t uint --set={value}"),
+            Saved::Int(value) => format!("-n -t int --set={value}"),
+        }
+    }
 }
 
 /// Whether this adapter runs in the dedicated Arinn XFCE session.
@@ -84,6 +107,10 @@ pub struct Files {
     /// The user's own xfconf channel file. Only a property named there is
     /// the user's value; xfconf otherwise returns a system default.
     pub channel: PathBuf,
+    /// The per-user restore entry; its script is next to it (`.sh`).
+    pub entry: PathBuf,
+    /// The installed adapter (`INSTALLED`; another path in tests).
+    pub installed: PathBuf,
 }
 impl Files {
     pub fn from_env(
@@ -101,11 +128,20 @@ impl Files {
                         .map(|p| p.join(fallback))
                 })
         };
+        let config = base(config, ".config")?;
         Some(Self {
             record: base(state, ".local/state")?.join("arinn/xfce-power-button"),
-            channel: base(config, ".config")?
-                .join("xfce4/xfconf/xfce-perchannel-xml/xfce4-power-manager.xml"),
+            channel: config.join("xfce4/xfconf/xfce-perchannel-xml/xfce4-power-manager.xml"),
+            entry: config.join(ENTRY),
+            installed: PathBuf::from(INSTALLED),
         })
+    }
+    /// The script the restore entry runs.
+    pub fn script(&self) -> PathBuf {
+        self.entry.with_extension("sh")
+    }
+    fn lock_path(&self) -> PathBuf {
+        self.record.with_extension("lock")
     }
     /// The user set the property: their channel file names it.
     fn explicit(&self) -> bool {
@@ -122,7 +158,7 @@ impl Files {
             .create(true)
             .truncate(false)
             .write(true)
-            .open(self.record.with_extension("lock"))
+            .open(self.lock_path())
             .ok()?;
         // SAFETY: flock on a descriptor this function owns.
         (unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } == 0).then_some(file)
@@ -190,14 +226,101 @@ async fn write_setting(c: &Connection, value: Saved) -> zbus::Result<()> {
 
 /// Writes `saved` so that it survives a crash or a power loss.
 fn store(path: &Path, saved: Saved) -> std::io::Result<()> {
+    write_durably(path, &saved.encode())
+}
+
+/// Writes `text` to `path` so that it survives a crash or a power loss.
+fn write_durably(path: &Path, text: &str) -> std::io::Result<()> {
     let folder = path.parent().ok_or(std::io::ErrorKind::InvalidInput)?;
     std::fs::create_dir_all(folder)?;
-    let partial = path.with_extension("partial");
+    let mut partial = path.as_os_str().to_owned();
+    partial.push(".partial");
+    let partial = PathBuf::from(partial);
     let mut file = std::fs::File::create(&partial)?;
-    file.write_all(saved.encode().as_bytes())?;
+    file.write_all(text.as_bytes())?;
     file.sync_all()?;
     std::fs::rename(&partial, path)?;
     std::fs::File::open(folder)?.sync_all()
+}
+
+/// `path` as text that is safe both in single quotes in `sh` and in double
+/// quotes in a desktop entry's `Exec`; `None` for a path that would need
+/// escaping there. Such a path changes nothing.
+fn quotable(path: &Path) -> Option<&str> {
+    let text = path.to_str()?;
+    (!text
+        .chars()
+        .any(|c| c.is_control() || matches!(c, '\'' | '"' | '`' | '$' | '\\' | '%')))
+    .then_some(text)
+}
+
+/// The script of the per-user restore entry for `saved`: only `sh` and
+/// `xfconf-query`, so it works after Arinn is removed.
+fn restore_script(files: &Files, saved: Saved) -> Option<String> {
+    let installed = quotable(&files.installed)?;
+    let entry = quotable(&files.entry)?;
+    let script = files.script();
+    let script = quotable(&script)?;
+    let record = quotable(&files.record)?;
+    let lock = files.lock_path();
+    let lock = quotable(&lock)?;
+    let query = saved.query();
+    Some(format!(
+        r#"#!/bin/sh
+# Written by Arinn (ADR-0111) while it held the power key in the dedicated
+# Arinn XFCE session. If Arinn was removed before it could give the XFCE
+# power button setting back, this gives it back at the next XFCE login and
+# removes itself. While Arinn is installed, Arinn does that itself.
+[ -e '{installed}' ] && exit 0
+c=xfce4-power-manager
+p=/xfce4-power-manager/power-button-action
+xfconf-query -c "$c" -l >/dev/null 2>&1 || exit 0
+now=$(xfconf-query -c "$c" -p "$p" 2>/dev/null) || now=
+# Anything but Arinn's "do nothing" was chosen by the user since: kept.
+if [ "$now" = 0 ]; then
+    xfconf-query -c "$c" -p "$p" {query} || exit 0
+fi
+rm -f '{entry}' '{script}' '{record}' '{lock}'
+"#
+    ))
+}
+
+/// The per-user XDG autostart entry that runs `script`.
+fn restore_entry(script: &str) -> String {
+    format!(
+        "[Desktop Entry]\n\
+         Type=Application\n\
+         Name=Arinn power button restore\n\
+         Comment=Gives back the XFCE power button setting if Arinn was removed\n\
+         Exec=sh \"{script}\"\n\
+         OnlyShowIn=XFCE;\n\
+         NoDisplay=true\n\
+         Terminal=false\n"
+    )
+}
+
+/// Writes the per-user restore entry for `saved`, the script first.
+fn write_restore(files: &Files, saved: Saved) -> std::io::Result<()> {
+    let invalid = || std::io::Error::from(std::io::ErrorKind::InvalidInput);
+    let text = restore_script(files, saved).ok_or_else(invalid)?;
+    let script = files.script();
+    write_durably(&script, &text)?;
+    write_durably(
+        &files.entry,
+        &restore_entry(quotable(&script).ok_or_else(invalid)?),
+    )
+}
+
+/// Removes the per-user restore entry, the entry first.
+fn remove_restore(files: &Files) {
+    for path in [files.entry.clone(), files.script()] {
+        match std::fs::remove_file(&path) {
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+                log("cannot remove the XFCE power button restore entry");
+            }
+            _ => {}
+        }
+    }
 }
 
 fn load(path: &Path) -> std::io::Result<Option<Saved>> {
@@ -228,7 +351,10 @@ pub async fn take(c: &Connection, files: &Files) -> bool {
         Ok(Some(saved)) if saved.is_nothing() => return true,
         Ok(Some(saved)) => {
             // Without a value in the user's own file xfconf answered
-            // a system default: the user set nothing.
+            // a system default: the user set nothing. xfconfd writes that
+            // file a few seconds after a change, so a value set just before
+            // Arinn takes the key reads as "not set" and is reset to the
+            // default afterwards (ADR-0111).
             let saved = if files.explicit() {
                 saved
             } else {
@@ -236,6 +362,14 @@ pub async fn take(c: &Connection, files: &Files) -> bool {
             };
             if store(path, saved).is_err() {
                 log("cannot keep the XFCE power button setting; left unchanged");
+                return false;
+            }
+            // The restore must survive removing Arinn: without the entry,
+            // nothing changes.
+            if write_restore(files, saved).is_err() {
+                log("cannot write the XFCE power button restore entry; left unchanged");
+                remove_restore(files);
+                let _ = std::fs::remove_file(path);
                 return false;
             }
             saved
@@ -293,7 +427,11 @@ async fn release_locked(c: &Connection, files: &Files) -> bool {
     let path = files.record.as_path();
     let saved = match load(path) {
         Ok(Some(saved)) => saved,
-        Ok(None) => return true,
+        Ok(None) => {
+            // A restore entry an interrupted release left behind.
+            remove_restore(files);
+            return true;
+        }
         Err(_) => {
             log("unreadable stored XFCE power button setting; kept for the user");
             return false;
@@ -311,6 +449,7 @@ async fn release_locked(c: &Connection, files: &Files) -> bool {
         Ok(_) => {}
         Err(_) => return false,
     }
+    remove_restore(files);
     std::fs::remove_file(path).is_ok()
 }
 
@@ -542,9 +681,19 @@ pub(crate) mod tests {
         assert!(take(&f.adapter, &f.files).await);
         assert_eq!(f.value(), Some(Saved::Uint(0)));
         assert_eq!(f.stored(), Some(Saved::Uint(3)));
+        // The restore that survives removing Arinn is written with the copy.
+        let entry = std::fs::read_to_string(&f.files.entry).unwrap();
+        assert!(entry.contains("\nOnlyShowIn=XFCE;\n"), "{entry}");
+        assert!(
+            entry.contains(&format!("\nExec=sh \"{}\"\n", f.files.script().display())),
+            "{entry}"
+        );
+        assert!(f.files.script().exists());
         assert!(release(&f.adapter, &f.files).await);
         assert_eq!(f.value(), Some(Saved::Uint(3)));
         assert!(!f.path().exists());
+        assert!(!f.files.entry.exists());
+        assert!(!f.files.script().exists());
         // A second release has nothing left to do.
         let writes = f.writes();
         assert!(release(&f.adapter, &f.files).await);
@@ -662,6 +811,133 @@ pub(crate) mod tests {
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
         panic!("the adapter's name stayed");
+    }
+
+    /// Runs the restore entry's script as an XFCE login would, with a fake
+    /// `xfconf-query` holding `value` (`None`: not set). Returns the value
+    /// afterwards and the fake's calls.
+    fn run_restore(f: &Fixture, value: Option<&str>) -> (Option<String>, Vec<String>) {
+        let bin = f.root.join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let fake = bin.join("xfconf-query");
+        std::fs::write(
+            &fake,
+            r#"#!/bin/sh
+echo "$*" >> "$FAKE_XFCONF.calls"
+case "$*" in
+*" -l") exit 0 ;;
+*" -r") rm -f "$FAKE_XFCONF"; exit 0 ;;
+*--set=*) echo "${*##*--set=}" > "$FAKE_XFCONF"; exit 0 ;;
+esac
+[ -e "$FAKE_XFCONF" ] || exit 1
+cat "$FAKE_XFCONF"
+"#,
+        )
+        .unwrap();
+        std::fs::set_permissions(&fake, std::os::unix::fs::PermissionsExt::from_mode(0o755))
+            .unwrap();
+        let state = f.root.join("xfconf");
+        let _ = std::fs::remove_file(&state);
+        let _ = std::fs::remove_file(state.with_extension("calls"));
+        if let Some(value) = value {
+            std::fs::write(&state, format!("{value}\n")).unwrap();
+        }
+        let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap());
+        let status = Command::new("sh")
+            .arg(f.files.script())
+            .env("PATH", path)
+            .env("FAKE_XFCONF", &state)
+            .status()
+            .unwrap();
+        assert!(status.success());
+        let calls = std::fs::read_to_string(state.with_extension("calls")).unwrap_or_default();
+        (
+            std::fs::read_to_string(&state)
+                .ok()
+                .map(|v| v.trim().to_owned()),
+            calls.lines().map(str::to_owned).collect(),
+        )
+    }
+
+    /// Review of #516 (Codex P1): an unclean end of the dedicated session,
+    /// then Arinn is removed before the next XFCE login. The per-user entry
+    /// gives the user's value back with `xfconf-query` alone and removes
+    /// itself and the copy; while Arinn is installed it leaves the value to
+    /// Arinn.
+    #[tokio::test]
+    async fn the_restore_survives_removing_arinn() {
+        let mut f = fixture(Some(Value::U32(3))).await;
+        f.files.installed = f.root.join("usr/bin/arinn-platform-x11");
+        assert!(take(&f.adapter, &f.files).await);
+        // Arinn is installed: nothing changes and the entry stays.
+        std::fs::create_dir_all(f.files.installed.parent().unwrap()).unwrap();
+        std::fs::write(&f.files.installed, "").unwrap();
+        assert_eq!(run_restore(&f, Some("0")), (Some("0".into()), vec![]));
+        assert!(f.files.entry.exists() && f.path().exists());
+        // Arinn is removed: the value comes back and everything goes.
+        std::fs::remove_file(&f.files.installed).unwrap();
+        let (value, calls) = run_restore(&f, Some("0"));
+        assert_eq!(value.as_deref(), Some("3"));
+        assert!(
+            calls.iter().any(|c| c.ends_with(" -n -t uint --set=3")),
+            "{calls:?}"
+        );
+        for path in [
+            f.files.entry.clone(),
+            f.files.script(),
+            f.files.record.clone(),
+            f.files.lock_path(),
+        ] {
+            assert!(!path.exists(), "{}", path.display());
+        }
+    }
+
+    /// The same script keeps a value the user chose since, and resets a
+    /// value the user never set; an int stays an int.
+    #[tokio::test]
+    async fn the_removal_restore_keeps_the_users_newer_choice() {
+        let mut f = fixture(Some(Value::U32(3))).await;
+        f.files.installed = f.root.join("missing");
+        assert!(take(&f.adapter, &f.files).await);
+        let (value, calls) = run_restore(&f, Some("1"));
+        assert_eq!(value.as_deref(), Some("1"));
+        assert!(
+            !calls
+                .iter()
+                .any(|c| c.contains("--set") || c.ends_with(" -r"))
+        );
+        assert!(!f.files.entry.exists() && !f.path().exists());
+        let mut f = fixture(None).await;
+        f.files.installed = f.root.join("missing");
+        assert!(take(&f.adapter, &f.files).await);
+        assert_eq!(run_restore(&f, Some("0")).0, None);
+        let mut f = fixture(Some(Value::I32(-1))).await;
+        f.files.installed = f.root.join("missing");
+        assert!(take(&f.adapter, &f.files).await);
+        assert_eq!(run_restore(&f, Some("0")).0.as_deref(), Some("-1"));
+    }
+
+    /// A path the entry cannot quote safely, or an entry that cannot be
+    /// written, changes nothing: without a restore that survives removal,
+    /// the key stays the desktop's.
+    #[tokio::test]
+    async fn without_a_restore_entry_nothing_changes() {
+        let mut f = fixture(Some(Value::U32(3))).await;
+        f.files.entry = f
+            .root
+            .join("config/auto$start/arinn-power-button-restore.desktop");
+        assert!(!take(&f.adapter, &f.files).await);
+        assert_eq!(f.writes(), 0);
+        assert!(!f.path().exists());
+        let mut f = fixture(Some(Value::U32(3))).await;
+        std::fs::create_dir_all(f.root.join("config")).unwrap();
+        std::fs::write(f.root.join("config/autostart"), "a file, not a folder").unwrap();
+        f.files.entry = f
+            .root
+            .join("config/autostart/arinn-power-button-restore.desktop");
+        assert!(!take(&f.adapter, &f.files).await);
+        assert_eq!(f.writes(), 0);
+        assert!(!f.path().exists());
     }
 
     /// A value the user chose while Arinn ran is kept.

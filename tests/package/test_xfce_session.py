@@ -104,6 +104,13 @@ exit 0
         self.assertIn("--user --no-ask-password import-environment XAUTHORITY", calls)
         selection = next(i for i, call in enumerate(calls) if "set-environment XDG_SESSION_TYPE=x11 ARINN_PLATFORM_BACKEND=ewmh ARINN_SESSION_BACKEND=x11" in call)
         self.assertLess(selection, len(calls) - 1)
+        # ADR-0111: the adapter takes the power key only in the dedicated
+        # session, which its wrapper marks with ARINN_SESSION_ENTRY=xfce
+        # (test_session_entry.py). The opt-in bridge never sets the marker,
+        # and XDG_CURRENT_DESKTOP is not what decides, so the ordinary XFCE
+        # desktop keeps its power dialog.
+        self.assertFalse(any("ARINN_SESSION_ENTRY" in call for call in calls))
+        self.assertFalse(any("XDG_CURRENT_DESKTOP" in call for call in calls))
         self.close_owner()
         self.assertEqual(child.wait(timeout=5), 0)
         self.assert_cleanup()

@@ -664,10 +664,22 @@ async fn session(power: &mut power_owner::PowerOwner) -> Result<()> {
         tokio::task::spawn_blocking(Actor::connect).await??,
     ));
     let result = run(&actor, power).await;
-    // The reader is gone with this session: the desktop gets the key back.
-    power.end().await;
     let cleanup = actor.clone();
-    let restored = tokio::task::spawn_blocking(move || cleanup.lock().unwrap().cleanup()).await?;
+    end_session(power, result, move || cleanup.lock().unwrap().cleanup()).await
+}
+/// Ends one session however it ended: the reader is gone with it, so the
+/// desktop gets the power key back (xfconf, then the inhibitor) before the
+/// X state is restored.
+async fn end_session<F>(
+    power: &mut power_owner::PowerOwner,
+    result: Result<()>,
+    cleanup: F,
+) -> Result<()>
+where
+    F: FnOnce() -> Result<()> + Send + 'static,
+{
+    power.end().await;
+    let restored = tokio::task::spawn_blocking(cleanup).await?;
     if restored.is_err() {
         eprintln!("arinn-platform-x11: shutdown restoration failed");
     }
@@ -976,6 +988,27 @@ async fn main() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    /// Review of #517: a session that ends, also with an error (a reconnect
+    /// follows), gives the power key back: xfconf and the inhibitor go
+    /// before the X state is restored, as the reader went with the session.
+    #[tokio::test]
+    async fn an_ended_session_gives_the_power_key_back() {
+        use crate::{native::Reading, power_owner::tests as owner, xfce_power::Saved};
+        let mut f = owner::fixture(true, true).await;
+        let mut reader = owner::reader(Reading::Raw);
+        f.owner
+            .follow(&mut reader, true, Reading::None)
+            .await
+            .unwrap();
+        assert_eq!(f.xfconf.value(), Some(Saved::Uint(0)));
+        assert_eq!(f.open(), 1);
+        let ended = end_session(&mut f.owner, Err(anyhow::anyhow!("lost")), || Ok(())).await;
+        assert!(ended.is_err());
+        assert_eq!(f.owner.owned(), Reading::None);
+        assert_eq!(f.xfconf.value(), Some(Saved::Uint(3)));
+        f.settle(0).await;
+    }
+
     use super::*;
     use x11rb::protocol::xproto::ConnectionExt as _;
     #[test]

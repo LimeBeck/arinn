@@ -15,9 +15,14 @@
 //!    to "do nothing" (`xfce_power`).
 //!
 //! When the shell goes, the reader fails or the adapter's session ends,
-//! everything goes back at once in the reverse order. On an ordinary XFCE
-//! desktop the key is never taken: the owner decision of 2026-10-24 leaves
-//! it the desktop's dialog there.
+//! everything goes back at once in the reverse order. Only the dedicated
+//! Arinn XFCE session takes the key (`ARINN_SESSION_ENTRY=xfce`, which its
+//! session wrapper exports to the user manager). Every other X11/EWMH
+//! session, the ordinary XFCE desktop with opt-in autostart included, leaves
+//! it the desktop's: the owner decision of 2026-10-24 keeps the XFCE dialog
+//! there, and `XDG_CURRENT_DESKTOP` does not reach `arinn-ewmh.service` on
+//! every distribution, so it cannot tell the ordinary desktop apart (review
+//! of #517).
 use crate::{native::Reading, power_inhibitor, xfce_power};
 use anyhow::Result;
 use std::time::{Duration, Instant};
@@ -30,16 +35,11 @@ pub trait Reader {
     fn set(&mut self, enabled: bool, raw: bool) -> Result<Reading>;
 }
 
-/// Whether this session may take the power key: everywhere but on an
-/// ordinary XFCE desktop, where xfce4-power-manager keeps it; there only the
-/// dedicated Arinn XFCE session (`ARINN_SESSION_ENTRY=xfce`) takes it.
-pub fn allowed(current_desktop: Option<&str>, entry: Option<&str>) -> bool {
-    let xfce = current_desktop.is_some_and(|desktops| {
-        desktops
-            .split(':')
-            .any(|desktop| desktop.eq_ignore_ascii_case("XFCE"))
-    });
-    !xfce || xfce_power::dedicated(entry)
+/// Whether this session may take the power key: only the dedicated Arinn
+/// XFCE session (`ARINN_SESSION_ENTRY=xfce`). Without the marker, also when
+/// nothing names the desktop, the key stays the desktop's.
+pub fn allowed(entry: Option<&str>) -> bool {
+    xfce_power::dedicated(entry)
 }
 
 pub struct PowerOwner {
@@ -82,7 +82,6 @@ impl PowerOwner {
     /// From the environment of the adapter.
     pub async fn from_env() -> Self {
         let entry = std::env::var("ARINN_SESSION_ENTRY").ok();
-        let desktop = std::env::var("XDG_CURRENT_DESKTOP").ok();
         let files = xfce_power::Files::from_env(
             std::env::var_os("HOME").as_deref(),
             std::env::var_os("XDG_STATE_HOME").as_deref(),
@@ -95,7 +94,7 @@ impl PowerOwner {
             xfce_power::release(bus, files).await;
         }
         Self::new(
-            allowed(desktop.as_deref(), entry.as_deref()),
+            allowed(entry.as_deref()),
             xfce_power::dedicated(entry.as_deref()),
             bus.zip(files),
             None,
@@ -122,6 +121,15 @@ impl PowerOwner {
         if self.owned != Reading::None {
             // The shell is gone, or the reader stopped (a regrab after a
             // mapping change lost the key): everything goes back.
+            //
+            // A narrow race remains in the dedicated session: when Arinn
+            // grabbed the key (xfce4-power-manager was not running) and a
+            // regrab after a mapping change loses it to a restarting
+            // xfce4-power-manager, the native layer reads the key from raw
+            // events instead. `reading` still reports the key as read, so
+            // xfconf is not set to "do nothing" until the shell or the
+            // reader changes, and a press in that window reaches both. It
+            // needs a keymap change while xfce4-power-manager restarts.
             if !wanted || reading == Reading::None {
                 self.give_back(reader).await?;
             }
@@ -193,16 +201,16 @@ impl PowerOwner {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::{power_inhibitor::tests as logind, xfce_power::tests as xfconf};
     use std::sync::Mutex;
     use zbus::zvariant::Value;
 
     /// A reader that answers `Grab`, `Raw` or `None` when enabled.
-    struct FakeReader {
+    pub(crate) struct FakeReader {
         answer: Reading,
-        calls: Vec<(bool, bool)>,
+        pub(crate) calls: Vec<(bool, bool)>,
     }
     impl Reader for FakeReader {
         fn set(&mut self, enabled: bool, raw: bool) -> Result<Reading> {
@@ -210,20 +218,20 @@ mod tests {
             Ok(if enabled { self.answer } else { Reading::None })
         }
     }
-    fn reader(answer: Reading) -> FakeReader {
+    pub(crate) fn reader(answer: Reading) -> FakeReader {
         FakeReader {
             answer,
             calls: Vec::new(),
         }
     }
 
-    struct Fixture {
-        xfconf: xfconf::Fixture,
+    pub(crate) struct Fixture {
+        pub(crate) xfconf: xfconf::Fixture,
         login: logind::Shared,
         _logind: Connection,
-        owner: PowerOwner,
+        pub(crate) owner: PowerOwner,
     }
-    async fn fixture(allowed: bool, dedicated: bool) -> Fixture {
+    pub(crate) async fn fixture(allowed: bool, dedicated: bool) -> Fixture {
         let xfconf = xfconf::fixture(Some(Value::U32(3))).await;
         let login = logind::Shared::new(Mutex::new(logind::Fake::default()));
         let service = logind::connect(&xfconf.bus.1).await;
@@ -243,10 +251,10 @@ mod tests {
         }
     }
     impl Fixture {
-        fn open(&self) -> usize {
+        pub(crate) fn open(&self) -> usize {
             self.login.lock().unwrap().open()
         }
-        async fn settle(&self, open: usize) {
+        pub(crate) async fn settle(&self, open: usize) {
             for _ in 0..100 {
                 if self.open() == open {
                     return;
@@ -258,13 +266,27 @@ mod tests {
     }
 
     #[test]
-    fn the_ordinary_xfce_desktop_keeps_its_power_key() {
-        // Review of #517: on XFCE only the dedicated session takes it.
-        assert!(!allowed(Some("XFCE"), None));
-        assert!(!allowed(Some("ubuntu:xfce"), Some("plasma")));
-        assert!(allowed(Some("XFCE"), Some("xfce")));
-        assert!(allowed(Some("LXQt"), None));
-        assert!(allowed(None, None));
+    fn only_the_dedicated_session_takes_the_power_key() {
+        // Review of #517: XDG_CURRENT_DESKTOP need not reach the unit, so
+        // without the dedicated session's marker nothing is taken, also
+        // when no variable is set at all.
+        assert!(!allowed(None));
+        assert!(!allowed(Some("")));
+        assert!(!allowed(Some("plasma")));
+        assert!(!allowed(Some("XFCE")));
+        assert!(allowed(Some("xfce")));
+    }
+
+    /// The same from the adapter's environment: with no variable set, the
+    /// ordinary XFCE desktop and any other X11 session leave the key alone.
+    #[tokio::test]
+    async fn without_the_dedicated_marker_nothing_is_taken() {
+        let mut f = fixture(allowed(None), xfce_power::dedicated(None)).await;
+        let mut r = reader(Reading::Grab);
+        f.owner.follow(&mut r, true, Reading::None).await.unwrap();
+        assert!(r.calls.is_empty());
+        assert!(f.login.lock().unwrap().calls.is_empty());
+        assert_eq!(f.xfconf.writes(), 0);
     }
 
     /// Dedicated XFCE session: the inhibitor, raw reading, then "do

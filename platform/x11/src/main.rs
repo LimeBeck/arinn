@@ -959,28 +959,26 @@ async fn main() -> Result<()> {
     if argument.as_deref() == Some(std::ffi::OsStr::new("--release-power-key")) {
         // ExecStopPost= of arinn-ewmh.service: the desktop's power button
         // setting comes back however the adapter ended (ADR-0111).
-        if let Some((bus, files)) = power_button().await {
-            xfce_power::release(&bus, &files).await;
-        }
-        // The adapter is gone and so is any grab it held. Only if this
-        // display's adapter grabbed the power key (its marker), and
+        // The adapter is gone and so is any grab it held: if this
+        // display's adapter grabbed the power key (its marker) and
         // xfce4-power-manager runs while nobody grabs a mapped power key,
-        // did its grab fail while the adapter held it: restart it (review
-        // of #516).
-        let marker = power_owner::GrabMarker::from_env();
-        if marker.present() {
-            if let Ok(bus) = Connection::session().await
-                && let Ok(dbus) = zbus::fdo::DBusProxy::new(&bus).await
-                && power_owner::xfce_on_bus(&dbus).await.power_manager
-                && tokio::task::spawn_blocking(native::power_held_on_display)
-                    .await
-                    .ok()
-                    .flatten()
-                    == Some(false)
-            {
-                power_owner::restart_power_manager(&bus, Duration::from_secs(10)).await;
-            }
-            marker.clear();
+        // its grab failed meanwhile and it is restarted (review of #516).
+        if let Ok(bus) = Connection::session().await {
+            let files = xfce_power::Files::from_env(
+                std::env::var_os("HOME").as_deref(),
+                std::env::var_os("XDG_STATE_HOME").as_deref(),
+                std::env::var_os("XDG_CONFIG_HOME").as_deref(),
+            );
+            let system = Connection::system().await.ok();
+            power_owner::release_after_adapter(
+                &bus,
+                files.as_ref(),
+                &power_owner::GrabMarker::from_env(),
+                || tokio::task::block_in_place(native::power_held_on_display),
+                system.as_ref(),
+                Duration::from_secs(10),
+            )
+            .await;
         }
         return Ok(());
     }

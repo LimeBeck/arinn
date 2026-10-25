@@ -175,6 +175,38 @@ impl GrabMarker {
     }
 }
 
+/// `arinn-platform-x11 --release-power-key` (`ExecStopPost=`), after the
+/// adapter ended: gives the XFCE setting back, and restarts
+/// xfce4-power-manager if this display's adapter grabbed (`marker`) and
+/// `held` finds no mapped power key grabbed while it runs. The adapter's
+/// inhibitor ended with it, so a temporary one on `system` covers all of
+/// it (Codex on #517).
+pub async fn release_after_adapter<H: FnOnce() -> Option<bool>>(
+    bus: &Connection,
+    files: Option<&xfce_power::Files>,
+    marker: &GrabMarker,
+    held: H,
+    system: Option<&Connection>,
+    wait: Duration,
+) {
+    let _inhibitor = match system {
+        Some(system) => power_inhibitor::inhibit(system).await,
+        None => None,
+    };
+    if let Some(files) = files {
+        xfce_power::release(bus, files).await;
+    }
+    if marker.present() {
+        if let Ok(dbus) = zbus::fdo::DBusProxy::new(bus).await
+            && xfce_on_bus(&dbus).await.power_manager
+            && held() == Some(false)
+        {
+            restart_power_manager(bus, wait).await;
+        }
+        marker.clear();
+    }
+}
+
 /// Whether this session may take the power key: the dedicated Arinn XFCE
 /// session, and any X11/EWMH desktop where no XFCE name is on the bus. The
 /// ordinary XFCE desktop, and any desktop where xfce4-power-manager runs,
@@ -200,6 +232,8 @@ pub struct PowerOwner {
     marker: GrabMarker,
     /// How long a restarted xfce4-power-manager has to own its name again.
     restart_wait: Duration,
+    /// A restart running off the loop.
+    restarting: Option<tokio::task::JoinHandle<()>>,
     /// xfce4-power-manager's power button is Arinn's "do nothing".
     taken_xfconf: bool,
     /// How Arinn reads the key; `None` while it does not hold it.
@@ -221,6 +255,7 @@ impl PowerOwner {
             heal: false,
             marker: GrabMarker::default(),
             restart_wait: Duration::from_secs(10),
+            restarting: None,
             xfconf,
             system,
             inhibitor: None,
@@ -373,8 +408,34 @@ impl PowerOwner {
         if !xfce.power_manager {
             return;
         }
-        if let (Ok(false), Some(bus)) = (reader.held_elsewhere(), self.bus.as_ref()) {
-            restart_power_manager(bus, self.restart_wait).await;
+        let (Ok(false), Some(bus)) = (reader.held_elsewhere(), self.bus.clone()) else {
+            return;
+        };
+        // Off the adapter's loop (it can take seconds), with logind's
+        // inhibitor held until the new instance owns its name: Arinn's own,
+        // which `end` then no longer drops, or a temporary one at a start.
+        let held = self.inhibitor.take();
+        let (system, wait) = (self.system.clone(), self.restart_wait);
+        let restart = tokio::spawn(async move {
+            let _inhibitor = match held {
+                Some(inhibitor) => Some(inhibitor),
+                None => match system {
+                    Some(system) => power_inhibitor::inhibit(&system).await,
+                    None => match Connection::system().await {
+                        Ok(system) => power_inhibitor::inhibit(&system).await,
+                        Err(_) => None,
+                    },
+                },
+            };
+            restart_power_manager(&bus, wait).await;
+        });
+        self.restarting = Some(restart);
+    }
+    /// Waits for a restart `heal` started (tests).
+    #[cfg(test)]
+    pub async fn restarted(&mut self) {
+        if let Some(restart) = self.restarting.take() {
+            restart.await.unwrap();
         }
     }
     /// The reader is gone (the adapter's session ended): the desktop's
@@ -496,7 +557,9 @@ pub(crate) mod tests {
             xfpm.request_name(POWER_MANAGER).await.unwrap();
             self._xfpm = Some(xfpm);
         }
-        fn restarts(&self) -> Vec<usize> {
+        /// The restarts so far, once a running one has finished.
+        async fn restarts(&mut self) -> Vec<usize> {
+            self.owner.restarted().await;
             self.restarts.lock().unwrap().clone()
         }
         pub(crate) fn open(&self) -> usize {
@@ -762,14 +825,16 @@ pub(crate) mod tests {
             .await
             .unwrap();
         assert_eq!(f.owner.owned(), Reading::None);
-        assert_eq!(f.restarts(), [1]);
+        assert_eq!(f.restarts().await, [1]);
+        // Arinn's own inhibitor covered the restart: no gap, no second one.
+        assert_eq!(f.login.lock().unwrap().calls.len(), 1);
         f.settle(0).await;
         // Once is enough: no restart while Arinn does not grab again.
         f.owner
             .follow(&mut r, true, XFPM, Reading::None)
             .await
             .unwrap();
-        assert_eq!(f.restarts(), [1]);
+        assert_eq!(f.restarts().await, [1]);
     }
 
     /// No restart when xfce4-power-manager holds its own grab, or when it
@@ -789,8 +854,12 @@ pub(crate) mod tests {
             .await
             .unwrap();
         assert_eq!(f.owner.owned(), Reading::None);
-        assert!(f.restarts().is_empty());
+        assert!(f.restarts().await.is_empty());
+        // Mutation H1 of the #517 review: a user who stopped
+        // xfce4-power-manager (the adapter sees no name when it lets go) is
+        // never restarted, even though something still answers here.
         let mut f = fixture(false).await;
+        f.start_xfpm().await;
         let mut r = reader(Reading::Grab);
         r.held = false;
         f.owner
@@ -801,12 +870,94 @@ pub(crate) mod tests {
             .follow(&mut r, false, OTHER, Reading::Grab)
             .await
             .unwrap();
-        f.start_xfpm().await;
+        assert!(f.restarts().await.is_empty());
         f.owner
             .follow(&mut r, true, XFPM, Reading::None)
             .await
             .unwrap();
-        assert!(f.restarts().is_empty());
+        assert!(f.restarts().await.is_empty());
+    }
+
+    /// Codex on #517: `--release-power-key` runs after the adapter's
+    /// inhibitor is gone; it holds a temporary one while it gives the XFCE
+    /// setting back and restarts xfce4-power-manager, and only for this
+    /// display's grab.
+    #[tokio::test]
+    async fn the_release_after_the_adapter_holds_an_inhibitor() {
+        let mut f = fixture(true).await;
+        let mut r = reader(Reading::Raw);
+        f.owner
+            .follow(&mut r, true, XFCE, Reading::None)
+            .await
+            .unwrap();
+        assert_eq!(f.xfconf.value(), Some(xfce_power::Saved::Uint(0)));
+        // The adapter crashed after grabbing on another desktop earlier.
+        f.owner.marker.set();
+        f.owner.inhibitor = None;
+        f.settle(0).await;
+        f.start_xfpm().await;
+        let system = logind::connect(&f.xfconf.bus.1).await;
+        release_after_adapter(
+            &f.xfconf.adapter,
+            Some(&f.xfconf.files),
+            &f.owner.marker,
+            || Some(false),
+            Some(&system),
+            Duration::from_millis(50),
+        )
+        .await;
+        assert_eq!(f.xfconf.value(), Some(xfce_power::Saved::Uint(3)));
+        assert_eq!(f.restarts.lock().unwrap().clone(), [1]);
+        assert!(!f.owner.marker.present());
+        f.settle(0).await;
+        // Without this display's marker nothing is restarted.
+        release_after_adapter(
+            &f.xfconf.adapter,
+            None,
+            &f.owner.marker,
+            || Some(false),
+            Some(&system),
+            Duration::from_millis(50),
+        )
+        .await;
+        assert_eq!(f.restarts.lock().unwrap().len(), 1);
+    }
+
+    /// Review of #517: a crash loop restarts xfce4-power-manager at most
+    /// once per grab. The adapter that grabbed crashes; the next start
+    /// repairs xfce4-power-manager and clears the marker; the starts after
+    /// it, which never grabbed, restart nothing.
+    #[tokio::test]
+    async fn a_crash_loop_restarts_xfce4_power_manager_once() {
+        let mut f = fixture(false).await;
+        f.start_xfpm().await;
+        let mut r = reader(Reading::Grab);
+        r.held = false;
+        f.owner
+            .follow(&mut r, true, OTHER, Reading::None)
+            .await
+            .unwrap();
+        assert!(f.owner.marker.present());
+        // Crash: no give-back; each restart of the adapter is a new owner
+        // with the same display's marker.
+        let marker = f.owner.marker.clone();
+        for _ in 0..4 {
+            f.owner = PowerOwner::new(
+                false,
+                Some(f.xfconf.adapter.clone()),
+                None,
+                f.owner.system.clone(),
+            )
+            .with_marker(marker.clone());
+            f.owner.restart_wait = Duration::from_millis(50);
+            f.owner
+                .follow(&mut r, true, XFPM, Reading::None)
+                .await
+                .unwrap();
+            f.owner.restarted().await;
+        }
+        assert_eq!(f.restarts().await.len(), 1);
+        assert!(!marker.present());
     }
 
     /// Review of #516: without this display's grab marker an adapter start
@@ -822,7 +973,7 @@ pub(crate) mod tests {
             .follow(&mut r, true, XFCE, Reading::None)
             .await
             .unwrap();
-        assert!(f.restarts().is_empty());
+        assert!(f.restarts().await.is_empty());
         // Another display's marker does not count either.
         let other = GrabMarker::at(f.owner.marker.path.clone(), ":3".into());
         other.set();
@@ -846,7 +997,8 @@ pub(crate) mod tests {
             .follow(&mut r, true, XFCE, Reading::None)
             .await
             .unwrap();
-        assert_eq!(f.restarts(), [0]);
+        // A temporary inhibitor covers the restart at a start.
+        assert_eq!(f.restarts().await, [1]);
         assert!(!f.owner.marker.present());
         let mut f = fixture(true).await;
         f.start_xfpm().await;
@@ -855,7 +1007,7 @@ pub(crate) mod tests {
             .follow(&mut r, true, XFCE, Reading::None)
             .await
             .unwrap();
-        assert!(f.restarts().is_empty());
+        assert!(f.restarts().await.is_empty());
         assert_eq!(f.owner.owned(), Reading::Raw);
     }
 

@@ -189,8 +189,9 @@ every action goes through the methods above.
   daemon takes the key again at once and after 5 and 30 s, since PowerDevil
   registers its actions present again after it owns the name. Without the
   inhibitor nothing is taken, and the next attempt follows after 30 s. A
-  failed `setInactive` or a write KGlobalAccel does not answer rolls the take
-  back: `ArinnPower` is cleared, PowerDevil's actions are present, and the
+  failed `setInactive`, a write KGlobalAccel does not answer, or a lookup or
+  read it does not answer (unknown is never taken as free or empty) rolls the
+  take back: `ArinnPower` is cleared, PowerDevil's actions are present, and the
   inhibitor goes once `ArinnPower` is known to be empty; the next attempt
   follows after 30 s. A release KGlobalAccel does not answer keeps the
   inhibitor and is tried again at the next check.
@@ -202,7 +203,8 @@ every action goes through the methods above.
   (`ARINN_SESSION_ENTRY=xfce`, set by its session wrapper) takes the key. Any
   other X11/EWMH desktop takes it. Both names are checked with the shell's on
   every loop (500 ms), so an XFCE name that appears later gives the key back.
-  With a live shell the adapter takes the logind inhibitor, then grabs
+  Every adapter connection starts with the power keys neither grabbed nor
+  read. With a live shell the adapter takes the logind inhibitor, then grabs
   `XF86PowerOff` (and `XF86PowerDown` where mapped). A key another client
   holds stays that client's. xfce4-power-manager grabs the key only once,
   when it starts, and ignores a failure; so when Arinn lets go of a grab
@@ -214,7 +216,8 @@ every action goes through the methods above.
   `ARINN_SESSION_ENTRY=xfce` the adapter never grabs the power keys, so
   xfce4-power-manager's grab succeeds whenever it starts; it reads them from
   XInput2 raw events, and only once that works sets xfce4-power-manager's
-  power-button action to "do nothing" through xfconf
+  power-button action to "do nothing" through xfconf; a raw press read before
+  that was xfce4-power-manager's and is dropped
   (`platform/x11/src/xfce_power.rs`). The user's live value (or "not set",
   when the user's own channel file does not name it and it equals the system
   default) is kept in

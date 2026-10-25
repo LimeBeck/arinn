@@ -208,6 +208,8 @@ fn bus() -> Bus {
 struct FakeDaemon {
     queue: Arc<Mutex<Vec<Vec<String>>>>,
     calls: Log,
+    /// `Next` fails, as for a daemon that restarted or replaced the lane.
+    fail: Arc<AtomicBool>,
 }
 #[zbus::interface(name = "org.arinn.KeyboardBridge1")]
 impl FakeDaemon {
@@ -215,17 +217,20 @@ impl FakeDaemon {
         self.calls.lock().unwrap().push("connect".into());
         "40000000-0000-4000-8000-000000000004".into()
     }
-    async fn next(&self, _generation: &str) -> Vec<String> {
+    async fn next(&self, _generation: &str) -> zbus::fdo::Result<Vec<String>> {
         for _ in 0..20 {
+            if self.fail.load(Ordering::SeqCst) {
+                return Err(zbus::fdo::Error::Failed("lane ended".into()));
+            }
             if let Some(record) = {
                 let mut queue = self.queue.lock().unwrap();
                 (!queue.is_empty()).then(|| queue.remove(0))
             } {
-                return record;
+                return Ok(record);
             }
             tokio::time::sleep(Duration::from_millis(25)).await;
         }
-        Vec::new()
+        Ok(Vec::new())
     }
     fn opened(&self, _generation: &str, session: &str) {
         self.calls.lock().unwrap().push(format!("opened:{session}"));
@@ -296,56 +301,101 @@ async fn sessions_bind_the_focused_context_route_keys_and_commit_text() {
         .unwrap();
 }
 
+/// The input method running against the fakes.
+struct Env {
+    _bus: Bus,
+    surface: Log,
+    commands: std::sync::mpsc::Sender<Command_>,
+    daemon: FakeDaemon,
+    kwin_log: Log,
+    locked: Arc<AtomicBool>,
+    task: tokio::task::JoinHandle<Result<()>>,
+    _connections: Vec<zbus::Connection>,
+}
+
+impl Env {
+    async fn new(lock_tick: Duration) -> Self {
+        let bus = bus();
+        let surface = Log::default();
+        let (socket, commands) = compositor(surface.clone());
+        let daemon = FakeDaemon::default();
+        let daemon_connection = zbus::connection::Builder::address(bus.1.as_str())
+            .unwrap()
+            .serve_at("/org/arinn/Daemon1", daemon.clone())
+            .unwrap()
+            .build()
+            .await
+            .unwrap();
+        let kwin_log = Log::default();
+        let kwin = zbus::connection::Builder::address(bus.1.as_str())
+            .unwrap()
+            .serve_at(
+                "/VirtualKeyboard",
+                FakeKWin {
+                    compositor: Mutex::new(commands.clone()),
+                    log: kwin_log.clone(),
+                },
+            )
+            .unwrap()
+            .build()
+            .await
+            .unwrap();
+        let locked = Arc::new(AtomicBool::new(false));
+        let _screensaver = zbus::connection::Builder::address(bus.1.as_str())
+            .unwrap()
+            .name("org.freedesktop.ScreenSaver")
+            .unwrap()
+            .serve_at("/ScreenSaver", ScreenSaver(locked.clone()))
+            .unwrap()
+            .build()
+            .await
+            .unwrap();
+        let helper = zbus::connection::Builder::address(bus.1.as_str())
+            .unwrap()
+            .build()
+            .await
+            .unwrap();
+        let wayland = Connection::from_socket(socket).unwrap();
+        let endpoints = Endpoints {
+            bus: helper,
+            daemon: daemon_connection.unique_name().unwrap().to_string(),
+            kwin: kwin.unique_name().unwrap().to_string(),
+            activation: Duration::from_millis(500),
+            lock_tick,
+        };
+        let task = tokio::spawn(run(wayland, endpoints));
+        wait_for(&daemon.calls, "connect").await;
+        Env {
+            _bus: bus,
+            surface,
+            commands,
+            daemon,
+            kwin_log,
+            locked,
+            task,
+            _connections: vec![daemon_connection, kwin, _screensaver],
+        }
+    }
+
+    /// Opens session `s` on a forced context and waits for the grab.
+    async fn open(&self, s: &str) {
+        push(&self.daemon, Record::Open(s.into()));
+        wait_for(&self.daemon.calls, &format!("opened:{s}")).await;
+    }
+}
+
 async fn scenario() {
-    let bus = bus();
-    let surface = Log::default();
-    let (socket, commands) = compositor(surface.clone());
-    let daemon = FakeDaemon::default();
-    let daemon_connection = zbus::connection::Builder::address(bus.1.as_str())
-        .unwrap()
-        .serve_at("/org/arinn/Daemon1", daemon.clone())
-        .unwrap()
-        .build()
-        .await
-        .unwrap();
-    let kwin_log = Log::default();
-    let kwin = zbus::connection::Builder::address(bus.1.as_str())
-        .unwrap()
-        .serve_at(
-            "/VirtualKeyboard",
-            FakeKWin {
-                compositor: Mutex::new(commands.clone()),
-                log: kwin_log.clone(),
-            },
-        )
-        .unwrap()
-        .build()
-        .await
-        .unwrap();
-    let locked = Arc::new(AtomicBool::new(false));
-    let _screensaver = zbus::connection::Builder::address(bus.1.as_str())
-        .unwrap()
-        .name("org.freedesktop.ScreenSaver")
-        .unwrap()
-        .serve_at("/ScreenSaver", ScreenSaver(locked.clone()))
-        .unwrap()
-        .build()
-        .await
-        .unwrap();
-    let helper = zbus::connection::Builder::address(bus.1.as_str())
-        .unwrap()
-        .build()
-        .await
-        .unwrap();
-    let wayland = Connection::from_socket(socket).unwrap();
-    let endpoints = Endpoints {
-        bus: helper,
-        daemon: daemon_connection.unique_name().unwrap().to_string(),
-        kwin: kwin.unique_name().unwrap().to_string(),
-        activation: Duration::from_millis(500),
-    };
-    let task = tokio::spawn(run(wayland, endpoints));
-    wait_for(&daemon.calls, "connect").await;
+    let Env {
+        _bus: bus,
+        surface,
+        commands,
+        daemon,
+        kwin_log,
+        locked,
+        task,
+        _connections,
+    } = Env::new(Duration::from_millis(500)).await;
+    let _ = &bus;
 
     // A text-input context of some application without a session shows
     // nothing and grabs nothing (no auto-show).
@@ -420,4 +470,117 @@ async fn scenario() {
     );
     assert_eq!(daemon.calls.lock().unwrap().len(), before);
     task.abort();
+}
+
+/// Review of #484 (Codex P1): when the daemon lane ends with a session open,
+/// the grab is released at once (`active = false`), no key the old grab
+/// queued reaches the application late, and the next connection opens
+/// sessions as before.
+#[tokio::test]
+async fn a_lost_daemon_lane_releases_the_grab_and_drops_queued_keys() {
+    tokio::time::timeout(Duration::from_secs(60), async {
+        let env = Env::new(Duration::from_secs(3600)).await;
+        env.open(S).await;
+        wait_for(&env.surface, "grab").await;
+        // The lane ends; keys keep coming from the remote meanwhile.
+        env.daemon.fail.store(true, Ordering::SeqCst);
+        // Panel keys only: before the release they still go to the shell,
+        // and none may reach the application afterwards.
+        for code in [103, 28] {
+            env.commands.send(Command_::Key(code, true)).unwrap();
+        }
+        wait_for(&env.kwin_log, "active:false").await;
+        for code in [103, 28, 30] {
+            env.commands.send(Command_::Key(code, true)).unwrap();
+        }
+        // The daemon comes back; the helper connects again.
+        env.daemon.fail.store(false, Ordering::SeqCst);
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while env
+                .daemon
+                .calls
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|c| *c == "connect")
+                .count()
+                < 2
+            {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .unwrap();
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let late: Vec<String> = env
+            .surface
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|e| e.starts_with("key:"))
+            .cloned()
+            .collect();
+        assert!(
+            late.is_empty(),
+            "keys reached the application late: {late:?}"
+        );
+        // A new session binds a fresh context and types.
+        env.open(U).await;
+        push(&env.daemon, Record::Type(U.into(), "ok".into()));
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while !env
+                .surface
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|e| e.starts_with("commit:") && e.ends_with(":ok"))
+            {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        env.task.abort();
+    })
+    .await
+    .unwrap();
+}
+
+/// Mutation I4 of the #484 review: the 500 ms lock tick alone ends an open
+/// session, with no record from the daemon.
+#[tokio::test]
+async fn the_lock_tick_ends_an_open_session() {
+    tokio::time::timeout(Duration::from_secs(60), async {
+        let env = Env::new(Duration::from_millis(100)).await;
+        env.open(S).await;
+        env.locked.store(true, Ordering::SeqCst);
+        wait_for(&env.daemon.calls, &format!("closed:{S}:locked")).await;
+        wait_for(&env.kwin_log, "active:false").await;
+        env.task.abort();
+    })
+    .await
+    .unwrap();
+}
+
+/// ADR-0105 after the review of #512: KWin deactivates the context on a
+/// lock as on a focus change; while locked the end is `locked`.
+#[tokio::test]
+async fn a_deactivate_while_locked_is_reported_as_locked() {
+    tokio::time::timeout(Duration::from_secs(60), async {
+        let env = Env::new(Duration::from_secs(3600)).await;
+        env.open(S).await;
+        env.locked.store(true, Ordering::SeqCst);
+        env.commands.send(Command_::Deactivate).unwrap();
+        wait_for(&env.daemon.calls, &format!("closed:{S}:locked")).await;
+        assert!(
+            !env.daemon
+                .calls
+                .lock()
+                .unwrap()
+                .contains(&format!("closed:{S}:focus"))
+        );
+        env.task.abort();
+    })
+    .await
+    .unwrap();
 }

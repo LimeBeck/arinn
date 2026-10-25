@@ -25,6 +25,9 @@ pub enum In {
     Deactivated,
     /// KWin did not activate a context in time after `forceActivate`.
     OpenTimeout(String),
+    /// The daemon lane ended (restart, crash, `Conflict`): no session
+    /// survives it, and there is nobody to report the end to.
+    Lost,
     /// A key from the keyboard grab (evdev code).
     Key {
         code: u32,
@@ -187,6 +190,7 @@ impl Machine {
                     Vec::new()
                 }
             }
+            In::Lost => self.end(None),
             In::Locked(session) => {
                 if self.current(&session).is_some() {
                     self.end(Some("locked"))
@@ -343,6 +347,24 @@ mod tests {
         let mut idle = Machine::default();
         assert_eq!(idle.handle(In::Activated), []);
         assert_eq!(idle.handle(In::Deactivated), []);
+    }
+
+    /// Review of #484: a lost daemon lane hands the keys back at once.
+    #[test]
+    fn a_lost_lane_releases_the_grab_and_reports_nothing() {
+        let mut m = Machine::default();
+        m.handle(In::Open(S.into()));
+        m.handle(In::Activated);
+        assert_eq!(m.handle(In::Lost), [Out::Release]);
+        assert!(!m.is_open());
+        // A key of the old grab now goes on, as without a session; the I/O
+        // layer drops the ones queued before the release.
+        assert_eq!(m.handle(In::Type(S.into(), "x".into())), []);
+        assert_eq!(m.handle(In::Lost), []);
+        // While still waiting for KWin there is nothing to release.
+        m.handle(In::Open(T.into()));
+        assert_eq!(m.handle(In::Lost), []);
+        assert_eq!(m.handle(In::Activated), []);
     }
 
     #[test]

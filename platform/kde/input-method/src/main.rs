@@ -233,6 +233,8 @@ pub struct Endpoints {
     pub kwin: String,
     /// How long KWin may take to activate a context after the request.
     pub activation: Duration,
+    /// How often an open session checks the lock state (500 ms).
+    pub lock_tick: Duration,
 }
 
 type Started = (
@@ -268,6 +270,15 @@ enum Wake {
     Tick,
 }
 
+/// What the lane's timers send: a plain event, or a repeated key of one
+/// repeat run. A repeat of a run that has stopped (the key was released or
+/// the session ended) is dropped, so it never reaches the application as a
+/// press without a release.
+enum Timed {
+    Event(In),
+    Repeat(u64, In),
+}
+
 /// One daemon connection of the session loop.
 struct Lane<'a> {
     wayland: &'a Connection,
@@ -276,14 +287,16 @@ struct Lane<'a> {
     endpoints: &'a Endpoints,
     bridge: KeyboardBridgeProxy<'a>,
     generation: String,
-    timers: mpsc::UnboundedSender<In>,
+    timers: mpsc::UnboundedSender<Timed>,
     open: Option<String>,
-    repeating: Option<(u32, tokio::task::JoinHandle<()>)>,
+    /// The held key, its run and the task that repeats it.
+    repeating: Option<(u32, u64, tokio::task::JoinHandle<()>)>,
+    runs: u64,
 }
 
 impl Lane<'_> {
     fn stop_repeat(&mut self) {
-        if let Some((_, task)) = self.repeating.take() {
+        if let Some((_, _, task)) = self.repeating.take() {
             task.abort();
         }
     }
@@ -296,7 +309,7 @@ impl Lane<'_> {
         if self
             .repeating
             .as_ref()
-            .is_some_and(|(held, _)| held != code || !pressed)
+            .is_some_and(|(held, _, _)| held != code || !pressed)
         {
             self.stop_repeat();
         }
@@ -309,16 +322,18 @@ impl Lane<'_> {
         {
             let sender = self.timers.clone();
             let repeat = event.clone();
+            self.runs += 1;
+            let run = self.runs;
             let task = tokio::spawn(async move {
                 tokio::time::sleep(Duration::from_millis(delay.max(0) as u64)).await;
                 loop {
-                    if sender.send(repeat.clone()).is_err() {
+                    if sender.send(Timed::Repeat(run, repeat.clone())).is_err() {
                         return;
                     }
                     tokio::time::sleep(Duration::from_millis(1000 / rate as u64)).await;
                 }
             });
-            self.repeating = Some((*code, task));
+            self.repeating = Some((*code, run, task));
         }
     }
 
@@ -375,7 +390,7 @@ impl Lane<'_> {
                 let wait = self.endpoints.activation;
                 tokio::spawn(async move {
                     tokio::time::sleep(wait).await;
-                    let _ = sender.send(In::OpenTimeout(s));
+                    let _ = sender.send(Timed::Event(In::OpenTimeout(s)));
                 });
             }
             Out::Grab => {
@@ -417,6 +432,14 @@ impl Lane<'_> {
                     self.open = None;
                 }
                 self.stop_repeat();
+                // KWin deactivates the context on a lock as on a focus
+                // change: `focus` holds only for an explicitly unlocked
+                // session, anything else is `locked` (ADR-0105).
+                let reason = if reason == "focus" && !unlocked(&self.endpoints.bus).await {
+                    "locked"
+                } else {
+                    reason
+                };
                 let _ = self.bridge.closed(&self.generation, &s, reason).await;
             }
             Out::Commit(text) => {
@@ -453,13 +476,15 @@ impl Lane<'_> {
     }
 }
 
-/// Runs one daemon connection until it fails.
+/// Runs one daemon connection until it fails. The machine outlives the
+/// connection, so a context KWin still holds is known to the next one.
 async fn session(
     wayland: &Connection,
     shared: &Arc<Mutex<Shared>>,
     handle: &QueueHandle<Wayland>,
     events: &mut mpsc::UnboundedReceiver<In>,
     endpoints: &Endpoints,
+    machine: &mut Machine,
 ) -> Result<()> {
     let bridge = KeyboardBridgeProxy::builder(&endpoints.bus)
         .destination(endpoints.daemon.clone())?
@@ -482,7 +507,7 @@ async fn session(
             }
         }
     });
-    let (timers, mut timer) = mpsc::unbounded_channel::<In>();
+    let (timers, mut timer) = mpsc::unbounded_channel::<Timed>();
     let mut lane = Lane {
         wayland,
         shared,
@@ -493,9 +518,9 @@ async fn session(
         timers,
         open: None,
         repeating: None,
+        runs: 0,
     };
-    let mut machine = Machine::default();
-    let mut tick = tokio::time::interval(Duration::from_millis(500));
+    let mut tick = tokio::time::interval(endpoints.lock_tick);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let result = loop {
         let wake = tokio::select! {
@@ -507,7 +532,15 @@ async fn session(
                 Some(record) => Wake::Daemon(record),
                 None => break Err(anyhow::anyhow!("daemon lane ended")),
             },
-            Some(event) = timer.recv() => Wake::Timer(event),
+            Some(timed) = timer.recv() => match timed {
+                Timed::Event(event) => Wake::Timer(event),
+                Timed::Repeat(run, event)
+                    if lane.repeating.as_ref().is_some_and(|(_, current, _)| *current == run) =>
+                {
+                    Wake::Timer(event)
+                }
+                Timed::Repeat(..) => continue,
+            },
             _ = tick.tick() => Wake::Tick,
         };
         let input = match wake {
@@ -535,6 +568,26 @@ async fn session(
     };
     poller.abort();
     lane.stop_repeat();
+    // The lane ended (daemon restart, crash, `Conflict`). Review of #484: no
+    // grab may outlive it, or keys would be swallowed and then arrive late.
+    // End the session, release the grab, `active = false`, and drop the
+    // keys the old grab already queued.
+    let outs = machine.handle(In::Lost);
+    let released = outs.contains(&Out::Release);
+    for out in outs {
+        lane.act(out).await;
+    }
+    if !released && shared.lock().unwrap().keyboard.is_some() {
+        lane.act(Out::Release).await;
+    }
+    lane.open = None;
+    while let Ok(event) = events.try_recv() {
+        if !matches!(event, In::Key { .. }) {
+            for out in machine.handle(event) {
+                lane.act(out).await;
+            }
+        }
+    }
     result
 }
 
@@ -542,8 +595,17 @@ async fn session(
 /// a restarted daemon.
 pub async fn run(wayland: Connection, endpoints: Endpoints) -> Result<()> {
     let (mut events, shared, handle) = start_wayland(&wayland)?;
+    let mut machine = Machine::default();
     loop {
-        let result = session(&wayland, &shared, &handle, &mut events, &endpoints).await;
+        let result = session(
+            &wayland,
+            &shared,
+            &handle,
+            &mut events,
+            &endpoints,
+            &mut machine,
+        )
+        .await;
         if events.is_closed() {
             return result;
         }
@@ -570,6 +632,7 @@ async fn main() -> Result<()> {
             daemon: arinn_protocol::production::SERVICE.into(),
             kwin: "org.kde.KWin".into(),
             activation: Duration::from_secs(1),
+            lock_tick: Duration::from_millis(500),
         },
     )
     .await

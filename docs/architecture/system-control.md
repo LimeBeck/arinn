@@ -289,7 +289,10 @@ every action goes through the methods above.
   `/etc/xdg/autostart/org.arinn.PowerButtonRestore.desktop`
   (`--restore-power-button`, a no-op while the adapter owns `org.arinn.X11`,
   and with a copy to give back held under a temporary logind inhibitor like
-  the other restores;
+  the other restores when logind grants one; without one the restore still
+  runs: it does not touch xfce4-power-manager's own `handle-power-key`
+  inhibitor, which it holds by default, so logind cannot act meanwhile, and
+  skipping it would leave "do nothing" in the user's XFCE settings for good;
   a copy the adapter could not give back at its start, or that xfconf refused
   when Arinn let go, is retried every 30 s off its loop until it succeeds,
   each time under a temporary logind inhibitor (the system bus is opened

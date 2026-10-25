@@ -268,7 +268,7 @@ trial inside an X11 graphical session:
 systemctl --user stop arinn-session.target arinn-ewmh-session.target
 systemctl --user import-environment DISPLAY XAUTHORITY
 systemctl --user set-environment XDG_SESSION_TYPE=x11 ARINN_PLATFORM_BACKEND=ewmh ARINN_SESSION_BACKEND=x11
-systemctl --user unset-environment ARINN_SESSION_ENTRY
+systemctl --user unset-environment ARINN_SESSION_ENTRY ARINN_LOGIN_STATE_HOME ARINN_LOGIN_CONFIG_HOME
 systemctl --user start arinn-ewmh-session.target
 ```
 

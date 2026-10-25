@@ -249,9 +249,11 @@ every action goes through the methods above.
   the value back (unless the user chose another one since) and removes itself
   and the copy. While that binary exists it does nothing, a value it cannot
   read is left for the next login, and every release removes it. Without the
-  entry nothing is changed. The entry goes to the user manager's
-  `$XDG_CONFIG_HOME`; an `XDG_CONFIG_HOME` set only in the login environment
-  puts it where XFCE does not look, and then only the system entry restores.
+  entry nothing is changed. The copy and the entry use the login's own
+  folders: `arinn-xfce-session` passes them to the user manager as
+  `ARINN_LOGIN_STATE_HOME` and `ARINN_LOGIN_CONFIG_HOME`, which the adapter
+  and its helper prefer, while the system login entry uses the login's
+  `XDG_*` directly; without them the dedicated session takes nothing.
 - **logind.** While Arinn holds the key (the daemon on KDE, the adapter on
   X11) it holds a `handle-power-key` block inhibitor (`platform/power_inhibitor.rs`),
   taken before the key, so logind's own `HandlePowerKey=` never runs next to

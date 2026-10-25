@@ -225,7 +225,13 @@ rest of the adapter unchanged.
   hwdb remap. A key that is also a Home or quick-menu key is left out (Home
   and the quick menu win, ADR-0106), and a key another client holds is
   skipped. A press requests a session only after an explicit
-  unlocked ScreenSaver reply.
+  unlocked ScreenSaver reply. A keyboard or modifier mapping change grabs the
+  keys again without letting a still-wanted combination go: the new
+  combinations are grabbed first (which only replaces the worker's own grab)
+  and only those the new mapping no longer names are released. The X server
+  also sends a mapping change whenever key events switch between devices (a
+  remote, a keyboard, XTest), so releasing first let a key pressed in between
+  reach the application (#522).
 - **Open.** The target is `_NET_ACTIVE_WINDOW`. It must be listed in
   `_NET_CLIENT_LIST`, of normal type and not the shell; otherwise the session is
   `unavailable`. The worker then passively grabs Up, Down, Left, Right, Return,
@@ -346,6 +352,7 @@ ARINN_PLATFORM_BACKEND=ewmh cargo test -p arinnd selected_adapter_owner_excludes
 The keyboard's ignored tests spawn their own Xvfb too. They check that:
 
 - the key reaches the worker and not the application;
+- a mapping change never lets the key go: a client that keeps grabbing it never gets it;
 - XTest types ASCII and Cyrillic with an English keymap;
 - the panel keys are grabbed while other keys pass;
 - the shell and unlisted windows are never targets;

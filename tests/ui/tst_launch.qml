@@ -281,6 +281,9 @@ TestCase {
         application();
         overlay.active = true;
         tryCompare(overlay, "slow", true);
+        // Cancel takes focus when it appears; wait for it, as the other
+        // cases do, or Return can arrive first and open nothing.
+        focused("launchCancel");
         keyClick(Qt.Key_Return);
         compare(overlay.confirming, true);
         overlay.failure = "Unavailable";

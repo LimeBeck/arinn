@@ -489,14 +489,6 @@ impl KeyboardBridge {
             return Ok(());
         }
         current.opened = true;
-        #[cfg(test)]
-        {
-            let pause = self.core.keyboard.opened_pause.lock().unwrap().take();
-            if let Some((reached, release)) = pause {
-                reached.notify_one();
-                release.notified().await;
-            }
-        }
         log("opened", None);
         // `Opened(S)` leaves under the state lock. Every `Closed(S)` is sent
         // after the session ended, and ending it takes that lock, so a
@@ -505,6 +497,16 @@ impl KeyboardBridge {
         // ignore that `Closed` and then show a panel for an ended session.
         let emitter = SignalEmitter::new(&self.core.connection, production::PATH)
             .map_err(|_| ErrorCode::Internal)?;
+        // Tests pause at the emission itself, so a lock released anywhere
+        // before it lets the second press through.
+        #[cfg(test)]
+        {
+            let pause = self.core.keyboard.opened_pause.lock().unwrap().take();
+            if let Some((reached, release)) = pause {
+                reached.notify_one();
+                release.notified().await;
+            }
+        }
         let sent = ShellKeyboard::opened(&emitter, session).await;
         drop(state);
         sent.map_err(|_| ErrorCode::Internal)?;

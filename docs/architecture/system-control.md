@@ -231,26 +231,32 @@ every action goes through the methods above.
   the next start; [ADR-0111](../adr/0111-power-key.md)'s "removed once the
   check after letting go has run" means exactly this. A new instance has 10 s
   to own the name; while the name has no owner at all (the old instance quit,
-  the new one starts slowly) the adapter waits up to 30 s, still holding the
-  inhibitor and taking no key, so a slow instance grabs the key itself. This
-  exceeds ADR-0111's "at most 15 s" for that inhibitor; the ADR wording is
-  left to its next amendment (#519 item 2). The running adapter tries an
-  unconfirmed repair again as well (the grab check fails, `Restart` fails,
-  or no new instance owns the name in time): every 30 s at most, never
-  sooner, each restart under logind's inhibitor (a temporary one once
-  Arinn's is gone), until one is confirmed. After 3 unconfirmed restarts in a
-  row it gives up and logs it: it restarts nothing more and grabs no key
-  until the adapter restarts, so the desktop keeps the key, and the marker
-  stays for the next start. Between retries Arinn holds no inhibitor;
-  xfce4-power-manager holds its own `handle-power-key` inhibitor, so while a
-  repair is pending (or after giving up) the key does nothing rather than
-  logind acting on it, unless the user set xfce4-power-manager to leave the
-  key to logind. An
+  the new one starts slowly) the adapter waits a little longer, still holding
+  the inhibitor and taking no key, so a slow instance grabs the key itself.
+  The whole restart, the `Restart` call included, holds the inhibitor at most
+  15 s, as ADR-0111 states. The running adapter tries an unconfirmed repair
+  again as well (the grab check fails, `Restart` fails or times out, the old
+  instance stays, or no new instance owns the name in time): every 30 s at
+  most, never sooner, each restart under logind's inhibitor (a temporary one
+  once Arinn's is gone), until one is confirmed. Only a restart after which
+  the old instance went away and no new one came counts: after 3 of them in
+  a row the adapter gives up and logs it. It restarts nothing more and grabs
+  no key until the adapter restarts, and the marker stays for the next
+  start; a late instance then grabs the key itself. A restart that changed
+  nothing never counts, so an xfce4-power-manager whose grab is broken keeps
+  being retried rather than left with nobody reading the key. Between
+  retries Arinn holds no inhibitor. While xfce4-power-manager runs it holds
+  its own `handle-power-key` inhibitor, so while a repair is pending (or
+  after giving up) the key does nothing rather than logind acting on it,
+  unless the user set xfce4-power-manager to leave the key to logind. While
+  no xfce4-power-manager runs after giving up (no instance came back),
+  nobody inhibits logind, and its configured `HandlePowerKey=` acts
+  (power-off by default) until the adapter restarts. An
   xfce4-power-manager that is gone meanwhile (stopped by the user) ends the
   repair and clears the marker; `Restart` is never called while its name has
   no owner, so it is never started, and one started again later grabs the
   key itself. A confirmed or ended repair resets the 30 s backoff; the count
-  of unconfirmed restarts is reset only by a confirmed one. A restart drops
+  of missing instances is reset only by a confirmed repair. A restart drops
   idle inhibitors applications held through xfce4-power-manager; normally
   the instance is about half a second old.
 - **XFCE, dedicated Arinn session only** (owner decision of 2026-10-24). With
@@ -316,8 +322,11 @@ grab, the ordinary XFCE desktop, another desktop until xfce4-power-manager
 appears and is restarted when its grab failed, the dedicated session never
 grabbing, a crash repaired at the next start, a marker kept until the repair
 is confirmed, an unconfirmed restart or a failed grab check retried after the
-backoff until confirmed, a slow new instance waited for, unconfirmed restarts
-capped, no restart when the name is gone, the backoff reset after a repair, a
+backoff until confirmed, a slow new instance waited for, the inhibitor held
+at most 15 s when no instance comes, restarts whose instance never came
+capped, a restart that changed nothing retried without counting, a confirmed
+repair resetting the count, no restart when the name is gone, the backoff
+reset after a repair, a
 stopped xfce4-power-manager never restarted, a
 stale copy retried under an inhibitor after a failed start-up restore (also
 when the start found no system bus) or a refused release, the login restore

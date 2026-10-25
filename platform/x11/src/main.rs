@@ -854,13 +854,17 @@ async fn run(actor: &Arc<Mutex<Actor>>, power: &mut power_owner::PowerOwner) -> 
             .name_has_owner(power_key_shell().try_into()?)
             .await
             .unwrap_or(false);
+        // The ordinary XFCE desktop keeps the key; an XFCE session manager
+        // or xfce4-power-manager that appears later takes it back within
+        // one tick (ADR-0111).
+        let xfce = power_owner::xfce_on_bus(&bus).await;
         let reading = if update.snapshot.power_grabbed {
             power.owned()
         } else {
             native::Reading::None
         };
         power
-            .follow(&mut ActorReader(actor), shell, reading)
+            .follow(&mut ActorReader(actor), shell, xfce, reading)
             .await?;
         if let Some((done, error)) = completion {
             let _ = done.send(error);
@@ -994,10 +998,10 @@ mod tests {
     #[tokio::test]
     async fn an_ended_session_gives_the_power_key_back() {
         use crate::{native::Reading, power_owner::tests as owner, xfce_power::Saved};
-        let mut f = owner::fixture(true, true).await;
+        let mut f = owner::fixture(true).await;
         let mut reader = owner::reader(Reading::Raw);
         f.owner
-            .follow(&mut reader, true, Reading::None)
+            .follow(&mut reader, true, true, Reading::None)
             .await
             .unwrap();
         assert_eq!(f.xfconf.value(), Some(Saved::Uint(0)));

@@ -45,8 +45,7 @@ const NOTHING: u32 = 0;
 const TIMEOUT: Duration = Duration::from_secs(5);
 /// The adapter's bus name: while it is owned, the adapter decides.
 const ADAPTER: &str = "org.arinn.X11";
-/// The installed adapter. While it exists, the per-user restore entry
-/// leaves the setting to it.
+/// The packaged adapter, when this process cannot name its own binary.
 const INSTALLED: &str = "/usr/bin/arinn-platform-x11";
 /// The per-user restore entry in `$XDG_CONFIG_HOME/autostart`.
 const ENTRY: &str = "autostart/arinn-power-button-restore.desktop";
@@ -97,6 +96,23 @@ pub fn dedicated(entry: Option<&str>) -> bool {
     entry == Some("xfce")
 }
 
+/// This adapter's own binary, so an install outside `/usr` (or a
+/// development build) is recognised as present too (review of #516). After
+/// an upgrade replaced the file, the kernel names it with " (deleted)"; the
+/// path is the same.
+fn adapter_binary() -> PathBuf {
+    std::env::current_exe()
+        .ok()
+        .and_then(|path| {
+            let text = path.to_str()?;
+            Some(PathBuf::from(
+                text.strip_suffix(" (deleted)").unwrap_or(text),
+            ))
+        })
+        .filter(|path| path.is_absolute())
+        .unwrap_or_else(|| PathBuf::from(INSTALLED))
+}
+
 /// The files behind the user's setting.
 #[derive(Clone, Debug)]
 pub struct Files {
@@ -109,7 +125,8 @@ pub struct Files {
     pub channel: PathBuf,
     /// The per-user restore entry; its script is next to it (`.sh`).
     pub entry: PathBuf,
-    /// The installed adapter (`INSTALLED`; another path in tests).
+    /// The adapter binary that wrote the entry (`adapter_binary`). While it
+    /// exists, the per-user restore entry leaves the setting to Arinn.
     pub installed: PathBuf,
 }
 impl Files {
@@ -133,7 +150,7 @@ impl Files {
             record: base(state, ".local/state")?.join("arinn/xfce-power-button"),
             channel: config.join("xfce4/xfconf/xfce-perchannel-xml/xfce4-power-manager.xml"),
             entry: config.join(ENTRY),
-            installed: PathBuf::from(INSTALLED),
+            installed: adapter_binary(),
         })
     }
     /// The script the restore entry runs.
@@ -270,16 +287,21 @@ fn restore_script(files: &Files, saved: Saved) -> Option<String> {
 # Written by Arinn (ADR-0111) while it held the power key in the dedicated
 # Arinn XFCE session. If Arinn was removed before it could give the XFCE
 # power button setting back, this gives it back at the next XFCE login and
-# removes itself. While Arinn is installed, Arinn does that itself.
+# removes itself. While Arinn's adapter is installed, Arinn does that
+# itself. Anything it cannot read is left for the next login.
 [ -e '{installed}' ] && exit 0
 c=xfce4-power-manager
 p=/xfce4-power-manager/power-button-action
-xfconf-query -c "$c" -l >/dev/null 2>&1 || exit 0
-now=$(xfconf-query -c "$c" -p "$p" 2>/dev/null) || now=
-# Anything but Arinn's "do nothing" was chosen by the user since: kept.
-if [ "$now" = 0 ]; then
-    xfconf-query -c "$c" -p "$p" {query} || exit 0
-fi
+list=$(xfconf-query -c "$c" -l 2>/dev/null) || exit 0
+case "$list" in
+*"$p"*)
+    now=$(xfconf-query -c "$c" -p "$p" 2>/dev/null) || exit 0
+    # Anything but Arinn's "do nothing" was chosen by the user since: kept.
+    if [ "$now" = 0 ]; then
+        xfconf-query -c "$c" -p "$p" {query} || exit 0
+    fi
+    ;;
+esac
 rm -f '{entry}' '{script}' '{record}' '{lock}'
 "#
     ))
@@ -817,6 +839,14 @@ pub(crate) mod tests {
     /// `xfconf-query` holding `value` (`None`: not set). Returns the value
     /// afterwards and the fake's calls.
     fn run_restore(f: &Fixture, value: Option<&str>) -> (Option<String>, Vec<String>) {
+        run_restore_with(f, value, false)
+    }
+    /// `read_fails`: xfconf lists the property but cannot read it.
+    fn run_restore_with(
+        f: &Fixture,
+        value: Option<&str>,
+        read_fails: bool,
+    ) -> (Option<String>, Vec<String>) {
         let bin = f.root.join("bin");
         std::fs::create_dir_all(&bin).unwrap();
         let fake = bin.join("xfconf-query");
@@ -825,10 +855,11 @@ pub(crate) mod tests {
             r#"#!/bin/sh
 echo "$*" >> "$FAKE_XFCONF.calls"
 case "$*" in
-*" -l") exit 0 ;;
+*" -l") [ -e "$FAKE_XFCONF" ] && echo /xfce4-power-manager/power-button-action; exit 0 ;;
 *" -r") rm -f "$FAKE_XFCONF"; exit 0 ;;
 *--set=*) echo "${*##*--set=}" > "$FAKE_XFCONF"; exit 0 ;;
 esac
+[ -n "$FAKE_READ_FAILS" ] && exit 1
 [ -e "$FAKE_XFCONF" ] || exit 1
 cat "$FAKE_XFCONF"
 "#,
@@ -847,6 +878,7 @@ cat "$FAKE_XFCONF"
             .arg(f.files.script())
             .env("PATH", path)
             .env("FAKE_XFCONF", &state)
+            .env("FAKE_READ_FAILS", if read_fails { "1" } else { "" })
             .status()
             .unwrap();
         assert!(status.success());
@@ -890,6 +922,30 @@ cat "$FAKE_XFCONF"
         ] {
             assert!(!path.exists(), "{}", path.display());
         }
+    }
+
+    /// Review of #516: the script recognises the adapter binary that wrote
+    /// it, not only `/usr/bin` (here the test binary, as a development build
+    /// or an install elsewhere would be), so it never restores while that
+    /// adapter may hold the key. A value it cannot read is left for the next
+    /// login, with the entry and the copy.
+    #[tokio::test]
+    async fn the_removal_restore_knows_its_adapter_and_keeps_what_it_cannot_read() {
+        let mut f = fixture(Some(Value::U32(3))).await;
+        assert_eq!(f.files.installed, std::env::current_exe().unwrap());
+        assert!(!f.files.installed.starts_with("/usr"));
+        assert!(take(&f.adapter, &f.files).await);
+        assert_eq!(run_restore(&f, Some("0")), (Some("0".into()), vec![]));
+        assert!(f.files.entry.exists() && f.path().exists());
+        f.files.installed = f.root.join("removed");
+        assert!(take(&f.adapter, &f.files).await);
+        let (value, calls) = run_restore_with(&f, Some("0"), true);
+        assert_eq!(value.as_deref(), Some("0"));
+        assert!(!calls.iter().any(|c| c.contains("--set")), "{calls:?}");
+        assert!(f.files.entry.exists() && f.files.script().exists() && f.path().exists());
+        // The next login reads it and restores.
+        assert_eq!(run_restore(&f, Some("0")).0.as_deref(), Some("3"));
+        assert!(!f.files.entry.exists() && !f.path().exists());
     }
 
     /// The same script keeps a value the user chose since, and resets a

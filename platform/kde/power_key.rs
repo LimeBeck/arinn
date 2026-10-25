@@ -15,7 +15,7 @@
 //! application quits. That writes nothing to `kglobalshortcutsrc`: the
 //! user's keys stay as they are, and a new login starts with them active.
 //! Before Plasma 6.7 PowerDevil's actions are never touched and the desktop
-//! keeps the key (owner decision of 2026-10-24). While `ArinnPower` holds a
+//! keeps the key (owner decision of 2026-10-25). While `ArinnPower` holds a
 //! key, the daemon also holds logind's `handle-power-key` inhibitor.
 //!
 //! Arinn holds the key only while something can show the menu: the shell
@@ -362,7 +362,7 @@ impl PowerKey {
         if desktop.iter().any(|(key, _)| !active.contains(key)) {
             // KGlobalAccel before Plasma 6.7 refuses a key PowerDevil
             // stores. The desktop keeps every power key; PowerDevil's
-            // actions were never touched (owner decision of 2026-10-24).
+            // actions were never touched (owner decision of 2026-10-25).
             log("warn", "power-key", Some("Unsupported"));
             // Present as before: a no-op, unless an earlier take of this run
             // set them aside (a KGlobalAccel replaced since).
@@ -690,7 +690,7 @@ mod tests {
         ]));
     }
 
-    /// Owner decision of 2026-10-24 (review of #516): KGlobalAccel before
+    /// Owner decision of 2026-10-25 (review of #516): KGlobalAccel before
     /// Plasma 6.7 refuses a key another action stores. The desktop keeps
     /// every power key, PowerDevil's actions are never set aside, and logind
     /// is not inhibited for a key Arinn does not own. A later attempt (a new

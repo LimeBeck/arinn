@@ -15,14 +15,16 @@
 //!    to "do nothing" (`xfce_power`).
 //!
 //! When the shell goes, the reader fails or the adapter's session ends,
-//! everything goes back at once in the reverse order. Only the dedicated
-//! Arinn XFCE session takes the key (`ARINN_SESSION_ENTRY=xfce`, which its
-//! session wrapper exports to the user manager). Every other X11/EWMH
-//! session, the ordinary XFCE desktop with opt-in autostart included, leaves
-//! it the desktop's: the owner decision of 2026-10-24 keeps the XFCE dialog
-//! there, and `XDG_CURRENT_DESKTOP` does not reach `arinn-ewmh.service` on
-//! every distribution, so it cannot tell the ordinary desktop apart (review
-//! of #517).
+//! everything goes back at once in the reverse order.
+//!
+//! The ordinary XFCE desktop keeps its dialog (owner decision of
+//! 2026-10-24). It is recognised on the session bus, not from the
+//! environment, which does not reach `arinn-ewmh.service` on every
+//! distribution (reviews of #516 and #517): while `org.xfce.SessionManager`
+//! or xfce4-power-manager's `org.xfce.PowerManager` has an owner, only the
+//! dedicated Arinn XFCE session (`ARINN_SESSION_ENTRY=xfce`, which its
+//! session wrapper exports to the user manager) takes the key. Any other
+//! X11/EWMH desktop takes it. A name that appears later gives it back.
 use crate::{native::Reading, power_inhibitor, xfce_power};
 use anyhow::Result;
 use std::time::{Duration, Instant};
@@ -35,16 +37,34 @@ pub trait Reader {
     fn set(&mut self, enabled: bool, raw: bool) -> Result<Reading>;
 }
 
-/// Whether this session may take the power key: only the dedicated Arinn
-/// XFCE session (`ARINN_SESSION_ENTRY=xfce`). Without the marker, also when
-/// nothing names the desktop, the key stays the desktop's.
-pub fn allowed(entry: Option<&str>) -> bool {
-    xfce_power::dedicated(entry)
+/// The session-bus names of an XFCE desktop: its session manager
+/// (ADR-0107) and xfce4-power-manager, which also runs outside XFCE.
+pub const XFCE_NAMES: [&str; 2] = ["org.xfce.SessionManager", "org.xfce.PowerManager"];
+
+/// Whether an XFCE session manager or xfce4-power-manager owns its name on
+/// this bus. An unanswered query counts as XFCE: the key then stays the
+/// desktop's.
+pub async fn xfce_on_bus(bus: &zbus::fdo::DBusProxy<'_>) -> bool {
+    for name in XFCE_NAMES {
+        let Ok(name) = zbus::names::BusName::try_from(name) else {
+            return true;
+        };
+        if bus.name_has_owner(name).await.unwrap_or(true) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Whether this session may take the power key: the dedicated Arinn XFCE
+/// session, and any X11/EWMH desktop where no XFCE name is on the bus. The
+/// ordinary XFCE desktop, and any desktop where xfce4-power-manager runs,
+/// keeps it.
+pub fn allowed(dedicated: bool, xfce: bool) -> bool {
+    dedicated || !xfce
 }
 
 pub struct PowerOwner {
-    /// This session may take the key at all.
-    allowed: bool,
     /// The dedicated Arinn XFCE session: raw reading and xfconf.
     dedicated: bool,
     /// The session bus and files for xfconf; none without them.
@@ -62,13 +82,11 @@ pub struct PowerOwner {
 }
 impl PowerOwner {
     pub fn new(
-        allowed: bool,
         dedicated: bool,
         xfconf: Option<(Connection, xfce_power::Files)>,
         system: Option<Connection>,
     ) -> Self {
         Self {
-            allowed,
             dedicated,
             xfconf,
             system,
@@ -94,7 +112,6 @@ impl PowerOwner {
             xfce_power::release(bus, files).await;
         }
         Self::new(
-            allowed(entry.as_deref()),
             xfce_power::dedicated(entry.as_deref()),
             bus.zip(files),
             None,
@@ -109,15 +126,16 @@ impl PowerOwner {
     pub fn inhibiting(&self) -> bool {
         self.inhibitor.is_some()
     }
-    /// One step: `shell` is alive, and `reading` is how the snapshot found
-    /// the key read.
+    /// One step: `shell` is alive, `xfce` an XFCE name is on the bus
+    /// (`xfce_on_bus`), and `reading` is how the snapshot found the key read.
     pub async fn follow<R: Reader>(
         &mut self,
         reader: &mut R,
         shell: bool,
+        xfce: bool,
         reading: Reading,
     ) -> Result<()> {
-        let wanted = self.allowed && shell;
+        let wanted = allowed(self.dedicated, xfce) && shell;
         if self.owned != Reading::None {
             // The shell is gone, or the reader stopped (a regrab after a
             // mapping change lost the key): everything goes back.
@@ -231,13 +249,12 @@ pub(crate) mod tests {
         _logind: Connection,
         pub(crate) owner: PowerOwner,
     }
-    pub(crate) async fn fixture(allowed: bool, dedicated: bool) -> Fixture {
+    pub(crate) async fn fixture(dedicated: bool) -> Fixture {
         let xfconf = xfconf::fixture(Some(Value::U32(3))).await;
         let login = logind::Shared::new(Mutex::new(logind::Fake::default()));
         let service = logind::connect(&xfconf.bus.1).await;
         logind::serve(&service, login.clone()).await;
         let mut owner = PowerOwner::new(
-            allowed,
             dedicated,
             Some((xfconf.adapter.clone(), xfconf.files.clone())),
             Some(logind::connect(&xfconf.bus.1).await),
@@ -265,28 +282,86 @@ pub(crate) mod tests {
         }
     }
 
+    /// An XFCE name on the bus (the session manager, or
+    /// xfce4-power-manager); `OTHER`: none.
+    const XFCE: bool = true;
+    const OTHER: bool = false;
+
     #[test]
-    fn only_the_dedicated_session_takes_the_power_key() {
-        // Review of #517: XDG_CURRENT_DESKTOP need not reach the unit, so
-        // without the dedicated session's marker nothing is taken, also
-        // when no variable is set at all.
-        assert!(!allowed(None));
-        assert!(!allowed(Some("")));
-        assert!(!allowed(Some("plasma")));
-        assert!(!allowed(Some("XFCE")));
-        assert!(allowed(Some("xfce")));
+    fn the_ordinary_xfce_desktop_keeps_the_key_and_other_desktops_take_it() {
+        // Reviews of #516 and #517: XFCE is told apart on the bus, not by
+        // XDG_CURRENT_DESKTOP, which need not reach the unit.
+        assert!(!allowed(false, XFCE));
+        assert!(allowed(true, XFCE));
+        assert!(allowed(false, OTHER));
+        assert!(allowed(true, OTHER));
     }
 
-    /// The same from the adapter's environment: with no variable set, the
-    /// ordinary XFCE desktop and any other X11 session leave the key alone.
+    /// `xfce_on_bus` on a private bus: no XFCE name, the session manager,
+    /// xfce4-power-manager alone (it also runs outside XFCE).
     #[tokio::test]
-    async fn without_the_dedicated_marker_nothing_is_taken() {
-        let mut f = fixture(allowed(None), xfce_power::dedicated(None)).await;
+    async fn xfce_is_recognised_by_its_bus_names() {
+        let bus = logind::bus();
+        let adapter = logind::connect(&bus.1).await;
+        let dbus = zbus::fdo::DBusProxy::new(&adapter).await.unwrap();
+        assert!(!xfce_on_bus(&dbus).await);
+        for name in XFCE_NAMES {
+            let owner = logind::connect(&bus.1).await;
+            owner.request_name(name).await.unwrap();
+            assert!(xfce_on_bus(&dbus).await, "{name}");
+            owner.release_name(name).await.unwrap();
+            assert!(!xfce_on_bus(&dbus).await, "{name}");
+        }
+    }
+
+    /// The ordinary XFCE desktop (an XFCE name, no dedicated marker, also
+    /// with no variable set): nothing is read, inhibited or written.
+    #[tokio::test]
+    async fn the_ordinary_xfce_desktop_is_left_alone() {
+        let mut f = fixture(xfce_power::dedicated(None)).await;
         let mut r = reader(Reading::Grab);
-        f.owner.follow(&mut r, true, Reading::None).await.unwrap();
+        f.owner
+            .follow(&mut r, true, XFCE, Reading::None)
+            .await
+            .unwrap();
         assert!(r.calls.is_empty());
         assert!(f.login.lock().unwrap().calls.is_empty());
         assert_eq!(f.xfconf.writes(), 0);
+    }
+
+    /// Any other X11/EWMH desktop (no XFCE name): the key is grabbed with
+    /// the inhibitor, as without XFCE before. When xfce4-power-manager
+    /// starts later, everything goes back at once; it never comes back
+    /// while that name is owned, and returns when it goes.
+    #[tokio::test]
+    async fn another_desktop_takes_the_key_until_xfce4_power_manager_appears() {
+        let mut f = fixture(false).await;
+        let mut r = reader(Reading::Grab);
+        f.owner
+            .follow(&mut r, true, OTHER, Reading::None)
+            .await
+            .unwrap();
+        assert_eq!(f.owner.owned(), Reading::Grab);
+        assert_eq!(r.calls, [(true, false)]);
+        assert_eq!(f.open(), 1);
+        f.owner
+            .follow(&mut r, true, XFCE, Reading::Grab)
+            .await
+            .unwrap();
+        assert_eq!(f.owner.owned(), Reading::None);
+        assert_eq!(r.calls.last(), Some(&(false, false)));
+        f.settle(0).await;
+        f.owner
+            .follow(&mut r, true, XFCE, Reading::None)
+            .await
+            .unwrap();
+        assert_eq!(r.calls.len(), 2);
+        assert_eq!(f.xfconf.writes(), 0);
+        f.owner
+            .follow(&mut r, true, OTHER, Reading::None)
+            .await
+            .unwrap();
+        assert_eq!(f.owner.owned(), Reading::Grab);
     }
 
     /// Dedicated XFCE session: the inhibitor, raw reading, then "do
@@ -294,17 +369,26 @@ pub(crate) mod tests {
     /// goes back.
     #[tokio::test]
     async fn a_shell_exit_gives_everything_back() {
-        let mut f = fixture(true, true).await;
+        let mut f = fixture(true).await;
         let mut r = reader(Reading::Raw);
-        f.owner.follow(&mut r, true, Reading::None).await.unwrap();
+        f.owner
+            .follow(&mut r, true, XFCE, Reading::None)
+            .await
+            .unwrap();
         assert_eq!(f.owner.owned(), Reading::Raw);
         assert_eq!(r.calls, [(true, true)]);
         assert_eq!(f.xfconf.value(), Some(xfce_power::Saved::Uint(0)));
         assert_eq!(f.open(), 1);
         // A steady state changes nothing.
-        f.owner.follow(&mut r, true, Reading::Raw).await.unwrap();
+        f.owner
+            .follow(&mut r, true, XFCE, Reading::Raw)
+            .await
+            .unwrap();
         assert_eq!(r.calls.len(), 1);
-        f.owner.follow(&mut r, false, Reading::Raw).await.unwrap();
+        f.owner
+            .follow(&mut r, false, XFCE, Reading::Raw)
+            .await
+            .unwrap();
         assert_eq!(f.owner.owned(), Reading::None);
         assert_eq!(r.calls.last(), Some(&(false, false)));
         assert_eq!(f.xfconf.value(), Some(xfce_power::Saved::Uint(3)));
@@ -316,12 +400,18 @@ pub(crate) mod tests {
     /// takes it again, and the end state is the user's.
     #[tokio::test]
     async fn a_crash_loop_ends_with_the_desktops_key() {
-        let mut f = fixture(true, true).await;
+        let mut f = fixture(true).await;
         let mut r = reader(Reading::Raw);
         for _ in 0..5 {
-            f.owner.follow(&mut r, true, Reading::None).await.unwrap();
+            f.owner
+                .follow(&mut r, true, XFCE, Reading::None)
+                .await
+                .unwrap();
             assert_eq!(f.xfconf.value(), Some(xfce_power::Saved::Uint(0)));
-            f.owner.follow(&mut r, false, Reading::Raw).await.unwrap();
+            f.owner
+                .follow(&mut r, false, XFCE, Reading::Raw)
+                .await
+                .unwrap();
             assert_eq!(f.xfconf.value(), Some(xfce_power::Saved::Uint(3)));
         }
         assert!(!f.owner.inhibiting());
@@ -334,9 +424,12 @@ pub(crate) mod tests {
     /// inhibitor is dropped.
     #[tokio::test]
     async fn a_reader_that_never_works_changes_nothing() {
-        let mut f = fixture(true, true).await;
+        let mut f = fixture(true).await;
         let mut r = reader(Reading::None);
-        f.owner.follow(&mut r, true, Reading::None).await.unwrap();
+        f.owner
+            .follow(&mut r, true, XFCE, Reading::None)
+            .await
+            .unwrap();
         assert_eq!(f.owner.owned(), Reading::None);
         assert_eq!(r.calls, [(true, true), (false, false)]);
         assert_eq!(f.xfconf.writes(), 0);
@@ -348,13 +441,22 @@ pub(crate) mod tests {
     /// back, and the key is taken again when it reads once more.
     #[tokio::test]
     async fn a_reader_that_stops_gives_everything_back() {
-        let mut f = fixture(true, true).await;
+        let mut f = fixture(true).await;
         let mut r = reader(Reading::Raw);
-        f.owner.follow(&mut r, true, Reading::None).await.unwrap();
-        f.owner.follow(&mut r, true, Reading::None).await.unwrap();
+        f.owner
+            .follow(&mut r, true, XFCE, Reading::None)
+            .await
+            .unwrap();
+        f.owner
+            .follow(&mut r, true, XFCE, Reading::None)
+            .await
+            .unwrap();
         assert_eq!(f.xfconf.value(), Some(xfce_power::Saved::Uint(3)));
         assert_eq!(f.owner.owned(), Reading::None);
-        f.owner.follow(&mut r, true, Reading::None).await.unwrap();
+        f.owner
+            .follow(&mut r, true, XFCE, Reading::None)
+            .await
+            .unwrap();
         assert_eq!(f.owner.owned(), Reading::Raw);
         assert_eq!(f.xfconf.value(), Some(xfce_power::Saved::Uint(0)));
     }
@@ -362,15 +464,21 @@ pub(crate) mod tests {
     /// Codex P1: without logind's inhibitor the key is not read at all.
     #[tokio::test]
     async fn without_the_inhibitor_nothing_is_read() {
-        let mut f = fixture(true, true).await;
+        let mut f = fixture(true).await;
         f.login.lock().unwrap().refuse = true;
         let mut r = reader(Reading::Raw);
-        f.owner.follow(&mut r, true, Reading::None).await.unwrap();
+        f.owner
+            .follow(&mut r, true, XFCE, Reading::None)
+            .await
+            .unwrap();
         assert!(r.calls.is_empty());
         assert_eq!(f.xfconf.writes(), 0);
         // logind answers again: the next attempt takes the key.
         f.login.lock().unwrap().refuse = false;
-        f.owner.follow(&mut r, true, Reading::None).await.unwrap();
+        f.owner
+            .follow(&mut r, true, XFCE, Reading::None)
+            .await
+            .unwrap();
         assert_eq!(f.owner.owned(), Reading::Raw);
     }
 
@@ -378,9 +486,12 @@ pub(crate) mod tests {
     /// xfconf change; the session's end drops the inhibitor.
     #[tokio::test]
     async fn a_grab_holds_the_inhibitor_until_the_session_ends() {
-        let mut f = fixture(true, false).await;
+        let mut f = fixture(false).await;
         let mut r = reader(Reading::Grab);
-        f.owner.follow(&mut r, true, Reading::None).await.unwrap();
+        f.owner
+            .follow(&mut r, true, OTHER, Reading::None)
+            .await
+            .unwrap();
         assert_eq!(r.calls, [(true, false)]);
         assert_eq!(f.owner.owned(), Reading::Grab);
         assert_eq!(f.open(), 1);
@@ -388,16 +499,5 @@ pub(crate) mod tests {
         f.owner.end().await;
         assert_eq!(f.owner.owned(), Reading::None);
         f.settle(0).await;
-    }
-
-    /// The ordinary XFCE desktop: nothing is read, inhibited or written.
-    #[tokio::test]
-    async fn an_ordinary_xfce_desktop_is_left_alone() {
-        let mut f = fixture(false, false).await;
-        let mut r = reader(Reading::Grab);
-        f.owner.follow(&mut r, true, Reading::None).await.unwrap();
-        assert!(r.calls.is_empty());
-        assert!(f.login.lock().unwrap().calls.is_empty());
-        assert_eq!(f.xfconf.writes(), 0);
     }
 }

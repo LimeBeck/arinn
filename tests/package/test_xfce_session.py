@@ -104,11 +104,13 @@ exit 0
         self.assertIn("--user --no-ask-password import-environment XAUTHORITY", calls)
         selection = next(i for i, call in enumerate(calls) if "set-environment XDG_SESSION_TYPE=x11 ARINN_PLATFORM_BACKEND=ewmh ARINN_SESSION_BACKEND=x11" in call)
         self.assertLess(selection, len(calls) - 1)
-        # ADR-0111: the adapter takes the power key only in the dedicated
-        # session, which its wrapper marks with ARINN_SESSION_ENTRY=xfce
-        # (test_session_entry.py). The opt-in bridge never sets the marker,
-        # and XDG_CURRENT_DESKTOP is not what decides, so the ordinary XFCE
-        # desktop keeps its power dialog.
+        # ADR-0111: the ordinary XFCE desktop keeps its power dialog. The
+        # adapter recognises it by org.xfce.SessionManager on the session
+        # bus, which this bridge requires before it starts the target (see
+        # test_missing_xfce_owner_never_touches_manager), not by
+        # XDG_CURRENT_DESKTOP. The bridge never sets the dedicated
+        # session's marker (ARINN_SESSION_ENTRY=xfce, test_session_entry.py),
+        # so the adapter never takes the key in this session.
         self.assertFalse(any("ARINN_SESSION_ENTRY" in call for call in calls))
         self.assertFalse(any("XDG_CURRENT_DESKTOP" in call for call in calls))
         self.close_owner()
@@ -153,6 +155,8 @@ exit 0
             self.assertEqual(self.log.read_text(), "")
 
     def test_missing_xfce_owner_never_touches_manager(self):
+        # Also ADR-0111: the target never runs without the XFCE session
+        # manager's name, by which the adapter leaves the power key to XFCE.
         self.close_owner()
         child = self.launch()
         self.assertEqual(child.wait(timeout=5), 1)

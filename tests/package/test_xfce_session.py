@@ -57,6 +57,7 @@ exit 0
                     "DISPLAY": ":987", "XDG_SESSION_TYPE": "x11",
                     "XAUTHORITY": str(self.root / "synthetic-authority"),
                     "PATH": f"{self.root}:{os.environ['PATH']}", "CALL_LOG": str(self.log)}
+        self.env.pop("ARINN_SESSION_ENTRY", None)
 
     @staticmethod
     def stop_process(child):
@@ -108,14 +109,33 @@ exit 0
         # adapter recognises it by org.xfce.SessionManager on the session
         # bus, which this bridge requires before it starts the target (see
         # test_missing_xfce_owner_never_touches_manager), not by
-        # XDG_CURRENT_DESKTOP. The bridge never sets the dedicated
-        # session's marker (ARINN_SESSION_ENTRY=xfce, test_session_entry.py),
-        # so the adapter never takes the key in this session.
-        self.assertFalse(any("ARINN_SESSION_ENTRY" in call for call in calls))
+        # XDG_CURRENT_DESKTOP. A stock login lacks the dedicated session's
+        # marker, so the bridge clears one a killed wrapper left in a
+        # lingering user manager before the target starts: the adapter
+        # never takes the key here.
+        start = calls.index("--user --no-ask-password start arinn-ewmh-session.target")
+        clear = calls.index("--user --no-ask-password unset-environment ARINN_SESSION_ENTRY")
+        self.assertLess(clear, start)
+        self.assertFalse(any(" set-environment ARINN_SESSION_ENTRY" in call for call in calls))
         self.assertFalse(any("XDG_CURRENT_DESKTOP" in call for call in calls))
         self.close_owner()
         self.assertEqual(child.wait(timeout=5), 0)
         self.assert_cleanup()
+
+    def test_dedicated_login_keeps_its_marker(self):
+        # ADR-0111: the dedicated session's wrapper puts the marker into the
+        # desktop's environment; the bridge binds the user manager's marker
+        # to this login before the target starts, so the adapter takes the
+        # power key there.
+        child = self.launch(ARINN_SESSION_ENTRY="xfce")
+        self.wait_for_start(child)
+        calls = self.log.read_text().splitlines()
+        start = calls.index("--user --no-ask-password start arinn-ewmh-session.target")
+        mark = calls.index("--user --no-ask-password set-environment ARINN_SESSION_ENTRY=xfce")
+        self.assertLess(mark, start)
+        self.assertFalse(any("unset-environment ARINN_SESSION_ENTRY" in call for call in calls))
+        self.close_owner()
+        self.assertEqual(child.wait(timeout=5), 0)
 
     def test_signal_stops_and_missing_authority_clears_stale_value(self):
         child = self.launch(XAUTHORITY=None)

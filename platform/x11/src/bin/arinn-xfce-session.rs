@@ -70,6 +70,17 @@ async fn start() -> Result<()> {
         .await?,
         "backend selection failed"
     );
+    // ADR-0111: the dedicated-session marker belongs to this login. The
+    // dedicated session's wrapper puts it into the desktop's own
+    // environment; a stock XFCE login lacks it, so a marker a killed
+    // wrapper left in a lingering user manager is cleared here, and the
+    // ordinary desktop keeps its power key.
+    let marked = if env::var("ARINN_SESSION_ENTRY").as_deref() == Ok("xfce") {
+        systemctl(&["set-environment", "ARINN_SESSION_ENTRY=xfce"]).await?
+    } else {
+        systemctl(&["unset-environment", "ARINN_SESSION_ENTRY"]).await?
+    };
+    ensure!(marked, "session marker update failed");
     ensure!(systemctl(&["start", TARGET]).await?, "session start failed");
     Ok(())
 }

@@ -98,27 +98,34 @@ where
     .ok()
 }
 
-/// The action KGlobalAccel names for `key`, if any.
-async fn holder(connection: &Connection, key: &(Vec<i32>,)) -> Option<Vec<String>> {
-    let reply = call(connection, "actionList", key).await?;
-    let owner: Vec<String> = reply.body().deserialize().ok()?;
-    (owner.len() == 4).then_some(owner)
+/// The action KGlobalAccel names for `key`, if any. `Err` when it did not
+/// answer or answered something else: the holder is unknown, which is not
+/// the same as free (Codex on #517).
+async fn holder(connection: &Connection, key: &(Vec<i32>,)) -> Result<Option<Vec<String>>, ()> {
+    let reply = call(connection, "actionList", key).await.ok_or(())?;
+    let owner: Vec<String> = reply.body().deserialize().map_err(drop)?;
+    match owner.len() {
+        0 => Ok(None),
+        4 => Ok(Some(owner)),
+        _ => Err(()),
+    }
 }
 
 fn is_desktop(action: &[String]) -> bool {
     DESKTOP.iter().any(|desktop| action[..2] == desktop[..2])
 }
 
-async fn stored(connection: &Connection, action: &[String]) -> Keys {
-    match call(connection, "shortcutKeys", &(action,)).await {
-        Some(reply) => reply.body().deserialize().unwrap_or_default(),
-        None => Vec::new(),
-    }
+/// The keys KGlobalAccel stores for `action`; `None` when it did not
+/// answer, which is not the same as none (Codex on #517).
+async fn stored(connection: &Connection, action: &[String]) -> Option<Keys> {
+    let reply = call(connection, "shortcutKeys", &(action,)).await?;
+    reply.body().deserialize().ok()
 }
 
 /// Makes a desktop action present again with the keys KGlobalAccel stores.
 async fn give_back(connection: &Connection, action: &[String]) -> bool {
-    let keys = stored(connection, action).await;
+    // Autoloading keeps the keys KGlobalAccel stores for a known action.
+    let keys = stored(connection, action).await.unwrap_or_default();
     call(connection, "setShortcutKeys", &(action, keys, SET_PRESENT))
         .await
         .is_some()
@@ -341,15 +348,22 @@ impl PowerKey {
         let mut conflict = false;
         for key in &wanted {
             match holder(connection, key).await {
-                None => free.push(key.clone()),
-                Some(owner) if owner[..2] == ACTION[..2] => free.push(key.clone()),
-                Some(owner) if is_desktop(&owner) => {
+                Ok(None) => free.push(key.clone()),
+                Ok(Some(owner)) if owner[..2] == ACTION[..2] => free.push(key.clone()),
+                Ok(Some(owner)) if is_desktop(&owner) => {
                     free.push(key.clone());
                     desktop.push((key.clone(), owner));
                 }
                 // Another action keeps its key (ADR-0094); this includes
                 // every other Arinn action, which was written first.
-                Some(_) => conflict = true,
+                Ok(Some(_)) => conflict = true,
+                // Unknown: nothing is taken now, and the next attempt
+                // follows after the retry delay.
+                Err(()) => {
+                    log("warn", "power-key", Some("Unavailable"));
+                    rollback(&mut inner, connection).await;
+                    return Taken::Failed;
+                }
             }
         }
         if conflict {
@@ -368,10 +382,16 @@ impl PowerKey {
             // Timed out or refused: nothing is known about what it stored
             // (Codex P1 on #517). Roll back and try again later.
             log("warn", "power-key", Some("Unavailable"));
-            rollback(&mut inner, connection, &desktop).await;
+            rollback(&mut inner, connection).await;
             return Taken::Failed;
         }
-        let active = stored(connection, &ACTION.map(String::from)).await;
+        // An unanswered read leaves unknown what ArinnPower holds: roll back
+        // (the inhibitor stays until ArinnPower is cleared).
+        let Some(active) = stored(connection, &ACTION.map(String::from)).await else {
+            log("warn", "power-key", Some("Unavailable"));
+            rollback(&mut inner, connection).await;
+            return Taken::Failed;
+        };
         if desktop.iter().any(|(key, _)| !active.contains(key)) {
             // KGlobalAccel before Plasma 6.7 refuses a key PowerDevil
             // stores. The desktop keeps every power key; PowerDevil's
@@ -379,7 +399,7 @@ impl PowerKey {
             log("warn", "power-key", Some("Unsupported"));
             // A free key ArinnPower did get goes too: the desktop keeps
             // every power key. Without an answer, the rollback retries.
-            if !rollback(&mut inner, connection, &desktop).await {
+            if !rollback(&mut inner, connection).await {
                 return Taken::Failed;
             }
             inner.taken = true;
@@ -398,7 +418,7 @@ impl PowerKey {
             if !inactive.contains(&owner) {
                 if call(connection, "setInactive", &(owner,)).await.is_none() {
                     log("warn", "power-key", Some("Conflict"));
-                    rollback(&mut inner, connection, &desktop).await;
+                    rollback(&mut inner, connection).await;
                     return Taken::Failed;
                 }
                 inactive.push(owner);
@@ -430,17 +450,13 @@ async fn running(connection: &Connection) -> bool {
         .unwrap_or(false)
 }
 
-/// Undoes a take that did not finish: clears `ArinnPower`, makes `desktop`'s
-/// actions present again, and drops the inhibitor only once `ArinnPower` is
+/// Undoes a take that did not finish: clears `ArinnPower`, makes the
+/// desktop's actions present again, and drops the inhibitor only once `ArinnPower` is
 /// known to be empty. Without that answer the inhibitor stays and the key
 /// stays counted as taken, so the next check gives it back or takes it
 /// again. Either way a new attempt waits for the retry delay. Returns
 /// whether `ArinnPower` was cleared.
-async fn rollback(
-    inner: &mut Inner,
-    connection: &Connection,
-    desktop: &[((Vec<i32>,), Vec<String>)],
-) -> bool {
+async fn rollback(inner: &mut Inner, connection: &Connection) -> bool {
     let cleared = call(
         connection,
         "setForeignShortcutKeys",
@@ -450,12 +466,9 @@ async fn rollback(
     .is_some()
         // Without KGlobalAccel nothing can hold the key.
         || !running(connection).await;
-    let mut returned: Vec<&Vec<String>> = Vec::new();
-    for (_, owner) in desktop {
-        if !returned.contains(&owner) {
-            give_back(connection, owner).await;
-            returned.push(owner);
-        }
+    // Every desktop action, also one an earlier take set aside.
+    for action in DESKTOP {
+        give_back(connection, &action.map(String::from)).await;
     }
     inner.retry_at = Some(Instant::now() + inner.retry.unwrap_or(RETRY));
     if cleared {
@@ -488,7 +501,10 @@ pub async fn release(connection: &Connection) -> bool {
     }
     let arinn = ACTION.map(String::from);
     let mut answered = true;
-    if !stored(connection, &arinn).await.is_empty() {
+    if stored(connection, &arinn)
+        .await
+        .is_none_or(|keys| !keys.is_empty())
+    {
         answered &= call(
             connection,
             "setForeignShortcutKeys",
@@ -536,6 +552,10 @@ mod tests {
         fail_inactive: bool,
         /// `setForeignShortcutKeys` fails (a timeout, for the daemon).
         fail_writes: bool,
+        /// `shortcutKeys` of `ArinnPower` fails.
+        fail_reads: bool,
+        /// `actionList` fails.
+        fail_lookups: bool,
     }
     impl Accel {
         fn find(&mut self, action: &[String]) -> Option<&mut Shortcut> {
@@ -557,23 +577,29 @@ mod tests {
     #[zbus::interface(name = "org.kde.KGlobalAccel")]
     impl Service {
         #[zbus(name = "actionList")]
-        fn action_list(&self, key: (Vec<i32>,)) -> Vec<String> {
+        fn action_list(&self, key: (Vec<i32>,)) -> zbus::fdo::Result<Vec<String>> {
             let accel = self.0.lock().unwrap();
-            accel
+            if accel.fail_lookups {
+                return Err(zbus::fdo::Error::Failed("fixture".into()));
+            }
+            Ok(accel
                 .shortcuts
                 .iter()
                 .filter(|s| s.keys.contains(&key))
                 .min_by_key(|s| s.serial)
                 .map(|s| s.action.clone())
-                .unwrap_or_default()
+                .unwrap_or_default())
         }
         #[zbus(name = "shortcutKeys")]
-        fn shortcut_keys(&self, action: Vec<String>) -> Keys {
+        fn shortcut_keys(&self, action: Vec<String>) -> zbus::fdo::Result<Keys> {
             let mut accel = self.0.lock().unwrap();
-            accel
+            if accel.fail_reads && action[1] == ACTION[1] {
+                return Err(zbus::fdo::Error::Failed("fixture".into()));
+            }
+            Ok(accel
                 .find(&action)
                 .map(|s| s.keys.clone())
-                .unwrap_or_default()
+                .unwrap_or_default())
         }
         #[zbus(name = "setInactive")]
         fn set_inactive(&self, action: Vec<String>) -> zbus::fdo::Result<()> {
@@ -1082,6 +1108,46 @@ mod tests {
         assert!(!f.key.inhibiting().await);
         assert!(f.accel.lock().unwrap().shortcuts[2].keys.is_empty());
         assert_eq!(f.pressed(POWER_OFF).as_deref(), Some("PowerOff"));
+    }
+
+    /// Codex on #517: an unanswered read of `ArinnPower`'s keys is unknown,
+    /// not empty. The free keys it may hold are cleared before the
+    /// inhibitor goes, and the next attempt takes them.
+    #[tokio::test]
+    async fn an_unanswered_read_rolls_back_and_retries() {
+        let f = fixture(vec![shortcut(ACTION, &[], 90)]).await;
+        f.key.inner.lock().await.retry = Some(Duration::from_millis(200));
+        f.key.adapter_connected().await;
+        f.accel.lock().unwrap().fail_reads = true;
+        f.key.reconcile(&f.daemon, true).await;
+        assert_eq!(f.pressed(POWER_OFF), None);
+        assert!(f.accel.lock().unwrap().shortcuts[0].keys.is_empty());
+        assert!(!f.key.taken().await);
+        f.accel.lock().unwrap().fail_reads = false;
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        f.key.reconcile(&f.daemon, true).await;
+        assert_eq!(f.pressed(POWER_OFF).as_deref(), Some("ArinnPower"));
+        assert!(f.key.inhibiting().await);
+    }
+
+    /// Codex on #517: an unanswered `actionList` is unknown, not free.
+    /// Nothing is taken (PowerDevil keeps the key and stays present), and
+    /// the next attempt after the delay takes it.
+    #[tokio::test]
+    async fn an_unanswered_lookup_is_tried_again() {
+        let f = fixture(plasma()).await;
+        f.key.inner.lock().await.retry = Some(Duration::from_millis(200));
+        f.key.adapter_connected().await;
+        f.accel.lock().unwrap().fail_lookups = true;
+        f.key.reconcile(&f.daemon, true).await;
+        assert_eq!(f.pressed(POWER_OFF).as_deref(), Some("PowerOff"));
+        assert!(!f.writes().iter().any(|w| w.starts_with("inactive")));
+        assert!(!f.key.taken().await);
+        assert!(!f.key.inhibiting().await);
+        f.accel.lock().unwrap().fail_lookups = false;
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        f.key.reconcile(&f.daemon, true).await;
+        assert_eq!(f.pressed(POWER_OFF).as_deref(), Some("ArinnPower"));
     }
 
     /// Without KGlobalAccel nothing is taken, started or inhibited.

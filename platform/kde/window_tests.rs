@@ -1470,6 +1470,12 @@ impl RecordingAccel {
         );
         self.0.lock().unwrap().push((action[1].clone(), keys));
     }
+    /// No action holds a power key here; the daemon needs an answer, as an
+    /// unanswered lookup takes nothing (ADR-0111).
+    #[zbus(name = "actionList")]
+    fn action_list(&self, _key: (Vec<i32>,)) -> Vec<String> {
+        Vec::new()
+    }
     #[zbus(name = "shortcutKeys")]
     fn shortcut_keys(&self, action: Vec<String>) -> AccelKeys {
         let writes = self.0.lock().unwrap();

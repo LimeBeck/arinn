@@ -920,9 +920,17 @@ void Backend::setLaunchConfirming(bool confirming) {
   if (m_launchConfirming == confirming)
     return;
   m_launchConfirming = confirming;
-  // A failure that waited behind the confirmation comes on screen now.
-  if (!confirming && showQueuedFailure())
-    publishState();
+  // A failure that waited behind the confirmation comes on screen next. Not
+  // within this call: the overlay reports from a property change, and a
+  // confirmed Stop is sent in the same turn.
+  if (!confirming)
+    QMetaObject::invokeMethod(
+        this,
+        [this] {
+          if (showQueuedFailure())
+            publishState();
+        },
+        Qt::QueuedConnection);
 }
 bool Backend::showQueuedFailure() {
   const auto *shown = shownLaunch();
@@ -990,11 +998,18 @@ void Backend::cancelLaunch() {
             auto *launch = launchRecord(id, operation);
             if (epoch != m_connectionEpoch || !launch)
               return;
-            launch->cancelling = false;
             // Success is read back from the operation, which ends as
-            // cancelled; a refusal leaves the launch starting.
-            if (reply.type() == QDBusMessage::ErrorMessage)
-              setResultMessage(tr("The launch could not be stopped"));
+            // cancelled. A Timeout means the stop is still under way: the
+            // launch reads "Stopping…" until its operation ends. Another
+            // refusal leaves the launch starting.
+            if (reply.type() == QDBusMessage::ErrorMessage &&
+                reply.errorName() == QLatin1String("org.arinn.Error1.Timeout")) {
+              launch->stopping = true;
+            } else {
+              launch->cancelling = false;
+              if (reply.type() == QDBusMessage::ErrorMessage)
+                setResultMessage(tr("The launch could not be stopped"));
+            }
             publishState();
           });
 }
@@ -1022,15 +1037,21 @@ void Backend::dismissLaunchFailure() {
   dismissed();
 }
 void Backend::dismissed() {
+  // Read before publishing: the overlay restarts for the launch that takes
+  // the screen and reports that as shown.
+  const auto *next = shownLaunch();
+  const bool hidden = next && next->hidden;
   publishState();
   if (!launchActive())
     return;
   // Closing a dialog returns to what it covered (§6.1): a starting screen
   // that was on screen comes back; one that Home hid stays hidden (§6.5).
-  if (shownLaunch()->hidden)
+  if (hidden) {
+    m_launches[m_shownLaunch].hidden = true;
     emit launchHidden();
-  else
+  } else {
     emit launchShown();
+  }
 }
 void Backend::openShortcut(const QString &id) {
   if (m_pendingIds.contains(id))

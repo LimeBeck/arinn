@@ -224,6 +224,21 @@ TestCase {
         compare(child("launchTitle").text, "Starting Game…");
     }
 
+    // A confirmed stop that the provider has not finished yet: "Stopping…",
+    // without Cancel, until the launch ends.
+    function test_application_stopping() {
+        application();
+        overlay.active = true;
+        tryCompare(overlay, "slow", true);
+        overlay.cancellable = false;
+        overlay.stopping = true;
+        compare(child("launchTitle").text, "Stopping Game…");
+        compare(child("launchCancel").visible, false);
+        keyClick(Qt.Key_Escape);
+        compare(overlay.confirming, false);
+        compare(cancels.count, 0);
+    }
+
     function test_application_has_no_timeout() {
         application();
         overlay.active = true;

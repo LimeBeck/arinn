@@ -375,6 +375,7 @@ RU = {
     "domain": "домен",
     # Slow application start (spec §6.5, #436)
     "Starting %1…": "%1 запускается…",
+    "Stopping %1…": "%1 останавливается…",
     "Stop starting %1?": "Прервать запуск %1?",
     "The application and everything it has started so far will be closed.": "Приложение и всё, что оно успело запустить, будет закрыто.",
     "Keep starting": "Продолжить запуск",

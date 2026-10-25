@@ -106,13 +106,19 @@ waits (`plugins/desktop/src/launches.rs`):
 - **No deadline.** While the unit runs with no window, the launch stays pending.
   The 30 s budget bounds dispatch only; the daemon applies no deadline to an
   application launch.
-- **Not observable.** Without a window inventory (no platform adapter), and for
-  D-Bus activated entries, which have no Arinn unit, the launch succeeds at
-  dispatch as before. If the inventory stays missing for 5 s during the wait
-  (a reconnecting platform adapter is shorter), the launch ends the same way.
-  An inventory missing when the launch starts gets the same 5 s; its first
-  snapshot then becomes the starting set, where only a window with exactly the
-  launched desktop ID counts as new.
+- **Not observable.** D-Bus activated entries, which have no Arinn unit,
+  succeed at dispatch as before. Without a window inventory the launch counts
+  as dispatched once the inventory has been missing for 5 s, whether it was
+  missing when the launch started, went missing during the wait, or was missing
+  when the unit ended (a reconnecting platform adapter is shorter). So with no
+  platform adapter at all, "Opening <app>…" shows for 5 s before the launch
+  succeeds. An inventory that arrives within the 5 s decides as usual; when it
+  was missing at the start, its first snapshot becomes the starting set, where
+  only a window with exactly the launched desktop ID counts as new.
+- **Unit state.** `ActiveState` `inactive` or `failed`, or a unit that systemd
+  has already collected (`UnknownObject`, `NoSuchUnit`), means the launch's
+  processes have exited. Any other failed read says nothing: the launch keeps
+  waiting, and a cancel keeps waiting within its bound.
 
 `CancelLaunch(generation, id)` signals every unfinished launch of that desktop ID.
 Each one stops its own unit with `StopUnit(…, "replace")`, so systemd stops the
@@ -122,7 +128,10 @@ processes have exited; systemd sends SIGKILL after the unit's stop timeout), at
 most 100 s, before its `Launch` reply fails with `Cancelled`. `CancelLaunch`
 answers after those stops, within 10 s (`Timeout` otherwise), or `NotFound` when no
 launch was pending or each one ended another way first (for example, its window
-appeared). A cancel during dispatch takes effect when dispatch completes.
+appeared). A cancel during dispatch takes effect when dispatch completes. While
+the processes are still exiting after a `Timeout`, the shell reads "Stopping
+<app>…" without Cancel until the operation ends (as `cancelled` once they are
+gone).
 Losing the registration ends the wait with `Unavailable` and only releases the
 reference; the application keeps running.
 
@@ -154,6 +163,10 @@ returns to what it covered (§6.1): a starting screen that was on screen comes
 back, and one that Home, the quick menu or a newer launch had hidden stays
 hidden until its tile is chosen. Home and the quick menu hide whichever launch
 is on screen; the overlay reports that (and an open confirmation) to `Backend`.
+Home on a failure dialog closes it and leaves Home on screen, with the launch
+it covered hidden. A confirmed Stop is sent before the confirmation closes, and
+a failure that waited behind the confirmation comes on screen only after that,
+so the Stop always reaches the launch it was confirmed for.
 
 Known limitation: a game entry that hands off to a client that is already running
 elsewhere (for example a `steam steam://rungameid/…` entry while Steam runs)
@@ -264,7 +277,14 @@ Launch lifetime ([#436](https://github.com/LimeBeck/arinn/issues/436), 2026-10-2
   again shows A, Cancel reaches A's operation, A's failure behind B comes on
   screen, and closing it brings back B's screen if it was on screen or keeps
   B hidden if Home hid it; a second failure, and one during a stop
-  confirmation, waits; a background launch that ends leaves no record. On `master` the
+  confirmation, waits; a background launch that ends leaves no record.
+  `launch-screen` (Main.qml, the real `Backend` and a fake daemon that launches
+  two applications, driven by keys): Back on a failure dialog brings back the
+  starting screen it covered; one that Home hid stays hidden; Home on the
+  dialog leaves Home with that launch hidden; Stop with a failure waiting
+  behind the confirmation stops the confirmed launch, then shows the failure.
+  Removing either report from the overlay to `Backend`, or the Home fix,
+  fails it. On `master` the
   suite fails at the first "still starting" check: the launch had already
   succeeded.
 

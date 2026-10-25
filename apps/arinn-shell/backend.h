@@ -48,6 +48,8 @@ class Backend : public QObject {
   Q_PROPERTY(QString launchTitle READ launchTitle NOTIFY changed)
   Q_PROPERTY(bool launchCancellable READ launchCancellable NOTIFY changed)
   Q_PROPERTY(QString launchError READ launchError NOTIFY changed)
+  // Cancel is confirmed but the processes are still exiting (ADR-0110).
+  Q_PROPERTY(bool launchStopping READ launchStopping NOTIFY changed)
 public:
   explicit Backend(QObject *parent = nullptr);
   bool connected() const { return m_connected; }
@@ -99,6 +101,10 @@ public:
   QString launchError() const {
     const auto *launch = shownLaunch();
     return launch ? launch->error : QString();
+  }
+  bool launchStopping() const {
+    const auto *launch = shownLaunch();
+    return launchActive() && launch->stopping;
   }
   // How long the launch on screen has been running, for showing it again.
   Q_INVOKABLE qint64 launchElapsed() const;
@@ -162,6 +168,9 @@ private:
   struct Launch {
     QString id, title, operation, error;
     bool cancellable = false, cancelling = false;
+    // The provider did not confirm the stop in time (Timeout): the processes
+    // are still exiting, and the operation ends when they are gone.
+    bool stopping = false;
     // Hidden by Home or the quick menu, or replaced on screen by a newer
     // launch; a launch that a failure dialog covered is not hidden.
     bool hidden = false;

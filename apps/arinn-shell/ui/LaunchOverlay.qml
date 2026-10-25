@@ -19,6 +19,8 @@ FocusScope {
     property string failure: ""
     // Whether Cancel can stop the operation now.
     property bool cancellable: true
+    // A confirmed stop is still under way (application launches).
+    property bool stopping: false
     property int revealDelay: 400
     property int slowDelay: 8000
     // 0 disables the timeout stage.
@@ -39,7 +41,9 @@ FocusScope {
             : application && failure === "Unavailable"
             ? qsTr("The application could not start or closed before it showed a window.")
             : qsTr("Try again. If this happens again, restart Arinn.")
-    readonly property string progressTitle: application && slow
+    readonly property string progressTitle: application && stopping
+            ? qsTr("Stopping %1…").arg(serviceTitle)
+            : application && slow
             ? qsTr("Starting %1…").arg(serviceTitle)
             : qsTr("Opening %1…").arg(serviceTitle)
     signal cancelRequested()
@@ -117,9 +121,12 @@ FocusScope {
         confirming = false;
         Qt.callLater(() => Focus.take(cancelButton));
     }
+    // The stop is sent before the confirmation closes: closing it may bring
+    // a failure that waited behind it on screen, and the stop must still
+    // reach the launch the user confirmed it for.
     function confirmStop() {
-        confirming = false;
         cancelRequested();
+        confirming = false;
     }
     // Specification §6.3: opening Home never pauses or stops the operation.
     // Cancel and Back remain the ways to cancel.
@@ -143,7 +150,14 @@ FocusScope {
     }
     // A later open keeps `active` true, so the title change is what shows it again.
     onServiceTitleChanged: if (active && homeHidden) arm()
-    onCancellableChanged: if (!cancellable && confirming) confirming = false
+    onCancellableChanged: {
+        if (!cancellable && confirming)
+            confirming = false;
+        // Cancel appears on the starting screen: it takes the focus there,
+        // as it does when the screen turns slow (§6.5).
+        else if (cancellable && slow && showOverlay && !showDialog && !confirming)
+            Qt.callLater(() => Focus.take(cancelButton));
+    }
     onFailureChanged: {
         if (failure.length) {
             confirming = false;
@@ -341,11 +355,12 @@ FocusScope {
             event.accepted = true;
             if (event.isAutoRepeat)
                 return;
-            // Close the dialog, or hide a slow open, without retrying or cancelling.
+            // Close the dialog, or hide a slow open, without retrying or
+            // cancelling. A launch the dialog covered stays hidden too: Home
+            // is on screen next (§6.5).
             if (root.showDialog)
                 root.dismissRequested();
-            else
-                root.hideForHome();
+            root.hideForHome();
             root.homeRequested();
             return;
         }

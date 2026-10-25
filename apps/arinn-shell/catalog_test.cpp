@@ -866,18 +866,36 @@ private slots:
       backend.launch(id);
       QCOMPARE(shown.count(), 1);
       QCOMPARE(daemon.launches, 1);
+      // A stop the provider has not finished in time (Timeout) is under
+      // way: "Stopping…", no Cancel, and no "could not be stopped".
+      daemon.cancelError = "Timeout";
+      backend.cancelLaunch();
+      QTRY_COMPARE(daemon.cancels, 1);
+      QTRY_VERIFY(backend.launchStopping());
+      QVERIFY(!backend.launchCancellable());
+      QVERIFY(backend.message() != QString("The launch could not be stopped"));
+      // The processes are gone: the operation ends as cancelled.
+      daemon.launchState = "cancelled";
+      daemon.launchError = "Cancelled";
+      QTRY_VERIFY(!backend.launchActive());
+      QVERIFY(!backend.launchStopping());
+      QVERIFY(backend.launchError().isEmpty());
+      daemon.launchState = "running";
+      daemon.launchError.clear();
+      backend.launch(id);
+      QTRY_VERIFY(backend.launchCancellable());
       // A refused cancel leaves the launch starting.
       daemon.cancelError = "NotFound";
       backend.cancelLaunch();
       QVERIFY(!backend.launchCancellable());
-      QTRY_COMPARE(daemon.cancels, 1);
+      QTRY_COMPARE(daemon.cancels, 2);
       QTRY_COMPARE(backend.message(), QString("The launch could not be stopped"));
       QVERIFY(backend.launchActive());
       QTRY_VERIFY(backend.launchCancellable());
       daemon.cancelError.clear();
       backend.cancelLaunch();
       QTRY_VERIFY(!backend.launchActive());
-      QCOMPARE(daemon.cancels, 2);
+      QCOMPARE(daemon.cancels, 3);
       QVERIFY(backend.launchError().isEmpty());
       QTRY_VERIFY(backend.busyEntryIds().isEmpty());
       QCOMPARE(backend.message(), QString("Launch cancelled"));
@@ -894,7 +912,7 @@ private slots:
       daemon.launchState = "running";
       daemon.launchError.clear();
       backend.retryLaunch();
-      QCOMPARE(daemon.launches, 3);
+      QCOMPARE(daemon.launches, 4);
       QVERIFY(backend.launchActive());
       QVERIFY(backend.launchError().isEmpty());
       // Success closes it.
@@ -1018,7 +1036,7 @@ private slots:
       QVERIFY(backend.launchActive());
       QVERIFY(backend.launchError().isEmpty());
       backend.setLaunchConfirming(false);
-      QCOMPARE(backend.launchError(), QString("Unavailable"));
+      QTRY_COMPARE(backend.launchError(), QString("Unavailable"));
       backend.dismissLaunchFailure();
       QVERIFY(backend.launchActive());
 

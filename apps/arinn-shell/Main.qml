@@ -1098,6 +1098,7 @@ Window {
             serviceTitle: backend.launchTitle || ""
             failure: backend.launchError || ""
             cancellable: backend.launchCancellable === true
+            stopping: backend.launchStopping === true
             onCancelRequested: backend.cancelLaunch()
             onRetryRequested: backend.retryLaunch()
             onDismissRequested: backend.dismissLaunchFailure()

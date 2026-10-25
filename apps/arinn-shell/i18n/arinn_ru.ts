@@ -806,6 +806,10 @@
         <translation>Попробуйте снова. Если это повторится, перезапустите Arinn.</translation>
     </message>
     <message>
+        <source>Stopping %1…</source>
+        <translation>%1 останавливается…</translation>
+    </message>
+    <message>
         <source>Starting %1…</source>
         <translation>%1 запускается…</translation>
     </message>

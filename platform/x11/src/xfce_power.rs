@@ -837,7 +837,8 @@ pub(crate) mod tests {
 
     /// Runs the restore entry's script as an XFCE login would, with a fake
     /// `xfconf-query` holding `value` (`None`: not set). Returns the value
-    /// afterwards and the fake's calls.
+    /// afterwards and the fake's calls. The script and the fake run under
+    /// `SHELL`.
     fn run_restore(f: &Fixture, value: Option<&str>) -> (Option<String>, Vec<String>) {
         run_restore_with(f, value, false)
     }
@@ -852,17 +853,21 @@ pub(crate) mod tests {
         let fake = bin.join("xfconf-query");
         std::fs::write(
             &fake,
-            r#"#!/bin/sh
-echo "$*" >> "$FAKE_XFCONF.calls"
-case "$*" in
+            format!(
+                "#!/usr/bin/env {}\n{}",
+                SHELL.with(|s| s.get()),
+                r#"args="$*"
+echo "$args" >> "$FAKE_XFCONF.calls"
+case "$args" in
 *" -l") [ -e "$FAKE_XFCONF" ] && echo /xfce4-power-manager/power-button-action; exit 0 ;;
 *" -r") rm -f "$FAKE_XFCONF"; exit 0 ;;
-*--set=*) echo "${*##*--set=}" > "$FAKE_XFCONF"; exit 0 ;;
+*--set=*) echo "${args##*--set=}" > "$FAKE_XFCONF"; exit 0 ;;
 esac
 [ -n "$FAKE_READ_FAILS" ] && exit 1
 [ -e "$FAKE_XFCONF" ] || exit 1
 cat "$FAKE_XFCONF"
-"#,
+"#
+            ),
         )
         .unwrap();
         std::fs::set_permissions(&fake, std::os::unix::fs::PermissionsExt::from_mode(0o755))
@@ -874,7 +879,7 @@ cat "$FAKE_XFCONF"
             std::fs::write(&state, format!("{value}\n")).unwrap();
         }
         let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap());
-        let status = Command::new("sh")
+        let status = Command::new(SHELL.with(|s| s.get()))
             .arg(f.files.script())
             .env("PATH", path)
             .env("FAKE_XFCONF", &state)
@@ -891,6 +896,33 @@ cat "$FAKE_XFCONF"
         )
     }
 
+    thread_local! {
+        /// The shell for the restore script and the fake `xfconf-query`.
+        static SHELL: std::cell::Cell<&'static str> = const { std::cell::Cell::new("sh") };
+    }
+    /// `sh`, and `bash` where it is installed: Arch's `/bin/sh` is bash,
+    /// Debian's and Ubuntu's is dash, and both must run the script (review
+    /// of #517: a bash-only difference turned CI red).
+    fn shells() -> Vec<&'static str> {
+        let mut shells = vec!["sh"];
+        if Command::new("bash")
+            .args(["-c", "true"])
+            .status()
+            .is_ok_and(|s| s.success())
+        {
+            shells.push("bash");
+        }
+        shells
+    }
+    /// Runs `test` once per shell.
+    async fn in_each_shell<F: AsyncFn()>(test: F) {
+        for shell in shells() {
+            SHELL.with(|s| s.set(shell));
+            test().await;
+        }
+        SHELL.with(|s| s.set("sh"));
+    }
+
     /// Review of #516 (Codex P1): an unclean end of the dedicated session,
     /// then Arinn is removed before the next XFCE login. The per-user entry
     /// gives the user's value back with `xfconf-query` alone and removes
@@ -898,6 +930,9 @@ cat "$FAKE_XFCONF"
     /// Arinn.
     #[tokio::test]
     async fn the_restore_survives_removing_arinn() {
+        in_each_shell(restore_survives_removing_arinn).await;
+    }
+    async fn restore_survives_removing_arinn() {
         let mut f = fixture(Some(Value::U32(3))).await;
         f.files.installed = f.root.join("usr/bin/arinn-platform-x11");
         assert!(take(&f.adapter, &f.files).await);
@@ -931,6 +966,9 @@ cat "$FAKE_XFCONF"
     /// login, with the entry and the copy.
     #[tokio::test]
     async fn the_removal_restore_knows_its_adapter_and_keeps_what_it_cannot_read() {
+        in_each_shell(removal_restore_knows_its_adapter).await;
+    }
+    async fn removal_restore_knows_its_adapter() {
         let mut f = fixture(Some(Value::U32(3))).await;
         assert_eq!(f.files.installed, std::env::current_exe().unwrap());
         assert!(!f.files.installed.starts_with("/usr"));
@@ -952,6 +990,9 @@ cat "$FAKE_XFCONF"
     /// value the user never set; an int stays an int.
     #[tokio::test]
     async fn the_removal_restore_keeps_the_users_newer_choice() {
+        in_each_shell(removal_restore_keeps_the_users_newer_choice).await;
+    }
+    async fn removal_restore_keeps_the_users_newer_choice() {
         let mut f = fixture(Some(Value::U32(3))).await;
         f.files.installed = f.root.join("missing");
         assert!(take(&f.adapter, &f.files).await);

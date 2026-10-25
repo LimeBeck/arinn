@@ -195,7 +195,9 @@ every action goes through the methods above.
   failed `setInactive`, a write KGlobalAccel does not answer, or a lookup or
   read it does not answer (unknown is never taken as free or empty) rolls the
   take back: `ArinnPower` is cleared, PowerDevil's actions are present, and the
-  inhibitor goes once `ArinnPower` is known to be empty; the next attempt
+  inhibitor goes once `ArinnPower` is known to be empty and PowerDevil's
+  actions are known to be present again; otherwise the inhibitor stays and the
+  key counts as taken, so the shell leaving gives it back. The next attempt
   follows after 30 s. A release KGlobalAccel does not answer keeps the
   inhibitor and is tried again at the next check.
 - **X11/EWMH** (`platform/x11/src/power_owner.rs`). The ordinary XFCE desktop
@@ -247,9 +249,11 @@ every action goes through the methods above.
   start in any X11/EWMH session, and at every XFCE login by
   `/etc/xdg/autostart/org.arinn.PowerButtonRestore.desktop`
   (`--restore-power-button`, a no-op while the adapter owns `org.arinn.X11`;
-  a copy the adapter could not give back at its start is retried every 30 s
-  off its loop until it succeeds, never while the key is held and with no take
-  while a retry runs).
+  a copy the adapter could not give back at its start, or that xfconf refused
+  when Arinn let go, is retried every 30 s off its loop until it succeeds,
+  each time under a temporary logind inhibitor, never while the key is held
+  and with no take while a retry runs; after a refused release Arinn's
+  inhibitor also stays until the value is back).
   A take first gives a stale copy back; a value the user set meanwhile is kept.
   With the copy, the adapter also writes a per-user XDG autostart entry,
   `$XDG_CONFIG_HOME/autostart/arinn-power-button-restore.desktop`
@@ -276,15 +280,16 @@ Tests: `platform/kde/power_key.rs` (a fake KGlobalAccel with shared keys and a
 fake logind on a private bus: takeover without a write, KGlobalAccel before
 Plasma 6.7, a third-party key, no PowerDevil, no KGlobalAccel, no inhibitor
 and its retry, a reconnect without a key, every key held by other actions,
-a failed `setInactive` or write and an unanswered release with their
-retries, the release with the inhibitor dropped last, a PowerDevil restart,
+a failed `setInactive` or write, an unanswered rollback of PowerDevil's
+actions, and an unanswered release with their retries, the release with the inhibitor dropped last, a PowerDevil restart,
 and the key following a live shell and adapter),
 `platform/power_inhibitor.rs`, `power_owner` (a fake reader, xfconf and logind:
 a shell exit, a crash loop, a reader that never works or stops, no inhibitor, a
 grab, the ordinary XFCE desktop, another desktop until xfce4-power-manager
 appears and is restarted when its grab failed, the dedicated session never
 grabbing, a crash repaired at the next start, a marker kept until the repair
-is confirmed, a stale copy retried after a failed start-up restore, XFCE
+is confirmed, a stale copy retried under an inhibitor after a failed start-up
+restore or a refused release, no take during a retry, XFCE
 recognised by its bus names), `xfce_power` (a fake xfconf: stale copies, a
 newer user choice, a system default, a fresh value not yet in the file, the login restore, and the per-user entry
 run with a fake `xfconf-query` after Arinn is removed), `an_ended_session_gives_the_power_key_back`,

@@ -451,11 +451,12 @@ async fn running(connection: &Connection) -> bool {
 }
 
 /// Undoes a take that did not finish: clears `ArinnPower`, makes the
-/// desktop's actions present again, and drops the inhibitor only once `ArinnPower` is
-/// known to be empty. Without that answer the inhibitor stays and the key
-/// stays counted as taken, so the next check gives it back or takes it
-/// again. Either way a new attempt waits for the retry delay. Returns
-/// whether `ArinnPower` was cleared.
+/// desktop's actions present again, and drops the inhibitor only once
+/// `ArinnPower` is known to be empty and every desktop action present again.
+/// Without both answers the inhibitor stays and the key stays counted as
+/// taken, so the next check gives it back or takes it again (Codex on
+/// #517). Either way a new attempt waits for the retry delay. Returns
+/// whether both were confirmed.
 async fn rollback(inner: &mut Inner, connection: &Connection) -> bool {
     let cleared = call(
         connection,
@@ -463,15 +464,16 @@ async fn rollback(inner: &mut Inner, connection: &Connection) -> bool {
         &(ACTION.to_vec(), Keys::new()),
     )
     .await
-    .is_some()
-        // Without KGlobalAccel nothing can hold the key.
-        || !running(connection).await;
+    .is_some();
     // Every desktop action, also one an earlier take set aside.
+    let mut present = true;
     for action in DESKTOP {
-        give_back(connection, &action.map(String::from)).await;
+        present &= give_back(connection, &action.map(String::from)).await;
     }
+    // Without KGlobalAccel nothing can hold the key or set an action aside.
+    let done = (cleared && present) || !running(connection).await;
     inner.retry_at = Some(Instant::now() + inner.retry.unwrap_or(RETRY));
-    if cleared {
+    if done {
         inner.inhibitor = None;
         inner.taken = false;
     } else {
@@ -479,7 +481,7 @@ async fn rollback(inner: &mut Inner, connection: &Connection) -> bool {
         inner.taken = true;
         inner.retake = true;
     }
-    cleared
+    done
 }
 
 /// `release` for the helper that runs after the daemon (`ExecStopPost=`,
@@ -572,6 +574,10 @@ mod tests {
         fail_reads: bool,
         /// `actionList` fails.
         fail_lookups: bool,
+        /// `setInactive` fails for this action only.
+        fail_inactive_of: Option<&'static str>,
+        /// `setShortcutKeys` fails.
+        fail_present: bool,
     }
     impl Accel {
         fn find(&mut self, action: &[String]) -> Option<&mut Shortcut> {
@@ -620,7 +626,7 @@ mod tests {
         #[zbus(name = "setInactive")]
         fn set_inactive(&self, action: Vec<String>) -> zbus::fdo::Result<()> {
             let mut accel = self.0.lock().unwrap();
-            if accel.fail_inactive {
+            if accel.fail_inactive || accel.fail_inactive_of == Some(action[1].as_str()) {
                 return Err(zbus::fdo::Error::Failed("fixture".into()));
             }
             accel.writes.push(format!("inactive {}", action[1]));
@@ -630,11 +636,19 @@ mod tests {
             Ok(())
         }
         #[zbus(name = "setShortcutKeys")]
-        fn set_shortcut_keys(&self, action: Vec<String>, keys: Keys, flags: u32) -> Keys {
+        fn set_shortcut_keys(
+            &self,
+            action: Vec<String>,
+            keys: Keys,
+            flags: u32,
+        ) -> zbus::fdo::Result<Keys> {
             let mut accel = self.0.lock().unwrap();
+            if accel.fail_present {
+                return Err(zbus::fdo::Error::Failed("fixture".into()));
+            }
             accel.writes.push(format!("present {} {flags}", action[1]));
             // Autoloading an existing action: only presence changes.
-            match accel.find(&action) {
+            Ok(match accel.find(&action) {
                 Some(s) if flags == SET_PRESENT => {
                     s.present = true;
                     s.keys.clone()
@@ -644,7 +658,7 @@ mod tests {
                     s.keys.clone()
                 }
                 None => Keys::new(),
-            }
+            })
         }
         #[zbus(name = "setForeignShortcutKeys")]
         fn set_foreign_shortcut_keys(
@@ -1116,6 +1130,34 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(250)).await;
         f.key.reconcile(&f.daemon, true).await;
         assert_eq!(f.pressed(POWER_OFF).as_deref(), Some("ArinnPower"));
+    }
+
+    /// Codex on #517: a take that set `PowerOff` aside and then failed on
+    /// `PowerDown` rolls back; a restore of `PowerOff` KGlobalAccel did not
+    /// answer keeps the inhibitor and the key counted as taken, so the shell
+    /// leaving gives it back, and PowerDevil's actions are present again.
+    #[tokio::test]
+    async fn an_unanswered_rollback_of_the_desktop_is_tried_again() {
+        let f = fixture(plasma()).await;
+        f.key.inner.lock().await.retry = Some(Duration::from_millis(200));
+        f.key.adapter_connected().await;
+        {
+            let mut accel = f.accel.lock().unwrap();
+            accel.fail_inactive_of = Some("PowerDown");
+            accel.fail_present = true;
+        }
+        assert_eq!(f.key.take(&f.daemon).await, Taken::Failed);
+        assert!(f.accel.lock().unwrap().shortcuts[2].keys.is_empty());
+        assert_eq!(f.pressed(POWER_OFF), None);
+        assert!(f.key.taken().await);
+        assert!(f.key.inhibiting().await);
+        // The shell goes; KGlobalAccel answers again.
+        f.accel.lock().unwrap().fail_present = false;
+        f.key.reconcile(&f.daemon, false).await;
+        assert_eq!(f.pressed(POWER_OFF).as_deref(), Some("PowerOff"));
+        assert_eq!(f.pressed(POWER_DOWN).as_deref(), Some("PowerDown"));
+        assert!(!f.key.taken().await);
+        assert!(!f.key.inhibiting().await);
     }
 
     /// Codex P1 on #517: a write KGlobalAccel did not answer leaves nothing

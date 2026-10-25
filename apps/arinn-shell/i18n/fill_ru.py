@@ -373,6 +373,15 @@ RU = {
     "Empty · The shortcut will be named after its domain: %1": "Пусто · Ярлык будет называться по домену: %1",
     "page title": "заголовок страницы",
     "domain": "домен",
+    # Slow application start (spec §6.5, #436)
+    "Starting %1…": "%1 запускается…",
+    "Stopping %1…": "%1 останавливается…",
+    "Stop starting %1?": "Прервать запуск %1?",
+    "The application and everything it has started so far will be closed.": "Приложение и всё, что оно успело запустить, будет закрыто.",
+    "Keep starting": "Продолжить запуск",
+    "The application could not start or closed before it showed a window.": "Приложение не запустилось или закрылось, не показав окно.",
+    "The launch could not be stopped": "Не удалось прервать запуск",
+    "Launch cancelled": "Запуск прерван",
     # Quick menu (#439, ADR-0106)
     "Quick menu": "Быстрое меню",
     "Muted": "Звук выключен",
@@ -414,6 +423,8 @@ CONTEXT = {
     ("HomeView", "Open services"): "Все открытые сервисы",
     ("HomeView", "Close"): "Закрыть",
     ("PowerMenu", "Power"): "Питание",
+    # Stops a starting application (spec §6.5).
+    ("LaunchOverlay", "Stop"): "Прервать",
 }
 
 

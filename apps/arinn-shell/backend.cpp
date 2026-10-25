@@ -6,6 +6,7 @@
 #include "build_identity.h"
 #include "icon_references.h"
 #include "web_icon_references.h"
+#include <QDateTime>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QSet>
@@ -143,6 +144,8 @@ Backend::Backend(QObject *parent) : QObject(parent) {
             // A new daemon owner may be another build: ask it again.
             m_buildRequested = m_buildMismatch = false;
             m_pendingIds.clear();
+            m_launches.clear();
+            m_shownLaunch.clear();
             m_connected = false;
             m_available = false;
             m_generation.clear();
@@ -845,8 +848,18 @@ void Backend::activate(const QString &id) {
 }
 void Backend::runApplication(const QString &id, const QVariantList &entries,
                              const char *method) {
-  if (m_pendingIds.contains(id))
+  const bool launching = QByteArray(method) == "Launch";
+  if (m_pendingIds.contains(id)) {
+    // Its starting screen comes back, also behind a newer launch (§6.5).
+    const auto found = m_launches.constFind(id);
+    if (launching && found != m_launches.constEnd() && found->error.isEmpty()) {
+      showLaunch(id);
+      m_launches[id].hidden = false;
+      publishState();
+      emit launchShown();
+    }
     return;
+  }
   QVariantMap selected;
   for (const auto &item : entries) {
     if (item.toMap().value("id").toString() == id) {
@@ -870,7 +883,175 @@ void Backend::runApplication(const QString &id, const QVariantList &entries,
   msg << selected.value("generation").toString()
       << selected.value("localId").toString()
       << QUuid::createUuid().toString(QUuid::WithoutBraces);
+  if (launching) {
+    // The newest launch is on screen; earlier ones keep their records.
+    Launch launch;
+    launch.id = id;
+    launch.title = selected.value("title").toString();
+    launch.started = QDateTime::currentMSecsSinceEpoch();
+    m_launches.insert(id, launch);
+    showLaunch(id);
+  }
   beginOperation(id, msg);
+  if (launching && m_launches.contains(id))
+    emit launchStarted();
+}
+qint64 Backend::launchElapsed() const {
+  const auto *launch = shownLaunch();
+  return launch && launch->started > 0
+             ? QDateTime::currentMSecsSinceEpoch() - launch->started
+             : 0;
+}
+void Backend::showLaunch(const QString &id) {
+  if (m_shownLaunch != id) {
+    const auto previous = m_launches.find(m_shownLaunch);
+    if (previous != m_launches.end())
+      previous->hidden = true;
+    m_launchConfirming = false;
+  }
+  m_shownLaunch = id;
+}
+void Backend::setLaunchHidden(bool hidden) {
+  const auto found = m_launches.find(m_shownLaunch);
+  if (found != m_launches.end() && found->error.isEmpty())
+    found->hidden = hidden;
+}
+void Backend::setLaunchConfirming(bool confirming) {
+  if (m_launchConfirming == confirming)
+    return;
+  m_launchConfirming = confirming;
+  // A failure that waited behind the confirmation comes on screen next. Not
+  // within this call: the overlay reports from a property change, and a
+  // confirmed Stop is sent in the same turn.
+  if (!confirming)
+    QMetaObject::invokeMethod(
+        this,
+        [this] {
+          if (showQueuedFailure())
+            publishState();
+        },
+        Qt::QueuedConnection);
+}
+bool Backend::showQueuedFailure() {
+  const auto *shown = shownLaunch();
+  if (m_launchConfirming || (shown && !shown->error.isEmpty()))
+    return false;
+  const Launch *oldest = nullptr;
+  for (const auto &launch : std::as_const(m_launches))
+    if (!launch.error.isEmpty() && (!oldest || launch.started < oldest->started))
+      oldest = &launch;
+  if (!oldest)
+    return false;
+  // The launch it covers keeps its visibility for when the dialog closes.
+  m_shownLaunch = oldest->id;
+  return true;
+}
+void Backend::forgetShownLaunch() {
+  m_launches.remove(m_shownLaunch);
+  m_shownLaunch.clear();
+  // A failure that waited behind the one on screen comes next; otherwise the
+  // newest launch still in flight.
+  qint64 newest = -1;
+  bool failed = false;
+  for (const auto &launch : std::as_const(m_launches)) {
+    const bool error = !launch.error.isEmpty();
+    if ((error && !failed) || (error == failed && launch.started > newest)) {
+      failed = error;
+      newest = launch.started;
+      m_shownLaunch = launch.id;
+    }
+  }
+}
+void Backend::failLaunch(Launch &launch, const QString &error) {
+  launch.error = error.isEmpty() ? QStringLiteral("Unavailable") : error;
+  launch.cancellable = launch.cancelling = false;
+  // Another failure already on screen stays until it is dismissed, and an
+  // open stop confirmation is not interrupted: an OK meant for it must not
+  // land on this dialog. The launch it covers keeps its visibility.
+  const auto *shown = shownLaunch();
+  if (shown && shown != &launch &&
+      (!shown->error.isEmpty() || m_launchConfirming))
+    return;
+  if (shown != &launch)
+    m_launchConfirming = false;
+  m_shownLaunch = launch.id;
+}
+void Backend::cancelLaunch() {
+  auto found = m_launches.find(m_shownLaunch);
+  if (!launchCancellable() || found == m_launches.end() ||
+      found->operation.isEmpty())
+    return;
+  found->cancelling = true;
+  publishState();
+  const auto epoch = m_connectionEpoch;
+  const auto id = found->id;
+  const auto operation = found->operation;
+  auto msg = QDBusMessage::createMethodCall(service, operation,
+                                            "org.arinn.Operation1", "Cancel");
+  // The provider stops the launch's processes before it answers.
+  auto call = new QDBusPendingCallWatcher(
+      QDBusConnection::sessionBus().asyncCall(msg, 20000), this);
+  connect(call, &QDBusPendingCallWatcher::finished, this,
+          [this, epoch, id, operation](auto *call) {
+            const auto reply = call->reply();
+            call->deleteLater();
+            auto *launch = launchRecord(id, operation);
+            if (epoch != m_connectionEpoch || !launch)
+              return;
+            // Success is read back from the operation, which ends as
+            // cancelled. A Timeout means the stop is still under way: the
+            // launch reads "Stopping…" until its operation ends. Another
+            // refusal leaves the launch starting.
+            if (reply.type() == QDBusMessage::ErrorMessage &&
+                reply.errorName() == QLatin1String("org.arinn.Error1.Timeout")) {
+              launch->stopping = true;
+            } else {
+              launch->cancelling = false;
+              if (reply.type() == QDBusMessage::ErrorMessage)
+                setResultMessage(tr("The launch could not be stopped"));
+            }
+            publishState();
+          });
+}
+void Backend::retryLaunch() {
+  const auto *shown = shownLaunch();
+  if (!shown || shown->error.isEmpty())
+    return;
+  const auto id = shown->id;
+  m_launches.remove(id);
+  m_shownLaunch.clear();
+  launch(id);
+  // Nothing was started (the entry is gone): show what still runs.
+  if (!m_launches.contains(id))
+    dismissed();
+  // Another failure waited behind this dialog: it comes next, over the
+  // new launch.
+  else if (showQueuedFailure())
+    publishState();
+}
+void Backend::dismissLaunchFailure() {
+  const auto *shown = shownLaunch();
+  if (!shown || shown->error.isEmpty())
+    return;
+  forgetShownLaunch();
+  dismissed();
+}
+void Backend::dismissed() {
+  // Read before publishing: the overlay restarts for the launch that takes
+  // the screen and reports that as shown.
+  const auto *next = shownLaunch();
+  const bool hidden = next && next->hidden;
+  publishState();
+  if (!launchActive())
+    return;
+  // Closing a dialog returns to what it covered (§6.1): a starting screen
+  // that was on screen comes back; one that Home hid stays hidden (§6.5).
+  if (hidden) {
+    m_launches[m_shownLaunch].hidden = true;
+    emit launchHidden();
+  } else {
+    emit launchShown();
+  }
 }
 void Backend::openShortcut(const QString &id) {
   if (m_pendingIds.contains(id))
@@ -915,24 +1096,33 @@ void Backend::beginOperation(const QString &id, const QDBusMessage &msg) {
             if (reply.type() == QDBusMessage::ErrorMessage ||
                 reply.signature() != "o" || reply.arguments().isEmpty()) {
               m_pendingIds.remove(id);
+              if (auto *launch = launchRecord(id, QString()))
+                failLaunch(*launch, reply.type() == QDBusMessage::ErrorMessage
+                                        ? reply.errorName().section('.', -1)
+                                        : QStringLiteral("Unavailable"));
               setResultMessage(reply.type() == QDBusMessage::ErrorMessage
                                    ? reply.errorMessage()
                                    : tr("Operation is unavailable"));
               publishState();
               return;
             }
-            watchOperation(
-                id,
-                qvariant_cast<QDBusObjectPath>(reply.arguments().at(0)).path(),
-                epoch);
+            const auto operation =
+                qvariant_cast<QDBusObjectPath>(reply.arguments().at(0)).path();
+            if (auto *launch = launchRecord(id, QString()))
+              launch->operation = operation;
+            watchOperation(id, operation, epoch);
           });
 }
 void Backend::watchOperation(const QString &id, const QString &operationPath,
                              quint64 epoch) {
   auto timer = new QTimer(this);
   timer->setInterval(100);
+  // The launch record of this operation, if it is a launch.
+  const auto shown = [this, id, operationPath] {
+    return launchRecord(id, operationPath);
+  };
   connect(timer, &QTimer::timeout, this,
-          [this, timer, operationPath, id, epoch] {
+          [this, timer, operationPath, id, epoch, shown] {
             timer->stop();
             if (epoch != m_connectionEpoch) {
               timer->deleteLater();
@@ -943,7 +1133,7 @@ void Backend::watchOperation(const QString &id, const QString &operationPath,
             auto p = new QDBusPendingCallWatcher(
                 QDBusConnection::sessionBus().asyncCall(msg, 3000), this);
             connect(p, &QDBusPendingCallWatcher::finished, this,
-                    [this, timer, id, epoch](auto *call) {
+                    [this, timer, id, epoch, shown](auto *call) {
                       const auto reply = call->reply();
                       call->deleteLater();
                       if (epoch != m_connectionEpoch) {
@@ -954,6 +1144,8 @@ void Backend::watchOperation(const QString &id, const QString &operationPath,
                           reply.signature() != "(ssbtta(sss)b)" ||
                           reply.arguments().isEmpty()) {
                         m_pendingIds.remove(id);
+                        if (auto *launch = shown())
+                          failLaunch(*launch, QStringLiteral("Unavailable"));
                         setResultMessage(tr("Operation is unavailable"));
                         timer->deleteLater();
                         publishState();
@@ -977,14 +1169,38 @@ void Backend::watchOperation(const QString &id, const QString &operationPath,
                       arg >> cancellable;
                       arg.endStructure();
                       if (state == "running" || state == "queued") {
+                        auto *launch = shown();
+                        if (launch && launch->cancellable != cancellable) {
+                          launch->cancellable = cancellable;
+                          publishState();
+                        }
                         timer->start();
                         return;
                       }
                       m_pendingIds.remove(id);
+                      bool next = false;
+                      if (auto *launch = shown()) {
+                        // Success and a confirmed cancel close the launch;
+                        // a failure comes on screen and stays until it is
+                        // dismissed, also for a launch behind another one.
+                        if (state == "failed") {
+                          failLaunch(*launch, error);
+                        } else if (launch->id == m_shownLaunch) {
+                          forgetShownLaunch();
+                          next = true;
+                        } else {
+                          m_launches.remove(launch->id);
+                        }
+                      }
                       setResultMessage(state == "succeeded" ? tr("Done")
-                                                              : error);
+                                       : state == "cancelled"
+                                           ? tr("Launch cancelled")
+                                           : error);
                       timer->deleteLater();
-                      publishState();
+                      if (next)
+                        dismissed();
+                      else
+                        publishState();
                     });
           });
   timer->start();

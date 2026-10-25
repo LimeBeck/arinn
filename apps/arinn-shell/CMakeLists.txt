@@ -132,6 +132,18 @@ add_test(NAME quick-menu COMMAND dbus-run-session -- $<TARGET_FILE:arinn-quick-m
 set_tests_properties(quick-menu PROPERTIES ENVIRONMENT
     "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software")
 
+# The application launch screen in Main.qml with the real Backend and a fake
+# daemon that launches (spec §6.5, ADR-0110).
+qt_add_executable(arinn-launch-screen-test launch_screen_test.cpp backend.cpp backend.h
+    media_catalog.cpp media_catalog.h browser_catalog.cpp browser_catalog.h return_association.cpp return_association.h
+    library_catalog.cpp library_catalog.h settings_catalog.cpp settings_catalog.h asset_images.cpp asset_images.h)
+target_link_libraries(arinn-launch-screen-test PRIVATE Qt6::DBus Qt6::Qml Qt6::Quick Qt6::Test)
+target_compile_definitions(arinn-launch-screen-test PRIVATE
+    ARINN_MAIN_QML="${CMAKE_CURRENT_SOURCE_DIR}/Main.qml")
+add_test(NAME launch-screen COMMAND dbus-run-session -- $<TARGET_FILE:arinn-launch-screen-test>)
+set_tests_properties(launch-screen PROPERTIES ENVIRONMENT
+    "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software")
+
 qt_add_executable(arinn-library-catalog-test library_catalog_test.cpp library_catalog.cpp library_catalog.h
     media_catalog.cpp media_catalog.h browser_catalog.cpp browser_catalog.h return_association.cpp return_association.h settings_catalog.cpp settings_catalog.h asset_images.cpp asset_images.h)
 target_link_libraries(arinn-library-catalog-test PRIVATE Qt6::DBus Qt6::Qml Qt6::Quick Qt6::Test)
@@ -170,7 +182,7 @@ endforeach()
 
 foreach(target arinn-shell arinn-shell-test arinn-session-lifecycle-test
     arinn-browser-catalog-test arinn-media-catalog-test arinn-library-catalog-test
-    arinn-quick-menu-test)
+    arinn-quick-menu-test arinn-launch-screen-test)
     target_sources(${target} PRIVATE activity_background.cpp activity_background.h)
     target_link_libraries(${target} PRIVATE arinn-background-frame-gate)
     target_sources(${target} PRIVATE browse_catalog.cpp browse_catalog.h

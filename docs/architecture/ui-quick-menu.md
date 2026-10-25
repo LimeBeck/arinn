@@ -53,11 +53,14 @@ frozen, the frame arrives after the sheet, and a windowed Activity would jump to
 a centred fit. Using the frame where the live window cannot show needs an
 adapter-reported visibility state, which is a contract change for a later task.
 
-**Launch progress.** The "Opening …" progress of a web service never covers the
-sheet: opening the sheet hides it as Home does (`hideForHome`, §6.5), and the
-launch keeps running. Only the launch dialog (failure or timeout) is drawn above
-the sheet (§6.1: dialog › power › sheet). Home on that dialog replaces the sheet
-with Home too.
+**Launch progress.** The "Opening …" progress of a web service and the
+"Starting …" progress of a slow application launch
+([ADR-0110](../adr/0110-application-launch-lifetime-and-cancellation.md)) never
+cover the sheet: opening the sheet hides them as Home does (`hideForHome`,
+§6.5), and the launch keeps running. An open stop confirmation of an application
+launch closes with it and stops nothing. Only the launch dialogs (failure or
+timeout) are drawn above the sheet (§6.1: dialog › power › sheet). Home on such
+a dialog replaces the sheet with Home too.
 
 **Automatic ambient** does not count while the sheet is over an Activity: the
 Activity is in the foreground behind it (§5.7). Over the shell it counts as
@@ -115,8 +118,9 @@ nothing reports a sleep the platform did not accept. Home inside the scope, or
 the global Home key, while a request is in flight replaces the sheet with Home;
 the request goes on, and a late refusal reopens the scope over Home. A repeated
 quick-menu key under the scope leaves the scope on top. Main.qml draws the
-power scope, the launch dialog and ambient in one canvas above the sheet, in
-that order, so the launch dialog stays above the power scope as before.
+power scope, the launch dialogs (web service, then application) and ambient in
+one canvas above the sheet, in that order, so the launch dialogs stay above the
+power scope as before.
 
 **Ambient.** During ambient the quick-menu key only wakes, and that first event
 triggers nothing (§5.7 *Ambient*): Meta+F11 arrives as a request, the remote's
@@ -142,8 +146,10 @@ the sheet. The ⏻ exception of §5.7 does not apply to it.
   quick-menu key right after Home, a shown but inactive shell counting as an
   Activity, ambient waking alike for Menu and a request, automatic ambient
   waiting over an Activity, the launch progress giving way to the sheet and
-  Home on the launch dialog, repeats and a foreign epoch, the degraded form
-  without the daemon, and the session lock.
+  Home on the launch dialog, the same for "Starting …" of an application with
+  its stop confirmation open and the late power answer held meanwhile, repeats
+  and a foreign epoch, the degraded form without the daemon, and the session
+  lock.
 - `arinn-platform-x11` `quick_menu_raises_the_shell_only_after_its_request`
   (Xvfb).
 - `key_sequence` `a_configured_menu_key_stays_bound_inside_the_shell`;

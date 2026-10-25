@@ -54,10 +54,12 @@ Window {
             activityBehind = playerOpen || !(visible && active);
             quickMenuOpener = activityBehind ? null : activeFocusItem;
             quickMenuOpen = true;
-            // The sheet takes the place of the "Opening…" progress, as Home
-            // does (§6.5): the launch keeps running, and only its dialog
-            // (failure or timeout) is drawn above the sheet (§6.1).
+            // The sheet takes the place of the "Opening…" and "Starting…"
+            // progress, as Home does (§6.5): the launch keeps running, and
+            // only its dialog (failure or timeout) is drawn above the sheet
+            // (§6.1). A stop confirmation closes and the launch goes on.
             if (launchOverlay.active && !launchOverlay.showDialog) launchOverlay.hideForHome();
+            if (applicationLaunch.active && !applicationLaunch.showDialog) applicationLaunch.hideForHome();
             // The Sound row shows the platform's current level.
             if (backend.connected) systemControl.readVolume();
         }
@@ -477,7 +479,9 @@ Window {
         shellShown: root.visible && root.active && !root.activityBehind
         locked: sessionGuard.blocked
         ambientActive: ambientScreen.active
-        launching: browserCatalog.opening
+        // An application launch only while its overlay is on screen: it may
+        // keep running hidden for hours (§6.5).
+        launching: browserCatalog.opening || applicationLaunch.visible
         mediaPlaying: root.playerOpen || ambientIdle.playing(mediaCatalog.continueEntries, browserCatalog.tabs,
                                                              mediaCatalog.inputLayerActive)
         onIdle: root.startAmbient()
@@ -1047,9 +1051,9 @@ Window {
             runningApplications: backend.items
             registryKnown: backend.applicationsState === "ready" || backend.applicationsState === "empty"
             keysEnabled: root.visible && root.active && !sessionGuard.blocked && !ambientScreen.active
-            // A late refusal never takes focus behind the launch dialog or
+            // A late refusal never takes focus behind a launch overlay or
             // the ambient screen; it appears once they are gone.
-            holdLateAnswer: launchOverlay.visible || ambientScreen.active
+            holdLateAnswer: launchOverlay.visible || applicationLaunch.visible || ambientScreen.active
             onClosed: Qt.callLater(() => { if (!powerOverlay.restoreLateFocus()) root.restoreFocus(); })
             onHomeRequested: {
                 if (root.quickMenuOpen || root.activityBehind) {
@@ -1077,6 +1081,46 @@ Window {
             onHomeRequested: {
                 if (root.quickMenuOpen || root.activityBehind) root.quickMenuHome();
                 else Qt.callLater(home.showHome);
+            }
+        }
+        // An application launch (spec §6.5, ADR-0110): it ends when a window
+        // appears, so it has no timeout here; after 8 s it reads
+        // "Starting <app>…" with a confirmed Cancel. Drawn like the launch
+        // dialog above, and its dialog stays above the sheet too.
+        Ui.LaunchOverlay {
+            id: applicationLaunch
+            objectName: "applicationLaunch"
+            anchors.fill: parent
+            z: 20
+            kind: "application"
+            timeoutDelay: 0
+            active: backend.launchActive === true
+            serviceTitle: backend.launchTitle || ""
+            failure: backend.launchError || ""
+            cancellable: backend.launchCancellable === true
+            stopping: backend.launchStopping === true
+            onCancelRequested: backend.cancelLaunch()
+            onRetryRequested: backend.retryLaunch()
+            onDismissRequested: backend.dismissLaunchFailure()
+            onHomeRequested: {
+                if (root.quickMenuOpen || root.activityBehind) root.quickMenuHome();
+                else Qt.callLater(home.showHome);
+            }
+            // What the backend needs to put this screen back after another
+            // launch's failure dialog, and to hold that dialog while the
+            // stop confirmation is open (§6.1, §6.5).
+            onHomeHiddenChanged: if (typeof backend.setLaunchHidden === "function") backend.setLaunchHidden(homeHidden)
+            onConfirmingChanged: if (typeof backend.setLaunchConfirming === "function") backend.setLaunchConfirming(confirming)
+            Connections {
+                target: backend
+                // Test doubles of the backend may lack the signal.
+                ignoreUnknownSignals: true
+                function onLaunchShown() { applicationLaunch.showAgain(backend.launchElapsed()); }
+                // A launch that replaces another on screen starts over.
+                function onLaunchStarted() { applicationLaunch.arm(); }
+                // The launch that takes the screen after a failure or after
+                // the launch on screen ended had been hidden: keep it hidden.
+                function onLaunchHidden() { applicationLaunch.hideForHome(); }
             }
         }
         Power.AmbientScreen {

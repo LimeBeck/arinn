@@ -8,11 +8,13 @@ use arinn_protocol::{
 };
 use std::{
     collections::HashMap,
+    future::Future,
+    pin::Pin,
     sync::Arc,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tokio::sync::Mutex;
-use zbus::{Connection, object_server::SignalEmitter, zvariant::OwnedObjectPath};
+use zbus::{Connection, message::Header, object_server::SignalEmitter, zvariant::OwnedObjectPath};
 pub fn now() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -60,6 +62,10 @@ struct Trace {
     done: bool,
 }
 const MAX_PHASES: usize = 16;
+/// Asks the provider to stop the work behind a cancellable operation
+/// (ADR-0110). Success means the provider confirmed the stop.
+pub type Canceller =
+    Arc<dyn Fn() -> Pin<Box<dyn Future<Output = Result<(), ErrorCode>> + Send>> + Send + Sync>;
 #[derive(Clone)]
 pub struct Operation {
     pub value: Arc<Mutex<OperationInfo>>,
@@ -70,6 +76,7 @@ pub struct Operation {
     admitted_wall: SystemTime,
     kind: &'static str,
     trace: Arc<std::sync::Mutex<Trace>>,
+    canceller: Arc<std::sync::Mutex<Option<Canceller>>>,
 }
 /// Closes a phase when dropped, so a step cut by a deadline is still traced.
 struct PhaseGuard<'a> {
@@ -95,6 +102,15 @@ impl Drop for PhaseGuard<'_> {
 impl Operation {
     pub fn kind(&self) -> &'static str {
         self.kind
+    }
+    /// Make the operation cancellable through `Operation1.Cancel` until it
+    /// ends (ADR-0110).
+    pub async fn cancellable(&self, canceller: Canceller) {
+        *self.canceller.lock().unwrap() = Some(canceller);
+        let mut value = self.value.lock().await;
+        if ["queued", "running"].contains(&value.state.as_str()) {
+            value.cancellable = true;
+        }
     }
     /// Names the provider instance once the operation has chosen one, for
     /// diagnostics and for invalidation when that provider goes away.
@@ -203,6 +219,7 @@ impl Operation {
                 label,
                 ..Default::default()
             })),
+            canceller: Arc::default(),
         }
     }
     /// Capability, plugin, `op name` of each step and the reason, as telemetry would see them.
@@ -253,13 +270,19 @@ impl Operation {
         }
 
         let safe_error = outcome.as_ref().err().copied();
+        value.cancellable = false;
         match outcome {
             Ok(results) => {
                 value.state = "succeeded".into();
                 value.results = results;
             }
             Err(error) => {
-                value.state = "failed".into();
+                value.state = if error == ErrorCode::Cancelled {
+                    "cancelled"
+                } else {
+                    "failed"
+                }
+                .into();
                 value.error = error.to_string();
                 value.retryable = error == ErrorCode::Unavailable;
             }
@@ -291,8 +314,39 @@ impl Operation {
     async fn get(&self) -> (OperationInfo,) {
         (self.value.lock().await.clone(),)
     }
-    async fn cancel(&self) -> production::Result<()> {
-        Err(ErrorCode::Unsupported.into())
+    /// Only the caller that started the operation may cancel it. An ended
+    /// operation is left as it is; a provider refusal leaves it running
+    /// (ADR-0110).
+    async fn cancel(
+        &self,
+        #[zbus(header)] h: Header<'_>,
+        #[zbus(connection)] c: &Connection,
+    ) -> production::Result<()> {
+        if h.sender().map(|s| s.as_str()) != Some(self.caller.as_str()) {
+            return Err(ErrorCode::PermissionDenied.into());
+        }
+        let path: OwnedObjectPath = h.path().ok_or(ErrorCode::Internal)?.to_owned().into();
+        // Kept after the operation ends, so an ended launch still answers
+        // success while other kinds stay Unsupported.
+        let canceller = self
+            .canceller
+            .lock()
+            .unwrap()
+            .clone()
+            .ok_or(ErrorCode::Unsupported)?;
+        let ended = |state: &str| !["queued", "running"].contains(&state);
+        if ended(&self.value.lock().await.state) {
+            return Ok(());
+        }
+        match canceller().await {
+            Ok(()) => {
+                self.finish(c, &path, Err(ErrorCode::Cancelled)).await;
+                Ok(())
+            }
+            // The launch ended some other way while the provider was asked.
+            Err(_) if ended(&self.value.lock().await.state) => Ok(()),
+            Err(error) => Err(error.into()),
+        }
     }
     #[zbus(signal)]
     async fn changed(emitter: &SignalEmitter<'_>) -> zbus::Result<()>;
@@ -374,6 +428,7 @@ impl Operations {
                 label,
                 ..Default::default()
             })),
+            canceller: Arc::default(),
             value: Arc::new(Mutex::new(OperationInfo {
                 state: "queued".into(),
                 error: String::new(),

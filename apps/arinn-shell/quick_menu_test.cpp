@@ -530,6 +530,36 @@ private slots:
     QTRY_VERIFY(idle->property("eligible").toBool());
   }
 
+  // Automatic ambient waits while an application's starting screen is on
+  // screen, not while the launch runs hidden behind Home: an application
+  // launch has no time limit (§5.7, §6.5).
+  void ambientWaitsOnlyForAShownApplicationLaunch() {
+    daemon.request("HomeRequested");
+    QTRY_VERIFY(window->isVisible());
+    window->requestActivate();
+    QTRY_VERIFY(window->isActive());
+    QTRY_VERIFY(focusIn(home));
+    auto *idle = engine->rootObjects().value(0)->findChild<QObject *>(
+        QStringLiteral("ambientIdle"));
+    auto *launch = child(window, "applicationLaunch");
+    QVERIFY(idle && launch);
+    QTRY_VERIFY(idle->property("eligible").toBool());
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("revealDelay"), 0));
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("slowDelay"), 0));
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("cancellable"), true));
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("serviceTitle"), QStringLiteral("Game")));
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("active"), true));
+    QTRY_VERIFY(launch->isVisible());
+    QVERIFY(!idle->property("eligible").toBool());
+    // Home hides the starting screen; the launch goes on, ambient may count.
+    QTRY_VERIFY(findItem(launch, QStringLiteral("launchCancel"))->hasActiveFocus());
+    QTest::keyClick(window, Qt::Key_Home);
+    QTRY_VERIFY(!launch->isVisible());
+    QVERIFY(launch->property("active").toBool());
+    QTRY_VERIFY(idle->property("eligible").toBool());
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("active"), false));
+  }
+
   // A shell that is shown but has no focus when the request arrives is not
   // the screen the user is on: the sheet is over the Activity (the guard
   // against a Status read that showed the shell first).
@@ -608,6 +638,60 @@ private slots:
     QTRY_VERIFY(!menu->isVisible());
     QVERIFY(!window->property("quickMenuOpen").toBool());
     QVERIFY(screens->isVisible());
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("failure"), QString()));
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("active"), false));
+    QTRY_VERIFY(!launch->isVisible());
+  }
+
+  // "Starting <app>…" of a slow application launch (spec §6.5, ADR-0110)
+  // gives way to the sheet as the "Opening…" progress does, and its stop
+  // confirmation closes without stopping the launch. While it is on screen
+  // a late power refusal waits; its failure dialog is drawn above the sheet.
+  void applicationLaunchGivesWayToTheSheet() {
+    daemon.returnWindow = QStringLiteral("activity");
+    daemon.request("HomeRequested");
+    QTRY_VERIFY(window->isVisible());
+    window->requestActivate();
+    QTRY_VERIFY(window->isActive());
+    QTRY_VERIFY(focusIn(home));
+    auto *launch = child(window, "applicationLaunch");
+    auto *power = child(window, "powerOverlay");
+    QVERIFY(launch && power);
+    QVERIFY(!power->property("holdLateAnswer").toBool());
+    // An application is starting (the bindings to the backend are replaced
+    // for the test, and the slow stage comes at once).
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("revealDelay"), 0));
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("slowDelay"), 0));
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("cancellable"), true));
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("serviceTitle"), QStringLiteral("Game")));
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("active"), true));
+    QTRY_VERIFY(launch->isVisible());
+    QTRY_VERIFY(findItem(launch, QStringLiteral("launchCancel"))->hasActiveFocus());
+    QCOMPARE(findItem(launch, QStringLiteral("launchTitle"))->property("text").toString(),
+             QStringLiteral("Starting Game…"));
+    QVERIFY(power->property("holdLateAnswer").toBool());
+    // Cancel asks first, with Keep starting focused.
+    QSignalSpy cancels(launch, SIGNAL(cancelRequested()));
+    QTest::keyClick(window, Qt::Key_Return);
+    QTRY_VERIFY(findItem(launch, QStringLiteral("launchKeepStarting"))->hasActiveFocus());
+    QVERIFY(launch->property("confirming").toBool());
+    daemon.request("QuickMenuRequested");
+    QTRY_VERIFY(menuOpen());
+    QVERIFY(!launch->isVisible());
+    QVERIFY(!launch->property("confirming").toBool());
+    QVERIFY(launch->property("active").toBool());
+    QCOMPARE(cancels.count(), 0);
+    QVERIFY(!power->property("holdLateAnswer").toBool());
+    // The launch fails: its dialog comes up above the sheet with focus.
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("failure"), QStringLiteral("Unavailable")));
+    QTRY_VERIFY(launch->isVisible());
+    QTRY_VERIFY(focusIn(launch));
+    QVERIFY(menu->isVisible());
+    QTest::keyClick(window, Qt::Key_Home);
+    QTRY_VERIFY(!menu->isVisible());
+    QVERIFY(!window->property("quickMenuOpen").toBool());
+    QVERIFY(screens->isVisible());
+    QCOMPARE(cancels.count(), 0);
     QVERIFY(QQmlProperty::write(launch, QStringLiteral("failure"), QString()));
     QVERIFY(QQmlProperty::write(launch, QStringLiteral("active"), false));
     QTRY_VERIFY(!launch->isVisible());

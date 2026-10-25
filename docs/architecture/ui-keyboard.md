@@ -117,7 +117,8 @@ daemon reports `ExternalKeyboard1.Opened`.
   - the keys are drawn focused although the window never has focus (`lit`).
 - `Main.qml` shows the panel only while the session is open, the shell is off
   screen and the lifecycle guard is not blocked. Home, the quick menu's sheet,
-  the power scope, ambient, the launch overlay and the player all live in the
+  the power scope, ambient, both launch overlays (an application's included,
+  also "Starting…" and "Stopping…", ADR-0110) and the player all live in the
   shell window, so the shell coming on screen for any of them hides the panel
   at once and closes the session, and so does a lock. A session that opens
   while the shell is on screen is closed at once. Back (`input("back")`) hides
@@ -173,8 +174,9 @@ global and replace the panel with the shell.
   - the panel's external mode types, sends Enter and the editing keys, has no
     suggestions, and Up from the top row stays;
   - `Main.qml` shows the panel for a session and hides it on Back, Home, the
-    shell coming on screen and a lock, each closing the session; a session
-    opened while the shell is on screen is closed at once; a Menu key event
+    shell coming on screen (also with an application launch, "Stopping…"
+    included) and a lock, each closing the session; a session opened while
+    the shell is on screen is closed at once; a Menu key event
     changes nothing;
   - under X11 the panel window is override-redirect with `input = False`, and
     the application keeps focus while the panel shows. The offscreen platform

@@ -416,7 +416,8 @@ Window {
     // The on-screen keyboard over an external application (spec §6.2,
     // ADR-0105): a separate window that never takes focus. It shows only
     // while the shell is off screen: Home, the quick menu's sheet, the power
-    // scope, ambient, the launch overlay and the player all live in the
+    // scope, ambient, both launch overlays (an application's included, also
+    // "Starting…" and "Stopping…", ADR-0110) and the player all live in the
     // shell window, so the shell coming on screen for any of them, or a
     // lock, hides the panel at once and closes the session. The platform
     // also ends the session as focus leaves the application.

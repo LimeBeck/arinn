@@ -87,6 +87,10 @@ class BackendStandIn : public QObject {
   Q_PROPERTY(QString homeState MEMBER m_homeState NOTIFY changed)
   Q_PROPERTY(QStringList busyEntryIds MEMBER m_busy CONSTANT)
   Q_PROPERTY(QString message MEMBER m_message CONSTANT)
+  // The application launch overlay (ADR-0110).
+  Q_PROPERTY(bool launchActive MEMBER m_launchActive NOTIFY changed)
+  Q_PROPERTY(bool launchStopping MEMBER m_launchStopping NOTIFY changed)
+  Q_PROPERTY(QString launchTitle MEMBER m_launchTitle NOTIFY changed)
 public:
   bool connected() const { return true; }
   QString daemonEpoch() const {
@@ -101,7 +105,14 @@ public:
   Q_INVOKABLE void launch(const QString &) {}
   Q_INVOKABLE void activate(const QString &) {}
   Q_INVOKABLE void refresh() {}
-  bool m_home = false;
+  void setLaunch(bool active, bool stopping) {
+    m_launchActive = active;
+    m_launchStopping = stopping;
+    m_launchTitle = active ? QStringLiteral("Demo") : QString();
+    emit changed();
+  }
+  bool m_home = false, m_launchActive = false, m_launchStopping = false;
+  QString m_launchTitle;
   QString m_return, m_homeState = QStringLiteral("ready"), m_message;
   QVariantList m_list;
   QStringList m_busy;
@@ -361,6 +372,27 @@ private slots:
     QTRY_COMPARE(daemon.calls.last(), QStringLiteral("Close|") + other);
     QVERIFY(!panel->isVisible());
     shell->setVisibility(QWindow::Hidden);
+    QTRY_VERIFY(!shell->isVisible());
+
+    // An application launch on screen, also in its "Stopping…" state
+    // (ADR-0110): the shell carries it, so the panel closes, and a session
+    // opened meanwhile is closed at once without a panel.
+    FakeDaemon::emitSignal("Opened", {session});
+    QTRY_VERIFY(panel->isVisible());
+    backend.setLaunch(true, false);
+    backend.setHome(true);
+    QTRY_VERIFY(!panel->isVisible());
+    QTRY_COMPARE(daemon.calls.last(), QStringLiteral("Close|") + session);
+    auto launch = shell->findChild<QQuickItem *>(QStringLiteral("applicationLaunch"));
+    QVERIFY(launch);
+    QTRY_VERIFY(launch->isVisible());
+    backend.setLaunch(true, true);
+    QTRY_COMPARE(launch->property("progressTitle").toString(), QStringLiteral("Stopping Demo…"));
+    FakeDaemon::emitSignal("Opened", {other});
+    QTRY_COMPARE(daemon.calls.last(), QStringLiteral("Close|") + other);
+    QVERIFY(!panel->isVisible());
+    backend.setLaunch(false, false);
+    backend.setHome(false);
     QTRY_VERIFY(!shell->isVisible());
 
     // A lock hides it and closes the session; nothing is typed after it.

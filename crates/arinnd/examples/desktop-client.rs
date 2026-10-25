@@ -168,7 +168,7 @@ async fn main() -> anyhow::Result<()> {
         #[allow(unreachable_code)]
         Ok::<(), zbus::Error>(())
     });
-    let current = page(&app, |p| p.applications.len() == 7 && p.running.len() == 3).await;
+    let current = page(&app, |p| p.applications.len() == 8 && p.running.len() == 3).await;
     assert_eq!(current.running[0].id, "window-a");
     let launch = |id: &'static str| {
         let app = app.clone();
@@ -325,11 +325,11 @@ async fn main() -> anyhow::Result<()> {
     );
     // Lost authoritative inventory clears running instances, not the launch catalogue.
     c.release_name("org.kde.KWin").await?;
-    page(&app, |p| p.running.is_empty() && p.applications.len() == 7).await;
+    page(&app, |p| p.running.is_empty() && p.applications.len() == 8).await;
     // A launch that starts while the inventory is missing gets the same
     // grace as a gap during a launch before it counts as dispatched.
     let at = Instant::now();
-    let gap = launch("fixture.desktop").await?;
+    let gap = launch("gap.desktop").await?;
     tokio::time::sleep(Duration::from_secs(1)).await;
     starting(&c, &gap).await;
     operation(&c, gap, "").await;

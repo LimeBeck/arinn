@@ -52,7 +52,7 @@ with tempfile.TemporaryDirectory(prefix="arinn-desktop-integration-") as folder:
     named.write_text(f'#!/bin/sh\nprintf "%s" "$$" > "{root}/$1.pid"\n'
                      f'while test -d "{root}" && ! test -e "{root / "release"}"; do sleep 0.05; done\n')
     named.chmod(0o700)
-    for name in ("slow", "cancel", "keep"):
+    for name in ("slow", "cancel", "keep", "gap"):
         (applications / f"{name}.desktop").write_text(
             f'[Desktop Entry]\nType=Application\nName={name.title()}\nExec={named} {name}\n')
     # Exit at once with status 0 and no window; "handoff" already has one.

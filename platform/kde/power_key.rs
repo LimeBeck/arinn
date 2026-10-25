@@ -857,6 +857,19 @@ mod tests {
         assert_eq!(f.pressed(POWER_OFF), None);
     }
 
+    /// Waits until both power keys reach `action` and the inhibitor is held
+    /// (or not) to match: the watcher's take or give-back is then finished,
+    /// as it holds the lock `inhibiting` waits for throughout (review of
+    /// #517: waiting for one key only raced under load).
+    async fn settled(f: &Fixture, action: &str, holding: bool) -> bool {
+        eventually(async || {
+            f.pressed(POWER_OFF).as_deref() == Some(action)
+                && f.pressed(POWER_DOWN).as_deref() == Some(action)
+                && f.key.inhibiting().await == holding
+        })
+        .await
+    }
+
     /// Polls `check` until it holds or 3 s pass.
     async fn eventually<F: AsyncFnMut() -> bool>(mut check: F) -> bool {
         for _ in 0..150 {
@@ -902,24 +915,34 @@ mod tests {
         );
         let shell = connect(&f._bus.1).await;
         crate::shell_ready::tests::serve(&shell).await;
-        assert!(eventually(async || f.pressed(POWER_OFF).as_deref() == Some("ArinnPower")).await);
-        assert!(eventually(async || f.key.inhibiting().await).await);
+        assert!(settled(&f, "ArinnPower", true).await);
         // The shell is gone: everything goes back at once.
         shell.release_name(SHELL).await.unwrap();
-        assert!(eventually(async || f.pressed(POWER_OFF).as_deref() == Some("PowerOff")).await);
-        assert_eq!(f.pressed(POWER_DOWN).as_deref(), Some("PowerDown"));
-        assert!(!f.key.inhibiting().await);
+        assert!(
+            eventually(async || {
+                f.pressed(POWER_OFF).as_deref() == Some("PowerOff")
+                    && f.pressed(POWER_DOWN).as_deref() == Some("PowerDown")
+                    && !f.key.inhibiting().await
+            })
+            .await
+        );
         assert!(!f.key.taken().await);
         assert!(eventually(async || f.login.lock().unwrap().open() == 0).await);
         // The shell is back.
         shell.request_name(SHELL).await.unwrap();
-        assert!(eventually(async || f.pressed(POWER_OFF).as_deref() == Some("ArinnPower")).await);
+        assert!(settled(&f, "ArinnPower", true).await);
         // The adapter stops polling (an unloaded KWin script), and returns.
         adapter.store(false, Ordering::SeqCst);
-        assert!(eventually(async || f.pressed(POWER_OFF).as_deref() == Some("PowerOff")).await);
-        assert!(!f.key.inhibiting().await);
+        assert!(
+            eventually(async || {
+                f.pressed(POWER_OFF).as_deref() == Some("PowerOff")
+                    && f.pressed(POWER_DOWN).as_deref() == Some("PowerDown")
+                    && !f.key.inhibiting().await
+            })
+            .await
+        );
         adapter.store(true, Ordering::SeqCst);
-        assert!(eventually(async || f.pressed(POWER_OFF).as_deref() == Some("ArinnPower")).await);
+        assert!(settled(&f, "ArinnPower", true).await);
         // A new adapter connection registered ArinnPower anew: written again.
         let written = |f: &Fixture| {
             f.writes()
@@ -985,23 +1008,32 @@ mod tests {
             &f.daemon,
             || async { true },
             Duration::from_secs(60),
-            &[Duration::ZERO, Duration::from_millis(300)],
+            &[Duration::ZERO, Duration::from_millis(800)],
         );
         f.key.adapter_connected().await;
         let shell = connect(&f._bus.1).await;
         crate::shell_ready::tests::serve(&shell).await;
-        assert!(eventually(async || f.pressed(POWER_OFF).as_deref() == Some("ArinnPower")).await);
-        // PowerDevil restarts: it owns its name, then registers its actions.
+        assert!(settled(&f, "ArinnPower", true).await);
+        let inactive = |f: &Fixture| {
+            f.writes()
+                .iter()
+                .filter(|w| w.as_str() == "inactive PowerDown")
+                .count()
+        };
+        // PowerDevil restarts: it owns its name, then registers its actions,
+        // after the immediate retake has already run.
+        let before = inactive(&f);
         let powerdevil = connect(&f._bus.1).await;
         powerdevil.request_name(POWERDEVIL).await.unwrap();
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(eventually(async || inactive(&f) > before && f.key.inhibiting().await).await);
+        let registered = inactive(&f);
         for s in &mut f.accel.lock().unwrap().shortcuts {
             s.present = true;
         }
         assert_eq!(f.pressed(POWER_OFF).as_deref(), Some("PowerOff"));
-        assert!(eventually(async || f.pressed(POWER_OFF).as_deref() == Some("ArinnPower")).await);
-        assert_eq!(f.pressed(POWER_DOWN).as_deref(), Some("ArinnPower"));
-        assert!(f.key.inhibiting().await);
+        // The later retake takes both keys again.
+        assert!(eventually(async || inactive(&f) > registered).await);
+        assert!(settled(&f, "ArinnPower", true).await);
     }
 
     /// A new adapter connection that gets no key (here a KGlobalAccel that

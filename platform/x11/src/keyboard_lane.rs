@@ -296,7 +296,7 @@ mod tests {
     use std::{
         io::{BufRead, BufReader},
         process::{Child, Command as Process, Stdio},
-        sync::atomic::{AtomicBool, AtomicUsize, Ordering},
+        sync::atomic::{AtomicBool, Ordering},
     };
     use x11rb::{
         CURRENT_TIME,
@@ -557,13 +557,15 @@ mod tests {
         let desktop = Desktop::new()?;
         let (app, xid) = focused_window(&desktop)?;
         desktop.inventory(&[xid], xid)?;
-        let budget = Arc::new(AtomicUsize::new(2));
+        let budget = Arc::new(Mutex::new(2usize));
         let left = budget.clone();
         let (_bus, daemon, _server, mut tasks) = lane(
             &desktop,
             move || {
-                left.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
-                    .is_ok()
+                let mut left = left.lock().unwrap();
+                let unlocked = *left > 0;
+                *left = left.saturating_sub(1);
+                unlocked
             },
             Duration::from_secs(3600),
         )
@@ -584,7 +586,7 @@ mod tests {
         // One key press only: 'a'. The session's end has emptied its scratch
         // keycode already, so the press resolves to no keysym now.
         assert_eq!(typed(&app)?.len(), 1);
-        assert_eq!(budget.load(Ordering::SeqCst), 0);
+        assert_eq!(*budget.lock().unwrap(), 0);
         tasks.abort_all();
         Ok(())
     }
@@ -625,6 +627,46 @@ mod tests {
         desktop.press(&[], 0xff52)?;
         tokio::time::sleep(Duration::from_millis(200)).await;
         assert_eq!(typed(&other)?, [0xff52]);
+        tasks.abort_all();
+        Ok(())
+    }
+
+    /// Mutation X9 of the #484 review: an editing key waits for its own lock
+    /// check too. The lock answers unlocked once (the open record), then
+    /// locked: the press never reaches the application.
+    #[tokio::test]
+    #[ignore = "requires Xvfb; spawns an isolated X server, never uses the real DISPLAY"]
+    async fn an_editing_key_waits_for_its_lock_check() -> Result<()> {
+        let desktop = Desktop::new()?;
+        let (app, xid) = focused_window(&desktop)?;
+        desktop.inventory(&[xid], xid)?;
+        let budget = Arc::new(Mutex::new(1usize));
+        let left = budget.clone();
+        let (_bus, daemon, _server, mut tasks) = lane(
+            &desktop,
+            move || {
+                let mut left = left.lock().unwrap();
+                let unlocked = *left > 0;
+                *left = left.saturating_sub(1);
+                unlocked
+            },
+            Duration::from_secs(3600),
+        )
+        .await?;
+        daemon
+            .queue
+            .lock()
+            .unwrap()
+            .push(Record::Open(SESSION.into()).fields());
+        wait_for(&daemon.calls, &format!("opened:{SESSION}")).await;
+        daemon
+            .queue
+            .lock()
+            .unwrap()
+            .push(Record::Press(SESSION.into(), "backspace".into()).fields());
+        wait_for(&daemon.calls, "closed:locked").await;
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert_eq!(typed(&app)?, Vec::<u32>::new());
         tasks.abort_all();
         Ok(())
     }

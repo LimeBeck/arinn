@@ -173,7 +173,12 @@ exits with the desktop's status. In both modes the desktop starts with
 SIGINT and SIGQUIT at their defaults, as with the stock entries. The desktop
 mode clears an `ARINN_SESSION_ENTRY` a killed wrapper may have left in the
 user manager and exports `ARINN_SESSION_MODE` there and to the desktop, so
-Return to Arinn writes the same file.
+Return to Arinn writes the same file. In the Arinn mode the desktop's own
+environment carries `ARINN_SESSION_ENTRY` as well; on XFCE the launcher
+`arinn-xfce-session` mirrors it into the user manager before it starts the
+EWMH target, and clears a marker its login does not carry, so a stock XFCE
+login after a killed wrapper is never taken for the dedicated session
+([ADR-0111](../adr/0111-power-key.md)).
 
 `/usr/lib/arinn/arinn-session-switch arinn|desktop [--prompt]` records the
 choice, then asks the desktop to log out through its own session-bus API:

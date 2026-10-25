@@ -286,14 +286,14 @@ impl PowerKey {
             else {
                 return;
             };
-            let shell: zbus::names::BusName = SHELL.try_into().expect("valid name");
+            let mut shell = crate::shell_ready::ShellReady::default();
             // A key an earlier session left with ArinnPower (kglobalacceld
             // gone before the release at logout) goes back at the first
             // check when no shell is alive.
             key.inner.lock().await.taken = true;
             loop {
-                let alive = dbus.name_has_owner(shell.clone()).await.unwrap_or(false)
-                    && adapter_alive().await;
+                // A ready shell answers, so its window can show the menu.
+                let alive = shell.check(&connection).await && adapter_alive().await;
                 key.reconcile(&connection, alive).await;
                 tokio::select! {
                     change = changes.next() => if change.is_none() { break },
@@ -487,13 +487,14 @@ async fn rollback(inner: &mut Inner, connection: &Connection) -> bool {
 /// temporary one on `system` covers the release, until `ArinnPower` is
 /// cleared and PowerDevil's actions are present (Codex on #517).
 pub async fn release_after_daemon(connection: &Connection, system: Option<&Connection>) -> bool {
-    if !running(connection).await {
-        return false;
-    }
+    // First, before any KGlobalAccel query (Codex on #517).
     let _inhibitor = match system {
         Some(system) => power_inhibitor::inhibit(system).await,
         None => None,
     };
+    if !running(connection).await {
+        return false;
+    }
     release(connection).await
 }
 
@@ -900,7 +901,7 @@ mod tests {
             f.writes()
         );
         let shell = connect(&f._bus.1).await;
-        shell.request_name(SHELL).await.unwrap();
+        crate::shell_ready::tests::serve(&shell).await;
         assert!(eventually(async || f.pressed(POWER_OFF).as_deref() == Some("ArinnPower")).await);
         assert!(eventually(async || f.key.inhibiting().await).await);
         // The shell is gone: everything goes back at once.
@@ -988,7 +989,7 @@ mod tests {
         );
         f.key.adapter_connected().await;
         let shell = connect(&f._bus.1).await;
-        shell.request_name(SHELL).await.unwrap();
+        crate::shell_ready::tests::serve(&shell).await;
         assert!(eventually(async || f.pressed(POWER_OFF).as_deref() == Some("ArinnPower")).await);
         // PowerDevil restarts: it owns its name, then registers its actions.
         let powerdevil = connect(&f._bus.1).await;
@@ -1179,6 +1180,20 @@ mod tests {
         assert_eq!(f.accel.lock().unwrap().cleared_open, [1]);
         assert_eq!(f.pressed(POWER_OFF).as_deref(), Some("PowerOff"));
         assert!(eventually(async || f.login.lock().unwrap().open() == 0).await);
+    }
+
+    /// Codex on #517: the helper takes its inhibitor before it asks
+    /// KGlobalAccel anything, here even before it finds none.
+    #[tokio::test]
+    async fn the_helper_inhibits_before_it_asks_kglobalaccel() {
+        let bus = bus();
+        let login = Shared::new(Mutex::new(Fake::default()));
+        let _logind = logind(&bus, login.clone()).await;
+        let daemon = connect(&bus.1).await;
+        let system = connect(&bus.1).await;
+        assert!(!release_after_daemon(&daemon, Some(&system)).await);
+        assert_eq!(login.lock().unwrap().calls.len(), 1);
+        assert!(eventually(async || login.lock().unwrap().open() == 0).await);
     }
 
     /// Without KGlobalAccel nothing is taken, started or inhibited.

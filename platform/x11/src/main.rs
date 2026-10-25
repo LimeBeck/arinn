@@ -12,6 +12,8 @@ mod native;
 #[path = "../../power_inhibitor.rs"]
 mod power_inhibitor;
 mod power_owner;
+#[path = "../../shell_ready.rs"]
+mod shell_ready;
 mod xfce_power;
 use anyhow::{Result, ensure};
 use arinn_protocol::{
@@ -162,8 +164,11 @@ impl Actor {
         Ok(())
     }
     fn cleanup(&mut self) -> Result<()> {
+        // The power key first: its grab or raw reading ends here, before
+        // PowerOwner drops logind's inhibitor (Codex on #517).
+        let power = self.native.set_power(false, false).map(drop);
         // Restore from the saved row before inventory retirement loses its XID.
-        let restored = self.release_live();
+        let restored = self.release_live().and(power);
         // Lower the current shell even if player restoration failed; never use
         // stale shell identity when a fresh inventory cannot be obtained.
         let lowered = self.native.snapshot().and_then(|snapshot| {
@@ -673,9 +678,9 @@ async fn session(power: &mut power_owner::PowerOwner) -> Result<()> {
     let cleanup = actor.clone();
     end_session(power, result, move || cleanup.lock().unwrap().cleanup()).await
 }
-/// Ends one session however it ended: the reader is gone with it, so the
-/// desktop gets the power key back (xfconf, then the inhibitor) before the
-/// X state is restored.
+/// Ends one session however it ended: the X state is restored first (the
+/// power key's grab or raw reading ends there), then the desktop gets the
+/// power key back (xfconf, then the inhibitor).
 async fn end_session<F>(
     power: &mut power_owner::PowerOwner,
     result: Result<()>,
@@ -684,11 +689,13 @@ async fn end_session<F>(
 where
     F: FnOnce() -> Result<()> + Send + 'static,
 {
-    power.end().await;
+    // The grab goes first, then the setting and the inhibitor (Codex on
+    // #517): no moment where Arinn still grabs without the inhibitor.
     let restored = tokio::task::spawn_blocking(cleanup).await?;
     if restored.is_err() {
         eprintln!("arinn-platform-x11: shutdown restoration failed");
     }
+    power.end().await;
     result.and(restored)
 }
 async fn run(actor: &Arc<Mutex<Actor>>, power: &mut power_owner::PowerOwner) -> Result<()> {
@@ -812,6 +819,7 @@ async fn run(actor: &Arc<Mutex<Actor>>, power: &mut power_owner::PowerOwner) -> 
         &mut tasks,
     )
     .await?;
+    let mut shell_ready = shell_ready::ShellReady::default();
     let mut tick = tokio::time::interval(Duration::from_millis(500));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut revision = 0;
@@ -856,10 +864,8 @@ async fn run(actor: &Arc<Mutex<Actor>>, power: &mut power_owner::PowerOwner) -> 
         }
         // The power key follows the shell: only while it owns its name and
         // the key is read (ADR-0111).
-        let shell = bus
-            .name_has_owner(power_key_shell().try_into()?)
-            .await
-            .unwrap_or(false);
+        // A ready shell: it owns its name and answers, so its window exists.
+        let shell = shell_ready.check(&c).await;
         // The ordinary XFCE desktop keeps the key; an XFCE session manager
         // or xfce4-power-manager that appears later takes it back within
         // one tick (ADR-0111).
@@ -874,9 +880,6 @@ async fn run(actor: &Arc<Mutex<Actor>>, power: &mut power_owner::PowerOwner) -> 
     }
 }
 /// The shell's bus name; its owner is the live shell.
-fn power_key_shell() -> &'static str {
-    "org.arinn.Shell1"
-}
 /// Aborts a task when the session ends.
 struct Abort<T>(tokio::task::JoinHandle<T>);
 impl<T> Drop for Abort<T> {
@@ -1026,8 +1029,19 @@ mod tests {
             .unwrap();
         assert_eq!(f.xfconf.value(), Some(Saved::Uint(0)));
         assert_eq!(f.open(), 1);
-        let ended = end_session(&mut f.owner, Err(anyhow::anyhow!("lost")), || Ok(())).await;
+        // Codex on #517: the grab is released (the cleanup) while the
+        // inhibitor is still held.
+        let login = f.login.clone();
+        let seen = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(9));
+        let at_cleanup = seen.clone();
+        let ended = end_session(&mut f.owner, Err(anyhow::anyhow!("lost")), move || {
+            let open = login.lock().unwrap().open();
+            at_cleanup.store(open, std::sync::atomic::Ordering::SeqCst);
+            Ok(())
+        })
+        .await;
         assert!(ended.is_err());
+        assert_eq!(seen.load(std::sync::atomic::Ordering::SeqCst), 1);
         assert_eq!(f.owner.owned(), Reading::None);
         assert_eq!(f.xfconf.value(), Some(Saved::Uint(3)));
         f.settle(0).await;
@@ -1216,6 +1230,36 @@ mod tests {
         assert!(!update.target.is_empty());
         assert!(activations(desktop.messages()?) >= 1);
         assert_eq!(update.snapshot.power_reading, native::Reading::Grab);
+        // Codex on #517: the session's cleanup lets go of the power key
+        // itself, before PowerOwner drops the inhibitor; the actor's X
+        // connection is still open here.
+        actor.cleanup()?;
+        use x11rb::connection::Connection as _;
+        use x11rb::protocol::xproto::ConnectionExt as _;
+        let other = x11rb::connect(Some(&desktop.display))?.0;
+        let mapping = other
+            .get_keyboard_mapping(
+                other.setup().min_keycode,
+                other.setup().max_keycode - other.setup().min_keycode + 1,
+            )?
+            .reply()?;
+        let power = mapping
+            .keysyms
+            .chunks(usize::from(mapping.keysyms_per_keycode))
+            .position(|syms| syms.contains(&0x1008_ff2a))
+            .map(|i| other.setup().min_keycode + i as u8)
+            .unwrap();
+        other
+            .grab_key(
+                false,
+                desktop.root,
+                x11rb::protocol::xproto::ModMask::ANY,
+                power,
+                x11rb::protocol::xproto::GrabMode::ASYNC,
+                x11rb::protocol::xproto::GrabMode::ASYNC,
+            )?
+            .check()?;
+        drop(actor);
         Ok(())
     }
     #[test]

@@ -22,6 +22,8 @@ pub mod registry;
 pub mod runtime;
 #[path = "../../../platform/session_lock.rs"]
 pub mod session_lock;
+#[path = "../../../platform/shell_ready.rs"]
+pub mod shell_ready;
 pub mod shortcuts;
 #[path = "../../../platform/status_sources.rs"]
 pub mod status_sources;

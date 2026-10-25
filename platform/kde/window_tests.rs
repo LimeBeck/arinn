@@ -1509,7 +1509,7 @@ async fn adapter_connection_applies_configured_home_shortcut() {
         .unwrap();
     // A live shell and logind: the power keys follow (ADR-0111).
     crate::power_inhibitor::tests::serve(&f.provider, Default::default()).await;
-    f.provider.request_name("org.arinn.Shell1").await.unwrap();
+    crate::shell_ready::tests::serve(&f.provider).await;
     f.core
         .connection
         .object_server()

@@ -225,6 +225,21 @@ pub async fn release_after_adapter<H: FnOnce() -> Option<bool>>(
     }
 }
 
+/// Gives back a copy an earlier dedicated run left, at an adapter start,
+/// holding a temporary logind inhibitor meanwhile: no adapter of this start
+/// holds one yet (Codex on #517).
+pub async fn release_stale(
+    bus: &Connection,
+    files: &xfce_power::Files,
+    system: Option<&Connection>,
+) {
+    let _inhibitor = match system {
+        Some(system) => power_inhibitor::inhibit(system).await,
+        None => None,
+    };
+    xfce_power::release(bus, files).await;
+}
+
 /// Whether this session may take the power key: the dedicated Arinn XFCE
 /// session, and any X11/EWMH desktop where no XFCE name is on the bus. The
 /// ordinary XFCE desktop, and any desktop where xfce4-power-manager runs,
@@ -290,9 +305,10 @@ impl PowerOwner {
         let var = |name: &str| std::env::var_os(name);
         let bus = Connection::session().await.ok();
         // A copy an earlier dedicated run left goes back first, in any
-        // X11/EWMH session.
+        // X11/EWMH session, under a temporary inhibitor (Codex on #517).
         if let (Some(bus), Some(files)) = (bus.as_ref(), xfce_power::Files::from_vars(var, false)) {
-            xfce_power::release(bus, &files).await;
+            let system = Connection::system().await.ok();
+            release_stale(bus, &files, system.as_ref()).await;
         }
         // The dedicated session changes xfconf only with the login's own
         // directories; without them it takes nothing.
@@ -345,7 +361,13 @@ impl PowerOwner {
         }
         // An earlier adapter may have held the key by a grab (a crash).
         self.heal(reader, xfce).await;
-        if !wanted || self.retry.is_some_and(|at| Instant::now() < at) {
+        // Never while an xfce4-power-manager restart is in flight: the old
+        // instance's name is gone for a moment, and a grab now would make
+        // the new instance's grab fail again (review of #517, Codex P1).
+        if !wanted
+            || self.retry.is_some_and(|at| Instant::now() < at)
+            || self.restarting.as_ref().is_some_and(|t| !t.is_finished())
+        {
             return Ok(());
         }
         // The dedicated session reads raw events only, and needs xfconf to
@@ -523,7 +545,7 @@ pub(crate) mod tests {
 
     pub(crate) struct Fixture {
         pub(crate) xfconf: xfconf::Fixture,
-        login: logind::Shared,
+        pub(crate) login: logind::Shared,
         _logind: Connection,
         pub(crate) owner: PowerOwner,
         /// Inhibitors Arinn held at each xfce4-power-manager restart.
@@ -879,6 +901,57 @@ pub(crate) mod tests {
             .await
             .unwrap();
         assert_eq!(f.restarts().await, [1]);
+    }
+
+    /// Review of #517 (Codex P1, the reviewer's probe): while a restart is
+    /// in flight, the old instance's name is gone for a moment. Arinn must
+    /// not grab again then, or the new instance's grab fails as well.
+    #[tokio::test]
+    async fn no_grab_while_a_restart_is_in_flight() {
+        let mut f = fixture(false).await;
+        f.owner.restart_wait = Duration::from_millis(300);
+        let mut r = reader(Reading::Grab);
+        r.held = false;
+        f.owner
+            .follow(&mut r, true, OTHER, Reading::None)
+            .await
+            .unwrap();
+        f.start_xfpm().await;
+        f.owner
+            .follow(&mut r, true, XFPM, Reading::Grab)
+            .await
+            .unwrap();
+        assert_eq!(f.owner.owned(), Reading::None);
+        // The old instance quit: no XFCE name on the next pass.
+        f.owner
+            .follow(&mut r, true, OTHER, Reading::None)
+            .await
+            .unwrap();
+        assert_eq!(
+            f.owner.owned(),
+            Reading::None,
+            "re-grabbed during the restart"
+        );
+        assert_eq!(f.restarts().await, [1]);
+        // Once it is done, a desktop without xfce4-power-manager grabs.
+        f.owner
+            .follow(&mut r, true, OTHER, Reading::None)
+            .await
+            .unwrap();
+        assert_eq!(f.owner.owned(), Reading::Grab);
+    }
+
+    /// Codex on #517: the start-up restore of a stale copy runs under a
+    /// temporary inhibitor.
+    #[tokio::test]
+    async fn the_start_up_restore_holds_an_inhibitor() {
+        let f = fixture(true).await;
+        assert!(xfce_power::take(&f.xfconf.adapter, &f.xfconf.files).await);
+        let system = logind::connect(&f.xfconf.bus.1).await;
+        release_stale(&f.xfconf.adapter, &f.xfconf.files, Some(&system)).await;
+        assert_eq!(f.xfconf.value(), Some(xfce_power::Saved::Uint(3)));
+        assert_eq!(f.login.lock().unwrap().calls.len(), 1);
+        f.settle(0).await;
     }
 
     /// No restart when xfce4-power-manager holds its own grab, or when it

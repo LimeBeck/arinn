@@ -116,8 +116,12 @@ Window {
         ambientIdle.activity();
         if (ambientScreen.active) ambientScreen.stop();
         if (powerOverlay.open) return;
-        // The scope takes the place of the "Opening…" progress, as Home does.
+        // As for the quick menu: the scope takes the place of the "Opening…"
+        // and "Starting…" progress, as Home does (§6.5); the launch goes on,
+        // a stop confirmation closes, and only a launch's dialog (failure or
+        // timeout) is drawn above the scope (§6.1).
         if (launchOverlay.active && !launchOverlay.showDialog) launchOverlay.hideForHome();
+        if (applicationLaunch.active && !applicationLaunch.showDialog) applicationLaunch.hideForHome();
         if (quickMenuOpen && !activityBehind) {
             quickMenuPower(false);
             return;

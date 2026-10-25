@@ -139,6 +139,7 @@ on it:
 | Inside the shell | The scope opens over the current screen; Back returns focus to where it was |
 | Quick menu over an Activity | The sheet gives way to Home, as for the Home key, and the scope opens over Home |
 | Quick menu over the shell | The scope opens over the sheet, as from its Power row; Back returns to the sheet |
+| A launch in progress | As for the quick menu: "Opening…" and "Starting…" give way to the scope without stopping the launch, a stop confirmation closes, and a failure or timeout dialog is drawn above the scope |
 | Scope already open | Nothing changes: no toggle, the step and focus stay (a confirmation or a request in flight included) |
 | Ambient | Ambient ends without a consumed wake, and the scope opens |
 | Locked or unknown lock state | Nothing; the shell stays hidden |
@@ -252,7 +253,8 @@ dbus-run-session -- build/apps/arinn-shell/arinn-system-control-test
   over an Activity the menu opens over Home and Back leaves Home without a
   Return, a repeated key keeps the menu and its focus, another epoch is
   ignored, inside the shell Back returns to the opener, both quick-menu
-  cases, ambient ends and the menu opens, and nothing happens while locked.
+  cases, a pending web or application launch (`powerKeyOverAPendingLaunch`),
+  ambient ends and the menu opens, and nothing happens while locked.
 - Real suspend, wake, the lock screen and volume on the HTPC are owner
   operator tests (AC-19). Not run.
 - Switching to the desktop and back on the HTPC is the owner operator test

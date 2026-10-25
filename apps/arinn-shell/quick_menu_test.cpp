@@ -877,6 +877,56 @@ private slots:
     QVERIFY(!ambient->property("active").toBool());
   }
 
+  // A pending launch follows the quick menu's rules (#511): "Opening…" and
+  // "Starting…" give way to the power menu without stopping the launch, a
+  // stop confirmation closes, and a failure dialog is drawn above the menu.
+  void powerKeyOverAPendingLaunch_data() {
+    QTest::addColumn<QString>("overlay");
+    QTest::newRow("web service") << QStringLiteral("launchOverlay");
+    QTest::newRow("application") << QStringLiteral("applicationLaunch");
+  }
+  void powerKeyOverAPendingLaunch() {
+    QFETCH(QString, overlay);
+    const bool application = overlay == QLatin1String("applicationLaunch");
+    daemon.request("HomeRequested");
+    QTRY_VERIFY(window->isVisible());
+    window->requestActivate();
+    QTRY_VERIFY(window->isActive());
+    QTRY_VERIFY(focusIn(home));
+    auto *launch = child(window, overlay.toLatin1().constData());
+    QVERIFY(launch);
+    if (application) {
+      QVERIFY(QQmlProperty::write(launch, QStringLiteral("revealDelay"), 0));
+      QVERIFY(QQmlProperty::write(launch, QStringLiteral("slowDelay"), 0));
+      QVERIFY(QQmlProperty::write(launch, QStringLiteral("cancellable"), true));
+    }
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("serviceTitle"), QStringLiteral("Game")));
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("active"), true));
+    QTRY_VERIFY(launch->isVisible());
+    QSignalSpy cancels(launch, SIGNAL(cancelRequested()));
+    if (application) {
+      // Cancel asks first; the power key closes that question.
+      QTRY_VERIFY(findItem(launch, QStringLiteral("launchCancel"))->hasActiveFocus());
+      QTest::keyClick(window, Qt::Key_Return);
+      QTRY_VERIFY(launch->property("confirming").toBool());
+    }
+    daemon.request("PowerMenuRequested");
+    QTRY_VERIFY(powerOpen());
+    QVERIFY(!launch->isVisible());
+    QVERIFY(!launch->property("confirming").toBool());
+    QVERIFY(launch->property("active").toBool());
+    QCOMPARE(cancels.count(), 0);
+    // The launch fails: its dialog comes up above the power menu.
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("failure"), QStringLiteral("Unavailable")));
+    QTRY_VERIFY(launch->isVisible());
+    QTRY_VERIFY(focusIn(launch));
+    QVERIFY(power()->property("open").toBool());
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("failure"), QString()));
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("active"), false));
+    QTRY_VERIFY(!launch->isVisible());
+    QCOMPARE(cancels.count(), 0);
+  }
+
   // While the session is locked the shell stays hidden and the key opens
   // nothing, also after unlock.
   void powerKeyDoesNothingWhileLocked() {

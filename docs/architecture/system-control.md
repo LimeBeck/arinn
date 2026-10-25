@@ -229,15 +229,30 @@ every action goes through the methods above.
   mapped. The marker stays until that check has seen the key held or a new
   xfce4-power-manager own its name, so an unconfirmed repair is tried again at
   the next start; [ADR-0111](../adr/0111-power-key.md)'s "removed once the
-  check after letting go has run" means exactly this. The running adapter
-  tries an unconfirmed repair again as well (the grab check fails, `Restart`
-  fails, or no new instance owns the name within its 10 s): every 30 s at
-  most, never sooner, each restart under logind's inhibitor (a temporary one
-  once Arinn's is gone), until one is confirmed. An xfce4-power-manager that
-  is gone meanwhile (stopped by the user) ends the repair and clears the
-  marker; it is never restarted, and one started again later grabs the key
-  itself. A restart drops idle inhibitors applications held through
-  xfce4-power-manager; normally the instance is about half a second old.
+  check after letting go has run" means exactly this. A new instance has 10 s
+  to own the name; while the name has no owner at all (the old instance quit,
+  the new one starts slowly) the adapter waits up to 30 s, still holding the
+  inhibitor and taking no key, so a slow instance grabs the key itself. This
+  exceeds ADR-0111's "at most 15 s" for that inhibitor; the ADR wording is
+  left to its next amendment (#519 item 2). The running adapter tries an
+  unconfirmed repair again as well (the grab check fails, `Restart` fails,
+  or no new instance owns the name in time): every 30 s at most, never
+  sooner, each restart under logind's inhibitor (a temporary one once
+  Arinn's is gone), until one is confirmed. After 3 unconfirmed restarts in a
+  row it gives up and logs it: it restarts nothing more and grabs no key
+  until the adapter restarts, so the desktop keeps the key, and the marker
+  stays for the next start. Between retries Arinn holds no inhibitor;
+  xfce4-power-manager holds its own `handle-power-key` inhibitor, so while a
+  repair is pending (or after giving up) the key does nothing rather than
+  logind acting on it, unless the user set xfce4-power-manager to leave the
+  key to logind. An
+  xfce4-power-manager that is gone meanwhile (stopped by the user) ends the
+  repair and clears the marker; `Restart` is never called while its name has
+  no owner, so it is never started, and one started again later grabs the
+  key itself. A confirmed or ended repair resets the 30 s backoff; the count
+  of unconfirmed restarts is reset only by a confirmed one. A restart drops
+  idle inhibitors applications held through xfce4-power-manager; normally
+  the instance is about half a second old.
 - **XFCE, dedicated Arinn session only** (owner decision of 2026-10-24). With
   `ARINN_SESSION_ENTRY=xfce` the adapter never grabs the power keys, so
   xfce4-power-manager's grab succeeds whenever it starts; it reads them from
@@ -301,7 +316,9 @@ grab, the ordinary XFCE desktop, another desktop until xfce4-power-manager
 appears and is restarted when its grab failed, the dedicated session never
 grabbing, a crash repaired at the next start, a marker kept until the repair
 is confirmed, an unconfirmed restart or a failed grab check retried after the
-backoff until confirmed, a stopped xfce4-power-manager never restarted, a
+backoff until confirmed, a slow new instance waited for, unconfirmed restarts
+capped, no restart when the name is gone, the backoff reset after a repair, a
+stopped xfce4-power-manager never restarted, a
 stale copy retried under an inhibitor after a failed start-up restore (also
 when the start found no system bus) or a refused release, the login restore
 under an inhibitor, no take during a retry, XFCE

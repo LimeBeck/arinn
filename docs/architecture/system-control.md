@@ -248,7 +248,10 @@ every action goes through the methods above.
   no key until the adapter restarts, and the marker stays for the next
   start; a late instance then grabs the key itself. A restart that changed
   nothing never counts, so an xfce4-power-manager whose grab is broken keeps
-  being retried rather than left with nobody reading the key. Between
+  being retried rather than left with nobody reading the key; but when the
+  old instance, still there at the 10 s, goes away before the next restart
+  (it acted on `Restart` late), that counts as one that did not come back.
+  Between
   retries Arinn holds no inhibitor. While xfce4-power-manager runs it holds
   its own `handle-power-key` inhibitor, so while a repair is pending (or
   after giving up) the key does nothing rather than logind acting on it,
@@ -259,8 +262,11 @@ every action goes through the methods above.
   xfce4-power-manager that is gone meanwhile (stopped by the user) ends the
   repair and clears the marker; `Restart` is never called while its name has
   no owner, so it is never started, and one started again later grabs the
-  key itself. A confirmed or ended repair resets the 30 s backoff; the count
-  of missing instances is reset only by a confirmed repair. A restart drops
+  key itself. A confirmed or ended repair resets the 30 s backoff, except
+  after a restart that no instance came back from: then the backoff stays,
+  so a successor that comes late is not restarted sooner than 30 s after
+  the last restart. The count of missing instances is reset only by a
+  confirmed repair. A restart drops
   idle inhibitors applications held through xfce4-power-manager; normally
   the instance is about half a second old.
 - **XFCE, dedicated Arinn session only** (owner decision of 2026-10-24). With
@@ -327,7 +333,9 @@ appears and is restarted when its grab failed, the dedicated session never
 grabbing, a crash repaired at the next start, a marker kept until the repair
 is confirmed, an unconfirmed restart or a failed grab check retried after the
 backoff until confirmed, a slow new instance waited for, the inhibitor held
-at most 15 s when no instance comes, a late `Restart` answer still watched,
+at most 15 s when no instance comes (a slow `Restart` call included), a
+late `Restart` answer still watched, a late successor waiting for the
+backoff, instances that act on `Restart` late stopping at the cap,
 no restart without the inhibitor, restarts whose instance never came
 capped, a restart that changed nothing retried without counting, a confirmed
 repair resetting the count, no restart when the name is gone, the backoff

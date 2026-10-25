@@ -168,7 +168,7 @@ contract above; these are the implementation choices within it:
   `QuickMenuRequested` and `PowerMenuRequested` are emitted before arming, as
   `HomeRequested` is. Each request arms only with a non-empty target and output that still match the
   committed Home report. The X11/EWMH adapter reports its one output,
-  `x11-screen`, with both requests ([X11/EWMH](x11-ewmh.md)), so they arm there
+  `x11-screen`, with all three requests ([X11/EWMH](x11-ewmh.md)), so they arm there
   too. `ReportHome` and adapter reconnects never arm.
 - **Home evidence.** The daemon reads Home visibility, target and output, the
   Return association, the adapter's unique owner and liveness, and whether the

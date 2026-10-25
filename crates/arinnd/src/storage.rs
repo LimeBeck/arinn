@@ -120,6 +120,9 @@ pub struct Config {
     /// The quick-menu key (ADR-0106), in the syntax of `home_shortcut`.
     #[serde(default = "quick_menu_shortcut")]
     pub quick_menu_shortcut: String,
+    /// The on-screen keyboard key over external applications (ADR-0105).
+    #[serde(default = "keyboard_shortcut")]
+    pub keyboard_shortcut: String,
     #[serde(default)]
     pub home_output: String,
     #[serde(default = "yes")]
@@ -203,6 +206,9 @@ fn home_shortcut() -> String {
 fn quick_menu_shortcut() -> String {
     "Meta+F11".into()
 }
+fn keyboard_shortcut() -> String {
+    "Meta+F10".into()
+}
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -211,6 +217,7 @@ impl Default for Config {
             defaults: BTreeMap::new(),
             home_shortcut: home_shortcut(),
             quick_menu_shortcut: quick_menu_shortcut(),
+            keyboard_shortcut: keyboard_shortcut(),
             home_output: String::new(),
             animations: true,
             browser_application: String::new(),
@@ -231,6 +238,7 @@ impl Config {
         }
         validation::text(&self.home_shortcut)?;
         validation::text(&self.quick_menu_shortcut)?;
+        validation::text(&self.keyboard_shortcut)?;
         validation::text(&self.home_output)?;
         if !self.browser_application.is_empty() {
             validation::id(&self.browser_application)?;

@@ -31,7 +31,7 @@ end: Close(S) from the shell, Request() again, Closed(S, reason) from the delive
 ```
 
 - **One session at a time.** S is a fresh non-nil UUID. A second `Request()` while a session exists ends it: the key toggles the panel. A session ended by the shell or by `Request()` is sent to the deliverer as `[close, S]`.
-- **Shell signals.** The shell sees only `Opened`, `Input` and `Closed` for the current S. A `Closed` for another session is stale and ignored. On a daemon owner change the shell hides the panel.
+- **Shell signals.** The shell sees only `Opened`, `Input` and `Closed` for the current S. A `Closed` for another session is stale and ignored. The daemon sends `Opened(S)` under its state lock, so `Closed(S)` never overtakes it; the shell also treats a `Closed` for a session it has not seen open as final and ignores a later `Opened` for it. On a daemon owner change the shell hides the panel.
 - **Errors.** `Type`, `Press` and `Close` for anything but the current opened session return `Conflict`. A session not yet opened counts as not current: the shell learns S only from `Opened`, and a session that never opens ends after 3 s.
   - `Close` of an ended session is not an error for the shell to report: the panel is already hiding.
   - `Type` and `Press` return `Unavailable` when 64 records already wait.
@@ -83,9 +83,71 @@ The deliverer delivers only into the target bound at `[open, S]`. Before every r
   - `commit_string` and `keysym` deliver.
   - KWin's `deactivate` ends the session at once; the helper reports `locked` unless the lock service explicitly answers unlocked, then `focus`.
 
+## KDE Plasma 6/Wayland
+
+The pieces:
+
+- **The KWin script** registers `ArinnKeyboard`. The daemon writes the keys to it through KGlobalAccel (`platform/kde/global_home.rs`).
+  - The script calls `Request()` only after an explicit unlocked ScreenSaver reply, over an active normal application window, with Home hidden.
+  - It excludes the panel window (shell identity and title `org.arinn.KeyboardPanel`) from the shell, the inventory and the Return target.
+  - It places the panel along the bottom of the active output and keeps it above.
+- **The daemon's KDE code** (`platform/kde/keyboard_config.rs`) runs on each new KWin adapter connection:
+  - it sets `kwinrc [Wayland] InputMethod` to `org.arinn.InputMethod.desktop` only when the entry is empty, and sends KConfig's change notification. It does so **once**: the marker `kde-input-method-selected` in Arinn's state directory records that the value was written or found, so a later *None* in Plasma's Virtual Keyboard settings (which deletes the key) is respected;
+  - it keeps the `arinn-keyboard-panel` window rule in `kwinrulesrc` (accept focus, above, no border and the skip flags, all forced) and asks KWin to reconfigure;
+  - it never writes a file with immutable markers;
+  - it logs `Conflict` when another input method is chosen.
+  - **Uninstall** reverses neither the `kwinrc` value nor the window rule. Both are harmless: the rule matches only Arinn's panel, and a missing desktop file only turns KWin's input method off. Choose another input method, or *None*, under System Settings → Keyboard → Virtual Keyboard to clear the value.
+- **`arinn-input-method`** (`platform/kde/input-method`) is what KWin starts. A pure state machine (`machine.rs`) decides; the I/O layer carries out its decisions.
+  - `[open, S]`: lock check, `forceActivate()`, wait 1 s for the context, `grab_keyboard`, `Opened`.
+  - Panel keys (evdev 103, 108, 105, 106, 28, 96, 352, 353, 1, 158) become `Input` on press; held arrows repeat at the grab's rate.
+  - Every other key is forwarded with `key`, and modifiers with `modifiers`.
+  - Text goes through `commit_string` with the context's latest `commit_state` serial; editing keys through `keysym`. Both, and forwarded keys, go only to the exact context the session grabbed, and only while KWin still has it active; the check runs under the lock the Wayland thread takes to record a new context. A delivery that finds another context (KWin moved focus while the helper waited for the lock service) is dropped and ends the session as `focus`.
+  - A context deactivated by KWin ends the session: `focus` after an explicit unlocked reply of the lock service, otherwise `locked`. A lock (checked before each delivery and every 500 ms) ends it (`locked`). Closing releases the context with `VirtualKeyboard.active = false`.
+  - When the daemon lane ends (a restart, a crash, a `Conflict` from `Next`), the helper ends the session, drops the keyboard grab, sets `VirtualKeyboard.active = false` and discards the keys the old grab had queued, so none reaches the application late. The state machine outlives the connection.
+  - A held arrow's repeats belong to one run; a repeat queued when the run stops (release, session end) is dropped, never forwarded as a press without a release.
+  - A context without a session (an application's own text-input) shows nothing and forwards every key.
+
 ## Verification status
 
-- **Implemented here:**
+- **Contract.**
   - `arinn-protocol` validation tests;
-  - a private-bus check that a fixture export matches both XML files.
-- **Not implemented yet:** the daemon routing, the deliverers and the shell's external mode. They follow in the implementation of [#434](https://github.com/LimeBeck/arinn/issues/434), which records its own verification and the open operator test (G-5.9).
+  - live introspection of both interfaces against their XML (`arinn-protocol` fixture and the daemon export).
+- **Daemon** (`runtime::keyboard_routing::tests`, private buses):
+  - lifecycle and toggle;
+  - the trust rules, including the KDE child-process check and provider callers;
+  - the open timeout, the poll timeout and deliverer replacement;
+  - a vanished deliverer, and a replacement that connects while the sweep asks the bus about its predecessor;
+  - fast toggles leave no records behind;
+  - the queue bound and concurrent polls;
+  - no typed text or key name in log records.
+- **KDE configuration** (`keyboard_config` tests) and KGlobalAccel writes (`global_home` tests, `adapter_connection_applies_configured_home_shortcut`).
+- **X11/EWMH:** see [x11-ewmh.md](x11-ewmh.md#on-screen-keyboard) (Xvfb tests).
+- **KDE input method** (`arinn-input-method` tests): the state machine, and a scenario against a fake `zwp_input_method_v1` compositor, a fake `VirtualKeyboard`, lock service and daemon:
+  - no auto-show;
+  - force, grab and Opened;
+  - panel keys and forwarding;
+  - commit with the serial, and keysyms;
+  - a lock ends the session and refuses a new one;
+  - the 500 ms lock tick alone ends an open session;
+  - focus loss, and a deactivate while locked reported as `locked`;
+  - close releases the context;
+  - a lost daemon lane releases the grab, sets `active = false` and forwards no queued key; the next connection opens sessions again;
+  - text typed while KWin moves focus to another window during the lock check never reaches that window's context;
+  - repeats queued when a session ends never reach the application.
+- **KWin script:** Node tests.
+- **Shell:** see [ui-keyboard.md](ui-keyboard.md#verification).
+- **Not verified here.** No KWin, no real compositor and no hardware are available here. These need the owner's operator test on the HTPC (G-5.9):
+  - KWin 6 starting the input method from `kwinrc`;
+  - `forceActivate` and the keyboard grab with Chrome;
+  - the window rule keeping the panel unfocused, and the script's placement (it assigns `frameGeometry` from a plain object);
+  - commits in Chrome with and without its Wayland IME;
+  - XFCE with a real window manager;
+  - the hwdb remap of the microphone.
+
+  Checklist for that test, with the owner's permission:
+  1. On KDE/Wayland and on XFCE, open managed Chrome on YouTube and type a search with the remote only (Meta+F10 or the microphone, arrows, OK, Back).
+  2. Cyrillic and Latin text; Backspace, ‹ and › from the panel.
+  3. Home and the quick menu (Meta+F11 or ≡) with the panel open replace it with the shell; a lock closes it, and nothing typed appears after the unlock.
+  4. **KDE: focus another text field** (another tab's field, or another window with text-input) while the panel is open. The session must end; nothing may be typed into the new field.
+  5. **The remote's Back button.** If it sends Backspace rather than Esc or KEY_BACK, it deletes a character in the application (§6.2) instead of hiding the panel; the keyboard key still hides it. Record which code it sends.
+  6. Restart the daemon (`systemctl --user restart arinnd`) with the panel open: the panel hides, the application gets its keys back at once, and no key pressed meanwhile arrives late.

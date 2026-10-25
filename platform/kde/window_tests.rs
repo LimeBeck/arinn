@@ -1336,6 +1336,9 @@ impl RecordingAccel {
     #[zbus(name = "setForeignShortcutKeys")]
     fn set_foreign_shortcut_keys(&self, action: Vec<String>, keys: AccelKeys) {
         assert_eq!(action[0], "kwin");
+        assert!(
+            ["ArinnPhase0Home", "ArinnQuickMenu", "ArinnKeyboard"].contains(&action[1].as_str())
+        );
         self.0.lock().unwrap().push((action[1].clone(), keys));
     }
     #[zbus(name = "shortcutKeys")]
@@ -1348,15 +1351,17 @@ impl RecordingAccel {
 /// `home_shortcut` from config.toml and HomePage reach KDE's global shortcut
 /// once per adapter connection (#286). Without the fix the configured value
 /// was only validated, and KWin kept its hardcoded Meta+F12. The quick-menu
-/// key follows on its own action (ADR-0106).
+/// key follows on its own action (ADR-0106), then the on-screen keyboard
+/// key and the microphone on theirs (ADR-0105).
 #[tokio::test]
 async fn adapter_connection_applies_configured_home_shortcut() {
     let f = Fixture::new().await;
     let mut config = Config::load(&f.core.paths.config).unwrap();
     config.home_shortcut = "Ctrl+Alt+H".into();
     config.quick_menu_shortcut = "Ctrl+Alt+Q".into();
+    config.keyboard_shortcut = "Ctrl+Alt+K".into();
     config.save(&f.core.paths.config).unwrap();
-    let writes = Arc::default();
+    let writes: AccelWrites = Arc::default();
     f.stranger
         .object_server()
         .at("/kglobalaccel", RecordingAccel(Arc::clone(&writes)))
@@ -1392,11 +1397,13 @@ async fn adapter_connection_applies_configured_home_shortcut() {
     };
     let first = poll();
     for _ in 0..100 {
-        if writes.lock().unwrap().len() >= 2 {
+        if writes.lock().unwrap().len() >= 3 {
             break;
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
+    // Home first, then the quick menu, then the on-screen keyboard with the
+    // microphone (ADR-0106, ADR-0105).
     assert_eq!(
         *writes.lock().unwrap(),
         [
@@ -1411,6 +1418,10 @@ async fn adapter_connection_applies_configured_home_shortcut() {
                     (vec![0x0100_0055, 0, 0, 0],),
                     (vec![0x0100_00dc, 0, 0, 0],)
                 ]
+            ),
+            (
+                "ArinnKeyboard".to_owned(),
+                vec![(vec![0x0C00_004B, 0, 0, 0],), (vec![0x0100_00a3, 0, 0, 0],)]
             )
         ]
     );
@@ -1419,7 +1430,7 @@ async fn adapter_connection_applies_configured_home_shortcut() {
     let second = poll();
     tokio::time::sleep(Duration::from_millis(300)).await;
     second.abort();
-    assert_eq!(writes.lock().unwrap().len(), 2);
+    assert_eq!(writes.lock().unwrap().len(), 3);
     // The remote's Menu keys (Menu, MenuKB) are off while the shell has
     // focus and on again for any other window (owner decision of
     // 2026-10-21, #439).
@@ -1449,19 +1460,20 @@ async fn adapter_connection_applies_configured_home_shortcut() {
         }
     };
     report("org.arinn.Shell").await;
-    wait_for(3).await;
+    wait_for(4).await;
     report("org.arinn.Shell").await;
     report("game").await;
-    wait_for(4).await;
+    wait_for(5).await;
     tokio::time::sleep(Duration::from_millis(200)).await;
     let writes = writes.lock().unwrap();
-    assert_eq!(writes.len(), 4);
+    assert_eq!(writes.len(), 5);
+    // The keyboard keys never follow the focus.
     assert_eq!(
-        writes[2],
+        writes[3],
         (
             "ArinnQuickMenu".to_owned(),
             vec![(vec![0x0C00_0051, 0, 0, 0],)]
         )
     );
-    assert_eq!(writes[3], writes[1]);
+    assert_eq!(writes[4], writes[1]);
 }

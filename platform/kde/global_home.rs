@@ -1,18 +1,22 @@
 // SPDX-FileCopyrightText: 2026 Arinn contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Global Home and quick-menu keys on KDE (#286, #439).
+//! Global Home, quick-menu and on-screen keyboard keys on KDE (#286, #439,
+//! #434).
 //!
-//! The KWin script registers the `ArinnPhase0Home` and `ArinnQuickMenu`
-//! actions with one default sequence each, and KGlobalAccel keeps the stored
-//! keys on every later registration. When the adapter connects, the daemon
-//! therefore writes the active keys itself: `home_shortcut` from
-//! `config.toml`, then HomePage, for Home (ADR-0094), and
+//! The KWin script registers the `ArinnPhase0Home`, `ArinnQuickMenu` and
+//! `ArinnKeyboard` actions with one default sequence each, and KGlobalAccel
+//! keeps the stored keys on every later registration. When the adapter
+//! connects, the daemon therefore writes the active keys itself:
+//! `home_shortcut` from `config.toml`, then HomePage, for Home (ADR-0094);
 //! `quick_menu_shortcut`, then the remote's Menu keys, for the quick menu
-//! (ADR-0106). Inside the shell Menu keeps its own meaning, so the Menu keys
-//! are active only while another window has focus. Home wins a key both
-//! want, so the quick-menu action first gives up any of Home's keys it still
-//! stores, then Home is written, then the quick menu.
+//! (ADR-0106); `keyboard_shortcut`, then Launch1 (the remapped microphone),
+//! for the keyboard (ADR-0105). Inside the shell Menu keeps its own meaning,
+//! so the Menu keys are active only while another window has focus. Home
+//! wins a key any other action wants, and the quick menu wins a key the
+//! keyboard wants: the quick-menu action first gives up Home's keys, the
+//! keyboard action Home's and the quick menu's, then Home is written, then
+//! the quick menu, then the keyboard.
 use crate::{
     key_sequence::{self, Sequence},
     storage::Config,
@@ -28,6 +32,8 @@ const INTERFACE: &str = "org.kde.KGlobalAccel";
 const ACTION: [&str; 4] = ["kwin", "ArinnPhase0Home", "KWin", "Arinn Phase 0: Home"];
 /// The quick-menu action, `registerShortcut("ArinnQuickMenu", "Arinn: Quick menu", …)`.
 const QUICK_MENU_ACTION: [&str; 4] = ["kwin", "ArinnQuickMenu", "KWin", "Arinn: Quick menu"];
+/// The keyboard action, `registerShortcut("ArinnKeyboard", "Arinn: On-screen keyboard", …)`.
+const KEYBOARD_ACTION: [&str; 4] = ["kwin", "ArinnKeyboard", "KWin", "Arinn: On-screen keyboard"];
 
 /// A `QKeySequence` on the bus: four combined key codes, unused ones zero.
 type Keys = Vec<(Vec<i32>,)>;
@@ -41,55 +47,92 @@ fn warn(operation: &str, error: &str) {
 
 /// A new adapter connection polled for the first time. On KDE the KWin
 /// script has registered its actions by then; write the configured keys
-/// to them in the background (`write_all`).
-pub fn adapter_connected(connection: &Connection, config: PathBuf, quick_menu: QuickMenuKeys) {
+/// to them in the background (`write_all`), then prepare KDE for the
+/// on-screen keyboard (ADR-0105).
+pub fn adapter_connected(
+    connection: &Connection,
+    config: PathBuf,
+    state: PathBuf,
+    quick_menu: QuickMenuKeys,
+) {
     if crate::platform::adapter_service() != Some("org.kde.KWin") {
         return;
     }
     let connection = connection.clone();
     tokio::spawn(async move {
+        let directory = config.clone();
         let config = tokio::task::spawn_blocking(move || Config::load(&config))
             .await
             .ok()
             .and_then(Result::ok);
-        let (home, menu) = config.map_or_else(
-            || {
-                (
-                    key_sequence::DEFAULT_HOME.to_owned(),
-                    key_sequence::DEFAULT_QUICK_MENU.to_owned(),
-                )
-            },
-            |config| (config.home_shortcut, config.quick_menu_shortcut),
-        );
-        write_all(&connection, &quick_menu, &home, &menu).await;
+        let shortcuts = config.map_or_else(Shortcuts::default, |config| Shortcuts {
+            home: config.home_shortcut,
+            quick_menu: config.quick_menu_shortcut,
+            keyboard: config.keyboard_shortcut,
+        });
+        write_all(&connection, &quick_menu, &shortcuts).await;
+        crate::keyboard_config::prepare(&connection, &directory, &state).await;
     });
 }
 
-/// Writes both actions for one adapter connection. Home wins a key that
-/// both want (ADR-0106), also when the quick-menu action still holds it from
-/// its registration default or an earlier configuration: the quick menu
-/// first releases the keys Home wants, then Home is written, then the quick
-/// menu gets its keys without Home's.
-async fn write_all(connection: &Connection, quick_menu: &QuickMenuKeys, home: &str, menu: &str) {
-    release_home_keys(connection, home).await;
-    apply(connection, home).await;
-    quick_menu.connected(connection, home, menu).await;
+/// The configured `home_shortcut`, `quick_menu_shortcut` and
+/// `keyboard_shortcut` values.
+struct Shortcuts {
+    home: String,
+    quick_menu: String,
+    keyboard: String,
+}
+impl Default for Shortcuts {
+    fn default() -> Self {
+        Self {
+            home: key_sequence::DEFAULT_HOME.to_owned(),
+            quick_menu: key_sequence::DEFAULT_QUICK_MENU.to_owned(),
+            keyboard: key_sequence::DEFAULT_KEYBOARD.to_owned(),
+        }
+    }
 }
 
-/// Removes Home's configured keys from the quick-menu action's stored keys.
-/// KGlobalAccel keeps each action's keys across registrations, and a key the
-/// quick-menu action still holds would otherwise count as another action's
-/// and be left out of Home. Only a stored copy is touched; nothing is written
-/// when the quick-menu action holds none of them.
-async fn release_home_keys(connection: &Connection, home: &str) {
-    let wanted = keys(home).0;
+/// Writes the three actions for one adapter connection. Home wins a key
+/// that another action wants, and the quick menu wins a key the keyboard
+/// wants (ADR-0106, ADR-0105), also when the losing action still holds it
+/// from its registration default or an earlier configuration: the
+/// quick-menu action first releases the keys Home wants, the keyboard
+/// action those of Home and the quick menu, then Home is written, then the
+/// quick menu, then the keyboard without the keys of both.
+async fn write_all(connection: &Connection, quick_menu: &QuickMenuKeys, shortcuts: &Shortcuts) {
+    let home = keys(&shortcuts.home).0;
+    let reserved = encode(key_sequence::reserved(
+        &shortcuts.home,
+        &shortcuts.quick_menu,
+    ));
+    release(connection, &QUICK_MENU_ACTION, "quick-menu-shortcut", &home).await;
+    release(connection, &KEYBOARD_ACTION, "keyboard-shortcut", &reserved).await;
+    apply(connection, &shortcuts.home).await;
+    quick_menu
+        .connected(connection, &shortcuts.home, &shortcuts.quick_menu)
+        .await;
+    apply_keyboard(
+        connection,
+        &shortcuts.home,
+        &shortcuts.quick_menu,
+        &shortcuts.keyboard,
+    )
+    .await;
+}
+
+/// Removes `wanted` from `action`'s stored keys. KGlobalAccel keeps each
+/// action's keys across registrations, and a key a losing action still
+/// holds would otherwise count as another action's and be left out of the
+/// winner. Only a stored copy is touched; nothing is written when `action`
+/// holds none of them.
+async fn release(connection: &Connection, action: &[&str; 4], operation: &str, wanted: &Keys) {
     let stored: Keys = match connection
         .call_method(
             Some(SERVICE),
             PATH,
             Some(INTERFACE),
             "shortcutKeys",
-            &(QUICK_MENU_ACTION.to_vec(),),
+            &(action.to_vec(),),
         )
         .await
     {
@@ -104,14 +147,7 @@ async fn release_home_keys(connection: &Connection, home: &str) {
     if kept.len() == stored.len() {
         return;
     }
-    write(
-        connection,
-        &QUICK_MENU_ACTION,
-        "quick-menu-shortcut",
-        kept,
-        true,
-    )
-    .await;
+    write(connection, action, operation, kept, true).await;
 }
 
 /// Whether a reported window class is the shell's: its Wayland app id, or
@@ -213,6 +249,15 @@ pub fn keys(configured: &str) -> (Keys, bool) {
     (encode(sequences), fallback)
 }
 
+/// The keys written for a `keyboard_shortcut` value next to the Home and
+/// quick-menu values, whether the value was replaced by the default, and
+/// whether a Home or quick-menu key was left out.
+pub fn keyboard_keys(home: &str, quick_menu: &str, configured: &str) -> (Keys, bool, bool) {
+    let (sequences, fallback, conflict) =
+        key_sequence::keyboard(configured, &key_sequence::reserved(home, quick_menu));
+    (encode(sequences), fallback, conflict)
+}
+
 /// The action that holds `key` in KGlobalAccel, if another one does. A
 /// failed lookup counts as free: the write below still reports a missing
 /// service.
@@ -239,6 +284,33 @@ pub async fn apply(connection: &Connection, configured: &str) -> bool {
         warn("global-home-shortcut", "InvalidArgument");
     }
     write(connection, &ACTION, "global-home-shortcut", keys, false).await
+}
+
+/// Sets the keyboard action's active keys (ADR-0105) with the checks of
+/// [`apply`]. A configured key that is one of Home's or the quick menu's is
+/// left out as a conflict. Returns whether every key is active.
+pub async fn apply_keyboard(
+    connection: &Connection,
+    home: &str,
+    quick_menu: &str,
+    configured: &str,
+) -> bool {
+    let (keys, fallback, conflict) = keyboard_keys(home, quick_menu, configured);
+    if fallback {
+        warn("keyboard-shortcut", "InvalidArgument");
+    }
+    if conflict {
+        warn("keyboard-shortcut", "Conflict");
+    }
+    write(
+        connection,
+        &KEYBOARD_ACTION,
+        "keyboard-shortcut",
+        keys,
+        false,
+    )
+    .await
+        && !conflict
 }
 
 /// Writes `keys` to `action` after the conflict checks. With `clear`, an
@@ -553,6 +625,13 @@ mod tests {
         assert!(writes.lock().unwrap()[3].1.is_empty());
     }
 
+    fn shortcuts(home: &str, quick_menu: &str, keyboard: &str) -> Shortcuts {
+        Shortcuts {
+            home: home.to_owned(),
+            quick_menu: quick_menu.to_owned(),
+            keyboard: keyboard.to_owned(),
+        }
+    }
     fn key(code: i32) -> (Vec<i32>,) {
         (vec![code, 0, 0, 0],)
     }
@@ -589,7 +668,12 @@ mod tests {
         let (_bus, _service, daemon, _writes) =
             fixture_with(Vec::new(), vec![owned(&QUICK_MENU_ACTION, &[META_F11])]).await;
         let quick = QuickMenuKeys::default();
-        write_all(&daemon, &quick, "Meta+F11", "Meta+F11").await;
+        write_all(
+            &daemon,
+            &quick,
+            &shortcuts("Meta+F11", "Meta+F11", "Meta+F10"),
+        )
+        .await;
         assert_eq!(
             stored(&daemon, &ACTION).await,
             [key(META_F11), key(HOME_PAGE)]
@@ -612,7 +696,12 @@ mod tests {
         )
         .await;
         let quick = QuickMenuKeys::default();
-        write_all(&daemon, &quick, "Meta+F12", "Meta+F11").await;
+        write_all(
+            &daemon,
+            &quick,
+            &shortcuts("Meta+F12", "Meta+F11", "Meta+F10"),
+        )
+        .await;
         assert_eq!(
             stored(&daemon, &ACTION).await,
             [key(META_F12), key(HOME_PAGE)]
@@ -622,7 +711,12 @@ mod tests {
             [key(META_F11), menu(), menu_kb()]
         );
         // And back again.
-        write_all(&daemon, &quick, "Meta+F11", "Meta+F12").await;
+        write_all(
+            &daemon,
+            &quick,
+            &shortcuts("Meta+F11", "Meta+F12", "Meta+F10"),
+        )
+        .await;
         assert_eq!(
             stored(&daemon, &ACTION).await,
             [key(META_F11), key(HOME_PAGE)]
@@ -640,11 +734,142 @@ mod tests {
         let (_bus, _service, daemon, _writes) =
             fixture_with(vec![META_F11], vec![owned(&QUICK_MENU_ACTION, &[META_F12])]).await;
         let quick = QuickMenuKeys::default();
-        write_all(&daemon, &quick, "Meta+F11", "Meta+F11").await;
+        write_all(
+            &daemon,
+            &quick,
+            &shortcuts("Meta+F11", "Meta+F11", "Meta+F10"),
+        )
+        .await;
         assert_eq!(stored(&daemon, &ACTION).await, [key(HOME_PAGE)]);
         assert_eq!(
             stored(&daemon, &QUICK_MENU_ACTION).await,
             [menu(), menu_kb()]
+        );
+    }
+    const META_F10: i32 = 0x1100_0039;
+    const LAUNCH1: i32 = 0x0100_00a3;
+
+    #[tokio::test]
+    async fn writes_the_keyboard_key_and_the_microphone_to_their_own_action() {
+        let (_bus, _service, daemon, writes) = fixture(Vec::new()).await;
+        assert!(apply(&daemon, "Meta+F12").await);
+        assert!(apply_keyboard(&daemon, "Meta+F12", "Meta+F11", "Ctrl+Alt+K").await);
+        let writes = writes.lock().unwrap();
+        assert_eq!(writes.len(), 2);
+        assert_eq!(writes[1].0, KEYBOARD_ACTION);
+        assert_eq!(writes[1].1, [(vec![0x0C00_004B, 0, 0, 0],), key(LAUNCH1)]);
+    }
+
+    #[tokio::test]
+    async fn invalid_keyboard_value_writes_its_default() {
+        let (_bus, _service, daemon, writes) = fixture(Vec::new()).await;
+        assert!(apply_keyboard(&daemon, "Meta+F12", "Meta+F11", "Backspace").await);
+        assert_eq!(writes.lock().unwrap()[0].1, [key(META_F10), key(LAUNCH1)]);
+    }
+
+    #[tokio::test]
+    async fn a_home_key_is_never_written_to_the_keyboard() {
+        let (_bus, _service, daemon, writes) = fixture(Vec::new()).await;
+        assert!(apply(&daemon, "Ctrl+Alt+H").await);
+        assert!(!apply_keyboard(&daemon, "Ctrl+Alt+H", "Meta+F11", "ctrl+alt+h").await);
+        let writes = writes.lock().unwrap();
+        // Only the microphone reaches the keyboard action.
+        assert_eq!(writes[1].1, [key(LAUNCH1)]);
+    }
+
+    /// ADR-0105 after ADR-0106: a quick-menu key, the remote's Menu keys
+    /// included, is never a keyboard key.
+    #[tokio::test]
+    async fn a_quick_menu_key_is_never_written_to_the_keyboard() {
+        for configured in ["Meta+F11", "Menu", "MenuKB"] {
+            let (_bus, _service, daemon, _writes) = fixture(Vec::new()).await;
+            let quick = QuickMenuKeys::default();
+            write_all(
+                &daemon,
+                &quick,
+                &shortcuts("Meta+F12", "Meta+F11", configured),
+            )
+            .await;
+            assert_eq!(
+                stored(&daemon, &KEYBOARD_ACTION).await,
+                [key(LAUNCH1)],
+                "{configured}"
+            );
+            assert_eq!(
+                stored(&daemon, &QUICK_MENU_ACTION).await,
+                [key(META_F11), menu(), menu_kb()],
+                "{configured}"
+            );
+        }
+    }
+
+    /// The KWin script registers the keyboard with Meta+F10, and
+    /// KGlobalAccel keeps it. A Home or quick-menu value of Meta+F10 still
+    /// goes to that action; the keyboard gives the key up first.
+    #[tokio::test]
+    async fn home_and_the_quick_menu_win_a_key_the_keyboard_action_still_holds() {
+        let (_bus, _service, daemon, _writes) = fixture_with(
+            Vec::new(),
+            vec![owned(&KEYBOARD_ACTION, &[META_F10, LAUNCH1])],
+        )
+        .await;
+        let quick = QuickMenuKeys::default();
+        write_all(
+            &daemon,
+            &quick,
+            &shortcuts("Meta+F10", "Meta+F11", "Meta+F10"),
+        )
+        .await;
+        assert_eq!(
+            stored(&daemon, &ACTION).await,
+            [key(META_F10), key(HOME_PAGE)]
+        );
+        assert_eq!(stored(&daemon, &KEYBOARD_ACTION).await, [key(LAUNCH1)]);
+
+        let (_bus, _service, daemon, _writes) = fixture_with(
+            Vec::new(),
+            vec![owned(&KEYBOARD_ACTION, &[META_F10, LAUNCH1])],
+        )
+        .await;
+        write_all(
+            &daemon,
+            &quick,
+            &shortcuts("Meta+F12", "Meta+F10", "Meta+F10"),
+        )
+        .await;
+        assert_eq!(
+            stored(&daemon, &QUICK_MENU_ACTION).await,
+            [key(META_F10), menu(), menu_kb()]
+        );
+        assert_eq!(stored(&daemon, &KEYBOARD_ACTION).await, [key(LAUNCH1)]);
+    }
+
+    /// Swapping the quick-menu and keyboard keys across a restart gives each
+    /// action its new key.
+    #[tokio::test]
+    async fn swapped_quick_menu_and_keyboard_keys_follow_the_configuration() {
+        let (_bus, _service, daemon, _writes) = fixture_with(
+            Vec::new(),
+            vec![
+                owned(&QUICK_MENU_ACTION, &[META_F11, 0x0100_0055, 0x0100_00dc]),
+                owned(&KEYBOARD_ACTION, &[META_F10, LAUNCH1]),
+            ],
+        )
+        .await;
+        let quick = QuickMenuKeys::default();
+        write_all(
+            &daemon,
+            &quick,
+            &shortcuts("Meta+F12", "Meta+F10", "Meta+F11"),
+        )
+        .await;
+        assert_eq!(
+            stored(&daemon, &QUICK_MENU_ACTION).await,
+            [key(META_F10), menu(), menu_kb()]
+        );
+        assert_eq!(
+            stored(&daemon, &KEYBOARD_ACTION).await,
+            [key(META_F11), key(LAUNCH1)]
         );
     }
 }

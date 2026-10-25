@@ -3,9 +3,11 @@
 The on-screen keyboard lets every text field in the shell be filled with the
 remote alone ([specification §6.2](../specifications/arinn-specification.md#62-keys),
 [ADR-0103](../adr/0103-on-screen-keyboard.md), handoff *On-screen keyboard*
-KB-1…8, [#418](https://github.com/LimeBeck/arinn/issues/418)). It is part of
-the shell, not a platform input method, so it works the same on KDE/Wayland and
-X11/EWMH. The open points from the handoff are DR-39…DR-48 in the
+KB-1…8, [#418](https://github.com/LimeBeck/arinn/issues/418)). The same
+component also types into the focused external application in its *external
+mode*; there the platform layer delivers the text
+([ADR-0105](../adr/0105-global-on-screen-keyboard-platform-text-delivery.md),
+[transport](external-keyboard.md), [#434](https://github.com/LimeBeck/arinn/issues/434)). The open points from the handoff are DR-39…DR-48 in the
 [integration review](../design/integration-review.md).
 
 ## Parts
@@ -95,6 +97,46 @@ Go belongs to the folder picker; an inline editor saves, so its main key is
 Save, as #426 specifies. The daemon checks the path rules (ADR-0065) when
 the value is proposed.
 
+## External mode
+
+The keyboard key (`keyboard_shortcut`, default Meta+F10, and the remote's
+microphone) opens the panel over the focused external application when the
+daemon reports `ExternalKeyboard1.Opened`.
+
+- `ExternalKeyboard` (`apps/arinn-shell/external_keyboard.*`, QML type
+  `Arinn.Shell/ExternalKeyboard`) is the daemon client:
+  - `open` follows `Opened`/`Closed` of the current session; a daemon owner change ends it. A `Closed` for a session it has not seen open is final, so a late `Opened` for it shows nothing (the daemon also never sends `Closed(S)` before `Opened(S)`);
+  - `input(key)` relays the panel keys the platform captured;
+  - `type()`, `press()` and `close()` call the daemon asynchronously, and a `Conflict` hides the panel;
+  - it validates text and key names before any call and never logs or keeps them.
+- `ui/KeyboardPanel.qml` is a separate window along the bottom of the screen,
+  holding `OnScreenKeyboard` with `external: true`:
+  - no suggestions and no context row; the main key is "Enter" and sends `return`;
+  - Backspace, ‹ and › become `backspace`, `left` and `right` for the application;
+  - Up from the top row stays in the panel; there is no field to return to;
+  - the keys are drawn focused although the window never has focus (`lit`).
+- `Main.qml` shows the panel only while the session is open, the shell is off
+  screen and the lifecycle guard is not blocked. Home, the quick menu's sheet,
+  the power scope, ambient, both launch overlays (an application's included,
+  also "Starting…" and "Stopping…", ADR-0110) and the player all live in the
+  shell window, so the shell coming on screen for any of them hides the panel
+  at once and closes the session, and so does a lock. A session that opens
+  while the shell is on screen is closed at once. Back (`input("back")`) hides
+  the panel and closes the session.
+- `platform/keyboard` (`prepareKeyboardPanel`) sets the window up before its
+  first show, so that it never takes focus:
+  - on X11 it is override-redirect with `WM_HINTS input = False`;
+  - on KDE/Wayland it is a frameless window that does not accept focus,
+    titled `org.arinn.KeyboardPanel` for KWin's window rule and the KWin script,
+    which places it.
+- The panel window has no transient parent: the hidden shell window must not
+  carry it.
+
+The panel never receives key events: the remote's arrows, OK and Back reach
+it only through the platform, as `ExternalKeyboard1.Input`. Menu and every
+other key stay with the application; the quick-menu key and Home stay
+global and replace the panel with the shell.
+
 ## Not covered yet
 
 - **Path suggestions and the folder picker (KB-5, PK).** The handoff draws
@@ -123,6 +165,22 @@ the value is proposed.
   typing, so the main key is not blocked before Save.
 
 ## Verification
+
+- `arinn-external-keyboard-test` (`external-keyboard`, and `external-keyboard-x11`
+  on its own Xvfb with Qt's xcb platform):
+  - the client follows `Opened`, `Input` and `Closed` of its own session only;
+  - invalid text and keys never leave the shell;
+  - `Conflict` and a daemon owner change hide the panel;
+  - the panel's external mode types, sends Enter and the editing keys, has no
+    suggestions, and Up from the top row stays;
+  - `Main.qml` shows the panel for a session and hides it on Back, Home, the
+    shell coming on screen (also with an application launch, "Stopping…"
+    included) and a lock, each closing the session; a session opened while
+    the shell is on screen is closed at once; a Menu key event
+    changes nothing;
+  - under X11 the panel window is override-redirect with `input = False`, and
+    the application keeps focus while the panel shows. The offscreen platform
+    activates every window it shows, so only the X11 run checks focus.
 
 - `arinn-keyboard-model-test` (15 cases): rows and widths, defaults, first
   focus, no wrap, nearest key, entering from above, Shift, layers, language,

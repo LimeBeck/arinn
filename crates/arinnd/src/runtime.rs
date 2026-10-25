@@ -88,6 +88,7 @@ mod background;
 mod browse_routing;
 mod download_routing;
 mod folders_routing;
+mod keyboard_routing;
 mod launch_guard;
 mod library_routing;
 mod media_links;
@@ -133,6 +134,8 @@ pub struct Core {
     runtime_dir: PathBuf,
     platform: crate::platform::Platform,
     windows: crate::windows::Windows,
+    /// The global on-screen keyboard's routing (ADR-0105).
+    keyboard: keyboard_routing::Keyboard,
     playback_exits: Arc<Mutex<media_routing::ExitFences>>,
     supervision: Arc<tokio::sync::OnceCell<Arc<Supervision>>>,
     /// Activity background handoff (ADR-0087), once exported.
@@ -177,6 +180,7 @@ impl Core {
             paths,
             runtime_dir,
             platform: crate::platform::Platform::default(),
+            keyboard: keyboard_routing::Keyboard::default(),
             windows,
             playback_exits: Arc::default(),
             supervision: Arc::new(tokio::sync::OnceCell::new()),
@@ -1755,6 +1759,7 @@ impl Daemon {
             crate::global_home::adapter_connected(
                 &self.core.connection,
                 self.core.paths.config.clone(),
+                self.core.paths.state.clone(),
                 self.core.platform.quick_menu.clone(),
             );
         }

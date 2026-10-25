@@ -6,6 +6,8 @@ mod background;
 #[allow(dead_code)]
 #[path = "../../key_sequence.rs"]
 mod key_sequence;
+mod keyboard;
+mod keyboard_lane;
 mod native;
 use anyhow::{Result, ensure};
 use arinn_protocol::{
@@ -744,6 +746,29 @@ async fn run(actor: &Arc<Mutex<Actor>>) -> Result<()> {
             media_poll.complete_control(&g, &id, wait.await?).await?;
         }
     });
+    // The global on-screen keyboard (ADR-0105); optional, so an older
+    // daemon without the bridge keeps the rest of the adapter.
+    // Home and the quick menu win a key they share with it (ADR-0106).
+    let (home_shortcut, quick_menu_shortcut) = shortcuts();
+    let (keyboard_keys, fallback, conflict) = key_sequence::keyboard(
+        &keyboard_shortcut(),
+        &key_sequence::reserved(&home_shortcut, &quick_menu_shortcut),
+    );
+    if fallback {
+        eprintln!("arinn-platform-x11: invalid keyboard_shortcut; using the default");
+    }
+    if conflict {
+        eprintln!("arinn-platform-x11: a keyboard key is also a Home or quick-menu key; left out");
+    }
+    keyboard_lane::start(
+        &c,
+        &destination,
+        None,
+        keyboard_keys,
+        |c| Box::pin(async move { unlocked(&c).await }),
+        &mut tasks,
+    )
+    .await?;
     let mut tick = tokio::time::interval(Duration::from_millis(500));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut revision = 0;
@@ -817,6 +842,16 @@ fn shortcuts() -> (String, String) {
             "quick_menu_shortcut",
             key_sequence::DEFAULT_QUICK_MENU,
         ),
+    )
+}
+/// `keyboard_shortcut` (ADR-0105) from the same file, read only.
+fn keyboard_shortcut() -> String {
+    let home = std::env::var_os("HOME");
+    let config = std::env::var_os("XDG_CONFIG_HOME");
+    shortcut(
+        config_table(home.as_deref(), config.as_deref()).as_ref(),
+        "keyboard_shortcut",
+        key_sequence::DEFAULT_KEYBOARD,
     )
 }
 fn shortcut(table: Option<&toml::Table>, key: &str, default: &str) -> String {
@@ -893,6 +928,20 @@ mod tests {
             configured_home(None, Some(std::ffi::OsStr::new("relative"))),
             "Meta+F12"
         );
+        // ADR-0105: keyboard_shortcut comes from the same file.
+        let keyboard = || {
+            shortcut(
+                config_table(None, Some(root.as_os_str())).as_ref(),
+                "keyboard_shortcut",
+                key_sequence::DEFAULT_KEYBOARD,
+            )
+        };
+        std::fs::write(
+            root.join("arinn/config.toml"),
+            "schema_version = 1\nkeyboard_shortcut = \"Ctrl+Alt+K\"\n",
+        )
+        .unwrap();
+        assert_eq!(keyboard(), "Ctrl+Alt+K");
         std::fs::write(root.join("arinn/config.toml"), "not toml [").unwrap();
         assert_eq!(read(), "Meta+F12");
         // ADR-0106: quick_menu_shortcut comes from the same file.
@@ -911,6 +960,7 @@ mod tests {
         .unwrap();
         assert_eq!(quick_menu(), "Ctrl+Alt+Q");
         assert_eq!(read(), "Meta+F12");
+        assert_eq!(keyboard(), "Meta+F10");
         std::fs::remove_dir_all(root).unwrap();
     }
     #[test]

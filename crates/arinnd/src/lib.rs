@@ -8,6 +8,8 @@ pub mod favorites;
 pub mod global_home;
 #[path = "../../../platform/key_sequence.rs"]
 pub mod key_sequence;
+#[path = "../../../platform/kde/keyboard_config.rs"]
+pub mod keyboard_config;
 mod listings;
 pub mod operations;
 #[path = "../../../platform/kde/bridge.rs"]

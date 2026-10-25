@@ -192,6 +192,9 @@ class SessionEntry(unittest.TestCase):
                       f"ARINN_SESSION_MODE={fixture.mode_file}", calls)
         # The helper owns the EWMH target; the entry starts no KDE target.
         self.assertFalse(any("arinn-session.target" in c for c in calls), calls)
+        # ADR-0111: the desktop session carries the entry marker too, so the
+        # helper can bind the user manager's marker to this login.
+        self.assertEqual([m.split()[-1] for m in fixture.markers()], ["entry=xfce"], calls)
         self.assertEqual(calls[-1], UNSET)
 
     def test_desktop_mode_starts_the_plain_desktop(self):

@@ -65,6 +65,11 @@ impl Fixture {
             folder.clone(),
         );
         core.export_platform().await.unwrap();
+        // logind for the power key's inhibitor: never the real system bus.
+        core.platform
+            .power_key
+            .set_system(connect(&address).await)
+            .await;
         // Unit fixture installs the same authenticated registry state created by
         // Register. End-to-end token/cgroup authentication has separate coverage.
         core.state.lock().await.providers.insert(
@@ -1455,9 +1460,21 @@ impl RecordingAccel {
     fn set_foreign_shortcut_keys(&self, action: Vec<String>, keys: AccelKeys) {
         assert_eq!(action[0], "kwin");
         assert!(
-            ["ArinnPhase0Home", "ArinnQuickMenu", "ArinnKeyboard"].contains(&action[1].as_str())
+            [
+                "ArinnPhase0Home",
+                "ArinnQuickMenu",
+                "ArinnKeyboard",
+                "ArinnPower"
+            ]
+            .contains(&action[1].as_str())
         );
         self.0.lock().unwrap().push((action[1].clone(), keys));
+    }
+    /// No action holds a power key here; the daemon needs an answer, as an
+    /// unanswered lookup takes nothing (ADR-0111).
+    #[zbus(name = "actionList")]
+    fn action_list(&self, _key: (Vec<i32>,)) -> Vec<String> {
+        Vec::new()
     }
     #[zbus(name = "shortcutKeys")]
     fn shortcut_keys(&self, action: Vec<String>) -> AccelKeys {
@@ -1470,7 +1487,8 @@ impl RecordingAccel {
 /// once per adapter connection (#286). Without the fix the configured value
 /// was only validated, and KWin kept its hardcoded Meta+F12. The quick-menu
 /// key follows on its own action (ADR-0106), then the on-screen keyboard
-/// key and the microphone on theirs (ADR-0105).
+/// key and the microphone on theirs (ADR-0105). The fixed power keys come
+/// last (ADR-0111), so every configured key keeps its action.
 #[tokio::test]
 async fn adapter_connection_applies_configured_home_shortcut() {
     let f = Fixture::new().await;
@@ -1489,6 +1507,9 @@ async fn adapter_connection_applies_configured_home_shortcut() {
         .request_name("org.kde.kglobalaccel")
         .await
         .unwrap();
+    // A live shell and logind: the power keys follow (ADR-0111).
+    crate::power_inhibitor::tests::serve(&f.provider, Default::default()).await;
+    crate::shell_ready::tests::serve(&f.provider).await;
     f.core
         .connection
         .object_server()
@@ -1515,13 +1536,13 @@ async fn adapter_connection_applies_configured_home_shortcut() {
     };
     let first = poll();
     for _ in 0..100 {
-        if writes.lock().unwrap().len() >= 3 {
+        if writes.lock().unwrap().len() >= 4 {
             break;
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
     // Home first, then the quick menu, then the on-screen keyboard with the
-    // microphone (ADR-0106, ADR-0105).
+    // microphone (ADR-0106, ADR-0105), then the power keys (ADR-0111).
     assert_eq!(
         *writes.lock().unwrap(),
         [
@@ -1540,6 +1561,10 @@ async fn adapter_connection_applies_configured_home_shortcut() {
             (
                 "ArinnKeyboard".to_owned(),
                 vec![(vec![0x0C00_004B, 0, 0, 0],), (vec![0x0100_00a3, 0, 0, 0],)]
+            ),
+            (
+                "ArinnPower".to_owned(),
+                vec![(vec![0x0100_00b7, 0, 0, 0],), (vec![0x0100_010b, 0, 0, 0],)]
             )
         ]
     );
@@ -1548,7 +1573,7 @@ async fn adapter_connection_applies_configured_home_shortcut() {
     let second = poll();
     tokio::time::sleep(Duration::from_millis(300)).await;
     second.abort();
-    assert_eq!(writes.lock().unwrap().len(), 3);
+    assert_eq!(writes.lock().unwrap().len(), 4);
     // The remote's Menu keys (Menu, MenuKB) are off while the shell has
     // focus and on again for any other window (owner decision of
     // 2026-10-21, #439).
@@ -1578,20 +1603,20 @@ async fn adapter_connection_applies_configured_home_shortcut() {
         }
     };
     report("org.arinn.Shell").await;
-    wait_for(4).await;
+    wait_for(5).await;
     report("org.arinn.Shell").await;
     report("game").await;
-    wait_for(5).await;
+    wait_for(6).await;
     tokio::time::sleep(Duration::from_millis(200)).await;
     let writes = writes.lock().unwrap();
-    assert_eq!(writes.len(), 5);
-    // The keyboard keys never follow the focus.
+    assert_eq!(writes.len(), 6);
+    // The keyboard and power keys never follow the focus.
     assert_eq!(
-        writes[3],
+        writes[4],
         (
             "ArinnQuickMenu".to_owned(),
             vec![(vec![0x0C00_0051, 0, 0, 0],)]
         )
     );
-    assert_eq!(writes[4], writes[1]);
+    assert_eq!(writes[5], writes[1]);
 }

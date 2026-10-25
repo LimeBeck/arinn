@@ -10,5 +10,8 @@ Type=dbus
 BusName=org.arinn.X11
 Environment=ARINN_PLATFORM_BACKEND=ewmh
 ExecStart=/usr/bin/arinn-platform-x11
+# Gives xfce4-power-manager's power button setting back, however the adapter
+# ended (dedicated Arinn XFCE session, ADR-0111). Without xfconf it does nothing.
+ExecStopPost=-/usr/bin/arinn-platform-x11 --release-power-key
 Restart=on-failure
 RestartSec=3s

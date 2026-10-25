@@ -36,6 +36,8 @@ override_dh_auto_install:
 	install -Dm755 "$(CARGO_TARGET_DIR)"/release/arinn-xfce-session debian/arinn/usr/lib/arinn/arinn-xfce-session
 	install -Dm644 packaging/autostart/org.arinn.XfceSession.desktop \
 		debian/arinn/usr/share/arinn/autostart/org.arinn.XfceSession.desktop
+	install -Dm644 packaging/autostart/org.arinn.PowerButtonRestore.desktop \
+		debian/arinn/etc/xdg/autostart/org.arinn.PowerButtonRestore.desktop
 	install -Dm755 "$(CARGO_TARGET_DIR)"/release/arinnd debian/arinn/usr/bin/arinnd
 	install -Dm755 "$(CARGO_TARGET_DIR)"/release/arinnctl debian/arinn/usr/bin/arinnctl
 	install -Dm755 build/apps/arinn-shell/arinn-shell debian/arinn/usr/bin/arinn-shell

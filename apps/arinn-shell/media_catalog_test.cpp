@@ -485,6 +485,7 @@ public:
 signals:
   void changed();
   void quickMenuRequested();
+  void powerMenuRequested();
 public:
   Q_INVOKABLE void back() { ++backs; }
   Q_INVOKABLE void closeShortcutEditor() { m_editor.clear(); emit changed(); }
@@ -1513,6 +1514,73 @@ private slots:
     QTest::qWait(3200);
     QVERIFY(player->isVisible());
     QVERIFY(!home->isVisible());
+  }
+  // ADR-0111, review of #517: the power key over managed playback (an
+  // Activity, #502). The intent may come before the Home state's Changed,
+  // which hides the player and shows Home: the power menu stays open over
+  // Home with its focus, and Back leaves Home on screen, the player behind.
+  void powerKeyOverManagedPlaybackOpensOverHome() {
+    MediaDaemon daemon;
+    daemon.features = {QStringLiteral("MediaWindow1")};
+    daemon.page1 = {session(QStringLiteral("live"), QStringLiteral("Piece"),
+                            QStringLiteral("playing"), 4000000, monotonicUs(),
+                            9000000,
+                            {QStringLiteral("play"), QStringLiteral("pause"),
+                             QStringLiteral("stop")})};
+    auto bus = QDBusConnection::sessionBus();
+    QVERIFY(bus.registerService(QStringLiteral("org.arinn.Daemon1")));
+    QVERIFY(bus.registerVirtualObject(QStringLiteral("/org/arinn"), &daemon,
+                                      QDBusConnection::SubPath));
+    ShellStandIn backend;
+    backend.m_connected = true;
+    backend.m_return = QStringLiteral("player-window");
+    SessionGuardStandIn guard;
+    QQmlApplicationEngine engine;
+    installAssetImageProvider(&engine);
+    engine.rootContext()->setContextProperty(QStringLiteral("backend"), &backend);
+    engine.rootContext()->setContextProperty(QStringLiteral("sessionGuard"), &guard);
+    engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
+    auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().value(0));
+    QVERIFY(window);
+    window->show();
+    window->requestActivate();
+    auto catalog = window->findChild<MediaCatalog *>(QStringLiteral("mediaCatalog"));
+    auto player = window->findChild<QQuickItem *>(QStringLiteral("productionPlayer"));
+    auto power = window->findChild<QQuickItem *>(QStringLiteral("powerOverlay"));
+    auto home = window->findChild<QQuickItem *>(QStringLiteral("productionHome"));
+    QVERIFY(catalog && player && power && home);
+    QTRY_VERIFY(catalog->playerSession());
+    const auto entryId =
+        catalog->continueEntries().at(0).toMap().value(QStringLiteral("id")).toString();
+    QVERIFY(QMetaObject::invokeMethod(window, "openSession", Q_ARG(QVariant, entryId),
+                                      Q_ARG(QVariant, false)));
+    QTRY_COMPARE(catalog->presentationState(), QStringLiteral("active"));
+    QTRY_COMPARE(player->property("activeFocus").toBool(), true);
+    backend.m_home = false;
+    emit backend.changed();
+    const auto focusIn = [window](QQuickItem *scope) {
+      for (auto *item = window->activeFocusItem(); item; item = item->parentItem())
+        if (item == scope)
+          return true;
+      return false;
+    };
+    // The intent first, then the Home state.
+    emit backend.powerMenuRequested();
+    backend.m_home = true;
+    emit backend.changed();
+    QTRY_VERIFY(power->property("open").toBool());
+    QTRY_VERIFY(!player->isVisible());
+    QTRY_VERIFY(home->isVisible());
+    QTRY_VERIFY(focusIn(power));
+    // It stays with the power menu once Home has settled.
+    QTest::qWait(300);
+    QVERIFY(focusIn(power));
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_VERIFY(!power->property("open").toBool());
+    QTRY_VERIFY(focusIn(home));
+    QVERIFY(home->isVisible());
+    QVERIFY(!player->isVisible());
+    QCOMPARE(backend.backs, 0);
   }
   void resumeTargetOnlyForStoppedLibraryContent() {
     MediaDaemon daemon;

@@ -9,6 +9,12 @@ mod key_sequence;
 mod keyboard;
 mod keyboard_lane;
 mod native;
+#[path = "../../power_inhibitor.rs"]
+mod power_inhibitor;
+mod power_owner;
+#[path = "../../shell_ready.rs"]
+mod shell_ready;
+mod xfce_power;
 use anyhow::{Result, ensure};
 use arinn_protocol::{
     kwin::{self, KWinBridgeProxy},
@@ -39,6 +45,7 @@ trait HomeBridge {
     fn report_home(&self, visible: bool, target: &str, output: &str) -> zbus::Result<()>;
     fn report_home_request(&self, target: &str, output: &str) -> zbus::Result<()>;
     fn report_quick_menu_request(&self, target: &str, output: &str) -> zbus::Result<()>;
+    fn report_power_menu_request(&self, target: &str, output: &str) -> zbus::Result<()>;
     fn report_window(
         &self,
         id: &str,
@@ -73,6 +80,8 @@ enum Request {
     Home,
     /// ADR-0106: the same Home state, presented as the quick menu.
     QuickMenu,
+    /// ADR-0111: the same Home state, with the power menu open.
+    PowerMenu,
 }
 #[derive(Clone)]
 struct Update {
@@ -95,6 +104,8 @@ impl Actor {
     fn connect() -> Result<Self> {
         let (home, quick_menu) = shortcuts();
         let mut native = Native::connect(&home, &quick_menu)?;
+        // The power key waits for a live shell (ADR-0111, `PowerOwner`).
+        native.set_power(false, false)?;
         let snapshot = native.snapshot()?;
         Ok(Self {
             native,
@@ -153,8 +164,11 @@ impl Actor {
         Ok(())
     }
     fn cleanup(&mut self) -> Result<()> {
+        // The power key first: its grab or raw reading ends here, before
+        // PowerOwner drops logind's inhibitor (Codex on #517).
+        let power = self.native.set_power(false, false).map(drop);
         // Restore from the saved row before inventory retirement loses its XID.
-        let restored = self.release_live();
+        let restored = self.release_live().and(power);
         // Lower the current shell even if player restoration failed; never use
         // stale shell identity when a fresh inventory cannot be obtained.
         let lowered = self.native.snapshot().and_then(|snapshot| {
@@ -288,6 +302,8 @@ impl Actor {
             Some(Request::Home)
         } else if self.snapshot.quick_menu_key {
             Some(Request::QuickMenu)
+        } else if self.snapshot.power_key {
+            Some(Request::PowerMenu)
         } else {
             None
         };
@@ -620,6 +636,11 @@ async fn publish(
         // (ADR-0106).
         home.report_quick_menu_request(&update.target, background::OUTPUT)
             .await?;
+    } else if update.explicit == Some(Request::PowerMenu) {
+        // The power menu opens over Home, so it arms the background too
+        // (ADR-0111).
+        home.report_power_menu_request(&update.target, background::OUTPUT)
+            .await?;
     } else if previous_home.as_ref() != Some(&state) {
         home.report_home(update.home, &update.target, background::OUTPUT)
             .await?;
@@ -636,19 +657,48 @@ async fn publish(
     }
     Ok(())
 }
-async fn session() -> Result<()> {
+/// The adapter's native layer as the power key's reader.
+struct ActorReader<'a>(&'a Arc<Mutex<Actor>>);
+impl power_owner::Reader for ActorReader<'_> {
+    fn set(&mut self, enabled: bool, raw: bool) -> Result<native::Reading> {
+        tokio::task::block_in_place(|| self.0.lock().unwrap().native.set_power(enabled, raw))
+    }
+    fn held_elsewhere(&mut self) -> Result<bool> {
+        tokio::task::block_in_place(|| self.0.lock().unwrap().native.power_held_elsewhere())
+    }
+    fn arm(&mut self) -> Result<()> {
+        tokio::task::block_in_place(|| self.0.lock().unwrap().native.arm_raw())
+    }
+}
+async fn session(power: &mut power_owner::PowerOwner) -> Result<()> {
     let actor = Arc::new(Mutex::new(
         tokio::task::spawn_blocking(Actor::connect).await??,
     ));
-    let result = run(&actor).await;
+    let result = run(&actor, power).await;
     let cleanup = actor.clone();
-    let restored = tokio::task::spawn_blocking(move || cleanup.lock().unwrap().cleanup()).await?;
+    end_session(power, result, move || cleanup.lock().unwrap().cleanup()).await
+}
+/// Ends one session however it ended: the X state is restored first (the
+/// power key's grab or raw reading ends there), then the desktop gets the
+/// power key back (xfconf, then the inhibitor).
+async fn end_session<F>(
+    power: &mut power_owner::PowerOwner,
+    result: Result<()>,
+    cleanup: F,
+) -> Result<()>
+where
+    F: FnOnce() -> Result<()> + Send + 'static,
+{
+    // The grab goes first, then the setting and the inhibitor (Codex on
+    // #517): no moment where Arinn still grabs without the inhibitor.
+    let restored = tokio::task::spawn_blocking(cleanup).await?;
     if restored.is_err() {
         eprintln!("arinn-platform-x11: shutdown restoration failed");
     }
+    power.end().await;
     result.and(restored)
 }
-async fn run(actor: &Arc<Mutex<Actor>>) -> Result<()> {
+async fn run(actor: &Arc<Mutex<Actor>>, power: &mut power_owner::PowerOwner) -> Result<()> {
     let c = zbus::connection::Builder::session()?
         .name("org.arinn.X11")?
         .build()
@@ -769,6 +819,7 @@ async fn run(actor: &Arc<Mutex<Actor>>) -> Result<()> {
         &mut tasks,
     )
     .await?;
+    let mut shell_ready = shell_ready::ShellReady::default();
     let mut tick = tokio::time::interval(Duration::from_millis(500));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut revision = 0;
@@ -811,11 +862,24 @@ async fn run(actor: &Arc<Mutex<Actor>>) -> Result<()> {
         if update.explicit == Some(Request::QuickMenu) {
             raise_deferred(actor).await?;
         }
+        // The power key follows the shell: only while it owns its name and
+        // the key is read (ADR-0111).
+        // A ready shell: it owns its name and answers, so its window exists.
+        let shell = shell_ready.check(&c).await;
+        // The ordinary XFCE desktop keeps the key; an XFCE session manager
+        // or xfce4-power-manager that appears later takes it back within
+        // one tick (ADR-0111).
+        let xfce = power_owner::xfce_on_bus(&bus).await;
+        let reading = update.snapshot.power_reading;
+        power
+            .follow(&mut ActorReader(actor), shell, xfce, reading)
+            .await?;
         if let Some((done, error)) = completion {
             let _ = done.send(error);
         }
     }
 }
+/// The shell's bus name; its owner is the live shell.
 /// Aborts a task when the session ends.
 struct Abort<T>(tokio::task::JoinHandle<T>);
 impl<T> Drop for Abort<T> {
@@ -883,25 +947,106 @@ fn config_table(
     path.and_then(|path| std::fs::read_to_string(path).ok())
         .and_then(|text| text.parse::<toml::Table>().ok())
 }
+/// The files and session bus for xfce4-power-manager's power button.
+async fn power_button() -> Option<(Connection, xfce_power::Files)> {
+    let files = xfce_power::Files::from_vars(|name| std::env::var_os(name), false)?;
+    Some((Connection::session().await.ok()?, files))
+}
 #[tokio::main]
 async fn main() -> Result<()> {
+    let argument = std::env::args_os().nth(1);
+    if argument.as_deref() == Some(std::ffi::OsStr::new("--release-power-key")) {
+        // ExecStopPost= of arinn-ewmh.service: the desktop's power button
+        // setting comes back however the adapter ended (ADR-0111).
+        // The adapter is gone and so is any grab it held: if this
+        // display's adapter grabbed the power key (its marker) and
+        // xfce4-power-manager runs while nobody grabs a mapped power key,
+        // its grab failed meanwhile and it is restarted (review of #516).
+        if let Ok(bus) = Connection::session().await {
+            let files = xfce_power::Files::from_vars(|name| std::env::var_os(name), false);
+            let system = Connection::system().await.ok();
+            power_owner::release_after_adapter(
+                &bus,
+                files.as_ref(),
+                &power_owner::GrabMarker::from_env(),
+                || tokio::task::block_in_place(native::power_held_on_display),
+                system.as_ref(),
+                Duration::from_secs(10),
+            )
+            .await;
+        }
+        return Ok(());
+    }
+    if argument.as_deref() == Some(std::ffi::OsStr::new("--restore-power-button")) {
+        // The system XDG autostart entry at every XFCE login: a copy an
+        // unclean end of the dedicated session left goes back, unless the
+        // adapter runs and holds the key (ADR-0111).
+        if let Some((bus, files)) = power_button().await {
+            xfce_power::restore_at_login(&bus, &files).await;
+        }
+        return Ok(());
+    }
     ensure!(
         std::env::var("ARINN_PLATFORM_BACKEND").as_deref() == Ok("ewmh"),
         "explicit EWMH backend selection required"
     );
     eprintln!("arinn-platform-x11: selected backend ewmh (org.arinn.X11)");
+    let mut power = power_owner::PowerOwner::from_env().await;
     // No native payloads in logs. Reconnect creates fresh tokens and bridge generation.
     loop {
-        if session().await.is_ok() {
+        if session(&mut power).await.is_ok() {
             return Ok(());
         }
         eprintln!("arinn-platform-x11: backend unavailable; retrying");
-        tokio::select! { _ = tokio::time::sleep(Duration::from_secs(3)) => (), _ = shutdown() => return Ok(()) }
+        tokio::select! {
+            _ = tokio::time::sleep(Duration::from_secs(3)) => (),
+            _ = shutdown() => return Ok(()),
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    /// Review of #517: a session that ends, also with an error (a reconnect
+    /// follows), gives the power key back: xfconf and the inhibitor go
+    /// before the X state is restored, as the reader went with the session.
+    #[tokio::test]
+    async fn an_ended_session_gives_the_power_key_back() {
+        use crate::{native::Reading, power_owner::tests as owner, xfce_power::Saved};
+        let mut f = owner::fixture(true).await;
+        let mut reader = owner::reader(Reading::Raw);
+        f.owner
+            .follow(
+                &mut reader,
+                true,
+                power_owner::Xfce {
+                    session: true,
+                    power_manager: true,
+                },
+                Reading::None,
+            )
+            .await
+            .unwrap();
+        assert_eq!(f.xfconf.value(), Some(Saved::Uint(0)));
+        assert_eq!(f.open(), 1);
+        // Codex on #517: the grab is released (the cleanup) while the
+        // inhibitor is still held.
+        let login = f.login.clone();
+        let seen = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(9));
+        let at_cleanup = seen.clone();
+        let ended = end_session(&mut f.owner, Err(anyhow::anyhow!("lost")), move || {
+            let open = login.lock().unwrap().open();
+            at_cleanup.store(open, std::sync::atomic::Ordering::SeqCst);
+            Ok(())
+        })
+        .await;
+        assert!(ended.is_err());
+        assert_eq!(seen.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert_eq!(f.owner.owned(), Reading::None);
+        assert_eq!(f.xfconf.value(), Some(Saved::Uint(3)));
+        f.settle(0).await;
+    }
+
     use super::*;
     use x11rb::protocol::xproto::ConnectionExt as _;
     #[test]
@@ -1039,6 +1184,82 @@ mod tests {
         let update = actor.refresh(true)?;
         assert_eq!(update.explicit, Some(Request::Home));
         assert!(activations(desktop.messages()?) >= 1);
+        Ok(())
+    }
+    /// ADR-0111, spec §5.7: the power key shows the shell as Home does and
+    /// asks for the power menu; on a locked session it does nothing.
+    #[test]
+    #[ignore = "requires Xvfb; spawns an isolated server and synthetic EWMH manager"]
+    fn power_key_opens_the_power_menu_only_when_unlocked() -> Result<()> {
+        let desktop = native::fixture::Desktop::new()?;
+        let shell = desktop.client("org.arinn.Shell", "")?;
+        let video = desktop.client("org.example.Player.desktop", "")?;
+        desktop.inventory(&[shell, video], video)?;
+        let mut native = Native::connect_display(Some(&desktop.display))?;
+        // PowerOwner's decision (a live shell, the inhibitor held).
+        native.set_power(true, false)?;
+        let snapshot = native.snapshot()?;
+        let mut actor = Actor {
+            snapshot,
+            native,
+            home: false,
+            target: String::new(),
+            presentation: None,
+            media_allowed: true,
+            raise_after_publish: false,
+        };
+        actor.refresh(true)?;
+        let activations = |messages: Vec<x11rb::protocol::xproto::ClientMessageEvent>| {
+            messages
+                .iter()
+                .filter(|m| m.window == shell && m.type_ == desktop.atoms._NET_ACTIVE_WINDOW)
+                .count()
+        };
+        // Locked: no request, no Home, the shell stays where it is.
+        desktop.messages()?;
+        desktop.press(&[], 0x1008_ff2a)?;
+        let update = actor.refresh(false)?;
+        assert_eq!(update.explicit, None);
+        assert!(!update.home);
+        assert_eq!(activations(desktop.messages()?), 0);
+        // Unlocked: the Home state over the video, raised at once.
+        desktop.press(&[], 0x1008_ff2a)?;
+        let update = actor.refresh(true)?;
+        assert_eq!(update.explicit, Some(Request::PowerMenu));
+        assert!(update.home);
+        assert!(!update.target.is_empty());
+        assert!(activations(desktop.messages()?) >= 1);
+        assert_eq!(update.snapshot.power_reading, native::Reading::Grab);
+        // Codex on #517: the session's cleanup lets go of the power key
+        // itself, before PowerOwner drops the inhibitor; the actor's X
+        // connection is still open here.
+        actor.cleanup()?;
+        use x11rb::connection::Connection as _;
+        use x11rb::protocol::xproto::ConnectionExt as _;
+        let other = x11rb::connect(Some(&desktop.display))?.0;
+        let mapping = other
+            .get_keyboard_mapping(
+                other.setup().min_keycode,
+                other.setup().max_keycode - other.setup().min_keycode + 1,
+            )?
+            .reply()?;
+        let power = mapping
+            .keysyms
+            .chunks(usize::from(mapping.keysyms_per_keycode))
+            .position(|syms| syms.contains(&0x1008_ff2a))
+            .map(|i| other.setup().min_keycode + i as u8)
+            .unwrap();
+        other
+            .grab_key(
+                false,
+                desktop.root,
+                x11rb::protocol::xproto::ModMask::ANY,
+                power,
+                x11rb::protocol::xproto::GrabMode::ASYNC,
+                x11rb::protocol::xproto::GrabMode::ASYNC,
+            )?
+            .check()?;
+        drop(actor);
         Ok(())
     }
     #[test]
@@ -1709,6 +1930,12 @@ mod publication_tests {
                 .unwrap()
                 .push(format!("quick-menu {target} {output}"));
         }
+        fn report_power_menu_request(&self, target: &str, output: &str) {
+            self.0
+                .lock()
+                .unwrap()
+                .push(format!("power-menu {target} {output}"));
+        }
     }
     struct Returns;
     #[zbus::interface(name = "org.arinn.KWinReturn1")]
@@ -1718,6 +1945,7 @@ mod publication_tests {
     /// ADR-0106: the quick-menu key is reported as its own request, with the
     /// Return target and the output of an explicit Home; Home keeps its
     /// request. The output arms the Activity background on X11 too (#499).
+    /// ADR-0111: the power key likewise, with its own request.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn quick_menu_key_reports_its_own_request() -> Result<()> {
         tokio::time::timeout(Duration::from_secs(5), async {
@@ -1764,6 +1992,8 @@ mod publication_tests {
                     active: Some(42),
                     home_key: false,
                     quick_menu_key: true,
+                    power_key: false,
+                    power_reading: native::Reading::None,
                     compositor: true,
                 },
                 home: true,
@@ -1779,6 +2009,8 @@ mod publication_tests {
                 Some(Request::QuickMenu),
                 None,
                 Some(Request::Home),
+                Some(Request::PowerMenu),
+                Some(Request::PowerMenu),
             ] {
                 update.explicit = explicit;
                 publish(
@@ -1803,6 +2035,8 @@ mod publication_tests {
                     format!("quick-menu {token} {output}"),
                     format!("quick-menu {token} {output}"),
                     format!("home {token} {output}"),
+                    format!("power-menu {token} {output}"),
+                    format!("power-menu {token} {output}"),
                 ]
             );
             Ok(())
@@ -1861,6 +2095,8 @@ mod publication_tests {
                     active: Some(42),
                     home_key: false,
                     quick_menu_key: false,
+                    power_key: false,
+                    power_reading: native::Reading::None,
                     compositor: true,
                 },
                 home: false,

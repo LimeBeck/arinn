@@ -97,7 +97,30 @@ same output (`x11-screen`) as a Home request, so it arms the Activity background
 For a quick-menu press the adapter raises and activates the shell only after that
 request is published, so the shell never has focus before the request; a
 quick-menu key that cannot be grabbed is skipped without stopping the backend
-([ADR-0106](../adr/0106-quick-menu-presentation.md)). Home snapshots the exact opaque target
+([ADR-0106](../adr/0106-quick-menu-presentation.md)). The power keys
+(`XF86PowerOff`, and `XF86PowerDown` where mapped) are read only while the shell
+owns `org.arinn.Shell1` (`power_owner.rs`), never on the ordinary XFCE desktop
+(an owner of `org.xfce.SessionManager` or `org.xfce.PowerManager` on the session
+bus without `ARINN_SESSION_ENTRY=xfce`, which the dedicated session's wrapper
+sets; a name that appears later gives the key back), and only after logind's
+`handle-power-key` inhibitor is held. They are grabbed after the
+other keys, also while the shell is active, and a press is reported with
+`ReportPowerMenuRequest` after the same unlocked check and Home state; the shell
+is raised at once, as for Home. A power key another client holds is skipped and
+logged and stays that client's; when Arinn lets go of a grab while
+xfce4-power-manager runs without its own grab (its one grab at start failed),
+the adapter restarts it over D-Bus so it grabs again. In the dedicated Arinn
+XFCE session (owner decision of 2026-10-24) the power keys are never grabbed
+but read from XInput2 raw key presses on the root window (only the power
+keycodes are looked at), and only once that works the adapter sets xfce4-power-manager's
+`/xfce4-power-manager/power-button-action` to 0 ("do nothing") through xfconf,
+keeping the user's value in `$XDG_STATE_HOME/arinn/xfce-power-button` until it is
+restored: when the shell is lost or the reader stops, on a clean stop, by
+`ExecStopPost=-/usr/bin/arinn-platform-x11 --release-power-key`, at the next start
+in any X11/EWMH session, and at every XFCE login by the system autostart entry
+`org.arinn.PowerButtonRestore.desktop` (`--restore-power-button`); a per-user
+autostart entry that needs only `sh` and `xfconf-query` restores it after the
+package is removed ([ADR-0111](../adr/0111-power-key.md)). Home snapshots the exact opaque target
 and keeps it across repeated Home presses. Return validates that token in the
 current inventory before dispatch. The shell receives all-desktops, fullscreen/above and
 activation EWMH messages; ordinary activation and close also use EWMH messages.
@@ -245,8 +268,13 @@ trial inside an X11 graphical session:
 systemctl --user stop arinn-session.target arinn-ewmh-session.target
 systemctl --user import-environment DISPLAY XAUTHORITY
 systemctl --user set-environment XDG_SESSION_TYPE=x11 ARINN_PLATFORM_BACKEND=ewmh ARINN_SESSION_BACKEND=x11
+systemctl --user unset-environment ARINN_SESSION_ENTRY ARINN_LOGIN_STATE_HOME ARINN_LOGIN_CONFIG_HOME ARINN_LOGIN_SESSION_ID
 systemctl --user start arinn-ewmh-session.target
 ```
+
+Clearing `ARINN_SESSION_ENTRY` drops a dedicated-session marker a killed
+`arinn-session` may have left in a lingering user manager, so a manual trial is
+never taken for the dedicated Arinn XFCE session ([ADR-0111](../adr/0111-power-key.md)).
 
 The two session targets conflict. Shared daemon and shell units stop with either
 target. A daemon started separately must be stopped before changing selection.

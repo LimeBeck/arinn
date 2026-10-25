@@ -73,6 +73,13 @@ if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && [ -n "${XDG_RUNTIME_DIR:-}" ] &&
     export DBUS_SESSION_BUS_ADDRESS
 fi
 
+# The desktop session carries the entry marker as well, so the XFCE
+# launcher (arinn-xfce-session) binds the user manager's marker to this
+# login: a marker a killed wrapper left in a lingering user manager is
+# cleared by a stock XFCE login that lacks it (ADR-0111).
+ARINN_SESSION_ENTRY=$entry
+export ARINN_SESSION_ENTRY
+
 # The background subshell execs the desktop, so $! is the desktop's pid.
 start_desktop &
 pid=$!

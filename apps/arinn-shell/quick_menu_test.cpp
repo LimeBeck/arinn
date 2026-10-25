@@ -761,6 +761,205 @@ private slots:
     guard.m_blocked = false;
     emit guard.changed();
   }
+
+  // The remote's power key (spec §5.7 *Power button*, §6.3, ADR-0111).
+  QQuickItem *power() { return child(window, "powerOverlay"); }
+  bool powerOpen() {
+    return power()->property("open").toBool() &&
+           child(window, "powerMenu")->isVisible() && focusIn(power());
+  }
+
+  // Over an Activity the shell comes up as for Home with the power menu
+  // open; a repeated key keeps it; Back leaves Home, not the Activity.
+  void powerKeyOpensThePowerMenuOverHome() {
+    QSignalSpy requests(backend.get(), &Backend::powerMenuRequested);
+    daemon.returnWindow = QStringLiteral("activity");
+    daemon.request("PowerMenuRequested");
+    QTRY_VERIFY(window->isVisible());
+    window->requestActivate();
+    QTRY_VERIFY(powerOpen());
+    QCOMPARE(requests.count(), 1);
+    QVERIFY(screens->isVisible());
+    QVERIFY(!menu->isVisible());
+    QCOMPARE(window->color(), QColor(QStringLiteral("#131416")));
+    QTRY_VERIFY(child(window, "sleepButton")->hasActiveFocus());
+    // No toggle: the key again keeps the menu and its focus.
+    QTest::keyClick(window, Qt::Key_Down);
+    const auto focused = window->activeFocusItem();
+    QVERIFY(focused != child(window, "sleepButton"));
+    daemon.request("PowerMenuRequested");
+    QTRY_COMPARE(requests.count(), 2);
+    QTest::qWait(200);
+    QVERIFY(powerOpen());
+    QCOMPARE(window->activeFocusItem(), focused);
+    // Back closes the menu and leaves Home on screen (§6.3).
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_VERIFY(!child(window, "powerMenu")->isVisible());
+    QTRY_VERIFY(focusIn(home));
+    QVERIFY(window->isVisible());
+    QVERIFY(screens->isVisible());
+    QCOMPARE(daemon.backs, 0);
+    // The key does nothing by itself: no power action was requested.
+    QCOMPARE(daemon.controlCalls.count(QStringLiteral("Suspend")), 0);
+    QCOMPARE(daemon.controlCalls.count(QStringLiteral("PowerOff")), 0);
+    // A request of another daemon epoch is not this daemon's.
+    daemon.request("PowerMenuRequested",
+                   QStringLiteral("77777777-7777-4777-8777-777777777777"));
+    QTest::qWait(200);
+    QCOMPARE(requests.count(), 2);
+    QVERIFY(!power()->property("open").toBool());
+  }
+
+  // Inside the shell the menu opens over the current screen, and Back
+  // returns focus to where it was.
+  void powerKeyOverTheShellReturnsToTheOpener() {
+    daemon.returnWindow = QStringLiteral("activity");
+    daemon.request("HomeRequested");
+    QTRY_VERIFY(window->isVisible());
+    window->requestActivate();
+    QTRY_VERIFY(window->isActive());
+    QTRY_COMPARE(window->activeFocusItem()->objectName(), QStringLiteral("entry-activity"));
+    const auto opener = window->activeFocusItem();
+    daemon.request("PowerMenuRequested");
+    QTRY_VERIFY(powerOpen());
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_VERIFY(!child(window, "powerMenu")->isVisible());
+    QTRY_COMPARE(window->activeFocusItem(), opener);
+    QCOMPARE(daemon.backs, 0);
+  }
+
+  // A quick menu over an Activity gives way to Home under the power menu,
+  // as for the Home key; one over the shell stays under it, and Back
+  // returns to the sheet.
+  void powerKeyOverTheQuickMenu_data() {
+    QTest::addColumn<bool>("overShell");
+    QTest::newRow("over an Activity") << false;
+    QTest::newRow("over the shell") << true;
+  }
+  void powerKeyOverTheQuickMenu() {
+    QFETCH(bool, overShell);
+    openSheet(overShell);
+    daemon.request("PowerMenuRequested");
+    QTRY_VERIFY(powerOpen());
+    QCOMPARE(menu->isVisible(), overShell);
+    QVERIFY(screens->isVisible() || !overShell);
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_VERIFY(!child(window, "powerMenu")->isVisible());
+    if (overShell) {
+      QTRY_VERIFY(menuOpen());
+    } else {
+      QTRY_VERIFY(focusIn(home));
+      QVERIFY(screens->isVisible());
+      QVERIFY(!menu->isVisible());
+      QCOMPARE(window->color(), QColor(QStringLiteral("#131416")));
+    }
+    QCOMPARE(daemon.backs, 0);
+  }
+
+  // During ambient the key ends ambient and opens the menu; the press is
+  // not swallowed as a wake.
+  void powerKeyEndsAmbient() {
+    daemon.request("HomeRequested");
+    QTRY_VERIFY(window->isVisible());
+    window->requestActivate();
+    QTRY_VERIFY(window->isActive());
+    QTRY_VERIFY(focusIn(home));
+    auto *ambient = child(window, "ambientScreen");
+    QVERIFY(QMetaObject::invokeMethod(window, "startAmbient"));
+    QTRY_VERIFY(ambient->property("armed").toBool());
+    QVERIFY(focusIn(ambient));
+    daemon.request("PowerMenuRequested");
+    QTRY_VERIFY(!ambient->property("active").toBool());
+    QTRY_VERIFY(powerOpen());
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_VERIFY(!child(window, "powerMenu")->isVisible());
+    QTRY_VERIFY(focusIn(home));
+    QVERIFY(!ambient->property("active").toBool());
+  }
+
+  // Review of #517: the key again while the sheet's Power row has the scope
+  // open over an Activity changes nothing; the sheet stays under it.
+  void powerKeyKeepsAScopeTheSheetOpened() {
+    openSheet(false);
+    moveTo("quickMenuPower");
+    QTest::keyClick(window, Qt::Key_Return);
+    QTRY_VERIFY(powerOpen());
+    daemon.request("PowerMenuRequested");
+    QTest::qWait(300);
+    QVERIFY(powerOpen());
+    QVERIFY(menu->isVisible());
+    QVERIFY(!screens->isVisible());
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_VERIFY(!child(window, "powerMenu")->isVisible());
+    QTRY_VERIFY(row("quickMenuPower")->hasActiveFocus());
+  }
+
+  // A pending launch follows the quick menu's rules (#511): "Opening…" and
+  // "Starting…" give way to the power menu without stopping the launch, a
+  // stop confirmation closes, and a failure dialog is drawn above the menu.
+  void powerKeyOverAPendingLaunch_data() {
+    QTest::addColumn<QString>("overlay");
+    QTest::newRow("web service") << QStringLiteral("launchOverlay");
+    QTest::newRow("application") << QStringLiteral("applicationLaunch");
+  }
+  void powerKeyOverAPendingLaunch() {
+    QFETCH(QString, overlay);
+    const bool application = overlay == QLatin1String("applicationLaunch");
+    daemon.request("HomeRequested");
+    QTRY_VERIFY(window->isVisible());
+    window->requestActivate();
+    QTRY_VERIFY(window->isActive());
+    QTRY_VERIFY(focusIn(home));
+    auto *launch = child(window, overlay.toLatin1().constData());
+    QVERIFY(launch);
+    if (application) {
+      QVERIFY(QQmlProperty::write(launch, QStringLiteral("revealDelay"), 0));
+      QVERIFY(QQmlProperty::write(launch, QStringLiteral("slowDelay"), 0));
+      QVERIFY(QQmlProperty::write(launch, QStringLiteral("cancellable"), true));
+    }
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("serviceTitle"), QStringLiteral("Game")));
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("active"), true));
+    QTRY_VERIFY(launch->isVisible());
+    QSignalSpy cancels(launch, SIGNAL(cancelRequested()));
+    if (application) {
+      // Cancel asks first; the power key closes that question.
+      QTRY_VERIFY(findItem(launch, QStringLiteral("launchCancel"))->hasActiveFocus());
+      QTest::keyClick(window, Qt::Key_Return);
+      QTRY_VERIFY(launch->property("confirming").toBool());
+    }
+    daemon.request("PowerMenuRequested");
+    QTRY_VERIFY(powerOpen());
+    QVERIFY(!launch->isVisible());
+    QVERIFY(!launch->property("confirming").toBool());
+    QVERIFY(launch->property("active").toBool());
+    QCOMPARE(cancels.count(), 0);
+    // The launch fails: its dialog comes up above the power menu.
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("failure"), QStringLiteral("Unavailable")));
+    QTRY_VERIFY(launch->isVisible());
+    QTRY_VERIFY(focusIn(launch));
+    QVERIFY(power()->property("open").toBool());
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("failure"), QString()));
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("active"), false));
+    QTRY_VERIFY(!launch->isVisible());
+    QCOMPARE(cancels.count(), 0);
+  }
+
+  // While the session is locked the shell stays hidden and the key opens
+  // nothing, also after unlock.
+  void powerKeyDoesNothingWhileLocked() {
+    guard.m_blocked = true;
+    emit guard.changed();
+    daemon.returnWindow = QStringLiteral("activity");
+    daemon.request("PowerMenuRequested");
+    QTest::qWait(300);
+    QVERIFY(!window->isVisible());
+    QVERIFY(!power()->property("open").toBool());
+    guard.m_blocked = false;
+    emit guard.changed();
+    QTRY_VERIFY(window->isVisible());
+    QTest::qWait(200);
+    QVERIFY(!power()->property("open").toBool());
+  }
 };
 
 QTEST_MAIN(QuickMenuTest)

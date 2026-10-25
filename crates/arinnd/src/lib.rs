@@ -14,10 +14,16 @@ mod listings;
 pub mod operations;
 #[path = "../../../platform/kde/bridge.rs"]
 pub mod platform;
+#[path = "../../../platform/power_inhibitor.rs"]
+pub mod power_inhibitor;
+#[path = "../../../platform/kde/power_key.rs"]
+pub mod power_key;
 pub mod registry;
 pub mod runtime;
 #[path = "../../../platform/session_lock.rs"]
 pub mod session_lock;
+#[path = "../../../platform/shell_ready.rs"]
+pub mod shell_ready;
 pub mod shortcuts;
 #[path = "../../../platform/status_sources.rs"]
 pub mod status_sources;

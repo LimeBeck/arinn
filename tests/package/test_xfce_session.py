@@ -57,6 +57,9 @@ exit 0
                     "DISPLAY": ":987", "XDG_SESSION_TYPE": "x11",
                     "XAUTHORITY": str(self.root / "synthetic-authority"),
                     "PATH": f"{self.root}:{os.environ['PATH']}", "CALL_LOG": str(self.log)}
+        for name in ("ARINN_SESSION_ENTRY", "XDG_STATE_HOME", "XDG_CONFIG_HOME", "XDG_SESSION_ID"):
+            self.env.pop(name, None)
+        self.env["HOME"] = str(self.root / "home")
 
     @staticmethod
     def stop_process(child):
@@ -93,7 +96,7 @@ exit 0
     def assert_cleanup(self):
         calls = self.log.read_text().splitlines()
         self.assertEqual(sum(" stop arinn-ewmh-session.target" in call for call in calls), 1)
-        self.assertTrue(calls[-1].endswith("unset-environment DISPLAY XAUTHORITY XDG_SESSION_TYPE ARINN_PLATFORM_BACKEND ARINN_SESSION_BACKEND"))
+        self.assertTrue(calls[-1].endswith("unset-environment DISPLAY XAUTHORITY XDG_SESSION_TYPE ARINN_PLATFORM_BACKEND ARINN_SESSION_BACKEND ARINN_LOGIN_STATE_HOME ARINN_LOGIN_CONFIG_HOME ARINN_LOGIN_SESSION_ID"))
         self.assertFalse(any(" enable " in call for call in calls))
 
     def test_login_imports_environment_before_start_and_logout_stops(self):
@@ -104,9 +107,82 @@ exit 0
         self.assertIn("--user --no-ask-password import-environment XAUTHORITY", calls)
         selection = next(i for i, call in enumerate(calls) if "set-environment XDG_SESSION_TYPE=x11 ARINN_PLATFORM_BACKEND=ewmh ARINN_SESSION_BACKEND=x11" in call)
         self.assertLess(selection, len(calls) - 1)
+        # ADR-0111: the ordinary XFCE desktop keeps its power dialog. The
+        # adapter recognises it by org.xfce.SessionManager on the session
+        # bus, which this bridge requires before it starts the target (see
+        # test_missing_xfce_owner_never_touches_manager), not by
+        # XDG_CURRENT_DESKTOP. A stock login lacks the dedicated session's
+        # marker, so the bridge clears one a killed wrapper left in a
+        # lingering user manager before the target starts: the adapter
+        # never takes the key here.
+        start = calls.index("--user --no-ask-password start arinn-ewmh-session.target")
+        clear = calls.index("--user --no-ask-password unset-environment ARINN_SESSION_ENTRY")
+        self.assertLess(clear, start)
+        self.assertFalse(any(" set-environment ARINN_SESSION_ENTRY" in call for call in calls))
+        self.assertFalse(any("XDG_CURRENT_DESKTOP" in call for call in calls))
         self.close_owner()
         self.assertEqual(child.wait(timeout=5), 0)
         self.assert_cleanup()
+
+    def test_login_folders_reach_the_user_manager(self):
+        # ADR-0111: the adapter in the user manager uses the login's own
+        # state and config folders for the XFCE power button's copy and
+        # restore entry, so it meets the system login entry. Defaults below
+        # HOME, a login's own values, and unknown folders (unset).
+        for changes, expected in (
+            ({}, f"ARINN_LOGIN_STATE_HOME={self.root}/home/.local/state "
+                 f"ARINN_LOGIN_CONFIG_HOME={self.root}/home/.config"),
+            ({"XDG_STATE_HOME": "/login/state", "XDG_CONFIG_HOME": "/login/config"},
+             "ARINN_LOGIN_STATE_HOME=/login/state ARINN_LOGIN_CONFIG_HOME=/login/config"),
+            ({"HOME": "relative", "XDG_STATE_HOME": "relative"}, None),
+        ):
+            with self.subTest(changes=changes):
+                self.log.write_text("")
+                child = self.launch(**changes)
+                self.wait_for_start(child)
+                calls = self.log.read_text().splitlines()
+                start = calls.index("--user --no-ask-password start arinn-ewmh-session.target")
+                if expected:
+                    folders = calls.index(f"--user --no-ask-password set-environment {expected}")
+                else:
+                    folders = calls.index("--user --no-ask-password unset-environment "
+                                          "ARINN_LOGIN_STATE_HOME ARINN_LOGIN_CONFIG_HOME")
+                self.assertLess(folders, start)
+                child.terminate()
+                self.assertEqual(child.wait(timeout=5), 0)
+
+    def test_login_session_reaches_the_user_manager(self):
+        # ADR-0111: the dedicated session checks with logind that the user
+        # has no other graphical session; it needs this login's session id.
+        for changes, expected in (
+            ({"XDG_SESSION_ID": "c4"}, "set-environment ARINN_LOGIN_SESSION_ID=c4"),
+            ({}, "unset-environment ARINN_LOGIN_SESSION_ID"),
+            ({"XDG_SESSION_ID": "c4 x"}, "unset-environment ARINN_LOGIN_SESSION_ID"),
+        ):
+            with self.subTest(changes=changes):
+                self.log.write_text("")
+                child = self.launch(**changes)
+                self.wait_for_start(child)
+                calls = self.log.read_text().splitlines()
+                start = calls.index("--user --no-ask-password start arinn-ewmh-session.target")
+                self.assertLess(calls.index(f"--user --no-ask-password {expected}"), start)
+                child.terminate()
+                self.assertEqual(child.wait(timeout=5), 0)
+
+    def test_dedicated_login_keeps_its_marker(self):
+        # ADR-0111: the dedicated session's wrapper puts the marker into the
+        # desktop's environment; the bridge binds the user manager's marker
+        # to this login before the target starts, so the adapter takes the
+        # power key there.
+        child = self.launch(ARINN_SESSION_ENTRY="xfce")
+        self.wait_for_start(child)
+        calls = self.log.read_text().splitlines()
+        start = calls.index("--user --no-ask-password start arinn-ewmh-session.target")
+        mark = calls.index("--user --no-ask-password set-environment ARINN_SESSION_ENTRY=xfce")
+        self.assertLess(mark, start)
+        self.assertFalse(any("unset-environment ARINN_SESSION_ENTRY" in call for call in calls))
+        self.close_owner()
+        self.assertEqual(child.wait(timeout=5), 0)
 
     def test_signal_stops_and_missing_authority_clears_stale_value(self):
         child = self.launch(XAUTHORITY=None)
@@ -146,6 +222,8 @@ exit 0
             self.assertEqual(self.log.read_text(), "")
 
     def test_missing_xfce_owner_never_touches_manager(self):
+        # Also ADR-0111: the target never runs without the XFCE session
+        # manager's name, by which the adapter leaves the power key to XFCE.
         self.close_owner()
         child = self.launch()
         self.assertEqual(child.wait(timeout=5), 1)

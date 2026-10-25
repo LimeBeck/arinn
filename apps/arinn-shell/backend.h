@@ -119,10 +119,13 @@ public:
 public slots:
   void refresh();
 private slots:
-  // Explicit presentation requests of the platform (ADR-0069, ADR-0106).
+  // Explicit presentation requests of the platform (ADR-0069, ADR-0106,
+  // ADR-0111).
   void presentHome(const QString &epoch, const QString &target,
                    const QString &output);
   void presentQuickMenu(const QString &epoch, const QString &target,
+                        const QString &output);
+  void presentPowerMenu(const QString &epoch, const QString &target,
                         const QString &output);
   void reloadCatalog();
   void reloadShortcuts();
@@ -146,6 +149,8 @@ signals:
   void homeRequested();
   // The quick-menu key, for the current daemon epoch (ADR-0106).
   void quickMenuRequested();
+  // The remote's power key, for the current daemon epoch (ADR-0111).
+  void powerMenuRequested();
 
 private:
   void readFavorites();

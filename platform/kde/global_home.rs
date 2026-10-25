@@ -47,13 +47,16 @@ fn warn(operation: &str, error: &str) {
 
 /// A new adapter connection polled for the first time. On KDE the KWin
 /// script has registered its actions by then; write the configured keys
-/// to them in the background (`write_all`), then prepare KDE for the
-/// on-screen keyboard (ADR-0105).
+/// to them in the background (`write_all`), then let the power keys follow:
+/// they are fixed and come after every configured key, so each keeps its
+/// action, and the watcher writes them only while the shell is alive
+/// (ADR-0111); then prepare KDE for the on-screen keyboard (ADR-0105).
 pub fn adapter_connected(
     connection: &Connection,
     config: PathBuf,
     state: PathBuf,
     quick_menu: QuickMenuKeys,
+    power: crate::power_key::PowerKey,
 ) {
     if crate::platform::adapter_service() != Some("org.kde.KWin") {
         return;
@@ -71,6 +74,7 @@ pub fn adapter_connected(
             keyboard: config.keyboard_shortcut,
         });
         write_all(&connection, &quick_menu, &shortcuts).await;
+        power.adapter_connected().await;
         crate::keyboard_config::prepare(&connection, &directory, &state).await;
     });
 }

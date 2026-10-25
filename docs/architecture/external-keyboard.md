@@ -92,16 +92,19 @@ The pieces:
   - It excludes the panel window (shell identity and title `org.arinn.KeyboardPanel`) from the shell, the inventory and the Return target.
   - It places the panel along the bottom of the active output and keeps it above.
 - **The daemon's KDE code** (`platform/kde/keyboard_config.rs`) runs on each new KWin adapter connection:
-  - it sets `kwinrc [Wayland] InputMethod` to `org.arinn.InputMethod.desktop` only when the entry is empty, and sends KConfig's change notification;
+  - it sets `kwinrc [Wayland] InputMethod` to `org.arinn.InputMethod.desktop` only when the entry is empty, and sends KConfig's change notification. It does so **once**: the marker `kde-input-method-selected` in Arinn's state directory records that the value was written or found, so a later *None* in Plasma's Virtual Keyboard settings (which deletes the key) is respected;
   - it keeps the `arinn-keyboard-panel` window rule in `kwinrulesrc` (accept focus, above, no border and the skip flags, all forced) and asks KWin to reconfigure;
   - it never writes a file with immutable markers;
   - it logs `Conflict` when another input method is chosen.
+  - **Uninstall** reverses neither the `kwinrc` value nor the window rule. Both are harmless: the rule matches only Arinn's panel, and a missing desktop file only turns KWin's input method off. Choose another input method, or *None*, under System Settings → Keyboard → Virtual Keyboard to clear the value.
 - **`arinn-input-method`** (`platform/kde/input-method`) is what KWin starts. A pure state machine (`machine.rs`) decides; the I/O layer carries out its decisions.
   - `[open, S]`: lock check, `forceActivate()`, wait 1 s for the context, `grab_keyboard`, `Opened`.
   - Panel keys (evdev 103, 108, 105, 106, 28, 96, 352, 353, 1, 158) become `Input` on press; held arrows repeat at the grab's rate.
   - Every other key is forwarded with `key`, and modifiers with `modifiers`.
   - Text goes through `commit_string` with the context's latest `commit_state` serial; editing keys through `keysym`.
-  - A context deactivated by KWin ends the session (`focus`). A lock (checked before each delivery and every 500 ms) ends it (`locked`). Closing releases the context with `VirtualKeyboard.active = false`.
+  - A context deactivated by KWin ends the session: `focus` after an explicit unlocked reply of the lock service, otherwise `locked`. A lock (checked before each delivery and every 500 ms) ends it (`locked`). Closing releases the context with `VirtualKeyboard.active = false`.
+  - When the daemon lane ends (a restart, a crash, a `Conflict` from `Next`), the helper ends the session, drops the keyboard grab, sets `VirtualKeyboard.active = false` and discards the keys the old grab had queued, so none reaches the application late. The state machine outlives the connection.
+  - A held arrow's repeats belong to one run; a repeat queued when the run stops (release, session end) is dropped, never forwarded as a press without a release.
   - A context without a session (an application's own text-input) shows nothing and forwards every key.
 
 ## Verification status
@@ -124,8 +127,10 @@ The pieces:
   - panel keys and forwarding;
   - commit with the serial, and keysyms;
   - a lock ends the session and refuses a new one;
-  - focus loss;
-  - close releases the context.
+  - the 500 ms lock tick alone ends an open session;
+  - focus loss, and a deactivate while locked reported as `locked`;
+  - close releases the context;
+  - a lost daemon lane releases the grab, sets `active = false` and forwards no queued key; the next connection opens sessions again.
 - **KWin script:** Node tests.
 - **Shell:** see [ui-keyboard.md](ui-keyboard.md#verification).
 - **Not verified here.** No KWin, no real compositor and no hardware are available here. These need the owner's operator test on the HTPC (G-5.9):
@@ -135,3 +140,11 @@ The pieces:
   - commits in Chrome with and without its Wayland IME;
   - XFCE with a real window manager;
   - the hwdb remap of the microphone.
+
+  Checklist for that test, with the owner's permission:
+  1. On KDE/Wayland and on XFCE, open managed Chrome on YouTube and type a search with the remote only (Meta+F10 or the microphone, arrows, OK, Back).
+  2. Cyrillic and Latin text; Backspace, ‹ and › from the panel.
+  3. Home and the quick menu (Meta+F11 or ≡) with the panel open replace it with the shell; a lock closes it, and nothing typed appears after the unlock.
+  4. **KDE: focus another text field** (another tab's field, or another window with text-input) while the panel is open. The session must end; nothing may be typed into the new field.
+  5. **The remote's Back button.** If it sends Backspace rather than Esc or KEY_BACK, it deletes a character in the application (§6.2) instead of hiding the panel; the keyboard key still hides it. Record which code it sends.
+  6. Restart the daemon (`systemctl --user restart arinnd`) with the panel open: the panel hides, the application gets its keys back at once, and no key pressed meanwhile arrives late.

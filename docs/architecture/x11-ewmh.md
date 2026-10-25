@@ -206,11 +206,18 @@ rest of the adapter unchanged.
 - **Open.** The target is `_NET_ACTIVE_WINDOW`. It must be listed in
   `_NET_CLIENT_LIST`, of normal type and not the shell; otherwise the session is
   `unavailable`. The worker then passively grabs Up, Down, Left, Right, Return,
-  KP_Enter, Escape and XF86Back, unmodified and with lock variants, and needs
-  at least an arrow and Escape or Back. Focus stays with the application; every
-  other key, Backspace and hardware typing included, reaches it.
-- **Delivery.** Before every delivery the lane needs an explicit unlocked reply,
-  and the worker checks that the target still has focus.
+  KP_Enter, Escape and XF86Back, unmodified and with lock variants. The session
+  opens only when all four directions, Return or KP_Enter, and Escape or
+  XF86Back are grabbed; otherwise every grab is released and the session is
+  `unavailable`. Focus stays with the application; every other key, Backspace
+  and hardware typing included, reaches it.
+- **Delivery.** One character or editing key at a time. Before each one the
+  lane needs an explicit unlocked reply (a screen locker's keyboard grab is
+  invisible to the focus check), and the worker checks that the target still
+  has focus: it is `_NET_ACTIVE_WINDOW`, and the X input focus
+  (`GetInputFocus`) is the target or one of its descendants, never `None` or
+  `PointerRoot`. The first failed check drops the rest of the record and ends
+  the session (`locked` or `focus`).
   - Each character is typed through one of up to eight scratch keycodes (keycodes without
     keysyms), mapped to its keysym in every column: Latin-1 directly,
     otherwise `0x01000000 + code point`.
@@ -314,8 +321,12 @@ The keyboard's ignored tests spawn their own Xvfb too. They check that:
 - XTest types ASCII and Cyrillic with an English keymap;
 - the panel keys are grabbed while other keys pass;
 - the shell and unlisted windows are never targets;
-- focus loss and destruction stop delivery;
-- through the lane, with a fake daemon and lock service: a locked key requests nothing, a session opens and types, and a lock ends it.
+- focus loss and destruction stop delivery, also when only the X input focus moves away;
+- a session without every direction, a Select and a Back key does not open and keeps no grab;
+- through the lane, with a fake daemon and lock service:
+  - a locked key requests nothing, a session opens and types, and a lock ends it;
+  - each character waits for its own lock check, without the 500 ms tick;
+  - the worker ends a session whose target loses focus (`focus`), types nothing more and gives the panel keys back.
 
 The five ignored native tests each spawn their own Xvfb using `-displayfd`, create
 synthetic EWMH metadata and clients, and never read the inherited `DISPLAY`.

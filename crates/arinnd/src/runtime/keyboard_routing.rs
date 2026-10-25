@@ -92,13 +92,19 @@ fn session_of(record: &Record) -> Option<&str> {
 
 impl State {
     /// Ends the current session. Its waiting records are dropped; the
-    /// deliverer is told with `[close, S]` when `tell`. Returns the session
-    /// the shell must hear `Closed` for: only an opened one.
+    /// deliverer is told with `[close, S]` when `tell`, unless it never
+    /// took the session's `[open, S]`: then both are gone, and a fast toggle
+    /// leaves nothing behind (Codex P2 on #484). Returns the session the
+    /// shell must hear `Closed` for: only an opened one.
     fn end(&mut self, tell: bool) -> Option<String> {
         let session = self.session.take()?;
+        let untaken = self
+            .queue
+            .iter()
+            .any(|r| matches!(r, Record::Open(s) if *s == session.id));
         self.queue
             .retain(|r| session_of(r) != Some(session.id.as_str()));
-        if tell && self.deliverer.is_some() {
+        if tell && !untaken && self.deliverer.is_some() {
             self.queue.push_back(Record::Close(session.id.clone()));
         }
         session.opened.then_some(session.id)
@@ -214,18 +220,34 @@ impl Core {
     /// Ends what timed out: an unconfirmed session, a silent or vanished
     /// deliverer.
     async fn sweep(&self, dbus: Option<&zbus::fdo::DBusProxy<'_>>) {
-        let owner = {
+        let probed = {
             let state = self.keyboard.state.lock().await;
-            state.deliverer.as_ref().map(|d| d.owner.clone())
+            state
+                .deliverer
+                .as_ref()
+                .map(|d| (d.owner.clone(), d.generation.clone()))
         };
-        let vanished = match (owner, dbus) {
-            (Some(owner), Some(dbus)) => match owner.as_str().try_into() {
+        let vanished = match (&probed, dbus) {
+            (Some((owner, _)), Some(dbus)) => match owner.as_str().try_into() {
                 Ok(name) => !dbus.name_has_owner(name).await.unwrap_or(true),
                 Err(_) => true,
             },
             _ => false,
         };
+        self.sweep_after(probed, vanished).await;
+    }
+
+    /// The second half of [`Self::sweep`]: `vanished` is the answer for the
+    /// deliverer `probed` (owner, generation) before the bus was asked.
+    async fn sweep_after(&self, probed: Option<(String, String)>, vanished: bool) {
         let mut state = self.keyboard.state.lock().await;
+        // The answer concerns the deliverer probed above. One that connected
+        // while `NameHasOwner` was pending is not evicted for its
+        // predecessor's exit (Codex P2 on #484).
+        let vanished = vanished
+            && state.deliverer.as_ref().zip(probed.as_ref()).is_some_and(
+                |(d, (owner, generation))| &d.owner == owner && &d.generation == generation,
+            );
         let mut closed = None;
         let silent = state
             .deliverer
@@ -348,7 +370,8 @@ impl KeyboardBridge {
             self.core.keyboard_closed(closed).await;
             return Ok(());
         }
-        if state.deliverer.is_none() {
+        // The bound of `Type` and `Press` holds for the key's records too.
+        if state.deliverer.is_none() || state.queue.len() >= keyboard::MAX_QUEUED {
             log("rejected", Some("Unavailable"));
             return Err(ErrorCode::Unavailable.into());
         }

@@ -530,6 +530,64 @@ async fn timeouts_replacement_and_the_queue_bound_end_or_refuse() {
     .unwrap();
 }
 
+/// Codex P2 on #484: a deliverer that connects while the sweep asks the
+/// bus about its predecessor is not evicted by that answer.
+#[tokio::test]
+async fn the_sweep_never_evicts_a_replacement_for_its_predecessor() {
+    within(async {
+        let f = Fixture::new().await;
+        let (old, _) = f.open().await;
+        let owner = f.deliverer.unique_name().unwrap().to_string();
+        let bridge = f.bridge(&f.deliverer).await;
+        let new = bridge.connect(&Uuid::new_v4().to_string()).await.unwrap();
+        assert_ne!(old, new);
+        // The answer "vanished" was for the old generation.
+        f.core
+            .sweep_after(Some((owner.clone(), old.clone())), true)
+            .await;
+        f.bridge(&f.kwin).await.request().await.unwrap();
+        assert!(matches!(next(&bridge, &new).await, Record::Open(_)));
+        // For the current one it still ends the deliverer.
+        f.core.sweep_after(Some((owner, new.clone())), true).await;
+        assert!(named(bridge.next(&new).await.unwrap_err(), "Conflict"));
+        drop(f.bus);
+    })
+    .await
+    .unwrap();
+}
+
+/// Codex P2 on #484: toggling faster than the deliverer takes records
+/// leaves no stale records: a session whose open record was never taken
+/// leaves no close record either.
+#[tokio::test]
+async fn fast_toggles_leave_no_records_behind() {
+    within(async {
+        let f = Fixture::new().await;
+        let bridge = f.bridge(&f.deliverer).await;
+        let generation = bridge.connect(&Uuid::new_v4().to_string()).await.unwrap();
+        let kwin = f.bridge(&f.kwin).await;
+        for _ in 0..200 {
+            kwin.request().await.unwrap();
+        }
+        // An even number of presses: the last session is closed, and no
+        // record of any of them waits for the deliverer.
+        assert_eq!(
+            Record::parse(&bridge.next(&generation).await.unwrap()).unwrap(),
+            Record::Idle
+        );
+        // One more press opens a session whose record comes at once.
+        kwin.request().await.unwrap();
+        assert!(matches!(next(&bridge, &generation).await, Record::Open(_)));
+        // Toggled off after the deliverer took it, the session's close is
+        // still sent.
+        kwin.request().await.unwrap();
+        assert!(matches!(next(&bridge, &generation).await, Record::Close(_)));
+        drop(f.bus);
+    })
+    .await
+    .unwrap();
+}
+
 #[tokio::test]
 async fn a_vanished_deliverer_ends_the_session() {
     within(async {

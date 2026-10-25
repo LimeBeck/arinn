@@ -10,7 +10,8 @@
 //! 1. logind's `handle-power-key` inhibitor first; without it nothing is
 //!    taken.
 //! 2. Then the reader: a grab, or in the dedicated Arinn XFCE session raw
-//!    events for a key xfce4-power-manager grabs.
+//!    events only, never a grab, so xfce4-power-manager's own grab always
+//!    succeeds.
 //! 3. Only once raw reading works, xfce4-power-manager's power button is set
 //!    to "do nothing" (`xfce_power`).
 //!
@@ -32,28 +33,92 @@ use zbus::Connection;
 
 /// Reads the power key; the adapter's native layer, or a test double.
 pub trait Reader {
-    /// Reads the power key (`enabled`), with raw events for one another
-    /// client grabs (`raw`). Returns how it is read now.
+    /// Reads the power key (`enabled`): grabbed, or with `raw` from raw
+    /// events only, never grabbed. Returns how it is read now.
     fn set(&mut self, enabled: bool, raw: bool) -> Result<Reading>;
+    /// Whether another client grabs a power key now; called while Arinn
+    /// grabs none.
+    fn held_elsewhere(&mut self) -> Result<bool>;
 }
 
 /// The session-bus names of an XFCE desktop: its session manager
 /// (ADR-0107) and xfce4-power-manager, which also runs outside XFCE.
 pub const XFCE_NAMES: [&str; 2] = ["org.xfce.SessionManager", "org.xfce.PowerManager"];
 
-/// Whether an XFCE session manager or xfce4-power-manager owns its name on
-/// this bus. An unanswered query counts as XFCE: the key then stays the
-/// desktop's.
-pub async fn xfce_on_bus(bus: &zbus::fdo::DBusProxy<'_>) -> bool {
-    for name in XFCE_NAMES {
-        let Ok(name) = zbus::names::BusName::try_from(name) else {
-            return true;
-        };
-        if bus.name_has_owner(name).await.unwrap_or(true) {
-            return true;
-        }
+/// xfce4-power-manager's bus name and its restart call.
+const POWER_MANAGER: &str = "org.xfce.PowerManager";
+const POWER_MANAGER_PATH: &str = "/org/xfce/PowerManager";
+const POWER_MANAGER_INTERFACE: &str = "org.xfce.Power.Manager";
+
+/// Which XFCE names own their name on the session bus.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Xfce {
+    /// `org.xfce.SessionManager`.
+    pub session: bool,
+    /// `org.xfce.PowerManager`: xfce4-power-manager runs.
+    pub power_manager: bool,
+}
+impl Xfce {
+    /// An XFCE desktop, or xfce4-power-manager on another one.
+    pub fn any(self) -> bool {
+        self.session || self.power_manager
     }
-    false
+}
+
+/// Which XFCE names own their name on this bus. An unanswered query counts
+/// as owned: the key then stays the desktop's.
+pub async fn xfce_on_bus(bus: &zbus::fdo::DBusProxy<'_>) -> Xfce {
+    let owned = async |name: &str| match zbus::names::BusName::try_from(name) {
+        Ok(name) => bus.name_has_owner(name).await.unwrap_or(true),
+        Err(_) => true,
+    };
+    Xfce {
+        session: owned(XFCE_NAMES[0]).await,
+        power_manager: owned(XFCE_NAMES[1]).await,
+    }
+}
+
+/// Restarts xfce4-power-manager through its own D-Bus `Restart`, so that
+/// it grabs the power key again: its grab failed while Arinn held the key,
+/// and it never grabs again by itself (review of #516). Waits up to `wait`
+/// for the new instance to own its name. Returns whether it was asked.
+pub async fn restart_power_manager(bus: &Connection, wait: Duration) -> bool {
+    let Ok(dbus) = zbus::fdo::DBusProxy::new(bus).await else {
+        return false;
+    };
+    let Ok(name) = zbus::names::BusName::try_from(POWER_MANAGER) else {
+        return false;
+    };
+    let before = dbus.get_name_owner(name.clone()).await.ok();
+    let asked = tokio::time::timeout(
+        Duration::from_secs(5),
+        bus.call_method(
+            Some(POWER_MANAGER),
+            POWER_MANAGER_PATH,
+            Some(POWER_MANAGER_INTERFACE),
+            "Restart",
+            &(),
+        ),
+    )
+    .await
+    .is_ok_and(|reply| reply.is_ok());
+    eprintln!(
+        "arinn-platform-x11: xfce4-power-manager's power-key grab failed while Arinn held the key; {}",
+        if asked {
+            "restarted it"
+        } else {
+            "its restart failed"
+        }
+    );
+    let deadline = Instant::now() + wait;
+    while asked && Instant::now() < deadline {
+        let now = dbus.get_name_owner(name.clone()).await.ok();
+        if now.is_some() && now != before {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    asked
 }
 
 /// Whether this session may take the power key: the dedicated Arinn XFCE
@@ -72,6 +137,14 @@ pub struct PowerOwner {
     /// The system bus for logind; opened on first use.
     system: Option<Connection>,
     inhibitor: Option<power_inhibitor::Inhibitor>,
+    /// The session bus, to restart xfce4-power-manager.
+    bus: Option<Connection>,
+    /// Arinn may have broken xfce4-power-manager's grab: it held the key by
+    /// a grab (or an earlier adapter may have, at the start), and nobody
+    /// has checked since it let go.
+    heal: bool,
+    /// How long a restarted xfce4-power-manager has to own its name again.
+    restart_wait: Duration,
     /// xfce4-power-manager's power button is Arinn's "do nothing".
     taken_xfconf: bool,
     /// How Arinn reads the key; `None` while it does not hold it.
@@ -83,11 +156,15 @@ pub struct PowerOwner {
 impl PowerOwner {
     pub fn new(
         dedicated: bool,
+        bus: Option<Connection>,
         xfconf: Option<(Connection, xfce_power::Files)>,
         system: Option<Connection>,
     ) -> Self {
         Self {
             dedicated,
+            bus,
+            heal: true,
+            restart_wait: Duration::from_secs(10),
             xfconf,
             system,
             inhibitor: None,
@@ -113,6 +190,7 @@ impl PowerOwner {
         }
         Self::new(
             xfce_power::dedicated(entry.as_deref()),
+            bus.clone(),
             bus.zip(files),
             None,
         )
@@ -127,16 +205,16 @@ impl PowerOwner {
     pub fn inhibiting(&self) -> bool {
         self.inhibitor.is_some()
     }
-    /// One step: `shell` is alive, `xfce` an XFCE name is on the bus
+    /// One step: `shell` is alive, `xfce` names the XFCE names on the bus
     /// (`xfce_on_bus`), and `reading` is how the snapshot found the key read.
     pub async fn follow<R: Reader>(
         &mut self,
         reader: &mut R,
         shell: bool,
-        xfce: bool,
+        xfce: Xfce,
         reading: Reading,
     ) -> Result<()> {
-        let wanted = allowed(self.dedicated, xfce) && shell;
+        let wanted = allowed(self.dedicated, xfce.any()) && shell;
         if self.owned != Reading::None {
             // The shell is gone, or the reader stopped or changed (a regrab
             // after a mapping change lost the key, or moved it from a grab
@@ -145,11 +223,18 @@ impl PowerOwner {
             // again the right way, with xfconf for raw reading (Codex P2 on
             // #517).
             if !wanted || reading != self.owned {
-                self.give_back(reader).await?;
+                self.give_back(reader, xfce).await?;
             }
             return Ok(());
         }
+        // An earlier adapter may have held the key by a grab (a crash).
+        self.heal(reader, xfce).await;
         if !wanted || self.retry.is_some_and(|at| Instant::now() < at) {
+            return Ok(());
+        }
+        // The dedicated session reads raw events only, and needs xfconf to
+        // set xfce4-power-manager to "do nothing" first.
+        if self.dedicated && self.xfconf.is_none() {
             return Ok(());
         }
         self.retry = Some(Instant::now() + self.retry_after);
@@ -167,10 +252,15 @@ impl PowerOwner {
             );
             return Ok(());
         }
-        let raw = self.dedicated && self.xfconf.is_some();
+        // The dedicated session never grabs: xfce4-power-manager's grab must
+        // succeed whenever it starts (review of #516). Other desktops grab.
+        let raw = self.dedicated;
         match reader.set(true, raw)? {
-            Reading::Grab => self.owned = Reading::Grab,
-            Reading::Raw => {
+            Reading::Grab if !raw => {
+                self.owned = Reading::Grab;
+                self.heal = true;
+            }
+            Reading::Raw if raw => {
                 let (bus, files) = self.xfconf.as_ref().expect("raw needs xfconf");
                 if xfce_power::take(bus, files).await {
                     self.taken_xfconf = true;
@@ -181,8 +271,8 @@ impl PowerOwner {
                     self.inhibitor = None;
                 }
             }
-            Reading::None => {
-                // Held by another client and not readable (no XInput 2.1):
+            _ => {
+                // Held by another client, or not readable (no XInput 2.1):
                 // the key stays the desktop's.
                 reader.set(false, false)?;
                 self.inhibitor = None;
@@ -193,12 +283,27 @@ impl PowerOwner {
         }
         Ok(())
     }
-    /// Gives everything back: the reader first, then the desktop's setting,
-    /// then the inhibitor.
-    pub async fn give_back<R: Reader>(&mut self, reader: &mut R) -> Result<()> {
+    /// Gives everything back: the reader first, then a restart of
+    /// xfce4-power-manager if Arinn's grab broke its own, then the desktop's
+    /// setting, then the inhibitor (held through the restart).
+    pub async fn give_back<R: Reader>(&mut self, reader: &mut R, xfce: Xfce) -> Result<()> {
         let stopped = reader.set(false, false);
+        self.heal(reader, xfce).await;
         self.end().await;
         stopped.map(drop)
+    }
+    /// After Arinn let go of a grab: if xfce4-power-manager runs and nobody
+    /// grabs the power key, its grab failed while Arinn held it, and it
+    /// never grabs again; restart it so the desktop handles the key (review
+    /// of #516). Nothing is done when it does not run (it will grab when it
+    /// starts) or when it holds its grab.
+    async fn heal<R: Reader>(&mut self, reader: &mut R, xfce: Xfce) {
+        if !std::mem::take(&mut self.heal) || !xfce.power_manager {
+            return;
+        }
+        if let (Ok(false), Some(bus)) = (reader.held_elsewhere(), self.bus.as_ref()) {
+            restart_power_manager(bus, self.restart_wait).await;
+        }
     }
     /// The reader is gone (the adapter's session ended): the desktop's
     /// setting and the inhibitor go back.
@@ -218,24 +323,41 @@ impl PowerOwner {
 pub(crate) mod tests {
     use super::*;
     use crate::{power_inhibitor::tests as logind, xfce_power::tests as xfconf};
-    use std::sync::Mutex;
+    use std::sync::{Arc, Mutex};
     use zbus::zvariant::Value;
 
     /// A reader that answers `Grab`, `Raw` or `None` when enabled.
     pub(crate) struct FakeReader {
         pub(crate) answer: Reading,
         pub(crate) calls: Vec<(bool, bool)>,
+        /// Another client grabs a power key.
+        pub(crate) held: bool,
     }
     impl Reader for FakeReader {
         fn set(&mut self, enabled: bool, raw: bool) -> Result<Reading> {
             self.calls.push((enabled, raw));
             Ok(if enabled { self.answer } else { Reading::None })
         }
+        fn held_elsewhere(&mut self) -> Result<bool> {
+            Ok(self.held)
+        }
     }
     pub(crate) fn reader(answer: Reading) -> FakeReader {
         FakeReader {
             answer,
             calls: Vec::new(),
+            held: true,
+        }
+    }
+
+    /// xfce4-power-manager's `Restart`; records how many logind inhibitors
+    /// Arinn held at each call.
+    struct Xfpm(logind::Shared, Arc<Mutex<Vec<usize>>>);
+    #[zbus::interface(name = "org.xfce.Power.Manager")]
+    impl Xfpm {
+        fn restart(&self) {
+            let open = self.0.lock().unwrap().open();
+            self.1.lock().unwrap().push(open);
         }
     }
 
@@ -244,6 +366,9 @@ pub(crate) mod tests {
         login: logind::Shared,
         _logind: Connection,
         pub(crate) owner: PowerOwner,
+        /// Inhibitors Arinn held at each xfce4-power-manager restart.
+        restarts: Arc<Mutex<Vec<usize>>>,
+        _xfpm: Option<Connection>,
     }
     pub(crate) async fn fixture(dedicated: bool) -> Fixture {
         let xfconf = xfconf::fixture(Some(Value::U32(3))).await;
@@ -252,18 +377,39 @@ pub(crate) mod tests {
         logind::serve(&service, login.clone()).await;
         let mut owner = PowerOwner::new(
             dedicated,
+            Some(xfconf.adapter.clone()),
             Some((xfconf.adapter.clone(), xfconf.files.clone())),
             Some(logind::connect(&xfconf.bus.1).await),
         );
         owner.retry_after = Duration::ZERO;
+        owner.restart_wait = Duration::from_millis(50);
         Fixture {
             xfconf,
             login,
             _logind: service,
             owner,
+            restarts: Arc::default(),
+            _xfpm: None,
         }
     }
     impl Fixture {
+        /// xfce4-power-manager starts: it owns its name and answers
+        /// `Restart`.
+        async fn start_xfpm(&mut self) {
+            let xfpm = logind::connect(&self.xfconf.bus.1).await;
+            xfpm.object_server()
+                .at(
+                    POWER_MANAGER_PATH,
+                    Xfpm(self.login.clone(), self.restarts.clone()),
+                )
+                .await
+                .unwrap();
+            xfpm.request_name(POWER_MANAGER).await.unwrap();
+            self._xfpm = Some(xfpm);
+        }
+        fn restarts(&self) -> Vec<usize> {
+            self.restarts.lock().unwrap().clone()
+        }
         pub(crate) fn open(&self) -> usize {
             self.login.lock().unwrap().open()
         }
@@ -278,19 +424,30 @@ pub(crate) mod tests {
         }
     }
 
-    /// An XFCE name on the bus (the session manager, or
-    /// xfce4-power-manager); `OTHER`: none.
-    const XFCE: bool = true;
-    const OTHER: bool = false;
+    /// An XFCE desktop (its session manager and xfce4-power-manager); `OTHER`:
+    /// no XFCE name; `XFPM`: xfce4-power-manager on another desktop.
+    const XFCE: Xfce = Xfce {
+        session: true,
+        power_manager: true,
+    };
+    const OTHER: Xfce = Xfce {
+        session: false,
+        power_manager: false,
+    };
+    const XFPM: Xfce = Xfce {
+        session: false,
+        power_manager: true,
+    };
 
     #[test]
     fn the_ordinary_xfce_desktop_keeps_the_key_and_other_desktops_take_it() {
         // Reviews of #516 and #517: XFCE is told apart on the bus, not by
         // XDG_CURRENT_DESKTOP, which need not reach the unit.
-        assert!(!allowed(false, XFCE));
-        assert!(allowed(true, XFCE));
-        assert!(allowed(false, OTHER));
-        assert!(allowed(true, OTHER));
+        assert!(!allowed(false, XFCE.any()));
+        assert!(!allowed(false, XFPM.any()));
+        assert!(allowed(true, XFCE.any()));
+        assert!(allowed(false, OTHER.any()));
+        assert!(allowed(true, OTHER.any()));
     }
 
     /// `xfce_on_bus` on a private bus: no XFCE name, the session manager,
@@ -300,13 +457,22 @@ pub(crate) mod tests {
         let bus = logind::bus();
         let adapter = logind::connect(&bus.1).await;
         let dbus = zbus::fdo::DBusProxy::new(&adapter).await.unwrap();
-        assert!(!xfce_on_bus(&dbus).await);
-        for name in ["org.xfce.SessionManager", "org.xfce.PowerManager"] {
+        assert_eq!(xfce_on_bus(&dbus).await, OTHER);
+        for (name, seen) in [
+            (
+                "org.xfce.SessionManager",
+                Xfce {
+                    session: true,
+                    power_manager: false,
+                },
+            ),
+            ("org.xfce.PowerManager", XFPM),
+        ] {
             let owner = logind::connect(&bus.1).await;
             owner.request_name(name).await.unwrap();
-            assert!(xfce_on_bus(&dbus).await, "{name}");
+            assert_eq!(xfce_on_bus(&dbus).await, seen, "{name}");
             owner.release_name(name).await.unwrap();
-            assert!(!xfce_on_bus(&dbus).await, "{name}");
+            assert_eq!(xfce_on_bus(&dbus).await, OTHER, "{name}");
         }
     }
 
@@ -433,34 +599,114 @@ pub(crate) mod tests {
         f.settle(0).await;
     }
 
-    /// Codex P2 on #517: in the dedicated session Arinn grabbed the key
-    /// (xfce4-power-manager was not running); a regrab after a mapping
-    /// change lost it to a restarting xfce4-power-manager and reads it from
-    /// raw events instead. The change gives everything back, and the next
-    /// pass takes it again with xfconf at "do nothing", so the two never
-    /// both act on one press.
+    /// Review of #516: the dedicated session never grabs the power key; it
+    /// asks for raw reading only, and a reader that grabbed instead is let
+    /// go, so xfce4-power-manager's grab succeeds whenever it starts.
     #[tokio::test]
-    async fn a_reading_that_moves_from_grab_to_raw_takes_xfconf() {
+    async fn the_dedicated_session_never_grabs() {
         let mut f = fixture(true).await;
         let mut r = reader(Reading::Grab);
         f.owner
             .follow(&mut r, true, XFCE, Reading::None)
             .await
             .unwrap();
-        assert_eq!(f.owner.owned(), Reading::Grab);
+        assert_eq!(r.calls, [(true, true), (false, false)]);
+        assert_eq!(f.owner.owned(), Reading::None);
         assert_eq!(f.xfconf.writes(), 0);
-        r.answer = Reading::Raw;
+        f.settle(0).await;
+    }
+
+    /// Review of #516: xfce4-power-manager starts on another desktop while
+    /// Arinn grabs the key, so its own grab fails and it never grabs again.
+    /// Arinn gives the key back and restarts it, holding logind's inhibitor
+    /// through the restart, so the desktop handles the key again.
+    #[tokio::test]
+    async fn xfce4_power_manager_starting_after_arinns_grab_is_restarted() {
+        let mut f = fixture(false).await;
+        let mut r = reader(Reading::Grab);
+        r.held = false;
         f.owner
-            .follow(&mut r, true, XFCE, Reading::Raw)
+            .follow(&mut r, true, OTHER, Reading::None)
+            .await
+            .unwrap();
+        assert_eq!(f.owner.owned(), Reading::Grab);
+        f.start_xfpm().await;
+        f.owner
+            .follow(&mut r, true, XFPM, Reading::Grab)
             .await
             .unwrap();
         assert_eq!(f.owner.owned(), Reading::None);
+        assert_eq!(f.restarts(), [1]);
+        f.settle(0).await;
+        // Once is enough: no restart while Arinn does not grab again.
+        f.owner
+            .follow(&mut r, true, XFPM, Reading::None)
+            .await
+            .unwrap();
+        assert_eq!(f.restarts(), [1]);
+    }
+
+    /// No restart when xfce4-power-manager holds its own grab, or when it
+    /// does not run when Arinn lets go (it grabs when it starts).
+    #[tokio::test]
+    async fn xfce4_power_manager_is_restarted_only_when_its_grab_failed() {
+        let mut f = fixture(false).await;
+        f.start_xfpm().await;
+        let mut r = reader(Reading::Grab);
+        r.held = true;
+        f.owner
+            .follow(&mut r, true, OTHER, Reading::None)
+            .await
+            .unwrap();
+        f.owner
+            .follow(&mut r, true, XFPM, Reading::Grab)
+            .await
+            .unwrap();
+        assert_eq!(f.owner.owned(), Reading::None);
+        assert!(f.restarts().is_empty());
+        let mut f = fixture(false).await;
+        let mut r = reader(Reading::Grab);
+        r.held = false;
+        f.owner
+            .follow(&mut r, true, OTHER, Reading::None)
+            .await
+            .unwrap();
+        f.owner
+            .follow(&mut r, false, OTHER, Reading::Grab)
+            .await
+            .unwrap();
+        f.start_xfpm().await;
+        f.owner
+            .follow(&mut r, true, XFPM, Reading::None)
+            .await
+            .unwrap();
+        assert!(f.restarts().is_empty());
+    }
+
+    /// A crashed adapter may have held the grab: the next adapter's first
+    /// pass restarts an xfce4-power-manager whose grab is missing, and
+    /// leaves one that holds it alone (the dedicated session, the ordinary
+    /// XFCE desktop).
+    #[tokio::test]
+    async fn the_next_adapter_heals_a_power_manager_a_crash_left_without_its_grab() {
+        let mut f = fixture(false).await;
+        f.start_xfpm().await;
+        let mut r = reader(Reading::Grab);
+        r.held = false;
         f.owner
             .follow(&mut r, true, XFCE, Reading::None)
             .await
             .unwrap();
+        assert_eq!(f.restarts(), [0]);
+        let mut f = fixture(true).await;
+        f.start_xfpm().await;
+        let mut r = reader(Reading::Raw);
+        f.owner
+            .follow(&mut r, true, XFCE, Reading::None)
+            .await
+            .unwrap();
+        assert!(f.restarts().is_empty());
         assert_eq!(f.owner.owned(), Reading::Raw);
-        assert_eq!(f.xfconf.value(), Some(xfce_power::Saved::Uint(0)));
     }
 
     /// A reader that stops later (a regrab lost the key) gives everything

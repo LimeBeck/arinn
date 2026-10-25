@@ -286,6 +286,48 @@ pub(crate) fn grab_combinations(
     Ok(true)
 }
 
+/// Whether another client grabs one of the `power` keys on `root`: a grab
+/// with any modifiers fails with `BadAccess` then. A free key is let go at
+/// once.
+pub(crate) fn power_held(c: &RustConnection, root: Window, power: &[Sequence]) -> Result<bool> {
+    let map = KeyMap::read(c)?;
+    let keys: HashSet<Keycode> = power
+        .iter()
+        .flat_map(|sequence| map.combinations(sequence))
+        .map(|(_, key)| key)
+        .collect();
+    for key in keys {
+        let result = c
+            .grab_key(
+                false,
+                root,
+                ModMask::ANY,
+                key,
+                GrabMode::ASYNC,
+                GrabMode::ASYNC,
+            )?
+            .check();
+        match result {
+            Ok(()) => c.ungrab_key(key, root, ModMask::ANY)?.check()?,
+            Err(x11rb::errors::ReplyError::X11Error(e))
+                if e.error_kind == x11rb::protocol::ErrorKind::Access =>
+            {
+                return Ok(true);
+            }
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(false)
+}
+
+/// `power_held` on the display of this process (`--release-power-key`,
+/// after the adapter ended): `None` without a display.
+pub fn power_held_on_display() -> Option<bool> {
+    let (c, screen) = x11rb::connect(None).ok()?;
+    let root = c.setup().roots.get(screen)?.root;
+    power_held(&c, root, &key_sequence::power()).ok()
+}
+
 /// Grabs every sequence on `root` and returns the grabbed combinations. A
 /// sequence whose key or modifier is not mapped is skipped (the next
 /// MappingNotify grabs it again); one another client holds costs only that
@@ -654,27 +696,27 @@ impl Native {
         } else {
             Vec::new()
         };
-        self.power_grabs = grab_sequences(&self.c, self.root, &map, &power, "power")?;
-        // A power key the desktop's power manager still grabs while it does
-        // nothing with it (the dedicated Arinn XFCE session) is read from raw
-        // events instead.
+        // The dedicated Arinn XFCE session reads the power keys from raw
+        // events only and never grabs them: xfce4-power-manager's own grab
+        // must succeed whenever it starts, since it never grabs again
+        // (review of #516). Its action is "do nothing" while Arinn runs.
         let mut raw_power_codes = HashSet::new();
         if self.raw_power {
+            self.power_grabs = HashSet::new();
             for sequence in &power {
-                let combinations = map.combinations(sequence);
-                if !combinations.iter().any(|c| self.power_grabs.contains(c)) {
-                    raw_power_codes.extend(combinations.iter().map(|(_, key)| *key));
-                }
+                raw_power_codes.extend(map.combinations(sequence).iter().map(|(_, key)| *key));
             }
+        } else {
+            self.power_grabs = grab_sequences(&self.c, self.root, &map, &power, "power")?;
         }
         self.select_raw_power(raw_power_codes)?;
         ensure!(!home.is_empty(), "Home key unavailable");
         self.c.flush()?;
         Ok(())
     }
-    /// Reads the power keys (`enabled`) or leaves them alone, and with
-    /// `raw` reads one another client grabs from raw events (the dedicated
-    /// Arinn XFCE session, ADR-0111). Returns how the key is read now.
+    /// Reads the power keys (`enabled`) or leaves them alone: grabbed, or
+    /// with `raw` from raw events only, never grabbed (the dedicated Arinn
+    /// XFCE session, ADR-0111). Returns how the key is read now.
     pub fn set_power(&mut self, enabled: bool, raw: bool) -> Result<Reading> {
         let raw = enabled && raw;
         if self.power_enabled != enabled || self.raw_power != raw {
@@ -683,6 +725,11 @@ impl Native {
             self.grab_home()?;
         }
         Ok(self.reading())
+    }
+    /// Whether another client grabs a power key now (xfce4-power-manager
+    /// after a successful start). Call it while Arinn grabs none.
+    pub fn power_held_elsewhere(&self) -> Result<bool> {
+        power_held(&self.c, self.root, &self.power)
     }
     /// How the power key is read now.
     pub fn reading(&self) -> Reading {
@@ -1492,10 +1539,10 @@ pub(crate) mod fixture {
         assert!(!native.snapshot()?.power_key);
         Ok(())
     }
-    /// Codex P1 on #517: with `XF86PowerDown` mapped as well, Arinn grabs
-    /// that key while the power manager holds `XF86PowerOff`. Any key read
-    /// from raw events makes the reading `Raw`, so the power manager is set
-    /// to do nothing; a mixed reading never counts as a plain grab.
+    /// Codex P1 on #517 and review of #516: with `XF86PowerDown` mapped as
+    /// well, the dedicated session reads both keys from raw events and
+    /// grabs neither, while the power manager holds `XF86PowerOff`; the
+    /// reading is `Raw`, so the power manager is set to do nothing.
     #[test]
     #[ignore = "requires Xvfb; spawns an isolated X server, never uses the real DISPLAY"]
     fn a_power_key_read_raw_beside_a_grabbed_one_reads_raw() -> Result<()> {
@@ -1548,6 +1595,93 @@ pub(crate) mod fixture {
         assert!(native.snapshot()?.power_key);
         desktop.press(&[], 0x1008_ff2a)?;
         assert!(native.snapshot()?.power_key);
+        // Arinn grabs neither: the power manager's own grab of the other
+        // key would succeed too.
+        assert!(native.power_held_elsewhere()?);
+        let other = x11rb::connect(Some(&desktop.display))?.0;
+        let down = code(0x1008_ff21).or_else(|| {
+            let map = desktop
+                .c
+                .get_keyboard_mapping(setup.min_keycode, count)
+                .ok()?
+                .reply()
+                .ok()?;
+            map.keysyms
+                .chunks(per)
+                .position(|syms| syms.contains(&0x1008_ff21))
+                .map(|i| setup.min_keycode + i as u8)
+        });
+        other
+            .grab_key(
+                false,
+                desktop.root,
+                ModMask::ANY,
+                down.unwrap(),
+                GrabMode::ASYNC,
+                GrabMode::ASYNC,
+            )?
+            .check()?;
+        Ok(())
+    }
+
+    /// Review of #516: in the dedicated session Arinn never grabs the power
+    /// key, so xfce4-power-manager starting later still gets its grab
+    /// (it never grabs again), and Arinn keeps reading the key from raw
+    /// events. `power_held_elsewhere` sees the manager's grab, and nothing
+    /// before it.
+    #[test]
+    #[ignore = "requires Xvfb; spawns an isolated X server, never uses the real DISPLAY"]
+    fn a_power_manager_starting_later_gets_its_grab_in_the_dedicated_session() -> Result<()> {
+        let desktop = Desktop::new()?;
+        let mut native = Native::connect_display(Some(&desktop.display))?;
+        native.snapshot()?;
+        assert_eq!(native.set_power(true, true)?, Reading::Raw);
+        assert!(!native.power_held_elsewhere()?);
+        let setup = desktop.c.setup();
+        let mapping = desktop
+            .c
+            .get_keyboard_mapping(setup.min_keycode, setup.max_keycode - setup.min_keycode + 1)?
+            .reply()?;
+        let power = mapping
+            .keysyms
+            .chunks(usize::from(mapping.keysyms_per_keycode))
+            .position(|syms| syms.contains(&0x1008_ff2a))
+            .map(|i| setup.min_keycode + i as u8)
+            .unwrap();
+        // xfce4-power-manager grabs with any modifier, as xfpm-button.c does.
+        let manager = x11rb::connect(Some(&desktop.display))?.0;
+        manager
+            .grab_key(
+                false,
+                desktop.root,
+                ModMask::ANY,
+                power,
+                GrabMode::ASYNC,
+                GrabMode::ASYNC,
+            )?
+            .check()?;
+        manager.flush()?;
+        assert!(native.power_held_elsewhere()?);
+        desktop.press(&[], 0x1008_ff2a)?;
+        assert!(native.snapshot()?.power_key);
+        // An ordinary desktop's grab, by contrast, makes that manager's
+        // grab fail: the case a restart repairs.
+        drop(manager);
+        native.set_power(true, false)?;
+        assert_eq!(native.snapshot()?.power_reading, Reading::Grab);
+        let late = x11rb::connect(Some(&desktop.display))?.0;
+        assert!(
+            late.grab_key(
+                false,
+                desktop.root,
+                ModMask::ANY,
+                power,
+                GrabMode::ASYNC,
+                GrabMode::ASYNC,
+            )?
+            .check()
+            .is_err()
+        );
         Ok(())
     }
     #[test]

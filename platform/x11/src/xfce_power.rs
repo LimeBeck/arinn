@@ -47,6 +47,8 @@ const TIMEOUT: Duration = Duration::from_secs(5);
 const ADAPTER: &str = "org.arinn.X11";
 /// The packaged adapter, when this process cannot name its own binary.
 const INSTALLED: &str = "/usr/bin/arinn-platform-x11";
+/// xfce4-power-manager's channel file below a configuration directory.
+const CHANNEL_FILE: &str = "xfce4/xfconf/xfce-perchannel-xml/xfce4-power-manager.xml";
 /// The per-user restore entry in `$XDG_CONFIG_HOME/autostart`.
 const ENTRY: &str = "autostart/arinn-power-button-restore.desktop";
 
@@ -125,6 +127,9 @@ pub struct Files {
     pub channel: PathBuf,
     /// The per-user restore entry; its script is next to it (`.sh`).
     pub entry: PathBuf,
+    /// The system default channel files (`$XDG_CONFIG_DIRS`, most
+    /// important first).
+    pub defaults: Vec<PathBuf>,
     /// The adapter binary that wrote the entry (`adapter_binary`). While it
     /// exists, the per-user restore entry leaves the setting to Arinn.
     pub installed: PathBuf,
@@ -148,8 +153,17 @@ impl Files {
         let config = base(config, ".config")?;
         Some(Self {
             record: base(state, ".local/state")?.join("arinn/xfce-power-button"),
-            channel: config.join("xfce4/xfconf/xfce-perchannel-xml/xfce4-power-manager.xml"),
+            channel: config.join(CHANNEL_FILE),
             entry: config.join(ENTRY),
+            defaults: std::env::var("XDG_CONFIG_DIRS")
+                .ok()
+                .filter(|dirs| !dirs.is_empty())
+                .unwrap_or_else(|| "/etc/xdg".into())
+                .split(':')
+                .map(PathBuf::from)
+                .filter(|dir| dir.is_absolute())
+                .map(|dir| dir.join(CHANNEL_FILE))
+                .collect(),
             installed: adapter_binary(),
         })
     }
@@ -164,6 +178,35 @@ impl Files {
     fn explicit(&self) -> bool {
         std::fs::read_to_string(&self.channel)
             .is_ok_and(|text| text.contains(r#"name="power-button-action""#))
+    }
+    /// The value the system default files give the property, if any.
+    fn system_default(&self) -> Option<i64> {
+        self.defaults.iter().find_map(|path| {
+            let text = std::fs::read_to_string(path).ok()?;
+            let at = text.find(r#"name="power-button-action""#)?;
+            let tag = &text[at..at + text[at..].find('>')?];
+            let value = &tag[tag.find(r#"value=""#)? + 7..];
+            value[..value.find('"')?].parse().ok()
+        })
+    }
+    /// Whether the live value xfconf answered is the user's own. The
+    /// user's channel file names it, or the value differs from the system
+    /// default (xfce4-power-manager's built-in default is "do nothing"):
+    /// xfconfd writes the file a few seconds after a change, so a value
+    /// the user set just before has to be recognised from the live value
+    /// (Codex P2 on #516). Otherwise it is the default, recorded as "not
+    /// set".
+    fn users(&self, live: Saved) -> Saved {
+        let value = match live {
+            Saved::Uint(value) => i64::from(value),
+            Saved::Int(value) => i64::from(value),
+            Saved::Absent => return Saved::Absent,
+        };
+        if self.explicit() || value != self.system_default().unwrap_or(0) {
+            live
+        } else {
+            Saved::Absent
+        }
     }
     /// An exclusive lock next to the record, held while it is read or
     /// changed; released when dropped.
@@ -372,16 +415,9 @@ pub async fn take(c: &Connection, files: &Files) -> bool {
     let original = match current(c).await {
         Ok(Some(saved)) if saved.is_nothing() => return true,
         Ok(Some(saved)) => {
-            // Without a value in the user's own file xfconf answered
-            // a system default: the user set nothing. xfconfd writes that
-            // file a few seconds after a change, so a value set just before
-            // Arinn takes the key reads as "not set" and is reset to the
-            // default afterwards (ADR-0111).
-            let saved = if files.explicit() {
-                saved
-            } else {
-                Saved::Absent
-            };
+            // A value that is only the system default is recorded as "not
+            // set" and reset afterwards, never pinned as the user's.
+            let saved = files.users(saved);
             if store(path, saved).is_err() {
                 log("cannot keep the XFCE power button setting; left unchanged");
                 return false;
@@ -601,12 +637,14 @@ pub(crate) mod tests {
             .unwrap();
         service.request_name(SERVICE).await.unwrap();
         let root = std::env::temp_dir().join(format!("arinn-xfce-{}", uuid::Uuid::new_v4()));
-        let files = Files::from_env(
+        let mut files = Files::from_env(
             None,
             Some(root.join("state").as_os_str()),
             Some(root.join("config").as_os_str()),
         )
         .unwrap();
+        // Hermetic system defaults: none unless a test writes one.
+        files.defaults = vec![root.join("etc/xdg").join(CHANNEL_FILE)];
         if explicit {
             std::fs::create_dir_all(files.channel.parent().unwrap()).unwrap();
             std::fs::write(
@@ -776,12 +814,44 @@ pub(crate) mod tests {
         assert_eq!(f.value(), Some(Saved::Int(1)));
     }
 
+    /// Writes a system default channel file with `value`.
+    fn system_default(f: &Fixture, value: u32) {
+        let path = &f.files.defaults[0];
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(
+            path,
+            format!(
+                r#"<channel name="xfce4-power-manager" version="1.0"><property name="xfce4-power-manager" type="empty"><property name="power-button-action" type="uint" value="{value}"/></property></channel>"#
+            ),
+        )
+        .unwrap();
+    }
+
+    /// Codex P2 on #516: xfconfd writes the user's channel file a few
+    /// seconds after a change. A live value that differs from the system
+    /// default (here none, so xfce4-power-manager's built-in "do nothing",
+    /// and then a default of 2) is the user's even before the file names
+    /// it, and is restored, not reset.
+    #[tokio::test]
+    async fn a_fresh_user_value_not_yet_in_the_file_is_kept() {
+        let f = fixture_with(Some(Value::U32(3)), false).await;
+        assert!(take(&f.adapter, &f.files).await);
+        assert_eq!(f.stored(), Some(Saved::Uint(3)));
+        assert!(release(&f.adapter, &f.files).await);
+        assert_eq!(f.value(), Some(Saved::Uint(3)));
+        let f = fixture_with(Some(Value::U32(3)), false).await;
+        system_default(&f, 2);
+        assert!(take(&f.adapter, &f.files).await);
+        assert_eq!(f.stored(), Some(Saved::Uint(3)));
+    }
+
     /// Review of #516: xfconf answers a system default for a property the
     /// user never set. It is recorded as "not set" and reset afterwards,
     /// never pinned as a user value.
     #[tokio::test]
     async fn a_system_default_is_reset_not_pinned() {
         let f = fixture_with(Some(Value::U32(3)), false).await;
+        system_default(&f, 3);
         assert!(take(&f.adapter, &f.files).await);
         assert_eq!(f.stored(), Some(Saved::Absent));
         assert_eq!(f.value(), Some(Saved::Uint(0)));

@@ -658,6 +658,9 @@ impl power_owner::Reader for ActorReader<'_> {
     fn set(&mut self, enabled: bool, raw: bool) -> Result<native::Reading> {
         tokio::task::block_in_place(|| self.0.lock().unwrap().native.set_power(enabled, raw))
     }
+    fn held_elsewhere(&mut self) -> Result<bool> {
+        tokio::task::block_in_place(|| self.0.lock().unwrap().native.power_held_elsewhere())
+    }
 }
 async fn session(power: &mut power_owner::PowerOwner) -> Result<()> {
     let actor = Arc::new(Mutex::new(
@@ -956,6 +959,20 @@ async fn main() -> Result<()> {
         if let Some((bus, files)) = power_button().await {
             xfce_power::release(&bus, &files).await;
         }
+        // The adapter is gone and so is any grab it held. If
+        // xfce4-power-manager runs but nobody grabs the power key, its grab
+        // failed while the adapter held it: restart it (review of #516).
+        if let Ok(bus) = Connection::session().await
+            && let Ok(dbus) = zbus::fdo::DBusProxy::new(&bus).await
+            && power_owner::xfce_on_bus(&dbus).await.power_manager
+            && tokio::task::spawn_blocking(native::power_held_on_display)
+                .await
+                .ok()
+                .flatten()
+                == Some(false)
+        {
+            power_owner::restart_power_manager(&bus, Duration::from_secs(10)).await;
+        }
         return Ok(());
     }
     if argument.as_deref() == Some(std::ffi::OsStr::new("--restore-power-button")) {
@@ -997,7 +1014,15 @@ mod tests {
         let mut f = owner::fixture(true).await;
         let mut reader = owner::reader(Reading::Raw);
         f.owner
-            .follow(&mut reader, true, true, Reading::None)
+            .follow(
+                &mut reader,
+                true,
+                power_owner::Xfce {
+                    session: true,
+                    power_manager: true,
+                },
+                Reading::None,
+            )
             .await
             .unwrap();
         assert_eq!(f.xfconf.value(), Some(Saved::Uint(0)));

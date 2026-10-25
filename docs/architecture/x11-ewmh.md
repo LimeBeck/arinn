@@ -99,8 +99,9 @@ request is published, so the shell never has focus before the request; a
 quick-menu key that cannot be grabbed is skipped without stopping the backend
 ([ADR-0106](../adr/0106-quick-menu-presentation.md)). The power keys
 (`XF86PowerOff`, and `XF86PowerDown` where mapped) are read only while the shell
-owns `org.arinn.Shell1` (`power_owner.rs`), never on an ordinary XFCE desktop
-(`XDG_CURRENT_DESKTOP` names XFCE without `ARINN_SESSION_ENTRY=xfce`), and only
+owns `org.arinn.Shell1` (`power_owner.rs`), only in the dedicated Arinn XFCE
+session (`ARINN_SESSION_ENTRY=xfce`, set by its session wrapper; every other
+X11/EWMH session, the ordinary XFCE desktop included, keeps the key), and only
 after logind's `handle-power-key` inhibitor is held. They are grabbed after the
 other keys, also while the shell is active, and a press is reported with
 `ReportPowerMenuRequest` after the same unlocked check and Home state; the shell
@@ -114,8 +115,9 @@ keeping the user's value in `$XDG_STATE_HOME/arinn/xfce-power-button` until it i
 restored: when the shell is lost or the reader stops, on a clean stop, by
 `ExecStopPost=-/usr/bin/arinn-platform-x11 --release-power-key`, at the next start
 in any X11/EWMH session, and at every XFCE login by the system autostart entry
-`org.arinn.PowerButtonRestore.desktop` (`--restore-power-button`)
-([ADR-0111](../adr/0111-power-key.md)). Home snapshots the exact opaque target
+`org.arinn.PowerButtonRestore.desktop` (`--restore-power-button`); a per-user
+autostart entry that needs only `sh` and `xfconf-query` restores it after the
+package is removed ([ADR-0111](../adr/0111-power-key.md)). Home snapshots the exact opaque target
 and keeps it across repeated Home presses. Return validates that token in the
 current inventory before dispatch. The shell receives all-desktops, fullscreen/above and
 activation EWMH messages; ordinary activation and close also use EWMH messages.

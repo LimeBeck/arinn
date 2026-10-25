@@ -145,7 +145,9 @@ on it:
 | Locked or unknown lock state | Nothing; the shell stays hidden |
 
 The key itself never requests a power action; every action keeps its
-confirmation and refusal rules above.
+confirmation and refusal rules above. Arinn holds the key on KDE Plasma 6.7 or
+later and in the dedicated Arinn XFCE session; older Plasma and every other
+X11 session keep the desktop's own dialog (owner decisions of 2026-10-24).
 
 **The computer's own power button.** It sends the same `KEY_POWER`, so while
 Arinn holds the key (a live shell, see [system control](system-control.md#power-key))

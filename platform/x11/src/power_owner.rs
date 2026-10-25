@@ -28,7 +28,10 @@
 //! X11/EWMH desktop takes it. A name that appears later gives it back.
 use crate::{native::Reading, power_inhibitor, xfce_power};
 use anyhow::Result;
-use std::time::{Duration, Instant};
+use std::{
+    path::PathBuf,
+    time::{Duration, Instant},
+};
 use zbus::Connection;
 
 /// Reads the power key; the adapter's native layer, or a test double.
@@ -123,6 +126,55 @@ pub async fn restart_power_manager(bus: &Connection, wait: Duration) -> bool {
     asked
 }
 
+/// `$XDG_RUNTIME_DIR/arinn/power-grab`, naming this X display: its adapter
+/// grabs, or grabbed, the power key and has not checked
+/// xfce4-power-manager since it let go. Only then may an adapter start or
+/// `--release-power-key` restart xfce4-power-manager (review of #516); the
+/// dedicated session and the ordinary XFCE desktop never grab, so they
+/// never restart it.
+#[derive(Clone, Debug, Default)]
+pub struct GrabMarker {
+    path: Option<PathBuf>,
+    display: String,
+}
+impl GrabMarker {
+    pub fn from_env() -> Self {
+        Self::at(
+            std::env::var_os("XDG_RUNTIME_DIR")
+                .map(PathBuf::from)
+                .filter(|dir| dir.is_absolute())
+                .map(|dir| dir.join("arinn/power-grab")),
+            std::env::var("DISPLAY").unwrap_or_default(),
+        )
+    }
+    pub fn at(path: Option<PathBuf>, display: String) -> Self {
+        Self { path, display }
+    }
+    fn set(&self) {
+        if let Some(path) = &self.path {
+            let _ = path
+                .parent()
+                .map(std::fs::create_dir_all)
+                .transpose()
+                .and_then(|_| std::fs::write(path, &self.display));
+        }
+    }
+    /// This display's adapter left the marker.
+    pub fn present(&self) -> bool {
+        self.path
+            .as_ref()
+            .and_then(|path| std::fs::read_to_string(path).ok())
+            .is_some_and(|display| display == self.display)
+    }
+    pub fn clear(&self) {
+        if self.present()
+            && let Some(path) = &self.path
+        {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+}
+
 /// Whether this session may take the power key: the dedicated Arinn XFCE
 /// session, and any X11/EWMH desktop where no XFCE name is on the bus. The
 /// ordinary XFCE desktop, and any desktop where xfce4-power-manager runs,
@@ -142,9 +194,10 @@ pub struct PowerOwner {
     /// The session bus, to restart xfce4-power-manager.
     bus: Option<Connection>,
     /// Arinn may have broken xfce4-power-manager's grab: it held the key by
-    /// a grab (or an earlier adapter may have, at the start), and nobody
-    /// has checked since it let go.
+    /// a grab (or an earlier adapter did, by `marker`), and nobody has
+    /// checked since it let go.
     heal: bool,
+    marker: GrabMarker,
     /// How long a restarted xfce4-power-manager has to own its name again.
     restart_wait: Duration,
     /// xfce4-power-manager's power button is Arinn's "do nothing".
@@ -165,7 +218,8 @@ impl PowerOwner {
         Self {
             dedicated,
             bus,
-            heal: true,
+            heal: false,
+            marker: GrabMarker::default(),
             restart_wait: Duration::from_secs(10),
             xfconf,
             system,
@@ -196,6 +250,14 @@ impl PowerOwner {
             bus.zip(files),
             None,
         )
+        .with_marker(GrabMarker::from_env())
+    }
+    /// Uses `marker`; one an earlier adapter of this display left is
+    /// checked at the first pass.
+    pub fn with_marker(mut self, marker: GrabMarker) -> Self {
+        self.heal = marker.present();
+        self.marker = marker;
+        self
     }
     /// Whether Arinn holds the key, and how it reads it.
     #[cfg(test)]
@@ -261,6 +323,7 @@ impl PowerOwner {
             Reading::Grab if !raw => {
                 self.owned = Reading::Grab;
                 self.heal = true;
+                self.marker.set();
             }
             Reading::Raw if raw => {
                 let (bus, files) = self.xfconf.as_ref().expect("raw needs xfconf");
@@ -303,7 +366,11 @@ impl PowerOwner {
     /// of #516). Nothing is done when it does not run (it will grab when it
     /// starts) or when it holds its grab.
     async fn heal<R: Reader>(&mut self, reader: &mut R, xfce: Xfce) {
-        if !std::mem::take(&mut self.heal) || !xfce.power_manager {
+        if !std::mem::take(&mut self.heal) {
+            return;
+        }
+        self.marker.clear();
+        if !xfce.power_manager {
             return;
         }
         if let (Ok(false), Some(bus)) = (reader.held_elsewhere(), self.bus.as_ref()) {
@@ -398,6 +465,13 @@ pub(crate) mod tests {
         );
         owner.retry_after = Duration::ZERO;
         owner.restart_wait = Duration::from_millis(50);
+        let run = xfconf
+            .files
+            .record
+            .parent()
+            .unwrap()
+            .join("run/arinn/power-grab");
+        let owner = owner.with_marker(GrabMarker::at(Some(run), ":9".into()));
         Fixture {
             xfconf,
             login,
@@ -681,6 +755,7 @@ pub(crate) mod tests {
             .await
             .unwrap();
         assert_eq!(f.owner.owned(), Reading::Grab);
+        assert!(f.owner.marker.present());
         f.start_xfpm().await;
         f.owner
             .follow(&mut r, true, XFPM, Reading::Grab)
@@ -734,12 +809,11 @@ pub(crate) mod tests {
         assert!(f.restarts().is_empty());
     }
 
-    /// A crashed adapter may have held the grab: the next adapter's first
-    /// pass restarts an xfce4-power-manager whose grab is missing, and
-    /// leaves one that holds it alone (the dedicated session, the ordinary
-    /// XFCE desktop).
+    /// Review of #516: without this display's grab marker an adapter start
+    /// never restarts xfce4-power-manager, even when no power key is
+    /// grabbed (the ordinary XFCE desktop, or no power key mapped).
     #[tokio::test]
-    async fn the_next_adapter_heals_a_power_manager_a_crash_left_without_its_grab() {
+    async fn without_a_grab_of_this_display_nothing_is_restarted() {
         let mut f = fixture(false).await;
         f.start_xfpm().await;
         let mut r = reader(Reading::Grab);
@@ -748,7 +822,32 @@ pub(crate) mod tests {
             .follow(&mut r, true, XFCE, Reading::None)
             .await
             .unwrap();
+        assert!(f.restarts().is_empty());
+        // Another display's marker does not count either.
+        let other = GrabMarker::at(f.owner.marker.path.clone(), ":3".into());
+        other.set();
+        assert!(!f.owner.marker.present());
+    }
+
+    /// A crashed adapter may have held the grab: the next adapter's first
+    /// pass restarts an xfce4-power-manager whose grab is missing, and
+    /// leaves one that holds it alone (the dedicated session, the ordinary
+    /// XFCE desktop).
+    #[tokio::test]
+    async fn the_next_adapter_heals_a_power_manager_a_crash_left_without_its_grab() {
+        let mut f = fixture(false).await;
+        // An earlier adapter of this display grabbed and crashed.
+        f.owner.marker.set();
+        f.owner.heal = f.owner.marker.present();
+        f.start_xfpm().await;
+        let mut r = reader(Reading::Grab);
+        r.held = false;
+        f.owner
+            .follow(&mut r, true, XFCE, Reading::None)
+            .await
+            .unwrap();
         assert_eq!(f.restarts(), [0]);
+        assert!(!f.owner.marker.present());
         let mut f = fixture(true).await;
         f.start_xfpm().await;
         let mut r = reader(Reading::Raw);

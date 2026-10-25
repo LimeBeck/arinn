@@ -962,19 +962,25 @@ async fn main() -> Result<()> {
         if let Some((bus, files)) = power_button().await {
             xfce_power::release(&bus, &files).await;
         }
-        // The adapter is gone and so is any grab it held. If
-        // xfce4-power-manager runs but nobody grabs the power key, its grab
-        // failed while the adapter held it: restart it (review of #516).
-        if let Ok(bus) = Connection::session().await
-            && let Ok(dbus) = zbus::fdo::DBusProxy::new(&bus).await
-            && power_owner::xfce_on_bus(&dbus).await.power_manager
-            && tokio::task::spawn_blocking(native::power_held_on_display)
-                .await
-                .ok()
-                .flatten()
-                == Some(false)
-        {
-            power_owner::restart_power_manager(&bus, Duration::from_secs(10)).await;
+        // The adapter is gone and so is any grab it held. Only if this
+        // display's adapter grabbed the power key (its marker), and
+        // xfce4-power-manager runs while nobody grabs a mapped power key,
+        // did its grab fail while the adapter held it: restart it (review
+        // of #516).
+        let marker = power_owner::GrabMarker::from_env();
+        if marker.present() {
+            if let Ok(bus) = Connection::session().await
+                && let Ok(dbus) = zbus::fdo::DBusProxy::new(&bus).await
+                && power_owner::xfce_on_bus(&dbus).await.power_manager
+                && tokio::task::spawn_blocking(native::power_held_on_display)
+                    .await
+                    .ok()
+                    .flatten()
+                    == Some(false)
+            {
+                power_owner::restart_power_manager(&bus, Duration::from_secs(10)).await;
+            }
+            marker.clear();
         }
         return Ok(());
     }

@@ -288,7 +288,8 @@ pub(crate) fn grab_combinations(
 
 /// Whether another client grabs one of the `power` keys on `root`: a grab
 /// with any modifiers fails with `BadAccess` then. A free key is let go at
-/// once.
+/// once. With no power key mapped there is no grab to repair, which counts
+/// as held (review of #516).
 pub(crate) fn power_held(c: &RustConnection, root: Window, power: &[Sequence]) -> Result<bool> {
     let map = KeyMap::read(c)?;
     let keys: HashSet<Keycode> = power
@@ -296,6 +297,9 @@ pub(crate) fn power_held(c: &RustConnection, root: Window, power: &[Sequence]) -
         .flat_map(|sequence| map.combinations(sequence))
         .map(|(_, key)| key)
         .collect();
+    if keys.is_empty() {
+        return Ok(true);
+    }
     for key in keys {
         let result = c
             .grab_key(
@@ -752,7 +756,8 @@ impl Native {
         Ok(())
     }
     /// Whether another client grabs a power key now (xfce4-power-manager
-    /// after a successful start). Call it while Arinn grabs none.
+    /// after a successful start), or none is mapped. Call it while Arinn
+    /// grabs none.
     pub fn power_held_elsewhere(&self) -> Result<bool> {
         power_held(&self.c, self.root, &self.power)
     }
@@ -1665,6 +1670,42 @@ pub(crate) mod fixture {
                 GrabMode::ASYNC,
             )?
             .check()?;
+        Ok(())
+    }
+
+    /// Review of #516: with no power key mapped there is no grab to repair,
+    /// so `power_held` answers held and xfce4-power-manager is never
+    /// restarted for it.
+    #[test]
+    #[ignore = "requires Xvfb; spawns an isolated X server, never uses the real DISPLAY"]
+    fn no_mapped_power_key_counts_as_held() -> Result<()> {
+        let desktop = Desktop::new()?;
+        let setup = desktop.c.setup();
+        let count = setup.max_keycode - setup.min_keycode + 1;
+        let mapping = desktop
+            .c
+            .get_keyboard_mapping(setup.min_keycode, count)?
+            .reply()?;
+        let per = usize::from(mapping.keysyms_per_keycode);
+        let power = [0x1008_ff2a, 0x1008_ff21];
+        for (i, syms) in mapping.keysyms.chunks(per).enumerate() {
+            if syms.iter().any(|s| power.contains(s)) {
+                desktop
+                    .c
+                    .change_keyboard_mapping(
+                        1,
+                        setup.min_keycode + i as u8,
+                        mapping.keysyms_per_keycode,
+                        &vec![0u32; per],
+                    )?
+                    .check()?;
+            }
+        }
+        assert!(power_held(
+            &desktop.c,
+            desktop.root,
+            &key_sequence::power()
+        )?);
         Ok(())
     }
 

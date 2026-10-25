@@ -188,7 +188,12 @@ every action goes through the methods above.
   bus name `org.kde.Solid.PowerManagement` gets a new owner (a restart), the
   daemon takes the key again at once and after 5 and 30 s, since PowerDevil
   registers its actions present again after it owns the name. Without the
-  inhibitor nothing is taken, and the next attempt follows after 30 s.
+  inhibitor nothing is taken, and the next attempt follows after 30 s. A
+  failed `setInactive` or a write KGlobalAccel does not answer rolls the take
+  back: `ArinnPower` is cleared, PowerDevil's actions are present, and the
+  inhibitor goes once `ArinnPower` is known to be empty; the next attempt
+  follows after 30 s. A release KGlobalAccel does not answer keeps the
+  inhibitor and is tried again at the next check.
 - **X11/EWMH** (`platform/x11/src/power_owner.rs`). The ordinary XFCE desktop
   keeps the key and its dialog. The adapter recognises it on the session bus,
   not from `XDG_CURRENT_DESKTOP`, which does not reach `arinn-ewmh.service` on
@@ -235,13 +240,15 @@ every action goes through the methods above.
 Tests: `platform/kde/power_key.rs` (a fake KGlobalAccel with shared keys and a
 fake logind on a private bus: takeover without a write, KGlobalAccel before
 Plasma 6.7, a third-party key, no PowerDevil, no KGlobalAccel, no inhibitor
-and its retry, a reconnect without a key, the release with the inhibitor
-dropped last, a PowerDevil restart, and the key following a live shell and
-adapter),
+and its retry, a reconnect without a key, every key held by other actions,
+a failed `setInactive` or write and an unanswered release with their
+retries, the release with the inhibitor dropped last, a PowerDevil restart,
+and the key following a live shell and adapter),
 `platform/power_inhibitor.rs`, `power_owner` (a fake reader, xfconf and logind:
 a shell exit, a crash loop, a reader that never works or stops, no inhibitor, a
 grab, the ordinary XFCE desktop, another desktop until xfce4-power-manager
-appears, XFCE recognised by its bus names), `xfce_power` (a fake xfconf: stale copies, a
+appears, a reading that moves from a grab to raw events, XFCE recognised by
+its bus names), `xfce_power` (a fake xfconf: stale copies, a
 newer user choice, a system default, the login restore, and the per-user entry
 run with a fake `xfconf-query` after Arinn is removed), `an_ended_session_gives_the_power_key_back`,
 `tests/package/test_xfce_session.py` (the opt-in bridge starts only with the
@@ -250,7 +257,22 @@ XFCE session manager's name owned and never sets the marker), the Xvfb tests
 `held_power_key_is_read_from_raw_events_only_when_its_manager_does_nothing` and
 `power_key_opens_the_power_menu_only_when_unlocked`, `tests/ci/test_power_button_restore.py`,
 and `tests/integration/kwin_adapter.test.cjs`. Real KDE and XFCE sessions with
-the remote are owner operator tests; not run.
+the remote are owner operator tests (G-5.5); not run. The power-key checklist
+for them:
+
+- **One press, one action** on Plasma 6.7 or later: a short and a long press
+  of ⏻ open only Arinn's power menu, never PowerDevil's logout screen as
+  well, also right after Arinn starts and after PowerDevil restarts; with
+  the shell closed, only PowerDevil acts.
+- After a PowerDevil settings reload (for example a changed *When power
+  button pressed*), note whether PowerDevil keeps the key until the adapter
+  reconnects; it must never act together with Arinn.
+- Plasma before 6.7: the desktop's dialog only, and `kglobalshortcutsrc`
+  unchanged apart from Arinn's own entries.
+- `kglobalshortcutsrc` after a logout during an Arinn session, and the next
+  login with and without Arinn.
+- XFCE: the dedicated session (Arinn's menu only), the ordinary desktop (its
+  own dialog only), and a restore after a power cut.
 
 ## Callers
 

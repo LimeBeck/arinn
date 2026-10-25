@@ -99,10 +99,11 @@ request is published, so the shell never has focus before the request; a
 quick-menu key that cannot be grabbed is skipped without stopping the backend
 ([ADR-0106](../adr/0106-quick-menu-presentation.md)). The power keys
 (`XF86PowerOff`, and `XF86PowerDown` where mapped) are read only while the shell
-owns `org.arinn.Shell1` (`power_owner.rs`), only in the dedicated Arinn XFCE
-session (`ARINN_SESSION_ENTRY=xfce`, set by its session wrapper; every other
-X11/EWMH session, the ordinary XFCE desktop included, keeps the key), and only
-after logind's `handle-power-key` inhibitor is held. They are grabbed after the
+owns `org.arinn.Shell1` (`power_owner.rs`), never on the ordinary XFCE desktop
+(an owner of `org.xfce.SessionManager` or `org.xfce.PowerManager` on the session
+bus without `ARINN_SESSION_ENTRY=xfce`, which the dedicated session's wrapper
+sets; a name that appears later gives the key back), and only after logind's
+`handle-power-key` inhibitor is held. They are grabbed after the
 other keys, also while the shell is active, and a press is reported with
 `ReportPowerMenuRequest` after the same unlocked check and Home state; the shell
 is raised at once, as for Home. A power key another client holds is skipped and

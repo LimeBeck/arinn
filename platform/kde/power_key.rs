@@ -164,6 +164,9 @@ pub enum Taken {
     Unsupported,
     /// No logind inhibitor: nothing was taken.
     NoInhibitor,
+    /// A KGlobalAccel call failed or timed out: everything was rolled back
+    /// and the next attempt follows after the retry delay.
+    Failed,
 }
 impl PowerKey {
     /// Uses `system` for logind instead of the system bus (tests).
@@ -218,11 +221,19 @@ impl PowerKey {
     /// Gives the key back to the desktop, then drops the inhibitor: logind
     /// stays inhibited until `ArinnPower` no longer holds the key (review of
     /// #517, Codex P1).
+    ///
+    /// A release KGlobalAccel did not answer keeps the key counted as taken
+    /// and the inhibitor held, so the next check gives it back again (Codex
+    /// P1 on #517).
     pub async fn give_back(&self, connection: &Connection) {
         let mut inner = self.inner.lock().await;
-        inner.taken = false;
-        release(connection).await;
-        inner.inhibitor = None;
+        if release(connection).await || !running(connection).await {
+            inner.taken = false;
+            inner.inhibitor = None;
+        } else {
+            log("warn", "power-key-release", Some("Unavailable"));
+            inner.taken = true;
+        }
     }
     /// Follows the shell's bus name and `adapter_alive` for this daemon:
     /// holds the key only while both are alive (ADR-0111). Also takes the
@@ -354,9 +365,11 @@ impl PowerKey {
         .await
         .is_some();
         if !written {
+            // Timed out or refused: nothing is known about what it stored
+            // (Codex P1 on #517). Roll back and try again later.
             log("warn", "power-key", Some("Unavailable"));
-            inner.inhibitor = None;
-            return Taken::Partly;
+            rollback(&mut inner, connection, &desktop).await;
+            return Taken::Failed;
         }
         let active = stored(connection, &ACTION.map(String::from)).await;
         if desktop.iter().any(|(key, _)| !active.contains(key)) {
@@ -364,35 +377,29 @@ impl PowerKey {
             // stores. The desktop keeps every power key; PowerDevil's
             // actions were never touched (owner decision of 2026-10-25).
             log("warn", "power-key", Some("Unsupported"));
-            // Present as before: a no-op, unless an earlier take of this run
-            // set them aside (a KGlobalAccel replaced since).
-            let mut returned: Vec<&Vec<String>> = Vec::new();
-            for (_, owner) in &desktop {
-                if !returned.contains(&owner) {
-                    give_back(connection, owner).await;
-                    returned.push(owner);
-                }
+            // A free key ArinnPower did get goes too: the desktop keeps
+            // every power key. Without an answer, the rollback retries.
+            if !rollback(&mut inner, connection, &desktop).await {
+                return Taken::Failed;
             }
-            if !active.is_empty() {
-                call(
-                    connection,
-                    "setForeignShortcutKeys",
-                    &(ACTION.to_vec(), Keys::new()),
-                )
-                .await;
-            }
-            inner.inhibitor = None;
+            inner.taken = true;
+            inner.retry_at = None;
             return Taken::Unsupported;
         }
         // ArinnPower stores the keys: PowerDevil's actions are not present
         // for this KGlobalAccel run. Nothing is written, and the stored keys
         // stay the user's. An action that stays present is older and keeps
         // the key, so a press still reaches only one of them.
+        // A failed `setInactive` would leave a present PowerDevil action
+        // and ArinnPower sharing a key: roll everything back instead
+        // (review of #517) and try again later.
         let mut inactive: Vec<&Vec<String>> = Vec::new();
         for (_, owner) in &desktop {
             if !inactive.contains(&owner) {
                 if call(connection, "setInactive", &(owner,)).await.is_none() {
                     log("warn", "power-key", Some("Conflict"));
+                    rollback(&mut inner, connection, &desktop).await;
+                    return Taken::Failed;
                 }
                 inactive.push(owner);
             }
@@ -411,6 +418,55 @@ impl PowerKey {
             Taken::Partly
         }
     }
+}
+
+/// Whether KGlobalAccel runs; never starts it.
+async fn running(connection: &Connection) -> bool {
+    let Ok(dbus) = zbus::fdo::DBusProxy::new(connection).await else {
+        return false;
+    };
+    dbus.name_has_owner(SERVICE.try_into().expect("valid name"))
+        .await
+        .unwrap_or(false)
+}
+
+/// Undoes a take that did not finish: clears `ArinnPower`, makes `desktop`'s
+/// actions present again, and drops the inhibitor only once `ArinnPower` is
+/// known to be empty. Without that answer the inhibitor stays and the key
+/// stays counted as taken, so the next check gives it back or takes it
+/// again. Either way a new attempt waits for the retry delay. Returns
+/// whether `ArinnPower` was cleared.
+async fn rollback(
+    inner: &mut Inner,
+    connection: &Connection,
+    desktop: &[((Vec<i32>,), Vec<String>)],
+) -> bool {
+    let cleared = call(
+        connection,
+        "setForeignShortcutKeys",
+        &(ACTION.to_vec(), Keys::new()),
+    )
+    .await
+    .is_some()
+        // Without KGlobalAccel nothing can hold the key.
+        || !running(connection).await;
+    let mut returned: Vec<&Vec<String>> = Vec::new();
+    for (_, owner) in desktop {
+        if !returned.contains(&owner) {
+            give_back(connection, owner).await;
+            returned.push(owner);
+        }
+    }
+    inner.retry_at = Some(Instant::now() + inner.retry.unwrap_or(RETRY));
+    if cleared {
+        inner.inhibitor = None;
+        inner.taken = false;
+    } else {
+        log("warn", "power-key-rollback", Some("Unavailable"));
+        inner.taken = true;
+        inner.retake = true;
+    }
+    cleared
 }
 
 /// Gives the power key back to the desktop: clears `ArinnPower`'s keys and
@@ -476,6 +532,10 @@ mod tests {
         login: Option<Shared>,
         /// Open inhibitors at each clearing of `ArinnPower`'s keys.
         cleared_open: Vec<usize>,
+        /// `setInactive` fails.
+        fail_inactive: bool,
+        /// `setForeignShortcutKeys` fails (a timeout, for the daemon).
+        fail_writes: bool,
     }
     impl Accel {
         fn find(&mut self, action: &[String]) -> Option<&mut Shortcut> {
@@ -516,12 +576,16 @@ mod tests {
                 .unwrap_or_default()
         }
         #[zbus(name = "setInactive")]
-        fn set_inactive(&self, action: Vec<String>) {
+        fn set_inactive(&self, action: Vec<String>) -> zbus::fdo::Result<()> {
             let mut accel = self.0.lock().unwrap();
+            if accel.fail_inactive {
+                return Err(zbus::fdo::Error::Failed("fixture".into()));
+            }
             accel.writes.push(format!("inactive {}", action[1]));
             if let Some(s) = accel.find(&action) {
                 s.present = false;
             }
+            Ok(())
         }
         #[zbus(name = "setShortcutKeys")]
         fn set_shortcut_keys(&self, action: Vec<String>, keys: Keys, flags: u32) -> Keys {
@@ -541,8 +605,15 @@ mod tests {
             }
         }
         #[zbus(name = "setForeignShortcutKeys")]
-        fn set_foreign_shortcut_keys(&self, action: Vec<String>, keys: Keys) {
+        fn set_foreign_shortcut_keys(
+            &self,
+            action: Vec<String>,
+            keys: Keys,
+        ) -> zbus::fdo::Result<()> {
             let mut accel = self.0.lock().unwrap();
+            if accel.fail_writes {
+                return Err(zbus::fdo::Error::Failed("fixture".into()));
+            }
             accel
                 .writes
                 .push(format!("keys {} {}", action[1], keys.len()));
@@ -565,6 +636,7 @@ mod tests {
                     .filter(|key| !exclusive || !others.contains(key))
                     .collect();
             }
+            Ok(())
         }
     }
 
@@ -913,6 +985,105 @@ mod tests {
         assert_eq!(f.pressed(POWER_OFF).as_deref(), Some("PowerOff"));
     }
 
+    /// Review of #517 (mutation K1): before Plasma 6.7 a free key that
+    /// `ArinnPower` did get goes too, so the desktop keeps every power key.
+    #[tokio::test]
+    async fn before_plasma_6_7_a_free_key_is_not_kept_either() {
+        let f = fixture(vec![
+            powerdevil("PowerOff", POWER_OFF, 3),
+            shortcut(ACTION, &[], 90),
+        ])
+        .await;
+        f.accel.lock().unwrap().exclusive = true;
+        assert_eq!(f.key.take(&f.daemon).await, Taken::Unsupported);
+        assert_eq!(f.pressed(POWER_OFF).as_deref(), Some("PowerOff"));
+        assert_eq!(f.pressed(POWER_DOWN), None);
+        assert!(f.accel.lock().unwrap().shortcuts[1].keys.is_empty());
+        assert!(!f.key.inhibiting().await);
+    }
+
+    /// Review of #517 (mutation M10): third-party actions hold every power
+    /// key, so Arinn holds none and logind is not inhibited.
+    #[tokio::test]
+    async fn no_key_held_drops_the_inhibitor() {
+        let f = fixture(vec![
+            shortcut(
+                ["kwin", "Other", "KWin", "Other"],
+                &[POWER_OFF, POWER_DOWN],
+                2,
+            ),
+            shortcut(ACTION, &[], 90),
+        ])
+        .await;
+        assert_eq!(f.key.take(&f.daemon).await, Taken::Partly);
+        assert_eq!(f.pressed(POWER_OFF).as_deref(), Some("Other"));
+        assert!(!f.key.inhibiting().await);
+        assert!(eventually(async || f.login.lock().unwrap().open() == 0).await);
+    }
+
+    /// Review of #517: a failed `setInactive` would leave a present
+    /// PowerDevil action sharing a key with `ArinnPower`. Everything rolls
+    /// back (PowerDevil keeps the key, `ArinnPower` is empty, the inhibitor
+    /// goes), and the next attempt after the delay takes the key.
+    #[tokio::test]
+    async fn a_failed_set_inactive_rolls_back_and_retries() {
+        let f = fixture(plasma()).await;
+        f.key.inner.lock().await.retry = Some(Duration::from_millis(200));
+        f.key.adapter_connected().await;
+        f.accel.lock().unwrap().fail_inactive = true;
+        f.key.reconcile(&f.daemon, true).await;
+        assert_eq!(f.pressed(POWER_OFF).as_deref(), Some("PowerOff"));
+        assert!(f.accel.lock().unwrap().shortcuts[2].keys.is_empty());
+        assert!(!f.key.inhibiting().await);
+        assert!(!f.key.taken().await);
+        f.accel.lock().unwrap().fail_inactive = false;
+        f.key.reconcile(&f.daemon, true).await;
+        assert_eq!(f.pressed(POWER_OFF).as_deref(), Some("PowerOff"));
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        f.key.reconcile(&f.daemon, true).await;
+        assert_eq!(f.pressed(POWER_OFF).as_deref(), Some("ArinnPower"));
+    }
+
+    /// Codex P1 on #517: a write KGlobalAccel did not answer leaves nothing
+    /// counted as done. PowerDevil keeps the key, the inhibitor stays while
+    /// `ArinnPower` could not be cleared, and the next attempt after the
+    /// delay takes the key.
+    #[tokio::test]
+    async fn a_failed_write_is_tried_again() {
+        let f = fixture(plasma()).await;
+        f.key.inner.lock().await.retry = Some(Duration::from_millis(200));
+        f.key.adapter_connected().await;
+        f.accel.lock().unwrap().fail_writes = true;
+        f.key.reconcile(&f.daemon, true).await;
+        assert_eq!(f.pressed(POWER_OFF).as_deref(), Some("PowerOff"));
+        assert!(!f.writes().iter().any(|w| w.starts_with("inactive")));
+        assert!(f.key.inhibiting().await);
+        f.accel.lock().unwrap().fail_writes = false;
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        f.key.reconcile(&f.daemon, true).await;
+        assert_eq!(f.pressed(POWER_OFF).as_deref(), Some("ArinnPower"));
+        assert!(f.key.inhibiting().await);
+    }
+
+    /// Codex P1 on #517: a release KGlobalAccel did not answer keeps the
+    /// inhibitor and the key counted as taken; the next check releases it.
+    #[tokio::test]
+    async fn an_unanswered_release_is_tried_again() {
+        let f = fixture(plasma()).await;
+        assert_eq!(f.key.take(&f.daemon).await, Taken::All);
+        f.accel.lock().unwrap().fail_writes = true;
+        f.key.give_back(&f.daemon).await;
+        assert!(f.key.taken().await);
+        assert!(f.key.inhibiting().await);
+        f.accel.lock().unwrap().fail_writes = false;
+        f.key.inner.lock().await.ready = true;
+        f.key.reconcile(&f.daemon, false).await;
+        assert!(!f.key.taken().await);
+        assert!(!f.key.inhibiting().await);
+        assert!(f.accel.lock().unwrap().shortcuts[2].keys.is_empty());
+        assert_eq!(f.pressed(POWER_OFF).as_deref(), Some("PowerOff"));
+    }
+
     /// Without KGlobalAccel nothing is taken, started or inhibited.
     #[tokio::test]
     async fn missing_kglobalaccel_is_reported_not_fatal() {
@@ -922,8 +1093,9 @@ mod tests {
         let daemon = connect(&bus.1).await;
         let key = PowerKey::default();
         key.set_system(connect(&bus.1).await).await;
-        assert_eq!(key.take(&daemon).await, Taken::Partly);
+        assert_eq!(key.take(&daemon).await, Taken::Failed);
         assert!(!key.inhibiting().await);
+        assert!(!key.taken().await);
         assert!(!release(&daemon).await);
         assert!(eventually(async || login.lock().unwrap().open() == 0).await);
     }

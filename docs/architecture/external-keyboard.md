@@ -101,7 +101,7 @@ The pieces:
   - `[open, S]`: lock check, `forceActivate()`, wait 1 s for the context, `grab_keyboard`, `Opened`.
   - Panel keys (evdev 103, 108, 105, 106, 28, 96, 352, 353, 1, 158) become `Input` on press; held arrows repeat at the grab's rate.
   - Every other key is forwarded with `key`, and modifiers with `modifiers`.
-  - Text goes through `commit_string` with the context's latest `commit_state` serial; editing keys through `keysym`.
+  - Text goes through `commit_string` with the context's latest `commit_state` serial; editing keys through `keysym`. Both, and forwarded keys, go only to the exact context the session grabbed, and only while KWin still has it active; the check runs under the lock the Wayland thread takes to record a new context. A delivery that finds another context (KWin moved focus while the helper waited for the lock service) is dropped and ends the session as `focus`.
   - A context deactivated by KWin ends the session: `focus` after an explicit unlocked reply of the lock service, otherwise `locked`. A lock (checked before each delivery and every 500 ms) ends it (`locked`). Closing releases the context with `VirtualKeyboard.active = false`.
   - When the daemon lane ends (a restart, a crash, a `Conflict` from `Next`), the helper ends the session, drops the keyboard grab, sets `VirtualKeyboard.active = false` and discards the keys the old grab had queued, so none reaches the application late. The state machine outlives the connection.
   - A held arrow's repeats belong to one run; a repeat queued when the run stops (release, session end) is dropped, never forwarded as a press without a release.
@@ -132,6 +132,7 @@ The pieces:
   - focus loss, and a deactivate while locked reported as `locked`;
   - close releases the context;
   - a lost daemon lane releases the grab, sets `active = false` and forwards no queued key; the next connection opens sessions again;
+  - text typed while KWin moves focus to another window during the lock check never reaches that window's context;
   - repeats queued when a session ends never reach the application.
 - **KWin script:** Node tests.
 - **Shell:** see [ui-keyboard.md](ui-keyboard.md#verification).

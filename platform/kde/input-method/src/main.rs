@@ -89,12 +89,29 @@ async fn unlocked(c: &zbus::Connection) -> bool {
 /// The Wayland objects the session loop acts on.
 #[derive(Default)]
 struct Shared {
+    /// The context KWin activated last; the Wayland thread replaces it the
+    /// moment KWin's events arrive.
     context: Option<ZwpInputMethodContextV1>,
+    /// The exact context the open session grabbed: the target's. Text, keys
+    /// and editing keys go only to it, and only while it is still
+    /// `context` (Codex P1 on #484).
+    bound: Option<ZwpInputMethodContextV1>,
     keyboard: Option<wl_keyboard::WlKeyboard>,
     /// The latest `commit_state` serial of the context.
     serial: u32,
     /// Key repeat of the grab: (rate per second, delay in ms).
     repeat: (i32, i32),
+}
+
+impl Shared {
+    /// The bound context, if it is still the one KWin has active. Checked
+    /// under the lock the Wayland thread takes to change `context`, so a
+    /// delivery can never reach a context activated for another window.
+    fn target(&self) -> Option<&ZwpInputMethodContextV1> {
+        self.bound
+            .as_ref()
+            .filter(|bound| self.context.as_ref() == Some(*bound))
+    }
 }
 
 /// Dispatch state of the Wayland thread: it reports events to the session
@@ -369,7 +386,9 @@ impl Lane<'_> {
         let _ = self.wayland.flush();
     }
 
-    async fn act(&mut self, out: Out) {
+    /// Carries out one decision. A delivery whose target context is gone
+    /// returns [`In::TargetLost`] for the machine.
+    async fn act(&mut self, out: Out) -> Option<In> {
         let kwin = self.endpoints.kwin.as_str();
         match out {
             Out::ForceActivate => {
@@ -397,13 +416,18 @@ impl Lane<'_> {
                 let mut shared = self.shared.lock().unwrap();
                 if let Some(context) = shared.context.clone() {
                     shared.keyboard = Some(context.grab_keyboard(self.handle, ()));
+                    shared.bound = Some(context);
                 }
                 drop(shared);
                 self.flush();
             }
             Out::Release => {
                 self.stop_repeat();
-                self.shared.lock().unwrap().keyboard = None;
+                {
+                    let mut shared = self.shared.lock().unwrap();
+                    shared.keyboard = None;
+                    shared.bound = None;
+                }
                 let _ = self
                     .endpoints
                     .bus
@@ -444,18 +468,20 @@ impl Lane<'_> {
             }
             Out::Commit(text) => {
                 let shared = self.shared.lock().unwrap();
-                if let Some(context) = &shared.context {
-                    context.commit_string(shared.serial, text);
-                }
+                let Some(target) = shared.target() else {
+                    return Some(In::TargetLost);
+                };
+                target.commit_string(shared.serial, text);
                 drop(shared);
                 self.flush();
             }
             Out::Keysym(sym) => {
                 let shared = self.shared.lock().unwrap();
-                if let Some(context) = &shared.context {
-                    context.keysym(shared.serial, 0, sym, 1, 0);
-                    context.keysym(shared.serial, 0, sym, 0, 0);
-                }
+                let Some(target) = shared.target() else {
+                    return Some(In::TargetLost);
+                };
+                target.keysym(shared.serial, 0, sym, 1, 0);
+                target.keysym(shared.serial, 0, sym, 0, 0);
                 drop(shared);
                 self.flush();
             }
@@ -465,14 +491,17 @@ impl Lane<'_> {
                 serial,
                 time,
             } => {
+                // Keys come only from the session's grab; they go back to
+                // the context that grab belongs to, never to another one.
                 let shared = self.shared.lock().unwrap();
-                if let Some(context) = &shared.context {
-                    context.key(serial, time, code, u32::from(pressed));
+                if let Some(target) = shared.target() {
+                    target.key(serial, time, code, u32::from(pressed));
                 }
                 drop(shared);
                 self.flush();
             }
         }
+        None
     }
 }
 
@@ -559,8 +588,13 @@ async fn session(
         let Some(input) = input else {
             continue;
         };
-        for out in machine.handle(input) {
-            lane.act(out).await;
+        let mut pending = vec![input];
+        while let Some(input) = pending.pop() {
+            for out in machine.handle(input) {
+                if let Some(next) = lane.act(out).await {
+                    pending.push(next);
+                }
+            }
         }
         if !machine.is_open() {
             lane.open = None;

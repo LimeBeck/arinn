@@ -28,6 +28,9 @@ pub enum In {
     /// The daemon lane ended (restart, crash, `Conflict`): no session
     /// survives it, and there is nobody to report the end to.
     Lost,
+    /// A delivery found the context the session grabbed no longer active:
+    /// KWin moved on to another window before the machine heard of it.
+    TargetLost,
     /// A key from the keyboard grab (evdev code).
     Key {
         code: u32,
@@ -191,6 +194,10 @@ impl Machine {
                 }
             }
             In::Lost => self.end(None),
+            In::TargetLost => match &self.session {
+                Some((_, Phase::Open)) => self.end(Some("focus")),
+                _ => Vec::new(),
+            },
             In::Locked(session) => {
                 if self.current(&session).is_some() {
                     self.end(Some("locked"))
@@ -347,6 +354,21 @@ mod tests {
         let mut idle = Machine::default();
         assert_eq!(idle.handle(In::Activated), []);
         assert_eq!(idle.handle(In::Deactivated), []);
+    }
+
+    /// Codex P1 on #484: a delivery that found its context gone ends the
+    /// session as `focus`; nothing else happens without an open session.
+    #[test]
+    fn a_lost_target_ends_the_session() {
+        let mut m = Machine::default();
+        assert_eq!(m.handle(In::TargetLost), []);
+        m.handle(In::Open(S.into()));
+        m.handle(In::Activated);
+        assert_eq!(
+            m.handle(In::TargetLost),
+            [Out::Closed(S.into(), "focus"), Out::Release]
+        );
+        assert_eq!(m.handle(In::Type(S.into(), "x".into())), []);
     }
 
     /// Review of #484: a lost daemon lane hands the keys back at once.

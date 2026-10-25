@@ -284,10 +284,14 @@ impl FakeKWin {
     }
 }
 
-struct ScreenSaver(Arc<AtomicBool>);
+/// The lock service: locked or not, and whether it answers slowly.
+struct ScreenSaver(Arc<AtomicBool>, Arc<AtomicBool>);
 #[zbus::interface(name = "org.freedesktop.ScreenSaver")]
 impl ScreenSaver {
-    fn get_active(&self) -> bool {
+    async fn get_active(&self) -> bool {
+        if self.1.load(Ordering::SeqCst) {
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
         self.0.load(Ordering::SeqCst)
     }
 }
@@ -321,6 +325,7 @@ struct Env {
     daemon: FakeDaemon,
     kwin_log: Log,
     locked: Arc<AtomicBool>,
+    slow_lock: Arc<AtomicBool>,
     repeat: Arc<Mutex<(i32, i32)>>,
     task: tokio::task::JoinHandle<Result<()>>,
     _connections: Vec<zbus::Connection>,
@@ -355,11 +360,15 @@ impl Env {
             .await
             .unwrap();
         let locked = Arc::new(AtomicBool::new(false));
+        let slow_lock = Arc::new(AtomicBool::new(false));
         let _screensaver = zbus::connection::Builder::address(bus.1.as_str())
             .unwrap()
             .name("org.freedesktop.ScreenSaver")
             .unwrap()
-            .serve_at("/ScreenSaver", ScreenSaver(locked.clone()))
+            .serve_at(
+                "/ScreenSaver",
+                ScreenSaver(locked.clone(), slow_lock.clone()),
+            )
             .unwrap()
             .build()
             .await
@@ -386,6 +395,7 @@ impl Env {
             daemon,
             kwin_log,
             locked,
+            slow_lock,
             repeat,
             task,
             _connections: vec![daemon_connection, kwin, _screensaver],
@@ -407,6 +417,7 @@ async fn scenario() {
         daemon,
         kwin_log,
         locked,
+        slow_lock: _,
         repeat: _,
         task,
         _connections,
@@ -673,6 +684,36 @@ async fn repeats_queued_when_a_session_ends_never_reach_the_application() {
         assert!(
             forwarded.is_empty(),
             "stale repeats forwarded: {forwarded:?}"
+        );
+        env.task.abort();
+    })
+    .await
+    .unwrap();
+}
+
+/// Codex P1 on #484 (privacy): while the helper waits for the lock service
+/// before a `Type`, KWin deactivates the target's context and activates one
+/// for another window. The text must not be committed to that window; the
+/// session ends as `focus`.
+#[tokio::test]
+async fn text_never_reaches_a_context_activated_for_another_window() {
+    tokio::time::timeout(Duration::from_secs(60), async {
+        let env = Env::new(Duration::from_secs(3600)).await;
+        env.open(S).await;
+        wait_for(&env.surface, "grab").await;
+        env.slow_lock.store(true, Ordering::SeqCst);
+        push(&env.daemon, Record::Type(S.into(), "secret".into()));
+        // The helper is now waiting for the lock answer (500 ms): focus
+        // moves to another window with text-input.
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        env.commands.send(Command_::Deactivate).unwrap();
+        env.commands.send(Command_::Activate).unwrap();
+        wait_for(&env.daemon.calls, &format!("closed:{S}:focus")).await;
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let log = env.surface.lock().unwrap().clone();
+        assert!(
+            !log.iter().any(|e| e.contains("secret")),
+            "text reached another window: {log:?}"
         );
         env.task.abort();
     })

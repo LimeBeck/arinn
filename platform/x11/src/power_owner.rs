@@ -90,9 +90,11 @@ pub enum Restarted {
     Confirmed,
     /// The old instance went away, and no new one owned the name in time.
     Missing,
-    /// Nothing changed: `Restart` failed or timed out, or the old instance
-    /// still owns the name.
+    /// Nothing was restarted: an error reply to `Restart`, or no inhibitor.
     Unchanged,
+    /// `Restart` was asked, but the old instance still owned the name at
+    /// `wait`: it may still act on it later (review of #521).
+    Stayed,
     /// Its name had no owner any more: nothing was restarted (#519).
     Gone,
 }
@@ -170,7 +172,7 @@ pub async fn restart_power_manager(bus: &Connection, times: RestartTimes) -> Res
         let now = dbus.get_name_owner(name.clone()).await.ok();
         match &now {
             Some(now) if *now != before => return Restarted::Confirmed,
-            Some(_) if Instant::now() >= deadline => return Restarted::Unchanged,
+            Some(_) if Instant::now() >= deadline => return Restarted::Stayed,
             None if Instant::now() >= absent => return Restarted::Missing,
             _ => {}
         }
@@ -459,6 +461,10 @@ pub struct PowerOwner {
     /// restarts, so the desktop keeps the key (review of #521).
     unconfirmed: u32,
     gave_up: bool,
+    /// The last restart ended `Restarted::Stayed`: if the name goes away
+    /// before the next one, that counts as a missing instance (review of
+    /// #521).
+    stayed: bool,
     /// "No session bus" was logged once.
     no_bus_logged: bool,
     /// A stale XFCE copy the start, or a release, could not give back, and
@@ -501,6 +507,7 @@ impl PowerOwner {
             restarting: None,
             unconfirmed: 0,
             gave_up: false,
+            stayed: false,
             no_bus_logged: false,
             stale: None,
             stale_inhibitor: None,
@@ -729,12 +736,20 @@ impl PowerOwner {
         }
         // The marker goes only once nothing is left to repair, so a later
         // start retries an unconfirmed one (Codex on #517).
-        // An absence right after an unconfirmed restart may be a slow new
-        // instance: the count of missing instances stays (review of
-        // #521).
         if !xfce.power_manager {
+            // A restart that left the old instance in place may have acted
+            // after `wait`: its absence counts as a missing instance
+            // (review of #521).
+            if std::mem::take(&mut self.stayed) && self.missing() {
+                return;
+            }
             self.heal = false;
-            self.heal_at = None;
+            // An absence right after a missing instance may be a slow new
+            // one: the count stays, and so does the backoff, so a late
+            // successor is not restarted sooner (Codex on #521).
+            if self.unconfirmed == 0 {
+                self.heal_at = None;
+            }
             self.marker.clear();
             return;
         }
@@ -765,6 +780,7 @@ impl PowerOwner {
             return;
         };
         self.heal = false;
+        self.stayed = false;
         // Off the adapter's loop (it can take seconds), with logind's
         // inhibitor held until the new instance owns its name: Arinn's own,
         // which `end` then no longer drops, or a temporary one at a start
@@ -809,15 +825,31 @@ impl PowerOwner {
         self.heal = false;
         self.heal_at = None;
         self.unconfirmed = 0;
+        self.stayed = false;
         self.marker.clear();
+    }
+    /// One more restart xfce4-power-manager did not come back from; at
+    /// `RESTARTS` in a row the adapter gives up, keeping the marker for the
+    /// next start. Returns whether it gave up.
+    fn missing(&mut self) -> bool {
+        self.unconfirmed += 1;
+        if self.unconfirmed >= RESTARTS {
+            eprintln!(
+                "arinn-platform-x11: xfce4-power-manager did not come back after {RESTARTS} restarts; the power key stays the desktop's until the adapter restarts"
+            );
+            self.gave_up = true;
+            self.heal = false;
+        }
+        self.gave_up
     }
     /// A finished restart whose new instance was not seen arms the repair
     /// again (Codex on #517, #519). Only a restart after which the old
     /// instance went away counts: after `RESTARTS` of them in a row the
     /// adapter gives up and leaves the key to the desktop. One that changed
-    /// nothing (a failed `Restart`, the old instance still there) is retried
+    /// nothing (an error reply, the old instance still there) is retried
     /// on the backoff without counting, so an instance whose grab is broken
-    /// is not left alone (review of #521).
+    /// is not left alone; if the old instance goes away later after all,
+    /// that counts (review of #521).
     fn reap_restart(&mut self) {
         if !self.restarting.as_ref().is_some_and(|t| t.is_finished()) {
             return;
@@ -830,20 +862,15 @@ impl PowerOwner {
             Restarted::Confirmed => self.repaired(),
             // Nothing ran to restart: the next pass sees what runs now.
             Restarted::Gone => self.heal = true,
-            Restarted::Unchanged => {
+            Restarted::Unchanged | Restarted::Stayed => {
                 eprintln!(
                     "arinn-platform-x11: xfce4-power-manager's restart changed nothing; retrying"
                 );
+                self.stayed = restarted == Restarted::Stayed;
                 self.heal = true;
             }
             Restarted::Missing => {
-                self.unconfirmed += 1;
-                if self.unconfirmed >= RESTARTS {
-                    eprintln!(
-                        "arinn-platform-x11: xfce4-power-manager did not come back after {RESTARTS} restarts; the power key stays the desktop's until the adapter restarts"
-                    );
-                    self.gave_up = true;
-                } else {
+                if !self.missing() {
                     eprintln!(
                         "arinn-platform-x11: xfce4-power-manager did not come back after its restart; retrying"
                     );
@@ -1019,6 +1046,9 @@ pub(crate) mod tests {
         Late(Duration),
         /// The old instance quits and no new one comes.
         Quits,
+        /// `Restart` is answered at once, but the old instance quits only
+        /// this long after; no new one comes.
+        ActsLate(Duration),
     }
     #[zbus::interface(name = "org.xfce.Power.Manager")]
     impl Xfpm {
@@ -1030,11 +1060,19 @@ pub(crate) mod tests {
             let after = *self.after.lock().unwrap();
             let reply = *self.reply.lock().unwrap();
             tokio::time::sleep(reply).await;
+            if let After::ActsLate(delay) = after {
+                let connection = connection.clone();
+                tokio::spawn(async move {
+                    tokio::time::sleep(delay).await;
+                    let _ = connection.release_name(POWER_MANAGER).await;
+                });
+                return;
+            }
             if after != After::Stays {
                 let _ = connection.release_name(POWER_MANAGER).await;
             }
             let delay = match after {
-                After::Stays | After::Quits => return,
+                After::Stays | After::Quits | After::ActsLate(_) => return,
                 After::ComesBack => Duration::ZERO,
                 After::Late(delay) => delay,
             };
@@ -2208,6 +2246,142 @@ pub(crate) mod tests {
             restart_power_manager(&f.xfconf.adapter, RestartTimes::default()).await,
             Restarted::Gone
         );
+    }
+
+    /// Codex on #521: a successor that comes after a missing instance, but
+    /// before the backoff has passed, is not restarted sooner: the backoff
+    /// of the restart that ended `Missing` stays.
+    #[tokio::test]
+    async fn a_late_successor_waits_for_the_backoff() {
+        let mut f = fixture(false).await;
+        f.owner.heal_every = Duration::from_millis(1000);
+        f.owner.restart.absent = Duration::from_millis(150);
+        let mut r = reader(Reading::Grab);
+        r.held = false;
+        f.owner
+            .follow(&mut r, true, OTHER, Reading::None)
+            .await
+            .unwrap();
+        f.start_xfpm().await;
+        f.set_after(After::Quits);
+        f.owner
+            .follow(&mut r, true, XFPM, Reading::Grab)
+            .await
+            .unwrap();
+        assert_eq!(f.restarts().await, [1]);
+        assert_eq!(f.owner.unconfirmed, 1);
+        // No instance: Arinn takes the key; the successor's grab fails.
+        f.stop_xfpm();
+        f.owner
+            .follow(&mut r, true, OTHER, Reading::None)
+            .await
+            .unwrap();
+        assert_eq!(f.owner.owned(), Reading::Grab);
+        f.start_xfpm().await;
+        f.set_after(After::ComesBack);
+        f.owner
+            .follow(&mut r, true, XFPM, Reading::Grab)
+            .await
+            .unwrap();
+        assert_eq!(f.owner.owned(), Reading::None);
+        assert_eq!(f.restarts().await, [1], "restarted before the backoff");
+        // After it: restarted, and confirmed.
+        tokio::time::sleep(Duration::from_millis(1000)).await;
+        f.owner
+            .follow(&mut r, true, XFPM, Reading::None)
+            .await
+            .unwrap();
+        assert_eq!(f.restarts().await.len(), 2);
+        assert!(!f.owner.marker.present());
+    }
+
+    /// Review of #521: an instance that still owns its name at `wait` but
+    /// quits later after all (it acted on `Restart` late) counts as a
+    /// missing instance once its name is gone, so instances acting late
+    /// again and again stop at the cap.
+    #[tokio::test]
+    async fn late_acting_instances_stop_at_the_cap() {
+        let mut f = fixture(false).await;
+        f.owner.heal_every = Duration::from_millis(100);
+        f.owner.restart.wait = Duration::from_millis(100);
+        f.owner.restart.absent = Duration::from_millis(150);
+        let mut r = reader(Reading::Grab);
+        r.held = false;
+        f.owner
+            .follow(&mut r, true, OTHER, Reading::None)
+            .await
+            .unwrap();
+        for round in 1..=RESTARTS as usize {
+            f.start_xfpm().await;
+            f.set_after(After::ActsLate(Duration::from_millis(250)));
+            f.owner
+                .follow(&mut r, true, XFPM, Reading::Grab)
+                .await
+                .unwrap();
+            assert_eq!(f.owner.owned(), Reading::None);
+            if f.restarts().await.len() < round {
+                tokio::time::sleep(Duration::from_millis(130)).await;
+                f.owner
+                    .follow(&mut r, true, XFPM, Reading::None)
+                    .await
+                    .unwrap();
+            }
+            assert_eq!(f.restarts().await.len(), round);
+            // The restart ended with the old instance in place; it quits
+            // after all.
+            tokio::time::sleep(Duration::from_millis(250)).await;
+            f.stop_xfpm();
+            f.owner
+                .follow(&mut r, true, OTHER, Reading::None)
+                .await
+                .unwrap();
+            assert_eq!(f.owner.unconfirmed as usize, round);
+            let grab = round < RESTARTS as usize;
+            let expected = if grab { Reading::Grab } else { Reading::None };
+            assert_eq!(f.owner.owned(), expected, "round {round}");
+        }
+        assert!(f.owner.gave_up);
+        f.start_xfpm().await;
+        tokio::time::sleep(Duration::from_millis(130)).await;
+        f.owner
+            .follow(&mut r, true, XFPM, Reading::None)
+            .await
+            .unwrap();
+        assert_eq!(f.restarts().await.len(), RESTARTS as usize);
+    }
+
+    /// Review of #521 (ADR-0111: at most 15 s): `wait` and `absent` count
+    /// from the start of the restart, so a slow `Restart` call does not
+    /// lengthen the inhibitor's hold.
+    #[tokio::test]
+    async fn a_slow_restart_call_counts_toward_the_bound() {
+        let mut f = fixture(false).await;
+        f.owner.heal_every = Duration::from_secs(10);
+        f.owner.restart.wait = Duration::from_millis(300);
+        f.owner.restart.absent = Duration::from_millis(600);
+        let mut r = reader(Reading::Grab);
+        r.held = false;
+        f.owner
+            .follow(&mut r, true, OTHER, Reading::None)
+            .await
+            .unwrap();
+        f.start_xfpm().await;
+        f.set_after(After::Quits);
+        *f.reply.lock().unwrap() = Duration::from_millis(500);
+        f.owner
+            .follow(&mut r, true, XFPM, Reading::Grab)
+            .await
+            .unwrap();
+        // Counted from the start, it ends at about 600 ms; counted from
+        // the answer, at about 1100 ms.
+        tokio::time::sleep(Duration::from_millis(850)).await;
+        assert!(
+            f.owner.restarting.as_ref().is_some_and(|t| t.is_finished()),
+            "held longer than the bound"
+        );
+        assert_eq!(f.restarts().await, [1]);
+        assert_eq!(f.owner.unconfirmed, 1);
+        f.settle(0).await;
     }
 
     /// Review of #521: when xfce4-power-manager's name has no owner any

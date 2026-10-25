@@ -107,10 +107,12 @@ sets; a name that appears later gives the key back), and only after logind's
 other keys, also while the shell is active, and a press is reported with
 `ReportPowerMenuRequest` after the same unlocked check and Home state; the shell
 is raised at once, as for Home. A power key another client holds is skipped and
-logged and stays that client's. In the dedicated Arinn XFCE session
-(owner decision of 2026-10-24) a power key xfce4-power-manager still grabs is read
-from XInput2 raw key presses on the root window (only the power keycodes are
-looked at), and only once that works the adapter sets xfce4-power-manager's
+logged and stays that client's; when Arinn lets go of a grab while
+xfce4-power-manager runs without its own grab (its one grab at start failed),
+the adapter restarts it over D-Bus so it grabs again. In the dedicated Arinn
+XFCE session (owner decision of 2026-10-24) the power keys are never grabbed
+but read from XInput2 raw key presses on the root window (only the power
+keycodes are looked at), and only once that works the adapter sets xfce4-power-manager's
 `/xfce4-power-manager/power-button-action` to 0 ("do nothing") through xfconf,
 keeping the user's value in `$XDG_STATE_HOME/arinn/xfce-power-button` until it is
 restored: when the shell is lost or the reader stops, on a clean stop, by

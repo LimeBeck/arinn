@@ -204,13 +204,20 @@ every action goes through the methods above.
   every loop (500 ms), so an XFCE name that appears later gives the key back.
   With a live shell the adapter takes the logind inhibitor, then grabs
   `XF86PowerOff` (and `XF86PowerDown` where mapped). A key another client
-  holds stays that client's.
+  holds stays that client's. xfce4-power-manager grabs the key only once,
+  when it starts, and ignores a failure; so when Arinn lets go of a grab
+  while xfce4-power-manager runs and nobody grabs the key, the adapter
+  restarts it over its D-Bus `Restart` (`org.xfce.Power.Manager`), keeping
+  logind's inhibitor until the new instance owns its name. The same check
+  runs at every adapter start and in `--release-power-key`, after a crash.
 - **XFCE, dedicated Arinn session only** (owner decision of 2026-10-24). With
-  `ARINN_SESSION_ENTRY=xfce` the adapter reads the key xfce4-power-manager
-  grabs from XInput2 raw events, and only once that works sets
-  xfce4-power-manager's power-button action to "do nothing" through xfconf
-  (`platform/x11/src/xfce_power.rs`). The user's value (or "not set", when the
-  user's own channel file does not name it) is kept in
+  `ARINN_SESSION_ENTRY=xfce` the adapter never grabs the power keys, so
+  xfce4-power-manager's grab succeeds whenever it starts; it reads them from
+  XInput2 raw events, and only once that works sets xfce4-power-manager's
+  power-button action to "do nothing" through xfconf
+  (`platform/x11/src/xfce_power.rs`). The user's live value (or "not set",
+  when the user's own channel file does not name it and it equals the system
+  default) is kept in
   `$XDG_STATE_HOME/arinn/xfce-power-button` before the change and restored
   when the shell is lost, on a clean stop, by `arinn-platform-x11
   --release-power-key` (`ExecStopPost=` of `arinn-ewmh.service`), at the next
@@ -247,9 +254,10 @@ and the key following a live shell and adapter),
 `platform/power_inhibitor.rs`, `power_owner` (a fake reader, xfconf and logind:
 a shell exit, a crash loop, a reader that never works or stops, no inhibitor, a
 grab, the ordinary XFCE desktop, another desktop until xfce4-power-manager
-appears, a reading that moves from a grab to raw events, XFCE recognised by
-its bus names), `xfce_power` (a fake xfconf: stale copies, a
-newer user choice, a system default, the login restore, and the per-user entry
+appears and is restarted when its grab failed, the dedicated session never
+grabbing, a crash repaired at the next start, XFCE recognised by its bus
+names), `xfce_power` (a fake xfconf: stale copies, a
+newer user choice, a system default, a fresh value not yet in the file, the login restore, and the per-user entry
 run with a fake `xfconf-query` after Arinn is removed), `an_ended_session_gives_the_power_key_back`,
 `tests/package/test_xfce_session.py` (the opt-in bridge starts only with the
 XFCE session manager's name owned and never sets the marker), the Xvfb tests

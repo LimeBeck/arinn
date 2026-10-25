@@ -163,7 +163,9 @@ The key never calls this interface by itself; the shell opens the menu and
 every action goes through the methods above.
 
 - **Only with a live shell.** Arinn holds the key only while the shell owns
-  `org.arinn.Shell1` and the key is really read: on KDE while the adapter
+  `org.arinn.Shell1` and has answered a property read on `/org/arinn/Shell1`
+  (it answers once its window has loaded, as `arinn-open` probes it;
+  `platform/shell_ready.rs`), and the key is really read: on KDE while the adapter
   polls (a `TakeCommand` within 45 s), on X11 while the grab or raw reading
   works. Close Arinn, a shell crash loop at its start limit, a stopped KWin
   script or a failing reader give everything back at once; a returning shell
@@ -218,7 +220,7 @@ every action goes through the methods above.
   while xfce4-power-manager runs and nobody grabs the key, the adapter
   restarts it over its D-Bus `Restart` (`org.xfce.Power.Manager`), off the
   adapter's loop, keeping logind's inhibitor until the new instance owns its
-  name. The same check
+  name; no key is taken while that restart is in flight. The same check
   runs at every adapter start and in `--release-power-key`, after a crash,
   but only when this display's adapter held a power grab (its marker in
   `$XDG_RUNTIME_DIR/arinn/power-grab-<display>`), and never when no power key is

@@ -45,7 +45,8 @@ async fn run(started: std::time::Instant) -> Result<(), ErrorCode> {
         // desktop handles the power key again once Arinn stops (ADR-0111).
         // A session without a bus or KGlobalAccel has nothing to give back.
         if let Ok(connection) = zbus::Connection::session().await {
-            arinnd::power_key::release(&connection).await;
+            let system = zbus::Connection::system().await.ok();
+            arinnd::power_key::release_after_daemon(&connection, system.as_ref()).await;
         }
         return Ok(());
     }

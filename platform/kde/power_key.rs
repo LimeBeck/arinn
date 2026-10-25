@@ -482,6 +482,21 @@ async fn rollback(inner: &mut Inner, connection: &Connection) -> bool {
     cleared
 }
 
+/// `release` for the helper that runs after the daemon (`ExecStopPost=`,
+/// `arinn-kwin-adapter stop`): the daemon's inhibitor ended with it, so a
+/// temporary one on `system` covers the release, until `ArinnPower` is
+/// cleared and PowerDevil's actions are present (Codex on #517).
+pub async fn release_after_daemon(connection: &Connection, system: Option<&Connection>) -> bool {
+    if !running(connection).await {
+        return false;
+    }
+    let _inhibitor = match system {
+        Some(system) => power_inhibitor::inhibit(system).await,
+        None => None,
+    };
+    release(connection).await
+}
+
 /// Gives the power key back to the desktop: clears `ArinnPower`'s keys and
 /// makes PowerDevil's actions present again with their stored keys. Writes
 /// nothing for an action KGlobalAccel does not know. Returns whether
@@ -1148,6 +1163,22 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(250)).await;
         f.key.reconcile(&f.daemon, true).await;
         assert_eq!(f.pressed(POWER_OFF).as_deref(), Some("ArinnPower"));
+    }
+
+    /// Codex on #517: the helper after the daemon holds a temporary
+    /// inhibitor while it clears `ArinnPower`; the daemon's ended with it.
+    #[tokio::test]
+    async fn the_helper_after_the_daemon_holds_an_inhibitor_while_it_releases() {
+        let f = fixture(plasma()).await;
+        assert_eq!(f.key.take(&f.daemon).await, Taken::All);
+        // The daemon ends: its inhibitor goes with it.
+        f.key.inner.lock().await.inhibitor = None;
+        assert!(eventually(async || f.login.lock().unwrap().open() == 0).await);
+        let system = connect(&f._bus.1).await;
+        assert!(release_after_daemon(&f.daemon, Some(&system)).await);
+        assert_eq!(f.accel.lock().unwrap().cleared_open, [1]);
+        assert_eq!(f.pressed(POWER_OFF).as_deref(), Some("PowerOff"));
+        assert!(eventually(async || f.login.lock().unwrap().open() == 0).await);
     }
 
     /// Without KGlobalAccel nothing is taken, started or inhibited.

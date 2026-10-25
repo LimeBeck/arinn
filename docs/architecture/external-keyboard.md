@@ -31,7 +31,7 @@ end: Close(S) from the shell, Request() again, Closed(S, reason) from the delive
 ```
 
 - **One session at a time.** S is a fresh non-nil UUID. A second `Request()` while a session exists ends it: the key toggles the panel. A session ended by the shell or by `Request()` is sent to the deliverer as `[close, S]`.
-- **Shell signals.** The shell sees only `Opened`, `Input` and `Closed` for the current S. A `Closed` for another session is stale and ignored. On a daemon owner change the shell hides the panel.
+- **Shell signals.** The shell sees only `Opened`, `Input` and `Closed` for the current S. A `Closed` for another session is stale and ignored. The daemon sends `Opened(S)` under its state lock, so `Closed(S)` never overtakes it; the shell also treats a `Closed` for a session it has not seen open as final and ignores a later `Opened` for it. On a daemon owner change the shell hides the panel.
 - **Errors.** `Type`, `Press` and `Close` for anything but the current opened session return `Conflict`. A session not yet opened counts as not current: the shell learns S only from `Opened`, and a session that never opens ends after 3 s.
   - `Close` of an ended session is not an error for the shell to report: the panel is already hiding.
   - `Type` and `Press` return `Unavailable` when 64 records already wait.

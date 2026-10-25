@@ -24,6 +24,8 @@
 namespace {
 const QString session = QStringLiteral("10000000-0000-4000-8000-000000000001");
 const QString other = QStringLiteral("20000000-0000-4000-8000-000000000002");
+const QString stale = QStringLiteral("30000000-0000-4000-8000-000000000003");
+const QString early = QStringLiteral("40000000-0000-4000-8000-000000000004");
 const QString interface = QStringLiteral("org.arinn.ExternalKeyboard1");
 } // namespace
 
@@ -179,7 +181,7 @@ private slots:
              (QStringList{QStringLiteral("Type|") + session + QStringLiteral("|Я"),
                           QStringLiteral("Press|") + session + QStringLiteral("|backspace")}));
     // A stale Closed does nothing; the session's own ends it.
-    FakeDaemon::emitSignal("Closed", {other});
+    FakeDaemon::emitSignal("Closed", {stale});
     QTest::qWait(100);
     QVERIFY(keyboard.open());
     FakeDaemon::emitSignal("Closed", {session});
@@ -201,6 +203,14 @@ private slots:
     daemon.conflict = true;
     keyboard.type(QStringLiteral("x"));
     QTRY_VERIFY(!keyboard.open());
+
+    // A Closed that overtook its own Opened (review of #484) is final: the
+    // late Opened shows nothing, and the stale one stays ended too.
+    FakeDaemon::emitSignal("Closed", {early});
+    FakeDaemon::emitSignal("Opened", {early});
+    FakeDaemon::emitSignal("Opened", {stale});
+    QTest::qWait(100);
+    QVERIFY(!keyboard.open());
 
     // A daemon owner change ends the session.
     daemon.conflict = false;

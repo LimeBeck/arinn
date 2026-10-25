@@ -42,4 +42,8 @@ private:
   void call(const char *method, const QString &value);
   void finish();
   QString m_session;
+  // Sessions the daemon closed before this client saw them open: a late
+  // Opened for one of them is ignored (the daemon also sends Opened before
+  // Closed). Session IDs are fresh UUIDs; the last few are enough.
+  QStringList m_ended;
 };

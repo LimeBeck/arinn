@@ -105,7 +105,7 @@ daemon reports `ExternalKeyboard1.Opened`.
 
 - `ExternalKeyboard` (`apps/arinn-shell/external_keyboard.*`, QML type
   `Arinn.Shell/ExternalKeyboard`) is the daemon client:
-  - `open` follows `Opened`/`Closed` of the current session; a daemon owner change ends it;
+  - `open` follows `Opened`/`Closed` of the current session; a daemon owner change ends it. A `Closed` for a session it has not seen open is final, so a late `Opened` for it shows nothing (the daemon also never sends `Closed(S)` before `Opened(S)`);
   - `input(key)` relays the panel keys the platform captured;
   - `type()`, `press()` and `close()` call the daemon asynchronously, and a `Conflict` hides the panel;
   - it validates text and key names before any call and never logs or keeps them.

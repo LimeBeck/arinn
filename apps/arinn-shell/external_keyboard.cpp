@@ -49,7 +49,7 @@ ExternalKeyboard::ExternalKeyboard(QObject *parent) : QObject(parent) {
 }
 
 void ExternalKeyboard::opened(const QString &session) {
-  if (!validSession(session) || session == m_session)
+  if (!validSession(session) || session == m_session || m_ended.contains(session))
     return;
   m_session = session;
   emit openChanged();
@@ -62,9 +62,17 @@ void ExternalKeyboard::received(const QString &session, const QString &key) {
 }
 
 void ExternalKeyboard::closed(const QString &session) {
-  // A Closed for another session is stale.
-  if (!session.isEmpty() && session == m_session)
+  if (!session.isEmpty() && session == m_session) {
     finish();
+    return;
+  }
+  // A Closed for another session is stale, or overtook its own Opened:
+  // remember it so that a late Opened never shows the panel.
+  if (validSession(session) && !m_ended.contains(session)) {
+    m_ended.append(session);
+    while (m_ended.size() > 8)
+      m_ended.removeFirst();
+  }
 }
 
 void ExternalKeyboard::finish() {

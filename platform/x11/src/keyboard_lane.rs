@@ -148,6 +148,16 @@ where
     start_with(c, destination, display, keys, unlocked, LOCK_TICK, tasks).await
 }
 
+/// The lock tick of an open session. Its first tick comes one period after
+/// the start, not at once: no session is open at the start, and an
+/// immediate first tick that runs only after a quick first open would spend
+/// a lock check the period does not schedule (#518).
+fn lock_ticks(period: Duration) -> tokio::time::Interval {
+    let mut tick = tokio::time::interval_at(tokio::time::Instant::now() + period, period);
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    tick
+}
+
 /// [`start`] with the lock tick of an open session; tests lengthen it to
 /// prove the per-character check on its own.
 async fn start_with<F>(
@@ -243,8 +253,7 @@ where
     let g = generation;
     let lock = c.clone();
     tasks.spawn(async move {
-        let mut tick = tokio::time::interval(lock_tick);
-        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let mut tick = lock_ticks(lock_tick);
         loop {
             tokio::select! {
                 event = events.recv() => {
@@ -545,6 +554,19 @@ mod tests {
             .await?
         );
         Ok((bus, daemon, server, tasks))
+    }
+
+    /// #518: the first lock tick waits one period. An immediate first tick
+    /// could run after the first session opened and spend a lock check of
+    /// the tests below, which lengthen the period to switch the tick off.
+    #[tokio::test]
+    async fn the_first_lock_tick_waits_one_period() {
+        let mut tick = lock_ticks(Duration::from_secs(3600));
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), tick.tick())
+                .await
+                .is_err()
+        );
     }
 
     /// Review of #512 and mutation X3 of the #484 review: the lock is

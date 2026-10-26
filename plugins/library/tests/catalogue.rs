@@ -4,7 +4,9 @@
 //! Catalogue scans on temporary folders: names, NFO, availability, rename,
 //! resume and import. No network mounts.
 
-use arinn_plugin_library::{Settings, Store, scan_shared, to_file_uri};
+use arinn_plugin_library::{
+    MountTables, Settings, Store, scan_shared, scan_shared_with, to_file_uri,
+};
 use arinn_protocol::{library::ImportCandidate, production::EntityRef, validation::ErrorCode};
 use std::{
     fs,
@@ -258,6 +260,88 @@ fn in_root_symlink_is_one_catalogue_item() {
         .collect();
     assert_eq!(films.len(), 1);
     assert!(films[0].available);
+}
+
+#[test]
+fn an_unmounted_share_is_unavailable_not_empty() {
+    // #556 (ADR-0115, AC-15): a share listed in fstab with `nofail` leaves an
+    // empty mount point behind. The mount tables are given to the scan, so
+    // no real mount is needed.
+    let scratch = Scratch::new();
+    let root = scratch.path().join("share");
+    fs::create_dir(&root).unwrap();
+    fs::write(root.join("Kept (2004).mkv"), b"a").unwrap();
+    fs::write(root.join("Other (2005).mkv"), b"b").unwrap();
+    let fstab = format!("//nas/films {} cifs nofail 0 0\n", root.display());
+    let line = |point: &Path| format!("1 0 0:1 / {} rw - ext4 /dev/x rw\n", point.display());
+    let mounted = MountTables::from_text(
+        &fstab,
+        Some(&format!("{}{}", line(Path::new("/")), line(&root))),
+    );
+    let away = MountTables::from_text(&fstab, Some(&line(Path::new("/"))));
+    let store = Mutex::new(open(&scratch));
+    let configured = settings(&root, false, PathBuf::from("ffprobe"));
+    assert_eq!(
+        scan_shared_with(&store, &configured, &mounted).unwrap(),
+        vec![(root.clone(), true)]
+    );
+    let before = store.lock().unwrap().snapshot().unwrap().1;
+    assert_eq!(before.len(), 2);
+    assert!(before.iter().all(|item| item.available));
+
+    // The share goes away: its mount point is an empty folder.
+    fs::remove_file(root.join("Kept (2004).mkv")).unwrap();
+    fs::remove_file(root.join("Other (2005).mkv")).unwrap();
+    assert_eq!(
+        scan_shared_with(&store, &configured, &away).unwrap(),
+        vec![(root.clone(), false)]
+    );
+    let after = store.lock().unwrap().snapshot().unwrap().1;
+    assert_eq!(after.len(), 2);
+    assert!(after.iter().all(|item| !item.available));
+    for item in &before {
+        assert!(after.iter().any(|kept| kept.id == item.id));
+    }
+
+    // The share is back with its files: the same items are available again.
+    fs::write(root.join("Kept (2004).mkv"), b"a").unwrap();
+    fs::write(root.join("Other (2005).mkv"), b"b").unwrap();
+    store
+        .lock()
+        .unwrap()
+        .scan_with(&configured, &mounted)
+        .unwrap();
+    let back = store.lock().unwrap().snapshot().unwrap().1;
+    assert_eq!(back.len(), 2);
+    assert!(back.iter().all(|item| item.available));
+    for item in &before {
+        assert!(back.iter().any(|kept| kept.id == item.id));
+    }
+}
+
+#[test]
+fn a_really_empty_folder_stays_available() {
+    // No fstab entry covers it: emptied by the user, it stays available and
+    // its items are missing one by one, as before (ADR-0056).
+    let scratch = Scratch::new();
+    let root = scratch.path().join("plain");
+    fs::create_dir(&root).unwrap();
+    fs::write(root.join("Kept (2004).mkv"), b"a").unwrap();
+    let store = Mutex::new(open(&scratch));
+    let configured = settings(&root, false, PathBuf::from("ffprobe"));
+    let tables = MountTables::from_text(
+        "UUID=1 / ext4 defaults 0 1\n//nas/films /mnt/elsewhere cifs nofail 0 0\n",
+        Some("1 0 0:1 / / rw - ext4 /dev/x rw\n"),
+    );
+    scan_shared_with(&store, &configured, &tables).unwrap();
+    fs::remove_file(root.join("Kept (2004).mkv")).unwrap();
+    assert_eq!(
+        scan_shared_with(&store, &configured, &tables).unwrap(),
+        vec![(root.clone(), true)]
+    );
+    let items = store.lock().unwrap().snapshot().unwrap().1;
+    assert_eq!(items.len(), 1);
+    assert!(!items[0].available);
 }
 
 #[test]

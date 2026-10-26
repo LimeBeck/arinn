@@ -1,0 +1,1 @@
+- A library folder on a network share that `/etc/fstab` lists but that is not mounted now is reported as unavailable, and its films stay in the library as unavailable, instead of reading as an empty folder whose films go missing one by one ([#556](https://github.com/LimeBeck/arinn/issues/556), [ADR-0115](docs/adr/0115-unmounted-share-root-is-unavailable.md)).

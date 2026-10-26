@@ -5,6 +5,7 @@
 //! Paths and titles stay in this file's rows and are not written to logs.
 
 use crate::{
+    mounts::MountTables,
     parse::{self, Kind, Parsed},
     progress::{self, Progress},
     uri,
@@ -258,8 +259,17 @@ impl Store {
     }
 
     pub fn scan(&mut self, settings: &Settings) -> Result<(), ErrorCode> {
+        self.scan_with(settings, &MountTables::system())
+    }
+
+    /// [`Store::scan`] with given mount tables (ADR-0115).
+    pub fn scan_with(
+        &mut self,
+        settings: &Settings,
+        mounts: &MountTables,
+    ) -> Result<(), ErrorCode> {
         let baseline = self.item_ids()?;
-        let mut discovered = discover(settings);
+        let mut discovered = discover(settings, mounts);
         attach_probes(self, settings, &mut discovered)?;
         self.commit_discovered(settings, discovered, &baseline)
     }
@@ -669,11 +679,12 @@ impl Store {
     fn available_root_for(&self, path: &Path) -> Result<PathBuf, ErrorCode> {
         let mut best: Option<PathBuf> = None;
         let mut saw_unavailable = false;
+        let mounts = MountTables::system();
         for root in &self.configured_roots {
             if !path.starts_with(root) {
                 continue;
             }
-            if !root_readable(root) {
+            if !root_available(root, &mounts) {
                 saw_unavailable = true;
                 continue;
             }
@@ -1008,8 +1019,10 @@ pub(crate) fn normalize_root(path: &Path) -> Result<PathBuf, ErrorCode> {
     Ok(out)
 }
 
-fn root_readable(path: &Path) -> bool {
-    fs::read_dir(path).is_ok()
+/// A root is available when it can be read and is not the empty mount point
+/// of a share that is away (ADR-0056, ADR-0115).
+fn root_available(path: &Path, mounts: &MountTables) -> bool {
+    !mounts.unmounted(path) && fs::read_dir(path).is_ok()
 }
 
 fn contained(root: &Path, path: &Path) -> bool {
@@ -1029,12 +1042,12 @@ struct RootScan {
     files: Vec<DiskFile>,
 }
 
-fn discover(settings: &Settings) -> Vec<RootScan> {
+fn discover(settings: &Settings, mounts: &MountTables) -> Vec<RootScan> {
     settings
         .roots
         .iter()
         .map(|path| {
-            if !root_readable(path) {
+            if !root_available(path, mounts) {
                 return RootScan {
                     path: path.clone(),
                     readable: false,
@@ -1139,11 +1152,20 @@ pub fn scan_shared(
     store: &std::sync::Mutex<Store>,
     settings: &Settings,
 ) -> Result<Vec<(PathBuf, bool)>, ErrorCode> {
+    scan_shared_with(store, settings, &MountTables::system())
+}
+
+/// [`scan_shared`] with given mount tables (ADR-0115).
+pub fn scan_shared_with(
+    store: &std::sync::Mutex<Store>,
+    settings: &Settings,
+    mounts: &MountTables,
+) -> Result<Vec<(PathBuf, bool)>, ErrorCode> {
     let baseline = {
         let guard = store.lock().map_err(|_| ErrorCode::Internal)?;
         guard.item_ids()?
     };
-    let mut discovered = discover(settings);
+    let mut discovered = discover(settings, mounts);
     let probed = {
         let guard = store.lock().map_err(|_| ErrorCode::Internal)?;
         let mut jobs = Vec::new();

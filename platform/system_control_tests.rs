@@ -469,9 +469,11 @@ async fn one_block_behind_many_records_still_refuses() {
 /// Since systemd 257, logind enforces every `block` inhibitor itself, for
 /// every caller and whatever polkit allows, unless the request asks to skip
 /// inhibitors; Arinn's requests never do. Its check and the action run in one
-/// step, so the window is closed there, and the refusal reads as `Conflict`,
-/// as Arinn's own check would have answered. systemd 257 refuses with
-/// `AccessDenied`, 258 and later with `BlockedByInhibitorLock`.
+/// step, so the window is closed there. systemd 258 and later refuse with
+/// `BlockedByInhibitorLock`, which always reads as `Conflict`. systemd 257
+/// refuses with `AccessDenied`, which reads as `Conflict` only while the list
+/// read after the refusal still shows the inhibitor, as it does here; an
+/// inhibitor released in between gives `PermissionDenied`.
 #[tokio::test]
 async fn an_inhibitor_taken_after_the_check_is_enforced_by_logind() {
     for refusal in [

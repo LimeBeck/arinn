@@ -30,6 +30,15 @@ FocusScope {
     property bool anchorKnown: false
     property real anchorX: 0
     property real anchorY: 0
+    // Where the drift puts the block, centred until the first drift. The
+    // block's own position clamps it to the screen: the block is as wide as
+    // its text, so a longer date (at midnight, or after a locale change)
+    // never pushes it off screen where the last drift left it, also while a
+    // drift is under way.
+    property real driftX: (width - block.width) / 2
+    property real driftY: (height - block.height) / 2
+    Behavior on driftX { NumberAnimation { duration: root.driftDuration; easing.type: Easing.InOutQuad } }
+    Behavior on driftY { NumberAnimation { duration: root.driftDuration; easing.type: Easing.InOutQuad } }
 
     signal wakeRequested()
 
@@ -69,9 +78,13 @@ FocusScope {
         stop();
         wakeRequested();
     }
+    // Drifts the block towards (x, y), kept on screen.
+    function moveTo(x, y) {
+        driftX = Math.max(0, Math.min(x, width - block.width));
+        driftY = Math.max(0, Math.min(y, height - block.height));
+    }
     function drift() {
-        block.x = Math.random() * Math.max(0, width - block.width);
-        block.y = Math.random() * Math.max(0, height - block.height);
+        moveTo(Math.random() * width, Math.random() * height);
     }
 
     // Colours of handoff 20. The clock and date are the prototype's oklch
@@ -92,11 +105,9 @@ FocusScope {
     Column {
         id: block
         objectName: "ambientBlock"
-        x: (root.width - width) / 2
-        y: (root.height - height) / 2
+        x: Math.max(0, Math.min(root.driftX, root.width - width))
+        y: Math.max(0, Math.min(root.driftY, root.height - height))
         spacing: 10
-        Behavior on x { NumberAnimation { duration: root.driftDuration; easing.type: Easing.InOutQuad } }
-        Behavior on y { NumberAnimation { duration: root.driftDuration; easing.type: Easing.InOutQuad } }
         // 160/500, tabular numerals and −3 % tracking.
         Ui.UiText {
             objectName: "ambientClock"

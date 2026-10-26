@@ -227,7 +227,9 @@ ambient is a screensaver, not sleep.
   `oklch(0.60 0.004 260)` (#7F8083) on a 160 px line, and 10 px below it
   the date at 32/500, 6 px in, in `oklch(0.45 0.004 260)` (#545557), as one
   left-aligned block that moves to a random place every 8 s with a 4 s
-  ease-in-out move. The token's `oklch(0.07 0.003 260)`, which the
+  ease-in-out move. The block is as wide as its text; its position is
+  clamped to the screen, so a longer date (at midnight or after a locale
+  change) never pushes it off screen, also during a move. The token's `oklch(0.07 0.003 260)`, which the
   prototype markup also uses, converts exactly to #010101; the shell keeps
   the token table's hex, as for the other tokens in `Theme.qml`. The optional paused-media line of the
   handoff is not shown.
@@ -257,7 +259,8 @@ dbus-run-session -- build/apps/arinn-shell/arinn-system-control-test
   with Cancel first and the live list, Back and Home, and the panel with five
   rows.
 - `tests/ui/tst_ambient.qml`: the ambient screen (handoff look and drift,
-  consumed first key, opening key not a wake, pointer anchor, consumed click,
+  the block kept on screen when the date grows, consumed first key, opening
+  key not a wake, pointer anchor, consumed click,
   stop without wake) and the idle timer on a shortened timeout (default ten
   minutes, reset by activity, each inhibiting condition including a power
   request in flight, hidden shell, what counts as playing). The look test

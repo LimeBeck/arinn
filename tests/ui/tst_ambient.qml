@@ -107,6 +107,34 @@ TestCase {
         verify(block.y >= 0 && block.y + block.height <= 1080);
     }
 
+    // Review of #545: the block is as wide as its text, so a longer date (at
+    // midnight, or after a locale change) widens it where the last drift
+    // left it. It stays on screen at once, not only after the next drift.
+    function test_block_stays_on_screen_when_the_date_grows() {
+        ambient.driftInterval = 600000;
+        startAmbient();
+        const block = findChild(ambient, "ambientBlock");
+        ambient.moveTo(1920, 1080);
+        tryVerify(() => Math.abs(block.x + block.width - 1920) < 0.5
+                        && Math.abs(block.y + block.height - 1080) < 0.5, 2000);
+        const width = block.width;
+        ambient.dateText = "Wednesday, 30 September, a much longer localized date";
+        // The column lays out on the next polish; then it is on screen.
+        tryVerify(() => block.width > width);
+        verify(block.x >= 0 && block.x + block.width <= 1920, "x " + block.x + " width " + block.width);
+        verify(block.y >= 0 && block.y + block.height <= 1080);
+        // A drift under way keeps it on screen too.
+        ambient.driftDuration = 1000;
+        ambient.moveTo(0, 0);
+        ambient.moveTo(1920, 1080);
+        wait(100);
+        ambient.dateText = "Wednesday, 30 September, an even longer localized date than before";
+        for (let i = 0; i < 12; ++i) {
+            verify(block.x >= 0 && block.x + block.width <= 1920.5, "x " + block.x + " width " + block.width);
+            wait(100);
+        }
+    }
+
     function test_first_key_is_consumed() {
         startAmbient();
         compare(wakeSpy.count, 0);

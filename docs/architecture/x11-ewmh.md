@@ -86,9 +86,17 @@ Global Home uses passive root key grabs for `home_shortcut` (read only from
 including Caps/Num/Scroll lock modifier
 combinations. A sequence whose key or modifier is not mapped is skipped. Meta derives Super modifiers from the keyboard/modifier
 mapping, falling back to native Meta only if no mapped Super exists; it does not
-assume Mod4. Keyboard/modifier mapping changes rebuild the grabs. A sequence another
-client already grabs is skipped and logged; the backend is unavailable only
-when no Home sequence can be grabbed. `quick_menu_shortcut` (default Meta+F11)
+assume Mod4. Keyboard/modifier mapping changes rebuild the grabs without
+letting a still-wanted combination go: the new combinations are grabbed first
+(which only replaces the adapter's own grab) and only those no key names any
+more are released, after every new grab. The X server also sends a mapping
+change whenever key events switch between devices (a remote, a keyboard,
+XTest), so releasing first let a global key pressed in between reach the
+focused application or another client (#526). The same holds when the shell's
+focus or the power mode changes the grabbed keys. A sequence another
+client already grabs is skipped and logged; when the mapping adds a keycode
+another client holds, a Home or quick-menu key keeps the combinations it already
+held. The backend is unavailable only when no Home sequence can be grabbed. `quick_menu_shortcut` (default Meta+F11)
 and the remote's Menu keys (`Menu`, `XF86MenuKB`) are grabbed the same way next to
 the Home keys. The Menu keys are released while the shell is the active window and
 grabbed again at the next snapshot after another window becomes active; a press is reported with
@@ -107,7 +115,10 @@ sets; a name that appears later gives the key back), and only after logind's
 other keys, also while the shell is active, and a press is reported with
 `ReportPowerMenuRequest` after the same unlocked check and Home state; the shell
 is raised at once, as for Home. A power key another client holds is skipped and
-logged and stays that client's; when Arinn lets go of a grab while
+logged and stays that client's, all of it: when a mapping change adds a power
+keycode another client holds, Arinn lets go of every combination of that key,
+reports no grab and `PowerOwner` gives everything back, as before #526; an
+uncontested regrab never lets ⏻ go; when Arinn lets go of a grab while
 xfce4-power-manager runs without its own grab (its one grab at start failed),
 the adapter restarts it over D-Bus so it grabs again. In the dedicated Arinn
 XFCE session (owner decision of 2026-10-24) the power keys are never grabbed
@@ -368,7 +379,11 @@ The keyboard's ignored tests spawn their own Xvfb too. They check that:
 The five ignored native tests each spawn their own Xvfb using `-displayfd`, create
 synthetic EWMH metadata and clients, and never read the inherited `DISPLAY`.
 They verify inventory, typed identity, activation/close and Home-key dispatch,
-manager invalidation, Home/Return and video/compositor/lock lifecycle. They include partial-presentation rollback and compositor-loss regressions and do
+manager invalidation, Home/Return and video/compositor/lock lifecycle. A mapping
+change never lets the Home, quick-menu or power keys go (a client that keeps
+grabbing them never gets one), a contested new keycode keeps the held Home and
+quick-menu grabs but gives the whole power key up, and the recorded power grabs
+match the server's in every power mode (#526). They include partial-presentation rollback and compositor-loss regressions and do
 not substitute for real-desktop operator tests, which require owner permission.
 
 The Arch Qt CI job installs Xvfb and runs the native tests with `--include-ignored`.

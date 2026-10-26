@@ -252,7 +252,11 @@ impl GrabMarker {
 /// xfce4-power-manager if this display's adapter grabbed (`marker`) and
 /// `held` finds no mapped power key grabbed while it runs. The adapter's
 /// inhibitor ended with it, so a temporary one on `system` covers all of
-/// it (Codex on #517).
+/// it (Codex on #517). As in the adapter, the inhibitor comes first:
+/// without one nothing is restarted, since logind would act on the key
+/// while the old instance's inhibitor is gone, and the marker stays for the
+/// next adapter start (#519, Codex on #521). The XFCE setting goes back
+/// either way: that only returns the key to the desktop.
 pub async fn release_after_adapter<H: FnOnce() -> Option<bool>>(
     bus: &Connection,
     files: Option<&xfce_power::Files>,
@@ -261,7 +265,7 @@ pub async fn release_after_adapter<H: FnOnce() -> Option<bool>>(
     system: Option<&Connection>,
     wait: Duration,
 ) {
-    let _inhibitor = match system {
+    let inhibitor = match system {
         Some(system) => power_inhibitor::inhibit(system).await,
         None => None,
     };
@@ -276,6 +280,12 @@ pub async fn release_after_adapter<H: FnOnce() -> Option<bool>>(
             Ok(dbus) if !xfce_on_bus(&dbus).await.power_manager => true,
             Ok(_) => match held() {
                 Some(true) => true,
+                Some(false) if inhibitor.is_none() => {
+                    eprintln!(
+                        "arinn-platform-x11: logind power-key inhibitor unavailable; xfce4-power-manager's restart waits for the next adapter start"
+                    );
+                    false
+                }
                 // A name without an owner: nothing runs to repair.
                 Some(false) => {
                     matches!(
@@ -1755,6 +1765,60 @@ pub(crate) mod tests {
         assert_eq!(f.restarts.lock().unwrap().len(), 1);
     }
 
+    /// #519 (re-review 3 of #521): `--release-power-key` follows the
+    /// adapter's rule, the inhibitor first. Without logind's inhibitor it
+    /// restarts nothing and keeps the marker, so the next adapter start
+    /// repairs the grab; the XFCE setting still goes back.
+    #[tokio::test]
+    async fn the_release_after_the_adapter_restarts_nothing_without_the_inhibitor() {
+        let mut f = fixture(true).await;
+        let mut r = reader(Reading::Raw);
+        f.owner
+            .follow(&mut r, true, XFCE, Reading::None)
+            .await
+            .unwrap();
+        assert_eq!(f.xfconf.value(), Some(xfce_power::Saved::Uint(0)));
+        f.owner.marker.set();
+        f.owner.inhibitor = None;
+        f.settle(0).await;
+        f.start_xfpm().await;
+        f.login.lock().unwrap().refuse = true;
+        let system = logind::connect(&f.xfconf.bus.1).await;
+        for system in [Some(&system), None] {
+            release_after_adapter(
+                &f.xfconf.adapter,
+                Some(&f.xfconf.files),
+                &f.owner.marker,
+                || Some(false),
+                system,
+                Duration::from_millis(50),
+            )
+            .await;
+            assert_eq!(f.xfconf.value(), Some(xfce_power::Saved::Uint(3)));
+            assert!(f.restarts.lock().unwrap().is_empty());
+            assert!(f.owner.marker.present());
+        }
+        // With the inhibitor the next run repairs it, under the inhibitor.
+        f.login.lock().unwrap().refuse = false;
+        release_after_adapter(
+            &f.xfconf.adapter,
+            None,
+            &f.owner.marker,
+            || Some(false),
+            Some(&system),
+            Duration::from_millis(50),
+        )
+        .await;
+        assert_eq!(f.restarts.lock().unwrap().clone(), [1]);
+        assert!(!f.owner.marker.present());
+        // A start with the marker the stop kept repairs it as well.
+        let owner = PowerOwner::new(false, None, None, None).with_marker(f.owner.marker.clone());
+        assert!(!owner.heal);
+        f.owner.marker.set();
+        let owner = PowerOwner::new(false, None, None, None).with_marker(f.owner.marker.clone());
+        assert!(owner.heal);
+    }
+
     /// The same in the adapter: a restart whose new instance never comes
     /// keeps the marker for a later start; a confirmed one clears it.
     #[tokio::test]
@@ -2123,6 +2187,94 @@ pub(crate) mod tests {
             .await
             .unwrap();
         assert_eq!(f.restarts().await.len(), RESTARTS as usize + 3);
+        assert!(!f.owner.marker.present());
+    }
+
+    /// Waits until xfce4-power-manager's name has no owner on the bus: a
+    /// dropped connection loses it only once the bus daemon has read the
+    /// close.
+    async fn wait_until_gone(f: &Fixture) {
+        let dbus = zbus::fdo::DBusProxy::new(&f.xfconf.adapter).await.unwrap();
+        for _ in 0..200 {
+            if !xfce_on_bus(&dbus).await.power_manager {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        panic!("xfce4-power-manager's name is still owned");
+    }
+
+    /// Re-review 4 of #521: a new restart clears `stayed`. After a restart
+    /// that left the old instance in place, the next one finds no instance
+    /// (`Gone`, the user stopped it while the bus still listed it): that
+    /// absence is not a missing instance of the first restart, so nothing
+    /// counts toward `RESTARTS`.
+    #[tokio::test]
+    async fn a_new_restart_clears_stayed() {
+        let mut f = fixture(false).await;
+        f.owner.heal_every = Duration::from_millis(100);
+        let mut r = reader(Reading::Grab);
+        r.held = false;
+        f.owner
+            .follow(&mut r, true, OTHER, Reading::None)
+            .await
+            .unwrap();
+        f.start_xfpm_with(false).await;
+        f.owner
+            .follow(&mut r, true, XFPM, Reading::Grab)
+            .await
+            .unwrap();
+        assert_eq!(f.restarts().await, [1]);
+        assert!(f.owner.stayed);
+        f.stop_xfpm();
+        wait_until_gone(&f).await;
+        tokio::time::sleep(Duration::from_millis(130)).await;
+        f.owner
+            .follow(&mut r, false, XFPM, Reading::None)
+            .await
+            .unwrap();
+        // The second restart started and found nothing to restart.
+        assert_eq!(f.restarts().await, [1]);
+        assert!(f.owner.heal);
+        assert!(!f.owner.stayed);
+        f.owner
+            .follow(&mut r, false, OTHER, Reading::None)
+            .await
+            .unwrap();
+        assert_eq!(f.owner.unconfirmed, 0);
+        assert!(!f.owner.gave_up);
+    }
+
+    /// Re-review 4 of #521: only a restart that left the old instance in
+    /// place after a successful call sets `stayed`. One that changed
+    /// nothing otherwise (`Unchanged`: here no inhibitor, so `Restart` is
+    /// never called) does not, so xfce4-power-manager's later absence does
+    /// not count as a missing instance.
+    #[tokio::test]
+    async fn an_unchanged_restart_never_sets_stayed() {
+        let mut f = fixture(false).await;
+        f.owner.heal_every = Duration::from_millis(100);
+        // An earlier adapter of this display grabbed and crashed.
+        f.owner.marker.set();
+        f.owner.heal = true;
+        f.start_xfpm().await;
+        f.login.lock().unwrap().refuse = true;
+        let mut r = reader(Reading::Grab);
+        r.held = false;
+        f.owner
+            .follow(&mut r, false, XFPM, Reading::None)
+            .await
+            .unwrap();
+        assert!(f.restarts().await.is_empty());
+        assert!(f.owner.heal);
+        assert!(!f.owner.stayed);
+        f.stop_xfpm();
+        wait_until_gone(&f).await;
+        f.owner
+            .follow(&mut r, false, OTHER, Reading::None)
+            .await
+            .unwrap();
+        assert_eq!(f.owner.unconfirmed, 0);
         assert!(!f.owner.marker.present());
     }
 

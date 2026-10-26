@@ -550,6 +550,9 @@ Window {
         // An application launch only while its overlay is on screen: it may
         // keep running hidden for hours (§6.5).
         launching: browserCatalog.opening || applicationLaunch.visible
+        // Never over a power request in flight: its answer would take focus
+        // behind ambient (#487).
+        powerPending: systemControl.pendingAction.length > 0
         mediaPlaying: root.playerOpen || ambientIdle.playing(mediaCatalog.continueEntries, browserCatalog.tabs,
                                                              mediaCatalog.inputLayerActive)
         onIdle: root.startAmbient()
@@ -1114,14 +1117,19 @@ Window {
             id: powerOverlay
             anchors.fill: parent
             z: 7
+            hudLayer: volumeHudLayer
             focus: root.focusedScreen === "power"
             control: systemControl
             runningApplications: backend.items
             registryKnown: backend.applicationsState === "ready" || backend.applicationsState === "empty"
             keysEnabled: root.visible && root.active && !sessionGuard.blocked && !ambientScreen.active
             // A late refusal never takes focus behind a launch overlay or
-            // the ambient screen; it appears once they are gone.
+            // the ambient screen; it appears once they are gone. A launch
+            // still in its reveal delay (active, not hidden for Home) holds
+            // it too: its overlay is about to be drawn above (#534).
             holdLateAnswer: launchOverlay.visible || applicationLaunch.visible || ambientScreen.active
+                || (launchOverlay.active && !launchOverlay.homeHidden)
+                || (applicationLaunch.active && !applicationLaunch.homeHidden)
             onClosed: Qt.callLater(() => { if (!powerOverlay.restoreLateFocus()) root.restoreFocus(); })
             onHomeRequested: {
                 if (root.quickMenuOpen || root.activityBehind) {
@@ -1190,6 +1198,15 @@ Window {
                 // the launch on screen ended had been hidden: keep it hidden.
                 function onLaunchHidden() { applicationLaunch.hideForHome(); }
             }
+        }
+        // The volume HUD of the power overlay, drawn above the launch
+        // overlays so a volume change or its failure stays visible during a
+        // launch (#487). It never takes focus or input; ambient covers it.
+        Item {
+            id: volumeHudLayer
+            objectName: "volumeHudLayer"
+            anchors.fill: parent
+            z: 25
         }
         Power.AmbientScreen {
             id: ambientScreen

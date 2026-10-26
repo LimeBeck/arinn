@@ -103,11 +103,16 @@ process and no new bus authority.
   only that window in a `WindowThumbnail` inside an invisible, non-focusable,
   input-transparent stage on the window's output, sized to the window's aspect
   ratio so that its backing surface (logical size times the output's DPR) stays
-  within 1920×1080 physical pixels. After the first rendered frame it calls `capture()`.
+  within 1920×1080 physical pixels. When no Qt screen is named after the
+  window's output, the stage stays on its current screen and is bounded by
+  that screen's DPR. After the first rendered frame it calls `capture()`.
   The producer holds the only reference to the one outstanding grab result and
   releases it as soon as the image is taken or the request ends.
 - **Encoding and publication.**
-  - The grab is requested at physical bounds for the window's DPR.
+  - The grab is requested at the item's own logical size. Only an item whose
+    physical size (logical size times the DPR) exceeds 1920×1080 is scaled
+    down, keeping its aspect ratio; both the grab and the stage round down,
+    so neither exceeds the bounds.
   - The grab callback only keeps a reference. On a one-thread worker the image
     is scaled into 1920×1080 (input storage ≤ 64 MiB) and converted to sealed
     straight-alpha RGBA by `encodeGrab`.
@@ -126,14 +131,28 @@ process and no new bus authority.
   request, are the producer's G-5.2 hook. They contain no identifiers.
 
 `producer_test.cpp` drives the producer against a fake daemon on a private bus,
-with a plain Qt Quick item in place of `WindowThumbnail`. It covers publication
-from the producer's own connection with a sealed frame of exact size and
-colour, a single capture per request, the deadline and missing-window
-cancellation, superseded and invalidated requests, a stale `Get` reply
-overtaken by a newer `Changed` (no request starts for it), rejected
-publication and daemon owner loss. `encode_test.cpp` covers scaling a DPR 1.75 grab into the
-bounds. The KWin script itself and the real `WindowThumbnail` capture are not
-exercised by any automated test. They need the owner's KDE run.
+with a plain Qt Quick item in place of `WindowThumbnail`. It covers:
+
+- publication from the producer's own connection with a sealed frame of exact
+  size and colour, the grab requested at the item's own size, and a single
+  capture per request;
+- the deadline and missing-window cancellation, superseded and invalidated
+  requests, and a request that arrives while an earlier image is still being
+  encoded, cancelled as `busy` (`aReplacementWhileEncodingIsCancelledAsBusy`);
+- a stale `Get` reply overtaken by a newer `Changed` (no request starts for
+  it), and a replacement daemon owner with another epoch whose first `Get`
+  starts its pending request (the floor is per owner);
+- the stage and grab bounds at several DPRs, rounded down alike
+  (`stageSizeBoundsTheBackingSurface`, `grabSizeAndStageSizeRoundTheSameWay`);
+- rejected publication and daemon owner loss.
+
+The `kwin-background-script` CTest runs the packaged `background.qml` with a
+small stand-in for KWin's QML API (`Workspace`, `WindowThumbnail`) at
+`QT_SCALE_FACTOR=2`: for a window on an output no screen is named after, the
+stage's backing surface stays within the bounds. `encode_test.cpp` covers
+scaling a DPR 1.75 grab into the bounds. KWin's real `Workspace`, output
+names and `WindowThumbnail` capture are not exercised by any automated test.
+They need the owner's KDE run.
 
 Because KWin keeps a loaded QML plugin, an upgraded plugin takes effect at the
 next KWin start, that is the next login; restarting `arinn-kwin.service`

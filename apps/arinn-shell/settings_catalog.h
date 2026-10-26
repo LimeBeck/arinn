@@ -32,6 +32,9 @@ private:
 
 // Reads org.arinn.Settings1 for the shell. The screen sees categories and
 // typed rows only. SetValue is an operation; provider values are not logged.
+// For a library provider that lists LibraryRoots1 it also reads
+// Library1.GetRoots (ADR-0071), so a multiple path row carries the folders
+// that provider reports unavailable (spec §5.6).
 class SettingsCatalog : public QObject {
   Q_OBJECT
   Q_PROPERTY(QString screenState READ screenState NOTIFY catalogChanged)
@@ -57,6 +60,9 @@ public:
 public slots:
   void refresh();
   void onSettingsChanged(const QString &providerId);
+  void refreshRoots();
+  void onStateChanged(const QString &providerId, const QString &capability,
+                      const QString &generation, qulonglong revision);
 signals:
   void catalogChanged();
   void preferencesChanged();
@@ -80,6 +86,11 @@ private:
     bool ok = false;
   };
   struct Load;
+  struct RootScan;
+  void readLibraryProviders(const std::shared_ptr<RootScan> &scan,
+                            const QString &token);
+  void readRoots(const QString &providerId);
+  void dropRoots(const QString &providerId);
   QString keyFor(const QString &providerId, const QString &settingId) const;
   const SettingRecord *find(const QString &providerId,
                             const QString &settingId) const;
@@ -107,6 +118,13 @@ private:
   QHash<QString, QString> m_deferredGeneration;
   QHash<QString, QString> m_saveGeneration;
   QHash<QString, quint64> m_tickets;
+  // Library providers: id → the daemon path that serves its Library1.
+  QHash<QString, QString> m_libraryPaths;
+  // Root availability per library provider (path → available), only for a
+  // provider whose GetRoots answered. No entry means no unavailable state.
+  QHash<QString, QHash<QString, bool>> m_roots;
+  QHash<QString, quint64> m_rootTickets;
+  quint64 m_rootScan = 0;
   bool m_loaded = false;
   bool m_error = false;
   bool m_unreachable = false;

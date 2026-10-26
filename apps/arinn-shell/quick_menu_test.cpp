@@ -32,6 +32,8 @@ public:
   QStringList controlCalls;
   uint level = 30;
   bool muted = false;
+  // The platform refuses every volume change (the HUD's failure state).
+  bool failVolume = false;
   // Holds Suspend until releaseSuspend() refuses it: a request in flight.
   // The fake has its own connection, so a held call is really pending (a
   // call within one connection is answered when the handler returns).
@@ -53,6 +55,13 @@ public:
     if (m.interface() == control) {
       controlCalls << m.member();
       const QString member = m.member();
+      if (failVolume && (member == QLatin1String("StepVolume") ||
+                         member == QLatin1String("ToggleMuted") ||
+                         member == QLatin1String("SetMuted"))) {
+        bus.send(m.createErrorReply(
+            QStringLiteral("org.arinn.Error1.Unavailable"), QStringLiteral("no sink")));
+        return true;
+      }
       if (member == QLatin1String("StepVolume"))
         level = uint(qBound(0, int(level) + 5 * m.arguments().value(0).toInt(),
                             150));
@@ -171,6 +180,7 @@ private slots:
     daemon.controlCalls.clear();
     daemon.level = 30;
     daemon.muted = false;
+    daemon.failVolume = false;
     daemon.holdSuspend = false;
     daemon.heldSuspend = {};
     daemon.sessionSwitch.clear();
@@ -877,6 +887,49 @@ private slots:
     QVERIFY(!ambient->property("active").toBool());
   }
 
+  // Review of #478 (#487): idle ambient never starts over a power request in
+  // flight, so its answer never takes focus behind ambient. If ambient is on
+  // anyway (started explicitly after Home left the request), the late
+  // refusal waits for it and appears after the wake.
+  void ambientWaitsForAPendingPowerRequest() {
+    daemon.holdSuspend = true;
+    daemon.request("PowerMenuRequested");
+    QTRY_VERIFY(window->isVisible());
+    window->requestActivate();
+    QTRY_VERIFY(window->isActive());
+    QTRY_VERIFY(powerOpen());
+    auto *idle = engine->rootObjects().value(0)->findChild<QObject *>(
+        QStringLiteral("ambientIdle"));
+    auto *ambient = child(window, "ambientScreen");
+    QVERIFY(idle && ambient);
+    QTRY_VERIFY(child(window, "sleepButton")->hasActiveFocus());
+    QTRY_VERIFY(idle->property("eligible").toBool());
+    QTest::keyClick(window, Qt::Key_Return);
+    QTRY_COMPARE(daemon.controlCalls.count(QStringLiteral("Suspend")), 1);
+    QTRY_VERIFY(!idle->property("eligible").toBool());
+    QVERIFY(!idle->property("counting").toBool());
+    // Home leaves the menu; the request goes on and still holds ambient.
+    QTest::keyClick(window, Qt::Key_Home);
+    QTRY_VERIFY(!child(window, "powerMenu")->isVisible());
+    QTRY_VERIFY(focusIn(home));
+    QVERIFY(!idle->property("eligible").toBool());
+    QVERIFY(!power()->property("holdLateAnswer").toBool());
+    QVERIFY(QMetaObject::invokeMethod(window, "startAmbient"));
+    QTRY_VERIFY(ambient->property("armed").toBool());
+    QVERIFY(power()->property("holdLateAnswer").toBool());
+    daemon.releaseSuspend();
+    QTest::qWait(300);
+    QVERIFY(!child(window, "powerMenu")->isVisible());
+    QVERIFY(focusIn(ambient));
+    // The wake is consumed; then the refusal opens with focus.
+    QTest::keyClick(window, Qt::Key_Down);
+    QTRY_VERIFY(!ambient->property("active").toBool());
+    QTRY_VERIFY(child(window, "powerError")->isVisible());
+    QTRY_VERIFY(focusIn(power()));
+    QTRY_VERIFY(idle->property("eligible").toBool());
+    QCOMPARE(daemon.controlCalls.count(QStringLiteral("Suspend")), 1);
+  }
+
   // Review of #517: the key again while the sheet's Power row has the scope
   // open over an Activity changes nothing; the sheet stays under it.
   void powerKeyKeepsAScopeTheSheetOpened() {
@@ -942,6 +995,164 @@ private slots:
     QVERIFY(QQmlProperty::write(launch, QStringLiteral("active"), false));
     QTRY_VERIFY(!launch->isVisible());
     QCOMPARE(cancels.count(), 0);
+  }
+
+  // A late power refusal that arrives while a launch waits out its reveal
+  // delay (nothing drawn yet) waits as for a shown launch overlay (#534,
+  // ui-power.md *Answer after Home*). Otherwise it would open, then end up
+  // under the launch overlay while still holding focus. Once the launch
+  // ends, the refusal appears with focus, and Back on it returns to Home
+  // through the production wiring (holdLateAnswer, restoreLateFocus).
+  void lateRefusalWaitsForARevealingLaunch_data() {
+    QTest::addColumn<QString>("overlay");
+    QTest::newRow("web service") << QStringLiteral("launchOverlay");
+    QTest::newRow("application") << QStringLiteral("applicationLaunch");
+  }
+  void lateRefusalWaitsForARevealingLaunch() {
+    QFETCH(QString, overlay);
+    daemon.holdSuspend = true;
+    daemon.request("PowerMenuRequested");
+    QTRY_VERIFY(window->isVisible());
+    window->requestActivate();
+    QTRY_VERIFY(window->isActive());
+    QTRY_VERIFY(powerOpen());
+    QTRY_VERIFY(child(window, "sleepButton")->hasActiveFocus());
+    QTest::keyClick(window, Qt::Key_Return);
+    QTRY_COMPARE(daemon.controlCalls.count(QStringLiteral("Suspend")), 1);
+    // Home leaves the menu; the request goes on.
+    QTest::keyClick(window, Qt::Key_Home);
+    QTRY_VERIFY(!child(window, "powerMenu")->isVisible());
+    QTRY_VERIFY(focusIn(home));
+    auto *launch = child(window, overlay.toLatin1().constData());
+    QVERIFY(launch);
+    // A launch starts (the binding to the catalog or backend is replaced for
+    // the test). Its reveal delay is stretched so the refusal surely
+    // arrives inside it.
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("revealDelay"), 1500));
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("serviceTitle"), QStringLiteral("Game")));
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("active"), true));
+    QVERIFY(!launch->isVisible());
+    QVERIFY(power()->property("holdLateAnswer").toBool());
+    daemon.releaseSuspend();
+    QTest::qWait(300);
+    QVERIFY(!launch->isVisible());
+    QVERIFY2(!child(window, "powerError")->isVisible(), "the refusal waits for the launch");
+    QVERIFY(!focusIn(power()));
+    // The launch overlay appears; the refusal still waits, without focus.
+    QTRY_VERIFY_WITH_TIMEOUT(launch->isVisible(), 5000);
+    QVERIFY(!child(window, "powerError")->isVisible());
+    QVERIFY(!focusIn(power()));
+    // The launch ends: the refusal appears with focus.
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("active"), false));
+    QTRY_VERIFY(!launch->isVisible());
+    QTRY_VERIFY(child(window, "powerError")->isVisible());
+    QTRY_VERIFY(focusIn(power()));
+    // Back closes it; focus returns to Home.
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_VERIFY(!child(window, "powerMenu")->isVisible());
+    QTRY_VERIFY(focusIn(home));
+    QCOMPARE(daemon.controlCalls.count(QStringLiteral("Suspend")), 1);
+  }
+
+  // A launch hidden by Home goes on in the background; it never holds a late
+  // refusal (it could hold it for as long as the launch lasts).
+  void lateRefusalIsNotHeldByALaunchHiddenForHome() {
+    daemon.holdSuspend = true;
+    daemon.request("PowerMenuRequested");
+    QTRY_VERIFY(window->isVisible());
+    window->requestActivate();
+    QTRY_VERIFY(window->isActive());
+    QTRY_VERIFY(powerOpen());
+    QTRY_VERIFY(child(window, "sleepButton")->hasActiveFocus());
+    QTest::keyClick(window, Qt::Key_Return);
+    QTRY_COMPARE(daemon.controlCalls.count(QStringLiteral("Suspend")), 1);
+    QTest::keyClick(window, Qt::Key_Home);
+    QTRY_VERIFY(!child(window, "powerMenu")->isVisible());
+    QTRY_VERIFY(focusIn(home));
+    auto *launch = child(window, "launchOverlay");
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("revealDelay"), 1500));
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("serviceTitle"), QStringLiteral("Service")));
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("active"), true));
+    QVERIFY(QMetaObject::invokeMethod(launch, "hideForHome"));
+    QVERIFY(launch->property("homeHidden").toBool());
+    QVERIFY(!power()->property("holdLateAnswer").toBool());
+    daemon.releaseSuspend();
+    QTRY_VERIFY(child(window, "powerError")->isVisible());
+    QTRY_VERIFY(focusIn(power()));
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("active"), false));
+  }
+
+  // The brightest channel value drawn inside the item's rectangle: what the
+  // user sees there, whatever the stacking says.
+  int brightestIn(QQuickItem *item) {
+    const QImage image = window->grabWindow();
+    const qreal dpr = image.devicePixelRatio();
+    const QRectF scene = item->mapRectToScene(QRectF(0, 0, item->width(), item->height()));
+    const QRect rect = QRectF(scene.topLeft() * dpr, scene.size() * dpr)
+                           .toAlignedRect()
+                           .intersected(image.rect());
+    int brightest = 0;
+    for (int y = rect.top(); y <= rect.bottom(); ++y)
+      for (int x = rect.left(); x <= rect.right(); ++x) {
+        const QColor c = image.pixelColor(x, y);
+        brightest = qMax(brightest, qMax(c.red(), qMax(c.green(), c.blue())));
+      }
+    return brightest;
+  }
+
+  // The volume HUD is drawn above a launch overlay, a web service's or an
+  // application's, in progress and as a failure dialog, and so is its own
+  // failure state (#487, spec §5.7, handoff *Toast and volume HUD*). The
+  // power menu keeps its place below the launch dialog, and the HUD never
+  // takes focus from it.
+  void volumeHudIsDrawnAboveALaunch_data() {
+    QTest::addColumn<QString>("overlay");
+    QTest::newRow("web service") << QStringLiteral("launchOverlay");
+    QTest::newRow("application") << QStringLiteral("applicationLaunch");
+  }
+  void volumeHudIsDrawnAboveALaunch() {
+    QFETCH(QString, overlay);
+    daemon.request("HomeRequested");
+    QTRY_VERIFY(window->isVisible());
+    window->requestActivate();
+    QTRY_VERIFY(window->isActive());
+    QTRY_VERIFY(focusIn(home));
+    auto *launch = child(window, overlay.toLatin1().constData());
+    auto *hud = child(window, "volumeHud");
+    QVERIFY(launch && hud);
+    // Long enough to look at it.
+    hud->setProperty("hideAfter", 10000);
+    QVERIFY(power()->property("z").toReal() < launch->property("z").toReal());
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("revealDelay"), 0));
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("serviceTitle"), QStringLiteral("Service")));
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("active"), true));
+    QTRY_VERIFY(launch->isVisible());
+    // Nothing bright where the HUD will be: the launch overlay covers it.
+    QVERIFY(!hud->isVisible());
+    QVERIFY2(brightestIn(hud) < 128, "the launch overlay is not drawn there");
+    // A confirmed level: its white bar shows through above the overlay.
+    QTest::keyClick(window, Qt::Key_VolumeDown);
+    QTRY_COMPARE(hud->property("opacity").toReal(), 1.0);
+    QCOMPARE(hud->property("level").toInt(), 25);
+    QTRY_VERIFY2(brightestIn(hud) >= 200, "the HUD is hidden behind the launch overlay");
+    QVERIFY(launch->isVisible());
+    QVERIFY(!hud->hasActiveFocus());
+    // The launch fails and its dialog takes focus; then a volume change
+    // fails: the HUD's own failure is drawn above the dialog.
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("failure"), QStringLiteral("Unavailable")));
+    QTRY_VERIFY(focusIn(launch));
+    const auto focused = window->activeFocusItem();
+    daemon.failVolume = true;
+    QTest::keyClick(window, Qt::Key_VolumeDown);
+    QTRY_VERIFY(hud->property("unavailable").toBool());
+    QTRY_COMPARE(hud->property("opacity").toReal(), 1.0);
+    QVERIFY(child(window, "volumeHudUnavailable")->isVisible());
+    QTRY_VERIFY2(brightestIn(child(window, "volumeHudUnavailable")) >= 128,
+                 "the HUD's failure is hidden behind the launch dialog");
+    QCOMPARE(window->activeFocusItem(), focused);
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("failure"), QString()));
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("active"), false));
+    QTRY_VERIFY(!launch->isVisible());
   }
 
   // While the session is locked the shell stays hidden and the key opens

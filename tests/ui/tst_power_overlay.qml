@@ -662,6 +662,40 @@ TestCase {
         compare(control.calls.length, 3);
     }
 
+    // #487: the shell gives the HUD a layer above the launch overlays; the
+    // menu stays in the overlay, below them, and the HUD still never takes
+    // focus.
+    function test_hud_draws_in_the_given_layer() {
+        const layer = createTemporaryQmlObject("import QtQuick; Item { width: 1920; height: 1080; z: 25 }", suite);
+        const launch = createTemporaryObject(launchFactory, suite, {revealDelay: 0});
+        const hud = overlay.hud;
+        compare(hud.parent, overlay);
+        overlay.hudLayer = layer;
+        compare(hud.parent, layer);
+        verify(layer.z > launch.z);
+        compare(hud.x, (1920 - 560) / 2);
+        compare(hud.y, 48);
+        openMenu();
+        launch.active = true;
+        tryVerify(() => launch.visible);
+        verify(overlay.z < launch.z);
+        launch.failure = "failed";
+        tryVerify(() => launch.activeFocus);
+        keyClick(Qt.Key_VolumeDown);
+        control.confirmVolume(25, false);
+        verify(hud.shown);
+        verify(!hud.activeFocus);
+        verify(launch.activeFocus);
+        control.volumeFailed("unavailable");
+        verify(hud.shown);
+        verify(hud.unavailable);
+        verify(!hud.activeFocus);
+        verify(launch.activeFocus);
+        // Without a layer it is drawn in the overlay again.
+        overlay.hudLayer = null;
+        compare(hud.parent, overlay);
+    }
+
     function test_hud_matches_handoff() {
         const hud = child("volumeHud");
         compare(hud.width, 560);

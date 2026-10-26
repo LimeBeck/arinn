@@ -312,11 +312,18 @@ review of G-5.1. It does not pass G-5.1, AC-14, or any Phase 5 gate.
 The manifest is [`tests/ui/visual/manifest.json`](../../tests/ui/visual/manifest.json).
 Each entry is one screen state. `reference` names a file in
 [`docs/design/handoff/screenshots/`](../design/handoff/screenshots/): the 22 main
-`*.jpg` files, the `os-*.png` Open services states, and the `in-*.png` address
-states. A state with no handoff file has `reference` null. A handoff file whose
-screen is not implemented has `render` false and a reason. The address and
-search states are in that last group. The comparison does not edit those
-screens.
+`*.jpg` files, the `os-*.png` Open services states, the `in-*.png` address
+states, the `cl-*.png` closing-applications states, the `kb-*.png` on-screen
+keyboard states and the `se-*.png` Settings editor states. Every handoff file is
+in the manifest exactly once. A state with no handoff file has `reference` null;
+these capture-only states cover screens with no handoff frame, such as the quick
+menu, the volume HUD, Switch to desktop and the application launch states. A
+handoff file whose state the shell does not draw has `render` false and a
+reason: the address and search states, the running-applications screen and
+the folder picker are in that group. A rendered state whose layout differs from
+its handoff frame says how in `note`: the Library folders frames, for example,
+map to the inline folder list that Settings draws for a multiple path setting. The
+comparison does not edit those screens.
 
 ```sh
 cmake -S . -B build -G Ninja
@@ -326,12 +333,17 @@ python scripts/ui-compare.py
 ```
 
 `--check` only confirms that the manifest and the handoff directory name the
-same files. The full command renders every `render: true` state with
+same files. [`tests/ci/test_ui_compare.py`](../../tests/ci/test_ui_compare.py)
+runs the same validation in the `docs` CI job, together with a check that every
+rendered state has a scene in `capture.qml`, so a new handoff file cannot be
+added without a manifest entry (#513). The full command renders every `render: true` state with
 `arinn-ui-test` and [`tests/ui/visual/capture.qml`](../../tests/ui/visual/capture.qml)
 on the offscreen platform and the software scene graph. It writes PNGs and
 `report.html` under `build/ui-compare/`. The capture request is generated in
 that output directory. The tool does not rewrite a tracked file. Those files
-are generated and are not committed. Nothing is added to CI.
+are generated and are not committed. A scene can name the parts it must show
+(`expect`); the capture fails when one of them is missing or hidden instead of
+saving an empty frame. The rendering itself is not part of CI.
 
 1080p is a 1920×1080 framebuffer. The tool then sets `QT_SCALE_FACTOR=2` and
 renders again. The offscreen platform ignores that variable, so the grab stays

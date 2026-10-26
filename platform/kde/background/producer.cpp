@@ -224,28 +224,19 @@ QSize BackgroundProducer::grabSize(qreal width, qreal height, qreal dpr) {
   if (!std::isfinite(width) || !std::isfinite(height) || !(width > 0) || !(height > 0))
     return {1, 1};
   if (!std::isfinite(dpr) || !(dpr >= 1)) dpr = 1;
-  // Only an item larger than the physical bounds is scaled down; a smaller
-  // one is grabbed at its own size, never enlarged.
-  QSizeF physical = QSizeF(width, height) * dpr;
-  if (physical.width() > arinn::background::maxWidth ||
-      physical.height() > arinn::background::maxHeight)
-    physical.scale(QSizeF(arinn::background::maxWidth, arinn::background::maxHeight),
-                   Qt::KeepAspectRatio);
-  return (physical / dpr).toSize().expandedTo(QSize(1, 1));
-}
-
-QSize BackgroundProducer::stageSize(qreal width, qreal height, qreal dpr) const {
-  if (!std::isfinite(width) || !std::isfinite(height) || !(width > 0) || !(height > 0))
-    return {1, 1};
-  if (!std::isfinite(dpr) || !(dpr >= 1)) dpr = 1;
-  // Bound the stage's backing surface, which is logical size times DPR, to
-  // the physical frame bounds, keeping the window's aspect ratio. Floor, so
-  // the backing never exceeds them.
+  // Only a size larger than the physical bounds (logical size times DPR) is
+  // scaled down, keeping the aspect ratio; a smaller one is kept, never
+  // enlarged. Floor, so the physical size never exceeds the bounds.
   const qreal scale = std::min({qreal(1),
                                 qreal(arinn::background::maxWidth) / (width * dpr),
                                 qreal(arinn::background::maxHeight) / (height * dpr)});
   return {std::max(1, int(std::floor(width * scale))),
           std::max(1, int(std::floor(height * scale)))};
+}
+
+QSize BackgroundProducer::stageSize(qreal width, qreal height, qreal dpr) const {
+  // The stage's backing surface obeys the same bound, rounded the same way.
+  return grabSize(width, height, dpr);
 }
 
 void BackgroundProducer::fail() {

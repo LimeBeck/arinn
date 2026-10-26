@@ -4,20 +4,28 @@
 // The KWin producer against a fake daemon on a private bus (ADR-0087). A
 // plain Qt Quick item stands in for KWin's WindowThumbnail; synthetic pixels.
 #include "producer.h"
+
+#include <QDir>
+#include <QFile>
 #include <QQmlComponent>
 #include <QQmlEngine>
 #include <QQuickWindow>
-#include <QtDBus>
 #include <QScopeGuard>
-#include <limits>
+#include <QScreen>
 #include <QSemaphore>
+#include <QTemporaryDir>
+#include <QtDBus>
 #include <QtTest>
+
+#include <limits>
+#include <memory>
 
 namespace {
 const QString epoch = QStringLiteral("11111111-1111-4111-8111-111111111111");
 const QString first = QStringLiteral("22222222-2222-4222-8222-222222222222");
 const QString second = QStringLiteral("44444444-4444-4444-8444-444444444444");
 const QString generation = QStringLiteral("33333333-3333-4333-8333-333333333333");
+const QString otherEpoch = QStringLiteral("55555555-5555-4555-8555-555555555555");
 } // namespace
 
 struct WindowWire {
@@ -48,6 +56,7 @@ class FakeDaemon : public QDBusVirtualObject {
 public:
   explicit FakeDaemon(QDBusConnection bus) : bus(bus) {}
   QDBusConnection bus;
+  QString epoch = ::epoch;
   QString state = QStringLiteral("pending"), request = first;
   bool reject = false;
   // Hold the reply to the next Get: it carries the snapshot taken when the
@@ -193,6 +202,8 @@ private slots:
     QCOMPARE(p.token, QStringLiteral("window-token"));
     QCOMPARE(p.width * p.height > 0, true);
     QVERIFY(p.width <= 1920 && p.height <= 1080);
+    // capture() asks for grabSize of the item: its own 64×36 at DPR 1.
+    QCOMPARE(QSize(int(p.width), int(p.height)), QSize(64, 36));
     QVERIFY2(p.rgba.has_value(), "sealed descriptor of exact size");
     QCOMPARE((*p.rgba)[0], std::uint8_t(255));
     QCOMPARE((*p.rgba)[1], std::uint8_t(0));
@@ -281,6 +292,85 @@ private slots:
     QCOMPARE(daemon->published.size(), 0);
   }
 
+  void aNewDaemonOwnerStartsWithoutTheOldFloor() {
+    BackgroundProducer producer;
+    QTRY_COMPARE_WITH_TIMEOUT(producer.request(), first, 5000);
+    // Raise the floor of this owner's epoch past anything the successor
+    // reports.
+    daemon->revision = 40;
+    daemon->changed();
+    QTest::qWait(200);
+    QCOMPARE(producer.request(), first);
+    // A replacement daemon: another owner, another epoch, a lower revision
+    // and a pending attempt that its first Get answers, before any Changed.
+    daemonBus.unregisterService(QStringLiteral("org.arinn.Daemon1"));
+    QTRY_VERIFY_WITH_TIMEOUT(producer.request().isEmpty(), 5000);
+    auto successorBus = QDBusConnection::connectToBus(QDBusConnection::SessionBus,
+                                                      QStringLiteral("fake-daemon-successor"));
+    QVERIFY(successorBus.isConnected());
+    FakeDaemon successor(successorBus);
+    successor.epoch = otherEpoch;
+    successor.request = second;
+    auto release = qScopeGuard([&] {
+      successorBus.unregisterService(QStringLiteral("org.arinn.Daemon1"));
+      successorBus.unregisterObject(QStringLiteral("/org/arinn/Daemon1"));
+      QDBusConnection::disconnectFromBus(QStringLiteral("fake-daemon-successor"));
+    });
+    QVERIFY(successorBus.registerVirtualObject(QStringLiteral("/org/arinn/Daemon1"), &successor));
+    QVERIFY(successorBus.registerService(QStringLiteral("org.arinn.Daemon1")));
+    QTRY_COMPARE_WITH_TIMEOUT(producer.request(), second, 5000);
+  }
+
+  void scriptBoundsAnUnmatchedOutputByTheStageScreen() {
+    // Run by the kwin-background-script test with QT_SCALE_FACTOR=2: every
+    // screen, including the stage's default one, has DPR 2.
+    if (QGuiApplication::primaryScreen()->devicePixelRatio() < 2)
+      QSKIP("needs a HiDPI screen (ctest kwin-background-script)");
+    // A stand-in for KWin's QML API: one window of the request's target on
+    // an output that no Qt screen is named after.
+    QTemporaryDir modules;
+    QVERIFY(modules.isValid());
+    QVERIFY(QDir(modules.path()).mkpath(QStringLiteral("org/kde/kwin")));
+    const auto write = [&](const QString &name, const QByteArray &text) {
+      QFile file(modules.filePath(QStringLiteral("org/kde/kwin/") + name));
+      return file.open(QIODevice::WriteOnly) && file.write(text) == text.size();
+    };
+    QVERIFY(write(QStringLiteral("qmldir"), "module org.kde.kwin\n"
+                                              "WindowThumbnail 1.0 WindowThumbnail.qml\n"
+                                              "singleton Workspace 1.0 Workspace.qml\n"));
+    QVERIFY(write(QStringLiteral("WindowThumbnail.qml"),
+                  "import QtQuick\nRectangle { property var client: null; color: 'red' }\n"));
+    QVERIFY(write(QStringLiteral("Workspace.qml"),
+                  "pragma Singleton\nimport QtQml\nQtObject {\n"
+                  "  property var windows: [{ internalId: 'activity', minimized: false,\n"
+                  "    deleted: false, output: { name: 'no-such-output' },\n"
+                  "    frameGeometry: { width: 1920, height: 1080 } }]\n}\n"));
+    qmlRegisterType<BackgroundProducer>("org.arinn.background", 1, 0, "BackgroundProducer");
+    QQmlEngine scriptEngine;
+    scriptEngine.addImportPath(modules.path());
+    QQmlComponent component(&scriptEngine,
+                            QUrl::fromLocalFile(QStringLiteral(ARINN_BACKGROUND_QML)));
+    std::unique_ptr<QObject> root(component.create());
+    QVERIFY2(root, qPrintable(component.errorString()));
+    auto *stage = qobject_cast<QQuickWindow *>(root.get());
+    QVERIFY(stage);
+    auto *producer = root->findChild<BackgroundProducer *>();
+    QVERIFY(producer);
+    // The stage is sized when the request starts; the capture may complete
+    // right after, so record the size the script chose then.
+    QSize staged;
+    connect(producer, &BackgroundProducer::requestChanged, stage, [&] {
+      if (producer->request() == first) staged = stage->size();
+    });
+    QTRY_VERIFY_WITH_TIMEOUT(staged.isValid(), 5000);
+    // The stage stayed on its default screen; its backing surface (logical
+    // size times that screen's DPR) stays within 1920×1080.
+    const qreal dpr = stage->screen()->devicePixelRatio();
+    QCOMPARE(dpr, 2.0);
+    QCOMPARE(staged, QSize(960, 540));
+    QVERIFY(staged.width() * dpr <= 1920 && staged.height() * dpr <= 1080);
+  }
+
   void aReplacementWhileEncodingIsCancelledAsBusy() {
     // The encoding worker is held: the first image stays on it.
     QSemaphore entered, release;
@@ -336,6 +426,23 @@ private slots:
     QCOMPARE(producer.stageSize(inf, 100, 1), QSize(1, 1));
     QCOMPARE(producer.stageSize(800, 450, nan), QSize(800, 450));
     QCOMPARE(producer.stageSize(800, 450, inf), QSize(800, 450));
+  }
+
+  void grabSizeAndStageSizeRoundTheSameWay() {
+    BackgroundProducer producer;
+    // 3840×2160 at DPR 1.3: rounding to nearest would ask for 1477×831,
+    // 1920.1×1080.3 physical pixels. Both round down.
+    QCOMPARE(BackgroundProducer::grabSize(3840, 2160, 1.3), QSize(1476, 830));
+    for (const qreal dpr : {1.0, 1.1, 1.25, 1.3, 1.5, 1.75, 2.0, 2.5, 3.0}) {
+      for (const auto &size : {QSizeF(3840, 2160), QSizeF(2560, 1440), QSizeF(1000, 3000),
+                               QSizeF(1919.5, 1079.5), QSizeF(800, 450)}) {
+        const auto grab = BackgroundProducer::grabSize(size.width(), size.height(), dpr);
+        QCOMPARE(grab, producer.stageSize(size.width(), size.height(), dpr));
+        QVERIFY2(grab.width() * dpr <= 1920 && grab.height() * dpr <= 1080,
+                 qPrintable(QStringLiteral("%1x%2 at %3").arg(size.width()).arg(size.height())
+                                .arg(dpr)));
+      }
+    }
   }
 
   void grabSizeNeverEnlargesAndBoundsLargeItems() {

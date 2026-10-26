@@ -38,8 +38,16 @@ if(TARGET Qt6::Test)
     set_target_properties(arinn-kwin-background-test PROPERTIES AUTOMOC ON)
     target_link_libraries(arinn-kwin-background-test PRIVATE arinn-background-encoder
         Qt6::Quick Qt6::DBus Qt6::Test)
+    # The packaged KWin script, loaded with a stand-in for KWin's QML API.
+    target_compile_definitions(arinn-kwin-background-test PRIVATE
+        ARINN_BACKGROUND_QML="${CMAKE_CURRENT_SOURCE_DIR}/../background.qml")
     add_test(NAME kwin-background-producer COMMAND dbus-run-session --
         $<TARGET_FILE:arinn-kwin-background-test>)
     set_tests_properties(kwin-background-producer PROPERTIES ENVIRONMENT
         "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software")
+    # The script's stage on a HiDPI screen whose name matches no output.
+    add_test(NAME kwin-background-script COMMAND dbus-run-session --
+        $<TARGET_FILE:arinn-kwin-background-test> scriptBoundsAnUnmatchedOutputByTheStageScreen)
+    set_tests_properties(kwin-background-script PROPERTIES ENVIRONMENT
+        "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software;QT_SCALE_FACTOR=2")
 endif()

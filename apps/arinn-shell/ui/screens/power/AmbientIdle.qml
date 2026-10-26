@@ -6,8 +6,9 @@ import QtQuick
 // The idle timer of spec §5.7 (#307). `idle()` fires after `timeout` without
 // input while automatic ambient is allowed: the shell is on screen and
 // active, the session is not locked, ambient is not already on, nothing is
-// launching, and no media plays. It only starts ambient; it never requests
-// OS suspend, pauses playback or closes applications.
+// launching, no power request waits for its answer, and no media plays. It
+// only starts ambient; it never requests OS suspend, pauses playback or
+// closes applications.
 QtObject {
     id: root
     // Ten minutes by default (spec §5.7).
@@ -16,8 +17,12 @@ QtObject {
     property bool locked: false
     property bool ambientActive: false
     property bool launching: false
+    // A power request is in flight: its answer, a refusal in particular,
+    // must never take focus behind ambient (#487).
+    property bool powerPending: false
     property bool mediaPlaying: false
-    readonly property bool eligible: shellShown && !locked && !ambientActive && !launching && !mediaPlaying
+    readonly property bool eligible: shellShown && !locked && !ambientActive && !launching && !powerPending
+                                     && !mediaPlaying
     readonly property bool counting: timer.running
 
     signal idle()

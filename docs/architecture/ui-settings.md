@@ -68,8 +68,9 @@ nothing.
 
 Select on an enum, integer or string opens a sheet. The screen behind it drops
 to 55% opacity. Back closes the sheet without saving and returns focus to the
-row. An enum sheet opens on the current option, keeps a check on that option,
-and pages with Page Up/Down or Channel Up/Down when there are more than six
+row. An enum sheet opens on the current option, scrolled so that option is
+on screen and centred (handoff EN-2), keeps a check on that option, keeps the
+focused option on screen while moving, and pages with Page Up/Down or Channel Up/Down when there are more than six
 options. The position is "N of M". An integer sheet steps by `step` (1 when the
 constraints omit it) with Left/Right or Up/Down; after the key has been held
 for one second the step is ten times larger. The value stays inside `min` and
@@ -145,8 +146,9 @@ that change settles.
 ## Verification
 
 `tests/ui/tst_settings.qml` covers D-pad focus, the boolean, the integer sheet
-(bounds, hold acceleration, unit when present), the enum sheet (paging and a
-wrapping label), the string sheet, typing it with the on-screen keyboard, single-path and
+(bounds, hold acceleration, unit when present), the enum sheet (paging, a
+wrapping label, and a 64-option sheet that opens scrolled to its current
+option), the string sheet, typing it with the on-screen keyboard, single-path and
 multiple-path text, typing a path, a list item and *Add path* with the on-screen keyboard, a disabled row, pending and error text, an over-long
 string, saving toasts, a deferred row note, Back, the unavailable screen,
 focus kept across a row republish, and Select on a pending boolean.

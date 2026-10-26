@@ -963,6 +963,7 @@ TestCase {
         const overLimit = "/" + "я".repeat(2048);
         const cases = [
             ["media/films", "The path must start with /"],
+            // No home folder is known in this view: `~` stays relative.
             ["~/films", "The path must start with /"],
             ["/media/../etc", "The path cannot contain . or .. folders"],
             ["/media/./films", "The path cannot contain . or .. folders"],
@@ -1042,6 +1043,93 @@ TestCase {
         tryCompare(view, "pathTyping", false);
         focused("path-library-roots-0");
         verify(insideView(windowFocus()));
+    }
+
+    // #479, owner decision of 2026-10-26: `~` names the home folder. A leading
+    // `~/` is replaced in the field as it is typed; a bare `~` is expanded
+    // when proposed. `~user/` stays relative, and `~/../x` still breaks the
+    // `..` rule after the expansion. Without a known home folder, `~` stays
+    // relative (test_path_format_blocks_save).
+    function test_home_folder_expands_in_a_path() {
+        view.homeFolder = "/home/viewer";
+        keyClick(Qt.Key_Right);
+        focused("setting-library-scan");
+        keyClick(Qt.Key_Down);
+        keyClick(Qt.Key_Down);
+        focused("setting-library-folder");
+        keyClick(Qt.Key_Return);
+        const editor = child("editor-library-folder");
+        tryCompare(editor, "activeFocus", true);
+        const hint = child("pathHint-library-folder");
+        editor.text = "~/films";
+        compare(editor.text, "/home/viewer/films");
+        compare(view.editingDraft, "/home/viewer/films");
+        verify(!hint.visible);
+        editor.text = "~/../x";
+        compare(editor.text, "/home/viewer/../x");
+        compare(hint.text, "The path cannot contain . or .. folders");
+        keyClick(Qt.Key_Return);
+        compare(changes.count, 0);
+        editor.text = "~viewer/films";
+        compare(editor.text, "~viewer/films");
+        compare(hint.text, "The path must start with /");
+        keyClick(Qt.Key_Return);
+        compare(changes.count, 0);
+        // A bare `~` may still become `~user/`: it stays until proposed.
+        editor.text = "~";
+        compare(editor.text, "~");
+        verify(!hint.visible);
+        keyClick(Qt.Key_Return);
+        compare(changes.count, 1);
+        compare(changes.signalArguments[0][1], "folder");
+        compare(changes.signalArguments[0][2], "/home/viewer");
+        focused("setting-library-folder");
+        // A home folder that is not an absolute path is unknown.
+        changes.clear();
+        view.homeFolder = "viewer";
+        keyClick(Qt.Key_Return);
+        tryCompare(editor, "activeFocus", true);
+        editor.text = "~/films";
+        compare(editor.text, "~/films");
+        compare(hint.text, "The path must start with /");
+        keyClick(Qt.Key_Return);
+        compare(changes.count, 0);
+    }
+
+    // #479 with the panel (KB-5): the `~/` context key types the home folder.
+    function test_home_folder_expands_in_the_panel() {
+        view.homeFolder = "/home/viewer/";
+        view.keyboardAvailable = false;
+        keyClick(Qt.Key_Right);
+        focused("setting-library-scan");
+        keyClick(Qt.Key_Down);
+        keyClick(Qt.Key_Down);
+        focused("setting-library-folder");
+        keyClick(Qt.Key_Return);
+        focused("keyboard-library-folder");
+        child("pathOnScreenKeyboard").model.forget();
+        keyClick(Qt.Key_Return);
+        tryCompare(view, "pathTyping", true);
+        pathKeysFocused();
+        keyClick(Qt.Key_Up);
+        keyClick(Qt.Key_Up);
+        moveToPathKey("~/");
+        keyClick(Qt.Key_Return);
+        compare(child("pathTypingInput").text, "/home/viewer/");
+        compare(child("pathTypingInput").cursorPosition, "/home/viewer/".length);
+        compare(child("editor-library-folder").text, "/home/viewer/");
+        verify(!child("pathTypingError").visible);
+        keyClick(Qt.Key_Down);
+        moveToPathKey("e");
+        keyClick(Qt.Key_Return);
+        compare(child("pathTypingInput").text, "/home/viewer/e");
+        for (let i = 0; i < 4; ++i) keyClick(Qt.Key_Down);
+        moveToPathKey("Save");
+        keyClick(Qt.Key_Return);
+        compare(changes.count, 1);
+        compare(changes.signalArguments[0][2], "/home/viewer/e");
+        tryCompare(view, "pathTyping", false);
+        focused("setting-library-folder");
     }
 
     // #546: the typing layers' fields set weight 500 in the bundled Onest, a

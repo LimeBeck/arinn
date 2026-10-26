@@ -61,9 +61,13 @@ FocusScope {
         pathKeyboard.finish();
         pathTyping = false;
     }
+    // The user's home folder (the shell's $HOME), for `~` in a path: owner
+    // decision of 2026-10-26 (#479, spec §5.6). Empty when unknown; `~` then
+    // stays relative and is rejected, as by the contract.
+    property string homeFolder: ""
     // Why the open path editor's draft cannot be saved, empty when it can or
     // when nothing is typed yet (§6.2: a format error blocks the main key).
-    readonly property string pathHint: pathEditing ? pathProblem(editingDraft) : ""
+    readonly property string pathHint: pathEditing ? pathProblem(expandHome(editingDraft)) : ""
     property string enumClosingKey: ""
     signal valueChangeRequested(string providerId, string settingId, var value)
     signal errorDismissRequested(string providerId, string settingId)
@@ -336,7 +340,7 @@ FocusScope {
         if (!editingKey) return;
         const row = rowByKey(editingKey);
         const part = editingPart;
-        const draft = editingDraft;
+        let draft = editingDraft;
         const key = editingKey;
         if (!commit || !row || !canEdit(row)) {
             editingKey = "";
@@ -351,7 +355,11 @@ FocusScope {
             beginSave(row, draft, draft);
             return;
         }
-        if (row.type === "path" && !pathSavable(draft)) return;
+        if (row.type === "path") {
+            // The proposed value is always absolute (#479).
+            draft = expandHome(draft);
+            if (!pathSavable(draft)) return;
+        }
         if (row.type === "path" && !isMultiple(row)) {
             editingKey = "";
             editingPart = "";
@@ -375,11 +383,35 @@ FocusScope {
             refocusKey(key);
         }
     }
+    // `~` and a leading `~/` name the home folder (#479); the contract and the
+    // stored value stay absolute. `~user/` is not supported and stays
+    // relative. Without a known home folder nothing changes.
+    function expandHome(text) {
+        const value = String(text || "");
+        if (value !== "~" && !value.startsWith("~/")) return value;
+        const home = String(homeFolder || "");
+        if (!home.length || pathProblem(home).length) return value;
+        const base = home.replace(/\/+$/, "");
+        return value === "~" ? (base.length ? base : "/") : base + value.slice(1);
+    }
+    // A leading `~/` is replaced in the field as soon as it is typed, so the
+    // user sees the path that will be saved. A bare `~` waits: it may still
+    // become `~user/`, and it is expanded when proposed. Returns whether the
+    // text changed (the field then reports the new text itself).
+    function expandTyped(input) {
+        if (!input.text.startsWith("~/")) return false;
+        const before = input.text;
+        const after = expandHome(before);
+        if (after === before) return false;
+        const cursor = input.cursorPosition;
+        input.text = after;
+        input.cursorPosition = Math.min(after.length, Math.max(0, cursor + after.length - before.length));
+        return true;
+    }
     // The structural rules of `arinn_protocol::settings::path`, which the
     // daemon checks on Save: an absolute local path (one leading `/`), no
     // empty, `.` or `..` segment, no control character, at most 4096 bytes
     // of UTF-8. Returns the translated reason, "" for a valid or empty path.
-    // `~/` is relative here, as in the contract (#479).
     function pathProblem(text) {
         const value = String(text || "");
         if (!value.length) return "";
@@ -1294,7 +1326,7 @@ FocusScope {
                                             font.pixelSize: 26
                                             clip: true
                                             onVisibleChanged: if (visible) root.pathEditorOpened(simpleEditor, simpleKeyboard)
-                                            onTextChanged: if (visible && activeFocus) root.editingDraft = text
+                                            onTextChanged: if (visible && activeFocus && !root.expandTyped(simpleEditor)) root.editingDraft = text
                                             Keys.onPressed: event => root.editorKeys(event)
                                         }
                                         Ui.KeyboardButton {
@@ -1481,7 +1513,7 @@ FocusScope {
                                                     clip: true
                                                     verticalAlignment: Text.AlignVCenter
                                                     onVisibleChanged: if (visible) root.pathEditorOpened(pathEditor, pathItemKeyboard)
-                                                    onTextChanged: if (visible && activeFocus) root.editingDraft = text
+                                                    onTextChanged: if (visible && activeFocus && !root.expandTyped(pathEditor)) root.editingDraft = text
                                                     Keys.onPressed: event => root.editorKeys(event)
                                                 }
                                                 Ui.KeyboardButton {
@@ -1560,7 +1592,7 @@ FocusScope {
                                             font.pixelSize: 26
                                             clip: true
                                             onVisibleChanged: if (visible) root.pathEditorOpened(addEditor, addKeyboard)
-                                            onTextChanged: if (visible && activeFocus) root.editingDraft = text
+                                            onTextChanged: if (visible && activeFocus && !root.expandTyped(addEditor)) root.editingDraft = text
                                             Keys.onPressed: event => root.editorKeys(event)
                                         }
                                         Ui.KeyboardButton {
@@ -2324,7 +2356,7 @@ FocusScope {
                 clip: true
                 cursorVisible: pathTypingLayer.visible
                 cursorDelegate: Rectangle { width: 4; color: Ui.Theme.ember; visible: pathTypingInput.cursorVisible }
-                onTextChanged: if (pathTypingLayer.visible) {
+                onTextChanged: if (pathTypingLayer.visible && !root.expandTyped(pathTypingInput)) {
                     root.editingDraft = text;
                     const editor = root.pathControl("editor");
                     if (editor) editor.text = text;

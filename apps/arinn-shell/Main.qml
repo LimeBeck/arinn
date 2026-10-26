@@ -852,6 +852,8 @@ Window {
             categories: settingsCatalog.categories
             rows: settingsCatalog.rows
             keyboardAvailable: keyboardMonitor.available
+            // `~` in a path names this folder (#479); unset in test hosts.
+            homeFolder: typeof shellHomeFolder === "string" ? shellHomeFolder : ""
             onValueChangeRequested: (providerId, settingId, value) => settingsCatalog.setValue(providerId, settingId, value)
             onErrorDismissRequested: (providerId, settingId) => settingsCatalog.dismissError(providerId, settingId)
             onDismissRequested: home.back()

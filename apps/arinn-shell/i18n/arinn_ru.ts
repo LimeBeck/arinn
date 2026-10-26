@@ -1844,6 +1844,10 @@
         <translation>Вкл.</translation>
     </message>
     <message>
+        <source>Unavailable. Its titles stay in the library as unavailable.</source>
+        <translation>Недоступна. Фильмы из неё остаются в библиотеке как недоступные.</translation>
+    </message>
+    <message>
         <source>Remove</source>
         <translation>Удалить</translation>
     </message>

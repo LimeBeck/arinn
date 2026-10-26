@@ -376,14 +376,18 @@ The keyboard's ignored tests spawn their own Xvfb too. They check that:
   - each character, and each editing key, waits for its own lock check, without the 500 ms tick;
   - the worker ends a session whose target loses focus (`focus`), types nothing more and gives the panel keys back.
 
-The five ignored native tests each spawn their own Xvfb using `-displayfd`, create
+The ignored native tests (`native::fixture`) each spawn their own Xvfb using `-displayfd`, create
 synthetic EWMH metadata and clients, and never read the inherited `DISPLAY`.
 They verify inventory, typed identity, activation/close and Home-key dispatch,
 manager invalidation, Home/Return and video/compositor/lock lifecycle. A mapping
 change never lets the Home, quick-menu or power keys go (a client that keeps
 grabbing them never gets one), a contested new keycode keeps the held Home and
 quick-menu grabs but gives the whole power key up, and the recorded power grabs
-match the server's in every power mode (#526). They include partial-presentation rollback and compositor-loss regressions and do
+match the server's in every power mode (#526). A client that closes its
+connection loses its grabs only when the X server reads the close, unordered
+with other clients' requests, so a test that lets such a client go waits until
+its grab is free, or ungrabs explicitly, before the adapter grabs (#530); the
+adapter itself retries a take that found the key held (`PowerOwner`). They include partial-presentation rollback and compositor-loss regressions and do
 not substitute for real-desktop operator tests, which require owner permission.
 
 The Arch Qt CI job installs Xvfb and runs the native tests with `--include-ignored`.

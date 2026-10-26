@@ -4,6 +4,7 @@
 //! `org.arinn.Settings1` (ADR-0065) on a private bus, with a provider served
 //! by the SDK's `serve_settings`.
 use super::*;
+use crate::test_support::served;
 use arinn_plugin_sdk::runtime::{RegistrationContext, SettingsHandler, serve_settings};
 use arinn_protocol::{production::ProductionOperationProxy, settings::SettingsApiProxy};
 use std::{
@@ -170,6 +171,10 @@ impl Fixture {
                 provider("plain", &plain, &generation, &folder),
             );
         }
+        // The tests call the daemon, and the daemon the library provider,
+        // right after their first exports (#528).
+        served(&client, &server).await;
+        served(&client, &library).await;
         Self {
             bus,
             folder,

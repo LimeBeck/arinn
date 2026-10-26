@@ -184,9 +184,13 @@ contract above; these are the implementation choices within it:
   a fresh request even if nothing reconciled while Home was hidden.
 - **Session guard.** `platform/session_lock.rs` mirrors the shell's guard on the
   daemon side: the first answering freedesktop/XFCE screensaver endpoint, pinned
-  to its owner, and `PrepareForSleep` on the system bus, accepted only from
-  the current `org.freedesktop.login1` owner and seeded from its
-  `PreparingForSleep` property. Unknown state is blocked, including:
+  to its owner, and `PrepareForSleep` on the system bus, seeded from logind's
+  `PreparingForSleep` property. A resume is accepted only from the current
+  `org.freedesktop.login1` owner. A sleep start can only block, so it is
+  accepted even when its sender cannot be verified: an unknown owner, or a
+  sender that is not the owner, for example after logind handed over its name
+  ([#494](https://github.com/LimeBeck/arinn/issues/494)). Unknown state is
+  blocked, including:
   - no endpoint, or an owner change;
   - a failed or timed-out owner lookup of a preferred endpoint, which never
     falls through to a weaker one;
@@ -204,7 +208,13 @@ contract above; these are the implementation choices within it:
   provider. A change of the `org.arinn.Shell1` owner, including none, also
   invalidates; publication without a shell owner is `Conflict`. A ready frame
   is bound to the shell owner at publication, so a successor never reads it,
-  even before the owner change is processed.
+  even before the owner change is processed. A task that never takes the state
+  lock counts `org.arinn.Shell1` owner changes. `ReadFrame` notes the count
+  before its owner lookup and checks it again immediately before it duplicates
+  the descriptor, so a reader that loses the name while its call waits for the
+  state gets `PermissionDenied`, not the frame
+  ([#494](https://github.com/LimeBeck/arinn/issues/494)). Until that task
+  follows the name, or after its subscription ended, no frame is read.
 - **Publisher.** `Publish` and `Cancel` read the selected platform service's
   owner just before taking the state lock and require it, together with the
   inventory owner, at commit. No bus round trip separates the evidence check
@@ -226,7 +236,8 @@ contract above; these are the implementation choices within it:
 Private-bus tests in `crates/arinnd/src/runtime/background_tests.rs` cover exact
 identity, wrong publisher and reader, missing association, repeated Home,
 late and duplicate publication, Return, target change, window removal and
-remap, adapter reconnect, lock and blocked publication, shell owner loss,
+remap, adapter reconnect, lock and blocked publication, shell owner loss
+(including a reader that loses the name while its read waits),
 cancellation, malformed, oversized and unsealed descriptors, the unrenewed
 deadline and the absence of runtime files. They use synthetic pixels and fake
 windows; they are not producer, consumer or device evidence.

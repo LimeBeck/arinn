@@ -57,7 +57,7 @@ public:
   Q_INVOKABLE QSize stageSize(qreal width, qreal height, qreal dpr) const;
   // The logical target size passed to grabToImage for an item of
   // `width`×`height` logical pixels at `dpr`: scaled down into the physical
-  // bounds when larger, unchanged otherwise.
+  // bounds when larger, unchanged otherwise. Rounded down, as stageSize is.
   static QSize grabSize(qreal width, qreal height, qreal dpr);
   // The outstanding grab result, for tests: at most one, released as soon
   // as its image is taken or its request ends.

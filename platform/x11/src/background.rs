@@ -755,7 +755,7 @@ mod tests {
         let bus = crate::lock_tests::Bus::new().await;
         let daemon = Daemon::default();
         serve(&bus, &daemon).await?;
-        let probe = Duration::from_millis(600);
+        let probe = Duration::from_millis(300);
         bus.server
             .object_server()
             .at("/ScreenSaver", SlowLock(probe))

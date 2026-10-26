@@ -182,11 +182,21 @@ contract above; these are the implementation choices within it:
   bound to the Home lifetime that armed it (a counter of Home becoming
   visible), so a quick Return and Home with the same target and output starts
   a fresh request even if nothing reconciled while Home was hidden.
-- **Session guard.** `platform/session_lock.rs` mirrors the shell's guard on the
-  daemon side: the first answering freedesktop/XFCE screensaver endpoint, pinned
-  to its owner, and `PrepareForSleep` on the system bus, accepted only from
-  the current `org.freedesktop.login1` owner and seeded from its
-  `PreparingForSleep` property. Unknown state is blocked, including:
+- **Session guard.** `platform/session_lock.rs` is the daemon-side counterpart
+  of the shell's guard: the first answering freedesktop/XFCE screensaver
+  endpoint, pinned to its owner, and `PrepareForSleep` on the system bus,
+  seeded from logind's `PreparingForSleep` property. A resume is accepted only
+  from the current `org.freedesktop.login1` owner. A sleep start can only
+  block, so it is accepted even when its sender cannot be verified: an unknown
+  owner, or a sender that is not the owner, for example after logind handed
+  over its name ([#494](https://github.com/LimeBeck/arinn/issues/494)). Here
+  the daemon is stricter than the shell, whose guard accepts `PrepareForSleep`
+  only from logind's owner in both directions. The cost: any client that may
+  emit that signal on the system bus, including another local user, can
+  withhold the Activity background until logind's next real resume, which on
+  an always-on device may never come. Only background frames are affected:
+  the shell's lock, ambient and power behaviour follow its own guard. Unknown
+  state is blocked, including:
   - no endpoint, or an owner change;
   - a failed or timed-out owner lookup of a preferred endpoint, which never
     falls through to a weaker one;
@@ -204,7 +214,23 @@ contract above; these are the implementation choices within it:
   provider. A change of the `org.arinn.Shell1` owner, including none, also
   invalidates; publication without a shell owner is `Conflict`. A ready frame
   is bound to the shell owner at publication, so a successor never reads it,
-  even before the owner change is processed.
+  even before the owner change is processed. It also keeps a receiver of
+  `NameOwnerChanged` for `org.arinn.Shell1`, opened when `Publish` starts,
+  before the reader is looked up. zbus puts every matching signal into it
+  before it handles any later message, so it holds every owner change the
+  daemon has received since then, whether or not a task has run. `ReadFrame`
+  polls it, without waiting, immediately before it duplicates the descriptor:
+  any event refuses the read with `PermissionDenied`
+  ([#494](https://github.com/LimeBeck/arinn/issues/494)). That covers a reader
+  that loses the name while its call waits for the state, and one that
+  releases and reacquires it with the same connection (a new owner
+  lifetime). A change the bus has made but the daemon has not yet received is
+  invalidated when it arrives. A task keeps the same match rule registered,
+  so opening the receiver needs no bus round trip. That task, the
+  invalidation loop and every ready frame share zbus's one queue for the rule,
+  registered with zbus's default capacity of 64. If that subscription
+  fails, a normalized `background-follow` line with outcome `unavailable` is
+  logged, and a frame published without a receiver is never read.
 - **Publisher.** `Publish` and `Cancel` read the selected platform service's
   owner just before taking the state lock and require it, together with the
   inventory owner, at commit. No bus round trip separates the evidence check
@@ -219,14 +245,17 @@ contract above; these are the implementation choices within it:
 - **Diagnostics.** Normalized JSON lines with no identifiers:
   `background-armed`, `background-ready` (`duration_ms` from the Home request to
   accepted publication), `background-unavailable` (`outcome` is one of
-  `deadline`, `session`, `window`, `adapter`, `shell` or `cancelled`) and
-  `background-released`. They are the daemon's hooks for the owner's G-5.2
+  `deadline`, `session`, `window`, `adapter`, `shell` or `cancelled`),
+  `background-released`, and `background-follow` (outcome `unavailable` or
+  `ended`) when the `Shell1` owner subscription is missing. They are the daemon's hooks for the owner's G-5.2
   latency report ([performance harness](performance-harness.md#activity-background-g-52)).
 
 Private-bus tests in `crates/arinnd/src/runtime/background_tests.rs` cover exact
 identity, wrong publisher and reader, missing association, repeated Home,
 late and duplicate publication, Return, target change, window removal and
-remap, adapter reconnect, lock and blocked publication, shell owner loss,
+remap, adapter reconnect, lock and blocked publication, shell owner loss
+(including a reader that loses the name while its read waits, or releases
+and reacquires it),
 cancellation, malformed, oversized and unsealed descriptors, the unrenewed
 deadline and the absence of runtime files. They use synthetic pixels and fake
 windows; they are not producer, consumer or device evidence.

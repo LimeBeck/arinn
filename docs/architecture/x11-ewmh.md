@@ -217,7 +217,7 @@ token.
   - Unit tests: pixel conversion, bounds and sealing.
   - Private-bus tests without an X server: a fake daemon answers `Get` slowly
     while a newer attempt is committed and notified, and no capture starts for
-    the stale one; a screensaver that answers `GetActive` after 600 ms shrinks
+    the stale one; a screensaver that answers `GetActive` after 300 ms shrinks
     the capture timeout by at least that much.
   - Xvfb tests: the fixture acts as a manual compositing manager. One test
     captures a composited window, and confirms no capture without a compositor

@@ -57,13 +57,17 @@ Window {
             return;
         }
         client = w;
-        let dpr = 1;
+        let dpr = 0;
         for (const display of Qt.application.screens) {
             if (w.output && display.name === w.output.name) {
                 stage.screen = display;
-                dpr = display.devicePixelRatio || 1;
+                dpr = display.devicePixelRatio;
             }
         }
+        // Without a matching output the stage stays on its current screen:
+        // bound it by that screen's DPR, never by an assumed 1.
+        if (!(dpr > 0))
+            dpr = (stage.screen && stage.screen.devicePixelRatio) || 1;
         // The backing surface (logical size times DPR) stays within the
         // physical frame bounds, keeping the window's aspect ratio so the
         // thumbnail is not letterboxed.

@@ -627,6 +627,11 @@ FocusScope {
         optionIndex = index;
         Ui.Focus.take(item);
         if (choosingOptions.length > 6 && optionFlick) {
+            // On the first focus after the sheet opens, the Repeater has
+            // just built the options and the Column has not positioned them
+            // yet: every y is still 0 (#537). Lay them out first so the
+            // current option is scrolled into view and centred.
+            optionColumn.forceLayout();
             const y = Math.max(0, item.y + item.height / 2 - optionFlick.height / 2);
             optionFlick.contentY = Math.min(y, Math.max(0, optionFlick.contentHeight - optionFlick.height));
         }

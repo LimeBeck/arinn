@@ -8,6 +8,18 @@ Part of [ADR-0024](../adr/0024-local-library-mpv.md). The scenario was chosen by
 
 The library metadata and resume database is the provider's own state, not the core's. A stable item UUID is stored in its SQLite database; matching inode/size/mtime helps detect renames only inside an available root and is not a global ID. An unavailable mount makes the root unavailable; films are never marked deleted because of it. Symlinks outside configured roots are not followed automatically. "Remove from library" hides the entry and never deletes the file.
 
+**Settings and root availability** ([#551](https://github.com/LimeBeck/arinn/issues/551), [ADR-0065](../adr/0065-provider-settings-contract.md), [ADR-0071](../adr/0071-settings-editor-contract.md)). The provider exports `ProviderSettings1`, so Settings › Media edits its values. The schema has three settings:
+
+- `roots`, *Library folders*: a `path` with `directory` and `multiple`, at most 64, default empty;
+- `autoscan`, *Rescan regularly*: a boolean, default true;
+- `probe`, *Read video details*: a boolean, default true.
+
+Titles and descriptions are provider text in English, shown as sent, like the other providers' settings. `ffprobe` stays a hand-edited key in `config.toml` and is not in the schema.
+
+Settings are still read once at start (ADR-0056), so `Apply` answers `Unsupported` for valid values: the daemon keeps them and the shell shows that they apply at the next start. `Apply` answers `InvalidArgument`, and the daemon restores the previous file, for a root the provider would refuse at start, such as `/`.
+
+The provider also lists `LibraryRoots1` and publishes every configured root exactly as written, with whether the last scan could read it. The same unreadable-root check marks the root's items unavailable. A text that is not a valid settings path, or that repeats one already listed, is not reported. The SDK announces a changed list only, so a rescan that finds the same state emits nothing. Settings that do not load report no roots. Paths are not logged.
+
 MVP metadata: title, year, season and episode from the file name and sidecar NFO; duration and languages from ffprobe when it is installed; local poster and fanart next to the video become asset ids. When data is missing: the file name, an empty artwork id and unknown fields — never an invented plot or year. NFO XML is parsed without external entities or network DTDs. A long item is completed by a short playback step into the final 90 seconds, or by confirmed EOF; a seek does not complete it. Online enrichment is not required for a usable MVP and may be added later through provider configuration. This fallback works with any folder and needs no API key.
 
 `arinn-plugin-mpv` implements MediaProvider plus additional typed playback interfaces. mpv is a separate player process with a regular video window. Commands and events go through a private Unix JSON IPC socket in `XDG_RUNTIME_DIR` (directory 0700, no public `/tmp` endpoint). The shell never touches the socket and embeds no media engine. mpv offers JSON IPC and a track list, which is why it was chosen ([mpv manual](https://mpv.io/manual/stable/)). The process, the command shapes and the thumbnail extractor are [ADR-0057](../adr/0057-mpv-ipc-and-process-scope.md) and [below](#mpv).

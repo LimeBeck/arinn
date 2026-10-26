@@ -342,14 +342,19 @@ daemon. The existing shell startup path requests Home (AC-01).
 The helper remains in the desktop autostart session, owning
 `org.arinn.XfceSession`. Only that name's owner starts and stops the EWMH
 target; the name is never queued. When another launcher owns it, the helper
-waits up to 60 s for it to change hands and asks again, touching nothing in
+waits up to 65 s for it to change hands and asks again, touching nothing in
 the user manager meanwhile. After a fast re-login (autologin, display-manager
 relogin) the previous login's helper still owns the name while it stops the
-target; its cleanup is two `systemctl` calls of at most 30 s each. A helper
-that does not get the name within 60 s, is stopped while it waits, or whose
+target. Its cleanup is two `systemctl` calls of at most 30 s each, so the
+65 s wait is strictly longer (a compile-time assertion and
+`tests/ci/test_xfce_handover.py` keep these related). A helper
+that does not get the name within 65 s, is stopped while it waits, or whose
 own login ends meanwhile (`org.xfce.SessionManager` loses or changes its
 owner) exits 1 without cleanup of its own. It never takes over a later login
-with its own login's display and session (#483). This applies to the opt-in autostart path
+with its own login's display and session (#483). After the target has
+started, the helper also takes `org.arinn.XfceSession.Running`; the session
+entry counts Arinn as started only then. A start that fails is never
+confirmed. This applies to the opt-in autostart path
 and to the "Arinn (XFCE)" session alike. It subscribes to XFCE
 owner changes before reading the initial owner. XFCE owner loss/replacement,
 session-bus loss, SIGTERM or SIGINT stops the EWMH target, including a partial

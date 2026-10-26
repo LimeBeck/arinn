@@ -21,10 +21,18 @@ const SESSION: &str = "org.xfce.SessionManager";
 const TARGET: &str = "arinn-ewmh-session.target";
 /// Only the owner of this name may stop the target.
 const LAUNCHER: &str = "org.arinn.XfceSession";
+/// Owned once the target has started. `arinn-session` counts Arinn as
+/// started only when its own helper owns this name (#483).
+const RUNNING: &str = "org.arinn.XfceSession.Running";
+/// The bound of every `systemctl` call.
+const SYSTEMCTL_TIMEOUT: Duration = Duration::from_secs(30);
 /// After a fast re-login, the previous login's launcher can still own the
-/// name while it stops the target (#483). Its cleanup is two `systemctl`
-/// calls of at most 30 s each, so it releases the name within this time.
-const HANDOVER: Duration = Duration::from_secs(60);
+/// launcher name while it stops the target (#483). Its cleanup is two
+/// `systemctl` calls, then its exit releases the name. The wait is strictly
+/// longer than those calls, and `arinn-session` watches for longer still
+/// (`tests/ci/test_xfce_handover.py` keeps the two in step).
+const HANDOVER: Duration = Duration::from_secs(65);
+const _: () = assert!(HANDOVER.as_secs() > 2 * SYSTEMCTL_TIMEOUT.as_secs());
 
 struct Child(std::process::Child);
 impl Drop for Child {
@@ -43,7 +51,7 @@ async fn systemctl(args: &[&str]) -> Result<bool> {
             .stderr(Stdio::null())
             .spawn()?,
     );
-    tokio::time::timeout(Duration::from_secs(30), async {
+    tokio::time::timeout(SYSTEMCTL_TIMEOUT, async {
         loop {
             if let Some(status) = child.0.try_wait()? {
                 return Ok(status.success());
@@ -179,6 +187,19 @@ async fn acquire(bus: &DBusProxy<'_>, wait: Duration) -> Result<()> {
     }
 }
 
+/// Tells `arinn-session` that the target has started: owns [`RUNNING`]
+/// until this launcher exits.
+async fn confirm(bus: &DBusProxy<'_>) -> Result<()> {
+    let reply = bus
+        .request_name(RUNNING.try_into()?, RequestNameFlags::DoNotQueue.into())
+        .await?;
+    ensure!(
+        reply == RequestNameReply::PrimaryOwner,
+        "the start could not be confirmed"
+    );
+    Ok(())
+}
+
 async fn run() -> Result<()> {
     ensure!(
         env::var_os("DISPLAY").is_some_and(|value| !value.is_empty()),
@@ -234,7 +255,12 @@ async fn run() -> Result<()> {
     let mut startup = Box::pin(start());
     let outcome = tokio::select! {
         result = &mut startup => {
-            match result {
+            // Confirmed only after a successful start.
+            let confirmed = match result {
+                Ok(()) => confirm(&bus).await,
+                Err(error) => Err(error),
+            };
+            match confirmed {
                 Err(error) => Err(error),
                 Ok(()) => tokio::select! {
                     result = &mut lifetime => result,

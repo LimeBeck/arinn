@@ -39,6 +39,7 @@ class XfceSession(unittest.TestCase):
         self.dbus.dbus_bus_request_name.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_uint, ctypes.c_void_p]
         self.dbus.dbus_connection_close.argtypes = [ctypes.c_void_p]
         self.dbus.dbus_connection_unref.argtypes = [ctypes.c_void_p]
+        self.dbus.dbus_bus_name_has_owner.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_void_p]
         self.owner = self.dbus.dbus_connection_open_private(address.encode(), None)
         self.assertTrue(self.owner)
         self.assertTrue(self.dbus.dbus_bus_register(self.owner, None))
@@ -260,10 +261,37 @@ exit 0
         time.sleep(0.5)
         self.assertEqual(self.log.read_text(), "")
 
+    def running(self):
+        return bool(self.dbus.dbus_bus_name_has_owner(self.owner, b"org.arinn.XfceSession.Running", None))
+
+    def test_a_started_target_is_confirmed(self):
+        # #483: arinn-session counts Arinn as started only once its helper
+        # owns org.arinn.XfceSession.Running, taken after the target started.
+        child = self.launch()
+        self.wait_for_start(child)
+        deadline = time.monotonic() + 5
+        while not self.running() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        self.assertTrue(self.running())
+        child.terminate()
+        self.assertEqual(child.wait(timeout=5), 0)
+        self.assertFalse(self.running())
+
     def test_failed_start_cleans_partial_session(self):
+        # A failed start is never confirmed (#483).
+        monitor = subprocess.Popen(
+            ["dbus-monitor", "--address", self.address,
+             "type='signal',member='NameOwnerChanged',arg0='org.arinn.XfceSession.Running'"],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+        self.addCleanup(self.stop_process, monitor)
+        time.sleep(0.3)
         child = self.launch(START_FAIL="1")
         self.assertEqual(child.wait(timeout=5), 1)
         self.assert_cleanup()
+        time.sleep(0.3)
+        monitor.terminate()
+        output, _ = monitor.communicate(timeout=5)
+        self.assertNotIn("org.arinn.XfceSession.Running", output)
 
     def test_refuses_existing_session_without_stopping_it(self):
         child = self.launch(ALREADY_ACTIVE="1")

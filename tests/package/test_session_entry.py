@@ -43,16 +43,24 @@ case "$*" in
 *"status org.xfce.SessionManager"*)
     n=$(cat "$FAKE_ROOT/ready"); n=$((n + 1)); echo $n > "$FAKE_ROOT/ready"
     [ "$n" -gt "${FAKE_READY_AFTER:-0}" ]; exit $? ;;
-*"status org.arinn.XfceSession"*)
-    # The launcher name's owner: the previous login's until the helper the
-    # wrapper started has run and FAKE_TAKEOVER_AFTER more polls passed,
-    # then that helper. Only polls after the helper wrote its pid count.
+*"status org.arinn.XfceSession.Running"*)
+    # The confirmed start: the helper the wrapper started owns the name once
+    # it has run and FAKE_TAKEOVER_AFTER more polls passed; before that the
+    # name has no owner. Only polls after the helper wrote its pid count.
+    # FAKE_NO_CONFIRM: a helper that never confirms a start.
+    [ -z "${FAKE_NO_CONFIRM:-}" ] || exit 1
     if [ -s "$FAKE_ROOT/helper.pid" ]; then
         n=$(cat "$FAKE_ROOT/owner" 2>/dev/null || echo 0); n=$((n + 1)); echo $n > "$FAKE_ROOT/owner"
     else
         n=0
     fi
-    if [ "$n" -gt "${FAKE_TAKEOVER_AFTER:-0}" ]; then
+    [ "$n" -gt "${FAKE_TAKEOVER_AFTER:-0}" ] || exit 1
+    echo "PID=$(cat "$FAKE_ROOT/helper.pid")"
+    echo "EUID=1000"
+    exit 0 ;;
+*"status org.arinn.XfceSession"*)
+    # The launcher name: the helper's once it has run.
+    if [ -s "$FAKE_ROOT/helper.pid" ]; then
         echo "PID=$(cat "$FAKE_ROOT/helper.pid")"
     else
         echo "PID=1"
@@ -87,12 +95,16 @@ while [ ! -f "$FAKE_ROOT/stop" ] && [ $n -lt 400 ]; do sleep 0.05; n=$((n + 1));
 exit "${FAKE_DESKTOP_STATUS:-0}"
 """
 
-# Runs like the real helper until the desktop stops; FAKE_HELPER_EXIT makes
-# it exit at once, as a helper that never got its name does.
+# Runs like the real helper until the desktop stops. FAKE_HELPER_EXIT makes
+# it exit after FAKE_HELPER_DELAY seconds, as a helper that never got its
+# name, or failed after taking it, does.
 XFCE_HELPER = """#!/bin/sh
 echo "xfce-helper" >> "$FAKE_LOG"
 echo $$ > "$FAKE_ROOT/helper.pid.tmp" && mv "$FAKE_ROOT/helper.pid.tmp" "$FAKE_ROOT/helper.pid"
-[ -n "${FAKE_HELPER_EXIT:-}" ] && exit "$FAKE_HELPER_EXIT"
+if [ -n "${FAKE_HELPER_EXIT:-}" ]; then
+    sleep "${FAKE_HELPER_DELAY:-0}"
+    exit "$FAKE_HELPER_EXIT"
+fi
 n=0
 while [ ! -f "$FAKE_ROOT/stop" ] && [ $n -lt 400 ]; do sleep 0.05; n=$((n + 1)); done
 """
@@ -225,11 +237,12 @@ class SessionEntry(unittest.TestCase):
         self.assertEqual(calls[-1], UNSET)
         self.assertNotIn("Arinn did not start", err)
 
-    def test_xfce_waits_until_the_helper_owns_its_name(self):
+    def test_xfce_waits_until_the_helper_confirms_its_start(self):
         # #483: after a fast re-login the previous login's helper still owns
         # org.arinn.XfceSession while it stops the target. The new helper
-        # waits for the name; the wrapper counts Arinn as started only once
-        # its own helper owns it.
+        # waits for that name; the wrapper counts Arinn as started only once
+        # its own helper confirms the started target by owning
+        # org.arinn.XfceSession.Running.
         fixture = Fixture(self)
         process = self.start(fixture, "xfce", FAKE_TAKEOVER_AFTER=3)
         owner = fixture.root / "owner"
@@ -240,8 +253,24 @@ class SessionEntry(unittest.TestCase):
         code, err = self.finish(process)
         self.assertEqual(code, 0, err)
         self.assertNotIn("Arinn did not start", err)
-        # It stopped asking once its helper owned the name.
+        # It stopped asking once its helper confirmed the start.
         self.assertEqual(owner.read_text().strip(), "4")
+
+    def test_xfce_helper_that_fails_after_taking_the_name_is_reported(self):
+        # The helper owns org.arinn.XfceSession, then a unit check, an
+        # environment update or the target start fails and it exits 1
+        # without confirming a start: the fixed line, as for a failed start.
+        fixture = Fixture(self)
+        process = self.start(fixture, "xfce", FAKE_NO_CONFIRM=1, FAKE_HELPER_EXIT=1,
+                             FAKE_HELPER_DELAY=1)
+        self.assertTrue(fixture.wait_for(lambda c: "xfce-helper" in c), fixture.calls())
+        time.sleep(1.5)
+        self.assertIsNone(process.poll(), "the desktop must keep running")
+        fixture.stop_desktop()
+        code, err = self.finish(process)
+        self.assertEqual(code, 0)
+        self.assertEqual(err.splitlines(),
+                         ["arinn-session: Arinn did not start; the desktop continues without it"])
 
     def test_xfce_helper_that_never_takes_over_is_reported(self):
         # The helper gave up waiting for the name, or failed before owning

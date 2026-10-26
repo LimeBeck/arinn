@@ -194,19 +194,31 @@ token.
 - **No frame.** A locked or unknown session, a missing window, no compositor, an
   unredirected window (some compositors unredirect fullscreen windows), an
   unsupported format or the 1500 ms local guard cancels the attempt. Home then
-  keeps its normal background.
+  keeps its normal background. The guard starts when the producer takes the
+  attempt, so the session probe (up to 1 s) counts against it: the capture
+  worker waits only for what is left, and starts not at all when nothing is
+  ([#494](https://github.com/LimeBeck/arinn/issues/494)).
 - **One worker.** A capture that outlives the guard keeps its worker slot until
   it finishes, then drops its frame and descriptor at once. A drop guard frees
   the slot even if the worker panics. Any request that arrives meanwhile is cancelled at once as
   `busy`, so a stalled or grabbed server never accumulates threads or X
   connections.
 - **Lifetime.** Each request is handled once. A failed `Get` (an older daemon,
-  an exhausted epoch) is logged and waits for the next `Changed`. The task
-  never ends the adapter session.
+  an exhausted epoch) is logged and waits for the next `Changed`. Every
+  `Changed` raises a floor, the highest notified revision for the daemon owner
+  and epoch; the ones that arrived while a `Get` was in flight are taken into
+  account before its reply is used. A reply older than the floor (a lower
+  revision or another epoch) starts no capture and is followed by a fresh
+  `Get`, so a stale snapshot never takes the worker slot from the current
+  request. The task never ends the adapter session.
 - **Diagnostics.** Normalized `background-capture` lines with an outcome and
   `duration_ms` are the hook for the G-5.2 report.
 - **Tests.**
   - Unit tests: pixel conversion, bounds and sealing.
+  - Private-bus tests without an X server: a fake daemon answers `Get` slowly
+    while a newer attempt is committed and notified, and no capture starts for
+    the stale one; a screensaver that answers `GetActive` after 600 ms shrinks
+    the capture timeout by at least that much.
   - Xvfb tests: the fixture acts as a manual compositing manager. One test
     captures a composited window, and confirms no capture without a compositor
     or for an unmapped window. Two more run the whole task against a fake

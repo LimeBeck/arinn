@@ -7,6 +7,8 @@
 
 #include <QDir>
 #include <QFile>
+#include <QJsonArray>
+#include <QJsonDocument>
 #include <QQmlComponent>
 #include <QQmlEngine>
 #include <QQuickWindow>
@@ -321,13 +323,24 @@ private slots:
     QTRY_COMPARE_WITH_TIMEOUT(producer.request(), second, 5000);
   }
 
-  void scriptBoundsAnUnmatchedOutputByTheStageScreen() {
+  void scriptBoundsTheStageByItsScreen_data() {
+    QTest::addColumn<QString>("output");
+    // No Qt screen is named after the window's output: the stage stays on
+    // its current screen and takes that screen's DPR.
+    QTest::newRow("unmatched") << QStringLiteral("no-such-output");
+    // The output is named after the (offscreen) screen: the stage moves
+    // there and takes its DPR.
+    QTest::newRow("matched") << QGuiApplication::primaryScreen()->name();
+  }
+
+  void scriptBoundsTheStageByItsScreen() {
+    QFETCH(QString, output);
     // Run by the kwin-background-script test with QT_SCALE_FACTOR=2: every
     // screen, including the stage's default one, has DPR 2.
     if (QGuiApplication::primaryScreen()->devicePixelRatio() < 2)
       QSKIP("needs a HiDPI screen (ctest kwin-background-script)");
     // A stand-in for KWin's QML API: one window of the request's target on
-    // an output that no Qt screen is named after.
+    // `output`.
     QTemporaryDir modules;
     QVERIFY(modules.isValid());
     QVERIFY(QDir(modules.path()).mkpath(QStringLiteral("org/kde/kwin")));
@@ -343,8 +356,11 @@ private slots:
     QVERIFY(write(QStringLiteral("Workspace.qml"),
                   "pragma Singleton\nimport QtQml\nQtObject {\n"
                   "  property var windows: [{ internalId: 'activity', minimized: false,\n"
-                  "    deleted: false, output: { name: 'no-such-output' },\n"
-                  "    frameGeometry: { width: 1920, height: 1080 } }]\n}\n"));
+                  "    deleted: false, output: { name: " +
+                      QJsonDocument(QJsonArray{output}).toJson(QJsonDocument::Compact)
+                          .chopped(1).mid(1) +
+                      " },\n"
+                      "    frameGeometry: { width: 1920, height: 1080 } }]\n}\n"));
     qmlRegisterType<BackgroundProducer>("org.arinn.background", 1, 0, "BackgroundProducer");
     QQmlEngine scriptEngine;
     scriptEngine.addImportPath(modules.path());
@@ -367,6 +383,8 @@ private slots:
     // size times that screen's DPR) stays within 1920×1080.
     const qreal dpr = stage->screen()->devicePixelRatio();
     QCOMPARE(dpr, 2.0);
+    if (output == QGuiApplication::primaryScreen()->name())
+      QCOMPARE(stage->screen()->name(), output);
     QCOMPARE(staged, QSize(960, 540));
     QVERIFY(staged.width() * dpr <= 1920 && staged.height() * dpr <= 1080);
   }

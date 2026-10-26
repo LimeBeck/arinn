@@ -47,7 +47,7 @@ if(TARGET Qt6::Test)
         "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software")
     # The script's stage on a HiDPI screen whose name matches no output.
     add_test(NAME kwin-background-script COMMAND dbus-run-session --
-        $<TARGET_FILE:arinn-kwin-background-test> scriptBoundsAnUnmatchedOutputByTheStageScreen)
+        $<TARGET_FILE:arinn-kwin-background-test> scriptBoundsTheStageByItsScreen)
     set_tests_properties(kwin-background-script PROPERTIES ENVIRONMENT
         "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software;QT_SCALE_FACTOR=2")
 endif()

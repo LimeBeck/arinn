@@ -1,3 +1,3 @@
-- The daemon refuses `Background1.ReadFrame` to a shell that lost `org.arinn.Shell1` while its read waited, instead of handing it the frame ([ADR-0087](docs/adr/0087-bounded-activity-background-frames.md)).
+- The daemon refuses `Background1.ReadFrame` after any `org.arinn.Shell1` owner change it has received since the frame was published, such as the reader losing the name while its read waited or releasing and retaking it, instead of handing out the frame ([ADR-0087](docs/adr/0087-bounded-activity-background-frames.md)).
 - The daemon's session guard treats a `PrepareForSleep(true)` whose sender cannot be verified as logind as a sleep start; only logind's own resume ends it.
 - The KWin background stage is bounded by its own screen's scale factor when the window's output matches no screen, so a HiDPI default screen no longer exceeds the 1920×1080 frame bound; the grab and the stage size round down alike.

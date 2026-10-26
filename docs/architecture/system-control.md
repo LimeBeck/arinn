@@ -68,6 +68,46 @@ restarted. logind's refusals map to `org.arinn.Error1` names:
 | `…DBus.Error.NoReply`, `…DBus.Error.Timeout` | `Timeout` |
 | anything else | `Internal` |
 
+#### Between the check and the request
+
+Steps 3 and 4 are two calls to logind, so another program can take a block
+inhibitor between them ([#498](https://github.com/LimeBeck/arinn/issues/498)).
+logind offers no call that acts only while no block inhibitor is held for an
+unprivileged caller: the flags of `SuspendWithFlags`, `RebootWithFlags` and
+`PowerOffWithFlags` either skip inhibitors (`SD_LOGIND_SKIP_INHIBITORS`) or
+make `block-weak` inhibitors bind root (`SD_LOGIND_ROOT_CHECK_INHIBITORS`,
+checked only for UID 0). What happens in the window depends on the systemd
+version (`org.freedesktop.login1(5)`; `manager_verify_shutdown_creds()` in
+`src/login/logind-shutdown.c`, before v261 in `logind-dbus.c`):
+
+- **systemd 257 and later** (the CI and package targets: Arch Linux follows
+  systemd releases, Ubuntu 25.04 ships 257.4): logind enforces every `block`
+  inhibitor itself, for every caller, unless the request carries
+  `SD_LOGIND_SKIP_INHIBITORS`. The `*-ignore-inhibit` polkit actions do not
+  apply to a `block` inhibitor. Arinn's calls (`interactive = false`, no flags)
+  never skip inhibitors. logind checks the inhibitors and starts the action in
+  one step of its event loop, and checks again when a polkit answer arrives
+  later. An inhibitor taken in the window therefore refuses the request:
+  `BlockedByInhibitorLock` since systemd 258, `AccessDenied` in 257. Both read
+  as `Conflict`; the second does so because the list read after the refusal
+  shows the inhibitor. The window is closed.
+- **Before systemd 257**, logind asked polkit for the action's
+  `*-ignore-inhibit` permission, without interaction, and proceeded when it was
+  granted. systemd's default policy is `auth_admin_keep`, so logind refuses
+  (`InteractiveAuthorizationRequired`, then `Conflict`). Only on a system whose
+  administrator grants `*-ignore-inhibit` without authentication can a block
+  inhibitor taken in the window be overridden. That user can override it
+  anyway, for example with `systemctl`. This residual window is accepted.
+- **`block-weak` inhibitors** (systemd 257 and later) are not listed or
+  checked by Arinn; only `block` counts (ADR-0108). logind ignores a weak
+  inhibitor that the caller's own user holds, and for another user's weak
+  inhibitor it asks polkit for `*-ignore-inhibit`, as before 257. This is
+  logind's rule for weak inhibitors, not a timing window.
+
+Arinn keeps its own check: it answers `Conflict` without asking logind and
+names the holders. On systemd 257 and later, logind's own check is what makes
+the action atomic.
+
 ### Volume
 
 `(audio, level)`:
@@ -416,6 +456,7 @@ shell shows inhibitor texts on screen only.
 - `platform/system_control_tests.rs`: the logind and `pactl` mappings, a fake
   logind on a private bus (`Can*` answers, block and delay inhibitors behind
   hundreds of irrelevant records, an unreadable list that refuses, the bounded list, refusals,
+  a block inhibitor taken after Arinn's check that logind refuses as since systemd 257,
   `interactive = false`, no logind, no bus) and a fake `pactl` (mute, toggle,
   steps with balance, the 100 % stop, a level above 100 %, a change whose
   read-back fails, no server, no tool, the C locale).

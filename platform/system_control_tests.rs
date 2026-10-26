@@ -179,20 +179,65 @@ pub(crate) struct FakeLogin {
     pub(crate) hold: Duration,
     /// ListInhibitors fails.
     pub(crate) list_fails: bool,
+    /// Taken by another program the moment a power request arrives: after
+    /// Arinn's own check, before logind decides (#498).
+    pub(crate) appear: Option<Record>,
+    /// Refuse a request that a `block` inhibitor of its lock holds, with this
+    /// error name, as logind does for every caller since systemd 257.
+    pub(crate) enforce: Option<&'static str>,
 }
 pub(crate) type Shared = Arc<Mutex<FakeLogin>>;
 
+/// A refusal of the fake logind: a standard error or one of logind's own.
+#[derive(Debug)]
+enum Refusal {
+    Fdo(zbus::fdo::Error),
+    Named(&'static str),
+}
+const REFUSAL: &str = "refused by the fixture";
+impl zbus::DBusError for Refusal {
+    fn name(&self) -> zbus::names::ErrorName<'_> {
+        match self {
+            Refusal::Fdo(error) => error.name(),
+            Refusal::Named(name) => zbus::names::ErrorName::from_static_str_unchecked(name),
+        }
+    }
+    fn description(&self) -> Option<&str> {
+        Some(REFUSAL)
+    }
+    fn create_reply(&self, call: &zbus::message::Header<'_>) -> zbus::Result<zbus::Message> {
+        match self {
+            Refusal::Fdo(error) => error.create_reply(call),
+            Refusal::Named(name) => zbus::Message::error(call, *name)?.build(&(REFUSAL,)),
+        }
+    }
+}
+
 struct Manager(Shared);
 impl Manager {
-    async fn act(&self, name: &str, interactive: bool) -> zbus::fdo::Result<()> {
-        let (refuse, hold) = {
+    async fn act(&self, name: &str, interactive: bool) -> Result<(), Refusal> {
+        let (refuse, hold, enforced) = {
             let mut fake = self.0.lock().unwrap();
             fake.calls.push((name.into(), interactive));
-            (fake.refuse, fake.hold)
+            if let Some(record) = fake.appear.take() {
+                fake.inhibitors.push(record);
+            }
+            let lock = if name == "suspend" {
+                "sleep"
+            } else {
+                "shutdown"
+            };
+            let held = fake.inhibitors.iter().any(|(what, _, _, mode, _, _)| {
+                mode == "block" && what.split(':').any(|w| w == lock)
+            });
+            (fake.refuse, fake.hold, fake.enforce.filter(|_| held))
         };
+        if let Some(name) = enforced {
+            return Err(Refusal::Named(name));
+        }
         tokio::time::sleep(hold).await;
         match refuse {
-            Some(error) => Err(error("refused by the fixture".into())),
+            Some(error) => Err(Refusal::Fdo(error(REFUSAL.into()))),
             None => Ok(()),
         }
     }
@@ -208,13 +253,13 @@ impl Manager {
     fn can_power_off(&self) -> String {
         self.0.lock().unwrap().can[2].clone()
     }
-    async fn suspend(&self, interactive: bool) -> zbus::fdo::Result<()> {
+    async fn suspend(&self, interactive: bool) -> Result<(), Refusal> {
         self.act("suspend", interactive).await
     }
-    async fn reboot(&self, interactive: bool) -> zbus::fdo::Result<()> {
+    async fn reboot(&self, interactive: bool) -> Result<(), Refusal> {
         self.act("reboot", interactive).await
     }
-    async fn power_off(&self, interactive: bool) -> zbus::fdo::Result<()> {
+    async fn power_off(&self, interactive: bool) -> Result<(), Refusal> {
         self.act("power-off", interactive).await
     }
     fn list_inhibitors(&self) -> zbus::fdo::Result<Vec<Record>> {
@@ -418,6 +463,54 @@ async fn one_block_behind_many_records_still_refuses() {
         Err(ErrorCode::Conflict)
     );
     assert!(fake.lock().unwrap().calls.is_empty());
+}
+
+/// #498: a block inhibitor taken after Arinn's check and before logind acts.
+/// Since systemd 257, logind enforces every `block` inhibitor itself, for
+/// every caller and whatever polkit allows, unless the request asks to skip
+/// inhibitors; Arinn's requests never do. Its check and the action run in one
+/// step, so the window is closed there, and the refusal reads as `Conflict`,
+/// as Arinn's own check would have answered. systemd 257 refuses with
+/// `AccessDenied`, 258 and later with `BlockedByInhibitorLock`.
+#[tokio::test]
+async fn an_inhibitor_taken_after_the_check_is_enforced_by_logind() {
+    for refusal in [
+        "org.freedesktop.login1.BlockedByInhibitorLock",
+        "org.freedesktop.DBus.Error.AccessDenied",
+    ] {
+        let system = Bus::new();
+        let (_service, fake) = logind(
+            &system,
+            FakeLogin {
+                can: ["yes".into(), "yes".into(), "yes".into()],
+                appear: Some(record("sleep:shutdown", "block")),
+                enforce: Some(refusal),
+                ..FakeLogin::default()
+            },
+        )
+        .await;
+        let control = control(&system, PathBuf::from("/nonexistent/pactl"));
+        assert_eq!(
+            control.power().await.availability(PowerAction::Suspend),
+            Availability::Available
+        );
+        assert_eq!(
+            control.act(PowerAction::Suspend).await,
+            Err(ErrorCode::Conflict),
+            "{refusal}"
+        );
+        // logind was asked once, never to prompt.
+        assert_eq!(
+            fake.lock().unwrap().calls,
+            vec![("suspend".to_string(), false)]
+        );
+        // The next request meets Arinn's own check and never reaches logind.
+        assert_eq!(
+            control.act(PowerAction::Reboot).await,
+            Err(ErrorCode::Conflict)
+        );
+        assert_eq!(fake.lock().unwrap().calls.len(), 1);
+    }
 }
 
 #[tokio::test]

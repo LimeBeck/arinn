@@ -148,7 +148,9 @@ signals:
   // The global Home key or a queued Home, for the current daemon epoch.
   void homeRequested();
   // The quick-menu key, for the current daemon epoch (ADR-0106).
-  void quickMenuRequested();
+  // The Return target the request committed (ADR-0106); Status reports it
+  // only after its next refresh (#507).
+  void quickMenuRequested(const QString &target);
   // The remote's power key, for the current daemon epoch (ADR-0111).
   void powerMenuRequested();
 

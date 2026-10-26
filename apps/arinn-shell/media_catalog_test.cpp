@@ -484,7 +484,7 @@ public:
   QStringList m_busy;
 signals:
   void changed();
-  void quickMenuRequested();
+  void quickMenuRequested(const QString &target);
   void powerMenuRequested();
 public:
   Q_INVOKABLE void back() { ++backs; }
@@ -1487,7 +1487,7 @@ private slots:
     backend.m_home = false;
     emit backend.changed();
     // The quick-menu key: the platform reports Home state, then the intent.
-    emit backend.quickMenuRequested();
+    emit backend.quickMenuRequested(QStringLiteral("player-window"));
     backend.m_home = true;
     emit backend.changed();
     QTRY_VERIFY(menu->isVisible());
@@ -1513,6 +1513,81 @@ private slots:
     // The bound never shows Home over the video afterwards.
     QTest::qWait(3200);
     QVERIFY(player->isVisible());
+    QVERIFY(!home->isVisible());
+  }
+  // #507 (Codex on #502): Back pressed before the Status refresh that
+  // follows the request still returns to the player. Until Status reports
+  // the Home state the request committed, the request's own target counts;
+  // once it does, Status decides, also when it names no target.
+  void quickMenuBackBeforeTheFirstStatusReturnsToThePlayer_data() {
+    QTest::addColumn<bool>("statusFirst");
+    QTest::newRow("before Status") << false;
+    QTest::newRow("Status without a target") << true;
+  }
+  void quickMenuBackBeforeTheFirstStatusReturnsToThePlayer() {
+    QFETCH(bool, statusFirst);
+    MediaDaemon daemon;
+    daemon.features = {QStringLiteral("MediaWindow1")};
+    daemon.page1 = {session(QStringLiteral("live"), QStringLiteral("Piece"),
+                            QStringLiteral("playing"), 4000000, monotonicUs(),
+                            9000000,
+                            {QStringLiteral("play"), QStringLiteral("pause"),
+                             QStringLiteral("stop")})};
+    auto bus = QDBusConnection::sessionBus();
+    QVERIFY(bus.registerService(QStringLiteral("org.arinn.Daemon1")));
+    QVERIFY(bus.registerVirtualObject(QStringLiteral("/org/arinn"), &daemon,
+                                      QDBusConnection::SubPath));
+    ShellStandIn backend;
+    backend.m_connected = true;
+    SessionGuardStandIn guard;
+    QQmlApplicationEngine engine;
+    installAssetImageProvider(&engine);
+    engine.rootContext()->setContextProperty(QStringLiteral("backend"), &backend);
+    engine.rootContext()->setContextProperty(QStringLiteral("sessionGuard"), &guard);
+    engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
+    auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().value(0));
+    QVERIFY(window);
+    window->show();
+    window->requestActivate();
+    auto catalog = window->findChild<MediaCatalog *>(QStringLiteral("mediaCatalog"));
+    auto player = window->findChild<QQuickItem *>(QStringLiteral("productionPlayer"));
+    auto menu = window->findChild<QQuickItem *>(QStringLiteral("quickMenu"));
+    auto home = window->findChild<QQuickItem *>(QStringLiteral("productionHome"));
+    QVERIFY(catalog && player && menu && home);
+    QTRY_VERIFY(catalog->playerSession());
+    const auto entryId =
+        catalog->continueEntries().at(0).toMap().value(QStringLiteral("id")).toString();
+    QVERIFY(QMetaObject::invokeMethod(window, "openSession", Q_ARG(QVariant, entryId),
+                                      Q_ARG(QVariant, false)));
+    QTRY_COMPARE(catalog->presentationState(), QStringLiteral("active"));
+    QTRY_COMPARE(player->property("activeFocus").toBool(), true);
+    // Over managed playback Status reports Home hidden and no Return
+    // target; the request carries the target it committed.
+    backend.m_home = false;
+    emit backend.changed();
+    emit backend.quickMenuRequested(QStringLiteral("player-window"));
+    if (statusFirst) {
+      // Status catches up and names no target: the Activity is gone.
+      backend.m_home = true;
+      emit backend.changed();
+    }
+    QTRY_VERIFY(menu->isVisible());
+    QTRY_VERIFY(menu->property("activeFocus").toBool());
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_VERIFY(!menu->isVisible());
+    if (statusFirst) {
+      QTRY_VERIFY(home->isVisible());
+      QCOMPARE(backend.backs, 0);
+      return;
+    }
+    QTRY_COMPARE(backend.backs, 1);
+    QVERIFY(!home->isVisible());
+    // The platform presents the player again.
+    backend.m_home = true;
+    emit backend.changed();
+    backend.m_home = false;
+    emit backend.changed();
+    QTRY_VERIFY_WITH_TIMEOUT(player->isVisible(), 1000);
     QVERIFY(!home->isVisible());
   }
   // ADR-0111, review of #517: the power key over managed playback (an

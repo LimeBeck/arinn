@@ -61,6 +61,11 @@ FocusScope {
         {id: "desktop", glyph: "desktop", title: qsTr("Switch to desktop"), description: qsTr("Log out; the next login starts the desktop")},
         {id: "ambient", glyph: "ambient", title: qsTr("Ambient"), description: qsTr("Show the ambient screen")}
     ]
+    // The confirmed action was reported unsupported after the confirmation
+    // opened (the menu opened before GetPower answered): its pill is
+    // disabled, as the row is. A request already sent goes on.
+    readonly property bool confirmUnsupported: step === "confirm" && !requestInFlight
+                                               && availabilityOf(pendingAction) === "unsupported"
     readonly property string confirmTitle: pendingAction === "shutdown" ? qsTr("Shut down?")
                                          : pendingAction === "desktop" ? qsTr("Switch to desktop?") : qsTr("Restart?")
     readonly property string confirmActionText: pendingAction === "shutdown" ? qsTr("Shut down")
@@ -296,7 +301,7 @@ FocusScope {
         Qt.callLater(restoreMenuFocus);
     }
     function confirmAction() {
-        if (requestInFlight)
+        if (requestInFlight || confirmUnsupported)
             return;
         if (pendingAction === "restart")
             restartRequested();
@@ -389,6 +394,14 @@ FocusScope {
         if (availabilityOf(menuFocus) === "unsupported")
             Qt.callLater(restoreMenuFocus);
     }
+    // A Restart or Shut down that becomes unsupported keeps its
+    // confirmation, with the action pill disabled and focus on Cancel; the
+    // confirmation's note says why in place.
+    function settleUnsupportedConfirm() {
+        if (visible && confirmUnsupported && !refused && !accepted && !cancelButton.activeFocus)
+            Ui.Focus.take(cancelButton);
+    }
+    onConfirmUnsupportedChanged: if (confirmUnsupported) Qt.callLater(settleUnsupportedConfirm)
     onSleepAvailabilityChanged: settleDisabledFocus()
     onRestartAvailabilityChanged: settleDisabledFocus()
     onShutdownAvailabilityChanged: settleDisabledFocus()
@@ -706,6 +719,7 @@ FocusScope {
                 Ui.ActionButton {
                     id: confirmButton
                     objectName: "confirmButton"
+                    enabled: !root.confirmUnsupported
                     width: 342
                     height: 96
                     text: root.confirmActionText

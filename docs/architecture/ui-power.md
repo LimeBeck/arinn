@@ -50,7 +50,7 @@ sees its refusal; the menu never guesses the outcome.
 | Action | Behaviour |
 | --- | --- |
 | Sleep | Calls `Suspend`. While the request is in flight the row is busy and says "Waiting for the system…". |
-| Restart, Shut down | Open the confirmation with Cancel focused. Its body lists the applications that will close and, in the error colour, the row's blocker or permission note, so confirming never hides it. Confirm calls `Reboot` or `PowerOff`; the pill is busy until the answer. |
+| Restart, Shut down | Open the confirmation with Cancel focused. Its body lists the applications that will close and, in the error colour, the row's blocker or permission note, so confirming never hides it. Confirm calls `Reboot` or `PowerOff`; the pill is busy until the answer. See *Unsupported after opening* below. |
 | Switch to desktop | See *Switch to desktop* below. The same confirmation, titled "Switch to desktop?", with one more line saying that the next login starts the desktop until Return to Arinn. Confirm (the "Switch" pill) calls `SwitchToDesktop`. |
 | Accepted | A waiting pane: "Going to sleep…", "Restarting…", "Shutting down…" or "Switching to the desktop…" with "Waiting for the system". This is not success, and no timer produces it or anything after it. Back returns to the screen beneath. |
 | Refused | An error pane titled for the action, with the reason for `inhibited` (the holders' *who (why)*), `denied`, `unsupported`, `unavailable`, `timeout` or `failed`. Back clears it and returns to the step that asked. |
@@ -63,6 +63,22 @@ daemon's power lock. While a request is in flight the other power rows
 stay focusable but are held: they are dimmed, say "Available after the
 system answers", and open no confirmation. The Ambient row is held as
 well, so the answer is never shown behind the ambient screen.
+
+**Unsupported after opening.** The menu opens before `GetPower` answers, so
+a Restart or Shut down confirmation can be open while its action is still
+`unknown`. If the read then reports it `unsupported`
+([#497](https://github.com/LimeBeck/arinn/issues/497)):
+
+- the confirmation stays open and its action pill is disabled, like the row,
+  so the arrows, Tab, Return and a click cannot send the request;
+- focus stays on Cancel, or moves there from the action pill;
+- the confirmation's note says "Not supported on this computer" in the error
+  colour, the row's own text;
+- Cancel and Back close it onto the menu, where the row is disabled.
+
+A request already sent goes on, and the pill stays busy until its answer.
+Switch to desktop instead closes its confirmation when the entry goes (see
+*Switch to desktop* below), and Sleep has no confirmation.
 
 **Answer after Home.** When Home leaves the menu while a request is in
 flight, the overlay remembers it. On success nothing more is shown: the
@@ -243,7 +259,9 @@ dbus-run-session -- build/apps/arinn-shell/arinn-system-control-test
   reading on open, a request that waits for the platform, the accepted pane,
   closing on the lifecycle guard, refusal texts and inhibitor names, the
   confirmation's blocker note and live closing list, disabled unsupported
-  rows, Home, the volume keys and HUD, and the HUD geometry. For Switch to
+  rows, a Restart or Shut down confirmation whose action becomes
+  unsupported after it opened (pill disabled, focus on Cancel, the note,
+  Return sends nothing), Home, the volume keys and HUD, and the HUD geometry. For Switch to
   desktop: the row following `sessionSwitch` (focus and an open
   confirmation leave a row that goes), the request in flight (busy, Cancel
   disabled, Back ignored, the waiting pane), the power rows and the switch

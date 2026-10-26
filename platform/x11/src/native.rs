@@ -1834,9 +1834,23 @@ pub(crate) mod fixture {
         assert!(native.power_held_elsewhere()?);
         desktop.press(&[], 0x1008_ff2a)?;
         assert!(native.snapshot()?.power_key);
+        // xfce4-power-manager exits. The X server frees a client's grabs
+        // only once it reads the closed connection, which is not ordered
+        // with another client's requests: a grab sent at once can still
+        // meet the old one (#530). The adapter takes the key on its loop
+        // and retries a take that found it held (`PowerOwner`, ADR-0111);
+        // the test waits for the release instead, within a bound.
+        drop(manager);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while native.power_held_elsewhere()? {
+            ensure!(
+                std::time::Instant::now() < deadline,
+                "the power manager's grab outlived its connection"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
         // An ordinary desktop's grab, by contrast, makes that manager's
         // grab fail: the case a restart repairs.
-        drop(manager);
         native.set_power(true, false)?;
         assert_eq!(native.snapshot()?.power_reading, Reading::Grab);
         let late = x11rb::connect(Some(&desktop.display))?.0;
@@ -1971,7 +1985,10 @@ pub(crate) mod fixture {
         Ok(other)
     }
     /// Whether a new client can grab `keysym`'s first keycode with any
-    /// modifier, that is, nobody holds it; the grab is let go at once.
+    /// modifier, that is, nobody holds it. The grab is let go with an
+    /// explicit, checked ungrab: closing the connection would free it only
+    /// when the X server reads the close, unordered with the adapter's next
+    /// grab (#530).
     fn free_to_grab(desktop: &Desktop, keysym: u32) -> Result<bool> {
         let map = KeyMap::read(&desktop.c)?;
         let key = map.codes(keysym)[0];
@@ -1987,6 +2004,9 @@ pub(crate) mod fixture {
             )?
             .check()
             .is_ok();
+        if free {
+            other.ungrab_key(key, desktop.root, ModMask::ANY)?.check()?;
+        }
         Ok(free)
     }
     /// #526, as in the keyboard worker (review of #525): a mapping change

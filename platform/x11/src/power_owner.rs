@@ -1331,6 +1331,35 @@ pub(crate) mod tests {
         assert_eq!(f.owner.owned(), Reading::Grab);
     }
 
+    /// #530: when xfce4-power-manager exits, the X server frees its grab
+    /// only once it reads the closed connection, unordered with the loss of
+    /// its bus name. A take that still finds the key held leaves the key
+    /// to the desktop and drops the inhibitor; a later pass of the loop,
+    /// after the retry delay, takes it.
+    #[tokio::test]
+    async fn a_take_that_finds_the_key_still_held_is_retried() {
+        let mut f = fixture(false).await;
+        // The grab meets the old holder (BadAccess): no reading.
+        let mut r = reader(Reading::None);
+        f.owner
+            .follow(&mut r, true, OTHER, Reading::None)
+            .await
+            .unwrap();
+        assert_eq!(f.owner.owned(), Reading::None);
+        assert_eq!(r.calls, [(true, false), (false, false)]);
+        assert!(!f.owner.inhibiting());
+        f.settle(0).await;
+        // The old grab is gone by the next attempt.
+        r.answer = Reading::Grab;
+        f.owner
+            .follow(&mut r, true, OTHER, Reading::None)
+            .await
+            .unwrap();
+        assert_eq!(f.owner.owned(), Reading::Grab);
+        assert_eq!(r.calls.last(), Some(&(true, false)));
+        assert!(f.owner.inhibiting());
+    }
+
     /// Dedicated XFCE session: the inhibitor, raw reading, then "do
     /// nothing"; when the shell exits (Close Arinn, no restart) everything
     /// goes back.

@@ -259,6 +259,19 @@ pub(crate) fn grab_combinations(
     root: Window,
     combinations: &[(u16, Keycode)],
 ) -> Result<bool> {
+    grab_combinations_keeping(c, root, combinations, &HashSet::new())
+}
+
+/// [`grab_combinations`] for a client that already holds the combinations
+/// in `held`: grabbing one of them again only replaces this client's own
+/// grab, and a BadAccess releases only the others, so a combination the
+/// client held before is never let go (#522).
+pub(crate) fn grab_combinations_keeping(
+    c: &RustConnection,
+    root: Window,
+    combinations: &[(u16, Keycode)],
+    held: &HashSet<(u16, Keycode)>,
+) -> Result<bool> {
     for (modifiers, key) in combinations {
         let result = c
             .grab_key(
@@ -276,7 +289,9 @@ pub(crate) fn grab_combinations(
                 if e.error_kind == x11rb::protocol::ErrorKind::Access =>
             {
                 for (modifiers, key) in combinations {
-                    c.ungrab_key(*key, root, (*modifiers).into())?.check()?;
+                    if !held.contains(&(*modifiers, *key)) {
+                        c.ungrab_key(*key, root, (*modifiers).into())?.check()?;
+                    }
                 }
                 return Ok(false);
             }

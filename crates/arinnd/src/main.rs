@@ -42,11 +42,13 @@ async fn run(started: std::time::Instant) -> Result<(), ErrorCode> {
     }
     if args == ["--release-power-key"] {
         // ExecStopPost of arinnd.service and `arinn-kwin-adapter stop`: the
-        // desktop handles the power key again once Arinn stops (ADR-0111).
+        // desktop handles the power key again once Arinn stops (ADR-0111),
+        // and the remote's Menu key reaches applications again (#507).
         // A session without a bus or KGlobalAccel has nothing to give back.
         if let Ok(connection) = zbus::Connection::session().await {
             let system = zbus::Connection::system().await.ok();
             arinnd::power_key::release_after_daemon(&connection, system.as_ref()).await;
+            arinnd::global_home::release_menu_keys(&connection).await;
         }
         return Ok(());
     }

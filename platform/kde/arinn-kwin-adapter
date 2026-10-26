@@ -61,7 +61,8 @@ start)
     ;;
 stop)
     # The desktop gets the power key back before the action that held it
-    # goes (ADR-0111); arinnd's own ExecStopPost does the same.
+    # goes (ADR-0111), and applications the remote's Menu key (#507);
+    # arinnd's own ExecStopPost does the same.
     "${ARINN_DAEMON:-/usr/bin/arinnd}" --release-power-key >/dev/null 2>&1 || true
     # KWin may already be gone when the graphical session ends.
     scripting unloadScript s "$background_name" >/dev/null 2>&1 || true

@@ -319,9 +319,15 @@ every action goes through the methods above.
   (logind would act on the key while the old instance's inhibitor is gone).
   The XFCE setting still goes back, and the marker stays, so the next
   adapter start in this login repairs the grab ([#519](https://github.com/LimeBeck/arinn/issues/519)). The marker
-  lives in `$XDG_RUNTIME_DIR`, which logind removes when the user's last
-  session ends; the next login starts a new xfce4-power-manager, which grabs
-  the key itself. The login restore
+  lives in `$XDG_RUNTIME_DIR`, which logind usually removes when the user's
+  last session ends. It survives with lingering, while the user has another
+  session open, and on a re-login within `UserStopDelaySec=` (10 s by
+  default), for example with SDDM's `Relogin=true`; ADR-0111 lists the same
+  cases for the session marker. That is harmless: the old xfce4-power-manager ends with its
+  display, a new login starts a new one that grabs the key itself, and the
+  next adapter start's first check finds that grab held (or no
+  xfce4-power-manager) and clears the marker. At worst it costs one extra
+  check; a healthy instance is never restarted. The login restore
   entry (`--restore-power-button`) gives back only the XFCE setting and never
   restarts xfce4-power-manager. Until the repair, the xfce4-power-manager
   without its grab keeps its own inhibitor, so the key does nothing rather

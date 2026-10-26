@@ -707,6 +707,16 @@ private slots:
     QTRY_VERIFY(!launch->isVisible());
   }
 
+  // #507: the request hands the shell the Return target it committed, so
+  // Back works before the Status refresh that follows it.
+  void quickMenuRequestCarriesItsTarget() {
+    QSignalSpy requests(backend.get(), &Backend::quickMenuRequested);
+    daemon.returnWindow = QStringLiteral("activity");
+    daemon.request("QuickMenuRequested");
+    QTRY_COMPARE(requests.count(), 1);
+    QCOMPARE(requests.at(0).value(0).toString(), QStringLiteral("activity"));
+  }
+
   // A repeated key keeps the sheet; a request of another daemon epoch is
   // not this daemon's intent.
   void repeatsAndForeignEpochs() {

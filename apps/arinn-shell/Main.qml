@@ -37,6 +37,11 @@ Window {
     property bool quickMenuOpen: false
     property bool activityBehind: false
     property var quickMenuOpener: null
+    // The Return target the request carried. Back over an Activity uses it
+    // until Status reports the Home state the request committed (#507): over
+    // managed playback the window is already on screen, and Back may come
+    // before that refresh.
+    property string quickMenuTarget: ""
     function openQuickMenu() {
         if (sessionGuard.blocked) return;
         // During ambient the key only wakes, and that first event triggers
@@ -53,6 +58,7 @@ Window {
             // Managed playback is an Activity too.
             activityBehind = playerOpen || !(visible && active);
             quickMenuOpener = activityBehind ? null : activeFocusItem;
+            quickMenuTarget = "";
             quickMenuOpen = true;
             // The sheet takes the place of the "Opening…" and "Starting…"
             // progress, as Home does (§6.5): the launch keeps running, and
@@ -73,7 +79,9 @@ Window {
     function quickMenuBack() {
         if (!quickMenuOpen) return;
         quickMenuOpen = false;
-        if (activityBehind && backend.connected && backend.returnWindow) {
+        const target = backend.returnWindow || quickMenuTarget;
+        quickMenuTarget = "";
+        if (activityBehind && backend.connected && target) {
             returnBound.restart();
             backend.back();
             return;
@@ -90,6 +98,7 @@ Window {
         quickMenuOpen = false;
         activityBehind = false;
         quickMenuOpener = null;
+        quickMenuTarget = "";
         closeOverlays();
         Qt.callLater(home.showHome);
     }
@@ -389,6 +398,7 @@ Window {
         quickMenuOpen = false;
         activityBehind = false;
         quickMenuOpener = null;
+        quickMenuTarget = "";
     } else {
         Qt.callLater(() => {
             // Returning from an external activity keeps the displayed route. Home
@@ -403,6 +413,8 @@ Window {
         function onChanged() {
             // The Return of the quick menu is done: the Activity has the
             // screen again, including a managed player (ADR-0106).
+            // Status has caught up with the quick-menu request (#507).
+            if (backend.homeVisible) root.quickMenuTarget = "";
             if (!backend.homeVisible && !root.quickMenuOpen && root.activityBehind) {
                 returnBound.stop();
                 root.activityBehind = false;
@@ -422,7 +434,11 @@ Window {
     Connections {
         target: backend
         ignoreUnknownSignals: true
-        function onQuickMenuRequested() { root.openQuickMenu(); }
+        function onQuickMenuRequested(target) {
+            root.openQuickMenu();
+            if (root.quickMenuOpen && !backend.homeVisible && !root.quickMenuTarget)
+                root.quickMenuTarget = target || "";
+        }
         function onPowerMenuRequested() { root.openPowerFromKey(); }
         // The Home key replaces the quick menu with Home (§6.3). With the
         // power scope open over the sheet it leaves as Home inside that scope

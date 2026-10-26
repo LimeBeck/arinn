@@ -5,6 +5,7 @@ import QtQuick
 import QtQuick.Window
 import QtTest
 import "../../../apps/arinn-shell/ui" as Ui
+import "../../../apps/arinn-shell/ui/screens/browse" as Browse
 import "../../../apps/arinn-shell/ui/screens/browser" as Browser
 import "../../../apps/arinn-shell/ui/screens/downloads" as Downloads
 import "../../../apps/arinn-shell/ui/screens/library" as Library
@@ -129,6 +130,145 @@ TestCase {
                 {id: "density", categoryId: "appearance", title: "Density", description: "Interface density", type: "enum", currentValue: "regular", constraints: {options: [{value: "regular", title: "Regular"}, {value: "compact", title: "Compact"}]}, enabled: true},
                 {id: "idle", categoryId: "system", title: "Idle minutes", description: "Wait before the ambient screen", type: "integer", currentValue: 10, constraints: {min: 1, max: 60}, enabled: true}
             ]
+        };
+    }
+    // Settings fixture for the editor states (handoff se-*): one row of each
+    // kind the editors draw, in the categories of the handoff frames.
+    function settingsRows(mutate) {
+        const languages = [];
+        for (let i = 0; i < 64; ++i)
+            languages.push({value: "l" + i, title: "Language " + (i + 1)});
+        const rows = [
+            {id: "folders", categoryId: "media", title: "Library folders", description: "Places to scan", type: "path", currentValue: ["/srv/films", "/srv/series"], constraints: {directory: true, multiple: true}, enabled: true},
+            {id: "autoscan", categoryId: "media", title: "Update automatically", description: "New files appear in the library", type: "boolean", currentValue: true, constraints: {}, enabled: true},
+            {id: "download", categoryId: "media", title: "Download folder", description: "Where finished downloads go", type: "path", currentValue: "/srv/downloads", constraints: {directory: true}, enabled: true},
+            {id: "autoplay", categoryId: "playback", title: "Play the next episode", description: "Ten seconds after the credits", type: "boolean", currentValue: true, constraints: {}, enabled: true},
+            {id: "subtitles", categoryId: "playback", title: "Default subtitles", type: "enum", currentValue: "one", constraints: {options: [
+                {value: "off", title: "Off"}, {value: "one", title: "First language"},
+                {value: "signs", title: "First language (signs)"}, {value: "two", title: "Second language"},
+                {value: "file", title: "As in the file"}
+            ]}, enabled: true},
+            {id: "audio", categoryId: "playback", title: "Default audio", type: "enum", currentValue: "l44", constraints: {options: languages}, enabled: true},
+            {id: "intros", categoryId: "playback", title: "Skip intros", type: "boolean", currentValue: false, constraints: {}, enabled: true},
+            {id: "output", categoryId: "sound", title: "Sound output", type: "enum", currentValue: "hdmi1", constraints: {options: [
+                {value: "hdmi1", title: "HDMI · Television"}, {value: "hdmi2", title: "HDMI 2 · Receiver"},
+                {value: "phones", title: "Headphones"}, {value: "speakers", title: "Built-in speakers"}
+            ]}, enabled: true},
+            {id: "night", categoryId: "sound", title: "Night mode", description: "Quieter explosions, louder dialogue", type: "boolean", currentValue: true, constraints: {}, enabled: true},
+            {id: "delay", categoryId: "sound", title: "Audio delay", type: "integer", currentValue: 0, constraints: {min: 0, max: 500, unit: "ms"}, enabled: false},
+            {id: "clicks", categoryId: "sound", title: "Interface sounds", type: "boolean", currentValue: true, constraints: {}, enabled: true},
+            {id: "glow", categoryId: "appearance", title: "Light field", description: "Artwork colour lights the background", type: "boolean", currentValue: true, constraints: {}, enabled: true},
+            {id: "ambient", categoryId: "appearance", title: "Ambient screen", description: "Minutes without input before the ambient screen starts", type: "integer", currentValue: 10, constraints: {min: 1, max: 60, unit: "min"}, enabled: true},
+            {id: "textsize", categoryId: "appearance", title: "Text size", type: "enum", currentValue: "regular", constraints: {options: [
+                {value: "regular", title: "Regular"}, {value: "large", title: "Large"}, {value: "larger", title: "Very large"}
+            ]}, enabled: true},
+            {id: "name", categoryId: "system", title: "Device name", description: "How Arinn shows on the home network and in arinnctl", type: "string", currentValue: "Arinn living room", constraints: {maxLength: 32}, enabled: true}
+        ];
+        if (mutate)
+            for (let i = 0; i < rows.length; ++i)
+                mutate(rows[i]);
+        return rows;
+    }
+    function editorProps(mutate, extra) {
+        const props = settingsProps();
+        props.rows = settingsRows(mutate);
+        const keys = Object.keys(extra || {});
+        for (let i = 0; i < keys.length; ++i)
+            props[keys[i]] = extra[keys[i]];
+        return props;
+    }
+    readonly property var categoryIndex: ({media: 0, playback: 1, sound: 2, network: 3, applications: 4, appearance: 5, system: 6})
+    // Focus a row the way the remote reaches it: its category, then the row.
+    function settingsRow(view, id) {
+        const row = view.rowByKey(id);
+        verify(row !== null, id);
+        view.focusCategory(categoryIndex[row.categoryId]);
+        wait(0);
+        verify(view.focusPart(view.activeRowIndex(id), view.partsFor(row)[0]), id);
+        return row;
+    }
+    function settingsScene(mutate, act, extra, expect) {
+        return {factory: settingsFactory, props: editorProps(mutate, extra), tune: act, settle: 500, expect: expect};
+    }
+    function setRow(id, values) {
+        return row => {
+            if (row.id !== id)
+                return;
+            const keys = Object.keys(values);
+            for (let i = 0; i < keys.length; ++i)
+                row[keys[i]] = values[keys[i]];
+        };
+    }
+    // Application tiles behind the tile action sheet (handoff cl-*).
+    function appTiles() {
+        return [
+            {id: "a1", providerId: "fixture", title: "Alpha", monogram: "A", group: "online", pinned: true},
+            {id: "a2", providerId: "fixture", title: "Bravo", monogram: "B", group: "online"},
+            {id: "g1", providerId: "fixture", title: "North", monogram: "N", group: "games", pinned: true, runningId: "w1", running: true},
+            {id: "g2", providerId: "fixture", title: "South", monogram: "S", group: "games", pinned: true},
+            {id: "o1", providerId: "fixture", title: "Editor", monogram: "E", group: "other", runningId: "w2", running: true}
+        ];
+    }
+    function appScene(act, expect) {
+        return {factory: homeFactory, props: homeProps({
+            screen: "applications", sectionDescription: "Applications", actionsEnabled: true,
+            applicationEntries: appTiles(),
+            runningEntries: [{id: "w1", title: "North", monogram: "N", running: true}]
+        }), tune: act, settle: 500, expect: expect};
+    }
+    // The on-screen keyboard: its language, layer and Shift, set through its
+    // own keys as a remote would.
+    function keyAt(keyboard, action) {
+        const rows = keyboard.model.rows;
+        for (let r = 0; r < rows.length; ++r)
+            for (let c = 0; c < rows[r].length; ++c)
+                if (rows[r][c].action === action)
+                    return [r, c];
+        fail("no " + action + " key");
+        return [0, 0];
+    }
+    function pressKey(keyboard, action) {
+        const at = keyAt(keyboard, action);
+        keyboard.model.focusKey(at[0], at[1]);
+        keyboard.apply(keyboard.model.activate());
+    }
+    function setLayer(keyboard, language, symbols, shift) {
+        if (keyboard.model.language !== language)
+            pressKey(keyboard, "language");
+        if (keyboard.model.symbols !== symbols)
+            pressKey(keyboard, "layer");
+        if (keyboard.model.shift !== shift)
+            pressKey(keyboard, "shift");
+        compare(keyboard.model.language, language);
+        compare(keyboard.model.symbols, symbols);
+        compare(keyboard.model.shift, shift);
+    }
+    // A key in the letter rows (0-based), skipping the context row.
+    function letterKey(keyboard, row, column) {
+        const first = keyboard.model.rows[0][0].kind === "context" ? 1 : 0;
+        keyboard.model.focusKey(first + row, column);
+    }
+    function browseScene(props, act) {
+        const base = {width: 1920, height: 1080, engine: "Example Search"};
+        const keys = Object.keys(props);
+        for (let i = 0; i < keys.length; ++i)
+            base[keys[i]] = props[keys[i]];
+        return {factory: browseFactory, props: base, tune: act, settle: 500, expect: "keyboardPanel"};
+    }
+    function browseKeyboard(view, language, symbols, shift, row, column) {
+        view.showKeyboard();
+        wait(0);
+        const keyboard = findChild(view, "browseOnScreenKeyboard");
+        verify(keyboard !== null, "browseOnScreenKeyboard");
+        setLayer(keyboard, language, symbols, shift);
+        letterKey(keyboard, row, column);
+    }
+    function quickMenuProps(overActivity) {
+        return {
+            overActivity: overActivity,
+            nowPlaying: {id: "song", title: "North", subtitle: "Part two", state: "playing", playPause: true},
+            audio: "unmuted", volumeControl: true, volumeKnown: true, volumeLevel: 40,
+            network: "wifi", wifiLevel: 3
         };
     }
     function scene(id) {
@@ -257,13 +397,163 @@ TestCase {
         if (id === "settings")
             return {factory: settingsFactory, props: settingsProps()};
         if (id === "power-menu")
-            return {factory: powerFactory, props: {width: 1920, height: 1080, clockText: "22:57", dateText: "Monday", closingApplications: ["One", "Two"]}};
+            return {factory: powerFactory, props: {width: 1920, height: 1080, closingApplications: ["One", "Two"]}};
         if (id === "power-confirm")
-            return {factory: powerFactory, props: {width: 1920, height: 1080, clockText: "22:57", dateText: "Monday", step: "confirm", pendingAction: "shutdown", closingApplications: ["One"]}};
+            return {factory: powerFactory, props: {width: 1920, height: 1080, step: "confirm", pendingAction: "shutdown", closingApplications: ["One"]}};
         if (id === "power-ambient")
-            return {factory: powerFactory, props: {width: 1920, height: 1080, clockText: "22:57", dateText: "Monday", step: "ambient"}};
+            return {factory: ambientFactory, props: {width: 1920, height: 1080, clockText: "22:57", dateText: "Monday", driftInterval: 600000},
+                    tune: view => view.start(), expect: ["ambientClock", "ambientDate"]};
+        if (id === "power-desktop")
+            return {factory: powerFactory, props: {
+                width: 1920, height: 1080, closingApplications: ["One", "Two"],
+                sleepAvailability: "available", restartAvailability: "available", shutdownAvailability: "available",
+                desktopSwitchAvailability: "available", menuFocus: "desktop"
+            }, tune: view => view.restoreMenuFocus(), expect: "powerMenu"};
+        if (id === "power-desktop-confirm")
+            return {factory: powerFactory, props: {
+                width: 1920, height: 1080, closingApplications: ["One", "Two"],
+                sleepAvailability: "available", restartAvailability: "available", shutdownAvailability: "available",
+                desktopSwitchAvailability: "available", step: "confirm", pendingAction: "desktop", menuFocus: "desktop"
+            }, expect: ["powerConfirm", "confirmDetail"]};
+        if (id === "quick-menu-shell" || id === "quick-menu-activity")
+            return {factory: quickMenuFactory, props: {overActivity: id === "quick-menu-activity"}, tune: view => {
+                apply(view.menu, quickMenuProps(view.overActivity));
+                view.menu.start();
+            }, settle: 400, expect: "quickMenu"};
+        if (id === "volume-hud")
+            return {factory: volumeFactory, props: {}, tune: view => {
+                view.hud.hideAfter = 600000;
+                view.hud.show(40, false);
+            }, settle: 400, expect: "volumeHud"};
+        if (id === "launch-starting" || id === "launch-stop-confirm" || id === "launch-stopping")
+            return {factory: launchFactory, props: {
+                width: 1920, height: 1080, kind: "application", active: true, serviceTitle: "North",
+                revealDelay: 600000, slowDelay: 600000, timeoutDelay: 0
+            }, tune: view => {
+                view.revealed = true;
+                view.slow = true;
+                if (id === "launch-stop-confirm") {
+                    view.requestCancel();
+                } else if (id === "launch-stopping") {
+                    view.cancellable = false;
+                    view.stopping = true;
+                }
+            }, settle: 400, expect: id === "launch-stop-confirm" ? "launchConfirm" : "launchTitle"};
+        if (id === "apps-tile-running")
+            return appScene(view => view.openTileActions("g1"), ["tileActions", "closeAppAction"]);
+        if (id === "apps-close-confirm")
+            return appScene(view => {
+                view.openTileActions("g1");
+                wait(50);
+                view.confirmAppClose = true;
+                Ui.Focus.take(findChild(view, "closeAppCancel"));
+            }, "closeAppConfirmation");
+        if (id === "home-tile-actions")
+            return {factory: homeFactory, props: homeProps({
+                actionsEnabled: true,
+                favoriteEntries: [
+                    {id: "f1", providerId: "fixture", title: "North", monogram: "N", pinned: true, runningId: "w1", running: true},
+                    {id: "f2", providerId: "fixture", title: "South", monogram: "S", pinned: true},
+                    {id: "f3", providerId: "fixture", title: "East", monogram: "E", pinned: true},
+                    {id: "f4", providerId: "fixture", title: "West", monogram: "W", pinned: true}
+                ]
+            }), tune: view => view.openTileActions("f2"), settle: 500, expect: "tileActions"};
+        if (id === "keyboard-browse")
+            return browseScene({text: "northern", kind: "search", suggestions: [
+                {icon: "history", title: "northern lights tonight", value: "northern lights tonight"},
+                {icon: "history", title: "northern trails map", value: "northern trails map"}
+            ]}, view => browseKeyboard(view, "en", false, false, 1, 4));
+        if (id === "keyboard-symbols")
+            return browseScene({text: "192.168.1.10:", kind: "address", resolvedUrl: "http://192.168.1.10:", suggestions: [
+                {icon: "public", title: "Media", subtitle: "192.168.1.10:8096", value: "http://192.168.1.10:8096"}
+            ]}, view => browseKeyboard(view, "en", true, false, 0, 7));
+        if (id === "keyboard-shift")
+            return browseScene({text: "", suggestions: []}, view => browseKeyboard(view, "en", false, true, 1, 4));
+        if (id === "keyboard-shortcut-address" || id === "keyboard-shortcut-name")
+            return {factory: homeFactory, props: homeProps({
+                screen: "applications", sectionDescription: "Applications", shortcutManagement: true, keyboardAvailable: false,
+                applicationEntries: appTiles(),
+                shortcutNameSuggestions: [
+                    {icon: "title", title: "Media", subtitle: "Page title", value: "Media"},
+                    {icon: "public", title: "media.local", subtitle: "Domain", value: "media.local"}
+                ]
+            }), tune: view => {
+                view.shortcutEditor = {id: "", title: id === "keyboard-shortcut-name" ? "Med" : "", url: "media.local:8096"};
+                wait(50);
+                view.startShortcutTyping(id === "keyboard-shortcut-name" ? "title" : "url");
+            }, settle: 500, expect: "keyboardPanel"};
+        if (id === "keyboard-setting-string")
+            return settingsScene(null, view => {
+                view.openString(settingsRow(view, "name"));
+                wait(50);
+                view.startStringTyping();
+            }, {keyboardAvailable: false}, "stringOnScreenKeyboard");
+        if (id === "keyboard-setting-path")
+            return settingsScene(null, view => {
+                const row = settingsRow(view, "download");
+                view.openEditor(row, "main", row.currentValue);
+                wait(50);
+                view.startPathTyping();
+            }, {keyboardAvailable: false}, "pathOnScreenKeyboard");
+        if (id === "settings-rows")
+            return settingsScene(null, view => settingsRow(view, "ambient"));
+        if (id === "settings-disabled")
+            return settingsScene(null, view => settingsRow(view, "delay"));
+        if (id === "settings-enum")
+            return settingsScene(null, view => view.openOptions(settingsRow(view, "subtitles")), null, "option-0");
+        if (id === "settings-enum-long")
+            return settingsScene(null, view => view.openOptions(settingsRow(view, "audio")), null, "optionPosition");
+        if (id === "settings-enum-short")
+            return settingsScene(null, view => view.openOptions(settingsRow(view, "textsize")), null, "option-0");
+        if (id === "settings-integer")
+            return settingsScene(null, view => {
+                view.openInteger(settingsRow(view, "ambient"));
+                for (let i = 0; i < 5; ++i)
+                    view.nudgeInteger(1, false);
+            }, null, "integerStepper");
+        if (id === "settings-integer-max")
+            return settingsScene(setRow("ambient", {currentValue: 60}), view => {
+                view.openInteger(settingsRow(view, "ambient"));
+                view.nudgeInteger(1, false);
+            }, null, ["integerStepper", "integerNote"]);
+        if (id === "settings-string")
+            return settingsScene(null, view => view.openString(settingsRow(view, "name")), null, "stringCounter");
+        if (id === "settings-saving")
+            return settingsScene(null, view => {
+                view.openOptions(settingsRow(view, "subtitles"));
+                wait(50);
+                view.optionIndex = 3;
+                view.focusOption(3);
+                view.chooseOption();
+                // The daemon accepted the request and has not answered yet.
+                view.rows = settingsRows(setRow("subtitles", {pending: true}));
+            }, null, "optionSpinner");
+        if (id === "settings-saved")
+            return settingsScene(setRow("subtitles", {currentValue: "two"}), view => {
+                settingsRow(view, "subtitles");
+                view.showToast("Saved", "Default subtitles: Second language", false);
+            }, null, "settingsToast");
+        if (id === "settings-saved-restart")
+            return settingsScene(setRow("ambient", {currentValue: 15, deferred: true}), view => {
+                settingsRow(view, "ambient");
+                view.showToast("Saved", "Applies after Arinn restarts", false);
+            }, null, "settingsToast");
+        if (id === "settings-string-rejected")
+            return settingsScene(setRow("name", {error: "Use letters, digits, spaces and hyphens."}),
+                                 view => view.openString(settingsRow(view, "name")), null, "stringError");
+        if (id === "settings-enum-rejected")
+            return settingsScene(setRow("output", {error: "HDMI 2 is not connected."}), view => {
+                view.openOptions(settingsRow(view, "output"));
+                wait(50);
+                view.focusOption(1);
+            }, null, "enumError");
+        if (id === "settings-toggle-rejected")
+            return settingsScene(setRow("night", {currentValue: false, error: "The HDMI output does not support it."}), view => {
+                settingsRow(view, "night");
+                view.showToast("Could not save", "The HDMI output does not support it.", true);
+            }, null, "settingsToast");
         if (id === "power-refusal")
-            return {factory: powerFactory, props: {width: 1920, height: 1080, clockText: "22:57", dateText: "Monday", refusalMessage: "The system did not suspend."}};
+            return {factory: powerFactory, props: {width: 1920, height: 1080, refusalMessage: "The system did not suspend."}};
         if (id === "browser-list")
             return {factory: browserFactory, props: {width: 1920, height: 1080, tabs: tabs(3)}};
         if (id === "browser-close-focus")
@@ -304,7 +594,10 @@ TestCase {
         return null;
     }
     function tune(kind, item) {
-        if (kind === "nav")
+        if (typeof kind === "function") {
+            wait(50);
+            kind(item);
+        } else if (kind === "nav")
             item.navOpen = true;
         else if (kind === "menu") {
             wait(50);
@@ -378,6 +671,41 @@ TestCase {
     Component { id: browserFactory; Browser.BrowserView { width: 1920; height: 1080 } }
     Component { id: launchFactory; Ui.LaunchOverlay { width: 1920; height: 1080 } }
     Component { id: sessionFactory; Session.SessionView { width: 1920; height: 1080 } }
+    Component { id: ambientFactory; Power.AmbientScreen { width: 1920; height: 1080 } }
+    Component { id: browseFactory; Browse.BrowseView { width: 1920; height: 1080 } }
+    // The quick menu over the shell (Home behind it), or over an Activity.
+    // The shell window is transparent over an Activity, so a fixture image
+    // stands in for the application window behind it.
+    Component {
+        id: quickMenuFactory
+        Item {
+            id: quickScene
+            width: 1920; height: 1080
+            property bool overActivity: false
+            readonly property alias menu: quickMenu
+            Image {
+                anchors.fill: parent
+                visible: quickScene.overActivity
+                source: suite.art()
+                fillMode: Image.PreserveAspectCrop
+            }
+            Ui.HomeView {
+                visible: !quickScene.overActivity
+                Component.onCompleted: suite.apply(this, suite.homeProps())
+            }
+            Ui.QuickMenu { id: quickMenu; anchors.fill: parent; clockText: "22:57" }
+        }
+    }
+    // The volume HUD over Home, placed as PowerOverlay places it.
+    Component {
+        id: volumeFactory
+        Item {
+            width: 1920; height: 1080
+            readonly property alias hud: volumeHud
+            Ui.HomeView { Component.onCompleted: suite.apply(this, suite.homeProps()) }
+            Ui.VolumeHud { id: volumeHud; z: 10; anchors.horizontalCenter: parent.horizontalCenter; y: 48 }
+        }
+    }
 
     function test_capture() {
         if (!job.output) {
@@ -414,9 +742,17 @@ TestCase {
             // another frame, so waitForRendering returns false. That is not a
             // failure: wait, then require the item to still be visible.
             waitForRendering(shown, 5000);
-            wait(plan.tune === "nav" ? 450 : 200);
+            wait(plan.settle !== undefined ? plan.settle : plan.tune === "nav" ? 450 : 200);
             if (!shown || !shown.visible)
                 fail("not visible: " + state.id);
+            // A scene names the parts it must show, so a stale fixture (a
+            // removed step, a renamed screen) fails instead of saving an
+            // empty frame.
+            const expected = plan.expect ? [].concat(plan.expect) : [];
+            for (let e = 0; e < expected.length; ++e) {
+                const part = shown.objectName === expected[e] ? shown : findChild(shown, expected[e]);
+                verify(part !== null && part.visible, state.id + " does not show " + expected[e]);
+            }
             waitForRendering(shown, 1000);
             const shot = grabImage(suite);
             const path = job.output + "/" + state.id + ".png";

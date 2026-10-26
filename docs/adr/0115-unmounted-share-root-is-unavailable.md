@@ -32,6 +32,7 @@ Details:
 - **Parsing.** Fields are split on whitespace (fstab) or single spaces (mountinfo, field 5), and `\ooo` escapes such as `\040` are decoded. Comments and blank lines are skipped.
 - **Automount.** An `x-systemd.automount` entry shows as an `autofs` mount while idle, so it counts as mounted, even when the share behind it is away. The decision then falls to reading the root, which triggers the automount. When the share is away, that read can block the scan until the automount times out, as it did before this ADR.
 - **Unreadable tables.** A missing fstab lists nothing. An unreadable mountinfo is "unknown", and then no root is treated as away.
+- **Large tables.** Each table is read whole, up to 1 MiB, or not at all. One byte past the limit makes the table unknown, as if unreadable. It is never parsed in part, because a cut mountinfo could miss the mount that keeps a share up; a host with thousands of container or snap mounts is the example.
 - **Imports.** An import picks the most specific configured root that contains the file, as a scan would. If that root is unavailable, the import is refused with `Unavailable`; it never falls back to an outer root, whose walk skips the inner one.
 - The provider never mounts anything (§5.6) and logs no path (§13).
 
@@ -62,6 +63,7 @@ Details:
   - a mount point reached through a symbolic link (temporary folders);
   - the nearest listed point;
   - `/`, swap, no fstab and an unreadable mountinfo never mark a root;
+  - a table over the limit is unknown, never cut;
   - escapes.
 - `plugins/library/tests/catalogue.rs`:
   - `an_unmounted_share_is_unavailable_not_empty`: the films become unavailable together, keep their ids, and come back;

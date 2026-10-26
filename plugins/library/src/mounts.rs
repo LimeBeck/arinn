@@ -18,7 +18,9 @@ use std::{
 
 const FSTAB: &str = "/etc/fstab";
 const MOUNTINFO: &str = "/proc/self/mountinfo";
-/// The tables are small; a larger file is not a mount table.
+/// The tables are small. A larger one (thousands of container mounts) is
+/// not read in part: a cut table could miss the mount that keeps a share up,
+/// so it is unknown and marks nothing (review of #557).
 const MAX_TABLE_BYTES: u64 = 1024 * 1024;
 
 #[derive(Debug, Clone, Default)]
@@ -33,8 +35,15 @@ pub struct MountTables {
 impl MountTables {
     /// The system's tables, read at each scan.
     pub fn system() -> Self {
-        let fstab = read_table(FSTAB).unwrap_or_default();
-        let mountinfo = read_table(MOUNTINFO);
+        Self::read(Path::new(FSTAB), Path::new(MOUNTINFO), MAX_TABLE_BYTES)
+    }
+
+    /// Tables from files of at most `limit` bytes each. An fstab that cannot
+    /// be read whole lists nothing; such a mountinfo is unknown. Either way
+    /// no root is treated as away.
+    fn read(fstab: &Path, mountinfo: &Path, limit: u64) -> Self {
+        let fstab = read_table(fstab, limit).unwrap_or_default();
+        let mountinfo = read_table(mountinfo, limit);
         Self {
             listed: listed_mount_points(&fstab),
             mounted: mountinfo.map(|text| mounted_points(&text)),
@@ -80,12 +89,16 @@ impl MountTables {
     }
 }
 
-fn read_table(path: &str) -> Option<String> {
+/// The whole file, or `None` when it cannot be read or is longer than
+/// `limit` bytes: one byte more than the limit is read to tell.
+fn read_table(path: &Path, limit: u64) -> Option<String> {
     use std::io::Read;
     let file = std::fs::File::open(path).ok()?;
     let mut text = String::new();
-    file.take(MAX_TABLE_BYTES).read_to_string(&mut text).ok()?;
-    Some(text)
+    file.take(limit.saturating_add(1))
+        .read_to_string(&mut text)
+        .ok()?;
+    (text.len() as u64 <= limit).then_some(text)
 }
 
 /// The second field of each fstab entry: absolute mount points, without `/`
@@ -256,6 +269,44 @@ nas:/export/series {P}/mnt/My\\040Series nfs nofail 0 0
         assert!(!up.away(&real.join("nas/films")));
         let down = MountTables::from_text(&fstab, Some(&mountinfo(&["/"])));
         assert!(down.away(&link.join("nas/films")));
+        let _ = std::fs::remove_dir_all(&scratch);
+    }
+
+    // Codex review of #557: a mount table longer than the limit is not
+    // parsed in part. The share's mount line lies past the cut here.
+    #[test]
+    fn a_table_over_the_limit_is_unknown() {
+        let scratch = std::env::temp_dir().join(format!(
+            "arinn-library-tables-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&scratch).unwrap();
+        let fstab = scratch.join("fstab");
+        let info = scratch.join("mountinfo");
+        std::fs::write(&fstab, format!("//nas/films {P}/mnt/nas cifs nofail 0 0\n")).unwrap();
+        let share = format!("{P}/mnt/nas");
+        let mut many: Vec<String> = (0..200).map(|i| format!("{P}/snap/{i}")).collect();
+        many.push(share);
+        let refs: Vec<&str> = many.iter().map(String::as_str).collect();
+        let text = mountinfo(&refs);
+        std::fs::write(&info, &text).unwrap();
+        let length = text.len() as u64;
+        let root = at("/mnt/nas");
+        // Read whole, the share is mounted.
+        assert!(!MountTables::read(&fstab, &info, length).away(&root));
+        // Cut before its line, the table is unknown: still not away.
+        assert!(!MountTables::read(&fstab, &info, length - 1).away(&root));
+        assert!(!MountTables::read(&fstab, &info, length / 2).away(&root));
+        // An fstab over the limit lists nothing.
+        let fstab_length = std::fs::metadata(&fstab).unwrap().len();
+        let without_mount = scratch.join("empty-mountinfo");
+        std::fs::write(&without_mount, mountinfo(&["/"])).unwrap();
+        assert!(MountTables::read(&fstab, &without_mount, fstab_length).away(&root));
+        assert!(!MountTables::read(&fstab, &without_mount, fstab_length - 1).away(&root));
         let _ = std::fs::remove_dir_all(&scratch);
     }
 

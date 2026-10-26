@@ -495,6 +495,79 @@ TestCase {
         verify(insideView(windowFocus()));
     }
 
+    // The Flickable that scrolls an option: the nearest ancestor with contentY.
+    function optionViewport(item) {
+        let current = item.parent;
+        while (current && current.contentY === undefined)
+            current = current.parent;
+        verify(current !== null, "option viewport");
+        return current;
+    }
+    // The option lies wholly inside the sheet's visible part. Returns how far
+    // its middle is from the viewport's middle.
+    function optionShown(index) {
+        const item = child("option-" + index);
+        const flick = optionViewport(item);
+        const top = item.mapToItem(flick, 0, 0).y;
+        verify(top >= 0 && top + item.height <= flick.height,
+               "option-" + index + " at " + top + " in a viewport of " + flick.height
+               + " (contentY " + flick.contentY + ")");
+        return top + item.height / 2 - flick.height / 2;
+    }
+
+    // #537 (handoff EN-2): a long choice sheet opens on the current option,
+    // scrolled so it is on screen and centred, not at the top of the list
+    // with the focused option out of sight. Moving keeps it on screen.
+    function test_long_enum_opens_on_the_current_option() {
+        down(2);
+        focused("category-sound");
+        keyClick(Qt.Key_Right);
+        const options = [];
+        for (let i = 0; i < 64; ++i)
+            options.push({ value: "o" + i, title: "Option " + i });
+        view.rows = copyRows(row => {
+            if (row.id === "output") {
+                row.currentValue = "o44";
+                row.constraints = { options: options };
+            }
+        });
+        focused("setting-audio-output");
+        keyClick(Qt.Key_Return);
+        focused("option-44");
+        compare(child("optionPosition").text, "45 of 64");
+        // Centred: the option's middle is within one option of the middle.
+        verify(Math.abs(optionShown(44)) <= child("option-44").height);
+        // The remote's arrows and paging keep the focused option on screen.
+        keyClick(Qt.Key_Down);
+        focused("option-45");
+        optionShown(45);
+        keyClick(Qt.Key_Up);
+        keyClick(Qt.Key_Up);
+        focused("option-43");
+        optionShown(43);
+        for (let i = 0; i < 4; ++i)
+            keyClick(Qt.Key_PageDown);
+        focused("option-63");
+        optionShown(63);
+        compare(child("optionPosition").text, "64 of 64");
+        for (let i = 0; i < 11; ++i)
+            keyClick(Qt.Key_PageUp);
+        focused("option-0");
+        optionShown(0);
+        keyClick(Qt.Key_Escape);
+        focused("setting-audio-output");
+        compare(changes.count, 0);
+        // Opened again on another value, it goes straight to that option.
+        view.rows = copyRows(row => { if (row.id === "output") row.currentValue = "o20"; });
+        focused("setting-audio-output");
+        keyClick(Qt.Key_Return);
+        focused("option-20");
+        verify(Math.abs(optionShown(20)) <= child("option-20").height);
+        keyClick(Qt.Key_Escape);
+        focused("setting-audio-output");
+        compare(changes.count, 0);
+    }
+
     function keyAt(row, column) { return child("keyboardKey-" + row + "-" + column); }
 
     // STR-2 is no longer a dead end: without a hardware keyboard, the remote

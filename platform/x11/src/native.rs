@@ -350,27 +350,43 @@ pub fn power_held_on_display() -> Option<bool> {
 /// Grabs every sequence on `root` and returns the grabbed combinations. A
 /// sequence whose key or modifier is not mapped is skipped (the next
 /// MappingNotify grabs it again); one another client holds costs only that
-/// sequence and is logged with `what`.
+/// sequence's new combinations and is logged with `what`.
+///
+/// `held` is what this client held before (#526): grabbing such a
+/// combination again only replaces its own grab, and a contested sequence
+/// keeps it, so a regrab never lets a held combination go. `grabbed`
+/// collects every combination this regrab holds so far, across calls; a
+/// rollback never releases one of them either.
 pub(crate) fn grab_sequences(
     c: &RustConnection,
     root: Window,
     map: &KeyMap,
     sequences: &[Sequence],
     what: &str,
+    held: &HashSet<(u16, Keycode)>,
+    grabbed: &mut HashSet<(u16, Keycode)>,
 ) -> Result<HashSet<(u16, Keycode)>> {
-    let mut grabbed = HashSet::new();
+    let mut mine = HashSet::new();
     for sequence in sequences {
         let combinations = map.combinations(sequence);
         if combinations.is_empty() {
             continue;
         }
-        if grab_combinations(c, root, &combinations)? {
-            grabbed.extend(combinations);
+        let keep: HashSet<(u16, Keycode)> = held.union(grabbed).copied().collect();
+        let kept: Vec<(u16, Keycode)> = if grab_combinations_keeping(c, root, &combinations, &keep)?
+        {
+            combinations
         } else {
             eprintln!("arinn-platform-x11: a {what} key is held by another client; skipped");
-        }
+            combinations
+                .into_iter()
+                .filter(|combination| held.contains(combination))
+                .collect()
+        };
+        grabbed.extend(&kept);
+        mine.extend(kept);
     }
-    Ok(grabbed)
+    Ok(mine)
 }
 
 /// The desktop identity of `xid`: `_NET_WM_DESKTOP_FILE`,
@@ -451,6 +467,8 @@ pub struct Native {
     watched: HashSet<Window>,
     /// Global Home sequences: `home_shortcut`, then HomePage (#286).
     home: Vec<Sequence>,
+    /// Grabbed Home (modifier mask, keycode) pairs.
+    home_grabs: HashSet<(u16, Keycode)>,
     /// Quick-menu sequences: `quick_menu_shortcut` (ADR-0106).
     quick_menu: key_sequence::QuickMenu,
     /// Grabbed quick-menu (modifier mask, keycode) pairs; any other grabbed
@@ -526,6 +544,7 @@ impl Native {
             tokens: Tokens::default(),
             watched: HashSet::new(),
             home,
+            home_grabs: HashSet::new(),
             quick_menu,
             quick_menu_grabs: HashSet::new(),
             power: key_sequence::power(),
@@ -698,18 +717,48 @@ impl Native {
         );
         Ok(wm)
     }
+    /// Grabs the Home, quick-menu and power keys for the current mapping,
+    /// focus and power mode. A combination still wanted is never let go,
+    /// not even for one request: grabbing it again only replaces this
+    /// client's own grab, and only what no key names any more is released,
+    /// after every new grab. The X server sends a MappingNotify whenever key
+    /// events switch between keyboard devices (a remote, a keyboard,
+    /// XTest); releasing everything first let a key pressed in between
+    /// reach the focused application, or another client grab it (#526).
     fn grab_home(&mut self) -> Result<()> {
-        self.c.ungrab_key(0, self.root, ModMask::ANY)?.check()?;
         let map = KeyMap::read(&self.c)?;
-        let home = grab_sequences(&self.c, self.root, &map, &self.home, "Home")?;
+        let held: HashSet<(u16, Keycode)> = self
+            .home_grabs
+            .iter()
+            .chain(&self.quick_menu_grabs)
+            .chain(&self.power_grabs)
+            .copied()
+            .collect();
+        let mut grabbed = HashSet::new();
+        let home = grab_sequences(
+            &self.c,
+            self.root,
+            &map,
+            &self.home,
+            "Home",
+            &held,
+            &mut grabbed,
+        )?;
         // Inside the shell Menu keeps its own meaning (owner decision of
         // 2026-10-21, #439): the remote's Menu keys are grabbed only while
         // another window has focus.
         let quick_menu = self.quick_menu.bound(self.shell_focused);
         // Only Home is required; a quick-menu key that cannot be grabbed
         // never stops the adapter (ADR-0106).
-        self.quick_menu_grabs =
-            grab_sequences(&self.c, self.root, &map, &quick_menu, "quick-menu")?;
+        let quick_menu_grabs = grab_sequences(
+            &self.c,
+            self.root,
+            &map,
+            &quick_menu,
+            "quick-menu",
+            &held,
+            &mut grabbed,
+        )?;
         // The power keys come last, also while the shell has focus; Home
         // and the quick menu keep a key they name. A power key another
         // client holds (xfce4-power-manager) stays that client's and never
@@ -728,16 +777,36 @@ impl Native {
         // must succeed whenever it starts, since it never grabs again
         // (review of #516). Its action is "do nothing" while Arinn runs.
         let mut raw_power_codes = HashSet::new();
-        if self.raw_power {
-            self.power_grabs = HashSet::new();
+        let power_grabs = if self.raw_power {
             for sequence in &power {
                 raw_power_codes.extend(map.combinations(sequence).iter().map(|(_, key)| *key));
             }
+            HashSet::new()
         } else {
-            self.power_grabs = grab_sequences(&self.c, self.root, &map, &power, "power")?;
+            // A power key stays all or nothing: when another client holds
+            // any of its combinations, the key is the desktop's, so its held
+            // combinations are not kept (`PowerOwner` then gives everything
+            // back, ADR-0111). An uncontested regrab still never lets ⏻ go.
+            grab_sequences(
+                &self.c,
+                self.root,
+                &map,
+                &power,
+                "power",
+                &HashSet::new(),
+                &mut grabbed,
+            )?
+        };
+        for (modifiers, key) in held.difference(&grabbed) {
+            self.c
+                .ungrab_key(*key, self.root, (*modifiers).into())?
+                .check()?;
         }
+        self.home_grabs = home;
+        self.quick_menu_grabs = quick_menu_grabs;
+        self.power_grabs = power_grabs;
         self.select_raw_power(raw_power_codes)?;
-        ensure!(!home.is_empty(), "Home key unavailable");
+        ensure!(!self.home_grabs.is_empty(), "Home key unavailable");
         self.c.flush()?;
         Ok(())
     }
@@ -1783,6 +1852,223 @@ pub(crate) mod fixture {
             .check()
             .is_err()
         );
+        Ok(())
+    }
+    /// #526: on a MappingNotify, which the X server also sends whenever
+    /// key events switch between keyboard devices (a remote after a
+    /// keyboard), the adapter grabs its global keys again. A combination it
+    /// still wants (Home, the quick menu, ⏻) is never let go meanwhile: a
+    /// client that keeps grabbing the same combinations never gets one, and
+    /// every key still reaches the adapter. The old code released every
+    /// grab first, so a key pressed in between reached the focused
+    /// application, or another client (a restarting power manager) took it.
+    #[test]
+    #[ignore = "requires Xvfb; spawns an isolated X server, never uses the real DISPLAY"]
+    fn a_new_mapping_never_lets_the_global_keys_go() -> Result<()> {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        };
+        let desktop = Desktop::new()?;
+        let shell = desktop.client("org.arinn.Shell", "")?;
+        let video = desktop.client("org.example.Player.desktop", "")?;
+        desktop.inventory(&[shell, video], video)?;
+        let home = key_sequence::home("Meta+F12").0;
+        let quick_menu = key_sequence::quick_menu("Ctrl+Alt+Q", &home).0;
+        let mut native =
+            Native::connect_display_with(Some(&desktop.display), home.clone(), quick_menu.clone())?;
+        native.snapshot()?;
+        assert_eq!(native.set_power(true, false)?, Reading::Grab);
+        let map = KeyMap::read(&desktop.c)?;
+        let wanted: Vec<(u16, Keycode)> = home
+            .iter()
+            .chain(&quick_menu.bound(false))
+            .chain(&key_sequence::power())
+            .flat_map(|sequence| map.combinations(sequence))
+            .collect();
+        assert!(!wanted.is_empty());
+        let (free, per_key) = (*map.free().last().unwrap(), map.per_key());
+        let (thief, screen) = x11rb::connect(Some(&desktop.display))?;
+        let root = thief.setup().roots[screen].root;
+        let stop = Arc::new(AtomicBool::new(false));
+        let stopped = stop.clone();
+        let stealing = std::thread::spawn(move || -> Result<usize> {
+            let mut stolen = 0;
+            while !stopped.load(Ordering::SeqCst) {
+                let cookies = wanted
+                    .iter()
+                    .map(|(modifiers, key)| {
+                        thief.grab_key(
+                            false,
+                            root,
+                            (*modifiers).into(),
+                            *key,
+                            GrabMode::ASYNC,
+                            GrabMode::ASYNC,
+                        )
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                for cookie in cookies {
+                    if cookie.check().is_ok() {
+                        stolen += 1;
+                    }
+                }
+            }
+            Ok(stolen)
+        });
+        for _ in 0..20 {
+            // An unrelated key is mapped and unmapped: two MappingNotify.
+            for sym in [0x1008_ff2f, 0] {
+                desktop
+                    .c
+                    .change_keyboard_mapping(1, free, per_key as u8, &vec![sym; per_key])?
+                    .check()?;
+            }
+            let snapshot = native.snapshot()?;
+            assert!(!snapshot.home_key && !snapshot.quick_menu_key && !snapshot.power_key);
+        }
+        stop.store(true, Ordering::SeqCst);
+        assert_eq!(stealing.join().unwrap()?, 0);
+        desktop.home_key()?;
+        assert!(native.snapshot()?.home_key);
+        desktop.press(&[0xffe3, 0xffe9], u32::from(b'q'))?;
+        assert!(native.snapshot()?.quick_menu_key);
+        desktop.press(&[], 0x1008_ff2a)?; // XF86PowerOff
+        let snapshot = native.snapshot()?;
+        assert!(snapshot.power_key && snapshot.power_reading == Reading::Grab);
+        Ok(())
+    }
+    /// The highest keycode without a keysym, and the keysyms per keycode.
+    fn free_keycode(desktop: &Desktop) -> Result<(Keycode, usize)> {
+        let map = KeyMap::read(&desktop.c)?;
+        Ok((*map.free().last().unwrap(), map.per_key()))
+    }
+    /// Another client grabs `key` with any modifier, then the mapping puts
+    /// `keysym` on it as well; the adapter handles the MappingNotify.
+    fn contest(
+        desktop: &Desktop,
+        native: &mut Native,
+        key: Keycode,
+        per_key: usize,
+        keysym: u32,
+    ) -> Result<RustConnection> {
+        let (other, _) = x11rb::connect(Some(&desktop.display))?;
+        other
+            .grab_key(
+                false,
+                desktop.root,
+                ModMask::ANY,
+                key,
+                GrabMode::ASYNC,
+                GrabMode::ASYNC,
+            )?
+            .check()?;
+        desktop
+            .c
+            .change_keyboard_mapping(1, key, per_key as u8, &vec![keysym; per_key])?
+            .check()?;
+        native.snapshot()?;
+        Ok(other)
+    }
+    /// Whether a new client can grab `keysym`'s first keycode with any
+    /// modifier, that is, nobody holds it; the grab is let go at once.
+    fn free_to_grab(desktop: &Desktop, keysym: u32) -> Result<bool> {
+        let map = KeyMap::read(&desktop.c)?;
+        let key = map.codes(keysym)[0];
+        let (other, _) = x11rb::connect(Some(&desktop.display))?;
+        let free = other
+            .grab_key(
+                false,
+                desktop.root,
+                ModMask::ANY,
+                key,
+                GrabMode::ASYNC,
+                GrabMode::ASYNC,
+            )?
+            .check()
+            .is_ok();
+        Ok(free)
+    }
+    /// #526, as in the keyboard worker (review of #525): a mapping change
+    /// that adds a Home or quick-menu keycode another client holds skips
+    /// only that keycode; the key on its old keycode stays grabbed.
+    #[test]
+    #[ignore = "requires Xvfb; spawns an isolated X server, never uses the real DISPLAY"]
+    fn a_contested_new_keycode_keeps_the_held_home_and_quick_menu_grabs() -> Result<()> {
+        let desktop = Desktop::new()?;
+        let shell = desktop.client("org.arinn.Shell", "")?;
+        let video = desktop.client("org.example.Player.desktop", "")?;
+        desktop.inventory(&[shell, video], video)?;
+        let home = key_sequence::home("Meta+F12").0;
+        let quick_menu = key_sequence::quick_menu("Ctrl+Alt+Q", &home).0;
+        let mut native = Native::connect_display_with(Some(&desktop.display), home, quick_menu)?;
+        native.snapshot()?;
+        let (free, per_key) = free_keycode(&desktop)?;
+        let _f12 = contest(&desktop, &mut native, free, per_key, 0xffc9)?; // F12
+        let (free, per_key) = free_keycode(&desktop)?;
+        let _q = contest(&desktop, &mut native, free, per_key, u32::from(b'q'))?;
+        // The old keycodes come first, so the presses use them.
+        desktop.home_key()?;
+        assert!(native.snapshot()?.home_key);
+        desktop.press(&[0xffe3, 0xffe9], u32::from(b'q'))?;
+        assert!(native.snapshot()?.quick_menu_key);
+        Ok(())
+    }
+    /// #526 and ADR-0111: ⏻ stays all or nothing. A mapping change that
+    /// adds a power keycode another client holds makes the whole power key
+    /// the desktop's, as before: Arinn reports no grab, so `PowerOwner`
+    /// gives everything back, and holds no ⏻ combination at all.
+    #[test]
+    #[ignore = "requires Xvfb; spawns an isolated X server, never uses the real DISPLAY"]
+    fn a_contested_new_power_keycode_gives_the_whole_power_key_up() -> Result<()> {
+        let desktop = Desktop::new()?;
+        let mut native = Native::connect_display(Some(&desktop.display))?;
+        native.snapshot()?;
+        assert_eq!(native.set_power(true, false)?, Reading::Grab);
+        assert!(!free_to_grab(&desktop, 0x1008_ff2a)?);
+        let (free, per_key) = free_keycode(&desktop)?;
+        let _other = contest(&desktop, &mut native, free, per_key, 0x1008_ff2a)?;
+        assert_eq!(native.snapshot()?.power_reading, Reading::None);
+        assert!(native.power_grabs.is_empty());
+        assert!(free_to_grab(&desktop, 0x1008_ff2a)?);
+        desktop.press(&[], 0x1008_ff2a)?;
+        assert!(!native.snapshot()?.power_key);
+        // Home is untouched.
+        desktop.home_key()?;
+        assert!(native.snapshot()?.home_key);
+        Ok(())
+    }
+    /// #526: what the adapter records as grabbed is what the X server holds
+    /// across a regrab and every power mode: ⏻ held while grabbed, free
+    /// while read raw or off, so `power_held_elsewhere` and an
+    /// xfce4-power-manager starting then see the truth (ADR-0111).
+    #[test]
+    #[ignore = "requires Xvfb; spawns an isolated X server, never uses the real DISPLAY"]
+    fn the_power_grab_bookkeeping_matches_the_server_across_modes() -> Result<()> {
+        let desktop = Desktop::new()?;
+        let mut native = Native::connect_display(Some(&desktop.display))?;
+        native.snapshot()?;
+        assert!(free_to_grab(&desktop, 0x1008_ff2a)?);
+        assert_eq!(native.set_power(true, false)?, Reading::Grab);
+        let (free, per_key) = free_keycode(&desktop)?;
+        desktop
+            .c
+            .change_keyboard_mapping(1, free, per_key as u8, &vec![0x1008_ff2f; per_key])?
+            .check()?;
+        assert_eq!(native.snapshot()?.power_reading, Reading::Grab);
+        assert!(!free_to_grab(&desktop, 0x1008_ff2a)?);
+        assert_eq!(native.set_power(true, true)?, Reading::Raw);
+        assert!(native.power_grabs.is_empty());
+        assert!(free_to_grab(&desktop, 0x1008_ff2a)?);
+        assert_eq!(native.set_power(true, false)?, Reading::Grab);
+        assert!(!free_to_grab(&desktop, 0x1008_ff2a)?);
+        assert_eq!(native.set_power(false, false)?, Reading::None);
+        assert!(native.power_grabs.is_empty());
+        assert!(free_to_grab(&desktop, 0x1008_ff2a)?);
+        assert!(!native.power_held_elsewhere()?);
+        // Home stays grabbed through every change.
+        desktop.home_key()?;
+        assert!(native.snapshot()?.home_key);
         Ok(())
     }
     #[test]

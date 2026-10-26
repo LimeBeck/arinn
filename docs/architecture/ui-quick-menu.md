@@ -19,8 +19,27 @@ opens the quick menu instead. That is the user's explicit choice. Home wins a
 key both want. On KDE, KGlobalAccel keeps each action's stored keys (the KWin
 script registers the quick menu with Meta+F11), so the daemon first removes
 Home's configured keys from the quick-menu action, then writes Home, then the
-quick menu without Home's keys (`global_home::write_all`). A key that a
-third-party action holds stays a conflict for both.
+quick menu without Home's keys (`global_home::write_all`). It gives up every
+Home key, HomePage included. The quick-menu lock is held from that release to
+the quick-menu write, so a focus change during a second adapter connection
+waits and cannot write the previous connection's keys back in between (#507).
+A key that a third-party action holds stays a conflict for both.
+
+**While arinnd is down.** With the daemon gone, the remote's Menu keys would
+open nothing and still swallow the ordinary context-menu key in every
+application. On KDE the stop helper (`arinnd --release-power-key`, run by
+`ExecStopPost=` of arinnd.service and by `arinn-kwin-adapter stop`) removes
+them from the quick-menu action; its other keys stay, and the next adapter
+connection writes every key again (`global_home::release_menu_keys`, #507).
+The X11 adapter keeps its grabs while it runs without the daemon; they end
+with its process.
+
+**Grab lag** (ADR-0106). On X11 the Menu grabs follow focus at the adapter's
+next snapshot, up to 0.5 s after the shell gains or loses focus: the adapter
+reads X events, grabbed key presses included, on its 0.5 s tick. Shortening
+it means waking that loop on X events instead of the tick, a change to the
+adapter's main loop that is left for a separate task. On KDE the keys follow
+`ReportWindow` with one KGlobalAccel write, which runs after the report.
 
 **Over an Activity or over the shell.** The sheet is over the shell only when
 the shell was on screen and had focus when the request arrived; otherwise, and
@@ -135,6 +154,11 @@ the sheet. The ⏻ exception of §5.7 does not apply to it.
   form and the focus hand-off, the sheet geometry and the scrim.
 - `media-catalog` `quickMenuOverManagedPlaybackReturnsToThePlayer`: over managed
   playback, Back returns to the live player at once and Home never shows.
+- `media-catalog` `quickMenuBackBeforeTheFirstStatusReturnsToThePlayer` (#507):
+  over managed playback the window is on screen before the Status refresh
+  that follows the request, so Back may come first. Until Status reports the
+  Home state, Back uses the target that `QuickMenuRequested` carried; once
+  it does, Status decides, also when it names no target (then Home).
 - `arinn-quick-menu-test` (`quick-menu`): Main.qml with the real `Backend` and
   a fake `Daemon1` with `SystemControl1` on its own bus connection: Back over an
   Activity calls `Back` without showing Home, Open Home and `HomeRequested`
@@ -148,13 +172,18 @@ the sheet. The ⏻ exception of §5.7 does not apply to it.
   waiting over an Activity, the launch progress giving way to the sheet and
   Home on the launch dialog, the same for "Starting …" of an application with
   its stop confirmation open and the late power answer held meanwhile, repeats
-  and a foreign epoch, the degraded form without the daemon, and the session
-  lock.
+  and a foreign epoch, the degraded form without the daemon, the session
+  lock, and the request's Return target reaching the shell
+  (`quickMenuRequestCarriesItsTarget`, #507).
 - `arinn-platform-x11` `quick_menu_raises_the_shell_only_after_its_request`
   (Xvfb).
 - `key_sequence` `a_configured_menu_key_stays_bound_inside_the_shell`;
   `global_home` `home_wins_a_key_the_quick_menu_action_still_holds`,
-  `swapped_home_and_quick_menu_keys_follow_the_configuration` and
-  `a_third_party_key_is_still_a_conflict`.
-- Not tested: real KDE and X11 sessions with the remote, and a visual
-  comparison (no handoff yet).
+  `swapped_home_and_quick_menu_keys_follow_the_configuration`,
+  `a_third_party_key_is_still_a_conflict`,
+  `home_wins_home_page_the_quick_menu_action_still_holds`,
+  `a_focus_change_waits_for_the_whole_write` and
+  `the_stop_helper_releases_only_the_menu_keys` (#507).
+- Not tested: real KDE and X11 sessions with the remote (including the stop
+  helper's KGlobalAccel call on a real KWin), and a visual comparison (no
+  handoff yet).

@@ -1,0 +1,3 @@
+- Quick menu: Back over managed playback returns to the player also when it is pressed before the shell's first state refresh after the quick-menu key ([#507](https://github.com/LimeBeck/arinn/issues/507)).
+- KDE: when the daemon stops, the remote's Menu keys are given back to applications, so the ordinary context-menu key works again while Arinn is not running ([#507](https://github.com/LimeBeck/arinn/issues/507)).
+- KDE: a focus change while a new adapter connection writes the global keys no longer writes the previous quick-menu keys back in between, so Home keeps its key ([#507](https://github.com/LimeBeck/arinn/issues/507)).

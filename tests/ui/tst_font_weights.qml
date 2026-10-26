@@ -38,6 +38,28 @@ TestCase {
             text: suite.sample
         }
     }
+    // A plain Text or TextInput with FontWeightAxis, as the shell uses for
+    // text that is not a UiText.
+    Component {
+        id: axisTextFactory
+        Text {
+            font.family: Ui.Theme.fontFamily
+            font.pixelSize: 64
+            color: "white"
+            text: suite.sample
+            Ui.FontWeightAxis {}
+        }
+    }
+    Component {
+        id: axisInputFactory
+        TextInput {
+            font.family: Ui.Theme.fontFamily
+            font.pixelSize: 64
+            color: "white"
+            text: suite.sample
+            Ui.FontWeightAxis {}
+        }
+    }
     Component {
         id: backdropFactory
         Rectangle { width: 1920; height: 140; color: "black" }
@@ -82,7 +104,26 @@ TestCase {
                "ink " + data.weight + ": " + heavier.ink + ", 400: " + regular.ink);
     }
 
-    // The weight of a role (title 700) renders, and a later change too.
+    function test_font_weight_axis_data() {
+        return [
+            {tag: "Text", factory: axisTextFactory},
+            {tag: "TextInput", factory: axisInputFactory}
+        ];
+    }
+    function test_font_weight_axis(data) {
+        const regular = render(data.factory, 400);
+        const bold = render(data.factory, 700);
+        verify(bold.advance > regular.advance, "advance 700: " + bold.advance + ", 400: " + regular.advance);
+        verify(bold.ink > regular.ink * 1.05, "ink 700: " + bold.ink + ", 400: " + regular.ink);
+        // A 400 text gets no axis at all.
+        compare(regular.item.font.variableAxes["wght"], undefined);
+        compare(bold.item.font.variableAxes["wght"], 700);
+        bold.item.font.weight = 500;
+        compare(bold.item.font.variableAxes["wght"], 500);
+    }
+
+    // A role's weight renders (title 700, section 600), also when the role
+    // changes later; a weight set on the instance overrides it.
     function test_role_and_changed_weight() {
         const body = render(uiTextFactory, 400);
         const backdrop = createTemporaryObject(backdropFactory, suite);
@@ -92,9 +133,12 @@ TestCase {
         compare(title.font.weight, 700);
         tryVerify(() => title.contentWidth > body.advance);
         const bold = title.contentWidth;
-        title.font.weight = 400;
-        tryCompare(title, "contentWidth", body.advance);
         title.role = "section";
+        compare(title.font.weight, 600);
         tryVerify(() => title.contentWidth > body.advance && title.contentWidth < bold);
+        title.role = "body";
+        tryCompare(title, "contentWidth", body.advance);
+        title.font.weight = 700;
+        tryCompare(title, "contentWidth", bold);
     }
 }

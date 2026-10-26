@@ -1117,6 +1117,7 @@ Window {
             id: powerOverlay
             anchors.fill: parent
             z: 7
+            hudLayer: volumeHudLayer
             focus: root.focusedScreen === "power"
             control: systemControl
             runningApplications: backend.items
@@ -1193,6 +1194,15 @@ Window {
                 // the launch on screen ended had been hidden: keep it hidden.
                 function onLaunchHidden() { applicationLaunch.hideForHome(); }
             }
+        }
+        // The volume HUD of the power overlay, drawn above the launch
+        // overlays so a volume change or its failure stays visible during a
+        // launch (#487). It never takes focus or input; ambient covers it.
+        Item {
+            id: volumeHudLayer
+            objectName: "volumeHudLayer"
+            anchors.fill: parent
+            z: 25
         }
         Power.AmbientScreen {
             id: ambientScreen

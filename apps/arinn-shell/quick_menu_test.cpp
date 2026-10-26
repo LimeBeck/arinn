@@ -32,6 +32,8 @@ public:
   QStringList controlCalls;
   uint level = 30;
   bool muted = false;
+  // The platform refuses every volume change (the HUD's failure state).
+  bool failVolume = false;
   // Holds Suspend until releaseSuspend() refuses it: a request in flight.
   // The fake has its own connection, so a held call is really pending (a
   // call within one connection is answered when the handler returns).
@@ -53,6 +55,13 @@ public:
     if (m.interface() == control) {
       controlCalls << m.member();
       const QString member = m.member();
+      if (failVolume && (member == QLatin1String("StepVolume") ||
+                         member == QLatin1String("ToggleMuted") ||
+                         member == QLatin1String("SetMuted"))) {
+        bus.send(m.createErrorReply(
+            QStringLiteral("org.arinn.Error1.Unavailable"), QStringLiteral("no sink")));
+        return true;
+      }
       if (member == QLatin1String("StepVolume"))
         level = uint(qBound(0, int(level) + 5 * m.arguments().value(0).toInt(),
                             150));
@@ -171,6 +180,7 @@ private slots:
     daemon.controlCalls.clear();
     daemon.level = 30;
     daemon.muted = false;
+    daemon.failVolume = false;
     daemon.holdSuspend = false;
     daemon.heldSuspend = {};
     daemon.sessionSwitch.clear();
@@ -985,6 +995,79 @@ private slots:
     QVERIFY(QQmlProperty::write(launch, QStringLiteral("active"), false));
     QTRY_VERIFY(!launch->isVisible());
     QCOMPARE(cancels.count(), 0);
+  }
+
+  // The brightest channel value drawn inside the item's rectangle: what the
+  // user sees there, whatever the stacking says.
+  int brightestIn(QQuickItem *item) {
+    const QImage image = window->grabWindow();
+    const qreal dpr = image.devicePixelRatio();
+    const QRectF scene = item->mapRectToScene(QRectF(0, 0, item->width(), item->height()));
+    const QRect rect = QRectF(scene.topLeft() * dpr, scene.size() * dpr)
+                           .toAlignedRect()
+                           .intersected(image.rect());
+    int brightest = 0;
+    for (int y = rect.top(); y <= rect.bottom(); ++y)
+      for (int x = rect.left(); x <= rect.right(); ++x) {
+        const QColor c = image.pixelColor(x, y);
+        brightest = qMax(brightest, qMax(c.red(), qMax(c.green(), c.blue())));
+      }
+    return brightest;
+  }
+
+  // The volume HUD is drawn above a launch overlay, a web service's or an
+  // application's, in progress and as a failure dialog, and so is its own
+  // failure state (#487, spec §5.7, handoff *Toast and volume HUD*). The
+  // power menu keeps its place below the launch dialog, and the HUD never
+  // takes focus from it.
+  void volumeHudIsDrawnAboveALaunch_data() {
+    QTest::addColumn<QString>("overlay");
+    QTest::newRow("web service") << QStringLiteral("launchOverlay");
+    QTest::newRow("application") << QStringLiteral("applicationLaunch");
+  }
+  void volumeHudIsDrawnAboveALaunch() {
+    QFETCH(QString, overlay);
+    daemon.request("HomeRequested");
+    QTRY_VERIFY(window->isVisible());
+    window->requestActivate();
+    QTRY_VERIFY(window->isActive());
+    QTRY_VERIFY(focusIn(home));
+    auto *launch = child(window, overlay.toLatin1().constData());
+    auto *hud = child(window, "volumeHud");
+    QVERIFY(launch && hud);
+    // Long enough to look at it.
+    hud->setProperty("hideAfter", 10000);
+    QVERIFY(power()->property("z").toReal() < launch->property("z").toReal());
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("revealDelay"), 0));
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("serviceTitle"), QStringLiteral("Service")));
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("active"), true));
+    QTRY_VERIFY(launch->isVisible());
+    // Nothing bright where the HUD will be: the launch overlay covers it.
+    QVERIFY(!hud->isVisible());
+    QVERIFY2(brightestIn(hud) < 128, "the launch overlay is not drawn there");
+    // A confirmed level: its white bar shows through above the overlay.
+    QTest::keyClick(window, Qt::Key_VolumeDown);
+    QTRY_COMPARE(hud->property("opacity").toReal(), 1.0);
+    QCOMPARE(hud->property("level").toInt(), 25);
+    QTRY_VERIFY2(brightestIn(hud) >= 200, "the HUD is hidden behind the launch overlay");
+    QVERIFY(launch->isVisible());
+    QVERIFY(!hud->hasActiveFocus());
+    // The launch fails and its dialog takes focus; then a volume change
+    // fails: the HUD's own failure is drawn above the dialog.
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("failure"), QStringLiteral("Unavailable")));
+    QTRY_VERIFY(focusIn(launch));
+    const auto focused = window->activeFocusItem();
+    daemon.failVolume = true;
+    QTest::keyClick(window, Qt::Key_VolumeDown);
+    QTRY_VERIFY(hud->property("unavailable").toBool());
+    QTRY_COMPARE(hud->property("opacity").toReal(), 1.0);
+    QVERIFY(child(window, "volumeHudUnavailable")->isVisible());
+    QTRY_VERIFY2(brightestIn(child(window, "volumeHudUnavailable")) >= 128,
+                 "the HUD's failure is hidden behind the launch dialog");
+    QCOMPARE(window->activeFocusItem(), focused);
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("failure"), QString()));
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("active"), false));
+    QTRY_VERIFY(!launch->isVisible());
   }
 
   // While the session is locked the shell stays hidden and the key opens

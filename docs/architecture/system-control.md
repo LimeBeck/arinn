@@ -313,7 +313,20 @@ every action goes through the methods above.
   mapped. The marker stays until that check has seen the key held or a new
   xfce4-power-manager own its name, so an unconfirmed repair is tried again at
   the next start; [ADR-0111](../adr/0111-power-key.md)'s "removed once the
-  check after letting go has run" means exactly this. A new instance has 10 s
+  check after letting go has run" means exactly this. `--release-power-key`
+  follows the adapter's rule, the inhibitor first: it takes a temporary
+  logind inhibitor before anything else and, without one, restarts nothing
+  (logind would act on the key while the old instance's inhibitor is gone).
+  The XFCE setting still goes back, and the marker stays, so the next
+  adapter start in this login repairs the grab ([#519](https://github.com/LimeBeck/arinn/issues/519)). The marker
+  lives in `$XDG_RUNTIME_DIR`, which logind removes when the user's last
+  session ends; the next login starts a new xfce4-power-manager, which grabs
+  the key itself. The login restore
+  entry (`--restore-power-button`) gives back only the XFCE setting and never
+  restarts xfce4-power-manager. Until the repair, the xfce4-power-manager
+  without its grab keeps its own inhibitor, so the key does nothing rather
+  than logind acting on it, unless the user set it to leave the key to
+  logind. A new instance has 10 s
   to own the name; while the name has no owner at all (the old instance quit,
   the new one starts slowly) the adapter waits a little longer, still holding
   the inhibitor and taking no key, so a slow instance grabs the key itself.

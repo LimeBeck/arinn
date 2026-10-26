@@ -28,7 +28,7 @@ use std::{
 };
 use uuid::Uuid;
 
-const MAX_ROOTS: usize = 64;
+pub(crate) const MAX_ROOTS: usize = 64;
 const MAX_FILES: usize = 50_000;
 const MAX_DEPTH: usize = 64;
 const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
@@ -109,6 +109,26 @@ impl Settings {
             ffprobe,
         })
     }
+}
+
+/// The roots exactly as written in the settings JSON, each with the
+/// normalized path the scan uses, for `LibraryRoots1` (ADR-0071). A text that
+/// is not a valid settings path (ADR-0065), or that repeats one already
+/// listed, is left out: `GetRoots` lists each written path once.
+pub fn written_roots(text: &str) -> Vec<(String, PathBuf)> {
+    let Ok(file) = serde_json::from_str::<SettingsJson>(text) else {
+        return Vec::new();
+    };
+    let mut roots: Vec<(String, PathBuf)> = Vec::new();
+    for root in file.roots.into_iter().take(MAX_ROOTS) {
+        if !arinn_protocol::settings::path(&root) || roots.iter().any(|(text, _)| *text == root) {
+            continue;
+        }
+        if let Ok(path) = normalize_root(Path::new(&root)) {
+            roots.push((root, path));
+        }
+    }
+    roots
 }
 
 pub struct Store {
@@ -964,7 +984,7 @@ fn now_us() -> u64 {
     .unwrap_or(u64::MAX)
 }
 
-fn normalize_root(path: &Path) -> Result<PathBuf, ErrorCode> {
+pub(crate) fn normalize_root(path: &Path) -> Result<PathBuf, ErrorCode> {
     if !path.is_absolute() {
         return Err(ErrorCode::InvalidArgument);
     }
@@ -1112,8 +1132,13 @@ fn attach_probes(
 
 /// Walks and probes without holding `store`, then locks only to write the catalogue.
 /// Item ids recorded before the walk are the baseline: a row created while the
-/// lock is released, such as an import during ffprobe, is kept.
-pub fn scan_shared(store: &std::sync::Mutex<Store>, settings: &Settings) -> Result<(), ErrorCode> {
+/// lock is released, such as an import during ffprobe, is kept. Returns each
+/// configured root with whether it could be read: an unreadable root, such as
+/// an unmounted share, keeps its items as unavailable.
+pub fn scan_shared(
+    store: &std::sync::Mutex<Store>,
+    settings: &Settings,
+) -> Result<Vec<(PathBuf, bool)>, ErrorCode> {
     let baseline = {
         let guard = store.lock().map_err(|_| ErrorCode::Internal)?;
         guard.item_ids()?
@@ -1151,8 +1176,13 @@ pub fn scan_shared(store: &std::sync::Mutex<Store>, settings: &Settings) -> Resu
             discovered[root_index].files[file_index].fresh_probe = result;
         }
     }
+    let readable = discovered
+        .iter()
+        .map(|root| (root.path.clone(), root.readable))
+        .collect();
     let mut guard = store.lock().map_err(|_| ErrorCode::Internal)?;
-    guard.commit_discovered(settings, discovered, &baseline)
+    guard.commit_discovered(settings, discovered, &baseline)?;
+    Ok(readable)
 }
 
 fn walk(
@@ -1615,6 +1645,23 @@ mod tests {
         if let rusqlite::trace::TraceEvent::Stmt(_, sql) = event {
             PROGRESS_SQL.lock().unwrap().push(sql.to_string());
         }
+    }
+
+    #[test]
+    fn written_roots_keep_the_text_of_each_valid_root() {
+        let written = written_roots(
+            r#"{"roots":["/srv/films/","/srv/films","/srv/films/","films","/srv/./x"],"probe":false}"#,
+        );
+        assert_eq!(
+            written,
+            vec![
+                ("/srv/films/".to_string(), PathBuf::from("/srv/films")),
+                ("/srv/films".to_string(), PathBuf::from("/srv/films")),
+            ]
+        );
+        assert!(written_roots("{}").is_empty());
+        assert!(written_roots("not json").is_empty());
+        assert!(written_roots(r#"{"roots":["/"]}"#).is_empty());
     }
 
     #[test]

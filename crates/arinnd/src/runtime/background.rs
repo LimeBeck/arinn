@@ -33,8 +33,13 @@ pub const INTERFACE: &str = "org.arinn.Background1";
 pub const SHELL_SERVICE: &str = "org.arinn.Shell1";
 const DEADLINE: Duration = Duration::from_millis(background::CAPTURE_DEADLINE_MS);
 const OWNER_TIMEOUT: Duration = Duration::from_secs(1);
-/// Queue bound of the `Shell1` owner-change subscription.
-const OWNER_EVENTS: usize = 16;
+/// Queue bound of the `Shell1` owner-change rule. zbus keeps one channel per
+/// match rule per connection: `follow_shell_owner`, `run`'s invalidation
+/// stream and every ready frame's receiver all share it, and the first
+/// registration sets its capacity. A full channel stalls the connection's
+/// socket reader until a receiver is polled, so this stays at zbus's default
+/// (64), the capacity `run`'s own subscription had on its own.
+const OWNER_EVENTS: usize = 64;
 
 enum Phase {
     Pending,
@@ -130,6 +135,9 @@ pub(super) struct Background {
     platform: crate::platform::Platform,
     /// `true` while the session is locked, asleep or unknown.
     blocked: watch::Receiver<bool>,
+    /// Test seam: a `Shell1` owner subscription that cannot be opened.
+    #[cfg(test)]
+    owner_events_unavailable: Arc<std::sync::atomic::AtomicBool>,
 }
 
 fn log(operation: &str, outcome: Option<&str>, error: Option<&str>, duration_ms: u64) {
@@ -153,6 +161,8 @@ impl Background {
             windows: core.windows.clone(),
             platform: core.platform.clone(),
             blocked,
+            #[cfg(test)]
+            owner_events_unavailable: Arc::default(),
         }
     }
 
@@ -175,12 +185,20 @@ impl Background {
         )
     }
 
-    /// A new receiver of `Shell1` owner changes. zbus's socket reader puts
+    /// A new receiver of `Shell1` owner changes. In tests, `None` while
+    /// `owner_events_unavailable` is set. zbus's socket reader puts
     /// every matching signal into it before it handles any later message, so
     /// whatever the daemon has received after this call is in it, whether or
     /// not any task has run since. While `follow_shell_owner` keeps the rule
     /// registered, this costs no bus round trip.
     async fn shell_owner_events(&self) -> Option<MessageStream> {
+        #[cfg(test)]
+        if self
+            .owner_events_unavailable
+            .load(std::sync::atomic::Ordering::SeqCst)
+        {
+            return None;
+        }
         MessageStream::for_match_rule(
             Self::shell_owner_rule()?,
             &self.connection,
@@ -673,14 +691,8 @@ impl Background {
         let mut evidence = self.windows.subscribe_evidence();
         let mut blocked = self.blocked.clone();
         let mut guard_open = true;
-        let shells = match zbus::fdo::DBusProxy::new(&self.connection).await {
-            Ok(bus) => bus
-                .receive_name_owner_changed_with_args(&[(0, SHELL_SERVICE)])
-                .await
-                .ok(),
-            Err(_) => None,
-        };
-        let Some(mut shells) = shells else {
+        // The same rule and capacity as the frames' receivers (OWNER_EVENTS).
+        let Some(mut shells) = self.shell_owner_events().await else {
             return;
         };
         loop {

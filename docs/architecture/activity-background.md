@@ -226,7 +226,9 @@ contract above; these are the implementation choices within it:
   releases and reacquires it with the same connection (a new owner
   lifetime). A change the bus has made but the daemon has not yet received is
   invalidated when it arrives. A task keeps the same match rule registered,
-  so opening the receiver needs no bus round trip. If that subscription
+  so opening the receiver needs no bus round trip. That task, the
+  invalidation loop and every ready frame share zbus's one queue for the rule,
+  registered with zbus's default capacity of 64. If that subscription
   fails, a normalized `background-follow` line with outcome `unavailable` is
   logged, and a frame published without a receiver is never read.
 - **Publisher.** `Publish` and `Cancel` read the selected platform service's

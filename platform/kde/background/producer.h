@@ -90,6 +90,10 @@ private:
   QTimer m_deadline;
   QElapsedTimer m_started;
   QString m_owner, m_request, m_target, m_output, m_done;
+  // The highest Changed revision of this daemon owner and its epoch: a Get
+  // reply older than it is stale and starts nothing (ADR-0087).
+  QString m_floorEpoch;
+  qulonglong m_floor = 0;
   Context m_context;
   quint64 m_lifetime = 0;
   bool m_busy = false, m_dirty = false, m_resolving = false;

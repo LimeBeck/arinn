@@ -1,0 +1,2 @@
+- The KWin and X11 Activity background producers skip a `Background1.Get` reply that a newer `Changed` already overtook, so a stale attempt no longer starts a wasted capture or takes the X11 worker slot from the current one ([ADR-0087](docs/adr/0087-bounded-activity-background-frames.md)).
+- The X11 producer counts its session-lock probe against the 1500 ms capture guard, so its work never runs past the daemon's unrenewed deadline.

@@ -92,7 +92,11 @@ process and no new bus authority.
   packages install it into the distribution's Qt QML directory.
 - **Producer.** `BackgroundProducer` follows `Background1`, pinned to the daemon
   owner. For a pending attempt with a resolved context, it exposes the request
-  and its target.
+  and its target. Each `Changed` raises a floor, the highest notified revision
+  for that owner and epoch. A `Get` reply older than the floor (a lower
+  revision or another epoch) was overtaken while it was in flight: it neither
+  starts nor ends a request, and the fresh `Get` that `Changed` asked for
+  decides ([#494](https://github.com/LimeBeck/arinn/issues/494)).
 - **Capture.** The script looks up the window whose `internalId` equals the
   target, the exact Return identity. A missing, minimized or deleted window
   cancels the request and is never replaced by another window. The script shows
@@ -125,8 +129,9 @@ process and no new bus authority.
 with a plain Qt Quick item in place of `WindowThumbnail`. It covers publication
 from the producer's own connection with a sealed frame of exact size and
 colour, a single capture per request, the deadline and missing-window
-cancellation, superseded and invalidated requests, rejected publication and
-daemon owner loss. `encode_test.cpp` covers scaling a DPR 1.75 grab into the
+cancellation, superseded and invalidated requests, a stale `Get` reply
+overtaken by a newer `Changed` (no request starts for it), rejected
+publication and daemon owner loss. `encode_test.cpp` covers scaling a DPR 1.75 grab into the
 bounds. The KWin script itself and the real `WindowThumbnail` capture are not
 exercised by any automated test. They need the owner's KDE run.
 

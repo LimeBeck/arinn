@@ -106,6 +106,8 @@ void BackgroundProducer::setOwner(const QString &owner) {
   m_owner = owner;
   m_busy = m_dirty = false;
   m_done.clear();
+  m_floorEpoch.clear();
+  m_floor = 0;
   // A new daemon owner never inherits the old one's attempt.
   if (!m_request.isEmpty()) end(false);
   if (owner.isEmpty()) return;
@@ -115,7 +117,19 @@ void BackgroundProducer::setOwner(const QString &owner) {
   refresh();
 }
 
-void BackgroundProducer::backgroundChanged(const QString &, qulonglong) { refresh(); }
+void BackgroundProducer::backgroundChanged(const QString &epoch, qulonglong revision) {
+  // Raise the floor before any IPC: a Get already in flight may answer with
+  // an older snapshot. Invalid metadata never lowers or replaces it.
+  if (uuid(epoch) && revision > 0) {
+    if (epoch != m_floorEpoch) {
+      m_floorEpoch = epoch;
+      m_floor = revision;
+    } else if (revision > m_floor) {
+      m_floor = revision;
+    }
+  }
+  refresh();
+}
 
 void BackgroundProducer::refresh() {
   if (m_owner.isEmpty()) return;
@@ -158,6 +172,14 @@ void BackgroundProducer::refresh() {
               a.endArray();
               a >> state;
               a.endStructure();
+              // Older than a Changed already received (another epoch, or a
+              // lower revision): skip it entirely, before any capture starts
+              // or ends. That Changed marked the producer dirty, so a fresh
+              // Get follows below.
+              if (!m_floorEpoch.isEmpty() && (epoch != m_floorEpoch || revision < m_floor)) {
+                if (m_dirty) refresh();
+                return;
+              }
               if (state == QLatin1String("pending") && contexts.size() == 1) {
                 const auto &c = contexts.first();
                 if (uuid(epoch) && c.epoch == epoch && uuid(c.request) &&

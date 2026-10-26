@@ -74,36 +74,52 @@ FocusScope {
         block.y = Math.random() * Math.max(0, height - block.height);
     }
 
+    // Colours of handoff 20. The clock and date are the prototype's oklch
+    // values converted exactly to sRGB. The background keeps bg-deep's hex
+    // from the handoff token table: the token's oklch(0.07 0.003 260), which
+    // the prototype markup also uses, converts exactly to #010101 (#487).
+    readonly property color backgroundColor: "#050506" // bg-deep, token-table hex
+    readonly property color clockColor: "#7F8083" // oklch(0.60 0.004 260)
+    readonly property color dateColor: "#545557" // oklch(0.45 0.004 260)
+
     Rectangle {
+        objectName: "ambientBackground"
         anchors.fill: parent
-        color: "#050506" // bg-deep
+        color: root.backgroundColor
     }
+    // As in the prototype: the date sits left-aligned under the clock,
+    // 6 px in, 10 px below it.
     Column {
         id: block
         objectName: "ambientBlock"
         x: (root.width - width) / 2
         y: (root.height - height) / 2
-        width: 900
-        spacing: 8
+        spacing: 10
         Behavior on x { NumberAnimation { duration: root.driftDuration; easing.type: Easing.InOutQuad } }
         Behavior on y { NumberAnimation { duration: root.driftDuration; easing.type: Easing.InOutQuad } }
+        // 160/500, tabular numerals and −3 % tracking.
         Ui.UiText {
             objectName: "ambientClock"
-            width: parent.width
-            horizontalAlignment: Text.AlignHCenter
             font.pixelSize: 160
             font.weight: 500
+            font.letterSpacing: -0.03 * 160
+            font.features: ({ "tnum": 1 })
+            // The prototype's line-height 1: a 160 px line box with the
+            // glyphs centred in it, as CSS does.
+            height: 160
+            verticalAlignment: Text.AlignVCenter
             wrapMode: Text.NoWrap
-            color: "#8A8C90" // oklch(0.60 0.004 260)
+            color: root.clockColor
             text: root.clockText
         }
+        // 32/500.
         Ui.UiText {
             objectName: "ambientDate"
-            width: parent.width
-            horizontalAlignment: Text.AlignHCenter
+            leftPadding: 6
             font.pixelSize: 32
+            font.weight: 500
             wrapMode: Text.NoWrap
-            color: "#5B5D61" // oklch(0.45 0.004 260)
+            color: root.dateColor
             text: root.dateText
         }
     }

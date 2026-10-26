@@ -82,7 +82,23 @@ TestCase {
         compare(clock.text, "21:40");
         compare(clock.font.pixelSize, 160);
         compare(clock.font.weight, 500);
-        compare(findChild(ambient, "ambientDate").font.pixelSize, 32);
+        // Tabular numerals and −3 % tracking (#487).
+        compare(clock.font.features["tnum"], 1);
+        // Qt keeps letter spacing in 1/64 px.
+        fuzzyCompare(clock.font.letterSpacing, -0.03 * 160, 1 / 64);
+        const date = findChild(ambient, "ambientDate");
+        compare(date.font.pixelSize, 32);
+        compare(date.font.weight, 500);
+        compare(date.leftPadding, 6);
+        compare(date.x, clock.x);
+        // A 160 px clock line (line-height 1), the date 10 px below it.
+        compare(clock.height, 160);
+        compare(date.y, clock.y + 170);
+        // oklch(0.60 0.004 260) and oklch(0.45 0.004 260) converted exactly;
+        // bg-deep keeps its token-table hex.
+        verify(Qt.colorEqual(clock.color, "#7F8083"));
+        verify(Qt.colorEqual(date.color, "#545557"));
+        verify(Qt.colorEqual(findChild(ambient, "ambientBackground").color, "#050506"));
         // The block moves so no static bright pixels remain (handoff 20).
         const block = findChild(ambient, "ambientBlock");
         const start = Qt.point(block.x, block.y);

@@ -943,6 +943,107 @@ TestCase {
         verify(insideView(windowFocus()));
     }
 
+    // #479 (§6.2: a format error blocks the main key until it is fixed): a
+    // path editor checks the rules of `arinn_protocol::settings::path` while
+    // typing. A path the daemon would reject shows why and Enter saves
+    // nothing; `~/` is relative, as in the contract.
+    function test_path_format_blocks_save() {
+        keyClick(Qt.Key_Right);
+        focused("setting-library-scan");
+        keyClick(Qt.Key_Down);
+        keyClick(Qt.Key_Down);
+        focused("setting-library-folder");
+        keyClick(Qt.Key_Return);
+        const editor = child("editor-library-folder");
+        tryCompare(editor, "activeFocus", true);
+        const hint = child("pathHint-library-folder");
+        verify(!hint.visible);
+        // 2048 Cyrillic letters are 4096 bytes: with the leading / one over
+        // the byte limit, though far under the 4096-character bound.
+        const overLimit = "/" + "я".repeat(2048);
+        const cases = [
+            ["media/films", "The path must start with /"],
+            ["~/films", "The path must start with /"],
+            ["/media/../etc", "The path cannot contain . or .. folders"],
+            ["/media/./films", "The path cannot contain . or .. folders"],
+            ["/media/..", "The path cannot contain . or .. folders"],
+            ["/media//films", "The path cannot contain //"],
+            ["//server/share", "The path cannot contain //"],
+            ["/media/a\tb", "The path cannot contain control characters"],
+            [overLimit, "The path is too long"]
+        ];
+        // A short name for a case in failure messages.
+        const label = text => text.length > 40 ? text.length + " characters" : text;
+        for (const [text, reason] of cases) {
+            editor.text = text;
+            verify(view.editingDraft === text, label(text));
+            compare(hint.text, reason, label(text));
+            verify(hint.visible, label(text));
+            keyClick(Qt.Key_Return);
+            compare(changes.count, 0, label(text));
+            compare(view.editingKey, "library-folder", label(text));
+        }
+        compare([...overLimit].length, 2049);
+        // Exactly 4096 bytes, trailing slashes and the root are valid.
+        for (const text of ["/" + "я".repeat(2047) + "a", "/media/films/", "/"]) {
+            editor.text = text;
+            compare(hint.text, "", label(text));
+            verify(!hint.visible, label(text));
+        }
+        editor.text = "/media/films";
+        keyClick(Qt.Key_Return);
+        compare(changes.count, 1);
+        compare(changes.signalArguments[0][1], "folder");
+        compare(changes.signalArguments[0][2], "/media/films");
+        focused("setting-library-folder");
+        verify(insideView(windowFocus()));
+    }
+
+    // #479 with the panel (KB-5): Save, the main key, does nothing while the
+    // typed path has a format error, which shows under the field; the
+    // corrected path is saved.
+    function test_path_panel_save_waits_for_a_valid_path() {
+        keyClick(Qt.Key_Right);
+        keyClick(Qt.Key_Down);
+        focused("path-library-roots-0");
+        keyClick(Qt.Key_Right);
+        keyClick(Qt.Key_Right);
+        focused("add-library-roots");
+        keyClick(Qt.Key_Return);
+        focused("editor-library-roots-add");
+        keyClick(Qt.Key_Right);
+        focused("keyboard-library-roots-add");
+        child("pathOnScreenKeyboard").model.forget();
+        keyClick(Qt.Key_Return);
+        tryCompare(view, "pathTyping", true);
+        const error = child("pathTypingError");
+        verify(!error.visible);
+        for (let i = 0; i < 4; ++i) keyClick(Qt.Key_Down);
+        moveToPathKey("Save");
+        const input = child("pathTypingInput");
+        for (const [text, reason] of [["~/films", "The path must start with /"],
+                                      ["/media/..", "The path cannot contain . or .. folders"]]) {
+            input.text = text;
+            compare(view.editingDraft, text);
+            compare(error.text, reason);
+            verify(error.visible);
+            keyClick(Qt.Key_Return);
+            compare(changes.count, 0, text);
+            verify(view.pathTyping, text);
+            compare(child("pathHint-library-roots").text, reason);
+        }
+        input.text = "/media/films";
+        verify(!error.visible);
+        keyClick(Qt.Key_Return);
+        compare(changes.count, 1);
+        compare(changes.signalArguments[0][1], "roots");
+        compare(changes.signalArguments[0][2].length, 2);
+        compare(changes.signalArguments[0][2][1], "/media/films");
+        tryCompare(view, "pathTyping", false);
+        focused("path-library-roots-0");
+        verify(insideView(windowFocus()));
+    }
+
     function test_saving_feedback() {
         down(2);
         focused("category-sound");

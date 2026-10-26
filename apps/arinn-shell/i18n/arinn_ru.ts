@@ -1788,6 +1788,26 @@
         <translation>Сохранено</translation>
     </message>
     <message>
+        <source>The path must start with /</source>
+        <translation>Путь должен начинаться с /</translation>
+    </message>
+    <message>
+        <source>The path cannot contain control characters</source>
+        <translation>Путь не может содержать управляющие символы</translation>
+    </message>
+    <message>
+        <source>The path cannot contain //</source>
+        <translation>Путь не может содержать //</translation>
+    </message>
+    <message>
+        <source>The path cannot contain . or .. folders</source>
+        <translation>Путь не может содержать папки . и ..</translation>
+    </message>
+    <message>
+        <source>The path is too long</source>
+        <translation>Путь слишком длинный</translation>
+    </message>
+    <message>
         <source>This is the maximum</source>
         <translation>Это максимум</translation>
     </message>

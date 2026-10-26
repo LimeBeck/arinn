@@ -61,6 +61,9 @@ FocusScope {
         pathKeyboard.finish();
         pathTyping = false;
     }
+    // Why the open path editor's draft cannot be saved, empty when it can or
+    // when nothing is typed yet (§6.2: a format error blocks the main key).
+    readonly property string pathHint: pathEditing ? pathProblem(editingDraft) : ""
     property string enumClosingKey: ""
     signal valueChangeRequested(string providerId, string settingId, var value)
     signal errorDismissRequested(string providerId, string settingId)
@@ -348,6 +351,7 @@ FocusScope {
             beginSave(row, draft, draft);
             return;
         }
+        if (row.type === "path" && !pathSavable(draft)) return;
         if (row.type === "path" && !isMultiple(row)) {
             editingKey = "";
             editingPart = "";
@@ -370,6 +374,43 @@ FocusScope {
             emitChange(row, list);
             refocusKey(key);
         }
+    }
+    // The structural rules of `arinn_protocol::settings::path`, which the
+    // daemon checks on Save: an absolute local path (one leading `/`), no
+    // empty, `.` or `..` segment, no control character, at most 4096 bytes
+    // of UTF-8. Returns the translated reason, "" for a valid or empty path.
+    // `~/` is relative here, as in the contract (#479).
+    function pathProblem(text) {
+        const value = String(text || "");
+        if (!value.length) return "";
+        if (value[0] !== "/") return qsTr("The path must start with /");
+        // char::is_control: the C0 and C1 controls and DEL.
+        if (/[\u0000-\u001F\u007F-\u009F]/.test(value))
+            return qsTr("The path cannot contain control characters");
+        if (value.startsWith("//")) return qsTr("The path cannot contain //");
+        if (value !== "/") {
+            const segments = value.slice(1).replace(/\/+$/, "").split("/");
+            for (let i = 0; i < segments.length; ++i) {
+                if (!segments[i].length) return qsTr("The path cannot contain //");
+                if (segments[i] === "." || segments[i] === "..")
+                    return qsTr("The path cannot contain . or .. folders");
+            }
+        }
+        if (utf8Length(value) > 4096) return qsTr("The path is too long");
+        return "";
+    }
+    function utf8Length(text) {
+        let bytes = 0;
+        for (const character of text) {
+            const code = character.codePointAt(0);
+            bytes += code < 0x80 ? 1 : code < 0x800 ? 2 : code < 0x10000 ? 3 : 4;
+        }
+        return bytes;
+    }
+    // A path the contract accepts: anything else keeps Save from doing
+    // anything until it is fixed.
+    function pathSavable(text) {
+        return String(text || "").length > 0 && !pathProblem(text).length;
     }
     function removePath(row, index) {
         if (!canEdit(row)) return;
@@ -1189,6 +1230,15 @@ FocusScope {
                                             color: Ui.Theme.textSecondary
                                             visible: text.length > 0
                                         }
+                                        Ui.UiText {
+                                            // The open path editor's format error (#479).
+                                            objectName: rowScope.simpleRow && row.type === "path" ? "pathHint-" + rowScope.key : ""
+                                            width: parent.width
+                                            text: root.editingKey === rowScope.key ? root.pathHint : ""
+                                            role: "meta"
+                                            color: Ui.Theme.error
+                                            visible: text.length > 0
+                                        }
                                     }
                                     Item {
                                         id: toggle
@@ -1345,6 +1395,15 @@ FocusScope {
                                             text: row.pending ? qsTr("Saving…") : ""
                                             role: "meta"
                                             color: Ui.Theme.textSecondary
+                                            visible: text.length > 0
+                                        }
+                                        Ui.UiText {
+                                            // The open path editor's format error (#479).
+                                            objectName: rowScope.multiple ? "pathHint-" + rowScope.key : ""
+                                            width: parent.width
+                                            text: root.editingKey === rowScope.key ? root.pathHint : ""
+                                            role: "meta"
+                                            color: Ui.Theme.error
                                             visible: text.length > 0
                                         }
                                     }
@@ -2278,6 +2337,18 @@ FocusScope {
                 onActivated: root.finishPathTyping(false)
             }
         }
+        Ui.UiText {
+            // The draft's format error: Save does nothing until it is fixed
+            // (§6.2, #479).
+            objectName: "pathTypingError"
+            x: 152
+            y: 320
+            width: 1600
+            role: "body"
+            color: Ui.Theme.error
+            visible: text.length > 0
+            text: root.pathHint
+        }
         Ui.OnScreenKeyboard {
             id: pathKeyboard
             objectName: "pathOnScreenKeyboard"
@@ -2286,8 +2357,8 @@ FocusScope {
             context: "path"
             memoryKey: "path-" + root.editingKey
             // `arinn_protocol::settings::path` allows at most 4096 bytes. This
-            // bound counts characters, so a longer non-ASCII path still
-            // reaches the daemon, which checks the exact rule on Save.
+            // bound counts characters; a longer non-ASCII path shows the
+            // pathHint and is not saved (#479).
             maxCharacters: 4096
             submitLabel: qsTr("Save")
             onSubmitted: root.finishPathTyping(true)

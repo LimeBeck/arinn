@@ -319,9 +319,10 @@ in the manifest exactly once. A state with no handoff file has `reference` null;
 these capture-only states cover screens with no handoff frame, such as the quick
 menu, the volume HUD, Switch to desktop and the application launch states. A
 handoff file whose state the shell does not draw has `render` false and a
-reason: the address and search states, the running-applications screen, the
-Library folders screen and the folder picker are in that group. A rendered
-state whose layout differs from its handoff frame says how in `note`. The
+reason: the address and search states, the running-applications screen and
+the folder picker are in that group. A rendered state whose layout differs from
+its handoff frame says how in `note`: the Library folders frames, for example,
+map to the inline folder list that Settings draws for a multiple path setting. The
 comparison does not edit those screens.
 
 ```sh

@@ -179,12 +179,15 @@ TestCase {
     }
     readonly property var categoryIndex: ({media: 0, playback: 1, sound: 2, network: 3, applications: 4, appearance: 5, system: 6})
     // Focus a row the way the remote reaches it: its category, then the row.
-    function settingsRow(view, id) {
+    // `part` picks a control inside the row, such as "remove:0" or "add" on
+    // a multiple path row; by default the row's first control.
+    function settingsRow(view, id, part) {
         const row = view.rowByKey(id);
         verify(row !== null, id);
         view.focusCategory(categoryIndex[row.categoryId]);
         wait(0);
-        verify(view.focusPart(view.activeRowIndex(id), view.partsFor(row)[0]), id);
+        const name = part || view.partsFor(row)[0];
+        verify(view.focusPart(view.activeRowIndex(id), name), id + " " + name);
         return row;
     }
     function settingsScene(mutate, act, extra, expect) {
@@ -495,6 +498,19 @@ TestCase {
                 wait(50);
                 view.startPathTyping();
             }, {keyboardAvailable: false}, "pathOnScreenKeyboard");
+        // Library folders (handoff se-lf-*): the shell lists the folders of a
+        // multiple path setting inline in Settings › Media.
+        if (id === "library-folders-row")
+            return settingsScene(null, view => settingsRow(view, "folders"), null, ["path-folders-0", "remove-folders-0", "add-folders"]);
+        if (id === "library-folders-empty")
+            return settingsScene(setRow("folders", {currentValue: []}), view => settingsRow(view, "folders", "add"), null, "add-folders");
+        if (id === "library-folders-list")
+            return settingsScene(null, view => settingsRow(view, "folders", "remove:0"), null, ["path-folders-1", "remove-folders-0"]);
+        if (id === "library-folders-limit")
+            return settingsScene(setRow("folders", {
+                currentValue: ["/srv/archive-2019", "/srv/archive-2020", "/srv/archive-2021", "/srv/films"],
+                constraints: {directory: true, multiple: true, maxItems: 4}
+            }), view => settingsRow(view, "folders", "add"), null, ["path-folders-3", "add-folders"]);
         if (id === "settings-rows")
             return settingsScene(null, view => settingsRow(view, "ambient"));
         if (id === "settings-disabled")
@@ -512,8 +528,11 @@ TestCase {
                     view.nudgeInteger(1, false);
             }, null, "integerStepper");
         if (id === "settings-integer-max")
-            return settingsScene(setRow("ambient", {currentValue: 60}), view => {
+            return settingsScene(null, view => {
                 view.openInteger(settingsRow(view, "ambient"));
+                // Was 10: step up to the maximum, then once more against it.
+                while (view.integerDraft < 60)
+                    view.nudgeInteger(1, false);
                 view.nudgeInteger(1, false);
             }, null, ["integerStepper", "integerNote"]);
         if (id === "settings-string")

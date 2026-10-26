@@ -4,12 +4,12 @@
 //! The daemon export of ADR-0100 with fake sources on private buses.
 use super::*;
 use crate::{
-    runtime::system_control::tests::{Bounded, served},
     status_sources::{
         Sources,
         tests::{Bus, emit_state_changed, fake_pactl, network_manager, pactl_event, wifi},
     },
     storage::Paths,
+    test_support::{Bounded, served},
 };
 use arinn_protocol::system_status::{Link, Network, SystemStatusApiProxy};
 use futures_util::StreamExt;

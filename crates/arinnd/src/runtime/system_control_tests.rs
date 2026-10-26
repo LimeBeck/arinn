@@ -11,62 +11,14 @@ use crate::{
         SessionSwitch,
         tests::{FakeLogin, fake_pactl, fake_session_switch, logind, record},
     },
+    test_support::{Bounded, served},
 };
 use arinn_protocol::{
     production::ProviderInfo,
     system_control::{Availability, SystemControlApiProxy},
 };
-use std::{future::Future, panic::Location, path::PathBuf, pin::pin, task::Poll, time::Duration};
+use std::{future::Future, path::PathBuf, pin::pin, task::Poll, time::Duration};
 use uuid::Uuid;
-
-/// Far above any answer here, the 10 s backstops of `crate::system_control`
-/// included, so only a call that never gets a reply runs into it.
-const CALL_TIMEOUT: Duration = Duration::from_secs(30);
-
-/// A call or setup step that fails at its own line instead of hanging the
-/// test binary when no reply ever comes (#524).
-pub(crate) trait Bounded: Future + Sized {
-    #[track_caller]
-    fn bounded(self) -> impl Future<Output = Self::Output> {
-        let at = Location::caller();
-        async move {
-            tokio::time::timeout(CALL_TIMEOUT, self)
-                .await
-                .unwrap_or_else(|_| panic!("no reply within {CALL_TIMEOUT:?} at {at}"))
-        }
-    }
-}
-impl<F: Future> Bounded for F {}
-
-/// Returns once `server`'s object server answers `client`.
-///
-/// zbus subscribes a connection's object server to incoming method calls in
-/// a task that the first `object_server()` call spawns, and `at` does not
-/// wait for it. A call that the connection reads before that task has run is
-/// dropped without a reply, so its caller waits forever (#524). The daemon
-/// is safe: clients find it by its well-known name, requested after every
-/// export. These tests call the unique name right after the export instead,
-/// so they first wait until a ping is answered; a dropped ping is sent again.
-pub(crate) async fn served(client: &zbus::Connection, server: &zbus::Connection) {
-    let peer = zbus::fdo::PeerProxy::builder(client)
-        .destination(server.unique_name().unwrap().to_string())
-        .unwrap()
-        .path(production::PATH)
-        .unwrap()
-        .build()
-        .await
-        .unwrap();
-    async {
-        loop {
-            match tokio::time::timeout(Duration::from_millis(100), peer.ping()).await {
-                Ok(answer) => break answer.unwrap(),
-                Err(_) => continue,
-            }
-        }
-    }
-    .bounded()
-    .await
-}
 
 struct Fixture {
     core: Core,

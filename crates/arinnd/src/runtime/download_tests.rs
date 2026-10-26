@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use super::*;
+use crate::test_support::served;
 use arinn_protocol::{
     download::{DownloadsApiProxy, JobPage, Output},
     production::ProductionOperationProxy,
@@ -299,6 +300,10 @@ impl Fixture {
             .await
             .providers
             .insert("library".into(), library);
+        // The tests call the provider and the daemon right after their first
+        // exports (#528).
+        served(&client, &provider_bus).await;
+        served(&client, &server).await;
         Self {
             bus,
             folder,

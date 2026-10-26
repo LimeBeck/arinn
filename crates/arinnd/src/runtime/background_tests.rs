@@ -4,7 +4,11 @@
 //! Private-bus lifecycle tests of the Activity background handoff
 //! (ADR-0087). Synthetic pixels and fake windows only.
 use super::*;
-use crate::{runtime::Daemon, storage::Paths};
+use crate::{
+    runtime::Daemon,
+    storage::Paths,
+    test_support::{Bounded, served},
+};
 use arinn_protocol::{
     background::{BackgroundCaptureProxy, BackgroundProxy},
     kwin::KWinBridgeProxy,
@@ -86,10 +90,13 @@ impl Fixture {
         core.export_platform().await.unwrap();
         let (blocked, receiver) = watch::channel(false);
         core.export_background(receiver).await.unwrap();
+        // The first call follows the first export with no round trip (#528).
+        served(&kwin, &server).await;
         let generation = KWinBridgeProxy::new(&kwin)
             .await
             .unwrap()
             .connect(&Uuid::new_v4().to_string())
+            .bounded()
             .await
             .unwrap();
         let mut f = Self {

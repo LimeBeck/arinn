@@ -1,0 +1,1 @@
+- In a Settings folder list, moving right onto the Remove button of the second or a later folder focused the first folder's Remove instead, so Select removed the wrong folder ([#540](https://github.com/LimeBeck/arinn/issues/540)).

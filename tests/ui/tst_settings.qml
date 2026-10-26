@@ -365,6 +365,46 @@ TestCase {
         verify(insideView(windowFocus()));
     }
 
+    // #540 (spec §5.6, ADR-0071, handoff LF-4): a folder the library provider
+    // reports unavailable stays in place with its note, is still removable,
+    // and returns to normal when the provider reports it again.
+    function test_unavailable_folder() {
+        view.rows = copyRows(row => {
+            if (row.id === "roots") {
+                row.currentValue = ["/videos", "/mnt/share"];
+                row.unavailablePaths = ["/mnt/share"];
+            }
+        });
+        focused("category-media");
+        keyClick(Qt.Key_Right);
+        keyClick(Qt.Key_Down);
+        focused("path-library-roots-0");
+        verify(!child("pathNote-library-roots-0").visible);
+        compare(child("path-library-roots-0").height, 72);
+        const note = child("pathNote-library-roots-1");
+        verify(note.visible);
+        compare(note.text, "Unavailable. Its titles stay in the library as unavailable.");
+        compare(note.color, Ui.Theme.error);
+        verify(child("path-library-roots-1").height > 72);
+        compare(child("remove-library-roots-1").height, child("path-library-roots-1").height);
+        // Remove still works; it only takes the folder out of the setting.
+        keyClick(Qt.Key_Right);
+        focused("remove-library-roots-0");
+        keyClick(Qt.Key_Right);
+        focused("path-library-roots-1");
+        keyClick(Qt.Key_Right);
+        focused("remove-library-roots-1");
+        keyClick(Qt.Key_Return);
+        compare(changes.count, 1);
+        compare(changes.signalArguments[0][1], "roots");
+        compare(changes.signalArguments[0][2].length, 1);
+        compare(changes.signalArguments[0][2][0], "/videos");
+        // The share is back: the provider no longer reports it.
+        view.rows = copyRows(row => { if (row.id === "roots") row.unavailablePaths = []; });
+        tryCompare(child("pathNote-library-roots-1"), "visible", false);
+        compare(child("path-library-roots-1").height, 72);
+    }
+
     function test_disabled_pending_and_error() {
         down(4);
         focused("category-applications");
@@ -493,6 +533,79 @@ TestCase {
         compare(changes.count, 0);
         focused("setting-audio-output");
         verify(insideView(windowFocus()));
+    }
+
+    // The Flickable that scrolls an option: the nearest ancestor with contentY.
+    function optionViewport(item) {
+        let current = item.parent;
+        while (current && current.contentY === undefined)
+            current = current.parent;
+        verify(current !== null, "option viewport");
+        return current;
+    }
+    // The option lies wholly inside the sheet's visible part. Returns how far
+    // its middle is from the viewport's middle.
+    function optionShown(index) {
+        const item = child("option-" + index);
+        const flick = optionViewport(item);
+        const top = item.mapToItem(flick, 0, 0).y;
+        verify(top >= 0 && top + item.height <= flick.height,
+               "option-" + index + " at " + top + " in a viewport of " + flick.height
+               + " (contentY " + flick.contentY + ")");
+        return top + item.height / 2 - flick.height / 2;
+    }
+
+    // #537 (handoff EN-2): a long choice sheet opens on the current option,
+    // scrolled so it is on screen and centred, not at the top of the list
+    // with the focused option out of sight. Moving keeps it on screen.
+    function test_long_enum_opens_on_the_current_option() {
+        down(2);
+        focused("category-sound");
+        keyClick(Qt.Key_Right);
+        const options = [];
+        for (let i = 0; i < 64; ++i)
+            options.push({ value: "o" + i, title: "Option " + i });
+        view.rows = copyRows(row => {
+            if (row.id === "output") {
+                row.currentValue = "o44";
+                row.constraints = { options: options };
+            }
+        });
+        focused("setting-audio-output");
+        keyClick(Qt.Key_Return);
+        focused("option-44");
+        compare(child("optionPosition").text, "45 of 64");
+        // Centred: the option's middle is within one option of the middle.
+        verify(Math.abs(optionShown(44)) <= child("option-44").height);
+        // The remote's arrows and paging keep the focused option on screen.
+        keyClick(Qt.Key_Down);
+        focused("option-45");
+        optionShown(45);
+        keyClick(Qt.Key_Up);
+        keyClick(Qt.Key_Up);
+        focused("option-43");
+        optionShown(43);
+        for (let i = 0; i < 4; ++i)
+            keyClick(Qt.Key_PageDown);
+        focused("option-63");
+        optionShown(63);
+        compare(child("optionPosition").text, "64 of 64");
+        for (let i = 0; i < 11; ++i)
+            keyClick(Qt.Key_PageUp);
+        focused("option-0");
+        optionShown(0);
+        keyClick(Qt.Key_Escape);
+        focused("setting-audio-output");
+        compare(changes.count, 0);
+        // Opened again on another value, it goes straight to that option.
+        view.rows = copyRows(row => { if (row.id === "output") row.currentValue = "o20"; });
+        focused("setting-audio-output");
+        keyClick(Qt.Key_Return);
+        focused("option-20");
+        verify(Math.abs(optionShown(20)) <= child("option-20").height);
+        keyClick(Qt.Key_Escape);
+        focused("setting-audio-output");
+        compare(changes.count, 0);
     }
 
     function keyAt(row, column) { return child("keyboardKey-" + row + "-" + column); }

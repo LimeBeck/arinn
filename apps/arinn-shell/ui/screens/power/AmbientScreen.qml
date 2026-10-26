@@ -30,6 +30,15 @@ FocusScope {
     property bool anchorKnown: false
     property real anchorX: 0
     property real anchorY: 0
+    // Where the drift puts the block, centred until the first drift. The
+    // block's own position clamps it to the screen: the block is as wide as
+    // its text, so a longer date (at midnight, or after a locale change)
+    // never pushes it off screen where the last drift left it, also while a
+    // drift is under way.
+    property real driftX: (width - block.width) / 2
+    property real driftY: (height - block.height) / 2
+    Behavior on driftX { NumberAnimation { duration: root.driftDuration; easing.type: Easing.InOutQuad } }
+    Behavior on driftY { NumberAnimation { duration: root.driftDuration; easing.type: Easing.InOutQuad } }
 
     signal wakeRequested()
 
@@ -69,41 +78,62 @@ FocusScope {
         stop();
         wakeRequested();
     }
+    // Drifts the block towards (x, y), kept on screen.
+    function moveTo(x, y) {
+        driftX = Math.max(0, Math.min(x, width - block.width));
+        driftY = Math.max(0, Math.min(y, height - block.height));
+    }
+    // A random place where the whole block fits: sampling the screen and
+    // clamping would pile places up on the right and bottom edges.
     function drift() {
-        block.x = Math.random() * Math.max(0, width - block.width);
-        block.y = Math.random() * Math.max(0, height - block.height);
+        moveTo(Math.random() * Math.max(0, width - block.width),
+               Math.random() * Math.max(0, height - block.height));
     }
 
+    // Colours of handoff 20. The clock and date are the prototype's oklch
+    // values converted exactly to sRGB. The background keeps bg-deep's hex
+    // from the handoff token table: the token's oklch(0.07 0.003 260), which
+    // the prototype markup also uses, converts exactly to #010101 (#487).
+    readonly property color backgroundColor: "#050506" // bg-deep, token-table hex
+    readonly property color clockColor: "#7F8083" // oklch(0.60 0.004 260)
+    readonly property color dateColor: "#545557" // oklch(0.45 0.004 260)
+
     Rectangle {
+        objectName: "ambientBackground"
         anchors.fill: parent
-        color: "#050506" // bg-deep
+        color: root.backgroundColor
     }
+    // As in the prototype: the date sits left-aligned under the clock,
+    // 6 px in, 10 px below it.
     Column {
         id: block
         objectName: "ambientBlock"
-        x: (root.width - width) / 2
-        y: (root.height - height) / 2
-        width: 900
-        spacing: 8
-        Behavior on x { NumberAnimation { duration: root.driftDuration; easing.type: Easing.InOutQuad } }
-        Behavior on y { NumberAnimation { duration: root.driftDuration; easing.type: Easing.InOutQuad } }
+        x: Math.max(0, Math.min(root.driftX, root.width - width))
+        y: Math.max(0, Math.min(root.driftY, root.height - height))
+        spacing: 10
+        // 160/500, tabular numerals and −3 % tracking.
         Ui.UiText {
             objectName: "ambientClock"
-            width: parent.width
-            horizontalAlignment: Text.AlignHCenter
             font.pixelSize: 160
             font.weight: 500
+            font.letterSpacing: -0.03 * 160
+            font.features: ({ "tnum": 1 })
+            // The prototype's line-height 1: a 160 px line box with the
+            // glyphs centred in it, as CSS does.
+            height: 160
+            verticalAlignment: Text.AlignVCenter
             wrapMode: Text.NoWrap
-            color: "#8A8C90" // oklch(0.60 0.004 260)
+            color: root.clockColor
             text: root.clockText
         }
+        // 32/500.
         Ui.UiText {
             objectName: "ambientDate"
-            width: parent.width
-            horizontalAlignment: Text.AlignHCenter
+            leftPadding: 6
             font.pixelSize: 32
+            font.weight: 500
             wrapMode: Text.NoWrap
-            color: "#5B5D61" // oklch(0.45 0.004 260)
+            color: root.dateColor
             text: root.dateText
         }
     }

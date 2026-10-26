@@ -33,6 +33,11 @@ FocusScope {
     // overlay): a late refusal waits for it to close instead of taking focus
     // behind it.
     property bool holdLateAnswer: false
+    // Where the volume HUD is drawn. The shell gives it a layer above the
+    // launch overlays, so the HUD is never hidden behind them while the menu
+    // keeps its place below (#487); without one it is drawn in this overlay.
+    // Either way it only draws: it never takes focus or input.
+    property Item hudLayer: null
     // The item that had focus when a late refusal opened; focus returns there.
     property Item lateFocusItem: null
     readonly property string controlPending: control ? control.pendingAction : ""
@@ -212,6 +217,7 @@ FocusScope {
 
     Ui.VolumeHud {
         id: volumeHud
+        parent: root.hudLayer ? root.hudLayer : root
         z: 10
         anchors.horizontalCenter: parent.horizontalCenter
         y: 48

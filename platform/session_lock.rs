@@ -238,8 +238,10 @@ async fn preparing_for_sleep(system: &Connection) -> bool {
     }
 }
 
-/// The next `PrepareForSleep` from logind itself, `None` when the stream
-/// ended or failed. Signals from any other sender are ignored.
+/// The next `PrepareForSleep`, `None` when the stream ended or failed. A
+/// sleep start only blocks, so it is accepted even when its sender cannot be
+/// verified as logind (an unknown or a different owner). A resume unblocks,
+/// so it is accepted only from the current `org.freedesktop.login1` owner.
 async fn next_sleep(
     stream: &mut Option<MessageStream>,
     system: Option<&Connection>,
@@ -258,6 +260,9 @@ async fn next_sleep(
         let Ok(entering) = message.body().deserialize::<bool>() else {
             continue;
         };
+        if entering {
+            return Some(true);
+        }
         let owner = async {
             zbus::fdo::DBusProxy::new(system)
                 .await
@@ -270,14 +275,9 @@ async fn next_sleep(
             .await
             .ok()
             .flatten();
-        match owner {
-            Some(owner) if header.sender().map(|s| s.as_str()) == Some(owner.as_str()) => {
-                return Some(entering);
-            }
-            // Owner unknown: the transition cannot be trusted either way, so
-            // only a sleep start (which blocks) is accepted.
-            None if entering => return Some(true),
-            _ => {}
+        // An unverified resume is ignored: it could unblock during sleep.
+        if owner.is_some_and(|owner| header.sender().map(|s| s.as_str()) == Some(owner.as_str())) {
+            return Some(false);
         }
     }
 }
@@ -545,5 +545,52 @@ mod tests {
             .await
             .unwrap();
         wait(&mut guard, true).await;
+    }
+
+    #[tokio::test]
+    async fn an_unverified_sleep_start_blocks_and_an_unverified_resume_does_not_unblock() {
+        let bus = Bus::new();
+        let session = bus.connect().await;
+        let screensaver = bus.connect().await;
+        let login = bus.connect().await;
+        let stranger = bus.connect().await;
+        screensaver
+            .object_server()
+            .at("/ScreenSaver", Lock::default())
+            .await
+            .unwrap();
+        screensaver
+            .request_name("org.freedesktop.ScreenSaver")
+            .await
+            .unwrap();
+        login
+            .object_server()
+            .at("/org/freedesktop/login1", Sleep)
+            .await
+            .unwrap();
+        login.request_name(LOGIND).await.unwrap();
+        let mut guard = watch(session.clone(), Some(session.clone()));
+        wait(&mut guard, false).await;
+        // A sleep start whose sender is not the logind owner (logind handed
+        // its name over, or anyone else) cannot be verified. It only blocks,
+        // so it is accepted.
+        stranger
+            .object_server()
+            .at("/org/freedesktop/login1", Sleep)
+            .await
+            .unwrap();
+        let unverified =
+            zbus::object_server::SignalEmitter::new(&stranger, "/org/freedesktop/login1").unwrap();
+        Sleep::prepare_for_sleep(&unverified, true).await.unwrap();
+        wait(&mut guard, true).await;
+        // An unverified resume would unblock, so it is ignored.
+        Sleep::prepare_for_sleep(&unverified, false).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert!(*guard.borrow(), "unverified resume");
+        // Only logind's own resume unblocks.
+        let logind =
+            zbus::object_server::SignalEmitter::new(&login, "/org/freedesktop/login1").unwrap();
+        Sleep::prepare_for_sleep(&logind, false).await.unwrap();
+        wait(&mut guard, false).await;
     }
 }

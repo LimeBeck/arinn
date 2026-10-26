@@ -259,7 +259,8 @@ dbus-run-session -- build/apps/arinn-shell/arinn-system-control-test
   with Cancel first and the live list, Back and Home, and the panel with five
   rows.
 - `tests/ui/tst_ambient.qml`: the ambient screen (handoff look and drift,
-  the block kept on screen when the date grows, consumed first key, opening
+  the block kept on screen when the date grows, drift places spread over
+  the free area with none piled on an edge, consumed first key, opening
   key not a wake, pointer anchor, consumed click,
   stop without wake) and the idle timer on a shortened timeout (default ten
   minutes, reset by activity, each inhibiting condition including a power

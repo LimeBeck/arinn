@@ -135,6 +135,41 @@ TestCase {
         }
     }
 
+    // Review of #545: a drift picks a place anywhere the block fits. Places
+    // are never piled up on the right or bottom edge or in one corner,
+    // which would leave static pixels there (handoff 20, OLED).
+    function test_drift_spreads_over_the_free_area() {
+        ambient.driftInterval = 600000;
+        ambient.driftDuration = 0;
+        startAmbient();
+        const block = findChild(ambient, "ambientBlock");
+        tryVerify(() => block.width > 0 && block.height > 0);
+        const maxX = 1920 - block.width;
+        const maxY = 1080 - block.height;
+        const runs = 400;
+        let right = 0, bottom = 0, left = 0, top = 0;
+        const xs = new Set(), ys = new Set();
+        for (let i = 0; i < runs; ++i) {
+            ambient.drift();
+            const x = ambient.driftX, y = ambient.driftY;
+            verify(x >= 0 && x <= maxX && y >= 0 && y <= maxY, "x " + x + " y " + y);
+            if (maxX - x < 0.5) ++right;
+            if (maxY - y < 0.5) ++bottom;
+            if (x < 0.5) ++left;
+            if (y < 0.5) ++top;
+            xs.add(Math.round(x));
+            ys.add(Math.round(y));
+        }
+        // Uniform over the free area, a half-pixel strip at an edge holds
+        // about 0.1 % of the places (0.3 % on the bottom); clamped samples
+        // put about 20 % there. Five in 400 cannot flake either way.
+        verify(right <= 5, "right edge " + right + "/" + runs);
+        verify(bottom <= 5, "bottom edge " + bottom + "/" + runs);
+        verify(left <= 5 && top <= 5, "left " + left + ", top " + top);
+        verify(xs.size > runs * 0.6, "distinct x " + xs.size);
+        verify(ys.size > runs * 0.4, "distinct y " + ys.size);
+    }
+
     function test_first_key_is_consumed() {
         startAmbient();
         compare(wakeSpy.count, 0);

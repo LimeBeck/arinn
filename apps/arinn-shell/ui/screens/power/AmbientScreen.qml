@@ -83,8 +83,11 @@ FocusScope {
         driftX = Math.max(0, Math.min(x, width - block.width));
         driftY = Math.max(0, Math.min(y, height - block.height));
     }
+    // A random place where the whole block fits: sampling the screen and
+    // clamping would pile places up on the right and bottom edges.
     function drift() {
-        moveTo(Math.random() * width, Math.random() * height);
+        moveTo(Math.random() * Math.max(0, width - block.width),
+               Math.random() * Math.max(0, height - block.height));
     }
 
     // Colours of handoff 20. The clock and date are the prototype's oklch

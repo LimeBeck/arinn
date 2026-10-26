@@ -93,7 +93,16 @@ A single path, and a path with `multiple`, stay inline text fields with Add and
 Remove. While a path editor is open, its keyboard pill opens the
 [on-screen keyboard](ui-keyboard.md) in the same full-screen typing layer, with
 the `path` context row (KB-5); its main key saves as Enter does. Without a
-keyboard the editor opens on that pill. Subfolder suggestions, the folder list
+keyboard the editor opens on that pill.
+
+While a path is typed, the shell checks the structural rules of
+`arinn_protocol::settings::path` ([ADR-0065](../adr/0065-provider-settings-contract.md)):
+one leading `/`, no empty, `.` or `..` segment, no control character and at
+most 4096 bytes of UTF-8. A path that breaks one shows a translated hint under
+the row, and under the field in the typing layer, and Enter and Save do
+nothing until it is fixed (§6.2). An empty draft is not saved either and shows
+no hint. `~/` counts as relative, as in the contract, until the owner decides
+on expanding it ([#479](https://github.com/LimeBeck/arinn/issues/479)). Subfolder suggestions, the folder list
 and the folder picker in specification §5.6 wait on the folder-listing
 contract ([DR-27](../design/integration-review.md)).
 

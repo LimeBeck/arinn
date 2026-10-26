@@ -1,0 +1,1 @@
+- Settings path editors check the path while you type. A relative path (including `~/`), a `.` or `..` folder, `//`, a control character or more than 4096 bytes shows why, and Save does nothing until the path is fixed, instead of the daemon rejecting it after Save.

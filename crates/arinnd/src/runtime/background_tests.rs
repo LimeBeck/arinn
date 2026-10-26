@@ -788,6 +788,42 @@ async fn a_shell_that_loses_its_name_while_reading_gets_no_frame() {
 }
 
 #[tokio::test]
+async fn a_release_and_reacquire_ends_the_previous_owner_lifetime() {
+    let f = Fixture::new().await;
+    let context = f.pending().await;
+    f.producer(&f.kwin)
+        .await
+        .publish(&frame(&context, 2, 2, memfd(&pixels(), SEALED)))
+        .await
+        .unwrap();
+    // Keep the reconciler busy behind the held state, so the queued
+    // owner-change invalidation runs only after the read below.
+    let background = f.core.background.get().unwrap().clone();
+    let held = background.inner.lock().await;
+    f.associate("activity", &f.tokens[0]).await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    // The reader's connection releases the name and takes it again: the same
+    // unique name owns Shell1, but in a new owner lifetime. Every task has
+    // had its turn before the read starts, so a counter would already
+    // include both changes when the read samples it.
+    f.shell.release_name(SHELL_SERVICE).await.unwrap();
+    f.shell.request_name(SHELL_SERVICE).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let shell = f.shell.clone();
+    let request = context.request_id.clone();
+    let read = tokio::spawn(async move {
+        BackgroundProxy::new(&shell)
+            .await
+            .unwrap()
+            .read_frame(&request)
+            .await
+    });
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    drop(held);
+    error(read.await.unwrap(), "PermissionDenied");
+}
+
+#[tokio::test]
 async fn a_busy_background_never_delays_the_home_request() {
     let f = Fixture::new().await;
     let mut requests = ProductionDaemonProxy::new(&f.stranger)

@@ -101,8 +101,22 @@ one leading `/`, no empty, `.` or `..` segment, no control character and at
 most 4096 bytes of UTF-8. A path that breaks one shows a translated hint under
 the row, and under the field in the typing layer, and Enter and Save do
 nothing until it is fixed (§6.2). An empty draft is not saved either and shows
-no hint. `~/` counts as relative, as in the contract, until the owner decides
-on expanding it ([#479](https://github.com/LimeBeck/arinn/issues/479)). Subfolder suggestions, the folder list
+no hint.
+
+`~` names the user's home folder (owner decision of 2026-10-26, spec §5.6,
+[#479](https://github.com/LimeBeck/arinn/issues/479)). The shell expands it
+itself, so the proposed value, the stored setting and the contract stay
+absolute:
+
+- A leading `~/` is replaced in the field as soon as it is typed, by hand or
+  with the `~/` context key, so the user sees, checks and saves the real path.
+- A bare `~` stays in the field and is expanded on Save, since it may still
+  become `~user/`. `~user/` is not supported and is rejected as relative.
+- The check runs on the expanded path: `~/../x` still breaks the `..` rule.
+- The home folder is the shell's `$HOME` (`main.cpp` passes it to
+  `SettingsView.homeFolder`); the shell reads no file system for it (R-05).
+  When it is unset or not an absolute path, `~` stays relative and is
+  rejected, as by the contract. Subfolder suggestions, the folder list
 and the folder picker in specification §5.6 wait on the folder-listing
 contract ([DR-27](../design/integration-review.md)).
 

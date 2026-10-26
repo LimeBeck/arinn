@@ -147,12 +147,6 @@ global and replace the panel with the shell.
   path editors type with the panel and an empty suggestion row
   ([#426](https://github.com/LimeBeck/arinn/issues/426)). The picker's task
   reuses the same panel with Go as its main key.
-- **`~/` in a path (owner decision pending).** The `path` context row offers
-  `~/` (KB-5), but `arinn_protocol::settings::path` accepts only absolute
-  paths, and nothing decides yet whether `~/` expands to the home directory
-  ([#479](https://github.com/LimeBeck/arinn/issues/479), `needs-owner`). Until
-  then a path starting with `~/` is relative, as in the contract: Save is
-  blocked and the hint asks for a leading `/`.
 - **Shortcut address format.** The address rules belong to the daemon
   (ADR-0043, ADR-0045), and the shell has no copy of them. Done is not blocked
   while typing; a rejected address shows as the editor's error after Save. A
@@ -203,7 +197,12 @@ global and replace the panel with the shell.
   while typing (#479): a relative path, `~/`, `.` and `..` segments, `//`, a
   control character and 4097 bytes in 2049 characters each show their hint
   and keep Enter or Save from saving; exactly 4096 bytes, a trailing `/` and
-  the root are valid.
+  the root are valid. `test_home_folder_expands_in_a_path` and
+  `test_home_folder_expands_in_the_panel` cover `~` (owner decision of
+  2026-10-26, spec §5.6): the `~/` context key and a typed `~/` show the home
+  folder at once, a bare `~` is expanded on Save, `~user/` stays rejected,
+  `~/../x` still breaks the `..` rule, and an unknown home folder leaves `~`
+  relative.
 - 2026-10-09, local build with Qt 6.12 (offscreen, software renderer): the
   three C++ tests and `arinn-ui-test -input tests/ui` (291 cases) passed; the
   rendered Site or search panel and the shortcut address layer were compared

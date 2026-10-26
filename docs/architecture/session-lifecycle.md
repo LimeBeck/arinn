@@ -175,8 +175,10 @@ wrapper started confirms a started EWMH target: it owns
 The helper takes that name only after the target has started. After a fast
 re-login, the previous login's helper may still own `org.arinn.XfceSession`
 while it stops the target. The new helper waits up to 65 s for that name
-([x11-ewmh](x11-ewmh.md), #483). The wrapper watches for up to 120 s, which
-covers the wait and a start. If Arinn cannot start, the wrapper writes the
+([x11-ewmh](x11-ewmh.md), #483), which covers the previous helper's normal
+cleanup. A hung user manager can hold the name for longer; Arinn cannot
+start then anyway, and the line below is logged. The wrapper watches for up
+to 120 s, which covers the wait and a start. If Arinn cannot start, the wrapper writes the
 fixed line `arinn-session: Arinn did not start; the desktop continues without
 it` to the session log, and the desktop keeps running. That covers no
 readiness, a failed target start on Plasma, an XFCE helper that exits before

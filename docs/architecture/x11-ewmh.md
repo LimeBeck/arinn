@@ -345,9 +345,14 @@ target; the name is never queued. When another launcher owns it, the helper
 waits up to 65 s for it to change hands and asks again, touching nothing in
 the user manager meanwhile. After a fast re-login (autologin, display-manager
 relogin) the previous login's helper still owns the name while it stops the
-target. Its cleanup is two `systemctl` calls of at most 30 s each, so the
-65 s wait is strictly longer (a compile-time assertion and
-`tests/ci/test_xfce_handover.py` keep these related). A helper
+target. The 65 s wait covers the normal cleanup path: two `systemctl` calls
+of at most 30 s each, then the exit that releases the name (a compile-time
+assertion and `tests/ci/test_xfce_handover.py` keep these related). A
+helper that has just taken the name and is still in its five `is-active`
+checks does not see its login end until those return. A hung user manager
+can therefore hold the name for longer (each call waits up to 30 s). In that
+case the next login cannot start Arinn either: its helper gives up after
+65 s, and the session entry logs its fixed line. A helper
 that does not get the name within 65 s, is stopped while it waits, or whose
 own login ends meanwhile (`org.xfce.SessionManager` loses or changes its
 owner) exits 1 without cleanup of its own. It never takes over a later login

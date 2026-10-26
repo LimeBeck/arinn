@@ -27,10 +27,13 @@ const RUNNING: &str = "org.arinn.XfceSession.Running";
 /// The bound of every `systemctl` call.
 const SYSTEMCTL_TIMEOUT: Duration = Duration::from_secs(30);
 /// After a fast re-login, the previous login's launcher can still own the
-/// launcher name while it stops the target (#483). Its cleanup is two
-/// `systemctl` calls, then its exit releases the name. The wait is strictly
-/// longer than those calls, and `arinn-session` watches for longer still
-/// (`tests/ci/test_xfce_handover.py` keeps the two in step).
+/// launcher name while it stops the target (#483). The wait covers its
+/// normal cleanup path: two `systemctl` calls, then its exit releases the
+/// name. `arinn-session` watches for longer still
+/// (`tests/ci/test_xfce_handover.py` keeps the two in step). A hung user
+/// manager can hold the name longer, for example through the `is-active`
+/// checks, which a login ending does not interrupt. The next login cannot
+/// start Arinn then anyway, and the session entry logs its fixed line.
 const HANDOVER: Duration = Duration::from_secs(65);
 const _: () = assert!(HANDOVER.as_secs() > 2 * SYSTEMCTL_TIMEOUT.as_secs());
 

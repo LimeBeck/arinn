@@ -1,15 +1,22 @@
 // SPDX-FileCopyrightText: 2026 Arinn contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Serves `LibraryProvider1`, `LibraryResume1` and `LibraryImport1`.
-//! Scanning runs beside the snapshot and does not hold the D-Bus reply path.
+//! Serves `LibraryProvider1`, `LibraryResume1`, `LibraryImport1`,
+//! `LibraryRoots1` and `ProviderSettings1`. Scanning runs beside the snapshot
+//! and does not hold the D-Bus reply path.
 
 use crate::store::{Settings, Store};
 use arinn_plugin_sdk::runtime::{
     LibraryExtensions, LibraryHandler, LibraryImportHandler, LibraryResumeHandler, LibraryService,
-    run_library_on,
+    SettingsHandler, run_library_on, serve_settings,
 };
-use arinn_protocol::{library::ImportCandidate, media::PlaybackSource, validation::ErrorCode};
+use arinn_protocol::{
+    library::{ImportCandidate, RootState},
+    media::PlaybackSource,
+    settings::Setting,
+    validation::ErrorCode,
+};
+use serde_json::{Map, Value};
 use std::{
     collections::HashSet,
     future::Future,
@@ -29,19 +36,35 @@ struct Bridge {
     store: Arc<std::sync::Mutex<Store>>,
     service: Arc<Mutex<Option<LibraryService>>>,
     settings: Arc<std::sync::Mutex<Settings>>,
+    /// The configured roots as written, with the path the scan uses.
+    written: Arc<Vec<(String, PathBuf)>>,
 }
 
 pub async fn serve(connection: zbus::Connection) -> Result<(), ErrorCode> {
     let provider_id = std::env::var("ARINN_PROVIDER_ID").unwrap_or_else(|_| "library".into());
     let database = crate::paths::state_database(&provider_id)?;
-    let loaded = Settings::from_environment();
+    let text = match std::env::var("ARINN_PROVIDER_SETTINGS") {
+        Ok(text) => Some(text),
+        Err(std::env::VarError::NotPresent) => Some("{}".into()),
+        Err(std::env::VarError::NotUnicode(_)) => None,
+    };
+    let loaded = text
+        .as_deref()
+        .ok_or(ErrorCode::InvalidArgument)
+        .and_then(Settings::parse);
     let backend_ok = loaded.is_ok();
     let settings = loaded.unwrap_or_default();
+    // Settings that do not load leave no roots to scan or report.
+    let written = match (&text, backend_ok) {
+        (Some(text), true) => crate::store::written_roots(text),
+        _ => Vec::new(),
+    };
     let store = Store::open(&database)?;
     let bridge = Bridge {
         store: Arc::new(std::sync::Mutex::new(store)),
         service: Arc::new(Mutex::new(None)),
         settings: Arc::new(std::sync::Mutex::new(settings)),
+        written: Arc::new(written),
     };
     let (collections, items, resumes) = {
         let store = bridge.store.lock().map_err(|_| ErrorCode::Internal)?;
@@ -59,10 +82,14 @@ pub async fn serve(connection: zbus::Connection) -> Result<(), ErrorCode> {
         },
         LibraryExtensions::default()
             .resume(bridge.clone())
-            .import(bridge.clone()),
+            .import(bridge.clone())
+            .roots(),
     )?;
     *bridge.service.lock().await = Some(service.clone());
     service.replace_resumes(resumes).await?;
+    serve_settings(&connection, bridge.clone(), service.registrations())
+        .await
+        .map_err(|_| ErrorCode::Unavailable)?;
     let scanner = bridge.clone();
     let running = tokio::spawn(async move {
         if backend_ok {
@@ -89,14 +116,14 @@ impl Bridge {
         let settings = self.settings.clone();
         let published = tokio::task::spawn_blocking(move || {
             let settings = settings.lock().map_err(|_| ErrorCode::Internal)?.clone();
-            crate::store::scan_shared(&store, &settings)?;
+            let readable = crate::store::scan_shared(&store, &settings)?;
             let store = store.lock().map_err(|_| ErrorCode::Internal)?;
             let (collections, items) = store.snapshot()?;
-            Ok::<_, ErrorCode>((collections, items, store.resumes()?))
+            Ok::<_, ErrorCode>((collections, items, store.resumes()?, readable))
         })
         .await
         .map_err(|_| ErrorCode::Internal)?;
-        let (collections, items, resumes) = match published {
+        let (collections, items, resumes, readable) = match published {
             Ok(published) => published,
             Err(error) => {
                 log_error("scan", error);
@@ -111,7 +138,22 @@ impl Bridge {
             .ok_or(ErrorCode::Unavailable)?;
         service.replace(collections, items, "available").await?;
         service.replace_resumes(resumes).await?;
+        // Every configured root as written, with what this scan found. The
+        // SDK announces only a changed list (ADR-0071).
+        if let Err(error) = service.replace_roots(self.root_states(&readable)).await {
+            log_error("roots", error);
+        }
         Ok(())
+    }
+
+    fn root_states(&self, readable: &[(PathBuf, bool)]) -> Vec<RootState> {
+        self.written
+            .iter()
+            .map(|(text, path)| RootState {
+                path: text.clone(),
+                available: readable.iter().any(|(scanned, ok)| *ok && scanned == path),
+            })
+            .collect()
     }
 
     async fn scan_loop(self) -> Result<(), ErrorCode> {
@@ -148,6 +190,21 @@ fn log_error(operation: &str, error: ErrorCode) {
     eprintln!(
         "{{\"level\":\"error\",\"component\":\"arinn-plugin-library\",\"operation\":\"{operation}\",\"error\":\"{error}\"}}"
     );
+}
+
+impl SettingsHandler for Bridge {
+    fn schema(&self) -> Vec<Setting> {
+        crate::settings::schema()
+    }
+
+    fn apply(
+        &self,
+        values: Map<String, Value>,
+    ) -> Pin<Box<dyn Future<Output = Result<(), ErrorCode>> + Send + '_>> {
+        // Settings are read once at start (ADR-0056): a valid change is
+        // `Unsupported` and applies at the next start.
+        Box::pin(async move { crate::settings::check(&values) })
+    }
 }
 
 impl LibraryHandler for Bridge {
@@ -444,6 +501,7 @@ mod tests {
             store: Arc::new(std::sync::Mutex::new(store)),
             service: Arc::new(Mutex::new(None)),
             settings: Arc::new(std::sync::Mutex::new(Settings::default())),
+            written: Arc::new(Vec::new()),
         };
         let hold = bridge.store.lock().unwrap();
         let progressed = Arc::new(AtomicBool::new(false));

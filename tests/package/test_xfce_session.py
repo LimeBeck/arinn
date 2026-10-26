@@ -31,6 +31,7 @@ class XfceSession(unittest.TestCase):
         self.addCleanup(self.stop_process, self.bus)
         address = self.bus.stdout.readline().strip()
         self.assertTrue(address)
+        self.address = address
         self.dbus = ctypes.CDLL(ctypes.util.find_library("dbus-1"))
         self.dbus.dbus_connection_open_private.argtypes = [ctypes.c_char_p, ctypes.c_void_p]
         self.dbus.dbus_connection_open_private.restype = ctypes.c_void_p
@@ -196,12 +197,39 @@ exit 0
         first = self.launch()
         self.wait_for_start(first)
         before = self.log.read_text()
+        # A second launcher waits for the name (#483) and touches nothing;
+        # stopped while it waits, it fails without any cleanup of its own.
         duplicate = self.launch()
+        time.sleep(1)
+        self.assertIsNone(duplicate.poll())
+        duplicate.terminate()
         self.assertEqual(duplicate.wait(timeout=5), 1)
         self.assertEqual(self.log.read_text(), before)
         self.assertIsNone(first.poll())
         self.close_owner()
         self.assertEqual(first.wait(timeout=5), 0)
+        self.assert_cleanup()
+
+    def test_fast_relogin_waits_for_the_previous_launcher(self):
+        # #483: after a fast re-login the previous login's launcher still
+        # owns the name while it stops the target. The new one waits for the
+        # name instead of exiting as a duplicate, touches nothing meanwhile,
+        # and starts the target once the name is free.
+        previous = self.dbus.dbus_connection_open_private(self.address.encode(), None)
+        self.assertTrue(previous)
+        self.assertTrue(self.dbus.dbus_bus_register(previous, None))
+        self.assertEqual(self.dbus.dbus_bus_request_name(previous, b"org.arinn.XfceSession", 4, None), 1)
+        try:
+            child = self.launch()
+            time.sleep(1.5)
+            self.assertIsNone(child.poll(), "the launcher gave up while the name was held")
+            self.assertEqual(self.log.read_text(), "")
+        finally:
+            self.dbus.dbus_connection_close(previous)
+            self.dbus.dbus_connection_unref(previous)
+        self.wait_for_start(child)
+        self.close_owner()
+        self.assertEqual(child.wait(timeout=5), 0)
         self.assert_cleanup()
 
     def test_failed_start_cleans_partial_session(self):

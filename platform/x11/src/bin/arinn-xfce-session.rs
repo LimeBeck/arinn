@@ -11,10 +11,20 @@ use std::{
     process::{Command, Stdio},
     time::Duration,
 };
-use zbus::{Connection, export::futures_core::Stream, fdo::DBusProxy};
+use zbus::{
+    Connection,
+    export::futures_core::Stream,
+    fdo::{DBusProxy, RequestNameFlags, RequestNameReply},
+};
 
 const SESSION: &str = "org.xfce.SessionManager";
 const TARGET: &str = "arinn-ewmh-session.target";
+/// Only the owner of this name may stop the target.
+const LAUNCHER: &str = "org.arinn.XfceSession";
+/// After a fast re-login, the previous login's launcher can still own the
+/// name while it stops the target (#483). Its cleanup is two `systemctl`
+/// calls of at most 30 s each, so it releases the name within this time.
+const HANDOVER: Duration = Duration::from_secs(60);
 
 struct Child(std::process::Child);
 impl Drop for Child {
@@ -142,6 +152,33 @@ fn login_folder(variable: &str, fallback: &str) -> Option<String> {
         .and_then(|path| path.into_os_string().into_string().ok())
 }
 
+/// Owns [`LAUNCHER`], never queued: a queued launcher could become the owner
+/// long after it gave up. While another launcher owns the name, waits up to
+/// `wait` for it to change hands and asks again (#483).
+async fn acquire(bus: &DBusProxy<'_>, wait: Duration) -> Result<()> {
+    let deadline = tokio::time::Instant::now() + wait;
+    // Subscribe before asking, so a release right after a refusal is seen.
+    let mut changes = bus
+        .receive_name_owner_changed_with_args(&[(0, LAUNCHER)])
+        .await?;
+    loop {
+        let reply = bus
+            .request_name(LAUNCHER.try_into()?, RequestNameFlags::DoNotQueue.into())
+            .await?;
+        if reply == RequestNameReply::PrimaryOwner {
+            return Ok(());
+        }
+        let changed =
+            tokio::time::timeout_at(deadline, poll_fn(|cx| Pin::new(&mut changes).poll_next(cx)))
+                .await;
+        match changed {
+            Err(_) => bail!("the XFCE launcher is already running"),
+            Ok(None) => bail!("session bus disconnected"),
+            Ok(Some(_)) => {}
+        }
+    }
+}
+
 async fn run() -> Result<()> {
     ensure!(
         env::var_os("DISPLAY").is_some_and(|value| !value.is_empty()),
@@ -151,25 +188,20 @@ async fn run() -> Result<()> {
         env::var("XDG_SESSION_TYPE").map_or(true, |value| value.is_empty() || value == "x11"),
         "an X11 session is required"
     );
+    let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+    let mut interrupt = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
     let connection = Connection::session().await?;
-    // Do not queue a second launcher: only the owner may stop the target.
-    let reply = DBusProxy::new(&connection)
-        .await?
-        .request_name(
-            "org.arinn.XfceSession".try_into()?,
-            zbus::fdo::RequestNameFlags::DoNotQueue.into(),
-        )
-        .await?;
-    ensure!(
-        reply == zbus::fdo::RequestNameReply::PrimaryOwner,
-        "the XFCE launcher is already running"
-    );
     let bus = DBusProxy::new(&connection).await?;
+    // Nothing in the user manager is touched before the name is owned, so a
+    // launcher that gives up or is stopped while it waits needs no cleanup.
+    tokio::select! {
+        result = acquire(&bus, HANDOVER) => result?,
+        _ = term.recv() => bail!("stopped while waiting for the launcher name"),
+        _ = interrupt.recv() => bail!("stopped while waiting for the launcher name"),
+    }
     // Subscribe before reading the owner so logout during startup is observed.
     let mut owners = bus.receive_name_owner_changed().await?;
     let owner = bus.get_name_owner(SESSION.try_into()?).await?;
-    let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
-    let mut interrupt = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
     // No supported concurrent graphical sessions share this user manager.
     for unit in [
         "arinn-session.target",
@@ -238,5 +270,67 @@ async fn main() {
         // Fixed diagnostic: never disclose DISPLAY, authority paths or bus errors.
         eprintln!("arinn-xfce-session: session integration failed");
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{BufRead, BufReader};
+
+    struct Bus(std::process::Child, String);
+    impl Drop for Bus {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+    fn bus() -> Bus {
+        let mut child = Command::new("dbus-daemon")
+            .args(["--session", "--nofork", "--print-address=1"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let mut address = String::new();
+        BufReader::new(child.stdout.take().unwrap())
+            .read_line(&mut address)
+            .unwrap();
+        Bus(child, address.trim().to_owned())
+    }
+    async fn connect(bus: &Bus) -> Connection {
+        zbus::connection::Builder::address(bus.1.as_str())
+            .unwrap()
+            .build()
+            .await
+            .unwrap()
+    }
+
+    /// #483: the previous login's launcher releases the name while the new
+    /// one waits; a name that stays taken ends the wait after its bound.
+    #[tokio::test]
+    async fn the_launcher_name_is_taken_over_within_the_bound() {
+        let bus = bus();
+        let previous = connect(&bus).await;
+        previous.request_name(LAUNCHER).await.unwrap();
+        let next = connect(&bus).await;
+        let proxy = DBusProxy::new(&next).await.unwrap();
+
+        let started = tokio::time::Instant::now();
+        let refused = acquire(&proxy, Duration::from_millis(300)).await;
+        assert!(refused.is_err());
+        assert!(started.elapsed() >= Duration::from_millis(300));
+
+        let release = async {
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            previous.release_name(LAUNCHER).await.unwrap();
+        };
+        let (taken, ()) = tokio::join!(acquire(&proxy, Duration::from_secs(10)), release);
+        taken.unwrap();
+        let owner = proxy
+            .get_name_owner(LAUNCHER.try_into().unwrap())
+            .await
+            .unwrap();
+        assert_eq!(owner.as_str(), next.unique_name().unwrap().as_str());
     }
 }

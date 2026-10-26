@@ -162,12 +162,22 @@ protection. Repeated menu close/reopen cycles therefore remain available.
 
 Both run `/usr/lib/arinn/arinn-session <plasma|xfce>`. The wrapper reads
 `$XDG_STATE_HOME/arinn/session-mode`. When the file holds exactly `desktop`
-(at most one trailing newline), the wrapper replaces itself with the plain desktop. Otherwise it starts the
+(at most one trailing newline), the wrapper replaces itself with the plain
+desktop. A NUL byte anywhere makes the content something else, so `desk\0top`
+starts Arinn; `arinn-session-switch` reads the file by the same rule. Otherwise it starts the
 desktop as a child, waits up to 120 s for readiness, exports
 `ARINN_SESSION_ENTRY` and `ARINN_SESSION_MODE` (the mode file it read) to the
 user manager and starts Arinn. Readiness means
 `graphical-session.target` is active on Plasma, or `org.xfce.SessionManager`
-is owned on XFCE. If Arinn cannot start, the desktop keeps running. When the
+is owned on XFCE. On XFCE, Arinn counts as started once the helper the
+wrapper started owns `org.arinn.XfceSession` (`busctl --user status`
+reports its PID). After a fast re-login, the previous login's helper may
+still own that name while it stops the EWMH target. The new helper waits up
+to 60 s for the name ([x11-ewmh](x11-ewmh.md), #483), and the wrapper watches
+for up to 75 s. If Arinn cannot start (no readiness, a failed target start, or
+an XFCE helper that exits before it owns the name), the wrapper writes the
+fixed line `arinn-session: Arinn did not start; the desktop continues without
+it` to the session log, and the desktop keeps running. When the
 desktop exits, the wrapper stops the Plasma target, removes the marker and
 exits with the desktop's status. In both modes the desktop starts with
 SIGINT and SIGQUIT at their defaults, as with the stock entries. The desktop

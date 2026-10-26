@@ -43,6 +43,17 @@ case "$*" in
 *"status org.xfce.SessionManager"*)
     n=$(cat "$FAKE_ROOT/ready"); n=$((n + 1)); echo $n > "$FAKE_ROOT/ready"
     [ "$n" -gt "${FAKE_READY_AFTER:-0}" ]; exit $? ;;
+*"status org.arinn.XfceSession"*)
+    # The launcher name's owner: the helper started by the wrapper once
+    # FAKE_TAKEOVER_AFTER polls have passed, the previous login's before.
+    n=$(cat "$FAKE_ROOT/owner" 2>/dev/null || echo 0); n=$((n + 1)); echo $n > "$FAKE_ROOT/owner"
+    if [ "$n" -gt "${FAKE_TAKEOVER_AFTER:-0}" ] && [ -f "$FAKE_ROOT/helper.pid" ]; then
+        echo "PID=$(cat "$FAKE_ROOT/helper.pid")"
+    else
+        echo "PID=1"
+    fi
+    echo "EUID=1000"
+    exit 0 ;;
 *" call "*)
     # A desktop that never answers: only a bounded call returns, failed, as
     # busctl does when its --timeout expires.
@@ -71,8 +82,14 @@ while [ ! -f "$FAKE_ROOT/stop" ] && [ $n -lt 400 ]; do sleep 0.05; n=$((n + 1));
 exit "${FAKE_DESKTOP_STATUS:-0}"
 """
 
+# Runs like the real helper until the desktop stops; FAKE_HELPER_EXIT makes
+# it exit at once, as a helper that never got its name does.
 XFCE_HELPER = """#!/bin/sh
 echo "xfce-helper" >> "$FAKE_LOG"
+echo $$ > "$FAKE_ROOT/helper.pid"
+[ -n "${FAKE_HELPER_EXIT:-}" ] && exit "$FAKE_HELPER_EXIT"
+n=0
+while [ ! -f "$FAKE_ROOT/stop" ] && [ $n -lt 400 ]; do sleep 0.05; n=$((n + 1)); done
 """
 
 
@@ -196,6 +213,38 @@ class SessionEntry(unittest.TestCase):
         # helper can bind the user manager's marker to this login.
         self.assertEqual([m.split()[-1] for m in fixture.markers()], ["entry=xfce"], calls)
         self.assertEqual(calls[-1], UNSET)
+        self.assertNotIn("Arinn did not start", err)
+
+    def test_xfce_waits_until_the_helper_owns_its_name(self):
+        # #483: after a fast re-login the previous login's helper still owns
+        # org.arinn.XfceSession while it stops the target. The new helper
+        # waits for the name; the wrapper counts Arinn as started only once
+        # its own helper owns it.
+        fixture = Fixture(self)
+        process = self.start(fixture, "xfce", FAKE_TAKEOVER_AFTER=3)
+        self.assertTrue(fixture.wait_for(
+            lambda c: len([x for x in c if "status org.arinn.XfceSession" in x]) >= 4), fixture.calls())
+        time.sleep(0.2)
+        fixture.stop_desktop()
+        code, err = self.finish(process)
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("Arinn did not start", err)
+        polls = [c for c in fixture.calls() if "status org.arinn.XfceSession" in c]
+        self.assertEqual(polls, ["busctl --user status org.arinn.XfceSession"] * 4)
+
+    def test_xfce_helper_that_never_takes_over_is_reported(self):
+        # The helper gave up waiting for the name, or failed before owning
+        # it: the fixed line, and the desktop continues without Arinn.
+        fixture = Fixture(self)
+        process = self.start(fixture, "xfce", FAKE_HELPER_EXIT=1, FAKE_TAKEOVER_AFTER=10**6)
+        self.assertTrue(fixture.wait_for(lambda c: "xfce-helper" in c), fixture.calls())
+        time.sleep(0.3)
+        self.assertIsNone(process.poll(), "the desktop must keep running")
+        fixture.stop_desktop()
+        code, err = self.finish(process)
+        self.assertEqual(code, 0)
+        self.assertEqual(err.splitlines(),
+                         ["arinn-session: Arinn did not start; the desktop continues without it"])
 
     def test_desktop_mode_starts_the_plain_desktop(self):
         for entry, desktop in (("plasma", "startplasma-wayland"), ("xfce", "startxfce4")):
@@ -234,13 +283,16 @@ class SessionEntry(unittest.TestCase):
         self.assertFalse(any("start arinn" in c for c in fixture.calls()), fixture.calls())
 
     def test_anything_but_desktop_starts_arinn(self):
+        # Command substitution drops NUL bytes; "desk\0top" must not read as
+        # "desktop" (#483).
         for content in ("", "arinn\n", "Desktop\n", "desktop extra\n", " desktop\n", "\n",
                         "desktop\nextra\n", "desktop\n\narinn\n", "desktop" + " " * 20,
-                        "desktop\n\n", "desktop\n\n\n", "desktop\r\n", "desktop" + "\n" * 20):
+                        "desktop\n\n", "desktop\n\n\n", "desktop\r\n", "desktop" + "\n" * 20,
+                        "desk\0top", "desk\0top\n", "desktop\0", "desktop\n\0"):
             with self.subTest(content=content):
                 fixture = Fixture(self)
                 fixture.mode_file.parent.mkdir(parents=True)
-                fixture.mode_file.write_text(content)
+                fixture.mode_file.write_bytes(content.encode())
                 process = self.start(fixture, "plasma")
                 self.assertTrue(fixture.wait_for(
                     lambda c: "systemctl --user start arinn-session.target" in c), fixture.calls())
@@ -495,7 +547,8 @@ class SessionSwitch(unittest.TestCase):
         # content that meant Arinn is never restored as the desktop.
         for before, after in (("desktop\n", "desktop\n"), ("desktop", "desktop\n"),
                               ("desktop\nextra\n", "arinn\n"), ("desktop\n\n\n", "arinn\n"),
-                              ("garbage", "arinn\n")):
+                              ("garbage", "arinn\n"), ("desk\0top", "arinn\n"),
+                              ("desk\0top\n", "arinn\n")):
             with self.subTest(before=before):
                 fixture = Fixture(self)
                 fixture.mode_file.parent.mkdir(parents=True)

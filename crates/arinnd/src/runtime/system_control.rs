@@ -183,4 +183,4 @@ impl Core {
 
 #[cfg(test)]
 #[path = "system_control_tests.rs"]
-mod tests;
+pub(super) mod tests;

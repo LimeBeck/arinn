@@ -1044,6 +1044,17 @@ TestCase {
         verify(insideView(windowFocus()));
     }
 
+    // #546: the typing layers' fields set weight 500 in the bundled Onest, a
+    // variable font; FontWeightAxis carries it to the wght axis, so it
+    // renders at 500, not 400.
+    function test_typing_fields_render_their_weight() {
+        for (const name of ["stringTypingInput", "pathTypingInput"]) {
+            const input = child(name);
+            compare(input.font.weight, 500, name);
+            compare(input.font.variableAxes["wght"], 500, name);
+        }
+    }
+
     function test_saving_feedback() {
         down(2);
         focused("category-sound");

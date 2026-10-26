@@ -2180,6 +2180,7 @@ FocusScope {
                 font.family: Ui.Theme.fontFamily
                 font.pixelSize: 48
                 font.weight: 500
+                Ui.FontWeightAxis {}
                 color: Ui.Theme.textPrimary
                 verticalAlignment: TextInput.AlignVCenter
                 clip: true
@@ -2317,6 +2318,7 @@ FocusScope {
                 font.family: Ui.Theme.fontFamily
                 font.pixelSize: 48
                 font.weight: 500
+                Ui.FontWeightAxis {}
                 color: Ui.Theme.textPrimary
                 verticalAlignment: TextInput.AlignVCenter
                 clip: true

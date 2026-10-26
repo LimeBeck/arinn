@@ -340,7 +340,27 @@ default. It sets the two Arinn backend selectors before starting the shared
 daemon. The existing shell startup path requests Home (AC-01).
 
 The helper remains in the desktop autostart session, owning
-`org.arinn.XfceSession` to refuse duplicate launchers. It subscribes to XFCE
+`org.arinn.XfceSession`. Only that name's owner starts and stops the EWMH
+target; the name is never queued. When another launcher owns it, the helper
+waits up to 65 s for it to change hands and asks again, touching nothing in
+the user manager meanwhile. After a fast re-login (autologin, display-manager
+relogin) the previous login's helper still owns the name while it stops the
+target. The 65 s wait covers the normal cleanup path: two `systemctl` calls
+of at most 30 s each, then the exit that releases the name (a compile-time
+assertion and `tests/ci/test_xfce_handover.py` keep these related). A
+helper that has just taken the name and is still in its five `is-active`
+checks does not see its login end until those return. A hung user manager
+can therefore hold the name for longer (each call waits up to 30 s). In that
+case the next login cannot start Arinn either: its helper gives up after
+65 s, and the session entry logs its fixed line. A helper
+that does not get the name within 65 s, is stopped while it waits, or whose
+own login ends meanwhile (`org.xfce.SessionManager` loses or changes its
+owner) exits 1 without cleanup of its own. It never takes over a later login
+with its own login's display and session (#483). After the target has
+started, the helper also takes `org.arinn.XfceSession.Running`; the session
+entry counts Arinn as started only then. A start that fails is never
+confirmed. This applies to the opt-in autostart path
+and to the "Arinn (XFCE)" session alike. It subscribes to XFCE
 owner changes before reading the initial owner. XFCE owner loss/replacement,
 session-bus loss, SIGTERM or SIGINT stops the EWMH target, including a partial
 failed startup, and clears the imported session/backend environment. Systemctl
@@ -405,7 +425,9 @@ not substitute for real-desktop operator tests, which require owner permission.
 The Arch Qt CI job installs Xvfb and runs the native tests with `--include-ignored`.
 The installed-package session check also runs the XFCE helper suite on a private
 D-Bus with a synthetic session owner and stub systemctl. It checks login ordering,
-missing LightDM variables, logout, signals, duplicate refusal, failed-start
+missing LightDM variables, logout, signals, a duplicate that waits without
+touching anything, a launcher that takes over once the previous login's
+releases the name, one whose login ends while it waits, failed-start
 cleanup and refusal of incompatible/pre-existing sessions. No real user manager
 or desktop is contacted.
 Private-bus adapter and Qt tests cover all three lock endpoints, priority, signals

@@ -92,7 +92,9 @@ shown.
 - While a launch overlay (a web service's or an application's) or the
   ambient screen is on screen (all are drawn above the power menu), the
   refusal waits. It appears once they are gone, so it never takes focus
-  behind them.
+  behind them. A launch still in its 400 ms reveal delay holds it too, since
+  its overlay is about to be drawn above; a launch that Home or a sheet has
+  hidden, and that goes on in the background, does not (#534).
 - If an external application is in front when the answer arrives, the pane
   appears when the user returns to Arinn. The shell does not raise itself
   over the application for it.
@@ -309,6 +311,12 @@ dbus-run-session -- build/apps/arinn-shell/arinn-system-control-test
   never take focus from the dialog. Idle ambient does not count while a
   power request is in flight; ambient started anyway holds the late refusal
   (`holdLateAnswer`), which appears with focus after the wake.
+- `apps/arinn-shell/quick_menu_test.cpp` (`lateRefusalWaitsForARevealingLaunch`,
+  `lateRefusalIsNotHeldByALaunchHiddenForHome`): the production `Main.qml`. A
+  late Sleep refusal that arrives during a web service's or an application's
+  reveal delay waits through the delay and the shown overlay, then appears
+  with focus when the launch ends, and Back on it returns focus to Home
+  (`restoreLateFocus`). A launch hidden for Home holds nothing.
 - Real suspend, wake, the lock screen and volume on the HTPC are owner
   operator tests (AC-19). Not run.
 - Switching to the desktop and back on the HTPC is the owner operator test

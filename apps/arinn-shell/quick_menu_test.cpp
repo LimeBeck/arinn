@@ -997,6 +997,91 @@ private slots:
     QCOMPARE(cancels.count(), 0);
   }
 
+  // A late power refusal that arrives while a launch waits out its reveal
+  // delay (nothing drawn yet) waits as for a shown launch overlay (#534,
+  // ui-power.md *Answer after Home*). Otherwise it would open, then end up
+  // under the launch overlay while still holding focus. Once the launch
+  // ends, the refusal appears with focus, and Back on it returns to Home
+  // through the production wiring (holdLateAnswer, restoreLateFocus).
+  void lateRefusalWaitsForARevealingLaunch_data() {
+    QTest::addColumn<QString>("overlay");
+    QTest::newRow("web service") << QStringLiteral("launchOverlay");
+    QTest::newRow("application") << QStringLiteral("applicationLaunch");
+  }
+  void lateRefusalWaitsForARevealingLaunch() {
+    QFETCH(QString, overlay);
+    daemon.holdSuspend = true;
+    daemon.request("PowerMenuRequested");
+    QTRY_VERIFY(window->isVisible());
+    window->requestActivate();
+    QTRY_VERIFY(window->isActive());
+    QTRY_VERIFY(powerOpen());
+    QTRY_VERIFY(child(window, "sleepButton")->hasActiveFocus());
+    QTest::keyClick(window, Qt::Key_Return);
+    QTRY_COMPARE(daemon.controlCalls.count(QStringLiteral("Suspend")), 1);
+    // Home leaves the menu; the request goes on.
+    QTest::keyClick(window, Qt::Key_Home);
+    QTRY_VERIFY(!child(window, "powerMenu")->isVisible());
+    QTRY_VERIFY(focusIn(home));
+    auto *launch = child(window, overlay.toLatin1().constData());
+    QVERIFY(launch);
+    // A launch starts (the binding to the catalog or backend is replaced for
+    // the test). Its reveal delay is stretched so the refusal surely
+    // arrives inside it.
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("revealDelay"), 1500));
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("serviceTitle"), QStringLiteral("Game")));
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("active"), true));
+    QVERIFY(!launch->isVisible());
+    QVERIFY(power()->property("holdLateAnswer").toBool());
+    daemon.releaseSuspend();
+    QTest::qWait(300);
+    QVERIFY(!launch->isVisible());
+    QVERIFY2(!child(window, "powerError")->isVisible(), "the refusal waits for the launch");
+    QVERIFY(!focusIn(power()));
+    // The launch overlay appears; the refusal still waits, without focus.
+    QTRY_VERIFY_WITH_TIMEOUT(launch->isVisible(), 5000);
+    QVERIFY(!child(window, "powerError")->isVisible());
+    QVERIFY(!focusIn(power()));
+    // The launch ends: the refusal appears with focus.
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("active"), false));
+    QTRY_VERIFY(!launch->isVisible());
+    QTRY_VERIFY(child(window, "powerError")->isVisible());
+    QTRY_VERIFY(focusIn(power()));
+    // Back closes it; focus returns to Home.
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_VERIFY(!child(window, "powerMenu")->isVisible());
+    QTRY_VERIFY(focusIn(home));
+    QCOMPARE(daemon.controlCalls.count(QStringLiteral("Suspend")), 1);
+  }
+
+  // A launch hidden by Home goes on in the background; it never holds a late
+  // refusal (it could hold it for as long as the launch lasts).
+  void lateRefusalIsNotHeldByALaunchHiddenForHome() {
+    daemon.holdSuspend = true;
+    daemon.request("PowerMenuRequested");
+    QTRY_VERIFY(window->isVisible());
+    window->requestActivate();
+    QTRY_VERIFY(window->isActive());
+    QTRY_VERIFY(powerOpen());
+    QTRY_VERIFY(child(window, "sleepButton")->hasActiveFocus());
+    QTest::keyClick(window, Qt::Key_Return);
+    QTRY_COMPARE(daemon.controlCalls.count(QStringLiteral("Suspend")), 1);
+    QTest::keyClick(window, Qt::Key_Home);
+    QTRY_VERIFY(!child(window, "powerMenu")->isVisible());
+    QTRY_VERIFY(focusIn(home));
+    auto *launch = child(window, "launchOverlay");
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("revealDelay"), 1500));
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("serviceTitle"), QStringLiteral("Service")));
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("active"), true));
+    QVERIFY(QMetaObject::invokeMethod(launch, "hideForHome"));
+    QVERIFY(launch->property("homeHidden").toBool());
+    QVERIFY(!power()->property("holdLateAnswer").toBool());
+    daemon.releaseSuspend();
+    QTRY_VERIFY(child(window, "powerError")->isVisible());
+    QTRY_VERIFY(focusIn(power()));
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("active"), false));
+  }
+
   // The brightest channel value drawn inside the item's rectangle: what the
   // user sees there, whatever the stacking says.
   int brightestIn(QQuickItem *item) {

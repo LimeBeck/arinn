@@ -755,6 +755,39 @@ async fn a_new_shell_owner_never_reads_the_previous_frame() {
 }
 
 #[tokio::test]
+async fn a_shell_that_loses_its_name_while_reading_gets_no_frame() {
+    let f = Fixture::new().await;
+    let context = f.pending().await;
+    f.producer(&f.kwin)
+        .await
+        .publish(&frame(&context, 2, 2, memfd(&pixels(), SEALED)))
+        .await
+        .unwrap();
+    // Keep the reconciler busy behind the held state, so the owner change is
+    // not processed before the read takes the state.
+    let background = f.core.background.get().unwrap().clone();
+    let held = background.inner.lock().await;
+    f.associate("activity", &f.tokens[0]).await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    // The frame's own reader starts reading while it still owns the name.
+    let shell = f.shell.clone();
+    let request = context.request_id.clone();
+    let read = tokio::spawn(async move {
+        BackgroundProxy::new(&shell)
+            .await
+            .unwrap()
+            .read_frame(&request)
+            .await
+    });
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    // It loses the name while its read waits for the state.
+    f.shell.release_name(SHELL_SERVICE).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    drop(held);
+    error(read.await.unwrap(), "PermissionDenied");
+}
+
+#[tokio::test]
 async fn a_busy_background_never_delays_the_home_request() {
     let f = Fixture::new().await;
     let mut requests = ProductionDaemonProxy::new(&f.stranger)

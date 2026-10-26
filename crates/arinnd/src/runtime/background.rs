@@ -22,7 +22,10 @@ use arinn_protocol::{
 use futures_util::StreamExt;
 use std::{
     os::fd::{AsFd, AsRawFd, OwnedFd},
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
     time::{Duration, Instant},
 };
 use tokio::sync::{Mutex, watch};
@@ -33,6 +36,9 @@ pub const INTERFACE: &str = "org.arinn.Background1";
 pub const SHELL_SERVICE: &str = "org.arinn.Shell1";
 const DEADLINE: Duration = Duration::from_millis(background::CAPTURE_DEADLINE_MS);
 const OWNER_TIMEOUT: Duration = Duration::from_secs(1);
+/// The shell owner generation before its changes are followed, or after the
+/// subscription ended: no frame is read then (fail closed).
+const UNFOLLOWED: u64 = u64::MAX;
 
 enum Phase {
     Pending,
@@ -124,6 +130,10 @@ pub(super) struct Background {
     platform: crate::platform::Platform,
     /// `true` while the session is locked, asleep or unknown.
     blocked: watch::Receiver<bool>,
+    /// Counts `org.arinn.Shell1` owner changes. A task that never takes the
+    /// state lock advances it, so it moves even while a reconciliation or a
+    /// read holds the state and the invalidation is still queued.
+    shell_generation: Arc<AtomicU64>,
 }
 
 fn log(operation: &str, outcome: Option<&str>, error: Option<&str>, duration_ms: u64) {
@@ -147,7 +157,30 @@ impl Background {
             windows: core.windows.clone(),
             platform: core.platform.clone(),
             blocked,
+            shell_generation: Arc::new(AtomicU64::new(UNFOLLOWED)),
         }
+    }
+
+    /// Starts counting `org.arinn.Shell1` owner changes. The subscription is
+    /// in place when this returns; without one, no frame is ever read.
+    async fn follow_shell_owner(&self) {
+        let Ok(bus) = zbus::fdo::DBusProxy::new(&self.connection).await else {
+            return;
+        };
+        let Ok(mut changes) = bus
+            .receive_name_owner_changed_with_args(&[(0, SHELL_SERVICE)])
+            .await
+        else {
+            return;
+        };
+        let generation = self.shell_generation.clone();
+        generation.store(0, Ordering::SeqCst);
+        tokio::spawn(async move {
+            while changes.next().await.is_some() {
+                generation.fetch_add(1, Ordering::SeqCst);
+            }
+            generation.store(UNFOLLOWED, Ordering::SeqCst);
+        });
     }
 
     /// The session guard; a guard that stopped reporting is unknown, hence
@@ -517,6 +550,9 @@ impl Background {
         header: &Header<'_>,
     ) -> Result<BackgroundFrame, ErrorCode> {
         let sender = header.sender().map(|s| s.to_string());
+        // Taken before the owner lookup: any owner change after it, even one
+        // whose invalidation still waits for the state, refuses the read.
+        let generation = self.shell_generation.load(Ordering::SeqCst);
         let shell = self
             .owner_of(SHELL_SERVICE)
             .await
@@ -536,6 +572,15 @@ impl Background {
                 // publication: a successor never reads it, even before the
                 // owner change is processed.
                 Phase::Ready { reader, .. } if Some(reader) != sender.as_ref() => {
+                    Err(ErrorCode::PermissionDenied)
+                }
+                // Checked immediately before the descriptor is duplicated:
+                // a caller that lost the name while this read waited for the
+                // state no longer gets the frame it was bound to.
+                Phase::Ready { .. }
+                    if generation == UNFOLLOWED
+                        || self.shell_generation.load(Ordering::SeqCst) != generation =>
+                {
                     Err(ErrorCode::PermissionDenied)
                 }
                 Phase::Ready {
@@ -708,6 +753,9 @@ impl Core {
     /// or unknown).
     pub async fn export_background(&self, blocked: watch::Receiver<bool>) -> Result<(), ErrorCode> {
         let background = Background::new(self, blocked);
+        // Following the shell owner before the export: no read can come
+        // before its changes are counted.
+        background.follow_shell_owner().await;
         let server = self.connection.object_server();
         server
             .at(production::PATH, BackgroundExport(background.clone()))

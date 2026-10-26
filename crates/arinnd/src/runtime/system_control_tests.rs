@@ -16,8 +16,57 @@ use arinn_protocol::{
     production::ProviderInfo,
     system_control::{Availability, SystemControlApiProxy},
 };
-use std::{path::PathBuf, time::Duration};
+use std::{future::Future, panic::Location, path::PathBuf, pin::pin, task::Poll, time::Duration};
 use uuid::Uuid;
+
+/// Far above any answer here, the 10 s backstops of `crate::system_control`
+/// included, so only a call that never gets a reply runs into it.
+const CALL_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// A call or setup step that fails at its own line instead of hanging the
+/// test binary when no reply ever comes (#524).
+pub(crate) trait Bounded: Future + Sized {
+    #[track_caller]
+    fn bounded(self) -> impl Future<Output = Self::Output> {
+        let at = Location::caller();
+        async move {
+            tokio::time::timeout(CALL_TIMEOUT, self)
+                .await
+                .unwrap_or_else(|_| panic!("no reply within {CALL_TIMEOUT:?} at {at}"))
+        }
+    }
+}
+impl<F: Future> Bounded for F {}
+
+/// Returns once `server`'s object server answers `client`.
+///
+/// zbus subscribes a connection's object server to incoming method calls in
+/// a task that the first `object_server()` call spawns, and `at` does not
+/// wait for it. A call that the connection reads before that task has run is
+/// dropped without a reply, so its caller waits forever (#524). The daemon
+/// is safe: clients find it by its well-known name, requested after every
+/// export. These tests call the unique name right after the export instead,
+/// so they first wait until a ping is answered; a dropped ping is sent again.
+pub(crate) async fn served(client: &zbus::Connection, server: &zbus::Connection) {
+    let peer = zbus::fdo::PeerProxy::builder(client)
+        .destination(server.unique_name().unwrap().to_string())
+        .unwrap()
+        .path(production::PATH)
+        .unwrap()
+        .build()
+        .await
+        .unwrap();
+    async {
+        loop {
+            match tokio::time::timeout(Duration::from_millis(100), peer.ping()).await {
+                Ok(answer) => break answer.unwrap(),
+                Err(_) => continue,
+            }
+        }
+    }
+    .bounded()
+    .await
+}
 
 struct Fixture {
     core: Core,
@@ -35,8 +84,18 @@ async fn fixture(system: &Bus) -> Fixture {
 }
 async fn fixture_with(system: &Bus, switch: SessionSwitch) -> Fixture {
     let session = Bus::new();
-    let server = session.connect().await;
-    let client = session.connect().await;
+    let server = session.connect().bounded().await;
+    let client = session.connect().bounded().await;
+    serve(session, server, client, system, switch).await
+}
+/// The daemon on `server` with `SystemControl1` exported and served.
+async fn serve(
+    session: Bus,
+    server: zbus::Connection,
+    client: zbus::Connection,
+    system: &Bus,
+    switch: SessionSwitch,
+) -> Fixture {
     let folder = std::env::temp_dir().join(format!("arinn-control-{}", Uuid::new_v4()));
     let pactl = fake_pactl(&folder.join("pactl"));
     let core = Core::new(
@@ -53,8 +112,10 @@ async fn fixture_with(system: &Bus, switch: SessionSwitch) -> Fixture {
         pactl,
         session: switch,
     })
+    .bounded()
     .await
     .unwrap();
+    served(&client, &server).await;
     Fixture {
         core,
         client,
@@ -67,6 +128,7 @@ async fn proxy<'a>(f: &Fixture, client: &zbus::Connection) -> SystemControlApiPr
         .destination(f.core.connection.unique_name().unwrap().to_string())
         .unwrap()
         .build()
+        .bounded()
         .await
         .unwrap()
 }
@@ -88,6 +150,7 @@ async fn the_export_matches_the_xml_and_maps_logind() {
             ..FakeLogin::default()
         },
     )
+    .bounded()
     .await;
     let f = fixture(&system).await;
     let control = proxy(&f, &f.client).await;
@@ -101,6 +164,7 @@ async fn the_export_matches_the_xml_and_maps_logind() {
         .await
         .unwrap()
         .introspect()
+        .bounded()
         .await
         .unwrap();
     let file = std::fs::read_to_string(concat!(
@@ -114,7 +178,7 @@ async fn the_export_matches_the_xml_and_maps_logind() {
         methods(&file, system_control::INTERFACE)
     );
 
-    let (state,) = control.get_power().await.unwrap();
+    let (state,) = control.get_power().bounded().await.unwrap();
     state.validate().unwrap();
     assert_eq!(
         PowerAction::ALL.map(|a| state.availability(a)),
@@ -125,20 +189,20 @@ async fn the_export_matches_the_xml_and_maps_logind() {
         ]
     );
     // Accepted means logind took the request; interactive is never asked.
-    control.suspend().await.unwrap();
+    control.suspend().bounded().await.unwrap();
     assert_eq!(
         fake.lock().unwrap().calls,
         vec![("suspend".to_string(), false)]
     );
     // A block inhibitor: a typed refusal, and logind is not asked.
     assert_eq!(
-        error_name(control.reboot().await.unwrap_err()),
+        error_name(control.reboot().bounded().await.unwrap_err()),
         "org.arinn.Error1.Conflict"
     );
     fake.lock().unwrap().inhibitors.clear();
     fake.lock().unwrap().refuse = Some(zbus::fdo::Error::InteractiveAuthorizationRequired);
     assert_eq!(
-        error_name(control.power_off().await.unwrap_err()),
+        error_name(control.power_off().bounded().await.unwrap_err()),
         "org.arinn.Error1.PermissionDenied"
     );
     assert_eq!(fake.lock().unwrap().calls.len(), 2);
@@ -149,36 +213,68 @@ async fn volume_changes_return_the_new_state() {
     let system = Bus::new();
     let f = fixture(&system).await;
     let control = proxy(&f, &f.client).await;
-    let (volume,) = control.get_volume().await.unwrap();
+    let (volume,) = control.get_volume().bounded().await.unwrap();
     assert_eq!((volume.audio.as_str(), volume.level), ("unmuted", 50));
-    let (volume,) = control.step_volume(2).await.unwrap();
+    let (volume,) = control.step_volume(2).bounded().await.unwrap();
     assert_eq!(volume.level, 60);
-    let (volume,) = control.toggle_muted().await.unwrap();
+    let (volume,) = control.toggle_muted().bounded().await.unwrap();
     assert_eq!((volume.audio.as_str(), volume.level), ("muted", 60));
-    let (volume,) = control.set_muted(false).await.unwrap();
+    let (volume,) = control.set_muted(false).bounded().await.unwrap();
     assert_eq!(volume.audio, "unmuted");
     for steps in [0, 21, -21, i32::MAX] {
         assert_eq!(
-            error_name(control.step_volume(steps).await.unwrap_err()),
+            error_name(control.step_volume(steps).bounded().await.unwrap_err()),
             "org.arinn.Error1.InvalidArgument",
             "{steps}"
         );
     }
     // Without logind: power is unknown, an action is unavailable.
-    let (state,) = control.get_power().await.unwrap();
+    let (state,) = control.get_power().bounded().await.unwrap();
     assert_eq!(state, PowerState::unknown());
     assert_eq!(
-        error_name(control.suspend().await.unwrap_err()),
+        error_name(control.suspend().bounded().await.unwrap_err()),
         "org.arinn.Error1.Unavailable"
     );
     // A sound server that goes away.
     std::fs::write(f.folder.join("pactl").join("no-server"), "").unwrap();
     assert_eq!(
-        error_name(control.toggle_muted().await.unwrap_err()),
+        error_name(control.toggle_muted().bounded().await.unwrap_err()),
         "org.arinn.Error1.Unavailable"
     );
-    let (volume,) = control.get_volume().await.unwrap();
+    let (volume,) = control.get_volume().bounded().await.unwrap();
     assert_eq!(volume, Volume::unknown());
+}
+
+/// #524: the export starts the object server's dispatcher while the
+/// server's socket reader is already queued to run, so the reader goes first
+/// and reads the first call before the dispatcher has subscribed to calls.
+/// Unless the fixture waits until the export is served, that call is dropped
+/// and never answered.
+#[tokio::test]
+async fn a_call_right_after_the_export_is_answered() {
+    let system = Bus::new();
+    let session = Bus::new();
+    let server = session.connect().bounded().await;
+    let client = session.connect().bounded().await;
+    // A message waits in the server's socket. Yielding once lets the runtime
+    // see it, which queues the server's reader, and resumes this test first.
+    client
+        .emit_signal(server.unique_name(), "/", "org.arinn.Test1", "Poke", &())
+        .bounded()
+        .await
+        .unwrap();
+    std::thread::sleep(Duration::from_millis(200));
+    tokio::task::yield_now().await;
+
+    let f = serve(session, server, client, &system, SessionSwitch::none()).await;
+    let control = proxy(&f, &f.client).await;
+    // Sent without yielding; it reaches the server's socket while the reader
+    // is still queued ahead of the dispatcher.
+    let mut call = pin!(control.get_session_switch());
+    let early = std::future::poll_fn(|cx| Poll::Ready(call.as_mut().poll(cx))).await;
+    assert!(early.is_pending());
+    std::thread::sleep(Duration::from_millis(200));
+    assert_eq!(call.bounded().await.unwrap(), "unsupported");
 }
 
 fn provider(id: &str, owner: &str) -> super::super::Provider {
@@ -238,9 +334,10 @@ async fn a_provider_connection_is_refused() {
             ..FakeLogin::default()
         },
     )
+    .bounded()
     .await;
     let f = fixture(&system).await;
-    let plugin = f._session.connect().await;
+    let plugin = f._session.connect().bounded().await;
     let owner = plugin.unique_name().unwrap().to_string();
     f.core
         .state
@@ -250,34 +347,49 @@ async fn a_provider_connection_is_refused() {
         .insert("fixture".into(), provider("fixture", &owner));
     let control = proxy(&f, &plugin).await;
     let denied = "org.arinn.Error1.PermissionDenied";
-    assert_eq!(error_name(control.get_power().await.unwrap_err()), denied);
-    assert_eq!(error_name(control.suspend().await.unwrap_err()), denied);
-    assert_eq!(error_name(control.reboot().await.unwrap_err()), denied);
-    assert_eq!(error_name(control.power_off().await.unwrap_err()), denied);
-    assert_eq!(error_name(control.get_volume().await.unwrap_err()), denied);
     assert_eq!(
-        error_name(control.set_muted(true).await.unwrap_err()),
+        error_name(control.get_power().bounded().await.unwrap_err()),
         denied
     );
     assert_eq!(
-        error_name(control.toggle_muted().await.unwrap_err()),
+        error_name(control.suspend().bounded().await.unwrap_err()),
         denied
     );
     assert_eq!(
-        error_name(control.step_volume(1).await.unwrap_err()),
+        error_name(control.reboot().bounded().await.unwrap_err()),
+        denied
+    );
+    assert_eq!(
+        error_name(control.power_off().bounded().await.unwrap_err()),
+        denied
+    );
+    assert_eq!(
+        error_name(control.get_volume().bounded().await.unwrap_err()),
+        denied
+    );
+    assert_eq!(
+        error_name(control.set_muted(true).bounded().await.unwrap_err()),
+        denied
+    );
+    assert_eq!(
+        error_name(control.toggle_muted().bounded().await.unwrap_err()),
+        denied
+    );
+    assert_eq!(
+        error_name(control.step_volume(1).bounded().await.unwrap_err()),
         denied
     );
     // Refused before its argument is checked.
     assert_eq!(
-        error_name(control.step_volume(0).await.unwrap_err()),
+        error_name(control.step_volume(0).bounded().await.unwrap_err()),
         denied
     );
     assert_eq!(
-        error_name(control.get_session_switch().await.unwrap_err()),
+        error_name(control.get_session_switch().bounded().await.unwrap_err()),
         denied
     );
     assert_eq!(
-        error_name(control.switch_to_desktop().await.unwrap_err()),
+        error_name(control.switch_to_desktop().bounded().await.unwrap_err()),
         denied
     );
     assert!(fake.lock().unwrap().calls.is_empty());
@@ -286,11 +398,8 @@ async fn a_provider_connection_is_refused() {
 
     // The shell, which owns no provider, is served.
     let shell = proxy(&f, &f.client).await;
-    shell.suspend().await.unwrap();
-    tokio::time::timeout(Duration::from_secs(5), shell.get_volume())
-        .await
-        .unwrap()
-        .unwrap();
+    shell.suspend().bounded().await.unwrap();
+    shell.get_volume().bounded().await.unwrap();
 }
 
 #[tokio::test]
@@ -304,14 +413,15 @@ async fn a_second_power_request_meanwhile_is_refused_not_queued() {
             ..FakeLogin::default()
         },
     )
+    .bounded()
     .await;
     let f = fixture(&system).await;
     let control = proxy(&f, &f.client).await;
-    let other = f._session.connect().await;
+    let other = f._session.connect().bounded().await;
     let second = proxy(&f, &other).await;
-    let (first, overlapping) = tokio::join!(control.suspend(), async {
+    let (first, overlapping) = tokio::join!(control.suspend().bounded(), async {
         tokio::time::sleep(Duration::from_millis(150)).await;
-        second.power_off().await
+        second.power_off().bounded().await
     });
     first.unwrap();
     assert_eq!(
@@ -331,53 +441,41 @@ async fn switch_to_desktop_only_inside_the_arinn_session() {
     // An ordinary desktop session: offered as unsupported, refused typed.
     let f = fixture(&system).await;
     let control = proxy(&f, &f.client).await;
-    assert_eq!(control.get_session_switch().await.unwrap(), "unsupported");
     assert_eq!(
-        error_name(control.switch_to_desktop().await.unwrap_err()),
+        control.get_session_switch().bounded().await.unwrap(),
+        "unsupported"
+    );
+    assert_eq!(
+        error_name(control.switch_to_desktop().bounded().await.unwrap_err()),
         "org.arinn.Error1.Unsupported"
     );
 
     // The dedicated session: the helper runs once per request.
-    let session = Bus::new();
-    let server = session.connect().await;
-    let client = session.connect().await;
-    let folder = std::env::temp_dir().join(format!("arinn-control-{}", Uuid::new_v4()));
-    let helper = fake_session_switch(&folder.join("switch"));
-    let core = Core::new(
-        &server,
-        Paths {
-            config: folder.join("config"),
-            data: folder.join("data"),
-            state: folder.join("state"),
-        },
-        folder.clone(),
-    );
-    core.export_system_control(Control {
-        system_bus: Some(system.1.clone()),
-        pactl: PathBuf::from("/nonexistent/pactl"),
-        session: SessionSwitch {
+    let helpers = std::env::temp_dir().join(format!("arinn-switch-{}", Uuid::new_v4()));
+    let helper = fake_session_switch(&helpers);
+    let f = fixture_with(
+        &system,
+        SessionSwitch {
             entry: Some("plasma".into()),
             helper,
         },
-    })
-    .await
-    .unwrap();
-    let control = SystemControlApiProxy::builder(&client)
-        .destination(server.unique_name().unwrap().to_string())
-        .unwrap()
-        .build()
-        .await
-        .unwrap();
-    assert_eq!(control.get_session_switch().await.unwrap(), "available");
-    control.switch_to_desktop().await.unwrap();
-    let calls = || std::fs::read_to_string(folder.join("switch").join("calls")).unwrap();
-    assert_eq!(calls(), "desktop entry=plasma\n");
-    std::fs::write(folder.join("switch").join("exit"), "1").unwrap();
+    )
+    .bounded()
+    .await;
+    let control = proxy(&f, &f.client).await;
     assert_eq!(
-        error_name(control.switch_to_desktop().await.unwrap_err()),
+        control.get_session_switch().bounded().await.unwrap(),
+        "available"
+    );
+    control.switch_to_desktop().bounded().await.unwrap();
+    let calls = || std::fs::read_to_string(helpers.join("calls")).unwrap();
+    assert_eq!(calls(), "desktop entry=plasma\n");
+    std::fs::write(helpers.join("exit"), "1").unwrap();
+    assert_eq!(
+        error_name(control.switch_to_desktop().bounded().await.unwrap_err()),
         "org.arinn.Error1.Unavailable"
     );
-    let _ = std::fs::remove_dir_all(&folder);
+    let _ = std::fs::remove_dir_all(&helpers);
 }
 
 #[tokio::test]
@@ -391,6 +489,7 @@ async fn the_switch_and_a_power_request_exclude_each_other() {
             ..FakeLogin::default()
         },
     )
+    .bounded()
     .await;
     let helpers = std::env::temp_dir().join(format!("arinn-switch-{}", Uuid::new_v4()));
     let helper = fake_session_switch(&helpers);
@@ -401,16 +500,17 @@ async fn the_switch_and_a_power_request_exclude_each_other() {
             helper,
         },
     )
+    .bounded()
     .await;
     let control = proxy(&f, &f.client).await;
-    let other = f._session.connect().await;
+    let other = f._session.connect().bounded().await;
     let second = proxy(&f, &other).await;
     let calls = || std::fs::read_to_string(helpers.join("calls")).unwrap_or_default();
 
     // A power request is running: the switch is refused, not queued.
-    let (first, overlapping) = tokio::join!(control.suspend(), async {
+    let (first, overlapping) = tokio::join!(control.suspend().bounded(), async {
         tokio::time::sleep(Duration::from_millis(150)).await;
-        second.switch_to_desktop().await
+        second.switch_to_desktop().bounded().await
     });
     first.unwrap();
     assert_eq!(
@@ -421,9 +521,9 @@ async fn the_switch_and_a_power_request_exclude_each_other() {
 
     // The switch is running: a power request is refused.
     std::fs::write(helpers.join("delay"), "0.5").unwrap();
-    let (first, overlapping) = tokio::join!(control.switch_to_desktop(), async {
+    let (first, overlapping) = tokio::join!(control.switch_to_desktop().bounded(), async {
         tokio::time::sleep(Duration::from_millis(150)).await;
-        second.reboot().await
+        second.reboot().bounded().await
     });
     first.unwrap();
     assert_eq!(

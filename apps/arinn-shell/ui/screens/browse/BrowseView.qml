@@ -204,6 +204,7 @@ FocusScope {
             font.family: Ui.Theme.fontFamily
             font.pixelSize: 48
             font.weight: 500
+            Ui.FontWeightAxis {}
             verticalAlignment: TextInput.AlignVCenter
             clip: true
             selectByMouse: true

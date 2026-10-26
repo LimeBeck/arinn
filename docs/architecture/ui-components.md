@@ -19,7 +19,8 @@ models into these properties and routing emitted actions to the daemon.
 
 | Component | Presentation contract |
 | --- | --- |
-| `Theme`, `UiText` | Shared colours, radii, timing, font and named typography roles; Onest with tabular numerals |
+| `Theme`, `UiText` | Shared colours, radii, timing, font and named typography roles; Onest with tabular numerals, each weight applied to the font's `wght` axis (see *Font weights*) |
+| `FontWeightAxis` | Put inside a plain `Text` or `TextInput` in Onest that sets `font.weight`; applies the weight to the `wght` axis as `UiText` does. Draws nothing |
 | `LogicalCanvas` | Centred 1920×1080 stage, uniform `min(width/1920, height/1080)` scale |
 | `Surface` | Focus, press, disabled and busy treatment; focus ring above all artwork; `activated()` intent |
 | `ActionButton` | Content-sized pill, `text`, optional `destructive` tint |
@@ -101,6 +102,32 @@ Onest is bundled unchanged from the Google Fonts `ofl/onest` directory:
 [upstream project](https://github.com/googlefonts/onest).
 Copyright 2021 The Onest Project Authors. License: SIL Open Font License 1.1,
 in `LICENSES/OFL-1.1.txt`, with the binary annotated in `REUSE.toml`.
+
+## Font weights
+
+Onest is a variable font: one face with a `wght` axis from 100 to 900 and
+named instances. Qt does not match those instances by `font.weight` for an
+application font. In the Qt 6.10.2 dev container and in CI on Arch with
+Qt 6.12.0 (offscreen, fontconfig), every `font.weight` and
+`font.styleName` rendered as the default 400, while
+`font.variableAxes` (Qt 6.7 and newer, within the Qt 6.8 floor of
+[ADR-0104](../adr/0104-qt-floor-and-prebuilt-ci-images.md)) does change the
+rendering ([#546](https://github.com/LimeBeck/arinn/issues/546)).
+
+So the shell keeps `font.weight` as the way to set a weight and copies it to
+the axis: `Theme.applyWeight(item)` sets `font.variableAxes.wght` to
+`font.weight` whenever they differ. `UiText` calls it whenever its font
+changes, so a role's weight, a weight set on an instance and a later change
+all render. A plain `Text` or `TextInput` in Onest with a weight carries a
+`FontWeightAxis` child that does the same. A 400 text gets no axis. On a Qt that matches the
+named instances itself, the axis names the same design coordinates as the
+matched instance; that case has not been observed yet. Text in the system font (such as the
+library's "!" glyphs) is not affected.
+
+[`tst_font_weights.qml`](../../tests/ui/tst_font_weights.qml) draws the same
+string at 400 and at 500, 600 and 700 through `UiText` and `FontWeightAxis`
+and asserts a wider advance and more ink. It also logs whether Qt itself
+matches the family by `font.weight`.
 
 ## Home and global navigation preview
 

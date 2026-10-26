@@ -187,10 +187,10 @@ void Backend::presentHome(const QString &epoch, const QString &,
   if (m_connected && !epoch.isEmpty() && epoch == m_daemonEpoch)
     emit homeRequested();
 }
-void Backend::presentQuickMenu(const QString &epoch, const QString &,
+void Backend::presentQuickMenu(const QString &epoch, const QString &target,
                                const QString &) {
   if (m_connected && !epoch.isEmpty() && epoch == m_daemonEpoch)
-    emit quickMenuRequested();
+    emit quickMenuRequested(target);
 }
 void Backend::presentPowerMenu(const QString &epoch, const QString &,
                                const QString &) {

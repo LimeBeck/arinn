@@ -126,6 +126,11 @@ impl Keyboard {
     /// keyboard devices (a remote, a keyboard, XTest); releasing first let a
     /// keyboard key pressed in between reach the focused application, or
     /// another client grab it (#522).
+    ///
+    /// When another client holds a combination of a sequence, the
+    /// sequence's new combinations are skipped and the ones the worker
+    /// already held stay held: a remap that adds a contested keycode never
+    /// costs the key on its old keycode (review of #525, ADR-0105).
     fn grab_keys(&mut self) -> Result<()> {
         let map = KeyMap::read(&self.c)?;
         let mut grabbed = HashSet::new();
@@ -134,10 +139,15 @@ impl Keyboard {
             if combinations.is_empty() {
                 continue;
             }
-            if native::grab_combinations(&self.c, self.root, &combinations)? {
+            // Held before this call, or by a sequence grabbed above.
+            let keep: HashSet<(u16, Keycode)> = self.key_grabs.union(&grabbed).copied().collect();
+            if native::grab_combinations_keeping(&self.c, self.root, &combinations, &keep)? {
                 grabbed.extend(combinations);
             } else {
-                eprintln!("arinn-platform-x11: a keyboard key is held by another client; skipped");
+                grabbed.extend(combinations.into_iter().filter(|c| keep.contains(c)));
+                eprintln!(
+                    "arinn-platform-x11: a keyboard key combination is held by another client; skipped"
+                );
             }
         }
         for (modifiers, key) in self.key_grabs.difference(&grabbed) {
@@ -712,6 +722,55 @@ mod tests {
         stop.store(true, Ordering::SeqCst);
         assert_eq!(stealing.join().unwrap()?, 0);
         assert_eq!(keyboard.key_grabs, held);
+        desktop.press(&[0xffe3, 0xffe9], u32::from(b'k'))?; // Control_L, Alt_L
+        settle();
+        assert_eq!(keyboard.poll()?, [Seen::Key]);
+        assert_eq!(app.keysyms()?, Vec::<u32>::new());
+        Ok(())
+    }
+
+    /// Review of #525 (Codex P1): a mapping change that adds a combination
+    /// another client already holds skips only that new combination. The
+    /// worker keeps the combinations it held before, so the key on its old
+    /// keycode still reaches only the worker (ADR-0105: a key another
+    /// client holds is skipped, nothing else).
+    #[test]
+    #[ignore = "requires Xvfb; spawns an isolated X server, never uses the real DISPLAY"]
+    fn a_contested_new_keycode_keeps_the_held_grabs() -> Result<()> {
+        let desktop = Desktop::new()?;
+        let app = Target::new(&desktop, "org.example.Browser")?;
+        desktop.inventory(&[app.xid], app.xid)?;
+        let home = crate::key_sequence::home("Meta+F12").0;
+        let keys = crate::key_sequence::keyboard("Ctrl+Alt+K", &home).0;
+        let mut keyboard = Keyboard::connect(Some(&desktop.display), keys)?;
+        let held = keyboard.key_grabs.clone();
+        assert!(!held.is_empty());
+        let map = KeyMap::read(&keyboard.c)?;
+        let (free, per_key) = (*map.free().last().unwrap(), map.per_key());
+        assert!(held.iter().all(|(_, key)| *key < free));
+        // Another client holds every combination of the free keycode.
+        let (other, screen) = x11rb::connect(Some(&desktop.display))?;
+        let root = other.setup().roots[screen].root;
+        other
+            .grab_key(
+                false,
+                root,
+                ModMask::ANY,
+                free,
+                GrabMode::ASYNC,
+                GrabMode::ASYNC,
+            )?
+            .check()?;
+        // The new mapping puts `k` on that keycode too.
+        desktop
+            .c
+            .change_keyboard_mapping(1, free, per_key as u8, &vec![u32::from(b'k'); per_key])?
+            .check()?;
+        keyboard.c.get_input_focus()?.reply()?;
+        assert_eq!(keyboard.poll()?, Vec::<Seen>::new());
+        assert_eq!(keyboard.key_grabs, held);
+        // `k` on its old keycode (the first that carries it) still reaches
+        // only the worker.
         desktop.press(&[0xffe3, 0xffe9], u32::from(b'k'))?; // Control_L, Alt_L
         settle();
         assert_eq!(keyboard.poll()?, [Seen::Key]);

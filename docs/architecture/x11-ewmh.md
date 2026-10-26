@@ -228,7 +228,9 @@ rest of the adapter unchanged.
   unlocked ScreenSaver reply. A keyboard or modifier mapping change grabs the
   keys again without letting a still-wanted combination go: the new
   combinations are grabbed first (which only replaces the worker's own grab)
-  and only those the new mapping no longer names are released. The X server
+  and only those the new mapping no longer names are released. When another
+  client holds a combination the new mapping adds, only that key's new
+  combinations are skipped; the ones the worker already held stay held. The X server
   also sends a mapping change whenever key events switch between devices (a
   remote, a keyboard, XTest), so releasing first let a key pressed in between
   reach the application (#522).
@@ -352,7 +354,7 @@ ARINN_PLATFORM_BACKEND=ewmh cargo test -p arinnd selected_adapter_owner_excludes
 The keyboard's ignored tests spawn their own Xvfb too. They check that:
 
 - the key reaches the worker and not the application;
-- a mapping change never lets the key go: a client that keeps grabbing it never gets it;
+- a mapping change never lets the key go: a client that keeps grabbing it never gets it, and a new keycode another client holds costs only that keycode;
 - XTest types ASCII and Cyrillic with an English keymap;
 - the panel keys are grabbed while other keys pass;
 - the shell and unlisted windows are never targets;

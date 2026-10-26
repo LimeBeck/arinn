@@ -1869,7 +1869,7 @@
     </message>
     <message>
         <source>Remove</source>
-        <translation>Удалить</translation>
+        <translation>Убрать</translation>
     </message>
     <message>
         <source>Add path</source>

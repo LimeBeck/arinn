@@ -434,6 +434,9 @@ CONTEXT = {
     ("PowerMenu", "Power"): "Питание",
     # Stops a starting application (spec §6.5).
     ("LaunchOverlay", "Stop"): "Прервать",
+    # A folder or path only leaves the list; nothing is deleted (§5.6,
+    # handoff LF-6: «Убрать», never «Удалить»; #558).
+    ("SettingsView", "Remove"): "Убрать",
 }
 
 

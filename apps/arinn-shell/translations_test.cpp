@@ -25,6 +25,9 @@ private slots:
     // Restarting Arinn is not the power menu's computer restart (ADR-0098).
     QCOMPARE(QCoreApplication::translate("HomeView", "Restart"), QStringLiteral("Перезапустить"));
     QCOMPARE(QCoreApplication::translate("PowerMenu", "Restart"), QStringLiteral("Перезагрузка"));
+    // A folder or path leaves the list; nothing is deleted (§5.6, handoff
+    // LF-6: «Убрать», never «Удалить»; #558).
+    QCOMPARE(QCoreApplication::translate("SettingsView", "Remove"), QStringLiteral("Убрать"));
     QCOMPARE(QCoreApplication::translate("SettingsCatalog", "Media"), QStringLiteral("Медиа"));
     // Library tabs are named by the shell, not by the provider (#431).
     QCOMPARE(QCoreApplication::translate("LibraryCatalog", "Films"), QStringLiteral("Фильмы"));

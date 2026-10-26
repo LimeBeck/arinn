@@ -245,6 +245,7 @@ struct SettingsCatalog::RootScan {
   int pages = 0;
   QSet<QString> tokens;
   QHash<QString, QString> found;
+  QHash<QString, QString> generations;
 };
 
 struct SettingsCatalog::Load {
@@ -282,6 +283,10 @@ SettingsCatalog::SettingsCatalog(QObject *parent) : QObject(parent) {
             m_tickets.clear();
             m_providers.clear();
             m_libraryPaths.clear();
+            m_libraryGenerations.clear();
+            m_rootFeatures.clear();
+            m_rootsReading.clear();
+            m_rootsAgain.clear();
             m_roots.clear();
             m_rootTickets.clear();
             m_loaded = false;
@@ -445,7 +450,11 @@ void SettingsCatalog::finishLoad(const std::shared_ptr<Load> &load) {
 // their daemon paths come from Daemon1.Providers; each one that lists
 // LibraryRoots1 in Features is asked for Library1.GetRoots. Unsupported means
 // no unavailable state, Unavailable means not read yet: both leave the folders
-// as they are until the provider's next library StateChanged.
+// as they are until the provider's next library StateChanged. One change
+// brings StateChanged and then ProvidersChanged, so reads are coalesced per
+// provider: one read at a time, run once more if asked again meanwhile.
+// Features cannot change within a provider generation and is read once per
+// generation.
 void SettingsCatalog::refreshRoots() {
   auto scan = std::make_shared<RootScan>();
   scan->ticket = ++m_rootScan;
@@ -490,8 +499,10 @@ void SettingsCatalog::readLibraryProviders(const std::shared_ptr<RootScan> &scan
               arg.endStructure();
               if (capabilities.contains(QLatin1String("library")) &&
                   runtime == QLatin1String("ready") && !id.isEmpty() &&
-                  !endpoint.path().isEmpty())
+                  !endpoint.path().isEmpty()) {
                 scan->found.insert(id, endpoint.path());
+                scan->generations.insert(id, generation);
+              }
             }
             arg.endArray();
             arg >> next;
@@ -501,6 +512,7 @@ void SettingsCatalog::readLibraryProviders(const std::shared_ptr<RootScan> &scan
               return;
             }
             m_libraryPaths = scan->found;
+            m_libraryGenerations = scan->generations;
             QStringList gone;
             for (auto it = m_roots.cbegin(); it != m_roots.cend(); ++it)
               if (!m_libraryPaths.contains(it.key()))
@@ -526,69 +538,100 @@ void SettingsCatalog::readRoots(const QString &providerId) {
   const auto objectPath = m_libraryPaths.value(providerId);
   if (objectPath.isEmpty())
     return;
+  if (m_rootsReading.contains(providerId)) {
+    m_rootsAgain.insert(providerId);
+    return;
+  }
+  m_rootsReading.insert(providerId);
   const auto ticket = ++m_rootTickets[providerId];
   const auto epoch = m_epoch;
+  const auto generation = m_libraryGenerations.value(providerId);
+  const auto cached = m_rootFeatures.constFind(providerId);
+  if (!generation.isEmpty() && cached != m_rootFeatures.cend() &&
+      cached->first == generation) {
+    if (cached->second) {
+      readRootList(providerId, objectPath, ticket, epoch);
+    } else {
+      dropRoots(providerId);
+      finishRootRead(providerId);
+    }
+    return;
+  }
   auto features = QDBusMessage::createMethodCall(
       service, objectPath, libraryInterface, QStringLiteral("Features"));
   auto pending = new QDBusPendingCallWatcher(
       QDBusConnection::sessionBus().asyncCall(features, callMs), this);
-  connect(
-      pending, &QDBusPendingCallWatcher::finished, this,
-      [this, providerId, objectPath, ticket, epoch](auto *call) {
-        const auto reply = call->reply();
-        call->deleteLater();
-        if (epoch != m_epoch || ticket != m_rootTickets.value(providerId))
-          return;
-        // Without LibraryRoots1 the provider never reports a folder as
-        // unavailable (ADR-0071).
-        if (reply.type() == QDBusMessage::ErrorMessage ||
-            reply.signature() != QLatin1String("as") ||
-            !reply.arguments().at(0).toStringList().contains(
-                QLatin1String(rootsFeature))) {
-          dropRoots(providerId);
-          return;
-        }
-        auto roots = QDBusMessage::createMethodCall(
-            service, objectPath, libraryInterface, QStringLiteral("GetRoots"));
-        auto next = new QDBusPendingCallWatcher(
-            QDBusConnection::sessionBus().asyncCall(roots, callMs), this);
-        connect(next, &QDBusPendingCallWatcher::finished, this,
-                [this, providerId, ticket, epoch](auto *call) {
-                  const auto reply = call->reply();
-                  call->deleteLater();
-                  if (epoch != m_epoch ||
-                      ticket != m_rootTickets.value(providerId))
-                    return;
-                  if (reply.type() == QDBusMessage::ErrorMessage ||
-                      reply.signature() != QLatin1String(rootsReply)) {
-                    dropRoots(providerId);
-                    return;
-                  }
-                  const auto arg =
-                      qvariant_cast<QDBusArgument>(reply.arguments().at(0));
-                  QString generation;
-                  qulonglong revision = 0;
-                  QHash<QString, bool> states;
-                  arg.beginStructure();
-                  arg >> generation >> revision;
-                  arg.beginArray();
-                  while (!arg.atEnd()) {
-                    QString rootPath;
-                    bool available = true;
-                    arg.beginStructure();
-                    arg >> rootPath >> available;
-                    arg.endStructure();
-                    states.insert(rootPath, available);
-                  }
-                  arg.endArray();
-                  arg.endStructure();
-                  if (m_roots.value(providerId) == states &&
-                      m_roots.contains(providerId))
-                    return;
-                  m_roots.insert(providerId, states);
-                  publish();
-                });
-      });
+  connect(pending, &QDBusPendingCallWatcher::finished, this,
+          [this, providerId, objectPath, generation, ticket, epoch](auto *call) {
+            const auto reply = call->reply();
+            call->deleteLater();
+            if (epoch != m_epoch || ticket != m_rootTickets.value(providerId))
+              return;
+            const bool answered = reply.type() != QDBusMessage::ErrorMessage &&
+                                  reply.signature() == QLatin1String("as");
+            const bool roots =
+                answered && reply.arguments().at(0).toStringList().contains(
+                                QLatin1String(rootsFeature));
+            if (answered && !generation.isEmpty())
+              m_rootFeatures.insert(providerId, qMakePair(generation, roots));
+            // Without LibraryRoots1 the provider never reports a folder as
+            // unavailable (ADR-0071).
+            if (!roots) {
+              dropRoots(providerId);
+              finishRootRead(providerId);
+              return;
+            }
+            readRootList(providerId, objectPath, ticket, epoch);
+          });
+}
+void SettingsCatalog::readRootList(const QString &providerId,
+                                   const QString &objectPath, quint64 ticket,
+                                   quint64 epoch) {
+  auto roots = QDBusMessage::createMethodCall(service, objectPath, libraryInterface,
+                                              QStringLiteral("GetRoots"));
+  auto pending = new QDBusPendingCallWatcher(
+      QDBusConnection::sessionBus().asyncCall(roots, callMs), this);
+  connect(pending, &QDBusPendingCallWatcher::finished, this,
+          [this, providerId, ticket, epoch](auto *call) {
+            const auto reply = call->reply();
+            call->deleteLater();
+            if (epoch != m_epoch || ticket != m_rootTickets.value(providerId))
+              return;
+            if (reply.type() == QDBusMessage::ErrorMessage ||
+                reply.signature() != QLatin1String(rootsReply)) {
+              dropRoots(providerId);
+              finishRootRead(providerId);
+              return;
+            }
+            const auto arg = qvariant_cast<QDBusArgument>(reply.arguments().at(0));
+            QString generation;
+            qulonglong revision = 0;
+            QHash<QString, bool> states;
+            arg.beginStructure();
+            arg >> generation >> revision;
+            arg.beginArray();
+            while (!arg.atEnd()) {
+              QString rootPath;
+              bool available = true;
+              arg.beginStructure();
+              arg >> rootPath >> available;
+              arg.endStructure();
+              states.insert(rootPath, available);
+            }
+            arg.endArray();
+            arg.endStructure();
+            if (!m_roots.contains(providerId) ||
+                m_roots.value(providerId) != states) {
+              m_roots.insert(providerId, states);
+              publish();
+            }
+            finishRootRead(providerId);
+          });
+}
+void SettingsCatalog::finishRootRead(const QString &providerId) {
+  m_rootsReading.remove(providerId);
+  if (m_rootsAgain.remove(providerId))
+    readRoots(providerId);
 }
 void SettingsCatalog::dropRoots(const QString &providerId) {
   if (m_roots.remove(providerId))
@@ -679,8 +722,11 @@ void SettingsCatalog::publish() {
               {QStringLiteral("deferred"), m_deferred.contains(key)},
               {QStringLiteral("error"), m_errors.value(key)}};
           // The folders of this list that the library provider reports
-          // unavailable, matched by path as written (ADR-0071).
-          if (multiple) {
+          // unavailable, matched by path as written (ADR-0071). The contract
+          // does not name the setting the roots come from, so every folder
+          // list (`directory` and `multiple`) of that provider is matched; a
+          // list of files is not.
+          if (multiple && constraints.value(QStringLiteral("directory")).toBool()) {
             QStringList unavailable;
             const auto states = m_roots.constFind(provider.id);
             if (states != m_roots.cend())

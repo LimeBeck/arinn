@@ -971,6 +971,9 @@ TestCase {
             ["/media//films", "The path cannot contain //"],
             ["//server/share", "The path cannot contain //"],
             ["/media/a\tb", "The path cannot contain control characters"],
+            // C1 controls count too, as in `char::is_control` (#558).
+            ["/media/a\u0085b", "The path cannot contain control characters"],
+            ["/media/a\u009fb", "The path cannot contain control characters"],
             [overLimit, "The path is too long"]
         ];
         // A short name for a case in failure messages.

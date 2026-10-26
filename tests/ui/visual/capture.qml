@@ -507,15 +507,13 @@ TestCase {
         if (id === "library-folders-list")
             return settingsScene(null, view => settingsRow(view, "folders", "remove:0"), null, ["path-folders-1", "remove-folders-0"]);
         // A folder the library provider reports unavailable (#540): it stays
-        // in the list with its note and can be removed at once.
-        if (id === "library-folders-4" || id === "library-folders-7") {
-            const remove = id === "library-folders-7";
+        // in the list with its note. Its removal (se-lf-7) is a confirmation
+        // dialog the shell does not draw, like se-lf-6.
+        if (id === "library-folders-4")
             return settingsScene(setRow("folders", {
                 currentValue: ["/srv/films", "/srv/series", "/mnt/nas/archive"],
                 unavailablePaths: ["/mnt/nas/archive"]
-            }), view => settingsRow(view, "folders", remove ? "remove:2" : "path:0"), null,
-               remove ? ["pathNote-folders-2", "remove-folders-2"] : ["path-folders-0", "pathNote-folders-2"]);
-        }
+            }), view => settingsRow(view, "folders", "path:0"), null, ["path-folders-0", "pathNote-folders-2"]);
         if (id === "library-folders-limit")
             return settingsScene(setRow("folders", {
                 currentValue: ["/srv/archive-2019", "/srv/archive-2020", "/srv/archive-2021", "/srv/films"],

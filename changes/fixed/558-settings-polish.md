@@ -1,0 +1,4 @@
+- Settings polish ([#558](https://github.com/LimeBeck/arinn/issues/558)):
+  - In Russian, removing a folder or path from a Settings list uses the design's verb for taking an entry out, not the verb for deleting; nothing is deleted.
+  - The settings screen reads a library provider's folder availability once per change instead of about twice, and reads its features once per provider start.
+  - Only a folder list is marked with unavailable folders, not a list of files.

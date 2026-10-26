@@ -192,29 +192,9 @@ async fn run() -> Result<()> {
     let mut interrupt = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
     let connection = Connection::session().await?;
     let bus = DBusProxy::new(&connection).await?;
-    // Nothing in the user manager is touched before the name is owned, so a
-    // launcher that gives up or is stopped while it waits needs no cleanup.
-    tokio::select! {
-        result = acquire(&bus, HANDOVER) => result?,
-        _ = term.recv() => bail!("stopped while waiting for the launcher name"),
-        _ = interrupt.recv() => bail!("stopped while waiting for the launcher name"),
-    }
     // Subscribe before reading the owner so logout during startup is observed.
     let mut owners = bus.receive_name_owner_changed().await?;
     let owner = bus.get_name_owner(SESSION.try_into()?).await?;
-    // No supported concurrent graphical sessions share this user manager.
-    for unit in [
-        "arinn-session.target",
-        TARGET,
-        "arinnd.service",
-        "arinn-shell.service",
-        "arinn-ewmh.service",
-    ] {
-        ensure!(
-            !systemctl(&["is-active", "--quiet", unit]).await?,
-            "an Arinn session is already running"
-        );
-    }
     let lifetime = async {
         loop {
             let event = poll_fn(|cx| Pin::new(&mut owners).poll_next(cx)).await;
@@ -228,6 +208,29 @@ async fn run() -> Result<()> {
         }
     };
     tokio::pin!(lifetime);
+    // Nothing in the user manager is touched before the name is owned, so a
+    // launcher that gives up or is stopped while it waits needs no cleanup.
+    // Its own login ending ends the wait too: it must never take over a
+    // later login with this login's display and session (#483).
+    tokio::select! {
+        result = acquire(&bus, HANDOVER) => result?,
+        _ = &mut lifetime => bail!("the XFCE session ended while waiting for the launcher name"),
+        _ = term.recv() => bail!("stopped while waiting for the launcher name"),
+        _ = interrupt.recv() => bail!("stopped while waiting for the launcher name"),
+    }
+    // No supported concurrent graphical sessions share this user manager.
+    for unit in [
+        "arinn-session.target",
+        TARGET,
+        "arinnd.service",
+        "arinn-shell.service",
+        "arinn-ewmh.service",
+    ] {
+        ensure!(
+            !systemctl(&["is-active", "--quiet", unit]).await?,
+            "an Arinn session is already running"
+        );
+    }
     let mut startup = Box::pin(start());
     let outcome = tokio::select! {
         result = &mut startup => {

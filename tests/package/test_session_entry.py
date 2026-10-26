@@ -44,10 +44,15 @@ case "$*" in
     n=$(cat "$FAKE_ROOT/ready"); n=$((n + 1)); echo $n > "$FAKE_ROOT/ready"
     [ "$n" -gt "${FAKE_READY_AFTER:-0}" ]; exit $? ;;
 *"status org.arinn.XfceSession"*)
-    # The launcher name's owner: the helper started by the wrapper once
-    # FAKE_TAKEOVER_AFTER polls have passed, the previous login's before.
-    n=$(cat "$FAKE_ROOT/owner" 2>/dev/null || echo 0); n=$((n + 1)); echo $n > "$FAKE_ROOT/owner"
-    if [ "$n" -gt "${FAKE_TAKEOVER_AFTER:-0}" ] && [ -f "$FAKE_ROOT/helper.pid" ]; then
+    # The launcher name's owner: the previous login's until the helper the
+    # wrapper started has run and FAKE_TAKEOVER_AFTER more polls passed,
+    # then that helper. Only polls after the helper wrote its pid count.
+    if [ -s "$FAKE_ROOT/helper.pid" ]; then
+        n=$(cat "$FAKE_ROOT/owner" 2>/dev/null || echo 0); n=$((n + 1)); echo $n > "$FAKE_ROOT/owner"
+    else
+        n=0
+    fi
+    if [ "$n" -gt "${FAKE_TAKEOVER_AFTER:-0}" ]; then
         echo "PID=$(cat "$FAKE_ROOT/helper.pid")"
     else
         echo "PID=1"
@@ -86,7 +91,7 @@ exit "${FAKE_DESKTOP_STATUS:-0}"
 # it exit at once, as a helper that never got its name does.
 XFCE_HELPER = """#!/bin/sh
 echo "xfce-helper" >> "$FAKE_LOG"
-echo $$ > "$FAKE_ROOT/helper.pid"
+echo $$ > "$FAKE_ROOT/helper.pid.tmp" && mv "$FAKE_ROOT/helper.pid.tmp" "$FAKE_ROOT/helper.pid"
 [ -n "${FAKE_HELPER_EXIT:-}" ] && exit "$FAKE_HELPER_EXIT"
 n=0
 while [ ! -f "$FAKE_ROOT/stop" ] && [ $n -lt 400 ]; do sleep 0.05; n=$((n + 1)); done
@@ -198,7 +203,12 @@ class SessionEntry(unittest.TestCase):
     def test_xfce_starts_the_helper_once_the_session_manager_is_up(self):
         fixture = Fixture(self)
         process = self.start(fixture, "xfce", FAKE_READY_AFTER=2)
-        self.assertTrue(fixture.wait_for(lambda c: "xfce-helper" in c), fixture.calls())
+        # Started once the helper owns its name (#483); the stub helper ends
+        # with the desktop, so stop only after that.
+        owner = fixture.root / "owner"
+        self.assertTrue(fixture.wait_for(lambda c: owner.exists() and owner.read_text().strip() == "1"),
+                        fixture.calls())
+        time.sleep(0.1)
         fixture.stop_desktop()
         code, err = self.finish(process)
         calls = fixture.calls()
@@ -222,15 +232,16 @@ class SessionEntry(unittest.TestCase):
         # its own helper owns it.
         fixture = Fixture(self)
         process = self.start(fixture, "xfce", FAKE_TAKEOVER_AFTER=3)
+        owner = fixture.root / "owner"
         self.assertTrue(fixture.wait_for(
-            lambda c: len([x for x in c if "status org.arinn.XfceSession" in x]) >= 4), fixture.calls())
+            lambda c: owner.exists() and owner.read_text().strip() == "4"), fixture.calls())
         time.sleep(0.2)
         fixture.stop_desktop()
         code, err = self.finish(process)
         self.assertEqual(code, 0, err)
         self.assertNotIn("Arinn did not start", err)
-        polls = [c for c in fixture.calls() if "status org.arinn.XfceSession" in c]
-        self.assertEqual(polls, ["busctl --user status org.arinn.XfceSession"] * 4)
+        # It stopped asking once its helper owned the name.
+        self.assertEqual(owner.read_text().strip(), "4")
 
     def test_xfce_helper_that_never_takes_over_is_reported(self):
         # The helper gave up waiting for the name, or failed before owning

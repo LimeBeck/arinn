@@ -232,6 +232,34 @@ exit 0
         self.assertEqual(child.wait(timeout=5), 0)
         self.assert_cleanup()
 
+    def test_login_that_ends_while_waiting_never_takes_over(self):
+        # #483: a launcher still waiting for the name when its own login
+        # ends (the session manager's name loses its owner or gets a new
+        # one) stops waiting and touches nothing, so it can never start a
+        # later login's target with this login's display and session.
+        previous = self.dbus.dbus_connection_open_private(self.address.encode(), None)
+        self.assertTrue(previous)
+        self.assertTrue(self.dbus.dbus_bus_register(previous, None))
+        self.assertEqual(self.dbus.dbus_bus_request_name(previous, b"org.arinn.XfceSession", 4, None), 1)
+        self.addCleanup(self.dbus.dbus_connection_unref, previous)
+        self.addCleanup(self.dbus.dbus_connection_close, previous)
+        child = self.launch()
+        time.sleep(1)
+        self.assertIsNone(child.poll())
+        # The next login's session manager replaces this one's.
+        self.close_owner()
+        replacement = self.dbus.dbus_connection_open_private(self.address.encode(), None)
+        self.assertTrue(replacement)
+        self.assertTrue(self.dbus.dbus_bus_register(replacement, None))
+        self.addCleanup(self.dbus.dbus_connection_unref, replacement)
+        self.addCleanup(self.dbus.dbus_connection_close, replacement)
+        self.assertEqual(self.dbus.dbus_bus_request_name(replacement, b"org.xfce.SessionManager", 4, None), 1)
+        self.assertEqual(child.wait(timeout=5), 1)
+        # The previous launcher releases the name only now: too late.
+        self.dbus.dbus_connection_close(previous)
+        time.sleep(0.5)
+        self.assertEqual(self.log.read_text(), "")
+
     def test_failed_start_cleans_partial_session(self):
         child = self.launch(START_FAIL="1")
         self.assertEqual(child.wait(timeout=5), 1)

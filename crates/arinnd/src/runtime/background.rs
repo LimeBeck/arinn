@@ -47,7 +47,7 @@ enum Phase {
         /// `Shell1` owner changes the daemon has received since publication
         /// began (before the reader was looked up). Any event ends reading;
         /// `None` (no subscription, or an event already seen) reads nothing.
-        owner_events: Option<MessageStream>,
+        owner_events: Option<Box<MessageStream>>,
     },
     Unavailable,
 }
@@ -524,7 +524,7 @@ impl Background {
                             width: frame.width,
                             height: frame.height,
                             reader: shell.clone().unwrap_or_default(),
-                            owner_events,
+                            owner_events: owner_events.map(Box::new),
                         };
                         outcome.revision = Self::bump(&mut inner).or(outcome.revision);
                         outcome.log = Some(("background-ready", None, None, elapsed as u64));
@@ -715,7 +715,7 @@ impl Background {
 /// Whether `Shell1` changed owner since the stream was opened. Polls without
 /// waiting. A seen event, an ended stream or no stream at all counts as a
 /// change, and stays one.
-fn owner_changed(events: &mut Option<MessageStream>) -> bool {
+fn owner_changed(events: &mut Option<Box<MessageStream>>) -> bool {
     use futures_util::FutureExt as _;
     let changed = match events.as_mut() {
         None => true,

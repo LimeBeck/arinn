@@ -596,6 +596,7 @@ FocusScope {
                 font.features: ({"tnum": 1})
                 color: Ui.Theme.textSecondary
                 text: Qt.formatTime(new Date(), "hh:mm")
+                Ui.FontWeightAxis {}
                 Timer {
                     interval: 30000
                     running: true
@@ -649,6 +650,7 @@ FocusScope {
                     font.weight: 600
                     font.features: ({"tnum": 1})
                     color: Ui.Theme.textHint
+                    Ui.FontWeightAxis {}
                 }
                 Ui.UiText {
                     id: listPosition

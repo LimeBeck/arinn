@@ -14,6 +14,8 @@ the session bus. It calls `ListProviders` and `GetSettings`, groups the rows by
 the design categories, and calls `SetValue` as an operation. `SettingsChanged`
 and `ProvidersChanged` reload the snapshot; a missing daemon is unavailable.
 `catalogChanged` is emitted only when the rows or the screen state changed.
+It also reads library folder availability; see *Unavailable library folders*
+below.
 `Main.qml` binds that model to `SettingsView` when Home's screen is Settings.
 The QML does not call a daemon, a plugin process or a provider-supplied widget
 (R-03, R-04). Values are not logged.
@@ -51,6 +53,7 @@ control.
 | Row `enabled` | When false, the row is shown and cannot be edited. The detail line is the generic "Cannot be changed now"; the contract carries no reason |
 | Row `pending` | A `SetValue` operation is still running |
 | Row `deferred` | The operation error was `Unsupported`. The value is stored and applies at the provider's next start, whether the operation finished as succeeded or failed. The note stays until that provider's generation changes, and it is forgotten when the shell restarts |
+| Row `unavailablePaths` | Only on a path row with `multiple`: the folders of `currentValue` that the provider of that row reports unavailable through `Library1.GetRoots`, matched by path as written. Empty when nothing is reported |
 | Row `error` | The daemon's error text, or empty. `Timeout` is the shell's own deadline and is shown as "Arinn did not reply. Try again." |
 | `screenState` | `loading`, `ready`, `error` or `unavailable` |
 
@@ -93,6 +96,32 @@ the `path` context row (KB-5); its main key saves as Enter does. Without a
 keyboard the editor opens on that pill. Subfolder suggestions, the folder list
 and the folder picker in specification §5.6 wait on the folder-listing
 contract ([DR-27](../design/integration-review.md)).
+
+### Unavailable library folders
+
+Specification §5.6 shows a library folder as unavailable only when the library
+provider reports it ([ADR-0071](../adr/0071-settings-editor-contract.md),
+[#540](https://github.com/LimeBeck/arinn/issues/540)). The shell never checks a
+path itself.
+
+- `SettingsCatalog` reads `Daemon1.Providers` for the ready providers with the
+  `library` capability and their daemon paths. It asks each one's
+  `Library1.Features`, and calls `Library1.GetRoots` only when the list holds
+  `LibraryRoots1`. It reads them on start, on `ProvidersChanged`, on a daemon
+  owner change and on `Daemon1.StateChanged` for that provider's `library`
+  capability.
+- `Unsupported` means no unavailable state. `Unavailable` means the daemon has
+  not read the roots yet: no folder is marked, and the next `StateChanged`
+  reads again. Any other error, or no `LibraryRoots1`, also marks nothing.
+- A root is matched to a folder of a `multiple` path row of the same provider
+  by its path as written; the row gets it in `unavailablePaths`.
+- In the inline folder list, such a folder keeps its place. Its path is in the
+  secondary text colour, with the error-coloured note "Unavailable. Its titles
+  stay in the library as unavailable." under it (handoff LF-4, without the
+  `folder_off` chip, which the inline list does not have). Editing and Remove
+  work as for any folder. Remove only takes the folder out of the setting;
+  nothing is deleted (§5.6). The folder returns to normal when the provider
+  stops reporting it.
 
 ## Changes
 
@@ -149,7 +178,8 @@ that change settles.
 (bounds, hold acceleration, unit when present), the enum sheet (paging, a
 wrapping label, and a 64-option sheet that opens scrolled to its current
 option), the string sheet, typing it with the on-screen keyboard, single-path and
-multiple-path text, typing a path, a list item and *Add path* with the on-screen keyboard, a disabled row, pending and error text, an over-long
+multiple-path text, typing a path, a list item and *Add path* with the on-screen keyboard, an
+unavailable folder (its note, Remove on it, and its return to normal), a disabled row, pending and error text, an over-long
 string, saving toasts, a deferred row note, Back, the unavailable screen,
 focus kept across a row republish, and Select on a pending boolean.
 `apps/arinn-shell/settings_catalog_test.cpp` drives a fake `Settings1`:
@@ -159,7 +189,11 @@ changes) and rejected with the daemon's text, a second `SetValue` ignored while
 that operation is still running, a disabled setting, string and path JSON, an
 integer `unit` and `step` when the JSON already contains them,
 `SettingsChanged`, a missing service, and `KeyboardMonitor` ignoring remote
-navigation keys.
+navigation keys. For library roots, the fake daemon also answers
+`Daemon1.Providers`, `Library1.Features` and `Library1.GetRoots`: `Unavailable`
+first, then one root unavailable after a library `StateChanged` and available
+after the next, no read on another capability's `StateChanged`, no `GetRoots`
+without `LibraryRoots1`, and `Unsupported` marking nothing.
 
 Offscreen run on 2026-09-30, Qt 6.11.2:
 

@@ -50,6 +50,10 @@ public:
   QDBusConnection bus;
   QString state = QStringLiteral("pending"), request = first;
   bool reject = false;
+  // Hold the reply to the next Get: it carries the snapshot taken when the
+  // call arrived, and is sent only by releaseGet().
+  bool holdGet = false;
+  std::optional<QDBusMessage> heldGet;
   qulonglong revision = 2;
   QStringList cancels;
   struct Published {
@@ -69,6 +73,10 @@ public:
     message << epoch << ++revision;
     bus.send(message);
   }
+  void releaseGet() {
+    if (heldGet) bus.send(*heldGet);
+    heldGet.reset();
+  }
   QString introspect(const QString &) const override { return {}; }
   bool handleMessage(const QDBusMessage &message, const QDBusConnection &connection) override {
     const auto member = message.member();
@@ -81,7 +89,13 @@ public:
       body.endArray();
       body << state;
       body.endStructure();
-      connection.send(message.createReply(QVariant::fromValue(body)));
+      auto reply = message.createReply(QVariant::fromValue(body));
+      if (holdGet) {
+        holdGet = false;
+        heldGet = reply;
+        return true;
+      }
+      connection.send(reply);
       return true;
     }
     if (member == QLatin1String("Cancel")) {
@@ -243,6 +257,28 @@ private slots:
     daemon->changed();
     QTest::qWait(200);
     QVERIFY(producer.request().isEmpty());
+  }
+
+  void aStaleGetReplyStartsNoCapture() {
+    // The first Get is answered slowly: its reply carries the pending first
+    // request at revision 2, but a Changed for revision 3 (second request)
+    // arrives before it.
+    daemon->holdGet = true;
+    BackgroundProducer producer;
+    QStringList started;
+    connect(&producer, &BackgroundProducer::requestChanged, &producer, [&] {
+      if (!producer.request().isEmpty()) started.append(producer.request());
+    });
+    QTRY_VERIFY_WITH_TIMEOUT(daemon->heldGet.has_value(), 5000);
+    daemon->request = second;
+    daemon->changed();
+    daemon->releaseGet();
+    // Only the current request is ever started; the stale reply is skipped
+    // before a capture could begin, and the fresh Get starts the second.
+    QTRY_COMPARE_WITH_TIMEOUT(producer.request(), second, 5000);
+    QCOMPARE(started, QStringList{second});
+    QVERIFY(daemon->cancels.isEmpty());
+    QCOMPARE(daemon->published.size(), 0);
   }
 
   void aReplacementWhileEncodingIsCancelledAsBusy() {

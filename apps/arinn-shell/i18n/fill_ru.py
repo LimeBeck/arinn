@@ -353,6 +353,12 @@ RU = {
     "Nothing to show": "Нечего показать",
     "No settings are registered for this category.": "В этой категории нет настроек.",
     "Add path": "Добавить путь",
+    # Path format while typing (#479)
+    "The path must start with /": "Путь должен начинаться с /",
+    "The path cannot contain control characters": "Путь не может содержать управляющие символы",
+    "The path cannot contain //": "Путь не может содержать //",
+    "The path cannot contain . or .. folders": "Путь не может содержать папки . и ..",
+    "The path is too long": "Путь слишком длинный",
     # Handoff LF-4, with the catalogue's "библиотека" for Library (#540).
     "Unavailable. Its titles stay in the library as unavailable.": "Недоступна. Фильмы из неё остаются в библиотеке как недоступные.",
     "min. %1 · was %2 · max. %3": "мин. %1 · было %2 · макс. %3",

@@ -31,7 +31,9 @@ provider records.
 The adapter opens its X connection, and so grabs Home, the quick-menu keys and
 the on-screen keyboard's keys, only while `org.arinn.Daemon1` has an owner. It
 waits for the name on the session bus (`NameOwnerChanged`), not on a timer, so
-a session starts as soon as the daemon is back. A session ends as soon as the
+a session starts as soon as the daemon is back. Without a usable session bus
+there is no daemon either: no session starts, and the wait is tried again
+after the 3 s retry delay. A session ends as soon as the
 daemon goes, because its long polls fail, and with it every grab; the next one
 waits for the daemon again. While the daemon is down, the remote's Menu keys
 therefore never swallow the context-menu key, and Home is not grabbed either
@@ -421,7 +423,8 @@ not substitute for real-desktop operator tests, which require owner permission.
 The ignored end-to-end tests in `platform/x11/tests/menu_keys.rs` run the
 adapter binary itself against its own Xvfb and a private session bus (never the
 real display, session bus or system bus). They check that no global key is
-grabbed while `org.arinn.Daemon1` has no owner, that the keys are grabbed as
+grabbed while `org.arinn.Daemon1` has no owner or without a usable session
+bus, that the keys are grabbed as
 soon as it appears and released again when it goes, and that the Menu keys
 follow the shell's focus within 0.2 s rather than at the 0.5 s tick (#507). The
 ignored `focus_watch` test checks that only `_NET_ACTIVE_WINDOW` changes wake the

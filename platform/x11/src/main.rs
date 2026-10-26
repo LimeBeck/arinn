@@ -1038,19 +1038,20 @@ async fn main() -> Result<()> {
     // No native payloads in logs. Reconnect creates fresh tokens and bridge generation.
     loop {
         // No X connection, and so no global key grab, before the daemon is
-        // there (#507).
-        tokio::select! {
-            waited = wait_for_daemon() => {
-                if waited.is_err() {
-                    eprintln!("arinn-platform-x11: session bus unavailable; retrying");
-                }
-            }
+        // there (#507). Without a usable session bus there is no daemon
+        // either: no session starts, and the wait is tried again after the
+        // retry delay (Codex on #560).
+        let waited = tokio::select! {
+            waited = wait_for_daemon() => waited,
             _ = shutdown() => return Ok(()),
-        }
-        if session(&mut power).await.is_ok() {
+        };
+        if waited.is_err() {
+            eprintln!("arinn-platform-x11: session bus unavailable; retrying");
+        } else if session(&mut power).await.is_ok() {
             return Ok(());
+        } else {
+            eprintln!("arinn-platform-x11: backend unavailable; retrying");
         }
-        eprintln!("arinn-platform-x11: backend unavailable; retrying");
         tokio::select! {
             _ = tokio::time::sleep(Duration::from_secs(3)) => (),
             _ = shutdown() => return Ok(()),

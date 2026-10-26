@@ -251,12 +251,15 @@ fn bus() -> Result<(Killed, String)> {
 
 /// The adapter binary on a desktop and a bus, and its log.
 struct Adapter {
-    _child: Killed,
+    child: Killed,
     lines: Arc<Mutex<Vec<String>>>,
     home: PathBuf,
 }
 impl Drop for Adapter {
     fn drop(&mut self) {
+        // The adapter first: a running one could write into its HOME again.
+        let _ = self.child.0.kill();
+        let _ = self.child.0.wait();
         let _ = std::fs::remove_dir_all(&self.home);
     }
 }
@@ -293,7 +296,7 @@ impl Adapter {
             }
         });
         Ok(Self {
-            _child: Killed(child),
+            child: Killed(child),
             lines,
             home,
         })
@@ -325,13 +328,9 @@ impl Adapter {
 /// The adapter's attempt to grab a Menu key that the test's probe holds.
 const ATTEMPT: &str = "a quick-menu key is held by another client";
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ignore = "requires Xvfb and dbus-daemon; spawns an isolated X server and session bus, never uses the real ones"]
-async fn no_global_key_is_grabbed_while_the_daemon_is_gone() -> Result<()> {
-    let desktop = Desktop::new()?;
-    let (_bus, address) = bus()?;
-    // The probe holds Menu, so each attempt of the adapter to grab it is
-    // logged, however short the attempt.
+/// The test holds Menu, so each attempt of the adapter to grab it is logged
+/// (`ATTEMPT`), however short the attempt.
+fn hold_menu(desktop: &Desktop) -> Result<()> {
     let menu = desktop.keycode(0xff67)?;
     desktop
         .c
@@ -344,6 +343,15 @@ async fn no_global_key_is_grabbed_while_the_daemon_is_gone() -> Result<()> {
             GrabMode::ASYNC,
         )?
         .check()?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires Xvfb and dbus-daemon; spawns an isolated X server and session bus, never uses the real ones"]
+async fn no_global_key_is_grabbed_while_the_daemon_is_gone() -> Result<()> {
+    let desktop = Desktop::new()?;
+    let (_bus, address) = bus()?;
+    hold_menu(&desktop)?;
     let adapter = Adapter::start(&desktop, &address)?;
     // The adapter starts without a daemon: it waits and grabs nothing. The
     // old adapter tried a session, with its grabs, at once and every 3 s.
@@ -377,6 +385,30 @@ async fn no_global_key_is_grabbed_while_the_daemon_is_gone() -> Result<()> {
     let before = adapter.count(ATTEMPT);
     tokio::time::sleep(Duration::from_secs(4)).await;
     assert_eq!(adapter.count(ATTEMPT), before, "{:?}", adapter.log());
+    Ok(())
+}
+
+/// Review of #560 (Codex P2): without a usable session bus there is no
+/// daemon either. The failed wait starts no session, so nothing is grabbed,
+/// and it is tried again after the 3 s retry delay.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires Xvfb; spawns an isolated X server, never uses the real one or a real session bus"]
+async fn no_global_key_is_grabbed_without_a_session_bus() -> Result<()> {
+    let desktop = Desktop::new()?;
+    hold_menu(&desktop)?;
+    let adapter = Adapter::start(&desktop, "unix:path=/nonexistent/arinn-test-session")?;
+    const UNAVAILABLE: &str = "session bus unavailable; retrying";
+    // Two failed waits, one retry delay apart.
+    let start = Instant::now();
+    while adapter.count(UNAVAILABLE) < 2 {
+        ensure!(
+            start.elapsed() < Duration::from_secs(10),
+            "no second wait: {:?}",
+            adapter.log()
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(adapter.count(ATTEMPT), 0, "{:?}", adapter.log());
     Ok(())
 }
 

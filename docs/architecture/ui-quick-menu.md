@@ -192,7 +192,8 @@ the sheet. The ⏻ exception of §5.7 does not apply to it.
   (`quickMenuRequestCarriesItsTarget`, #507).
 - `arinn-platform-x11` `quick_menu_raises_the_shell_only_after_its_request`
   (Xvfb); the end-to-end `menu_keys` tests
-  `no_global_key_is_grabbed_while_the_daemon_is_gone` and
+  `no_global_key_is_grabbed_while_the_daemon_is_gone`,
+  `no_global_key_is_grabbed_without_a_session_bus` and
   `the_menu_keys_follow_the_shell_focus_at_once`, and
   `focus_watch` `a_focus_change_wakes_the_loop_at_once` (Xvfb, #507).
 - `key_sequence` `a_configured_menu_key_stays_bound_inside_the_shell`;

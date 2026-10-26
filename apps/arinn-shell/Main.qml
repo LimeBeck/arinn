@@ -550,6 +550,9 @@ Window {
         // An application launch only while its overlay is on screen: it may
         // keep running hidden for hours (§6.5).
         launching: browserCatalog.opening || applicationLaunch.visible
+        // Never over a power request in flight: its answer would take focus
+        // behind ambient (#487).
+        powerPending: systemControl.pendingAction.length > 0
         mediaPlaying: root.playerOpen || ambientIdle.playing(mediaCatalog.continueEntries, browserCatalog.tabs,
                                                              mediaCatalog.inputLayerActive)
         onIdle: root.startAmbient()

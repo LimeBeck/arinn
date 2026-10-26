@@ -188,6 +188,7 @@ TestCase {
             {tag: "media playing", key: "mediaPlaying"},
             {tag: "locked", key: "locked"},
             {tag: "launching", key: "launching"},
+            {tag: "power request pending", key: "powerPending"},
             {tag: "already on", key: "ambientActive"}
         ];
     }

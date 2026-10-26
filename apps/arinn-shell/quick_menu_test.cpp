@@ -877,6 +877,49 @@ private slots:
     QVERIFY(!ambient->property("active").toBool());
   }
 
+  // Review of #478 (#487): idle ambient never starts over a power request in
+  // flight, so its answer never takes focus behind ambient. If ambient is on
+  // anyway (started explicitly after Home left the request), the late
+  // refusal waits for it and appears after the wake.
+  void ambientWaitsForAPendingPowerRequest() {
+    daemon.holdSuspend = true;
+    daemon.request("PowerMenuRequested");
+    QTRY_VERIFY(window->isVisible());
+    window->requestActivate();
+    QTRY_VERIFY(window->isActive());
+    QTRY_VERIFY(powerOpen());
+    auto *idle = engine->rootObjects().value(0)->findChild<QObject *>(
+        QStringLiteral("ambientIdle"));
+    auto *ambient = child(window, "ambientScreen");
+    QVERIFY(idle && ambient);
+    QTRY_VERIFY(child(window, "sleepButton")->hasActiveFocus());
+    QTRY_VERIFY(idle->property("eligible").toBool());
+    QTest::keyClick(window, Qt::Key_Return);
+    QTRY_COMPARE(daemon.controlCalls.count(QStringLiteral("Suspend")), 1);
+    QTRY_VERIFY(!idle->property("eligible").toBool());
+    QVERIFY(!idle->property("counting").toBool());
+    // Home leaves the menu; the request goes on and still holds ambient.
+    QTest::keyClick(window, Qt::Key_Home);
+    QTRY_VERIFY(!child(window, "powerMenu")->isVisible());
+    QTRY_VERIFY(focusIn(home));
+    QVERIFY(!idle->property("eligible").toBool());
+    QVERIFY(!power()->property("holdLateAnswer").toBool());
+    QVERIFY(QMetaObject::invokeMethod(window, "startAmbient"));
+    QTRY_VERIFY(ambient->property("armed").toBool());
+    QVERIFY(power()->property("holdLateAnswer").toBool());
+    daemon.releaseSuspend();
+    QTest::qWait(300);
+    QVERIFY(!child(window, "powerMenu")->isVisible());
+    QVERIFY(focusIn(ambient));
+    // The wake is consumed; then the refusal opens with focus.
+    QTest::keyClick(window, Qt::Key_Down);
+    QTRY_VERIFY(!ambient->property("active").toBool());
+    QTRY_VERIFY(child(window, "powerError")->isVisible());
+    QTRY_VERIFY(focusIn(power()));
+    QTRY_VERIFY(idle->property("eligible").toBool());
+    QCOMPARE(daemon.controlCalls.count(QStringLiteral("Suspend")), 1);
+  }
+
   // Review of #517: the key again while the sheet's Power row has the scope
   // open over an Activity changes nothing; the sheet stays under it.
   void powerKeyKeepsAScopeTheSheetOpened() {

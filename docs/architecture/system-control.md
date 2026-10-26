@@ -72,37 +72,69 @@ restarted. logind's refusals map to `org.arinn.Error1` names:
 
 Steps 3 and 4 are two calls to logind, so another program can take a block
 inhibitor between them ([#498](https://github.com/LimeBeck/arinn/issues/498)).
-logind offers no call that acts only while no block inhibitor is held for an
-unprivileged caller: the flags of `SuspendWithFlags`, `RebootWithFlags` and
-`PowerOffWithFlags` either skip inhibitors (`SD_LOGIND_SKIP_INHIBITORS`) or
-make `block-weak` inhibitors bind root (`SD_LOGIND_ROOT_CHECK_INHIBITORS`,
-checked only for UID 0). What happens in the window depends on the systemd
-version (`org.freedesktop.login1(5)`; `manager_verify_shutdown_creds()` in
-`src/login/logind-shutdown.c`, before v261 in `logind-dbus.c`):
+The check runs immediately before the call, so the window is one D-Bus round
+trip. Reading the list again would not narrow it. logind offers no call that
+acts only while no block inhibitor is held for an unprivileged caller. The
+flags of `SuspendWithFlags`, `RebootWithFlags` and `PowerOffWithFlags` do not
+help:
 
-- **systemd 257 and later** (the CI and package targets: Arch Linux follows
-  systemd releases, Ubuntu 25.04 ships 257.4): logind enforces every `block`
-  inhibitor itself, for every caller, unless the request carries
+- `SD_LOGIND_SKIP_INHIBITORS` (systemd 257 and later) skips inhibitors.
+- `SD_LOGIND_ROOT_CHECK_INHIBITORS` applies only to UID 0: before 257 it makes
+  `block` inhibitors bind root, and since 257 it makes `block-weak` ones bind
+  root.
+
+What happens in the window depends on the systemd version. The sources are
+`org.freedesktop.login1(5)`, and the logind function that checks a request:
+`manager_verify_shutdown_creds()` in `src/login/logind-shutdown.c` from v261,
+`verify_shutdown_creds()` in `logind-dbus.c` before that.
+
+- **systemd 257 and later:** logind enforces every `block` inhibitor itself,
+  for every caller, the caller's own user included, unless the request carries
   `SD_LOGIND_SKIP_INHIBITORS`. The `*-ignore-inhibit` polkit actions do not
   apply to a `block` inhibitor. Arinn's calls (`interactive = false`, no flags)
   never skip inhibitors. logind checks the inhibitors and starts the action in
   one step of its event loop, and checks again when a polkit answer arrives
   later. An inhibitor taken in the window therefore refuses the request:
   `BlockedByInhibitorLock` since systemd 258, `AccessDenied` in 257. Both read
-  as `Conflict`; the second does so because the list read after the refusal
-  shows the inhibitor. The window is closed.
-- **Before systemd 257**, logind asked polkit for the action's
-  `*-ignore-inhibit` permission, without interaction, and proceeded when it was
-  granted. systemd's default policy is `auth_admin_keep`, so logind refuses
-  (`InteractiveAuthorizationRequired`, then `Conflict`). Only on a system whose
-  administrator grants `*-ignore-inhibit` without authentication can a block
-  inhibitor taken in the window be overridden. That user can override it
-  anyway, for example with `systemctl`. This residual window is accepted.
+  as `Conflict`; `AccessDenied` does so because the list read after the
+  refusal shows the inhibitor. The window is closed.
+- **Before systemd 257 (v256 and earlier):** logind ignores every inhibitor
+  held by the caller's own UID. `verify_shutdown_creds()` asks
+  `manager_is_inhibited()` with `ignore_uid = true`, which skips such
+  inhibitors (v256 `logind-dbus.c:1995`, `logind-inhibit.c:430`; the same in
+  v255). `arinnd` runs as the session user. So a `block` inhibitor that the
+  user's own browser, player or download tool takes in the window does not
+  stop the request: logind asks no polkit question and proceeds. An inhibitor
+  of another user goes to polkit for the action's `*-ignore-inhibit`, without
+  interaction. The default policy is `auth_admin_keep`, so it is refused
+  (`InteractiveAuthorizationRequired`, then `Conflict`), unless an
+  administrator grants that action without authentication. In both cases,
+  only an inhibitor taken inside the window is affected; Arinn's own check
+  refuses every inhibitor that exists when the request starts. The same user
+  can pass their own inhibitors with `systemctl suspend` on these versions
+  anyway, because logind ignored them for that user. Whether this residual
+  window is accepted is an owner decision
+  ([#536](https://github.com/LimeBeck/arinn/issues/536)).
 - **`block-weak` inhibitors** (systemd 257 and later) are not listed or
   checked by Arinn; only `block` counts (ADR-0108). logind ignores a weak
-  inhibitor that the caller's own user holds, and for another user's weak
-  inhibitor it asks polkit for `*-ignore-inhibit`, as before 257. This is
-  logind's rule for weak inhibitors, not a timing window.
+  inhibitor that the caller's own user holds. For another user's weak
+  inhibitor it asks polkit for `*-ignore-inhibit`. This is logind's rule for
+  weak inhibitors, not a timing window. Whether Arinn should count them is
+  also tracked in #536.
+
+Every system Arinn targets or tests ships systemd 257 or later. These versions
+were read from the official container images on 2026-10-26:
+
+| System | systemd |
+| --- | --- |
+| Arch Linux, the product target (a rolling release; `archlinux:latest` built 2026-10-21) | 262 |
+| Ubuntu 25.04, the CI package image ([packaging/debian/README.md](../../packaging/debian/README.md)) | 257.4 |
+| Debian 13 | 257.13 |
+| Ubuntu 26.04 LTS | 259.5 |
+
+The `.deb` declares `systemd` without a minimum version, so it also installs
+on Ubuntu 24.04 LTS (255.4) and Debian 12 (252.39), where the window before
+257 exists.
 
 Arinn keeps its own check: it answers `Conflict` without asking logind and
 names the holders. On systemd 257 and later, logind's own check is what makes

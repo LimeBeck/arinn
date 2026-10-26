@@ -496,7 +496,8 @@ mod tests {
                 .as_nanos()
         ));
         std::fs::create_dir_all(&scratch).unwrap();
-        let store = Store::open(&scratch.join("library.sqlite3")).unwrap();
+        let mut store = Store::open(&scratch.join("library.sqlite3")).unwrap();
+        store.use_mount_tables(crate::mounts::MountTables::default());
         let bridge = Bridge {
             store: Arc::new(std::sync::Mutex::new(store)),
             service: Arc::new(Mutex::new(None)),

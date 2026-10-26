@@ -4,9 +4,7 @@
 //! Catalogue scans on temporary folders: names, NFO, availability, rename,
 //! resume and import. No network mounts.
 
-use arinn_plugin_library::{
-    MountTables, Settings, Store, scan_shared, scan_shared_with, to_file_uri,
-};
+use arinn_plugin_library::{MountTables, Settings, Store, scan_shared, to_file_uri};
 use arinn_protocol::{library::ImportCandidate, production::EntityRef, validation::ErrorCode};
 use std::{
     fs,
@@ -49,8 +47,25 @@ fn settings(root: &Path, probe: bool, ffprobe: PathBuf) -> Settings {
     }
 }
 
+/// A store that does not read the host's fstab and mountinfo (ADR-0115).
 fn open(scratch: &Scratch) -> Store {
-    Store::open(&scratch.path().join("library.sqlite3")).unwrap()
+    let mut store = Store::open(&scratch.path().join("library.sqlite3")).unwrap();
+    store.use_mount_tables(MountTables::default());
+    store
+}
+
+/// One shared scan with the given mount tables.
+fn scan_with(
+    store: &Mutex<Store>,
+    settings: &Settings,
+    tables: &MountTables,
+) -> Vec<(PathBuf, bool)> {
+    store.lock().unwrap().use_mount_tables(tables.clone());
+    scan_shared(store, settings).unwrap()
+}
+
+fn mount_line(point: &Path) -> String {
+    format!("1 0 0:1 / {} rw - ext4 /dev/x rw\n", point.display())
 }
 
 fn file_uri(path: &Path) -> String {
@@ -273,16 +288,19 @@ fn an_unmounted_share_is_unavailable_not_empty() {
     fs::write(root.join("Kept (2004).mkv"), b"a").unwrap();
     fs::write(root.join("Other (2005).mkv"), b"b").unwrap();
     let fstab = format!("//nas/films {} cifs nofail 0 0\n", root.display());
-    let line = |point: &Path| format!("1 0 0:1 / {} rw - ext4 /dev/x rw\n", point.display());
     let mounted = MountTables::from_text(
         &fstab,
-        Some(&format!("{}{}", line(Path::new("/")), line(&root))),
+        Some(&format!(
+            "{}{}",
+            mount_line(Path::new("/")),
+            mount_line(&root)
+        )),
     );
-    let away = MountTables::from_text(&fstab, Some(&line(Path::new("/"))));
+    let away = MountTables::from_text(&fstab, Some(&mount_line(Path::new("/"))));
     let store = Mutex::new(open(&scratch));
     let configured = settings(&root, false, PathBuf::from("ffprobe"));
     assert_eq!(
-        scan_shared_with(&store, &configured, &mounted).unwrap(),
+        scan_with(&store, &configured, &mounted),
         vec![(root.clone(), true)]
     );
     let before = store.lock().unwrap().snapshot().unwrap().1;
@@ -293,7 +311,7 @@ fn an_unmounted_share_is_unavailable_not_empty() {
     fs::remove_file(root.join("Kept (2004).mkv")).unwrap();
     fs::remove_file(root.join("Other (2005).mkv")).unwrap();
     assert_eq!(
-        scan_shared_with(&store, &configured, &away).unwrap(),
+        scan_with(&store, &configured, &away),
         vec![(root.clone(), false)]
     );
     let after = store.lock().unwrap().snapshot().unwrap().1;
@@ -306,11 +324,7 @@ fn an_unmounted_share_is_unavailable_not_empty() {
     // The share is back with its files: the same items are available again.
     fs::write(root.join("Kept (2004).mkv"), b"a").unwrap();
     fs::write(root.join("Other (2005).mkv"), b"b").unwrap();
-    store
-        .lock()
-        .unwrap()
-        .scan_with(&configured, &mounted)
-        .unwrap();
+    scan_with(&store, &configured, &mounted);
     let back = store.lock().unwrap().snapshot().unwrap().1;
     assert_eq!(back.len(), 2);
     assert!(back.iter().all(|item| item.available));
@@ -333,15 +347,81 @@ fn a_really_empty_folder_stays_available() {
         "UUID=1 / ext4 defaults 0 1\n//nas/films /mnt/elsewhere cifs nofail 0 0\n",
         Some("1 0 0:1 / / rw - ext4 /dev/x rw\n"),
     );
-    scan_shared_with(&store, &configured, &tables).unwrap();
+    scan_with(&store, &configured, &tables);
     fs::remove_file(root.join("Kept (2004).mkv")).unwrap();
     assert_eq!(
-        scan_shared_with(&store, &configured, &tables).unwrap(),
+        scan_with(&store, &configured, &tables),
         vec![(root.clone(), true)]
     );
     let items = store.lock().unwrap().snapshot().unwrap().1;
     assert_eq!(items.len(), 1);
     assert!(!items[0].available);
+}
+
+#[test]
+fn a_folder_with_files_under_an_away_fstab_entry_stays_available() {
+    // Review of #557: a stale `nofail` entry whose mount point now holds real
+    // files on the parent filesystem, or any share fstab does not list,
+    // mounted there, is never the empty mount point of an away share.
+    let scratch = Scratch::new();
+    let root = scratch.path().join("stale");
+    fs::create_dir(&root).unwrap();
+    fs::write(root.join("Local (2006).mkv"), b"a").unwrap();
+    let store = Mutex::new(open(&scratch));
+    let configured = settings(&root, false, PathBuf::from("ffprobe"));
+    let away = MountTables::from_text(
+        &format!("/dev/old {} ext4 nofail 0 0\n", root.display()),
+        Some(&mount_line(Path::new("/"))),
+    );
+    assert_eq!(
+        scan_with(&store, &configured, &away),
+        vec![(root.clone(), true)]
+    );
+    let items = store.lock().unwrap().snapshot().unwrap().1;
+    assert_eq!(items.len(), 1);
+    assert!(items[0].available);
+}
+
+#[test]
+fn import_under_an_unavailable_nested_root_is_refused() {
+    // Codex review of #557: an unavailable inner root never falls back to
+    // the outer root, whose walk skips the inner one.
+    if !run_without_root("import_under_an_unavailable_nested_root_is_refused") {
+        return;
+    }
+    let scratch = Scratch::new();
+    let outer = scratch.path().join("outer");
+    let inner = outer.join("inner");
+    fs::create_dir_all(&inner).unwrap();
+    let mut store = open(&scratch);
+    let mut configured = settings(&outer, false, PathBuf::from("ffprobe"));
+    configured.roots.push(inner.clone());
+    store.scan(&configured).unwrap();
+    // A finished download lands in the inner root, which then cannot be
+    // listed; the file is still reachable.
+    let video = inner.join("Fresh (2012).mkv");
+    fs::write(&video, b"film").unwrap();
+    let _restore = ModeGuard(inner.clone());
+    fs::set_permissions(&inner, fs::Permissions::from_mode(0o300)).unwrap();
+    assert!(video.is_file());
+    let candidate = ImportCandidate {
+        source: EntityRef {
+            provider_id: "downloads".into(),
+            capability: "download".into(),
+            local_id: "job-nested".into(),
+        },
+        file_uri: file_uri(&video),
+        completion_id: "done-nested".into(),
+    };
+    assert_eq!(store.import(&[candidate]), Err(ErrorCode::Unavailable));
+    assert!(
+        store
+            .snapshot()
+            .unwrap()
+            .1
+            .iter()
+            .all(|item| item.title != "Fresh")
+    );
 }
 
 #[test]

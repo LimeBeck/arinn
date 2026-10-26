@@ -137,6 +137,9 @@ pub struct Store {
     /// Roots from the latest settings. Import uses this list, not every
     /// historical row in `roots`.
     configured_roots: Vec<PathBuf>,
+    /// Mount tables for tests; `None` reads the system's at each scan and
+    /// import (ADR-0115).
+    mounts: Option<MountTables>,
 }
 
 #[derive(Clone)]
@@ -251,6 +254,7 @@ impl Store {
         Ok(Self {
             conn,
             configured_roots: Vec::new(),
+            mounts: None,
         })
     }
 
@@ -258,18 +262,19 @@ impl Store {
         self.configured_roots = roots.to_vec();
     }
 
-    pub fn scan(&mut self, settings: &Settings) -> Result<(), ErrorCode> {
-        self.scan_with(settings, &MountTables::system())
+    /// Use these mount tables instead of the system's, so a test does not
+    /// depend on the host's fstab and mountinfo (ADR-0115).
+    pub fn use_mount_tables(&mut self, tables: MountTables) {
+        self.mounts = Some(tables);
     }
 
-    /// [`Store::scan`] with given mount tables (ADR-0115).
-    pub fn scan_with(
-        &mut self,
-        settings: &Settings,
-        mounts: &MountTables,
-    ) -> Result<(), ErrorCode> {
+    fn mount_tables(&self) -> MountTables {
+        self.mounts.clone().unwrap_or_else(MountTables::system)
+    }
+
+    pub fn scan(&mut self, settings: &Settings) -> Result<(), ErrorCode> {
         let baseline = self.item_ids()?;
-        let mut discovered = discover(settings, mounts);
+        let mut discovered = discover(settings, &self.mount_tables());
         attach_probes(self, settings, &mut discovered)?;
         self.commit_discovered(settings, discovered, &baseline)
     }
@@ -676,31 +681,25 @@ impl Store {
         Ok(())
     }
 
+    /// The root an imported file belongs to: the most specific configured
+    /// root that contains it, as a scan would assign it (the walk of an
+    /// outer root skips a nested configured root). An unavailable root never
+    /// falls back to an outer one, so an import cannot catalogue a file a
+    /// scan would not (review of #557).
     fn available_root_for(&self, path: &Path) -> Result<PathBuf, ErrorCode> {
-        let mut best: Option<PathBuf> = None;
-        let mut saw_unavailable = false;
-        let mounts = MountTables::system();
-        for root in &self.configured_roots {
-            if !path.starts_with(root) {
-                continue;
-            }
-            if !root_available(root, &mounts) {
-                saw_unavailable = true;
-                continue;
-            }
-            if contained(root, path)
-                && best
-                    .as_ref()
-                    .is_none_or(|current| root.as_os_str().len() > current.as_os_str().len())
-            {
-                best = Some(root.clone());
-            }
+        let root = self
+            .configured_roots
+            .iter()
+            .filter(|root| path.starts_with(root))
+            .max_by_key(|root| root.components().count())
+            .ok_or(ErrorCode::InvalidArgument)?;
+        if !root_available(root, &self.mount_tables()) {
+            return Err(ErrorCode::Unavailable);
         }
-        best.ok_or(if saw_unavailable {
-            ErrorCode::Unavailable
-        } else {
-            ErrorCode::InvalidArgument
-        })
+        if !contained(root, path) {
+            return Err(ErrorCode::InvalidArgument);
+        }
+        Ok(root.clone())
     }
 
     fn completion(&self, id: &str) -> Result<Option<String>, ErrorCode> {
@@ -1020,9 +1019,13 @@ pub(crate) fn normalize_root(path: &Path) -> Result<PathBuf, ErrorCode> {
 }
 
 /// A root is available when it can be read and is not the empty mount point
-/// of a share that is away (ADR-0056, ADR-0115).
+/// of a share that is away (ADR-0056, ADR-0115). A folder with any entry is
+/// never the empty mount point, whatever the tables say.
 fn root_available(path: &Path, mounts: &MountTables) -> bool {
-    !mounts.unmounted(path) && fs::read_dir(path).is_ok()
+    let Ok(mut entries) = fs::read_dir(path) else {
+        return false;
+    };
+    entries.next().is_some() || !mounts.away(path)
 }
 
 fn contained(root: &Path, path: &Path) -> bool {
@@ -1152,20 +1155,12 @@ pub fn scan_shared(
     store: &std::sync::Mutex<Store>,
     settings: &Settings,
 ) -> Result<Vec<(PathBuf, bool)>, ErrorCode> {
-    scan_shared_with(store, settings, &MountTables::system())
-}
-
-/// [`scan_shared`] with given mount tables (ADR-0115).
-pub fn scan_shared_with(
-    store: &std::sync::Mutex<Store>,
-    settings: &Settings,
-    mounts: &MountTables,
-) -> Result<Vec<(PathBuf, bool)>, ErrorCode> {
-    let baseline = {
+    let (baseline, mounts) = {
         let guard = store.lock().map_err(|_| ErrorCode::Internal)?;
-        guard.item_ids()?
+        (guard.item_ids()?, guard.mounts.clone())
     };
-    let mut discovered = discover(settings, mounts);
+    let mounts = mounts.unwrap_or_else(MountTables::system);
+    let mut discovered = discover(settings, &mounts);
     let probed = {
         let guard = store.lock().map_err(|_| ErrorCode::Internal)?;
         let mut jobs = Vec::new();
@@ -1733,6 +1728,7 @@ mod tests {
         fs::write(root.join("One (2001).mkv"), b"a").unwrap();
         fs::write(root.join("Two (2002).mkv"), b"b").unwrap();
         let mut store = Store::open(&dir.join("library.sqlite3")).unwrap();
+        store.use_mount_tables(crate::mounts::MountTables::default());
         store
             .scan(&Settings {
                 autoscan: false,

@@ -1,13 +1,15 @@
 // SPDX-FileCopyrightText: 2026 Arinn contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Whether a root lies on a share that is not mounted now (ADR-0115). A
-//! share listed in `/etc/fstab` with `nofail` leaves its mount point behind
-//! as an empty folder when the share is away, and that folder reads as an
-//! available, empty root. A root at or under a mount point that fstab lists
-//! (other than `/`), while `/proc/self/mountinfo` has nothing mounted there,
-//! is unavailable instead. Nothing is mounted, and a folder that no fstab
-//! entry covers is never affected. Paths are not logged.
+//! Whether a root lies on a share that is away now (ADR-0115). A share
+//! listed in `/etc/fstab` with `nofail` leaves its mount point behind as an
+//! empty folder when the share is away, and that folder reads as an
+//! available, empty root. [`MountTables::away`] answers whether the nearest
+//! mount point that fstab lists (other than `/`) at or above a root has
+//! nothing mounted on it or between it and the root, by
+//! `/proc/self/mountinfo`; the store also requires the root to be empty.
+//! Nothing is mounted, and a folder that no fstab entry covers is never
+//! affected. Paths are not logged.
 
 use std::{
     collections::HashSet,
@@ -47,17 +49,34 @@ impl MountTables {
         }
     }
 
-    /// True when the nearest fstab mount point at or above `root` is not
-    /// mounted now.
-    pub fn unmounted(&self, root: &Path) -> bool {
+    /// True when the nearest fstab mount point at or above `root` has
+    /// nothing mounted on it, nor on any folder between it and `root`.
+    ///
+    /// The kernel records mount points with symbolic links resolved (an
+    /// ostree desktop's `/mnt` is `/var/mnt`), so the root and the listed
+    /// points that cover it are compared in canonical form, falling back to
+    /// the text when a path cannot be resolved. A mount that fstab does not
+    /// list, such as a share mounted by hand under an away fstab entry, is
+    /// still a mount. Only the listed points that cover the root are
+    /// resolved, so an unrelated hung share is never touched.
+    pub fn away(&self, root: &Path) -> bool {
         let Some(mounted) = &self.mounted else {
             return false;
         };
-        self.listed
+        let real_root = std::fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
+        let Some(point) = self
+            .listed
             .iter()
-            .filter(|point| root.starts_with(point))
+            .filter(|point| root.starts_with(point) || real_root.starts_with(point))
+            .map(|point| std::fs::canonicalize(point).unwrap_or_else(|_| point.clone()))
+            .filter(|point| real_root.starts_with(point))
             .max_by_key(|point| point.components().count())
-            .is_some_and(|point| !mounted.contains(point))
+        else {
+            return false;
+        };
+        !mounted
+            .iter()
+            .any(|mount| real_root.starts_with(mount) && mount.starts_with(&point))
     }
 }
 
@@ -129,14 +148,22 @@ fn unescape(field: &str) -> String {
 mod tests {
     use super::*;
 
-    const FSTAB: &str = "\
+    // A prefix that does not exist, so no path resolves on the host and the
+    // tests do not depend on its folders.
+    const P: &str = "/arinn-test-absent";
+
+    fn fstab() -> String {
+        format!(
+            "\
 # <file system> <dir> <type> <options> <dump> <pass>
 UUID=1111 / ext4 defaults 0 1
-UUID=2222 /home ext4 defaults 0 2
-//nas/films /mnt/nas/films cifs nofail,credentials=/etc/nas 0 0
-nas:/export/series /mnt/My\\040Series nfs nofail 0 0
+UUID=2222 {P}/home ext4 defaults 0 2
+//nas/films {P}/mnt/nas/films cifs nofail,credentials=/etc/nas 0 0
+nas:/export/series {P}/mnt/My\\040Series nfs nofail 0 0
 /swapfile none swap sw 0 0
-";
+"
+        )
+    }
 
     fn mountinfo(points: &[&str]) -> String {
         points
@@ -148,45 +175,88 @@ nas:/export/series /mnt/My\\040Series nfs nofail 0 0
             .collect()
     }
 
-    #[test]
-    fn a_listed_share_that_is_not_mounted_is_unmounted() {
-        let away = MountTables::from_text(FSTAB, Some(&mountinfo(&["/", "/home"])));
-        assert!(away.unmounted(Path::new("/mnt/nas/films")));
-        assert!(away.unmounted(Path::new("/mnt/nas/films/new")));
-        assert!(away.unmounted(Path::new("/mnt/My Series")));
-        let here = MountTables::from_text(
-            FSTAB,
-            Some(&mountinfo(&[
-                "/",
-                "/home",
-                "/mnt/nas/films",
-                "/mnt/My\\040Series",
-            ])),
-        );
-        assert!(!here.unmounted(Path::new("/mnt/nas/films")));
-        assert!(!here.unmounted(Path::new("/mnt/My Series")));
+    fn at(path: &str) -> PathBuf {
+        PathBuf::from(format!("{P}{path}"))
     }
 
     #[test]
-    fn a_folder_no_fstab_entry_covers_is_never_unmounted() {
-        let tables = MountTables::from_text(FSTAB, Some(&mountinfo(&["/"])));
+    fn a_listed_share_with_nothing_mounted_is_away() {
+        let home = format!("{P}/home");
+        let away = MountTables::from_text(&fstab(), Some(&mountinfo(&["/", &home])));
+        assert!(away.away(&at("/mnt/nas/films")));
+        assert!(away.away(&at("/mnt/nas/films/new")));
+        assert!(away.away(&at("/mnt/My Series")));
+        let films = format!("{P}/mnt/nas/films");
+        let series = format!("{P}/mnt/My\\040Series");
+        let here =
+            MountTables::from_text(&fstab(), Some(&mountinfo(&["/", &home, &films, &series])));
+        assert!(!here.away(&at("/mnt/nas/films")));
+        assert!(!here.away(&at("/mnt/My Series")));
+    }
+
+    #[test]
+    fn a_folder_no_fstab_entry_covers_is_never_away() {
+        let tables = MountTables::from_text(&fstab(), Some(&mountinfo(&["/"])));
         // `/` is not a share, and swap has no mount point.
-        assert!(!tables.unmounted(Path::new("/srv/films")));
-        assert!(!tables.unmounted(Path::new("/mnt/nas")));
-        assert!(!tables.unmounted(Path::new("/mnt/nas/filmsextra")));
-        // No fstab, or an unreadable mountinfo: nothing is unmounted.
+        assert!(!tables.away(&at("/srv/films")));
+        assert!(!tables.away(&at("/mnt/nas")));
+        assert!(!tables.away(&at("/mnt/nas/filmsextra")));
+        // No fstab, or an unreadable mountinfo: nothing is away.
         let tables = MountTables::from_text("", Some(&mountinfo(&["/"])));
-        assert!(!tables.unmounted(Path::new("/mnt/nas/films")));
-        let tables = MountTables::from_text(FSTAB, None);
-        assert!(!tables.unmounted(Path::new("/mnt/nas/films")));
+        assert!(!tables.away(&at("/mnt/nas/films")));
+        let tables = MountTables::from_text(&fstab(), None);
+        assert!(!tables.away(&at("/mnt/nas/films")));
     }
 
     #[test]
     fn the_nearest_listed_mount_point_decides() {
-        let fstab = "a /mnt/nas nfs nofail 0 0\nb /mnt/nas/films nfs nofail 0 0\n";
-        let tables = MountTables::from_text(fstab, Some(&mountinfo(&["/", "/mnt/nas/films"])));
-        assert!(!tables.unmounted(Path::new("/mnt/nas/films/new")));
-        assert!(tables.unmounted(Path::new("/mnt/nas/series")));
+        let fstab = format!("a {P}/mnt/nas nfs nofail 0 0\nb {P}/mnt/nas/films nfs nofail 0 0\n");
+        let films = format!("{P}/mnt/nas/films");
+        let tables = MountTables::from_text(&fstab, Some(&mountinfo(&["/", &films])));
+        assert!(!tables.away(&at("/mnt/nas/films/new")));
+        assert!(tables.away(&at("/mnt/nas/series")));
+    }
+
+    // Review of #557: a share that fstab does not list, mounted under an
+    // away fstab entry (a systemd mount unit or `mount` by hand), is up.
+    #[test]
+    fn a_mount_between_the_listed_point_and_the_root_is_up() {
+        let fstab = format!("//nas/media {P}/mnt/nas cifs nofail 0 0\n");
+        let films = format!("{P}/mnt/nas/films");
+        let tables = MountTables::from_text(&fstab, Some(&mountinfo(&["/", &films])));
+        assert!(!tables.away(&at("/mnt/nas/films")));
+        assert!(!tables.away(&at("/mnt/nas/films/new")));
+        assert!(tables.away(&at("/mnt/nas/series")));
+    }
+
+    // Review of #557: mountinfo holds resolved paths. On an ostree desktop
+    // `/mnt` is a symbolic link to `/var/mnt`.
+    #[test]
+    fn a_mount_point_reached_through_a_symbolic_link_matches() {
+        let scratch = std::env::temp_dir().join(format!(
+            "arinn-library-mounts-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        let real = scratch.join("var/mnt");
+        std::fs::create_dir_all(real.join("nas/films")).unwrap();
+        std::os::unix::fs::symlink(&real, scratch.join("mnt")).unwrap();
+        let real = std::fs::canonicalize(&real).unwrap();
+        let link = scratch.join("mnt");
+        let fstab = format!(
+            "//nas/films {} cifs nofail 0 0\n",
+            link.join("nas").display()
+        );
+        let mounted = real.join("nas").display().to_string();
+        let up = MountTables::from_text(&fstab, Some(&mountinfo(&["/", &mounted])));
+        assert!(!up.away(&link.join("nas/films")));
+        assert!(!up.away(&real.join("nas/films")));
+        let down = MountTables::from_text(&fstab, Some(&mountinfo(&["/"])));
+        assert!(down.away(&link.join("nas/films")));
+        let _ = std::fs::remove_dir_all(&scratch);
     }
 
     #[test]

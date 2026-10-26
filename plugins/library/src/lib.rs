@@ -16,6 +16,6 @@ mod watch;
 pub use mounts::MountTables;
 pub use paths::{provider_digest, state_database};
 pub use settings::schema;
-pub use store::{Settings, Store, scan_shared, scan_shared_with, written_roots};
+pub use store::{Settings, Store, scan_shared, written_roots};
 pub use uri::to_file_uri;
 pub use watch::serve;

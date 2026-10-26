@@ -365,6 +365,46 @@ TestCase {
         verify(insideView(windowFocus()));
     }
 
+    // #540 (spec §5.6, ADR-0071, handoff LF-4): a folder the library provider
+    // reports unavailable stays in place with its note, is still removable,
+    // and returns to normal when the provider reports it again.
+    function test_unavailable_folder() {
+        view.rows = copyRows(row => {
+            if (row.id === "roots") {
+                row.currentValue = ["/videos", "/mnt/share"];
+                row.unavailablePaths = ["/mnt/share"];
+            }
+        });
+        focused("category-media");
+        keyClick(Qt.Key_Right);
+        keyClick(Qt.Key_Down);
+        focused("path-library-roots-0");
+        verify(!child("pathNote-library-roots-0").visible);
+        compare(child("path-library-roots-0").height, 72);
+        const note = child("pathNote-library-roots-1");
+        verify(note.visible);
+        compare(note.text, "Unavailable. Its titles stay in the library as unavailable.");
+        compare(note.color, Ui.Theme.error);
+        verify(child("path-library-roots-1").height > 72);
+        compare(child("remove-library-roots-1").height, child("path-library-roots-1").height);
+        // Remove still works; it only takes the folder out of the setting.
+        keyClick(Qt.Key_Right);
+        focused("remove-library-roots-0");
+        keyClick(Qt.Key_Right);
+        focused("path-library-roots-1");
+        keyClick(Qt.Key_Right);
+        focused("remove-library-roots-1");
+        keyClick(Qt.Key_Return);
+        compare(changes.count, 1);
+        compare(changes.signalArguments[0][1], "roots");
+        compare(changes.signalArguments[0][2].length, 1);
+        compare(changes.signalArguments[0][2][0], "/videos");
+        // The share is back: the provider no longer reports it.
+        view.rows = copyRows(row => { if (row.id === "roots") row.unavailablePaths = []; });
+        tryCompare(child("pathNote-library-roots-1"), "visible", false);
+        compare(child("path-library-roots-1").height, 72);
+    }
+
     function test_disabled_pending_and_error() {
         down(4);
         focused("category-applications");

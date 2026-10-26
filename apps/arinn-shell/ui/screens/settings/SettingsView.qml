@@ -154,6 +154,15 @@ FocusScope {
         return row.currentValue.length !== undefined && row.type === "path" && isMultiple(row)
                ? row.currentValue : [];
     }
+    // A folder of a multiple path row that the library provider reports
+    // unavailable (Library1.GetRoots, ADR-0071). Only the provider's report
+    // counts (spec §5.6); the shell never checks the path itself.
+    function pathUnavailable(row, index) {
+        const list = row && row.unavailablePaths;
+        if (!list || !list.length) return false;
+        const entry = pathList(row)[index];
+        return entry !== undefined && list.indexOf(String(entry)) >= 0;
+    }
     function hasBound(row, name) {
         return !!(row && row.constraints && row.constraints[name] !== undefined && row.constraints[name] !== null
                   && isFinite(Number(row.constraints[name])));
@@ -1077,7 +1086,9 @@ FocusScope {
                                 return item ? item.pathButton : null;
                             }
                             if (name.indexOf("remove:") === 0) {
-                                const item = pathRepeater.itemAt(Number(name.slice(5)));
+                                // "remove:" is seven characters: slice(5)
+                                // read NaN, which is item 0 (#540).
+                                const item = pathRepeater.itemAt(Number(name.slice(7)));
                                 return item ? item.removeButton : null;
                             }
                             return null;
@@ -1344,6 +1355,10 @@ FocusScope {
                                     delegate: Row {
                                         id: pathRow
                                         required property int index
+                                        // Stays in place, can be edited and
+                                        // removed; it returns to normal once
+                                        // the provider reports it again.
+                                        readonly property bool unavailable: root.pathUnavailable(row, index)
                                         property alias pathButton: pathButton
                                         property alias removeButton: removeButton
                                         property alias editor: pathEditor
@@ -1354,7 +1369,7 @@ FocusScope {
                                             id: pathButton
                                             objectName: "path-" + rowScope.key + "-" + index
                                             width: parent.width - 160
-                                            height: 72
+                                            height: pathRow.unavailable ? 112 : 72
                                             padding: 0
                                             focusPolicy: Qt.StrongFocus
                                             focus: rowScope.wants("path:" + index)
@@ -1367,14 +1382,32 @@ FocusScope {
                                             contentItem: Item {
                                                 Keys.onPressed: event => root.pathFieldKeys(event, pathEditor, pathItemKeyboard)
                                                 Ui.UiText {
+                                                    id: pathText
                                                     anchors.fill: parent
                                                     anchors.leftMargin: 20
                                                     anchors.rightMargin: 20
+                                                    anchors.bottomMargin: pathRow.unavailable ? 40 : 0
                                                     visible: !(root.editingKey === rowScope.key && root.editingPart === "path:" + index)
                                                     text: String(root.pathList(row)[index] || "")
                                                     verticalAlignment: Text.AlignVCenter
                                                     elide: Text.ElideRight
                                                     role: "meta"
+                                                    color: pathRow.unavailable ? Ui.Theme.textSecondary : Ui.Theme.textPrimary
+                                                }
+                                                Ui.UiText {
+                                                    objectName: "pathNote-" + rowScope.key + "-" + index
+                                                    anchors.left: parent.left
+                                                    anchors.right: parent.right
+                                                    anchors.bottom: parent.bottom
+                                                    anchors.leftMargin: 20
+                                                    anchors.rightMargin: 20
+                                                    anchors.bottomMargin: 18
+                                                    visible: pathRow.unavailable && pathText.visible
+                                                    text: qsTr("Unavailable. Its titles stay in the library as unavailable.")
+                                                    elide: Text.ElideRight
+                                                    maximumLineCount: 1
+                                                    role: "meta"
+                                                    color: Ui.Theme.error
                                                 }
                                                 TextInput {
                                                     id: pathEditor
@@ -1408,7 +1441,7 @@ FocusScope {
                                             id: removeButton
                                             objectName: "remove-" + rowScope.key + "-" + index
                                             width: 152
-                                            height: 72
+                                            height: pathButton.height
                                             padding: 0
                                             focusPolicy: Qt.StrongFocus
                                             focus: rowScope.wants("remove:" + index)

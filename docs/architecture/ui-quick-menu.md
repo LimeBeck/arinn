@@ -31,6 +31,14 @@ application. On KDE the stop helper (`arinnd --release-power-key`, run by
 `ExecStopPost=` of arinnd.service and by `arinn-kwin-adapter stop`) removes
 them from the quick-menu action; its other keys stay, and the next adapter
 connection writes every key again (`global_home::release_menu_keys`, #507).
+It does so only while `org.arinn.Daemon1` has no owner. arinnd is
+`Type=dbus`, so its name is gone by its `ExecStopPost=`, after a stop or a
+crash. `arinn-kwin-adapter stop` with the daemon still running (an
+adapter-only stop or restart) leaves the keys alone: the live daemon could
+write them back from a focus report already delivered, and after an
+adapter-only restart it does not write them again, because KWin's bus
+connection, and so the adapter connection, stays the same. Its KGlobalAccel
+calls carry `NoAutoStart`.
 The X11 adapter keeps its grabs while it runs without the daemon; they end
 with its process.
 

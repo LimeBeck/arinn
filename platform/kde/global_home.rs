@@ -262,38 +262,63 @@ impl QuickMenuKeys {
     }
 }
 
+/// The daemon's bus name. While it has an owner, a live daemon writes the
+/// quick-menu keys (`QuickMenuKeys`).
+const DAEMON: &str = "org.arinn.Daemon1";
+
 /// The stop helper (`arinnd --release-power-key`, run by `ExecStopPost=` of
 /// arinnd.service and by `arinn-kwin-adapter stop`): with the daemon gone,
 /// the remote's Menu keys would still open nothing and swallow the ordinary
 /// context-menu key in every application (#507). They are removed from the
 /// quick-menu action; its other keys stay, and the next adapter connection
-/// writes every key again. Writes nothing when the action holds no Menu key
-/// or KGlobalAccel is not running, and never starts it. Returns whether
-/// KGlobalAccel answered.
+/// writes every key again.
+///
+/// Only once the daemon is gone: arinnd is `Type=dbus`, so its name has no
+/// owner by its `ExecStopPost=`, after a stop or a crash. While it still has
+/// one (`arinn-kwin-adapter stop` on an adapter-only stop or restart), the
+/// release is skipped. A live daemon could write the keys back after it from
+/// a focus report already delivered, and after an adapter-only restart it
+/// would not write them again, leaving Menu unbound while Arinn runs (review
+/// of #550).
+///
+/// Writes nothing when the action holds no Menu key or KGlobalAccel is not
+/// running, and never starts it (`NoAutoStart`, also on the calls). Returns
+/// whether the action holds no Menu key afterwards; false when skipped or
+/// KGlobalAccel did not answer.
 pub async fn release_menu_keys(connection: &Connection) -> bool {
     let dbus = match zbus::fdo::DBusProxy::new(connection).await {
         Ok(dbus) => dbus,
         Err(_) => return false,
     };
-    if !dbus
-        .name_has_owner(SERVICE.try_into().expect("valid name"))
-        .await
-        .unwrap_or(false)
-    {
+    let owned = |name: &'static str| {
+        let dbus = dbus.clone();
+        async move {
+            dbus.name_has_owner(name.try_into().expect("valid name"))
+                .await
+                .unwrap_or(false)
+        }
+    };
+    if owned(DAEMON).await || !owned(SERVICE).await {
         return false;
     }
-    let stored: Keys = match connection
-        .call_method(
-            Some(SERVICE),
-            PATH,
-            Some(INTERFACE),
-            "shortcutKeys",
-            &(QUICK_MENU_ACTION.to_vec(),),
-        )
+    let Ok(accel) = zbus::proxy::Builder::<zbus::Proxy>::new(connection)
+        .destination(SERVICE)
+        .and_then(|builder| builder.path(PATH))
+        .and_then(|builder| builder.interface(INTERFACE))
+        .map(|builder| builder.cache_properties(zbus::proxy::CacheProperties::No))
+    else {
+        return false;
+    };
+    let Ok(accel) = accel.build().await else {
+        return false;
+    };
+    let no_start = zbus::proxy::MethodFlags::NoAutoStart.into();
+    let stored: Keys = match accel
+        .call_with_flags("shortcutKeys", no_start, &(QUICK_MENU_ACTION.to_vec(),))
         .await
     {
-        Ok(reply) => reply.body().deserialize().unwrap_or_default(),
-        Err(_) => return false,
+        Ok(Some(keys)) => keys,
+        _ => return false,
     };
     let menu = encode(
         key_sequence::quick_menu("", &[])
@@ -311,12 +336,10 @@ pub async fn release_menu_keys(connection: &Connection) -> bool {
     if kept.len() == stored.len() {
         return true;
     }
-    connection
-        .call_method(
-            Some(SERVICE),
-            PATH,
-            Some(INTERFACE),
+    accel
+        .call_with_flags::<_, _, ()>(
             "setForeignShortcutKeys",
+            no_start,
             &(QUICK_MENU_ACTION.to_vec(), kept),
         )
         .await
@@ -468,7 +491,8 @@ mod tests {
         sync::{Arc, Mutex},
     };
 
-    struct Bus(Child);
+    /// A private bus daemon and its address.
+    struct Bus(Child, String);
     impl Drop for Bus {
         fn drop(&mut self) {
             let _ = self.0.kill();
@@ -547,7 +571,8 @@ mod tests {
         BufReader::new(child.stdout.take().unwrap())
             .read_line(&mut address)
             .unwrap();
-        (Bus(child), address.trim().to_owned())
+        let address = address.trim().to_owned();
+        (Bus(child, address.clone()), address)
     }
 
     async fn connect(address: &str) -> Connection {
@@ -944,6 +969,48 @@ mod tests {
         assert!(stored(&daemon, &QUICK_MENU_ACTION).await.is_empty());
         let (_bus, address) = bus().await;
         assert!(!release_menu_keys(&connect(&address).await).await);
+    }
+
+    /// Review of #550: `arinn-kwin-adapter stop` runs the helper while the
+    /// daemon may still run (an adapter-only stop or restart). Then the
+    /// keys stay: the live daemon writes them, and after an adapter-only
+    /// restart it would not write them again. Once the daemon's name is
+    /// gone, as at its `ExecStopPost=`, they are released.
+    #[tokio::test]
+    async fn the_stop_helper_leaves_the_menu_keys_to_a_live_daemon() {
+        let (bus, _service, daemon, writes) = fixture_with(
+            Vec::new(),
+            vec![owned(
+                &QUICK_MENU_ACTION,
+                &[META_F11, 0x0100_0055, 0x0100_00dc],
+            )],
+        )
+        .await;
+        let address = bus.1.clone();
+        let live = zbus::connection::Builder::address(address.as_str())
+            .unwrap()
+            .name(DAEMON)
+            .unwrap()
+            .build()
+            .await
+            .unwrap();
+        assert!(!release_menu_keys(&daemon).await);
+        assert!(writes.lock().unwrap().is_empty());
+        assert_eq!(
+            stored(&daemon, &QUICK_MENU_ACTION).await,
+            [key(META_F11), menu(), menu_kb()]
+        );
+        drop(live);
+        let dbus = zbus::fdo::DBusProxy::new(&daemon).await.unwrap();
+        while dbus
+            .name_has_owner(DAEMON.try_into().unwrap())
+            .await
+            .unwrap()
+        {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        assert!(release_menu_keys(&daemon).await);
+        assert_eq!(stored(&daemon, &QUICK_MENU_ACTION).await, [key(META_F11)]);
     }
 
     /// Only the sibling Arinn action gives keys up; a key a third-party

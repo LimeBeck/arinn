@@ -103,18 +103,30 @@ impl Default for Shortcuts {
 /// quick-menu action first releases the keys Home wants, the keyboard
 /// action those of Home and the quick menu, then Home is written, then the
 /// quick menu, then the keyboard without the keys of both.
+///
+/// The quick-menu lock is held from the release to the quick-menu write
+/// (#507): a focus change in between (`window_reported`) would otherwise
+/// write the previous connection's quick-menu keys back after the release,
+/// and Home would find its key held by the quick menu.
 async fn write_all(connection: &Connection, quick_menu: &QuickMenuKeys, shortcuts: &Shortcuts) {
     let home = keys(&shortcuts.home).0;
     let reserved = encode(key_sequence::reserved(
         &shortcuts.home,
         &shortcuts.quick_menu,
     ));
+    let mut state = quick_menu.state.lock().await;
     release(connection, &QUICK_MENU_ACTION, "quick-menu-shortcut", &home).await;
     release(connection, &KEYBOARD_ACTION, "keyboard-shortcut", &reserved).await;
     apply(connection, &shortcuts.home).await;
     quick_menu
-        .connected(connection, &shortcuts.home, &shortcuts.quick_menu)
+        .connected_locked(
+            &mut state,
+            connection,
+            &shortcuts.home,
+            &shortcuts.quick_menu,
+        )
         .await;
+    drop(state);
     apply_keyboard(
         connection,
         &shortcuts.home,
@@ -197,15 +209,26 @@ impl QuickMenuKeys {
     /// A new adapter connection: write every key for the current focus.
     /// Returns whether every key is active.
     pub async fn connected(&self, connection: &Connection, home: &str, configured: &str) -> bool {
+        let mut state = self.state.lock().await;
+        self.connected_locked(&mut state, connection, home, configured)
+            .await
+    }
+    /// [`connected`](Self::connected) with the state lock already held.
+    async fn connected_locked(
+        &self,
+        state: &mut QuickMenuState,
+        connection: &Connection,
+        home: &str,
+        configured: &str,
+    ) -> bool {
         let (keys, fallback) = key_sequence::quick_menu(configured, &key_sequence::home(home).0);
         if fallback {
             warn("quick-menu-shortcut", "InvalidArgument");
         }
-        let mut state = self.state.lock().await;
         state.keys = Some(keys);
         state.written = None;
         let shell = *self.shell_focused.lock().unwrap();
-        Self::write_state(&mut state, connection, shell).await
+        Self::write_state(state, connection, shell).await
     }
     /// Writes the keys for the latest focus if they differ from the stored
     /// ones. Returns whether every key is active.
@@ -237,6 +260,67 @@ impl QuickMenuKeys {
         )
         .await
     }
+}
+
+/// The stop helper (`arinnd --release-power-key`, run by `ExecStopPost=` of
+/// arinnd.service and by `arinn-kwin-adapter stop`): with the daemon gone,
+/// the remote's Menu keys would still open nothing and swallow the ordinary
+/// context-menu key in every application (#507). They are removed from the
+/// quick-menu action; its other keys stay, and the next adapter connection
+/// writes every key again. Writes nothing when the action holds no Menu key
+/// or KGlobalAccel is not running, and never starts it. Returns whether
+/// KGlobalAccel answered.
+pub async fn release_menu_keys(connection: &Connection) -> bool {
+    let dbus = match zbus::fdo::DBusProxy::new(connection).await {
+        Ok(dbus) => dbus,
+        Err(_) => return false,
+    };
+    if !dbus
+        .name_has_owner(SERVICE.try_into().expect("valid name"))
+        .await
+        .unwrap_or(false)
+    {
+        return false;
+    }
+    let stored: Keys = match connection
+        .call_method(
+            Some(SERVICE),
+            PATH,
+            Some(INTERFACE),
+            "shortcutKeys",
+            &(QUICK_MENU_ACTION.to_vec(),),
+        )
+        .await
+    {
+        Ok(reply) => reply.body().deserialize().unwrap_or_default(),
+        Err(_) => return false,
+    };
+    let menu = encode(
+        key_sequence::quick_menu("", &[])
+            .0
+            .keys
+            .into_iter()
+            .filter(|key| key.is_remote_menu())
+            .collect(),
+    );
+    let kept: Keys = stored
+        .iter()
+        .filter(|key| !menu.contains(key))
+        .cloned()
+        .collect();
+    if kept.len() == stored.len() {
+        return true;
+    }
+    connection
+        .call_method(
+            Some(SERVICE),
+            PATH,
+            Some(INTERFACE),
+            "setForeignShortcutKeys",
+            &(QUICK_MENU_ACTION.to_vec(), kept),
+        )
+        .await
+        .is_ok()
 }
 
 fn encode(sequences: Vec<Sequence>) -> Keys {
@@ -400,7 +484,11 @@ mod tests {
         writes: Writes,
         taken: Vec<i32>,
         active: Vec<(Vec<String>, Keys)>,
+        /// Once armed, holds the next write to the quick-menu action for
+        /// a while, after telling the test it arrived.
+        gate: Gate,
     }
+    type Gate = Arc<Mutex<Option<Arc<tokio::sync::Notify>>>>;
     impl FakeAccel {
         fn keys(&self, action: &[String]) -> Keys {
             self.active
@@ -413,7 +501,16 @@ mod tests {
     #[zbus::interface(name = "org.kde.KGlobalAccel")]
     impl FakeAccel {
         #[zbus(name = "setForeignShortcutKeys")]
-        fn set_foreign_shortcut_keys(&mut self, action: Vec<String>, keys: Keys) {
+        async fn set_foreign_shortcut_keys(&mut self, action: Vec<String>, keys: Keys) {
+            let gate = if action[..2] == QUICK_MENU_ACTION.map(String::from)[..2] {
+                self.gate.lock().unwrap().take()
+            } else {
+                None
+            };
+            if let Some(gate) = gate {
+                gate.notify_one();
+                tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+            }
             self.writes
                 .lock()
                 .unwrap()
@@ -470,12 +567,20 @@ mod tests {
         taken: Vec<i32>,
         active: Vec<(Vec<String>, Keys)>,
     ) -> (Bus, Connection, Connection, Writes) {
+        fixture_gated(taken, active, Gate::default()).await
+    }
+    async fn fixture_gated(
+        taken: Vec<i32>,
+        active: Vec<(Vec<String>, Keys)>,
+        gate: Gate,
+    ) -> (Bus, Connection, Connection, Writes) {
         let (bus, address) = bus().await;
         let writes = Writes::default();
         let accel = FakeAccel {
             writes: Arc::clone(&writes),
             taken,
             active,
+            gate,
         };
         let service = zbus::connection::Builder::address(address.as_str())
             .unwrap()
@@ -729,6 +834,116 @@ mod tests {
             stored(&daemon, &QUICK_MENU_ACTION).await,
             [key(META_F12), menu(), menu_kb()]
         );
+    }
+
+    /// #507: the quick-menu action still holds HomePage (an earlier
+    /// configuration or a hand edit). Home gets it back: the quick menu
+    /// gives up every Home key, HomePage included, not only the configured
+    /// one.
+    #[tokio::test]
+    async fn home_wins_home_page_the_quick_menu_action_still_holds() {
+        let (_bus, _service, daemon, _writes) = fixture_with(
+            Vec::new(),
+            vec![owned(&QUICK_MENU_ACTION, &[META_F11, HOME_PAGE])],
+        )
+        .await;
+        let quick = QuickMenuKeys::default();
+        write_all(
+            &daemon,
+            &quick,
+            &shortcuts("Meta+F12", "Meta+F11", "Meta+F10"),
+        )
+        .await;
+        assert_eq!(
+            stored(&daemon, &ACTION).await,
+            [key(META_F12), key(HOME_PAGE)]
+        );
+        assert_eq!(
+            stored(&daemon, &QUICK_MENU_ACTION).await,
+            [key(META_F11), menu(), menu_kb()]
+        );
+    }
+
+    /// #507: a focus change while a second adapter connection writes the
+    /// keys waits for the whole write. Here the keys are swapped across the
+    /// restart, and the shell gains focus just after the quick-menu action
+    /// gave up Home's new key. Writing the previous connection's quick-menu
+    /// key then would take it from Home again.
+    #[tokio::test]
+    async fn a_focus_change_waits_for_the_whole_write() {
+        let gate = Gate::default();
+        let (_bus, _service, daemon, _writes) = fixture_gated(
+            Vec::new(),
+            vec![
+                owned(&ACTION, &[META_F11, HOME_PAGE]),
+                owned(&QUICK_MENU_ACTION, &[META_F12, 0x0100_0055, 0x0100_00dc]),
+                owned(&KEYBOARD_ACTION, &[META_F10, META_F11, LAUNCH1]),
+            ],
+            Arc::clone(&gate),
+        )
+        .await;
+        // The previous connection: Home Meta+F11, quick menu Meta+F12,
+        // written while another window had focus.
+        let quick = QuickMenuKeys::default();
+        assert!(quick.connected(&daemon, "Meta+F11", "Meta+F12").await);
+        // The next connection swaps them. The quick-menu action's release
+        // of Meta+F12 is held while the shell gains focus.
+        let reached = Arc::new(tokio::sync::Notify::new());
+        *gate.lock().unwrap() = Some(Arc::clone(&reached));
+        let writer = {
+            let (daemon, quick) = (daemon.clone(), quick.clone());
+            tokio::spawn(async move {
+                write_all(
+                    &daemon,
+                    &quick,
+                    &shortcuts("Meta+F12", "Meta+F11", "Meta+F10"),
+                )
+                .await;
+            })
+        };
+        reached.notified().await;
+        assert!(quick.focus(true));
+        let follower = {
+            let (daemon, quick) = (daemon.clone(), quick.clone());
+            tokio::spawn(async move { quick.sync(&daemon).await })
+        };
+        writer.await.unwrap();
+        assert!(follower.await.unwrap());
+        assert_eq!(
+            stored(&daemon, &ACTION).await,
+            [key(META_F12), key(HOME_PAGE)]
+        );
+        assert_eq!(stored(&daemon, &QUICK_MENU_ACTION).await, [key(META_F11)]);
+    }
+
+    /// #507: the stop helper gives the remote's Menu keys back to
+    /// applications and keeps the configured key; it writes nothing when
+    /// they are not held, and nothing without KGlobalAccel.
+    #[tokio::test]
+    async fn the_stop_helper_releases_only_the_menu_keys() {
+        let (_bus, _service, daemon, writes) = fixture_with(
+            Vec::new(),
+            vec![owned(
+                &QUICK_MENU_ACTION,
+                &[META_F11, 0x0100_0055, 0x0100_00dc],
+            )],
+        )
+        .await;
+        assert!(release_menu_keys(&daemon).await);
+        assert_eq!(stored(&daemon, &QUICK_MENU_ACTION).await, [key(META_F11)]);
+        assert_eq!(writes.lock().unwrap().len(), 1);
+        assert!(release_menu_keys(&daemon).await);
+        assert_eq!(writes.lock().unwrap().len(), 1);
+        // A configured Menu key is a Menu key too: nothing is left to swallow it.
+        let (_bus, _service, daemon, _writes) = fixture_with(
+            Vec::new(),
+            vec![owned(&QUICK_MENU_ACTION, &[0x0100_0055, 0x0100_00dc])],
+        )
+        .await;
+        assert!(release_menu_keys(&daemon).await);
+        assert!(stored(&daemon, &QUICK_MENU_ACTION).await.is_empty());
+        let (_bus, address) = bus().await;
+        assert!(!release_menu_keys(&connect(&address).await).await);
     }
 
     /// Only the sibling Arinn action gives keys up; a key a third-party

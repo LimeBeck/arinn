@@ -922,7 +922,7 @@ FocusScope {
                         activeFocusOnTab: false
                         property bool pressed: false
                         readonly property bool saved: !!modelData.saved
-                        readonly property string iconName: saved ? "bookmark_added" : "bookmark"
+                        readonly property string iconName: saved ? "bookmark_added" : "bookmark_add"
 
                         Behavior on scale {
                             NumberAnimation { duration: bookmarkBtn.pressed ? Ui.Theme.pressDuration : Ui.Theme.focusDuration }
@@ -941,37 +941,13 @@ FocusScope {
                             opacity: bookmarkBtn.enabled ? 1 : 0.4
                             Behavior on color { ColorAnimation { duration: Ui.Theme.focusDuration } }
                         }
-                        Item {
+                        Ui.KeyboardIcon {
+                            objectName: "bookmarkIcon-" + modelData.id
                             anchors.centerIn: parent
-                            width: 28
-                            height: 36
-                            Rectangle {
-                                anchors.fill: parent
-                                radius: 3
-                                color: bookmarkBtn.saved ? Ui.Theme.ember : "transparent"
-                                border.width: bookmarkBtn.saved ? 0 : 3
-                                border.color: bookmarkBtn.activeFocus ? Ui.Theme.ink : Ui.Theme.textSecondary
-                            }
-                            Rectangle {
-                                visible: bookmarkBtn.saved
-                                width: 14
-                                height: 3
-                                radius: 1
-                                rotation: 40
-                                x: 4
-                                y: 18
-                                color: Ui.Theme.ink
-                            }
-                            Rectangle {
-                                visible: bookmarkBtn.saved
-                                width: 8
-                                height: 3
-                                radius: 1
-                                rotation: -40
-                                x: 12
-                                y: 20
-                                color: Ui.Theme.ink
-                            }
+                            width: 44
+                            height: 44
+                            name: bookmarkBtn.iconName
+                            color: bookmarkBtn.activeFocus ? Ui.Theme.ink : Ui.Theme.textSecondary
                         }
                         Keys.priority: Keys.BeforeItem
                         Keys.onPressed: event => {

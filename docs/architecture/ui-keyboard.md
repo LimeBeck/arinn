@@ -35,7 +35,8 @@ mode*; there the platform layer delivers the text
 - `ui/KeyboardButton.qml` is the pill in the field ("Keyboard" / "Hide"), the
   only way to open the panel.
 - `ui/KeyboardIcon.qml` draws the line icons on a `Canvas`, like the other
-  shell icons.
+  shell icons. Open services uses it too, for `bookmark_add` and
+  `bookmark_added` on the bookmark control.
 
 ## Defaults and memory
 

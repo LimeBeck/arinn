@@ -50,20 +50,20 @@ TestCase {
         const props = {
             width: 1920, height: 1080, clockText: "22:57",
             continueEntries: [
-                {id: "film", title: "Alpha", kind: "media", positionUs: 4422e6, durationUs: 9960e6, artwork: art()},
-                {id: "second", title: "Bravo", subtitle: "S1 E4 · Part three", kind: "media", positionUs: 300e6, durationUs: 2520e6, artwork: art()},
-                {id: "third", title: "Charlie", subtitle: "Part four", kind: "media", positionUs: 240e6, durationUs: 2400e6, artwork: art()}
+                {id: "film", title: "The Quiet Harbor", kind: "media", positionUs: 4422e6, durationUs: 9960e6, artwork: art()},
+                {id: "second", title: "Lighthouse Keepers", subtitle: "S1 E4 · The Fog Bell", kind: "media", positionUs: 300e6, durationUs: 2520e6, artwork: art()},
+                {id: "third", title: "Glass Valley", subtitle: "S2 E1 · Thaw", kind: "media", positionUs: 240e6, durationUs: 2400e6, artwork: art()}
             ],
             downloadActive: true, downloadProgress: 0.82,
             favoriteEntries: [
-                {id: "f1", title: "Alpha", monogram: "A"},
-                {id: "f2", title: "Bravo", monogram: "B"},
-                {id: "f3", title: "Charlie", monogram: "C"},
-                {id: "f4", title: "Delta", monogram: "D"}
+                {id: "f1", title: "Northwind TV", monogram: "N"},
+                {id: "f2", title: "Harbor Radio", monogram: "H"},
+                {id: "f3", title: "Lumen Video", monogram: "L"},
+                {id: "f4", title: "Atlas Maps", monogram: "A"}
             ],
             newEntries: [
-                {id: "n1", title: "Alpha", subtitle: "2001", artwork: art()},
-                {id: "n2", title: "Bravo", subtitle: "2002", artwork: art()}
+                {id: "n1", title: "Paper Moons", subtitle: "2024", artwork: art()},
+                {id: "n2", title: "Salt Roads", subtitle: "2023", artwork: art()}
             ]
         };
         const keys = Object.keys(extra || {});
@@ -72,17 +72,30 @@ TestCase {
         return props;
     }
     function films() {
-        const titles = ["Alpha", "Bravo", "Charlie", "Delta", "Echo", "Foxtrot", "Golf"];
+        const titles = ["The Quiet Harbor", "Paper Moons", "Salt Roads", "Copper Sky", "Winter Orchard", "The Last Ferry", "Lanterns"];
         const entries = [];
         for (let i = 0; i < titles.length; ++i)
             entries.push({id: "p" + i, tabId: "films", title: titles[i], year: String(2001 + i), kind: "film"});
         return entries;
     }
+    // Open services: fictional services on .example domains (the frames are
+    // CC-BY-SA, so no real brands), chips are monograms.
+    readonly property var services: [
+        {title: "Northwind TV · Live", url: "https://tv.north.example/live", letter: "N"},
+        {title: "Harbor Radio · Morning Tide", url: "https://harbor-radio.example/live", letter: "H"},
+        {title: "Lumen Video · Watch later", url: "https://video.lumen.example/later", letter: "L"},
+        {title: "Meadow Weather · Week ahead", url: "https://weather.meadow.example/week", letter: "M"},
+        {title: "Atlas Maps · Coast road", url: "https://maps.atlas.example/route", letter: "A"},
+        {title: "Quill News · Front page", url: "https://news.quill.example/", letter: "Q"},
+        {title: "Pinecone Kitchen · Fish soup", url: "https://pinecone.example/recipes/fish-soup", letter: "P"},
+        {title: "Cinder Arcade", url: "https://play.cinder.example/", letter: "C"}
+    ]
     function tabs(count, extra) {
         const rows = [];
         for (let i = 0; i < count; ++i) {
+            const service = services[i % services.length];
             rows.push({
-                id: "t" + i, windowId: "w1", title: "Label " + (i + 1), url: "loc-" + i,
+                id: "t" + i, windowId: "w1", title: service.title, url: service.url, letter: service.letter,
                 active: i === 0, audible: i === 1
             });
         }
@@ -93,18 +106,18 @@ TestCase {
     }
     function jobs() {
         return [
-            {id: "active", title: "Alpha", subtitle: "Part two", state: "downloading", progress: 0.82, statusText: "82%", availableActions: ["pause"], importState: "pending"},
-            {id: "waiting", title: "Bravo", state: "queued", availableActions: ["start_now"], importState: "pending"},
-            {id: "held", title: "Charlie", state: "paused", progress: 0.4, availableActions: ["resume"], importState: "pending"},
-            {id: "failed", title: "Delta", state: "error", errorText: "Could not download", availableActions: ["retry"], importState: "pending"}
+            {id: "active", title: "Salt Roads", subtitle: "2023 · 1080p", state: "downloading", progress: 0.82, statusText: "82%", availableActions: ["pause"], importState: "pending"},
+            {id: "waiting", title: "Lighthouse Keepers S1 E5", state: "queued", availableActions: ["start_now"], importState: "pending"},
+            {id: "held", title: "Copper Sky", state: "paused", progress: 0.4, availableActions: ["resume"], importState: "pending"},
+            {id: "failed", title: "Winter Orchard", state: "error", errorText: "Could not download", availableActions: ["retry"], importState: "pending"}
         ];
     }
     function playerProps(extra) {
         const props = {
-            width: 1920, height: 1080, title: "North", episodeLine: "Part two", clockText: "22:57",
+            width: 1920, height: 1080, title: "Lighthouse Keepers", episodeLine: "S1 E4 · The Fog Bell", clockText: "22:57",
             position: 754, duration: 5400, playing: false, seekSupported: true,
-            audioTracks: [{id: "a1", label: "One"}, {id: "a2", label: "Two"}],
-            subtitleTracks: [{id: "s1", label: "Notes"}, {id: "s2", label: "Other"}],
+            audioTracks: [{id: "a1", label: "English · 5.1"}, {id: "a2", label: "English · Stereo"}],
+            subtitleTracks: [{id: "s1", label: "English"}, {id: "s2", label: "English (SDH)"}],
             audioTrackId: "a1", subtitleTrackId: "s1"
         };
         const keys = Object.keys(extra || {});
@@ -124,13 +137,36 @@ TestCase {
                 {id: "appearance", title: "Appearance", icon: "palette"},
                 {id: "system", title: "System", icon: "memory"}
             ],
-            rows: [
-                {id: "scan", categoryId: "media", title: "Scan folders", description: "Look for new files", type: "boolean", currentValue: false, constraints: {}, enabled: true},
-                {id: "output", categoryId: "sound", title: "Output", description: "Audio output", type: "enum", currentValue: "stereo", constraints: {options: [{value: "stereo", title: "Stereo"}, {value: "surround", title: "Surround"}]}, enabled: true},
-                {id: "density", categoryId: "appearance", title: "Density", description: "Interface density", type: "enum", currentValue: "regular", constraints: {options: [{value: "regular", title: "Regular"}, {value: "compact", title: "Compact"}]}, enabled: true},
-                {id: "idle", categoryId: "system", title: "Idle minutes", description: "Wait before the ambient screen", type: "integer", currentValue: 10, constraints: {min: 1, max: 60}, enabled: true}
-            ]
+            // Settings › Media holds more rows than fit on the screen, so
+            // the frame shows how the list ends at the bottom edge.
+            rows: settingsRows().concat(withProviders([
+                {id: "sortfilms", categoryId: "media", title: "Sort films by", type: "enum", currentValue: "added", constraints: {options: [
+                    {value: "title", title: "Title"}, {value: "year", title: "Year"}, {value: "added", title: "Recently added"}
+                ]}, enabled: true},
+                {id: "watched", categoryId: "media", title: "Show watched", description: "Keep finished films in the lists", type: "boolean", currentValue: true, constraints: {}, enabled: true},
+                {id: "artwork", categoryId: "media", title: "Artwork from files", description: "Use posters stored next to the video", type: "boolean", currentValue: true, constraints: {}, enabled: true},
+                {id: "metalang", categoryId: "media", title: "Title language", type: "enum", currentValue: "en", constraints: {options: [
+                    {value: "en", title: "English"}, {value: "ru", title: "Russian"}, {value: "original", title: "Original"}
+                ]}, enabled: true},
+                {id: "minlength", categoryId: "media", title: "Skip short videos", description: "Shorter files stay out of the library", type: "integer", currentValue: 2, constraints: {min: 0, max: 30, unit: "min"}, enabled: true},
+                {id: "collections", categoryId: "media", title: "Group films into collections", type: "boolean", currentValue: false, constraints: {}, enabled: true},
+                {id: "hidden", categoryId: "media", title: "Hidden folders", description: "Scan folders whose names start with a dot", type: "boolean", currentValue: false, constraints: {}, enabled: true},
+                {id: "libname", categoryId: "media", title: "Library name", description: "Shown in arinnctl and on the home network", type: "string", currentValue: "Home films", constraints: {maxLength: 32}, enabled: true}
+            ]))
         };
+    }
+    // The provider that declares each row, shown as the row's third line
+    // (settings_catalog.cpp fills providerName for every row). Only the name:
+    // a providerId would change the row keys the scenes focus by.
+    readonly property var settingsProviders: ({
+        media: "Local library", playback: "Player", sound: "Audio", network: "Arinn shell",
+        applications: "Arinn shell", appearance: "Arinn shell", system: "Arinn shell"
+    })
+    function withProviders(rows) {
+        for (let i = 0; i < rows.length; ++i)
+            if (rows[i].providerName === undefined)
+                rows[i].providerName = settingsProviders[rows[i].categoryId] || "";
+        return rows;
     }
     // Settings fixture for the editor states (handoff se-*): one row of each
     // kind the editors draw, in the categories of the handoff frames.
@@ -164,6 +200,7 @@ TestCase {
             ]}, enabled: true},
             {id: "name", categoryId: "system", title: "Device name", description: "How Arinn shows on the home network and in arinnctl", type: "string", currentValue: "Arinn living room", constraints: {maxLength: 32}, enabled: true}
         ];
+        withProviders(rows);
         if (mutate)
             for (let i = 0; i < rows.length; ++i)
                 mutate(rows[i]);
@@ -205,18 +242,18 @@ TestCase {
     // Application tiles behind the tile action sheet (handoff cl-*).
     function appTiles() {
         return [
-            {id: "a1", providerId: "fixture", title: "Alpha", monogram: "A", group: "online", pinned: true},
-            {id: "a2", providerId: "fixture", title: "Bravo", monogram: "B", group: "online"},
-            {id: "g1", providerId: "fixture", title: "North", monogram: "N", group: "games", pinned: true, runningId: "w1", running: true},
-            {id: "g2", providerId: "fixture", title: "South", monogram: "S", group: "games", pinned: true},
-            {id: "o1", providerId: "fixture", title: "Editor", monogram: "E", group: "other", runningId: "w2", running: true}
+            {id: "a1", providerId: "fixture", title: "Northwind TV", monogram: "N", group: "online", pinned: true},
+            {id: "a2", providerId: "fixture", title: "Harbor Radio", monogram: "H", group: "online"},
+            {id: "g1", providerId: "fixture", title: "Cinder Rally", monogram: "C", group: "games", pinned: true, runningId: "w1", running: true},
+            {id: "g2", providerId: "fixture", title: "Tidepool", monogram: "T", group: "games", pinned: true},
+            {id: "o1", providerId: "fixture", title: "Text Editor", monogram: "E", group: "other", runningId: "w2", running: true}
         ];
     }
     function appScene(act, expect) {
         return {factory: homeFactory, props: homeProps({
             screen: "applications", sectionDescription: "Applications", actionsEnabled: true,
             applicationEntries: appTiles(),
-            runningEntries: [{id: "w1", title: "North", monogram: "N", running: true}]
+            runningEntries: [{id: "w1", title: "Cinder Rally", monogram: "C", running: true}]
         }), tune: act, settle: 500, expect: expect};
     }
     // The on-screen keyboard: its language, layer and Shift, set through its
@@ -269,7 +306,7 @@ TestCase {
     function quickMenuProps(overActivity) {
         return {
             overActivity: overActivity,
-            nowPlaying: {id: "song", title: "North", subtitle: "Part two", state: "playing", playPause: true},
+            nowPlaying: {id: "song", title: "Low Tide", subtitle: "Harbor Radio", state: "playing", playPause: true},
             audio: "unmuted", volumeControl: true, volumeKnown: true, volumeLevel: 40,
             network: "wifi", wifiLevel: 3
         };
@@ -283,8 +320,8 @@ TestCase {
             return {factory: homeFactory, props: homeProps({
                 returnActivityId: "activity",
                 continueEntries: [
-                    {id: "activity", title: "North", subtitle: "Return", running: true},
-                    {id: "film", title: "Alpha", kind: "media", positionUs: 4422e6, durationUs: 9960e6, artwork: art()}
+                    {id: "activity", title: "Cinder Rally", subtitle: "Return", running: true},
+                    {id: "film", title: "The Quiet Harbor", kind: "media", positionUs: 4422e6, durationUs: 9960e6, artwork: art()}
                 ]
             })};
         if (id === "home-nav")
@@ -311,33 +348,33 @@ TestCase {
             })};
         if (id === "home-over-service")
             return {factory: homeFactory, props: homeProps({
-                currentServiceId: "svc", currentServiceTitle: "North", currentServiceSubtitle: "loc-current",
-                openServices: [{id: "svc", title: "North", letter: "N"}, {id: "svc-2", title: "South", letter: "S"}]
+                currentServiceId: "svc", currentServiceTitle: "Northwind TV", currentServiceSubtitle: "tv.north.example",
+                openServices: [{id: "svc", title: "Northwind TV", letter: "N"}, {id: "svc-2", title: "Harbor Radio", letter: "H"}]
             })};
         if (id === "home-nav-service")
             return {factory: homeFactory, props: homeProps({
-                currentServiceId: "svc", currentServiceTitle: "North", currentServiceSubtitle: "loc-current",
-                openServices: [{id: "svc", title: "North", letter: "N"}, {id: "svc-2", title: "South", letter: "S"},
-                               {id: "svc-3", title: "East", letter: "E"}]
+                currentServiceId: "svc", currentServiceTitle: "Northwind TV", currentServiceSubtitle: "tv.north.example",
+                openServices: [{id: "svc", title: "Northwind TV", letter: "N"}, {id: "svc-2", title: "Harbor Radio", letter: "H"},
+                               {id: "svc-3", title: "Lumen Video", letter: "L"}]
             }), tune: "nav"};
         if (id === "home-browser-unavailable")
             return {factory: homeFactory, props: homeProps({
                 browserUnavailable: true,
                 favoriteEntries: [
-                    {id: "f1", title: "Alpha", monogram: "A", webShortcut: true},
-                    {id: "f2", title: "Bravo", monogram: "B"}
+                    {id: "f1", title: "Northwind TV", monogram: "N", webShortcut: true},
+                    {id: "f2", title: "Harbor Radio", monogram: "H"}
                 ]
             })};
         if (id === "applications")
             return {factory: homeFactory, props: homeProps({
                 screen: "applications", sectionDescription: "Applications",
                 applicationEntries: [
-                    {id: "a", title: "Alpha", monogram: "A", group: "online"},
-                    {id: "b", title: "Bravo", monogram: "B", group: "games"},
-                    {id: "c", title: "Charlie", monogram: "C", group: "media"},
-                    {id: "d", title: "Delta", monogram: "D", group: "other"}
+                    {id: "a", title: "Northwind TV", monogram: "N", group: "online"},
+                    {id: "b", title: "Cinder Rally", monogram: "C", group: "games"},
+                    {id: "c", title: "Music", monogram: "M", group: "media"},
+                    {id: "d", title: "Text Editor", monogram: "T", group: "other"}
                 ],
-                runningEntries: [{id: "r", title: "Window", monogram: "W", running: true}]
+                runningEntries: [{id: "r", title: "Cinder Rally", monogram: "C", running: true}]
             })};
         if (id === "library-grid")
             return {factory: libraryFactory, props: {
@@ -349,19 +386,19 @@ TestCase {
             return {factory: libraryFactory, props: {
                 width: 1920, height: 1080, detailEntryId: "p0",
                 tabs: [{id: "films", title: "Films"}],
-                entries: [{id: "p0", tabId: "films", title: "Alpha", year: "2001", kind: "film", description: "A fixture detail.", progress: 0.4}]
+                entries: [{id: "p0", tabId: "films", title: "The Quiet Harbor", year: "2001", kind: "film", description: "A ferry captain spends one last winter on a northern island before the route closes.", progress: 0.4}]
             }};
         if (id === "library-series")
             return {factory: libraryFactory, props: {
                 width: 1920, height: 1080, detailEntryId: "show", currentSeasonId: "s1",
                 tabs: [{id: "series", title: "Series"}],
                 entries: [{
-                    id: "show", tabId: "series", title: "Serial", subtitle: "2011", kind: "series",
-                    description: "A seasonal entry.",
+                    id: "show", tabId: "series", title: "Lighthouse Keepers", subtitle: "2011", kind: "series",
+                    description: "Two keepers, one rock and a light that must not go out.",
                     seasons: [{id: "s1", title: "Season 1"}, {id: "s2", title: "Season 2"}],
                     episodes: [
-                        {id: "p1", seasonId: "s1", title: "Pilot", duration: "40 min", number: 1},
-                        {id: "p2", seasonId: "s1", title: "Next", duration: "41 min", number: 2}
+                        {id: "p1", seasonId: "s1", title: "First Watch", duration: "40 min", number: 1},
+                        {id: "p2", seasonId: "s1", title: "Supply Boat", duration: "41 min", number: 2}
                     ]
                 }]
             }};
@@ -400,21 +437,21 @@ TestCase {
         if (id === "settings")
             return {factory: settingsFactory, props: settingsProps()};
         if (id === "power-menu")
-            return {factory: powerFactory, props: {width: 1920, height: 1080, closingApplications: ["One", "Two"]}};
+            return {factory: powerFactory, props: {width: 1920, height: 1080, closingApplications: ["Cinder Rally", "Text Editor"]}};
         if (id === "power-confirm")
-            return {factory: powerFactory, props: {width: 1920, height: 1080, step: "confirm", pendingAction: "shutdown", closingApplications: ["One"]}};
+            return {factory: powerFactory, props: {width: 1920, height: 1080, step: "confirm", pendingAction: "shutdown", closingApplications: ["Cinder Rally"]}};
         if (id === "power-ambient")
             return {factory: ambientFactory, props: {width: 1920, height: 1080, clockText: "22:57", dateText: "Monday", driftInterval: 600000},
                     tune: view => view.start(), expect: ["ambientClock", "ambientDate"]};
         if (id === "power-desktop")
             return {factory: powerFactory, props: {
-                width: 1920, height: 1080, closingApplications: ["One", "Two"],
+                width: 1920, height: 1080, closingApplications: ["Cinder Rally", "Text Editor"],
                 sleepAvailability: "available", restartAvailability: "available", shutdownAvailability: "available",
                 desktopSwitchAvailability: "available", menuFocus: "desktop"
             }, tune: view => view.restoreMenuFocus(), expect: "powerMenu"};
         if (id === "power-desktop-confirm")
             return {factory: powerFactory, props: {
-                width: 1920, height: 1080, closingApplications: ["One", "Two"],
+                width: 1920, height: 1080, closingApplications: ["Cinder Rally", "Text Editor"],
                 sleepAvailability: "available", restartAvailability: "available", shutdownAvailability: "available",
                 desktopSwitchAvailability: "available", step: "confirm", pendingAction: "desktop", menuFocus: "desktop"
             }, expect: ["powerConfirm", "confirmDetail"]};
@@ -430,7 +467,7 @@ TestCase {
             }, settle: 400, expect: "volumeHud"};
         if (id === "launch-starting" || id === "launch-stop-confirm" || id === "launch-stopping")
             return {factory: launchFactory, props: {
-                width: 1920, height: 1080, kind: "application", active: true, serviceTitle: "North",
+                width: 1920, height: 1080, kind: "application", active: true, serviceTitle: "Cinder Rally",
                 revealDelay: 600000, slowDelay: 600000, timeoutDelay: 0
             }, tune: view => {
                 view.revealed = true;
@@ -455,10 +492,10 @@ TestCase {
             return {factory: homeFactory, props: homeProps({
                 actionsEnabled: true,
                 favoriteEntries: [
-                    {id: "f1", providerId: "fixture", title: "North", monogram: "N", pinned: true, runningId: "w1", running: true},
-                    {id: "f2", providerId: "fixture", title: "South", monogram: "S", pinned: true},
-                    {id: "f3", providerId: "fixture", title: "East", monogram: "E", pinned: true},
-                    {id: "f4", providerId: "fixture", title: "West", monogram: "W", pinned: true}
+                    {id: "f1", providerId: "fixture", title: "Northwind TV", monogram: "N", pinned: true, runningId: "w1", running: true},
+                    {id: "f2", providerId: "fixture", title: "Harbor Radio", monogram: "H", pinned: true},
+                    {id: "f3", providerId: "fixture", title: "Lumen Video", monogram: "L", pinned: true},
+                    {id: "f4", providerId: "fixture", title: "Atlas Maps", monogram: "A", pinned: true}
                 ]
             }), tune: view => view.openTileActions("f2"), settle: 500, expect: "tileActions"};
         if (id === "keyboard-browse")
@@ -588,11 +625,15 @@ TestCase {
         if (id === "browser-closing")
             return {factory: browserFactory, props: {width: 1920, height: 1080, tabs: tabs(3), closingId: "t0"}};
         if (id === "browser-many")
-            return {factory: browserFactory, props: {width: 1920, height: 1080, tabs: tabs(8)}};
+            return {factory: browserFactory, props: {width: 1920, height: 1080, tabs: tabs(8).map((tab, i) => {
+                // One service already saved: its button shows bookmark_added.
+                tab.saved = i === 2;
+                return tab;
+            })}};
         if (id === "browser-long")
             return {factory: browserFactory, props: {width: 1920, height: 1080, tabs: [
-                {id: "t0", windowId: "w1", title: "A very long fixture label that stays on one row and does not leave the screen", url: "loc-0", active: true, audible: false},
-                {id: "t1", windowId: "w1", title: "", url: "loc-1", active: false, audible: false}
+                {id: "t0", windowId: "w1", title: "Quill News · Coastal towns vote on the new ferry timetable after a long winter of cancelled crossings", url: "https://news.quill.example/2026/10/ferry-timetable-vote", letter: "Q", active: true, audible: false},
+                {id: "t1", windowId: "w1", title: "", url: "https://harbor-radio.example/archive", letter: "H", active: false, audible: false}
             ]}};
         if (id === "browser-empty")
             return {factory: browserFactory, props: {width: 1920, height: 1080, browserState: "empty", tabs: []}};
@@ -604,14 +645,14 @@ TestCase {
             return {factory: browserFactory, props: {width: 1920, height: 1080, browserState: "loading", tabs: []}};
         if (id === "launch-opening" || id === "launch-slow")
             return {factory: launchFactory, props: {
-                width: 1920, height: 1080, active: true, serviceTitle: "North",
+                width: 1920, height: 1080, active: true, serviceTitle: "Northwind TV",
                 revealDelay: 600000, slowDelay: 600000, timeoutDelay: 600000
             }, tune: id === "launch-slow" ? "slow" : "opening"};
         if (id === "launch-failed")
-            return {factory: launchFactory, props: {width: 1920, height: 1080, serviceTitle: "North", failure: "unavailable"}};
+            return {factory: launchFactory, props: {width: 1920, height: 1080, serviceTitle: "Northwind TV", failure: "unavailable"}};
         if (id === "session-ready")
             return {factory: sessionFactory, props: {
-                width: 1920, height: 1080, title: "Fixture title", subtitle: "Fixture artist",
+                width: 1920, height: 1080, title: "Low Tide", subtitle: "Harbor Radio",
                 playbackState: "playing", durationUs: 125000000, positionUs: 65000000, artworkHue: "#336699"
             }};
         if (id === "session-empty")

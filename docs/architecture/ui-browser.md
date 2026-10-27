@@ -100,7 +100,7 @@ which emits `backRequested()`. Error and unavailable offer Retry. Loading hides
 the action.
 
 OK on a row emits `activateTab`. A bookmark control sits between the row and
-its close control. OK on that control emits `savePage`. `Main.qml` connects
+its close control; it shows `bookmark_add` until the row is saved. OK on that control emits `savePage`. `Main.qml` connects
 that signal to `BrowserCatalog.addShortcut`, which sends `WebShortcuts1.Add`
 with the row title (the page title, or the host when the page title is empty)
 and the page address, an empty icon reference and a request id. The shell

@@ -53,7 +53,7 @@ control.
 | Row `enabled` | When false, the row is shown and cannot be edited. The detail line is the generic "Cannot be changed now"; the contract carries no reason |
 | Row `pending` | A `SetValue` operation is still running |
 | Row `deferred` | The operation error was `Unsupported`. The value is stored and applies at the provider's next start, whether the operation finished as succeeded or failed. The note stays until that provider's generation changes, and it is forgotten when the shell restarts |
-| Row `unavailablePaths` | Only on a path row with `multiple`: the folders of `currentValue` that the provider of that row reports unavailable through `Library1.GetRoots`, matched by path as written. Empty when nothing is reported |
+| Row `unavailablePaths` | Only on a path row with `multiple` and `directory`: the folders of `currentValue` that the provider of that row reports unavailable through `Library1.GetRoots`, matched by path as written. Empty when nothing is reported |
 | Row `error` | The daemon's error text, or empty. `Timeout` is the shell's own deadline and is shown as "Arinn did not reply. Try again." |
 | `screenState` | `loading`, `ready`, `error` or `unavailable` |
 
@@ -116,9 +116,11 @@ absolute:
 - The home folder is the shell's `$HOME` (`main.cpp` passes it to
   `SettingsView.homeFolder`); the shell reads no file system for it (R-05).
   When it is unset or not an absolute path, `~` stays relative and is
-  rejected, as by the contract. Subfolder suggestions, the folder list
-and the folder picker in specification §5.6 wait on the folder-listing
-contract ([DR-27](../design/integration-review.md)).
+  rejected, as by the contract.
+
+Subfolder suggestions, the folder list and the folder picker in
+specification §5.6 wait on the folder-listing contract
+([DR-27](../design/integration-review.md)).
 
 ### Unavailable library folders
 
@@ -133,17 +135,28 @@ path itself.
   `LibraryRoots1`. It reads them on start, on `ProvidersChanged`, on a daemon
   owner change and on `Daemon1.StateChanged` for that provider's `library`
   capability.
+- One library change brings `StateChanged` and then `ProvidersChanged`, so
+  reads are coalesced per provider: one read at a time, and a trigger that
+  arrives meanwhile runs it once more when it ends
+  ([#558](https://github.com/LimeBeck/arinn/issues/558)). `Features` is
+  read for each coalesced read because the daemon may announce a feature
+  change without changing the provider generation.
 - `Unsupported` means no unavailable state. `Unavailable` means the daemon has
   not read the roots yet: no folder is marked, and the next `StateChanged`
   reads again. Any other error, or no `LibraryRoots1`, also marks nothing.
-- A root is matched to a folder of a `multiple` path row of the same provider
-  by its path as written; the row gets it in `unavailablePaths`.
+- A root is matched to a folder of a folder list (a path row with `multiple`
+  and `directory`) of the same provider, by its path as written; the row gets
+  it in `unavailablePaths`. ADR-0071 does not say which setting the roots come
+  from, so the shell does not name one: every folder list of that provider is
+  matched. A list of files is not. The bundled library provider has one
+  folder list, `roots`.
 - In the inline folder list, such a folder keeps its place. Its path is in the
   secondary text colour, with the error-coloured note "Unavailable. Its titles
   stay in the library as unavailable." under it (handoff LF-4, without the
   `folder_off` chip, which the inline list does not have). Editing and Remove
-  work as for any folder. Remove only takes the folder out of the setting;
-  nothing is deleted (§5.6). The folder returns to normal when the provider
+  work as for any folder. Remove only takes the folder out of the setting,
+  and its Russian label uses the handoff's verb for taking out, never the
+  verb for deleting; nothing is deleted (§5.6). The folder returns to normal when the provider
   stops reporting it.
 
 ## Changes
@@ -216,7 +229,11 @@ navigation keys. For library roots, the fake daemon also answers
 `Daemon1.Providers`, `Library1.Features` and `Library1.GetRoots`: `Unavailable`
 first, then one root unavailable after a library `StateChanged` and available
 after the next, no read on another capability's `StateChanged`, no `GetRoots`
-without `LibraryRoots1`, and `Unsupported` marking nothing.
+without `LibraryRoots1`, and `Unsupported` marking nothing. On its own
+connection, so that `GetRoots` replies can be held back, it checks that a
+burst of `StateChanged` and `ProvidersChanged` during a read gives one more
+read, that features can appear and disappear within the same provider
+generation, and that a list of files is not matched (#558).
 
 Offscreen run on 2026-09-30, Qt 6.11.2:
 

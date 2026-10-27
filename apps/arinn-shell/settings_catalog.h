@@ -90,6 +90,9 @@ private:
   void readLibraryProviders(const std::shared_ptr<RootScan> &scan,
                             const QString &token);
   void readRoots(const QString &providerId);
+  void readRootList(const QString &providerId, const QString &objectPath,
+                    quint64 ticket, quint64 epoch);
+  void finishRootRead(const QString &providerId);
   void dropRoots(const QString &providerId);
   QString keyFor(const QString &providerId, const QString &settingId) const;
   const SettingRecord *find(const QString &providerId,
@@ -124,6 +127,10 @@ private:
   // provider whose GetRoots answered. No entry means no unavailable state.
   QHash<QString, QHash<QString, bool>> m_roots;
   QHash<QString, quint64> m_rootTickets;
+  // One roots read per provider at a time; a trigger meanwhile runs it once
+  // more when it ends.
+  QSet<QString> m_rootsReading;
+  QSet<QString> m_rootsAgain;
   quint64 m_rootScan = 0;
   bool m_loaded = false;
   bool m_error = false;

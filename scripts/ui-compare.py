@@ -120,6 +120,8 @@ def run_capture(
     env["QT_QPA_PLATFORM"] = "offscreen"
     env["QT_QUICK_BACKEND"] = "software"
     env["QML_XHR_ALLOW_FILE_READ"] = "1"
+    # Finish transitions at once and hold loops still; see tests/ui/main.cpp.
+    env["ARINN_CAPTURE_STILL_ANIMATIONS"] = "1"
     env.pop("QT_SCALE_FACTOR", None)
     if scale_factor:
         env["QT_SCALE_FACTOR"] = scale_factor

@@ -30,7 +30,7 @@ set(ARINN_PRESENTATION_FILES
     ui/Surface.qml ui/ActionButton.qml ui/ContentCard.qml ui/AppTile.qml
     ui/HomeRow.qml ui/HomeView.qml ui/BrandLockup.qml ui/BrandButton.qml
     ui/ProgressTrack.qml ui/Skeleton.qml ui/StatusPane.qml ui/LaunchOverlay.qml
-    ui/AmbientGlow.qml ui/ActivityBackground.qml ui/VolumeHud.qml ui/OnScreenKeyboard.qml ui/KeyboardButton.qml ui/KeyboardIcon.qml
+    ui/AmbientGlow.qml ui/ActivityBackground.qml ui/VolumeHud.qml ui/OnScreenKeyboard.qml ui/KeyboardButton.qml ui/LineIcon.qml
     ui/QuickMenu.qml ui/KeyboardPanel.qml
     ui/fonts/Onest.ttf)
 foreach(target arinn-shell arinn-shell-test)

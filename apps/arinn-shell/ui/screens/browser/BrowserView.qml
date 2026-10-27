@@ -33,6 +33,10 @@ FocusScope {
     property string statusDescription: ""
     property bool pointerMode: false
     property bool hoverFocusEnabled: true
+    // A fixed time for captures and tests; empty shows the live clock.
+    property string clockText: ""
+    property string liveClock: Qt.formatTime(new Date(), "hh:mm")
+    readonly property string clockLabel: clockText !== "" ? clockText : liveClock
 
     readonly property bool showTabs: browserState === "populated" && orderedTabs.length > 0
     readonly property string statusKind: {
@@ -595,14 +599,14 @@ FocusScope {
                 font.weight: 500
                 font.features: ({"tnum": 1})
                 color: Ui.Theme.textSecondary
-                text: Qt.formatTime(new Date(), "hh:mm")
+                text: root.clockLabel
                 Ui.FontWeightAxis {}
                 Timer {
                     interval: 30000
-                    running: true
+                    running: root.clockText === ""
                     repeat: true
                     triggeredOnStart: true
-                    onTriggered: clock.text = Qt.formatTime(new Date(), "hh:mm")
+                    onTriggered: root.liveClock = Qt.formatTime(new Date(), "hh:mm")
                 }
             }
 
@@ -941,7 +945,7 @@ FocusScope {
                             opacity: bookmarkBtn.enabled ? 1 : 0.4
                             Behavior on color { ColorAnimation { duration: Ui.Theme.focusDuration } }
                         }
-                        Ui.KeyboardIcon {
+                        Ui.LineIcon {
                             objectName: "bookmarkIcon-" + modelData.id
                             anchors.centerIn: parent
                             width: 44

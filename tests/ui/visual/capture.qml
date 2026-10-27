@@ -619,30 +619,30 @@ TestCase {
         if (id === "power-refusal")
             return {factory: powerFactory, props: {width: 1920, height: 1080, refusalMessage: "The system did not suspend."}};
         if (id === "browser-list")
-            return {factory: browserFactory, props: {width: 1920, height: 1080, tabs: tabs(3)}};
+            return {factory: browserFactory, props: {width: 1920, height: 1080, clockText: "22:57", tabs: tabs(3)}};
         if (id === "browser-close-focus")
-            return {factory: browserFactory, props: {width: 1920, height: 1080, tabs: tabs(3)}, tune: "close"};
+            return {factory: browserFactory, props: {width: 1920, height: 1080, clockText: "22:57", tabs: tabs(3)}, tune: "close"};
         if (id === "browser-closing")
-            return {factory: browserFactory, props: {width: 1920, height: 1080, tabs: tabs(3), closingId: "t0"}};
+            return {factory: browserFactory, props: {width: 1920, height: 1080, clockText: "22:57", tabs: tabs(3), closingId: "t0"}};
         if (id === "browser-many")
-            return {factory: browserFactory, props: {width: 1920, height: 1080, tabs: tabs(8).map((tab, i) => {
+            return {factory: browserFactory, props: {width: 1920, height: 1080, clockText: "22:57", tabs: tabs(8).map((tab, i) => {
                 // One service already saved: its button shows bookmark_added.
                 tab.saved = i === 2;
                 return tab;
             })}};
         if (id === "browser-long")
-            return {factory: browserFactory, props: {width: 1920, height: 1080, tabs: [
+            return {factory: browserFactory, props: {width: 1920, height: 1080, clockText: "22:57", tabs: [
                 {id: "t0", windowId: "w1", title: "Quill News · Coastal towns vote on the new ferry timetable after a long winter of cancelled crossings", url: "https://news.quill.example/2026/10/ferry-timetable-vote", letter: "Q", active: true, audible: false},
                 {id: "t1", windowId: "w1", title: "", url: "https://harbor-radio.example/archive", letter: "H", active: false, audible: false}
             ]}};
         if (id === "browser-empty")
-            return {factory: browserFactory, props: {width: 1920, height: 1080, browserState: "empty", tabs: []}};
+            return {factory: browserFactory, props: {width: 1920, height: 1080, clockText: "22:57", browserState: "empty", tabs: []}};
         if (id === "browser-unavailable")
-            return {factory: browserFactory, props: {width: 1920, height: 1080, browserState: "unavailable", tabs: []}};
+            return {factory: browserFactory, props: {width: 1920, height: 1080, clockText: "22:57", browserState: "unavailable", tabs: []}};
         if (id === "browser-error")
-            return {factory: browserFactory, props: {width: 1920, height: 1080, browserState: "error", tabs: []}};
+            return {factory: browserFactory, props: {width: 1920, height: 1080, clockText: "22:57", browserState: "error", tabs: []}};
         if (id === "browser-loading")
-            return {factory: browserFactory, props: {width: 1920, height: 1080, browserState: "loading", tabs: []}};
+            return {factory: browserFactory, props: {width: 1920, height: 1080, clockText: "22:57", browserState: "loading", tabs: []}};
         if (id === "launch-opening" || id === "launch-slow")
             return {factory: launchFactory, props: {
                 width: 1920, height: 1080, active: true, serviceTitle: "Northwind TV",

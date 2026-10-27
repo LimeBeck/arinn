@@ -3,6 +3,10 @@
 
 # Current Qt interface captures
 
+The README, website and handbook still show the earlier captures kept in
+[showcase](../showcase/README.md) until the re-shoot in
+[#569](https://github.com/LimeBeck/arinn/issues/569).
+
 These images come from the fixture render of
 [`tests/ui/visual`](../../../tests/ui/visual/) ([manifest](../../../tests/ui/visual/manifest.json),
 [`capture.qml`](../../../tests/ui/visual/capture.qml)), the same render that is

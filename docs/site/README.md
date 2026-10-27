@@ -1,7 +1,7 @@
 # Arinn product website
 
-The static product website combines a landing page, eight current Qt interface
-screenshots rendered from the `tests/ui/visual` fixtures and the [user handbook](../user/README.md). It presents implemented
+The static product website combines a landing page, eight current Qt gallery
+screenshots and the [user handbook](../user/README.md). It presents implemented
 features with explicit pre-alpha and screenshot-fixture context. The specification
 and roadmap remain the source of requirements and acceptance status.
 
@@ -50,7 +50,7 @@ release or application deployment is part of this website.
 
 The builder copies the approved mark unchanged from
 `docs/design/handoff/assets/arinn-mark.svg`. It copies all eight PNGs directly from
-[current-ui](../design/current-ui/README.md), including the handbook's Home image.
+[showcase](../design/showcase/README.md), including the handbook's Home image.
 The handbook also includes its approved mark and app-icon favicon from
 `docs/user/assets/`; their provenance is recorded in the handbook README.
 Refreshing those originals refreshes the website on its next build; no separate

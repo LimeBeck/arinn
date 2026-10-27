@@ -31,7 +31,10 @@ monograms and plain plates where a fixture sets no artwork. The render does
 not connect to a daemon or control the desktop. Favorites, services and
 settings rows are fixture data, not evidence of completed integrations.
 The production shell loads real posters and fanart through `Assets1`.
-Qt 6.8 may draw heading glyphs slightly differently from newer Qt releases.
+These images are rendered on Qt 6.8.2. Known artefacts, such as empty glyph
+boxes in the Open services action column and placeholder labels from the
+fixtures, are tracked in [#569](https://github.com/LimeBeck/arinn/issues/569)
+(fixtures in `capture.qml` and a re-shoot on Qt 6.10).
 
 The mark is the unchanged [approved SVG](../handoff/assets/arinn-mark.svg),
 embedded as a Qt resource. The screenshots are documentation under CC-BY-SA-4.0,

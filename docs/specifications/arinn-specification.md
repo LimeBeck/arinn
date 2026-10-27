@@ -210,6 +210,8 @@ Owner decisions of 2026-09-30:
 
 Removing a folder removes its items from the library and never deletes files. Arinn never mounts or browses network shares; mounted folders appear as start points in the picker.
 
+A typed path that begins with `~/`, or is only `~`, means the user's home folder: the shell expands it before it proposes the value, so the stored setting and the contract stay absolute paths. `~user/` is not supported. Owner decision of 2026-10-26 ([#479](https://github.com/LimeBeck/arinn/issues/479)).
+
 ### 5.7. System UI, power and ambient
 
 Arinn provides one system overlay for Home, Back, Play/Pause, volume, mute, the power menu and Settings. Each action is executed by the platform layer or the matching provider. CEC is not part of the architecture; TV control (for example webOS) is added later through the same plugin mechanism, never in the core.

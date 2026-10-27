@@ -147,14 +147,6 @@ global and replace the panel with the shell.
   path editors type with the panel and an empty suggestion row
   ([#426](https://github.com/LimeBeck/arinn/issues/426)). The picker's task
   reuses the same panel with Go as its main key.
-- **Path format.** The `path` context row offers `~/` and `..` (KB-5), but
-  `arinn_protocol::settings::path` accepts only absolute local paths with no
-  `.` or `..` segment. The shell has no copy of those rules, so Save is not
-  blocked while typing, unlike §6.2's format error. A rejected path shows as
-  the row's error after Save, and for a single path the typed text is not
-  kept. Blocking Save needs a translated hint in the shell catalogue, and
-  `~/` needs a decision on expanding the home directory. Both belong to a
-  follow-up task, as for the shortcut address below.
 - **Shortcut address format.** The address rules belong to the daemon
   (ADR-0043, ADR-0045), and the shell has no copy of them. Done is not blocked
   while typing; a rejected address shows as the editor's error after Save. A
@@ -200,7 +192,17 @@ global and replace the panel with the shell.
   the string sheet's pill). They cover remote-only typing from the pill, the path context row,
   Save on a single path and on *Add path*, an empty entry kept open, a
   hardware keyboard and Backspace while the panel is open, Menu, Back to the
-  pill, Home, and the panel below the field.
+  pill, Home, and the panel below the field. `test_path_format_blocks_save`
+  and `test_path_panel_save_waits_for_a_valid_path` cover the path format
+  while typing (#479): a relative path, `~/`, `.` and `..` segments, `//`, a
+  control character and 4097 bytes in 2049 characters each show their hint
+  and keep Enter or Save from saving; exactly 4096 bytes, a trailing `/` and
+  the root are valid. `test_home_folder_expands_in_a_path` and
+  `test_home_folder_expands_in_the_panel` cover `~` (owner decision of
+  2026-10-26, spec §5.6): the `~/` context key and a typed `~/` show the home
+  folder at once, a bare `~` is expanded on Save, `~user/` stays rejected,
+  `~/../x` still breaks the `..` rule, and an unknown home folder leaves `~`
+  relative.
 - 2026-10-09, local build with Qt 6.12 (offscreen, software renderer): the
   three C++ tests and `arinn-ui-test -input tests/ui` (291 cases) passed; the
   rendered Site or search panel and the shortcut address layer were compared

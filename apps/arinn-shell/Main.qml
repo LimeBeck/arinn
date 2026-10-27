@@ -207,6 +207,17 @@ Window {
     property bool presentationReturning: false
     property bool presentationFocusConfirmed: false
     property bool presentationWaitingForHomeExit: false
+    property double presentationNativeRevision: Infinity
+    function requestPresentationFocus() {
+        presentationNativeRevision = Infinity;
+        if (backend.nativeFocusSupported === true)
+            presentationNativeRevision = backend.requestNativeFocus();
+    }
+    function nativePresentationFocus() {
+        return backend.nativeFocusSupported === true
+                && backend.nativeFocusRevision >= presentationNativeRevision
+                ? backend.nativeShellFocus : "unknown";
+    }
     // The compositor's acknowledgement can precede Qt's activation event.
     // Wait for that event without requesting activation or retrying Present.
     Timer {
@@ -218,7 +229,8 @@ Window {
             root.presentationReturning = false;
             if (mediaCatalog.presentationState !== "active" || root.leavingStopPending
                     || sessionGuard.blocked) return;
-            if (root.active)
+            if (root.nativePresentationFocus() === "shell"
+                    || (root.nativePresentationFocus() === "unknown" && root.active))
                 root.presentationFocusConfirmed = true;
             else if (!root.presentationAtHome || returning)
                 mediaCatalog.abandonPresentation("presentation_focus_timeout");
@@ -226,13 +238,24 @@ Window {
     }
     function checkPresentationFocus() {
         if (mediaCatalog.presentationState !== "active"
-                || (presentationAtHome && !presentationReturning)
                 || leavingStopPending || sessionGuard.blocked) {
             presentationFocusBound.stop();
             return;
         }
-        if (active && (presentationFocusConfirmed
-                       || presentationActivationSerial > presentationHandoffSerial)) {
+        const nativeFocus = nativePresentationFocus();
+        // Status contains a platform cache: a post-intent request can still
+        // precede ReportWindow. Preserve the handoff grace until confirmed.
+        if (nativeFocus === "other" && presentationFocusConfirmed) {
+            mediaCatalog.abandonPresentation("focus_lost");
+            return;
+        }
+        if (presentationAtHome && !presentationReturning) {
+            presentationFocusBound.stop();
+            return;
+        }
+        if (nativeFocus === "shell" || (nativeFocus === "unknown" && active
+                && (presentationFocusConfirmed
+                    || presentationActivationSerial > presentationHandoffSerial))) {
             presentationFocusConfirmed = true;
             if (!presentationAtHome) {
                 presentationReturning = false;
@@ -247,6 +270,7 @@ Window {
         if (mediaCatalog.inputLayerActive && mediaCatalog.presentationState === "active") {
             // Record the intent before the platform can change Qt activation.
             presentationReturning = true;
+            presentationNativeRevision = Infinity;
             presentationFocusConfirmed = false;
             presentationHandoffSerial = presentationActivationSerial;
             presentationFocusBound.restart();
@@ -287,10 +311,14 @@ Window {
         } else if (mediaCatalog.presentationState === "active") {
             Qt.callLater(() => {
                 if (!root.active && mediaCatalog.presentationState === "active") {
-                    if (root.presentationFocusConfirmed || (root.presentationAtHome && !root.presentationReturning))
-                        mediaCatalog.abandonPresentation("focus_lost");
-                    else
+                    if (backend.nativeFocusSupported === true) {
+                        root.requestPresentationFocus();
                         root.checkPresentationFocus();
+                    } else if (root.presentationFocusConfirmed || (root.presentationAtHome && !root.presentationReturning)) {
+                        mediaCatalog.abandonPresentation("focus_lost");
+                    } else {
+                        root.checkPresentationFocus();
+                    }
                 }
             });
         }
@@ -490,6 +518,7 @@ Window {
     Connections {
         target: backend
         ignoreUnknownSignals: true
+        function onNativeFocusChanged() { root.checkPresentationFocus(); }
         function onChanged() {
             // The Return of the quick menu is done: the Activity has the
             // screen again, including a managed player (ADR-0106).
@@ -515,6 +544,7 @@ Window {
                     presentationFocusBound.restart();
                 }
                 root.presentationAtHome = false;
+                root.requestPresentationFocus();
                 root.playerOpen = true;
                 Qt.callLater(() => Ui.Focus.take(playerView));
             }
@@ -1105,6 +1135,9 @@ Window {
                     root.presentationReturning = false;
                     presentationFocusBound.stop();
                     root.presentationFocusConfirmed = false;
+                    root.presentationNativeRevision = Infinity;
+                    if (backend.nativeFocusSupported === true)
+                        backend.stopNativeFocusObservation();
                 }
                 if (root.leavingStopPending || root.leaveError !== "")
                     return;
@@ -1121,8 +1154,10 @@ Window {
                         : qsTr("Playback controls are unavailable.");
                     feedbackTimer.restart();
                 }
-                if (mediaCatalog.presentationState === "active")
+                if (mediaCatalog.presentationState === "active") {
+                    root.requestPresentationFocus();
                     root.checkPresentationFocus();
+                }
                 if (mediaCatalog.presentationState === "" && root.presentationRequested) {
                     root.playerOpen = false;
                     root.presentationAtHome = false;

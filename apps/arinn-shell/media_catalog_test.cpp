@@ -231,6 +231,8 @@ public:
   bool thumbnailUnsupported = false;
   QStringList features;
   bool windowReady = true;
+  QString windowReferenceGeneration = QStringLiteral("platform");
+  QString windowReferenceToken = QStringLiteral("window");
   bool rejectRelease = false;
   bool delayPresentAdmission = false;
   QDBusMessage delayedPresent;
@@ -350,8 +352,7 @@ public:
       QDBusArgument windows;
       windows.beginArray(QMetaType::fromType<WindowWire>());
       if (windowReady)
-        windows << WindowWire{QStringLiteral("platform"),
-                              QStringLiteral("window")};
+        windows << WindowWire{windowReferenceGeneration, windowReferenceToken};
       windows.endArray();
       bus.send(message.createReply(QVariant::fromValue(windows)));
       return true;
@@ -465,6 +466,9 @@ public:
 };
 class ShellStandIn : public QObject {
   Q_OBJECT
+  Q_PROPERTY(bool nativeFocusSupported MEMBER nativeSupported CONSTANT)
+  Q_PROPERTY(QString nativeShellFocus MEMBER nativeRole NOTIFY nativeFocusChanged)
+  Q_PROPERTY(qulonglong nativeFocusRevision MEMBER nativeRevision NOTIFY nativeFocusChanged)
   Q_PROPERTY(bool homeVisible MEMBER m_home NOTIFY changed)
   Q_PROPERTY(QVariantMap shortcutEditor MEMBER m_editor NOTIFY changed)
   Q_PROPERTY(QString returnWindow MEMBER m_return CONSTANT)
@@ -477,6 +481,14 @@ class ShellStandIn : public QObject {
   Q_PROPERTY(QString message MEMBER m_message CONSTANT)
   Q_PROPERTY(bool connected MEMBER m_connected CONSTANT)
 public:
+  bool nativeSupported = false;
+  QString nativeRole = QStringLiteral("unknown");
+  qulonglong nativeRevision = 0, nativeRequests = 0;
+  Q_INVOKABLE qulonglong requestNativeFocus() { return ++nativeRequests; }
+  Q_INVOKABLE void stopNativeFocusObservation() { nativeRole = QStringLiteral("unknown"); }
+  void reportFocus(const QString &role) {
+    nativeRole = role; nativeRevision = nativeRequests; emit nativeFocusChanged();
+  }
   bool m_home = true;
   bool m_connected = false;
   int backs = 0;
@@ -487,6 +499,7 @@ public:
   QVariantList m_items, m_continue, m_applications, m_favorites;
   QStringList m_busy;
 signals:
+  void nativeFocusChanged();
   void changed();
   void quickMenuRequested(const QString &target);
   void powerMenuRequested();
@@ -767,6 +780,155 @@ private slots:
     QTRY_VERIFY_WITH_TIMEOUT(!catalog->inputLayerActive(), 2500);
     QTRY_COMPARE(daemon.windowCommands.count(QStringLiteral("Release")), 1);
     QVERIFY(other.isActive());
+    QVERIFY(daemon.commands.isEmpty());
+  }
+  void nativeFocusCorroboratesInactiveQt_data() {
+    QTest::addColumn<QString>("mode");
+    for (const auto mode : {"shell", "other", "unknown", "stale", "cancelled", "expired", "return", "cached-other", "return-cached-other"})
+      QTest::newRow(mode) << QString::fromLatin1(mode);
+  }
+  void nativeFocusCorroboratesInactiveQt() {
+    QFETCH(QString, mode);
+    MediaDaemon daemon;
+    daemon.holdOperation = true;
+    daemon.features = {QStringLiteral("MediaWindow1")};
+    daemon.page1 = {session(QStringLiteral("live"), QStringLiteral("Piece"),
+                            QStringLiteral("paused"), 0, monotonicUs(),
+                            9000000, {QStringLiteral("stop")})};
+    auto bus = QDBusConnection::sessionBus();
+    QVERIFY(bus.registerService(QStringLiteral("org.arinn.Daemon1")));
+    QVERIFY(bus.registerVirtualObject(QStringLiteral("/org/arinn"), &daemon, QDBusConnection::SubPath));
+    ShellStandIn backend;
+    backend.nativeSupported = true;
+    backend.nativeRole = QStringLiteral("shell"); // Cached before Present: insufficient.
+    SessionGuardStandIn guard;
+    QQmlApplicationEngine engine;
+    installAssetImageProvider(&engine);
+    engine.rootContext()->setContextProperty(QStringLiteral("backend"), &backend);
+    engine.rootContext()->setContextProperty(QStringLiteral("sessionGuard"), &guard);
+    engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
+    auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().value(0));
+    QVERIFY(window);
+    window->setFlag(Qt::WindowDoesNotAcceptFocus, true);
+    window->show();
+    QQuickWindow other;
+    other.show(); other.requestActivate();
+    QTRY_VERIFY(other.isActive());
+    QVERIFY(!window->isActive());
+    auto catalog = window->findChild<MediaCatalog *>(QStringLiteral("mediaCatalog"));
+    QVERIFY(catalog);
+    QTRY_VERIFY(catalog->windowAvailable());
+    const auto id = catalog->continueEntries().first().toMap().value("id").toString();
+    QVERIFY(QMetaObject::invokeMethod(window, "openSession", Q_ARG(QVariant, id), Q_ARG(QVariant, true)));
+    daemon.holdOperation = false;
+    QTRY_COMPARE(catalog->presentationState(), QStringLiteral("active"));
+    backend.m_home = false; emit backend.changed();
+    QVERIFY(backend.nativeRequests > 0);
+    if (mode == QLatin1String("cancelled")) {
+      catalog->abandonPresentation();
+      backend.reportFocus(QStringLiteral("shell"));
+    } else if (mode != QLatin1String("stale")) {
+      backend.reportFocus(mode == QLatin1String("other") || mode.endsWith(QLatin1String("cached-other"))
+                            ? QStringLiteral("other") : mode == QLatin1String("unknown")
+                            ? mode : QStringLiteral("shell"));
+      if (mode.endsWith(QLatin1String("cached-other"))) {
+        QTest::qWait(100);
+        QCOMPARE(catalog->presentationState(), QStringLiteral("active"));
+        backend.reportFocus(QStringLiteral("shell"));
+      }
+    }
+    if (mode == QLatin1String("shell") || mode == QLatin1String("return") || mode == QLatin1String("expired") || mode.endsWith(QLatin1String("cached-other"))) {
+      QTest::qWait(1200);
+      QCOMPARE(catalog->presentationState(), QStringLiteral("active"));
+      QVERIFY(!window->isActive());
+      if (mode == QLatin1String("return") || mode == QLatin1String("return-cached-other")) {
+        QVERIFY(QMetaObject::invokeMethod(window, "showPlaybackHome"));
+        backend.m_home = true; emit backend.changed();
+        const auto before = backend.nativeRequests;
+        QVERIFY(QMetaObject::invokeMethod(window, "returnToActivity"));
+        QCOMPARE(backend.nativeRequests, before); // Do not sample pre-Return.
+        backend.m_home = false; emit backend.changed();
+        QVERIFY(backend.nativeRequests > before);
+        if (mode == QLatin1String("return-cached-other")) {
+          backend.reportFocus(QStringLiteral("other"));
+          QTest::qWait(100);
+          QCOMPARE(catalog->presentationState(), QStringLiteral("active"));
+        }
+        backend.reportFocus(QStringLiteral("shell"));
+        QTest::qWait(1200);
+        QCOMPARE(catalog->presentationState(), QStringLiteral("active"));
+      }
+      backend.reportFocus(mode == QLatin1String("expired") ? QStringLiteral("unknown") : QStringLiteral("other"));
+    }
+    QTRY_VERIFY_WITH_TIMEOUT(!catalog->inputLayerActive(), 2500);
+    QTRY_COMPARE(daemon.windowCommands.count(QStringLiteral("Release")), 1);
+    QVERIFY(other.isActive());
+    QVERIFY(daemon.commands.isEmpty());
+  }
+  void unresolvedWindowCheckIsBounded_data() {
+    QTest::addColumn<QString>("mode");
+    for (const auto *mode : {"recovers", "never-resolves", "token-changes",
+                            "generation-changes", "cancelled", "stale-retry"})
+      QTest::newRow(mode) << QString::fromLatin1(mode);
+  }
+  void unresolvedWindowCheckIsBounded() {
+    QFETCH(QString, mode);
+    MediaDaemon daemon;
+    daemon.features = {QStringLiteral("MediaWindow1")};
+    daemon.page1 = {session(QStringLiteral("live"), QStringLiteral("Piece"),
+                            QStringLiteral("paused"), 0, monotonicUs(),
+                            9000000, {QStringLiteral("stop")})};
+    auto bus = QDBusConnection::sessionBus();
+    QVERIFY(bus.registerService(QStringLiteral("org.arinn.Daemon1")));
+    QVERIFY(bus.registerVirtualObject(QStringLiteral("/org/arinn"), &daemon, QDBusConnection::SubPath));
+    MediaCatalog catalog;
+    QTRY_VERIFY(catalog.windowAvailable());
+    recordFlows();
+    catalog.present();
+    QTRY_COMPARE(catalog.presentationState(), QStringLiteral("active"));
+    QTRY_COMPARE(flowsNamed("playback.present").size(), 1);
+    QCOMPARE(flowsNamed("playback.present").first().outcome, QStringLiteral("ok"));
+    const int reads = daemon.windowReads;
+    // Committing field-only inventory changes invalidates the reports. The
+    // daemon returns a successful empty GetWindow until Report restores them.
+    daemon.windowReady = false;
+    catalog.windowChanged(daemon.pageGeneration);
+    QTRY_VERIFY(daemon.windowReads > reads);
+    QTest::qWait(40);
+    QCOMPARE(catalog.presentationState(), QStringLiteral("active"));
+    if (mode == QLatin1String("cancelled")) {
+      catalog.release();
+      daemon.windowReady = true;
+      QTest::qWait(250);
+      QVERIFY(!catalog.inputLayerActive());
+    } else if (mode == QLatin1String("never-resolves")) {
+      QTRY_VERIFY_WITH_TIMEOUT(!catalog.inputLayerActive(), 2500);
+    } else {
+      if (mode == QLatin1String("token-changes"))
+        daemon.windowReferenceToken = QStringLiteral("replacement");
+      if (mode == QLatin1String("generation-changes"))
+        daemon.windowReferenceGeneration = QStringLiteral("new-platform");
+      daemon.windowReady = true;
+      if (mode == QLatin1String("stale-retry")) {
+        // A new report confirms identity before the older retry runs. Even
+        // if the event loop delays that retry past its deadline, it is stale.
+        const int beforeRecovery = daemon.windowReads;
+        catalog.windowChanged(daemon.pageGeneration);
+        QTRY_VERIFY(daemon.windowReads > beforeRecovery);
+        QTest::qWait(10);
+        QCOMPARE(catalog.presentationState(), QStringLiteral("active"));
+        QTest::qSleep(1100);
+      }
+      if (mode.endsWith(QLatin1String("changes")))
+        QTRY_VERIFY_WITH_TIMEOUT(!catalog.inputLayerActive(), 1500);
+      else {
+        QTest::qWait(1200);
+        QCOMPARE(catalog.presentationState(), QStringLiteral("active"));
+      }
+    }
+    const bool recovered = mode == QLatin1String("recovers") || mode == QLatin1String("stale-retry");
+    QTRY_COMPARE(daemon.windowCommands.count(QStringLiteral("Release")), recovered ? 0 : 1);
+    QCOMPARE(daemon.windowCommands.count(QStringLiteral("Present")), 1);
     QVERIFY(daemon.commands.isEmpty());
   }
   void initTestCase() {

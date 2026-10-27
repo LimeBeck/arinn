@@ -47,7 +47,7 @@ int main(int argc, char **argv) {
                  owner ? qPrintable(QString(" by PID %1").arg(owner)) : "");
     return 2;
   }
-  Backend backend;
+  Backend backend(nullptr, {QGuiApplication::platformName(), app.desktopFileName()});
   // Extra keys from config.toml (ADR-0079), applied before any screen.
   InputBindings bindings;
   app.installEventFilter(&bindings);

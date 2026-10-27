@@ -130,18 +130,37 @@ selected, including the interval before the new media row reaches its snapshot.
 Already admitted cleanup still runs; its result cannot set an error on the new
 selection. Retry state remains available for the same selected session.
 
-Present completion and Qt window activation are separate acknowledgements. The
-shell allows at most one second for initial presentation or an explicit Return
-to receive Qt activation; it never requests activation or retries Present to
-obtain it. A pre-intent active flag is not an acknowledgement: confirmation needs
-a newer Qt activation event, or expiry of the bound while the shell stays active. Return records this handoff before calling the backend, so either
-ordering of Status and Qt deactivation is covered. Once activation is confirmed,
-a genuine focus loss still relinquishes the layer. An expired handoff releases
-without stealing focus or stopping playback. Stop, a new selection, explicit
-Home, lock and presentation teardown cancel the wait. Pre-Present Home snapshots
-are ignored until Status observes the Home exit; an explicit Home intent still
-wins while Present is pending. Private-bus/offscreen regressions cover these
-races; this is not a claim that real-desktop G-4.1 qualification passed.
+Present completion and window activation are separate acknowledgements. The
+shell bounds the initial and Return handoffs to one second without requesting
+activation or retrying Present. Qt activation must follow the handoff intent;
+an old active state alone does not acknowledge it. On Wayland, a fresh Status
+request after Present or the observed Return can also corroborate native shell
+focus when Qt has not delivered activation. The platform helper compares the
+reported class only to this process's own Wayland application ID; QML receives
+only shell/other/unknown and an observation sequence. This evidence never selects
+a player or replaces the exact MediaWindow1 reference check. X11 retains the Qt
+activation path.
+
+Native observations are scoped to the current daemon owner, connection and epoch,
+poll only while a managed presentation is retained, expire 1.5 seconds after
+receipt, and are invalidated on teardown. A post-handoff request sequence prevents
+cached pre-handoff evidence from acknowledging Return. Status reports a platform
+cache with the adapter's existing liveness lease, not a native event timestamp;
+receipt freshness does not strengthen that contract. A known other application
+relinquishes confirmed input ownership; during an unconfirmed handoff it retains
+the one-second grace because the platform cache may precede ReportWindow. Unknown
+evidence retains the bounded Qt fallback.
+No focus is forced and playback is not stopped by this cleanup. Stop, new
+selection, explicit Home, lock and teardown cancel a handoff wait. Pre-Present
+Home snapshots remain ignored until Status observes Home exit; explicit Home
+still wins. Private-bus/offscreen regressions are not real-desktop G-4.1
+qualification evidence.
+
+A successful empty GetWindow is unresolved, including a temporarily incomplete
+platform report barrier. Retry it within the existing one-second check deadline,
+as for Unavailable; a nonempty changed reference still fails immediately. A newer
+matching confirmation invalidates queued retries so a delayed old retry cannot
+tear down an already validated presentation.
 
 ## Delivery and verification
 

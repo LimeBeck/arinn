@@ -107,6 +107,9 @@ public:
   bool operationDone = true;
   bool operationSuccess = false;
   bool platform = true;
+  QString activeWindow, activeClass;
+  bool holdStatus = false;
+  QList<QDBusMessage> statusCalls;
   QString operationError = QStringLiteral("Unavailable");
   int pages = 0;
   int launches = 0;
@@ -165,10 +168,11 @@ public:
       bus.send(m.createReply());
       return true;
     } else if (m.member() == "Status") {
+      if (holdStatus) { statusCalls.append(m); return true; }
       a.beginStructure();
       const QString epoch = "77777777-7777-4777-8777-777777777777";
       a << epoch << true << epoch << qulonglong(1)
-        << home << returnedWindow << QString() << QString() << false << platform
+        << home << returnedWindow << activeWindow << activeClass << false << platform
         << QString() << QString();
       a.endStructure();
     } else if (m.member() == "HomeItems") {
@@ -336,6 +340,58 @@ public:
 class CatalogTest : public QObject {
   Q_OBJECT
 private slots:
+  void nativeFocusUsesOwnWaylandIdentityAndBoundedObservation() {
+    const NativeShellFocusIdentity identity{QStringLiteral("wayland"), QStringLiteral("org.example.Shell")};
+    QCOMPARE(identity.classify(true, "surface", "org.example.Shell"), QString("shell"));
+    QCOMPARE(identity.classify(true, "surface", "org.example.Other"), QString("other"));
+    QCOMPARE(identity.classify(false, "surface", "org.example.Shell"), QString("unknown"));
+    QCOMPARE(identity.classify(true, "", "org.example.Shell"), QString("unknown"));
+    QVERIFY(!(NativeShellFocusIdentity{"xcb", "org.example.Shell"}).supported());
+    auto bus = QDBusConnection::sessionBus();
+    CatalogDaemon daemon;
+    daemon.activeWindow = "synthetic-surface";
+    daemon.activeClass = identity.applicationId;
+    QVERIFY(bus.registerService("org.arinn.Daemon1"));
+    QVERIFY(bus.registerVirtualObject("/org/arinn", &daemon, QDBusConnection::SubPath));
+    {
+      Backend backend(nullptr, identity);
+      QTRY_VERIFY(backend.connected());
+      QCOMPARE(backend.nativeShellFocus(), QString("unknown"));
+      const auto serial = backend.requestNativeFocus();
+      QTRY_VERIFY(backend.nativeFocusRevision() >= serial);
+      QCOMPARE(backend.nativeShellFocus(), QString("shell"));
+      daemon.activeClass = "org.example.Other";
+      const auto other = backend.requestNativeFocus();
+      QTRY_VERIFY(backend.nativeFocusRevision() >= other);
+      QCOMPARE(backend.nativeShellFocus(), QString("other"));
+      daemon.platform = false;
+      const auto disconnected = backend.requestNativeFocus();
+      QTRY_VERIFY(backend.nativeFocusRevision() >= disconnected);
+      QCOMPARE(backend.nativeShellFocus(), QString("unknown"));
+      daemon.platform = true; daemon.activeClass = identity.applicationId;
+      const auto recovered = backend.requestNativeFocus();
+      QTRY_VERIFY(backend.nativeFocusRevision() >= recovered);
+      QCOMPARE(backend.nativeShellFocus(), QString("shell"));
+      daemon.holdStatus = true;
+      QTest::qWait(1600);
+      QCOMPARE(backend.nativeShellFocus(), QString("unknown"));
+      backend.stopNativeFocusObservation();
+      // A late reply must not restore a stopped observation.
+      for (const auto &call : std::as_const(daemon.statusCalls)) {
+        QDBusArgument a;
+        a.beginStructure();
+        const QString epoch = "77777777-7777-4777-8777-777777777777";
+        a << epoch << true << epoch << qulonglong(1) << true << QString()
+          << daemon.activeWindow << daemon.activeClass << false << true << QString() << QString();
+        a.endStructure();
+        bus.send(call.createReply(QVariant::fromValue(a)));
+      }
+      QTest::qWait(50);
+      QCOMPARE(backend.nativeShellFocus(), QString("unknown"));
+    }
+    bus.unregisterObject("/org/arinn", QDBusConnection::UnregisterTree);
+    bus.unregisterService("org.arinn.Daemon1");
+  }
   void savedFavoritesMutationAndUnavailableRetention() {
     auto bus = QDBusConnection::sessionBus();
     CatalogDaemon daemon;

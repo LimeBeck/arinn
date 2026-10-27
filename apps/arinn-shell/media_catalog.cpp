@@ -1800,14 +1800,19 @@ void MediaCatalog::checkPresentedWindow(quint64 ticket, quint64 epoch,
               return;
             m_windowCheckInFlight = false;
             if (monotonicUs() >= deadline) { abandonPresentation(QStringLiteral("window_check_timeout")); return; }
+            const auto retry = [this, ticket, epoch, deadline] {
+              const auto revision = m_windowCheckRevision;
+              QTimer::singleShot(100, this, [this, ticket, epoch, deadline, revision] {
+                if (revision == m_windowCheckRevision)
+                  checkPresentedWindow(ticket, epoch, deadline);
+              });
+            };
             if (reply.type() == QDBusMessage::ErrorMessage) {
               // A field-only inventory commit briefly closes the report
               // barrier.
               if (monotonicUs() < deadline &&
                   errorCode(reply) == QLatin1String("Unavailable")) {
-                QTimer::singleShot(100, this, [this, ticket, epoch, deadline] {
-                  checkPresentedWindow(ticket, epoch, deadline);
-                });
+                retry();
                 return;
               }
               abandonPresentation(QStringLiteral("window_check_error"));
@@ -1820,8 +1825,9 @@ void MediaCatalog::checkPresentedWindow(quint64 ticket, quint64 epoch,
             const auto arg =
                 qvariant_cast<QDBusArgument>(reply.arguments().first());
             arg.beginArray();
+            const bool unresolved = arg.atEnd();
             bool matches = false;
-            if (!arg.atEnd()) {
+            if (!unresolved) {
               QString generation, token;
               arg.beginStructure();
               arg >> generation >> token;
@@ -1830,11 +1836,17 @@ void MediaCatalog::checkPresentedWindow(quint64 ticket, quint64 epoch,
                   generation == m_windowGeneration && token == m_windowToken;
             }
             arg.endArray();
-            if (!matches) {
+            if (unresolved) {
+              // Empty is an unresolved report barrier, not a new identity.
+              retry();
+            } else if (!matches) {
               abandonPresentation(QStringLiteral("window_identity_changed"));
-            } else if (m_presentFlow.active()) {
-              m_presentFlow.end("window.check");
-              m_presentFlow.finish("ok");
+            } else {
+              ++m_windowCheckRevision;
+              if (m_presentFlow.active()) {
+                m_presentFlow.end("window.check");
+                m_presentFlow.finish("ok");
+              }
             }
           });
 }

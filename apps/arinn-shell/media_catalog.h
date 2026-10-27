@@ -223,6 +223,7 @@ private:
   QString m_daemonOwner;
   QString m_windowGeneration, m_windowToken;
   bool m_windowCheckInFlight = false;
+  quint64 m_windowCheckRevision = 0;
   // Presentation timing for diagnostics (ADR-0093): present() until the
   // window check confirms the input layer, or the failure.
   FlowTrace::Flow m_presentFlow;

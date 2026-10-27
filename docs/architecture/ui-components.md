@@ -29,6 +29,7 @@ models into these properties and routing emitted actions to the daemon.
 | `ProgressTrack` | Clamped finite `value` from 0 to 1; Ember represents progress only |
 | `Skeleton` | Fixed-size pulsing placeholder; same default geometry as a content card |
 | `AmbientGlow` | Home's light field: `source` artwork or `tint` identity colour, `lit`, `strength`. The dominant hue of a 24×24 decode of the artwork keys the handoff's three radial layers, painted once per hue at one-fifth resolution and scaled up; a 900 ms cross-fade follows focus after a 200 ms settle. No full-resolution art is blurred per frame |
+| `LineIcon` | The single shared line-icon component: `name` (a Material Symbols name from the handoff), `color`, size from `width`/`height` on a 24-unit grid. Icons are drawn in code on a `Canvas`; the shell ships no icon font, so rendering does not depend on installed fonts or the Qt version. Today: the on-screen keyboard icons and Open services `bookmark_add`/`bookmark_added`. A new handoff icon (such as the Close icon of [#565](https://github.com/LimeBeck/arinn/issues/565)) is added here, not as a glyph or a second component |
 | `StatusPane` | Explicit `kind` (empty/loading/error/unavailable), `title`, `description`, `actionText`; `actionRequested()` intent |
 
 Interactive components inherit `enabled` and add `busy`. Consumers connect to
@@ -346,6 +347,20 @@ of the fixture-driven screens with the design handoff. It is evidence for the
 review of G-5.1. It does not pass G-5.1, AC-14, or any Phase 5 gate.
 
 The manifest is [`tests/ui/visual/manifest.json`](../../tests/ui/visual/manifest.json).
+Fixtures live only in `tests/ui/visual/capture.qml`. They use fictional
+services and titles on `.example` addresses and fix the clock (`clockText`
+"22:57" on Home, player and Open services). `ui-compare` also sets
+`ARINN_CAPTURE_STILL_ANIMATIONS`. The test runner (`tests/ui/main.cpp`) then
+takes animation time, which also drives QML `Timer`s, off the wall clock: during
+a capture it moves only when `capture.qml` runs it, by exactly a state's
+`animationMs`. By default that is 50 400 ms, a whole period of every looping
+animation (900, 1400 and 800 ms), so transitions have finished and loops are at
+their start. Transition states (`browser-closing`, `launch-opening`, `launch-slow`,
+`launch-starting`, `launch-stopping`, `settings-saving`) run a few loop
+periods plus the phase their handoff frame shows (or the same mid-bar when
+there is no handoff), so they are captured mid-transition. States with a
+toast run 2000 ms, before its 3 s timer hides it. Two captures of the same tree
+are identical. The product and the ordinary QML tests use real time.
 Each entry is one screen state. `reference` names a file in
 [`docs/design/handoff/screenshots/`](../design/handoff/screenshots/): the 22 main
 `*.jpg` files, the `os-*.png` Open services states, the `in-*.png` address

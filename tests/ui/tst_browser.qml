@@ -83,6 +83,14 @@ TestCase {
         backs.target = null;
     }
 
+    function test_clock_text_overrides_live_clock() {
+        const clock = child("browserClock");
+        compare(clock.text, view.liveClock);
+        view.clockText = "22:57";
+        compare(clock.text, "22:57");
+        view.clockText = "";
+        compare(clock.text, view.liveClock);
+    }
     function test_focus_move_stays_inside() {
         focused("row-t2");
         compare(view.focusedWindowId, "w1");

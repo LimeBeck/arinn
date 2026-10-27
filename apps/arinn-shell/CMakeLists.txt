@@ -30,7 +30,7 @@ set(ARINN_PRESENTATION_FILES
     ui/Surface.qml ui/ActionButton.qml ui/ContentCard.qml ui/AppTile.qml
     ui/HomeRow.qml ui/HomeView.qml ui/BrandLockup.qml ui/BrandButton.qml
     ui/ProgressTrack.qml ui/Skeleton.qml ui/StatusPane.qml ui/LaunchOverlay.qml
-    ui/AmbientGlow.qml ui/ActivityBackground.qml ui/VolumeHud.qml ui/OnScreenKeyboard.qml ui/KeyboardButton.qml ui/KeyboardIcon.qml
+    ui/AmbientGlow.qml ui/ActivityBackground.qml ui/VolumeHud.qml ui/OnScreenKeyboard.qml ui/KeyboardButton.qml ui/LineIcon.qml
     ui/QuickMenu.qml ui/KeyboardPanel.qml
     ui/fonts/Onest.ttf)
 foreach(target arinn-shell arinn-shell-test)
@@ -49,7 +49,7 @@ target_link_libraries(arinn-ui-gallery PRIVATE Qt6::Quick)
 
 # The QML tests load screens directly; the keyboard panel needs its model.
 qt_add_executable(arinn-ui-test ../../tests/ui/main.cpp keyboard_model.cpp keyboard_model.h)
-target_link_libraries(arinn-ui-test PRIVATE Qt6::QuickTest Qt6::Qml)
+target_link_libraries(arinn-ui-test PRIVATE Qt6::QuickTest Qt6::Qml Qt6::Gui)
 add_test(NAME ui-components COMMAND arinn-ui-test
     -input "${PROJECT_SOURCE_DIR}/tests/ui")
 set_tests_properties(ui-components PROPERTIES ENVIRONMENT

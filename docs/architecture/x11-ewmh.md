@@ -319,8 +319,7 @@ while waiting for the daemon it is absent, so the XFCE login power-button
 restore is not suppressed. Process exit still runs the existing power-button
 `ExecStopPost` helper. Starting the unit confirms execution, not adapter or
 daemon readiness; the daemon authenticates the session's bus owner as before.
- For a manual
-trial inside an X11 graphical session:
+For a manual trial inside an X11 graphical session:
 
 ```sh
 systemctl --user stop arinn-session.target arinn-ewmh-session.target

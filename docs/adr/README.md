@@ -110,7 +110,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0090](0090-rewatch-clears-completion.md) | Launching a completed item is a rewatch | Accepted | — |
 | [0091](0091-debian-package-ci-artifact.md) | Debian package CI artifact | Accepted | 0102, 0104 |
 | [0092](0092-less-repeated-ci-work.md) | Less repeated work in CI | Proposed | 0101 |
-| [0093](0093-structured-sentry-diagnostics.md) | Structured, allowlisted Sentry diagnostics | Proposed | — |
+| [0093](0093-structured-sentry-diagnostics.md) | Structured, allowlisted Sentry diagnostics | Proposed | 0116 |
 | [0094](0094-configurable-global-home-keys.md) | Configurable global Home keys | Accepted | — |
 | [0095](0095-shell-input-mode-ownership.md) | Shell input mode ownership | Accepted | — |
 | [0096](0096-browser-media-session-association.md) | Associate a browser's media session with its audible tab | Accepted | — |
@@ -133,4 +133,5 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0113](0113-per-runner-ci-target-directories.md) | One Cargo target directory per self-hosted runner instance | Accepted | 0114 |
 | [0114](0114-per-runner-package-target-directories.md) | One package target directory per self-hosted runner instance | Accepted | — |
 | [0115](0115-unmounted-share-root-is-unavailable.md) | An unmounted share is an unavailable library root | Accepted | — |
+| [0116](0116-package-matched-sentry-debug-symbols.md) | Package-matched Sentry debug symbols | Proposed | — |
 <!-- register:end -->

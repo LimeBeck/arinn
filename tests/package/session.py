@@ -172,7 +172,8 @@ assert set(ewmh["Unit"]["Wants"][0].split()) == {"graphical-session.target", "ar
 assert ewmh["Unit"]["After"] == ["graphical-session.target"]
 assert ewmh["Unit"]["Requisite"] == ["graphical-session.target"]
 assert set(ewmh["Unit"]["Conflicts"][0].split()) == {"arinn-session.target", "arinn-kwin.service"}
-assert unit("arinn-ewmh.service")["Service"]["BusName"] == ["org.arinn.X11"]
+assert unit("arinn-ewmh.service")["Service"]["Type"] == ["exec"]
+assert "BusName" not in unit("arinn-ewmh.service")["Service"]
 assert unit("arinn-ewmh.service")["Unit"]["PartOf"] == ["graphical-session.target arinn-ewmh-session.target"]
 # One daemon and one shell: readiness and uniqueness follow their bus names.
 assert unit("arinnd.service")["Service"]["BusName"] == ["org.arinn.Daemon1"]

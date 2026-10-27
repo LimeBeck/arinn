@@ -388,6 +388,41 @@ async fn no_global_key_is_grabbed_while_the_daemon_is_gone() -> Result<()> {
     Ok(())
 }
 
+/// The packaged service must supervise the process, not the per-session
+/// org.arinn.X11 name. The private-bus/Xvfb case below exercises the process
+/// across a complete daemon loss and recovery; the unit configuration is also
+/// checked by tests/ci/test_power_button_restore.py and the package smoke test.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires Xvfb and dbus-daemon; uses only an isolated display and private bus"]
+async fn keys_return_after_a_running_daemon_restarts() -> Result<()> {
+    let desktop = Desktop::new()?;
+    let (_bus, address) = bus()?;
+    let daemon = start_daemon(&address).await?;
+    let app = App::new(&desktop, "org.example.Player")?;
+    desktop.clients(&[app.xid], app.xid)?;
+    let menu = desktop.keycode(0xff67)?;
+    let mut adapter = Adapter::start(&desktop, &address)?;
+    until(&desktop, &app, menu, true).await?;
+    // Closing the connection, rather than only releasing its well-known
+    // name, makes the long polls addressed to its unique owner fail too.
+    daemon.close().await?;
+    until(&desktop, &app, menu, false).await?;
+    tokio::time::sleep(Duration::from_millis(3500)).await;
+    ensure!(adapter.child.0.try_wait()?.is_none(), "adapter exited");
+    let observer = zbus::connection::Builder::address(address.as_str())?
+        .build()
+        .await?;
+    let proxy = zbus::fdo::DBusProxy::new(&observer).await?;
+    ensure!(
+        !proxy.name_has_owner("org.arinn.X11".try_into()?).await?,
+        "waiting adapter must release its session name for login restore"
+    );
+    let _daemon = start_daemon(&address).await?;
+    until(&desktop, &app, menu, true).await?;
+    ensure!(adapter.child.0.try_wait()?.is_none(), "adapter exited");
+    Ok(())
+}
+
 /// Review of #560 (Codex P2): without a usable session bus there is no
 /// daemon either. The failed wait starts no session, so nothing is grabbed,
 /// and it is tried again after the 3 s retry delay.
@@ -467,6 +502,18 @@ struct Returns;
 #[zbus::interface(name = "org.arinn.KWinReturn1")]
 impl Returns {
     fn report(&self, _generation: &str, _revision: i32, _target: &str, _token: &str) {}
+}
+
+async fn start_daemon(address: &str) -> Result<zbus::Connection> {
+    let path = "/org/arinn/Daemon1";
+    Ok(zbus::connection::Builder::address(address)?
+        .name("org.arinn.Daemon1")?
+        .serve_at(path, Daemon)?
+        .serve_at(path, Home)?
+        .serve_at(path, Media)?
+        .serve_at(path, Returns)?
+        .build()
+        .await?)
 }
 
 /// Waits up to 5 s until `key` is grabbed (`held`) or reaches `app`, and

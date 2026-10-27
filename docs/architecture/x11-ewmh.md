@@ -310,7 +310,16 @@ marked passed.
 
 The package installs the EWMH executable, `arinn-ewmh.service` and
 `arinn-ewmh-session.target`; it enables none of them. Select the backend in the
-systemd user-manager environment **before starting the daemon**. For a manual
+systemd user-manager environment **before starting the daemon**.
+
+The adapter unit uses `Type=exec`: systemd supervises the process across its
+native sessions, rather than stopping it when a session releases
+`org.arinn.X11`. The bus name is still owned only during a native session;
+while waiting for the daemon it is absent, so the XFCE login power-button
+restore is not suppressed. Process exit still runs the existing power-button
+`ExecStopPost` helper. Starting the unit confirms execution, not adapter or
+daemon readiness; the daemon authenticates the session's bus owner as before.
+ For a manual
 trial inside an X11 graphical session:
 
 ```sh

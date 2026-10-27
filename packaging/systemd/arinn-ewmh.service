@@ -6,8 +6,9 @@ Documentation=https://github.com/LimeBeck/arinn
 PartOf=graphical-session.target arinn-ewmh-session.target
 After=graphical-session.target arinnd.service
 [Service]
-Type=dbus
-BusName=org.arinn.X11
+# The process waits across daemon loss and releases org.arinn.X11 with each
+# native session. Type=dbus would stop it on that release, preventing recovery.
+Type=exec
 Environment=ARINN_PLATFORM_BACKEND=ewmh
 ExecStart=/usr/bin/arinn-platform-x11
 # Gives xfce4-power-manager's power button setting back, however the adapter

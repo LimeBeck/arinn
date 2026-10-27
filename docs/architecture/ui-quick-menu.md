@@ -43,7 +43,10 @@ The X11 adapter grabs no key while `org.arinn.Daemon1` has no owner: it opens
 its X connection only once the daemon owns its name (it waits for
 `NameOwnerChanged`), its session ends as soon as the daemon goes, and with it
 every grab. So it never fights a live daemon, and its keys come back as soon
-as the daemon does (#507, `x11-ewmh.md`).
+as the daemon does (#507, `x11-ewmh.md`). The packaged adapter uses
+`Type=exec`, so releasing its per-session `org.arinn.X11` name does not make
+systemd stop the waiting process. That name remains absent while it waits,
+allowing the XFCE login power-button restore to run.
 
 **Grab lag** (ADR-0106). On X11 a change of `_NET_ACTIVE_WINDOW` wakes the
 adapter's loop at once (#507): a second X connection that only listens for

@@ -1,7 +1,7 @@
 # Arinn product website
 
-The static product website combines a landing page, eight current Qt gallery
-screenshots and the [user handbook](../user/README.md). It presents implemented
+The static product website combines a landing page, eight current Qt interface
+screenshots rendered from the `tests/ui/visual` fixtures and the [user handbook](../user/README.md). It presents implemented
 features with explicit pre-alpha and screenshot-fixture context. The specification
 and roadmap remain the source of requirements and acceptance status.
 

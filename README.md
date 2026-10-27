@@ -49,16 +49,16 @@ Every integration is a separate plugin process talking to a small core over D-Bu
 
 ## Interface preview
 
-These are screenshots of the **current Qt/QML interface**, rendered by the development gallery at 1920×1080 with fictional fixture data, one shared placeholder image and neutral application monograms. Home, navigation, Library, Applications, Open services, the on-screen keyboard, Now playing and Settings use the same views the production shell mounts. The gallery does not connect to a daemon. Names, favorites and settings rows in the fixtures are not a catalogue of finished integrations. See the [UI components](docs/architecture/ui-components.md).
+These are screenshots of the **current Qt/QML interface**, rendered offscreen from the [`tests/ui/visual`](tests/ui/visual/) fixtures (the same render that is compared with the design handoff) at 1920×1080 with fictional data, one shared placeholder image and neutral application monograms. Home, navigation, Library, Applications, Open services, the on-screen keyboard, Now playing and Settings use the same views the production shell mounts. The render does not connect to a daemon. Names, favorites and settings rows in the fixtures are not a catalogue of finished integrations. See the [UI components](docs/architecture/ui-components.md).
 
-**Home** — the Arinn mark, the Now running hero, Continue cards and favorite tiles over the ambient light field, with remote-control focus on the return card. The other Continue cards show the placeholder landscape and a progress bar.
+**Home** — the Arinn mark, the download indicator and clock, the Continue hero with three Continue cards on the placeholder landscape, favorite tiles and the start of the New row.
 
-![Current Arinn Qt Home with the Now running hero, Continue cards, the placeholder landscape and favorite tiles](docs/design/current-ui/home.png)
+![Current Arinn Qt Home with the Continue hero, Continue cards, the placeholder landscape and favorite tiles](docs/design/current-ui/home.png)
 
 <details>
 <summary>Navigation screenshot</summary>
 
-**Navigation** — the brand lockup and section menu (Home, Library, Downloads, Applications, Settings, Open services) over a dimmed Home, with Home selected.
+**Navigation** — the brand lockup and section menu (Home, Library, Downloads, Applications, Settings, Open services, Power, Close Arinn) over a dimmed Home, with Home selected.
 
 ![Current Arinn Qt navigation with the brand mark and Home selected](docs/design/current-ui/navigation.png)
 
@@ -67,9 +67,9 @@ These are screenshots of the **current Qt/QML interface**, rendered by the devel
 <details>
 <summary>Library screenshot</summary>
 
-**Library** — Films selected, with the Series tab beside it. Six posters show the placeholder landscape. Late light is the plate drawn when a poster is missing.
+**Library** — Films selected, with the Series tab beside it. The fixture posters have no artwork, so each one is the plain poster plate.
 
-![Current Arinn Qt Library with Films selected, placeholder landscapes and one plate](docs/design/current-ui/library.png)
+![Current Arinn Qt Library with Films selected and plain poster plates](docs/design/current-ui/library.png)
 
 </details>
 
@@ -85,7 +85,7 @@ These are screenshots of the **current Qt/QML interface**, rendered by the devel
 <details>
 <summary>Open services screenshot</summary>
 
-**Open services** — open pages, with the on-screen page marked.
+**Open services** — three open pages, with the on-screen page marked and focused.
 
 ![Current Arinn Qt Open services list with the on-screen page focused](docs/design/current-ui/open-services.png)
 
@@ -94,7 +94,7 @@ These are screenshots of the **current Qt/QML interface**, rendered by the devel
 <details>
 <summary>On-screen keyboard screenshot</summary>
 
-**On-screen keyboard** — Site or search typed with the remote alone: recent entries and an open service as suggestions, the address row, English letters with remote-control focus, and the action row with Open.
+**On-screen keyboard** — Site or search typed with the remote alone: recent entries as suggestions, the address row, English letters with remote-control focus, and the action row with Open.
 
 ![Current Arinn Qt on-screen keyboard on Site or search, with suggestions, the address row and a focused key](docs/design/current-ui/keyboard.png)
 
@@ -103,18 +103,18 @@ These are screenshots of the **current Qt/QML interface**, rendered by the devel
 <details>
 <summary>Now playing screenshot</summary>
 
-**Now playing** — the current media session on the placeholder landscape, with progress and transport controls.
+**Now playing** — a fixture media session on a plain artwork plate, with progress and transport controls.
 
-![Current Arinn Qt Now playing screen with the placeholder landscape, progress and transport controls](docs/design/current-ui/now-playing.png)
+![Current Arinn Qt Now playing screen with a plain artwork plate, progress and transport controls](docs/design/current-ui/now-playing.png)
 
 </details>
 
 <details>
 <summary>Settings screenshot</summary>
 
-**Settings** — Media selected. The group shows a toggle, an option (Title), a stepper (10), and the path `/media/films` as text.
+**Settings** — the categories with Media selected; the Media group shows one toggle row.
 
-![Current Arinn Qt Settings with Media selected, a toggle, an option, a stepper and one path as text](docs/design/current-ui/settings.png)
+![Current Arinn Qt Settings with Media selected and a toggle row](docs/design/current-ui/settings.png)
 
 </details>
 
@@ -303,3 +303,5 @@ Each file states its license with an SPDX header or in [REUSE.toml](REUSE.toml).
 
 The isolated [UI component gallery](docs/architecture/ui-components.md) runs with
 `build/apps/arinn-shell/arinn-ui-gallery`, without a daemon or desktop integration.
+It shows components only; screens and their states are rendered from
+[`tests/ui/visual`](tests/ui/visual/) with `python scripts/ui-compare.py`.

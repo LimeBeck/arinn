@@ -51,10 +51,11 @@ do not call an acceptance criterion passed without evidence. The HTML and CSS
 are original documentation under CC-BY-SA-4.0, covered by existing `docs/**` REUSE
 annotations. No third-party fonts, scripts, logos or analytics are used.
 
-`assets/home.png` is copied from `docs/design/current-ui/home.png`: the current
-Qt gallery, fictional fixtures, not a screenshot of a user's desktop. Its
+`assets/home.png` is copied from `docs/design/current-ui/home.png`: the
+`tests/ui/visual` fixture render of the current Qt interface, fictional
+fixtures, not a screenshot of a user's desktop. Its
 [provenance](../design/current-ui/README.md) and existing documentation license
-apply. Refresh this copy when the current-gallery screenshot changes.
+apply. Refresh this copy when that screenshot changes.
 
 ## Visual identity
 

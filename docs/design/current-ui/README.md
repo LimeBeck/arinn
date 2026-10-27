@@ -3,26 +3,35 @@
 
 # Current Qt interface captures
 
-Captured on 2026-10-08 at 1920 × 1080 using Qt 6.11.2, the offscreen platform
-and software Qt Quick renderer; `keyboard.png` was added on 2026-10-10 with
-Qt 6.12.0 in the same mode. These images show the screens the production
-shell mounts: Home, navigation, Library, Applications, Open services, the
-on-screen keyboard on Site or search, Now playing and Settings. They are not
-the historical HTML prototype. The keyboard capture shows fictional history
-and one fictional open service on `north.example`; it opens the panel the way
-the keyboard button does.
+These images come from the fixture render of
+[`tests/ui/visual`](../../../tests/ui/visual/) ([manifest](../../../tests/ui/visual/manifest.json),
+[`capture.qml`](../../../tests/ui/visual/capture.qml)), the same render that is
+compared with the design handoff ([UI components](../../architecture/ui-components.md#handoff-visual-comparison)).
+The development gallery `arinn-ui-gallery` is a component catalogue only and
+no longer renders screens (#567).
 
-The gallery uses fixed fictional content, one original placeholder image
-(`fixture-artwork.svg`) and neutral application monograms. Continue cards,
-Library posters and the Now playing plate paint that image with the same
-views the shell uses when an artwork URL is set. Late light has no artwork,
-so Library draws the generic plate. The production shell loads real posters
-and fanart through `Assets1`; a missing image stays that plate.
-Timeline thumbnails are not part of these screens. The gallery does not
-connect to a daemon or control the desktop. Favorites and the settings rows
-are fixture data, not evidence of completed integrations. The production Home
-does not bind a New row, so the Home capture does not show one. See
-[UI components](../../architecture/ui-components.md).
+Captured on 2026-10-27 from `master` 9987ba0 at 1920 × 1080 with Qt 6.8.2, the
+offscreen platform and the software Qt Quick renderer. Each file is the 1080p
+render of one manifest state:
+
+| File | Manifest state |
+| --- | --- |
+| `home.png` | `home-populated` |
+| `navigation.png` | `home-nav` |
+| `library.png` | `library-grid` |
+| `applications.png` | `applications` |
+| `open-services.png` | `browser-list` |
+| `keyboard.png` | `keyboard-browse` |
+| `now-playing.png` | `session-ready` |
+| `settings.png` | `settings` |
+
+The fixtures are synthetic: fictional titles, one original placeholder image
+(`apps/arinn-shell/gallery/fixture-artwork.svg`), neutral application
+monograms and plain plates where a fixture sets no artwork. The render does
+not connect to a daemon or control the desktop. Favorites, services and
+settings rows are fixture data, not evidence of completed integrations.
+The production shell loads real posters and fanart through `Assets1`.
+Qt 6.8 may draw heading glyphs slightly differently from newer Qt releases.
 
 The mark is the unchanged [approved SVG](../handoff/assets/arinn-mark.svg),
 embedded as a Qt resource. The screenshots are documentation under CC-BY-SA-4.0,
@@ -32,33 +41,19 @@ From the repository root:
 
 ```sh
 cmake -S . -B build -G Ninja
-cmake --build build --target arinn-ui-gallery
-QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
-  build/apps/arinn-shell/arinn-ui-gallery --home \
-  --capture docs/design/current-ui/home.png
-QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
-  build/apps/arinn-shell/arinn-ui-gallery --home --nav \
-  --capture docs/design/current-ui/navigation.png
-QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
-  build/apps/arinn-shell/arinn-ui-gallery --library \
-  --capture docs/design/current-ui/library.png
-QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
-  build/apps/arinn-shell/arinn-ui-gallery --applications \
-  --capture docs/design/current-ui/applications.png
-QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
-  build/apps/arinn-shell/arinn-ui-gallery --browser \
-  --capture docs/design/current-ui/open-services.png
-QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
-  build/apps/arinn-shell/arinn-ui-gallery --keyboard \
-  --capture docs/design/current-ui/keyboard.png
-QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
-  build/apps/arinn-shell/arinn-ui-gallery --now-playing \
-  --capture docs/design/current-ui/now-playing.png
-QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
-  build/apps/arinn-shell/arinn-ui-gallery --settings \
-  --capture docs/design/current-ui/settings.png
+cmake --build build --target arinn-ui-test
+python scripts/ui-compare.py
+cp build/ui-compare/1080/home-populated.png docs/design/current-ui/home.png
+cp build/ui-compare/1080/home-nav.png docs/design/current-ui/navigation.png
+cp build/ui-compare/1080/library-grid.png docs/design/current-ui/library.png
+cp build/ui-compare/1080/applications.png docs/design/current-ui/applications.png
+cp build/ui-compare/1080/browser-list.png docs/design/current-ui/open-services.png
+cp build/ui-compare/1080/keyboard-browse.png docs/design/current-ui/keyboard.png
+cp build/ui-compare/1080/session-ready.png docs/design/current-ui/now-playing.png
+cp build/ui-compare/1080/settings.png docs/design/current-ui/settings.png
 ```
 
-`--now-playing` is the flag name because Qt treats `--session` as its own
-session-restore option. Inspect the images before committing regenerated
-captures. Historical handoff and archive screenshots remain unchanged.
+Inspect the images before committing regenerated captures, then refresh the
+copy in [`docs/user/assets/home.png`](../../user/assets/home.png). The site
+build takes these files as they are. Historical handoff and archive
+screenshots remain unchanged.

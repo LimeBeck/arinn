@@ -1,0 +1,1 @@
+- Fence old Release failures when selecting a new media session, ignore stale Home snapshots during presentation, and bound the wait for Qt activation on initial playback and explicit Return without requesting focus ([#376](https://github.com/LimeBeck/arinn/issues/376)).

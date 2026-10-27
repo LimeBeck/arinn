@@ -125,6 +125,24 @@ Window loss, daemon loss, adapter reconnect or session lock releases the layer.
 The independent session guard continues to hide the shell on lock/unknown state.
 Late replies never raise a surface after cancellation or lifetime invalidation.
 
+The shell fences the previous session's Release result when another session is
+selected, including the interval before the new media row reaches its snapshot.
+Already admitted cleanup still runs; its result cannot set an error on the new
+selection. Retry state remains available for the same selected session.
+
+Present completion and Qt window activation are separate acknowledgements. The
+shell allows at most one second for initial presentation or an explicit Return
+to receive Qt activation; it never requests activation or retries Present to
+obtain it. A pre-intent active flag is not an acknowledgement: confirmation needs
+a newer Qt activation event, or expiry of the bound while the shell stays active. Return records this handoff before calling the backend, so either
+ordering of Status and Qt deactivation is covered. Once activation is confirmed,
+a genuine focus loss still relinquishes the layer. An expired handoff releases
+without stealing focus or stopping playback. Stop, a new selection, explicit
+Home, lock and presentation teardown cancel the wait. Pre-Present Home snapshots
+are ignored until Status observes the Home exit; an explicit Home intent still
+wins while Present is pending. Private-bus/offscreen regressions cover these
+races; this is not a claim that real-desktop G-4.1 qualification passed.
+
 ## Delivery and verification
 
 #189 supplies typed bindings, validation, XML, the optional SDK
@@ -193,9 +211,9 @@ A Present or Release refused before it becomes an operation logs `"operation":"r
 - It opens the session card instead of the player: `surface: "session"`, reason `no_player_features` or `session_not_ready`.
 - A presentation fails: `surface: "home"`, reason `presentation_failed`.
 - The screen route changes during a media flow: `surface` names the screen; reason `screen_route_changed`.
-- An input layer is abandoned: `surface: "released"`; the reason distinguishes `focus_lost`, `return_without_focus`, `presented_without_focus`, `session_blocked`, `daemon_changed`, `session_invalidated`, `window_check_timeout`, `window_check_error`, `window_reply_invalid`, and `window_identity_changed`. An unspecified or unrecognized caller reason becomes `explicit_abandon`. The record describes the state before teardown; it is not an acknowledgement that Release completed.
+- An input layer is abandoned: `surface: "released"`; the reason distinguishes `focus_lost`, `return_without_focus`, `presented_without_focus`, `session_blocked`, `daemon_changed`, `session_invalidated`, `window_check_timeout`, `window_check_error`, `window_reply_invalid`, and `window_identity_changed`, and `presentation_focus_timeout`. An unspecified or unrecognized caller reason becomes `explicit_abandon`. The record describes the state before teardown; it is not an acknowledgement that Release completed.
 
-These additional events diagnose the Stop/relaunch failure in [#376](https://github.com/LimeBeck/arinn/issues/376); they do not establish that it is fixed.
+These events identify the handoff races in [#376](https://github.com/LimeBeck/arinn/issues/376). Passing diagnostics and synthetic tests do not establish that real-desktop qualification passed.
 
 The line also includes `presentationState`, `sessionState`, `inputLayer` and `windowAvailable`.
 

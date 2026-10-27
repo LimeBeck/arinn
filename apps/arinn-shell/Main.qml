@@ -83,7 +83,7 @@ Window {
         quickMenuTarget = "";
         if (activityBehind && backend.connected && target) {
             returnBound.restart();
-            backend.back();
+            returnToActivity();
             return;
         }
         if (activityBehind) { quickMenuHome(); return; }
@@ -202,12 +202,75 @@ Window {
     }
     property bool presentationAtHome: false
     property bool presentationRequested: false
+    property int presentationActivationSerial: 0
+    property int presentationHandoffSerial: 0
+    property bool presentationReturning: false
+    property bool presentationFocusConfirmed: false
+    property bool presentationWaitingForHomeExit: false
+    // The compositor's acknowledgement can precede Qt's activation event.
+    // Wait for that event without requesting activation or retrying Present.
+    Timer {
+        id: presentationFocusBound
+        objectName: "presentationFocusBound"
+        interval: 1000
+        onTriggered: {
+            const returning = root.presentationReturning;
+            root.presentationReturning = false;
+            if (mediaCatalog.presentationState !== "active" || root.leavingStopPending
+                    || sessionGuard.blocked) return;
+            if (root.active)
+                root.presentationFocusConfirmed = true;
+            else if (!root.presentationAtHome || returning)
+                mediaCatalog.abandonPresentation("presentation_focus_timeout");
+        }
+    }
+    function checkPresentationFocus() {
+        if (mediaCatalog.presentationState !== "active"
+                || (presentationAtHome && !presentationReturning)
+                || leavingStopPending || sessionGuard.blocked) {
+            presentationFocusBound.stop();
+            return;
+        }
+        if (active && (presentationFocusConfirmed
+                       || presentationActivationSerial > presentationHandoffSerial)) {
+            presentationFocusConfirmed = true;
+            if (!presentationAtHome) {
+                presentationReturning = false;
+                presentationFocusBound.stop();
+                return;
+            }
+        }
+        if (!presentationFocusBound.running)
+            presentationFocusBound.start();
+    }
+    function returnToActivity() {
+        if (mediaCatalog.inputLayerActive && mediaCatalog.presentationState === "active") {
+            // Record the intent before the platform can change Qt activation.
+            presentationReturning = true;
+            presentationFocusConfirmed = false;
+            presentationHandoffSerial = presentationActivationSerial;
+            presentationFocusBound.restart();
+        }
+        backend.back();
+    }
+    function presentPlayer() {
+        presentationReturning = false;
+        presentationRequested = true;
+        presentationFocusConfirmed = false;
+        presentationHandoffSerial = presentationActivationSerial;
+        presentationWaitingForHomeExit = true;
+        presentationFocusBound.stop();
+        mediaCatalog.present();
+        checkPresentationFocus();
+    }
     function showPlaybackHome() {
         if (leavingStopPending)
             return;
         leaveError = "";
         if (!mediaCatalog.inputLayerActive)
             return;
+        presentationReturning = false;
+        presentationFocusBound.stop();
         playerView.sheetKind = "";
         presentationAtHome = true;
         playerOpen = false;
@@ -218,16 +281,28 @@ Window {
         home.showHome();
     }
     onActiveChanged: {
-        if (!active && mediaCatalog.presentationState === "active")
+        if (active) {
+            ++presentationActivationSerial;
+            checkPresentationFocus();
+        } else if (mediaCatalog.presentationState === "active") {
             Qt.callLater(() => {
-                if (!root.active && mediaCatalog.presentationState === "active")
-                    mediaCatalog.abandonPresentation("focus_lost");
+                if (!root.active && mediaCatalog.presentationState === "active") {
+                    if (root.presentationFocusConfirmed || (root.presentationAtHome && !root.presentationReturning))
+                        mediaCatalog.abandonPresentation("focus_lost");
+                    else
+                        root.checkPresentationFocus();
+                }
             });
+        }
     }
     function openSession(entryId, fromLibrary) {
         if (leavingStopPending)
             return;
         leaveError = "";
+        presentationReturning = false;
+        presentationFocusBound.stop();
+        presentationFocusConfirmed = false;
+        presentationWaitingForHomeExit = false;
         presentationAtHome = false;
         presentationRequested = false;
         sessionFromLibrary = fromLibrary;
@@ -247,8 +322,7 @@ Window {
             player = true;
         playerOpen = player;
         if (player && mediaCatalog.windowAvailable && !presentationRequested) {
-            presentationRequested = true;
-            mediaCatalog.present();
+            presentPlayer();
         }
         sessionOpen = !player;
         if (!player)
@@ -263,6 +337,8 @@ Window {
     function leavePlayback() {
         if (leavingStopPending)
             return;
+        presentationReturning = false;
+        presentationFocusBound.stop();
         leaveError = "";
         if (mediaCatalog.inputLayerActive) {
             leavingPlayback = true;
@@ -425,13 +501,24 @@ Window {
             }
             if (backend.homeVisible) root.leavingPlayback = false;
             if (!mediaCatalog.inputLayerActive) return;
-            if (backend.homeVisible) root.showPlaybackHome();
-            else if (root.presentationAtHome) {
+            if (!backend.homeVisible) root.presentationWaitingForHomeExit = false;
+            if (backend.homeVisible) {
+                // Until Status has observed Present's Home exit, an old Home
+                // snapshot is not a new Home intent. Explicit Home still wins.
+                if (!root.presentationReturning && (!root.presentationWaitingForHomeExit || root.presentationAtHome))
+                    root.showPlaybackHome();
+            } else if (root.presentationAtHome) {
+                if (!root.presentationReturning) {
+                    // A platform-originated Return has no earlier shell intent.
+                    root.presentationFocusConfirmed = false;
+                    root.presentationHandoffSerial = root.presentationActivationSerial;
+                    presentationFocusBound.restart();
+                }
                 root.presentationAtHome = false;
-                if (!root.active) { mediaCatalog.abandonPresentation("return_without_focus"); return; }
                 root.playerOpen = true;
                 Qt.callLater(() => Ui.Focus.take(playerView));
             }
+            root.checkPresentationFocus();
         }
     }
     // Explicit platform requests (ADR-0069, ADR-0106, ADR-0111).
@@ -735,7 +822,7 @@ Window {
             Timer { interval: 1000; running: true; repeat: true; onTriggered: home.clockText = Qt.formatTime(new Date(), "hh:mm") }
             onEntryRequested: entryId => { if (entryId === "arinn-browse") root.showBrowse(); else backend.launch(entryId); }
             onRunningRequested: entryId => backend.activate(entryId)
-            onReturnRequested: backend.back()
+            onReturnRequested: root.returnToActivity()
             onRetryRequested: backend.refresh()
             onRestartRequested: backend.restartArinn()
             // A section picked in the navigation menu, or Home pressed there,
@@ -749,7 +836,7 @@ Window {
                 root.browserOpen = true;
                 Qt.callLater(() => Ui.Focus.take(browserView));
             }
-            onServiceRequested: backend.back()
+            onServiceRequested: root.returnToActivity()
             // One card for a browser tab and its media session (ADR-0096).
             onTabRequested: tabId => browserCatalog.activateTab(tabId)
             onMediaActionRequested: (sessionId, action) => mediaCatalog.sessionAction(sessionId, action)
@@ -1014,6 +1101,11 @@ Window {
             function onPresentationHomeRequested() { root.showPlaybackHome(); }
             function onOperationChanged() { root.finishStopOperation(); }
             function onPresentationChanged() {
+                if (mediaCatalog.presentationState !== "active") {
+                    root.presentationReturning = false;
+                    presentationFocusBound.stop();
+                    root.presentationFocusConfirmed = false;
+                }
                 if (root.leavingStopPending || root.leaveError !== "")
                     return;
                 if (mediaCatalog.presentationState !== "" && mediaCatalog.presentationState !== "pending" && mediaCatalog.presentationState !== "active") {
@@ -1029,8 +1121,8 @@ Window {
                         : qsTr("Playback controls are unavailable.");
                     feedbackTimer.restart();
                 }
-                if (mediaCatalog.presentationState === "active" && !root.active && !backend.homeVisible && !root.presentationAtHome)
-                    mediaCatalog.abandonPresentation("presented_without_focus");
+                if (mediaCatalog.presentationState === "active")
+                    root.checkPresentationFocus();
                 if (mediaCatalog.presentationState === "" && root.presentationRequested) {
                     root.playerOpen = false;
                     root.presentationAtHome = false;
@@ -1049,8 +1141,7 @@ Window {
                 if (root.leavingStopPending)
                     return;
                 if (root.playerOpen && mediaCatalog.windowAvailable && !root.presentationAtHome && !root.presentationRequested) {
-                    root.presentationRequested = true;
-                    mediaCatalog.present();
+                    root.presentPlayer();
                 }
                 if (!root.sessionFromLibrary || (!root.playerOpen && !root.sessionOpen))
                     return;

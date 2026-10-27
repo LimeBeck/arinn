@@ -357,6 +357,16 @@ void MediaCatalog::select(const QString &id) {
   if (!m_presentRow.id.isEmpty() && m_presentRow.id != id)
     release();
   m_explicitId = id;
+  if (!m_releaseRow.id.isEmpty() && m_releaseRow.id != id) {
+    // A library result can arrive before its media row. Fence the previous
+    // session's Release now, rather than waiting until Present becomes ready.
+    // The admitted cleanup still runs; only its obsolete UI result is ignored.
+    ++m_presentationTicket;
+    m_releaseRow = {};
+    m_releaseEpoch = 0;
+    m_windowCheckInFlight = false;
+    setPresentation({});
+  }
   publish();
 }
 void MediaCatalog::play() { command(QStringLiteral("play")); }
@@ -1407,7 +1417,8 @@ void MediaCatalog::abandonPresentation(const QString &reason) {
       QStringLiteral("window_check_timeout"), QStringLiteral("window_check_error"),
       QStringLiteral("window_reply_invalid"), QStringLiteral("window_identity_changed"),
       QStringLiteral("focus_lost"), QStringLiteral("return_without_focus"),
-      QStringLiteral("session_blocked"), QStringLiteral("presented_without_focus")};
+      QStringLiteral("session_blocked"), QStringLiteral("presented_without_focus"),
+      QStringLiteral("presentation_focus_timeout")};
   if (inputLayerActive())
     logSurface(QStringLiteral("released"), reasons.contains(reason)
         ? reason : QStringLiteral("explicit_abandon"));

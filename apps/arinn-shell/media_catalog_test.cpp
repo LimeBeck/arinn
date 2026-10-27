@@ -642,6 +642,133 @@ private slots:
     QCOMPARE(surfaces, QStringList({QStringLiteral("home"), QStringLiteral("session"),
                                    QStringLiteral("home"), QStringLiteral("library")}));
   }
+  void oldReleaseCannotFailANewSelection() {
+    MediaDaemon daemon;
+    daemon.features = {QStringLiteral("MediaWindow1")};
+    daemon.page1 = {session(QStringLiteral("old"), QStringLiteral("Piece"),
+                            QStringLiteral("paused"), 0, monotonicUs(),
+                            9000000, {QStringLiteral("stop")})};
+    auto bus = QDBusConnection::sessionBus();
+    QVERIFY(bus.registerService(QStringLiteral("org.arinn.Daemon1")));
+    QVERIFY(bus.registerVirtualObject(QStringLiteral("/org/arinn"), &daemon, QDBusConnection::SubPath));
+    MediaCatalog catalog;
+    QTRY_VERIFY(catalog.windowAvailable());
+    catalog.present();
+    QTRY_COMPARE(catalog.presentationState(), QStringLiteral("active"));
+    daemon.holdOperation = true;
+    const int reads = daemon.operationReads;
+    catalog.release();
+    QTRY_VERIFY(daemon.operationReads > reads);
+    // A new library result can precede its media row. Its presentation must
+    // not inherit completion/failure of the stopped session's Release.
+    catalog.select(QStringLiteral("new-session-not-yet-imported"));
+    QCOMPARE(catalog.sessionState(), QStringLiteral("unavailable"));
+    daemon.rejectOperationRead = true;
+    daemon.holdOperation = false;
+    QTest::qWait(350);
+    QCOMPARE(catalog.presentationState(), QString());
+    QVERIFY(daemon.commands.isEmpty());
+  }
+  void playbackHandoffWaitsForQtFocus_data() {
+    QTest::addColumn<bool>("activate");
+    QTest::addColumn<QString>("mode");
+    for (const auto *mode : {"initial", "return-pending", "return-active", "return-active-status-first"}) {
+      QTest::newRow(qPrintable(QString::fromLatin1(mode) + "-delayed"))
+          << true << QString::fromLatin1(mode);
+      QTest::newRow(qPrintable(QString::fromLatin1(mode) + "-never-arrives"))
+          << false << QString::fromLatin1(mode);
+    }
+  }
+  void playbackHandoffWaitsForQtFocus() {
+    QFETCH(bool, activate);
+    QFETCH(QString, mode);
+    const bool activeReturn = mode.startsWith(QLatin1String("return-active"));
+    MediaDaemon daemon;
+    daemon.features = {QStringLiteral("MediaWindow1")};
+    daemon.holdOperation = true;
+    daemon.page1 = {session(QStringLiteral("live"), QStringLiteral("Piece"),
+                            QStringLiteral("paused"), 0, monotonicUs(),
+                            9000000, {QStringLiteral("stop")})};
+    auto bus = QDBusConnection::sessionBus();
+    QVERIFY(bus.registerService(QStringLiteral("org.arinn.Daemon1")));
+    QVERIFY(bus.registerVirtualObject(QStringLiteral("/org/arinn"), &daemon, QDBusConnection::SubPath));
+    ShellStandIn backend;
+    SessionGuardStandIn guard;
+    QQmlApplicationEngine engine;
+    installAssetImageProvider(&engine);
+    engine.rootContext()->setContextProperty(QStringLiteral("backend"), &backend);
+    engine.rootContext()->setContextProperty(QStringLiteral("sessionGuard"), &guard);
+    engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
+    auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().value(0));
+    QVERIFY(window);
+    window->show(); window->requestActivate();
+    QTRY_VERIFY(window->isActive());
+    auto catalog = window->findChild<MediaCatalog *>(QStringLiteral("mediaCatalog"));
+    QVERIFY(catalog);
+    QTRY_VERIFY(catalog->windowAvailable());
+    const auto id = catalog->continueEntries().first().toMap().value("id").toString();
+    QVERIFY(QMetaObject::invokeMethod(window, "openSession", Q_ARG(QVariant, id), Q_ARG(QVariant, true)));
+    QCOMPARE(catalog->presentationState(), QStringLiteral("pending"));
+    // A pre-Present Home status is stale. It must not replace the player.
+    emit backend.changed();
+    QVERIFY(window->property("playerOpen").toBool());
+    QVERIFY(!window->property("presentationAtHome").toBool());
+    QQuickWindow other;
+    if (mode == QLatin1String("return-pending")) {
+      // Explicit Home still wins over a pending presentation.
+      QVERIFY(QMetaObject::invokeMethod(window, "showPlaybackHome"));
+      QVERIFY(window->property("presentationAtHome").toBool());
+    }
+    if (!activeReturn) {
+      other.show(); other.requestActivate();
+      QTRY_VERIFY(other.isActive());
+      QTRY_VERIFY(!window->isActive());
+      if (!activate) window->setFlag(Qt::WindowDoesNotAcceptFocus, true);
+    }
+    daemon.holdOperation = false;
+    QTRY_COMPARE(catalog->presentationState(), QStringLiteral("active"));
+    if (activeReturn) {
+      backend.m_home = false; emit backend.changed();
+      QTRY_VERIFY(window->isActive());
+      QVERIFY(QMetaObject::invokeMethod(window, "showPlaybackHome"));
+      backend.m_home = true; emit backend.changed();
+    }
+    if (mode != QLatin1String("initial")) {
+      QVERIFY(QMetaObject::invokeMethod(window, "returnToActivity"));
+      QCOMPARE(backend.backs, 1);
+    }
+    if (activeReturn) {
+      if (mode.endsWith(QLatin1String("status-first"))) {
+        // Status can arrive while Qt still reports its pre-Return active state.
+        backend.m_home = false; emit backend.changed();
+      }
+      // Cover Qt deactivation before Status as well as after stale active=true.
+      if (!activate) window->setFlag(Qt::WindowDoesNotAcceptFocus, true);
+      other.show(); other.requestActivate();
+      QTRY_VERIFY(other.isActive());
+      QTest::qWait(50);
+      QVERIFY(catalog->inputLayerActive());
+    }
+    backend.m_home = false; emit backend.changed();
+    QCOMPARE(catalog->presentationState(), QStringLiteral("active"));
+    QVERIFY(window->property("playerOpen").toBool());
+    QVERIFY(other.isActive()); // No activation request from the shell.
+    if (activate) {
+      window->requestActivate(); // Simulate the compositor's delayed Qt event.
+      QTRY_VERIFY(window->isActive());
+      QTest::qWait(1100);
+      QCOMPARE(catalog->presentationState(), QStringLiteral("active"));
+      QCOMPARE(daemon.windowCommands.count(QStringLiteral("Release")), 0);
+      other.requestActivate();
+      QTRY_VERIFY(other.isActive());
+    }
+    // A missing handoff acknowledgement or a real subsequent focus loss
+    // both release input ownership without activating the shell or stopping.
+    QTRY_VERIFY_WITH_TIMEOUT(!catalog->inputLayerActive(), 2500);
+    QTRY_COMPARE(daemon.windowCommands.count(QStringLiteral("Release")), 1);
+    QVERIFY(other.isActive());
+    QVERIFY(daemon.commands.isEmpty());
+  }
   void initTestCase() {
     qDBusRegisterMetaType<WindowWire>();
     qDBusRegisterMetaType<LinkWire>();

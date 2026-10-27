@@ -19,6 +19,10 @@
 #include <QSignalSpy>
 #include <QScopeGuard>
 #include <QTest>
+#include <QTemporaryFile>
+#include <cstdio>
+#include <functional>
+#include <unistd.h>
 #include <QtDBus>
 #include <time.h>
 // QObject wrappers exercise the actual Qt engine's native type observation.
@@ -518,6 +522,25 @@ SessionWire session(const QString &id, const QString &title, const QString &stat
 }
 } // namespace
 
+// Capture only a synchronous diagnostic emission; restore stderr before any
+// test assertion can return from its slot.
+static QByteArray captureStderr(const std::function<void()> &work) {
+  QTemporaryFile captured;
+  if (!captured.open()) return {};
+  std::fflush(stderr);
+  const int saved = dup(STDERR_FILENO);
+  if (saved < 0) return {};
+  const auto restore = qScopeGuard([saved] {
+    std::fflush(stderr);
+    dup2(saved, STDERR_FILENO);
+    close(saved);
+  });
+  if (dup2(captured.handle(), STDERR_FILENO) < 0) return {};
+  work();
+  std::fflush(stderr);
+  return captured.seek(0) ? captured.readAll() : QByteArray();
+}
+
 class MediaCatalogTest : public QObject {
   Q_OBJECT
 private slots:
@@ -536,10 +559,88 @@ private slots:
     const auto session = QJsonDocument::fromJson(MediaCatalog::surfaceRecord(
       QStringLiteral("session"), QStringLiteral("no_player_features"), QString(), QStringLiteral("ready"), false, true)).object();
     QVERIFY(session.value("error").isNull());
+    const auto home = QJsonDocument::fromJson(MediaCatalog::surfaceRecord(
+        QStringLiteral("home"), QStringLiteral("screen_route_changed"),
+        QStringLiteral("active"), QStringLiteral("ready"), true, true)).object();
+    QVERIFY(home.value("error").isNull());
     // Free text never reaches the log as given.
     const auto text = MediaCatalog::surfaceRecord(QStringLiteral("session"), QStringLiteral("Private Title"),
                                                   QStringLiteral("/home/private-fixture"), QStringLiteral("x"), true, false);
     QVERIFY2(!text.contains("Private") && !text.contains("private-fixture"), text.constData());
+  }
+  void abandonmentDiagnosticHasAFixedReason_data() {
+    QTest::addColumn<QString>("reason");
+    QTest::addColumn<QString>("expected");
+    QTest::newRow("focus") << QStringLiteral("focus_lost") << QStringLiteral("focus_lost");
+    QTest::newRow("default") << QString() << QStringLiteral("explicit_abandon");
+    // Even a syntactically valid identifier may contain private caller data.
+    QTest::newRow("untrusted") << QStringLiteral("private-fixture-title")
+                              << QStringLiteral("explicit_abandon");
+  }
+  void abandonmentDiagnosticHasAFixedReason() {
+    QFETCH(QString, reason);
+    QFETCH(QString, expected);
+    MediaDaemon daemon;
+    daemon.features = {QStringLiteral("MediaWindow1")};
+    daemon.page1 = {session(QStringLiteral("live"), QStringLiteral("Piece"),
+                            QStringLiteral("paused"), 0, monotonicUs(),
+                            9000000, {QStringLiteral("stop")})};
+    auto bus = QDBusConnection::sessionBus();
+    QVERIFY(bus.registerService(QStringLiteral("org.arinn.Daemon1")));
+    QVERIFY(bus.registerVirtualObject(QStringLiteral("/org/arinn"), &daemon,
+                                     QDBusConnection::SubPath));
+    MediaCatalog catalog;
+    QTRY_VERIFY(catalog.windowAvailable());
+    catalog.present();
+    QTRY_COMPARE(catalog.presentationState(), QStringLiteral("active"));
+    bool invoked = false;
+    const auto bytes = captureStderr([&] {
+      invoked = QMetaObject::invokeMethod(&catalog, "abandonPresentation",
+                                         Q_ARG(QString, reason));
+    });
+    QVERIFY(invoked);
+    const auto record = QJsonDocument::fromJson(bytes).object();
+    QCOMPARE(record.value("surface").toString(), QStringLiteral("released"));
+    QCOMPARE(record.value("reason").toString(), expected);
+    QCOMPARE(record.value("presentationState").toString(), QStringLiteral("active"));
+    QVERIFY(record.value("inputLayer").toBool());
+    QVERIFY(!bytes.contains("private-fixture-title"));
+    QTRY_COMPARE(daemon.windowCommands, QStringList({QStringLiteral("Present"),
+                                                   QStringLiteral("Release")}));
+    QVERIFY(!catalog.inputLayerActive());
+    QVERIFY(daemon.commands.isEmpty());
+  }
+  void routeDiagnosticsFollowTheDerivedScreen() {
+    ShellStandIn backend;
+    SessionGuardStandIn guard;
+    QQmlApplicationEngine engine;
+    installAssetImageProvider(&engine);
+    engine.rootContext()->setContextProperty(QStringLiteral("backend"), &backend);
+    engine.rootContext()->setContextProperty(QStringLiteral("sessionGuard"), &guard);
+    engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
+    auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().value(0));
+    QVERIFY(window);
+    auto home = window->findChild<QQuickItem *>(QStringLiteral("productionHome"));
+    QVERIFY(home);
+    home->setProperty("screen", QStringLiteral("home"));
+    window->setProperty("sessionFromLibrary", true);
+    window->setProperty("playerOpen", true);
+    const auto bytes = captureStderr([&] {
+      window->setProperty("playerOpen", false);
+      window->setProperty("sessionOpen", true);
+      window->setProperty("sessionOpen", false);
+      home->setProperty("screen", QStringLiteral("library"));
+    });
+    QStringList surfaces;
+    for (const auto &line : bytes.split('\n')) {
+      const auto record = QJsonDocument::fromJson(line).object();
+      if (record.value("reason") == QLatin1String("screen_route_changed")) {
+        surfaces.append(record.value("surface").toString());
+        QVERIFY(record.value("error").isNull());
+      }
+    }
+    QCOMPARE(surfaces, QStringList({QStringLiteral("home"), QStringLiteral("session"),
+                                   QStringLiteral("home"), QStringLiteral("library")}));
   }
   void initTestCase() {
     qDBusRegisterMetaType<WindowWire>();

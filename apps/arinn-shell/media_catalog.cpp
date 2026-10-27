@@ -153,7 +153,7 @@ MediaCatalog::MediaCatalog(QObject *parent) : QObject(parent) {
             ++m_epoch;
             ++m_commandTicket;
             m_connected = false;
-            abandonPresentation();
+            abandonPresentation(QStringLiteral("daemon_changed"));
             m_presentRow = {};
             m_releaseRow = {};
             m_daemonEpoch.clear();
@@ -428,7 +428,7 @@ void MediaCatalog::publish() {
     const auto *row = findId(m_presentRow.id);
     if (!m_connected || !row || row->generation != m_presentRow.generation ||
         row->state == QLatin1String("stopped"))
-      abandonPresentation();
+      abandonPresentation(QStringLiteral("session_invalidated"));
   }
   QVariantList entries;
   entries.reserve(m_sessions.size());
@@ -1399,7 +1399,18 @@ void MediaCatalog::setPresentation(const QString &state) {
   }
   emit presentationChanged();
 }
-void MediaCatalog::abandonPresentation() {
+void MediaCatalog::abandonPresentation(const QString &reason) {
+  // Fixed identifiers only: callers cannot put session IDs or media metadata
+  // into a diagnostic reason, including when invoked through QML.
+  static const QStringList reasons{
+      QStringLiteral("daemon_changed"), QStringLiteral("session_invalidated"),
+      QStringLiteral("window_check_timeout"), QStringLiteral("window_check_error"),
+      QStringLiteral("window_reply_invalid"), QStringLiteral("window_identity_changed"),
+      QStringLiteral("focus_lost"), QStringLiteral("return_without_focus"),
+      QStringLiteral("session_blocked"), QStringLiteral("presented_without_focus")};
+  if (inputLayerActive())
+    logSurface(QStringLiteral("released"), reasons.contains(reason)
+        ? reason : QStringLiteral("explicit_abandon"));
   // An active presentation whose window check has not confirmed it failed.
   if (m_presentFlow.active() && m_presentation == QLatin1String("active"))
     m_presentFlow.finish("failed");
@@ -1759,7 +1770,7 @@ void MediaCatalog::checkPresentedWindow(quint64 ticket, quint64 epoch,
   if (ticket != m_presentationTicket || epoch != m_epoch ||
       m_presentation != QLatin1String("active"))
     return;
-  if (monotonicUs() >= deadline) { abandonPresentation(); return; }
+  if (monotonicUs() >= deadline) { abandonPresentation(QStringLiteral("window_check_timeout")); return; }
   if (m_windowCheckInFlight)
     return;
   m_windowCheckInFlight = true;
@@ -1777,7 +1788,7 @@ void MediaCatalog::checkPresentedWindow(quint64 ticket, quint64 epoch,
                 m_presentation != QLatin1String("active"))
               return;
             m_windowCheckInFlight = false;
-            if (monotonicUs() >= deadline) { abandonPresentation(); return; }
+            if (monotonicUs() >= deadline) { abandonPresentation(QStringLiteral("window_check_timeout")); return; }
             if (reply.type() == QDBusMessage::ErrorMessage) {
               // A field-only inventory commit briefly closes the report
               // barrier.
@@ -1788,11 +1799,11 @@ void MediaCatalog::checkPresentedWindow(quint64 ticket, quint64 epoch,
                 });
                 return;
               }
-              abandonPresentation();
+              abandonPresentation(QStringLiteral("window_check_error"));
               return;
             }
             if (reply.signature() != "a(ss)" || reply.arguments().isEmpty()) {
-              abandonPresentation();
+              abandonPresentation(QStringLiteral("window_reply_invalid"));
               return;
             }
             const auto arg =
@@ -1809,7 +1820,7 @@ void MediaCatalog::checkPresentedWindow(quint64 ticket, quint64 epoch,
             }
             arg.endArray();
             if (!matches) {
-              abandonPresentation();
+              abandonPresentation(QStringLiteral("window_identity_changed"));
             } else if (m_presentFlow.active()) {
               m_presentFlow.end("window.check");
               m_presentFlow.finish("ok");
@@ -1825,7 +1836,9 @@ QByteArray MediaCatalog::surfaceRecord(const QString &surface, const QString &re
   const auto fixed = [](const QString &value) {
     return name.match(value).hasMatch() ? QJsonValue(value) : QJsonValue(QStringLiteral("other"));
   };
-  const bool failed = surface == QLatin1String("home") && !presentation.isEmpty();
+  const bool failed = surface == QLatin1String("home") &&
+                      reason == QLatin1String("presentation_failed") &&
+                      !presentation.isEmpty();
   const QJsonObject record{
     {QStringLiteral("level"), QStringLiteral("info")},
     {QStringLiteral("component"), QStringLiteral("arinn-shell")},

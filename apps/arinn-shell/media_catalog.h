@@ -64,7 +64,7 @@ public:
   bool inputLayerActive() const { return m_presentation == QStringLiteral("pending") || m_presentation == QStringLiteral("active"); }
   Q_INVOKABLE void present();
   Q_INVOKABLE void release();
-  Q_INVOKABLE void abandonPresentation();
+  Q_INVOKABLE void abandonPresentation(const QString &reason = QString());
   Q_INVOKABLE void requestHome();
   // One specification §14.1 JSON line on stderr when playback does not get the
   // player (#369). Written directly, not through Qt logging, so the line stays

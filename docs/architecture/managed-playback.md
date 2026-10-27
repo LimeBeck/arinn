@@ -189,9 +189,13 @@ A Present or Release refused before it becomes an operation logs `"operation":"r
 - `capacity_exhausted`;
 - `admission_refused`.
 
-**Shell.** `MediaCatalog::logSurface` writes one JSON line directly to stderr, bypassing Qt logging so no category prefix breaks it. The line is a structured info record with the §14.1 fields (`component: "arinn-shell"`, `operation: "media.surface"`, `error` set to the presentation state when a presentation failed, otherwise `null`) in two cases:
+**Shell.** `MediaCatalog::logSurface` writes one JSON line directly to stderr, bypassing Qt logging so no category prefix breaks it. The line is a structured info record with the §14.1 fields (`component: "arinn-shell"`, `operation: "media.surface"`, `error` set to the presentation state when a presentation failed, otherwise `null`) for these events:
 - It opens the session card instead of the player: `surface: "session"`, reason `no_player_features` or `session_not_ready`.
 - A presentation fails: `surface: "home"`, reason `presentation_failed`.
+- The screen route changes during a media flow: `surface` names the screen; reason `screen_route_changed`.
+- An input layer is abandoned: `surface: "released"`; the reason distinguishes `focus_lost`, `return_without_focus`, `presented_without_focus`, `session_blocked`, `daemon_changed`, `session_invalidated`, `window_check_timeout`, `window_check_error`, `window_reply_invalid`, and `window_identity_changed`. An unspecified or unrecognized caller reason becomes `explicit_abandon`. The record describes the state before teardown; it is not an acknowledgement that Release completed.
+
+These additional events diagnose the Stop/relaunch failure in [#376](https://github.com/LimeBeck/arinn/issues/376); they do not establish that it is fixed.
 
 The line also includes `presentationState`, `sessionState`, `inputLayer` and `windowAvailable`.
 

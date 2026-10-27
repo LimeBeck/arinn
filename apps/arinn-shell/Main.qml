@@ -221,7 +221,7 @@ Window {
         if (!active && mediaCatalog.presentationState === "active")
             Qt.callLater(() => {
                 if (!root.active && mediaCatalog.presentationState === "active")
-                    mediaCatalog.abandonPresentation();
+                    mediaCatalog.abandonPresentation("focus_lost");
             });
     }
     function openSession(entryId, fromLibrary) {
@@ -366,10 +366,14 @@ Window {
     // A new route whose screen did not get focus through its scope (nothing
     // focused there yet) starts at the screen's preferred item.
     // A hidden item inside the screen (a closed menu entry) does not count.
-    onFocusedScreenChanged: Qt.callLater(() => {
-        if (visible && (!focusInside(activeFocusItem, screenItem(focusedScreen))
-                        || !activeFocusItem.visible)) restoreFocus();
-    })
+    onFocusedScreenChanged: {
+        if (mediaCatalog && (sessionFromLibrary || playerOpen || mediaCatalog.inputLayerActive))
+            logMediaSurface(focusedScreen, "screen_route_changed");
+        Qt.callLater(() => {
+            if (visible && (!focusInside(activeFocusItem, screenItem(focusedScreen))
+                            || !activeFocusItem.visible)) restoreFocus();
+        });
+    }
     // Last resort: Qt moves active focus to the root item when the focused
     // item is destroyed. Nothing handles keys there, so the remote would stop
     // working. Hand focus back to the screen on display, and say so: it
@@ -424,7 +428,7 @@ Window {
             if (backend.homeVisible) root.showPlaybackHome();
             else if (root.presentationAtHome) {
                 root.presentationAtHome = false;
-                if (!root.active) { mediaCatalog.abandonPresentation(); return; }
+                if (!root.active) { mediaCatalog.abandonPresentation("return_without_focus"); return; }
                 root.playerOpen = true;
                 Qt.callLater(() => Ui.Focus.take(playerView));
             }
@@ -454,7 +458,7 @@ Window {
         ignoreUnknownSignals: true
         function onChanged() {
             if (sessionGuard.blocked) {
-                mediaCatalog.abandonPresentation();
+                mediaCatalog.abandonPresentation("session_blocked");
                 powerOverlay.sessionBlocked();
                 // A lock is not a wake: no event to consume, the screen
                 // beneath comes back when the shell is shown again.
@@ -1026,7 +1030,7 @@ Window {
                     feedbackTimer.restart();
                 }
                 if (mediaCatalog.presentationState === "active" && !root.active && !backend.homeVisible && !root.presentationAtHome)
-                    mediaCatalog.abandonPresentation();
+                    mediaCatalog.abandonPresentation("presented_without_focus");
                 if (mediaCatalog.presentationState === "" && root.presentationRequested) {
                     root.playerOpen = false;
                     root.presentationAtHome = false;

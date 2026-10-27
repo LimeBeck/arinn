@@ -79,6 +79,8 @@ set of screen fixtures.
 The gallery opens a regular window and requires no daemon or session bus. It uses
 original geometric artwork and neutral monograms. Its actions update explanatory
 fixture text only. `--capture` saves a PNG and exits; `--4k` uses 3840×2160.
+Any other option, including the removed screen flags, prints an error and
+exits with status 2.
 The test runner uses the offscreen platform and software rendering in CTest/CI;
 it does not touch KWin, real applications, screen lock or session services.
 

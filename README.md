@@ -134,7 +134,7 @@ systemctl --user disable arinn-session.target   # stop starting it at login
 systemctl --user stop arinn-session.target      # stop it in the current session
 ```
 
-To start it once, or to bring up Home when it already runs, open **Arinn** from the application menu; this does not enable autostart. Disable the target before removing the package. Instead of autostart, you can choose the **Arinn** (Plasma, Wayland) or **Arinn (XFCE)** session at login, or make it the display manager's autologin session; the **Return to Arinn** menu entry, and **Switch to desktop** once the power menu offers it, move between it and the plain desktop ([session lifecycle](docs/architecture/session-lifecycle.md#dedicated-arinn-session)). To build and run the current prototype in your own Plasma session from source instead:
+To start it once, or to bring up Home when it already runs, open **Arinn** from the application menu; this does not enable autostart. Disable the target before removing the package. Instead of autostart, you can choose the **Arinn** (Plasma, Wayland) or **Arinn (XFCE)** session at login, or make it the display manager's autologin session; the **Return to Arinn** menu entry, and **Switch to desktop** once the power menu offers it, move between it and the plain desktop ([session lifecycle](docs/architecture/session-lifecycle.md#dedicated-arinn-session)). For an isolated demo-only developer smoke session, build from source below. This launcher starts the demo provider, not the full set of packaged integrations, and changes the live KDE session; use a disposable Plasma session. For a full installation, use the package above or the [source-package workflow](CONTRIBUTING.md#required-checks).
 
 ```sh
 git clone https://github.com/LimeBeck/arinn.git
@@ -147,7 +147,7 @@ python scripts/phase0-session.py start   # start daemon, demo plugin, shell and 
 python scripts/phase0-session.py stop    # stop everything and unload the adapter
 ```
 
-The prototype runs as temporary systemd user units and a session-only KWin script; nothing is installed permanently. Full details and test commands: [Phase 0 runbook](docs/architecture/phase-0-runbook.md).
+The demo session runs as temporary systemd user units and a session-only KWin script; nothing is installed permanently. Full details and test commands: [Phase 0 runbook](docs/architecture/phase-0-runbook.md).
 
 ## Controls
 
@@ -170,14 +170,14 @@ Remote controls such as the G60S Pro air mouse send these same keys; no driver i
 ```text
 arinn-shell (Qt 6/QML) ──D-Bus──▶ arinnd (Rust) ──D-Bus──▶ plugins (separate processes)
                                      │                     demo · desktop · chrome
-                                     ▼                     mpris · library · mpv
-                           KDE platform adapter (KWin)
+                                     ▼                     mpris · library · mpv · transmission
+                           Platform adapters (KWin / X11 EWMH)
 ```
 
 - The **shell** only draws the UI and handles focus locally; it never talks to other applications.
 - The **daemon** knows *capabilities* (application, browser, media, library, action, download), never product names.
 - **Plugins** implement capabilities in separate processes supervised by systemd, so a crashing integration never takes Arinn down.
-- The **platform layer** isolates KDE/Wayland specifics: global shortcut, overlay, window activation.
+- The **platform layer** isolates KDE/KWin and X11/EWMH specifics: global shortcuts, overlays and window activation.
 
 Read more in the [specification](docs/specifications/arinn-specification.md) and the [architecture decisions](docs/adr/README.md).
 

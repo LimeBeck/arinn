@@ -28,6 +28,20 @@ the current unique daemon owner; reconnect allocates new window tokens and an
 adapter instance. There are no shell calls to applications or native XIDs in
 provider records.
 
+The adapter opens its X connection, and so grabs Home, the quick-menu keys and
+the on-screen keyboard's keys, only while `org.arinn.Daemon1` has an owner. It
+waits for the name on the session bus (`NameOwnerChanged`), not on a timer, so
+a session starts as soon as the daemon is back. Without a usable session bus
+there is no daemon either: no session starts, and the wait is tried again
+after the 3 s retry delay. A session ends as soon as the
+daemon goes, because its long polls fail, and with it every grab; the next one
+waits for the daemon again. While the daemon is down, the remote's Menu keys
+therefore never swallow the context-menu key, and Home is not grabbed either
+(it would do nothing without the daemon). The power key is unaffected: it is
+grabbed or read only inside a session with a live shell
+([ADR-0111](../adr/0111-power-key.md)). The adapter never fights a live daemon:
+the wait only delays a session (#507).
+
 The adapter checks the root and manager `_NET_SUPPORTING_WM_CHECK` properties
 and requires advertised client-list, activation, fullscreen and above support.
 A manager change causes a reconnect. It observes `_NET_CLIENT_LIST` normal
@@ -99,7 +113,11 @@ another client holds, a Home or quick-menu key keeps the combinations it already
 held. The backend is unavailable only when no Home sequence can be grabbed. `quick_menu_shortcut` (default Meta+F11)
 and the remote's Menu keys (`Menu`, `XF86MenuKB`) are grabbed the same way next to
 the Home keys. The Menu keys are released while the shell is the active window and
-grabbed again at the next snapshot after another window becomes active; a press is reported with
+grabbed again once another window becomes active. A change of `_NET_ACTIVE_WINDOW`
+wakes the adapter's loop at once (`focus_watch.rs`: a second X connection that
+only listens for that property, so the loop does not wake on its own replies),
+so the grabs follow focus within milliseconds instead of at the next 0.5 s tick;
+without the watch the tick still follows focus (#507). A press is reported with
 `ReportQuickMenuRequest` after the same unlocked check and Home state, with the
 same output (`x11-screen`) as a Home request, so it arms the Activity background too.
 For a quick-menu press the adapter raises and activates the shell only after that
@@ -292,8 +310,16 @@ marked passed.
 
 The package installs the EWMH executable, `arinn-ewmh.service` and
 `arinn-ewmh-session.target`; it enables none of them. Select the backend in the
-systemd user-manager environment **before starting the daemon**. For a manual
-trial inside an X11 graphical session:
+systemd user-manager environment **before starting the daemon**.
+
+The adapter unit uses `Type=exec`: systemd supervises the process across its
+native sessions, rather than stopping it when a session releases
+`org.arinn.X11`. The bus name is still owned only during a native session;
+while waiting for the daemon it is absent, so the XFCE login power-button
+restore is not suppressed. Process exit still runs the existing power-button
+`ExecStopPost` helper. Starting the unit confirms execution, not adapter or
+daemon readiness; the daemon authenticates the session's bus owner as before.
+For a manual trial inside an X11 graphical session:
 
 ```sh
 systemctl --user stop arinn-session.target arinn-ewmh-session.target
@@ -421,6 +447,16 @@ with other clients' requests, so a test that lets such a client go waits until
 its grab is free, or ungrabs explicitly, before the adapter grabs (#530); the
 adapter itself retries a take that found the key held (`PowerOwner`). They include partial-presentation rollback and compositor-loss regressions and do
 not substitute for real-desktop operator tests, which require owner permission.
+
+The ignored end-to-end tests in `platform/x11/tests/menu_keys.rs` run the
+adapter binary itself against its own Xvfb and a private session bus (never the
+real display, session bus or system bus). They check that no global key is
+grabbed while `org.arinn.Daemon1` has no owner or without a usable session
+bus, that the keys are grabbed as
+soon as it appears and released again when it goes, and that the Menu keys
+follow the shell's focus within 0.2 s rather than at the 0.5 s tick (#507). The
+ignored `focus_watch` test checks that only `_NET_ACTIVE_WINDOW` changes wake the
+loop.
 
 The Arch Qt CI job installs Xvfb and runs the native tests with `--include-ignored`.
 The installed-package session check also runs the XFCE helper suite on a private

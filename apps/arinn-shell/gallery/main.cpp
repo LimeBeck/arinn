@@ -4,32 +4,51 @@
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQuickWindow>
-#include <QVariantMap>
+#include <QStringList>
 #include <QTimer>
+
+#include <cstdio>
 
 int main(int argc, char **argv) {
   QGuiApplication app(argc, argv);
   QQmlApplicationEngine engine;
   const auto args = app.arguments();
-  const auto fixture = args.indexOf("--state");
-  QString qml = QStringLiteral("qrc:/gallery/Gallery.qml");
-  if (args.contains("--keyboard")) {
-    qml = QStringLiteral("qrc:/gallery/KeyboardGallery.qml");
-  } else if (args.contains("--browser")) {
-    qml = QStringLiteral("qrc:/gallery/BrowserGallery.qml");
-  } else if (args.contains("--now-playing")) {
-    qml = QStringLiteral("qrc:/gallery/SessionGallery.qml");
-  } else if (args.contains("--library")) {
-    qml = QStringLiteral("qrc:/gallery/LibraryGallery.qml");
-  } else if (args.contains("--settings")) {
-    qml = QStringLiteral("qrc:/gallery/SettingsGallery.qml");
-  } else if (args.contains("--home") || args.contains("--applications")) {
-    qml = QStringLiteral("qrc:/gallery/HomeGallery.qml");
-    engine.setInitialProperties({
-        {"fixture", fixture >= 0 && fixture + 1 < args.size() ? args.at(fixture + 1) : QString("populated")},
-        {"showNavigation", args.contains("--nav")},
-        {"previewScreen", args.contains("--applications") ? QString("applications") : QString("home")}});
+  // Screen previews were removed (#567); fail loudly instead of silently
+  // showing the component catalogue.
+  static const QStringList removed = {
+      "--home", "--applications", "--nav", "--state",
+      "--browser", "--now-playing", "--library", "--settings"};
+  for (int i = 1; i < args.size(); ++i) {
+    const auto &arg = args.at(i);
+    if (arg == "--keyboard" || arg == "--4k")
+      continue;
+    if (arg == "--capture") {
+      if (i + 1 >= args.size()) {
+        std::fprintf(stderr, "arinn-ui-gallery: --capture needs a PNG path\n");
+        return 2;
+      }
+      ++i;
+      continue;
+    }
+    if (removed.contains(arg)) {
+      std::fprintf(stderr,
+                   "arinn-ui-gallery: %s was removed; the gallery shows components only. "
+                   "Screens and their states are captured from tests/ui/visual with "
+                   "scripts/ui-compare.py.\n",
+                   qPrintable(arg));
+      return 2;
+    }
+    std::fprintf(stderr,
+                 "arinn-ui-gallery: unknown option %s\n"
+                 "usage: arinn-ui-gallery [--keyboard] [--4k] [--capture FILE.png]\n",
+                 qPrintable(arg));
+    return 2;
   }
+  // Component catalogue only. Screens and their states are captured from the
+  // fixtures in tests/ui/visual (scripts/ui-compare.py, #567).
+  const QString qml = args.contains("--keyboard")
+      ? QStringLiteral("qrc:/gallery/KeyboardGallery.qml")
+      : QStringLiteral("qrc:/gallery/Gallery.qml");
   engine.load(QUrl(qml));
   if (engine.rootObjects().isEmpty())
     return 1;

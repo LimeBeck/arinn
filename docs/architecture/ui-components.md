@@ -71,9 +71,16 @@ build/apps/arinn-shell/arinn-ui-gallery --4k
 QT_QPA_PLATFORM=offscreen build/apps/arinn-shell/arinn-ui-gallery --capture /tmp/arinn-ui.png
 ```
 
+The gallery is a component catalogue: `Gallery.qml` and, with `--keyboard`, the
+on-screen keyboard over Site or search. It does not render screens or their
+states; those come only from the `tests/ui/visual` fixtures (see
+[Handoff visual comparison](#handoff-visual-comparison), #567), so there is one
+set of screen fixtures.
 The gallery opens a regular window and requires no daemon or session bus. It uses
 original geometric artwork and neutral monograms. Its actions update explanatory
 fixture text only. `--capture` saves a PNG and exits; `--4k` uses 3840×2160.
+Any other option, including the removed screen flags, prints an error and
+exits with status 2.
 The test runner uses the offscreen platform and software rendering in CTest/CI;
 it does not touch KWin, real applications, screen lock or session services.
 
@@ -132,7 +139,8 @@ matches the family by `font.weight`.
 ## Home and global navigation preview
 
 [Issue #15](https://github.com/LimeBeck/arinn/issues/15) adds `HomeView` and
-`HomeRow`, exercised by the standalone `HomeGallery.qml`. That fixture preview
+`HomeRow`, exercised by the `tests/ui/visual` fixtures (the standalone
+`HomeGallery.qml` preview was removed in #567). That fixture preview
 is independent of the production binding below. Other top-level routes show explicit preview
 placeholders; no Library, Downloads, Applications or Settings backend is implied.
 Power emits an intent only; it never opens a destructive confirmation or performs
@@ -196,13 +204,14 @@ into view locally; horizontal rows reveal the focused item and suppress hover
 focus for 500 ms after scrolling. Pointer movement and arrows switch input modes.
 
 ```sh
-build/apps/arinn-shell/arinn-ui-gallery --home
-build/apps/arinn-shell/arinn-ui-gallery --home --nav
-build/apps/arinn-shell/arinn-ui-gallery --home --state unavailable
-QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software build/apps/arinn-shell/arinn-ui-gallery --home --4k --capture /tmp/home-4k.png
+cmake --build build --target arinn-ui-test
+python scripts/ui-compare.py
 ```
 
-`--state` accepts populated (default), empty, loading, error and unavailable.
+The Home states are the `home-*` entries of
+[`tests/ui/visual/manifest.json`](../../tests/ui/visual/manifest.json):
+populated, navigation, empty, loading, error and unavailable among them. The
+1080p and 3840×2160 renders are written to `build/ui-compare/`.
 Captures use original geometric fixture artwork and neutral application names.
 The comparison target is the handoff Home/nav layout, not all 22 screens:
 logical safe area, hero, Continue/Favorites/New positioning, navigation panel,

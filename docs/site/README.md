@@ -50,7 +50,7 @@ release or application deployment is part of this website.
 
 The builder copies the approved mark unchanged from
 `docs/design/handoff/assets/arinn-mark.svg`. It copies all eight PNGs directly from
-[current-ui](../design/current-ui/README.md), including the handbook's Home image.
+[showcase](../design/showcase/README.md), including the handbook's Home image.
 The handbook also includes its approved mark and app-icon favicon from
 `docs/user/assets/`; their provenance is recorded in the handbook README.
 Refreshing those originals refreshes the website on its next build; no separate

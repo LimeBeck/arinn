@@ -763,9 +763,10 @@ Its availability does not imply that production runtime discovery or Plugin API 
 is complete. The [Phase 1 implementation record](../architecture/phase-1-progress.md)
 distinguishes implemented primitives from the remaining runtime work.
 
-The standalone UI gallery also provides a Home/navigation development preview
-(`arinn-ui-gallery --home`) with explicit populated, empty, loading, error and
-unavailable presentation fixtures. It emits observable action intentions only;
+The fixture render in `tests/ui/visual` provides the Home/navigation development
+preview with explicit populated, empty, loading, error and unavailable
+presentation fixtures; the standalone UI gallery shows components only. The
+preview emits observable action intentions only;
 it does not launch applications, retry a provider or perform system actions.
 This preview does not replace the production shell or implement web shortcuts.
 Its scope and verification are recorded in the [component contract](../architecture/ui-components.md).

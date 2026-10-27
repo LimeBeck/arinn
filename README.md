@@ -53,14 +53,14 @@ These are screenshots of the **current Qt/QML interface**, rendered by the devel
 
 **Home** — the Arinn mark, the Now running hero, Continue cards and favorite tiles over the ambient light field, with remote-control focus on the return card. The other Continue cards show the placeholder landscape and a progress bar.
 
-![Current Arinn Qt Home with the Now running hero, Continue cards, the placeholder landscape and favorite tiles](docs/design/current-ui/home.png)
+![Current Arinn Qt Home with the Now running hero, Continue cards, the placeholder landscape and favorite tiles](docs/design/showcase/home.png)
 
 <details>
 <summary>Navigation screenshot</summary>
 
 **Navigation** — the brand lockup and section menu (Home, Library, Downloads, Applications, Settings, Open services) over a dimmed Home, with Home selected.
 
-![Current Arinn Qt navigation with the brand mark and Home selected](docs/design/current-ui/navigation.png)
+![Current Arinn Qt navigation with the brand mark and Home selected](docs/design/showcase/navigation.png)
 
 </details>
 
@@ -69,7 +69,7 @@ These are screenshots of the **current Qt/QML interface**, rendered by the devel
 
 **Library** — Films selected, with the Series tab beside it. Six posters show the placeholder landscape. Late light is the plate drawn when a poster is missing.
 
-![Current Arinn Qt Library with Films selected, placeholder landscapes and one plate](docs/design/current-ui/library.png)
+![Current Arinn Qt Library with Films selected, placeholder landscapes and one plate](docs/design/showcase/library.png)
 
 </details>
 
@@ -78,7 +78,7 @@ These are screenshots of the **current Qt/QML interface**, rendered by the devel
 
 **Applications** — tiles grouped into Online, Games and Media, with remote-control focus.
 
-![Current Arinn Qt Applications with grouped tiles and Online focused](docs/design/current-ui/applications.png)
+![Current Arinn Qt Applications with grouped tiles and Online focused](docs/design/showcase/applications.png)
 
 </details>
 
@@ -87,7 +87,7 @@ These are screenshots of the **current Qt/QML interface**, rendered by the devel
 
 **Open services** — open pages, with the on-screen page marked.
 
-![Current Arinn Qt Open services list with the on-screen page focused](docs/design/current-ui/open-services.png)
+![Current Arinn Qt Open services list with the on-screen page focused](docs/design/showcase/open-services.png)
 
 </details>
 
@@ -96,7 +96,7 @@ These are screenshots of the **current Qt/QML interface**, rendered by the devel
 
 **On-screen keyboard** — Site or search typed with the remote alone: recent entries and an open service as suggestions, the address row, English letters with remote-control focus, and the action row with Open.
 
-![Current Arinn Qt on-screen keyboard on Site or search, with suggestions, the address row and a focused key](docs/design/current-ui/keyboard.png)
+![Current Arinn Qt on-screen keyboard on Site or search, with suggestions, the address row and a focused key](docs/design/showcase/keyboard.png)
 
 </details>
 
@@ -105,7 +105,7 @@ These are screenshots of the **current Qt/QML interface**, rendered by the devel
 
 **Now playing** — the current media session on the placeholder landscape, with progress and transport controls.
 
-![Current Arinn Qt Now playing screen with the placeholder landscape, progress and transport controls](docs/design/current-ui/now-playing.png)
+![Current Arinn Qt Now playing screen with the placeholder landscape, progress and transport controls](docs/design/showcase/now-playing.png)
 
 </details>
 
@@ -114,11 +114,11 @@ These are screenshots of the **current Qt/QML interface**, rendered by the devel
 
 **Settings** — Media selected. The group shows a toggle, an option (Title), a stepper (10), and the path `/media/films` as text.
 
-![Current Arinn Qt Settings with Media selected, a toggle, an option, a stepper and one path as text](docs/design/current-ui/settings.png)
+![Current Arinn Qt Settings with Media selected, a toggle, an option, a stepper and one path as text](docs/design/showcase/settings.png)
 
 </details>
 
-[Capture instructions and provenance](docs/design/current-ui/README.md). The [22 HTML target-design states](docs/design/handoff/screenshots/) remain available in the [design handoff](docs/design/README.md).
+[Capture instructions and provenance](docs/design/showcase/README.md). The [22 HTML target-design states](docs/design/handoff/screenshots/) remain available in the [design handoff](docs/design/README.md).
 
 ## Status
 
@@ -303,3 +303,5 @@ Each file states its license with an SPDX header or in [REUSE.toml](REUSE.toml).
 
 The isolated [UI component gallery](docs/architecture/ui-components.md) runs with
 `build/apps/arinn-shell/arinn-ui-gallery`, without a daemon or desktop integration.
+It shows components only; screens and their states are rendered from
+[`tests/ui/visual`](tests/ui/visual/) with `python scripts/ui-compare.py`.

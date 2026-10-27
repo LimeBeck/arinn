@@ -138,9 +138,9 @@ path itself.
 - One library change brings `StateChanged` and then `ProvidersChanged`, so
   reads are coalesced per provider: one read at a time, and a trigger that
   arrives meanwhile runs it once more when it ends
-  ([#558](https://github.com/LimeBeck/arinn/issues/558)). `Features` cannot
-  change within a provider generation, so it is read once per generation
-  from `Daemon1.Providers`.
+  ([#558](https://github.com/LimeBeck/arinn/issues/558)). `Features` is
+  read for each coalesced read because the daemon may announce a feature
+  change without changing the provider generation.
 - `Unsupported` means no unavailable state. `Unavailable` means the daemon has
   not read the roots yet: no folder is marked, and the next `StateChanged`
   reads again. Any other error, or no `LibraryRoots1`, also marks nothing.
@@ -232,8 +232,8 @@ after the next, no read on another capability's `StateChanged`, no `GetRoots`
 without `LibraryRoots1`, and `Unsupported` marking nothing. On its own
 connection, so that `GetRoots` replies can be held back, it checks that a
 burst of `StateChanged` and `ProvidersChanged` during a read gives one more
-read, that `Features` is read once per provider generation, and that a list of
-files is not matched (#558).
+read, that features can appear and disappear within the same provider
+generation, and that a list of files is not matched (#558).
 
 Offscreen run on 2026-09-30, Qt 6.11.2:
 

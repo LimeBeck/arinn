@@ -245,7 +245,6 @@ struct SettingsCatalog::RootScan {
   int pages = 0;
   QSet<QString> tokens;
   QHash<QString, QString> found;
-  QHash<QString, QString> generations;
 };
 
 struct SettingsCatalog::Load {
@@ -283,8 +282,6 @@ SettingsCatalog::SettingsCatalog(QObject *parent) : QObject(parent) {
             m_tickets.clear();
             m_providers.clear();
             m_libraryPaths.clear();
-            m_libraryGenerations.clear();
-            m_rootFeatures.clear();
             m_rootsReading.clear();
             m_rootsAgain.clear();
             m_roots.clear();
@@ -453,8 +450,8 @@ void SettingsCatalog::finishLoad(const std::shared_ptr<Load> &load) {
 // as they are until the provider's next library StateChanged. One change
 // brings StateChanged and then ProvidersChanged, so reads are coalesced per
 // provider: one read at a time, run once more if asked again meanwhile.
-// Features cannot change within a provider generation and is read once per
-// generation.
+// Features is read for each coalesced read: it may change without a new
+// provider generation.
 void SettingsCatalog::refreshRoots() {
   auto scan = std::make_shared<RootScan>();
   scan->ticket = ++m_rootScan;
@@ -501,7 +498,6 @@ void SettingsCatalog::readLibraryProviders(const std::shared_ptr<RootScan> &scan
                   runtime == QLatin1String("ready") && !id.isEmpty() &&
                   !endpoint.path().isEmpty()) {
                 scan->found.insert(id, endpoint.path());
-                scan->generations.insert(id, generation);
               }
             }
             arg.endArray();
@@ -512,7 +508,6 @@ void SettingsCatalog::readLibraryProviders(const std::shared_ptr<RootScan> &scan
               return;
             }
             m_libraryPaths = scan->found;
-            m_libraryGenerations = scan->generations;
             QStringList gone;
             for (auto it = m_roots.cbegin(); it != m_roots.cend(); ++it)
               if (!m_libraryPaths.contains(it.key()))
@@ -545,24 +540,12 @@ void SettingsCatalog::readRoots(const QString &providerId) {
   m_rootsReading.insert(providerId);
   const auto ticket = ++m_rootTickets[providerId];
   const auto epoch = m_epoch;
-  const auto generation = m_libraryGenerations.value(providerId);
-  const auto cached = m_rootFeatures.constFind(providerId);
-  if (!generation.isEmpty() && cached != m_rootFeatures.cend() &&
-      cached->first == generation) {
-    if (cached->second) {
-      readRootList(providerId, objectPath, ticket, epoch);
-    } else {
-      dropRoots(providerId);
-      finishRootRead(providerId);
-    }
-    return;
-  }
   auto features = QDBusMessage::createMethodCall(
       service, objectPath, libraryInterface, QStringLiteral("Features"));
   auto pending = new QDBusPendingCallWatcher(
       QDBusConnection::sessionBus().asyncCall(features, callMs), this);
   connect(pending, &QDBusPendingCallWatcher::finished, this,
-          [this, providerId, objectPath, generation, ticket, epoch](auto *call) {
+          [this, providerId, objectPath, ticket, epoch](auto *call) {
             const auto reply = call->reply();
             call->deleteLater();
             if (epoch != m_epoch || ticket != m_rootTickets.value(providerId))
@@ -572,8 +555,6 @@ void SettingsCatalog::readRoots(const QString &providerId) {
             const bool roots =
                 answered && reply.arguments().at(0).toStringList().contains(
                                 QLatin1String(rootsFeature));
-            if (answered && !generation.isEmpty())
-              m_rootFeatures.insert(providerId, qMakePair(generation, roots));
             // Without LibraryRoots1 the provider never reports a folder as
             // unavailable (ADR-0071).
             if (!roots) {

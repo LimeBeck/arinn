@@ -906,12 +906,10 @@ private slots:
                  .value(QStringLiteral("unavailablePaths"))
                  .toStringList(),
              QStringList());
-    // Features is fixed for a provider generation (#558): a restart with
-    // the feature, then Unsupported, is no state either.
+    // Features can change in the same generation. Unsupported is no state.
     daemon.libraryFeatures = {QStringLiteral("LibraryRoots1")};
     daemon.rootsError = QStringLiteral("Unsupported");
-    daemon.libraryProviders[0].generation = QStringLiteral("g-restarted");
-    emitProvidersChanged();
+    emitStateChanged(QStringLiteral("library"), QStringLiteral("library"));
     QTRY_COMPARE(daemon.rootsReads, 1);
     QTest::qWait(100);
     QCOMPARE(rowAt(catalog, QStringLiteral("library"), QStringLiteral("roots"))
@@ -919,9 +917,41 @@ private slots:
                  .toStringList(),
              QStringList());
   }
+  void libraryFeaturesChangeWithoutRestart() {
+    SettingsDaemon daemon;
+    daemon.providers = {{QStringLiteral("library"), QStringLiteral("Library")}};
+    daemon.settings.insert(
+        QStringLiteral("library"),
+        {setting(QStringLiteral("roots"), QStringLiteral("media"),
+                 QStringLiteral("path"), QStringLiteral(R"(["/mnt/share"])"),
+                 QStringLiteral(R"({"directory":true,"multiple":true})"), true)});
+    daemon.libraryProviders = {
+        {QStringLiteral("library"),
+         QDBusObjectPath(QStringLiteral("/org/arinn/Daemon1/providers/library")),
+         {QStringLiteral("library")}}};
+    daemon.roots = {{QStringLiteral("/mnt/share"), false}};
+    QVERIFY(registerBus(daemon));
+    SettingsCatalog catalog;
+    QTRY_COMPARE(catalog.screenState(), QStringLiteral("ready"));
+    QTRY_VERIFY(daemon.featuresReads > 0);
+    const auto unavailable = [&catalog] {
+      return rowAt(catalog, QStringLiteral("library"), QStringLiteral("roots"))
+          .value(QStringLiteral("unavailablePaths")).toStringList();
+    };
+    QCOMPARE(unavailable(), QStringList());
+    QCOMPARE(daemon.rootsReads, 0);
+    daemon.libraryFeatures = {QStringLiteral("LibraryRoots1")};
+    emitStateChanged(QStringLiteral("library"), QStringLiteral("library"));
+    QTRY_COMPARE(unavailable(), QStringList({QStringLiteral("/mnt/share")}));
+    const auto reads = daemon.rootsReads;
+    daemon.libraryFeatures.clear();
+    emitStateChanged(QStringLiteral("library"), QStringLiteral("library"));
+    QTRY_COMPARE(unavailable(), QStringList());
+    QCOMPARE(daemon.rootsReads, reads);
+  }
   // #558: one library change brings StateChanged and then ProvidersChanged.
   // Root reads are coalesced per provider (one at a time, once more if asked
-  // meanwhile), and Features is read once per provider generation. Only a
+  // meanwhile), and Features stays fresh without a new generation. Only a
   // folder list is matched, not a list of files.
   void rootReadsAreCoalesced() {
     SettingsDaemon daemon;
@@ -967,12 +997,12 @@ private slots:
                  QStringList());
     QTest::qWait(300);
     QCOMPARE(daemon.rootsReads, 3);
-    // Same generation: Features is not read again.
-    QCOMPARE(daemon.featuresReads, 1);
+    // Each coalesced read refreshes Features, even in the same generation.
+    QCOMPARE(daemon.featuresReads, 3);
     // A new generation reads it again.
     daemon.libraryProviders[0].generation = QStringLiteral("g-restarted");
     emitProvidersChanged(ownBus());
-    QTRY_COMPARE(daemon.featuresReads, 2);
+    QTRY_COMPARE(daemon.featuresReads, 4);
     // A list of files is not a list of library folders.
     QVERIFY(!rowAt(catalog, QStringLiteral("library"), QStringLiteral("playlists"))
                  .contains(QStringLiteral("unavailablePaths")));

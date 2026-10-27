@@ -127,10 +127,6 @@ private:
   // provider whose GetRoots answered. No entry means no unavailable state.
   QHash<QString, QHash<QString, bool>> m_roots;
   QHash<QString, quint64> m_rootTickets;
-  // Library provider generations from Daemon1.Providers, and whether
-  // Features listed LibraryRoots1 in that generation.
-  QHash<QString, QString> m_libraryGenerations;
-  QHash<QString, QPair<QString, bool>> m_rootFeatures;
   // One roots read per provider at a time; a trigger meanwhile runs it once
   // more when it ends.
   QSet<QString> m_rootsReading;

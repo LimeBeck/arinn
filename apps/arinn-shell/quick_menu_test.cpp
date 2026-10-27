@@ -252,7 +252,10 @@ private slots:
     QTest::keyClick(window, Qt::Key_Return);
     QTRY_VERIFY(!menu->isVisible());
     QVERIFY(screens->isVisible());
-    QCOMPARE(window->color(), QColor(QStringLiteral("#131416")));
+    QCOMPARE(window->color(), QColor(Qt::transparent));
+    QVERIFY(child(window, "opaqueShellBackground"));
+    QVERIFY(child(window, "opaqueShellBackground")->isVisible());
+    QCOMPARE(child(window, "opaqueShellBackground")->property("color").value<QColor>(), QColor(QStringLiteral("#131416")));
     QTRY_VERIFY(focusIn(home));
     QCOMPARE(daemon.backs, 0);
     // Over Home: the sheet opens on top and Back returns focus to Home.
@@ -347,7 +350,9 @@ private slots:
     QTRY_VERIFY(focusIn(power));
     QVERIFY(menu->isVisible());
     QCOMPARE(screens->isVisible(), overShell);
-    QCOMPARE(window->color() == QColor(Qt::transparent), !overShell);
+    QCOMPARE(window->color(), QColor(Qt::transparent));
+    QVERIFY(child(window, "opaqueShellBackground"));
+    QCOMPARE(child(window, "opaqueShellBackground")->isVisible(), overShell);
     QCOMPARE(daemon.controlCalls.count(QStringLiteral("Suspend")), 0);
     QTest::keyClick(window, Qt::Key_Escape);
     QTRY_VERIFY(!child(window, "powerMenu")->isVisible());
@@ -486,7 +491,10 @@ private slots:
     daemon.request("QuickMenuRequested");
     QTRY_VERIFY(menuOpen());
     QVERIFY(screens->isVisible());
-    QCOMPARE(window->color(), QColor(QStringLiteral("#131416")));
+    QCOMPARE(window->color(), QColor(Qt::transparent));
+    QVERIFY(child(window, "opaqueShellBackground"));
+    QVERIFY(child(window, "opaqueShellBackground")->isVisible());
+    QCOMPARE(child(window, "opaqueShellBackground")->property("color").value<QColor>(), QColor(QStringLiteral("#131416")));
     QTest::keyClick(window, Qt::Key_Escape);
     QTRY_VERIFY(!menu->isVisible());
     QTRY_COMPARE(window->activeFocusItem(), opener);
@@ -801,7 +809,10 @@ private slots:
     QCOMPARE(requests.count(), 1);
     QVERIFY(screens->isVisible());
     QVERIFY(!menu->isVisible());
-    QCOMPARE(window->color(), QColor(QStringLiteral("#131416")));
+    QCOMPARE(window->color(), QColor(Qt::transparent));
+    QVERIFY(child(window, "opaqueShellBackground"));
+    QVERIFY(child(window, "opaqueShellBackground")->isVisible());
+    QCOMPARE(child(window, "opaqueShellBackground")->property("color").value<QColor>(), QColor(QStringLiteral("#131416")));
     QTRY_VERIFY(child(window, "sleepButton")->hasActiveFocus());
     // No toggle: the key again keeps the menu and its focus.
     QTest::keyClick(window, Qt::Key_Down);
@@ -871,7 +882,10 @@ private slots:
       QTRY_VERIFY(focusIn(home));
       QVERIFY(screens->isVisible());
       QVERIFY(!menu->isVisible());
-      QCOMPARE(window->color(), QColor(QStringLiteral("#131416")));
+      QCOMPARE(window->color(), QColor(Qt::transparent));
+      QVERIFY(child(window, "opaqueShellBackground"));
+      QVERIFY(child(window, "opaqueShellBackground")->isVisible());
+      QCOMPARE(child(window, "opaqueShellBackground")->property("color").value<QColor>(), QColor(QStringLiteral("#131416")));
     }
     QCOMPARE(daemon.backs, 0);
   }

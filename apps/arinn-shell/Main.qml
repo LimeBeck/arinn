@@ -26,8 +26,18 @@ Window {
     // backend's one-second status poll with a wide margin.
     property bool leavingPlayback: false
     Timer { id: leavingBound; interval: 10000; onTriggered: root.leavingPlayback = false }
-    // The quick menu over an Activity leaves the live window visible.
-    color: (playerOpen && !leavingStopPending && leaveError === "") || activityBehind ? "transparent" : Ui.Theme.background
+    // Keep the native alpha format for every Home/playback cycle. Qt's
+    // opaque window clear color revokes that request even with a default
+    // alpha buffer; opaque screens belong to the scene instead.
+    color: "transparent"
+    Rectangle {
+        objectName: "opaqueShellBackground"
+        anchors.fill: parent
+        z: -1
+        color: Ui.Theme.background
+        visible: !((root.playerOpen && !root.leavingStopPending
+                    && root.leaveError === "") || root.activityBehind)
+    }
     title: "Arinn"
     flags: Qt.Window | Qt.FramelessWindowHint
     readonly property bool navOpen: home.navOpen
@@ -170,6 +180,7 @@ Window {
     property bool leavingStopPending: false
     property string leaveError: ""
     property bool sessionFromLibrary: false
+    property bool sessionFromLaunch: false
     // Watch on a download whose library item the library catalog has not
     // read yet: {provider, local}, opened once the catalog lists it.
     property var pendingWatch: null
@@ -324,6 +335,9 @@ Window {
         }
     }
     function openSession(entryId, fromLibrary) {
+        openMediaSession(entryId, fromLibrary, fromLibrary);
+    }
+    function openMediaSession(entryId, fromLibrary, launched) {
         if (leavingStopPending)
             return;
         leaveError = "";
@@ -334,6 +348,7 @@ Window {
         presentationAtHome = false;
         presentationRequested = false;
         sessionFromLibrary = fromLibrary;
+        sessionFromLaunch = launched;
         mediaCatalog.select(entryId);
         applyMediaSurface();
     }
@@ -346,7 +361,7 @@ Window {
         // in the snapshot yet is managed playback, so the OSD is shown until
         // the row arrives. A row without those flags uses the session screen.
         let player = mediaCatalog.playerSession;
-        if (sessionFromLibrary && mediaCatalog.sessionState !== "ready")
+        if (sessionFromLaunch && mediaCatalog.sessionState !== "ready")
             player = true;
         playerOpen = player;
         if (player && mediaCatalog.windowAvailable && !presentationRequested) {
@@ -373,7 +388,7 @@ Window {
             leavingBound.restart();
         }
         if (mediaCatalog.sessionState !== "ready") {
-            if (sessionFromLibrary || mediaCatalog.sessionState === "loading") {
+            if (sessionFromLibrary || sessionFromLaunch || mediaCatalog.sessionState === "loading") {
                 leavingWaitForSession = true;
                 leavingStopPending = true;
                 leaveSessionBound.restart();
@@ -406,6 +421,7 @@ Window {
     }
     function closePlayer() {
         playerOpen = false;
+        sessionFromLaunch = false;
         if (sessionFromLibrary) {
             sessionFromLibrary = false;
             home.screen = "library";
@@ -1178,7 +1194,8 @@ Window {
                 if (root.playerOpen && mediaCatalog.windowAvailable && !root.presentationAtHome && !root.presentationRequested) {
                     root.presentPlayer();
                 }
-                if (!root.sessionFromLibrary || (!root.playerOpen && !root.sessionOpen))
+                if ((!root.sessionFromLibrary && !root.sessionFromLaunch)
+                        || (!root.playerOpen && !root.sessionOpen))
                     return;
                 const player = mediaCatalog.playerSession;
                 if (root.playerOpen === player && root.sessionOpen === !player)
@@ -1197,7 +1214,7 @@ Window {
                 // the library (§6.4).
                 const fromLibrary = !root.launchFromHome;
                 root.launchFromHome = false;
-                root.openSession(presentationId, fromLibrary);
+                root.openMediaSession(presentationId, fromLibrary, true);
             }
         }
         Rectangle {

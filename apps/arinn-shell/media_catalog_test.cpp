@@ -4,6 +4,9 @@
 
 #include "asset_images.h"
 #include "media_catalog.h"
+#include "library_catalog.h"
+#include "shell_window.h"
+#include <QImage>
 #include "flow_trace_recorder.h"
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -864,6 +867,106 @@ private slots:
     QTRY_COMPARE(daemon.windowCommands.count(QStringLiteral("Release")), 1);
     QVERIFY(other.isActive());
     QVERIFY(daemon.commands.isEmpty());
+  }
+  void playbackCyclesRetainNativeAlphaAndClearHomePixels() {
+    configureShellWindows();
+    ShellStandIn backend;
+    SessionGuardStandIn guard;
+    QQmlApplicationEngine engine;
+    installAssetImageProvider(&engine);
+    engine.rootContext()->setContextProperty(QStringLiteral("backend"), &backend);
+    engine.rootContext()->setContextProperty(QStringLiteral("sessionGuard"), &guard);
+    engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
+    auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().value(0));
+    QVERIFY(window);
+    window->setVisibility(QWindow::Windowed);
+    window->resize(960, 540);
+    window->show();
+    QTRY_VERIFY(window->isExposed());
+    auto home = window->findChild<QQuickItem *>(QStringLiteral("productionHome"));
+    auto player = window->findChild<QQuickItem *>(QStringLiteral("productionPlayer"));
+    QVERIFY(home && player);
+    for (int cycle = 0; cycle < 3; ++cycle) {
+      QVERIFY(window->requestedFormat().alphaBufferSize() >= 8);
+      window->setProperty("playerOpen", true);
+      player->setProperty("osdVisible", false);
+      QTest::qWait(50);
+      QVERIFY(!home->isVisible());
+      const auto playback = window->grabWindow();
+      QVERIFY(!playback.isNull());
+      window->setProperty("playerOpen", false);
+      QTest::qWait(50);
+      // A Home round trip must not revoke the native surface's alpha
+      // capability needed by the next playback or quick menu.
+      QVERIFY(window->requestedFormat().alphaBufferSize() >= 8);
+      QVERIFY(playback.width() > 10 && playback.height() > 10);
+      QCOMPARE(playback.pixelColor(10, 10).alpha(), 0);
+      QVERIFY(home->isVisible());
+      const auto opaque = window->grabWindow();
+      QVERIFY(!opaque.isNull());
+      QVERIFY(opaque.width() > 10 && opaque.height() > 10);
+      QCOMPARE(opaque.pixelColor(10, 10).alpha(), 255);
+    }
+  }
+  void homeResumeWaitsForItsLaunchedSession_data() {
+    QTest::addColumn<bool>("stopBeforeImport");
+    QTest::newRow("late-managed-row") << false;
+    QTest::newRow("stop-before-row") << true;
+  }
+  void homeResumeWaitsForItsLaunchedSession() {
+    QFETCH(bool, stopBeforeImport);
+    MediaDaemon daemon;
+    daemon.features = {QStringLiteral("MediaWindow1")};
+    daemon.page1 = {session(QStringLiteral("old"), QStringLiteral("Old piece"),
+                            QStringLiteral("stopped"), 0, monotonicUs(),
+                            9000000, {QStringLiteral("stop")})};
+    auto bus = QDBusConnection::sessionBus();
+    QVERIFY(bus.registerService(QStringLiteral("org.arinn.Daemon1")));
+    QVERIFY(bus.registerVirtualObject(QStringLiteral("/org/arinn"), &daemon, QDBusConnection::SubPath));
+    ShellStandIn backend;
+    SessionGuardStandIn guard;
+    QQmlApplicationEngine engine;
+    installAssetImageProvider(&engine);
+    engine.rootContext()->setContextProperty(QStringLiteral("backend"), &backend);
+    engine.rootContext()->setContextProperty(QStringLiteral("sessionGuard"), &guard);
+    engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
+    auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().value(0));
+    QVERIFY(window); window->show(); window->requestActivate();
+    QTRY_VERIFY(window->isActive());
+    auto catalog = window->findChild<MediaCatalog *>(QStringLiteral("mediaCatalog"));
+    auto library = window->findChild<LibraryCatalog *>(QStringLiteral("libraryCatalog"));
+    auto home = window->findChild<QQuickItem *>(QStringLiteral("productionHome"));
+    QVERIFY(catalog && library && home);
+    QTRY_COMPARE(catalog->sessionState(), QStringLiteral("ready"));
+    const auto lateId = QUuid::createUuidV5(QUuid(), QStringLiteral("media-provider\nlate"))
+                            .toString(QUuid::WithoutBraces);
+    window->setProperty("launchFromHome", true);
+    emit library->sessionLaunched(lateId);
+    QVERIFY(window->property("playerOpen").toBool());
+    QVERIFY(!window->property("sessionOpen").toBool());
+    QVERIFY(!window->property("sessionFromLibrary").toBool());
+    QVERIFY(!home->isVisible());
+    if (stopBeforeImport) {
+      QVERIFY(QMetaObject::invokeMethod(window, "leavePlayback"));
+      QVERIFY(window->property("leavingWaitForSession").toBool());
+      QVERIFY(daemon.commands.isEmpty());
+    }
+    daemon.page1 = {session(QStringLiteral("late"), QStringLiteral("New piece"),
+                            QStringLiteral("playing"), 0, monotonicUs(),
+                            9000000, {QStringLiteral("stop")})};
+    catalog->refresh();
+    if (!stopBeforeImport) {
+      QTRY_COMPARE(catalog->presentationState(), QStringLiteral("active"));
+      QVERIFY(!window->property("sessionOpen").toBool());
+      QVERIFY(!home->isVisible());
+      QVERIFY(QMetaObject::invokeMethod(window, "leavePlayback"));
+    }
+    QTRY_COMPARE(daemon.commands.count(QStringLiteral("Stop")), 1);
+    QTRY_VERIFY(!window->property("playerOpen").toBool());
+    QTRY_VERIFY(home->isVisible());
+    QCOMPARE(home->property("screen").toString(), QStringLiteral("home"));
+    QVERIFY(!window->property("sessionOpen").toBool());
+    QCOMPARE(daemon.lastLocal, QStringLiteral("late"));
   }
   void unresolvedWindowCheckIsBounded_data() {
     QTest::addColumn<QString>("mode");

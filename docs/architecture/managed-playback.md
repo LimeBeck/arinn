@@ -115,7 +115,22 @@ current output, keeps the transparent shell above it and focuses the shell.
 Release restores the shell's ordinary Home presentation without closing a player.
 Stopping playback remains Media1.Stop, so leave sends Stop and Release separately.
 The shell preserves its Home/Detail origin locally and returns there after leave.
+Launch readiness is independent of that origin: a successful library launch from
+a Home Continue card can precede its new media row. Keep the pending player
+surface until the exact returned session appears, then select its reported
+features. Back during that interval waits to stop that same session; it does not
+fall through to generic media controls or change the return destination.
 The adapter records and restores any temporary window flags it changes.
+
+The native shell window keeps a transparent clear color for its whole lifetime.
+Opaque shell states paint a full-window background item outside the logical
+canvas, including letterboxing. Playback and Activity overlays hide that item;
+Stop-pending and error states retain the previous opaque-background rule. This
+keeps the requested native alpha format through Home/playback round trips:
+[Qt's color setter](https://github.com/qt/qtdeclarative/blob/6.10/src/quick/items/qquickwindow.cpp)
+resets that request when a window clear color changes back to opaque, even with
+the default alpha buffer enabled. Cycle regressions verify the native format
+and framebuffer alpha, not just item visibility.
 
 Home switches to the opaque shell while preserving the managed playback target;
 Return restores the transparent input layer above that exact player. Focus changes

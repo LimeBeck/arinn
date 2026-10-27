@@ -3,9 +3,10 @@
 
 # Current Qt interface captures
 
-The README, website and handbook still show the earlier captures kept in
-[showcase](../showcase/README.md) until the re-shoot in
-[#569](https://github.com/LimeBeck/arinn/issues/569).
+The README, website and handbook use the separately reviewed public captures in
+[showcase](../showcase/README.md), refreshed under
+[#569](https://github.com/LimeBeck/arinn/issues/569). This directory retains the
+earlier comparison baseline described below; it is not the public showcase.
 
 These images come from the fixture render of
 [`tests/ui/visual`](../../../tests/ui/visual/) ([manifest](../../../tests/ui/visual/manifest.json),
@@ -35,10 +36,10 @@ monograms and plain plates where a fixture sets no artwork. The render does
 not connect to a daemon or control the desktop. Favorites, services and
 settings rows are fixture data, not evidence of completed integrations.
 The production shell loads real posters and fanart through `Assets1`.
-These images are rendered on Qt 6.8.2. Known artefacts, such as empty glyph
-boxes in the Open services action column and placeholder labels from the
-fixtures, are tracked in [#569](https://github.com/LimeBeck/arinn/issues/569)
-(fixtures in `capture.qml` and a re-shoot on Qt 6.10).
+These baseline images were rendered on Qt 6.8.2 before the fictional-service,
+bookmark-icon and deterministic-clock fixes in #572. They can contain old glyph
+boxes and fixture labels; the refreshed public subset has its own environment
+and provenance in [showcase](../showcase/README.md).
 
 The mark is the unchanged [approved SVG](../handoff/assets/arinn-mark.svg),
 embedded as a Qt resource. The screenshots are documentation under CC-BY-SA-4.0,
@@ -60,7 +61,7 @@ cp build/ui-compare/1080/session-ready.png docs/design/current-ui/now-playing.pn
 cp build/ui-compare/1080/settings.png docs/design/current-ui/settings.png
 ```
 
-Inspect the images before committing regenerated captures, then refresh the
-copy in [`docs/user/assets/home.png`](../../user/assets/home.png). The site
-build takes these files as they are. Historical handoff and archive
+Inspect comparison images before committing regenerated baselines. Public
+README/site images are selected and reviewed separately in `showcase`; the
+handbook Home copy follows that public source. Historical handoff and archive
 screenshots remain unchanged.

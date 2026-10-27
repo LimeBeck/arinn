@@ -341,11 +341,17 @@ The manifest is [`tests/ui/visual/manifest.json`](../../tests/ui/visual/manifest
 Fixtures live only in `tests/ui/visual/capture.qml`. They use fictional
 services and titles on `.example` addresses and fix the clock (`clockText`
 "22:57" on Home, player and Open services). `ui-compare` also sets
-`ARINN_CAPTURE_STILL_ANIMATIONS`, so the test runner (`tests/ui/main.cpp`)
-advances animation time in whole periods of the looping animations: transitions
-finish on their first frame and loops sit at their start. Two captures of the
-same tree are therefore identical. The product and the ordinary QML tests run
-with real animation time.
+`ARINN_CAPTURE_STILL_ANIMATIONS`. The test runner (`tests/ui/main.cpp`) then
+takes animation time, which also drives QML `Timer`s, off the wall clock: during
+a capture it moves only when `capture.qml` runs it, by exactly a state's
+`animationMs`. By default that is 50 400 ms, a whole period of every looping
+animation (900, 1400 and 800 ms), so transitions have finished and loops are at
+their start. Transition states (`browser-closing`, `launch-opening`, `launch-slow`,
+`launch-starting`, `launch-stopping`, `settings-saving`) run a few loop
+periods plus the phase their handoff frame shows (or the same mid-bar when
+there is no handoff), so they are captured mid-transition. States with a
+toast run 2000 ms, before its 3 s timer hides it. Two captures of the same tree
+are identical. The product and the ordinary QML tests use real time.
 Each entry is one screen state. `reference` names a file in
 [`docs/design/handoff/screenshots/`](../design/handoff/screenshots/): the 22 main
 `*.jpg` files, the `os-*.png` Open services states, the `in-*.png` address

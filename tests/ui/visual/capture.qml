@@ -26,6 +26,18 @@ TestCase {
     width: job.wide ? 3840 : 1920
     height: job.wide ? 2160 : 1080
 
+    // Keeps an animation running all the time, so in capture mode QML Timers
+    // run on the capture's animation clock too, not on wall time.
+    property real clockKeeper: 0
+    NumberAnimation on clockKeeper { from: 0; to: 1; duration: 1000; loops: Animation.Infinite }
+
+    // Animation time a state runs before its frame (tests/ui/main.cpp). The
+    // default is a whole period of every looping animation (900, 1400 and
+    // 800 ms): transitions have finished and loops are back at their start.
+    readonly property int stillMs: 50400
+    // A toast hides after 3 s of animation time; its states stop before that.
+    readonly property int toastMs: 2000
+
     readonly property var job: ({
         output: CaptureRequest.Request.output(),
         scale: CaptureRequest.Request.scale(),
@@ -311,6 +323,15 @@ TestCase {
             network: "wifi", wifiLevel: 3
         };
     }
+    // Transition states (closing, opening, stopping, saving) are captured
+    // mid-transition, as the handoff draws them: their animationMs is a few
+    // loop periods, so other transitions have finished, plus the loop phase
+    // the handoff frame shows.
+    function withAnimation(ms, plan) {
+        // Also used for states with a toast (toastMs).
+        plan.animationMs = ms;
+        return plan;
+    }
     function scene(id) {
         if (id === "home-populated")
             return {factory: homeFactory, props: homeProps(), tune: "menu"};
@@ -470,6 +491,7 @@ TestCase {
                 width: 1920, height: 1080, kind: "application", active: true, serviceTitle: "Cinder Rally",
                 revealDelay: 600000, slowDelay: 600000, timeoutDelay: 0
             }, tune: view => {
+                view.arm();
                 view.revealed = true;
                 view.slow = true;
                 if (id === "launch-stop-confirm") {
@@ -478,7 +500,10 @@ TestCase {
                     view.cancellable = false;
                     view.stopping = true;
                 }
-            }, settle: 400, expect: id === "launch-stop-confirm" ? "launchConfirm" : "launchTitle"};
+            }, settle: 400, expect: id === "launch-stop-confirm" ? "launchConfirm" : "launchTitle",
+            // Stopping and Starting have no handoff; their bar matches Opening.
+            animationMs: (id === "launch-stopping" || id === "launch-starting")
+                ? 1400 + 700 : stillMs};
         if (id === "apps-tile-running")
             return appScene(view => view.openTileActions("g1"), ["tileActions", "closeAppAction"]);
         if (id === "apps-close-confirm")
@@ -582,8 +607,9 @@ TestCase {
             }, null, ["integerStepper", "integerNote"]);
         if (id === "settings-string")
             return settingsScene(null, view => view.openString(settingsRow(view, "name")), null, "stringCounter");
+        // se-sv-1: the arc's leading end just past twelve o'clock (50 of 800 ms).
         if (id === "settings-saving")
-            return settingsScene(null, view => {
+            return withAnimation(2 * 800 + 50, settingsScene(null, view => {
                 view.openOptions(settingsRow(view, "subtitles"));
                 wait(50);
                 view.optionIndex = 3;
@@ -591,17 +617,17 @@ TestCase {
                 view.chooseOption();
                 // The daemon accepted the request and has not answered yet.
                 view.rows = settingsRows(setRow("subtitles", {pending: true}));
-            }, null, "optionSpinner");
+            }, null, "optionSpinner"));
         if (id === "settings-saved")
-            return settingsScene(setRow("subtitles", {currentValue: "two"}), view => {
+            return withAnimation(toastMs, settingsScene(setRow("subtitles", {currentValue: "two"}), view => {
                 settingsRow(view, "subtitles");
                 view.showToast("Saved", "Default subtitles: Second language", false);
-            }, null, "settingsToast");
+            }, null, "settingsToast"));
         if (id === "settings-saved-restart")
-            return settingsScene(setRow("ambient", {currentValue: 15, deferred: true}), view => {
+            return withAnimation(toastMs, settingsScene(setRow("ambient", {currentValue: 15, deferred: true}), view => {
                 settingsRow(view, "ambient");
                 view.showToast("Saved", "Applies after Arinn restarts", false);
-            }, null, "settingsToast");
+            }, null, "settingsToast"));
         if (id === "settings-string-rejected")
             return settingsScene(setRow("name", {error: "Use letters, digits, spaces and hyphens."}),
                                  view => view.openString(settingsRow(view, "name")), null, "stringError");
@@ -612,10 +638,10 @@ TestCase {
                 view.focusOption(1);
             }, null, "enumError");
         if (id === "settings-toggle-rejected")
-            return settingsScene(setRow("night", {currentValue: false, error: "The HDMI output does not support it."}), view => {
+            return withAnimation(toastMs, settingsScene(setRow("night", {currentValue: false, error: "The HDMI output does not support it."}), view => {
                 settingsRow(view, "night");
                 view.showToast("Could not save", "The HDMI output does not support it.", true);
-            }, null, "settingsToast");
+            }, null, "settingsToast"));
         if (id === "power-refusal")
             return {factory: powerFactory, props: {width: 1920, height: 1080, refusalMessage: "The system did not suspend."}};
         if (id === "browser-list")
@@ -623,7 +649,10 @@ TestCase {
         if (id === "browser-close-focus")
             return {factory: browserFactory, props: {width: 1920, height: 1080, clockText: "22:57", tabs: tabs(3)}, tune: "close"};
         if (id === "browser-closing")
-            return {factory: browserFactory, props: {width: 1920, height: 1080, clockText: "22:57", tabs: tabs(3), closingId: "t0"}};
+            return {factory: browserFactory, props: {width: 1920, height: 1080, clockText: "22:57", tabs: tabs(3), closingId: "t0"},
+                // os-3-closing: the spinner's mark at three o'clock, where the
+                // arc ends (225 of 900 ms).
+                animationMs: 2 * 900 + 225};
         if (id === "browser-many")
             return {factory: browserFactory, props: {width: 1920, height: 1080, clockText: "22:57", tabs: tabs(8).map((tab, i) => {
                 // One service already saved: its button shows bookmark_added.
@@ -647,7 +676,10 @@ TestCase {
             return {factory: launchFactory, props: {
                 width: 1920, height: 1080, active: true, serviceTitle: "Northwind TV",
                 revealDelay: 600000, slowDelay: 600000, timeoutDelay: 600000
-            }, tune: id === "launch-slow" ? "slow" : "opening"};
+            }, tune: id === "launch-slow" ? "slow" : "opening",
+            // os-h4-opening / os-h5-opening-slow: segment mid-track (700 / ~800 of 1400 ms).
+            animationMs: id === "launch-opening" ? 1400 + 700
+                : id === "launch-slow" ? 1400 + 800 : stillMs};
         if (id === "launch-failed")
             return {factory: launchFactory, props: {width: 1920, height: 1080, serviceTitle: "Northwind TV", failure: "unavailable"}};
         if (id === "session-ready")
@@ -681,6 +713,9 @@ TestCase {
             item.listSide = "close";
             item.settleFocus();
         } else if (kind === "opening" || kind === "slow") {
+            // Created active, the overlay armed its timers before the long
+            // fixture delays were set; arm again so no stage fires on its own.
+            item.arm();
             item.revealed = true;
             item.slow = kind === "slow";
         }
@@ -775,12 +810,18 @@ TestCase {
         }
     }
 
+    function cleanup() {
+        captureAnimation.release();
+    }
+
     function test_capture() {
         if (!job.output) {
             skip("No capture request. Run scripts/ui-compare.py.");
             return;
         }
         tryVerify(() => Ui.Theme.onest.status === FontLoader.Ready || Ui.Theme.onest.status === FontLoader.Error, 5000);
+        // From here animation time moves only by each state's animationMs.
+        captureAnimation.hold();
         const manifest = readManifest();
         let shown = null;
         const window = suite.Window.window;
@@ -810,6 +851,8 @@ TestCase {
             // another frame, so waitForRendering returns false. That is not a
             // failure: wait, then require the item to still be visible.
             waitForRendering(shown, 5000);
+            captureAnimation.run(plan.animationMs !== undefined ? plan.animationMs : stillMs);
+            tryVerify(() => captureAnimation.idle(), 120000, state.id + " animation time");
             wait(plan.settle !== undefined ? plan.settle : plan.tune === "nav" ? 450 : 200);
             if (!shown || !shown.visible)
                 fail("not visible: " + state.id);

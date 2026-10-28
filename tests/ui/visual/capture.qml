@@ -772,7 +772,19 @@ TestCase {
     Component { id: settingsFactory; Settings.SettingsView { width: 1920; height: 1080 } }
     Component { id: powerFactory; Power.PowerMenu { width: 1920; height: 1080 } }
     Component { id: browserFactory; Browser.BrowserView { width: 1920; height: 1080 } }
-    Component { id: launchFactory; Ui.LaunchOverlay { width: 1920; height: 1080 } }
+    // Production keeps Home painted below LaunchOverlay. Preserve that
+    // composition here so the translucent tint can be compared with H-4/H-5.
+    Component {
+        id: launchFactory
+        Ui.LaunchOverlay {
+            width: 1920; height: 1080
+            Ui.HomeView {
+                z: -1
+                enabled: false
+                Component.onCompleted: suite.apply(this, suite.homeProps())
+            }
+        }
+    }
     Component { id: sessionFactory; Session.SessionView { width: 1920; height: 1080 } }
     Component { id: ambientFactory; Power.AmbientScreen { width: 1920; height: 1080 } }
     Component { id: browseFactory; Browse.BrowseView { width: 1920; height: 1080 } }

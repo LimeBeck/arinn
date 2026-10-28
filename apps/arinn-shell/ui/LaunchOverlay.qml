@@ -16,6 +16,9 @@ FocusScope {
     property string kind: "service"
     property bool active: false
     property string serviceTitle: ""
+    readonly property string monogram: serviceTitle.trim().length
+            ? Array.from(serviceTitle.trim())[0].toUpperCase() : "?"
+    readonly property color identityColor: Theme.identityColor(serviceTitle)
     property string failure: ""
     // Whether Cancel can stop the operation now.
     property bool cancellable: true
@@ -192,15 +195,53 @@ FocusScope {
     Timer { id: timeoutTimer; onTriggered: if (root.active && !root.failure.length) root.timedOut = true }
 
     Rectangle {
+        objectName: "launchBackdrop"
         anchors.fill: parent
-        color: "#12141a"
+        color: "#060607"
         opacity: 0.92
     }
     Column {
-        anchors.centerIn: parent
+        anchors.horizontalCenter: parent.horizontalCenter
+        y: 280
         width: 720
-        spacing: 28
+        spacing: 40
         visible: !root.showDialog && !root.confirming
+        Rectangle {
+            id: identityChip
+            objectName: "launchChip"
+            anchors.horizontalCenter: parent.horizontalCenter
+            width: 180
+            height: 180
+            radius: 52
+            color: root.identityColor
+            border.width: 2
+            border.color: Qt.rgba(1, 1, 1, 0.2)
+            Canvas {
+                objectName: "launchGlow"
+                anchors.centerIn: parent
+                width: 500
+                height: 500
+                z: -1
+                property color glowColor: root.identityColor
+                onGlowColorChanged: requestPaint()
+                onPaint: {
+                    const context = getContext("2d");
+                    context.clearRect(0, 0, width, height);
+                    const glow = context.createRadialGradient(250, 250, 70, 250, 250, 250);
+                    glow.addColorStop(0, Qt.rgba(glowColor.r, glowColor.g, glowColor.b, 0.35));
+                    glow.addColorStop(1, "transparent");
+                    context.fillStyle = glow;
+                    context.fillRect(0, 0, width, height);
+                }
+            }
+            UiText {
+                objectName: "launchMonogram"
+                anchors.centerIn: parent
+                font.pixelSize: 80
+                font.weight: 700
+                text: root.monogram
+            }
+        }
         UiText {
             objectName: "launchTitle"
             width: parent.width

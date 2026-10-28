@@ -21,7 +21,7 @@ Surface {
             id: content
             anchors.centerIn: parent
             spacing: 12
-            KeyboardIcon {
+            LineIcon {
                 width: 38
                 height: 38
                 anchors.verticalCenter: parent.verticalCenter

@@ -310,8 +310,8 @@
         <translation>Перейти</translation>
     </message>
     <message>
-        <source>Save</source>
-        <translation>Сохранить</translation>
+        <source>Close</source>
+        <translation>Закрыть</translation>
     </message>
     <message>
         <source>Back</source>

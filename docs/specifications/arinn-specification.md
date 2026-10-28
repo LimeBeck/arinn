@@ -706,6 +706,10 @@ including refusal or withdrawal, Sentry MUST remain disabled and MUST NOT send
 cached reports. The current development flag is not the public consent UI;
 these pending requirements are tracked in the
 [publication checklist #74](https://github.com/LimeBeck/arinn/issues/74).
+The owner confirmed a **90-day retention period** for diagnostic data on
+2026-10-27. The public privacy notice MUST state this period, and the receiving
+service MUST be configured accordingly. This decision does not replace the
+required consent, refusal or withdrawal controls.
 
 ---
 
@@ -763,9 +767,10 @@ Its availability does not imply that production runtime discovery or Plugin API 
 is complete. The [Phase 1 implementation record](../architecture/phase-1-progress.md)
 distinguishes implemented primitives from the remaining runtime work.
 
-The standalone UI gallery also provides a Home/navigation development preview
-(`arinn-ui-gallery --home`) with explicit populated, empty, loading, error and
-unavailable presentation fixtures. It emits observable action intentions only;
+The fixture render in `tests/ui/visual` provides the Home/navigation development
+preview with explicit populated, empty, loading, error and unavailable
+presentation fixtures; the standalone UI gallery shows components only. The
+preview emits observable action intentions only;
 it does not launch applications, retry a provider or perform system actions.
 This preview does not replace the production shell or implement web shortcuts.
 Its scope and verification are recorded in the [component contract](../architecture/ui-components.md).

@@ -3,9 +3,10 @@
 
 import QtQuick
 
-// Line icons of the on-screen keyboard, drawn after the Material Symbols the
-// handoff names: keyboard, keyboard_hide, shift, backspace, language,
-// chevron_left, chevron_right, history and public.
+// Line icons drawn after the Material Symbols the handoff names. The shell
+// ships no icon font, so they are painted here. On-screen keyboard: keyboard,
+// keyboard_hide, shift, backspace, language, chevron_left, chevron_right,
+// history and public. Open services: bookmark_add and bookmark_added.
 Canvas {
     id: root
     property string name: ""
@@ -74,6 +75,21 @@ Canvas {
             break;
         case "right":
             ctx.moveTo(9.5, 6); ctx.lineTo(15.5, 12); ctx.lineTo(9.5, 18);
+            ctx.stroke();
+            break;
+        case "bookmark_add":
+        case "bookmark_added":
+            // A ribbon with a notch, open at the top right for the badge.
+            ctx.moveTo(13, 4); ctx.lineTo(7, 4);
+            ctx.quadraticCurveTo(5, 4, 5, 6);
+            ctx.lineTo(5, 20.5); ctx.lineTo(12, 17.5); ctx.lineTo(19, 20.5);
+            ctx.lineTo(19, 12);
+            if (root.name === "bookmark_add") {
+                ctx.moveTo(19, 2); ctx.lineTo(19, 8);
+                ctx.moveTo(16, 5); ctx.lineTo(22, 5);
+            } else {
+                ctx.moveTo(15.5, 5.5); ctx.lineTo(18, 8); ctx.lineTo(22.5, 3.5);
+            }
             ctx.stroke();
             break;
         case "history":

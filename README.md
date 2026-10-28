@@ -21,7 +21,7 @@
 ---
 
 > [!WARNING]
-> **Arinn is pre-alpha.** Phase 1 implements the production core and plugin SDK. The shell binds several screens to the daemon and is still a technical prototype. It is not yet usable as an everyday HTPC shell. See the [roadmap](ROADMAP.md).
+> **Arinn is pre-alpha.** Current source builds connect apps, websites, local media, playback, downloads and settings. Hardware and service compatibility still need qualification; there is no stable release yet. Published packages can lag behind `master`. See the [roadmap](ROADMAP.md).
 
 An optional KDE Plasma 6/X11 session mode is under preparation alongside the
 Wayland MVP. See [KDE/X11 setup and qualification limits](docs/architecture/kde-x11.md).
@@ -30,113 +30,71 @@ X11 adapter for other window managers; real desktop qualification is pending.
 
 ## What is Arinn?
 
-Arinn (Old Norse for *hearth*) turns a Linux computer behind the TV into something that feels like a TV: you pick up the remote and ask *"what do we want to do now?"* instead of *"which app do I start?"*.
+Arinn (Old Norse for *hearth*) brings the Linux apps you already use into one TV-friendly starting point. Open Home over an application, then return with Back without closing it.
 
-Arinn does **not** replace your browser, player or game launcher. It orchestrates the applications you already have and stays on top of them. What follows is what the shell on `master` mounts:
+Current source builds include:
 
-- **Home over everything.** Press Home in another application and Arinn appears over it; press Back and you are where you were.
-- **Continue and Now playing** read media sessions from `Media1`, with progress and transport controls. The mpv plugin is the playback provider. The local library plugin is the catalogue.
-- **Library** reads `Library1`. Posters and fanart load through `Assets1`. A missing image stays a plate.
-- **Open services** lists managed browser windows. The packaged web shortcuts include YouTube, Kinopoisk and IVI.
-- **Applications** come from the desktop provider, grouped into Online, Games, Media and Other.
-- **Settings** reads `Settings1`. Controls are grouped and typed: a toggle, a stepper, text, an option list or a path. A path is plain text. There is no folder browser.
-- **Made for a remote:** everything works with arrows, OK and Back from three metres away; an air mouse works too.
-- **Shared household:** no accounts, no profiles, no login.
+- **Home and Continue.** Return to running applications and resumable media, with an activity backdrop and visible remote-control focus.
+- **Websites and open services.** Use Site or search, save a website as a shortcut, and switch between managed Chrome/Chromium windows. The packaged extension connects the browser to Arinn.
+- **Applications and games.** Launch installed desktop applications, Steam or ES-DE. Choose games inside their own launcher; Arinn does not provide a Steam or emulator game catalogue.
+- **Local library and playback.** Scan local or already mounted folders, browse films and series, and play with mpv. The playback overlay offers seeking, audio/subtitle selection and transport controls when the provider supports them.
+- **Downloads.** View a connected Transmission queue, control jobs and open imported media in the library. Transmission must be installed and configured separately.
+- **Settings.** Edit provider settings and library folder lists. Text and paths can be entered with the on-screen keyboard; a graphical folder picker is still pending.
+- **Controls over an app.** Global Home, the quick menu and the on-screen keyboard are available through configurable shortcuts. Power actions depend on the desktop/session and the capabilities it reports.
 
-Downloads, the player on-screen display and the power menu are specified and are not mounted. Choosing Downloads shows that the section is not available. Choosing Power reports that power controls are not available. The daemon serves `Browse1`. The shell has no address or search screen. Timeline thumbnails stay with the player binding and are not part of the artwork above.
+Arinn uses one shared household space, with no Arinn accounts or profiles. Keyboard-compatible remotes, a keyboard and an air mouse can navigate the shell; controls inside external applications remain those applications' responsibility.
 
-Every integration is a separate plugin process talking to a small core over D-Bus, so new services can be added without touching Arinn itself.
+Integrations run as separate plugin processes. Details and setup are in the [user guide](https://limebeck.github.io/arinn/guide/).
 
 ## Interface preview
 
-These are screenshots of the **current Qt/QML interface**, rendered by the development gallery at 1920×1080 with fictional fixture data, one shared placeholder image and neutral application monograms. Home, navigation, Library, Applications, Open services, the on-screen keyboard, Now playing and Settings use the same views the production shell mounts. The gallery does not connect to a daemon. Names, favorites and settings rows in the fixtures are not a catalogue of finished integrations. See the [UI components](docs/architecture/ui-components.md).
+These four captures come from the current Qt/QML views through `tests/ui/visual` at 1920×1080. They use fictional services on `.example` domains, neutral monograms, original placeholder artwork and a fixed clock. They do not connect to a daemon or control a desktop, and they are not evidence of completed hardware qualification.
 
-**Home** — the Arinn mark, the Now running hero, Continue cards and favorite tiles over the ambient light field, with remote-control focus on the return card. The other Continue cards show the placeholder landscape and a progress bar.
+**Home** — Continue cards, fictional favorite tiles and remote-control focus.
 
-![Current Arinn Qt Home with the Now running hero, Continue cards, the placeholder landscape and favorite tiles](docs/design/current-ui/home.png)
+![Arinn Home with fictional Continue cards and favorite tiles](docs/design/showcase/home.png)
 
 <details>
-<summary>Navigation screenshot</summary>
+<summary>Open services</summary>
 
-**Navigation** — the brand lockup and section menu (Home, Library, Downloads, Applications, Settings, Open services) over a dimmed Home, with Home selected.
+Managed browser activities, with the active service and sound state marked. Bookmark actions are drawn icons, independent of installed icon fonts.
 
-![Current Arinn Qt navigation with the brand mark and Home selected](docs/design/current-ui/navigation.png)
+![Arinn Open services with fictional services, bookmark actions and close controls](docs/design/showcase/open-services.png)
 
 </details>
 
 <details>
-<summary>Library screenshot</summary>
+<summary>Settings</summary>
 
-**Library** — Films selected, with the Series tab beside it. Six posters show the placeholder landscape. Late light is the plate drawn when a poster is missing.
+Appearance settings for the light field, ambient timeout and text size, with their source lines.
 
-![Current Arinn Qt Library with Films selected, placeholder landscapes and one plate](docs/design/current-ui/library.png)
-
-</details>
-
-<details>
-<summary>Applications screenshot</summary>
-
-**Applications** — tiles grouped into Online, Games and Media, with remote-control focus.
-
-![Current Arinn Qt Applications with grouped tiles and Online focused](docs/design/current-ui/applications.png)
+![Arinn Appearance settings for the light field, ambient timeout and text size](docs/design/showcase/settings.png)
 
 </details>
 
 <details>
-<summary>Open services screenshot</summary>
+<summary>Library folders</summary>
 
-**Open services** — open pages, with the on-screen page marked.
+The current inline folder list in Settings, with two fictional paths and actions to add or remove them. This is not a graphical folder picker.
 
-![Current Arinn Qt Open services list with the on-screen page focused](docs/design/current-ui/open-services.png)
-
-</details>
-
-<details>
-<summary>On-screen keyboard screenshot</summary>
-
-**On-screen keyboard** — Site or search typed with the remote alone: recent entries and an open service as suggestions, the address row, English letters with remote-control focus, and the action row with Open.
-
-![Current Arinn Qt on-screen keyboard on Site or search, with suggestions, the address row and a focused key](docs/design/current-ui/keyboard.png)
+![Arinn library folder settings with two fictional paths and add/remove actions](docs/design/showcase/library-folders.png)
 
 </details>
 
-<details>
-<summary>Now playing screenshot</summary>
-
-**Now playing** — the current media session on the placeholder landscape, with progress and transport controls.
-
-![Current Arinn Qt Now playing screen with the placeholder landscape, progress and transport controls](docs/design/current-ui/now-playing.png)
-
-</details>
-
-<details>
-<summary>Settings screenshot</summary>
-
-**Settings** — Media selected. The group shows a toggle, an option (Title), a stepper (10), and the path `/media/films` as text.
-
-![Current Arinn Qt Settings with Media selected, a toggle, an option, a stepper and one path as text](docs/design/current-ui/settings.png)
-
-</details>
-
-[Capture instructions and provenance](docs/design/current-ui/README.md). The [22 HTML target-design states](docs/design/handoff/screenshots/) remain available in the [design handoff](docs/design/README.md).
+[Capture instructions and provenance](docs/design/showcase/README.md). The [design handoff](docs/design/README.md) remains the visual reference; these captures do not close its outstanding design issues.
 
 ## Status
 
-| Phase | Goal | Status |
-| --- | --- | --- |
-| 0 | Architecture spike on KDE/Wayland | ✅ Done |
-| 1 | Production core, protocol and plugin SDK | In progress |
-| 2–4 | Applications, browser, media | Planned |
-| 5 | MVP: downloads, full UI, packaging | Planned |
+The repository is public and the project is pre-alpha. The daemon, CLI, plugin SDK and connected Qt shell are implemented; the source includes browser integration, local media/mpv playback, Transmission downloads, settings and dedicated session support. Implementation does not mean that every service, TV, codec or desktop has been qualified.
 
-What works today: the Rust daemon, the CLI and the Qt shell; production manifest discovery, paged application state, asynchronous commands and recovery after plugin and daemon crashes. The shell mounts Home, navigation, Applications, Open services, Library (`Library1`), Continue and Now playing (`Media1`), and Settings (`Settings1`). Artwork, posters and fanart load through `Assets1`. Providers on `master` include demo, desktop, Chrome, MPRIS, the local library and mpv. The daemon serves `Browse1`; the shell has no address or search screen. Downloads, the player on-screen display and the power menu are not mounted. Global Home and focus return were verified in Phase 0 (20/20 cycles on two monitors); the migrated runtime also passed 20/20 Home/Back cycles over Chrome and real systemd restart/reload checks ([evidence](docs/architecture/phase-1-live-evidence.json)). There is no stable release yet. Details: [ROADMAP.md](ROADMAP.md) and the [Phase 0 report](docs/architecture/phase-0-report.md).
+The [roadmap](ROADMAP.md) is the source of phase and acceptance status. Its completed core/application phases and remaining browser, media and MVP gates are distinct from the features already connected in source. The [Releases](https://github.com/LimeBeck/arinn/releases) page contains pre-release packages and source snapshots, not a stable release. Check each release's commit before comparing an older package with this README.
 
 ## Requirements
 
 Target system:
 
 - Arch Linux or EndeavourOS (other distributions should work but are not tested);
-- KDE Plasma 6 on **Wayland** (KWin 6);
+- KDE Plasma 6 on **Wayland** (KWin 6) for the primary setup; see the linked X11/XFCE guides for their setup and qualification limits;
 - a systemd user session;
 - a TV with a remote, keyboard or air mouse that sends standard keys.
 
@@ -161,7 +119,14 @@ Sentry diagnostics are optional in the shell and daemon. The separate
 
 ## Try the prototype
 
-There is no stable release yet. Pre-release Arch packages of the prototype are published on the [Releases](https://github.com/LimeBeck/arinn/releases) page. The package starts nothing by itself. To start Arinn after every login for your user on KDE Plasma (Wayland), enable its session target once and log in again:
+Download the main x86_64 Arch package and `SHA256SUMS` from the same [release](https://github.com/LimeBeck/arinn/releases). Compare the downloaded package's SHA-256 with its entry before installing it. Use the actual package filename in place of the placeholders:
+
+```sh
+sha256sum ./arinn-*.pkg.tar.zst
+sudo pacman -U ./arinn-<version>-<release>-x86_64.pkg.tar.zst
+```
+
+There is no stable release yet, and current source features may be newer than a published package. Installation starts no session and enables no autostart. To start Arinn after every login on KDE Plasma (Wayland), enable its user target once and log in again:
 
 ```sh
 systemctl --user enable arinn-session.target    # start daemon, shell and KWin adapter at login
@@ -169,7 +134,7 @@ systemctl --user disable arinn-session.target   # stop starting it at login
 systemctl --user stop arinn-session.target      # stop it in the current session
 ```
 
-To start it once, or to bring up Home when it already runs, open **Arinn** from the application menu; this does not enable autostart. Disable the target before removing the package. Instead of autostart, you can choose the **Arinn** (Plasma, Wayland) or **Arinn (XFCE)** session at login, or make it the display manager's autologin session; the **Return to Arinn** menu entry, and **Switch to desktop** once the power menu offers it, move between it and the plain desktop ([session lifecycle](docs/architecture/session-lifecycle.md#dedicated-arinn-session)). To build and run the current prototype in your own Plasma session from source instead:
+To start it once, or to bring up Home when it already runs, open **Arinn** from the application menu; this does not enable autostart. Disable the target before removing the package. Instead of autostart, you can choose the **Arinn** (Plasma, Wayland) or **Arinn (XFCE)** session at login, or make it the display manager's autologin session; the **Return to Arinn** menu entry, and **Switch to desktop** once the power menu offers it, move between it and the plain desktop ([session lifecycle](docs/architecture/session-lifecycle.md#dedicated-arinn-session)). For an isolated demo-only developer smoke session, build from source below. This launcher starts the demo provider, not the full set of packaged integrations, and changes the live KDE session; use a disposable Plasma session. For a full installation, use the package above or the [source-package workflow](CONTRIBUTING.md#required-checks).
 
 ```sh
 git clone https://github.com/LimeBeck/arinn.git
@@ -182,7 +147,7 @@ python scripts/phase0-session.py start   # start daemon, demo plugin, shell and 
 python scripts/phase0-session.py stop    # stop everything and unload the adapter
 ```
 
-The prototype runs as temporary systemd user units and a session-only KWin script; nothing is installed permanently. Full details and test commands: [Phase 0 runbook](docs/architecture/phase-0-runbook.md).
+The demo session runs as temporary systemd user units and a session-only KWin script; nothing is installed permanently. Full details and test commands: [Phase 0 runbook](docs/architecture/phase-0-runbook.md).
 
 ## Controls
 
@@ -205,14 +170,14 @@ Remote controls such as the G60S Pro air mouse send these same keys; no driver i
 ```text
 arinn-shell (Qt 6/QML) ──D-Bus──▶ arinnd (Rust) ──D-Bus──▶ plugins (separate processes)
                                      │                     demo · desktop · chrome
-                                     ▼                     mpris · library · mpv
-                           KDE platform adapter (KWin)
+                                     ▼                     mpris · library · mpv · transmission
+                           Platform adapters (KWin / X11 EWMH)
 ```
 
 - The **shell** only draws the UI and handles focus locally; it never talks to other applications.
 - The **daemon** knows *capabilities* (application, browser, media, library, action, download), never product names.
 - **Plugins** implement capabilities in separate processes supervised by systemd, so a crashing integration never takes Arinn down.
-- The **platform layer** isolates KDE/Wayland specifics: global shortcut, overlay, window activation.
+- The **platform layer** isolates KDE/KWin and X11/EWMH specifics: global shortcuts, overlays and window activation.
 
 Read more in the [specification](docs/specifications/arinn-specification.md) and the [architecture decisions](docs/adr/README.md).
 
@@ -245,7 +210,7 @@ node --test tests/integration/kwin_adapter.test.cjs
 python scripts/check-docs.py
 ```
 
-Every pull request and a nightly job run the full pipeline, including building the Arch package, installing it into a clean system and smoke-testing it; releases are published only after the whole pipeline passes on the tagged commit ([ADR-0033](docs/adr/0033-ci-cd-and-releases.md)). The full list of required checks, commit conventions, the release process and the Definition of Done are in [CONTRIBUTING.md](CONTRIBUTING.md). AI coding agents also follow [AGENTS.md](AGENTS.md).
+Pull requests run the Rust, Qt and integration checks; Markdown/changelog-only changes run the documentation and licensing scope. Package builds and clean install smoke tests run on `master`, nightlies, manual CI and releases ([ADR-0102](docs/adr/0102-packages-built-for-master-only.md)). A release is published only after its gated pipeline passes ([ADR-0033](docs/adr/0033-ci-cd-and-releases.md)). The full list of required checks, commit conventions, the release process and the Definition of Done are in [CONTRIBUTING.md](CONTRIBUTING.md). AI coding agents also follow [AGENTS.md](AGENTS.md).
 
 ### Validate plugin manifests
 
@@ -303,3 +268,5 @@ Each file states its license with an SPDX header or in [REUSE.toml](REUSE.toml).
 
 The isolated [UI component gallery](docs/architecture/ui-components.md) runs with
 `build/apps/arinn-shell/arinn-ui-gallery`, without a daemon or desktop integration.
+It shows components only; screens and their states are rendered from
+[`tests/ui/visual`](tests/ui/visual/) with `python scripts/ui-compare.py`.

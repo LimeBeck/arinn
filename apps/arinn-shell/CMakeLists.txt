@@ -30,30 +30,26 @@ set(ARINN_PRESENTATION_FILES
     ui/Surface.qml ui/ActionButton.qml ui/ContentCard.qml ui/AppTile.qml
     ui/HomeRow.qml ui/HomeView.qml ui/BrandLockup.qml ui/BrandButton.qml
     ui/ProgressTrack.qml ui/Skeleton.qml ui/StatusPane.qml ui/LaunchOverlay.qml
-    ui/AmbientGlow.qml ui/ActivityBackground.qml ui/VolumeHud.qml ui/OnScreenKeyboard.qml ui/KeyboardButton.qml ui/KeyboardIcon.qml
+    ui/AmbientGlow.qml ui/ActivityBackground.qml ui/VolumeHud.qml ui/OnScreenKeyboard.qml ui/KeyboardButton.qml ui/LineIcon.qml
     ui/QuickMenu.qml ui/KeyboardPanel.qml
     ui/fonts/Onest.ttf)
 foreach(target arinn-shell arinn-shell-test)
     qt_add_resources(${target} presentation PREFIX "/" FILES ${ARINN_PRESENTATION_FILES})
 endforeach()
 
-# Development-only gallery: no backend, bus registration or platform actions.
+# Development-only component gallery: no backend, bus registration or platform
+# actions. Screens and their states live in tests/ui/visual (#567).
 qt_add_executable(arinn-ui-gallery gallery/main.cpp keyboard_model.cpp keyboard_model.h)
 qt_add_resources(arinn-ui-gallery gallery_ui PREFIX "/" FILES
-    gallery/Gallery.qml gallery/HomeGallery.qml gallery/BrowserGallery.qml
-    gallery/SessionGallery.qml gallery/LibraryGallery.qml gallery/SettingsGallery.qml
-    gallery/KeyboardGallery.qml ui/screens/browse/qmldir ui/screens/browse/BrowseView.qml
+    gallery/Gallery.qml gallery/KeyboardGallery.qml
+    ui/screens/browse/qmldir ui/screens/browse/BrowseView.qml
     gallery/fixture-artwork.svg
-    ui/screens/settings/qmldir ui/screens/settings/SettingsView.qml
-    ui/screens/browser/qmldir ui/screens/browser/BrowserView.qml
-    ui/screens/session/qmldir ui/screens/session/SessionView.qml
-    ui/screens/library/qmldir ui/screens/library/LibraryView.qml
     ${ARINN_PRESENTATION_FILES})
 target_link_libraries(arinn-ui-gallery PRIVATE Qt6::Quick)
 
 # The QML tests load screens directly; the keyboard panel needs its model.
 qt_add_executable(arinn-ui-test ../../tests/ui/main.cpp keyboard_model.cpp keyboard_model.h)
-target_link_libraries(arinn-ui-test PRIVATE Qt6::QuickTest Qt6::Qml)
+target_link_libraries(arinn-ui-test PRIVATE Qt6::QuickTest Qt6::Qml Qt6::Gui)
 add_test(NAME ui-components COMMAND arinn-ui-test
     -input "${PROJECT_SOURCE_DIR}/tests/ui")
 set_tests_properties(ui-components PROPERTIES ENVIRONMENT

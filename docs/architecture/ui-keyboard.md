@@ -34,8 +34,8 @@ mode*; there the platform layer delivers the text
   without the panel, and Home leaves them.
 - `ui/KeyboardButton.qml` is the pill in the field ("Keyboard" / "Hide"), the
   only way to open the panel.
-- `ui/KeyboardIcon.qml` draws the line icons on a `Canvas`, like the other
-  shell icons.
+- The keyboard's icons are drawn by the shared `ui/LineIcon.qml` (see
+  [ui-components](ui-components.md)).
 
 ## Defaults and memory
 

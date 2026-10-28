@@ -375,7 +375,7 @@ void MediaCatalog::playPause() { command(QStringLiteral("playPause")); }
 void MediaCatalog::seek(double targetUs) {
   command(QStringLiteral("seek"), targetUs, true);
   // The thumbnail is a separate read. It must not send another Seek.
-  if (m_operation == QLatin1String("pending") && timelineAvailable() &&
+  if (m_thumbnailWanted && m_operation == QLatin1String("pending") && timelineAvailable() &&
       std::isfinite(targetUs) && targetUs >= 0 &&
       targetUs <= static_cast<double>(std::numeric_limits<qint64>::max())) {
     m_thumbFromSeek = true;
@@ -1245,7 +1245,7 @@ void MediaCatalog::requestDisplayedThumbnail() {
   requestThumbnailAt(displayedPosition(*row), false);
 }
 void MediaCatalog::requestThumbnailAt(qint64 positionUs, bool restart) {
-  if (!timelineAvailable() || positionUs < 0)
+  if (!m_thumbnailWanted || !timelineAvailable() || positionUs < 0)
     return;
   // The position clock ticks faster than this delay. Restarting on every
   // tick would never send a thumbnail while playback is moving. A seek
@@ -1257,7 +1257,7 @@ void MediaCatalog::requestThumbnailAt(qint64 positionUs, bool restart) {
 }
 void MediaCatalog::sendThumbnail() {
   m_thumbFromSeek = false;
-  if (!timelineAvailable())
+  if (!m_thumbnailWanted || !timelineAvailable())
     return;
   const auto *row = selected();
   if (!row || sessionState() != QLatin1String("ready"))

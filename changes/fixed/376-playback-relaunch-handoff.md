@@ -7,3 +7,5 @@
 - Keep the native shell alpha channel across Home and playback cycles, with opaque shell backgrounds drawn separately from the transparent video overlay.
 
 - Start the owned player in fullscreen so its first video window does not flash in windowed mode before the presentation handoff.
+
+- Keep completed operation history out of live caller admission limits so repeated seeks and previews do not block Stop; suspend seek previews while the OSD is hidden, covered or stopping.

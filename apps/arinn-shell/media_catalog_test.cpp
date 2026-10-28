@@ -2624,6 +2624,83 @@ private slots:
     QCOMPARE(daemon.windowCommands.count(QStringLiteral("Release")), 2);
     QVERIFY(daemon.commands.isEmpty());
   }
+  void hiddenSeekDoesNotRequestAPreview() {
+    MediaDaemon daemon;
+    daemon.features = {QStringLiteral("MediaTimeline1")};
+    daemon.page1 = {session(QStringLiteral("live"), QStringLiteral("Piece"),
+                            QStringLiteral("paused"), 0, monotonicUs(),
+                            120000000, {QStringLiteral("seek")})};
+    auto bus = QDBusConnection::sessionBus();
+    QVERIFY(bus.registerService(QStringLiteral("org.arinn.Daemon1")));
+    QVERIFY(bus.registerVirtualObject(QStringLiteral("/org/arinn"), &daemon, QDBusConnection::SubPath));
+    MediaCatalog catalog;
+    QTRY_VERIFY(catalog.timelineAvailable());
+    QVERIFY(!catalog.thumbnailWanted());
+    catalog.seek(4000000);
+    QTRY_COMPARE(daemon.commands, QStringList({QStringLiteral("Seek")}));
+    QTest::qWait(600);
+    QCOMPARE(daemon.thumbnailReads, 0);
+    catalog.setThumbnailWanted(true);
+    QTRY_VERIFY(daemon.thumbnailReads > 0);
+  }
+  void previewProductionRequiresVisibleInteractiveOsd_data() {
+    QTest::addColumn<bool>("stopping");
+    QTest::newRow("hidden-osd") << false;
+    QTest::newRow("pending-stop") << true;
+  }
+  void previewProductionRequiresVisibleInteractiveOsd() {
+    QFETCH(bool, stopping);
+    MediaDaemon daemon;
+    daemon.features = {QStringLiteral("MediaTimeline1")};
+    daemon.page1 = {session(QStringLiteral("live"), QStringLiteral("Piece"),
+                            QStringLiteral("playing"), 0, monotonicUs(),
+                            120000000, {QStringLiteral("seek"), QStringLiteral("stop")})};
+    auto bus = QDBusConnection::sessionBus();
+    QVERIFY(bus.registerService(QStringLiteral("org.arinn.Daemon1")));
+    QVERIFY(bus.registerVirtualObject(QStringLiteral("/org/arinn"), &daemon, QDBusConnection::SubPath));
+    ShellStandIn backend; SessionGuardStandIn guard;
+    QQmlApplicationEngine engine; installAssetImageProvider(&engine);
+    engine.rootContext()->setContextProperty(QStringLiteral("backend"), &backend);
+    engine.rootContext()->setContextProperty(QStringLiteral("sessionGuard"), &guard);
+    engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
+    auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().value(0));
+    QVERIFY(window); window->show(); window->requestActivate();
+    auto catalog = window->findChild<MediaCatalog *>(QStringLiteral("mediaCatalog"));
+    auto player = window->findChild<QQuickItem *>(QStringLiteral("productionPlayer"));
+    QVERIFY(catalog && player);
+    QTRY_VERIFY(catalog->timelineAvailable());
+    const auto id = catalog->continueEntries().first().toMap().value("id").toString();
+    QVERIFY(QMetaObject::invokeMethod(window, "openSession", Q_ARG(QVariant, id), Q_ARG(QVariant, false)));
+    player->setProperty("osdIdleMs", 60000);
+    QTRY_VERIFY(catalog->thumbnailWanted());
+    QTRY_VERIFY(daemon.thumbnailReads > 0);
+    daemon.holdOperation = true;
+    catalog->seek(5000000); // A preview timer is armed before the UI hides.
+    const int before = daemon.thumbnailReads;
+    if (stopping) window->setProperty("leavingStopPending", true);
+    else player->setProperty("osdVisible", false);
+    QTRY_VERIFY(!catalog->thumbnailWanted());
+    QTest::qWait(700);
+    QCOMPARE(daemon.thumbnailReads, before);
+    catalog->seek(6000000); // Hidden seeks still execute, without previews.
+    QTRY_COMPARE(daemon.commands.count(QStringLiteral("Seek")), 2);
+    QTest::qWait(600);
+    QCOMPARE(daemon.thumbnailReads, before);
+    window->setProperty("leavingStopPending", false);
+    daemon.holdOperation = false;
+    player->setProperty("osdVisible", true);
+    QTRY_VERIFY(catalog->thumbnailWanted());
+    QTRY_VERIFY(daemon.thumbnailReads > before);
+    // A blocking sheet can cover a still-visible player; route ownership,
+    // rather than item visibility alone, stops background production.
+    window->setProperty("quickMenuOpen", true);
+    QTRY_VERIFY(!catalog->thumbnailWanted());
+    const int covered = daemon.thumbnailReads;
+    QTest::qWait(600);
+    QCOMPARE(daemon.thumbnailReads, covered);
+    window->setProperty("quickMenuOpen", false);
+    QTRY_VERIFY(catalog->thumbnailWanted());
+  }
   void thumbnailRequestWhilePlaying() {
     MediaDaemon daemon;
     daemon.features = {QStringLiteral("MediaTimeline1")};

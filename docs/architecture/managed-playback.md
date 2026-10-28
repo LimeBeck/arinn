@@ -171,6 +171,13 @@ Home snapshots remain ignored until Status observes Home exit; explicit Home
 still wins. Private-bus/offscreen regressions are not real-desktop G-4.1
 qualification evidence.
 
+Seek previews are requested only for the visible, interactive player timeline.
+Hidden OSD, Home, blocking overlays and pending Stop do not produce preview
+operations. Seek itself remains available independently; a hidden seek does not
+arm a preview, and dispatch rechecks demand after a queued timer. An already
+admitted preview may finish without restarting hidden production. Provider-owned
+Continue posters are independent of this UI demand.
+
 A successful empty GetWindow is unresolved, including a temporarily incomplete
 platform report barrier. Retry it within the existing one-second check deadline,
 as for Unavailable; a nonempty changed reference still fails immediately. A newer

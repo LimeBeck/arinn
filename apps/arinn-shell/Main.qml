@@ -1140,7 +1140,9 @@ Window {
         Binding {
             target: mediaCatalog
             property: "thumbnailWanted"
-            value: root.playerOpen && playerView.timelineFocused && mediaCatalog.timelineAvailable
+            value: root.visible && root.focusedScreen === "player"
+                && playerView.visible && playerView.osdVisible && playerView.transportReady
+                && playerView.timelineFocused && mediaCatalog.timelineAvailable
         }
         Connections {
             target: mediaCatalog

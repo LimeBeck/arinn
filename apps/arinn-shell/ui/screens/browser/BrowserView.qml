@@ -1144,7 +1144,8 @@ FocusScope {
                         }
                     }
                     Ui.UiText {
-                        text: qsTr("Save")
+                        objectName: "browserCloseHint"
+                        text: qsTr("Close")
                         role: "caption"
                         color: Ui.Theme.textHint
                         anchors.verticalCenter: parent.verticalCenter

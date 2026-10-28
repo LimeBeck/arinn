@@ -155,6 +155,19 @@ TestCase {
         focusInside();
     }
 
+    function test_right_hint_describes_close_action() {
+        const hint = child("browserCloseHint");
+        verify(hint.visible);
+        compare(hint.text, "Close");
+        focused("row-t2");
+        keyClick(Qt.Key_Right);
+        focused("bookmark-t2");
+        keyClick(Qt.Key_Right);
+        focused("close-t2");
+        keyClick(Qt.Key_Return);
+        compare(closes.count, 1);
+    }
+
     function test_activate_and_close() {
         focused("row-t2");
         keyClick(Qt.Key_Return);

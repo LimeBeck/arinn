@@ -247,6 +247,8 @@ FocusScope {
             width: parent.width
             horizontalAlignment: Text.AlignHCenter
             role: "section"
+            font.pixelSize: 36
+            font.weight: 600
             text: root.progressTitle
             maximumLineCount: 2
             elide: Text.ElideRight

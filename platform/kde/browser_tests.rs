@@ -592,6 +592,15 @@ async fn url_open_never_guesses_a_window_from_the_focused_snapshot() {
         window("w2", "token-2", false),
     ]);
     let command = f.take_command();
+    // A fast OpenUrl can finish before TakeCommand's task reaches poll().
+    // Register the adapter before expecting the best-effort dismiss command.
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while !f.core.platform.adapter_alive().await {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+    })
+    .await
+    .unwrap();
     assert_eq!(
         tokio::time::timeout(
             Duration::from_secs(1),

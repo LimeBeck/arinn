@@ -70,7 +70,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0049](0049-ci-minutes.md) | Spend fewer CI minutes | Accepted | 0053, 0102, 0104 |
 | [0050](0050-window-per-browser-activity.md) | One fullscreen browser window per browser activity | Accepted | 0051 |
 | [0051](0051-address-and-search-entry.md) | Address and search entry for free browsing | Accepted | 0066, 0103 |
-| [0052](0052-browser-window-association.md) | Browser windows are linked to platform windows by focus agreement | Accepted | — |
+| [0052](0052-browser-window-association.md) | Browser windows are linked to platform windows by focus agreement | Accepted | 0119 |
 | [0053](0053-release-and-label-workflows-on-the-runner.md) | Release and label workflows use the switchable runner | Accepted | — |
 | [0054](0054-media-and-library-wire-contract.md) | Media and library wire contract | Accepted | 0062, 0063, 0071 |
 | [0055](0055-launching-a-closed-browser.md) | Launching a closed browser before opening a URL | Accepted | — |
@@ -134,4 +134,5 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0114](0114-per-runner-package-target-directories.md) | One package target directory per self-hosted runner instance | Accepted | — |
 | [0115](0115-unmounted-share-root-is-unavailable.md) | An unmounted share is an unavailable library root | Accepted | — |
 | [0116](0116-package-matched-sentry-debug-symbols.md) | Package-matched Sentry debug symbols | Proposed | — |
+| [0119](0119-explicit-browser-open-window.md) | Activate the browser window selected by the open command | Accepted | — |
 <!-- register:end -->

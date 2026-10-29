@@ -580,32 +580,33 @@ async fn browser_snapshot_is_served_and_tab_commands_raise_the_window() {
 }
 
 #[tokio::test]
-async fn urls_open_in_the_connected_browser_and_raise_the_window_that_shows_them() {
+async fn url_open_never_guesses_a_window_from_the_focused_snapshot() {
     let f = Fixture::new().await;
     let platform = f.platform().await;
     let bridge = KWinBridgeProxy::new(&f.kwin).await.unwrap();
 
-    // The URL's origin is already open in w2 (ADR-0050): the browser focuses
-    // w2, and its window comes forward, not w1, which had the focus before.
+    // Even a newer snapshot can retain the previous service's focus. The
+    // provider owns target activation; the daemon must only dismiss Home.
     *f.browser.after_open.lock().unwrap() = Some(vec![
-        window("w1", "token-0", false),
-        window("w2", "token-2", true),
+        window("w1", "token-0", true),
+        window("w2", "token-2", false),
     ]);
-    let core = f.core.clone();
-    let open = tokio::spawn(async move {
-        core.open_url("https://mail.example/inbox", &browse_op())
+    let command = f.take_command();
+    assert_eq!(
+        tokio::time::timeout(
+            Duration::from_secs(1),
+            f.core.open_url("https://mail.example/inbox", &browse_op())
+        )
+        .await
+        .unwrap(),
+        Ok(())
+    );
+    assert_eq!(command.await.unwrap(), "dismiss");
+    assert!(
+        tokio::time::timeout(Duration::from_millis(100), bridge.next_control(&platform))
             .await
-    });
-    let control = tokio::time::timeout(Duration::from_secs(5), bridge.next_control(&platform))
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(&control[1..], ["activate", "token-2"]);
-    bridge
-        .complete_control(&platform, &control[0], "")
-        .await
-        .unwrap();
-    assert_eq!(open.await.unwrap(), Ok(()));
+            .is_err()
+    );
 
     // A new window has no link yet: Home is only hidden and the browser
     // raises its new window itself.

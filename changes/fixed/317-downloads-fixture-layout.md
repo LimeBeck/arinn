@@ -1,0 +1,1 @@
+- Synchronize the offscreen Downloads test fixture with rendered row layout before pointer input and navigation, avoiding intermittent hover, Watch-click and scroll assertions during CI.

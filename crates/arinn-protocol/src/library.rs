@@ -177,6 +177,12 @@ pub fn validate_additions(entries: &[Addition]) -> Result<(), ErrorCode> {
     if entries.len() > MAX_ADDITIONS {
         return Err(ErrorCode::InvalidArgument);
     }
+    if entries.windows(2).any(|pair| {
+        pair[0].added_at_us < pair[1].added_at_us
+            || (pair[0].added_at_us == pair[1].added_at_us && pair[0].id >= pair[1].id)
+    }) {
+        return Err(ErrorCode::InvalidArgument);
+    }
     let mut ids = HashSet::new();
     for entry in entries {
         validation::id(&entry.id)?;
@@ -640,6 +646,25 @@ mod tests {
         assert_eq!(decoded, page);
         assert_eq!(display_collection_kind("nope"), "other");
         assert_eq!(display_item_kind("episode"), "episode");
+    }
+
+    #[test]
+    fn additions_require_descending_times_and_ascending_tie_ids() {
+        let first = Addition {
+            id: "a".into(),
+            added_at_us: 2,
+        };
+        let tied = Addition {
+            id: "b".into(),
+            added_at_us: 2,
+        };
+        let older = Addition {
+            id: "c".into(),
+            added_at_us: 1,
+        };
+        validate_additions(&[first.clone(), tied.clone(), older.clone()]).unwrap();
+        assert!(validate_additions(&[older, first.clone()]).is_err());
+        assert!(validate_additions(&[tied, first]).is_err());
     }
 
     #[test]

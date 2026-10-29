@@ -67,9 +67,18 @@ TestCase {
         mouseMove(view, 8, 8);
         // D-pad mode without the key cooldown (ADR-0095).
         Ui.InputMode.reset();
+        // Creation/focus can precede the Column's layout polish. Pointer
+        // coordinates must refer to the scene that has actually rendered.
+        verify(waitForRendering(view));
     }
     function init() { createView(); }
     function cleanup() { arm(null); }
+
+    function test_fixture_is_ready_for_pointer_input() {
+        const first = child("job-active"), next = child("job-waiting");
+        verify(next.y >= first.y + first.height,
+               "fixture rows must be laid out before coordinate-based input");
+    }
 
     function test_queue_rows_progress_and_actions() {
         focused("job-active");
@@ -121,6 +130,9 @@ TestCase {
         compare(retries.signalArguments[0][0], "failed");
         keyClick(Qt.Key_Down); focused("job-ready");
         tryCompare(child("action-ready"), "visible", true);
+        // Visibility changes synchronously; its scene geometry is polished
+        // and rendered later, before the synthetic click can hit the button.
+        verify(waitForRendering(view));
         mouseClick(child("action-ready"), child("action-ready").width / 2, child("action-ready").height / 2);
         compare(watches.count, 1);
         compare(watches.signalArguments[0][0], "ready");
@@ -491,6 +503,9 @@ TestCase {
         for (let i = 0; i < 8; ++i)
             tall.push({id: "row" + i, title: "Row " + i, state: "queued", availableActions: ["start_now"]});
         view.jobs = tall;
+        // Navigation uses row.y/contentHeight to scroll. Wait for the new
+        // Column layout instead of relying on focus delivery to yield a frame.
+        verify(waitForRendering(view));
         focused("job-row0");
         for (let i = 0; i < 7; ++i) keyClick(Qt.Key_Down);
         focused("job-row7");

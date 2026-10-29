@@ -120,13 +120,15 @@ def run_capture(
     env["QT_QPA_PLATFORM"] = "offscreen"
     env["QT_QUICK_BACKEND"] = "software"
     env["QML_XHR_ALLOW_FILE_READ"] = "1"
+    # Animation time moves only as capture.qml runs it; see tests/ui/main.cpp.
+    env["ARINN_CAPTURE_STILL_ANIMATIONS"] = "1"
     env.pop("QT_SCALE_FACTOR", None)
     if scale_factor:
         env["QT_SCALE_FACTOR"] = scale_factor
     command = [str(binary), "-import", str(module_root), "-input", str(CAPTURE_QML)]
     try:
         result = subprocess.run(
-            command, cwd=ROOT, env=env, text=True, capture_output=True, timeout=600
+            command, cwd=ROOT, env=env, text=True, capture_output=True, timeout=1200
         )
     except subprocess.TimeoutExpired as exc:
         sys.stderr.write((exc.stdout or "") + "\n" + (exc.stderr or ""))

@@ -33,11 +33,19 @@ FocusScope {
     readonly property bool loadingVisible: viewState === "loading"
     readonly property bool statusVisible: viewState === "empty" || viewState === "error" || viewState === "unavailable"
     readonly property int jobCount: jobs ? jobs.length : 0
+    // "N downloading" while anything downloads, "N done" when every row is
+    // completed, otherwise empty and hidden (#360).
     readonly property string summaryLine: {
         if (summaryText.length) return summaryText;
-        let active = 0;
-        for (let i = 0; i < jobCount; ++i) if (jobs[i] && jobs[i].state === "downloading") active += 1;
-        return qsTr("%n downloading", "", active);
+        let active = 0, done = 0;
+        for (let i = 0; i < jobCount; ++i) {
+            const state = jobs[i] ? jobs[i].state : "";
+            if (state === "downloading") active += 1;
+            else if (state === "completed") done += 1;
+        }
+        if (active > 0) return qsTr("%n downloading", "", active);
+        if (jobCount > 0 && done === jobCount) return qsTr("%n done", "", done);
+        return "";
     }
     readonly property string resolvedTitle: {
         if (statusTitle.length) return statusTitle;
@@ -66,6 +74,95 @@ FocusScope {
     // Screen-local timings. Callers do not set these, and they are not theme tokens.
     readonly property int toastDurationMs: 2600
     readonly property int hoverSuppressMs: 500
+
+    // Artwork slot of a queue row (handoff 13, #360): the job's artwork
+    // cropped to the slot with the handoff's 18 px corners, or, without
+    // one, the handoff's striped queue plate in neutral grey. There is no
+    // monogram chip and no invented artwork.
+    component QueueArtwork: Item {
+        id: slot
+        property url source: ""
+        readonly property bool artworkReady: picture.status === Image.Ready
+        readonly property int radius: 18
+        // Screen-local placeholder colours: the handoff's art() plate
+        // (oklch 0.30 / 0.265 stripes, 10 px, under a 0.50 sheen at 155°)
+        // with the hue's chroma removed. They are not theme tokens.
+        readonly property color stripeLight: "#2e2e2e"
+        readonly property color stripeDark: "#252525"
+        readonly property string sheen: "rgba(99, 99, 99, 0.5)"
+        readonly property string sheenEnd: "rgba(99, 99, 99, 0)"
+        readonly property int stripe: 10
+        Image {
+            id: picture
+            anchors.fill: parent
+            asynchronous: true
+            fillMode: Image.PreserveAspectCrop
+            source: slot.source
+            visible: false
+            onStatusChanged: {
+                if (status === Image.Ready)
+                    plate.loadImage(source);
+                plate.requestPaint();
+            }
+        }
+        Canvas {
+            id: plate
+            objectName: "artworkPlate"
+            anchors.fill: parent
+            // Whether the last paint drew the artwork or the placeholder.
+            property bool showsArtwork: false
+            onImageLoaded: requestPaint()
+            onWidthChanged: requestPaint()
+            onHeightChanged: requestPaint()
+            onPaint: {
+                const ctx = getContext("2d");
+                ctx.reset();
+                const w = width, h = height, r = slot.radius;
+                ctx.beginPath();
+                ctx.moveTo(r, 0);
+                ctx.lineTo(w - r, 0); ctx.quadraticCurveTo(w, 0, w, r);
+                ctx.lineTo(w, h - r); ctx.quadraticCurveTo(w, h, w - r, h);
+                ctx.lineTo(r, h); ctx.quadraticCurveTo(0, h, 0, h - r);
+                ctx.lineTo(0, r); ctx.quadraticCurveTo(0, 0, r, 0);
+                ctx.closePath();
+                ctx.clip();
+                const image = picture.source;
+                const iw = picture.implicitWidth, ih = picture.implicitHeight;
+                if (slot.artworkReady && isImageLoaded(image) && iw > 0 && ih > 0) {
+                    // Centre crop, as Image.PreserveAspectCrop draws it.
+                    const scale = Math.max(w / iw, h / ih);
+                    const sw = w / scale, sh = h / scale;
+                    ctx.drawImage(image, (iw - sw) / 2, (ih - sh) / 2, sw, sh, 0, 0, w, h);
+                    showsArtwork = true;
+                    return;
+                }
+                showsArtwork = false;
+                ctx.fillStyle = slot.stripeLight;
+                ctx.fillRect(0, 0, w, h);
+                // 135° bands: x + y = c, a light and a dark band per period.
+                ctx.fillStyle = slot.stripeDark;
+                const band = slot.stripe * Math.SQRT2;
+                for (let c = -h; c < w + h; c += 2 * band) {
+                    ctx.beginPath();
+                    ctx.moveTo(c + band, 0);
+                    ctx.lineTo(c + 2 * band, 0);
+                    ctx.lineTo(c + 2 * band - h, h);
+                    ctx.lineTo(c + band - h, h);
+                    ctx.closePath();
+                    ctx.fill();
+                }
+                const angle = 155 * Math.PI / 180;
+                const dx = Math.sin(angle), dy = -Math.cos(angle);
+                const half = (Math.abs(w * dx) + Math.abs(h * dy)) / 2;
+                const sheen = ctx.createLinearGradient(w / 2 - dx * half, h / 2 - dy * half,
+                                                       w / 2 + dx * half, h / 2 + dy * half);
+                sheen.addColorStop(0, slot.sheen);
+                sheen.addColorStop(0.55, slot.sheenEnd);
+                ctx.fillStyle = sheen;
+                ctx.fillRect(0, 0, w, h);
+            }
+        }
+    }
 
     property var knownImports: ({})
     property bool importsReady: false
@@ -292,13 +389,14 @@ FocusScope {
                 role: "meta"
                 color: Ui.Theme.textSecondary
                 text: root.summaryLine
-                visible: root.viewState === "populated"
+                visible: root.viewState === "populated" && text.length > 0
             }
             Flickable {
                 id: scroller
                 objectName: "downloadsQueue"
-                // The summary is shown only with a queue; a Text whose height
-                // is bound to collapse loops through its implicit height.
+                // The summary is shown only with a queue. A hidden summary
+                // keeps its line so rows do not jump; a Text whose height is
+                // bound to collapse loops through its implicit height.
                 anchors.top: root.viewState === "populated" ? summary.bottom : heading.bottom
                 anchors.topMargin: 28
                 anchors.left: parent.left
@@ -326,6 +424,7 @@ FocusScope {
                             width: queueColumn.width
                             height: 156
                             readonly property string actionName: root.primaryAction(modelData)
+                            readonly property bool pointerHovered: rowHover.hovered
                             function hoverFocus() {
                                 if (!(rowHover.hovered && root.pointerMode && root.hoverFocusEnabled)) return;
                                 root.selectedIndex = index;
@@ -369,18 +468,10 @@ FocusScope {
                                 border.color: Ui.Theme.ring
                                 opacity: row.activeFocus ? 1 : 0
                             }
-                            Item {
-                                x: 18; y: 18; width: 214; height: 120; clip: true
-                                Ui.ContentCard {
-                                    objectName: "artwork-" + row.modelData.id
-                                    width: 214; height: 120
-                                    text: ""
-                                    artwork: row.modelData.artwork || ""
-                                    focusPolicy: Qt.NoFocus
-                                    pointerMode: false
-                                    hoverFocusEnabled: false
-                                    activeFocusOnTab: false
-                                }
+                            QueueArtwork {
+                                objectName: "artwork-" + row.modelData.id
+                                x: 18; y: 18; width: 214; height: 120
+                                source: row.modelData.artwork || ""
                             }
                             Column {
                                 x: 252

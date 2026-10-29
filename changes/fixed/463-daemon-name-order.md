@@ -1,0 +1,1 @@
+- `arinnd` owns `org.arinn.Daemon1` only once it serves all of its objects, so a call made right after a daemon restart is answered instead of waiting for the 25 s D-Bus timeout, and systemd counts the daemon as ready only then. A second `arinnd` now exits on the name before it changes any state instead of taking the name over from the running daemon.

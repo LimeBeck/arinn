@@ -6,6 +6,9 @@ on:
   pull_request:
   workflow_dispatch:
   workflow_call:
+    secrets:
+      SENTRY_AUTH_TOKEN:
+        required: false
   # Nightly run against the latest Arch Linux, Qt and Rust to catch
   # regressions from rolling dependencies before users update.
   schedule:
@@ -71,7 +74,8 @@ jobs:
   # tests, the Qt shell and the private-bus suite (ADR-0092). The Cargo home,
   # the Cargo target directory and ccache live in /ci-cache: a directory on
   # the self-hosted runner's disk, or the GitHub cache on hosted runners
-  # (ADR-0101). A cache miss only means a full build.
+  # (ADR-0101); each self-hosted runner instance has its own target directory
+  # (ADR-0113). A cache miss only means a full build.
   build:
     name: Rust, Qt shell and integration (Arch Linux)
     needs: [scope, images]
@@ -113,12 +117,21 @@ jobs:
       - name: Link the cached target directory
         # tests/integration/phase1.py runs ./target/debug binaries. A target
         # directory past 12 GB is dropped so stale artifacts cannot fill the
-        # runner's disk.
+        # runner's disk. Each self-hosted runner instance gets its own target
+        # directory: instances on one host share /ci-cache, and a job on one
+        # of them overwrote another's artifacts while its tests ran (ADR-0113).
+        env:
+          RUNNER_SLOT: ${{ vars.ARINN_RUNNER && runner.name || '' }}
         run: |
-          mkdir -p /ci-cache/target
-          if [ "$(du -s --block-size=1G /ci-cache/target | cut -f1)" -gt 12 ]; then rm -rf /ci-cache/target; mkdir /ci-cache/target; fi
-          ln -sfn /ci-cache/target target
+          target=/ci-cache/target
+          if [ -n "$RUNNER_SLOT" ]; then target="$target-$(printf '%s' "$RUNNER_SLOT" | tr -c 'A-Za-z0-9_.-' '_')"; fi
+          mkdir -p "$target"
+          if [ "$(du -s --block-size=1G "$target" | cut -f1)" -gt 12 ]; then rm -rf "$target"; mkdir "$target"; fi
+          ln -sfn "$target" target
       - run: cargo fmt --all --check
+      - name: Package symbol collector tests
+        # Tiny synthetic C/Rust fixtures only; no package or Arinn rebuild.
+        run: python -m unittest discover -s tests/ci -p test_debug_symbols.py
       - run: cargo clippy --locked --all-targets -- -D warnings
       - run: cargo test --locked
       - name: Build Rust workspace
@@ -190,6 +203,34 @@ jobs:
       deb_build_image: ${{ needs.images.outputs.ubuntu_build }}
       deb_smoke_image: ${{ needs.images.outputs.ubuntu_smoke }}
 
+  symbols:
+    name: Upload package-matched Sentry symbols
+    needs: [scope, images, build, licenses, docs, package]
+    if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref_type == 'tag') }}
+    runs-on: ${{ vars.ARINN_RUNNER || 'ubuntu-latest' }}
+    container:
+      image: ${{ needs.images.outputs.arch_build }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: arinn-arch-symbols
+          path: symbols/arch
+      - uses: actions/download-artifact@v8
+        with:
+          name: arinn-deb-symbols
+          path: symbols/debian
+      - name: Upload verified ELF debug files
+        env:
+          # No token is passed to build, test or PR jobs.
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          python scripts/debug-symbols.py upload symbols --build-id "$(python scripts/build_id.py)"
+
   snapshot:
     name: Publish master pre-release
     # Share the channel lock with post-publication retention; older CI can
@@ -198,7 +239,7 @@ jobs:
       group: arinn-master-snapshot-channel
       queue: max
       cancel-in-progress: false
-    needs: [scope, images, build, licenses, docs, package]
+    needs: [scope, images, build, licenses, docs, package, symbols]
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
     runs-on: ${{ vars.ARINN_RUNNER || 'ubuntu-latest' }}
     container: python:3.12

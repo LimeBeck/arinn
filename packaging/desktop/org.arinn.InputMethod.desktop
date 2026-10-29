@@ -1,0 +1,17 @@
+# SPDX-FileCopyrightText: 2026 Arinn contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# KWin's input method for the global on-screen keyboard (ADR-0105). KWin
+# starts Exec itself when kwinrc [Wayland] InputMethod names this file; the
+# daemon sets it only when no other input method is chosen. Not an
+# application to start by hand.
+[Desktop Entry]
+Type=Application
+Name=Arinn
+Comment=On-screen keyboard for the remote
+Icon=org.arinn.Shell
+Exec=/usr/lib/arinn/arinn-input-method
+TryExec=/usr/lib/arinn/arinn-input-method
+NoDisplay=true
+Terminal=false
+X-KDE-Wayland-VirtualKeyboard=true

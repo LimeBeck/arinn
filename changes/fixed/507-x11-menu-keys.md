@@ -1,0 +1,3 @@
+- On X11, the adapter grabs no global key while the daemon is not running, so the remote's Menu keys no longer swallow the ordinary context-menu key in every application while arinnd is down. It waits for the daemon's bus name and grabs the keys again as soon as the daemon is back.
+- On X11, the remote's Menu keys now follow the shell's focus within milliseconds instead of up to 0.5 s later: a change of the active window wakes the adapter at once.
+- The packaged X11 adapter stays running across a daemon outage, so the keys recover when the daemon restarts; its session bus name remains released while it waits.

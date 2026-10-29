@@ -50,7 +50,10 @@ TestCase {
         focused("row-a");
         keyClick(Qt.Key_Right);
         focused("bookmark-a");
-        compare(child("bookmark-a").iconName, "bookmark");
+        // The handoff's bookmark_add: a ribbon with a plus, painted by the
+        // shell rather than an outlined box.
+        compare(child("bookmark-a").iconName, "bookmark_add");
+        compare(child("bookmarkIcon-a").name, "bookmark_add");
         verify(!child("mark-a").visible);
         keyClick(Qt.Key_Right);
         focused("close-a");
@@ -69,6 +72,7 @@ TestCase {
         keyClick(Qt.Key_Down);
         focused("bookmark-b");
         compare(child("bookmark-b").iconName, "bookmark_added");
+        compare(child("bookmarkIcon-b").name, "bookmark_added");
         compare(child("mark-b").text, "Shortcut");
         verify(child("mark-b").visible);
         keyClick(Qt.Key_Return);

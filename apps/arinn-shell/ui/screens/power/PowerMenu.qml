@@ -5,7 +5,9 @@ import QtQuick
 import "../.." as Ui
 
 // Power-scope overlay. Presentation only: intents leave this file, and nothing
-// here talks to the session, a registry, or a suspend API.
+// here talks to the session, a registry, or a suspend API. Main supplies the
+// platform's availability, refusals and accepted requests from
+// SystemControl1 (ADR-0108) and the running applications from the registry.
 FocusScope {
     id: root
     objectName: "powerMenu"
@@ -15,59 +17,215 @@ FocusScope {
 
     // Caller-supplied titles. This overlay does not read a live registry.
     property var closingApplications: []
+    // False when the caller cannot know the running applications (no
+    // registry): the confirmation says so instead of "none".
+    property bool closingKnown: true
+    // Platform availability per row: available, inhibited, denied,
+    // unsupported or unknown. Unsupported rows are disabled; the others stay
+    // usable, and the platform's answer decides.
+    property string sleepAvailability: "unknown"
+    property string restartAvailability: "unknown"
+    property string shutdownAvailability: "unknown"
+    // GetSessionSwitch (#438, ADR-0107): the Switch to desktop row exists only
+    // for "available", which means Arinn runs as the dedicated Arinn session.
+    // Inside an ordinary desktop session, or while unknown, it is not offered
+    // (spec §5.7).
+    property string desktopSwitchAvailability: "unknown"
+    readonly property bool desktopSwitchOffered: desktopSwitchAvailability === "available"
+    // Block inhibitors {what: sleep|shutdown, who, why} that explain a refusal.
+    property var inhibitors: []
+    // The row whose request is in flight, and the row the platform accepted:
+    // sleep, restart, shutdown or desktop. Only the caller sets them.
+    property string busyAction: ""
+    property string acceptedAction: ""
+    // Why the platform refused the request of refusalAction: inhibited,
+    // denied, unsupported, unavailable, timeout or failed.
+    property string refusalCode: ""
+    property string refusalAction: ""
     // Non-empty text is the refusal. Nothing in this overlay sets it, and no
     // timer turns a sleep intent into success.
-    property string refusalMessage: ""
-    property string clockText: ""
-    property string dateText: ""
-    property bool pointerMode: false
+    property string refusalMessage: describeRefusal(refusalCode, refusalAction, inhibitors)
+    readonly property bool accepted: acceptedAction.length > 0 && !refused
+    // The shell's one input mode (spec §6.1, ADR-0095): hover moves focus
+    // only in pointer mode.
+    property bool pointerMode: Ui.InputMode.pointerActive
     property bool hoverFocusEnabled: true
     readonly property bool refused: refusalMessage.length > 0
-    property string step: "menu" // menu, confirm, ambient
-    property string pendingAction: "" // restart, shutdown
+    property string step: "menu" // menu, confirm
+    property string pendingAction: "" // restart, shutdown, desktop
     property string menuFocus: "sleep"
-    property string returnStep: "menu"
-    property bool ambientArmed: false
-    // Set on the ambient key press so the matching release performs the wake.
-    // Restoring focus before that release would activate the control underneath.
-    property bool waking: false
-    // The pointer position already inside the screen when it appears. A hover
-    // delivered for that same point is not a wake.
-    property bool ambientAnchorKnown: false
-    property real ambientAnchorX: 0
-    property real ambientAnchorY: 0
     readonly property var menuEntries: [
         {id: "sleep", glyph: "sleep", title: qsTr("Sleep"), description: qsTr("Request system suspend")},
         {id: "restart", glyph: "restart", title: qsTr("Restart"), description: qsTr("Takes about a minute")},
         {id: "shutdown", glyph: "shutdown", title: qsTr("Shut down"), description: qsTr("Turn the computer off completely")},
+        {id: "desktop", glyph: "desktop", title: qsTr("Switch to desktop"), description: qsTr("Log out; the next login starts the desktop")},
         {id: "ambient", glyph: "ambient", title: qsTr("Ambient"), description: qsTr("Show the ambient screen")}
     ]
-    readonly property string confirmTitle: pendingAction === "shutdown" ? qsTr("Shut down?") : qsTr("Restart?")
-    readonly property string confirmActionText: pendingAction === "shutdown" ? qsTr("Shut down") : qsTr("Restart")
+    // The confirmed action was reported unsupported after the confirmation
+    // opened (the menu opened before GetPower answered): its pill is
+    // disabled, as the row is. A request already sent goes on.
+    readonly property bool confirmUnsupported: step === "confirm" && !requestInFlight
+                                               && availabilityOf(pendingAction) === "unsupported"
+    readonly property string confirmTitle: pendingAction === "shutdown" ? qsTr("Shut down?")
+                                         : pendingAction === "desktop" ? qsTr("Switch to desktop?") : qsTr("Restart?")
+    readonly property string confirmActionText: pendingAction === "shutdown" ? qsTr("Shut down")
+                                              : pendingAction === "desktop" ? qsTr("Switch") : qsTr("Restart")
+    // What the switch does beyond closing the applications (spec §5.7).
+    readonly property string confirmDetail: pendingAction === "desktop"
+        ? qsTr("The session ends. Your next login starts the desktop without Arinn until you choose Return to Arinn.")
+        : ""
     readonly property string closingSummary: {
+        if (!closingKnown)
+            return qsTr("The list of running applications is not available.");
         const names = [];
         const entries = closingApplications || [];
         for (let i = 0; i < entries.length; ++i) {
             const entry = entries[i];
             const title = typeof entry === "string" ? entry : (entry && entry.title ? String(entry.title) : "");
-            if (title.length > 0)
+            if (title.length > 0 && names.indexOf(title) < 0)
                 names.push(title);
         }
         if (names.length === 0)
             return qsTr("No running applications.");
-        return qsTr("These applications will close: %1.").arg(names.join(", "));
+        if (names.length > maxNames)
+            return qsTr("These applications will close: %1 and %2 more.")
+                .arg(names.slice(0, maxNames).map(shortText).join(", ")).arg(names.length - maxNames);
+        return qsTr("These applications will close: %1.").arg(names.map(shortText).join(", "));
     }
 
     signal sleepRequested()
     signal restartRequested()
     signal shutdownRequested()
+    signal desktopSwitchRequested()
+    // The Ambient row: the shell shows its ambient screen over this menu.
     signal ambientRequested()
-    signal wakeRequested()
     signal dismissRequested()
     signal homeRequested()
+    // Back on a refusal or on an accepted request: the caller clears it.
+    signal refusalDismissed()
+    signal acceptedDismissed()
+
+    // Names shown in one line of text before "and N more", and the longest
+    // name or holder shown; the rest is elided.
+    readonly property int maxNames: 4
+    readonly property int maxNameLength: 48
+    function shortText(text) {
+        const value = String(text);
+        return value.length > maxNameLength ? value.slice(0, maxNameLength - 1) + "…" : value;
+    }
+    // The holders of a row's action as one bounded text.
+    function holderText(id) {
+        const names = holders(id).map(shortText);
+        if (names.length > 3)
+            return qsTr("%1 and %2 more").arg(names.slice(0, 3).join(", ")).arg(names.length - 3);
+        return names.join(", ");
+    }
+    function availabilityOf(id) {
+        return id === "sleep" ? sleepAvailability : id === "restart" ? restartAvailability
+             : id === "shutdown" ? shutdownAvailability
+             : id === "desktop" ? (desktopSwitchOffered ? "available" : "unsupported") : "available";
+    }
+    // Rows that exist in this session. Switch to desktop is not offered
+    // outside the dedicated session: hidden, not disabled.
+    function rowOffered(id) {
+        return id !== "desktop" || desktopSwitchOffered;
+    }
+    // "who (why)" of the inhibitors that hold a row's action. No inhibitor
+    // holds the session switch.
+    function holders(id) {
+        if (id !== "sleep" && id !== "restart" && id !== "shutdown")
+            return [];
+        const lock = id === "sleep" ? "sleep" : "shutdown";
+        const names = [];
+        const list = inhibitors || [];
+        for (let i = 0; i < list.length; ++i) {
+            const entry = list[i];
+            if (!entry || entry.what !== lock || !entry.who)
+                continue;
+            const text = entry.why ? qsTr("%1 (%2)").arg(entry.who).arg(entry.why) : String(entry.who);
+            if (names.indexOf(text) < 0)
+                names.push(text);
+        }
+        return names;
+    }
+    // Why a row's action may be refused, or "" when nothing is known.
+    function availabilityNote(id) {
+        const availability = availabilityOf(id);
+        if (availability === "unsupported")
+            return qsTr("Not supported on this computer");
+        if (availability === "denied")
+            return qsTr("Not allowed for this user");
+        if (availability === "inhibited") {
+            const names = holders(id);
+            return names.length ? qsTr("Blocked by %1").arg(holderText(id)) : qsTr("Blocked by an application");
+        }
+        return "";
+    }
+    // A row that cannot be used while another request is in flight: the
+    // model sends one request at a time, so a power row would send nothing.
+    // Ambient waits too, so the answer is never shown behind the ambient
+    // screen.
+    function heldBack(id) {
+        return requestInFlight && busyAction !== id;
+    }
+    function rowDescription(entry) {
+        if (busyAction === entry.id)
+            return qsTr("Waiting for the system…");
+        if (heldBack(entry.id))
+            return qsTr("Available after the system answers");
+        const note = availabilityNote(entry.id);
+        return note.length ? note : entry.description;
+    }
+    function idForAction(action) {
+        return action === "suspend" ? "sleep" : action === "reboot" ? "restart"
+             : action === "power-off" ? "shutdown" : action === "switch-to-desktop" ? "desktop" : action;
+    }
+    // A failed switch is an error and the session continues (spec §5.7,
+    // system-control.md).
+    function describeSwitchRefusal(code) {
+        if (code === "inhibited")
+            return qsTr("Another power request is still running. Arinn keeps running; try again when it is done.");
+        if (code === "denied")
+            return qsTr("The system does not allow it for this user. Arinn keeps running.");
+        if (code === "unsupported")
+            return qsTr("This session cannot switch to the desktop. Arinn keeps running.");
+        if (code === "unavailable")
+            return qsTr("The desktop did not accept the logout. Arinn keeps running; try again later.");
+        if (code === "timeout")
+            return qsTr("The desktop did not answer in time. Arinn keeps running; try again.");
+        return qsTr("Arinn could not prepare the switch. Arinn keeps running; try again.");
+    }
+    function describeRefusal(code, action, list) {
+        if (!code)
+            return "";
+        const id = idForAction(action);
+        if (id === "desktop")
+            return describeSwitchRefusal(code);
+        if (code === "inhibited") {
+            const names = holders(id);
+            return names.length ? qsTr("An application is preventing it: %1.").arg(holderText(id))
+                                : qsTr("An application or another power operation is preventing it right now.");
+        }
+        if (code === "denied")
+            return qsTr("The system does not allow it for this user.");
+        if (code === "unsupported")
+            return qsTr("This computer does not support it.");
+        if (code === "unavailable")
+            return qsTr("Power control is not available right now. Try again later.");
+        if (code === "timeout")
+            return qsTr("The system did not answer in time. Try again.");
+        return qsTr("The system could not do it. Try again.");
+    }
+    readonly property string refusalTitle: {
+        const id = idForAction(refusalAction);
+        return id === "sleep" ? qsTr("Sleep was refused")
+             : id === "restart" ? qsTr("Restart was refused")
+             : id === "shutdown" ? qsTr("Shut down was refused")
+             : id === "desktop" ? qsTr("Could not switch to the desktop") : qsTr("Request refused");
+    }
 
     function noteDpad() {
-        pointerMode = false;
+        Ui.InputMode.keyPressed();
         hoverFocusEnabled = true;
     }
     function menuItems() {
@@ -88,11 +246,20 @@ FocusScope {
         for (let i = 0; i < items.length; ++i)
             if (items[i].activeFocus)
                 index = i;
-        let next = index + delta;
-        if (wrap)
-            next = (next + items.length) % items.length;
-        else
-            next = Math.max(0, Math.min(items.length - 1, next));
+        // Disabled rows (unsupported actions) are skipped.
+        let next = index;
+        for (let tries = 0; tries < items.length; ++tries) {
+            let candidate = next + delta;
+            if (wrap)
+                candidate = (candidate + items.length) % items.length;
+            else if (candidate < 0 || candidate >= items.length)
+                return;
+            next = candidate;
+            if (items[next].enabled)
+                break;
+        }
+        if (!items[next].enabled)
+            return;
         menuFocus = menuNames()[next];
         Ui.Focus.take(items[next]);
     }
@@ -110,15 +277,16 @@ FocusScope {
         const items = menuItems();
         const names = menuNames();
         for (let i = 0; i < names.length; ++i) {
-            if (names[i] === menuFocus) {
-                Ui.Focus.take(items[i]);
+            if (names[i] === menuFocus && Ui.Focus.take(items[i]))
                 return;
-            }
         }
-        if (items.length > 0)
-            Ui.Focus.take(items[0]);
+        for (let i = 0; i < items.length; ++i)
+            if (Ui.Focus.take(items[i]))
+                return;
     }
     function openConfirm(action) {
+        if (requestInFlight)
+            return;
         pendingAction = action;
         menuFocus = action;
         step = "confirm";
@@ -133,17 +301,54 @@ FocusScope {
         Qt.callLater(restoreMenuFocus);
     }
     function confirmAction() {
+        if (requestInFlight || confirmUnsupported)
+            return;
         if (pendingAction === "restart")
             restartRequested();
         else if (pendingAction === "shutdown")
             shutdownRequested();
+        else if (pendingAction === "desktop" && desktopSwitchOffered)
+            desktopSwitchRequested();
+    }
+    // A request already sent to the system cannot be taken back. While it is
+    // in flight Back and Cancel do nothing, so nothing looks like cancelling;
+    // Home still leaves, and the caller shows a later refusal (spec §6.3,
+    // owner decision 2026-10-23).
+    readonly property bool requestInFlight: busyAction.length > 0
+    // The menu opened again while a request is in flight (after Home): it
+    // shows that request as it was left, busy, and nothing else can be sent.
+    function showPending(id) {
+        if (id === "restart" || id === "shutdown" || id === "desktop") {
+            pendingAction = id;
+            menuFocus = id;
+            step = "confirm";
+            Qt.callLater(() => {
+                if (step === "confirm" && !refused && !accepted)
+                    Ui.Focus.take(confirmButton);
+            });
+        } else {
+            step = "menu";
+            pendingAction = "";
+            menuFocus = id.length ? id : "sleep";
+            Qt.callLater(restoreMenuFocus);
+        }
     }
     function goBack() {
-        if (step === "confirm" && !refused) {
+        if (requestInFlight)
+            return;
+        // A refusal stays until the caller clears it. Back does not report success.
+        if (refused) {
+            refusalDismissed();
+            return;
+        }
+        if (accepted) {
+            acceptedDismissed();
+            return;
+        }
+        if (step === "confirm") {
             closeConfirm();
             return;
         }
-        // A refusal stays until the caller clears it. Back does not report success.
         dismissRequested();
     }
     // Esc, Backspace and Back are Back in every power scope (§6.2, AC-18).
@@ -151,62 +356,61 @@ FocusScope {
     function handleScopeKey(event, onBack) {
         if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter)
             return;
+        // One step per press (§6.3): a held key's repeats are swallowed, so
+        // they never unwind the scope beneath once this one closes.
         if (event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace || event.key === Qt.Key_Back) {
             event.accepted = true;
-            onBack();
+            if (!event.isAutoRepeat)
+                onBack();
         } else if (event.key === Qt.Key_Home) {
             event.accepted = true;
-            goHome();
+            if (!event.isAutoRepeat)
+                goHome();
         }
     }
     function goHome() {
-        if (step === "confirm" && !refused)
+        if (step === "confirm" && !refused && !accepted)
             closeConfirm();
         homeRequested();
     }
     function startAmbient() {
-        if (step === "ambient")
-            return;
-        returnStep = step === "confirm" ? "confirm" : "menu";
         ambientRequested();
-        // The key or pointer that opened this screen is still in flight.
-        waking = false;
-        ambientArmed = false;
-        ambientAnchorKnown = false;
-        // The pointer already rests here: its position is the anchor, so the
-        // first real movement wakes. Waiting for the ambient layer's first
-        // hover sample instead could take that movement as the anchor.
-        if (pointerTracker.hovered)
-            rememberAmbientPointer(pointerTracker.point.position.x, pointerTracker.point.position.y);
-        step = "ambient";
-    }
-    function rememberAmbientPointer(x, y) {
-        ambientAnchorX = x;
-        ambientAnchorY = y;
-        ambientAnchorKnown = true;
-    }
-    function wakeFromAmbient() {
-        if (step !== "ambient")
-            return;
-        const back = returnStep === "confirm" ? "confirm" : "menu";
-        step = back;
-        ambientArmed = false;
-        waking = false;
-        ambientAnchorKnown = false;
-        // The wake event itself must not move focus onto a control.
-        hoverFocusEnabled = false;
-        wakeRequested();
-        Qt.callLater(() => {
-            if (step === "confirm")
-                Ui.Focus.take(cancelButton);
-            else
-                restoreMenuFocus();
-            Qt.callLater(() => { hoverFocusEnabled = true; });
-        });
     }
 
+    // A row the platform reports as unsupported after the menu opened is
+    // disabled; focus moves on so the menu never becomes keyboard-inert.
+    function settleDisabledFocus() {
+        if (!visible)
+            return;
+        // A switch that stops being offered also closes its confirmation,
+        // unless its request is already on the way.
+        if (step === "confirm" && pendingAction === "desktop" && !desktopSwitchOffered
+                && !requestInFlight && !refused && !accepted) {
+            closeConfirm();
+            return;
+        }
+        if (step !== "menu")
+            return;
+        if (availabilityOf(menuFocus) === "unsupported")
+            Qt.callLater(restoreMenuFocus);
+    }
+    // A Restart or Shut down that becomes unsupported keeps its
+    // confirmation, with the action pill disabled and focus on Cancel; the
+    // confirmation's note says why in place.
+    function settleUnsupportedConfirm() {
+        if (visible && confirmUnsupported && !refused && !accepted && !cancelButton.activeFocus)
+            Ui.Focus.take(cancelButton);
+    }
+    onConfirmUnsupportedChanged: if (confirmUnsupported) Qt.callLater(settleUnsupportedConfirm)
+    onSleepAvailabilityChanged: settleDisabledFocus()
+    onRestartAvailabilityChanged: settleDisabledFocus()
+    onShutdownAvailabilityChanged: settleDisabledFocus()
+    onDesktopSwitchOfferedChanged: settleDisabledFocus()
+    // A switch refused as unsupported stops being offered; Back on that
+    // refusal leaves its confirmation too.
+    onRefusedChanged: if (!refused) settleDisabledFocus()
+
     // Fallback when focus is on this scope rather than a row or pill.
-    // Ambient accepts the key first and wakes, so this does not dismiss it.
     Keys.onPressed: event => handleScopeKey(event, () => goBack())
 
     Ui.LogicalCanvas {
@@ -220,11 +424,9 @@ FocusScope {
             objectName: "powerScrim"
             anchors.fill: parent
             color: Qt.rgba(0, 0, 0, 0.55)
-            visible: root.step !== "ambient"
         }
         MouseArea {
             anchors.fill: parent
-            enabled: root.step !== "ambient"
             z: 0
             onClicked: root.goBack()
         }
@@ -250,7 +452,7 @@ FocusScope {
             border.width: 1
             border.color: Qt.rgba(1, 1, 1, 0.10)
             anchors.centerIn: parent
-            visible: !root.refused && root.step !== "ambient"
+            visible: !root.refused && !root.accepted
             height: column.implicitHeight + 96
             Rectangle {
                 anchors.left: parent.left
@@ -284,14 +486,43 @@ FocusScope {
                     visible: root.step === "confirm"
                 }
                 Ui.UiText {
+                    objectName: "confirmDetail"
+                    width: parent.width
+                    leftPadding: 8
+                    rightPadding: 8
+                    bottomPadding: 8
+                    visible: root.step === "confirm" && text.length > 0
+                    text: root.confirmDetail
+                    maximumLineCount: 3
+                    elide: Text.ElideRight
+                    role: "body"
+                    color: Ui.Theme.textSecondary
+                }
+                Ui.UiText {
                     objectName: "closingList"
                     width: parent.width
                     leftPadding: 8
                     rightPadding: 8
                     visible: root.step === "confirm"
                     text: root.closingSummary
+                    // A long title or list never pushes the buttons off the
+                    // canvas.
+                    maximumLineCount: 3
+                    elide: Text.ElideRight
                     role: "body"
                     color: Ui.Theme.textSecondary
+                }
+                // Confirmation never hides an inhibitor or permission problem.
+                Ui.UiText {
+                    objectName: "confirmNote"
+                    width: parent.width
+                    leftPadding: 8
+                    rightPadding: 8
+                    topPadding: 8
+                    visible: root.step === "confirm" && text.length > 0
+                    text: root.availabilityNote(root.pendingAction)
+                    role: "body"
+                    color: Ui.Theme.error
                 }
                 Item {
                     width: 1
@@ -313,6 +544,12 @@ FocusScope {
                             width: 704
                             height: 112
                             text: modelData.title
+                            visible: root.rowOffered(modelData.id)
+                            enabled: root.availabilityOf(modelData.id) !== "unsupported"
+                            busy: root.busyAction === modelData.id
+                            // Focusable, but it reads and acts as unavailable.
+                            readonly property bool held: root.heldBack(modelData.id)
+                            opacity: enabled && !held ? 1 : 0.4
                             cornerRadius: 30
                             focusScale: 1.02
                             restingColor: Qt.rgba(1, 1, 1, 0.05)
@@ -322,12 +559,16 @@ FocusScope {
                             onDpadRequested: root.noteDpad()
                             onActiveFocusChanged: if (activeFocus) root.menuFocus = modelData.id
                             onActivated: {
+                                if (held)
+                                    return;
                                 if (modelData.id === "sleep")
                                     root.sleepRequested();
                                 else if (modelData.id === "restart")
                                     root.openConfirm("restart");
                                 else if (modelData.id === "shutdown")
                                     root.openConfirm("shutdown");
+                                else if (modelData.id === "desktop")
+                                    root.openConfirm("desktop");
                                 else
                                     root.startAmbient();
                             }
@@ -378,6 +619,17 @@ FocusScope {
                                                     ctx.lineTo(cx + 2, cy - 6);
                                                     ctx.closePath();
                                                     ctx.fill();
+                                                } else if (kind === "desktop") {
+                                                    // A monitor on its stand.
+                                                    ctx.beginPath();
+                                                    ctx.rect(cx - 14, cy - 12, 28, 19);
+                                                    ctx.stroke();
+                                                    ctx.beginPath();
+                                                    ctx.moveTo(cx, cy + 7);
+                                                    ctx.lineTo(cx, cy + 13);
+                                                    ctx.moveTo(cx - 8, cy + 13);
+                                                    ctx.lineTo(cx + 8, cy + 13);
+                                                    ctx.stroke();
                                                 } else if (kind === "shutdown") {
                                                     ctx.beginPath();
                                                     ctx.arc(cx, cy + 2, 11, 0.85, Math.PI - 0.85, true);
@@ -420,7 +672,7 @@ FocusScope {
                                         Ui.UiText {
                                             objectName: row.modelData.id + "Description"
                                             width: parent.width
-                                            text: row.modelData.description
+                                            text: root.rowDescription(row.modelData)
                                             role: "meta"
                                             font.pixelSize: 26
                                             color: row.activeFocus ? Ui.Theme.ink : Ui.Theme.textSecondary
@@ -447,6 +699,7 @@ FocusScope {
                     Ui.ActionButton {
                         id: cancelButton
                         objectName: "cancelButton"
+                        enabled: !root.requestInFlight
                         width: 342
                         height: 96
                         restingColor: Qt.rgba(1, 1, 1, 0.13)
@@ -466,10 +719,12 @@ FocusScope {
                 Ui.ActionButton {
                     id: confirmButton
                     objectName: "confirmButton"
+                    enabled: !root.confirmUnsupported
                     width: 342
                     height: 96
                     text: root.confirmActionText
                     destructive: true
+                    busy: root.busyAction.length > 0 && root.busyAction === root.pendingAction
                     pointerMode: root.pointerMode
                     hoverFocusEnabled: root.hoverFocusEnabled
                     onDpadRequested: root.noteDpad()
@@ -492,10 +747,10 @@ FocusScope {
         z: 4
         anchors.centerIn: parent
         width: 820
-        visible: root.refused && root.step !== "ambient"
+        visible: root.refused
         focus: visible
         kind: "error"
-        title: qsTr("Request refused")
+        title: root.refusalTitle
         description: root.refusalMessage
         actionText: qsTr("Back")
         pointerMode: root.pointerMode
@@ -511,7 +766,7 @@ FocusScope {
             // Clearing an explicit refusal returns to the power step. It does not
             // report success.
             Qt.callLater(() => {
-                if (root.refused || root.step === "ambient")
+                if (root.refused)
                     return;
                 if (root.step === "confirm")
                     Ui.Focus.take(cancelButton);
@@ -521,88 +776,41 @@ FocusScope {
         }
     }
 
-    Rectangle {
-        id: ambientLayer
-        objectName: "ambientScreen"
-        anchors.fill: parent
-        z: 3
-        visible: root.step === "ambient"
-        color: Ui.Theme.background
+    // The platform accepted the request. This is not success: the session
+    // lifecycle guard hides the shell when the system really sleeps, and
+    // nothing here turns into success by itself.
+    Ui.StatusPane {
+        id: acceptedPane
+        objectName: "powerAccepted"
+        z: 4
+        anchors.centerIn: parent
+        width: 820
+        visible: root.accepted
+        focus: visible
+        kind: "loading"
+        title: root.acceptedAction === "sleep" ? qsTr("Going to sleep…")
+             : root.acceptedAction === "restart" ? qsTr("Restarting…")
+             : root.acceptedAction === "desktop" ? qsTr("Switching to the desktop…") : qsTr("Shutting down…")
+        description: qsTr("Waiting for the system. Press Back to return to Arinn.")
+        pointerMode: root.pointerMode
+        hoverFocusEnabled: root.hoverFocusEnabled
+        onDpadRequested: root.noteDpad()
+        Keys.onPressed: event => root.handleScopeKey(event, () => root.goBack())
         onVisibleChanged: {
-            root.ambientArmed = false;
-            root.waking = false;
-            if (!visible) {
-                root.ambientAnchorKnown = false;
+            if (visible) {
+                Qt.callLater(() => { if (visible) Ui.Focus.take(acceptedPane); });
                 return;
             }
-            // Take focus after the opening key release, so that release is not
-            // also the wake. Qt 6.11 delivers it to whatever is focused now.
             Qt.callLater(() => {
-                if (!visible)
+                if (root.refused || root.accepted)
                     return;
-                Ui.Focus.take(ambientLayer);
-                Qt.callLater(() => {
-                    if (visible)
-                        root.ambientArmed = true;
-                });
+                if (root.step === "confirm")
+                    Ui.Focus.take(cancelButton);
+                else
+                    root.restoreMenuFocus();
             });
         }
-        Column {
-            anchors.centerIn: parent
-            spacing: 16
-            width: 1200
-            Ui.UiText {
-                objectName: "ambientClock"
-                width: parent.width
-                horizontalAlignment: Text.AlignHCenter
-                role: "display"
-                color: Ui.Theme.textSecondary
-                text: root.clockText
-            }
-            Ui.UiText {
-                objectName: "ambientDate"
-                width: parent.width
-                horizontalAlignment: Text.AlignHCenter
-                role: "section"
-                color: Ui.Theme.textHint
-                text: root.dateText
-            }
-        }
-        Keys.onPressed: event => {
-            event.accepted = true;
-            if (root.ambientArmed)
-                root.waking = true;
-        }
-        Keys.onReleased: event => {
-            event.accepted = true;
-            if (root.waking && root.ambientArmed && root.step === "ambient")
-                root.wakeFromAmbient();
-            else
-                root.waking = false;
-        }
-        MouseArea {
-            id: ambientPointer
-            anchors.fill: parent
-            hoverEnabled: true
-            onPressed: mouse => {
-                mouse.accepted = true;
-                if (root.ambientArmed)
-                    root.wakeFromAmbient();
-            }
-            onPositionChanged: mouse => {
-                // The first sample is the pointer already inside the screen.
-                if (!root.ambientAnchorKnown) {
-                    root.rememberAmbientPointer(mouse.x, mouse.y);
-                    return;
-                }
-                if (root.ambientArmed && (mouse.x !== root.ambientAnchorX || mouse.y !== root.ambientAnchorY))
-                    root.wakeFromAmbient();
-            }
-        }
     }
-
-    // Where the pointer rests, for the ambient wake anchor.
-    HoverHandler { id: pointerTracker }
 
     Component.onCompleted: Qt.callLater(restoreMenuFocus)
     }

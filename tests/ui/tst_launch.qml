@@ -24,6 +24,17 @@ TestCase {
             serviceTitle: "Example"
         }
     }
+    Component {
+        id: applicationFactory
+        Ui.LaunchOverlay {
+            anchors.fill: parent
+            kind: "application"
+            revealDelay: 40
+            slowDelay: 80
+            timeoutDelay: 0
+            serviceTitle: "Game"
+        }
+    }
     SignalSpy { id: cancels; signalName: "cancelRequested" }
     SignalSpy { id: retries; signalName: "retryRequested" }
     SignalSpy { id: dismisses; signalName: "dismissRequested" }
@@ -54,7 +65,28 @@ TestCase {
         compare(overlay.revealed, false);
     }
 
+    function test_progress_identity_and_translucent_backdrop() {
+        overlay.revealDelay = 600000;
+        overlay.active = true;
+        overlay.revealed = true;
+        const monogram = child("launchMonogram");
+        verify(monogram.visible);
+        compare(monogram.text, "E");
+        compare(child("launchChip").width, 180);
+        compare(child("launchChip").height, 180);
+        compare(child("launchGlow").visible, true);
+        compare(child("launchBackdrop").opacity, 0.92);
+        overlay.serviceTitle = "  Game";
+        compare(monogram.text, "G");
+        overlay.kind = "application";
+        overlay.slow = true;
+        compare(monogram.visible, true);
+        overlay.failure = "Unavailable";
+        compare(monogram.visible, false);
+    }
+
     function test_slow_message_and_cancel() {
+        noTimeout();
         overlay.active = true;
         tryCompare(overlay, "revealed", true);
         compare(overlay.visible, true);
@@ -63,6 +95,9 @@ TestCase {
         focused("launchCancel");
         keyClick(Qt.Key_Return);
         compare(cancels.count, 1);
+        // The cancel ends that open; a new one is slow again, and Back
+        // cancels it too.
+        overlay.active = false;
         overlay.active = true;
         tryCompare(overlay, "slow", true);
         focused("launchCancel");
@@ -72,6 +107,7 @@ TestCase {
 
     function test_home_hides_slow_open_without_cancel() {
         // Main.qml maps cancelRequested to browserCatalog.cancelOpen().
+        noTimeout();
         overlay.active = true;
         tryCompare(overlay, "slow", true);
         compare(overlay.visible, true);
@@ -119,6 +155,198 @@ TestCase {
         compare(child("launchDialogTitle").text, "Example did not open");
         compare(child("launchDialogBody").text, "Try again. If this happens again, restart Arinn.");
         focused("launchRetry");
+    }
+
+    // The browser's timeout follows the slow stage 60 ms later here; a key
+    // sent after it would meet the timeout dialog instead of Cancel under
+    // load (#552). test_timeout_dialog covers the timeout; the cases that
+    // press keys on the slow stage wait for it with none.
+    function noTimeout() {
+        overlay.timeoutDelay = 0;
+    }
+    // The title at the moment the overlay is revealed. The slow stage
+    // follows 40 ms later, so a loaded test can miss "Opening…" between two
+    // polls (#552); recording it on the change does not depend on timing.
+    property string titleAtReveal: ""
+    function recordTitleAtReveal() {
+        titleAtReveal = "";
+        overlay.revealedChanged.connect(() => {
+            if (overlay.revealed && !titleAtReveal.length)
+                titleAtReveal = findChild(overlay, "launchTitle").text;
+        });
+    }
+
+    function application() {
+        overlay = createTemporaryObject(applicationFactory, suite);
+        verify(overlay);
+        cancels.target = overlay; cancels.clear();
+        retries.target = overlay; retries.clear();
+        dismisses.target = overlay; dismisses.clear();
+        homes.target = overlay; homes.clear();
+    }
+
+    // Spec §6.5: the launch animation runs, then "Starting <app>…" with
+    // Cancel. Cancel asks first and Keep starting has the focus.
+    function test_application_starting_and_confirmed_cancel() {
+        application();
+        recordTitleAtReveal();
+        overlay.active = true;
+        tryCompare(overlay, "revealed", true);
+        compare(titleAtReveal, "Opening Game…");
+        tryCompare(overlay, "slow", true);
+        compare(child("launchTitle").text, "Starting Game…");
+        compare(child("launchSlow").visible, false);
+        focused("launchCancel");
+        keyClick(Qt.Key_Return);
+        compare(cancels.count, 0);
+        compare(overlay.confirming, true);
+        compare(child("launchConfirm").visible, true);
+        compare(child("launchConfirmTitle").text, "Stop starting Game?");
+        focused("launchKeepStarting");
+        keyClick(Qt.Key_Return);
+        compare(overlay.confirming, false);
+        compare(cancels.count, 0);
+        focused("launchCancel");
+        keyClick(Qt.Key_Return);
+        focused("launchKeepStarting");
+        keyClick(Qt.Key_Right);
+        focused("launchConfirmStop");
+        keyClick(Qt.Key_Left);
+        focused("launchKeepStarting");
+        keyClick(Qt.Key_Right);
+        keyClick(Qt.Key_Return);
+        compare(cancels.count, 1);
+        compare(overlay.confirming, false);
+    }
+
+    function test_application_back_asks_and_back_again_keeps_starting() {
+        application();
+        overlay.active = true;
+        tryCompare(overlay, "slow", true);
+        focused("launchCancel");
+        keyClick(Qt.Key_Escape);
+        compare(overlay.confirming, true);
+        focused("launchKeepStarting");
+        keyClick(Qt.Key_Escape);
+        compare(overlay.confirming, false);
+        compare(cancels.count, 0);
+        compare(overlay.visible, true);
+        // Home hides the confirmation and the launch, cancelling nothing.
+        // Keep starting gives the focus back to Cancel on the next turn.
+        focused("launchCancel");
+        keyClick(Qt.Key_Escape);
+        focused("launchKeepStarting");
+        keyClick(Qt.Key_Home);
+        compare(homes.count, 1);
+        compare(cancels.count, 0);
+        compare(overlay.confirming, false);
+        compare(overlay.visible, false);
+        // Choosing the tile again shows the starting state again.
+        overlay.showAgain(overlay.slowDelay);
+        compare(overlay.visible, true);
+        compare(overlay.slow, true);
+        focused("launchCancel");
+    }
+
+    // Another application's launch, chosen again behind a newer one, shows
+    // at once: "Starting…" when it has run that long, else when it has.
+    function test_application_show_again_follows_the_launch_shown() {
+        application();
+        overlay.active = true;
+        tryCompare(overlay, "slow", true);
+        // Cancel takes the focus on the turn after the slow stage; Home is
+        // handled by the overlay only from then on (#552).
+        focused("launchCancel");
+        keyClick(Qt.Key_Home);
+        compare(overlay.visible, false);
+        overlay.serviceTitle = "Other";
+        overlay.showAgain(0);
+        compare(overlay.visible, true);
+        compare(overlay.slow, false);
+        compare(child("launchTitle").text, "Opening Other…");
+        tryCompare(overlay, "slow", true);
+        compare(child("launchTitle").text, "Starting Other…");
+        focused("launchCancel");
+        // Shown while visible, for a launch that has run long enough.
+        overlay.serviceTitle = "Game";
+        overlay.showAgain(overlay.slowDelay + 1);
+        compare(overlay.slow, true);
+        compare(child("launchTitle").text, "Starting Game…");
+    }
+
+    // A confirmed stop that the provider has not finished yet: "Stopping…",
+    // without Cancel, until the launch ends.
+    function test_application_stopping() {
+        application();
+        overlay.active = true;
+        tryCompare(overlay, "slow", true);
+        overlay.cancellable = false;
+        overlay.stopping = true;
+        compare(child("launchTitle").text, "Stopping Game…");
+        compare(child("launchCancel").visible, false);
+        keyClick(Qt.Key_Escape);
+        compare(overlay.confirming, false);
+        compare(cancels.count, 0);
+    }
+
+    function test_application_has_no_timeout() {
+        application();
+        overlay.active = true;
+        tryCompare(overlay, "slow", true);
+        wait(300);
+        compare(overlay.timedOut, false);
+        compare(overlay.showDialog, false);
+        compare(child("launchTitle").text, "Starting Game…");
+    }
+
+    function test_application_without_cancel() {
+        application();
+        overlay.cancellable = false;
+        overlay.active = true;
+        tryCompare(overlay, "slow", true);
+        compare(child("launchCancel").visible, false);
+        keyClick(Qt.Key_Escape);
+        compare(overlay.confirming, false);
+        compare(cancels.count, 0);
+        // The launch became cancellable: Cancel appears.
+        overlay.cancellable = true;
+        compare(child("launchCancel").visible, true);
+    }
+
+    function test_application_ends_while_confirming() {
+        application();
+        overlay.active = true;
+        tryCompare(overlay, "slow", true);
+        focused("launchCancel");
+        keyClick(Qt.Key_Return);
+        compare(overlay.confirming, true);
+        // The window appeared: the launch is over, nothing is stopped.
+        overlay.active = false;
+        compare(overlay.visible, false);
+        compare(overlay.confirming, false);
+        compare(cancels.count, 0);
+    }
+
+    function test_application_failure_dialog() {
+        application();
+        overlay.active = true;
+        tryCompare(overlay, "slow", true);
+        // Cancel takes focus when it appears; wait for it, as the other
+        // cases do, or Return can arrive first and open nothing.
+        focused("launchCancel");
+        keyClick(Qt.Key_Return);
+        compare(overlay.confirming, true);
+        overlay.failure = "Unavailable";
+        overlay.active = false;
+        compare(overlay.confirming, false);
+        compare(overlay.showDialog, true);
+        compare(child("launchDialogTitle").text, "Game did not open");
+        compare(child("launchDialogBody").text,
+                "The application could not start or closed before it showed a window.");
+        focused("launchRetry");
+        keyClick(Qt.Key_Return);
+        compare(retries.count, 1);
+        compare(cancels.count, 0);
     }
 
     function child(name) {

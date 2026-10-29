@@ -40,7 +40,7 @@ class ProductSiteTest(unittest.TestCase):
         guide = (self.site / "guide/index.html").read_text()
         self.assertIn('href="../index.html"', guide)
         self.assertEqual((self.site / "assets/screenshots/home.png").read_bytes(),
-                         (ROOT / "docs/design/current-ui/home.png").read_bytes())
+                         (ROOT / "docs/design/showcase/home.png").read_bytes())
 
     def test_handbook_brand_assets_match_approved_sources(self):
         for name, source in (

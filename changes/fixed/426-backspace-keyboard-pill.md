@@ -1,0 +1,1 @@
+- Make Backspace work as Back on the keyboard button of a Settings text sheet, so a remote whose Back key sends Backspace can leave it ([ui-settings.md](docs/architecture/ui-settings.md)).

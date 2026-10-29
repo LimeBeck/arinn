@@ -7,7 +7,7 @@
 - **Date:** 2026-10-07
 - **Deciders:** owner-requested in [#370](https://github.com/LimeBeck/arinn/issues/370); owner review of the field list and merge required (privacy posture)
 - **Amends / Supersedes:** [ADR-0082](0082-opt-in-sentry.md)
-- **Amended by / Superseded by:** —
+- **Amended by / Superseded by:** [ADR-0116](0116-package-matched-sentry-debug-symbols.md) — package-matched debug files (proposed)
 - **Specification:** §13, §14.1, §14.4
 
 ## Context

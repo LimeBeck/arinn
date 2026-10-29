@@ -51,6 +51,85 @@ For an operator-approved lock/unlock check there is `tests/integration/kwin_lock
 
 A complete MVP power action still needs inhibitor/refusal reporting and provider recovery after wake. `SessionLifecycle` does not implement the suspend command itself.
 
+## Restart limit notice
+
+`arinnd.service` and `arinn-shell.service` restart on failure up to five times
+in 60 s (`StartLimitBurst=5`, `StartLimitIntervalSec=60s`). After that, systemd
+leaves the unit failed. On a TV with only a remote, Arinn would just disappear,
+so both units declare `OnFailure=arinn-session-failed@%n.service`
+([#437](https://github.com/LimeBeck/arinn/issues/437)). The template is a
+oneshot that runs `/usr/lib/arinn/arinn-session-failed <unit>`. Both packages
+install it.
+
+- **When the handler runs.** Since systemd 254 (`RestartMode=normal`, the
+  default), every failure passes through a transient failed state before its
+  automatic restart, so `OnFailure=` starts the handler on every crash. In a
+  crash loop that is about six runs in 10 s. The template therefore sets
+  `StartLimitIntervalSec=0`, so the user manager's default start limit cannot
+  swallow the last run, the only one that matters. Systemd 253 and older start
+  it only when the unit stays failed.
+- **When it shows the notice.** The handler reads the unit with
+  `systemctl --user show`, and also uses the `$MONITOR_*` variables that
+  systemd passes to a template handler. It shows the notice when:
+  - the result is `start-limit-hit` (systemd 260 and newer), or
+  - the unit is finally failed (`ActiveState=failed`, `SubState=failed`) and
+    `NRestarts` has reached `StartLimitBurst`. Before systemd 260, a unit that
+    hits its limit through automatic restarts keeps the result of its last
+    crash (`exit-code`, `signal`, `core-dump`), so the restart count is the only
+    sign of the limit.
+- **When it stays silent.** Missing or non-numeric properties and every earlier
+  run (sub-state `failed-before-auto-restart` or `auto-restart`, or fewer
+  restarts) produce one journal line and nothing else. Exit status 75
+  (`RestartForceExitStatus=`, [ADR-0098](../adr/0098-restart-after-an-update.md))
+  is always restarted, so it reaches the notice only at the start limit.
+- **Exit status 2.** `RestartPreventExitStatus=` also leaves the shell failed.
+  That status means a duplicate shell or a wrong backend, not a crash loop. When
+  the main process exited with a status listed in `RestartPreventExitStatus`,
+  the handler stays silent, even after earlier restarts, as before.
+- **One notice per failed run.** The run before the refused restart and the run
+  for the final failure share the unit's invocation ID. The handler keeps the
+  last reported ID in `$XDG_RUNTIME_DIR/arinn-session-failed.<unit>` (mode 0600).
+- **Known limit.** A unit that already has `NRestarts` at the burst and then
+  fails without being restarted for another reason (for example, a pending stop
+  at logout) would also show the notice.
+- At the start limit it sends `org.freedesktop.Notifications.Notify` with
+  `busctl --user`, which works on Plasma and XFCE. The summary is "Arinn stopped
+  after repeated failures". The body names the unit, the diagnostics commands
+  (`journalctl --user -u <unit>`, `arinnctl diagnostics`, spec §14.3) and how to
+  start again (`systemctl --user reset-failed <unit>`, then
+  `systemctl --user start <unit>`). The notification is critical and does not
+  expire. Without a notification server, the handler logs that the notice was
+  not shown.
+- The message and the journal lines contain only the unit name (§13). The
+  handler restarts nothing and takes no power action. It has no `Restart=` and
+  no `OnFailure=` of its own.
+
+`tests/package/test_session_failed.py` (CTest `session-failure-notice`) runs
+the handler with stub `systemctl` and `busctl`. It covers the start limit as
+both systemd behaviours report it: `start-limit-hit`, or the crash result
+(`exit-code`/`signal`/`core-dump`) with `NRestarts` at the burst. It also
+covers:
+
+- silence before the limit (each transient state);
+- silence for exit status 2, also after earlier restarts;
+- silence for missing properties;
+- one notice per invocation;
+- a missing notification server;
+- refused unit names.
+
+When `busctl` and `dbus-monitor` are available, it also captures the real
+`Notify` call on a private bus. Its unit checks pin `OnFailure=`, the start
+limit, `RestartForceExitStatus=75`, `RestartPreventExitStatus=2` and the
+oneshot handler with `StartLimitIntervalSec=0`. The package test
+(`tests/package/session.py`) repeats them against the installed handler, and
+its `systemd-analyze --user verify` run includes the template. That run
+instantiates the template and checks the handler executable.
+
+A real user manager reaching the start limit was not run: the CI and dev
+containers have read-only cgroups and cannot run `systemd --user`. On a desktop
+it is an operator test. The systemd behaviour described above comes from the
+systemd sources (`service.c`/`unit.c`, v254–v260).
+
 ## Desktop entry relaunch
 
 Closing the shell through its menu ends the shell process without stopping the
@@ -69,3 +148,131 @@ Normal desktop-entry relaunch after a clean shell exit resets the unit start
 counter before starting it. The launcher requires `ActiveState=inactive` and
 `Result=success`; failed units retain the service start limit and crash-loop
 protection. Repeated menu close/reopen cycles therefore remain available.
+
+## Dedicated Arinn session
+
+[ADR-0107](../adr/0107-dedicated-arinn-session.md) (accepted by the owner on
+2026-10-21) adds two login session entries next to the opt-in autostart of
+[ADR-0042](../adr/0042-opt-in-session-autostart.md):
+
+| Entry | Display manager directory | Starts |
+| --- | --- | --- |
+| `arinn.desktop` ("Arinn") | `/usr/share/wayland-sessions` | `startplasma-wayland`, then `arinn-session.target` |
+| `arinn-xfce.desktop` ("Arinn (XFCE)") | `/usr/share/xsessions` | `startxfce4`, then `arinn-xfce-session` (EWMH target) |
+
+Both run `/usr/lib/arinn/arinn-session <plasma|xfce>`. The wrapper reads
+`$XDG_STATE_HOME/arinn/session-mode`. When the file holds exactly `desktop`
+(at most one trailing newline), the wrapper replaces itself with the plain
+desktop. A NUL byte anywhere makes the content something else, so `desk\0top`
+starts Arinn; `arinn-session-switch` reads the file by the same rule. Otherwise it starts the
+desktop as a child, waits up to 120 s for readiness, exports
+`ARINN_SESSION_ENTRY` and `ARINN_SESSION_MODE` (the mode file it read) to the
+user manager and starts Arinn. Readiness means
+`graphical-session.target` is active on Plasma, or `org.xfce.SessionManager`
+is owned on XFCE. On XFCE, Arinn counts as started once the helper the
+wrapper started confirms a started EWMH target: it owns
+`org.arinn.XfceSession.Running` (`busctl --user status` reports its PID).
+The helper takes that name only after the target has started. After a fast
+re-login, the previous login's helper may still own `org.arinn.XfceSession`
+while it stops the target. The new helper waits up to 65 s for that name
+([x11-ewmh](x11-ewmh.md), #483), which covers the previous helper's normal
+cleanup. A hung user manager can hold the name for longer; Arinn cannot
+start then anyway, and the line below is logged. The wrapper watches for up
+to 120 s, which covers the wait and a start. If Arinn cannot start, the wrapper writes the
+fixed line `arinn-session: Arinn did not start; the desktop continues without
+it` to the session log, and the desktop keeps running. That covers no
+readiness, a failed target start on Plasma, an XFCE helper that exits before
+it confirms a start (it gave up waiting, or a check, environment update or
+the target start failed), and no confirmation within the watch. When the
+desktop exits, the wrapper stops the Plasma target, removes the marker and
+exits with the desktop's status. In both modes the desktop starts with
+SIGINT and SIGQUIT at their defaults, as with the stock entries. The desktop
+mode clears an `ARINN_SESSION_ENTRY` a killed wrapper may have left in the
+user manager and exports `ARINN_SESSION_MODE` there and to the desktop, so
+Return to Arinn writes the same file. In the Arinn mode the desktop's own
+environment carries `ARINN_SESSION_ENTRY` as well; on XFCE the launcher
+`arinn-xfce-session` mirrors it into the user manager before it starts the
+EWMH target, and clears a marker its login does not carry, so a stock XFCE
+login after a killed wrapper is never taken for the dedicated session
+([ADR-0111](../adr/0111-power-key.md)).
+
+`/usr/lib/arinn/arinn-session-switch arinn|desktop [--prompt]` records the
+choice, then asks the desktop to log out through its own session-bus API:
+`org.kde.Shutdown.logout` or `org.kde.LogoutPrompt.promptLogout` on Plasma,
+`org.xfce.Session.Manager.Logout` on XFCE. It writes the file named by
+`ARINN_SESSION_MODE` when set, so it matches the file the session read. If the
+desktop refuses the request, the previous choice is restored as the session
+would read it (damaged content becomes `arinn`) and the command
+exits 1. Without `--prompt` the logout call is bounded to 5 s
+(`busctl --timeout=5`), and a desktop that does not answer counts as a
+refusal. A choice that cannot be recorded exits 3 without a logout request;
+usage errors exit 2. A logout the desktop accepts and an application cancels later is not
+detected: the session continues with `desktop` recorded and no error. That is
+an open point for the daemon and power-menu follow-up (G-5.8). The "Return to Arinn"
+menu launcher (`org.arinn.ReturnToArinn.desktop`) runs it with `--prompt`.
+"Switch to desktop" in the power menu reaches it only through the daemon's
+platform layer: `SystemControl1.GetSessionSwitch` and `SwitchToDesktop`
+([system control](system-control.md#switch-to-desktop)). It is offered only
+when the daemon's environment has `ARINN_SESSION_ENTRY` set.
+Nothing here needs privileges or changes display-manager configuration.
+
+Administrator setup, once per HTPC:
+
+- **SDDM** (Plasma): for a TV without a login prompt, use
+  `/etc/sddm.conf.d/autologin.conf` with `[Autologin]`,
+  `User=<user>`, `Session=arinn.desktop` and `Relogin=true`. With
+  `Relogin=true` a switch logs in again at once; without it, the greeter
+  appears with the Arinn entry preselected.
+- **LightDM** (XFCE): `autologin-user=<user>` and
+  `autologin-session=arinn-xfce` in `[Seat:*]`, or choose "Arinn (XFCE)"
+  once in the greeter.
+- Users of the Arinn session should not also enable the opt-in autostart.
+  Otherwise Arinn starts in the plain desktop as well.
+
+Verified offline: `tests/package/test_session_entry.py` (CTest
+`arinn-session-entry`, and against the installed files from
+`tests/package/session.py`) runs both scripts against stub `systemctl`,
+`busctl` and desktop commands. Not verified: a real login, switch and return
+on the HTPC with SDDM and with LightDM. That operator test needs the owner's
+permission (G-5.8). Notes for it: on XFCE the EWMH adapter may fail once
+with "no EWMH window manager" when it starts before xfwm4, and recovers
+through `Restart=on-failure`; the display managers set
+`XDG_SESSION_DESKTOP`/`DESKTOP_SESSION` to `arinn`/`arinn-xfce`.
+
+## Package upgrade
+
+An upgrade replaces the binaries on disk, but running processes keep the old
+ones until they restart ([#355](https://github.com/LimeBeck/arinn/issues/355)).
+A new shell against an old daemon cannot load Home, and KWin keeps running the
+script it loaded at login. Both packages therefore restart the running Arinn
+user services after an upgrade with `/usr/lib/arinn/arinn-restart-user-services`:
+
+- **Arch:** the libalpm hook `/usr/share/libalpm/hooks/arinn-restart-user-services.hook`
+  runs it `PostTransaction`, only on `Operation = Upgrade` of the daemon, shell,
+  EWMH adapter, anything under `/usr/lib/arinn/` (providers, launchers, the
+  Chrome host) or the KWin script. `post_upgrade` in `arinn.install` prints one
+  line saying the restart follows at the end of the transaction.
+- **Debian** ([ADR-0091](../adr/0091-debian-package-ci-artifact.md)): `postinst configure`
+  runs it when `$2` names the previous version, that is on an upgrade.
+
+Install and removal start or stop nothing; `pre_remove` keeps its message.
+
+The script lists the running `user@<uid>.service` managers of the system
+manager and, for each user whose `arinnd`, KWin, EWMH or shell unit is active,
+runs `systemctl --user -M <user>@ try-restart` on `arinnd.service`,
+`arinn-kwin.service`, `arinn-ewmh.service` and `arinn-shell.service`, in that
+order and one at a time. `try-restart` starts no unit that was not running, so
+a user who runs only one session type keeps it. The daemon restarts its
+providers on start, and the reloaded KWin adapter serves the new daemon. The
+managed mpv scope may close with the daemon, so the output says that playback
+in progress is interrupted. Without a running systemd (chroot, container,
+build root) the script does nothing, and a failed restart prints a warning
+without failing the transaction.
+
+`tests/package/test_restart_user_services.py` (CTest `restart-after-upgrade`)
+runs the script, `post_upgrade` and the Debian `postinst` against stub
+`systemctl` and `getent`, and checks that the hook runs after upgrades only and
+that its targets match the binaries the PKGBUILD installs. The Arch package test
+(`tests/package/session.py`) repeats the stub test against the installed script
+and matches the hook targets against the files `pacman -Qlq arinn` lists. A
+restart under a real user manager is an operator test and was not run.

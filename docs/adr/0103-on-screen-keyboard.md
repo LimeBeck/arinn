@@ -4,7 +4,7 @@
 - **Date:** 2026-10-09
 - **Deciders:** project owner, answers to DR-39 (a), DR-40 (a) and DR-41 (b) on 2026-10-09 ([#418](https://github.com/LimeBeck/arinn/issues/418), [#420](https://github.com/LimeBeck/arinn/issues/420)); technical details under delegated authority ([ADR-0037](0037-agent-autonomy-and-owner-gated-decisions.md))
 - **Amends / Supersedes:** amends [ADR-0051](0051-address-and-search-entry.md) (the on-screen keyboard is no longer post-MVP; suggestions on the address and search screen)
-- **Amended by / Superseded by:** —
+- **Amended by / Superseded by:** amended by [ADR-0105](0105-global-on-screen-keyboard-platform-text-delivery.md) (the keyboard also types into external applications)
 - **Specification:** [§5.1](../specifications/arinn-specification.md#51-home), [§6.2](../specifications/arinn-specification.md#62-keys), [§7.1](../specifications/arinn-specification.md#71-browser-chromechromium)
 
 ## Context

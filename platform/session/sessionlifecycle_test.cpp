@@ -12,6 +12,8 @@
 #include <QDBusVirtualObject>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
+#include <QKeyEvent>
+#include <QQuickItem>
 #include <QQuickWindow>
 #include <QtTest>
 class LockService : public QObject, protected QDBusContext {
@@ -67,6 +69,32 @@ public:
     } else {
       bus.send(message.createErrorReply(QDBusError::NotSupported, "fixture"));
     }
+    return true;
+  }
+};
+// Repeater delegates are in the item tree, not always QObject children.
+QQuickItem *findItem(QQuickItem *root, const QString &name) {
+  if (root->objectName() == name)
+    return root;
+  for (auto *child : root->childItems())
+    if (auto *found = findItem(child, name))
+      return found;
+  return nullptr;
+}
+// Serves Home like StalledDaemon and accepts SystemControl1 power requests
+// (ADR-0108). It never suspends anything.
+class PowerDaemon : public StalledDaemon {
+public:
+  QStringList calls;
+  bool handleMessage(const QDBusMessage &message,
+                     const QDBusConnection &bus) override {
+    if (message.interface() != "org.arinn.SystemControl1")
+      return StalledDaemon::handleMessage(message, bus);
+    calls.append(message.member());
+    if (message.member() == "Suspend")
+      bus.send(message.createReply());
+    else
+      bus.send(message.createErrorReply(QDBusError::NotSupported, "fixture"));
     return true;
   }
 };
@@ -215,6 +243,185 @@ private slots:
     server.unregisterObject("/org/arinn/Daemon1");
     if (stalled)
       server.unregisterService("org.arinn.Daemon1");
+    QDBusConnection::disconnectFromBus("lifecycle-services");
+  }
+  // #148, §5.7: the power menu opened from navigation is the power scope;
+  // an accepted Sleep shows only a waiting state, and the lifecycle guard,
+  // not a timer, hides the shell. After wake the screen beneath is back.
+  void powerMenuAcrossSleep() {
+    auto bus = QDBusConnection::sessionBus();
+    auto server = QDBusConnection::connectToBus(QDBusConnection::SessionBus,
+                                                "lifecycle-services");
+    LockService lock;
+    SleepService sleep;
+    PowerDaemon daemon;
+    QVERIFY(server.registerService("org.freedesktop.ScreenSaver"));
+    QVERIFY(server.registerService("org.freedesktop.login1"));
+    QVERIFY(server.registerObject("/ScreenSaver", &lock,
+                                  QDBusConnection::ExportAllSlots |
+                                      QDBusConnection::ExportAllSignals));
+    QVERIFY(server.registerObject("/org/freedesktop/login1", &sleep,
+                                  QDBusConnection::ExportAllSignals));
+    QVERIFY(server.registerService("org.arinn.Daemon1"));
+    QVERIFY(server.registerVirtualObject("/org/arinn/Daemon1", &daemon));
+    Backend backend;
+    DbusSessionLifecycle guard(nullptr, bus, bus);
+    QQmlApplicationEngine engine;
+    engine.rootContext()->setContextProperty("backend", &backend);
+    engine.rootContext()->setContextProperty("sessionGuard", &guard);
+    engine.load(QUrl("qrc:/Main.qml"));
+    QVERIFY(!engine.rootObjects().isEmpty());
+    auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+    QVERIFY(window);
+    QTRY_VERIFY(window->isVisible());
+    window->requestActivate();
+    auto home = window->findChild<QQuickItem *>("productionHome");
+    auto overlay = window->findChild<QQuickItem *>("powerOverlay");
+    QVERIFY(home);
+    QVERIFY(overlay);
+    QVERIFY(QMetaObject::invokeMethod(home, "powerRequested"));
+    QTRY_COMPARE(window->property("focusedScreen").toString(),
+                 QString("power"));
+    QTRY_VERIFY(daemon.calls.contains("GetPower"));
+    auto sleepRow = findItem(window->contentItem(), "sleepButton");
+    QVERIFY(sleepRow);
+    QTRY_VERIFY(sleepRow->hasActiveFocus());
+    // Home beneath is inert while the power scope is open.
+    QVERIFY(!home->isEnabled());
+    // A held Back is one step (§6.3): its repeats neither close the
+    // confirmation nor unwind the scope beneath.
+    auto menu = findItem(window->contentItem(), "powerMenu");
+    QVERIFY(menu);
+    QTest::keyClick(window, Qt::Key_Down);
+    QTest::keyClick(window, Qt::Key_Return);
+    QTRY_COMPARE(menu->property("step").toString(), QString("confirm"));
+    for (int i = 0; i < 3; ++i) {
+      QKeyEvent repeat(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier,
+                       QString(), true);
+      QCoreApplication::sendEvent(window, &repeat);
+    }
+    QTest::qWait(100);
+    QCOMPARE(menu->property("step").toString(), QString("confirm"));
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_COMPARE(menu->property("step").toString(), QString("menu"));
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_COMPARE(window->property("focusedScreen").toString(), QString("home"));
+    for (int i = 0; i < 3; ++i) {
+      QKeyEvent repeat(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier,
+                       QString(), true);
+      QCoreApplication::sendEvent(window, &repeat);
+    }
+    QTest::qWait(100);
+    QVERIFY(!window->property("navOpen").toBool());
+    QVERIFY(QMetaObject::invokeMethod(home, "powerRequested"));
+    // A new opening starts on the first row, not the last one used.
+    QTRY_VERIFY(sleepRow->hasActiveFocus());
+    QTest::keyClick(window, Qt::Key_Return);
+    QTRY_VERIFY(daemon.calls.contains("Suspend"));
+    auto accepted = findItem(window->contentItem(), "powerAccepted");
+    QVERIFY(accepted);
+    QTRY_VERIFY(accepted->isVisible());
+    QVERIFY(overlay->property("open").toBool());
+    emit sleep.PrepareForSleep(true);
+    QTRY_VERIFY_WITH_TIMEOUT(!window->isVisible(), 500);
+    QTRY_VERIFY(!overlay->property("open").toBool());
+    emit sleep.PrepareForSleep(false);
+    QTRY_VERIFY_WITH_TIMEOUT(window->isVisible(), 1000);
+    QTRY_COMPARE(window->property("focusedScreen").toString(),
+                 QString("home"));
+    QCOMPARE(daemon.calls.count("Suspend"), 1);
+    server.unregisterObject("/ScreenSaver");
+    server.unregisterObject("/org/freedesktop/login1");
+    server.unregisterService("org.freedesktop.login1");
+    server.unregisterObject("/org/arinn/Daemon1");
+    server.unregisterService("org.arinn.Daemon1");
+    QDBusConnection::disconnectFromBus("lifecycle-services");
+  }
+  // #307, §5.7: idle on Home starts ambient; the first key is consumed and
+  // Home's focus is back; a lock ends ambient without a wake.
+  void ambientAfterIdle() {
+    auto bus = QDBusConnection::sessionBus();
+    auto server = QDBusConnection::connectToBus(QDBusConnection::SessionBus,
+                                                "lifecycle-services");
+    LockService lock;
+    SleepService sleep;
+    PowerDaemon daemon;
+    QVERIFY(server.registerService("org.freedesktop.ScreenSaver"));
+    QVERIFY(server.registerService("org.freedesktop.login1"));
+    QVERIFY(server.registerObject("/ScreenSaver", &lock,
+                                  QDBusConnection::ExportAllSlots |
+                                      QDBusConnection::ExportAllSignals));
+    QVERIFY(server.registerObject("/org/freedesktop/login1", &sleep,
+                                  QDBusConnection::ExportAllSignals));
+    QVERIFY(server.registerService("org.arinn.Daemon1"));
+    QVERIFY(server.registerVirtualObject("/org/arinn/Daemon1", &daemon));
+    Backend backend;
+    DbusSessionLifecycle guard(nullptr, bus, bus);
+    QQmlApplicationEngine engine;
+    engine.rootContext()->setContextProperty("backend", &backend);
+    engine.rootContext()->setContextProperty("sessionGuard", &guard);
+    engine.load(QUrl("qrc:/Main.qml"));
+    QVERIFY(!engine.rootObjects().isEmpty());
+    auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+    QVERIFY(window);
+    QTRY_VERIFY(window->isVisible());
+    window->requestActivate();
+    QTRY_VERIFY(window->isActive());
+    auto idle = window->findChild<QObject *>("ambientIdle");
+    auto ambient = findItem(window->contentItem(), "ambientScreen");
+    QVERIFY(idle);
+    QVERIFY(ambient);
+    QCOMPARE(idle->property("timeout").toInt(), 600000);
+    QTRY_VERIFY(window->activeFocusItem());
+    QTRY_COMPARE(window->property("focusedScreen").toString(),
+                 QString("home"));
+    // Explicit start from the power menu: wake returns to the menu row.
+    auto home = findItem(window->contentItem(), "productionHome");
+    QVERIFY(QMetaObject::invokeMethod(home, "powerRequested"));
+    auto ambientRow = findItem(window->contentItem(), "ambientButton");
+    QVERIFY(ambientRow);
+    QTRY_VERIFY(findItem(window->contentItem(), "sleepButton")->hasActiveFocus());
+    for (int i = 0; i < 3; ++i)
+      QTest::keyClick(window, Qt::Key_Down);
+    QTRY_VERIFY(ambientRow->hasActiveFocus());
+    QTest::keyClick(window, Qt::Key_Return);
+    QTRY_VERIFY(ambient->property("active").toBool());
+    QCOMPARE(window->property("focusedScreen").toString(), QString("ambient"));
+    QTRY_VERIFY(ambient->property("armed").toBool());
+    QTest::keyClick(window, Qt::Key_Return);
+    QTRY_VERIFY(!ambient->property("active").toBool());
+    QTRY_VERIFY(ambientRow->hasActiveFocus());
+    QCOMPARE(window->property("focusedScreen").toString(), QString("power"));
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_COMPARE(window->property("focusedScreen").toString(),
+                 QString("home"));
+    QTRY_VERIFY(window->activeFocusItem());
+    auto focused = window->activeFocusItem();
+    idle->setProperty("timeout", 300);
+    QTRY_VERIFY(idle->property("counting").toBool());
+    QTRY_VERIFY_WITH_TIMEOUT(ambient->property("active").toBool(), 3000);
+    QCOMPARE(window->property("focusedScreen").toString(), QString("ambient"));
+    QTRY_VERIFY(ambient->property("armed").toBool());
+    // The wake key does nothing else: Home's focus stays where it was.
+    QTest::keyClick(window, Qt::Key_Down);
+    QTRY_VERIFY(!ambient->property("active").toBool());
+    QTRY_COMPARE(window->property("focusedScreen").toString(),
+                 QString("home"));
+    QTRY_COMPARE(window->activeFocusItem(), focused);
+    // Ambient never asked the platform for anything.
+    QVERIFY(!daemon.calls.contains("Suspend"));
+    // A lock ends ambient without a wake event.
+    QTRY_VERIFY_WITH_TIMEOUT(ambient->property("active").toBool(), 3000);
+    lock.active = true;
+    emit lock.ActiveChanged(true);
+    QTRY_VERIFY_WITH_TIMEOUT(!window->isVisible(), 500);
+    QVERIFY(!ambient->property("active").toBool());
+    QVERIFY(!idle->property("counting").toBool());
+    server.unregisterObject("/ScreenSaver");
+    server.unregisterObject("/org/freedesktop/login1");
+    server.unregisterService("org.freedesktop.login1");
+    server.unregisterObject("/org/arinn/Daemon1");
+    server.unregisterService("org.arinn.Daemon1");
     QDBusConnection::disconnectFromBus("lifecycle-services");
   }
   void staleReplies_data() {

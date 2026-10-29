@@ -31,6 +31,7 @@ class XfceSession(unittest.TestCase):
         self.addCleanup(self.stop_process, self.bus)
         address = self.bus.stdout.readline().strip()
         self.assertTrue(address)
+        self.address = address
         self.dbus = ctypes.CDLL(ctypes.util.find_library("dbus-1"))
         self.dbus.dbus_connection_open_private.argtypes = [ctypes.c_char_p, ctypes.c_void_p]
         self.dbus.dbus_connection_open_private.restype = ctypes.c_void_p
@@ -38,6 +39,7 @@ class XfceSession(unittest.TestCase):
         self.dbus.dbus_bus_request_name.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_uint, ctypes.c_void_p]
         self.dbus.dbus_connection_close.argtypes = [ctypes.c_void_p]
         self.dbus.dbus_connection_unref.argtypes = [ctypes.c_void_p]
+        self.dbus.dbus_bus_name_has_owner.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_void_p]
         self.owner = self.dbus.dbus_connection_open_private(address.encode(), None)
         self.assertTrue(self.owner)
         self.assertTrue(self.dbus.dbus_bus_register(self.owner, None))
@@ -57,6 +59,9 @@ exit 0
                     "DISPLAY": ":987", "XDG_SESSION_TYPE": "x11",
                     "XAUTHORITY": str(self.root / "synthetic-authority"),
                     "PATH": f"{self.root}:{os.environ['PATH']}", "CALL_LOG": str(self.log)}
+        for name in ("ARINN_SESSION_ENTRY", "XDG_STATE_HOME", "XDG_CONFIG_HOME", "XDG_SESSION_ID"):
+            self.env.pop(name, None)
+        self.env["HOME"] = str(self.root / "home")
 
     @staticmethod
     def stop_process(child):
@@ -93,7 +98,7 @@ exit 0
     def assert_cleanup(self):
         calls = self.log.read_text().splitlines()
         self.assertEqual(sum(" stop arinn-ewmh-session.target" in call for call in calls), 1)
-        self.assertTrue(calls[-1].endswith("unset-environment DISPLAY XAUTHORITY XDG_SESSION_TYPE ARINN_PLATFORM_BACKEND ARINN_SESSION_BACKEND"))
+        self.assertTrue(calls[-1].endswith("unset-environment DISPLAY XAUTHORITY XDG_SESSION_TYPE ARINN_PLATFORM_BACKEND ARINN_SESSION_BACKEND ARINN_LOGIN_STATE_HOME ARINN_LOGIN_CONFIG_HOME ARINN_LOGIN_SESSION_ID"))
         self.assertFalse(any(" enable " in call for call in calls))
 
     def test_login_imports_environment_before_start_and_logout_stops(self):
@@ -104,9 +109,82 @@ exit 0
         self.assertIn("--user --no-ask-password import-environment XAUTHORITY", calls)
         selection = next(i for i, call in enumerate(calls) if "set-environment XDG_SESSION_TYPE=x11 ARINN_PLATFORM_BACKEND=ewmh ARINN_SESSION_BACKEND=x11" in call)
         self.assertLess(selection, len(calls) - 1)
+        # ADR-0111: the ordinary XFCE desktop keeps its power dialog. The
+        # adapter recognises it by org.xfce.SessionManager on the session
+        # bus, which this bridge requires before it starts the target (see
+        # test_missing_xfce_owner_never_touches_manager), not by
+        # XDG_CURRENT_DESKTOP. A stock login lacks the dedicated session's
+        # marker, so the bridge clears one a killed wrapper left in a
+        # lingering user manager before the target starts: the adapter
+        # never takes the key here.
+        start = calls.index("--user --no-ask-password start arinn-ewmh-session.target")
+        clear = calls.index("--user --no-ask-password unset-environment ARINN_SESSION_ENTRY")
+        self.assertLess(clear, start)
+        self.assertFalse(any(" set-environment ARINN_SESSION_ENTRY" in call for call in calls))
+        self.assertFalse(any("XDG_CURRENT_DESKTOP" in call for call in calls))
         self.close_owner()
         self.assertEqual(child.wait(timeout=5), 0)
         self.assert_cleanup()
+
+    def test_login_folders_reach_the_user_manager(self):
+        # ADR-0111: the adapter in the user manager uses the login's own
+        # state and config folders for the XFCE power button's copy and
+        # restore entry, so it meets the system login entry. Defaults below
+        # HOME, a login's own values, and unknown folders (unset).
+        for changes, expected in (
+            ({}, f"ARINN_LOGIN_STATE_HOME={self.root}/home/.local/state "
+                 f"ARINN_LOGIN_CONFIG_HOME={self.root}/home/.config"),
+            ({"XDG_STATE_HOME": "/login/state", "XDG_CONFIG_HOME": "/login/config"},
+             "ARINN_LOGIN_STATE_HOME=/login/state ARINN_LOGIN_CONFIG_HOME=/login/config"),
+            ({"HOME": "relative", "XDG_STATE_HOME": "relative"}, None),
+        ):
+            with self.subTest(changes=changes):
+                self.log.write_text("")
+                child = self.launch(**changes)
+                self.wait_for_start(child)
+                calls = self.log.read_text().splitlines()
+                start = calls.index("--user --no-ask-password start arinn-ewmh-session.target")
+                if expected:
+                    folders = calls.index(f"--user --no-ask-password set-environment {expected}")
+                else:
+                    folders = calls.index("--user --no-ask-password unset-environment "
+                                          "ARINN_LOGIN_STATE_HOME ARINN_LOGIN_CONFIG_HOME")
+                self.assertLess(folders, start)
+                child.terminate()
+                self.assertEqual(child.wait(timeout=5), 0)
+
+    def test_login_session_reaches_the_user_manager(self):
+        # ADR-0111: the dedicated session checks with logind that the user
+        # has no other graphical session; it needs this login's session id.
+        for changes, expected in (
+            ({"XDG_SESSION_ID": "c4"}, "set-environment ARINN_LOGIN_SESSION_ID=c4"),
+            ({}, "unset-environment ARINN_LOGIN_SESSION_ID"),
+            ({"XDG_SESSION_ID": "c4 x"}, "unset-environment ARINN_LOGIN_SESSION_ID"),
+        ):
+            with self.subTest(changes=changes):
+                self.log.write_text("")
+                child = self.launch(**changes)
+                self.wait_for_start(child)
+                calls = self.log.read_text().splitlines()
+                start = calls.index("--user --no-ask-password start arinn-ewmh-session.target")
+                self.assertLess(calls.index(f"--user --no-ask-password {expected}"), start)
+                child.terminate()
+                self.assertEqual(child.wait(timeout=5), 0)
+
+    def test_dedicated_login_keeps_its_marker(self):
+        # ADR-0111: the dedicated session's wrapper puts the marker into the
+        # desktop's environment; the bridge binds the user manager's marker
+        # to this login before the target starts, so the adapter takes the
+        # power key there.
+        child = self.launch(ARINN_SESSION_ENTRY="xfce")
+        self.wait_for_start(child)
+        calls = self.log.read_text().splitlines()
+        start = calls.index("--user --no-ask-password start arinn-ewmh-session.target")
+        mark = calls.index("--user --no-ask-password set-environment ARINN_SESSION_ENTRY=xfce")
+        self.assertLess(mark, start)
+        self.assertFalse(any("unset-environment ARINN_SESSION_ENTRY" in call for call in calls))
+        self.close_owner()
+        self.assertEqual(child.wait(timeout=5), 0)
 
     def test_signal_stops_and_missing_authority_clears_stale_value(self):
         child = self.launch(XAUTHORITY=None)
@@ -120,7 +198,12 @@ exit 0
         first = self.launch()
         self.wait_for_start(first)
         before = self.log.read_text()
+        # A second launcher waits for the name (#483) and touches nothing;
+        # stopped while it waits, it fails without any cleanup of its own.
         duplicate = self.launch()
+        time.sleep(1)
+        self.assertIsNone(duplicate.poll())
+        duplicate.terminate()
         self.assertEqual(duplicate.wait(timeout=5), 1)
         self.assertEqual(self.log.read_text(), before)
         self.assertIsNone(first.poll())
@@ -128,10 +211,87 @@ exit 0
         self.assertEqual(first.wait(timeout=5), 0)
         self.assert_cleanup()
 
+    def test_fast_relogin_waits_for_the_previous_launcher(self):
+        # #483: after a fast re-login the previous login's launcher still
+        # owns the name while it stops the target. The new one waits for the
+        # name instead of exiting as a duplicate, touches nothing meanwhile,
+        # and starts the target once the name is free.
+        previous = self.dbus.dbus_connection_open_private(self.address.encode(), None)
+        self.assertTrue(previous)
+        self.assertTrue(self.dbus.dbus_bus_register(previous, None))
+        self.assertEqual(self.dbus.dbus_bus_request_name(previous, b"org.arinn.XfceSession", 4, None), 1)
+        try:
+            child = self.launch()
+            time.sleep(1.5)
+            self.assertIsNone(child.poll(), "the launcher gave up while the name was held")
+            self.assertEqual(self.log.read_text(), "")
+        finally:
+            self.dbus.dbus_connection_close(previous)
+            self.dbus.dbus_connection_unref(previous)
+        self.wait_for_start(child)
+        self.close_owner()
+        self.assertEqual(child.wait(timeout=5), 0)
+        self.assert_cleanup()
+
+    def test_login_that_ends_while_waiting_never_takes_over(self):
+        # #483: a launcher still waiting for the name when its own login
+        # ends (the session manager's name loses its owner or gets a new
+        # one) stops waiting and touches nothing, so it can never start a
+        # later login's target with this login's display and session.
+        previous = self.dbus.dbus_connection_open_private(self.address.encode(), None)
+        self.assertTrue(previous)
+        self.assertTrue(self.dbus.dbus_bus_register(previous, None))
+        self.assertEqual(self.dbus.dbus_bus_request_name(previous, b"org.arinn.XfceSession", 4, None), 1)
+        self.addCleanup(self.dbus.dbus_connection_unref, previous)
+        self.addCleanup(self.dbus.dbus_connection_close, previous)
+        child = self.launch()
+        time.sleep(1)
+        self.assertIsNone(child.poll())
+        # The next login's session manager replaces this one's.
+        self.close_owner()
+        replacement = self.dbus.dbus_connection_open_private(self.address.encode(), None)
+        self.assertTrue(replacement)
+        self.assertTrue(self.dbus.dbus_bus_register(replacement, None))
+        self.addCleanup(self.dbus.dbus_connection_unref, replacement)
+        self.addCleanup(self.dbus.dbus_connection_close, replacement)
+        self.assertEqual(self.dbus.dbus_bus_request_name(replacement, b"org.xfce.SessionManager", 4, None), 1)
+        self.assertEqual(child.wait(timeout=5), 1)
+        # The previous launcher releases the name only now: too late.
+        self.dbus.dbus_connection_close(previous)
+        time.sleep(0.5)
+        self.assertEqual(self.log.read_text(), "")
+
+    def running(self):
+        return bool(self.dbus.dbus_bus_name_has_owner(self.owner, b"org.arinn.XfceSession.Running", None))
+
+    def test_a_started_target_is_confirmed(self):
+        # #483: arinn-session counts Arinn as started only once its helper
+        # owns org.arinn.XfceSession.Running, taken after the target started.
+        child = self.launch()
+        self.wait_for_start(child)
+        deadline = time.monotonic() + 5
+        while not self.running() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        self.assertTrue(self.running())
+        child.terminate()
+        self.assertEqual(child.wait(timeout=5), 0)
+        self.assertFalse(self.running())
+
     def test_failed_start_cleans_partial_session(self):
+        # A failed start is never confirmed (#483).
+        monitor = subprocess.Popen(
+            ["dbus-monitor", "--address", self.address,
+             "type='signal',member='NameOwnerChanged',arg0='org.arinn.XfceSession.Running'"],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+        self.addCleanup(self.stop_process, monitor)
+        time.sleep(0.3)
         child = self.launch(START_FAIL="1")
         self.assertEqual(child.wait(timeout=5), 1)
         self.assert_cleanup()
+        time.sleep(0.3)
+        monitor.terminate()
+        output, _ = monitor.communicate(timeout=5)
+        self.assertNotIn("org.arinn.XfceSession.Running", output)
 
     def test_refuses_existing_session_without_stopping_it(self):
         child = self.launch(ALREADY_ACTIVE="1")
@@ -146,6 +306,8 @@ exit 0
             self.assertEqual(self.log.read_text(), "")
 
     def test_missing_xfce_owner_never_touches_manager(self):
+        # Also ADR-0111: the target never runs without the XFCE session
+        # manager's name, by which the adapter leaves the power key to XFCE.
         self.close_owner()
         child = self.launch()
         self.assertEqual(child.wait(timeout=5), 1)

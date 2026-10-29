@@ -108,6 +108,50 @@ int main() {
     check(!inflight.completeRead(retired, context(), 2, 2, rgba), "unlock cannot admit late pre-lock copy");
     check(!inflight.accept(snapshot()), "in-flight request also stays retired");
   }
+  {
+    // The Return window resolves after the ready metadata: evidence that
+    // only completes never admitted the request and cannot retire it.
+    FrameGate completing;
+    auto partial = evidence();
+    partial.generation.clear(); partial.token.clear();
+    completing.observe(partial);
+    check(completing.accept(snapshot()) && !completing.beginRead(), "incomplete evidence admits no read");
+    completing.observe(evidence());
+    check(completing.accept(snapshot()) && completing.beginRead().has_value(), "completed evidence admits the read");
+    // Home hidden or the provider down when the ready snapshot is first
+    // seen: restoring it is a new lifetime, never a read of that request.
+    for (int down = 0; down < 4; ++down) {
+      FrameGate lost;
+      auto e = evidence();
+      if (down == 0) e.home = false;
+      if (down == 1) e.providerLive = false;
+      if (down == 2) e.producerLive = false;
+      if (down == 3) e.shellLive = false;
+      lost.observe(e);
+      check(lost.accept(snapshot()) && !lost.beginRead(), "lost evidence admits no read");
+      lost.observe(evidence());
+      check(!lost.accept(snapshot()) && !lost.beginRead(), "restoration retires a request first seen while lost");
+    }
+    // Completion only while everything else is live: a window resolving
+    // together with a restored Home still retires.
+    {
+      FrameGate both;
+      auto e = evidence();
+      e.generation.clear(); e.token.clear(); e.home = false;
+      both.observe(e);
+      check(both.accept(snapshot()), "metadata accepted");
+      both.observe(evidence());
+      check(!both.accept(snapshot()), "window and Home together are not a completion");
+    }
+    // A guard that was never safe is restored: the request is retired.
+    FrameGate guarded;
+    auto locked = evidence();
+    locked.sessionSafe = false;
+    guarded.observe(locked);
+    check(guarded.accept(snapshot()) && !guarded.beginRead(), "blocked guard admits no read");
+    guarded.observe(evidence());
+    check(!guarded.accept(snapshot()) && !guarded.beginRead(), "unlock retires a request seen while blocked");
+  }
   for (const auto &epoch : {std::string("bad"), std::string("44444444-4444-4444-8444-444444444444")}) {
     FrameGate recovering; install(recovering);
     recovering.notified(epoch, 2);

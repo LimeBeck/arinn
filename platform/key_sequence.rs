@@ -1,16 +1,25 @@
 // SPDX-FileCopyrightText: 2026 Arinn contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Global Home key sequences shared by the platform adapters (#286).
+//! Global key sequences shared by the platform adapters: Home (#286), the
+//! quick menu (#439, ADR-0106), the on-screen keyboard (#434, ADR-0105) and
+//! the power key (#481, ADR-0111).
 //!
-//! `config.toml` `home_shortcut` uses Qt's portable text, for example
-//! `Meta+F12`. Every adapter also binds the remote's HomePage key. The
+//! `config.toml` `home_shortcut`, `quick_menu_shortcut` and
+//! `keyboard_shortcut` use Qt's portable text, for example `Meta+F12`.
+//! Every adapter also binds the remote's HomePage key to Home, its Menu keys
+//! to the quick menu and Launch1 (the remapped microphone) to the keyboard.
+//! The
 //! parser accepts a small, explicit set of keys so that a global shortcut
 //! never takes Esc, Backspace or plain letters from other applications
 //! (specification §6.2).
 
 /// The documented default of `home_shortcut`.
 pub const DEFAULT_HOME: &str = "Meta+F12";
+/// The documented default of `quick_menu_shortcut` (ADR-0106, spec §6.2).
+pub const DEFAULT_QUICK_MENU: &str = "Meta+F11";
+/// The documented default of `keyboard_shortcut` (ADR-0105).
+pub const DEFAULT_KEYBOARD: &str = "Meta+F10";
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Modifiers {
@@ -32,6 +41,18 @@ pub enum Key {
     Favorites,
     Search,
     Menu,
+    /// The keyboard Menu key of evdev `KEY_MENU` (Qt `Key_MenuKB`, X11
+    /// `XF86MenuKB`); `KEY_COMPOSE` is Qt `Key_Menu`.
+    MenuKb,
+    /// XF86Launch1: the remote's microphone after the packaged hwdb remap
+    /// (ADR-0105). Bound by the adapters, never parsed from configuration.
+    Launch1,
+    /// evdev `KEY_POWER` (Qt `Key_PowerOff`, X11 `XF86PowerOff`). Never
+    /// parsed from `config.toml`: only `power()` names it (ADR-0111).
+    PowerOff,
+    /// Qt `Key_PowerDown` (X11 `XF86PowerDown`): KWin reports a power key
+    /// held for a second as this key on Wayland.
+    PowerDown,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -40,14 +61,20 @@ pub struct Sequence {
     pub key: Key,
 }
 
+const NO_MODIFIERS: Modifiers = Modifiers {
+    meta: false,
+    ctrl: false,
+    alt: false,
+    shift: false,
+};
 const HOME_PAGE: Sequence = Sequence {
-    modifiers: Modifiers {
-        meta: false,
-        ctrl: false,
-        alt: false,
-        shift: false,
-    },
+    modifiers: NO_MODIFIERS,
     key: Key::HomePage,
+};
+/// The remote's microphone button, remapped to KEY_PROG1 (ADR-0105).
+pub const MICROPHONE: Sequence = Sequence {
+    modifiers: NO_MODIFIERS,
+    key: Key::Launch1,
 };
 
 /// Parses one key sequence such as `Meta+F12`, `Ctrl+Alt+H` or `HomePage`.
@@ -78,6 +105,7 @@ pub fn parse(text: &str) -> Option<Sequence> {
         "favorites" => Key::Favorites,
         "search" => Key::Search,
         "menu" => Key::Menu,
+        "menukb" => Key::MenuKb,
         _ if lower.len() == 1 && lower.as_bytes()[0].is_ascii_lowercase() => {
             Key::Letter(lower.as_bytes()[0].to_ascii_uppercase())
         }
@@ -117,7 +145,115 @@ pub fn home(configured: &str) -> (Vec<Sequence>, bool) {
     (sequences, fallback)
 }
 
+/// The remote's Menu key (owner decision of 2026-10-21, #439). Which code
+/// the G60S PRO BT sends is not captured yet, so both are bound.
+const REMOTE_MENU: [Sequence; 2] = [
+    Sequence {
+        modifiers: HOME_PAGE.modifiers,
+        key: Key::Menu,
+    },
+    Sequence {
+        modifiers: HOME_PAGE.modifiers,
+        key: Key::MenuKb,
+    },
+];
+
+/// The quick-menu keys an adapter binds (ADR-0106).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct QuickMenu {
+    /// The configured key (or the default) first, then the remote's Menu
+    /// and MenuKB keys; none of them is a Home key.
+    pub keys: Vec<Sequence>,
+    /// The configured key, when it is kept.
+    configured: Option<Sequence>,
+}
+impl QuickMenu {
+    /// The keys to bind for the current focus. Inside the shell Menu keeps
+    /// its own meaning, so the remote's Menu keys are left out while the
+    /// shell has focus. The configured key stays bound everywhere, also
+    /// when it is Menu or MenuKB (ADR-0106).
+    pub fn bound(&self, shell_focused: bool) -> Vec<Sequence> {
+        self.keys
+            .iter()
+            .copied()
+            .filter(|key| !shell_focused || !key.is_remote_menu() || Some(*key) == self.configured)
+            .collect()
+    }
+}
+
+/// The quick-menu keys: the configured sequence, or the default when the
+/// value is empty or invalid, followed by the remote's Menu and MenuKB keys.
+/// A sequence that is also one of `home` is left out, so Home wins. The flag
+/// reports that the configured value was replaced by the default.
+pub fn quick_menu(configured: &str, home: &[Sequence]) -> (QuickMenu, bool) {
+    let (sequence, fallback) = match parse(configured) {
+        Some(sequence) => (sequence, false),
+        None => (parse(DEFAULT_QUICK_MENU).expect("valid default"), true),
+    };
+    let mut keys = Vec::new();
+    for candidate in std::iter::once(sequence).chain(REMOTE_MENU) {
+        if !home.contains(&candidate) && !keys.contains(&candidate) {
+            keys.push(candidate);
+        }
+    }
+    let configured = (!home.contains(&sequence)).then_some(sequence);
+    (QuickMenu { keys, configured }, fallback)
+}
+
+/// The keyboard sequences an adapter binds (ADR-0105): the configured one,
+/// or the default when the value is empty or invalid, followed by the
+/// microphone. A sequence in `taken`, the Home and quick-menu keys, is left
+/// out: Home and the quick menu win a shared key (ADR-0106). The first flag
+/// reports the default fallback, the second such a conflict.
+pub fn keyboard(configured: &str, taken: &[Sequence]) -> (Vec<Sequence>, bool, bool) {
+    let (primary, fallback) = match parse(configured) {
+        Some(sequence) => (sequence, false),
+        None => (parse(DEFAULT_KEYBOARD).expect("valid default"), true),
+    };
+    let mut sequences = Vec::new();
+    let mut conflict = false;
+    for sequence in [primary, MICROPHONE] {
+        if taken.contains(&sequence) {
+            conflict = true;
+        } else if !sequences.contains(&sequence) {
+            sequences.push(sequence);
+        }
+    }
+    (sequences, fallback, conflict)
+}
+
+/// The keys the on-screen keyboard leaves to Home and the quick menu
+/// (ADR-0105, ADR-0106): every Home key and every quick-menu key, the
+/// remote's Menu keys included, for the configured values.
+pub fn reserved(home_shortcut: &str, quick_menu_shortcut: &str) -> Vec<Sequence> {
+    let mut keys = home(home_shortcut).0;
+    let menu = quick_menu(quick_menu_shortcut, &keys).0;
+    keys.extend(menu.keys);
+    keys
+}
+
+/// The power key (spec §5.7 *Power button*, ADR-0111). Which code the
+/// remote's ⏻ sends is not captured yet; `KEY_POWER` is assumed. KWin turns a
+/// long press of it into PowerDown, so both are bound. The key is not
+/// configurable, and `parse` never returns these keys, so no Home or
+/// quick-menu key can be one of them.
+pub fn power() -> Vec<Sequence> {
+    [Key::PowerOff, Key::PowerDown]
+        .into_iter()
+        .map(|key| Sequence {
+            modifiers: Modifiers::default(),
+            key,
+        })
+        .collect()
+}
+
 impl Sequence {
+    /// The remote's Menu key, plain Menu or MenuKB. Inside the shell Menu
+    /// keeps its own meaning, so adapters bind it only while another window
+    /// has focus.
+    pub fn is_remote_menu(self) -> bool {
+        REMOTE_MENU.contains(&self)
+    }
     /// Qt's combined key code (`QKeyCombination::toCombined()`), the form
     /// KGlobalAccel stores.
     pub fn qt(self) -> i32 {
@@ -128,6 +264,10 @@ impl Sequence {
             Key::Favorites => 0x0100_0091,
             Key::Search => 0x0100_0092,
             Key::Menu => 0x0100_0055,
+            Key::MenuKb => 0x0100_00dc,
+            Key::Launch1 => 0x0100_00a3,
+            Key::PowerOff => 0x0100_00b7,
+            Key::PowerDown => 0x0100_010b,
         };
         let m = self.modifiers;
         let mut modifiers = 0;
@@ -153,6 +293,10 @@ impl Sequence {
             Key::Favorites => 0x1008_ff30,
             Key::Search => 0x1008_ff1b,
             Key::Menu => 0xff67,
+            Key::MenuKb => 0x1008_ff65,
+            Key::Launch1 => 0x1008_ff41,
+            Key::PowerOff => 0x1008_ff2a,
+            Key::PowerDown => 0x1008_ff21,
         }
     }
 }
@@ -176,6 +320,36 @@ mod tests {
         assert_eq!(parse("homepage").unwrap().keysym(), 0x1008_ff18);
         assert_eq!(parse("F35").unwrap().keysym(), 0xffe0);
         assert_eq!(parse("Meta+1").unwrap().qt(), 0x1000_0031);
+    }
+
+    /// ADR-0111: the power key is never configurable, so no configured
+    /// Home or quick-menu key can take it.
+    #[test]
+    fn power_keys_are_fixed_and_never_parsed() {
+        let power = power();
+        assert_eq!(
+            power.iter().map(|key| key.qt()).collect::<Vec<_>>(),
+            [0x0100_00b7, 0x0100_010b]
+        );
+        assert_eq!(
+            power.iter().map(|key| key.keysym()).collect::<Vec<_>>(),
+            [0x1008_ff2a, 0x1008_ff21]
+        );
+        assert!(
+            power
+                .iter()
+                .all(|key| key.modifiers == Modifiers::default())
+        );
+        for text in [
+            "PowerOff",
+            "poweroff",
+            "PowerDown",
+            "Power",
+            "Meta+PowerOff",
+        ] {
+            assert_eq!(parse(text), None, "{text}");
+        }
+        assert!(power.iter().all(|key| !key.is_remote_menu()));
     }
 
     #[test]
@@ -219,5 +393,105 @@ mod tests {
         assert!(!fallback);
         assert_eq!(keys, [HOME_PAGE]);
         assert!(home("").1);
+    }
+
+    #[test]
+    fn quick_menu_falls_back_and_yields_to_home() {
+        let qt = |keys: &[Sequence]| keys.iter().map(|k| k.qt()).collect::<Vec<_>>();
+        let home_keys = home(DEFAULT_HOME).0;
+        let (menu, fallback) = quick_menu("Ctrl+Alt+Q", &home_keys);
+        let keys = menu.keys;
+        assert!(!fallback);
+        // The configured key, then the remote's Menu as Qt Menu and MenuKB.
+        assert_eq!(qt(&keys), [0x0C00_0051, 0x0100_0055, 0x0100_00dc]);
+        assert_eq!(
+            keys.iter().map(|k| k.is_remote_menu()).collect::<Vec<_>>(),
+            [false, true, true]
+        );
+        assert_eq!(keys[1].keysym(), 0xff67);
+        assert_eq!(keys[2].keysym(), 0x1008_ff65);
+        let (menu, fallback) = quick_menu("Backspace", &home_keys);
+        let keys = menu.keys;
+        assert!(fallback);
+        assert_eq!(keys[0], parse("Meta+F11").unwrap());
+        assert_eq!(keys[0].qt(), 0x1100_003a);
+        assert_eq!(keys[0].keysym(), 0xffc8);
+        assert!(quick_menu("", &home_keys).1);
+        // A key Home already uses stays Home's, whatever its spelling.
+        let remote = [0x0100_0055, 0x0100_00dc];
+        assert_eq!(qt(&quick_menu("super+f12", &home_keys).0.keys), remote);
+        assert_eq!(qt(&quick_menu("HomePage", &home_keys).0.keys), remote);
+        assert_eq!(
+            qt(&quick_menu("Ctrl+Alt+Q", &home("Menu").0).0.keys),
+            [0x0C00_0051, 0x0100_00dc]
+        );
+        // A configured Menu is not bound twice.
+        assert_eq!(qt(&quick_menu("menu", &home_keys).0.keys), remote);
+        assert_eq!(parse("MenuKB").unwrap().qt(), 0x0100_00dc);
+        assert!(!parse("Meta+Menu").unwrap().is_remote_menu());
+    }
+
+    /// The remote's Menu keys are unbound while the shell has focus; the
+    /// configured key stays bound everywhere, also when it is a Menu key
+    /// (ADR-0106, review of #502).
+    #[test]
+    fn a_configured_menu_key_stays_bound_inside_the_shell() {
+        let qt = |keys: &[Sequence]| keys.iter().map(|k| k.qt()).collect::<Vec<_>>();
+        let home_keys = home(DEFAULT_HOME).0;
+        let menu = quick_menu("Ctrl+Alt+Q", &home_keys).0;
+        assert_eq!(
+            qt(&menu.bound(false)),
+            [0x0C00_0051, 0x0100_0055, 0x0100_00dc]
+        );
+        assert_eq!(qt(&menu.bound(true)), [0x0C00_0051]);
+        for (configured, kept, other) in [
+            ("Menu", 0x0100_0055, 0x0100_00dc),
+            ("MenuKB", 0x0100_00dc, 0x0100_0055),
+        ] {
+            let menu = quick_menu(configured, &home_keys).0;
+            assert_eq!(qt(&menu.bound(false)), [kept, other]);
+            assert_eq!(qt(&menu.bound(true)), [kept], "{configured}");
+        }
+        // A configured key that is one of Home's is not kept at all.
+        let menu = quick_menu("Menu", &home("Menu").0).0;
+        assert_eq!(qt(&menu.bound(true)), Vec::<i32>::new());
+        assert_eq!(qt(&menu.bound(false)), [0x0100_00dc]);
+    }
+
+    #[test]
+    fn keyboard_adds_the_microphone_and_yields_to_home_and_quick_menu() {
+        let home_keys = home(DEFAULT_HOME).0;
+        let (keys, fallback, conflict) = keyboard("Ctrl+Alt+K", &home_keys);
+        assert!(!fallback && !conflict);
+        assert_eq!(
+            keys.iter().map(|k| k.qt()).collect::<Vec<_>>(),
+            [0x0C00_004B, 0x0100_00a3]
+        );
+        assert_eq!(MICROPHONE.keysym(), 0x1008_ff41);
+        let (keys, fallback, conflict) = keyboard("Escape", &home_keys);
+        assert!(fallback && !conflict);
+        assert_eq!(keys[0], parse(DEFAULT_KEYBOARD).unwrap());
+        assert_eq!(keys[0].qt(), 0x1100_0039);
+        // A Home key is never a keyboard key.
+        let (keys, _, conflict) = keyboard("Meta+F12", &home_keys);
+        assert!(conflict);
+        assert_eq!(keys, [MICROPHONE]);
+        let (keys, _, conflict) = keyboard("HomePage", &home_keys);
+        assert!(conflict);
+        assert_eq!(keys, [MICROPHONE]);
+        // Launch1 cannot be configured; the microphone is always added.
+        assert_eq!(parse("Launch1"), None);
+        // A quick-menu key, the remote's Menu keys included, is never a
+        // keyboard key either (ADR-0106).
+        let taken = reserved(DEFAULT_HOME, DEFAULT_QUICK_MENU);
+        assert_eq!(taken.len(), 5);
+        for configured in ["Meta+F11", "Menu", "MenuKB"] {
+            let (keys, fallback, conflict) = keyboard(configured, &taken);
+            assert!(!fallback && conflict, "{configured}");
+            assert_eq!(keys, [MICROPHONE], "{configured}");
+        }
+        let (keys, _, conflict) = keyboard(DEFAULT_KEYBOARD, &taken);
+        assert!(!conflict);
+        assert_eq!(keys.len(), 2);
     }
 }

@@ -50,6 +50,10 @@
         <translation>Ярлык больше недоступен</translation>
     </message>
     <message>
+        <source>The launch could not be stopped</source>
+        <translation>Не удалось прервать запуск</translation>
+    </message>
+    <message>
         <source>Working…</source>
         <translation>Выполняется…</translation>
     </message>
@@ -60,6 +64,10 @@
     <message>
         <source>Done</source>
         <translation>Готово</translation>
+    </message>
+    <message>
+        <source>Launch cancelled</source>
+        <translation>Запуск прерван</translation>
     </message>
     <message>
         <source>Shortcuts are unavailable. Refresh and try again.</source>
@@ -302,8 +310,8 @@
         <translation>Перейти</translation>
     </message>
     <message>
-        <source>Save</source>
-        <translation>Сохранить</translation>
+        <source>Close</source>
+        <translation>Закрыть</translation>
     </message>
     <message>
         <source>Back</source>
@@ -776,6 +784,13 @@
     </message>
 </context>
 <context>
+    <name>KeyboardPanel</name>
+    <message>
+        <source>Enter</source>
+        <translation>Ввод</translation>
+    </message>
+</context>
+<context>
     <name>LaunchOverlay</name>
     <message>
         <source>%1 did not open</source>
@@ -790,8 +805,20 @@
         <translation>Браузер не ответил за 30 секунд. Попробуйте снова.</translation>
     </message>
     <message>
+        <source>The application could not start or closed before it showed a window.</source>
+        <translation>Приложение не запустилось или закрылось, не показав окно.</translation>
+    </message>
+    <message>
         <source>Try again. If this happens again, restart Arinn.</source>
         <translation>Попробуйте снова. Если это повторится, перезапустите Arinn.</translation>
+    </message>
+    <message>
+        <source>Stopping %1…</source>
+        <translation>%1 останавливается…</translation>
+    </message>
+    <message>
+        <source>Starting %1…</source>
+        <translation>%1 запускается…</translation>
     </message>
     <message>
         <source>Opening %1…</source>
@@ -804,6 +831,22 @@
     <message>
         <source>Cancel</source>
         <translation>Отмена</translation>
+    </message>
+    <message>
+        <source>Stop starting %1?</source>
+        <translation>Прервать запуск %1?</translation>
+    </message>
+    <message>
+        <source>The application and everything it has started so far will be closed.</source>
+        <translation>Приложение и всё, что оно успело запустить, будет закрыто.</translation>
+    </message>
+    <message>
+        <source>Keep starting</source>
+        <translation>Продолжить запуск</translation>
+    </message>
+    <message>
+        <source>Stop</source>
+        <translation>Прервать</translation>
     </message>
     <message>
         <source>Retry</source>
@@ -983,10 +1026,6 @@
         <translation>Этот раздел пока недоступен.</translation>
     </message>
     <message>
-        <source>Power controls are not available yet.</source>
-        <translation>Управление питанием пока недоступно.</translation>
-    </message>
-    <message>
         <source>Unable to exit playback controls. Press Back to retry.</source>
         <translation>Не удалось выйти из управления воспроизведением. Нажмите «Назад», чтобы повторить.</translation>
     </message>
@@ -1143,6 +1182,14 @@
         <translation>Полностью выключить компьютер</translation>
     </message>
     <message>
+        <source>Switch to desktop</source>
+        <translation>Перейти на рабочий стол</translation>
+    </message>
+    <message>
+        <source>Log out; the next login starts the desktop</source>
+        <translation>Выход из сеанса; при следующем входе запустится рабочий стол</translation>
+    </message>
+    <message>
         <source>Ambient</source>
         <translation>Заставка</translation>
     </message>
@@ -1159,12 +1206,132 @@
         <translation>Перезагрузить?</translation>
     </message>
     <message>
+        <source>Switch to desktop?</source>
+        <translation>Перейти на рабочий стол?</translation>
+    </message>
+    <message>
+        <source>Switch</source>
+        <translation>Перейти</translation>
+    </message>
+    <message>
+        <source>The session ends. Your next login starts the desktop without Arinn until you choose Return to Arinn.</source>
+        <translation>Сеанс завершится. При следующем входе будет запускаться рабочий стол без Arinn, пока вы не выберете «Return to Arinn».</translation>
+    </message>
+    <message>
+        <source>The list of running applications is not available.</source>
+        <translation>Список запущенных приложений недоступен.</translation>
+    </message>
+    <message>
         <source>No running applications.</source>
         <translation>Нет запущенных приложений.</translation>
     </message>
     <message>
+        <source>These applications will close: %1 and %2 more.</source>
+        <translation>Будут закрыты приложения: %1 и ещё %2.</translation>
+    </message>
+    <message>
         <source>These applications will close: %1.</source>
         <translation>Будут закрыты приложения: %1.</translation>
+    </message>
+    <message>
+        <source>%1 and %2 more</source>
+        <translation>%1 и ещё %2</translation>
+    </message>
+    <message>
+        <source>%1 (%2)</source>
+        <translation>%1 (%2)</translation>
+    </message>
+    <message>
+        <source>Not supported on this computer</source>
+        <translation>Не поддерживается на этом компьютере</translation>
+    </message>
+    <message>
+        <source>Not allowed for this user</source>
+        <translation>Не разрешено для этого пользователя</translation>
+    </message>
+    <message>
+        <source>Blocked by %1</source>
+        <translation>Блокирует: %1</translation>
+    </message>
+    <message>
+        <source>Blocked by an application</source>
+        <translation>Блокирует приложение</translation>
+    </message>
+    <message>
+        <source>Waiting for the system…</source>
+        <translation>Ожидание системы…</translation>
+    </message>
+    <message>
+        <source>Available after the system answers</source>
+        <translation>Доступно после ответа системы</translation>
+    </message>
+    <message>
+        <source>Another power request is still running. Arinn keeps running; try again when it is done.</source>
+        <translation>Ещё выполняется другой запрос питания. Arinn продолжает работу; повторите, когда он завершится.</translation>
+    </message>
+    <message>
+        <source>The system does not allow it for this user. Arinn keeps running.</source>
+        <translation>Система не разрешает это для этого пользователя. Arinn продолжает работу.</translation>
+    </message>
+    <message>
+        <source>This session cannot switch to the desktop. Arinn keeps running.</source>
+        <translation>Этот сеанс не может перейти на рабочий стол. Arinn продолжает работу.</translation>
+    </message>
+    <message>
+        <source>The desktop did not accept the logout. Arinn keeps running; try again later.</source>
+        <translation>Рабочий стол не принял выход из сеанса. Arinn продолжает работу; повторите позже.</translation>
+    </message>
+    <message>
+        <source>The desktop did not answer in time. Arinn keeps running; try again.</source>
+        <translation>Рабочий стол не ответил вовремя. Arinn продолжает работу; повторите попытку.</translation>
+    </message>
+    <message>
+        <source>Arinn could not prepare the switch. Arinn keeps running; try again.</source>
+        <translation>Arinn не удалось подготовить переход. Arinn продолжает работу; повторите попытку.</translation>
+    </message>
+    <message>
+        <source>An application is preventing it: %1.</source>
+        <translation>Этому мешает приложение: %1.</translation>
+    </message>
+    <message>
+        <source>An application or another power operation is preventing it right now.</source>
+        <translation>Сейчас этому мешает приложение или другая операция питания.</translation>
+    </message>
+    <message>
+        <source>The system does not allow it for this user.</source>
+        <translation>Система не разрешает это для этого пользователя.</translation>
+    </message>
+    <message>
+        <source>This computer does not support it.</source>
+        <translation>Этот компьютер это не поддерживает.</translation>
+    </message>
+    <message>
+        <source>Power control is not available right now. Try again later.</source>
+        <translation>Управление питанием сейчас недоступно. Повторите позже.</translation>
+    </message>
+    <message>
+        <source>The system did not answer in time. Try again.</source>
+        <translation>Система не ответила вовремя. Повторите попытку.</translation>
+    </message>
+    <message>
+        <source>The system could not do it. Try again.</source>
+        <translation>Системе не удалось это сделать. Повторите попытку.</translation>
+    </message>
+    <message>
+        <source>Sleep was refused</source>
+        <translation>Сон отклонён</translation>
+    </message>
+    <message>
+        <source>Restart was refused</source>
+        <translation>Перезагрузка отклонена</translation>
+    </message>
+    <message>
+        <source>Shut down was refused</source>
+        <translation>Выключение отклонено</translation>
+    </message>
+    <message>
+        <source>Could not switch to the desktop</source>
+        <translation>Не удалось перейти на рабочий стол</translation>
     </message>
     <message>
         <source>Power</source>
@@ -1173,6 +1340,26 @@
     <message>
         <source>Cancel</source>
         <translation>Отмена</translation>
+    </message>
+    <message>
+        <source>Going to sleep…</source>
+        <translation>Переход в сон…</translation>
+    </message>
+    <message>
+        <source>Restarting…</source>
+        <translation>Перезагрузка…</translation>
+    </message>
+    <message>
+        <source>Shutting down…</source>
+        <translation>Выключение…</translation>
+    </message>
+    <message>
+        <source>Switching to the desktop…</source>
+        <translation>Переход на рабочий стол…</translation>
+    </message>
+    <message>
+        <source>Waiting for the system. Press Back to return to Arinn.</source>
+        <translation>Ожидание системы. Нажмите «Назад», чтобы вернуться в Arinn.</translation>
     </message>
     <message>
         <source>Request refused</source>
@@ -1243,6 +1430,149 @@
     <message>
         <source>Could not retry</source>
         <translation>Не удалось повторить</translation>
+    </message>
+</context>
+<context>
+    <name>QuickMenu</name>
+    <message>
+        <source>Muted</source>
+        <translation>Звук выключен</translation>
+    </message>
+    <message>
+        <source>Sound on · %1%</source>
+        <translation>Звук включён · %1%</translation>
+    </message>
+    <message>
+        <source>Sound on</source>
+        <translation>Звук включён</translation>
+    </message>
+    <message>
+        <source>Sound state unknown</source>
+        <translation>Состояние звука неизвестно</translation>
+    </message>
+    <message>
+        <source>Network state unknown</source>
+        <translation>Состояние сети неизвестно</translation>
+    </message>
+    <message>
+        <source>Not connected</source>
+        <translation>Нет подключения</translation>
+    </message>
+    <message>
+        <source>Connected by cable</source>
+        <translation>Подключено по кабелю</translation>
+    </message>
+    <message>
+        <source>Wi-Fi · signal %1 of 4</source>
+        <translation>Wi-Fi · сигнал %1 из 4</translation>
+    </message>
+    <message>
+        <source>Wi-Fi</source>
+        <translation>Wi-Fi</translation>
+    </message>
+    <message>
+        <source>Connected</source>
+        <translation>Подключено</translation>
+    </message>
+    <message>
+        <source>Quick menu</source>
+        <translation>Быстрое меню</translation>
+    </message>
+    <message>
+        <source>Untitled</source>
+        <translation>Без названия</translation>
+    </message>
+    <message>
+        <source>Nothing is playing</source>
+        <translation>Ничего не воспроизводится</translation>
+    </message>
+    <message>
+        <source>Now playing</source>
+        <translation>Сейчас играет</translation>
+    </message>
+    <message>
+        <source>Not available</source>
+        <translation>Недоступно</translation>
+    </message>
+    <message>
+        <source>Cannot be paused from Arinn</source>
+        <translation>Arinn не может поставить на паузу</translation>
+    </message>
+    <message>
+        <source>Cannot be resumed from Arinn</source>
+        <translation>Arinn не может продолжить воспроизведение</translation>
+    </message>
+    <message>
+        <source>Playing · OK pauses</source>
+        <translation>Воспроизводится · OK — пауза</translation>
+    </message>
+    <message>
+        <source>Paused · OK plays</source>
+        <translation>На паузе · OK — воспроизвести</translation>
+    </message>
+    <message>
+        <source>Sound</source>
+        <translation>Звук</translation>
+    </message>
+    <message>
+        <source>%1 · Left/Right: volume, OK: sound on</source>
+        <translation>%1 · Влево/вправо: громкость, OK: включить звук</translation>
+    </message>
+    <message>
+        <source>%1 · Left/Right: volume, OK: mute</source>
+        <translation>%1 · Влево/вправо: громкость, OK: выключить звук</translation>
+    </message>
+    <message>
+        <source>%1 · volume control is not available</source>
+        <translation>%1 · управление громкостью недоступно</translation>
+    </message>
+    <message>
+        <source>Network</source>
+        <translation>Сеть</translation>
+    </message>
+    <message>
+        <source>Sleep</source>
+        <translation>Сон</translation>
+    </message>
+    <message>
+        <source>Request system suspend</source>
+        <translation>Перевести систему в сон</translation>
+    </message>
+    <message>
+        <source>Power</source>
+        <translation>Питание</translation>
+    </message>
+    <message>
+        <source>Restart, shut down, ambient</source>
+        <translation>Перезагрузка, выключение, заставка</translation>
+    </message>
+    <message>
+        <source>Open Home</source>
+        <translation>Открыть главную</translation>
+    </message>
+    <message>
+        <source>Close Arinn</source>
+        <translation>Закрыть Arinn</translation>
+    </message>
+    <message>
+        <source>OK</source>
+        <translation>OK</translation>
+    </message>
+    <message>
+        <source>Select</source>
+        <translation>Выбрать</translation>
+    </message>
+    <message>
+        <source>Back</source>
+        <translation>Назад</translation>
+    </message>
+    <message>
+        <source>Return</source>
+        <translation>Вернуться</translation>
+    </message>
+    <message>
+        <source>Close</source>
+        <translation>Закрыть</translation>
     </message>
 </context>
 <context>
@@ -1458,6 +1788,26 @@
         <translation>Сохранено</translation>
     </message>
     <message>
+        <source>The path must start with /</source>
+        <translation>Путь должен начинаться с /</translation>
+    </message>
+    <message>
+        <source>The path cannot contain control characters</source>
+        <translation>Путь не может содержать управляющие символы</translation>
+    </message>
+    <message>
+        <source>The path cannot contain //</source>
+        <translation>Путь не может содержать //</translation>
+    </message>
+    <message>
+        <source>The path cannot contain . or .. folders</source>
+        <translation>Путь не может содержать папки . и ..</translation>
+    </message>
+    <message>
+        <source>The path is too long</source>
+        <translation>Путь слишком длинный</translation>
+    </message>
+    <message>
         <source>This is the maximum</source>
         <translation>Это максимум</translation>
     </message>
@@ -1514,8 +1864,12 @@
         <translation>Вкл.</translation>
     </message>
     <message>
+        <source>Unavailable. Its titles stay in the library as unavailable.</source>
+        <translation>Недоступна. Фильмы из неё остаются в библиотеке как недоступные.</translation>
+    </message>
+    <message>
         <source>Remove</source>
-        <translation>Удалить</translation>
+        <translation>Убрать</translation>
     </message>
     <message>
         <source>Add path</source>
@@ -1554,6 +1908,21 @@
     <message>
         <source>Loading</source>
         <translation>Загрузка</translation>
+    </message>
+</context>
+<context>
+    <name>VolumeHud</name>
+    <message>
+        <source>Sound muted</source>
+        <translation>Звук выключен</translation>
+    </message>
+    <message>
+        <source>Volume</source>
+        <translation>Громкость</translation>
+    </message>
+    <message>
+        <source>Volume control is not available</source>
+        <translation>Управление громкостью недоступно</translation>
     </message>
 </context>
 </TS>

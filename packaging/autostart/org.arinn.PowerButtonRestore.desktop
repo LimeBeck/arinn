@@ -1,0 +1,16 @@
+# SPDX-FileCopyrightText: 2026 Arinn contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Installed system-wide (ADR-0111): at every XFCE login it gives back
+# xfce4-power-manager's power button setting that an unclean end of the
+# dedicated Arinn XFCE session left at "do nothing". It does nothing
+# without a saved copy or while Arinn's adapter runs, and starts no part
+# of Arinn (ADR-0042).
+[Desktop Entry]
+Type=Application
+Name=Arinn power button restore
+Comment=Restore the desktop's power button action after Arinn
+Exec=/usr/bin/arinn-platform-x11 --restore-power-button
+TryExec=/usr/bin/arinn-platform-x11
+OnlyShowIn=XFCE;
+NoDisplay=true
+Terminal=false

@@ -3,7 +3,11 @@
 
 //! The daemon join of ADR-0096 against fake providers on a private bus.
 use super::*;
-use crate::{runtime::Provider, storage::Paths};
+use crate::{
+    runtime::Provider,
+    storage::Paths,
+    test_support::{Bounded, served},
+};
 use arinn_protocol::{
     browser::{BrowserWindow, Tab},
     media::Session,
@@ -305,6 +309,9 @@ impl Fixture {
                 .collect();
             state.providers.insert("chrome".into(), b);
         }
+        // The daemon looks the providers up right away (#528).
+        served(&client, &media).await;
+        served(&client, &browser).await;
         Self {
             bus,
             folder,
@@ -403,18 +410,22 @@ async fn links_hold_move_and_reach_the_shell() {
     // as the contract requires.
     f.tabs(Vec::new()).await;
     f.core.export_media_association().await.unwrap();
+    // The first export on the daemon's connection: wait until it is served
+    // before calling its unique name (#528).
+    served(&f.client, &f.core.connection).await;
     let api = MediaAssociationApiProxy::builder(&f.client)
         .destination(f.core.connection.unique_name().unwrap().as_str())
         .unwrap()
         .build()
+        .bounded()
         .await
         .unwrap();
-    assert!(api.get().await.unwrap().0.links.is_empty());
-    let mut changes = api.receive_changed().await.unwrap();
+    assert!(api.get().bounded().await.unwrap().0.links.is_empty());
+    let mut changes = api.receive_changed().bounded().await.unwrap();
     f.tabs(vec![tab("c1:t1", "c1:w1", true)]).await;
     let (snapshot,) = tokio::time::timeout(Duration::from_secs(5), async {
         loop {
-            let snapshot = api.get().await.unwrap();
+            let snapshot = api.get().bounded().await.unwrap();
             if !snapshot.0.links.is_empty() {
                 break snapshot;
             }
@@ -432,7 +443,26 @@ async fn links_hold_move_and_reach_the_shell() {
         .unwrap();
     assert_eq!(signal.args().unwrap().epoch(), &f.core.epoch);
     // Process IDs are never part of what the shell reads.
-    assert!(!format!("{snapshot:?}").contains(&BROWSER_PID.to_string()));
+    assert!(!mentions_value(&format!("{snapshot:?}"), BROWSER_PID));
+}
+
+/// Whether `pid` appears in `text` as a value of its own. Matching a
+/// substring would also find it inside a random UUID (#504).
+fn mentions_value(text: &str, pid: u32) -> bool {
+    let pid = pid.to_string();
+    text.split(|c: char| !c.is_ascii_alphanumeric() && c != '-')
+        .any(|token| token == pid)
+}
+
+#[test]
+fn a_pid_inside_a_uuid_is_not_a_leaked_pid() {
+    assert!(mentions_value("Link { pid: 4100, id: \"x\" }", 4100));
+    assert!(mentions_value("[4100]", 4100));
+    assert!(!mentions_value(
+        "Snapshot { epoch: \"0f3a4100-4100-4b2c-9a41-a4100b2c3d4e\" }",
+        4100
+    ));
+    assert!(!mentions_value("pid: 41000", 4100));
 }
 
 #[tokio::test]

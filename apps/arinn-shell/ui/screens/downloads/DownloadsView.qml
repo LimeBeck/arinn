@@ -424,6 +424,7 @@ FocusScope {
                             width: queueColumn.width
                             height: 156
                             readonly property string actionName: root.primaryAction(modelData)
+                            readonly property bool pointerHovered: rowHover.hovered
                             function hoverFocus() {
                                 if (!(rowHover.hovered && root.pointerMode && root.hoverFocusEnabled)) return;
                                 root.selectedIndex = index;

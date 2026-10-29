@@ -28,6 +28,8 @@ capability, but **has not been released as a stable Plugin API**. Requirements:
 | `org.arinn.BrowserProcess1` | Optional browser-provider interface, daemon callers only; [browser-process1.xml](browser-process1.xml) ([ADR-0096](../adr/0096-browser-media-session-association.md)) |
 | `org.arinn.MediaAssociation1` | Optional daemon-root media-session ↔ tab links; [media-association1.xml](media-association1.xml) ([ADR-0096](../adr/0096-browser-media-session-association.md)). Exported by the daemon |
 | `org.arinn.SystemStatus1` | Optional daemon-root mute and network state; [system-status1.xml](system-status1.xml) ([ADR-0100](../adr/0100-system-status.md), [contract](../architecture/system-status.md)). Exported by the daemon; Home shows the mute and Wi-Fi icons from it ([#387](https://github.com/LimeBeck/arinn/issues/387), [#407](https://github.com/LimeBeck/arinn/pull/407)) |
+| `org.arinn.SystemControl1` | Optional daemon-root power actions, the dedicated session's "Switch to desktop" ([#438](https://github.com/LimeBeck/arinn/issues/438)) and volume for the shell; [system-control1.xml](system-control1.xml) ([ADR-0108](../adr/0108-system-control.md), [contract](../architecture/system-control.md)). Exported by the daemon, which refuses provider connections. The shell's power menu and volume HUD follow in [#148](https://github.com/LimeBeck/arinn/issues/148) |
+| `org.arinn.ExternalKeyboard1` | Daemon root, shell only; [external-keyboard1.xml](external-keyboard1.xml) ([ADR-0105](../adr/0105-global-on-screen-keyboard-platform-text-delivery.md), [contract](../architecture/external-keyboard.md)). The on-screen keyboard over an external application: panel signals and typed keys; implementation status in the contract document ([#434](https://github.com/LimeBeck/arinn/issues/434)) |
 | `org.arinn.Library1` | Daemon-owned provider path of a `library` provider; [library1.xml](library1.xml). Exported by the daemon ([ADR-0060](../adr/0060-library-routing.md)) |
 | `org.arinn.LibraryProvider1` | Provider unique bus owner, `/org/arinn/Provider1`; [library-provider1.xml](library-provider1.xml) |
 | `org.arinn.LibraryResume1` | Optional provider interface; [library-resume1.xml](library-resume1.xml) |
@@ -236,9 +238,62 @@ A public application command takes generation, opaque local ID and request UUID,
 then returns an operation object. Subscribe to `Changed` before `Get`; completion
 can precede the admission reply. Deduplication uses caller unique name and request
 UUID; changed content gives `Conflict`. Read/registration budget is 3 seconds,
-controls 5 seconds, launch 30 seconds. Commands are never retried automatically.
+controls 5 seconds, launch dispatch 30 seconds. Commands are never retried automatically.
 The private provider command reply completes the daemon's operation; providers do
-not create a second public operation tree. Cancellation is currently unsupported.
+not create a second public operation tree.
+
+**Launch lifetime and cancellation**
+([ADR-0110](../adr/0110-application-launch-lifetime-and-cancellation.md)). A
+provider that observes windows answers `Launch` when a new window of the
+application appears, and fails as soon as the launch can no longer show one: when
+the launch's processes end with no window of the application. A window that
+already existed counts at that moment, because the launch was handed to a running
+instance (spec §7.2). The desktop provider fails with `Unavailable` in that case.
+The reply may come long after 30 seconds: the daemon keeps the public operation
+`running` and applies no overall deadline to an application launch. Only dispatch
+(starting the system launcher) is bounded by the 30-second budget, inside the
+provider. A provider that cannot observe windows answers at dispatch, as before.
+Provider loss or a new generation still ends the operation with `Unavailable`.
+
+An application launch reports `cancellable = true` until it ends; every other
+operation reports `false`. `cancellable` is a daemon property: it does not mean
+that the provider implements `CancelLaunch`. `Operation1.Cancel` is accepted only
+from the caller that started the operation (`PermissionDenied` otherwise) and only
+for a cancellable operation (`Unsupported` otherwise). One `Cancel` stops at most
+that launch:
+
+- The daemon forwards `CancelLaunch(generation, id)` only while the operation is
+  the only running launch of that provider, generation and ID, from any caller.
+  Otherwise `Cancel` answers `Conflict`, a second `Cancel` of the same launch in
+  flight included, and nothing is stopped.
+- A new `Launch` of that ID waits to be dispatched until an in-flight
+  `CancelLaunch` has been answered, so a cancel never reaches a launch started
+  after it.
+- A launch counts as running until the provider has answered its
+  `Provider1.Launch`, whatever the operation's state. The daemon's own launch of
+  the browser application for a web open
+  ([ADR-0055](../adr/0055-launching-a-closed-browser.md)) counts too.
+
+When the provider confirms, the operation ends as `cancelled` with error
+`Cancelled`. When the provider refuses (`Unsupported`, `NotFound`, `Conflict`),
+`Cancel` returns that error and the operation keeps running. A provider without
+the method (`org.freedesktop.DBus.Error.UnknownMethod`) counts as `Unsupported`.
+A provider that does not answer within 15 seconds makes `Cancel` return
+`Timeout`; the operation keeps running, and the launch's processes may still be
+starting. A provider reply of `Cancelled` also ends the operation as `cancelled`.
+`Cancel` on an application launch that has already ended returns success and
+changes nothing; clients read the final state with `Get`.
+
+`CancelLaunch` stops every unfinished launch of that application ID, with the
+processes those launches started, and their `Launch` replies fail with
+`Cancelled`. The daemon's rule above keeps that set to the one launch being
+cancelled. It is authorized like the other provider commands and checks that the
+generation is the provider's current one, but not the catalogue, so a launch
+whose entry disappeared stays cancellable. The handler receives only the ID, so a
+launch that the provider still tracks from its previous registration (an earlier
+generation, whose operation the daemon already ended with `Unavailable`) is
+stopped as well. The SDK's default handler answers `Unsupported`.
+Cancellation stops processes; it never rolls back other side effects.
 
 `Status`, `HomeItems`, `Home` and `Back` support the minimal shell/platform bridge.
 `HomeItems` is a bounded projection of activatable running instances (up to five),
@@ -291,6 +346,49 @@ The matching adapter/daemon must be installed together. Old shells ignore the
 signal and keep their existing status path; old adapters cannot report explicit
 intent. Production shell consumption and QML focus regression are a follow-up
 after #45 merges. This contract alone does not complete AC-18.
+
+### Quick-menu presentation
+
+[ADR-0106](../adr/0106-quick-menu-presentation.md) adds two members to
+[Daemon1](daemon1.xml), preserving every existing signature:
+
+- `ReportQuickMenuRequest(target: s, output: s)` has the authentication and
+  validation of `ReportHomeRequest`. It commits the same visible Home state with
+  that Return target/output, emits `Changed`, then emits one
+  `QuickMenuRequested(epoch: s, target: s, output: s)`, including for identical
+  repeats. A rejected call publishes neither state nor intent.
+- `QuickMenuRequested` asks the shell to open the quick menu (spec §5.7) over
+  what it shows. It is a transient intent with the delivery rules of
+  `HomeRequested` above: bound to the current unique owner and epoch, never
+  persisted, replayed or inferred from `Status` or `Changed`.
+
+`ReportHomeRequest` never emits `QuickMenuRequested`, and
+`ReportQuickMenuRequest` never emits `HomeRequested`. `Status.home_visible` is
+true while either is shown; which one the shell shows is its own state. Both
+requests arm the [Activity background](../architecture/activity-background.md)
+capture after their signal, so Home opened from the quick menu shows the
+Activity's last frame.
+
+### Power-menu presentation
+
+[ADR-0111](../adr/0111-power-key.md) adds two more members to
+[Daemon1](daemon1.xml) for the remote's power key, preserving every existing
+signature:
+
+- `ReportPowerMenuRequest(target: s, output: s)` has the authentication and
+  validation of `ReportHomeRequest`. It commits the same visible Home state with
+  that Return target/output, emits `Changed`, then emits one
+  `PowerMenuRequested(epoch: s, target: s, output: s)`, including for identical
+  repeats. A rejected call publishes neither state nor intent.
+- `PowerMenuRequested` asks the shell to open the power menu (spec §5.7
+  *Power button*) over what it shows, which over an Activity is Home. It is a
+  transient intent with the delivery rules of `HomeRequested`.
+
+None of `ReportHomeRequest`, `ReportQuickMenuRequest` and
+`ReportPowerMenuRequest` emits another's signal. `Status.home_visible` is true
+while the power menu is shown over Home. The power-menu request arms the
+[Activity background](../architecture/activity-background.md) capture after its
+signal, as the other two do.
 
 ### Optional Return/window association
 
@@ -351,6 +449,11 @@ license ([ADR-0029](../adr/0029-licensing.md)).
 define trusted adapter inventory/control transport. This is not a provider capability.
 SDK registration contexts expose the registered connection for authenticated platform
 access. Production daemon/KDE implementation remains in issue #20.
+
+[KeyboardBridge1](keyboard-bridge1.xml) is the trusted adapter lane of the global
+on-screen keyboard: the platform's key request and the deliverer's records
+([ADR-0105](../adr/0105-global-on-screen-keyboard-platform-text-delivery.md),
+[contract](../architecture/external-keyboard.md)). It is not a provider capability.
 
 Managed playback window association: [contract](../architecture/managed-playback.md),
 [MediaWindow1](media-window1.xml), [MediaWindowProvider1](media-window-provider1.xml)

@@ -27,6 +27,19 @@ bool text(const std::string &s, std::size_t limit) {
   return !s.empty() && s.size() <= limit && s.find('\0') == std::string::npos;
 }
 }
+// `next` differs from a live `previous` only by the Return window that
+// `previous` did not know yet.
+static bool completesWindow(const Evidence &previous, const Evidence &next) {
+  if (!previous.generation.empty() || !previous.token.empty() ||
+      next.generation.empty() || next.token.empty() ||
+      !(previous.home && previous.sessionSafe && previous.providerLive &&
+        previous.producerLive && previous.shellLive))
+    return false;
+  auto completed = previous;
+  completed.generation = next.generation;
+  completed.token = next.token;
+  return completed == next;
+}
 bool Context::valid() const {
   return uuid(epoch) && uuid(request) && uuid(generation) &&
          text(target, 8192) && text(output, 8192) && text(token, 256);
@@ -54,9 +67,12 @@ void FrameGate::observe(Evidence evidence) {
   if (evidence.owner != m_evidence.owner || evidence.epoch != m_evidence.epoch) {
     m_floor = m_retiredRevision = 0;
     m_signalEpoch.clear(); m_retiredRequest.clear(); m_snapshot.reset();
-  } else if (m_snapshot && m_snapshot->context) {
+  } else if (m_snapshot && m_snapshot->context && !completesWindow(m_evidence, evidence)) {
     // A restored guard/Home/provider is a new lifetime, never permission to
-    // reuse the old capture. Keep one retired request and revision floor.
+    // reuse the old capture, even one first seen while Home was hidden or
+    // the provider was down. Keep one retired request and revision floor.
+    // Only the Return window resolving after the snapshot, with everything
+    // else live and unchanged, keeps the request.
     m_retiredRequest = m_snapshot->context->request;
     m_retiredRevision = m_snapshot->revision;
   }

@@ -3,9 +3,17 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+include /usr/share/dpkg/architecture.mk
+
 export DH_VERBOSE = 1
 export RUSTUP_TOOLCHAIN = stable
 export CARGO_TARGET_DIR ?= $(CURDIR)/target
+
+ifneq ($(strip $(ARINN_SYMBOLS_DIR)),)
+export CARGO_PROFILE_RELEASE_DEBUG = line-tables-only
+export CARGO_PROFILE_RELEASE_STRIP = none
+SENTRY_CMAKE_FLAGS = -DCMAKE_C_FLAGS="$(CFLAGS) -g1 -ffile-prefix-map=$(CURDIR)=/usr/src/arinn" -DCMAKE_CXX_FLAGS="$(CXXFLAGS) -g1 -ffile-prefix-map=$(CURDIR)=/usr/src/arinn"
+endif
 
 %:
 	dh $@
@@ -17,9 +25,10 @@ override_dh_auto_configure:
 override_dh_auto_build:
 	cargo build --frozen --release
 	cargo build --frozen --release --example private-systemd
-	cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-	# Only the installed shell; CI builds and runs the Qt tests elsewhere (ADR-0092).
-	cmake --build build --target arinn-shell
+	cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release $(SENTRY_CMAKE_FLAGS)
+	# Only the installed shell and KWin QML module; CI builds and runs the Qt
+	# tests elsewhere (ADR-0092).
+	cmake --build build --target arinn-shell arinn-kwin-background
 
 override_dh_auto_test:
 ifeq (nocheck,$(findstring nocheck,$(DEB_BUILD_OPTIONS)))
@@ -33,6 +42,8 @@ override_dh_auto_install:
 	install -Dm755 "$(CARGO_TARGET_DIR)"/release/arinn-xfce-session debian/arinn/usr/lib/arinn/arinn-xfce-session
 	install -Dm644 packaging/autostart/org.arinn.XfceSession.desktop \
 		debian/arinn/usr/share/arinn/autostart/org.arinn.XfceSession.desktop
+	install -Dm644 packaging/autostart/org.arinn.PowerButtonRestore.desktop \
+		debian/arinn/etc/xdg/autostart/org.arinn.PowerButtonRestore.desktop
 	install -Dm755 "$(CARGO_TARGET_DIR)"/release/arinnd debian/arinn/usr/bin/arinnd
 	install -Dm755 "$(CARGO_TARGET_DIR)"/release/arinnctl debian/arinn/usr/bin/arinnctl
 	install -Dm755 build/apps/arinn-shell/arinn-shell debian/arinn/usr/bin/arinn-shell
@@ -61,13 +72,29 @@ override_dh_auto_install:
 	install -Dm644 packaging/browser/browser-applications.toml debian/arinn/usr/share/arinn/browser-applications.toml
 	install -Dm644 packaging/browser/search-engines.toml debian/arinn/usr/share/arinn/search-engines.toml
 	install -Dm644 platform/kde/phase0.js debian/arinn/usr/share/arinn/kwin/phase0.js
+	install -Dm644 platform/kde/background.qml debian/arinn/usr/share/arinn/kwin/background.qml
+	# The org.arinn.background QML module of the KWin producer (ADR-0087).
+	install -Dm644 build/platform/kde/background/qml/org/arinn/background/qmldir \
+		build/platform/kde/background/qml/org/arinn/background/arinn-kwin-background.qmltypes \
+		-t debian/arinn/usr/lib/$(DEB_HOST_MULTIARCH)/qt6/qml/org/arinn/background/
+	install -Dm755 build/platform/kde/background/qml/org/arinn/background/libarinn-kwin-background.so \
+		-t debian/arinn/usr/lib/$(DEB_HOST_MULTIARCH)/qt6/qml/org/arinn/background/
 	install -Dm755 platform/kde/arinn-kwin-adapter debian/arinn/usr/lib/arinn/arinn-kwin-adapter
 	install -Dm755 platform/kde/arinn-shell-launch debian/arinn/usr/lib/arinn/arinn-shell-launch
+	install -Dm755 "$(CARGO_TARGET_DIR)"/release/arinn-input-method debian/arinn/usr/lib/arinn/arinn-input-method
+	install -Dm644 packaging/desktop/org.arinn.InputMethod.desktop debian/arinn/usr/share/applications/org.arinn.InputMethod.desktop
+	install -Dm644 packaging/udev/70-arinn-remote.hwdb debian/arinn/usr/lib/udev/hwdb.d/70-arinn-remote.hwdb
 	install -Dm755 packaging/bin/arinn-open debian/arinn/usr/lib/arinn/arinn-open
 	install -Dm755 packaging/bin/arinn-restart-user-services debian/arinn/usr/lib/arinn/arinn-restart-user-services
 	install -Dm644 packaging/desktop/org.arinn.Shell.desktop debian/arinn/usr/share/applications/org.arinn.Shell.desktop
 	install -Dm644 packaging/icons/org.arinn.Shell.svg \
 		debian/arinn/usr/share/icons/hicolor/scalable/apps/org.arinn.Shell.svg
+	install -Dm755 packaging/bin/arinn-session debian/arinn/usr/lib/arinn/arinn-session
+	install -Dm755 packaging/bin/arinn-session-switch debian/arinn/usr/lib/arinn/arinn-session-switch
+	install -Dm644 packaging/sessions/arinn.desktop debian/arinn/usr/share/wayland-sessions/arinn.desktop
+	install -Dm644 packaging/sessions/arinn-xfce.desktop debian/arinn/usr/share/xsessions/arinn-xfce.desktop
+	install -Dm644 packaging/desktop/org.arinn.ReturnToArinn.desktop \
+		debian/arinn/usr/share/applications/org.arinn.ReturnToArinn.desktop
 	install -Dm644 packaging/systemd/arinn-session.target packaging/systemd/arinnd.service \
 		packaging/systemd/arinn-shell.service packaging/systemd/arinn-kwin.service \
 		packaging/systemd/arinn-ewmh.service packaging/systemd/arinn-ewmh-session.target \
@@ -77,6 +104,11 @@ override_dh_auto_install:
 	install -Dm644 README.md CHANGELOG.md -t debian/arinn/usr/share/doc/arinn/
 	install -Dm644 build/observability/native/licenses/*-LICENSE -t debian/arinn/usr/share/licenses/arinn/
 	install -Dm644 LICENSES/*.txt -t debian/arinn/usr/share/licenses/arinn/
+	# Exact installed files, before dh_strip processes the package.
+	if [ -n "$(ARINN_SYMBOLS_DIR)" ]; then \
+	  python3 scripts/debug-symbols.py collect debian/arinn "$(ARINN_SYMBOLS_DIR)" \
+	    --flavor debian --build-id "$$(python3 scripts/build_id.py)"; \
+	fi
 
 override_dh_dwz:
 	:

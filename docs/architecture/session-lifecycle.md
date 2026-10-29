@@ -149,6 +149,96 @@ counter before starting it. The launcher requires `ActiveState=inactive` and
 `Result=success`; failed units retain the service start limit and crash-loop
 protection. Repeated menu close/reopen cycles therefore remain available.
 
+## Dedicated Arinn session
+
+[ADR-0107](../adr/0107-dedicated-arinn-session.md) (accepted by the owner on
+2026-10-21) adds two login session entries next to the opt-in autostart of
+[ADR-0042](../adr/0042-opt-in-session-autostart.md):
+
+| Entry | Display manager directory | Starts |
+| --- | --- | --- |
+| `arinn.desktop` ("Arinn") | `/usr/share/wayland-sessions` | `startplasma-wayland`, then `arinn-session.target` |
+| `arinn-xfce.desktop` ("Arinn (XFCE)") | `/usr/share/xsessions` | `startxfce4`, then `arinn-xfce-session` (EWMH target) |
+
+Both run `/usr/lib/arinn/arinn-session <plasma|xfce>`. The wrapper reads
+`$XDG_STATE_HOME/arinn/session-mode`. When the file holds exactly `desktop`
+(at most one trailing newline), the wrapper replaces itself with the plain
+desktop. A NUL byte anywhere makes the content something else, so `desk\0top`
+starts Arinn; `arinn-session-switch` reads the file by the same rule. Otherwise it starts the
+desktop as a child, waits up to 120 s for readiness, exports
+`ARINN_SESSION_ENTRY` and `ARINN_SESSION_MODE` (the mode file it read) to the
+user manager and starts Arinn. Readiness means
+`graphical-session.target` is active on Plasma, or `org.xfce.SessionManager`
+is owned on XFCE. On XFCE, Arinn counts as started once the helper the
+wrapper started confirms a started EWMH target: it owns
+`org.arinn.XfceSession.Running` (`busctl --user status` reports its PID).
+The helper takes that name only after the target has started. After a fast
+re-login, the previous login's helper may still own `org.arinn.XfceSession`
+while it stops the target. The new helper waits up to 65 s for that name
+([x11-ewmh](x11-ewmh.md), #483), which covers the previous helper's normal
+cleanup. A hung user manager can hold the name for longer; Arinn cannot
+start then anyway, and the line below is logged. The wrapper watches for up
+to 120 s, which covers the wait and a start. If Arinn cannot start, the wrapper writes the
+fixed line `arinn-session: Arinn did not start; the desktop continues without
+it` to the session log, and the desktop keeps running. That covers no
+readiness, a failed target start on Plasma, an XFCE helper that exits before
+it confirms a start (it gave up waiting, or a check, environment update or
+the target start failed), and no confirmation within the watch. When the
+desktop exits, the wrapper stops the Plasma target, removes the marker and
+exits with the desktop's status. In both modes the desktop starts with
+SIGINT and SIGQUIT at their defaults, as with the stock entries. The desktop
+mode clears an `ARINN_SESSION_ENTRY` a killed wrapper may have left in the
+user manager and exports `ARINN_SESSION_MODE` there and to the desktop, so
+Return to Arinn writes the same file. In the Arinn mode the desktop's own
+environment carries `ARINN_SESSION_ENTRY` as well; on XFCE the launcher
+`arinn-xfce-session` mirrors it into the user manager before it starts the
+EWMH target, and clears a marker its login does not carry, so a stock XFCE
+login after a killed wrapper is never taken for the dedicated session
+([ADR-0111](../adr/0111-power-key.md)).
+
+`/usr/lib/arinn/arinn-session-switch arinn|desktop [--prompt]` records the
+choice, then asks the desktop to log out through its own session-bus API:
+`org.kde.Shutdown.logout` or `org.kde.LogoutPrompt.promptLogout` on Plasma,
+`org.xfce.Session.Manager.Logout` on XFCE. It writes the file named by
+`ARINN_SESSION_MODE` when set, so it matches the file the session read. If the
+desktop refuses the request, the previous choice is restored as the session
+would read it (damaged content becomes `arinn`) and the command
+exits 1. Without `--prompt` the logout call is bounded to 5 s
+(`busctl --timeout=5`), and a desktop that does not answer counts as a
+refusal. A choice that cannot be recorded exits 3 without a logout request;
+usage errors exit 2. A logout the desktop accepts and an application cancels later is not
+detected: the session continues with `desktop` recorded and no error. That is
+an open point for the daemon and power-menu follow-up (G-5.8). The "Return to Arinn"
+menu launcher (`org.arinn.ReturnToArinn.desktop`) runs it with `--prompt`.
+"Switch to desktop" in the power menu reaches it only through the daemon's
+platform layer: `SystemControl1.GetSessionSwitch` and `SwitchToDesktop`
+([system control](system-control.md#switch-to-desktop)). It is offered only
+when the daemon's environment has `ARINN_SESSION_ENTRY` set.
+Nothing here needs privileges or changes display-manager configuration.
+
+Administrator setup, once per HTPC:
+
+- **SDDM** (Plasma): for a TV without a login prompt, use
+  `/etc/sddm.conf.d/autologin.conf` with `[Autologin]`,
+  `User=<user>`, `Session=arinn.desktop` and `Relogin=true`. With
+  `Relogin=true` a switch logs in again at once; without it, the greeter
+  appears with the Arinn entry preselected.
+- **LightDM** (XFCE): `autologin-user=<user>` and
+  `autologin-session=arinn-xfce` in `[Seat:*]`, or choose "Arinn (XFCE)"
+  once in the greeter.
+- Users of the Arinn session should not also enable the opt-in autostart.
+  Otherwise Arinn starts in the plain desktop as well.
+
+Verified offline: `tests/package/test_session_entry.py` (CTest
+`arinn-session-entry`, and against the installed files from
+`tests/package/session.py`) runs both scripts against stub `systemctl`,
+`busctl` and desktop commands. Not verified: a real login, switch and return
+on the HTPC with SDDM and with LightDM. That operator test needs the owner's
+permission (G-5.8). Notes for it: on XFCE the EWMH adapter may fail once
+with "no EWMH window manager" when it starts before xfwm4, and recovers
+through `Restart=on-failure`; the display managers set
+`XDG_SESSION_DESKTOP`/`DESKTOP_SESSION` to `arinn`/`arinn-xfce`.
+
 ## Package upgrade
 
 An upgrade replaces the binaries on disk, but running processes keep the old

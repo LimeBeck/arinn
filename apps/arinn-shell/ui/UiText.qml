@@ -4,6 +4,7 @@
 import QtQuick
 
 Text {
+    id: uiText
     // Named roles keep action labels at least 26 logical pixels.
     property string role: "body"
     readonly property var typography: ({
@@ -20,4 +21,8 @@ Text {
     font.features: ({ "tnum": 1 })
     color: Theme.textPrimary
     wrapMode: Text.WordWrap
+    // The weight, the role's or one set on the instance, reaches the
+    // variable font's wght axis (#546).
+    onFontChanged: Theme.applyWeight(uiText)
+    Component.onCompleted: Theme.applyWeight(uiText)
 }

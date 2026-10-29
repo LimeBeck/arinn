@@ -46,15 +46,23 @@ build() {
   export RUSTUP_TOOLCHAIN=stable
   # CI may point this at a cached directory outside $srcdir (ADR-0047).
   export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-target}"
+  local symbol_cmake=()
+  if [ -n "${ARINN_SYMBOLS_DIR:-}" ]; then
+    export CARGO_PROFILE_RELEASE_DEBUG=line-tables-only
+    export CARGO_PROFILE_RELEASE_STRIP=none
+    symbol_cmake=("-DCMAKE_C_FLAGS=${CFLAGS:-} -g1 -ffile-prefix-map=${PWD}=/usr/src/arinn"
+                  "-DCMAKE_CXX_FLAGS=${CXXFLAGS:-} -g1 -ffile-prefix-map=${PWD}=/usr/src/arinn")
+  fi
   cargo build --frozen --release
   cargo build --frozen --release --example private-systemd
   # No build RPATH: the binary is installed from the build tree and must not
   # point at the SDK prefix.
   cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_SKIP_BUILD_RPATH=ON \
-    ${ARINN_QT_FLOOR_PREFIX:+"-DCMAKE_PREFIX_PATH=$ARINN_QT_FLOOR_PREFIX"}
-  # Only the installed shell; the Qt test executables, gallery and perf
-  # harness are built and run by the CI integration job (ADR-0092).
-  cmake --build build --target arinn-shell
+    ${ARINN_QT_FLOOR_PREFIX:+"-DCMAKE_PREFIX_PATH=$ARINN_QT_FLOOR_PREFIX"} "${symbol_cmake[@]}"
+  # Only the installed shell and KWin QML module; the Qt test executables,
+  # gallery and perf harness are built and run by the CI integration job
+  # (ADR-0092).
+  cmake --build build --target arinn-shell arinn-kwin-background
 }
 
 check() {
@@ -72,6 +80,10 @@ package() {
   # Template only: users opt in by copying it to their XDG autostart directory.
   install -Dm644 packaging/autostart/org.arinn.XfceSession.desktop \
     "${pkgdir}/usr/share/arinn/autostart/org.arinn.XfceSession.desktop"
+  # Enabled for every XFCE login: restores the desktop's power button after
+  # an unclean end of the dedicated session; starts no part of Arinn (ADR-0111).
+  install -Dm644 packaging/autostart/org.arinn.PowerButtonRestore.desktop \
+    "${pkgdir}/etc/xdg/autostart/org.arinn.PowerButtonRestore.desktop"
   install -Dm755 "${target}"/release/arinnd "${pkgdir}/usr/bin/arinnd"
   install -Dm755 "${target}"/release/arinnctl "${pkgdir}/usr/bin/arinnctl"
   install -Dm755 build/apps/arinn-shell/arinn-shell "${pkgdir}/usr/bin/arinn-shell"
@@ -102,8 +114,23 @@ package() {
   install -Dm644 packaging/browser/browser-applications.toml "${pkgdir}/usr/share/arinn/browser-applications.toml"
   install -Dm644 packaging/browser/search-engines.toml "${pkgdir}/usr/share/arinn/search-engines.toml"
   install -Dm644 platform/kde/phase0.js "${pkgdir}/usr/share/arinn/kwin/phase0.js"
+  # Activity background producer (ADR-0087): KWin loads the declarative
+  # script, which imports the org.arinn.background QML module.
+  install -Dm644 platform/kde/background.qml "${pkgdir}/usr/share/arinn/kwin/background.qml"
+  install -Dm644 build/platform/kde/background/qml/org/arinn/background/qmldir \
+    build/platform/kde/background/qml/org/arinn/background/arinn-kwin-background.qmltypes \
+    -t "${pkgdir}/usr/lib/qt6/qml/org/arinn/background/"
+  install -Dm755 build/platform/kde/background/qml/org/arinn/background/libarinn-kwin-background.so \
+    -t "${pkgdir}/usr/lib/qt6/qml/org/arinn/background/"
   install -Dm755 platform/kde/arinn-kwin-adapter "${pkgdir}/usr/lib/arinn/arinn-kwin-adapter"
   install -Dm755 platform/kde/arinn-shell-launch "${pkgdir}/usr/lib/arinn/arinn-shell-launch"
+  # The global on-screen keyboard on KDE/Wayland (ADR-0105): KWin's input
+  # method and its desktop file, and the remote's microphone remapped to a
+  # key Qt and X11 can name (hwdb, rebuilt by the systemd pacman hook).
+  install -Dm755 "${target}"/release/arinn-input-method "${pkgdir}/usr/lib/arinn/arinn-input-method"
+  install -Dm644 packaging/desktop/org.arinn.InputMethod.desktop \
+    "${pkgdir}/usr/share/applications/org.arinn.InputMethod.desktop"
+  install -Dm644 packaging/udev/70-arinn-remote.hwdb "${pkgdir}/usr/lib/udev/hwdb.d/70-arinn-remote.hwdb"
   # Menu entry and icon (#289); starting Arinn from the menu does not enable autostart.
   install -Dm755 packaging/bin/arinn-open "${pkgdir}/usr/lib/arinn/arinn-open"
   # Restarts running Arinn user services after an upgrade (#355).
@@ -112,6 +139,14 @@ package() {
     "${pkgdir}/usr/share/libalpm/hooks/arinn-restart-user-services.hook"
   install -Dm644 packaging/desktop/org.arinn.Shell.desktop "${pkgdir}/usr/share/applications/org.arinn.Shell.desktop"
   install -Dm644 packaging/icons/org.arinn.Shell.svg "${pkgdir}/usr/share/icons/hicolor/scalable/apps/org.arinn.Shell.svg"
+  # Dedicated Arinn login session and the switch to the plain desktop (ADR-0107).
+  # The package changes no display manager configuration.
+  install -Dm755 packaging/bin/arinn-session "${pkgdir}/usr/lib/arinn/arinn-session"
+  install -Dm755 packaging/bin/arinn-session-switch "${pkgdir}/usr/lib/arinn/arinn-session-switch"
+  install -Dm644 packaging/sessions/arinn.desktop "${pkgdir}/usr/share/wayland-sessions/arinn.desktop"
+  install -Dm644 packaging/sessions/arinn-xfce.desktop "${pkgdir}/usr/share/xsessions/arinn-xfce.desktop"
+  install -Dm644 packaging/desktop/org.arinn.ReturnToArinn.desktop \
+    "${pkgdir}/usr/share/applications/org.arinn.ReturnToArinn.desktop"
   # Session units are installed but never enabled by the package (ADR-0042).
   install -Dm644 packaging/systemd/arinn-session.target packaging/systemd/arinnd.service \
     packaging/systemd/arinn-shell.service packaging/systemd/arinn-kwin.service \
@@ -123,4 +158,9 @@ package() {
   install -Dm644 README.md CHANGELOG.md -t "${pkgdir}/usr/share/doc/${pkgname}/"
   install -Dm644 build/observability/native/licenses/*-LICENSE -t "${pkgdir}/usr/share/licenses/${pkgname}/"
   install -Dm644 LICENSES/*.txt -t "${pkgdir}/usr/share/licenses/${pkgname}/"
+  # Exact staged ELF files, before makepkg strips the installed package.
+  if [ -n "${ARINN_SYMBOLS_DIR:-}" ]; then
+    python scripts/debug-symbols.py collect "$pkgdir" "$ARINN_SYMBOLS_DIR" \
+      --flavor arch --build-id "$(python scripts/build_id.py)"
+  fi
 }

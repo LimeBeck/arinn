@@ -45,6 +45,26 @@ SPDX-License-Identifier: MIT OR Apache-2.0 -->
       <arg name="target" type="s" />
       <arg name="output" type="s" />
     </signal>
+    <!-- ADR-0106: the quick-menu key; same state as ReportHomeRequest. -->
+    <method name="ReportQuickMenuRequest">
+      <arg name="target" type="s" direction="in" />
+      <arg name="output" type="s" direction="in" />
+    </method>
+    <signal name="QuickMenuRequested">
+      <arg name="epoch" type="s" />
+      <arg name="target" type="s" />
+      <arg name="output" type="s" />
+    </signal>
+    <!-- ADR-0111: the power key; same state as ReportHomeRequest. -->
+    <method name="ReportPowerMenuRequest">
+      <arg name="target" type="s" direction="in" />
+      <arg name="output" type="s" direction="in" />
+    </method>
+    <signal name="PowerMenuRequested">
+      <arg name="epoch" type="s" />
+      <arg name="target" type="s" />
+      <arg name="output" type="s" />
+    </signal>
     <method name="Providers">
       <arg name="token" type="s" direction="in" />
       <arg type="(sa(sssssoasssststttt)s)" direction="out" />

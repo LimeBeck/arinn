@@ -1,0 +1,29 @@
+<!-- SPDX-FileCopyrightText: 2026 Arinn contributors
+SPDX-License-Identifier: MIT OR Apache-2.0 -->
+<node>
+  <interface name="org.arinn.KeyboardBridge1">
+    <method name="Request"/>
+    <method name="Connect">
+      <arg name="instance" type="s" direction="in"/>
+      <arg type="s" direction="out"/>
+    </method>
+    <method name="Next">
+      <arg name="generation" type="s" direction="in"/>
+      <arg type="as" direction="out"/>
+    </method>
+    <method name="Opened">
+      <arg name="generation" type="s" direction="in"/>
+      <arg name="session" type="s" direction="in"/>
+    </method>
+    <method name="Input">
+      <arg name="generation" type="s" direction="in"/>
+      <arg name="session" type="s" direction="in"/>
+      <arg name="key" type="s" direction="in"/>
+    </method>
+    <method name="Closed">
+      <arg name="generation" type="s" direction="in"/>
+      <arg name="session" type="s" direction="in"/>
+      <arg name="reason" type="s" direction="in"/>
+    </method>
+  </interface>
+</node>

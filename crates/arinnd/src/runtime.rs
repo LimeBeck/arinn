@@ -33,6 +33,14 @@ const BROWSER_LAUNCH_DEADLINE: Duration = Duration::from_secs(30);
 /// How long opening a URL waits for the browser's next snapshot before it
 /// only hides Home (ADR-0052).
 const OPEN_FOCUS_WAIT: Duration = Duration::from_secs(2);
+/// How long the provider may take to stop a cancelled launch (ADR-0110).
+/// How long `Cancel` waits for the provider to stop a launch (ADR-0110).
+/// Short in tests, which check what happens after it.
+const LAUNCH_CANCEL_DEADLINE: Duration = if cfg!(test) {
+    Duration::from_millis(400)
+} else {
+    Duration::from_secs(15)
+};
 
 struct Provider {
     info: ProviderInfo,
@@ -76,14 +84,18 @@ impl Provider {
     }
 }
 mod assets;
+mod background;
 mod browse_routing;
 mod download_routing;
 mod folders_routing;
+mod keyboard_routing;
+mod launch_guard;
 mod library_routing;
 mod media_links;
 mod media_routing;
 mod progress;
 mod settings_routing;
+mod system_control;
 mod system_status;
 mod web_icons;
 
@@ -122,8 +134,15 @@ pub struct Core {
     runtime_dir: PathBuf,
     platform: crate::platform::Platform,
     windows: crate::windows::Windows,
+    /// The global on-screen keyboard's routing (ADR-0105).
+    keyboard: keyboard_routing::Keyboard,
     playback_exits: Arc<Mutex<media_routing::ExitFences>>,
     supervision: Arc<tokio::sync::OnceCell<Arc<Supervision>>>,
+    /// Activity background handoff (ADR-0087), once exported.
+    background: Arc<std::sync::OnceLock<background::Background>>,
+    /// Running application launches per provider, generation and ID, so a
+    /// cancel stops only its own launch (ADR-0110).
+    launches: launch_guard::LaunchGuard,
 }
 fn sender(h: &Header<'_>) -> Result<String, ErrorCode> {
     h.sender()
@@ -161,10 +180,22 @@ impl Core {
             paths,
             runtime_dir,
             platform: crate::platform::Platform::default(),
+            keyboard: keyboard_routing::Keyboard::default(),
             windows,
             playback_exits: Arc::default(),
             supervision: Arc::new(tokio::sync::OnceCell::new()),
+            background: Arc::default(),
+            launches: launch_guard::LaunchGuard::default(),
         }
+    }
+    /// Whether `name` is the bus connection of a registered provider.
+    pub(crate) async fn is_provider_owner(&self, name: &str) -> bool {
+        self.state
+            .lock()
+            .await
+            .providers
+            .values()
+            .any(|p| !p.owner.is_empty() && p.owner == name)
     }
     async fn supervision(&self) -> Arc<Supervision> {
         self.supervision
@@ -1148,19 +1179,47 @@ impl Core {
         // Losing the application provider while it launches the browser ends
         // the open; once Launch has answered, the provider is no longer needed.
         op.depends_on(&id);
-        let launched = async {
-            let proxy = ApplicationProviderProxy::builder(&self.connection)
-                .destination(owner.as_str())
-                .map_err(|_| ErrorCode::Internal)?
-                .build()
-                .await
-                .map_err(|_| ErrorCode::Unavailable)?;
-            tokio::time::timeout_at(deadline, proxy.launch(&generation, &application))
-                .await
-                .map_err(|_| ErrorCode::Timeout)?
-                .map_err(normalize_error)
-        }
-        .await;
+        // Counted like an application launch for as long as the provider has
+        // not answered, so a tile's Cancel never stops it (ADR-0110). The
+        // call is awaited in its own task, which keeps it counted after this
+        // open stops waiting at its deadline.
+        let mut ticket = self.launches.admit(
+            launch_guard::LaunchKey {
+                provider: id.clone(),
+                owner: owner.clone(),
+                generation: generation.clone(),
+                local_id: application.clone(),
+            },
+            &format!("browser-launch:{}", Uuid::new_v4()),
+        );
+        let connection = self.connection.clone();
+        let (answer, answered) = tokio::sync::oneshot::channel();
+        tokio::spawn(async move {
+            ticket.dispatchable().await;
+            // This open gave up while a cancel held the launch back.
+            if answer.is_closed() {
+                return;
+            }
+            let result = async {
+                let proxy = ApplicationProviderProxy::builder(&connection)
+                    .destination(owner.as_str())
+                    .map_err(|_| ErrorCode::Internal)?
+                    .build()
+                    .await
+                    .map_err(|_| ErrorCode::Unavailable)?;
+                proxy
+                    .launch(&generation, &application)
+                    .await
+                    .map_err(normalize_error)
+            }
+            .await;
+            let _ = answer.send(result);
+            drop(ticket);
+        });
+        let launched = tokio::time::timeout_at(deadline, answered)
+            .await
+            .map_err(|_| ErrorCode::Timeout)
+            .and_then(|answer| answer.unwrap_or(Err(ErrorCode::Internal)));
         op.no_longer_depends_on(&id);
         launched?;
         loop {
@@ -1304,6 +1363,67 @@ impl Core {
         if !fresh {
             return Ok(path);
         }
+        // A launch counts as running from its admission until its operation
+        // has ended, so a cancel stops only its own launch (ADR-0110).
+        let mut launch_ticket = (action == "launch").then(|| {
+            self.launches.admit(
+                launch_guard::LaunchKey {
+                    provider: id.to_owned(),
+                    owner: owner.clone(),
+                    generation: generation.to_owned(),
+                    local_id: local_id.to_owned(),
+                },
+                path.as_str(),
+            )
+        });
+        if action == "launch" {
+            // A launch stays running while the application starts; the user
+            // may stop it through Operation1.Cancel (spec §6.5, ADR-0110).
+            let connection = self.connection.clone();
+            let launches = self.launches.clone();
+            let key = launch_guard::LaunchKey {
+                provider: id.to_owned(),
+                owner: owner.clone(),
+                generation: generation.to_owned(),
+                local_id: local_id.to_owned(),
+            };
+            let operation = path.to_string();
+            op.cancellable(Arc::new(move || {
+                let connection = connection.clone();
+                let launches = launches.clone();
+                let key = key.clone();
+                let operation = operation.clone();
+                Box::pin(async move {
+                    // Only the only running launch of this ID is forwarded;
+                    // a new launch of it waits until the provider answered.
+                    let cancel = launches.begin_cancel(&key, &operation)?;
+                    let proxy = ApplicationProviderProxy::builder(&connection)
+                        .destination(key.owner.clone())
+                        .map_err(|_| ErrorCode::Internal)?
+                        .build()
+                        .await
+                        .map_err(|_| ErrorCode::Unavailable)?;
+                    // The marker lives until the provider really answers (or
+                    // the bus reports it gone), also after `Cancel` gave up
+                    // with Timeout: a late CancelLaunch must not reach a
+                    // launch dispatched after it.
+                    let (answer, answered) = tokio::sync::oneshot::channel();
+                    tokio::spawn(async move {
+                        let result = proxy
+                            .cancel_launch(&key.generation, &key.local_id)
+                            .await
+                            .map_err(cancel_error);
+                        let _ = answer.send(result);
+                        drop(cancel);
+                    });
+                    tokio::time::timeout(LAUNCH_CANCEL_DEADLINE, answered)
+                        .await
+                        .map_err(|_| ErrorCode::Timeout)?
+                        .unwrap_or(Err(ErrorCode::Internal))
+                })
+            }))
+            .await;
+        }
         let core = self.clone();
         let id = id.to_owned();
         let action = action.to_owned();
@@ -1340,6 +1460,9 @@ impl Core {
                     .build()
                     .await
                     .map_err(|_| ErrorCode::Unavailable)?;
+                if let Some(ticket) = launch_ticket.as_mut() {
+                    ticket.dispatchable().await;
+                }
                 let result = match action.as_str() {
                     "launch" => proxy.launch(&generation, &local_id).await,
                     "activate" => proxy.activate(&generation, &local_id).await,
@@ -1347,12 +1470,17 @@ impl Core {
                 };
                 result.map_err(normalize_error)
             };
-            let result = tokio::time::timeout(
-                Duration::from_secs(if action == "launch" { 30 } else { 5 }),
-                op.phase("provider.call", op.kind(), work),
-            )
-            .await
-            .unwrap_or(Err(ErrorCode::Timeout));
+            let call = op.phase("provider.call", op.kind(), work);
+            // The provider bounds launch dispatch itself and then answers when
+            // a window appears or the application can no longer show one, so
+            // a slow start has no daemon deadline (spec §9.5, ADR-0110).
+            let result = if action == "launch" {
+                call.await
+            } else {
+                tokio::time::timeout(Duration::from_secs(5), call)
+                    .await
+                    .unwrap_or(Err(ErrorCode::Timeout))
+            };
             let valid = core
                 .state
                 .lock()
@@ -1405,6 +1533,9 @@ impl Core {
                 }),
             )
             .await;
+            // Ended: from now on a cancel of another launch of this ID may be
+            // forwarded.
+            drop(launch_ticket);
         });
         Ok(path)
     }
@@ -1442,6 +1573,17 @@ fn provider_env(
     ])
 }
 
+/// A provider built before ADR-0110 has no `CancelLaunch`: it cannot cancel.
+fn cancel_error(error: zbus::Error) -> ErrorCode {
+    match &error {
+        zbus::Error::MethodError(name, _, _)
+            if name.as_str() == "org.freedesktop.DBus.Error.UnknownMethod" =>
+        {
+            ErrorCode::Unsupported
+        }
+        _ => normalize_error(error),
+    }
+}
 fn normalize_error(error: zbus::Error) -> ErrorCode {
     if let zbus::Error::MethodError(name, _, _) = error {
         match name.as_str() {
@@ -1617,7 +1759,11 @@ impl Daemon {
             crate::global_home::adapter_connected(
                 &self.core.connection,
                 self.core.paths.config.clone(),
+                self.core.paths.state.clone(),
+                self.core.platform.quick_menu.clone(),
+                self.core.platform.power_key.clone(),
             );
+            self.core.platform.watch_power_key(&self.core.connection);
         }
         Ok(self.core.platform.next_command().await)
     }
@@ -1654,7 +1800,14 @@ impl Daemon {
         self.core
             .platform
             .report_window(&self.core.connection, h, id, class, fullscreen, output)
-            .await
+            .await?;
+        // The remote's Menu keys follow the shell's focus (ADR-0106).
+        crate::global_home::window_reported(
+            &self.core.connection,
+            &self.core.platform.quick_menu,
+            class,
+        );
+        Ok(())
     }
     async fn report_home_request(
         &self,
@@ -1677,11 +1830,83 @@ impl Daemon {
             )
             .await?;
         Self::changed(&emitter).await?;
+        // Presentation intent first; arming at most one Activity background
+        // capture for this Home context never delays it.
         Self::home_requested(&emitter, &self.core.epoch, target, output).await?;
+        self.core.background_home_requested(target, output).await;
         Ok(())
     }
     #[zbus(signal)]
     async fn home_requested(
+        emitter: &SignalEmitter<'_>,
+        epoch: &str,
+        target: &str,
+        output: &str,
+    ) -> zbus::Result<()>;
+    /// The quick-menu key (ADR-0106): the same platform state as an explicit
+    /// Home request, but the shell opens the quick menu instead of Home.
+    async fn report_quick_menu_request(
+        &self,
+        target: &str,
+        output: &str,
+        #[zbus(header)] h: Header<'_>,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+    ) -> production::Result<()> {
+        self.core
+            .windows
+            .report_home(
+                &self.core.platform,
+                &self.core.connection,
+                h,
+                true,
+                target,
+                output,
+            )
+            .await?;
+        Self::changed(&emitter).await?;
+        // As for Home: intent first, then arm the Activity background for
+        // the Home state this request committed, so Home opened from the
+        // quick menu shows the Activity's last frame (§12.3).
+        Self::quick_menu_requested(&emitter, &self.core.epoch, target, output).await?;
+        self.core.background_home_requested(target, output).await;
+        Ok(())
+    }
+    #[zbus(signal)]
+    async fn quick_menu_requested(
+        emitter: &SignalEmitter<'_>,
+        epoch: &str,
+        target: &str,
+        output: &str,
+    ) -> zbus::Result<()>;
+    /// The power key (ADR-0111): the same platform state as an explicit Home
+    /// request, but the shell opens the power menu over Home.
+    async fn report_power_menu_request(
+        &self,
+        target: &str,
+        output: &str,
+        #[zbus(header)] h: Header<'_>,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+    ) -> production::Result<()> {
+        self.core
+            .windows
+            .report_home(
+                &self.core.platform,
+                &self.core.connection,
+                h,
+                true,
+                target,
+                output,
+            )
+            .await?;
+        Self::changed(&emitter).await?;
+        // As for Home: intent first, then arm the Activity background for
+        // the Home state this request committed (§12.3).
+        Self::power_menu_requested(&emitter, &self.core.epoch, target, output).await?;
+        self.core.background_home_requested(target, output).await;
+        Ok(())
+    }
+    #[zbus(signal)]
+    async fn power_menu_requested(
         emitter: &SignalEmitter<'_>,
         epoch: &str,
         target: &str,
@@ -2395,6 +2620,9 @@ impl WindowEndpoint {
 #[cfg(test)]
 #[path = "../../../platform/kde/browser_tests.rs"]
 mod browser_tests;
+#[cfg(test)]
+#[path = "runtime/launch_tests.rs"]
+mod launch_tests;
 #[cfg(test)]
 #[path = "../../../platform/kde/window_tests.rs"]
 mod window_tests;

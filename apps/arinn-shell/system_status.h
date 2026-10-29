@@ -17,11 +17,19 @@ class SystemStatus : public QObject {
   Q_PROPERTY(bool wifi READ wifi NOTIFY changed)
   // Coarse Wi-Fi level 1–4 while `wifi`, else 0 (unknown).
   Q_PROPERTY(int wifiLevel READ wifiLevel NOTIFY changed)
+  // The default output's mute flag for the quick menu (ADR-0106):
+  // "muted", "unmuted", or empty when unknown.
+  Q_PROPERTY(QString audio READ audio NOTIFY changed)
+  // Connectivity for the quick menu: "wifi", "wired", "other",
+  // "disconnected", or empty when unknown.
+  Q_PROPERTY(QString network READ network NOTIFY changed)
 public:
   explicit SystemStatus(QObject *parent = nullptr);
-  bool muted() const { return m_muted; }
-  bool wifi() const { return m_wifi; }
+  bool muted() const { return m_audio == QLatin1String("muted"); }
+  bool wifi() const { return m_network == QLatin1String("wifi"); }
   int wifiLevel() const { return m_level; }
+  QString audio() const { return m_audio; }
+  QString network() const { return m_network; }
   // Waits before re-reading after a failed read (#409); tests shorten them.
   void setRetryDelays(const QList<int> &ms) { m_delays = ms; }
 public slots:
@@ -32,7 +40,7 @@ private slots:
   void statusChanged(const QString &epoch, qulonglong revision);
 
 private:
-  void apply(bool muted, bool wifi, int level);
+  void apply(const QString &audio, const QString &network, int level);
   void retryLater(const QString &error);
   QString m_epoch;
   // Bumped on every daemon owner change: older replies are dropped.
@@ -41,8 +49,8 @@ private:
   // superseded read that fails never clears a newer state.
   quint64 m_request = 0;
   quint64 m_revision = 0;
-  bool m_muted = false;
-  bool m_wifi = false;
+  QString m_audio;
+  QString m_network;
   int m_level = 0;
   // A failed read is retried after each of these delays in turn, then not
   // until the next Changed or owner change.

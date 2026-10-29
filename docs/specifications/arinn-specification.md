@@ -210,6 +210,8 @@ Owner decisions of 2026-09-30:
 
 Removing a folder removes its items from the library and never deletes files. Arinn never mounts or browses network shares; mounted folders appear as start points in the picker.
 
+A typed path that begins with `~/`, or is only `~`, means the user's home folder: the shell expands it before it proposes the value, so the stored setting and the contract stay absolute paths. `~user/` is not supported. Owner decision of 2026-10-26 ([#479](https://github.com/LimeBeck/arinn/issues/479)).
+
 ### 5.7. System UI, power and ambient
 
 Arinn provides one system overlay for Home, Back, Play/Pause, volume, mute, the power menu and Settings. Each action is executed by the platform layer or the matching provider. CEC is not part of the architecture; TV control (for example webOS) is added later through the same plugin mechanism, never in the core.
@@ -246,7 +248,7 @@ its global key are unchanged. Owner decision on 2026-10-10
 - **Switch to desktop** is offered in the power menu while Arinn runs as the dedicated Arinn session. It ends the session and makes the next login of that user start the plain desktop session without Arinn. It requires the same confirmation as Restart and Shut down: the live list of applications that will be closed, Cancel as the default focus. A failed switch is shown as an error and the session continues. Inside an ordinary desktop session the action is not offered. Plugins never get this action ([§13](#13-security)).
 - **Return to Arinn** is a launcher on the plain desktop (its application menu). It does the reverse: it ends the desktop session through the desktop's own logout confirmation and makes the next login start the Arinn session. Owner decision on 2026-10-10 ([#438](https://github.com/LimeBeck/arinn/issues/438)).
 
-**Power button.** While Arinn runs, the remote's ⏻ power button (`KEY_POWER`) opens Arinn's power menu instead of the desktop's power dialog. The platform layer owns the key as a global key, like Global Home ([§12.1](#121-global-home)), so it works over an external Activity as well as inside the shell. Over an Activity the shell comes up as for Home, with the power menu open. Closing the menu with Back or Cancel leaves the shell where the request put it (§6.3). Pressing the key again while the menu is open keeps it open. Every action in the menu keeps its confirmation and its inhibitor and permission reporting above; the key itself never suspends or powers off. During ambient the key ends ambient and opens the menu. While the session is locked the shell stays hidden and the key opens nothing (see *Session lifecycle* below). The desktop's own power handling (Plasma PowerDevil, xfce4-power-manager) MUST NOT act on the key at the same time. Arinn arranges this only while it runs, through an inhibitor or a setting scoped to the running Arinn session, and never by a permanent change of the user's desktop settings; when Arinn stops, the desktop handles the key again. Owner decision on 2026-10-21 ([#481](https://github.com/LimeBeck/arinn/issues/481)).
+**Power button.** While Arinn runs, the remote's ⏻ power button (`KEY_POWER`) opens Arinn's power menu instead of the desktop's power dialog. The platform layer owns the key as a global key, like Global Home ([§12.1](#121-global-home)), so it works over an external Activity as well as inside the shell. Over an Activity the shell comes up as for Home, with the power menu open. Closing the menu with Back or Cancel leaves the shell where the request put it (§6.3). Pressing the key again while the menu is open keeps it open. Every action in the menu keeps its confirmation and its inhibitor and permission reporting above; the key itself never suspends or powers off. During ambient the key ends ambient and opens the menu. While the session is locked the shell stays hidden and the key opens nothing (see *Session lifecycle* below). The desktop's own power handling (Plasma PowerDevil, xfce4-power-manager) MUST NOT act on the key at the same time. Arinn arranges this only while it runs, through an inhibitor or a setting scoped to the running Arinn session, and never by a permanent change of the user's desktop settings; when Arinn stops, the desktop handles the key again. Owner decision on 2026-10-21 ([#481](https://github.com/LimeBeck/arinn/issues/481)). On XFCE, Arinn takes the key only in the dedicated Arinn session: there xfce4-power-manager's power-button action is "do nothing" while Arinn runs and the user's value is restored when it stops, while the ordinary XFCE desktop with opt-in autostart is not changed and keeps its own power dialog. Owner decision on 2026-10-24 ([#481](https://github.com/LimeBeck/arinn/issues/481)). On KDE Plasma, Arinn takes the key only on Plasma 6.7 or later; older Plasma keeps the desktop's power dialog, and Arinn changes none of its settings. Owner decision on 2026-10-25 ([#481](https://github.com/LimeBeck/arinn/issues/481)).
 
 **Close Arinn.** Global navigation includes a **Close Arinn** action, reachable
 with D-pad/Select or the pointer even when the daemon is unavailable. It closes
@@ -313,6 +315,8 @@ Back MUST behave predictably and MUST NOT close the active application just beca
 | Home without a return Activity | Open global navigation. | Stay on Home. |
 | Quick menu over an Activity | Close the quick menu and activate the same Activity. | Replace the quick menu with Home, focus on Return. |
 | External application | Back belongs to the external application. | The platform opens the Arinn overlay and remembers the return Activity. |
+
+A Sleep, Restart or Shut down request that has been sent cannot be cancelled. Until the system answers or the request times out, Back and the confirmation's Cancel do nothing. Home still shows Home without cancelling the request, as for a slow application start ([§6.5](#65-performance-principles)): on success the system suspends, restarts or powers off, and a refusal or timeout that arrives later is still shown to the user. Owner decision on 2026-10-23 ([#148](https://github.com/LimeBeck/arinn/issues/148)).
 
 The quick menu key ([§6.2](#62-keys)) works wherever the global Home key works. Over an external application the platform remembers the return Activity exactly as for Home, and the quick menu opens over that Activity. Over the shell it opens on top of the current screen like any sheet: Back closes it and focus returns to its opener. Without a return Activity, Back from the quick menu over an empty desktop shows Home. Repeating the key keeps the quick menu open.
 
@@ -442,7 +446,7 @@ Plugins supply data, metadata, actions and capabilities. They MUST NOT supply QM
 
 ### 8.5. Platform layer
 
-Platform-specific functions are behind `PlatformService`; the first implementation is `KdePlatformService` for KDE Plasma 6 on Wayland: global shortcuts, application/window activation, overlay and window integration, session state, text delivery for the on-screen keyboard ([§12.5](#125-on-screen-keyboard-delivery)) and system actions (volume, network, power). KDE-specific code MUST NOT be spread across the daemon, and window management MUST NOT be spread across plugins. Details: [§12](#12-platform-integration-kde-plasma-6--wayland). Mute and network connectivity for Home's status area reach the shell only as the daemon's read-only `org.arinn.SystemStatus1` snapshot ([ADR-0100](../adr/0100-system-status.md)).
+Platform-specific functions are behind `PlatformService`; the first implementation is `KdePlatformService` for KDE Plasma 6 on Wayland: global shortcuts, application/window activation, overlay and window integration, session state, text delivery for the on-screen keyboard ([§12.5](#125-on-screen-keyboard-delivery)) and system actions (volume, network, power). KDE-specific code MUST NOT be spread across the daemon, and window management MUST NOT be spread across plugins. Details: [§12](#12-platform-integration-kde-plasma-6--wayland). Mute and network connectivity for Home's status area reach the shell only as the daemon's read-only `org.arinn.SystemStatus1` snapshot ([ADR-0100](../adr/0100-system-status.md)). Power actions and volume changes go from the shell to the daemon's `org.arinn.SystemControl1`, which calls logind and the sound server in the platform layer ([ADR-0108](../adr/0108-system-control.md)); the dedicated session's **Switch to desktop** goes the same way to the unprivileged switch helper ([ADR-0107](../adr/0107-dedicated-arinn-session.md)).
 
 The shell lifecycle guard uses platform-layer session observation independently of the daemon. Platform-specific transport stays in that layer; QML only consumes the resulting visibility guard. The existing shell-local transport is scheduled for extraction in [task #29](https://github.com/LimeBeck/arinn/issues/29).
 
@@ -557,6 +561,7 @@ Arinn persists only its own state:
 | --- | --- |
 | `$XDG_CONFIG_HOME/arinn/config.toml` | UI preferences, provider configuration and defaults, Home settings; atomic write, schema version and migration |
 | `$XDG_STATE_HOME/arinn/state.sqlite3` | favorites and order, web shortcuts ([ADR-0043](../adr/0043-web-shortcuts.md)), provider-instance mapping, recent launch targets (≤ 100, 30 days), diagnostic counters |
+| `$XDG_STATE_HOME/arinn/session-mode` | what the dedicated Arinn login session starts next for this user: `arinn` or `desktop` ([ADR-0107](../adr/0107-dedicated-arinn-session.md)) |
 | `$XDG_CACHE_HOME/arinn/` | artwork cache (LRU, 512 MiB); clearing it loses nothing else |
 | `$XDG_DATA_HOME/arinn/` | plugin manifests; provider-owned data in `providers/<digest>/` directories ([ADR-0034](../adr/0034-provider-data-directory-identity.md)) |
 
@@ -609,6 +614,11 @@ The platform layer registers the global Home shortcut, which MUST work while foc
 
 The explicit presentation transport is `Daemon1.ReportHomeRequest` →
 `HomeRequested(epoch, target, output)` ([ADR-0069](../adr/0069-explicit-home-presentation-requests.md)).
+The quick-menu key uses the same path with its own request,
+`Daemon1.ReportQuickMenuRequest` → `QuickMenuRequested(epoch, target, output)`
+([ADR-0106](../adr/0106-quick-menu-presentation.md)).
+The power key does the same with `Daemon1.ReportPowerMenuRequest` →
+`PowerMenuRequested(epoch, target, output)` ([ADR-0111](../adr/0111-power-key.md)).
 Ordinary `ReportHome`/`Changed` updates remain state-only, including reconnect and
 window remap. This implements the existing §6.3 distinction between Home intent
 and state recovery; production shell consumption follows the contract separately.
@@ -632,9 +642,11 @@ alone does not imply production capture or close G-5.2.
 
 See [§5.7](#57-system-ui-power-and-ambient) and [session lifecycle](../architecture/session-lifecycle.md).
 
+The dedicated Arinn login session entries and the unprivileged switch between Arinn and the plain desktop are specified in [ADR-0107](../adr/0107-dedicated-arinn-session.md) and the [session lifecycle](../architecture/session-lifecycle.md#dedicated-arinn-session).
+
 ### 12.5. On-screen keyboard delivery
 
-The platform layer registers the keyboard key ([§6.2](#62-keys)), binds the panel to the application window that has focus when the key is pressed, routes the panel's keys to the shell while the panel is open and delivers the typed text into that window. On KDE Plasma 6/Wayland Arinn works as KWin's input method: text is committed through the Wayland text-input protocol, or as key events to an application without it. On X11/EWMH the platform adapter injects key events with XTest. The shell draws the panel and sends each typed key to the daemon, which passes it to the platform adapter; the shell never sends input to an application itself (R-03). The microphone button of the owner's remote sends a key that Qt and X11 cannot name, so the platform layer maps it to a key they can name. The mechanism is decided in the ADR of [#434](https://github.com/LimeBeck/arinn/issues/434).
+The platform layer registers the keyboard key ([§6.2](#62-keys)), binds the panel to the application window that had focus when the panel opened, routes the panel's keys to the shell while the panel is open and delivers the typed text only into that window. On KDE Plasma 6/Wayland Arinn works as KWin's input method: text is committed through the Wayland text-input protocol, or as key events to an application without it. On X11/EWMH the platform adapter injects key events with XTest and checks before each character and each editing key that the window still has focus and the session is unlocked. The shell draws the panel and sends each typed key to the daemon, which passes it to the platform adapter; the shell never sends input to an application itself (R-03). The microphone button of the owner's remote sends a key that Qt and X11 cannot name, so the platform layer maps it to a key they can name. The mechanism is decided in the ADR of [#434](https://github.com/LimeBeck/arinn/issues/434).
 
 ---
 
@@ -694,6 +706,10 @@ including refusal or withdrawal, Sentry MUST remain disabled and MUST NOT send
 cached reports. The current development flag is not the public consent UI;
 these pending requirements are tracked in the
 [publication checklist #74](https://github.com/LimeBeck/arinn/issues/74).
+The owner confirmed a **90-day retention period** for diagnostic data on
+2026-10-27. The public privacy notice MUST state this period, and the receiving
+service MUST be configured accordingly. This decision does not replace the
+required consent, refusal or withdrawal controls.
 
 ---
 
@@ -751,9 +767,10 @@ Its availability does not imply that production runtime discovery or Plugin API 
 is complete. The [Phase 1 implementation record](../architecture/phase-1-progress.md)
 distinguishes implemented primitives from the remaining runtime work.
 
-The standalone UI gallery also provides a Home/navigation development preview
-(`arinn-ui-gallery --home`) with explicit populated, empty, loading, error and
-unavailable presentation fixtures. It emits observable action intentions only;
+The fixture render in `tests/ui/visual` provides the Home/navigation development
+preview with explicit populated, empty, loading, error and unavailable
+presentation fixtures; the standalone UI gallery shows components only. The
+preview emits observable action intentions only;
 it does not launch applications, retry a provider or perform system actions.
 This preview does not replace the production shell or implement web shortcuts.
 Its scope and verification are recorded in the [component contract](../architecture/ui-components.md).
@@ -783,6 +800,7 @@ records the shared components.
 - The same pipeline runs nightly against the latest Arch Linux, Qt and Rust; the nightly upgrades the Arch images before building. A red nightly blocks releases.
 - `master` is protected: changes land only through pull requests with green CI and a signed CLA.
 - Every successful push to `master` publishes an automatic pre-release tagged `snapshot-<full SHA>` after the full pipeline and package installation tests pass. Each master commit has its own concurrency group and its run is not cancelled by a push of another commit; a second run of the same commit replaces the first ([ADR-0092](../adr/0092-less-repeated-ci-work.md)). Assets and checksums come from that exact commit; no workspace version bump is made. The snapshot package version is `<version>.r<commit count>.g<12 hex>`, so pacman upgrades each snapshot to the next and a release to a snapshot of the following version ([ADR-0099](../adr/0099-snapshot-package-version.md)). Published snapshot tags and retained assets are immutable and never replace the latest ordinary release ([ADR-0086](../adr/0086-automatic-master-prereleases.md), owner-gated process change). The master channel retains only the newest verified automatic snapshot release, ordered by commit ancestry rather than publication time; older snapshot release objects/assets may be deleted while Git tags and version releases remain. A late older build does not replace a newer published snapshot. Retention is defined by [ADR-0088](../adr/0088-single-master-snapshot-retention.md), requested by the owner on 2026-10-06 and subject to owner-only workflow merge.
+- Native symbolication uses debug files collected from the exact staged `arinnd` and `arinn-shell` package binaries, verified against the finished Arch and Debian packages. Trusted master/version-tag builds upload them to Sentry after CI and package checks; PR, nightly and manual runs do not upload. Runtime telemetry consent and payload rules are unchanged ([ADR-0116](../adr/0116-package-matched-sentry-debug-symbols.md), proposed; owner review/merge required).
 - Ordinary releases are cut from `master` by a `vX.Y.Z` tag that matches the workspace version and a `CHANGELOG.md` section. The release pipeline reruns the full CI on the tagged commit and publishes only if it passes, including for `0.x`.
 - Pull requests must be up to date with `master` before merging, so CI runs on the merged result; parallel work follows [ADR-0036](../adr/0036-parallel-development.md).
 - Every bug fix includes a regression test. Changes to the platform layer, input or session behaviour also need operator tests on a real KDE session before a version-tag release, because hosted CI cannot run a compositor. Automatic master snapshots do not claim this qualification or close operator gates.

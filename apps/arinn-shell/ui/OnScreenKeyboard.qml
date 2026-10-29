@@ -16,11 +16,22 @@ import Arinn.Shell 1.0
 // A hardware keyboard keeps typing into the target while the panel is open
 // and never closes it. Home and Menu are not handled here and reach the
 // screen as on every other control.
+//
+// External mode (ADR-0105): the panel types into the focused external
+// application. It has no target field and never has focus: the platform
+// routes the panel keys to press(), and every typed key leaves as
+// typed(text) or edited(key) for the daemon to deliver. Nothing typed is
+// kept here.
 FocusScope {
     id: root
 
     // The TextInput the panel types into.
     property Item target: null
+    // Types into an external application instead of `target` (ADR-0105).
+    property bool external: false
+    // Keys are drawn focused while the panel has focus, or always in
+    // external mode, where focus stays with the application.
+    readonly property bool lit: activeFocus || external
     // Remembers the language and the last key per field.
     property alias memoryKey: keyboard.field
     property alias context: keyboard.context
@@ -37,6 +48,10 @@ FocusScope {
     readonly property int suggestionCount: Math.min(4, suggestions ? suggestions.length : 0)
 
     signal submitted()
+    // External mode: text and editing keys ("backspace", "return", "left",
+    // "right") for the application.
+    signal typed(string text)
+    signal edited(string key)
     signal suggestionChosen(int index)
     signal hideRequested()
     signal leaveUp()
@@ -68,6 +83,11 @@ FocusScope {
     }
 
     function insertText(text) {
+        if (external) {
+            if (text.length)
+                typed(text);
+            return;
+        }
         if (!target || !text.length)
             return;
         // Input past the field's limit is ignored, not truncated: check the
@@ -85,6 +105,10 @@ FocusScope {
         target.insert(target.cursorPosition, text);
     }
     function erase() {
+        if (external) {
+            edited("backspace");
+            return;
+        }
         if (!target)
             return;
         if (target.selectedText.length) {
@@ -100,6 +124,10 @@ FocusScope {
     }
     // One character left or right, stepping over a whole surrogate pair.
     function moveCursor(step) {
+        if (external) {
+            edited(step < 0 ? "left" : "right");
+            return;
+        }
         if (!target)
             return;
         const text = target.text;
@@ -118,7 +146,7 @@ FocusScope {
         case "backspace": erase(); break;
         case "left": moveCursor(-1); break;
         case "right": moveCursor(1); break;
-        case "submit": submitted(); break;
+        case "submit": if (external) edited("return"); else submitted(); break;
         }
     }
     function navigate(direction) {
@@ -140,8 +168,27 @@ FocusScope {
         if (suggestionCount > 0) {
             zone = "suggestions";
             suggestionIndex = Math.min(suggestionCount - 1, Math.floor(keyboard.focusX() * suggestionCount));
-        } else {
+        } else if (!external) {
+            // An external panel has no field above it.
             leaveUp();
+        }
+    }
+    // One panel key by name: "up", "down", "left", "right", "select" (OK)
+    // or "back". The platform calls it in external mode; the focus item
+    // below maps Qt keys to it.
+    function press(name, autoRepeat) {
+        if (name === "up" || name === "down" || name === "left" || name === "right") {
+            navigate(name);
+        } else if (name === "select") {
+            if (autoRepeat)
+                return;
+            if (zone === "suggestions")
+                suggestionChosen(suggestionIndex);
+            else
+                apply(keyboard.activate());
+        } else if (name === "back") {
+            if (!autoRepeat)
+                hideRequested();
         }
     }
 
@@ -165,22 +212,12 @@ FocusScope {
         objectName: "keyboardKeys"
         focus: true
         Keys.onPressed: event => {
-            const directions = {[Qt.Key_Left]: "left", [Qt.Key_Right]: "right",
-                                [Qt.Key_Up]: "up", [Qt.Key_Down]: "down"};
-            if (directions[event.key] !== undefined) {
-                root.navigate(directions[event.key]);
-                event.accepted = true;
-            } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                if (!event.isAutoRepeat) {
-                    if (root.zone === "suggestions")
-                        root.suggestionChosen(root.suggestionIndex);
-                    else
-                        root.apply(keyboard.activate());
-                }
-                event.accepted = true;
-            } else if (event.key === Qt.Key_Escape || event.key === Qt.Key_Back) {
-                if (!event.isAutoRepeat)
-                    root.hideRequested();
+            const names = {[Qt.Key_Left]: "left", [Qt.Key_Right]: "right",
+                           [Qt.Key_Up]: "up", [Qt.Key_Down]: "down",
+                           [Qt.Key_Return]: "select", [Qt.Key_Enter]: "select",
+                           [Qt.Key_Escape]: "back", [Qt.Key_Back]: "back"};
+            if (names[event.key] !== undefined) {
+                root.press(names[event.key], event.isAutoRepeat);
                 event.accepted = true;
             } else if (event.key === Qt.Key_Backspace) {
                 // A hardware keyboard edits the field (§6.2 text exception).
@@ -224,7 +261,7 @@ FocusScope {
                             id: pill
                             required property int index
                             readonly property var entry: root.suggestions[index]
-                            readonly property bool focused: root.activeFocus && root.zone === "suggestions"
+                            readonly property bool focused: root.lit && root.zone === "suggestions"
                                                             && root.suggestionIndex === index
                             objectName: "keyboardSuggestion-" + index
                             // Four pills always fit the row: each gets at most
@@ -246,7 +283,7 @@ FocusScope {
                                 width: pill.width - 56
                                 anchors.verticalCenter: parent.verticalCenter
                                 spacing: 12
-                                KeyboardIcon {
+                                LineIcon {
                                     id: pillIcon
                                     width: 34
                                     height: 34
@@ -325,7 +362,7 @@ FocusScope {
                                 id: keyItem
                                 required property var modelData
                                 required property int index
-                                readonly property bool focused: root.activeFocus && root.zone === "keys"
+                                readonly property bool focused: root.lit && root.zone === "keys"
                                     && keyboard.row === keyRow.index && keyboard.column === index
                                 readonly property string kind: modelData.kind
                                 objectName: "keyboardKey-" + keyRow.index + "-" + index
@@ -355,7 +392,7 @@ FocusScope {
                                 Row {
                                     anchors.centerIn: parent
                                     spacing: 10
-                                    KeyboardIcon {
+                                    LineIcon {
                                         width: 38
                                         height: 38
                                         anchors.verticalCenter: parent.verticalCenter
@@ -393,9 +430,11 @@ FocusScope {
                 height: 36
                 spacing: 32
                 Repeater {
+                    // An external panel has no field above it.
                     model: [[qsTr("OK"), qsTr("Type")],
                             ["↑", root.suggestionCount > 0 ? qsTr("To suggestions") : qsTr("To the field")],
                             [qsTr("Back"), qsTr("Hide keyboard")]]
+                            .filter(hint => !root.external || root.suggestionCount > 0 || hint[0] !== "↑")
                     Row {
                         required property var modelData
                         spacing: 10

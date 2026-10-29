@@ -26,8 +26,18 @@ Window {
     // backend's one-second status poll with a wide margin.
     property bool leavingPlayback: false
     Timer { id: leavingBound; interval: 10000; onTriggered: root.leavingPlayback = false }
-    // The quick menu over an Activity leaves the live window visible.
-    color: (playerOpen && !leavingStopPending && leaveError === "") || activityBehind ? "transparent" : Ui.Theme.background
+    // Keep the native alpha format for every Home/playback cycle. Qt's
+    // opaque window clear color revokes that request even with a default
+    // alpha buffer; opaque screens belong to the scene instead.
+    color: "transparent"
+    Rectangle {
+        objectName: "opaqueShellBackground"
+        anchors.fill: parent
+        z: -1
+        color: Ui.Theme.background
+        visible: !((root.playerOpen && !root.leavingStopPending
+                    && root.leaveError === "") || root.activityBehind)
+    }
     title: "Arinn"
     flags: Qt.Window | Qt.FramelessWindowHint
     readonly property bool navOpen: home.navOpen
@@ -83,7 +93,7 @@ Window {
         quickMenuTarget = "";
         if (activityBehind && backend.connected && target) {
             returnBound.restart();
-            backend.back();
+            returnToActivity();
             return;
         }
         if (activityBehind) { quickMenuHome(); return; }
@@ -170,6 +180,7 @@ Window {
     property bool leavingStopPending: false
     property string leaveError: ""
     property bool sessionFromLibrary: false
+    property bool sessionFromLaunch: false
     // Watch on a download whose library item the library catalog has not
     // read yet: {provider, local}, opened once the catalog lists it.
     property var pendingWatch: null
@@ -202,12 +213,99 @@ Window {
     }
     property bool presentationAtHome: false
     property bool presentationRequested: false
+    property int presentationActivationSerial: 0
+    property int presentationHandoffSerial: 0
+    property bool presentationReturning: false
+    property bool presentationFocusConfirmed: false
+    property bool presentationWaitingForHomeExit: false
+    property double presentationNativeRevision: Infinity
+    function requestPresentationFocus() {
+        presentationNativeRevision = Infinity;
+        if (backend.nativeFocusSupported === true)
+            presentationNativeRevision = backend.requestNativeFocus();
+    }
+    function nativePresentationFocus() {
+        return backend.nativeFocusSupported === true
+                && backend.nativeFocusRevision >= presentationNativeRevision
+                ? backend.nativeShellFocus : "unknown";
+    }
+    // The compositor's acknowledgement can precede Qt's activation event.
+    // Wait for that event without requesting activation or retrying Present.
+    Timer {
+        id: presentationFocusBound
+        objectName: "presentationFocusBound"
+        interval: 1000
+        onTriggered: {
+            const returning = root.presentationReturning;
+            root.presentationReturning = false;
+            if (mediaCatalog.presentationState !== "active" || root.leavingStopPending
+                    || sessionGuard.blocked) return;
+            if (root.nativePresentationFocus() === "shell"
+                    || (root.nativePresentationFocus() === "unknown" && root.active))
+                root.presentationFocusConfirmed = true;
+            else if (!root.presentationAtHome || returning)
+                mediaCatalog.abandonPresentation("presentation_focus_timeout");
+        }
+    }
+    function checkPresentationFocus() {
+        if (mediaCatalog.presentationState !== "active"
+                || leavingStopPending || sessionGuard.blocked) {
+            presentationFocusBound.stop();
+            return;
+        }
+        const nativeFocus = nativePresentationFocus();
+        // Status contains a platform cache: a post-intent request can still
+        // precede ReportWindow. Preserve the handoff grace until confirmed.
+        if (nativeFocus === "other" && presentationFocusConfirmed) {
+            mediaCatalog.abandonPresentation("focus_lost");
+            return;
+        }
+        if (presentationAtHome && !presentationReturning) {
+            presentationFocusBound.stop();
+            return;
+        }
+        if (nativeFocus === "shell" || (nativeFocus === "unknown" && active
+                && (presentationFocusConfirmed
+                    || presentationActivationSerial > presentationHandoffSerial))) {
+            presentationFocusConfirmed = true;
+            if (!presentationAtHome) {
+                presentationReturning = false;
+                presentationFocusBound.stop();
+                return;
+            }
+        }
+        if (!presentationFocusBound.running)
+            presentationFocusBound.start();
+    }
+    function returnToActivity() {
+        if (mediaCatalog.inputLayerActive && mediaCatalog.presentationState === "active") {
+            // Record the intent before the platform can change Qt activation.
+            presentationReturning = true;
+            presentationNativeRevision = Infinity;
+            presentationFocusConfirmed = false;
+            presentationHandoffSerial = presentationActivationSerial;
+            presentationFocusBound.restart();
+        }
+        backend.back();
+    }
+    function presentPlayer() {
+        presentationReturning = false;
+        presentationRequested = true;
+        presentationFocusConfirmed = false;
+        presentationHandoffSerial = presentationActivationSerial;
+        presentationWaitingForHomeExit = true;
+        presentationFocusBound.stop();
+        mediaCatalog.present();
+        checkPresentationFocus();
+    }
     function showPlaybackHome() {
         if (leavingStopPending)
             return;
         leaveError = "";
         if (!mediaCatalog.inputLayerActive)
             return;
+        presentationReturning = false;
+        presentationFocusBound.stop();
         playerView.sheetKind = "";
         presentationAtHome = true;
         playerOpen = false;
@@ -218,19 +316,39 @@ Window {
         home.showHome();
     }
     onActiveChanged: {
-        if (!active && mediaCatalog.presentationState === "active")
+        if (active) {
+            ++presentationActivationSerial;
+            checkPresentationFocus();
+        } else if (mediaCatalog.presentationState === "active") {
             Qt.callLater(() => {
-                if (!root.active && mediaCatalog.presentationState === "active")
-                    mediaCatalog.abandonPresentation();
+                if (!root.active && mediaCatalog.presentationState === "active") {
+                    if (backend.nativeFocusSupported === true) {
+                        root.requestPresentationFocus();
+                        root.checkPresentationFocus();
+                    } else if (root.presentationFocusConfirmed || (root.presentationAtHome && !root.presentationReturning)) {
+                        mediaCatalog.abandonPresentation("focus_lost");
+                    } else {
+                        root.checkPresentationFocus();
+                    }
+                }
             });
+        }
     }
     function openSession(entryId, fromLibrary) {
+        openMediaSession(entryId, fromLibrary, fromLibrary);
+    }
+    function openMediaSession(entryId, fromLibrary, launched) {
         if (leavingStopPending)
             return;
         leaveError = "";
+        presentationReturning = false;
+        presentationFocusBound.stop();
+        presentationFocusConfirmed = false;
+        presentationWaitingForHomeExit = false;
         presentationAtHome = false;
         presentationRequested = false;
         sessionFromLibrary = fromLibrary;
+        sessionFromLaunch = launched;
         mediaCatalog.select(entryId);
         applyMediaSurface();
     }
@@ -243,12 +361,11 @@ Window {
         // in the snapshot yet is managed playback, so the OSD is shown until
         // the row arrives. A row without those flags uses the session screen.
         let player = mediaCatalog.playerSession;
-        if (sessionFromLibrary && mediaCatalog.sessionState !== "ready")
+        if (sessionFromLaunch && mediaCatalog.sessionState !== "ready")
             player = true;
         playerOpen = player;
         if (player && mediaCatalog.windowAvailable && !presentationRequested) {
-            presentationRequested = true;
-            mediaCatalog.present();
+            presentPlayer();
         }
         sessionOpen = !player;
         if (!player)
@@ -263,13 +380,15 @@ Window {
     function leavePlayback() {
         if (leavingStopPending)
             return;
+        presentationReturning = false;
+        presentationFocusBound.stop();
         leaveError = "";
         if (mediaCatalog.inputLayerActive) {
             leavingPlayback = true;
             leavingBound.restart();
         }
         if (mediaCatalog.sessionState !== "ready") {
-            if (sessionFromLibrary || mediaCatalog.sessionState === "loading") {
+            if (sessionFromLibrary || sessionFromLaunch || mediaCatalog.sessionState === "loading") {
                 leavingWaitForSession = true;
                 leavingStopPending = true;
                 leaveSessionBound.restart();
@@ -302,6 +421,7 @@ Window {
     }
     function closePlayer() {
         playerOpen = false;
+        sessionFromLaunch = false;
         if (sessionFromLibrary) {
             sessionFromLibrary = false;
             home.screen = "library";
@@ -366,10 +486,14 @@ Window {
     // A new route whose screen did not get focus through its scope (nothing
     // focused there yet) starts at the screen's preferred item.
     // A hidden item inside the screen (a closed menu entry) does not count.
-    onFocusedScreenChanged: Qt.callLater(() => {
-        if (visible && (!focusInside(activeFocusItem, screenItem(focusedScreen))
-                        || !activeFocusItem.visible)) restoreFocus();
-    })
+    onFocusedScreenChanged: {
+        if (mediaCatalog && (sessionFromLibrary || playerOpen || mediaCatalog.inputLayerActive))
+            logMediaSurface(focusedScreen, "screen_route_changed");
+        Qt.callLater(() => {
+            if (visible && (!focusInside(activeFocusItem, screenItem(focusedScreen))
+                            || !activeFocusItem.visible)) restoreFocus();
+        });
+    }
     // Last resort: Qt moves active focus to the root item when the focused
     // item is destroyed. Nothing handles keys there, so the remote would stop
     // working. Hand focus back to the screen on display, and say so: it
@@ -410,6 +534,7 @@ Window {
     Connections {
         target: backend
         ignoreUnknownSignals: true
+        function onNativeFocusChanged() { root.checkPresentationFocus(); }
         function onChanged() {
             // The Return of the quick menu is done: the Activity has the
             // screen again, including a managed player (ADR-0106).
@@ -421,13 +546,25 @@ Window {
             }
             if (backend.homeVisible) root.leavingPlayback = false;
             if (!mediaCatalog.inputLayerActive) return;
-            if (backend.homeVisible) root.showPlaybackHome();
-            else if (root.presentationAtHome) {
+            if (!backend.homeVisible) root.presentationWaitingForHomeExit = false;
+            if (backend.homeVisible) {
+                // Until Status has observed Present's Home exit, an old Home
+                // snapshot is not a new Home intent. Explicit Home still wins.
+                if (!root.presentationReturning && (!root.presentationWaitingForHomeExit || root.presentationAtHome))
+                    root.showPlaybackHome();
+            } else if (root.presentationAtHome) {
+                if (!root.presentationReturning) {
+                    // A platform-originated Return has no earlier shell intent.
+                    root.presentationFocusConfirmed = false;
+                    root.presentationHandoffSerial = root.presentationActivationSerial;
+                    presentationFocusBound.restart();
+                }
                 root.presentationAtHome = false;
-                if (!root.active) { mediaCatalog.abandonPresentation(); return; }
+                root.requestPresentationFocus();
                 root.playerOpen = true;
                 Qt.callLater(() => Ui.Focus.take(playerView));
             }
+            root.checkPresentationFocus();
         }
     }
     // Explicit platform requests (ADR-0069, ADR-0106, ADR-0111).
@@ -454,7 +591,7 @@ Window {
         ignoreUnknownSignals: true
         function onChanged() {
             if (sessionGuard.blocked) {
-                mediaCatalog.abandonPresentation();
+                mediaCatalog.abandonPresentation("session_blocked");
                 powerOverlay.sessionBlocked();
                 // A lock is not a wake: no event to consume, the screen
                 // beneath comes back when the shell is shown again.
@@ -731,7 +868,7 @@ Window {
             Timer { interval: 1000; running: true; repeat: true; onTriggered: home.clockText = Qt.formatTime(new Date(), "hh:mm") }
             onEntryRequested: entryId => { if (entryId === "arinn-browse") root.showBrowse(); else backend.launch(entryId); }
             onRunningRequested: entryId => backend.activate(entryId)
-            onReturnRequested: backend.back()
+            onReturnRequested: root.returnToActivity()
             onRetryRequested: backend.refresh()
             onRestartRequested: backend.restartArinn()
             // A section picked in the navigation menu, or Home pressed there,
@@ -745,7 +882,7 @@ Window {
                 root.browserOpen = true;
                 Qt.callLater(() => Ui.Focus.take(browserView));
             }
-            onServiceRequested: backend.back()
+            onServiceRequested: root.returnToActivity()
             // One card for a browser tab and its media session (ADR-0096).
             onTabRequested: tabId => browserCatalog.activateTab(tabId)
             onMediaActionRequested: (sessionId, action) => mediaCatalog.sessionAction(sessionId, action)
@@ -1003,13 +1140,23 @@ Window {
         Binding {
             target: mediaCatalog
             property: "thumbnailWanted"
-            value: root.playerOpen && playerView.timelineFocused && mediaCatalog.timelineAvailable
+            value: root.visible && root.focusedScreen === "player"
+                && playerView.visible && playerView.osdVisible && playerView.transportReady
+                && playerView.timelineFocused && mediaCatalog.timelineAvailable
         }
         Connections {
             target: mediaCatalog
             function onPresentationHomeRequested() { root.showPlaybackHome(); }
             function onOperationChanged() { root.finishStopOperation(); }
             function onPresentationChanged() {
+                if (mediaCatalog.presentationState !== "active") {
+                    root.presentationReturning = false;
+                    presentationFocusBound.stop();
+                    root.presentationFocusConfirmed = false;
+                    root.presentationNativeRevision = Infinity;
+                    if (backend.nativeFocusSupported === true)
+                        backend.stopNativeFocusObservation();
+                }
                 if (root.leavingStopPending || root.leaveError !== "")
                     return;
                 if (mediaCatalog.presentationState !== "" && mediaCatalog.presentationState !== "pending" && mediaCatalog.presentationState !== "active") {
@@ -1025,8 +1172,10 @@ Window {
                         : qsTr("Playback controls are unavailable.");
                     feedbackTimer.restart();
                 }
-                if (mediaCatalog.presentationState === "active" && !root.active && !backend.homeVisible && !root.presentationAtHome)
-                    mediaCatalog.abandonPresentation();
+                if (mediaCatalog.presentationState === "active") {
+                    root.requestPresentationFocus();
+                    root.checkPresentationFocus();
+                }
                 if (mediaCatalog.presentationState === "" && root.presentationRequested) {
                     root.playerOpen = false;
                     root.presentationAtHome = false;
@@ -1045,10 +1194,10 @@ Window {
                 if (root.leavingStopPending)
                     return;
                 if (root.playerOpen && mediaCatalog.windowAvailable && !root.presentationAtHome && !root.presentationRequested) {
-                    root.presentationRequested = true;
-                    mediaCatalog.present();
+                    root.presentPlayer();
                 }
-                if (!root.sessionFromLibrary || (!root.playerOpen && !root.sessionOpen))
+                if ((!root.sessionFromLibrary && !root.sessionFromLaunch)
+                        || (!root.playerOpen && !root.sessionOpen))
                     return;
                 const player = mediaCatalog.playerSession;
                 if (root.playerOpen === player && root.sessionOpen === !player)
@@ -1067,7 +1216,7 @@ Window {
                 // the library (§6.4).
                 const fromLibrary = !root.launchFromHome;
                 root.launchFromHome = false;
-                root.openSession(presentationId, fromLibrary);
+                root.openMediaSession(presentationId, fromLibrary, true);
             }
         }
         Rectangle {

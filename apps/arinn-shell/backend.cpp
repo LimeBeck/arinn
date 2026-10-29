@@ -97,7 +97,15 @@ struct Backend::Catalog {
   qsizetype providerStart = 0, runningStart = 0;
   bool hadError = false;
 };
-Backend::Backend(QObject *parent) : QObject(parent) {
+Backend::Backend(QObject *parent, NativeShellFocusIdentity identity)
+    : QObject(parent), m_focusIdentity(std::move(identity)) {
+  m_focusPoll.setInterval(500);
+  connect(&m_focusPoll, &QTimer::timeout, this, [this] {
+    if (!m_focusPending) requestNativeFocus();
+  });
+  m_focusExpiry.setSingleShot(true);
+  m_focusExpiry.setInterval(1500);
+  connect(&m_focusExpiry, &QTimer::timeout, this, &Backend::clearNativeFocus);
   qDBusRegisterMetaType<FavoriteWire>();
   qDBusRegisterMetaType<QList<FavoriteWire>>();
   // An action's result is shown briefly; connection states stay (#258).
@@ -141,6 +149,7 @@ Backend::Backend(QObject *parent) : QObject(parent) {
             m_favoriteReconcile = false;
             m_favoriteTargets.clear();
             m_favoriteError.clear();
+            stopNativeFocusObservation();
             ++m_connectionEpoch;
             m_daemonOwner = owner;
             // A new daemon owner may be another build: ask it again.
@@ -179,6 +188,72 @@ Backend::Backend(QObject *parent) : QObject(parent) {
               m_daemonOwner = reply.arguments().first().toString();
             refresh();
           });
+}
+// This is bounded receipt evidence from the authenticated platform cache,
+// not a native event timestamp or a replacement for MediaWindow1 identity.
+QString Backend::nativeShellFocus() const {
+  return m_focusWatching && m_connected && m_focusReceived.isValid()
+      && m_focusReceived.elapsed() < 1500 ? m_nativeFocus : QStringLiteral("unknown");
+}
+void Backend::clearNativeFocus() {
+  m_focusReceived.invalidate();
+  m_focusExpiry.stop();
+  m_nativeFocus = QStringLiteral("unknown");
+  emit nativeFocusChanged();
+}
+void Backend::stopNativeFocusObservation() {
+  m_focusWatching = false;
+  ++m_focusObservation;
+  m_focusPoll.stop();
+  clearNativeFocus();
+}
+qulonglong Backend::requestNativeFocus() {
+  const auto serial = ++m_focusRequest;
+  if (!nativeFocusSupported() || !m_connected || m_daemonOwner.isEmpty()) {
+    clearNativeFocus();
+    return serial;
+  }
+  m_focusWatching = true;
+  m_focusPoll.start();
+  const auto observation = m_focusObservation;
+  const auto connection = m_connectionEpoch;
+  const auto daemonEpoch = m_daemonEpoch;
+  auto msg = QDBusMessage::createMethodCall(m_daemonOwner, path, service, "Status");
+  ++m_focusPending;
+  auto pending = new QDBusPendingCallWatcher(
+      QDBusConnection::sessionBus().asyncCall(msg, 1000), this);
+  connect(pending, &QDBusPendingCallWatcher::finished, this,
+          [this, serial, observation, connection, daemonEpoch](auto *call) {
+    const auto reply = call->reply();
+    call->deleteLater();
+    --m_focusPending;
+    if (observation != m_focusObservation || connection != m_connectionEpoch
+        || !m_focusWatching || serial < m_focusApplied) return;
+    m_focusApplied = serial;
+    if (!m_connected || daemonEpoch != m_daemonEpoch
+        || reply.type() == QDBusMessage::ErrorMessage
+        || reply.signature() != "(sbstbsssbbss)" || reply.arguments().isEmpty()) {
+      clearNativeFocus();
+      return;
+    }
+    QString epoch, generation, returned, active, klass, homeOutput, activeOutput;
+    bool available, home, full, platform;
+    qulonglong revision;
+    const auto arg = qvariant_cast<QDBusArgument>(reply.arguments().first());
+    arg.beginStructure();
+    arg >> epoch >> available >> generation >> revision >> home >> returned
+        >> active >> klass >> full >> platform >> homeOutput >> activeOutput;
+    arg.endStructure();
+    if (epoch != daemonEpoch) {
+      clearNativeFocus();
+      return;
+    }
+    m_nativeFocus = m_focusIdentity.classify(platform, active, klass);
+    m_focusReceived.restart();
+    m_focusExpiry.start();
+    emit nativeFocusChanged();
+  });
+  return serial;
 }
 // A request counts only for the daemon this shell is connected to; one from
 // another epoch or before the first Status is dropped, never replayed.
@@ -436,6 +511,7 @@ void Backend::reloadCatalog() {
                 reply.arguments().isEmpty() ||
                 reply.signature() != "(sbstbsssbbss)") {
               m_refreshing = false;
+              clearNativeFocus();
               m_connected = false;
               m_available = false;
               m_items.clear();
@@ -459,8 +535,10 @@ void Backend::reloadCatalog() {
                 m_home >> m_return >> active >> klass >> full >> platform >>
                 homeOutput >> activeOutput;
             arg.endStructure();
-            if (m_daemonEpoch != daemonEpoch)
+            if (m_daemonEpoch != daemonEpoch) {
+              clearNativeFocus();
               WebIconReferences::clear();
+            }
             m_daemonEpoch = daemonEpoch;
             if (previousGeneration != m_generation) {
               m_items.clear();

@@ -153,7 +153,7 @@ MediaCatalog::MediaCatalog(QObject *parent) : QObject(parent) {
             ++m_epoch;
             ++m_commandTicket;
             m_connected = false;
-            abandonPresentation();
+            abandonPresentation(QStringLiteral("daemon_changed"));
             m_presentRow = {};
             m_releaseRow = {};
             m_daemonEpoch.clear();
@@ -357,6 +357,16 @@ void MediaCatalog::select(const QString &id) {
   if (!m_presentRow.id.isEmpty() && m_presentRow.id != id)
     release();
   m_explicitId = id;
+  if (!m_releaseRow.id.isEmpty() && m_releaseRow.id != id) {
+    // A library result can arrive before its media row. Fence the previous
+    // session's Release now, rather than waiting until Present becomes ready.
+    // The admitted cleanup still runs; only its obsolete UI result is ignored.
+    ++m_presentationTicket;
+    m_releaseRow = {};
+    m_releaseEpoch = 0;
+    m_windowCheckInFlight = false;
+    setPresentation({});
+  }
   publish();
 }
 void MediaCatalog::play() { command(QStringLiteral("play")); }
@@ -365,7 +375,7 @@ void MediaCatalog::playPause() { command(QStringLiteral("playPause")); }
 void MediaCatalog::seek(double targetUs) {
   command(QStringLiteral("seek"), targetUs, true);
   // The thumbnail is a separate read. It must not send another Seek.
-  if (m_operation == QLatin1String("pending") && timelineAvailable() &&
+  if (m_thumbnailWanted && m_operation == QLatin1String("pending") && timelineAvailable() &&
       std::isfinite(targetUs) && targetUs >= 0 &&
       targetUs <= static_cast<double>(std::numeric_limits<qint64>::max())) {
     m_thumbFromSeek = true;
@@ -428,7 +438,7 @@ void MediaCatalog::publish() {
     const auto *row = findId(m_presentRow.id);
     if (!m_connected || !row || row->generation != m_presentRow.generation ||
         row->state == QLatin1String("stopped"))
-      abandonPresentation();
+      abandonPresentation(QStringLiteral("session_invalidated"));
   }
   QVariantList entries;
   entries.reserve(m_sessions.size());
@@ -1235,7 +1245,7 @@ void MediaCatalog::requestDisplayedThumbnail() {
   requestThumbnailAt(displayedPosition(*row), false);
 }
 void MediaCatalog::requestThumbnailAt(qint64 positionUs, bool restart) {
-  if (!timelineAvailable() || positionUs < 0)
+  if (!m_thumbnailWanted || !timelineAvailable() || positionUs < 0)
     return;
   // The position clock ticks faster than this delay. Restarting on every
   // tick would never send a thumbnail while playback is moving. A seek
@@ -1247,7 +1257,7 @@ void MediaCatalog::requestThumbnailAt(qint64 positionUs, bool restart) {
 }
 void MediaCatalog::sendThumbnail() {
   m_thumbFromSeek = false;
-  if (!timelineAvailable())
+  if (!m_thumbnailWanted || !timelineAvailable())
     return;
   const auto *row = selected();
   if (!row || sessionState() != QLatin1String("ready"))
@@ -1399,7 +1409,19 @@ void MediaCatalog::setPresentation(const QString &state) {
   }
   emit presentationChanged();
 }
-void MediaCatalog::abandonPresentation() {
+void MediaCatalog::abandonPresentation(const QString &reason) {
+  // Fixed identifiers only: callers cannot put session IDs or media metadata
+  // into a diagnostic reason, including when invoked through QML.
+  static const QStringList reasons{
+      QStringLiteral("daemon_changed"), QStringLiteral("session_invalidated"),
+      QStringLiteral("window_check_timeout"), QStringLiteral("window_check_error"),
+      QStringLiteral("window_reply_invalid"), QStringLiteral("window_identity_changed"),
+      QStringLiteral("focus_lost"), QStringLiteral("return_without_focus"),
+      QStringLiteral("session_blocked"), QStringLiteral("presented_without_focus"),
+      QStringLiteral("presentation_focus_timeout")};
+  if (inputLayerActive())
+    logSurface(QStringLiteral("released"), reasons.contains(reason)
+        ? reason : QStringLiteral("explicit_abandon"));
   // An active presentation whose window check has not confirmed it failed.
   if (m_presentFlow.active() && m_presentation == QLatin1String("active"))
     m_presentFlow.finish("failed");
@@ -1759,7 +1781,7 @@ void MediaCatalog::checkPresentedWindow(quint64 ticket, quint64 epoch,
   if (ticket != m_presentationTicket || epoch != m_epoch ||
       m_presentation != QLatin1String("active"))
     return;
-  if (monotonicUs() >= deadline) { abandonPresentation(); return; }
+  if (monotonicUs() >= deadline) { abandonPresentation(QStringLiteral("window_check_timeout")); return; }
   if (m_windowCheckInFlight)
     return;
   m_windowCheckInFlight = true;
@@ -1777,29 +1799,35 @@ void MediaCatalog::checkPresentedWindow(quint64 ticket, quint64 epoch,
                 m_presentation != QLatin1String("active"))
               return;
             m_windowCheckInFlight = false;
-            if (monotonicUs() >= deadline) { abandonPresentation(); return; }
+            if (monotonicUs() >= deadline) { abandonPresentation(QStringLiteral("window_check_timeout")); return; }
+            const auto retry = [this, ticket, epoch, deadline] {
+              const auto revision = m_windowCheckRevision;
+              QTimer::singleShot(100, this, [this, ticket, epoch, deadline, revision] {
+                if (revision == m_windowCheckRevision)
+                  checkPresentedWindow(ticket, epoch, deadline);
+              });
+            };
             if (reply.type() == QDBusMessage::ErrorMessage) {
               // A field-only inventory commit briefly closes the report
               // barrier.
               if (monotonicUs() < deadline &&
                   errorCode(reply) == QLatin1String("Unavailable")) {
-                QTimer::singleShot(100, this, [this, ticket, epoch, deadline] {
-                  checkPresentedWindow(ticket, epoch, deadline);
-                });
+                retry();
                 return;
               }
-              abandonPresentation();
+              abandonPresentation(QStringLiteral("window_check_error"));
               return;
             }
             if (reply.signature() != "a(ss)" || reply.arguments().isEmpty()) {
-              abandonPresentation();
+              abandonPresentation(QStringLiteral("window_reply_invalid"));
               return;
             }
             const auto arg =
                 qvariant_cast<QDBusArgument>(reply.arguments().first());
             arg.beginArray();
+            const bool unresolved = arg.atEnd();
             bool matches = false;
-            if (!arg.atEnd()) {
+            if (!unresolved) {
               QString generation, token;
               arg.beginStructure();
               arg >> generation >> token;
@@ -1808,11 +1836,17 @@ void MediaCatalog::checkPresentedWindow(quint64 ticket, quint64 epoch,
                   generation == m_windowGeneration && token == m_windowToken;
             }
             arg.endArray();
-            if (!matches) {
-              abandonPresentation();
-            } else if (m_presentFlow.active()) {
-              m_presentFlow.end("window.check");
-              m_presentFlow.finish("ok");
+            if (unresolved) {
+              // Empty is an unresolved report barrier, not a new identity.
+              retry();
+            } else if (!matches) {
+              abandonPresentation(QStringLiteral("window_identity_changed"));
+            } else {
+              ++m_windowCheckRevision;
+              if (m_presentFlow.active()) {
+                m_presentFlow.end("window.check");
+                m_presentFlow.finish("ok");
+              }
             }
           });
 }
@@ -1825,7 +1859,9 @@ QByteArray MediaCatalog::surfaceRecord(const QString &surface, const QString &re
   const auto fixed = [](const QString &value) {
     return name.match(value).hasMatch() ? QJsonValue(value) : QJsonValue(QStringLiteral("other"));
   };
-  const bool failed = surface == QLatin1String("home") && !presentation.isEmpty();
+  const bool failed = surface == QLatin1String("home") &&
+                      reason == QLatin1String("presentation_failed") &&
+                      !presentation.isEmpty();
   const QJsonObject record{
     {QStringLiteral("level"), QStringLiteral("info")},
     {QStringLiteral("component"), QStringLiteral("arinn-shell")},

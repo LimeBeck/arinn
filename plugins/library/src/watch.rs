@@ -395,7 +395,9 @@ impl Inotify {
             add_tree(raw, root, &mut left, &mut seen);
         }
         let owned = unsafe { OwnedFd::from_raw_fd(raw) };
-        AsyncFd::new(owned).ok().map(|fd| Self {
+        // SAFETY: OwnedFd keeps this nonblocking inotify descriptor open and
+        // stable for the entire AsyncFd lifetime; it is not closed elsewhere.
+        unsafe { AsyncFd::register(owned) }.ok().map(|fd| Self {
             fd,
             roots: roots.to_vec(),
             seen,

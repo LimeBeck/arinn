@@ -1,0 +1,1 @@
+- Update the reviewed Cargo dependencies (libc 0.2.191, rustls 0.23.46, rustls-native-certs 0.8.5, serde_json 1.0.154, Tokio 1.54.1 and UUID 1.29.0) and GitHub Pages deploy/upload actions (v5).

@@ -397,18 +397,28 @@ impl Operations {
             }
             return Ok((entry.path.clone(), entry.operation.clone(), false));
         }
-        if entries.len() >= 1024
-            || entries.keys().filter(|(owner, _)| owner == caller).count() >= 128
-        {
+        if entries.len() >= 1024 {
             return Err(ErrorCode::Unavailable);
         }
-        let mut active = 0;
-        for entry in entries.values().filter(|entry| entry.provider == provider) {
+        // Completed history stays available for deduplication, but must not
+        // consume the caller's concurrency budget (for example, block Stop
+        // after repeated seeks and thumbnail reads).
+        let mut caller_active = 0;
+        let mut provider_active = 0;
+        for ((owner, _), entry) in entries.iter() {
+            if owner != caller && entry.provider != provider {
+                continue;
+            }
             if ["queued", "running"].contains(&entry.operation.value.lock().await.state.as_str()) {
-                active += 1;
+                if owner == caller {
+                    caller_active += 1;
+                }
+                if entry.provider == provider {
+                    provider_active += 1;
+                }
             }
         }
-        if active >= 32 {
+        if caller_active >= 128 || provider_active >= 32 {
             return Err(ErrorCode::Unavailable);
         }
         let path: OwnedObjectPath = format!(

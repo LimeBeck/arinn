@@ -19,8 +19,45 @@ opens the quick menu instead. That is the user's explicit choice. Home wins a
 key both want. On KDE, KGlobalAccel keeps each action's stored keys (the KWin
 script registers the quick menu with Meta+F11), so the daemon first removes
 Home's configured keys from the quick-menu action, then writes Home, then the
-quick menu without Home's keys (`global_home::write_all`). A key that a
-third-party action holds stays a conflict for both.
+quick menu without Home's keys (`global_home::write_all`). It gives up every
+Home key, HomePage included. The quick-menu lock is held from that release to
+the quick-menu write, so a focus change during a second adapter connection
+waits and cannot write the previous connection's keys back in between (#507).
+A key that a third-party action holds stays a conflict for both.
+
+**While arinnd is down.** With the daemon gone, the remote's Menu keys would
+open nothing and still swallow the ordinary context-menu key in every
+application. On KDE the stop helper (`arinnd --release-power-key`, run by
+`ExecStopPost=` of arinnd.service and by `arinn-kwin-adapter stop`) removes
+them from the quick-menu action; its other keys stay, and the next adapter
+connection writes every key again (`global_home::release_menu_keys`, #507).
+It does so only while `org.arinn.Daemon1` has no owner. arinnd is
+`Type=dbus`, so its name is gone by its `ExecStopPost=`, after a stop or a
+crash. `arinn-kwin-adapter stop` with the daemon still running (an
+adapter-only stop or restart) leaves the keys alone: the live daemon could
+write them back from a focus report already delivered, and after an
+adapter-only restart it does not write them again, because KWin's bus
+connection, and so the adapter connection, stays the same. Its KGlobalAccel
+calls carry `NoAutoStart`.
+The X11 adapter grabs no key while `org.arinn.Daemon1` has no owner: it opens
+its X connection only once the daemon owns its name (it waits for
+`NameOwnerChanged`), its session ends as soon as the daemon goes, and with it
+every grab. So it never fights a live daemon, and its keys come back as soon
+as the daemon does (#507, `x11-ewmh.md`). The packaged adapter uses
+`Type=exec`, so releasing its per-session `org.arinn.X11` name does not make
+systemd stop the waiting process. That name remains absent while it waits,
+allowing the XFCE login power-button restore to run.
+
+**Grab lag** (ADR-0106). On X11 a change of `_NET_ACTIVE_WINDOW` wakes the
+adapter's loop at once (#507): a second X connection that only listens for
+that property signals the loop, which then takes the snapshot that grabs the
+Menu keys again with or without them. The Menu grabs therefore follow the
+shell's focus within milliseconds. The adapter's own connection cannot be used
+for the wake: every snapshot makes round trips on it, so its readability would
+wake the loop on its own replies. The 0.5 s tick stays as the fallback (a
+missing watch costs no more than before), and a grabbed key press that is not
+a focus change is still read on that tick. On KDE the keys follow
+`ReportWindow` with one KGlobalAccel write, which runs after the report.
 
 **Over an Activity or over the shell.** The sheet is over the shell only when
 the shell was on screen and had focus when the request arrived; otherwise, and
@@ -135,6 +172,11 @@ the sheet. The ⏻ exception of §5.7 does not apply to it.
   form and the focus hand-off, the sheet geometry and the scrim.
 - `media-catalog` `quickMenuOverManagedPlaybackReturnsToThePlayer`: over managed
   playback, Back returns to the live player at once and Home never shows.
+- `media-catalog` `quickMenuBackBeforeTheFirstStatusReturnsToThePlayer` (#507):
+  over managed playback the window is on screen before the Status refresh
+  that follows the request, so Back may come first. Until Status reports the
+  Home state, Back uses the target that `QuickMenuRequested` carried; once
+  it does, Status decides, also when it names no target (then Home).
 - `arinn-quick-menu-test` (`quick-menu`): Main.qml with the real `Backend` and
   a fake `Daemon1` with `SystemControl1` on its own bus connection: Back over an
   Activity calls `Back` without showing Home, Open Home and `HomeRequested`
@@ -148,13 +190,22 @@ the sheet. The ⏻ exception of §5.7 does not apply to it.
   waiting over an Activity, the launch progress giving way to the sheet and
   Home on the launch dialog, the same for "Starting …" of an application with
   its stop confirmation open and the late power answer held meanwhile, repeats
-  and a foreign epoch, the degraded form without the daemon, and the session
-  lock.
+  and a foreign epoch, the degraded form without the daemon, the session
+  lock, and the request's Return target reaching the shell
+  (`quickMenuRequestCarriesItsTarget`, #507).
 - `arinn-platform-x11` `quick_menu_raises_the_shell_only_after_its_request`
-  (Xvfb).
+  (Xvfb); the end-to-end `menu_keys` tests
+  `no_global_key_is_grabbed_while_the_daemon_is_gone`,
+  `no_global_key_is_grabbed_without_a_session_bus` and
+  `the_menu_keys_follow_the_shell_focus_at_once`, and
+  `focus_watch` `a_focus_change_wakes_the_loop_at_once` (Xvfb, #507).
 - `key_sequence` `a_configured_menu_key_stays_bound_inside_the_shell`;
   `global_home` `home_wins_a_key_the_quick_menu_action_still_holds`,
-  `swapped_home_and_quick_menu_keys_follow_the_configuration` and
-  `a_third_party_key_is_still_a_conflict`.
-- Not tested: real KDE and X11 sessions with the remote, and a visual
-  comparison (no handoff yet).
+  `swapped_home_and_quick_menu_keys_follow_the_configuration`,
+  `a_third_party_key_is_still_a_conflict`,
+  `home_wins_home_page_the_quick_menu_action_still_holds`,
+  `a_focus_change_waits_for_the_whole_write` and
+  `the_stop_helper_releases_only_the_menu_keys` (#507).
+- Not tested: real KDE and X11 sessions with the remote (including the stop
+  helper's KGlobalAccel call on a real KWin), and a visual comparison (no
+  handoff yet).

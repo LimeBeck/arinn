@@ -1187,6 +1187,7 @@ FocusScope {
                     width: shortcutTypingKeyboard.x - x - 24
                     height: 80; anchors.verticalCenter: parent.verticalCenter
                     font.family: Theme.fontFamily; font.pixelSize: 48; font.weight: 500
+                    FontWeightAxis {}
                     color: Theme.textPrimary; verticalAlignment: TextInput.AlignVCenter; clip: true
                     // Focus stays on the panel; a hardware keyboard reaches
                     // the text through it.

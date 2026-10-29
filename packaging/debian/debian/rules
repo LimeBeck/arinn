@@ -9,6 +9,12 @@ export DH_VERBOSE = 1
 export RUSTUP_TOOLCHAIN = stable
 export CARGO_TARGET_DIR ?= $(CURDIR)/target
 
+ifneq ($(strip $(ARINN_SYMBOLS_DIR)),)
+export CARGO_PROFILE_RELEASE_DEBUG = line-tables-only
+export CARGO_PROFILE_RELEASE_STRIP = none
+SENTRY_CMAKE_FLAGS = -DCMAKE_C_FLAGS="$(CFLAGS) -g1 -ffile-prefix-map=$(CURDIR)=/usr/src/arinn" -DCMAKE_CXX_FLAGS="$(CXXFLAGS) -g1 -ffile-prefix-map=$(CURDIR)=/usr/src/arinn"
+endif
+
 %:
 	dh $@
 
@@ -19,7 +25,7 @@ override_dh_auto_configure:
 override_dh_auto_build:
 	cargo build --frozen --release
 	cargo build --frozen --release --example private-systemd
-	cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+	cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release $(SENTRY_CMAKE_FLAGS)
 	# Only the installed shell and KWin QML module; CI builds and runs the Qt
 	# tests elsewhere (ADR-0092).
 	cmake --build build --target arinn-shell arinn-kwin-background
@@ -98,6 +104,11 @@ override_dh_auto_install:
 	install -Dm644 README.md CHANGELOG.md -t debian/arinn/usr/share/doc/arinn/
 	install -Dm644 build/observability/native/licenses/*-LICENSE -t debian/arinn/usr/share/licenses/arinn/
 	install -Dm644 LICENSES/*.txt -t debian/arinn/usr/share/licenses/arinn/
+	# Exact installed files, before dh_strip processes the package.
+	if [ -n "$(ARINN_SYMBOLS_DIR)" ]; then \
+	  python3 scripts/debug-symbols.py collect debian/arinn "$(ARINN_SYMBOLS_DIR)" \
+	    --flavor debian --build-id "$$(python3 scripts/build_id.py)"; \
+	fi
 
 override_dh_dwz:
 	:

@@ -16,12 +16,12 @@ real suspend, wake and the lock screen are owner operator tests.
 | File | Role |
 | --- | --- |
 | `apps/arinn-shell/system_control.{h,cpp}` | `SystemControl` QML type. Calls `SystemControl1` asynchronously and exposes availability, inhibitors, whether the session can switch to the desktop, the request in flight, the accepted request, the refusal and the volume reply. The UI thread never waits for D-Bus |
-| `apps/arinn-shell/ui/screens/power/PowerMenu.qml` | The power scope: menu, confirmation, refusal and accepted panes, and the ambient screen. Presentation only |
-| `apps/arinn-shell/ui/screens/power/PowerOverlay.qml` | Maps a `SystemControl` (or a test double) to `PowerMenu`, owns the volume keys and the HUD |
+| `apps/arinn-shell/ui/screens/power/PowerMenu.qml` | The power scope: menu, confirmation, refusal and accepted panes. Presentation only |
+| `apps/arinn-shell/ui/screens/power/PowerOverlay.qml` | Maps a `SystemControl` (or a test double) to `PowerMenu`, owns the volume keys and the HUD, and draws the HUD in the layer `hudLayer` names |
 | `apps/arinn-shell/ui/VolumeHud.qml` | The handoff's volume HUD |
 | `apps/arinn-shell/ui/screens/power/AmbientScreen.qml` | The ambient screen (handoff 20) and its consumed wake |
 | `apps/arinn-shell/ui/screens/power/AmbientIdle.qml` | The idle timer and the rules that inhibit automatic ambient |
-| `apps/arinn-shell/Main.qml` | Opens the overlay from global navigation › Power and gives it the power focus scope |
+| `apps/arinn-shell/Main.qml` | Opens the overlay from global navigation › Power, gives it the power focus scope and the HUD's layer |
 
 ## Power menu
 
@@ -50,7 +50,7 @@ sees its refusal; the menu never guesses the outcome.
 | Action | Behaviour |
 | --- | --- |
 | Sleep | Calls `Suspend`. While the request is in flight the row is busy and says "Waiting for the system…". |
-| Restart, Shut down | Open the confirmation with Cancel focused. Its body lists the applications that will close and, in the error colour, the row's blocker or permission note, so confirming never hides it. Confirm calls `Reboot` or `PowerOff`; the pill is busy until the answer. |
+| Restart, Shut down | Open the confirmation with Cancel focused. Its body lists the applications that will close and, in the error colour, the row's blocker or permission note, so confirming never hides it. Confirm calls `Reboot` or `PowerOff`; the pill is busy until the answer. See *Unsupported after opening* below. |
 | Switch to desktop | See *Switch to desktop* below. The same confirmation, titled "Switch to desktop?", with one more line saying that the next login starts the desktop until Return to Arinn. Confirm (the "Switch" pill) calls `SwitchToDesktop`. |
 | Accepted | A waiting pane: "Going to sleep…", "Restarting…", "Shutting down…" or "Switching to the desktop…" with "Waiting for the system". This is not success, and no timer produces it or anything after it. Back returns to the screen beneath. |
 | Refused | An error pane titled for the action, with the reason for `inhibited` (the holders' *who (why)*), `denied`, `unsupported`, `unavailable`, `timeout` or `failed`. Back clears it and returns to the step that asked. |
@@ -64,6 +64,22 @@ stay focusable but are held: they are dimmed, say "Available after the
 system answers", and open no confirmation. The Ambient row is held as
 well, so the answer is never shown behind the ambient screen.
 
+**Unsupported after opening.** The menu opens before `GetPower` answers, so
+a Restart or Shut down confirmation can be open while its action is still
+`unknown`. If the read then reports it `unsupported`
+([#497](https://github.com/LimeBeck/arinn/issues/497)):
+
+- the confirmation stays open and its action pill is disabled, like the row,
+  so the arrows, Tab, Return and a click cannot send the request;
+- focus stays on Cancel, or moves there from the action pill;
+- the confirmation's note says "Not supported on this computer" in the error
+  colour, the row's own text;
+- Cancel and Back close it onto the menu, where the row is disabled.
+
+A request already sent goes on, and the pill stays busy until its answer.
+Switch to desktop instead closes its confirmation when the entry goes (see
+*Switch to desktop* below), and Sleep has no confirmation.
+
 **Answer after Home.** When Home leaves the menu while a request is in
 flight, the overlay remembers it. On success nothing more is shown: the
 system suspends, restarts or powers off. A refusal or timeout that arrives
@@ -74,9 +90,11 @@ shown.
   on. If that item is gone, focus goes to the screen's preferred item. Home
   on the pane goes to Home.
 - While a launch overlay (a web service's or an application's) or the
-  ambient screen is on screen (all are drawn above the power overlay), the
+  ambient screen is on screen (all are drawn above the power menu), the
   refusal waits. It appears once they are gone, so it never takes focus
-  behind them.
+  behind them. A launch still in its 400 ms reveal delay holds it too, since
+  its overlay is about to be drawn above; a launch that Home or a sheet has
+  hidden, and that goes on in the background, does not (#534).
 - If an external application is in front when the answer arrives, the pane
   appears when the user returns to Arinn. The shell does not raise itself
   over the application for it.
@@ -174,7 +192,12 @@ The HUD follows the handoff (*Toast and volume HUD*): a top-center glass pill
 30/600. It hides 1.8 s after the last change and never takes focus. It shows
 only a level the daemon returned for the change; a failed change shows no
 level: the HUD itself says "Volume control is not available", so the failure
-shows over managed playback too. A failed unmute does not go on to change the
+shows over managed playback too. The HUD is drawn in its own layer of the
+system scopes (z 25 in `Main.qml`), above the launch overlays (z 20), so a
+level or a failure is never hidden behind a launch in progress or its
+failure dialog; the power menu keeps its place (z 7) below them, and the
+ambient screen (z 30) covers the HUD (#487). The layer only draws and never
+takes focus or input. A failed unmute does not go on to change the
 level. The bar is dimmed while muted. Volume calls run one at a time in the
 order of the keys, so a quick second key never overtakes a Volume Up that is
 still unmuting; at most eight pending calls are kept and further presses are
@@ -196,13 +219,21 @@ ambient is a screensaver, not sleep.
   (an external Activity is in the foreground), while the session is locked,
   while ambient is already on, while a web service is launching or an
   application's starting screen is on screen (ADR-0110; a launch hidden by
-  Home may run for hours and does not count), or while
-  media plays: an MPRIS session in `playing`, managed playback or its input
+  Home may run for hours and does not count), while a power request waits
+  for its answer (so its refusal never takes focus behind ambient, #487), or
+  while media plays: an MPRIS session in `playing`, managed playback or its input
   layer, or an audible browser tab. Losing any of these conditions stops the
   count; regaining them starts a full timeout.
-- **Look.** Handoff 20: `bg-deep` (#050506), the clock at 160/500 and the
-  date at 32 in dim greys, as one block that moves to a random place every
-  8 s with a 4 s ease-in-out move. The optional paused-media line of the
+- **Look.** Handoff 20: `bg-deep` (#050506, the token table's hex), the
+  clock at 160/500 with tabular numerals and −3 % tracking in
+  `oklch(0.60 0.004 260)` (#7F8083) on a 160 px line, and 10 px below it
+  the date at 32/500, 6 px in, in `oklch(0.45 0.004 260)` (#545557), as one
+  left-aligned block that moves to a random place every 8 s with a 4 s
+  ease-in-out move. The block is as wide as its text; its position is
+  clamped to the screen, so a longer date (at midnight or after a locale
+  change) never pushes it off screen, also during a move. The token's `oklch(0.07 0.003 260)`, which the
+  prototype markup also uses, converts exactly to #010101; the shell keeps
+  the token table's hex, as for the other tokens in `Theme.qml`. The optional paused-media line of the
   handoff is not shown.
 - **Wake.** Ambient is the topmost route (`focusedScreen` is `ambient`) and
   takes every key and pointer event. The event that opened it is not a wake.
@@ -230,10 +261,14 @@ dbus-run-session -- build/apps/arinn-shell/arinn-system-control-test
   with Cancel first and the live list, Back and Home, and the panel with five
   rows.
 - `tests/ui/tst_ambient.qml`: the ambient screen (handoff look and drift,
-  consumed first key, opening key not a wake, pointer anchor, consumed click,
+  the block kept on screen when the date grows, drift places spread over
+  the free area with none piled on an edge, consumed first key, opening
+  key not a wake, pointer anchor, consumed click,
   stop without wake) and the idle timer on a shortened timeout (default ten
-  minutes, reset by activity, each inhibiting condition, hidden shell, what
-  counts as playing).
+  minutes, reset by activity, each inhibiting condition including a power
+  request in flight, hidden shell, what counts as playing). The look test
+  checks the colours, weights, tracking, tabular numerals and the date's
+  inset.
 - `platform/session/sessionlifecycle_test.cpp` (`powerMenuAcrossSleep`,
   `ambientAfterIdle`): the production `Main.qml` with fake login1 and
   screensaver services: the explicit Ambient row and wake back to it, idle
@@ -243,7 +278,10 @@ dbus-run-session -- build/apps/arinn-shell/arinn-system-control-test
   reading on open, a request that waits for the platform, the accepted pane,
   closing on the lifecycle guard, refusal texts and inhibitor names, the
   confirmation's blocker note and live closing list, disabled unsupported
-  rows, Home, the volume keys and HUD, and the HUD geometry. For Switch to
+  rows, a Restart or Shut down confirmation whose action becomes
+  unsupported after it opened (pill disabled, focus on Cancel, the note,
+  Return sends nothing), Home, the volume keys and HUD, the HUD geometry,
+  and the HUD in a given layer above a launch overlay without focus. For Switch to
   desktop: the row following `sessionSwitch` (focus and an open
   confirmation leave a row that goes), the request in flight (busy, Cancel
   disabled, Back ignored, the waiting pane), the power rows and the switch
@@ -266,6 +304,19 @@ dbus-run-session -- build/apps/arinn-shell/arinn-system-control-test
   ignored, inside the shell Back returns to the opener, both quick-menu
   cases, a pending web or application launch (`powerKeyOverAPendingLaunch`),
   ambient ends and the menu opens, and nothing happens while locked.
+- `apps/arinn-shell/quick_menu_test.cpp` (`volumeHudIsDrawnAboveALaunch`,
+  `ambientWaitsForAPendingPowerRequest`): the production `Main.qml`. The HUD
+  and its failure state are drawn above a web service's and an application's
+  launch overlay and its failure dialog, checked on the grabbed window, and
+  never take focus from the dialog. Idle ambient does not count while a
+  power request is in flight; ambient started anyway holds the late refusal
+  (`holdLateAnswer`), which appears with focus after the wake.
+- `apps/arinn-shell/quick_menu_test.cpp` (`lateRefusalWaitsForARevealingLaunch`,
+  `lateRefusalIsNotHeldByALaunchHiddenForHome`): the production `Main.qml`. A
+  late Sleep refusal that arrives during a web service's or an application's
+  reveal delay waits through the delay and the shown overlay, then appears
+  with focus when the launch ends, and Back on it returns focus to Home
+  (`restoreLateFocus`). A launch hidden for Home holds nothing.
 - Real suspend, wake, the lock screen and volume on the HTPC are owner
   operator tests (AC-19). Not run.
 - Switching to the desktop and back on the HTPC is the owner operator test

@@ -447,6 +447,49 @@ TestCase {
         focused("shutdownButton");
     }
 
+    // #497: the menu opened before GetPower answered, and the confirmation
+    // was opened while its action was still unknown. When the read reports
+    // it unsupported, the action pill is disabled, focus is on Cancel, and
+    // the confirmation says why in place, as the row does. Nothing is sent.
+    function test_confirmation_that_becomes_unsupported_data() {
+        return [
+            {tag: "restart", row: "restartButton", availability: "reboot", downs: 1},
+            {tag: "shutdown", row: "shutdownButton", availability: "powerOff", downs: 2}
+        ];
+    }
+    function test_confirmation_that_becomes_unsupported(data) {
+        control.reboot = "unknown";
+        control.powerOff = "unknown";
+        openMenu();
+        for (let i = 0; i < data.downs; ++i)
+            keyClick(Qt.Key_Down);
+        focused(data.row);
+        keyClick(Qt.Key_Return);
+        focused("cancelButton");
+        verify(child("confirmButton").enabled);
+        verify(!child("confirmNote").visible);
+        // The user is already on the action pill when the answer arrives.
+        keyClick(Qt.Key_Right);
+        focused("confirmButton");
+        control[data.availability] = "unsupported";
+        verify(!child("confirmButton").enabled);
+        focused("cancelButton");
+        compare(overlay.menu.step, "confirm");
+        verify(child("confirmNote").visible);
+        compare(child("confirmNote").text, "Not supported on this computer");
+        // The arrows and Tab no longer reach the pill.
+        keyClick(Qt.Key_Right);
+        verify(child("cancelButton").activeFocus);
+        keyClick(Qt.Key_Tab);
+        verify(child("cancelButton").activeFocus);
+        // Return is Cancel: the confirmation closes and nothing is sent.
+        keyClick(Qt.Key_Return);
+        tryCompare(overlay.menu, "step", "menu");
+        focused("sleepButton");
+        verify(!child(data.row).enabled);
+        compare(requestCalls(), []);
+    }
+
     // Long lists never push the buttons off the canvas.
     function test_long_lists_are_bounded() {
         const many = [];
@@ -617,6 +660,40 @@ TestCase {
         overlay.keysEnabled = false;
         keyClick(Qt.Key_VolumeUp);
         compare(control.calls.length, 3);
+    }
+
+    // #487: the shell gives the HUD a layer above the launch overlays; the
+    // menu stays in the overlay, below them, and the HUD still never takes
+    // focus.
+    function test_hud_draws_in_the_given_layer() {
+        const layer = createTemporaryQmlObject("import QtQuick; Item { width: 1920; height: 1080; z: 25 }", suite);
+        const launch = createTemporaryObject(launchFactory, suite, {revealDelay: 0});
+        const hud = overlay.hud;
+        compare(hud.parent, overlay);
+        overlay.hudLayer = layer;
+        compare(hud.parent, layer);
+        verify(layer.z > launch.z);
+        compare(hud.x, (1920 - 560) / 2);
+        compare(hud.y, 48);
+        openMenu();
+        launch.active = true;
+        tryVerify(() => launch.visible);
+        verify(overlay.z < launch.z);
+        launch.failure = "failed";
+        tryVerify(() => launch.activeFocus);
+        keyClick(Qt.Key_VolumeDown);
+        control.confirmVolume(25, false);
+        verify(hud.shown);
+        verify(!hud.activeFocus);
+        verify(launch.activeFocus);
+        control.volumeFailed("unavailable");
+        verify(hud.shown);
+        verify(hud.unavailable);
+        verify(!hud.activeFocus);
+        verify(launch.activeFocus);
+        // Without a layer it is drawn in the overlay again.
+        overlay.hudLayer = null;
+        compare(hud.parent, overlay);
     }
 
     function test_hud_matches_handoff() {

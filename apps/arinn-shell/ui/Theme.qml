@@ -26,6 +26,19 @@ QtObject {
     readonly property var easing: [0.2, 0.8, 0.2, 1, 1, 1]
     readonly property FontLoader onest: FontLoader { source: "fonts/Onest.ttf" }
     readonly property string fontFamily: onest.name
+    // Onest is a variable font (wght 100–900). Qt does not match its named
+    // instances by font.weight, so every weight would render as the default
+    // 400 (#546). The text components call this whenever their font
+    // changes: it sets the wght axis to the requested weight. A 400 text
+    // gets no axis at all.
+    function applyWeight(item) {
+        if (!item)
+            return;
+        const axes = item.font.variableAxes || {};
+        const current = axes["wght"] === undefined ? 400 : axes["wght"];
+        if (current !== item.font.weight)
+            item.font.variableAxes = Object.assign({}, axes, {"wght": item.font.weight});
+    }
     // Stable generic colour for an identity without artwork or a logo. The
     // identity is opaque: no product names, only a hash of the string.
     readonly property var identityColors: ["#536fa6", "#487b69", "#80649c", "#9a625f", "#857541", "#477f8c"]

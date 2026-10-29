@@ -44,6 +44,13 @@ informed opt-in consent, a refusal path, review/withdrawal controls, immediate
 revocation behavior and a privacy/retention notice before release. A development
 flag is not evidence that those requirements are implemented.
 
+For publication checklist #74, the owner confirmed a 90-day retention period on
+2026-10-27. The public privacy notice must state this period, along with the
+recipient, purpose, data categories and consent withdrawal controls. The
+maintainer must ensure that the receiving Sentry project uses this retention
+period. This documents the publication requirement; it does not implement the
+consent UI or verify the remote project settings.
+
 ## Captured diagnostics
 
 - `arinnd`:
@@ -145,6 +152,42 @@ JSON diagnostics may be buffered. No SDK, transport, panic/crash handler or cach
 is initialized when the flag is false, even with a valid DSN. The daemon's offline
 `--check-plugins` mode never initializes telemetry.
 
+## Package-matched debug files
+
+[ADR-0116](../adr/0116-package-matched-sentry-debug-symbols.md) prepares the remaining
+CI upload part of #370. It is proposed and owner-merged. CI collects split ELF
+debug files for `arinnd` and `arinn-shell` from their staged package binaries,
+before stripping, with release optimization and line-level debug information.
+After extraction, each finished package's build IDs must match those files.
+Arch and Debian have separate manifests and seven-day symbol artifacts. The
+product packages and GitHub release assets do not gain debug/source archives.
+
+The manifest records `arinn@<build id>` and the file digests/build IDs. Sentry
+matches native debug IDs, not the release name alone: no separate rebuild or
+Sentry release creation can substitute for these exact files.
+
+After all CI and package-install checks pass, `master` and version-tag pushes
+upload to `limebeckdev / arinn`. The owner configured `SENTRY_AUTH_TOKEN`; the
+release workflow passes it explicitly into reusable CI, and only the trusted
+upload subprocess receives it. A missing token emits a notice and skips upload.
+A configured upload/validation failure blocks publication. PRs, nightlies and
+manual CI runs never upload, even when the repository has the token.
+
+The helper verifies manifests, hashes, component names, line tables and workflow
+commit before running a SHA-256-pinned Sentry CLI 3.8.2 in a private home. It
+uploads only the four explicit ELF `.debug` files with `--no-sources` and waits
+up to 300 seconds for processing. It never adds `--include-sources` or prints CLI
+output/token-bearing diagnostics. Debug information contains build-time Arinn
+and toolchain source locations/symbol names, not user-device data or local-variable
+descriptions; C/C++ checkout prefixes are remapped to `/usr/src/arinn`. Runtime
+consent, event filters and cache privacy remain unchanged.
+
+`python -m unittest discover -s tests/ci -p test_debug_symbols.py` checks synthetic
+C/Rust binaries and a recording CLI, without Sentry access or an Arinn build.
+Actual package collection/verification is exercised by a manual CI run on the
+branch. Live upload and source-level symbolication require the first trusted
+build after owner merge and remain unverified by these tests.
+
 ## Build and verification
 
 CMake downloads Sentry native 0.17.1 and toml++ 3.4.0 with fixed SHA-256 hashes.
@@ -176,5 +219,6 @@ seconds. Loss of network or invalid telemetry setup must not prevent application
 startup. Native in-process crash reporting is best effort; SIGKILL/OOM kills,
 Rust aborting panics and a broken process may prevent delivery. Reports are useful
 without symbol uploads, but native source-level symbolication requires matching
-build debug artifacts. Automated upload, public consent UI, live Sentry ingestion
-and desktop/TV qualification remain untested or pending; no roadmap gate closes.
+build debug artifacts. Automated upload is prepared in ADR-0116 but not live-qualified. Public consent UI,
+live Sentry ingestion and desktop/TV qualification remain untested or pending;
+no roadmap gate closes.

@@ -57,7 +57,7 @@ public:
   Q_INVOKABLE QSize stageSize(qreal width, qreal height, qreal dpr) const;
   // The logical target size passed to grabToImage for an item of
   // `width`×`height` logical pixels at `dpr`: scaled down into the physical
-  // bounds when larger, unchanged otherwise.
+  // bounds when larger, unchanged otherwise. Rounded down, as stageSize is.
   static QSize grabSize(qreal width, qreal height, qreal dpr);
   // The outstanding grab result, for tests: at most one, released as soon
   // as its image is taken or its request ends.
@@ -90,6 +90,10 @@ private:
   QTimer m_deadline;
   QElapsedTimer m_started;
   QString m_owner, m_request, m_target, m_output, m_done;
+  // The highest Changed revision of this daemon owner and its epoch: a Get
+  // reply older than it is stale and starts nothing (ADR-0087).
+  QString m_floorEpoch;
+  qulonglong m_floor = 0;
   Context m_context;
   quint64 m_lifetime = 0;
   bool m_busy = false, m_dirty = false, m_resolving = false;

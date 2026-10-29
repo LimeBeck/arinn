@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-Arinn is pre-release software (Phase 0 of the [roadmap](ROADMAP.md) is complete; there is no released version yet). Security fixes are made on the `master` branch only.
+Arinn is pre-release software. The repository provides the `v0.1.0` pre-release and development snapshots; see the [releases](https://github.com/LimeBeck/arinn/releases). Security fixes are made on the `master` branch only.
 
 ## Security model
 

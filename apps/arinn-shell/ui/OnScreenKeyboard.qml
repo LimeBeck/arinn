@@ -283,7 +283,7 @@ FocusScope {
                                 width: pill.width - 56
                                 anchors.verticalCenter: parent.verticalCenter
                                 spacing: 12
-                                KeyboardIcon {
+                                LineIcon {
                                     id: pillIcon
                                     width: 34
                                     height: 34
@@ -392,7 +392,7 @@ FocusScope {
                                 Row {
                                     anchors.centerIn: parent
                                     spacing: 10
-                                    KeyboardIcon {
+                                    LineIcon {
                                         width: 38
                                         height: 38
                                         anchors.verticalCenter: parent.verticalCenter

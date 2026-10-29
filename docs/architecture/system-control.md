@@ -68,6 +68,90 @@ restarted. logind's refusals map to `org.arinn.Error1` names:
 | `…DBus.Error.NoReply`, `…DBus.Error.Timeout` | `Timeout` |
 | anything else | `Internal` |
 
+#### Between the check and the request
+
+Steps 3 and 4 are two calls to logind, so another program can take a block
+inhibitor between them ([#498](https://github.com/LimeBeck/arinn/issues/498)).
+The check runs immediately before the call, so the window is one D-Bus round
+trip. Reading the list again would not narrow it. logind offers no call that
+acts only while no block inhibitor is held for an unprivileged caller. The
+flags of `SuspendWithFlags`, `RebootWithFlags` and `PowerOffWithFlags` do not
+help:
+
+- `SD_LOGIND_SKIP_INHIBITORS` (systemd 257 and later) skips inhibitors.
+- `SD_LOGIND_ROOT_CHECK_INHIBITORS` applies only to UID 0: before 257 it makes
+  `block` inhibitors bind root, and since 257 it makes `block-weak` ones bind
+  root.
+
+What happens in the window depends on the systemd version. The sources are
+`org.freedesktop.login1(5)`, and the logind function that checks a request:
+`manager_verify_shutdown_creds()` in `src/login/logind-shutdown.c` from v261,
+`verify_shutdown_creds()` in `logind-dbus.c` before that.
+
+- **systemd 257 and later:** logind enforces every `block` inhibitor itself,
+  for every caller, the caller's own user included, unless the request carries
+  `SD_LOGIND_SKIP_INHIBITORS`. The `*-ignore-inhibit` polkit actions do not
+  apply to a `block` inhibitor. Arinn's calls (`interactive = false`, no flags)
+  never skip inhibitors. logind checks the inhibitors and starts the action in
+  one step of its event loop, and checks again when a polkit answer arrives
+  later. An inhibitor taken in the window therefore refuses the request, so
+  the window is closed. Since systemd 258 the refusal is
+  `BlockedByInhibitorLock`, which always reads as `Conflict`. systemd 257
+  answers `AccessDenied`, which reads as `Conflict` only while the list read
+  after the refusal still shows the inhibitor. If the holder released it in
+  the meantime, the answer is `PermissionDenied`. The action is refused either
+  way.
+- **Before systemd 257 (v256 and earlier):** logind ignores every inhibitor
+  held by the caller's own UID. `verify_shutdown_creds()` asks
+  `manager_is_inhibited()` with `ignore_uid = true`, which skips such
+  inhibitors (v256 `logind-dbus.c:1995`, `logind-inhibit.c:430`; the same in
+  v255). `arinnd` runs as the session user. So a `block` inhibitor that the
+  user's own browser, player or download tool takes in the window does not
+  stop the request: logind asks only the action's ordinary polkit question
+  and proceeds. An inhibitor of another user goes to polkit for the action's
+  `*-ignore-inhibit`, without interaction. The default policy is
+  `auth_admin_keep`, so the request is refused unless an administrator grants
+  that action without authentication. The refusal,
+  `InteractiveAuthorizationRequired`, reads as `Conflict` while the list read
+  after it still shows the inhibitor, and as `PermissionDenied` otherwise. In both cases,
+  only an inhibitor taken inside the window is affected; Arinn's own check
+  refuses every inhibitor that exists when the request starts. The same user
+  can pass their own inhibitors with `systemctl suspend` on these versions
+  anyway, because logind ignored them for that user. This residual window is
+  a known limitation, accepted by the owner
+  ([#536](https://github.com/LimeBeck/arinn/issues/536)). No Arinn target
+  ships these versions (see below).
+- **`block-weak` inhibitors** (systemd 257 and later) are not listed or
+  checked by Arinn; only `block` counts (ADR-0108). logind ignores a weak
+  inhibitor that the caller's own user holds. For another user's weak
+  inhibitor it asks polkit for `*-ignore-inhibit`. This is logind's rule for
+  weak inhibitors, not a timing window. The owner decided in #536 that Arinn
+  keeps ignoring them.
+
+Every system Arinn targets or tests ships systemd 257 or later. These versions
+were read from the official container images on 2026-10-26:
+
+| System | systemd |
+| --- | --- |
+| Arch Linux, the product target (a rolling release; `archlinux:latest` built 2026-10-21) | 262 |
+| Ubuntu 25.04, the CI package image ([packaging/debian/README.md](../../packaging/debian/README.md)) | 257.4 |
+| Debian 13 | 257.13 |
+| Ubuntu 26.04 LTS | 259.5 |
+
+The `.deb` gives `systemd` no minimum version. Its Qt 6.8 floor (ADR-0104;
+the shell imports `qt_version_tag@Qt_6.8`) and `libglib2.0-0 (>= 2.80)`
+already exclude the releases below 257:
+
+- Ubuntu 24.04 LTS (systemd 255.4) has Qt 6.4.2.
+- Ubuntu 24.10 (systemd 256.5) has Qt 6.6.2.
+- Debian 12 (systemd 252.39) has an older Qt and GLib.
+
+Every Debian or Ubuntu release at the Qt floor ships systemd 257 or later.
+
+Arinn keeps its own check: it answers `Conflict` without asking logind and
+names the holders. On systemd 257 and later, logind's own check is what makes
+the action atomic.
+
 ### Volume
 
 `(audio, level)`:
@@ -228,8 +312,66 @@ every action goes through the methods above.
   `$XDG_RUNTIME_DIR/arinn/power-grab-<display>`), and never when no power key is
   mapped. The marker stays until that check has seen the key held or a new
   xfce4-power-manager own its name, so an unconfirmed repair is tried again at
-  the next start. A restart drops idle inhibitors applications held through
-  xfce4-power-manager; normally the instance is about half a second old.
+  the next start; [ADR-0111](../adr/0111-power-key.md)'s "removed once the
+  check after letting go has run" means exactly this. `--release-power-key`
+  follows the adapter's rule, the inhibitor first: it takes a temporary
+  logind inhibitor before anything else and, without one, restarts nothing
+  (logind would act on the key while the old instance's inhibitor is gone).
+  The XFCE setting still goes back, and the marker stays, so the next
+  adapter start in this login repairs the grab ([#519](https://github.com/LimeBeck/arinn/issues/519)). The marker
+  lives in `$XDG_RUNTIME_DIR`, which logind usually removes when the user's
+  last session ends. It survives with lingering, while the user has another
+  session open, and on a re-login within `UserStopDelaySec=` (10 s by
+  default), for example with SDDM's `Relogin=true`; ADR-0111 lists the same
+  cases for the session marker. That is harmless: the old xfce4-power-manager ends with its
+  display, a new login starts a new one that grabs the key itself, and the
+  next adapter start's first check finds that grab held (or no
+  xfce4-power-manager) and clears the marker. At worst it costs one extra
+  check; a healthy instance is never restarted. The login restore
+  entry (`--restore-power-button`) gives back only the XFCE setting and never
+  restarts xfce4-power-manager. Until the repair, the xfce4-power-manager
+  without its grab keeps its own inhibitor, so the key does nothing rather
+  than logind acting on it, unless the user set it to leave the key to
+  logind. A new instance has 10 s
+  to own the name; while the name has no owner at all (the old instance quit,
+  the new one starts slowly) the adapter waits a little longer, still holding
+  the inhibitor and taking no key, so a slow instance grabs the key itself.
+  The whole restart, the `Restart` call included, holds the inhibitor at most
+  15 s, as ADR-0111 states. A `Restart` call not answered within 5 s may
+  still take effect, so the name is watched the same way after it; only an
+  error reply ends the restart at once. The running adapter tries an
+  unconfirmed repair again as well (the grab check fails, `Restart` returns
+  an error, the old instance stays, or no new instance owns the name in
+  time): every 30 s at most, never sooner, each restart under logind's
+  inhibitor (a temporary one once Arinn's is gone; without one nothing is
+  restarted and the next attempt waits for the backoff), until one is
+  confirmed. Only a restart after which
+  the old instance went away and no new one came counts: after 3 of them in
+  a row the adapter gives up and logs it. It restarts nothing more and grabs
+  no key until the adapter restarts, and the marker stays for the next
+  start; a late instance then grabs the key itself. A restart that changed
+  nothing never counts, so an xfce4-power-manager whose grab is broken keeps
+  being retried rather than left with nobody reading the key; but when the
+  old instance, still there at the 10 s, goes away before the next restart
+  (it acted on `Restart` late), that counts as one that did not come back.
+  Between
+  retries Arinn holds no inhibitor. While xfce4-power-manager runs it holds
+  its own `handle-power-key` inhibitor, so while a repair is pending (or
+  after giving up) the key does nothing rather than logind acting on it,
+  unless the user set xfce4-power-manager to leave the key to logind. While
+  no xfce4-power-manager runs after giving up (no instance came back),
+  nobody inhibits logind, and its configured `HandlePowerKey=` acts
+  (power-off by default) until the adapter restarts. An
+  xfce4-power-manager that is gone meanwhile (stopped by the user) ends the
+  repair and clears the marker; `Restart` is never called while its name has
+  no owner, so it is never started, and one started again later grabs the
+  key itself. A confirmed or ended repair resets the 30 s backoff, except
+  after a restart that no instance came back from: then the backoff stays,
+  so a successor that comes late is not restarted sooner than 30 s after
+  the last restart. The count of missing instances is reset only by a
+  confirmed repair. A restart drops
+  idle inhibitors applications held through xfce4-power-manager; normally
+  the instance is about half a second old.
 - **XFCE, dedicated Arinn session only** (owner decision of 2026-10-24). With
   `ARINN_SESSION_ENTRY=xfce` the adapter never grabs the power keys, so
   xfce4-power-manager's grab succeeds whenever it starts; it reads them from
@@ -248,10 +390,17 @@ every action goes through the methods above.
   --release-power-key` (`ExecStopPost=` of `arinn-ewmh.service`), at the next
   start in any X11/EWMH session, and at every XFCE login by
   `/etc/xdg/autostart/org.arinn.PowerButtonRestore.desktop`
-  (`--restore-power-button`, a no-op while the adapter owns `org.arinn.X11`;
+  (`--restore-power-button`, a no-op while the adapter owns `org.arinn.X11`,
+  and with a copy to give back held under a temporary logind inhibitor like
+  the other restores when logind grants one; without one the restore still
+  runs: it does not touch xfce4-power-manager's own `handle-power-key`
+  inhibitor, which it holds by default, so logind cannot act meanwhile, and
+  skipping it would leave "do nothing" in the user's XFCE settings for good;
   a copy the adapter could not give back at its start, or that xfconf refused
   when Arinn let go, is retried every 30 s off its loop until it succeeds,
-  each time under a temporary logind inhibitor, never while the key is held
+  each time under a temporary logind inhibitor (the system bus is opened
+  again for each retry while the adapter has none, so a failed connection at
+  its start does not leave them without it), never while the key is held
   and with no take while a retry runs; after a refused release Arinn's
   inhibitor also stays until the value is back).
   A take first gives a stale copy back; a value the user set meanwhile is kept.
@@ -288,8 +437,19 @@ a shell exit, a crash loop, a reader that never works or stops, no inhibitor, a
 grab, the ordinary XFCE desktop, another desktop until xfce4-power-manager
 appears and is restarted when its grab failed, the dedicated session never
 grabbing, a crash repaired at the next start, a marker kept until the repair
-is confirmed, a stale copy retried under an inhibitor after a failed start-up
-restore or a refused release, no take during a retry, XFCE
+is confirmed, an unconfirmed restart or a failed grab check retried after the
+backoff until confirmed, a slow new instance waited for, the inhibitor held
+at most 15 s when no instance comes (a slow `Restart` call included), a
+late `Restart` answer still watched, a late successor waiting for the
+backoff, instances that act on `Restart` late stopping at the cap,
+no restart without the inhibitor, restarts whose instance never came
+capped, a restart that changed nothing retried without counting, a confirmed
+repair resetting the count, no restart when the name is gone, the backoff
+reset after a repair, a
+stopped xfce4-power-manager never restarted, a
+stale copy retried under an inhibitor after a failed start-up restore (also
+when the start found no system bus) or a refused release, the login restore
+under an inhibitor, no take during a retry, XFCE
 recognised by its bus names), `xfce_power` (a fake xfconf: stale copies, a
 newer user choice, a system default, a fresh value not yet in the file, the login restore, and the per-user entry
 run with a fake `xfconf-query` after Arinn is removed), `an_ended_session_gives_the_power_key_back`,
@@ -359,6 +519,7 @@ shell shows inhibitor texts on screen only.
 - `platform/system_control_tests.rs`: the logind and `pactl` mappings, a fake
   logind on a private bus (`Can*` answers, block and delay inhibitors behind
   hundreds of irrelevant records, an unreadable list that refuses, the bounded list, refusals,
+  a block inhibitor taken after Arinn's check that logind refuses as since systemd 257,
   `interactive = false`, no logind, no bus) and a fake `pactl` (mute, toggle,
   steps with balance, the 100 % stop, a level above 100 %, a change whose
   read-back fails, no server, no tool, the C locale).

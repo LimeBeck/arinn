@@ -26,13 +26,20 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::sync::{Mutex, watch};
-use zbus::{Connection, message::Header};
+use zbus::{Connection, MatchRule, MessageStream, message::Header};
 
 pub const INTERFACE: &str = "org.arinn.Background1";
 /// The only reader of pixels.
 pub const SHELL_SERVICE: &str = "org.arinn.Shell1";
 const DEADLINE: Duration = Duration::from_millis(background::CAPTURE_DEADLINE_MS);
 const OWNER_TIMEOUT: Duration = Duration::from_secs(1);
+/// Queue bound of the `Shell1` owner-change rule. zbus keeps one channel per
+/// match rule per connection: `follow_shell_owner`, `run`'s invalidation
+/// stream and every ready frame's receiver all share it, and the first
+/// registration sets its capacity. A full channel stalls the connection's
+/// socket reader until a receiver is polled, so this stays at zbus's default
+/// (64), the capacity `run`'s own subscription had on its own.
+const OWNER_EVENTS: usize = 64;
 
 enum Phase {
     Pending,
@@ -42,6 +49,10 @@ enum Phase {
         height: u32,
         /// The Shell1 owner when the frame was installed: the only reader.
         reader: String,
+        /// `Shell1` owner changes the daemon has received since publication
+        /// began (before the reader was looked up). Any event ends reading;
+        /// `None` (no subscription, or an event already seen) reads nothing.
+        owner_events: Option<Box<MessageStream>>,
     },
     Unavailable,
 }
@@ -124,6 +135,9 @@ pub(super) struct Background {
     platform: crate::platform::Platform,
     /// `true` while the session is locked, asleep or unknown.
     blocked: watch::Receiver<bool>,
+    /// Test seam: a `Shell1` owner subscription that cannot be opened.
+    #[cfg(test)]
+    owner_events_unavailable: Arc<std::sync::atomic::AtomicBool>,
 }
 
 fn log(operation: &str, outcome: Option<&str>, error: Option<&str>, duration_ms: u64) {
@@ -147,7 +161,66 @@ impl Background {
             windows: core.windows.clone(),
             platform: core.platform.clone(),
             blocked,
+            #[cfg(test)]
+            owner_events_unavailable: Arc::default(),
         }
+    }
+
+    /// `NameOwnerChanged` for `org.arinn.Shell1`.
+    fn shell_owner_rule() -> Option<MatchRule<'static>> {
+        Some(
+            MatchRule::builder()
+                .msg_type(zbus::message::Type::Signal)
+                .sender("org.freedesktop.DBus")
+                .ok()?
+                .path("/org/freedesktop/DBus")
+                .ok()?
+                .interface("org.freedesktop.DBus")
+                .ok()?
+                .member("NameOwnerChanged")
+                .ok()?
+                .add_arg(SHELL_SERVICE)
+                .ok()?
+                .build(),
+        )
+    }
+
+    /// A new receiver of `Shell1` owner changes. In tests, `None` while
+    /// `owner_events_unavailable` is set. zbus's socket reader puts
+    /// every matching signal into it before it handles any later message, so
+    /// whatever the daemon has received after this call is in it, whether or
+    /// not any task has run since. While `follow_shell_owner` keeps the rule
+    /// registered, this costs no bus round trip.
+    async fn shell_owner_events(&self) -> Option<MessageStream> {
+        #[cfg(test)]
+        if self
+            .owner_events_unavailable
+            .load(std::sync::atomic::Ordering::SeqCst)
+        {
+            return None;
+        }
+        MessageStream::for_match_rule(
+            Self::shell_owner_rule()?,
+            &self.connection,
+            Some(OWNER_EVENTS),
+        )
+        .await
+        .ok()
+    }
+
+    /// Keeps the `Shell1` owner-change rule registered for the daemon's
+    /// lifetime and drains it. Without it, frames are still published, but
+    /// reads add the match first; a failed subscription is logged and such a
+    /// frame is never read.
+    async fn follow_shell_owner(&self) {
+        let Some(mut changes) = self.shell_owner_events().await else {
+            log("background-follow", Some("unavailable"), None, 0);
+            return;
+        };
+        tokio::spawn(async move {
+            while changes.next().await.is_some() {}
+            log("background-follow", Some("ended"), None, 0);
+        });
     }
 
     /// The session guard; a guard that stopped reporting is unknown, hence
@@ -426,6 +499,12 @@ impl Background {
         let bytes = background::pixel_bytes(frame.width, frame.height)?;
         let pixels: OwnedFd = frame.pixels.into();
         sealed(&pixels, bytes)?;
+        // Subscribed before the reader is looked up: every later owner change
+        // of Shell1 ends reading of this frame.
+        let owner_events = self.shell_owner_events().await;
+        if owner_events.is_none() {
+            log("background-follow", Some("unavailable"), None, 0);
+        }
         // A shell must own the reader name; otherwise nobody may read.
         let shell = self.owner_of(SHELL_SERVICE).await?;
         // The selected platform owner is read here, before the state lock, so
@@ -463,6 +542,7 @@ impl Background {
                             width: frame.width,
                             height: frame.height,
                             reader: shell.clone().unwrap_or_default(),
+                            owner_events: owner_events.map(Box::new),
                         };
                         outcome.revision = Self::bump(&mut inner).or(outcome.revision);
                         outcome.log = Some(("background-ready", None, None, elapsed as u64));
@@ -530,31 +610,46 @@ impl Background {
         let now = Instant::now();
         let change = Self::reconcile(&mut inner, &evidence, self.blocked(), now);
         let outcome = Self::commit(&mut inner, change, now);
-        let result = match &inner.attempt {
-            Some(attempt) if attempt.request_id == request_id => match &attempt.phase {
-                // Bound to the shell that owned the reader name at
-                // publication: a successor never reads it, even before the
-                // owner change is processed.
-                Phase::Ready { reader, .. } if Some(reader) != sender.as_ref() => {
-                    Err(ErrorCode::PermissionDenied)
-                }
-                Phase::Ready {
-                    pixels,
-                    width,
-                    height,
-                    ..
-                } => match (attempt.context(&self.epoch), pixels.try_clone()) {
-                    // try_clone duplicates with close-on-exec.
-                    (Some(context), Ok(copy)) => Ok(BackgroundFrame {
-                        context,
-                        width: *width,
-                        height: *height,
-                        pixels: copy.into(),
-                    }),
+        let result = match inner.attempt.as_mut() {
+            Some(attempt) if attempt.request_id == request_id => {
+                let context = attempt.context(&self.epoch);
+                match &mut attempt.phase {
+                    Phase::Ready {
+                        pixels,
+                        width,
+                        height,
+                        reader,
+                        owner_events,
+                    } => {
+                        if Some(&*reader) != sender.as_ref() {
+                            // Bound to the shell that owned the reader name at
+                            // publication: a successor never reads it, even
+                            // before the owner change is processed.
+                            Err(ErrorCode::PermissionDenied)
+                        } else if owner_changed(owner_events) {
+                            // Checked immediately before the descriptor is
+                            // duplicated: after any owner change of Shell1 the
+                            // daemon has received since publication, even one
+                            // whose invalidation is still queued, or a release
+                            // and reacquire by the same connection, the
+                            // former owner lifetime gets no frame.
+                            Err(ErrorCode::PermissionDenied)
+                        } else {
+                            match (context, pixels.try_clone()) {
+                                // try_clone duplicates with close-on-exec.
+                                (Some(context), Ok(copy)) => Ok(BackgroundFrame {
+                                    context,
+                                    width: *width,
+                                    height: *height,
+                                    pixels: copy.into(),
+                                }),
+                                _ => Err(ErrorCode::Unavailable),
+                            }
+                        }
+                    }
                     _ => Err(ErrorCode::Unavailable),
-                },
-                _ => Err(ErrorCode::Unavailable),
-            },
+                }
+            }
             Some(_) => Err(ErrorCode::Conflict),
             None => Err(ErrorCode::Unavailable),
         };
@@ -596,14 +691,8 @@ impl Background {
         let mut evidence = self.windows.subscribe_evidence();
         let mut blocked = self.blocked.clone();
         let mut guard_open = true;
-        let shells = match zbus::fdo::DBusProxy::new(&self.connection).await {
-            Ok(bus) => bus
-                .receive_name_owner_changed_with_args(&[(0, SHELL_SERVICE)])
-                .await
-                .ok(),
-            Err(_) => None,
-        };
-        let Some(mut shells) = shells else {
+        // The same rule and capacity as the frames' receivers (OWNER_EVENTS).
+        let Some(mut shells) = self.shell_owner_events().await else {
             return;
         };
         loop {
@@ -633,6 +722,21 @@ impl Background {
             }
         }
     }
+}
+
+/// Whether `Shell1` changed owner since the stream was opened. Polls without
+/// waiting. A seen event, an ended stream or no stream at all counts as a
+/// change, and stays one.
+fn owner_changed(events: &mut Option<Box<MessageStream>>) -> bool {
+    use futures_util::FutureExt as _;
+    let changed = match events.as_mut() {
+        None => true,
+        Some(stream) => stream.next().now_or_never().is_some(),
+    };
+    if changed {
+        *events = None;
+    }
+    changed
 }
 
 /// The descriptor is a regular sealed memfd of exactly `bytes` bytes whose
@@ -708,6 +812,9 @@ impl Core {
     /// or unknown).
     pub async fn export_background(&self, blocked: watch::Receiver<bool>) -> Result<(), ErrorCode> {
         let background = Background::new(self, blocked);
+        // The owner-change rule is registered before the export, so reading
+        // a frame's owner events never needs a bus round trip.
+        background.follow_shell_owner().await;
         let server = self.connection.object_server();
         server
             .at(production::PATH, BackgroundExport(background.clone()))

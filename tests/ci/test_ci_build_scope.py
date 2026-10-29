@@ -283,7 +283,7 @@ class ArtifactRetentionTest(unittest.TestCase):
         # run; the default 90-day retention filled the artifact storage quota.
         text = (ROOT / ".github/workflows/package.yml").read_text()
         uploads = re.findall(r"uses: actions/upload-artifact@v\d+\n        with:\n((?:          .*\n)+)", text)
-        self.assertEqual(len(uploads), 2)
+        self.assertEqual(len(uploads), 4)
         for block in uploads:
             with self.subTest(block=block.splitlines()[0]):
                 self.assertIn("retention-days: 7\n", block)

@@ -32,6 +32,8 @@ jobs:
       contents: read
       packages: write
     uses: ./.github/workflows/ci.yml
+    secrets:
+      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
 
   publish:
     name: Publish release

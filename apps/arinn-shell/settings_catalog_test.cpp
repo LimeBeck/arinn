@@ -8,6 +8,13 @@
 #include <QtDBus>
 #include <QtTest>
 namespace {
+// A fake daemon on its own connection, as the real one is, so the catalog's
+// calls go through the bus and a reply can be held back (#558). The other
+// tests keep the daemon on the catalog's connection.
+QDBusConnection ownBus() {
+  return QDBusConnection::connectToBus(QDBusConnection::SessionBus,
+                                       QStringLiteral("arinn-fake-daemon"));
+}
 struct ProviderWire {
   QString id;
   QString name;
@@ -27,6 +34,42 @@ struct EntityWire {
   QString capability;
   QString entity;
 };
+// One row of Daemon1.Providers and one Library1.GetRoots root (ADR-0071).
+struct DaemonProviderWire {
+  QString id;
+  QDBusObjectPath endpoint;
+  QStringList capabilities;
+  QString generation;
+};
+struct RootWire {
+  QString path;
+  bool available = true;
+};
+QDBusArgument &operator<<(QDBusArgument &argument, const DaemonProviderWire &row) {
+  argument.beginStructure();
+  argument << row.id << QStringLiteral("plugin") << QStringLiteral("system")
+           << row.id << QStringLiteral("1") << row.endpoint << row.capabilities
+           << QStringLiteral("ready") << QStringLiteral("ready")
+           << (row.generation.isEmpty() ? QStringLiteral("g-") + row.id
+                                        : row.generation)
+           << qulonglong(1) << QString()
+           << qulonglong(0) << qulonglong(0) << qulonglong(0) << qulonglong(0);
+  argument.endStructure();
+  return argument;
+}
+const QDBusArgument &operator>>(const QDBusArgument &argument,
+                                DaemonProviderWire &) {
+  return argument;
+}
+QDBusArgument &operator<<(QDBusArgument &argument, const RootWire &row) {
+  argument.beginStructure();
+  argument << row.path << row.available;
+  argument.endStructure();
+  return argument;
+}
+const QDBusArgument &operator>>(const QDBusArgument &argument, RootWire &) {
+  return argument;
+}
 QDBusArgument &operator<<(QDBusArgument &argument, const ProviderWire &row) {
   argument.beginStructure();
   argument << row.id << row.name;
@@ -70,6 +113,43 @@ public:
   }
   int operationReads = 0;
   int settingsReads = 0;
+  // Library providers on Daemon1.Providers, their Features and roots.
+  QList<DaemonProviderWire> libraryProviders;
+  QStringList libraryFeatures;
+  QList<RootWire> roots;
+  QString rootsError;
+  int rootsReads = 0;
+  int featuresReads = 0;
+  // True when the daemon runs on ownBus().
+  bool ownConnection = false;
+  QDBusConnection connection() const {
+    return ownConnection ? ownBus() : QDBusConnection::sessionBus();
+  }
+  // While set, GetRoots calls wait in `heldRoots` for releaseRoots().
+  bool holdRoots = false;
+  QList<QDBusMessage> heldRoots;
+  QDBusMessage rootsReply(const QDBusMessage &message) const {
+    if (!rootsError.isEmpty())
+      return message.createErrorReply(
+          QStringLiteral("org.arinn.Error1.") + rootsError, rootsError);
+    QDBusArgument body;
+    body.beginStructure();
+    body << QStringLiteral("00000000-0000-0000-0000-000000000001")
+         << qulonglong(rootsReads);
+    body.beginArray(QMetaType::fromType<RootWire>());
+    for (const auto &root : roots)
+      body << root;
+    body.endArray();
+    body.endStructure();
+    return message.createReply(QVariant::fromValue(body));
+  }
+  void releaseRoots() {
+    holdRoots = false;
+    const auto held = heldRoots;
+    heldRoots.clear();
+    for (const auto &message : held)
+      connection().send(rootsReply(message));
+  }
   struct Call {
     QString provider;
     QString generation;
@@ -132,6 +212,36 @@ public:
           QDBusObjectPath(QStringLiteral("/org/arinn/Daemon1/ops/settings")))));
       return true;
     }
+    if (message.member() == QLatin1String("Providers") &&
+        message.interface() == QLatin1String("org.arinn.Daemon1")) {
+      QDBusArgument body;
+      body.beginStructure();
+      body << QStringLiteral("snapshot");
+      body.beginArray(QMetaType::fromType<DaemonProviderWire>());
+      for (const auto &provider : libraryProviders)
+        body << provider;
+      body.endArray();
+      body << QString();
+      body.endStructure();
+      bus.send(message.createReply(QVariant::fromValue(body)));
+      return true;
+    }
+    if (message.interface() == QLatin1String("org.arinn.Library1") &&
+        message.member() == QLatin1String("Features")) {
+      ++featuresReads;
+      bus.send(message.createReply(libraryFeatures));
+      return true;
+    }
+    if (message.interface() == QLatin1String("org.arinn.Library1") &&
+        message.member() == QLatin1String("GetRoots")) {
+      ++rootsReads;
+      message.setDelayedReply(true);
+      if (holdRoots)
+        heldRoots.append(message);
+      else
+        bus.send(rootsReply(message));
+      return true;
+    }
     if (message.member() == QLatin1String("Get") &&
         message.interface() == QLatin1String("org.arinn.Operation1")) {
       ++operationReads;
@@ -152,7 +262,7 @@ public:
   }
 };
 bool registerBus(SettingsDaemon &daemon) {
-  auto bus = QDBusConnection::sessionBus();
+  auto bus = daemon.connection();
   return bus.registerService(QStringLiteral("org.arinn.Daemon1")) &&
          bus.registerVirtualObject(QStringLiteral("/org/arinn"), &daemon,
                                    QDBusConnection::SubPath);
@@ -169,6 +279,20 @@ SettingWire setting(const QString &id, const QString &category, const QString &k
   row.constraints = constraints;
   row.enabled = enabled;
   return row;
+}
+void emitProvidersChanged(QDBusConnection bus = QDBusConnection::sessionBus()) {
+  bus.send(QDBusMessage::createSignal(
+      QStringLiteral("/org/arinn/Daemon1"), QStringLiteral("org.arinn.Daemon1"),
+      QStringLiteral("ProvidersChanged")));
+}
+void emitStateChanged(const QString &provider, const QString &capability,
+                      QDBusConnection bus = QDBusConnection::sessionBus()) {
+  auto signal = QDBusMessage::createSignal(QStringLiteral("/org/arinn/Daemon1"),
+                                           QStringLiteral("org.arinn.Daemon1"),
+                                           QStringLiteral("StateChanged"));
+  signal << provider << capability << QStringLiteral("g-") + provider
+         << qulonglong(2);
+  bus.send(signal);
 }
 QVariantMap rowAt(const SettingsCatalog &catalog, const QString &provider,
                   const QString &id) {
@@ -189,12 +313,15 @@ private slots:
     qDBusRegisterMetaType<ProviderWire>();
     qDBusRegisterMetaType<SettingWire>();
     qDBusRegisterMetaType<EntityWire>();
+    qDBusRegisterMetaType<DaemonProviderWire>();
+    qDBusRegisterMetaType<RootWire>();
   }
   void cleanup() {
-    auto bus = QDBusConnection::sessionBus();
-    bus.unregisterObject(QStringLiteral("/org/arinn"),
-                         QDBusConnection::UnregisterTree);
-    bus.unregisterService(QStringLiteral("org.arinn.Daemon1"));
+    for (auto bus : {QDBusConnection::sessionBus(), ownBus()}) {
+      bus.unregisterObject(QStringLiteral("/org/arinn"),
+                           QDBusConnection::UnregisterTree);
+      bus.unregisterService(QStringLiteral("org.arinn.Daemon1"));
+    }
   }
   void groupsProvidersByCategory() {
     SettingsDaemon daemon;
@@ -692,6 +819,193 @@ private slots:
       QCoreApplication::sendEvent(QCoreApplication::instance(), &event);
       QCOMPARE(monitor.available(), false);
     }
+  }
+  // #540 (spec §5.6, ADR-0071): a folder is unavailable only when the
+  // library provider reports it through Library1.GetRoots. The list follows
+  // the provider's library StateChanged; Unavailable (not read yet) and a
+  // provider without LibraryRoots1 show nothing.
+  void libraryRootsMarkUnavailableFolders() {
+    SettingsDaemon daemon;
+    daemon.providers = {{QStringLiteral("library"), QStringLiteral("Library")}};
+    daemon.settings.insert(
+        QStringLiteral("library"),
+        {setting(QStringLiteral("roots"), QStringLiteral("media"),
+                 QStringLiteral("path"),
+                 QStringLiteral(R"(["/srv/films","/mnt/share","/srv/series"])"),
+                 QStringLiteral(R"({"directory":true,"multiple":true})"), true),
+         setting(QStringLiteral("download"), QStringLiteral("media"),
+                 QStringLiteral("path"), QStringLiteral("\"/mnt/share\""),
+                 QStringLiteral(R"({"directory":true})"), true)});
+    daemon.libraryProviders = {
+        {QStringLiteral("library"),
+         QDBusObjectPath(QStringLiteral("/org/arinn/Daemon1/providers/library")),
+         {QStringLiteral("library")}}};
+    daemon.libraryFeatures = {QStringLiteral("LibraryResume1"),
+                              QStringLiteral("LibraryRoots1")};
+    daemon.rootsError = QStringLiteral("Unavailable");
+    daemon.roots = {{QStringLiteral("/srv/films"), true},
+                    {QStringLiteral("/mnt/share"), false},
+                    {QStringLiteral("/srv/series"), true}};
+    QVERIFY(registerBus(daemon));
+    SettingsCatalog catalog;
+    QTRY_COMPARE(catalog.screenState(), QStringLiteral("ready"));
+    // Not read yet: no folder is unavailable.
+    QTRY_COMPARE(daemon.rootsReads, 1);
+    QTest::qWait(100);
+    auto roots = rowAt(catalog, QStringLiteral("library"), QStringLiteral("roots"));
+    QCOMPARE(roots.value(QStringLiteral("unavailablePaths")).toStringList(),
+             QStringList());
+    // The daemon has read the roots and announces them.
+    daemon.rootsError.clear();
+    emitStateChanged(QStringLiteral("library"), QStringLiteral("library"));
+    QTRY_COMPARE(rowAt(catalog, QStringLiteral("library"), QStringLiteral("roots"))
+                     .value(QStringLiteral("unavailablePaths"))
+                     .toStringList(),
+                 QStringList({QStringLiteral("/mnt/share")}));
+    roots = rowAt(catalog, QStringLiteral("library"), QStringLiteral("roots"));
+    // The value itself is untouched: the folder stays in the list.
+    QCOMPARE(roots.value(QStringLiteral("currentValue")).toStringList().size(), 3);
+    // Only a folder list carries the state.
+    QVERIFY(!rowAt(catalog, QStringLiteral("library"), QStringLiteral("download"))
+                 .contains(QStringLiteral("unavailablePaths")));
+    // Another capability's StateChanged reads nothing.
+    const auto reads = daemon.rootsReads;
+    emitStateChanged(QStringLiteral("library"), QStringLiteral("media"));
+    QTest::qWait(200);
+    QCOMPARE(daemon.rootsReads, reads);
+    // The share is back.
+    daemon.roots[1].available = true;
+    emitStateChanged(QStringLiteral("library"), QStringLiteral("library"));
+    QTRY_COMPARE(rowAt(catalog, QStringLiteral("library"), QStringLiteral("roots"))
+                     .value(QStringLiteral("unavailablePaths"))
+                     .toStringList(),
+                 QStringList());
+    QCOMPARE(daemon.sets.size(), 0);
+  }
+  void libraryWithoutRootsShowsNoUnavailableFolder() {
+    SettingsDaemon daemon;
+    daemon.providers = {{QStringLiteral("library"), QStringLiteral("Library")}};
+    daemon.settings.insert(
+        QStringLiteral("library"),
+        {setting(QStringLiteral("roots"), QStringLiteral("media"),
+                 QStringLiteral("path"), QStringLiteral(R"(["/mnt/share"])"),
+                 QStringLiteral(R"({"directory":true,"multiple":true})"), true)});
+    daemon.libraryProviders = {
+        {QStringLiteral("library"),
+         QDBusObjectPath(QStringLiteral("/org/arinn/Daemon1/providers/library")),
+         {QStringLiteral("library")}}};
+    daemon.roots = {{QStringLiteral("/mnt/share"), false}};
+    QVERIFY(registerBus(daemon));
+    SettingsCatalog catalog;
+    QTRY_COMPARE(catalog.screenState(), QStringLiteral("ready"));
+    emitStateChanged(QStringLiteral("library"), QStringLiteral("library"));
+    QTest::qWait(300);
+    // Without LibraryRoots1 in Features, GetRoots is never called.
+    QCOMPARE(daemon.rootsReads, 0);
+    QCOMPARE(rowAt(catalog, QStringLiteral("library"), QStringLiteral("roots"))
+                 .value(QStringLiteral("unavailablePaths"))
+                 .toStringList(),
+             QStringList());
+    // Features can change in the same generation. Unsupported is no state.
+    daemon.libraryFeatures = {QStringLiteral("LibraryRoots1")};
+    daemon.rootsError = QStringLiteral("Unsupported");
+    emitStateChanged(QStringLiteral("library"), QStringLiteral("library"));
+    QTRY_COMPARE(daemon.rootsReads, 1);
+    QTest::qWait(100);
+    QCOMPARE(rowAt(catalog, QStringLiteral("library"), QStringLiteral("roots"))
+                 .value(QStringLiteral("unavailablePaths"))
+                 .toStringList(),
+             QStringList());
+  }
+  void libraryFeaturesChangeWithoutRestart() {
+    SettingsDaemon daemon;
+    daemon.providers = {{QStringLiteral("library"), QStringLiteral("Library")}};
+    daemon.settings.insert(
+        QStringLiteral("library"),
+        {setting(QStringLiteral("roots"), QStringLiteral("media"),
+                 QStringLiteral("path"), QStringLiteral(R"(["/mnt/share"])"),
+                 QStringLiteral(R"({"directory":true,"multiple":true})"), true)});
+    daemon.libraryProviders = {
+        {QStringLiteral("library"),
+         QDBusObjectPath(QStringLiteral("/org/arinn/Daemon1/providers/library")),
+         {QStringLiteral("library")}}};
+    daemon.roots = {{QStringLiteral("/mnt/share"), false}};
+    QVERIFY(registerBus(daemon));
+    SettingsCatalog catalog;
+    QTRY_COMPARE(catalog.screenState(), QStringLiteral("ready"));
+    QTRY_VERIFY(daemon.featuresReads > 0);
+    const auto unavailable = [&catalog] {
+      return rowAt(catalog, QStringLiteral("library"), QStringLiteral("roots"))
+          .value(QStringLiteral("unavailablePaths")).toStringList();
+    };
+    QCOMPARE(unavailable(), QStringList());
+    QCOMPARE(daemon.rootsReads, 0);
+    daemon.libraryFeatures = {QStringLiteral("LibraryRoots1")};
+    emitStateChanged(QStringLiteral("library"), QStringLiteral("library"));
+    QTRY_COMPARE(unavailable(), QStringList({QStringLiteral("/mnt/share")}));
+    const auto reads = daemon.rootsReads;
+    daemon.libraryFeatures.clear();
+    emitStateChanged(QStringLiteral("library"), QStringLiteral("library"));
+    QTRY_COMPARE(unavailable(), QStringList());
+    QCOMPARE(daemon.rootsReads, reads);
+  }
+  // #558: one library change brings StateChanged and then ProvidersChanged.
+  // Root reads are coalesced per provider (one at a time, once more if asked
+  // meanwhile), and Features stays fresh without a new generation. Only a
+  // folder list is matched, not a list of files.
+  void rootReadsAreCoalesced() {
+    SettingsDaemon daemon;
+    daemon.ownConnection = true;
+    daemon.providers = {{QStringLiteral("library"), QStringLiteral("Library")}};
+    daemon.settings.insert(
+        QStringLiteral("library"),
+        {setting(QStringLiteral("roots"), QStringLiteral("media"),
+                 QStringLiteral("path"), QStringLiteral(R"(["/mnt/share"])"),
+                 QStringLiteral(R"({"directory":true,"multiple":true})"), true),
+         setting(QStringLiteral("playlists"), QStringLiteral("media"),
+                 QStringLiteral("path"), QStringLiteral(R"(["/mnt/share"])"),
+                 QStringLiteral(R"({"multiple":true})"), true)});
+    daemon.libraryProviders = {
+        {QStringLiteral("library"),
+         QDBusObjectPath(QStringLiteral("/org/arinn/Daemon1/providers/library")),
+         {QStringLiteral("library")}}};
+    daemon.libraryFeatures = {QStringLiteral("LibraryRoots1")};
+    daemon.roots = {{QStringLiteral("/mnt/share"), false}};
+    QVERIFY(registerBus(daemon));
+    SettingsCatalog catalog;
+    QTRY_COMPARE(rowAt(catalog, QStringLiteral("library"), QStringLiteral("roots"))
+                     .value(QStringLiteral("unavailablePaths"))
+                     .toStringList(),
+                 QStringList({QStringLiteral("/mnt/share")}));
+    QTest::qWait(200);
+    QCOMPARE(daemon.rootsReads, 1);
+    QCOMPARE(daemon.featuresReads, 1);
+    // A burst of triggers while a read is on its way: one more read.
+    daemon.holdRoots = true;
+    emitStateChanged(QStringLiteral("library"), QStringLiteral("library"), ownBus());
+    QTRY_COMPARE(daemon.heldRoots.size(), 1);
+    emitStateChanged(QStringLiteral("library"), QStringLiteral("library"), ownBus());
+    emitStateChanged(QStringLiteral("library"), QStringLiteral("library"), ownBus());
+    emitProvidersChanged(ownBus());
+    QTest::qWait(300);
+    QCOMPARE(daemon.rootsReads, 2);
+    daemon.roots[0].available = true;
+    daemon.releaseRoots();
+    QTRY_COMPARE(rowAt(catalog, QStringLiteral("library"), QStringLiteral("roots"))
+                     .value(QStringLiteral("unavailablePaths"))
+                     .toStringList(),
+                 QStringList());
+    QTest::qWait(300);
+    QCOMPARE(daemon.rootsReads, 3);
+    // Each coalesced read refreshes Features, even in the same generation.
+    QCOMPARE(daemon.featuresReads, 3);
+    // A new generation reads it again.
+    daemon.libraryProviders[0].generation = QStringLiteral("g-restarted");
+    emitProvidersChanged(ownBus());
+    QTRY_COMPARE(daemon.featuresReads, 4);
+    // A list of files is not a list of library folders.
+    QVERIFY(!rowAt(catalog, QStringLiteral("library"), QStringLiteral("playlists"))
+                 .contains(QStringLiteral("unavailablePaths")));
   }
   void missingServiceIsUnavailable() {
     SettingsCatalog catalog;

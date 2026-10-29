@@ -19,7 +19,8 @@ models into these properties and routing emitted actions to the daemon.
 
 | Component | Presentation contract |
 | --- | --- |
-| `Theme`, `UiText` | Shared colours, radii, timing, font and named typography roles; Onest with tabular numerals |
+| `Theme`, `UiText` | Shared colours, radii, timing, font and named typography roles; Onest with tabular numerals, each weight applied to the font's `wght` axis (see *Font weights*) |
+| `FontWeightAxis` | Put inside a plain `Text` or `TextInput` in Onest that sets `font.weight`; applies the weight to the `wght` axis as `UiText` does. Draws nothing |
 | `LogicalCanvas` | Centred 1920×1080 stage, uniform `min(width/1920, height/1080)` scale |
 | `Surface` | Focus, press, disabled and busy treatment; focus ring above all artwork; `activated()` intent |
 | `ActionButton` | Content-sized pill, `text`, optional `destructive` tint |
@@ -28,6 +29,7 @@ models into these properties and routing emitted actions to the daemon.
 | `ProgressTrack` | Clamped finite `value` from 0 to 1; Ember represents progress only |
 | `Skeleton` | Fixed-size pulsing placeholder; same default geometry as a content card |
 | `AmbientGlow` | Home's light field: `source` artwork or `tint` identity colour, `lit`, `strength`. The dominant hue of a 24×24 decode of the artwork keys the handoff's three radial layers, painted once per hue at one-fifth resolution and scaled up; a 900 ms cross-fade follows focus after a 200 ms settle. No full-resolution art is blurred per frame |
+| `LineIcon` | The single shared line-icon component: `name` (a Material Symbols name from the handoff), `color`, size from `width`/`height` on a 24-unit grid. Icons are drawn in code on a `Canvas`; the shell ships no icon font, so rendering does not depend on installed fonts or the Qt version. Today: the on-screen keyboard icons and Open services `bookmark_add`/`bookmark_added`. A new handoff icon (such as the Close icon of [#565](https://github.com/LimeBeck/arinn/issues/565)) is added here, not as a glyph or a second component |
 | `StatusPane` | Explicit `kind` (empty/loading/error/unavailable), `title`, `description`, `actionText`; `actionRequested()` intent |
 
 Interactive components inherit `enabled` and add `busy`. Consumers connect to
@@ -70,9 +72,16 @@ build/apps/arinn-shell/arinn-ui-gallery --4k
 QT_QPA_PLATFORM=offscreen build/apps/arinn-shell/arinn-ui-gallery --capture /tmp/arinn-ui.png
 ```
 
+The gallery is a component catalogue: `Gallery.qml` and, with `--keyboard`, the
+on-screen keyboard over Site or search. It does not render screens or their
+states; those come only from the `tests/ui/visual` fixtures (see
+[Handoff visual comparison](#handoff-visual-comparison), #567), so there is one
+set of screen fixtures.
 The gallery opens a regular window and requires no daemon or session bus. It uses
 original geometric artwork and neutral monograms. Its actions update explanatory
 fixture text only. `--capture` saves a PNG and exits; `--4k` uses 3840×2160.
+Any other option, including the removed screen flags, prints an error and
+exits with status 2.
 The test runner uses the offscreen platform and software rendering in CTest/CI;
 it does not touch KWin, real applications, screen lock or session services.
 
@@ -102,10 +111,37 @@ Onest is bundled unchanged from the Google Fonts `ofl/onest` directory:
 Copyright 2021 The Onest Project Authors. License: SIL Open Font License 1.1,
 in `LICENSES/OFL-1.1.txt`, with the binary annotated in `REUSE.toml`.
 
+## Font weights
+
+Onest is a variable font: one face with a `wght` axis from 100 to 900 and
+named instances. Qt does not match those instances by `font.weight` for an
+application font. In the Qt 6.10.2 dev container and in CI on Arch with
+Qt 6.12.0 (offscreen, fontconfig), every `font.weight` and
+`font.styleName` rendered as the default 400, while
+`font.variableAxes` (Qt 6.7 and newer, within the Qt 6.8 floor of
+[ADR-0104](../adr/0104-qt-floor-and-prebuilt-ci-images.md)) does change the
+rendering ([#546](https://github.com/LimeBeck/arinn/issues/546)).
+
+So the shell keeps `font.weight` as the way to set a weight and copies it to
+the axis: `Theme.applyWeight(item)` sets `font.variableAxes.wght` to
+`font.weight` whenever they differ. `UiText` calls it whenever its font
+changes, so a role's weight, a weight set on an instance and a later change
+all render. A plain `Text` or `TextInput` in Onest with a weight carries a
+`FontWeightAxis` child that does the same. A 400 text gets no axis. On a Qt that matches the
+named instances itself, the axis names the same design coordinates as the
+matched instance; that case has not been observed yet. Text in the system font (such as the
+library's "!" glyphs) is not affected.
+
+[`tst_font_weights.qml`](../../tests/ui/tst_font_weights.qml) draws the same
+string at 400 and at 500, 600 and 700 through `UiText` and `FontWeightAxis`
+and asserts a wider advance and more ink. It also logs whether Qt itself
+matches the family by `font.weight`.
+
 ## Home and global navigation preview
 
 [Issue #15](https://github.com/LimeBeck/arinn/issues/15) adds `HomeView` and
-`HomeRow`, exercised by the standalone `HomeGallery.qml`. That fixture preview
+`HomeRow`, exercised by the `tests/ui/visual` fixtures (the standalone
+`HomeGallery.qml` preview was removed in #567). That fixture preview
 is independent of the production binding below. Other top-level routes show explicit preview
 placeholders; no Library, Downloads, Applications or Settings backend is implied.
 Power emits an intent only; it never opens a destructive confirmation or performs
@@ -169,13 +205,14 @@ into view locally; horizontal rows reveal the focused item and suppress hover
 focus for 500 ms after scrolling. Pointer movement and arrows switch input modes.
 
 ```sh
-build/apps/arinn-shell/arinn-ui-gallery --home
-build/apps/arinn-shell/arinn-ui-gallery --home --nav
-build/apps/arinn-shell/arinn-ui-gallery --home --state unavailable
-QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software build/apps/arinn-shell/arinn-ui-gallery --home --4k --capture /tmp/home-4k.png
+cmake --build build --target arinn-ui-test
+python scripts/ui-compare.py
 ```
 
-`--state` accepts populated (default), empty, loading, error and unavailable.
+The Home states are the `home-*` entries of
+[`tests/ui/visual/manifest.json`](../../tests/ui/visual/manifest.json):
+populated, navigation, empty, loading, error and unavailable among them. The
+1080p and 3840×2160 renders are written to `build/ui-compare/`.
 Captures use original geometric fixture artwork and neutral application names.
 The comparison target is the handoff Home/nav layout, not all 22 screens:
 logical safe area, hero, Continue/Favorites/New positioning, navigation panel,
@@ -310,13 +347,34 @@ of the fixture-driven screens with the design handoff. It is evidence for the
 review of G-5.1. It does not pass G-5.1, AC-14, or any Phase 5 gate.
 
 The manifest is [`tests/ui/visual/manifest.json`](../../tests/ui/visual/manifest.json).
+Fixtures live only in `tests/ui/visual/capture.qml`. They use fictional
+services and titles on `.example` addresses and fix the clock (`clockText`
+"22:57" on Home, player and Open services). `ui-compare` also sets
+`ARINN_CAPTURE_STILL_ANIMATIONS`. The test runner (`tests/ui/main.cpp`) then
+takes animation time, which also drives QML `Timer`s, off the wall clock: during
+a capture it moves only when `capture.qml` runs it, by exactly a state's
+`animationMs`. By default that is 50 400 ms, a whole period of every looping
+animation (900, 1400 and 800 ms), so transitions have finished and loops are at
+their start. Transition states (`browser-closing`, `launch-opening`, `launch-slow`,
+`launch-starting`, `launch-stopping`, `settings-saving`) run a few loop
+periods plus the phase their handoff frame shows (or the same mid-bar when
+there is no handoff), so they are captured mid-transition. States with a
+toast run 2000 ms, before its 3 s timer hides it. Two captures of the same tree
+are identical. The product and the ordinary QML tests use real time.
 Each entry is one screen state. `reference` names a file in
 [`docs/design/handoff/screenshots/`](../design/handoff/screenshots/): the 22 main
-`*.jpg` files, the `os-*.png` Open services states, and the `in-*.png` address
-states. A state with no handoff file has `reference` null. A handoff file whose
-screen is not implemented has `render` false and a reason. The address and
-search states are in that last group. The comparison does not edit those
-screens.
+`*.jpg` files, the `os-*.png` Open services states, the `in-*.png` address
+states, the `cl-*.png` closing-applications states, the `kb-*.png` on-screen
+keyboard states and the `se-*.png` Settings editor states. Every handoff file is
+in the manifest exactly once. A state with no handoff file has `reference` null;
+these capture-only states cover screens with no handoff frame, such as the quick
+menu, the volume HUD, Switch to desktop and the application launch states. A
+handoff file whose state the shell does not draw has `render` false and a
+reason: the address and search states, the running-applications screen and
+the folder picker are in that group. A rendered state whose layout differs from
+its handoff frame says how in `note`: the Library folders frames, for example,
+map to the inline folder list that Settings draws for a multiple path setting. The
+comparison does not edit those screens.
 
 ```sh
 cmake -S . -B build -G Ninja
@@ -326,12 +384,17 @@ python scripts/ui-compare.py
 ```
 
 `--check` only confirms that the manifest and the handoff directory name the
-same files. The full command renders every `render: true` state with
+same files. [`tests/ci/test_ui_compare.py`](../../tests/ci/test_ui_compare.py)
+runs the same validation in the `docs` CI job, together with a check that every
+rendered state has a scene in `capture.qml`, so a new handoff file cannot be
+added without a manifest entry (#513). The full command renders every `render: true` state with
 `arinn-ui-test` and [`tests/ui/visual/capture.qml`](../../tests/ui/visual/capture.qml)
 on the offscreen platform and the software scene graph. It writes PNGs and
 `report.html` under `build/ui-compare/`. The capture request is generated in
 that output directory. The tool does not rewrite a tracked file. Those files
-are generated and are not committed. Nothing is added to CI.
+are generated and are not committed. A scene can name the parts it must show
+(`expect`); the capture fails when one of them is missing or hidden instead of
+saving an empty frame. The rendering itself is not part of CI.
 
 1080p is a 1920×1080 framebuffer. The tool then sets `QT_SCALE_FACTOR=2` and
 renders again. The offscreen platform ignores that variable, so the grab stays

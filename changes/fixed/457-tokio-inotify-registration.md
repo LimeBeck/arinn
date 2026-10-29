@@ -1,0 +1,1 @@
+- Keep the library filesystem watcher building with Tokio 1.54.1 by registering its owned inotify descriptor through the current AsyncFd API.

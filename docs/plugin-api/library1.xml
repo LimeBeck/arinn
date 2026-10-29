@@ -24,6 +24,11 @@ SPDX-License-Identifier: MIT OR Apache-2.0 -->
       <arg name="token" type="s" direction="in" />
       <arg type="(sta(sxxbt)s)" direction="out" />
     </method>
+    <method name="GetAdditions">
+      <arg name="generation" type="s" direction="in" />
+      <arg name="revision" type="t" direction="in" />
+      <arg type="(sta(st))" direction="out" />
+    </method>
     <method name="GetRoots">
       <arg type="(sta(sb))" direction="out" />
     </method>

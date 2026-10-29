@@ -134,4 +134,5 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0114](0114-per-runner-package-target-directories.md) | One package target directory per self-hosted runner instance | Accepted | — |
 | [0115](0115-unmounted-share-root-is-unavailable.md) | An unmounted share is an unavailable library root | Accepted | — |
 | [0116](0116-package-matched-sentry-debug-symbols.md) | Package-matched Sentry debug symbols | Proposed | — |
+| [0118](0118-library-additions-contract.md) | Optional provider-owned library discovery times | Accepted | — |
 <!-- register:end -->

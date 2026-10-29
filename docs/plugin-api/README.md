@@ -479,3 +479,23 @@ not provider capabilities. [ADR-0087](../adr/0087-bounded-activity-background-fr
 and the [background contract](../architecture/activity-background.md) define
 identity, immutable descriptor bounds, authorization and invalidation. Contract
 only: production capture, export and shell binding remain #149 dependent work.
+
+### Library additions (optional)
+
+`LibraryAdditions1` is optional provider-owned discovery metadata, specified by
+[ADR-0118](../adr/0118-library-additions-contract.md) and
+[library-additions1.xml](library-additions1.xml). The daemon exposes its validated
+snapshot through `Library1.GetAdditions(generation, revision)`. Both arguments
+must match the catalogue snapshot. The result is `(generation, revision,
+a(id, added_at_us))`, at most 64 unique available top-level films or series.
+Unix microsecond times are positive, at most `i64::MAX`; unknown times are omitted.
+The provider returns its latest entries, descending by time then ascending ID.
+A series' time is the latest first discovery of one of its episodes.
+
+The SDK opts in with `LibraryExtensions::additions()` and publishes atomically
+with `LibraryService::replace_with_additions`. Metadata changes use the catalogue
+revision and its existing signal. Invalid or unavailable optional metadata does
+not invalidate the base library. `Unsupported` means no extension, `Conflict`
+means the requested generation/revision is stale, and `Unavailable` means no
+validated metadata is cached. Consumers do not infer discovery from list order,
+file paths, release years or playback state.

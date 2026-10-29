@@ -47,7 +47,7 @@ int main(int argc, char **argv) {
                  owner ? qPrintable(QString(" by PID %1").arg(owner)) : "");
     return 2;
   }
-  Backend backend;
+  Backend backend(nullptr, {QGuiApplication::platformName(), app.desktopFileName()});
   // Extra keys from config.toml (ADR-0079), applied before any screen.
   InputBindings bindings;
   app.installEventFilter(&bindings);
@@ -62,6 +62,10 @@ int main(int argc, char **argv) {
   installAssetImageProvider(&engine);
   engine.rootContext()->setContextProperty("backend", &backend);
   engine.rootContext()->setContextProperty("sessionGuard", sessionGuard);
+  // The home folder for `~` in a Settings path (#479), from the environment
+  // only: the shell never reads the file system itself (R-05).
+  engine.rootContext()->setContextProperty("shellHomeFolder",
+                                           qEnvironmentVariable("HOME"));
   engine.load(QUrl("qrc:/Main.qml"));
   if (engine.rootObjects().isEmpty())
     return 1;

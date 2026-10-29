@@ -9,6 +9,7 @@ use crate::{
         tests::{Bus, emit_state_changed, fake_pactl, network_manager, pactl_event, wifi},
     },
     storage::Paths,
+    test_support::{Bounded, served},
 };
 use arinn_protocol::system_status::{Link, Network, SystemStatusApiProxy};
 use futures_util::StreamExt;
@@ -67,6 +68,8 @@ async fn the_export_follows_its_sources_and_matches_the_xml() {
     })
     .await
     .unwrap();
+    // Before the first call to the unique name (#524).
+    served(&client, &server).await;
 
     let live = zbus::fdo::IntrospectableProxy::builder(&client)
         .destination(server.unique_name().unwrap().to_string())
@@ -77,6 +80,7 @@ async fn the_export_follows_its_sources_and_matches_the_xml() {
         .await
         .unwrap()
         .introspect()
+        .bounded()
         .await
         .unwrap();
     let file = std::fs::read_to_string(concat!(
@@ -96,7 +100,7 @@ async fn the_export_follows_its_sources_and_matches_the_xml() {
     .await;
     assert_eq!(known.epoch, core.epoch);
     assert_eq!((known.link(), known.signal()), (Link::Wifi, 3));
-    let signal = changes.next().await.unwrap();
+    let signal = changes.next().bounded().await.unwrap();
     assert_eq!(signal.args().unwrap().epoch(), &core.epoch);
 
     // Muting raises the revision and announces it.

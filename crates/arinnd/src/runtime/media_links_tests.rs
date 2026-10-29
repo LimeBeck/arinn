@@ -3,7 +3,11 @@
 
 //! The daemon join of ADR-0096 against fake providers on a private bus.
 use super::*;
-use crate::{runtime::Provider, storage::Paths};
+use crate::{
+    runtime::Provider,
+    storage::Paths,
+    test_support::{Bounded, served},
+};
 use arinn_protocol::{
     browser::{BrowserWindow, Tab},
     media::Session,
@@ -305,6 +309,9 @@ impl Fixture {
                 .collect();
             state.providers.insert("chrome".into(), b);
         }
+        // The daemon looks the providers up right away (#528).
+        served(&client, &media).await;
+        served(&client, &browser).await;
         Self {
             bus,
             folder,
@@ -403,18 +410,22 @@ async fn links_hold_move_and_reach_the_shell() {
     // as the contract requires.
     f.tabs(Vec::new()).await;
     f.core.export_media_association().await.unwrap();
+    // The first export on the daemon's connection: wait until it is served
+    // before calling its unique name (#528).
+    served(&f.client, &f.core.connection).await;
     let api = MediaAssociationApiProxy::builder(&f.client)
         .destination(f.core.connection.unique_name().unwrap().as_str())
         .unwrap()
         .build()
+        .bounded()
         .await
         .unwrap();
-    assert!(api.get().await.unwrap().0.links.is_empty());
-    let mut changes = api.receive_changed().await.unwrap();
+    assert!(api.get().bounded().await.unwrap().0.links.is_empty());
+    let mut changes = api.receive_changed().bounded().await.unwrap();
     f.tabs(vec![tab("c1:t1", "c1:w1", true)]).await;
     let (snapshot,) = tokio::time::timeout(Duration::from_secs(5), async {
         loop {
-            let snapshot = api.get().await.unwrap();
+            let snapshot = api.get().bounded().await.unwrap();
             if !snapshot.0.links.is_empty() {
                 break snapshot;
             }
@@ -432,7 +443,26 @@ async fn links_hold_move_and_reach_the_shell() {
         .unwrap();
     assert_eq!(signal.args().unwrap().epoch(), &f.core.epoch);
     // Process IDs are never part of what the shell reads.
-    assert!(!format!("{snapshot:?}").contains(&BROWSER_PID.to_string()));
+    assert!(!mentions_value(&format!("{snapshot:?}"), BROWSER_PID));
+}
+
+/// Whether `pid` appears in `text` as a value of its own. Matching a
+/// substring would also find it inside a random UUID (#504).
+fn mentions_value(text: &str, pid: u32) -> bool {
+    let pid = pid.to_string();
+    text.split(|c: char| !c.is_ascii_alphanumeric() && c != '-')
+        .any(|token| token == pid)
+}
+
+#[test]
+fn a_pid_inside_a_uuid_is_not_a_leaked_pid() {
+    assert!(mentions_value("Link { pid: 4100, id: \"x\" }", 4100));
+    assert!(mentions_value("[4100]", 4100));
+    assert!(!mentions_value(
+        "Snapshot { epoch: \"0f3a4100-4100-4b2c-9a41-a4100b2c3d4e\" }",
+        4100
+    ));
+    assert!(!mentions_value("pid: 41000", 4100));
 }
 
 #[tokio::test]
@@ -661,8 +691,62 @@ async fn hung_lookups_run_concurrently() {
     );
 }
 
+/// Whether the last pass knew everything it asks for: every registration's
+/// interface support, and the process of every session and window whose
+/// provider exports its interface.
+async fn knows_everything(core: &Core, cache: &Cache) -> bool {
+    let (media, browsers) = core.sources().await;
+    let known = |registration: &Registration, revision: u64, locals: &[String]| {
+        let (id, _, generation) = registration;
+        match cache.support.get(registration) {
+            None => false,
+            Some(false) => true,
+            Some(true) => locals.iter().all(|local| {
+                cache.processes.contains_key(&(
+                    id.clone(),
+                    generation.clone(),
+                    revision,
+                    local.clone(),
+                ))
+            }),
+        }
+    };
+    media
+        .iter()
+        .all(|m| known(&m.registration, m.revision, &m.sessions))
+        && browsers
+            .iter()
+            .all(|b| known(&b.registration, b.revision, &b.windows))
+}
+
+/// Runs passes until one is complete. On a loaded machine a provider call can
+/// exceed CALL_TIMEOUT; that pass is incomplete by design and makes no link,
+/// and production simply runs the next pass a second later (#404).
+async fn complete_pass(core: &Core, links: &MediaLinks, cache: &mut Cache) {
+    for _ in 0..10 {
+        core.associate(links, cache).await;
+        if knows_everything(core, cache).await {
+            return;
+        }
+    }
+    panic!("no complete pass in 10 attempts");
+}
+
 #[tokio::test]
 async fn an_incomplete_pass_keeps_a_link_only_with_its_process() {
+    // The middle pass must read the linked session's process again. If that
+    // lookup times out under load, the link goes by design, and the attempt
+    // shows nothing about the rule under test: start over (#404).
+    for _ in 0..5 {
+        if keeps_a_link_only_with_its_process().await {
+            return;
+        }
+    }
+    panic!("the linked session's process lookup timed out in every attempt");
+}
+
+/// `false` when the linked session's own lookup did not answer in time.
+async fn keeps_a_link_only_with_its_process() -> bool {
     let f = Fixture::new(
         &[("chromium.instance1", BROWSER_PID), ("player", 77)],
         &[("c1:w1", BROWSER_PID)],
@@ -671,36 +755,55 @@ async fn an_incomplete_pass_keeps_a_link_only_with_its_process() {
     let links = MediaLinks::new(&f.core.epoch);
     let mut cache = Cache::default();
     f.tabs(vec![tab("c1:t1", "c1:w1", true)]).await;
-    f.core.associate(&links, &mut cache).await;
+    complete_pass(&f.core, &links, &mut cache).await;
     assert_eq!(tabs_of(&links).await.len(), 1);
 
     // Another session cannot be read now, so the pass is incomplete; the
     // link holds because its own process is still known and unchanged.
     f.media_pids.lock().unwrap().remove("player");
     let bump = |core: Core| async move {
-        core.state
-            .lock()
-            .await
-            .providers
-            .get_mut("mpris")
-            .unwrap()
-            .info
-            .revision += 1;
+        let mut state = core.state.lock().await;
+        let info = &mut state.providers.get_mut("mpris").unwrap().info;
+        info.revision += 1;
+        info.revision
     };
-    bump(f.core.clone()).await;
+    let revision = bump(f.core.clone()).await;
     f.core.associate(&links, &mut cache).await;
+    let own = (
+        "mpris".to_string(),
+        f.media_generation.clone(),
+        revision,
+        "chromium.instance1".to_string(),
+    );
+    if cache.processes.get(&own) != Some(&BROWSER_PID) {
+        return false;
+    }
+    assert!(!knows_everything(&f.core, &cache).await);
     assert_eq!(tabs_of(&links).await.len(), 1);
 
     // Its own process cannot be read either: the evidence is gone, and so
-    // is the link.
+    // is the link. A timed-out lookup leaves it just as unknown.
     f.media_pids.lock().unwrap().remove("chromium.instance1");
     bump(f.core.clone()).await;
     f.core.associate(&links, &mut cache).await;
     assert!(tabs_of(&links).await.is_empty());
+    true
 }
 
 #[tokio::test]
 async fn an_incomplete_pass_drops_a_link_that_known_evidence_breaks() {
+    // As above: an attempt whose lookups of both readable sessions did not
+    // answer in time proves nothing and starts over (#404).
+    for _ in 0..5 {
+        if drops_a_link_that_known_evidence_breaks().await {
+            return;
+        }
+    }
+    panic!("the readable sessions' process lookups timed out in every attempt");
+}
+
+/// `false` when a readable session's lookup did not answer in time.
+async fn drops_a_link_that_known_evidence_breaks() -> bool {
     let f = Fixture::new(
         &[("chromium.instance1", BROWSER_PID), ("player", 77)],
         &[("c1:w1", BROWSER_PID)],
@@ -709,7 +812,7 @@ async fn an_incomplete_pass_drops_a_link_that_known_evidence_breaks() {
     let links = MediaLinks::new(&f.core.epoch);
     let mut cache = Cache::default();
     f.tabs(vec![tab("c1:t1", "c1:w1", true)]).await;
-    f.core.associate(&links, &mut cache).await;
+    complete_pass(&f.core, &links, &mut cache).await;
     assert_eq!(tabs_of(&links).await.len(), 1);
 
     // "player" now reports the browser's process too, while a third
@@ -719,14 +822,29 @@ async fn an_incomplete_pass_drops_a_link_that_known_evidence_breaks() {
         let mut table = f.media_pids.lock().unwrap();
         table.insert("player".into(), BROWSER_PID);
     }
-    {
+    let revision = {
         let mut state = f.core.state.lock().await;
         let mpris = state.providers.get_mut("mpris").unwrap();
         mpris.sessions.push(session("unreadable"));
         mpris.info.revision += 1;
-    }
+        mpris.info.revision
+    };
     f.core.associate(&links, &mut cache).await;
+    // The link must go because of the duplicate, not because the linked
+    // session's own lookup timed out.
+    let read = |session: &str| {
+        cache.processes.get(&(
+            "mpris".to_string(),
+            f.media_generation.clone(),
+            revision,
+            session.to_string(),
+        )) == Some(&BROWSER_PID)
+    };
+    if !read("chromium.instance1") || !read("player") {
+        return false;
+    }
     assert!(tabs_of(&links).await.is_empty());
+    true
 }
 
 #[tokio::test]
@@ -739,7 +857,7 @@ async fn a_provider_without_its_interface_keeps_cards_apart() {
     let links = MediaLinks::new(&f.core.epoch);
     let mut cache = Cache::default();
     f.tabs(vec![tab("c1:t1", "c1:w1", true)]).await;
-    f.core.associate(&links, &mut cache).await;
+    complete_pass(&f.core, &links, &mut cache).await;
     assert_eq!(tabs_of(&links).await.len(), 1);
 
     // A media provider that does not export MediaProcess1 has a session:
@@ -758,7 +876,9 @@ async fn a_provider_without_its_interface_keeps_cards_apart() {
         .await
         .providers
         .insert("player2".into(), silent);
-    f.core.associate(&links, &mut cache).await;
+    // Until its support is known the pass is incomplete and the link is
+    // held; a timed-out introspection only delays this (#404).
+    complete_pass(&f.core, &links, &mut cache).await;
     assert!(tabs_of(&links).await.is_empty());
 
     // Without sessions it proves nothing either way and blocks nothing.

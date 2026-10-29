@@ -10,6 +10,7 @@ import "ui/screens/browse" as Browse
 import "ui/screens/downloads" as Downloads
 import "ui/screens/library" as Library
 import "ui/screens/player" as Player
+import "ui/screens/power" as Power
 import "ui/screens/session" as Session
 import "ui/screens/settings" as Settings
 
@@ -25,10 +26,139 @@ Window {
     // backend's one-second status poll with a wide margin.
     property bool leavingPlayback: false
     Timer { id: leavingBound; interval: 10000; onTriggered: root.leavingPlayback = false }
-    color: playerOpen && !leavingStopPending && leaveError === "" ? "transparent" : Ui.Theme.background
+    // Keep the native alpha format for every Home/playback cycle. Qt's
+    // opaque window clear color revokes that request even with a default
+    // alpha buffer; opaque screens belong to the scene instead.
+    color: "transparent"
+    Rectangle {
+        objectName: "opaqueShellBackground"
+        anchors.fill: parent
+        z: -1
+        color: Ui.Theme.background
+        visible: !((root.playerOpen && !root.leavingStopPending
+                    && root.leaveError === "") || root.activityBehind)
+    }
     title: "Arinn"
     flags: Qt.Window | Qt.FramelessWindowHint
     readonly property bool navOpen: home.navOpen
+    // The quick menu (spec §5.7, ADR-0106). Over an Activity the shell shows
+    // no screen: `activityBehind` stays set while Back hands the screen back
+    // to that Activity, so Home never flashes in between.
+    property bool quickMenuOpen: false
+    property bool activityBehind: false
+    property var quickMenuOpener: null
+    // The Return target the request carried. Back over an Activity uses it
+    // until Status reports the Home state the request committed (#507): over
+    // managed playback the window is already on screen, and Back may come
+    // before that refresh.
+    property string quickMenuTarget: ""
+    function openQuickMenu() {
+        if (sessionGuard.blocked) return;
+        // During ambient the key only wakes, and that first event triggers
+        // nothing, as Menu pressed inside the shell does (§5.7 Ambient).
+        if (ambientScreen.active) {
+            if (ambientScreen.armed) ambientScreen.wake();
+            return;
+        }
+        if (!quickMenuOpen) {
+            // The sheet is over the shell only when the shell was on screen
+            // with focus when the key was pressed. Over an Activity the
+            // platform activates the shell only after this request, so a
+            // shell that a Status read has just shown is not active yet.
+            // Managed playback is an Activity too.
+            activityBehind = playerOpen || !(visible && active);
+            quickMenuOpener = activityBehind ? null : activeFocusItem;
+            quickMenuTarget = "";
+            quickMenuOpen = true;
+            // The sheet takes the place of the "Opening…" and "Starting…"
+            // progress, as Home does (§6.5): the launch keeps running, and
+            // only its dialog (failure or timeout) is drawn above the sheet
+            // (§6.1). A stop confirmation closes and the launch goes on.
+            if (launchOverlay.active && !launchOverlay.showDialog) launchOverlay.hideForHome();
+            if (applicationLaunch.active && !applicationLaunch.showDialog) applicationLaunch.hideForHome();
+            // The Sound row shows the platform's current level.
+            if (backend.connected) systemControl.readVolume();
+        }
+        returnBound.stop();
+        // A repeated key keeps the sheet; one under the power scope keeps
+        // that scope on top.
+        Qt.callLater(() => { if (focusedScreen === "quickMenu") quickMenu.start(); });
+    }
+    // Back: over an Activity, activate that same Activity (§6.3); over the
+    // shell, return focus to the opener.
+    function quickMenuBack() {
+        if (!quickMenuOpen) return;
+        quickMenuOpen = false;
+        const target = backend.returnWindow || quickMenuTarget;
+        quickMenuTarget = "";
+        if (activityBehind && backend.connected && target) {
+            returnBound.restart();
+            returnToActivity();
+            return;
+        }
+        if (activityBehind) { quickMenuHome(); return; }
+        const opener = quickMenuOpener;
+        quickMenuOpener = null;
+        Qt.callLater(() => { if (!opener || !Ui.Focus.take(opener)) restoreFocus(); });
+    }
+    // Open Home, the Home key, or a Return that did not happen: the sheet
+    // gives way to the fullscreen Home, focus on Return.
+    function quickMenuHome() {
+        returnBound.stop();
+        quickMenuOpen = false;
+        activityBehind = false;
+        quickMenuOpener = null;
+        quickMenuTarget = "";
+        closeOverlays();
+        Qt.callLater(home.showHome);
+    }
+    // Sleep and Power open the shell's power scope over the sheet (§5.7,
+    // §6.1, ADR-0108), with its confirmations, in-flight rules and refusals.
+    // The Activity stays behind; Back closes the power scope and focus
+    // returns to the sheet's row (§6.3).
+    function quickMenuPower(sleep) {
+        if (!quickMenuOpen) return;
+        powerOverlay.openMenu();
+        // A request already in flight is shown as it is; SystemControl sends
+        // one request at a time.
+        if (sleep) systemControl.request("suspend");
+    }
+    // The remote's power key (spec §5.7 *Power button*, ADR-0111). Over an
+    // Activity the platform shows the shell as for Home, and the power scope
+    // opens over it; Back and Cancel then leave Home on screen (§6.3). A
+    // quick menu over an Activity gives way to Home as for the Home key; one
+    // over the shell keeps the sheet under the scope, as its Power row does.
+    // Ambient ends without a consumed wake. A repeated key keeps the scope as
+    // it is. Nothing happens while the session is locked or unknown.
+    function openPowerFromKey() {
+        if (sessionGuard.blocked) return;
+        ambientIdle.activity();
+        if (ambientScreen.active) ambientScreen.stop();
+        // No toggle and no change underneath: an open scope (also one the
+        // sheet's Power row opened over an Activity) stays exactly as it is.
+        // openMenu() alone would keep the scope but let the Activity case
+        // below replace the sheet with Home.
+        if (powerOverlay.open) return;
+        // As for the quick menu: the scope takes the place of the "Opening…"
+        // and "Starting…" progress, as Home does (§6.5); the launch goes on,
+        // a stop confirmation closes, and only a launch's dialog (failure or
+        // timeout) is drawn above the scope (§6.1).
+        if (launchOverlay.active && !launchOverlay.showDialog) launchOverlay.hideForHome();
+        if (applicationLaunch.active && !applicationLaunch.showDialog) applicationLaunch.hideForHome();
+        if (quickMenuOpen && !activityBehind) {
+            quickMenuPower(false);
+            return;
+        }
+        if (quickMenuOpen || activityBehind) {
+            quickMenuHome();
+            // After Home has taken focus, so the scope keeps it.
+            Qt.callLater(powerOverlay.openMenu);
+            return;
+        }
+        powerOverlay.openMenu();
+    }
+    // A Return the platform does not carry out leaves Home on screen.
+    Timer { id: returnBound; interval: 3000; onTriggered: if (root.visible) root.quickMenuHome() }
     property bool browserOpen: false
     property bool browseOpen: false
     function showBrowse() { browseCatalog.reset(); browseOpen = true; }
@@ -50,6 +180,7 @@ Window {
     property bool leavingStopPending: false
     property string leaveError: ""
     property bool sessionFromLibrary: false
+    property bool sessionFromLaunch: false
     // Watch on a download whose library item the library catalog has not
     // read yet: {provider, local}, opened once the catalog lists it.
     property var pendingWatch: null
@@ -82,12 +213,99 @@ Window {
     }
     property bool presentationAtHome: false
     property bool presentationRequested: false
+    property int presentationActivationSerial: 0
+    property int presentationHandoffSerial: 0
+    property bool presentationReturning: false
+    property bool presentationFocusConfirmed: false
+    property bool presentationWaitingForHomeExit: false
+    property double presentationNativeRevision: Infinity
+    function requestPresentationFocus() {
+        presentationNativeRevision = Infinity;
+        if (backend.nativeFocusSupported === true)
+            presentationNativeRevision = backend.requestNativeFocus();
+    }
+    function nativePresentationFocus() {
+        return backend.nativeFocusSupported === true
+                && backend.nativeFocusRevision >= presentationNativeRevision
+                ? backend.nativeShellFocus : "unknown";
+    }
+    // The compositor's acknowledgement can precede Qt's activation event.
+    // Wait for that event without requesting activation or retrying Present.
+    Timer {
+        id: presentationFocusBound
+        objectName: "presentationFocusBound"
+        interval: 1000
+        onTriggered: {
+            const returning = root.presentationReturning;
+            root.presentationReturning = false;
+            if (mediaCatalog.presentationState !== "active" || root.leavingStopPending
+                    || sessionGuard.blocked) return;
+            if (root.nativePresentationFocus() === "shell"
+                    || (root.nativePresentationFocus() === "unknown" && root.active))
+                root.presentationFocusConfirmed = true;
+            else if (!root.presentationAtHome || returning)
+                mediaCatalog.abandonPresentation("presentation_focus_timeout");
+        }
+    }
+    function checkPresentationFocus() {
+        if (mediaCatalog.presentationState !== "active"
+                || leavingStopPending || sessionGuard.blocked) {
+            presentationFocusBound.stop();
+            return;
+        }
+        const nativeFocus = nativePresentationFocus();
+        // Status contains a platform cache: a post-intent request can still
+        // precede ReportWindow. Preserve the handoff grace until confirmed.
+        if (nativeFocus === "other" && presentationFocusConfirmed) {
+            mediaCatalog.abandonPresentation("focus_lost");
+            return;
+        }
+        if (presentationAtHome && !presentationReturning) {
+            presentationFocusBound.stop();
+            return;
+        }
+        if (nativeFocus === "shell" || (nativeFocus === "unknown" && active
+                && (presentationFocusConfirmed
+                    || presentationActivationSerial > presentationHandoffSerial))) {
+            presentationFocusConfirmed = true;
+            if (!presentationAtHome) {
+                presentationReturning = false;
+                presentationFocusBound.stop();
+                return;
+            }
+        }
+        if (!presentationFocusBound.running)
+            presentationFocusBound.start();
+    }
+    function returnToActivity() {
+        if (mediaCatalog.inputLayerActive && mediaCatalog.presentationState === "active") {
+            // Record the intent before the platform can change Qt activation.
+            presentationReturning = true;
+            presentationNativeRevision = Infinity;
+            presentationFocusConfirmed = false;
+            presentationHandoffSerial = presentationActivationSerial;
+            presentationFocusBound.restart();
+        }
+        backend.back();
+    }
+    function presentPlayer() {
+        presentationReturning = false;
+        presentationRequested = true;
+        presentationFocusConfirmed = false;
+        presentationHandoffSerial = presentationActivationSerial;
+        presentationWaitingForHomeExit = true;
+        presentationFocusBound.stop();
+        mediaCatalog.present();
+        checkPresentationFocus();
+    }
     function showPlaybackHome() {
         if (leavingStopPending)
             return;
         leaveError = "";
         if (!mediaCatalog.inputLayerActive)
             return;
+        presentationReturning = false;
+        presentationFocusBound.stop();
         playerView.sheetKind = "";
         presentationAtHome = true;
         playerOpen = false;
@@ -98,19 +316,39 @@ Window {
         home.showHome();
     }
     onActiveChanged: {
-        if (!active && mediaCatalog.presentationState === "active")
+        if (active) {
+            ++presentationActivationSerial;
+            checkPresentationFocus();
+        } else if (mediaCatalog.presentationState === "active") {
             Qt.callLater(() => {
-                if (!root.active && mediaCatalog.presentationState === "active")
-                    mediaCatalog.abandonPresentation();
+                if (!root.active && mediaCatalog.presentationState === "active") {
+                    if (backend.nativeFocusSupported === true) {
+                        root.requestPresentationFocus();
+                        root.checkPresentationFocus();
+                    } else if (root.presentationFocusConfirmed || (root.presentationAtHome && !root.presentationReturning)) {
+                        mediaCatalog.abandonPresentation("focus_lost");
+                    } else {
+                        root.checkPresentationFocus();
+                    }
+                }
             });
+        }
     }
     function openSession(entryId, fromLibrary) {
+        openMediaSession(entryId, fromLibrary, fromLibrary);
+    }
+    function openMediaSession(entryId, fromLibrary, launched) {
         if (leavingStopPending)
             return;
         leaveError = "";
+        presentationReturning = false;
+        presentationFocusBound.stop();
+        presentationFocusConfirmed = false;
+        presentationWaitingForHomeExit = false;
         presentationAtHome = false;
         presentationRequested = false;
         sessionFromLibrary = fromLibrary;
+        sessionFromLaunch = launched;
         mediaCatalog.select(entryId);
         applyMediaSurface();
     }
@@ -123,12 +361,11 @@ Window {
         // in the snapshot yet is managed playback, so the OSD is shown until
         // the row arrives. A row without those flags uses the session screen.
         let player = mediaCatalog.playerSession;
-        if (sessionFromLibrary && mediaCatalog.sessionState !== "ready")
+        if (sessionFromLaunch && mediaCatalog.sessionState !== "ready")
             player = true;
         playerOpen = player;
         if (player && mediaCatalog.windowAvailable && !presentationRequested) {
-            presentationRequested = true;
-            mediaCatalog.present();
+            presentPlayer();
         }
         sessionOpen = !player;
         if (!player)
@@ -143,13 +380,15 @@ Window {
     function leavePlayback() {
         if (leavingStopPending)
             return;
+        presentationReturning = false;
+        presentationFocusBound.stop();
         leaveError = "";
         if (mediaCatalog.inputLayerActive) {
             leavingPlayback = true;
             leavingBound.restart();
         }
         if (mediaCatalog.sessionState !== "ready") {
-            if (sessionFromLibrary || mediaCatalog.sessionState === "loading") {
+            if (sessionFromLibrary || sessionFromLaunch || mediaCatalog.sessionState === "loading") {
                 leavingWaitForSession = true;
                 leavingStopPending = true;
                 leaveSessionBound.restart();
@@ -182,6 +421,7 @@ Window {
     }
     function closePlayer() {
         playerOpen = false;
+        sessionFromLaunch = false;
         if (sessionFromLibrary) {
             sessionFromLibrary = false;
             home.screen = "library";
@@ -202,7 +442,13 @@ Window {
     // which refuses hidden or disabled items. Home's navigation menu and
     // shortcut editor cover the library and settings screens, so they win.
     // Home's navigation menu opens over every screen but the player (#329).
-    readonly property string focusedScreen: playerOpen ? "player"
+    // Ambient covers everything and takes every key until it wakes; the power
+    // scope traps focus above everything it covers (§5.7, §6.1), the quick
+    // menu's Power entry included.
+    readonly property string focusedScreen: ambientScreen.active ? "ambient"
+        : powerOverlay.open ? "power"
+        : quickMenuOpen ? "quickMenu"
+        : playerOpen ? "player"
         : home.navOpen || home.shortcutEditorOpen || home.tileActionsOpen ? "home"
         : sessionOpen ? "session"
         : browseOpen ? "browse"
@@ -213,11 +459,15 @@ Window {
         : "home"
     function screenItem(name) {
         return ({player: playerView, session: sessionView, browser: browserView, browse: browseView,
-                 library: libraryView, downloads: downloadsView, settings: settingsView, home: home})[name];
+                 library: libraryView, downloads: downloadsView, settings: settingsView, home: home,
+                 power: powerOverlay, ambient: ambientScreen, quickMenu: quickMenu})[name];
     }
     // Focus the screen on display at its preferred item.
     function restoreFocus() {
         switch (focusedScreen) {
+        case "ambient": Ui.Focus.take(ambientScreen); break;
+        case "power": powerOverlay.menu.restoreMenuFocus(); break;
+        case "quickMenu": quickMenu.restoreFocus(); break;
         case "player": Ui.Focus.take(playerView); break;
         case "session": sessionView.restore(); break;
         case "browser": browserView.settleFocus(); break;
@@ -236,10 +486,14 @@ Window {
     // A new route whose screen did not get focus through its scope (nothing
     // focused there yet) starts at the screen's preferred item.
     // A hidden item inside the screen (a closed menu entry) does not count.
-    onFocusedScreenChanged: Qt.callLater(() => {
-        if (visible && (!focusInside(activeFocusItem, screenItem(focusedScreen))
-                        || !activeFocusItem.visible)) restoreFocus();
-    })
+    onFocusedScreenChanged: {
+        if (mediaCatalog && (sessionFromLibrary || playerOpen || mediaCatalog.inputLayerActive))
+            logMediaSurface(focusedScreen, "screen_route_changed");
+        Qt.callLater(() => {
+            if (visible && (!focusInside(activeFocusItem, screenItem(focusedScreen))
+                            || !activeFocusItem.visible)) restoreFocus();
+        });
+    }
     // Last resort: Qt moves active focus to the root item when the focused
     // item is destroyed. Nothing handles keys there, so the remote would stop
     // working. Hand focus back to the screen on display, and say so: it
@@ -262,34 +516,122 @@ Window {
             restoreFocus();
         });
     }
-    onVisibleChanged: if (visible) Qt.callLater(() => {
-        // Returning from an external activity keeps the displayed route. Home
-        // must not take focus behind Open services or another retained screen.
-        if (focusedScreen === "home") home.showHome();
-        else restoreFocus();
-    })
+    onVisibleChanged: if (!visible) {
+        // Hidden by Return, lock or dismissal: the quick menu does not survive.
+        returnBound.stop();
+        quickMenuOpen = false;
+        activityBehind = false;
+        quickMenuOpener = null;
+        quickMenuTarget = "";
+    } else {
+        Qt.callLater(() => {
+            // Returning from an external activity keeps the displayed route. Home
+            // must not take focus behind Open services or another retained screen.
+            if (focusedScreen === "home") home.showHome();
+            else restoreFocus();
+        });
+    }
     Connections {
         target: backend
         ignoreUnknownSignals: true
+        function onNativeFocusChanged() { root.checkPresentationFocus(); }
         function onChanged() {
+            // The Return of the quick menu is done: the Activity has the
+            // screen again, including a managed player (ADR-0106).
+            // Status has caught up with the quick-menu request (#507).
+            if (backend.homeVisible) root.quickMenuTarget = "";
+            if (!backend.homeVisible && !root.quickMenuOpen && root.activityBehind) {
+                returnBound.stop();
+                root.activityBehind = false;
+            }
             if (backend.homeVisible) root.leavingPlayback = false;
             if (!mediaCatalog.inputLayerActive) return;
-            if (backend.homeVisible) root.showPlaybackHome();
-            else if (root.presentationAtHome) {
+            if (!backend.homeVisible) root.presentationWaitingForHomeExit = false;
+            if (backend.homeVisible) {
+                // Until Status has observed Present's Home exit, an old Home
+                // snapshot is not a new Home intent. Explicit Home still wins.
+                if (!root.presentationReturning && (!root.presentationWaitingForHomeExit || root.presentationAtHome))
+                    root.showPlaybackHome();
+            } else if (root.presentationAtHome) {
+                if (!root.presentationReturning) {
+                    // A platform-originated Return has no earlier shell intent.
+                    root.presentationFocusConfirmed = false;
+                    root.presentationHandoffSerial = root.presentationActivationSerial;
+                    presentationFocusBound.restart();
+                }
                 root.presentationAtHome = false;
-                if (!root.active) { mediaCatalog.abandonPresentation(); return; }
+                root.requestPresentationFocus();
                 root.playerOpen = true;
                 Qt.callLater(() => Ui.Focus.take(playerView));
             }
+            root.checkPresentationFocus();
+        }
+    }
+    // Explicit platform requests (ADR-0069, ADR-0106, ADR-0111).
+    Connections {
+        target: backend
+        ignoreUnknownSignals: true
+        function onQuickMenuRequested(target) {
+            root.openQuickMenu();
+            if (root.quickMenuOpen && !backend.homeVisible && !root.quickMenuTarget)
+                root.quickMenuTarget = target || "";
+        }
+        function onPowerMenuRequested() { root.openPowerFromKey(); }
+        // The Home key replaces the quick menu with Home (§6.3). With the
+        // power scope open over the sheet it leaves as Home inside that scope
+        // does: a request in flight goes on and a late refusal comes back.
+        function onHomeRequested() {
+            if (!root.quickMenuOpen && !root.activityBehind) return;
+            if (powerOverlay.open) powerOverlay.leaveHome();
+            else root.quickMenuHome();
         }
     }
     Connections {
         target: sessionGuard
         ignoreUnknownSignals: true
         function onChanged() {
-            if (sessionGuard.blocked) mediaCatalog.abandonPresentation();
+            if (sessionGuard.blocked) {
+                mediaCatalog.abandonPresentation("session_blocked");
+                powerOverlay.sessionBlocked();
+                // A lock is not a wake: no event to consume, the screen
+                // beneath comes back when the shell is shown again.
+                ambientScreen.stop();
+                // Nothing is typed into an application while locked (ADR-0105).
+                externalKeyboard.close();
+            }
         }
     }
+    // The on-screen keyboard over an external application (spec §6.2,
+    // ADR-0105): a separate window that never takes focus. It shows only
+    // while the shell is off screen: Home, the quick menu's sheet, the power
+    // scope, ambient, both launch overlays (an application's included, also
+    // "Starting…" and "Stopping…", ADR-0110) and the player all live in the
+    // shell window, so the shell coming on screen for any of them, or a
+    // lock, hides the panel at once and closes the session. The platform
+    // also ends the session as focus leaves the application.
+    ExternalKeyboard { id: externalKeyboard }
+    readonly property bool shellOnScreen: backend.homeVisible || root.visible
+    Ui.KeyboardPanel {
+        id: keyboardPanel
+        objectName: "keyboardPanelWindow"
+        transientParent: null
+        active: externalKeyboard.open && !root.shellOnScreen && !sessionGuard.blocked
+        prepare: window => externalKeyboard.preparePanel(window)
+        onTyped: text => externalKeyboard.type(text)
+        onEdited: key => externalKeyboard.press(key)
+        onHideRequested: externalKeyboard.close()
+    }
+    Connections {
+        target: externalKeyboard
+        function onInput(key) { keyboardPanel.press(key); }
+        // A session that opens while the shell is on screen has no panel to
+        // show: end it rather than leave the key's second press to close it.
+        function onOpenChanged() {
+            if (externalKeyboard.open && (root.shellOnScreen || sessionGuard.blocked))
+                externalKeyboard.close();
+        }
+    }
+    onShellOnScreenChanged: if (shellOnScreen) externalKeyboard.close()
     // Home does not show the library's operation state, so report a failed
     // resume from a Continue card here.
     property bool resumeFromHome: false
@@ -323,10 +665,71 @@ Window {
             return artwork ? Object.assign({}, entry, {artwork: artwork}) : entry;
         });
     }
+    // An imported download shows the poster of the library entry its Watch
+    // opens: the first library ref, through entryIdFor (#360, ADR-0062).
+    // Other rows keep the view's neutral plate. `library` only makes the
+    // binding follow catalog changes.
+    function downloadJobs(jobs, library) {
+        return jobs.map(job => {
+            const target = downloadCatalog.watchTarget(job.id);
+            const poster = target.local ? libraryCatalog.posterFor(target.provider, target.local) : "";
+            return poster ? Object.assign({}, job, {artwork: poster}) : job;
+        });
+    }
     LibraryCatalog { id: libraryCatalog; objectName: "libraryCatalog" }
+    // The Activity's last frame behind Home (§12.3, ADR-0087). Optional and
+    // asynchronous: Home and its focus never wait for it, and the shell's own
+    // session guard clears it before any daemon reply.
+    ActivityBackgroundSource {
+        id: activityBackground
+        objectName: "activityBackground"
+        blocked: sessionGuard.blocked
+    }
     SystemStatus {
         id: systemStatus
         objectName: "systemStatus"
+    }
+    // Ambient (§5.7, #307): an explicit start or ten idle minutes on screen,
+    // never while media plays. It never suspends, pauses or closes anything.
+    Power.AmbientIdle {
+        id: ambientIdle
+        objectName: "ambientIdle"
+        // Settings › Appearance › Ambient after (ADR-0112), 10 minutes by default.
+        timeout: settingsCatalog.ambientTimeoutMinutes * 60000
+        // An Activity behind the quick menu is in the foreground (§5.7).
+        shellShown: root.visible && root.active && !root.activityBehind
+        locked: sessionGuard.blocked
+        ambientActive: ambientScreen.active
+        // An application launch only while its overlay is on screen: it may
+        // keep running hidden for hours (§6.5).
+        launching: browserCatalog.opening || applicationLaunch.visible
+        // Never over a power request in flight: its answer would take focus
+        // behind ambient (#487).
+        powerPending: systemControl.pendingAction.length > 0
+        mediaPlaying: root.playerOpen || ambientIdle.playing(mediaCatalog.continueEntries, browserCatalog.tabs,
+                                                             mediaCatalog.inputLayerActive)
+        onIdle: root.startAmbient()
+    }
+    // The item that had focus when ambient started; wake gives it back.
+    property var ambientReturn: null
+    function startAmbient() {
+        if (ambientScreen.active) return;
+        ambientReturn = activeFocusItem;
+        ambientScreen.start();
+    }
+    function finishAmbient() {
+        const target = ambientReturn;
+        ambientReturn = null;
+        Qt.callLater(() => {
+            if (ambientScreen.active) return;
+            if (!target || !focusInside(target, screenItem(focusedScreen)) || !Ui.Focus.take(target))
+                restoreFocus();
+        });
+    }
+    // Power actions and volume through the daemon (ADR-0108).
+    SystemControl {
+        id: systemControl
+        objectName: "systemControl"
     }
     DownloadCatalog {
         id: downloadCatalog
@@ -339,8 +742,8 @@ Window {
     // mode; it hides the cursor in D-pad mode (spec §6.1, ADR-0095).
     InputModeSource {
         pointerActive: Ui.InputMode.pointerActive
-        onKeyPressed: Ui.InputMode.keyPressed()
-        onPointerMoved: Ui.InputMode.pointerMoved()
+        onKeyPressed: { Ui.InputMode.keyPressed(); ambientIdle.activity(); }
+        onPointerMoved: { Ui.InputMode.pointerMoved(); ambientIdle.activity(); }
         onPointerArrived: Ui.InputMode.forgetPointer()
     }
     Shortcut {
@@ -392,6 +795,9 @@ Window {
     }
     Ui.LogicalCanvas {
         anchors.fill: parent
+        objectName: "shellScreens"
+        // Over an Activity the quick menu shows none of the screens.
+        visible: !root.activityBehind
         // Keys bubble here from every screen that left them unaccepted.
         Keys.onPressed: event => root.unhandledKey(event)
         Ui.HomeView {
@@ -434,6 +840,8 @@ Window {
             runningEntries: backend.items
             favoritesTitle: qsTr("Favorites")
             returnActivityId: backend.returnWindow
+            activitySource: backend.homeVisible ? activityBackground.source : ""
+            ambientSuppressed: activitySource.toString() !== ""
             // The shortcut editor's on-screen keyboard (KB-2, KB-3).
             shortcutAddressSuggestions: { browseCatalog.tabs; return browseCatalog.openServices(shortcutTypingText); }
             shortcutNameSuggestions: { browseCatalog.tabs; return browseCatalog.nameSuggestions(shortcutDraftUrl, shortcutTypingText); }
@@ -442,6 +850,8 @@ Window {
             downloadActive: downloadCatalog.downloading
             downloadProgress: downloadCatalog.downloadProgress
             muted: systemStatus.muted
+            // Settings › Appearance › Light field (ADR-0112).
+            ambientEnabled: settingsCatalog.lightField
             wifi: systemStatus.wifi
             wifiLevel: systemStatus.wifiLevel
             currentServiceId: backend.homeVisible && !returnIsWebService ? "" : (browserCatalog.presentedService.id || "")
@@ -458,7 +868,7 @@ Window {
             Timer { interval: 1000; running: true; repeat: true; onTriggered: home.clockText = Qt.formatTime(new Date(), "hh:mm") }
             onEntryRequested: entryId => { if (entryId === "arinn-browse") root.showBrowse(); else backend.launch(entryId); }
             onRunningRequested: entryId => backend.activate(entryId)
-            onReturnRequested: backend.back()
+            onReturnRequested: root.returnToActivity()
             onRetryRequested: backend.refresh()
             onRestartRequested: backend.restartArinn()
             // A section picked in the navigation menu, or Home pressed there,
@@ -472,7 +882,7 @@ Window {
                 root.browserOpen = true;
                 Qt.callLater(() => Ui.Focus.take(browserView));
             }
-            onServiceRequested: backend.back()
+            onServiceRequested: root.returnToActivity()
             // One card for a browser tab and its media session (ADR-0096).
             onTabRequested: tabId => browserCatalog.activateTab(tabId)
             onMediaActionRequested: (sessionId, action) => mediaCatalog.sessionAction(sessionId, action)
@@ -488,7 +898,7 @@ Window {
                     root.openSession(entryId, false);
             }
             onCloseShellRequested: root.close()
-            onPowerRequested: { feedback.text = qsTr("Power controls are not available yet."); feedbackTimer.restart(); }
+            onPowerRequested: powerOverlay.openMenu()
         }
         Browser.BrowserView {
             id: browserView
@@ -595,6 +1005,8 @@ Window {
             categories: settingsCatalog.categories
             rows: settingsCatalog.rows
             keyboardAvailable: keyboardMonitor.available
+            // `~` in a path names this folder (#479); unset in test hosts.
+            homeFolder: typeof shellHomeFolder === "string" ? shellHomeFolder : ""
             onValueChangeRequested: (providerId, settingId, value) => settingsCatalog.setValue(providerId, settingId, value)
             onErrorDismissRequested: (providerId, settingId) => settingsCatalog.dismissError(providerId, settingId)
             onDismissRequested: home.back()
@@ -631,7 +1043,7 @@ Window {
             z: 4
             autoToast: false
             viewState: downloadCatalog.downloadsState
-            jobs: downloadCatalog.jobs
+            jobs: root.downloadJobs(downloadCatalog.jobs, libraryCatalog.entries)
             onPauseRequested: id => downloadCatalog.request(id, "pause")
             onResumeRequested: id => downloadCatalog.request(id, "resume")
             onStartNowRequested: id => downloadCatalog.request(id, "start_now")
@@ -728,13 +1140,23 @@ Window {
         Binding {
             target: mediaCatalog
             property: "thumbnailWanted"
-            value: root.playerOpen && playerView.timelineFocused && mediaCatalog.timelineAvailable
+            value: root.visible && root.focusedScreen === "player"
+                && playerView.visible && playerView.osdVisible && playerView.transportReady
+                && playerView.timelineFocused && mediaCatalog.timelineAvailable
         }
         Connections {
             target: mediaCatalog
             function onPresentationHomeRequested() { root.showPlaybackHome(); }
             function onOperationChanged() { root.finishStopOperation(); }
             function onPresentationChanged() {
+                if (mediaCatalog.presentationState !== "active") {
+                    root.presentationReturning = false;
+                    presentationFocusBound.stop();
+                    root.presentationFocusConfirmed = false;
+                    root.presentationNativeRevision = Infinity;
+                    if (backend.nativeFocusSupported === true)
+                        backend.stopNativeFocusObservation();
+                }
                 if (root.leavingStopPending || root.leaveError !== "")
                     return;
                 if (mediaCatalog.presentationState !== "" && mediaCatalog.presentationState !== "pending" && mediaCatalog.presentationState !== "active") {
@@ -750,8 +1172,10 @@ Window {
                         : qsTr("Playback controls are unavailable.");
                     feedbackTimer.restart();
                 }
-                if (mediaCatalog.presentationState === "active" && !root.active && !backend.homeVisible && !root.presentationAtHome)
-                    mediaCatalog.abandonPresentation();
+                if (mediaCatalog.presentationState === "active") {
+                    root.requestPresentationFocus();
+                    root.checkPresentationFocus();
+                }
                 if (mediaCatalog.presentationState === "" && root.presentationRequested) {
                     root.playerOpen = false;
                     root.presentationAtHome = false;
@@ -770,10 +1194,10 @@ Window {
                 if (root.leavingStopPending)
                     return;
                 if (root.playerOpen && mediaCatalog.windowAvailable && !root.presentationAtHome && !root.presentationRequested) {
-                    root.presentationRequested = true;
-                    mediaCatalog.present();
+                    root.presentPlayer();
                 }
-                if (!root.sessionFromLibrary || (!root.playerOpen && !root.sessionOpen))
+                if ((!root.sessionFromLibrary && !root.sessionFromLaunch)
+                        || (!root.playerOpen && !root.sessionOpen))
                     return;
                 const player = mediaCatalog.playerSession;
                 if (root.playerOpen === player && root.sessionOpen === !player)
@@ -792,19 +1216,8 @@ Window {
                 // the library (§6.4).
                 const fromLibrary = !root.launchFromHome;
                 root.launchFromHome = false;
-                root.openSession(presentationId, fromLibrary);
+                root.openMediaSession(presentationId, fromLibrary, true);
             }
-        }
-        Ui.LaunchOverlay {
-            anchors.fill: parent
-            z: 20
-            active: browserCatalog.opening
-            serviceTitle: browserCatalog.openingTitle
-            failure: browserCatalog.openingError
-            onCancelRequested: browserCatalog.cancelOpen()
-            onRetryRequested: browserCatalog.retryOpen()
-            onDismissRequested: browserCatalog.dismissOpenFailure()
-            onHomeRequested: Qt.callLater(home.showHome)
         }
         Rectangle {
             objectName: "feedbackStrip"
@@ -821,6 +1234,155 @@ Window {
                 text: backend.message
             }
             Timer { id: feedbackTimer; interval: 3000; onTriggered: feedback.text = Qt.binding(() => backend.message) }
+        }
+    }
+    // The quick menu sheet above every screen (ADR-0106).
+    Ui.LogicalCanvas {
+        anchors.fill: parent
+        Ui.QuickMenu {
+            id: quickMenu
+            anchors.fill: parent
+            z: 10
+            visible: root.quickMenuOpen
+            enabled: visible
+            focus: root.focusedScreen === "quickMenu"
+            overActivity: root.activityBehind
+            connected: backend.connected === true
+            nowPlaying: {
+                const media = mediaCatalog.continueEntries.filter(entry => entry.state === "playing" || entry.state === "paused");
+                return media.find(entry => entry.state === "playing") || media[0] || null;
+            }
+            audio: systemStatus.audio
+            volumeControl: backend.connected === true
+            volumeKnown: systemControl.volumeKnown
+            volumeMuted: systemControl.volumeMuted
+            volumeLevel: systemControl.volumeLevel
+            network: systemStatus.network
+            wifiLevel: systemStatus.wifiLevel
+            clockText: home.clockText
+            onPlayPauseRequested: sessionId => mediaCatalog.sessionAction(sessionId, "playPause")
+            // The volume keys' semantics: Right turns the sound back on, then
+            // raises it (owner decision of 2026-10-21 on #477).
+            onMuteToggleRequested: systemControl.toggleMuted()
+            onVolumeStepRequested: step => { if (step > 0) systemControl.raiseVolume(); else systemControl.stepVolume(-1); }
+            onSleepRequested: root.quickMenuPower(true)
+            onPowerMenuRequested: root.quickMenuPower(false)
+            onHomeRequested: root.quickMenuHome()
+            onCloseShellRequested: root.close()
+            onBackRequested: root.quickMenuBack()
+        }
+    }
+    // The system scopes above the screens and the sheet, also over an
+    // Activity: power, the launch dialog, then ambient (§6.1).
+    Ui.LogicalCanvas {
+        anchors.fill: parent
+        // Keys they leave unaccepted bubble as from the screens.
+        Keys.onPressed: event => root.unhandledKey(event)
+        // The power scope above every screen and the quick menu, and the
+        // volume HUD (§5.7, §6.1: dialog › power › sheet).
+        Power.PowerOverlay {
+            id: powerOverlay
+            anchors.fill: parent
+            z: 7
+            hudLayer: volumeHudLayer
+            focus: root.focusedScreen === "power"
+            control: systemControl
+            runningApplications: backend.items
+            registryKnown: backend.applicationsState === "ready" || backend.applicationsState === "empty"
+            keysEnabled: root.visible && root.active && !sessionGuard.blocked && !ambientScreen.active
+            // A late refusal never takes focus behind a launch overlay or
+            // the ambient screen; it appears once they are gone. A launch
+            // still in its reveal delay (active, not hidden for Home) holds
+            // it too: its overlay is about to be drawn above (#534).
+            holdLateAnswer: launchOverlay.visible || applicationLaunch.visible || ambientScreen.active
+                || (launchOverlay.active && !launchOverlay.homeHidden)
+                || (applicationLaunch.active && !applicationLaunch.homeHidden)
+            onClosed: Qt.callLater(() => { if (!powerOverlay.restoreLateFocus()) root.restoreFocus(); })
+            onHomeRequested: {
+                if (root.quickMenuOpen || root.activityBehind) {
+                    root.quickMenuHome();
+                    return;
+                }
+                root.closeOverlays();
+                Qt.callLater(home.showHome);
+            }
+            onAmbientRequested: root.startAmbient()
+        }
+        // The launch dialog is drawn above the power scope (ui-power.md).
+        Ui.LaunchOverlay {
+            id: launchOverlay
+            objectName: "launchOverlay"
+            anchors.fill: parent
+            z: 20
+            active: browserCatalog.opening
+            serviceTitle: browserCatalog.openingTitle
+            failure: browserCatalog.openingError
+            onCancelRequested: browserCatalog.cancelOpen()
+            onRetryRequested: browserCatalog.retryOpen()
+            onDismissRequested: browserCatalog.dismissOpenFailure()
+            // Home replaces a quick menu under the dialog too (§6.3).
+            onHomeRequested: {
+                if (root.quickMenuOpen || root.activityBehind) root.quickMenuHome();
+                else Qt.callLater(home.showHome);
+            }
+        }
+        // An application launch (spec §6.5, ADR-0110): it ends when a window
+        // appears, so it has no timeout here; after 8 s it reads
+        // "Starting <app>…" with a confirmed Cancel. Drawn like the launch
+        // dialog above, and its dialog stays above the sheet too.
+        Ui.LaunchOverlay {
+            id: applicationLaunch
+            objectName: "applicationLaunch"
+            anchors.fill: parent
+            z: 20
+            kind: "application"
+            timeoutDelay: 0
+            active: backend.launchActive === true
+            serviceTitle: backend.launchTitle || ""
+            failure: backend.launchError || ""
+            cancellable: backend.launchCancellable === true
+            stopping: backend.launchStopping === true
+            onCancelRequested: backend.cancelLaunch()
+            onRetryRequested: backend.retryLaunch()
+            onDismissRequested: backend.dismissLaunchFailure()
+            onHomeRequested: {
+                if (root.quickMenuOpen || root.activityBehind) root.quickMenuHome();
+                else Qt.callLater(home.showHome);
+            }
+            // What the backend needs to put this screen back after another
+            // launch's failure dialog, and to hold that dialog while the
+            // stop confirmation is open (§6.1, §6.5).
+            onHomeHiddenChanged: if (typeof backend.setLaunchHidden === "function") backend.setLaunchHidden(homeHidden)
+            onConfirmingChanged: if (typeof backend.setLaunchConfirming === "function") backend.setLaunchConfirming(confirming)
+            Connections {
+                target: backend
+                // Test doubles of the backend may lack the signal.
+                ignoreUnknownSignals: true
+                function onLaunchShown() { applicationLaunch.showAgain(backend.launchElapsed()); }
+                // A launch that replaces another on screen starts over.
+                function onLaunchStarted() { applicationLaunch.arm(); }
+                // The launch that takes the screen after a failure or after
+                // the launch on screen ended had been hidden: keep it hidden.
+                function onLaunchHidden() { applicationLaunch.hideForHome(); }
+            }
+        }
+        // The volume HUD of the power overlay, drawn above the launch
+        // overlays so a volume change or its failure stays visible during a
+        // launch (#487). It never takes focus or input; ambient covers it.
+        Item {
+            id: volumeHudLayer
+            objectName: "volumeHudLayer"
+            anchors.fill: parent
+            z: 25
+        }
+        Power.AmbientScreen {
+            id: ambientScreen
+            anchors.fill: parent
+            z: 30
+            focus: root.focusedScreen === "ambient"
+            clockText: home.clockText
+            dateText: { home.clockText; return Qt.locale().toString(new Date(), "dddd, d MMMM"); }
+            onActiveChanged: if (!active) root.finishAmbient()
         }
     }
 }

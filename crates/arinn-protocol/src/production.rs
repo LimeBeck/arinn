@@ -126,6 +126,20 @@ pub trait ProductionDaemon {
     /// An explicit presentation intent, never a state refresh or replay.
     #[zbus(signal)]
     fn home_requested(&self, epoch: &str, target: &str, output: &str) -> zbus::Result<()>;
+    /// Trusted platform input (ADR-0106): the quick-menu key. Commits the
+    /// same Home state as `report_home_request`, then emits
+    /// `QuickMenuRequested` instead of `HomeRequested`.
+    fn report_quick_menu_request(&self, target: &str, output: &str) -> zbus::Result<()>;
+    /// An explicit quick-menu presentation intent, never a state refresh or replay.
+    #[zbus(signal)]
+    fn quick_menu_requested(&self, epoch: &str, target: &str, output: &str) -> zbus::Result<()>;
+    /// Trusted platform input (ADR-0111): the power key. Commits the same
+    /// Home state as `report_home_request`, then emits `PowerMenuRequested`
+    /// instead of `HomeRequested`.
+    fn report_power_menu_request(&self, target: &str, output: &str) -> zbus::Result<()>;
+    /// An explicit power-menu presentation intent, never a state refresh or replay.
+    #[zbus(signal)]
+    fn power_menu_requested(&self, epoch: &str, target: &str, output: &str) -> zbus::Result<()>;
 
     #[zbus(name = "Providers")]
     fn provider_page(&self, token: &str) -> zbus::Result<(ProviderPage,)>;
@@ -154,6 +168,8 @@ pub mod provider {
     pub trait ApplicationProvider {
         fn get_applications(&self, token: &str) -> zbus::Result<(ApplicationPage,)>;
         fn launch(&self, generation: &str, id: &str) -> zbus::Result<()>;
+        /// Stop the unfinished launches of `id` (ADR-0110).
+        fn cancel_launch(&self, generation: &str, id: &str) -> zbus::Result<()>;
         fn activate(&self, generation: &str, id: &str) -> zbus::Result<()>;
         fn terminate(&self, generation: &str, id: &str) -> zbus::Result<()>;
         fn backend_state(&self) -> zbus::Result<String>;

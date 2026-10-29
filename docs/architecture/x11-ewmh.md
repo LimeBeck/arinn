@@ -28,6 +28,20 @@ the current unique daemon owner; reconnect allocates new window tokens and an
 adapter instance. There are no shell calls to applications or native XIDs in
 provider records.
 
+The adapter opens its X connection, and so grabs Home, the quick-menu keys and
+the on-screen keyboard's keys, only while `org.arinn.Daemon1` has an owner. It
+waits for the name on the session bus (`NameOwnerChanged`), not on a timer, so
+a session starts as soon as the daemon is back. Without a usable session bus
+there is no daemon either: no session starts, and the wait is tried again
+after the 3 s retry delay. A session ends as soon as the
+daemon goes, because its long polls fail, and with it every grab; the next one
+waits for the daemon again. While the daemon is down, the remote's Menu keys
+therefore never swallow the context-menu key, and Home is not grabbed either
+(it would do nothing without the daemon). The power key is unaffected: it is
+grabbed or read only inside a session with a live shell
+([ADR-0111](../adr/0111-power-key.md)). The adapter never fights a live daemon:
+the wait only delays a session (#507).
+
 The adapter checks the root and manager `_NET_SUPPORTING_WM_CHECK` properties
 and requires advertised client-list, activation, fullscreen and above support.
 A manager change causes a reconnect. It observes `_NET_CLIENT_LIST` normal
@@ -73,8 +87,11 @@ Two matching shell windows, listed or not, make identity ambiguous and trigger a
 fail-closed reconnect; run one shell instance, and keep it to one native
 top-level window with the shell identity. Event masks are selected once per
 newly observed XID and reset when its inventory lifetime ends; the unlisted
-shell's mask is selected again on each snapshot. Output names are currently empty: this
-initial backend does not implement RandR output placement.
+shell's mask is selected again on each snapshot. Window output names are currently empty: this
+initial backend does not implement RandR output placement. Home reports the
+fixed output `x11-screen`, which names the X screen rather than a RandR output.
+The Activity background needs a non-empty Home output to bind its frame
+(ADR-0087). No Qt screen has that name, so the shell never moves for it.
 
 ## Home, Return and video
 
@@ -83,9 +100,56 @@ Global Home uses passive root key grabs for `home_shortcut` (read only from
 including Caps/Num/Scroll lock modifier
 combinations. A sequence whose key or modifier is not mapped is skipped. Meta derives Super modifiers from the keyboard/modifier
 mapping, falling back to native Meta only if no mapped Super exists; it does not
-assume Mod4. Keyboard/modifier mapping changes rebuild the grabs. A sequence another
-client already grabs is skipped and logged; the backend is unavailable only
-when no Home sequence can be grabbed. Home snapshots the exact opaque target
+assume Mod4. Keyboard/modifier mapping changes rebuild the grabs without
+letting a still-wanted combination go: the new combinations are grabbed first
+(which only replaces the adapter's own grab) and only those no key names any
+more are released, after every new grab. The X server also sends a mapping
+change whenever key events switch between devices (a remote, a keyboard,
+XTest), so releasing first let a global key pressed in between reach the
+focused application or another client (#526). The same holds when the shell's
+focus or the power mode changes the grabbed keys. A sequence another
+client already grabs is skipped and logged; when the mapping adds a keycode
+another client holds, a Home or quick-menu key keeps the combinations it already
+held. The backend is unavailable only when no Home sequence can be grabbed. `quick_menu_shortcut` (default Meta+F11)
+and the remote's Menu keys (`Menu`, `XF86MenuKB`) are grabbed the same way next to
+the Home keys. The Menu keys are released while the shell is the active window and
+grabbed again once another window becomes active. A change of `_NET_ACTIVE_WINDOW`
+wakes the adapter's loop at once (`focus_watch.rs`: a second X connection that
+only listens for that property, so the loop does not wake on its own replies),
+so the grabs follow focus within milliseconds instead of at the next 0.5 s tick;
+without the watch the tick still follows focus (#507). A press is reported with
+`ReportQuickMenuRequest` after the same unlocked check and Home state, with the
+same output (`x11-screen`) as a Home request, so it arms the Activity background too.
+For a quick-menu press the adapter raises and activates the shell only after that
+request is published, so the shell never has focus before the request; a
+quick-menu key that cannot be grabbed is skipped without stopping the backend
+([ADR-0106](../adr/0106-quick-menu-presentation.md)). The power keys
+(`XF86PowerOff`, and `XF86PowerDown` where mapped) are read only while the shell
+owns `org.arinn.Shell1` (`power_owner.rs`), never on the ordinary XFCE desktop
+(an owner of `org.xfce.SessionManager` or `org.xfce.PowerManager` on the session
+bus without `ARINN_SESSION_ENTRY=xfce`, which the dedicated session's wrapper
+sets; a name that appears later gives the key back), and only after logind's
+`handle-power-key` inhibitor is held. They are grabbed after the
+other keys, also while the shell is active, and a press is reported with
+`ReportPowerMenuRequest` after the same unlocked check and Home state; the shell
+is raised at once, as for Home. A power key another client holds is skipped and
+logged and stays that client's, all of it: when a mapping change adds a power
+keycode another client holds, Arinn lets go of every combination of that key,
+reports no grab and `PowerOwner` gives everything back, as before #526; an
+uncontested regrab never lets ⏻ go; when Arinn lets go of a grab while
+xfce4-power-manager runs without its own grab (its one grab at start failed),
+the adapter restarts it over D-Bus so it grabs again. In the dedicated Arinn
+XFCE session (owner decision of 2026-10-24) the power keys are never grabbed
+but read from XInput2 raw key presses on the root window (only the power
+keycodes are looked at), and only once that works the adapter sets xfce4-power-manager's
+`/xfce4-power-manager/power-button-action` to 0 ("do nothing") through xfconf,
+keeping the user's value in `$XDG_STATE_HOME/arinn/xfce-power-button` until it is
+restored: when the shell is lost or the reader stops, on a clean stop, by
+`ExecStopPost=-/usr/bin/arinn-platform-x11 --release-power-key`, at the next start
+in any X11/EWMH session, and at every XFCE login by the system autostart entry
+`org.arinn.PowerButtonRestore.desktop` (`--restore-power-button`); a per-user
+autostart entry that needs only `sh` and `xfconf-query` restores it after the
+package is removed ([ADR-0111](../adr/0111-power-key.md)). Home snapshots the exact opaque target
 and keeps it across repeated Home presses. Return validates that token in the
 current inventory before dispatch. The shell receives all-desktops, fullscreen/above and
 activation EWMH messages; ordinary activation and close also use EWMH messages.
@@ -120,23 +184,154 @@ Startup reports the selected fixed backend name. Daemon permission rejection
 reports a backend-selection hint; restoration failure reports a fixed reason
 before reconnecting. These diagnostics contain no window metadata.
 
-XComposite activity background remains the separate work in #149. Multi-output
-placement, real lock/suspend behavior and the transparent overlay on actual
-compositors remain qualification work. No AC or roadmap gate is marked passed.
+### Activity background
+
+The adapter produces the Activity background of specification §12.3 (#149,
+[ADR-0087](../adr/0087-bounded-activity-background-frames.md),
+[contract](activity-background.md)) in `platform/x11/src/background.rs`. An
+optional task follows the daemon's `Background1`, pinned to the owner the
+session connected to. For a pending attempt it captures only the window whose
+current inventory token is both the Return target and the context's window
+token.
+
+- **Capture.** The capture runs off the async runtime on its own X connection.
+  It requires a compositing manager (`_NET_WM_CM_Sn` owned), XComposite ≥ 0.2,
+  a viewable window, an LSB-first 32-bit TrueColor pixmap format (depth 24 or
+  32) and at most 16 Mi pixels (a 64 MiB reply). It names the composited pixmap of the
+  window's top-level frame with `NameWindowPixmap` and reads it with
+  `GetImage`. The frame must show that window alone. A virtual root
+  (`__SWM_VROOT`), or a container that also holds another viewable client
+  window (one with `WM_STATE`), is declined, and so is a frame in which the
+  target is no longer found or no longer viewable. It never reads the root
+  window or another window.
+- **Conversion.** One pass reads the server's bytes, box-filters them into
+  1920×1080 in premultiplied space (depth 24 is opaque), and unpremultiplies
+  each output pixel, so transparent edges add no dark fringes and no full-size
+  copy is made. The result is published as one sealed memfd on the adapter's
+  own connection, the `org.arinn.X11` owner the daemon authenticates.
+- **No frame.** A locked or unknown session, a missing window, no compositor, an
+  unredirected window (some compositors unredirect fullscreen windows), an
+  unsupported format or the 1500 ms local guard cancels the attempt. Home then
+  keeps its normal background. The guard starts when the producer takes the
+  attempt, so the session probe (up to 1 s) counts against it: the capture
+  worker waits only for what is left, and starts not at all when nothing is
+  ([#494](https://github.com/LimeBeck/arinn/issues/494)).
+- **One worker.** A capture that outlives the guard keeps its worker slot until
+  it finishes, then drops its frame and descriptor at once. A drop guard frees
+  the slot even if the worker panics. Any request that arrives meanwhile is cancelled at once as
+  `busy`, so a stalled or grabbed server never accumulates threads or X
+  connections.
+- **Lifetime.** Each request is handled once. A failed `Get` (an older daemon,
+  an exhausted epoch) is logged and waits for the next `Changed`. Every
+  `Changed` raises a floor, the highest notified revision for the daemon owner
+  and epoch; the ones that arrived while a `Get` was in flight are taken into
+  account before its reply is used. A reply older than the floor (a lower
+  revision or another epoch) starts no capture and is followed by a fresh
+  `Get`, so a stale snapshot never takes the worker slot from the current
+  request. The task never ends the adapter session.
+- **Diagnostics.** Normalized `background-capture` lines with an outcome and
+  `duration_ms` are the hook for the G-5.2 report.
+- **Tests.**
+  - Unit tests: pixel conversion, bounds and sealing.
+  - Private-bus tests without an X server: a fake daemon answers `Get` slowly
+    while a newer attempt is committed and notified, and no capture starts for
+    the stale one; a screensaver that answers `GetActive` after 300 ms shrinks
+    the capture timeout by at least that much.
+  - Xvfb tests: the fixture acts as a manual compositing manager. One test
+    captures a composited window, and confirms no capture without a compositor
+    or for an unmapped window. Two more run the whole task against a fake
+    daemon and screensaver on a private bus. One covers publication of the
+    exact window, and cancellation when locked or for a target that is not a
+    current window. The other holds a server grab: the stalled attempt is
+    cancelled at the deadline, the next one is cancelled at once without a
+    second capture, and a request after the release is published.
+
+  Another Xvfb test declines a container shared by two clients and a virtual
+  root, while capturing a frame that holds its client alone.
+
+  They do not qualify xfwm's compositor, DPI or colour on the TV.
+
+## On-screen keyboard
+
+The adapter is the X11 deliverer of the global on-screen keyboard
+([ADR-0105](../adr/0105-global-on-screen-keyboard-platform-text-delivery.md),
+[transport](external-keyboard.md)). A keyboard worker (`keyboard.rs`) runs on
+its own thread with its own X connection; `keyboard_lane.rs` connects it with
+`KeyboardBridge1`. A daemon without the bridge leaves the keyboard off and the
+rest of the adapter unchanged.
+
+- **The key.** The worker grabs `keyboard_shortcut` (read-only from
+  `config.toml`, default Meta+F10) and XF86Launch1 on the root window, with the
+  lock-modifier variants. Launch1 is the remote's microphone after the packaged
+  hwdb remap. A key that is also a Home or quick-menu key is left out (Home
+  and the quick menu win, ADR-0106), and a key another client holds is
+  skipped. A press requests a session only after an explicit
+  unlocked ScreenSaver reply. A keyboard or modifier mapping change grabs the
+  keys again without letting a still-wanted combination go: the new
+  combinations are grabbed first (which only replaces the worker's own grab)
+  and only those the new mapping no longer names are released. When another
+  client holds a combination the new mapping adds, only that key's new
+  combinations are skipped; the ones the worker already held stay held. The X server
+  also sends a mapping change whenever key events switch between devices (a
+  remote, a keyboard, XTest), so releasing first let a key pressed in between
+  reach the application (#522).
+- **Open.** The target is `_NET_ACTIVE_WINDOW`. It must be listed in
+  `_NET_CLIENT_LIST`, of normal type and not the shell; otherwise the session is
+  `unavailable`. The worker then passively grabs Up, Down, Left, Right, Return,
+  KP_Enter, Escape and XF86Back, unmodified and with lock variants. The session
+  opens only when all four directions, Return or KP_Enter, and Escape or
+  XF86Back are grabbed; otherwise every grab is released and the session is
+  `unavailable`. Focus stays with the application; every other key, Backspace
+  and hardware typing included, reaches it.
+- **Delivery.** One character or editing key at a time. Before each one the
+  lane needs an explicit unlocked reply (a screen locker's keyboard grab is
+  invisible to the focus check), and the worker checks that the target still
+  has focus: it is `_NET_ACTIVE_WINDOW`, and the X input focus
+  (`GetInputFocus`) is the target or one of its descendants, never `None` or
+  `PointerRoot`. The first failed check drops the rest of the record and ends
+  the session (`locked` or `focus`).
+  - Each character is typed through one of up to eight scratch keycodes (keycodes without
+    keysyms), mapped to its keysym in every column: Latin-1 directly,
+    otherwise `0x01000000 + code point`.
+  - A keycode that already carries the keysym is reused; otherwise the next one in rotation is remapped.
+  - The mappings are restored when the session ends.
+- **End.** A change of `_NET_ACTIVE_WINDOW`, a destroyed target, a lock or an
+  unknown lock state ends the session within 500 ms. The worker releases its
+  grabs and reports the reason. Nothing typed is logged.
+
+The shell's panel window is override-redirect, so it is never in
+`_NET_CLIENT_LIST`, never a shell candidate and never focused.
+
+Multi-output placement, real lock/suspend behavior and the transparent overlay
+on actual compositors remain qualification work. No AC or roadmap gate is
+marked passed.
 
 ## Opt-in setup
 
 The package installs the EWMH executable, `arinn-ewmh.service` and
 `arinn-ewmh-session.target`; it enables none of them. Select the backend in the
-systemd user-manager environment **before starting the daemon**. For a manual
-trial inside an X11 graphical session:
+systemd user-manager environment **before starting the daemon**.
+
+The adapter unit uses `Type=exec`: systemd supervises the process across its
+native sessions, rather than stopping it when a session releases
+`org.arinn.X11`. The bus name is still owned only during a native session;
+while waiting for the daemon it is absent, so the XFCE login power-button
+restore is not suppressed. Process exit still runs the existing power-button
+`ExecStopPost` helper. Starting the unit confirms execution, not adapter or
+daemon readiness; the daemon authenticates the session's bus owner as before.
+For a manual trial inside an X11 graphical session:
 
 ```sh
 systemctl --user stop arinn-session.target arinn-ewmh-session.target
 systemctl --user import-environment DISPLAY XAUTHORITY
 systemctl --user set-environment XDG_SESSION_TYPE=x11 ARINN_PLATFORM_BACKEND=ewmh ARINN_SESSION_BACKEND=x11
+systemctl --user unset-environment ARINN_SESSION_ENTRY ARINN_LOGIN_STATE_HOME ARINN_LOGIN_CONFIG_HOME ARINN_LOGIN_SESSION_ID
 systemctl --user start arinn-ewmh-session.target
 ```
+
+Clearing `ARINN_SESSION_ENTRY` drops a dedicated-session marker a killed
+`arinn-session` may have left in a lingering user manager, so a manual trial is
+never taken for the dedicated Arinn XFCE session ([ADR-0111](../adr/0111-power-key.md)).
 
 The two session targets conflict. Shared daemon and shell units stop with either
 target. A daemon started separately must be stopped before changing selection.
@@ -171,7 +366,27 @@ default. It sets the two Arinn backend selectors before starting the shared
 daemon. The existing shell startup path requests Home (AC-01).
 
 The helper remains in the desktop autostart session, owning
-`org.arinn.XfceSession` to refuse duplicate launchers. It subscribes to XFCE
+`org.arinn.XfceSession`. Only that name's owner starts and stops the EWMH
+target; the name is never queued. When another launcher owns it, the helper
+waits up to 65 s for it to change hands and asks again, touching nothing in
+the user manager meanwhile. After a fast re-login (autologin, display-manager
+relogin) the previous login's helper still owns the name while it stops the
+target. The 65 s wait covers the normal cleanup path: two `systemctl` calls
+of at most 30 s each, then the exit that releases the name (a compile-time
+assertion and `tests/ci/test_xfce_handover.py` keep these related). A
+helper that has just taken the name and is still in its five `is-active`
+checks does not see its login end until those return. A hung user manager
+can therefore hold the name for longer (each call waits up to 30 s). In that
+case the next login cannot start Arinn either: its helper gives up after
+65 s, and the session entry logs its fixed line. A helper
+that does not get the name within 65 s, is stopped while it waits, or whose
+own login ends meanwhile (`org.xfce.SessionManager` loses or changes its
+owner) exits 1 without cleanup of its own. It never takes over a later login
+with its own login's display and session (#483). After the target has
+started, the helper also takes `org.arinn.XfceSession.Running`; the session
+entry counts Arinn as started only then. A start that fails is never
+confirmed. This applies to the opt-in autostart path
+and to the "Arinn (XFCE)" session alike. It subscribes to XFCE
 owner changes before reading the initial owner. XFCE owner loss/replacement,
 session-bus loss, SIGTERM or SIGINT stops the EWMH target, including a partial
 failed startup, and clears the imported session/backend environment. Systemctl
@@ -205,16 +420,50 @@ ARINN_XVFB=/absolute/path/to/Xvfb cargo test -p arinn-platform-x11 -- --include-
 ARINN_PLATFORM_BACKEND=ewmh cargo test -p arinnd selected_adapter_owner_excludes_the_other_backend
 ```
 
-The five ignored native tests each spawn their own Xvfb using `-displayfd`, create
+The keyboard's ignored tests spawn their own Xvfb too. They check that:
+
+- the key reaches the worker and not the application;
+- a mapping change never lets the key go: a client that keeps grabbing it never gets it, and a new keycode another client holds costs only that keycode;
+- XTest types ASCII and Cyrillic with an English keymap;
+- the panel keys are grabbed while other keys pass;
+- the shell and unlisted windows are never targets;
+- focus loss and destruction stop delivery, also when only the X input focus moves away;
+- a session without every direction, a Select and a Back key does not open and keeps no grab;
+- through the lane, with a fake daemon and lock service:
+  - a locked key requests nothing, a session opens and types, and a lock ends it;
+  - each character, and each editing key, waits for its own lock check, without the 500 ms tick;
+  - the worker ends a session whose target loses focus (`focus`), types nothing more and gives the panel keys back.
+
+The ignored native tests (`native::fixture`) each spawn their own Xvfb using `-displayfd`, create
 synthetic EWMH metadata and clients, and never read the inherited `DISPLAY`.
 They verify inventory, typed identity, activation/close and Home-key dispatch,
-manager invalidation, Home/Return and video/compositor/lock lifecycle. They include partial-presentation rollback and compositor-loss regressions and do
+manager invalidation, Home/Return and video/compositor/lock lifecycle. A mapping
+change never lets the Home, quick-menu or power keys go (a client that keeps
+grabbing them never gets one), a contested new keycode keeps the held Home and
+quick-menu grabs but gives the whole power key up, and the recorded power grabs
+match the server's in every power mode (#526). A client that closes its
+connection loses its grabs only when the X server reads the close, unordered
+with other clients' requests, so a test that lets such a client go waits until
+its grab is free, or ungrabs explicitly, before the adapter grabs (#530); the
+adapter itself retries a take that found the key held (`PowerOwner`). They include partial-presentation rollback and compositor-loss regressions and do
 not substitute for real-desktop operator tests, which require owner permission.
+
+The ignored end-to-end tests in `platform/x11/tests/menu_keys.rs` run the
+adapter binary itself against its own Xvfb and a private session bus (never the
+real display, session bus or system bus). They check that no global key is
+grabbed while `org.arinn.Daemon1` has no owner or without a usable session
+bus, that the keys are grabbed as
+soon as it appears and released again when it goes, and that the Menu keys
+follow the shell's focus within 0.2 s rather than at the 0.5 s tick (#507). The
+ignored `focus_watch` test checks that only `_NET_ACTIVE_WINDOW` changes wake the
+loop.
 
 The Arch Qt CI job installs Xvfb and runs the native tests with `--include-ignored`.
 The installed-package session check also runs the XFCE helper suite on a private
 D-Bus with a synthetic session owner and stub systemctl. It checks login ordering,
-missing LightDM variables, logout, signals, duplicate refusal, failed-start
+missing LightDM variables, logout, signals, a duplicate that waits without
+touching anything, a launcher that takes over once the previous login's
+releases the name, one whose login ends while it waits, failed-start
 cleanup and refusal of incompatible/pre-existing sessions. No real user manager
 or desktop is contacted.
 Private-bus adapter and Qt tests cover all three lock endpoints, priority, signals

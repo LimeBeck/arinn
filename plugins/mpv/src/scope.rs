@@ -28,6 +28,7 @@ pub fn arguments(socket: &Path) -> Vec<String> {
         "--idle=yes".into(),
         "--keep-open=yes".into(),
         "--force-window=yes".into(),
+        "--fullscreen".into(),
         "--no-resume-playback".into(),
         "--save-position-on-quit=no".into(),
         "--input-default-bindings=no".into(),

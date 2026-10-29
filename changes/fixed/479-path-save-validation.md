@@ -1,0 +1,2 @@
+- Settings path editors check the path while you type. A relative path, a `.` or `..` folder, `//`, a control character or more than 4096 bytes shows why, and Save does nothing until the path is fixed, instead of the daemon rejecting it after Save.
+- A Settings path can start with `~/` (or be `~`) for the home folder: the shell replaces `~/` with the home folder as you type and saves the full path.

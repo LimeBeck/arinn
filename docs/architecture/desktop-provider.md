@@ -74,10 +74,106 @@ private paths or arguments; callers receive normalized error codes.
 
 A dedicated D-Bus connection holds an AddRef reference while reading launcher
 completion. Properties are read without caching, so an early zero exit timestamp
-cannot conceal completion. For GIO launches, the exit status acknowledges dispatch, not window
-creation or the application's eventual exit. The reference is released after the
-result or when the connection dies; releasing it never stops the application unit.
-Launch mutations are never retried. A timeout can follow a dispatched side effect.
+cannot conceal completion. For GIO launches, the exit status acknowledges dispatch
+only; the launch lifetime below decides the result. The reference is released when
+the launch ends or when the connection dies; releasing it never stops the
+application unit. Launch mutations are never retried. A dispatch timeout (30 s) can
+follow a dispatched side effect.
+
+## Launch lifetime and cancellation
+
+Spec §6.5 and §7.2, [ADR-0110](../adr/0110-application-launch-lifetime-and-cancellation.md),
+[#436](https://github.com/LimeBeck/arinn/issues/436). Before this change the
+provider answered `Launch` when GIO exited, so a slow game "succeeded" before any
+window existed and an application that exited without a window also "succeeded".
+
+After GIO exits with status 0, the provider keeps its reference on the unit and
+waits (`plugins/desktop/src/launches.rs`):
+
+- **Window.** The launch succeeds when the window inventory shows a window that
+  was not there when the launch started and is not proven to belong to another
+  catalogue application: its desktop ID is the launched entry's, unknown or empty.
+  Games, Proton and wrapper scripts often report no exact desktop ID; the
+  Activity itself is still associated exactly, as above. A new platform
+  generation renames every window, so it resets the starting set instead of
+  counting as a new window.
+- **Unit ended.** With `ExitType=cgroup` the unit stays active after GIO exits
+  until everything the launch started has exited. When its `ActiveState` becomes
+  `inactive` or `failed`, the provider reads the inventory once more. The launch
+  fails at once with `Unavailable` unless a window of the application exists. An
+  existing window counts here because the launch was handed to an instance that
+  was already running (Steam, single-instance applications).
+- **No deadline.** While the unit runs with no window, the launch stays pending.
+  The 30 s budget bounds dispatch only; the daemon applies no deadline to an
+  application launch.
+- **Not observable.** D-Bus activated entries, which have no Arinn unit,
+  succeed at dispatch as before. Without a window inventory the launch counts
+  as dispatched once the inventory has been missing for 5 s, whether it was
+  missing when the launch started, went missing during the wait, or was missing
+  when the unit ended (a reconnecting platform adapter is shorter). So with no
+  platform adapter at all, "Opening <app>…" shows for 5 s before the launch
+  succeeds. An inventory that arrives within the 5 s decides as usual; when it
+  was missing at the start, its first snapshot becomes the starting set, where
+  only a window with exactly the launched desktop ID counts as new.
+- **Unit state.** `ActiveState` `inactive` or `failed`, or a unit that systemd
+  has already collected (`UnknownObject`, `NoSuchUnit`), means the launch's
+  processes have exited. Any other failed read says nothing: the launch keeps
+  waiting, and a cancel keeps waiting within its bound.
+
+`CancelLaunch(generation, id)` signals every unfinished launch of that desktop ID.
+Each one stops its own unit with `StopUnit(…, "replace")`, so systemd stops the
+processes of that launch's cgroup and nothing else. `StopUnit` only queues the
+stop, so the launch then waits until the unit is `inactive` or `failed` (its
+processes have exited; systemd sends SIGKILL after the unit's stop timeout), at
+most 100 s, before its `Launch` reply fails with `Cancelled`. `CancelLaunch`
+answers after those stops, within 10 s (`Timeout` otherwise), or `NotFound` when no
+launch was pending or each one ended another way first (for example, its window
+appeared). A cancel during dispatch takes effect when dispatch completes. While
+the processes are still exiting after a `Timeout`, the shell reads "Stopping
+<app>…" without Cancel until the operation ends (as `cancelled` once they are
+gone).
+Losing the registration ends the wait with `Unavailable` and only releases the
+reference; the application keeps running.
+
+The daemon keeps the public operation `running` and `cancellable` meanwhile.
+`Operation1.Cancel` from the caller forwards to `CancelLaunch` and ends the
+operation as `cancelled`. Because `CancelLaunch` names a desktop ID, the daemon
+(`crates/arinnd/src/runtime/launch_guard.rs`) forwards it only while that
+operation is the only running launch of the provider, generation and ID, from
+any client, and otherwise answers `Conflict` without stopping anything. A new
+launch of that ID waits to be dispatched until an in-flight `CancelLaunch` has
+been answered, so a cancel never stops a launch started after it (ADR-0110). A
+launch counts until the provider has answered its `Launch`, including the
+daemon's own browser launch for a web open (ADR-0055), whose call is awaited in
+its own task after the open stops waiting. A provider without the method counts
+as `Unsupported`; one that does not answer within 15 s makes `Cancel` return
+`Timeout`, and the launch keeps running. The in-flight marker stays until the
+provider really answers or the bus reports it gone, so new launches of that ID
+stay held meanwhile. The shell shows "Opening <app>…", then after 8 s
+"Starting <app>…" with Cancel. Cancel asks for confirmation, with *Keep starting*
+as the default focus; Home hides the overlay without cancelling, and choosing the
+tile again shows it again. A failed launch shows the error dialog with Retry.
+`Backend` keeps one launch record per application, and the newest one is on
+screen. Choosing the tile of a launch hidden behind a newer one shows that
+launch again at once, as "Starting <app>…" once it has run for 8 s, with its own
+Cancel. A launch that fails behind another one brings its error dialog on
+screen at once, unless another failure dialog or the stop confirmation of the
+launch on screen is open; then it waits for that to close. Closing the dialog
+returns to what it covered (§6.1): a starting screen that was on screen comes
+back, and one that Home, the quick menu or a newer launch had hidden stays
+hidden until its tile is chosen. Home and the quick menu hide whichever launch
+is on screen; the overlay reports that (and an open confirmation) to `Backend`.
+Home on a failure dialog closes it and leaves Home on screen, with the launch
+it covered hidden. A confirmed Stop is sent before the confirmation closes, and
+a failure that waited behind the confirmation comes on screen only after that,
+so the Stop always reaches the launch it was confirmed for.
+
+Known limitation: a game entry that hands off to a client that is already running
+elsewhere (for example a `steam steam://rungameid/…` entry while Steam runs)
+ends its own unit at once. If no window of that entry exists yet, the launch
+fails, although the client may still start the game. The owner kept this as a
+known limitation on 2026-10-24; §6.5 is unchanged, and a fix is tracked in
+[#508](https://github.com/LimeBeck/arinn/issues/508).
 
 The transient-unit reference mechanism is also used by
 [systemd-run](https://github.com/systemd/systemd/blob/main/src/run/run.c).
@@ -149,6 +245,48 @@ Local isolated checks on 2026-09-28:
   `phase1.py` CI entry point also invokes this suite on a separate private bus.
 - The Arch package installs the desktop executable/manifest and requires GIO
   (`glib2>=2.86`). Its smoke test checks discovery through the installed daemon/provider.
+
+Launch lifetime ([#436](https://github.com/LimeBeck/arinn/issues/436), 2026-10-21):
+
+- `cargo test -p arinn-plugin-desktop`: window rules, an ended unit, hand-off to
+  a running instance, a new platform generation, no inventory (also when it is
+  missing as the launch starts), cancel that stops only the launches of one
+  application, and a cancelled launch that ends only once its processes have
+  exited.
+- `tests/integration/desktop.py` with the extended test manager, which keeps an
+  application unit active while its process group runs (the stand-in for
+  `ExitType=cgroup`) and stops only that group: a launch stays running and
+  cancellable until its window appears; a window that appears after 31 s
+  completes it; a unit that exits with status 0 and no window fails in under 5 s;
+  a hand-off to an existing window succeeds; Cancel from another connection is
+  `PermissionDenied`; Cancel by the caller ends the operation as `cancelled`,
+  stops that fixture and leaves a concurrent launch running. A second client's
+  launch of the same entry makes the first caller's Cancel answer `Conflict`,
+  and both launches keep running (the suite fails without the daemon's guard).
+  `cargo test -p arinnd launch_guard`: the same rule, and a launch admitted
+  while a `CancelLaunch` is in flight is dispatched only after it.
+  `cargo test -p arinnd launch_tests` (provider double on a private bus): a
+  `CancelLaunch` slower than the cancel deadline gives the caller `Timeout`,
+  and a new launch of the same ID is sent only after the provider's late
+  answer; the daemon's browser launch for a web open, also after the open
+  timed out, makes a tile's Cancel answer `Conflict`. Removing the dispatch
+  hold, ending the marker at the timeout, or not counting the browser launch
+  each fails one of them; a browser launch for a web open is also held while
+  a tile's cancel is in flight. `application-catalog`
+  `launchBehindANewerLaunchShowsAgainAndFails`: launch A, launch B, choose A
+  again shows A, Cancel reaches A's operation, A's failure behind B comes on
+  screen, and closing it brings back B's screen if it was on screen or keeps
+  B hidden if Home hid it; a second failure, and one during a stop
+  confirmation, waits; a background launch that ends leaves no record.
+  `launch-screen` (Main.qml, the real `Backend` and a fake daemon that launches
+  two applications, driven by keys): Back on a failure dialog brings back the
+  starting screen it covered; one that Home hid stays hidden; Home on the
+  dialog leaves Home with that launch hidden; Stop with a failure waiting
+  behind the confirmation stops the confirmed launch, then shows the failure.
+  Removing either report from the overlay to `Backend`, or the Home fix,
+  fails it. On `master` the
+  suite fails at the first "still starting" check: the launch had already
+  succeeded.
 
 The test manager verifies unit requests and fixture-process lifetime, not kernel
 cgroup membership. No agent-run KDE/Wayland operator tests were run.

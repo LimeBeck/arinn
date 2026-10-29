@@ -107,6 +107,9 @@ public:
   bool operationDone = true;
   bool operationSuccess = false;
   bool platform = true;
+  QString activeWindow, activeClass;
+  bool holdStatus = false;
+  QList<QDBusMessage> statusCalls;
   QString operationError = QStringLiteral("Unavailable");
   int pages = 0;
   int launches = 0;
@@ -128,6 +131,18 @@ public:
   int buildCalls = 0;
   // Home visibility in Status; Back hides Home unless backError is set.
   bool home = true;
+  // Launch returns an operation at launchPath when set (ADR-0110).
+  bool launchOperation = false;
+  QString launchState = QStringLiteral("running"), launchError;
+  bool launchCancellable = true;
+  QString cancelError;
+  int cancels = 0;
+  static constexpr auto launchPath = "/org/arinn/Daemon1/operations/launch";
+  // One operation per application (launchPath_<local id>), with its own
+  // state and error, and the second application launchable too.
+  bool perApplication = false;
+  QHash<QString, QString> states, errors;
+  QStringList cancelled;
   QString backError;
   QString introspect(const QString &) const override { return {}; }
   bool handleMessage(const QDBusMessage &m,
@@ -153,10 +168,11 @@ public:
       bus.send(m.createReply());
       return true;
     } else if (m.member() == "Status") {
+      if (holdStatus) { statusCalls.append(m); return true; }
       a.beginStructure();
       const QString epoch = "77777777-7777-4777-8777-777777777777";
       a << epoch << true << epoch << qulonglong(1)
-        << home << returnedWindow << QString() << QString() << false << platform
+        << home << returnedWindow << activeWindow << activeClass << false << platform
         << QString() << QString();
       a.endStructure();
     } else if (m.member() == "HomeItems") {
@@ -186,7 +202,7 @@ public:
       a << (mode == "generation" && !first ? QString("stale")
                                            : QString("generation"))
         << qulonglong(mode == "revision" && !first ? 2 : 1)
-        << QList<AppWire>{{first ? "first" : "second", first,
+        << QList<AppWire>{{first ? "first" : "second", first || perApplication,
                            first ? "games" : "future-group",
                            first ? QStringLiteral("applications-games")
                                  : QStringLiteral("/usr/share/icons/hicolor/"
@@ -204,9 +220,49 @@ public:
       ++launches;
       invokedMethod = m.member();
       invokedId = m.arguments().at(1).toString();
-      bus.send(
-          m.createErrorReply(QDBusError::Failed, "fixture operation failure"));
+      if (launchOperation && perApplication) {
+        states.insert(invokedId, QStringLiteral("running"));
+        errors.remove(invokedId);
+        bus.send(m.createReply(QVariant::fromValue(QDBusObjectPath(
+            QString::fromLatin1(launchPath) + "_" + invokedId))));
+      } else if (launchOperation)
+        bus.send(m.createReply(QVariant::fromValue(QDBusObjectPath(launchPath))));
+      else
+        bus.send(m.createErrorReply(QDBusError::Failed,
+                                    "fixture operation failure"));
       return true;
+    } else if (perApplication &&
+               m.path().startsWith(QString::fromLatin1(launchPath) + "_")) {
+      const auto id = m.path().section('_', -1);
+      if (m.member() == "Cancel") {
+        cancelled << id;
+        states[id] = QStringLiteral("cancelled");
+        errors[id] = QStringLiteral("Cancelled");
+        bus.send(m.createReply());
+        return true;
+      }
+      const bool running = states.value(id) == QLatin1String("running");
+      a.beginStructure();
+      a << states.value(id) << errors.value(id) << false << qulonglong(1)
+        << qulonglong(running ? 0 : 2) << QList<TargetWire>{} << running;
+      a.endStructure();
+    } else if (m.path() == launchPath && m.member() == "Cancel") {
+      ++cancels;
+      if (!cancelError.isEmpty()) {
+        bus.send(m.createErrorReply("org.arinn.Error1." + cancelError, "fixture"));
+        return true;
+      }
+      launchState = QStringLiteral("cancelled");
+      launchError = QStringLiteral("Cancelled");
+      bus.send(m.createReply());
+      return true;
+    } else if (m.path() == launchPath && m.member() == "Get") {
+      const bool running = launchState == QLatin1String("running");
+      a.beginStructure();
+      a << launchState << launchError << false << qulonglong(1)
+        << qulonglong(running ? 0 : 2) << QList<TargetWire>{}
+        << (running && launchCancellable);
+      a.endStructure();
     } else if (m.interface() == "org.arinn.Favorites1" &&
                m.member() == "List") {
       if (favoriteListError) {
@@ -284,6 +340,58 @@ public:
 class CatalogTest : public QObject {
   Q_OBJECT
 private slots:
+  void nativeFocusUsesOwnWaylandIdentityAndBoundedObservation() {
+    const NativeShellFocusIdentity identity{QStringLiteral("wayland"), QStringLiteral("org.example.Shell")};
+    QCOMPARE(identity.classify(true, "surface", "org.example.Shell"), QString("shell"));
+    QCOMPARE(identity.classify(true, "surface", "org.example.Other"), QString("other"));
+    QCOMPARE(identity.classify(false, "surface", "org.example.Shell"), QString("unknown"));
+    QCOMPARE(identity.classify(true, "", "org.example.Shell"), QString("unknown"));
+    QVERIFY(!(NativeShellFocusIdentity{"xcb", "org.example.Shell"}).supported());
+    auto bus = QDBusConnection::sessionBus();
+    CatalogDaemon daemon;
+    daemon.activeWindow = "synthetic-surface";
+    daemon.activeClass = identity.applicationId;
+    QVERIFY(bus.registerService("org.arinn.Daemon1"));
+    QVERIFY(bus.registerVirtualObject("/org/arinn", &daemon, QDBusConnection::SubPath));
+    {
+      Backend backend(nullptr, identity);
+      QTRY_VERIFY(backend.connected());
+      QCOMPARE(backend.nativeShellFocus(), QString("unknown"));
+      const auto serial = backend.requestNativeFocus();
+      QTRY_VERIFY(backend.nativeFocusRevision() >= serial);
+      QCOMPARE(backend.nativeShellFocus(), QString("shell"));
+      daemon.activeClass = "org.example.Other";
+      const auto other = backend.requestNativeFocus();
+      QTRY_VERIFY(backend.nativeFocusRevision() >= other);
+      QCOMPARE(backend.nativeShellFocus(), QString("other"));
+      daemon.platform = false;
+      const auto disconnected = backend.requestNativeFocus();
+      QTRY_VERIFY(backend.nativeFocusRevision() >= disconnected);
+      QCOMPARE(backend.nativeShellFocus(), QString("unknown"));
+      daemon.platform = true; daemon.activeClass = identity.applicationId;
+      const auto recovered = backend.requestNativeFocus();
+      QTRY_VERIFY(backend.nativeFocusRevision() >= recovered);
+      QCOMPARE(backend.nativeShellFocus(), QString("shell"));
+      daemon.holdStatus = true;
+      QTest::qWait(1600);
+      QCOMPARE(backend.nativeShellFocus(), QString("unknown"));
+      backend.stopNativeFocusObservation();
+      // A late reply must not restore a stopped observation.
+      for (const auto &call : std::as_const(daemon.statusCalls)) {
+        QDBusArgument a;
+        a.beginStructure();
+        const QString epoch = "77777777-7777-4777-8777-777777777777";
+        a << epoch << true << epoch << qulonglong(1) << true << QString()
+          << daemon.activeWindow << daemon.activeClass << false << true << QString() << QString();
+        a.endStructure();
+        bus.send(call.createReply(QVariant::fromValue(a)));
+      }
+      QTest::qWait(50);
+      QCOMPARE(backend.nativeShellFocus(), QString("unknown"));
+    }
+    bus.unregisterObject("/org/arinn", QDBusConnection::UnregisterTree);
+    bus.unregisterService("org.arinn.Daemon1");
+  }
   void savedFavoritesMutationAndUnavailableRetention() {
     auto bus = QDBusConnection::sessionBus();
     CatalogDaemon daemon;
@@ -787,6 +895,219 @@ private slots:
       bus.unregisterService("org.arinn.Daemon1");
       QTRY_COMPARE(backend.homeState(), QString("unavailable"));
       QVERIFY(backend.webShortcuts().isEmpty());
+    }
+    bus.unregisterObject("/org/arinn", QDBusConnection::UnregisterTree);
+    bus.unregisterService("org.arinn.Daemon1");
+  }
+  // Spec §6.5, ADR-0110: the launch on screen follows its operation; Cancel
+  // goes to Operation1.Cancel and a refusal keeps the launch starting.
+  void applicationLaunchStartsCancelsAndFails() {
+    auto bus = QDBusConnection::sessionBus();
+    CatalogDaemon daemon;
+    daemon.mode = "populated";
+    daemon.launchOperation = true;
+    QVERIFY(bus.registerService("org.arinn.Daemon1"));
+    QVERIFY(bus.registerVirtualObject("/org/arinn", &daemon,
+                                      QDBusConnection::SubPath));
+    {
+      Backend backend;
+      QTRY_COMPARE(backend.applications().size(), 2);
+      const auto id = backend.applications()[0].toMap()["id"].toString();
+      QSignalSpy shown(&backend, &Backend::launchShown);
+      backend.launch(id);
+      QVERIFY(backend.launchActive());
+      QCOMPARE(backend.launchTitle(), QString("Application"));
+      QTRY_VERIFY(backend.launchCancellable());
+      // Choosing the busy tile again shows the launch, it does not relaunch.
+      backend.launch(id);
+      QCOMPARE(shown.count(), 1);
+      QCOMPARE(daemon.launches, 1);
+      // A stop the provider has not finished in time (Timeout) is under
+      // way: "Stopping…", no Cancel, and no "could not be stopped".
+      daemon.cancelError = "Timeout";
+      backend.cancelLaunch();
+      QTRY_COMPARE(daemon.cancels, 1);
+      QTRY_VERIFY(backend.launchStopping());
+      QVERIFY(!backend.launchCancellable());
+      QVERIFY(backend.message() != QString("The launch could not be stopped"));
+      // The processes are gone: the operation ends as cancelled.
+      daemon.launchState = "cancelled";
+      daemon.launchError = "Cancelled";
+      QTRY_VERIFY(!backend.launchActive());
+      QVERIFY(!backend.launchStopping());
+      QVERIFY(backend.launchError().isEmpty());
+      daemon.launchState = "running";
+      daemon.launchError.clear();
+      backend.launch(id);
+      QTRY_VERIFY(backend.launchCancellable());
+      // A refused cancel leaves the launch starting.
+      daemon.cancelError = "NotFound";
+      backend.cancelLaunch();
+      QVERIFY(!backend.launchCancellable());
+      QTRY_COMPARE(daemon.cancels, 2);
+      QTRY_COMPARE(backend.message(), QString("The launch could not be stopped"));
+      QVERIFY(backend.launchActive());
+      QTRY_VERIFY(backend.launchCancellable());
+      daemon.cancelError.clear();
+      backend.cancelLaunch();
+      QTRY_VERIFY(!backend.launchActive());
+      QCOMPARE(daemon.cancels, 3);
+      QVERIFY(backend.launchError().isEmpty());
+      QTRY_VERIFY(backend.busyEntryIds().isEmpty());
+      QCOMPARE(backend.message(), QString("Launch cancelled"));
+      // A failed launch stays on screen until it is dismissed or retried.
+      daemon.launchState = "running";
+      daemon.launchError.clear();
+      backend.launch(id);
+      QTRY_VERIFY(backend.launchCancellable());
+      daemon.launchState = "failed";
+      daemon.launchError = "Unavailable";
+      QTRY_COMPARE(backend.launchError(), QString("Unavailable"));
+      QVERIFY(!backend.launchActive());
+      QVERIFY(!backend.launchCancellable());
+      daemon.launchState = "running";
+      daemon.launchError.clear();
+      backend.retryLaunch();
+      QCOMPARE(daemon.launches, 4);
+      QVERIFY(backend.launchActive());
+      QVERIFY(backend.launchError().isEmpty());
+      // Success closes it.
+      daemon.launchState = "succeeded";
+      QTRY_VERIFY(!backend.launchActive());
+      QVERIFY(backend.launchError().isEmpty());
+      backend.dismissLaunchFailure();
+      QCOMPARE(backend.launchTitle(), QString());
+    }
+    bus.unregisterObject("/org/arinn", QDBusConnection::UnregisterTree);
+    bus.unregisterService("org.arinn.Daemon1");
+  }
+  // Spec §6.5: a launch hidden by Home and then by a newer launch of
+  // another application still shows again on its tile, stays cancellable,
+  // and its failure comes on screen as a dialog. Closing that dialog returns
+  // to the starting screen it covered (§6.1); one that Home hid stays hidden.
+  // Failures queue behind each other (review of #511).
+  void launchBehindANewerLaunchShowsAgainAndFails() {
+    auto bus = QDBusConnection::sessionBus();
+    CatalogDaemon daemon;
+    daemon.mode = "populated";
+    daemon.launchOperation = true;
+    daemon.perApplication = true;
+    QVERIFY(bus.registerService("org.arinn.Daemon1"));
+    QVERIFY(bus.registerVirtualObject("/org/arinn", &daemon,
+                                      QDBusConnection::SubPath));
+    {
+      Backend backend;
+      QTRY_COMPARE(backend.applications().size(), 2);
+      const auto a = backend.applications()[0].toMap()["id"].toString();
+      const auto b = backend.applications()[1].toMap()["id"].toString();
+      QSignalSpy shown(&backend, &Backend::launchShown);
+      QSignalSpy started(&backend, &Backend::launchStarted);
+      QSignalSpy hidden(&backend, &Backend::launchHidden);
+      // The overlay reports Home as it hides the starting screen.
+      const auto home = [&backend] { backend.setLaunchHidden(true); };
+      backend.launch(a);
+      QTRY_VERIFY(backend.launchCancellable());
+      home();
+      backend.launch(b);
+      QCOMPARE(started.count(), 2);
+      QTRY_VERIFY(backend.launchCancellable());
+      QCOMPARE(daemon.launches, 2);
+      // A's tile again: A's starting screen, no relaunch, still cancellable.
+      backend.launch(a);
+      QCOMPARE(shown.count(), 1);
+      QCOMPARE(daemon.launches, 2);
+      QVERIFY(backend.launchActive());
+      QVERIFY(backend.launchCancellable());
+      QVERIFY(backend.launchElapsed() >= 0);
+      // Cancel reaches A's operation, not B's.
+      backend.cancelLaunch();
+      QTRY_COMPARE(daemon.cancelled, QStringList{"first"});
+      // A ended; B, which A's screen had replaced, takes its place hidden.
+      QTRY_COMPARE(hidden.count(), 1);
+      QCOMPARE(shown.count(), 1);
+      QVERIFY(backend.launchActive());
+      QCOMPARE(backend.busyEntryIds(), QStringList{b});
+
+      // A again, Home, then B's tile: "Starting B…" is on screen.
+      backend.launch(a);
+      QTRY_VERIFY(backend.launchCancellable());
+      home();
+      backend.launch(b);
+      QCOMPARE(shown.count(), 2);
+      // A fails behind it: its dialog comes on screen at once.
+      daemon.states["first"] = "failed";
+      daemon.errors["first"] = "Unavailable";
+      QTRY_COMPARE(backend.launchError(), QString("Unavailable"));
+      QVERIFY(!backend.launchActive());
+      // Closing it returns to B's starting screen, which it covered.
+      backend.dismissLaunchFailure();
+      QVERIFY(backend.launchError().isEmpty());
+      QVERIFY(backend.launchActive());
+      QCOMPARE(shown.count(), 3);
+      QCOMPARE(hidden.count(), 1);
+
+      // B hidden by Home this time: after A's dialog, B stays hidden.
+      backend.launch(a);
+      QTRY_VERIFY(backend.launchCancellable());
+      backend.launch(b);
+      home();
+      daemon.states["first"] = "failed";
+      QTRY_COMPARE(backend.launchError(), QString("Unavailable"));
+      backend.dismissLaunchFailure();
+      QVERIFY(backend.launchActive());
+      QCOMPARE(hidden.count(), 2);
+      QCOMPARE(shown.count(), 4);
+
+      // A second failure waits behind the dialog on screen: A fails while
+      // B's screen is up, then B fails too. Retry relaunches A, and B's
+      // dialog comes next.
+      backend.launch(a);
+      QTRY_VERIFY(backend.launchCancellable());
+      home();
+      backend.launch(b);
+      daemon.states["first"] = "failed";
+      QTRY_COMPARE(backend.launchError(), QString("Unavailable"));
+      daemon.states["second"] = "failed";
+      daemon.errors["second"] = "Unavailable";
+      QTRY_VERIFY(!backend.busyEntryIds().contains(b));
+      daemon.invokedId.clear();
+      backend.retryLaunch();
+      QCOMPARE(daemon.invokedId, QString("first"));
+      QCOMPARE(backend.launchError(), QString("Unavailable"));
+      // Closing B's dialog returns to A's new launch.
+      const auto shownBefore = shown.count();
+      backend.dismissLaunchFailure();
+      QVERIFY(backend.launchActive());
+      QCOMPARE(shown.count(), shownBefore + 1);
+
+      // A failure waits while the stop confirmation of the launch on screen
+      // is open, so an OK meant for it cannot land on Retry.
+      QTRY_VERIFY(backend.launchCancellable());
+      home();
+      backend.launch(b);
+      QTRY_VERIFY(backend.launchCancellable());
+      backend.setLaunchConfirming(true);
+      daemon.states["first"] = "failed";
+      QTRY_VERIFY(!backend.busyEntryIds().contains(a));
+      QVERIFY(backend.launchActive());
+      QVERIFY(backend.launchError().isEmpty());
+      backend.setLaunchConfirming(false);
+      QTRY_COMPARE(backend.launchError(), QString("Unavailable"));
+      backend.dismissLaunchFailure();
+      QVERIFY(backend.launchActive());
+
+      // A background launch that ends leaves nothing behind: once the launch
+      // on screen ends too, no launch is left on screen.
+      home();
+      backend.launch(a);
+      QTRY_VERIFY(backend.launchCancellable());
+      daemon.states["second"] = "succeeded";
+      QTRY_VERIFY(!backend.busyEntryIds().contains(b));
+      QVERIFY(backend.launchActive());
+      daemon.states["first"] = "succeeded";
+      QTRY_VERIFY(backend.busyEntryIds().isEmpty());
+      QVERIFY(!backend.launchActive());
+      QVERIFY(backend.launchError().isEmpty());
     }
     bus.unregisterObject("/org/arinn", QDBusConnection::UnregisterTree);
     bus.unregisterService("org.arinn.Daemon1");

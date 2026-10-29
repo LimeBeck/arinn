@@ -117,6 +117,18 @@ FocusScope {
     // True while an Activity background is shown (ADR-0027): the ambient
     // light field then stays off.
     property bool ambientSuppressed: false
+    // The last frame of the Activity behind Home (§12.3), empty for none.
+    // Near while the Activity's own card has focus, otherwise far (handoff
+    // Home 16). Never delays focus: it only replaces the plain background.
+    property url activitySource: ""
+    // A Return Activity verified as a browser service is shown by the
+    // current-service card instead of its opaque entry.
+    readonly property bool activityNear: screen === "home" && !navOpen && homeRow === "continue"
+        && returnActivityId.length > 0
+        && (focusedEntry.id === returnActivityId
+            || (returnIsWebService && focusedEntry.id === "current-service"))
+    // Settings › Appearance › Light field (spec §15, ADR-0112).
+    property bool ambientEnabled: true
     // The shell's input mode (ADR-0095); tests may assign it directly.
     property bool pointerMode: InputMode.pointerActive
     property bool actionsEnabled: false
@@ -563,12 +575,20 @@ FocusScope {
         }
     }
     Rectangle { anchors.fill: parent; color: Theme.background; visible: !root.coveredByScreen }
+    ActivityBackground {
+        objectName: "activityBackground"
+        anchors.fill: parent
+        visible: !root.coveredByScreen && root.screen === "home" && root.activitySource.toString() !== ""
+        source: root.activitySource
+        near: root.activityNear
+    }
     AmbientGlow {
         id: ambient
         objectName: "ambientGlow"
         anchors.fill: parent
         visible: !root.coveredByScreen
         lit: root.screen === "home" && root.homeState === "ready" && !root.ambientSuppressed
+             && root.ambientEnabled
              && root.ambientEntry !== null && root.homeRow !== "new"
         source: root.ambientEntry ? (root.ambientEntry.artwork || "") : ""
         tint: root.ambientEntry ? Theme.identityColor(root.ambientEntry.visualIdentity || root.ambientEntry.id) : "transparent"
@@ -1167,6 +1187,7 @@ FocusScope {
                     width: shortcutTypingKeyboard.x - x - 24
                     height: 80; anchors.verticalCenter: parent.verticalCenter
                     font.family: Theme.fontFamily; font.pixelSize: 48; font.weight: 500
+                    FontWeightAxis {}
                     color: Theme.textPrimary; verticalAlignment: TextInput.AlignVCenter; clip: true
                     // Focus stays on the panel; a hardware keyboard reaches
                     // the text through it.

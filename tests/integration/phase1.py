@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import shutil
 import signal
+import socket
 import subprocess
 import tempfile
 import time
@@ -131,7 +132,79 @@ with tempfile.TemporaryDirectory(prefix="arinn-production-") as folder:
             return node.tag, tuple(sorted(node.attrib.items())), tuple(children)
         assert normalized(expected) == normalized(element), f"wire contract drift: {filename}"
 
+    def name_owner(name="org.arinn.Daemon1"):
+        result = subprocess.run(["busctl", "--user", "--json=short", "call", "org.freedesktop.DBus",
+                                 "/org/freedesktop/DBus", "org.freedesktop.DBus", "GetNameOwner", "s", name],
+                                env=env, capture_output=True, text=True, timeout=3)
+        return json.loads(result.stdout)["data"][0] if result.returncode == 0 else None
+
+    def served_interfaces(owner):
+        # Addressed to the unique owner, as the KWin script does (#447). A
+        # call that reaches arinnd before its object server runs is never
+        # answered, so a short timeout turns that silence into a failure.
+        try:
+            result = subprocess.run(["busctl", "--user", "--timeout=3", "--xml-interface", "introspect",
+                                     owner, "/org/arinn/Daemon1"], env=env, capture_output=True,
+                                    text=True, timeout=5)
+        except subprocess.TimeoutExpired:
+            raise AssertionError(f"{owner} owns org.arinn.Daemon1 but does not answer") from None
+        assert result.returncode == 0, f"{owner} owns org.arinn.Daemon1 but does not serve it: {result.stderr}"
+        return {node.get("name") for node in ET.fromstring(result.stdout).findall("interface")}
+
+    def startup_order():
+        """#463: org.arinn.Daemon1 has an owner only once every export is served.
+
+        The test system bus accepts the daemon's connection and never answers
+        its handshake. That holds startup after the session bus connection and
+        before the exports that need the system bus, so the check does not
+        depend on timing. While startup is held the name must stay unowned;
+        the old order owned it there and left every call unanswered. Once
+        released, the owner serves every interface as soon as the name
+        appears, and a second daemon fails on the name without replacing it.
+        """
+        gate_path = root / "system-bus-gate"
+        gate = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        gate.bind(str(gate_path))
+        gate.listen(1)
+        gate.settimeout(12)
+        log = tempfile.TemporaryFile(mode="w+")
+        logs.append(log)
+        first = subprocess.Popen([str(BIN / "arinnd")], stdout=log, stderr=log,
+                                 env={**env, "DBUS_SYSTEM_BUS_ADDRESS": f"unix:path={gate_path}"})
+        processes.append(first)
+        held, _ = gate.accept()
+        try:
+            owner = name_owner()
+            if owner is not None:
+                served = served_interfaces(owner)
+                raise AssertionError(f"org.arinn.Daemon1 owned before the exports: {sorted(served)}")
+        finally:
+            held.close()
+            gate.close()
+        owner = wait(name_owner)
+        early = served_interfaces(owner)
+        expected = {"org.arinn.Daemon1", "org.arinn.Background1", "org.arinn.KWinBridge1",
+                    "org.arinn.KWinMedia1", "org.arinn.KWinReturn1", "org.arinn.PlatformWindows1",
+                    "org.arinn.Settings1", "org.arinn.Favorites1", "org.arinn.WebShortcuts1",
+                    "org.arinn.WebShortcutIcons1", "org.arinn.MediaAssociation1",
+                    "org.arinn.SystemStatus1", "org.arinn.SystemControl1",
+                    "org.arinn.ExternalKeyboard1", "org.arinn.KeyboardBridge1"}
+        assert expected <= early, sorted(expected - early)
+        # Nothing is exported on this path after the name.
+        time.sleep(0.5)
+        later = served_interfaces(owner)
+        assert later == early, sorted(later ^ early)
+        # The name guards single-instance state changes: a second daemon
+        # neither queues for it nor takes it over.
+        second = subprocess.run([str(BIN / "arinnd")], env=env, capture_output=True, text=True, timeout=20)
+        assert second.returncode == 1, second.stderr
+        assert name_owner() == owner and first.poll() is None, second.stderr
+        first.send_signal(signal.SIGINT)
+        first.wait(timeout=5)
+        wait(lambda: name_owner() is None)
+
     try:
+        startup_order()
         manifest()
         daemon = start(BIN / "arinnd")
         # A missing manager must leave a diagnostic, not prevent recovery by an
@@ -206,6 +279,42 @@ with tempfile.TemporaryDirectory(prefix="arinn-production-") as folder:
         _, revision, audio, network, _, level = json.loads(status.stdout)["data"][0]
         assert revision >= 1 and audio in ("muted", "unmuted", "unknown"), status.stdout
         assert network in ("connected", "disconnected", "unknown") and 0 <= level <= 4, status.stdout
+        # SystemControl1 (ADR-0108): the export and the two reads only. This
+        # suite never calls a power action or changes the volume.
+        wire_contract("org.arinn.Daemon1", "/org/arinn/Daemon1", "org.arinn.SystemControl1",
+                      "system-control1.xml")
+        def control_read(method):
+            reply = subprocess.run(["busctl", "--user", "--json=short", "call", "org.arinn.Daemon1",
+                                    "/org/arinn/Daemon1", "org.arinn.SystemControl1", method],
+                                   env=env, capture_output=True, text=True, timeout=10)
+            assert reply.returncode == 0, reply.stderr
+            return json.loads(reply.stdout)["data"][0]
+        *availability, inhibitors = control_read("GetPower")
+        assert all(value in ("available", "inhibited", "denied", "unsupported", "unknown")
+                   for value in availability), availability
+        assert len(inhibitors) <= 16 and all(what in ("sleep", "shutdown") for what, _, _ in inhibitors)
+        # Outside the dedicated Arinn session the switch is never offered;
+        # this suite never calls SwitchToDesktop.
+        assert control_read("GetSessionSwitch") in ("available", "unsupported")
+        audio, level = control_read("GetVolume")
+        assert audio in ("muted", "unmuted", "unknown") and 0 <= level <= 150, (audio, level)
+        assert audio != "unknown" or level == 0, (audio, level)
+        # ExternalKeyboard1 and KeyboardBridge1 (ADR-0105): the live export
+        # matches the XML; without a session nothing is typed, and the key
+        # request belongs to the platform adapter alone.
+        wire_contract("org.arinn.Daemon1", "/org/arinn/Daemon1", "org.arinn.ExternalKeyboard1",
+                      "external-keyboard1.xml")
+        wire_contract("org.arinn.Daemon1", "/org/arinn/Daemon1", "org.arinn.KeyboardBridge1",
+                      "keyboard-bridge1.xml")
+        typed = subprocess.run(["busctl", "--user", "call", "org.arinn.Daemon1", "/org/arinn/Daemon1",
+                                "org.arinn.ExternalKeyboard1", "Type", "ss",
+                                "10000000-0000-4000-8000-000000000001", "a"],
+                               env=env, capture_output=True, text=True, timeout=5)
+        assert typed.returncode != 0 and "Conflict" in typed.stderr, typed.stderr
+        request = subprocess.run(["busctl", "--user", "call", "org.arinn.Daemon1", "/org/arinn/Daemon1",
+                                  "org.arinn.KeyboardBridge1", "Request"],
+                                 env=env, capture_output=True, text=True, timeout=5)
+        assert request.returncode != 0 and "PermissionDenied" in request.stderr, request.stderr
         def folders_call(method, signature="", *arguments):
             return subprocess.run(["busctl", "--user", "--json=short", "call",
                                    "org.arinn.Daemon1", "/org/arinn/Daemon1",

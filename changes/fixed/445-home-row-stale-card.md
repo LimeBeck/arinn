@@ -1,0 +1,1 @@
+- Removing a card from a Home row no longer logs an "Unable to assign [undefined]" warning.

@@ -1,0 +1,542 @@
+# System control
+
+Normative contract for [ADR-0108](../adr/0108-system-control.md)
+([#464](https://github.com/LimeBeck/arinn/issues/464)). The daemon executes the
+power actions and volume changes of spec §5.7 for the shell. This document
+states what the producer does and how the shell applies the replies.
+
+## Interface
+
+| Interface | Owner and path | Members |
+| --- | --- | --- |
+| `org.arinn.SystemControl1` | Daemon, `/org/arinn/Daemon1`; [system-control1.xml](../plugin-api/system-control1.xml) | `GetPower() -> (sssa(sss))`, `Suspend()`, `Reboot()`, `PowerOff()`, `GetVolume() -> (su)`, `SetMuted(b muted) -> (su)`, `ToggleMuted() -> (su)`, `StepVolume(i steps) -> (su)`, `GetSessionSwitch() -> s`, `SwitchToDesktop()` |
+
+Types, validation and the step arithmetic are in
+`arinn_protocol::system_control`. There is no signal: the shell reads when it
+needs a value.
+
+### Power state
+
+`(suspend, reboot, power_off, inhibitors)`:
+
+| Field | Producer values | Reader rule |
+| --- | --- | --- |
+| `suspend`, `reboot`, `power_off` | `available`, `inhibited`, `denied`, `unsupported`, `unknown` | Any other value is `unknown` |
+| `inhibitors` | At most 16 `(what, who, why)`; `what` is `sleep` or `shutdown`; `who` ≤ 128 and `why` ≤ 256 bytes, single line (no control characters, no U+2028 or U+2029) | An entry whose `what` it does not know is ignored |
+
+The producer derives each action from logind's `CanSuspend`, `CanReboot` and
+`CanPowerOff` and from `ListInhibitors`:
+
+| Condition | Value |
+| --- | --- |
+| `Can*` is `na` | `unsupported` |
+| A `block` inhibitor of the action's lock exists (`sleep` for suspend, `shutdown` for reboot and power off) | `inhibited` |
+| `Can*` is `yes` | `available` |
+| `Can*` is `no` or `challenge` | `denied` (Arinn never asks for authorization) |
+| No system bus, no logind, an inhibitor list that cannot be read (then every action), a failed or timed-out `Can*` read, or any other answer | `unknown` |
+
+`inhibited` is published only with at least one inhibitor of that lock. Every
+`ListInhibitors` record is inspected; only the published list is bounded. With
+more than 16 inhibitors, the first of each lock is kept, then the rest in
+logind's order up to the bound. `delay` inhibitors and other locks (`idle`,
+`handle-*`) are not listed. User and process IDs are dropped.
+
+### Power actions
+
+`Suspend`, `Reboot` and `PowerOff` take no arguments and return nothing. The
+producer:
+
+1. refuses a caller that owns a registered provider (`PermissionDenied`);
+2. runs one power request at a time and refuses a request that arrives while
+   another runs with `Conflict`, without queueing it;
+3. lists the inhibitors, inspecting every record, and refuses with `Conflict`
+   when a `block` inhibitor of the action's lock exists, without asking
+   logind. A list that cannot be read or times out refuses the action with
+   `Unavailable` (fail closed);
+4. calls logind's method with `interactive = false`, bounded by 10 s
+   (`Timeout`).
+
+A reply means logind accepted the request, not that the machine slept or
+restarted. logind's refusals map to `org.arinn.Error1` names:
+
+| logind error | Arinn error |
+| --- | --- |
+| `org.freedesktop.login1.BlockedByInhibitorLock`, `…login1.OperationInProgress` | `Conflict` |
+| `…DBus.Error.InteractiveAuthorizationRequired`, `…DBus.Error.AccessDenied`, `…DBus.Error.AuthFailed` | `Conflict` when a block inhibitor of the lock exists now, otherwise `PermissionDenied` |
+| `…login1.SleepVerbNotSupported`, `…DBus.Error.NotSupported`, `…DBus.Error.UnknownMethod` | `Unsupported` |
+| `…DBus.Error.ServiceUnknown`, `…NameHasNoOwner`, `…UnknownObject`, `…Disconnected`, no system bus | `Unavailable` |
+| `…DBus.Error.NoReply`, `…DBus.Error.Timeout` | `Timeout` |
+| anything else | `Internal` |
+
+#### Between the check and the request
+
+Steps 3 and 4 are two calls to logind, so another program can take a block
+inhibitor between them ([#498](https://github.com/LimeBeck/arinn/issues/498)).
+The check runs immediately before the call, so the window is one D-Bus round
+trip. Reading the list again would not narrow it. logind offers no call that
+acts only while no block inhibitor is held for an unprivileged caller. The
+flags of `SuspendWithFlags`, `RebootWithFlags` and `PowerOffWithFlags` do not
+help:
+
+- `SD_LOGIND_SKIP_INHIBITORS` (systemd 257 and later) skips inhibitors.
+- `SD_LOGIND_ROOT_CHECK_INHIBITORS` applies only to UID 0: before 257 it makes
+  `block` inhibitors bind root, and since 257 it makes `block-weak` ones bind
+  root.
+
+What happens in the window depends on the systemd version. The sources are
+`org.freedesktop.login1(5)`, and the logind function that checks a request:
+`manager_verify_shutdown_creds()` in `src/login/logind-shutdown.c` from v261,
+`verify_shutdown_creds()` in `logind-dbus.c` before that.
+
+- **systemd 257 and later:** logind enforces every `block` inhibitor itself,
+  for every caller, the caller's own user included, unless the request carries
+  `SD_LOGIND_SKIP_INHIBITORS`. The `*-ignore-inhibit` polkit actions do not
+  apply to a `block` inhibitor. Arinn's calls (`interactive = false`, no flags)
+  never skip inhibitors. logind checks the inhibitors and starts the action in
+  one step of its event loop, and checks again when a polkit answer arrives
+  later. An inhibitor taken in the window therefore refuses the request, so
+  the window is closed. Since systemd 258 the refusal is
+  `BlockedByInhibitorLock`, which always reads as `Conflict`. systemd 257
+  answers `AccessDenied`, which reads as `Conflict` only while the list read
+  after the refusal still shows the inhibitor. If the holder released it in
+  the meantime, the answer is `PermissionDenied`. The action is refused either
+  way.
+- **Before systemd 257 (v256 and earlier):** logind ignores every inhibitor
+  held by the caller's own UID. `verify_shutdown_creds()` asks
+  `manager_is_inhibited()` with `ignore_uid = true`, which skips such
+  inhibitors (v256 `logind-dbus.c:1995`, `logind-inhibit.c:430`; the same in
+  v255). `arinnd` runs as the session user. So a `block` inhibitor that the
+  user's own browser, player or download tool takes in the window does not
+  stop the request: logind asks only the action's ordinary polkit question
+  and proceeds. An inhibitor of another user goes to polkit for the action's
+  `*-ignore-inhibit`, without interaction. The default policy is
+  `auth_admin_keep`, so the request is refused unless an administrator grants
+  that action without authentication. The refusal,
+  `InteractiveAuthorizationRequired`, reads as `Conflict` while the list read
+  after it still shows the inhibitor, and as `PermissionDenied` otherwise. In both cases,
+  only an inhibitor taken inside the window is affected; Arinn's own check
+  refuses every inhibitor that exists when the request starts. The same user
+  can pass their own inhibitors with `systemctl suspend` on these versions
+  anyway, because logind ignored them for that user. This residual window is
+  a known limitation, accepted by the owner
+  ([#536](https://github.com/LimeBeck/arinn/issues/536)). No Arinn target
+  ships these versions (see below).
+- **`block-weak` inhibitors** (systemd 257 and later) are not listed or
+  checked by Arinn; only `block` counts (ADR-0108). logind ignores a weak
+  inhibitor that the caller's own user holds. For another user's weak
+  inhibitor it asks polkit for `*-ignore-inhibit`. This is logind's rule for
+  weak inhibitors, not a timing window. The owner decided in #536 that Arinn
+  keeps ignoring them.
+
+Every system Arinn targets or tests ships systemd 257 or later. These versions
+were read from the official container images on 2026-10-26:
+
+| System | systemd |
+| --- | --- |
+| Arch Linux, the product target (a rolling release; `archlinux:latest` built 2026-10-21) | 262 |
+| Ubuntu 25.04, the CI package image ([packaging/debian/README.md](../../packaging/debian/README.md)) | 257.4 |
+| Debian 13 | 257.13 |
+| Ubuntu 26.04 LTS | 259.5 |
+
+The `.deb` gives `systemd` no minimum version. Its Qt 6.8 floor (ADR-0104;
+the shell imports `qt_version_tag@Qt_6.8`) and `libglib2.0-0 (>= 2.80)`
+already exclude the releases below 257:
+
+- Ubuntu 24.04 LTS (systemd 255.4) has Qt 6.4.2.
+- Ubuntu 24.10 (systemd 256.5) has Qt 6.6.2.
+- Debian 12 (systemd 252.39) has an older Qt and GLib.
+
+Every Debian or Ubuntu release at the Qt floor ships systemd 257 or later.
+
+Arinn keeps its own check: it answers `Conflict` without asking logind and
+names the holders. On systemd 257 and later, logind's own check is what makes
+the action atomic.
+
+### Volume
+
+`(audio, level)`:
+
+| Field | Producer values | Reader rule |
+| --- | --- | --- |
+| `audio` | `muted`, `unmuted`, `unknown` (as in ADR-0100) | Any other value is `unknown` |
+| `level` | The loudest channel of the default sink in percent, 0–150; 0 while `audio` is `unknown` | Above 150 reads as 150; meaningless while `audio` is `unknown` |
+
+- `GetVolume` reads `pactl get-sink-mute` and `pactl get-sink-volume` for
+  `@DEFAULT_SINK@` with `LC_ALL=C`. Either read failing gives `unknown` with
+  level 0. A read never fails the call.
+- `SetMuted(muted)` and `ToggleMuted()` run `pactl set-sink-mute`, then read.
+- `StepVolume(steps)` takes 1 to 20 steps either way (`InvalidArgument`
+  otherwise), 5 points each. It reads the level, computes the target (never
+  below 0, never above 100 when stepping up, and an existing level above 100
+  is kept when stepping up) and moves every channel by the difference with
+  `pactl set-sink-volume @DEFAULT_SINK@ ±N%`, so the balance stays. Then it
+  reads. Stepping never changes the mute flag.
+- The changes return the state read after the change. A missing `pactl`, a
+  server that is not running or no default sink is `Unavailable`; a `pactl`
+  that does not finish within 2 s is `Timeout`. Changes are serialized in
+  arrival order.
+- `SystemStatus1` is unchanged. Its mute flag follows the change through the
+  sound server's events ([system status](system-status.md)).
+
+### Switch to desktop
+
+Spec §5.7, [#438](https://github.com/LimeBeck/arinn/issues/438). The
+mechanism is the dedicated Arinn login session and its unprivileged switch
+helper; see the [session lifecycle](session-lifecycle.md).
+
+| Member | Producer | Reader rule |
+| --- | --- | --- |
+| `GetSessionSwitch() -> s` | `available` when the daemon runs in the dedicated Arinn session (its environment has `ARINN_SESSION_ENTRY=plasma` or `xfce`, exported by the session wrapper) and `/usr/lib/arinn/arinn-session-switch` is an executable file; `unsupported` otherwise | Any other value is `unknown`; the shell offers the action only for `available` |
+| `SwitchToDesktop()` | Runs the helper as `arinn-session-switch desktop` with the entry in its environment, no other arguments and no shell, in its own process group, bounded by 10 s | A reply means the desktop accepted the logout request; the session then ends |
+
+The daemon reads `ARINN_SESSION_ENTRY` once, when it starts. A daemon that
+started before the wrapper exported it (for example through the opt-in
+`arinn-session.target` of [ADR-0042](../adr/0042-opt-in-session-autostart.md),
+which ADR-0107 says not to combine with the Arinn entry) reports
+`unsupported` for that whole login: the switch is not offered, and nothing
+else changes.
+
+The helper records that the user's next login of the Arinn entry starts the
+plain desktop, then asks the desktop to log out through its own session-bus
+API. It bounds that call to 5 s itself (`busctl --timeout=5`), so a desktop
+that does not answer is handled like a refusal and the previous choice is
+restored before the daemon's limit. The daemon's 10 s limit is a backstop,
+well below the shell's 20 s wait for a power reply. Errors:
+
+| Condition | Arinn error |
+| --- | --- |
+| Not in the dedicated session, or the helper is not an installed executable file | `Unsupported` |
+| The helper exits 1: no supported desktop, or the desktop refused the logout or did not answer within 5 s (the helper restored the previous choice) | `Unavailable` |
+| The helper does not finish within 10 s | `Timeout` |
+| The helper exits 3: the choice could not be recorded (no logout was requested), or 2 (usage), a signal, a wait or spawn failure | `Internal` |
+
+On `Timeout` the daemon kills the helper's whole process group, including a
+logout call still waiting, and reaps it before it replies. No logout call
+is then still waiting on Arinn's side; a request the desktop already queued
+may still be processed late. The power lock is released only after that.
+The same holds for the helper's own 5 s bound: a desktop that freezes for
+about that long may still log out after the helper restored the previous
+choice and the shell showed the error. That is the fail-safe direction,
+because the next login starts Arinn again. The helper may have been killed after it recorded `desktop` and
+before it could restore the previous choice, so `Timeout` may leave `desktop`
+recorded. That needs a helper stalled for 10 s outside its bounded logout
+call (for example, on a hung state file system), and its effect is the
+outcome the user asked for at the next login. The shell reports the error and
+the session continues.
+
+`SwitchToDesktop` counts as a power request: while one runs, another power request or switch is refused with `Conflict`, and vice versa. The
+shell asks for confirmation first, with the live list of applications that
+will close and Cancel as the default focus, exactly as for Restart and Shut
+down; the daemon does not ask again. The helper's output is discarded; the log
+line has the operation and error code only.
+
+A logout the desktop accepts and an application cancels later (an unsaved-work
+prompt) is not detected: `SwitchToDesktop` has already replied, the session
+continues with `desktop` recorded, and the next login starts the plain desktop.
+This is the open point of [ADR-0107](../adr/0107-dedicated-arinn-session.md)
+(*Decision* 3). Neither this contract nor the shell's power-menu entry
+([power menu](ui-power.md)) settles it; it stays open on
+[#438](https://github.com/LimeBeck/arinn/issues/438), and either direction
+keeps these members.
+
+## Power key
+
+The remote's ⏻ opens the power menu instead of the desktop's power dialog
+while Arinn runs (spec §5.7 *Power button*, [ADR-0111](../adr/0111-power-key.md)).
+The key never calls this interface by itself; the shell opens the menu and
+every action goes through the methods above.
+
+- **Only with a live shell.** Arinn holds the key only while the shell owns
+  `org.arinn.Shell1` and has answered a property read on `/org/arinn/Shell1`
+  (it answers once its window has loaded, as `arinn-open` probes it;
+  `platform/shell_ready.rs`), and the key is really read: on KDE while the adapter
+  polls (a `TakeCommand` within 45 s), on X11 while the grab or raw reading
+  works. Close Arinn, a shell crash loop at its start limit, a stopped KWin
+  script or a failing reader give everything back at once; a returning shell
+  takes it again.
+- **KDE, Plasma 6.7 or later** (owner decision of 2026-10-25). The KWin action
+  `ArinnPower` reports `ReportPowerMenuRequest` after the unlocked check. The
+  daemon (`platform/kde/power_key.rs`) takes the logind inhibitor first, then
+  gives `ArinnPower` `Key_PowerOff` and `Key_PowerDown` (KWin's long press),
+  written after every configured key, and reads them back. Only when
+  KGlobalAccel stored them (it stores one key for several actions from
+  kglobalacceld 6.6.90, Plasma 6.7) does it mark PowerDevil's `PowerOff` and
+  `PowerDown` KGlobalAccel actions not present for this KGlobalAccel run
+  (`setInactive`; nothing about them is written to `kglobalshortcutsrc`).
+  Before Plasma 6.7 KGlobalAccel refuses the keys: PowerDevil's actions are
+  never touched, `ArinnPower` stays empty, the inhibitor is dropped, and the
+  desktop's dialog stays (logged as `power-key` `Unsupported`). A key another
+  action holds is left out. Giving the key back clears `ArinnPower`, makes
+  PowerDevil's actions present again with the keys KGlobalAccel stores, and
+  only then drops the inhibitor; the daemon does it when the shell or the
+  adapter is lost, and `arinnd --release-power-key` does it as `ExecStopPost=`
+  of `arinnd.service` and from `arinn-kwin-adapter stop`, under a temporary
+  logind inhibitor (the daemon's ended with it). When PowerDevil's
+  bus name `org.kde.Solid.PowerManagement` gets a new owner (a restart), the
+  daemon takes the key again at once and after 5 and 30 s, since PowerDevil
+  registers its actions present again after it owns the name. Without the
+  inhibitor nothing is taken, and the next attempt follows after 30 s. A
+  failed `setInactive`, a write KGlobalAccel does not answer, or a lookup or
+  read it does not answer (unknown is never taken as free or empty) rolls the
+  take back: `ArinnPower` is cleared, PowerDevil's actions are present, and the
+  inhibitor goes once `ArinnPower` is known to be empty and PowerDevil's
+  actions are known to be present again; otherwise the inhibitor stays and the
+  key counts as taken, so the shell leaving gives it back. The next attempt
+  follows after 30 s. A release KGlobalAccel does not answer keeps the
+  inhibitor and is tried again at the next check.
+- **X11/EWMH** (`platform/x11/src/power_owner.rs`). The ordinary XFCE desktop
+  keeps the key and its dialog. The adapter recognises it on the session bus,
+  not from `XDG_CURRENT_DESKTOP`, which does not reach `arinn-ewmh.service` on
+  every distribution: while `org.xfce.SessionManager` or xfce4-power-manager's
+  `org.xfce.PowerManager` has an owner, only the dedicated Arinn XFCE session
+  (`ARINN_SESSION_ENTRY=xfce`, counted only while `org.xfce.SessionManager`
+  has an owner) takes the key. Its wrapper exports the marker into the
+  desktop's environment as well, and `arinn-xfce-session` mirrors that into
+  the user manager before it starts the target, clearing a marker a killed
+  wrapper left there; the manual recipe in [X11/EWMH](x11-ewmh.md#opt-in-setup)
+  clears it too. A stale marker on a desktop without XFCE falls back to the
+  grab. Any
+  other X11/EWMH desktop takes it. Both names are checked with the shell's on
+  every loop (500 ms), so an XFCE name that appears later gives the key back.
+  Every adapter connection starts with the power keys neither grabbed nor
+  read. With a live shell the adapter takes the logind inhibitor, then grabs
+  `XF86PowerOff` (and `XF86PowerDown` where mapped). A key another client
+  holds stays that client's. xfce4-power-manager grabs the key only once,
+  when it starts, and ignores a failure; so when Arinn lets go of a grab
+  while xfce4-power-manager runs and nobody grabs the key, the adapter
+  restarts it over its D-Bus `Restart` (`org.xfce.Power.Manager`), off the
+  adapter's loop, keeping logind's inhibitor until the new instance owns its
+  name; no key is taken while that restart is in flight. The same check
+  runs at every adapter start and in `--release-power-key`, after a crash,
+  but only when this display's adapter held a power grab (its marker in
+  `$XDG_RUNTIME_DIR/arinn/power-grab-<display>`), and never when no power key is
+  mapped. The marker stays until that check has seen the key held or a new
+  xfce4-power-manager own its name, so an unconfirmed repair is tried again at
+  the next start; [ADR-0111](../adr/0111-power-key.md)'s "removed once the
+  check after letting go has run" means exactly this. `--release-power-key`
+  follows the adapter's rule, the inhibitor first: it takes a temporary
+  logind inhibitor before anything else and, without one, restarts nothing
+  (logind would act on the key while the old instance's inhibitor is gone).
+  The XFCE setting still goes back, and the marker stays, so the next
+  adapter start in this login repairs the grab ([#519](https://github.com/LimeBeck/arinn/issues/519)). The marker
+  lives in `$XDG_RUNTIME_DIR`, which logind usually removes when the user's
+  last session ends. It survives with lingering, while the user has another
+  session open, and on a re-login within `UserStopDelaySec=` (10 s by
+  default), for example with SDDM's `Relogin=true`; ADR-0111 lists the same
+  cases for the session marker. That is harmless: the old xfce4-power-manager ends with its
+  display, a new login starts a new one that grabs the key itself, and the
+  next adapter start's first check finds that grab held (or no
+  xfce4-power-manager) and clears the marker. At worst it costs one extra
+  check; a healthy instance is never restarted. The login restore
+  entry (`--restore-power-button`) gives back only the XFCE setting and never
+  restarts xfce4-power-manager. Until the repair, the xfce4-power-manager
+  without its grab keeps its own inhibitor, so the key does nothing rather
+  than logind acting on it, unless the user set it to leave the key to
+  logind. A new instance has 10 s
+  to own the name; while the name has no owner at all (the old instance quit,
+  the new one starts slowly) the adapter waits a little longer, still holding
+  the inhibitor and taking no key, so a slow instance grabs the key itself.
+  The whole restart, the `Restart` call included, holds the inhibitor at most
+  15 s, as ADR-0111 states. A `Restart` call not answered within 5 s may
+  still take effect, so the name is watched the same way after it; only an
+  error reply ends the restart at once. The running adapter tries an
+  unconfirmed repair again as well (the grab check fails, `Restart` returns
+  an error, the old instance stays, or no new instance owns the name in
+  time): every 30 s at most, never sooner, each restart under logind's
+  inhibitor (a temporary one once Arinn's is gone; without one nothing is
+  restarted and the next attempt waits for the backoff), until one is
+  confirmed. Only a restart after which
+  the old instance went away and no new one came counts: after 3 of them in
+  a row the adapter gives up and logs it. It restarts nothing more and grabs
+  no key until the adapter restarts, and the marker stays for the next
+  start; a late instance then grabs the key itself. A restart that changed
+  nothing never counts, so an xfce4-power-manager whose grab is broken keeps
+  being retried rather than left with nobody reading the key; but when the
+  old instance, still there at the 10 s, goes away before the next restart
+  (it acted on `Restart` late), that counts as one that did not come back.
+  Between
+  retries Arinn holds no inhibitor. While xfce4-power-manager runs it holds
+  its own `handle-power-key` inhibitor, so while a repair is pending (or
+  after giving up) the key does nothing rather than logind acting on it,
+  unless the user set xfce4-power-manager to leave the key to logind. While
+  no xfce4-power-manager runs after giving up (no instance came back),
+  nobody inhibits logind, and its configured `HandlePowerKey=` acts
+  (power-off by default) until the adapter restarts. An
+  xfce4-power-manager that is gone meanwhile (stopped by the user) ends the
+  repair and clears the marker; `Restart` is never called while its name has
+  no owner, so it is never started, and one started again later grabs the
+  key itself. A confirmed or ended repair resets the 30 s backoff, except
+  after a restart that no instance came back from: then the backoff stays,
+  so a successor that comes late is not restarted sooner than 30 s after
+  the last restart. The count of missing instances is reset only by a
+  confirmed repair. A restart drops
+  idle inhibitors applications held through xfce4-power-manager; normally
+  the instance is about half a second old.
+- **XFCE, dedicated Arinn session only** (owner decision of 2026-10-24). With
+  `ARINN_SESSION_ENTRY=xfce` the adapter never grabs the power keys, so
+  xfce4-power-manager's grab succeeds whenever it starts; it reads them from
+  XInput2 raw events, and only once that works sets xfce4-power-manager's
+  power-button action to "do nothing" through xfconf; a raw press read before
+  that was xfce4-power-manager's and is dropped. xfconfd is per user, so it
+  takes the key only while logind lists no other graphical session of the
+  user (its own from `ARINN_LOGIN_SESSION_ID`, passed by
+  `arinn-xfce-session`; each logind query is bounded by 250 ms, and no answer
+  takes nothing); one appearing gives everything back
+  (`platform/x11/src/xfce_power.rs`). The user's live value (or "not set",
+  when the user's own channel file does not name it and it equals the system
+  default) is kept in
+  `$XDG_STATE_HOME/arinn/xfce-power-button` before the change and restored
+  when the shell is lost, on a clean stop, by `arinn-platform-x11
+  --release-power-key` (`ExecStopPost=` of `arinn-ewmh.service`), at the next
+  start in any X11/EWMH session, and at every XFCE login by
+  `/etc/xdg/autostart/org.arinn.PowerButtonRestore.desktop`
+  (`--restore-power-button`, a no-op while the adapter owns `org.arinn.X11`,
+  and with a copy to give back held under a temporary logind inhibitor like
+  the other restores when logind grants one; without one the restore still
+  runs: it does not touch xfce4-power-manager's own `handle-power-key`
+  inhibitor, which it holds by default, so logind cannot act meanwhile, and
+  skipping it would leave "do nothing" in the user's XFCE settings for good;
+  a copy the adapter could not give back at its start, or that xfconf refused
+  when Arinn let go, is retried every 30 s off its loop until it succeeds,
+  each time under a temporary logind inhibitor (the system bus is opened
+  again for each retry while the adapter has none, so a failed connection at
+  its start does not leave them without it), never while the key is held
+  and with no take while a retry runs; after a refused release Arinn's
+  inhibitor also stays until the value is back).
+  A take first gives a stale copy back; a value the user set meanwhile is kept.
+  With the copy, the adapter also writes a per-user XDG autostart entry,
+  `$XDG_CONFIG_HOME/autostart/arinn-power-button-restore.desktop`
+  (`OnlyShowIn=XFCE;`), and the `sh` script next to it that holds the value.
+  It uses only `sh` and `xfconf-query`, so the restore survives removing the
+  package after an unclean end: at the next XFCE login, once the adapter
+  binary that wrote it (its own path, not only `/usr/bin`) is gone, it gives
+  the value back (unless the user chose another one since) and removes itself
+  and the copy. While that binary exists it does nothing, a value it cannot
+  read is left for the next login, and every release removes it. Without the
+  entry nothing is changed. The copy and the entry use the login's own
+  folders: `arinn-xfce-session` passes them to the user manager as
+  `ARINN_LOGIN_STATE_HOME` and `ARINN_LOGIN_CONFIG_HOME`, which the adapter
+  and its helper prefer, while the system login entry uses the login's
+  `XDG_*` directly; without them the dedicated session takes nothing.
+- **logind.** While Arinn holds the key (the daemon on KDE, the adapter on
+  X11) it holds a `handle-power-key` block inhibitor (`platform/power_inhibitor.rs`),
+  taken before the key, so logind's own `HandlePowerKey=` never runs next to
+  the menu. The lock ends with the key or the process. `GetPower` never lists
+  `handle-power-key` inhibitors, so this one never blocks Sleep, Restart or
+  Shut down.
+
+Tests: `platform/kde/power_key.rs` (a fake KGlobalAccel with shared keys and a
+fake logind on a private bus: takeover without a write, KGlobalAccel before
+Plasma 6.7, a third-party key, no PowerDevil, no KGlobalAccel, no inhibitor
+and its retry, a reconnect without a key, every key held by other actions,
+a failed `setInactive` or write, an unanswered rollback of PowerDevil's
+actions, and an unanswered release with their retries, the release with the inhibitor dropped last, a PowerDevil restart,
+and the key following a live shell and adapter),
+`platform/power_inhibitor.rs`, `power_owner` (a fake reader, xfconf and logind:
+a shell exit, a crash loop, a reader that never works or stops, no inhibitor, a
+grab, the ordinary XFCE desktop, another desktop until xfce4-power-manager
+appears and is restarted when its grab failed, the dedicated session never
+grabbing, a crash repaired at the next start, a marker kept until the repair
+is confirmed, an unconfirmed restart or a failed grab check retried after the
+backoff until confirmed, a slow new instance waited for, the inhibitor held
+at most 15 s when no instance comes (a slow `Restart` call included), a
+late `Restart` answer still watched, a late successor waiting for the
+backoff, instances that act on `Restart` late stopping at the cap,
+no restart without the inhibitor, restarts whose instance never came
+capped, a restart that changed nothing retried without counting, a confirmed
+repair resetting the count, no restart when the name is gone, the backoff
+reset after a repair, a
+stopped xfce4-power-manager never restarted, a
+stale copy retried under an inhibitor after a failed start-up restore (also
+when the start found no system bus) or a refused release, the login restore
+under an inhibitor, no take during a retry, XFCE
+recognised by its bus names), `xfce_power` (a fake xfconf: stale copies, a
+newer user choice, a system default, a fresh value not yet in the file, the login restore, and the per-user entry
+run with a fake `xfconf-query` after Arinn is removed), `an_ended_session_gives_the_power_key_back`,
+`tests/package/test_xfce_session.py` (the opt-in bridge starts only with the
+XFCE session manager's name owned and never sets the marker), the Xvfb tests
+`power_key_is_reported_apart_from_home_and_the_quick_menu`,
+`held_power_key_is_read_from_raw_events_only_when_its_manager_does_nothing` and
+`power_key_opens_the_power_menu_only_when_unlocked`, `tests/ci/test_power_button_restore.py`,
+and `tests/integration/kwin_adapter.test.cjs`. Real KDE and XFCE sessions with
+the remote are owner operator tests (G-5.5); not run. The power-key checklist
+for them:
+
+- **One press, one action** on Plasma 6.7 or later: a short and a long press
+  of ⏻ open only Arinn's power menu, never PowerDevil's logout screen as
+  well, also right after Arinn starts and after PowerDevil restarts; with
+  the shell closed, only PowerDevil acts.
+- After a PowerDevil settings reload (for example a changed *When power
+  button pressed*), note whether PowerDevil keeps the key until the adapter
+  reconnects; it must never act together with Arinn.
+- Plasma before 6.7: the desktop's dialog only, and `kglobalshortcutsrc`
+  unchanged apart from Arinn's own entries.
+- `kglobalshortcutsrc` after a logout during an Arinn session, and the next
+  login with and without Arinn.
+- XFCE: the dedicated session (Arinn's menu only), the ordinary desktop (its
+  own dialog only), and a restore after a power cut.
+
+## Callers
+
+Only the shell calls this interface. A call from a connection that owns a
+registered provider is refused with `PermissionDenied` for every method,
+including the reads and the session switch. This keeps system actions out of the plugin API; it is
+not a sandbox (spec §13: plugins are trusted local software, and any process
+of the user can reach logind and the sound server itself).
+
+## Shell rules
+
+- Calls are asynchronous; the UI thread never waits for them (§8.2).
+- The power menu reads `GetPower` when it opens. `unsupported` actions are
+  disabled. `inhibited` and `denied` stay focusable and explain why; the
+  request still goes to the daemon, which refuses it with the typed error.
+  `unknown` behaves as `available`.
+- The power menu also reads `GetSessionSwitch` when it opens and shows
+  **Switch to desktop** only for `available`. A refused switch is an error
+  pane and the session continues; no inhibitor is named for it, and after
+  `Unsupported` the shell reads `GetSessionSwitch` again
+  ([power menu](ui-power.md)).
+- After `Conflict` on a power action the shell reads `GetPower` again and shows the holders'
+  `who` and `why`. Other errors show their own text. An accepted request
+  never shows success by itself: the session lifecycle guard hides the shell
+  before sleep, and the shell treats a wake as described in the
+  [session lifecycle](session-lifecycle.md).
+- The volume HUD shows the `(audio, level)` of the reply to the change the
+  user made. An error shows nothing new and never a guessed level.
+
+## Privacy
+
+Logs carry `system-<operation>` and the error code only (spec §13). Inhibitor
+texts, device names and levels are never logged or sent as telemetry. The
+shell shows inhibitor texts on screen only.
+
+## Verification
+
+- `crates/arinn-protocol/src/system_control.rs` unit tests.
+- `crates/arinn-protocol/tests/system_control.rs`: a fixture daemon on a private
+  bus; a daemon without the interface, the live export against the XML, typed
+  refusals, volume replies and the session switch on the wire.
+- `platform/system_control_tests.rs`: the logind and `pactl` mappings, a fake
+  logind on a private bus (`Can*` answers, block and delay inhibitors behind
+  hundreds of irrelevant records, an unreadable list that refuses, the bounded list, refusals,
+  a block inhibitor taken after Arinn's check that logind refuses as since systemd 257,
+  `interactive = false`, no logind, no bus) and a fake `pactl` (mute, toggle,
+  steps with balance, the 100 % stop, a level above 100 %, a change whose
+  read-back fails, no server, no tool, the C locale).
+- `crates/arinnd/src/runtime/system_control_tests.rs`: the daemon export
+  against the XML, typed errors on the wire, a second power request refused
+  while the first runs, and the refusal of a provider connection for every
+  method, before its arguments are checked.
+- `tests/integration/phase1.py`: the real daemon's export against the XML and
+  both reads; it never calls a power action or changes the volume.
+- `platform/system_control_tests.rs` and the daemon tests also run a fake
+  `arinn-session-switch`: unsupported outside the session, the fixed call,
+  exit codes, the timeout (a child the helper started is dead afterwards),
+  the provider refusal, and the shared power lock in both directions.
+- `tests/package/test_session_entry.py`: the helper's bounded logout call, its
+  restore when the desktop does not answer, and exit 3 for an unrecorded
+  choice.
+- Real suspend, reboot, power off and volume on the HTPC: owner operator tests
+  (AC-19). Not run.
+- Switching to the desktop and back on the HTPC: owner operator test (G-5.8).
+  Not run.

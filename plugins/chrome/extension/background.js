@@ -148,6 +148,7 @@ async function execute(command) {
             t => t.active && origin(t.url || t.pendingUrl || "") === target));
         const id = open ? open.id : (await chrome.windows.create({ url: command.url, type: MANAGED, focused: true })).id;
         await chrome.windows.update(id, { focused: true, state: "fullscreen" });
+        return { windowId: id, created: !open };
     } else {
         throw new Error("InvalidArgument");
     }
@@ -156,12 +157,13 @@ async function execute(command) {
 async function onCommand(message) {
     if (!message || message.type !== "command" || typeof message.serial !== "number") return;
     let error = "";
+    let target = { windowId: -1, created: false };
     try {
-        await execute(message);
+        target = await execute(message) || target;
     } catch (e) {
         error = String(e && e.message) === "InvalidArgument" ? "InvalidArgument" : errorCode(e);
     }
-    post({ type: "result", serial: message.serial, error });
+    post({ type: "result", serial: message.serial, error, ...target });
     scheduleSnapshot();
 }
 

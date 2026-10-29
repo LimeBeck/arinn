@@ -29,24 +29,30 @@ use zbus::{fdo, message::Header};
 pub const RESULT_TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_PENDING: usize = 32;
 
+/// Plugin-private command result: normalized error, selected window, newly created.
+pub type CommandResult = (String, i64, bool);
+fn failed(code: &str) -> CommandResult {
+    (code.into(), -1, false)
+}
+
 struct Host {
     bridge_owner: String,
     serial: AtomicU64,
-    pending: Arc<Mutex<HashMap<u64, oneshot::Sender<String>>>>,
+    pending: Arc<Mutex<HashMap<u64, oneshot::Sender<CommandResult>>>>,
     outgoing: mpsc::Sender<Vec<u8>>,
 }
 
 #[zbus::interface(name = "org.arinn.ChromeHost1")]
 impl Host {
-    /// Forward a command to the extension and wait for its result. Returns ""
-    /// on success or an error code; only the bridge owner may call it.
+    /// Forward a command and return its error and exact open-window result.
+    /// Only the bridge owner may call this plugin-private method.
     async fn command(
         &self,
         action: &str,
         tab: i64,
         url: &str,
         #[zbus(header)] header: Header<'_>,
-    ) -> fdo::Result<String> {
+    ) -> fdo::Result<CommandResult> {
         if header.sender().map(|s| s.as_str()) != Some(self.bridge_owner.as_str()) {
             return Err(fdo::Error::AccessDenied("only the provider".into()));
         }
@@ -55,14 +61,14 @@ impl Host {
             _ => ACTIONS.contains(&action) && url.is_empty(),
         };
         if !valid {
-            return Ok("InvalidArgument".into());
+            return Ok(failed("InvalidArgument"));
         }
         let serial = self.serial.fetch_add(1, Ordering::Relaxed) + 1;
         let (reply, result) = oneshot::channel();
         {
             let mut pending = self.pending.lock().unwrap();
             if pending.len() >= MAX_PENDING {
-                return Ok("Unavailable".into());
+                return Ok(failed("Unavailable"));
             }
             pending.insert(serial, reply);
         }
@@ -75,14 +81,14 @@ impl Host {
         .map_err(|_| fdo::Error::Failed("encode".into()))?;
         if self.outgoing.send(body).await.is_err() {
             self.pending.lock().unwrap().remove(&serial);
-            return Ok("Unavailable".into());
+            return Ok(failed("Unavailable"));
         }
         match tokio::time::timeout(RESULT_TIMEOUT, result).await {
             Ok(Ok(error)) => Ok(error),
-            Ok(Err(_)) => Ok("Unavailable".into()),
+            Ok(Err(_)) => Ok(failed("Unavailable")),
             Err(_) => {
                 self.pending.lock().unwrap().remove(&serial);
-                Ok("Timeout".into())
+                Ok(failed("Timeout"))
             }
         }
     }
@@ -128,7 +134,7 @@ where
         .build()
         .await?;
     let (outgoing, mut frames) = mpsc::channel::<Vec<u8>>(16);
-    let pending: Arc<Mutex<HashMap<u64, oneshot::Sender<String>>>> = Arc::default();
+    let pending: Arc<Mutex<HashMap<u64, oneshot::Sender<CommandResult>>>> = Arc::default();
     connection
         .object_server()
         .at(
@@ -164,9 +170,9 @@ where
                             break Err(e.into());
                         }
                     }
-                    Ok(FromExtension::Result { serial, error }) => {
+                    Ok(FromExtension::Result { serial, error, window_id, created }) => {
                         if let Some(reply) = pending.lock().unwrap().remove(&serial) {
-                            let _ = reply.send(result_code(&error));
+                            let _ = reply.send((result_code(&error), window_id, created));
                         }
                     }
                     // A malformed message ends the connection; the extension reconnects.

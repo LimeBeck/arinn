@@ -12,12 +12,19 @@
 #include <QUuid>
 #include <QtDBus>
 #include <QtQml>
+#include <algorithm>
 #include <cmath>
+#include <iterator>
 #include <limits>
 namespace {
 constexpr auto service = "org.arinn.Daemon1";
 constexpr auto path = "/org/arinn/Daemon1";
 constexpr auto settingsInterface = "org.arinn.Settings1";
+constexpr auto libraryInterface = "org.arinn.Library1";
+// Daemon1.Providers page and Library1.GetRoots reply (ADR-0071).
+constexpr auto providersPage = "(sa(sssssoasssststttt)s)";
+constexpr auto rootsReply = "(sta(sb))";
+constexpr auto rootsFeature = "LibraryRoots1";
 // Apply waits 5 s (ADR-0065). Leave room for the daemon to finish the
 // operation and for one extra Get.
 constexpr int operationWaitMs = 10000;
@@ -171,6 +178,36 @@ QVariantMap constraintsFor(const QString &kind, const QString &json) {
   }
   return map;
 }
+// The daemon's own settings (provider `arinn`, ADR-0065, ADR-0112) send
+// English source texts; the shell shows them translated. Provider texts are
+// shown as the provider sends them.
+constexpr auto kDaemonProvider = "arinn";
+[[maybe_unused]] constexpr const char *kDaemonTexts[] = {
+    QT_TRANSLATE_NOOP("SettingsCatalog", "Browser application"),
+    QT_TRANSLATE_NOOP("SettingsCatalog",
+                      "Application ID launched when a web shortcut opens with "
+                      "no browser running; empty uses the packaged choice"),
+    QT_TRANSLATE_NOOP("SettingsCatalog", "Search engine"),
+    QT_TRANSLATE_NOOP("SettingsCatalog", "Used when typed text is not an address"),
+    QT_TRANSLATE_NOOP("SettingsCatalog", "Light field"),
+    QT_TRANSLATE_NOOP("SettingsCatalog",
+                      "Soft light from the focused item's artwork behind Home"),
+    QT_TRANSLATE_NOOP("SettingsCatalog", "Ambient after"),
+    QT_TRANSLATE_NOOP("SettingsCatalog", "Idle time on an Arinn screen before "
+                                         "the ambient screen appears"),
+    QT_TRANSLATE_NOOP("SettingsCatalog", "5 min"),
+    QT_TRANSLATE_NOOP("SettingsCatalog", "10 min"),
+    QT_TRANSLATE_NOOP("SettingsCatalog", "15 min"),
+    QT_TRANSLATE_NOOP("SettingsCatalog", "30 min"),
+    QT_TRANSLATE_NOOP("SettingsCatalog", "60 min"),
+};
+QString daemonText(const QString &providerId, const QString &text) {
+  if (providerId != QLatin1String(kDaemonProvider))
+    return text;
+  return QCoreApplication::translate("SettingsCatalog", text.toUtf8().constData());
+}
+// The ambient timeouts the daemon offers, in minutes (ADR-0112).
+constexpr int kAmbientMinutes[] = {5, 10, 15, 30, 60};
 bool categoryKnown(const QString &id) {
   for (const auto &category : kCategories)
     if (id == QLatin1String(category.id))
@@ -202,6 +239,14 @@ void KeyboardMonitor::scan() {
   emit availableChanged();
 }
 
+struct SettingsCatalog::RootScan {
+  quint64 ticket = 0;
+  quint64 epoch = 0;
+  int pages = 0;
+  QSet<QString> tokens;
+  QHash<QString, QString> found;
+};
+
 struct SettingsCatalog::Load {
   quint64 epoch = 0;
   int remaining = 0;
@@ -217,6 +262,12 @@ SettingsCatalog::SettingsCatalog(QObject *parent) : QObject(parent) {
   bus.connect(QString::fromLatin1(service), QString::fromLatin1(path),
               QString::fromLatin1(service), QStringLiteral("ProvidersChanged"),
               this, SLOT(refresh()));
+  bus.connect(QString::fromLatin1(service), QString::fromLatin1(path),
+              QString::fromLatin1(service), QStringLiteral("ProvidersChanged"),
+              this, SLOT(refreshRoots()));
+  bus.connect(QString::fromLatin1(service), QString::fromLatin1(path),
+              QString::fromLatin1(service), QStringLiteral("StateChanged"), this,
+              SLOT(onStateChanged(QString, QString, QString, qulonglong)));
   auto watcher = new QDBusServiceWatcher(
       QString::fromLatin1(service), bus, QDBusServiceWatcher::WatchForOwnerChange,
       this);
@@ -230,6 +281,11 @@ SettingsCatalog::SettingsCatalog(QObject *parent) : QObject(parent) {
             m_saveGeneration.clear();
             m_tickets.clear();
             m_providers.clear();
+            m_libraryPaths.clear();
+            m_rootsReading.clear();
+            m_rootsAgain.clear();
+            m_roots.clear();
+            m_rootTickets.clear();
             m_loaded = false;
             m_error = false;
             m_unreachable = false;
@@ -239,11 +295,13 @@ SettingsCatalog::SettingsCatalog(QObject *parent) : QObject(parent) {
             m_dirty = false;
             publish();
             refresh();
+            refreshRoots();
           });
   m_timer.setInterval(fallbackPollMs);
   connect(&m_timer, &QTimer::timeout, this, &SettingsCatalog::refresh);
   m_timer.start();
   refresh();
+  refreshRoots();
 }
 QString SettingsCatalog::screenState() const {
   if (m_unreachable)
@@ -385,8 +443,211 @@ void SettingsCatalog::finishLoad(const std::shared_ptr<Load> &load) {
     refresh();
   }
 }
+// Library root availability (ADR-0071, spec §5.6). The library providers and
+// their daemon paths come from Daemon1.Providers; each one that lists
+// LibraryRoots1 in Features is asked for Library1.GetRoots. Unsupported means
+// no unavailable state, Unavailable means not read yet: both leave the folders
+// as they are until the provider's next library StateChanged. One change
+// brings StateChanged and then ProvidersChanged, so reads are coalesced per
+// provider: one read at a time, run once more if asked again meanwhile.
+// Features is read for each coalesced read: it may change without a new
+// provider generation.
+void SettingsCatalog::refreshRoots() {
+  auto scan = std::make_shared<RootScan>();
+  scan->ticket = ++m_rootScan;
+  scan->epoch = m_epoch;
+  readLibraryProviders(scan, QString());
+}
+void SettingsCatalog::readLibraryProviders(const std::shared_ptr<RootScan> &scan,
+                                           const QString &token) {
+  if (++scan->pages > 1024 || scan->tokens.contains(token))
+    return;
+  scan->tokens.insert(token);
+  auto msg = QDBusMessage::createMethodCall(service, path, service,
+                                            QStringLiteral("Providers"));
+  msg << token;
+  auto pending = new QDBusPendingCallWatcher(
+      QDBusConnection::sessionBus().asyncCall(msg, callMs), this);
+  connect(pending, &QDBusPendingCallWatcher::finished, this,
+          [this, scan](auto *call) {
+            const auto reply = call->reply();
+            call->deleteLater();
+            if (scan->epoch != m_epoch || scan->ticket != m_rootScan ||
+                reply.type() == QDBusMessage::ErrorMessage ||
+                reply.signature() != QLatin1String(providersPage))
+              return;
+            const auto arg =
+                qvariant_cast<QDBusArgument>(reply.arguments().at(0));
+            QString snapshot, next;
+            arg.beginStructure();
+            arg >> snapshot;
+            arg.beginArray();
+            while (!arg.atEnd()) {
+              QString id, plugin, source, name, version, runtime, backend,
+                  generation, error;
+              QStringList capabilities;
+              QDBusObjectPath endpoint;
+              qulonglong revision = 0, errorAt = 0, recovered = 0,
+                         restarts = 0, cumulative = 0;
+              arg.beginStructure();
+              arg >> id >> plugin >> source >> name >> version >> endpoint >>
+                  capabilities >> runtime >> backend >> generation >> revision >>
+                  error >> errorAt >> recovered >> restarts >> cumulative;
+              arg.endStructure();
+              if (capabilities.contains(QLatin1String("library")) &&
+                  runtime == QLatin1String("ready") && !id.isEmpty() &&
+                  !endpoint.path().isEmpty()) {
+                scan->found.insert(id, endpoint.path());
+              }
+            }
+            arg.endArray();
+            arg >> next;
+            arg.endStructure();
+            if (!next.isEmpty()) {
+              readLibraryProviders(scan, next);
+              return;
+            }
+            m_libraryPaths = scan->found;
+            QStringList gone;
+            for (auto it = m_roots.cbegin(); it != m_roots.cend(); ++it)
+              if (!m_libraryPaths.contains(it.key()))
+                gone.append(it.key());
+            for (const auto &id : gone)
+              dropRoots(id);
+            for (auto it = m_libraryPaths.cbegin(); it != m_libraryPaths.cend();
+                 ++it)
+              readRoots(it.key());
+          });
+}
+void SettingsCatalog::onStateChanged(const QString &providerId,
+                                     const QString &capability, const QString &,
+                                     qulonglong) {
+  if (capability != QLatin1String("library"))
+    return;
+  if (m_libraryPaths.contains(providerId))
+    readRoots(providerId);
+  else
+    refreshRoots();
+}
+void SettingsCatalog::readRoots(const QString &providerId) {
+  const auto objectPath = m_libraryPaths.value(providerId);
+  if (objectPath.isEmpty())
+    return;
+  if (m_rootsReading.contains(providerId)) {
+    m_rootsAgain.insert(providerId);
+    return;
+  }
+  m_rootsReading.insert(providerId);
+  const auto ticket = ++m_rootTickets[providerId];
+  const auto epoch = m_epoch;
+  auto features = QDBusMessage::createMethodCall(
+      service, objectPath, libraryInterface, QStringLiteral("Features"));
+  auto pending = new QDBusPendingCallWatcher(
+      QDBusConnection::sessionBus().asyncCall(features, callMs), this);
+  connect(pending, &QDBusPendingCallWatcher::finished, this,
+          [this, providerId, objectPath, ticket, epoch](auto *call) {
+            const auto reply = call->reply();
+            call->deleteLater();
+            if (epoch != m_epoch || ticket != m_rootTickets.value(providerId))
+              return;
+            const bool answered = reply.type() != QDBusMessage::ErrorMessage &&
+                                  reply.signature() == QLatin1String("as");
+            const bool roots =
+                answered && reply.arguments().at(0).toStringList().contains(
+                                QLatin1String(rootsFeature));
+            // Without LibraryRoots1 the provider never reports a folder as
+            // unavailable (ADR-0071).
+            if (!roots) {
+              dropRoots(providerId);
+              finishRootRead(providerId);
+              return;
+            }
+            readRootList(providerId, objectPath, ticket, epoch);
+          });
+}
+void SettingsCatalog::readRootList(const QString &providerId,
+                                   const QString &objectPath, quint64 ticket,
+                                   quint64 epoch) {
+  auto roots = QDBusMessage::createMethodCall(service, objectPath, libraryInterface,
+                                              QStringLiteral("GetRoots"));
+  auto pending = new QDBusPendingCallWatcher(
+      QDBusConnection::sessionBus().asyncCall(roots, callMs), this);
+  connect(pending, &QDBusPendingCallWatcher::finished, this,
+          [this, providerId, ticket, epoch](auto *call) {
+            const auto reply = call->reply();
+            call->deleteLater();
+            if (epoch != m_epoch || ticket != m_rootTickets.value(providerId))
+              return;
+            if (reply.type() == QDBusMessage::ErrorMessage ||
+                reply.signature() != QLatin1String(rootsReply)) {
+              dropRoots(providerId);
+              finishRootRead(providerId);
+              return;
+            }
+            const auto arg = qvariant_cast<QDBusArgument>(reply.arguments().at(0));
+            QString generation;
+            qulonglong revision = 0;
+            QHash<QString, bool> states;
+            arg.beginStructure();
+            arg >> generation >> revision;
+            arg.beginArray();
+            while (!arg.atEnd()) {
+              QString rootPath;
+              bool available = true;
+              arg.beginStructure();
+              arg >> rootPath >> available;
+              arg.endStructure();
+              states.insert(rootPath, available);
+            }
+            arg.endArray();
+            arg.endStructure();
+            if (!m_roots.contains(providerId) ||
+                m_roots.value(providerId) != states) {
+              m_roots.insert(providerId, states);
+              publish();
+            }
+            finishRootRead(providerId);
+          });
+}
+void SettingsCatalog::finishRootRead(const QString &providerId) {
+  m_rootsReading.remove(providerId);
+  if (m_rootsAgain.remove(providerId))
+    readRoots(providerId);
+}
+void SettingsCatalog::dropRoots(const QString &providerId) {
+  if (m_roots.remove(providerId))
+    publish();
+}
+void SettingsCatalog::readPreferences() {
+  bool light = m_lightField;
+  int minutes = m_ambientMinutes;
+  for (const auto &provider : m_providers) {
+    if (!provider.ok || provider.id != QLatin1String(kDaemonProvider))
+      continue;
+    for (const auto &setting : provider.settings) {
+      const auto value = valueFor(setting.kind, setting.valueJson, false);
+      if (setting.id == QLatin1String("light_field") &&
+          value.typeId() == QMetaType::Bool)
+        light = value.toBool();
+      if (setting.id == QLatin1String("ambient_timeout")) {
+        // Only an offered value applies; anything else keeps the last one.
+        bool ok = false;
+        const int parsed = value.toString().toInt(&ok);
+        if (ok && std::find(std::begin(kAmbientMinutes), std::end(kAmbientMinutes),
+                            parsed) != std::end(kAmbientMinutes))
+          minutes = parsed;
+      }
+    }
+  }
+  if (light == m_lightField && minutes == m_ambientMinutes)
+    return;
+  m_lightField = light;
+  m_ambientMinutes = minutes;
+  emit preferencesChanged();
+}
 void SettingsCatalog::publish() {
   syncDeferred();
+  readPreferences();
   QVariantList categories;
   QVariantList rows;
   QSet<QString> live;
@@ -405,27 +666,57 @@ void SettingsCatalog::publish() {
         for (const auto &setting : provider.settings) {
           if (setting.category != categoryId)
             continue;
-          const auto constraints = constraintsFor(setting.kind, setting.constraints);
+          auto constraints = constraintsFor(setting.kind, setting.constraints);
+          if (provider.id == QLatin1String(kDaemonProvider) &&
+              constraints.contains(QStringLiteral("options"))) {
+            QVariantList options;
+            for (const auto &option :
+                 constraints.value(QStringLiteral("options")).toList()) {
+              auto map = option.toMap();
+              map.insert(QStringLiteral("title"),
+                         daemonText(provider.id,
+                                    map.value(QStringLiteral("title")).toString()));
+              options.append(map);
+            }
+            constraints.insert(QStringLiteral("options"), options);
+          }
           const auto multiple =
               setting.kind == QLatin1String("path") &&
               constraints.value(QStringLiteral("multiple")).toBool();
           const auto key = keyFor(provider.id, setting.id);
           live.insert(key);
-          rows.append(QVariantMap{
+          const auto currentValue =
+              valueFor(setting.kind, setting.valueJson, multiple);
+          QVariantMap row{
               {QStringLiteral("providerId"), provider.id},
               {QStringLiteral("providerName"), provider.name},
               {QStringLiteral("id"), setting.id},
               {QStringLiteral("categoryId"), setting.category},
-              {QStringLiteral("title"), setting.title},
-              {QStringLiteral("description"), setting.description},
+              {QStringLiteral("title"), daemonText(provider.id, setting.title)},
+              {QStringLiteral("description"),
+               daemonText(provider.id, setting.description)},
               {QStringLiteral("type"), setting.kind},
-              {QStringLiteral("currentValue"),
-               valueFor(setting.kind, setting.valueJson, multiple)},
+              {QStringLiteral("currentValue"), currentValue},
               {QStringLiteral("constraints"), constraints},
               {QStringLiteral("enabled"), setting.enabled},
               {QStringLiteral("pending"), m_pending.contains(key)},
               {QStringLiteral("deferred"), m_deferred.contains(key)},
-              {QStringLiteral("error"), m_errors.value(key)}});
+              {QStringLiteral("error"), m_errors.value(key)}};
+          // The folders of this list that the library provider reports
+          // unavailable, matched by path as written (ADR-0071). The contract
+          // does not name the setting the roots come from, so every folder
+          // list (`directory` and `multiple`) of that provider is matched; a
+          // list of files is not.
+          if (multiple && constraints.value(QStringLiteral("directory")).toBool()) {
+            QStringList unavailable;
+            const auto states = m_roots.constFind(provider.id);
+            if (states != m_roots.cend())
+              for (const auto &entry : currentValue.toStringList())
+                if (!states->value(entry, true) && !unavailable.contains(entry))
+                  unavailable.append(entry);
+            row.insert(QStringLiteral("unavailablePaths"), unavailable);
+          }
+          rows.append(row);
         }
       }
     }

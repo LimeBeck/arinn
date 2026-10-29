@@ -1,0 +1,3 @@
+- Shell: the ambient screen matches handoff 20 more closely: the clock and date use the exact colours of the prototype (`#7F8083`, `#545557`), the date is 500 weight and left-aligned under the clock, and the clock has −3 % tracking on a 160 px line ([#487](https://github.com/LimeBeck/arinn/issues/487)).
+- Shell: the volume HUD, including "Volume control is not available", is drawn above a web service's or an application's launch overlay instead of behind it; the power menu keeps its place ([#487](https://github.com/LimeBeck/arinn/issues/487)).
+- Shell: idle ambient no longer starts while a power request waits for its answer, so a late refusal never takes focus behind ambient ([#487](https://github.com/LimeBeck/arinn/issues/487)).

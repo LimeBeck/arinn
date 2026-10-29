@@ -83,6 +83,14 @@ TestCase {
         backs.target = null;
     }
 
+    function test_clock_text_overrides_live_clock() {
+        const clock = child("browserClock");
+        compare(clock.text, view.liveClock);
+        view.clockText = "22:57";
+        compare(clock.text, "22:57");
+        view.clockText = "";
+        compare(clock.text, view.liveClock);
+    }
     function test_focus_move_stays_inside() {
         focused("row-t2");
         compare(view.focusedWindowId, "w1");
@@ -145,6 +153,19 @@ TestCase {
         compare(backs.count, 3);
         focused("row-t2");
         focusInside();
+    }
+
+    function test_right_hint_describes_close_action() {
+        const hint = child("browserCloseHint");
+        verify(hint.visible);
+        compare(hint.text, "Close");
+        focused("row-t2");
+        keyClick(Qt.Key_Right);
+        focused("bookmark-t2");
+        keyClick(Qt.Key_Right);
+        focused("close-t2");
+        keyClick(Qt.Key_Return);
+        compare(closes.count, 1);
     }
 
     function test_activate_and_close() {

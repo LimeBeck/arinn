@@ -1,0 +1,1 @@
+- Prepare package-matched native and Rust debug files for Sentry: verify Arch and Debian build IDs, and upload only from successful trusted publication builds. Runtime telemetry consent is unchanged; owner review and merge are required.

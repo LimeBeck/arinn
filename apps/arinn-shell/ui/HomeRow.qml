@@ -74,9 +74,11 @@ FocusScope {
             keys.push(key);
             map[key] = entry;
         }
-        byKey = map;
+        // Remove stale cards before the lookup changes: a card bound to an
+        // entry that is gone would read an empty entry first.
         for (let i = keyModel.count - 1; i >= 0; --i)
             if (map[keyModel.get(i).key] === undefined) keyModel.remove(i);
+        byKey = map;
         for (let i = 0; i < keys.length; ++i) {
             let at = -1;
             for (let j = i; j < keyModel.count && at < 0; ++j)

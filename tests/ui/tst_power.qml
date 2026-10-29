@@ -16,17 +16,14 @@ TestCase {
     property var menu
     Component {
         id: factory
-        Power.PowerMenu {
-            clockText: "12:00"
-            dateText: "Monday"
-        }
+        Power.PowerMenu {}
     }
     SignalSpy { id: sleepSpy; signalName: "sleepRequested" }
     SignalSpy { id: restartSpy; signalName: "restartRequested" }
     SignalSpy { id: shutdownSpy; signalName: "shutdownRequested" }
     SignalSpy { id: ambientSpy; signalName: "ambientRequested" }
-    SignalSpy { id: wakeSpy; signalName: "wakeRequested" }
     SignalSpy { id: homeSpy; signalName: "homeRequested" }
+    SignalSpy { id: switchSpy; signalName: "desktopSwitchRequested" }
 
     function child(name) {
         const item = findChild(menu, name);
@@ -46,8 +43,8 @@ TestCase {
         restartSpy.target = menu; restartSpy.clear();
         shutdownSpy.target = menu; shutdownSpy.clear();
         ambientSpy.target = menu; ambientSpy.clear();
-        wakeSpy.target = menu; wakeSpy.clear();
         homeSpy.target = menu; homeSpy.clear();
+        switchSpy.target = menu; switchSpy.clear();
         focused("sleepButton");
     }
     function cleanup() {
@@ -55,8 +52,8 @@ TestCase {
         restartSpy.target = null;
         shutdownSpy.target = null;
         ambientSpy.target = null;
-        wakeSpy.target = null;
         homeSpy.target = null;
+        switchSpy.target = null;
         if (menu)
             menu.destroy();
         menu = null;
@@ -171,44 +168,21 @@ TestCase {
         verify(findChild(menu, "powerSuccess") === null);
     }
 
-    function test_consumed_ambient_wake() {
+    // The Ambient row asks the shell for its ambient screen (#307); the menu
+    // itself shows nothing else and requests no power action.
+    function test_ambient_row_requests_ambient() {
         keyClick(Qt.Key_Down);
         keyClick(Qt.Key_Down);
         keyClick(Qt.Key_Down);
         focused("ambientButton");
         keyClick(Qt.Key_Return);
         compare(ambientSpy.count, 1);
-        compare(menu.step, "ambient");
-        verify(child("ambientScreen").visible);
-        tryCompare(menu, "ambientArmed", true);
-        compare(menu.step, "ambient");
-        keyClick(Qt.Key_Return);
-        compare(wakeSpy.count, 1);
-        compare(ambientSpy.count, 1);
         compare(sleepSpy.count, 0);
         compare(restartSpy.count, 0);
         compare(shutdownSpy.count, 0);
         compare(menu.step, "menu");
+        verify(findChild(menu, "ambientScreen") === null);
         focused("ambientButton");
-        keyClick(Qt.Key_Up);
-        focused("shutdownButton");
-
-        mouseMove(menu, 10, 10);
-        menu.startAmbient();
-        // The resting pointer is the wake anchor at once; waiting for a hover
-        // sample made the first real movement the anchor instead (flaky).
-        verify(menu.ambientAnchorKnown);
-        compare(ambientSpy.count, 2);
-        tryCompare(menu, "ambientArmed", true);
-        compare(menu.step, "ambient");
-        mouseMove(menu, 640, 360);
-        tryCompare(wakeSpy, "count", 2);
-        compare(menu.step, "menu");
-        compare(sleepSpy.count, 0);
-        compare(restartSpy.count, 0);
-        compare(shutdownSpy.count, 0);
-        compare(ambientSpy.count, 2);
-        focused("shutdownButton");
     }
 
     function test_focus_stays_in_power_scope() {
@@ -304,5 +278,117 @@ TestCase {
         compare(sleepSpy.count, 0);
         focused("shutdownButton");
         verify(findChild(menu, "powerSuccess") === null);
+    }
+
+    // #438, spec §5.7: Switch to desktop exists only in the dedicated Arinn
+    // session (GetSessionSwitch "available"). Otherwise it is not shown and
+    // the arrows and Tab never reach it.
+    function test_switch_to_desktop_is_offered_only_when_available_data() {
+        return [
+            {tag: "unknown", value: "unknown"},
+            {tag: "unsupported", value: "unsupported"},
+            {tag: "empty", value: ""}
+        ];
+    }
+    function test_switch_to_desktop_is_offered_only_when_available(data) {
+        menu.desktopSwitchAvailability = data.value;
+        verify(!child("desktopButton").visible);
+        keyClick(Qt.Key_Down);
+        keyClick(Qt.Key_Down);
+        focused("shutdownButton");
+        keyClick(Qt.Key_Down);
+        focused("ambientButton");
+        keyClick(Qt.Key_Tab);
+        focused("sleepButton");
+        keyClick(Qt.Key_Backtab);
+        focused("ambientButton");
+        keyClick(Qt.Key_Up);
+        focused("shutdownButton");
+        compare(switchSpy.count, 0);
+    }
+
+    // Offered, it sits after Shut down, and its confirmation is the one of
+    // Restart and Shut down: the live list, Cancel as the default focus.
+    function test_switch_to_desktop_confirmation_defaults_to_cancel() {
+        menu.desktopSwitchAvailability = "available";
+        verify(child("desktopButton").visible);
+        verify(child("desktopButton").enabled);
+        compare(child("desktopLabel").text, "Switch to desktop");
+        compare(child("desktopDescription").text, "Log out; the next login starts the desktop");
+        keyClick(Qt.Key_Down);
+        keyClick(Qt.Key_Down);
+        keyClick(Qt.Key_Down);
+        focused("desktopButton");
+        keyClick(Qt.Key_Down);
+        focused("ambientButton");
+        keyClick(Qt.Key_Up);
+        focused("desktopButton");
+        keyClick(Qt.Key_Return);
+        compare(menu.step, "confirm");
+        compare(menu.pendingAction, "desktop");
+        focused("cancelButton");
+        verify(!child("confirmButton").activeFocus);
+        compare(child("confirmButton").destructive, true);
+        compare(child("confirmButton").text, "Switch");
+        compare(child("powerTitle").text, "Switch to desktop?");
+        verify(child("confirmDetail").visible);
+        verify(child("confirmDetail").text.indexOf("Return to Arinn") >= 0, child("confirmDetail").text);
+        compare(child("closingList").text, "These applications will close: One, Two.");
+        // The live list follows the registry while the confirmation is open.
+        menu.closingApplications = ["One"];
+        compare(child("closingList").text, "These applications will close: One.");
+        verify(!child("confirmNote").visible);
+        // Cancel, Back: nothing is requested.
+        keyClick(Qt.Key_Return);
+        compare(menu.step, "menu");
+        focused("desktopButton");
+        keyClick(Qt.Key_Return);
+        focused("cancelButton");
+        keyClick(Qt.Key_Escape);
+        compare(menu.step, "menu");
+        focused("desktopButton");
+        compare(switchSpy.count, 0);
+        // Home leaves without an action.
+        keyClick(Qt.Key_Return);
+        focused("cancelButton");
+        keyClick(Qt.Key_Home);
+        compare(homeSpy.count, 1);
+        compare(switchSpy.count, 0);
+        compare(menu.step, "menu");
+        // Confirm sends the intent once; the menu reports nothing by itself.
+        focused("desktopButton");
+        keyClick(Qt.Key_Return);
+        focused("cancelButton");
+        keyClick(Qt.Key_Right);
+        focused("confirmButton");
+        keyClick(Qt.Key_Return);
+        compare(switchSpy.count, 1);
+        compare(restartSpy.count, 0);
+        compare(shutdownSpy.count, 0);
+        compare(menu.step, "confirm");
+        verify(!child("powerError").visible);
+        verify(!child("powerAccepted").visible);
+        // The other confirmations carry no switch text.
+        keyClick(Qt.Key_Escape);
+        keyClick(Qt.Key_Up);
+        focused("shutdownButton");
+        keyClick(Qt.Key_Return);
+        focused("cancelButton");
+        verify(!child("confirmDetail").visible);
+    }
+
+    // With five rows the panel still fits the canvas.
+    function test_switch_to_desktop_panel_fits() {
+        menu.desktopSwitchAvailability = "available";
+        const panel = child("powerPanel");
+        verify(panel.y >= 0 && panel.y + panel.height <= 1080, panel.y + " " + panel.height);
+        compare(child("desktopButton").height, 112);
+        compare(child("desktopIcon").width, 64);
+        keyClick(Qt.Key_Down);
+        keyClick(Qt.Key_Down);
+        keyClick(Qt.Key_Down);
+        keyClick(Qt.Key_Return);
+        focused("cancelButton");
+        verify(panel.y >= 0 && panel.y + panel.height <= 1080, panel.y + " " + panel.height);
     }
 }

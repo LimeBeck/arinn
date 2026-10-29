@@ -38,6 +38,10 @@ public:
   // item or the nearest parent that has one, or an empty string (#365).
   Q_INVOKABLE QString artworkFor(const QString &providerId,
                                  const QString &localId) const;
+  // Asset URL of the poster of the top-level entry that entryIdFor()
+  // returns for this provider-local item, or an empty string (#360).
+  Q_INVOKABLE QString posterFor(const QString &providerId,
+                                const QString &localId) const;
 public slots:
   void refresh();
 signals:

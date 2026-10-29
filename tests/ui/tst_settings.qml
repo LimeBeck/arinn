@@ -365,6 +365,46 @@ TestCase {
         verify(insideView(windowFocus()));
     }
 
+    // #540 (spec §5.6, ADR-0071, handoff LF-4): a folder the library provider
+    // reports unavailable stays in place with its note, is still removable,
+    // and returns to normal when the provider reports it again.
+    function test_unavailable_folder() {
+        view.rows = copyRows(row => {
+            if (row.id === "roots") {
+                row.currentValue = ["/videos", "/mnt/share"];
+                row.unavailablePaths = ["/mnt/share"];
+            }
+        });
+        focused("category-media");
+        keyClick(Qt.Key_Right);
+        keyClick(Qt.Key_Down);
+        focused("path-library-roots-0");
+        verify(!child("pathNote-library-roots-0").visible);
+        compare(child("path-library-roots-0").height, 72);
+        const note = child("pathNote-library-roots-1");
+        verify(note.visible);
+        compare(note.text, "Unavailable. Its titles stay in the library as unavailable.");
+        compare(note.color, Ui.Theme.error);
+        verify(child("path-library-roots-1").height > 72);
+        compare(child("remove-library-roots-1").height, child("path-library-roots-1").height);
+        // Remove still works; it only takes the folder out of the setting.
+        keyClick(Qt.Key_Right);
+        focused("remove-library-roots-0");
+        keyClick(Qt.Key_Right);
+        focused("path-library-roots-1");
+        keyClick(Qt.Key_Right);
+        focused("remove-library-roots-1");
+        keyClick(Qt.Key_Return);
+        compare(changes.count, 1);
+        compare(changes.signalArguments[0][1], "roots");
+        compare(changes.signalArguments[0][2].length, 1);
+        compare(changes.signalArguments[0][2][0], "/videos");
+        // The share is back: the provider no longer reports it.
+        view.rows = copyRows(row => { if (row.id === "roots") row.unavailablePaths = []; });
+        tryCompare(child("pathNote-library-roots-1"), "visible", false);
+        compare(child("path-library-roots-1").height, 72);
+    }
+
     function test_disabled_pending_and_error() {
         down(4);
         focused("category-applications");
@@ -495,6 +535,79 @@ TestCase {
         verify(insideView(windowFocus()));
     }
 
+    // The Flickable that scrolls an option: the nearest ancestor with contentY.
+    function optionViewport(item) {
+        let current = item.parent;
+        while (current && current.contentY === undefined)
+            current = current.parent;
+        verify(current !== null, "option viewport");
+        return current;
+    }
+    // The option lies wholly inside the sheet's visible part. Returns how far
+    // its middle is from the viewport's middle.
+    function optionShown(index) {
+        const item = child("option-" + index);
+        const flick = optionViewport(item);
+        const top = item.mapToItem(flick, 0, 0).y;
+        verify(top >= 0 && top + item.height <= flick.height,
+               "option-" + index + " at " + top + " in a viewport of " + flick.height
+               + " (contentY " + flick.contentY + ")");
+        return top + item.height / 2 - flick.height / 2;
+    }
+
+    // #537 (handoff EN-2): a long choice sheet opens on the current option,
+    // scrolled so it is on screen and centred, not at the top of the list
+    // with the focused option out of sight. Moving keeps it on screen.
+    function test_long_enum_opens_on_the_current_option() {
+        down(2);
+        focused("category-sound");
+        keyClick(Qt.Key_Right);
+        const options = [];
+        for (let i = 0; i < 64; ++i)
+            options.push({ value: "o" + i, title: "Option " + i });
+        view.rows = copyRows(row => {
+            if (row.id === "output") {
+                row.currentValue = "o44";
+                row.constraints = { options: options };
+            }
+        });
+        focused("setting-audio-output");
+        keyClick(Qt.Key_Return);
+        focused("option-44");
+        compare(child("optionPosition").text, "45 of 64");
+        // Centred: the option's middle is within one option of the middle.
+        verify(Math.abs(optionShown(44)) <= child("option-44").height);
+        // The remote's arrows and paging keep the focused option on screen.
+        keyClick(Qt.Key_Down);
+        focused("option-45");
+        optionShown(45);
+        keyClick(Qt.Key_Up);
+        keyClick(Qt.Key_Up);
+        focused("option-43");
+        optionShown(43);
+        for (let i = 0; i < 4; ++i)
+            keyClick(Qt.Key_PageDown);
+        focused("option-63");
+        optionShown(63);
+        compare(child("optionPosition").text, "64 of 64");
+        for (let i = 0; i < 11; ++i)
+            keyClick(Qt.Key_PageUp);
+        focused("option-0");
+        optionShown(0);
+        keyClick(Qt.Key_Escape);
+        focused("setting-audio-output");
+        compare(changes.count, 0);
+        // Opened again on another value, it goes straight to that option.
+        view.rows = copyRows(row => { if (row.id === "output") row.currentValue = "o20"; });
+        focused("setting-audio-output");
+        keyClick(Qt.Key_Return);
+        focused("option-20");
+        verify(Math.abs(optionShown(20)) <= child("option-20").height);
+        keyClick(Qt.Key_Escape);
+        focused("setting-audio-output");
+        compare(changes.count, 0);
+    }
+
     function keyAt(row, column) { return child("keyboardKey-" + row + "-" + column); }
 
     // STR-2 is no longer a dead end: without a hardware keyboard, the remote
@@ -605,6 +718,432 @@ TestCase {
         keyClick(Qt.Key_Home);
         tryCompare(view, "stringTyping", false);
         compare(changes.count, 0);
+    }
+
+    // The path panel's own items: the string panel uses the same names.
+    function pathKeyAt(row, column) {
+        const item = findChild(child("pathOnScreenKeyboard"), "keyboardKey-" + row + "-" + column);
+        verify(item !== null, row + "-" + column);
+        return item;
+    }
+    function pathKeysFocused() {
+        const keys = findChild(child("pathOnScreenKeyboard"), "keyboardKeys");
+        verify(keys !== null);
+        tryCompare(keys, "activeFocus", true);
+    }
+    // Moves the path panel's focus along its current row to a labelled key.
+    function moveToPathKey(label) {
+        const model = child("pathOnScreenKeyboard").model;
+        const keys = model.rows[model.row];
+        let column = -1;
+        for (let i = 0; i < keys.length; ++i)
+            if (keys[i].label === label) column = i;
+        verify(column >= 0, label);
+        for (let step = 0; step < 12 && model.column > column; ++step) keyClick(Qt.Key_Left);
+        for (let step = 0; step < 12 && model.column < column; ++step) keyClick(Qt.Key_Right);
+        tryCompare(pathKeyAt(model.row, column), "focused", true);
+    }
+
+    // KB-5 (#426): without a hardware keyboard a single path opens on its
+    // keyboard pill, and the remote types and saves it through the panel.
+    function test_path_without_keyboard_types_with_the_panel() {
+        view.keyboardAvailable = false;
+        keyClick(Qt.Key_Right);
+        focused("setting-library-scan");
+        keyClick(Qt.Key_Down);
+        keyClick(Qt.Key_Down);
+        focused("setting-library-folder");
+        keyClick(Qt.Key_Return);
+        focused("keyboard-library-folder");
+        verify(child("editor-library-folder").visible);
+        compare(child("keyboard-library-folder").text, "Keyboard");
+        child("pathOnScreenKeyboard").model.forget();
+        keyClick(Qt.Key_Return);
+        tryCompare(view, "pathTyping", true);
+        pathKeysFocused();
+        compare(child("pathTypingInput").text, "");
+        compare(child("pathTypingKeyboard").text, "Hide");
+        // The path context row on top; English letters below it, focus on
+        // the fifth key of the middle letter row.
+        const context = child("pathOnScreenKeyboard").model.rows[0].map(key => key.label);
+        compare(context, ["/", "~/", "/media/", "/run/media/", "/mnt/", "..", "-", "_", "."]);
+        tryCompare(pathKeyAt(2, 4), "focused", true);
+        compare(pathKeyAt(2, 4).modelData.label, "g");
+        keyClick(Qt.Key_Up);
+        keyClick(Qt.Key_Up);
+        moveToPathKey("/media/");
+        keyClick(Qt.Key_Return);
+        compare(child("pathTypingInput").text, "/media/");
+        compare(child("editor-library-folder").text, "/media/");
+        keyClick(Qt.Key_Down);
+        moveToPathKey("e");
+        keyClick(Qt.Key_Return);
+        compare(child("pathTypingInput").text, "/media/e");
+        compare(changes.count, 0);
+        // The main key of an inline editor is Save; it proposes the path.
+        for (let i = 0; i < 4; ++i) keyClick(Qt.Key_Down);
+        moveToPathKey("Save");
+        compare(child("pathOnScreenKeyboard").model.row, 4);
+        keyClick(Qt.Key_Return);
+        compare(changes.count, 1);
+        compare(changes.signalArguments[0][1], "folder");
+        compare(changes.signalArguments[0][2], "/media/e");
+        tryCompare(view, "pathTyping", false);
+        compare(view.editingKey, "");
+        focused("setting-library-folder");
+        verify(insideView(windowFocus()));
+    }
+
+    // KB-5: a path list item keeps Back, Home, Menu and a hardware keyboard
+    // working while the panel is open, and the panel never covers the field.
+    function test_path_panel_keys_and_layout() {
+        keyClick(Qt.Key_Right);
+        keyClick(Qt.Key_Down);
+        focused("path-library-roots-0");
+        keyClick(Qt.Key_Return);
+        focused("editor-library-roots-0");
+        compare(child("editor-library-roots-0").text, "/videos");
+        // Right at the end of the text reaches the pill; Left goes back.
+        keyClick(Qt.Key_Right);
+        focused("keyboard-library-roots-0");
+        keyClick(Qt.Key_Left);
+        focused("editor-library-roots-0");
+        keyClick(Qt.Key_Right);
+        focused("keyboard-library-roots-0");
+        keyClick(Qt.Key_Return);
+        tryCompare(view, "pathTyping", true);
+        pathKeysFocused();
+        compare(child("pathTypingInput").text, "/videos");
+        const field = child("pathTypingField");
+        const panel = child("pathOnScreenKeyboard");
+        verify(field.y + field.height <= panel.y, "field ends at " + (field.y + field.height) + ", panel at " + panel.y);
+        // A hardware keyboard types into the field and keeps the panel open.
+        keyClick(Qt.Key_Slash);
+        keyClick(Qt.Key_A);
+        compare(child("pathTypingInput").text, "/videos/a");
+        compare(child("editor-library-roots-0").text, "/videos/a");
+        keyClick(Qt.Key_Backspace);
+        compare(child("pathTypingInput").text, "/videos/");
+        verify(view.pathTyping);
+        // Menu is left to the shell's navigation.
+        suite.menuKeys = 0;
+        keyClick(Qt.Key_Menu);
+        compare(suite.menuKeys, 1);
+        verify(view.pathTyping);
+        // A catalog publish rebuilds the rows; typing goes on in the panel.
+        view.rows = copyRows();
+        pathKeysFocused();
+        verify(view.pathTyping);
+        // Back hides the panel and returns to the pill; the text stays.
+        keyClick(Qt.Key_Escape);
+        tryCompare(view, "pathTyping", false);
+        focused("keyboard-library-roots-0");
+        compare(child("editor-library-roots-0").text, "/videos/");
+        compare(view.editingDraft, "/videos/");
+        compare(changes.count, 0);
+        // Reopened, Home leaves without proposing the draft.
+        keyClick(Qt.Key_Return);
+        tryCompare(view, "pathTyping", true);
+        pathKeysFocused();
+        keyClick(Qt.Key_Home);
+        compare(homes.count, 1);
+        tryCompare(view, "pathTyping", false);
+        compare(view.editingKey, "");
+        compare(changes.count, 0);
+        // A second Back on the pill closes the editor.
+        createView();
+        keyClick(Qt.Key_Right);
+        keyClick(Qt.Key_Down);
+        focused("path-library-roots-0");
+        keyClick(Qt.Key_Return);
+        keyClick(Qt.Key_Right);
+        focused("keyboard-library-roots-0");
+        keyClick(Qt.Key_Escape);
+        compare(view.editingKey, "");
+        focused("path-library-roots-0");
+        compare(changes.count, 0);
+        verify(insideView(windowFocus()));
+    }
+
+    // Review of #472: a keyboard pill is not a text field, so Backspace (a
+    // remote's Back on some devices) is Back there (§6.2, AC-18).
+    function test_backspace_on_a_keyboard_pill_is_back() {
+        // A single path without a hardware keyboard opens on its pill.
+        view.keyboardAvailable = false;
+        keyClick(Qt.Key_Right);
+        keyClick(Qt.Key_Down);
+        keyClick(Qt.Key_Down);
+        focused("setting-library-folder");
+        keyClick(Qt.Key_Return);
+        focused("keyboard-library-folder");
+        keyClick(Qt.Key_Backspace);
+        compare(view.editingKey, "");
+        focused("setting-library-folder");
+        // A path list item, from the pill after Back from the panel.
+        keyClick(Qt.Key_Up);
+        focused("path-library-roots-0");
+        keyClick(Qt.Key_Return);
+        focused("keyboard-library-roots-0");
+        keyClick(Qt.Key_Return);
+        tryCompare(view, "pathTyping", true);
+        keyClick(Qt.Key_Escape);
+        tryCompare(view, "pathTyping", false);
+        focused("keyboard-library-roots-0");
+        keyClick(Qt.Key_Backspace);
+        compare(view.editingKey, "");
+        focused("path-library-roots-0");
+        // The string sheet's pill, which predates KB-5, behaves the same.
+        keyClick(Qt.Key_Left);
+        focused("category-media");
+        down(4);
+        focused("category-applications");
+        keyClick(Qt.Key_Right);
+        focused("setting-shell-label");
+        keyClick(Qt.Key_Return);
+        focused("stringKeyboard");
+        keyClick(Qt.Key_Backspace);
+        compare(view.editingKey, "");
+        focused("setting-shell-label");
+        compare(changes.count, 0);
+        compare(dismissals.count, 0);
+        verify(insideView(windowFocus()));
+    }
+
+    // KB-5: Add path through the panel; an empty entry is not proposed.
+    function test_add_path_with_the_panel() {
+        keyClick(Qt.Key_Right);
+        keyClick(Qt.Key_Down);
+        focused("path-library-roots-0");
+        keyClick(Qt.Key_Right);
+        keyClick(Qt.Key_Right);
+        focused("add-library-roots");
+        keyClick(Qt.Key_Return);
+        focused("editor-library-roots-add");
+        keyClick(Qt.Key_Right);
+        focused("keyboard-library-roots-add");
+        child("pathOnScreenKeyboard").model.forget();
+        keyClick(Qt.Key_Return);
+        tryCompare(view, "pathTyping", true);
+        for (let i = 0; i < 4; ++i) keyClick(Qt.Key_Down);
+        moveToPathKey("Save");
+        keyClick(Qt.Key_Return);
+        compare(changes.count, 0);
+        verify(view.pathTyping);
+        pathKeysFocused();
+        keyClick(Qt.Key_Slash);
+        keyClick(Qt.Key_E);
+        keyClick(Qt.Key_Return);
+        compare(changes.count, 1);
+        compare(changes.signalArguments[0][1], "roots");
+        compare(changes.signalArguments[0][2].length, 2);
+        compare(changes.signalArguments[0][2][0], "/videos");
+        compare(changes.signalArguments[0][2][1], "/e");
+        tryCompare(view, "pathTyping", false);
+        focused("path-library-roots-0");
+        verify(insideView(windowFocus()));
+    }
+
+    // #479 (§6.2: a format error blocks the main key until it is fixed): a
+    // path editor checks the rules of `arinn_protocol::settings::path` while
+    // typing. A path the daemon would reject shows why and Enter saves
+    // nothing; `~/` is relative, as in the contract.
+    function test_path_format_blocks_save() {
+        keyClick(Qt.Key_Right);
+        focused("setting-library-scan");
+        keyClick(Qt.Key_Down);
+        keyClick(Qt.Key_Down);
+        focused("setting-library-folder");
+        keyClick(Qt.Key_Return);
+        const editor = child("editor-library-folder");
+        tryCompare(editor, "activeFocus", true);
+        const hint = child("pathHint-library-folder");
+        verify(!hint.visible);
+        // 2048 Cyrillic letters are 4096 bytes: with the leading / one over
+        // the byte limit, though far under the 4096-character bound.
+        const overLimit = "/" + "я".repeat(2048);
+        const cases = [
+            ["media/films", "The path must start with /"],
+            // No home folder is known in this view: `~` stays relative.
+            ["~/films", "The path must start with /"],
+            ["/media/../etc", "The path cannot contain . or .. folders"],
+            ["/media/./films", "The path cannot contain . or .. folders"],
+            ["/media/..", "The path cannot contain . or .. folders"],
+            ["/media//films", "The path cannot contain //"],
+            ["//server/share", "The path cannot contain //"],
+            ["/media/a\tb", "The path cannot contain control characters"],
+            // C1 controls count too, as in `char::is_control` (#558).
+            ["/media/a\u0085b", "The path cannot contain control characters"],
+            ["/media/a\u009fb", "The path cannot contain control characters"],
+            [overLimit, "The path is too long"]
+        ];
+        // A short name for a case in failure messages.
+        const label = text => text.length > 40 ? text.length + " characters" : text;
+        for (const [text, reason] of cases) {
+            editor.text = text;
+            verify(view.editingDraft === text, label(text));
+            compare(hint.text, reason, label(text));
+            verify(hint.visible, label(text));
+            keyClick(Qt.Key_Return);
+            compare(changes.count, 0, label(text));
+            compare(view.editingKey, "library-folder", label(text));
+        }
+        compare([...overLimit].length, 2049);
+        // Exactly 4096 bytes, trailing slashes and the root are valid.
+        for (const text of ["/" + "я".repeat(2047) + "a", "/media/films/", "/"]) {
+            editor.text = text;
+            compare(hint.text, "", label(text));
+            verify(!hint.visible, label(text));
+        }
+        editor.text = "/media/films";
+        keyClick(Qt.Key_Return);
+        compare(changes.count, 1);
+        compare(changes.signalArguments[0][1], "folder");
+        compare(changes.signalArguments[0][2], "/media/films");
+        focused("setting-library-folder");
+        verify(insideView(windowFocus()));
+    }
+
+    // #479 with the panel (KB-5): Save, the main key, does nothing while the
+    // typed path has a format error, which shows under the field; the
+    // corrected path is saved.
+    function test_path_panel_save_waits_for_a_valid_path() {
+        keyClick(Qt.Key_Right);
+        keyClick(Qt.Key_Down);
+        focused("path-library-roots-0");
+        keyClick(Qt.Key_Right);
+        keyClick(Qt.Key_Right);
+        focused("add-library-roots");
+        keyClick(Qt.Key_Return);
+        focused("editor-library-roots-add");
+        keyClick(Qt.Key_Right);
+        focused("keyboard-library-roots-add");
+        child("pathOnScreenKeyboard").model.forget();
+        keyClick(Qt.Key_Return);
+        tryCompare(view, "pathTyping", true);
+        const error = child("pathTypingError");
+        verify(!error.visible);
+        for (let i = 0; i < 4; ++i) keyClick(Qt.Key_Down);
+        moveToPathKey("Save");
+        const input = child("pathTypingInput");
+        for (const [text, reason] of [["~/films", "The path must start with /"],
+                                      ["/media/..", "The path cannot contain . or .. folders"]]) {
+            input.text = text;
+            compare(view.editingDraft, text);
+            compare(error.text, reason);
+            verify(error.visible);
+            keyClick(Qt.Key_Return);
+            compare(changes.count, 0, text);
+            verify(view.pathTyping, text);
+            compare(child("pathHint-library-roots").text, reason);
+        }
+        input.text = "/media/films";
+        verify(!error.visible);
+        keyClick(Qt.Key_Return);
+        compare(changes.count, 1);
+        compare(changes.signalArguments[0][1], "roots");
+        compare(changes.signalArguments[0][2].length, 2);
+        compare(changes.signalArguments[0][2][1], "/media/films");
+        tryCompare(view, "pathTyping", false);
+        focused("path-library-roots-0");
+        verify(insideView(windowFocus()));
+    }
+
+    // #479, owner decision of 2026-10-26: `~` names the home folder. A leading
+    // `~/` is replaced in the field as it is typed; a bare `~` is expanded
+    // when proposed. `~user/` stays relative, and `~/../x` still breaks the
+    // `..` rule after the expansion. Without a known home folder, `~` stays
+    // relative (test_path_format_blocks_save).
+    function test_home_folder_expands_in_a_path() {
+        view.homeFolder = "/home/viewer";
+        keyClick(Qt.Key_Right);
+        focused("setting-library-scan");
+        keyClick(Qt.Key_Down);
+        keyClick(Qt.Key_Down);
+        focused("setting-library-folder");
+        keyClick(Qt.Key_Return);
+        const editor = child("editor-library-folder");
+        tryCompare(editor, "activeFocus", true);
+        const hint = child("pathHint-library-folder");
+        editor.text = "~/films";
+        compare(editor.text, "/home/viewer/films");
+        compare(view.editingDraft, "/home/viewer/films");
+        verify(!hint.visible);
+        editor.text = "~/../x";
+        compare(editor.text, "/home/viewer/../x");
+        compare(hint.text, "The path cannot contain . or .. folders");
+        keyClick(Qt.Key_Return);
+        compare(changes.count, 0);
+        editor.text = "~viewer/films";
+        compare(editor.text, "~viewer/films");
+        compare(hint.text, "The path must start with /");
+        keyClick(Qt.Key_Return);
+        compare(changes.count, 0);
+        // A bare `~` may still become `~user/`: it stays until proposed.
+        editor.text = "~";
+        compare(editor.text, "~");
+        verify(!hint.visible);
+        keyClick(Qt.Key_Return);
+        compare(changes.count, 1);
+        compare(changes.signalArguments[0][1], "folder");
+        compare(changes.signalArguments[0][2], "/home/viewer");
+        focused("setting-library-folder");
+        // A home folder that is not an absolute path is unknown.
+        changes.clear();
+        view.homeFolder = "viewer";
+        keyClick(Qt.Key_Return);
+        tryCompare(editor, "activeFocus", true);
+        editor.text = "~/films";
+        compare(editor.text, "~/films");
+        compare(hint.text, "The path must start with /");
+        keyClick(Qt.Key_Return);
+        compare(changes.count, 0);
+    }
+
+    // #479 with the panel (KB-5): the `~/` context key types the home folder.
+    function test_home_folder_expands_in_the_panel() {
+        view.homeFolder = "/home/viewer/";
+        view.keyboardAvailable = false;
+        keyClick(Qt.Key_Right);
+        focused("setting-library-scan");
+        keyClick(Qt.Key_Down);
+        keyClick(Qt.Key_Down);
+        focused("setting-library-folder");
+        keyClick(Qt.Key_Return);
+        focused("keyboard-library-folder");
+        child("pathOnScreenKeyboard").model.forget();
+        keyClick(Qt.Key_Return);
+        tryCompare(view, "pathTyping", true);
+        pathKeysFocused();
+        keyClick(Qt.Key_Up);
+        keyClick(Qt.Key_Up);
+        moveToPathKey("~/");
+        keyClick(Qt.Key_Return);
+        compare(child("pathTypingInput").text, "/home/viewer/");
+        compare(child("pathTypingInput").cursorPosition, "/home/viewer/".length);
+        compare(child("editor-library-folder").text, "/home/viewer/");
+        verify(!child("pathTypingError").visible);
+        keyClick(Qt.Key_Down);
+        moveToPathKey("e");
+        keyClick(Qt.Key_Return);
+        compare(child("pathTypingInput").text, "/home/viewer/e");
+        for (let i = 0; i < 4; ++i) keyClick(Qt.Key_Down);
+        moveToPathKey("Save");
+        keyClick(Qt.Key_Return);
+        compare(changes.count, 1);
+        compare(changes.signalArguments[0][2], "/home/viewer/e");
+        tryCompare(view, "pathTyping", false);
+        focused("setting-library-folder");
+    }
+
+    // #546: the typing layers' fields set weight 500 in the bundled Onest, a
+    // variable font; FontWeightAxis carries it to the wght axis, so it
+    // renders at 500, not 400.
+    function test_typing_fields_render_their_weight() {
+        for (const name of ["stringTypingInput", "pathTypingInput"]) {
+            const input = child(name);
+            compare(input.font.weight, 500, name);
+            compare(input.font.variableAxes["wght"], 500, name);
+        }
     }
 
     function test_saving_feedback() {

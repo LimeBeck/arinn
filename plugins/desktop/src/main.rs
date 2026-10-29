@@ -5,6 +5,7 @@ use arinn_plugin_desktop::{
     discovery::{Entry, Settings},
     instances::Instances,
     launcher,
+    launches::{self, Baseline, Launches},
 };
 use arinn_plugin_sdk::{
     platform::{WindowClient, WindowSnapshot},
@@ -30,6 +31,7 @@ struct Session {
 struct Shared {
     session: Mutex<Option<Session>>,
     registrations: OnceLock<watch::Receiver<Option<RegistrationContext>>>,
+    launches: Launches,
 }
 struct Handler {
     settings: Settings,
@@ -49,6 +51,80 @@ fn code(error: production::Error) -> ErrorCode {
         production::Error::Timeout(_) => ErrorCode::Timeout,
         production::Error::InvalidArgument(_) => ErrorCode::InvalidArgument,
         _ => ErrorCode::Unavailable,
+    }
+}
+impl Handler {
+    /// The current window inventory of this registration, if the platform
+    /// layer reports one.
+    fn windows(&self, registration: &str) -> Option<(Arc<WindowClient>, WindowSnapshot)> {
+        self.shared
+            .session
+            .lock()
+            .unwrap()
+            .as_ref()
+            .filter(|s| s.registration == registration)
+            .map(|s| (s.client.clone(), s.snapshot.clone()))
+    }
+    /// Launch through GIO and keep the launch pending while its application
+    /// unit runs with no window (spec §6.5, §7.2, ADR-0110).
+    async fn launch(
+        &self,
+        registration: &str,
+        id: &str,
+        entry: &Entry,
+        entries: &BTreeMap<String, Entry>,
+    ) -> Result<(), ErrorCode> {
+        let mut ticket = self.shared.launches.begin(id);
+        let start = self.windows(registration);
+        // A dedicated connection owns the AddRef reference. Losing the
+        // registration drops it, which releases the reference and never
+        // stops the application unit.
+        let connection = zbus::Connection::session()
+            .await
+            .map_err(|_| ErrorCode::Unavailable)?;
+        let unit = launcher::start_on(&connection, &entry.path).await;
+        if ticket.cancelled() {
+            let result = match &unit {
+                Ok(unit) => launches::stop(unit).await,
+                Err(_) => Ok(()),
+            };
+            ticket.stopped(result);
+            if let Ok(unit) = unit {
+                unit.release().await;
+            }
+            return result.and(Err(ErrorCode::Cancelled));
+        }
+        let unit = unit?;
+        // No window inventory right now (an adapter reconnecting): the wait
+        // gives it the same grace as a gap during the launch, and counts the
+        // launch as dispatched only if it stays missing.
+        let baseline = start.map(|(_, snapshot)| Baseline::new(&snapshot));
+        let result = launches::wait(
+            id,
+            entries,
+            baseline,
+            || self.windows(registration).map(|(_, snapshot)| snapshot),
+            || async {
+                match self.windows(registration) {
+                    Some((client, _)) => client.snapshot().await.ok(),
+                    None => None,
+                }
+            },
+            &unit,
+            &mut ticket.cancel,
+            launches::INVENTORY_GRACE,
+        )
+        .await;
+        if ticket.cancelled() {
+            ticket.stopped(match result {
+                Err(ErrorCode::Cancelled) => Ok(()),
+                Err(error) => Err(error),
+                // The window won the race with the cancellation.
+                Ok(()) => Err(ErrorCode::NotFound),
+            });
+        }
+        unit.release().await;
+        result
     }
 }
 impl ApplicationHandler for Handler {
@@ -75,7 +151,12 @@ impl ApplicationHandler for Handler {
                         // not launch an obsolete lower-priority entry.
                         let entries = discover(self.settings.clone()).await?;
                         let entry = entries.get(&id).ok_or(ErrorCode::NotFound)?;
-                        launcher::dispatch(entry).await
+                        if entry.dbus_name.is_some() {
+                            // The bus starts the application outside any Arinn
+                            // unit: dispatch is all the provider can observe.
+                            return launcher::dispatch(entry).await;
+                        }
+                        self.launch(&context.generation, &id, entry, &entries).await
                     }
                     Action::Activate | Action::Terminate => {
                         let (client, generation) = {
@@ -104,6 +185,12 @@ impl ApplicationHandler for Handler {
                 result=work=>result,
             }
         })
+    }
+    fn cancel_launch(
+        &self,
+        id: String,
+    ) -> Pin<Box<dyn Future<Output = Result<(), ErrorCode>> + Send + '_>> {
+        Box::pin(async move { self.shared.launches.cancel(&id).await })
     }
 }
 async fn synchronize(

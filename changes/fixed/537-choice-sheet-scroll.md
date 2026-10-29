@@ -1,0 +1,1 @@
+- A long Settings choice sheet now opens scrolled to the current option, centred, instead of at the top of the list with the focused option out of sight ([#537](https://github.com/LimeBeck/arinn/issues/537)).

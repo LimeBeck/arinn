@@ -53,14 +53,14 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0032](0032-kwin-script-platform-adapter.md) | A packaged KWin script as the first KDE platform adapter | Accepted | 0042 |
 | [0033](0033-ci-cd-and-releases.md) | CI/CD pipeline and release policy | Accepted | 0036, 0044, 0047, 0049, 0091, 0092, 0104 |
 | [0034](0034-provider-data-directory-identity.md) | Provider data directories independent of registry state | Accepted | — |
-| [0035](0035-phase1-application-wire-contract.md) | Phase 1 application wire contract | Accepted | 0059 |
+| [0035](0035-phase1-application-wire-contract.md) | Phase 1 application wire contract | Accepted | 0059, 0110 |
 | [0036](0036-parallel-development.md) | Parallel development by several agents | Accepted | 0037 |
 | [0037](0037-agent-autonomy-and-owner-gated-decisions.md) | Agent autonomy and owner-gated decisions | Accepted | 0068, 0072 |
 | [0038](0038-browser-launch-ownership.md) | Browser launch ownership | Accepted | 0043 |
 | [0039](0039-platform-window-contract.md) | Platform window snapshot and control contract | Accepted | — |
 | [0040](0040-kwin-inventory-transport.md) | Trusted KWin inventory transport and SDK registration context | Accepted | 0078 |
 | [0041](0041-independent-session-lifecycle-guard.md) | Daemon-independent session lifecycle guard | Accepted | — |
-| [0042](0042-opt-in-session-autostart.md) | Opt-in session autostart through packaged systemd user units | Accepted | 0077 |
+| [0042](0042-opt-in-session-autostart.md) | Opt-in session autostart through packaged systemd user units | Accepted | 0077, 0107 |
 | [0043](0043-web-shortcuts.md) | Arinn-owned web shortcuts for online-service tiles | Accepted | 0045, 0051, 0075 |
 | [0044](0044-docs-only-ci-scope.md) | Documentation-only pull requests skip the build jobs | Accepted | 0049 |
 | [0045](0045-local-http-web-shortcuts.md) | Plain HTTP web shortcuts for local-network hosts | Accepted | — |
@@ -74,7 +74,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0053](0053-release-and-label-workflows-on-the-runner.md) | Release and label workflows use the switchable runner | Accepted | — |
 | [0054](0054-media-and-library-wire-contract.md) | Media and library wire contract | Accepted | 0062, 0063, 0071 |
 | [0055](0055-launching-a-closed-browser.md) | Launching a closed browser before opening a URL | Accepted | — |
-| [0056](0056-local-library-scan-metadata-and-resume.md) | Local library scan, metadata and resume | Accepted | 0085, 0090 |
+| [0056](0056-local-library-scan-metadata-and-resume.md) | Local library scan, metadata and resume | Accepted | 0085, 0090, 0115 |
 | [0057](0057-mpv-ipc-and-process-scope.md) | mpv IPC, process scope and thumbnails | Accepted | 0083 |
 | [0058](0058-media-routing.md) | Daemon routing for media providers | Accepted | 0060 |
 | [0059](0059-application-icon-references.md) | Application icon references | Accepted | — |
@@ -102,7 +102,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0082](0082-opt-in-sentry.md) | Optional Sentry diagnostics for the shell and daemon | Proposed | 0093 |
 | [0083](0083-managed-player-stop.md) | Terminate the managed player on Stop and retain its final frame | Proposed | — |
 | [0084](0084-favorites-contract.md) | Revision-guarded daemon-owned favorites | Accepted | — |
-| [0085](0085-anime-tv-season-markers.md) | Anime `TVn` season markers in library names | Accepted | — |
+| [0085](0085-anime-tv-season-markers.md) | Anime `TVn` season markers in library names | Accepted | 0109 |
 | [0086](0086-automatic-master-prereleases.md) | Automatic master pre-releases and ordinary version-tag releases | Proposed | 0088, 0092, 0099 |
 | [0087](0087-bounded-activity-background-frames.md) | Bounded Activity background frames through immutable descriptors | Accepted | — |
 | [0088](0088-single-master-snapshot-retention.md) | Retain one verified master snapshot release | Proposed | — |
@@ -110,7 +110,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0090](0090-rewatch-clears-completion.md) | Launching a completed item is a rewatch | Accepted | — |
 | [0091](0091-debian-package-ci-artifact.md) | Debian package CI artifact | Accepted | 0102, 0104 |
 | [0092](0092-less-repeated-ci-work.md) | Less repeated work in CI | Proposed | 0101 |
-| [0093](0093-structured-sentry-diagnostics.md) | Structured, allowlisted Sentry diagnostics | Proposed | — |
+| [0093](0093-structured-sentry-diagnostics.md) | Structured, allowlisted Sentry diagnostics | Proposed | 0116 |
 | [0094](0094-configurable-global-home-keys.md) | Configurable global Home keys | Accepted | — |
 | [0095](0095-shell-input-mode-ownership.md) | Shell input mode ownership | Accepted | — |
 | [0096](0096-browser-media-session-association.md) | Associate a browser's media session with its audible tab | Accepted | — |
@@ -118,8 +118,20 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0098](0098-restart-after-an-update.md) | Restart Arinn after an update | Accepted | — |
 | [0099](0099-snapshot-package-version.md) | Snapshot package version with the commit | Accepted | — |
 | [0100](0100-system-status.md) | Read-only system status for Home's status area | Accepted | — |
-| [0101](0101-host-local-ci-caches.md) | Host-local build caches on the self-hosted runner | Accepted | — |
+| [0101](0101-host-local-ci-caches.md) | Host-local build caches on the self-hosted runner | Accepted | 0113 |
 | [0102](0102-packages-built-for-master-only.md) | Packages are built for master only, never for pull requests | Accepted | — |
-| [0103](0103-on-screen-keyboard.md) | On-screen keyboard in the MVP | Accepted | — |
+| [0103](0103-on-screen-keyboard.md) | On-screen keyboard in the MVP | Accepted | 0105 |
 | [0104](0104-qt-floor-and-prebuilt-ci-images.md) | Minimum supported Qt 6.8 and prebuilt CI images | Accepted | — |
+| [0105](0105-global-on-screen-keyboard-platform-text-delivery.md) | Global on-screen keyboard: platform text delivery | Accepted | — |
+| [0106](0106-quick-menu-presentation.md) | Quick menu key and presentation request | Accepted | — |
+| [0107](0107-dedicated-arinn-session.md) | Dedicated Arinn login session and an unprivileged switch to the desktop | Accepted | — |
+| [0108](0108-system-control.md) | Power and volume actions through the daemon | Accepted | — |
+| [0109](0109-season-only-snn-markers.md) | Season-only `Snn` markers in library names | Accepted | — |
+| [0110](0110-application-launch-lifetime-and-cancellation.md) | Application launch lifetime and cancellation | Accepted | — |
+| [0111](0111-power-key.md) | The remote's power key opens Arinn's power menu | Accepted | — |
+| [0112](0112-shell-preferences-as-core-settings.md) | The shell's preferences are core settings of the daemon | Accepted | — |
+| [0113](0113-per-runner-ci-target-directories.md) | One Cargo target directory per self-hosted runner instance | Accepted | 0114 |
+| [0114](0114-per-runner-package-target-directories.md) | One package target directory per self-hosted runner instance | Accepted | — |
+| [0115](0115-unmounted-share-root-is-unavailable.md) | An unmounted share is an unavailable library root | Accepted | — |
+| [0116](0116-package-matched-sentry-debug-symbols.md) | Package-matched Sentry debug symbols | Proposed | — |
 <!-- register:end -->

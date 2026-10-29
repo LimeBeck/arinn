@@ -4,6 +4,7 @@
 //! `org.arinn.Settings1` (ADR-0065) on a private bus, with a provider served
 //! by the SDK's `serve_settings`.
 use super::*;
+use crate::test_support::served;
 use arinn_plugin_sdk::runtime::{RegistrationContext, SettingsHandler, serve_settings};
 use arinn_protocol::{production::ProductionOperationProxy, settings::SettingsApiProxy};
 use std::{
@@ -170,6 +171,10 @@ impl Fixture {
                 provider("plain", &plain, &generation, &folder),
             );
         }
+        // The tests call the daemon, and the daemon the library provider,
+        // right after their first exports (#528).
+        served(&client, &server).await;
+        served(&client, &library).await;
         Self {
             bus,
             folder,
@@ -343,6 +348,98 @@ async fn the_daemon_settings_live_under_arinn() {
             .browser_application,
         "chromium.desktop"
     );
+}
+
+/// ADR-0112: the shell's presentation preferences under `arinn`, with their
+/// defaults, stored in `config.toml`.
+#[tokio::test]
+async fn the_shell_preferences_are_core_settings() {
+    let f = Fixture::new().await;
+    let api = f.api().await;
+    let (generation, settings) = api.get_settings("arinn").await.unwrap();
+    settings::validate_schema(&settings).unwrap();
+    let find =
+        |settings: &[Setting], id: &str| settings.iter().find(|s| s.id == id).cloned().unwrap();
+    let light = find(&settings, "light_field");
+    assert_eq!(
+        (
+            light.category.as_str(),
+            light.kind.as_str(),
+            light.value.as_str()
+        ),
+        ("appearance", "boolean", "true")
+    );
+    let ambient = find(&settings, "ambient_timeout");
+    assert_eq!(
+        (
+            ambient.category.as_str(),
+            ambient.kind.as_str(),
+            ambient.value.as_str()
+        ),
+        ("appearance", "enum", r#""10""#)
+    );
+    for value in ["5", "10", "15", "30", "60"] {
+        assert!(
+            ambient
+                .constraints
+                .contains(&format!(r#""value":"{value}""#)),
+            "{value}"
+        );
+    }
+
+    let path = api
+        .set_value("arinn", &generation, "light_field", "false", &rid())
+        .await
+        .unwrap();
+    f.wait(path).await.unwrap();
+    let path = api
+        .set_value("arinn", &generation, "ambient_timeout", r#""30""#, &rid())
+        .await
+        .unwrap();
+    f.wait(path).await.unwrap();
+    let config = Config::load(&f.folder.join("config")).unwrap();
+    assert_eq!((config.light_field, config.ambient_timeout), (false, 30));
+    let (_, settings) = api.get_settings("arinn").await.unwrap();
+    assert_eq!(find(&settings, "light_field").value, "false");
+    assert_eq!(find(&settings, "ambient_timeout").value, r#""30""#);
+    // Only the offered timeouts; nothing is stored for another one.
+    for bad in [r#""7""#, "30", r#""never""#] {
+        assert_eq!(
+            error_name(
+                api.set_value("arinn", &generation, "ambient_timeout", bad, &rid())
+                    .await
+            ),
+            "org.arinn.Error1.InvalidArgument",
+            "{bad}"
+        );
+    }
+    assert_eq!(
+        Config::load(&f.folder.join("config"))
+            .unwrap()
+            .ambient_timeout,
+        30
+    );
+}
+
+/// Owner decision on #488: a hand-edited invalid timeout does not break the
+/// daemon's settings; it reads as the default.
+#[tokio::test]
+async fn an_invalid_hand_edited_timeout_reads_as_the_default() {
+    let f = Fixture::new().await;
+    let api = f.api().await;
+    api.get_settings("arinn").await.unwrap();
+    let path = f.folder.join("config").join("config.toml");
+    let text = std::fs::read_to_string(&path).unwrap();
+    let text: String = text
+        .lines()
+        .filter(|line| !line.starts_with("ambient_timeout"))
+        .map(|line| format!("{line}\n"))
+        .collect();
+    // Top-level keys come before the first table.
+    std::fs::write(&path, format!("ambient_timeout = 7\n{text}")).unwrap();
+    let (_, settings) = api.get_settings("arinn").await.unwrap();
+    let ambient = settings.iter().find(|s| s.id == "ambient_timeout").unwrap();
+    assert_eq!(ambient.value, r#""10""#);
 }
 
 #[tokio::test]

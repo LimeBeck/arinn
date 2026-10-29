@@ -1,0 +1,101 @@
+# ADR-0116: Package-matched Sentry debug symbols
+
+- **Status:** Proposed
+- **Date:** 2026-10-27
+- **Deciders:** Owner requested #370 and supplied the Sentry destination; owner review and merge required for release-process changes
+- **Amends / Supersedes:** [ADR-0093](0093-structured-sentry-diagnostics.md) — the deferred CI debug-file upload
+- **Amended by / Superseded by:** —
+- **Specification:** §13–14, §17.1; R-01, R-05
+
+## Context
+
+The daemon and shell identify their release as `arinn@<build id>` (ADR-0097),
+but native frames need matching debug information to resolve function names and
+source lines. Rebuilding a commit later does not reproduce the package's ELF
+build IDs, especially across Arch and Debian toolchains.
+
+[#370](https://github.com/LimeBeck/arinn/issues/370) explicitly leaves debug-file
+upload to an owner-merged release-workflow change. The owner supplied
+`limebeckdev / arinn` and confirmed `SENTRY_AUTH_TOKEN` configured on 2026-10-27.
+Runtime telemetry consent and its sanitizers remain as specified.
+
+## Decision
+
+When CI builds a package, enable line-level release debug information and collect
+split ELF debug files for **arinnd and arinn-shell only**, from their actual
+staged package files, before makepkg or dh_strip strips them. Keep release
+optimization settings. Collection never modifies the staged executable.
+
+Each package flavor gets an artifact containing the two `.debug` files and a
+manifest: format version, flavor, `arinn@<build id>`, component names, ELF build
+IDs and SHA-256 digests. Require a clean, commit-qualified build ID. Freeze that
+ID before packaging preparation changes executable bits in the checkout.
+After building, extract the actual package and verify both ELF build IDs against
+the collected files. Missing line tables, mismatched files or stale output fail
+the package build. Symbols are separate seven-day GitHub artifacts, never part
+of the downloadable product packages or GitHub release assets.
+
+Only after all build, documentation, licensing and package installation checks
+succeed, a `push` to this repository's `master` or a version tag may upload the
+symbols to Sentry organization `limebeckdev`, project `arinn`. PRs, nightlies and
+manual runs collect/verify as applicable but never upload. The upload helper
+independently checks the event/ref/repository and matches both manifests to the
+workflow commit before invoking any upload command.
+
+Use Sentry CLI 3.8.2, downloaded from its official release and checked against a
+fixed SHA-256 before execution. Pass `SENTRY_AUTH_TOKEN` only to the trusted
+upload step and its CLI subprocess, never to build/test/package jobs. A private
+CLI home and working directory exclude runner configuration. Upload explicit ELF
+files with `--no-sources`; never use `--include-sources`. Wait up to 300 seconds
+for server processing, with an overall command timeout. Do not create a Sentry
+release or a GitHub release from this helper: native symbolication matches ELF
+debug IDs; the manifest records the matching event release for audit.
+
+When the token is configured, validation/upload failure fails CI and blocks
+snapshot or version-release publication. If it is absent, emit a notice and
+skip Sentry upload. This policy is proposed for the owner's release-process
+review; the owner merges this change.
+
+## Consequences
+
+Arch and Debian reports resolve against their own shipped binaries. Package
+builds gain line-table generation and artifact storage overhead, but do not
+rebuild Arinn a second time to obtain symbols. The existing Cargo cache remains
+usable; no per-build Rust compiler path-map flags invalidate dependency caches.
+
+Debug files contain Arinn/toolchain symbol names and build-time source locations.
+C/C++ checkout prefixes are mapped to `/usr/src/arinn`; Rust uses CI archive and
+toolchain locations. These are build artifacts, not user-device paths or runtime
+payloads. Line-only information excludes local-variable descriptions; sources
+are not bundled. No user content, configuration, runtime cache, crash dump or
+telemetry envelope is collected. The runtime consent flag, allowlists and
+endpoint behavior are unchanged.
+
+The release workflow passes the token explicitly into reusable CI. Snapshot
+publication waits for the symbol job; tag publication waits for the complete CI
+workflow. Live server ingestion and source-level symbolication remain unverified
+until a trusted build runs after owner merge. No desktop or roadmap gate closes.
+
+## Alternatives considered
+
+- Rebuild debug binaries in a later job: their build IDs need not match the
+  package and it repeats compilation.
+- Scan the whole build/cache tree: it can include tests, dependencies, stale
+  builds and unintended files.
+- Upload sources or arbitrary binaries: unnecessary for the requested fixed
+  component/function/line diagnostics and widens the artifact scope.
+
+## Verification
+
+`tests/ci/test_debug_symbols.py` builds tiny synthetic C and Rust ELF fixtures,
+collects their debug information, strips the package copies and checks IDs and
+line tables. It rejects changed binaries, wrong releases, tampered/missing/extra
+files and symlinks. A recording CLI checks explicit debug paths, destination,
+private configuration, event guards and token-output suppression without any
+network request. Compiler-less documentation jobs skip only the ELF fixture
+class; the Arch build job runs it explicitly with the toolchain installed.
+
+The manual CI package run checks actual Arch and Debian outputs without Sentry
+upload. Real Sentry upload, symbolication and publication are not simulated as
+passed by fixture tests. Owner review/merge and the first trusted build remain
+required.

@@ -1,0 +1,14 @@
+# SPDX-FileCopyrightText: 2026 Arinn contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Return from the plain desktop to the Arinn session (ADR-0107).
+[Desktop Entry]
+Type=Application
+Name=Return to Arinn
+Comment=Log out; the next login starts the Arinn TV session
+Icon=org.arinn.Shell
+Exec=/usr/lib/arinn/arinn-session-switch arinn --prompt
+Terminal=false
+Categories=System;
+Keywords=Arinn;TV;HTPC;Session;
+OnlyShowIn=KDE;XFCE;
+StartupNotify=false

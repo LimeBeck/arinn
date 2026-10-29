@@ -6,6 +6,8 @@
 
 #pragma once
 #include "flow_trace.h"
+#include "../../platform/qt-shell/native_focus.h"
+#include <QElapsedTimer>
 #include <QDBusMessage>
 #include <QHash>
 #include <QObject>
@@ -41,8 +43,25 @@ class Backend : public QObject {
   Q_PROPERTY(QVariantMap shortcutEditor READ shortcutEditor NOTIFY changed)
   Q_PROPERTY(bool shortcutSaving READ shortcutSaving NOTIFY changed)
   Q_PROPERTY(QString shortcutError READ shortcutError NOTIFY changed)
+  // The application launch on screen (spec §6.5, ADR-0110): in flight,
+  // whether the daemon can cancel it, and the error code once it failed.
+  // Other launches keep running behind it, one per application.
+  Q_PROPERTY(bool launchActive READ launchActive NOTIFY changed)
+  Q_PROPERTY(QString launchTitle READ launchTitle NOTIFY changed)
+  Q_PROPERTY(bool launchCancellable READ launchCancellable NOTIFY changed)
+  Q_PROPERTY(QString launchError READ launchError NOTIFY changed)
+  // Cancel is confirmed but the processes are still exiting (ADR-0110).
+  Q_PROPERTY(bool launchStopping READ launchStopping NOTIFY changed)
 public:
-  explicit Backend(QObject *parent = nullptr);
+  explicit Backend(QObject *parent = nullptr, NativeShellFocusIdentity identity = {});
+  Q_PROPERTY(bool nativeFocusSupported READ nativeFocusSupported CONSTANT)
+  Q_PROPERTY(QString nativeShellFocus READ nativeShellFocus NOTIFY nativeFocusChanged)
+  Q_PROPERTY(qulonglong nativeFocusRevision READ nativeFocusRevision NOTIFY nativeFocusChanged)
+  bool nativeFocusSupported() const { return m_focusIdentity.supported(); }
+  QString nativeShellFocus() const;
+  qulonglong nativeFocusRevision() const { return m_focusApplied; }
+  Q_INVOKABLE qulonglong requestNativeFocus();
+  Q_INVOKABLE void stopNativeFocusObservation();
   bool connected() const { return m_connected; }
   bool available() const { return m_available; }
   bool homeVisible() const { return m_home; }
@@ -77,21 +96,84 @@ public:
   Q_INVOKABLE void back();
   Q_INVOKABLE void launch(const QString &id);
   Q_INVOKABLE void activate(const QString &id);
+  bool launchActive() const {
+    const auto *launch = shownLaunch();
+    return launch && launch->error.isEmpty();
+  }
+  QString launchTitle() const {
+    const auto *launch = shownLaunch();
+    return launch ? launch->title : QString();
+  }
+  bool launchCancellable() const {
+    const auto *launch = shownLaunch();
+    return launchActive() && launch->cancellable && !launch->cancelling;
+  }
+  QString launchError() const {
+    const auto *launch = shownLaunch();
+    return launch ? launch->error : QString();
+  }
+  bool launchStopping() const {
+    const auto *launch = shownLaunch();
+    return launchActive() && launch->stopping;
+  }
+  // How long the launch on screen has been running, for showing it again.
+  Q_INVOKABLE qint64 launchElapsed() const;
+  // The overlay reports whether Home or the quick menu hid the launch on
+  // screen, and whether its stop confirmation is open (§6.1, §6.5).
+  Q_INVOKABLE void setLaunchHidden(bool hidden);
+  Q_INVOKABLE void setLaunchConfirming(bool confirming);
+  // Stop the launch on screen after the user confirmed it (ADR-0110).
+  Q_INVOKABLE void cancelLaunch();
+  Q_INVOKABLE void retryLaunch();
+  Q_INVOKABLE void dismissLaunchFailure();
 public slots:
   void refresh();
 private slots:
+  // Explicit presentation requests of the platform (ADR-0069, ADR-0106,
+  // ADR-0111).
+  void presentHome(const QString &epoch, const QString &target,
+                   const QString &output);
+  void presentQuickMenu(const QString &epoch, const QString &target,
+                        const QString &output);
+  void presentPowerMenu(const QString &epoch, const QString &target,
+                        const QString &output);
   void reloadCatalog();
   void reloadShortcuts();
   void reloadFavorites();
 signals:
+  void nativeFocusChanged();
   void changed();
   void itemsChanged();
   void applicationsChanged();
   void webShortcutsChanged();
   void continueEntriesChanged();
   void screenRequested(const QString &name);
+  // The tile of a launch in flight was chosen again, or the dialog that
+  // covered its starting screen closed: show it again.
+  void launchShown();
+  // A new launch is on screen: start its overlay from the beginning.
+  void launchStarted();
+  // The launch that took the screen had been hidden (by Home, the quick
+  // menu or a newer launch): keep it hidden until its tile is chosen.
+  void launchHidden();
+  // The global Home key or a queued Home, for the current daemon epoch.
+  void homeRequested();
+  // The quick-menu key, for the current daemon epoch (ADR-0106).
+  // The Return target the request committed (ADR-0106); Status reports it
+  // only after its next refresh (#507).
+  void quickMenuRequested(const QString &target);
+  // The remote's power key, for the current daemon epoch (ADR-0111).
+  void powerMenuRequested();
 
 private:
+  const NativeShellFocusIdentity m_focusIdentity;
+  QString m_nativeFocus = QStringLiteral("unknown");
+  quint64 m_focusRequest = 0, m_focusApplied = 0, m_focusObservation = 0;
+  QTimer m_focusPoll, m_focusExpiry;
+  QElapsedTimer m_focusReceived;
+  bool m_focusWatching = false;
+  int m_focusPending = 0;
+  void clearNativeFocus();
   void readFavorites();
   QVariantMap favoriteTarget(const QString &id) const;
   bool isFavorite(const QVariantMap &target) const;
@@ -107,6 +189,45 @@ private:
   bool m_shortcutSaving = false;
   quint64 m_shortcutRevision = 0, m_editorRevision = 0, m_editorTicket = 0;
   QSet<QString> m_pendingIds;
+  // One record per application ID with a launch in flight or a failure not
+  // dismissed yet; m_shownLaunch is the one the overlay shows (§6.5).
+  struct Launch {
+    QString id, title, operation, error;
+    bool cancellable = false, cancelling = false;
+    // The provider did not confirm the stop in time (Timeout): the processes
+    // are still exiting, and the operation ends when they are gone.
+    bool stopping = false;
+    // Hidden by Home or the quick menu, or replaced on screen by a newer
+    // launch; a launch that a failure dialog covered is not hidden.
+    bool hidden = false;
+    qint64 started = 0;
+  };
+  bool m_launchConfirming = false;
+  // Put `id` on screen; the launch it replaces counts as hidden.
+  void showLaunch(const QString &id);
+  // A failure that waited (behind another dialog or a stop confirmation)
+  // comes on screen if nothing holds it any more; true if it did.
+  bool showQueuedFailure();
+  QHash<QString, Launch> m_launches;
+  QString m_shownLaunch;
+  const Launch *shownLaunch() const {
+    const auto found = m_launches.constFind(m_shownLaunch);
+    return found == m_launches.constEnd() ? nullptr : &found.value();
+  }
+  Launch *launchRecord(const QString &id, const QString &operation) {
+    const auto found = m_launches.find(id);
+    return found != m_launches.end() && found->operation == operation
+               ? &found.value()
+               : nullptr;
+  }
+  // The launch on screen ended or was dismissed: the most recent launch
+  // still in flight takes its place, hidden.
+  void forgetShownLaunch();
+  // After a failure or the launch on screen left it: publish, and show the
+  // launch that took its place again, or keep it hidden if it was hidden.
+  void dismissed();
+  // A launch failed: its dialog comes on screen at once.
+  void failLaunch(Launch &launch, const QString &error);
   struct Catalog;
   void readProviders(const std::shared_ptr<Catalog> &catalog,
                      const QString &token = {});

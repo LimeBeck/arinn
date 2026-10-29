@@ -115,7 +115,22 @@ current output, keeps the transparent shell above it and focuses the shell.
 Release restores the shell's ordinary Home presentation without closing a player.
 Stopping playback remains Media1.Stop, so leave sends Stop and Release separately.
 The shell preserves its Home/Detail origin locally and returns there after leave.
+Launch readiness is independent of that origin: a successful library launch from
+a Home Continue card can precede its new media row. Keep the pending player
+surface until the exact returned session appears, then select its reported
+features. Back during that interval waits to stop that same session; it does not
+fall through to generic media controls or change the return destination.
 The adapter records and restores any temporary window flags it changes.
+
+The native shell window keeps a transparent clear color for its whole lifetime.
+Opaque shell states paint a full-window background item outside the logical
+canvas, including letterboxing. Playback and Activity overlays hide that item;
+Stop-pending and error states retain the previous opaque-background rule. This
+keeps the requested native alpha format through Home/playback round trips:
+[Qt's color setter](https://github.com/qt/qtdeclarative/blob/6.10/src/quick/items/qquickwindow.cpp)
+resets that request when a window clear color changes back to opaque, even with
+the default alpha buffer enabled. Cycle regressions verify the native format
+and framebuffer alpha, not just item visibility.
 
 Home switches to the opaque shell while preserving the managed playback target;
 Return restores the transparent input layer above that exact player. Focus changes
@@ -124,6 +139,50 @@ application takes focus, release input ownership rather than stealing it back.
 Window loss, daemon loss, adapter reconnect or session lock releases the layer.
 The independent session guard continues to hide the shell on lock/unknown state.
 Late replies never raise a surface after cancellation or lifetime invalidation.
+
+The shell fences the previous session's Release result when another session is
+selected, including the interval before the new media row reaches its snapshot.
+Already admitted cleanup still runs; its result cannot set an error on the new
+selection. Retry state remains available for the same selected session.
+
+Present completion and window activation are separate acknowledgements. The
+shell bounds the initial and Return handoffs to one second without requesting
+activation or retrying Present. Qt activation must follow the handoff intent;
+an old active state alone does not acknowledge it. On Wayland, a fresh Status
+request after Present or the observed Return can also corroborate native shell
+focus when Qt has not delivered activation. The platform helper compares the
+reported class only to this process's own Wayland application ID; QML receives
+only shell/other/unknown and an observation sequence. This evidence never selects
+a player or replaces the exact MediaWindow1 reference check. X11 retains the Qt
+activation path.
+
+Native observations are scoped to the current daemon owner, connection and epoch,
+poll only while a managed presentation is retained, expire 1.5 seconds after
+receipt, and are invalidated on teardown. A post-handoff request sequence prevents
+cached pre-handoff evidence from acknowledging Return. Status reports a platform
+cache with the adapter's existing liveness lease, not a native event timestamp;
+receipt freshness does not strengthen that contract. A known other application
+relinquishes confirmed input ownership; during an unconfirmed handoff it retains
+the one-second grace because the platform cache may precede ReportWindow. Unknown
+evidence retains the bounded Qt fallback.
+No focus is forced and playback is not stopped by this cleanup. Stop, new
+selection, explicit Home, lock and teardown cancel a handoff wait. Pre-Present
+Home snapshots remain ignored until Status observes Home exit; explicit Home
+still wins. Private-bus/offscreen regressions are not real-desktop G-4.1
+qualification evidence.
+
+Seek previews are requested only for the visible, interactive player timeline.
+Hidden OSD, Home, blocking overlays and pending Stop do not produce preview
+operations. Seek itself remains available independently; a hidden seek does not
+arm a preview, and dispatch rechecks demand after a queued timer. An already
+admitted preview may finish without restarting hidden production. Provider-owned
+Continue posters are independent of this UI demand.
+
+A successful empty GetWindow is unresolved, including a temporarily incomplete
+platform report barrier. Retry it within the existing one-second check deadline,
+as for Unavailable; a nonempty changed reference still fails immediately. A newer
+matching confirmation invalidates queued retries so a delayed old retry cannot
+tear down an already validated presentation.
 
 ## Delivery and verification
 
@@ -189,9 +248,13 @@ A Present or Release refused before it becomes an operation logs `"operation":"r
 - `capacity_exhausted`;
 - `admission_refused`.
 
-**Shell.** `MediaCatalog::logSurface` writes one JSON line directly to stderr, bypassing Qt logging so no category prefix breaks it. The line is a structured info record with the §14.1 fields (`component: "arinn-shell"`, `operation: "media.surface"`, `error` set to the presentation state when a presentation failed, otherwise `null`) in two cases:
+**Shell.** `MediaCatalog::logSurface` writes one JSON line directly to stderr, bypassing Qt logging so no category prefix breaks it. The line is a structured info record with the §14.1 fields (`component: "arinn-shell"`, `operation: "media.surface"`, `error` set to the presentation state when a presentation failed, otherwise `null`) for these events:
 - It opens the session card instead of the player: `surface: "session"`, reason `no_player_features` or `session_not_ready`.
 - A presentation fails: `surface: "home"`, reason `presentation_failed`.
+- The screen route changes during a media flow: `surface` names the screen; reason `screen_route_changed`.
+- An input layer is abandoned: `surface: "released"`; the reason distinguishes `focus_lost`, `return_without_focus`, `presented_without_focus`, `session_blocked`, `daemon_changed`, `session_invalidated`, `window_check_timeout`, `window_check_error`, `window_reply_invalid`, and `window_identity_changed`, and `presentation_focus_timeout`. An unspecified or unrecognized caller reason becomes `explicit_abandon`. The record describes the state before teardown; it is not an acknowledgement that Release completed.
+
+These events identify the handoff races in [#376](https://github.com/LimeBeck/arinn/issues/376). Passing diagnostics and synthetic tests do not establish that real-desktop qualification passed.
 
 The line also includes `presentationState`, `sessionState`, `inputLayer` and `windowAvailable`.
 

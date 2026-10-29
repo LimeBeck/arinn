@@ -4,7 +4,7 @@
 - **Date:** 2026-09-28
 - **Deciders:** Delegated technical choice within the owner-authorized Phase 1 implementation
 - **Amends / Supersedes:** ADR-0020 (concrete application wire bindings)
-- **Amended by / Superseded by:** [ADR-0059](0059-application-icon-references.md)
+- **Amended by / Superseded by:** [ADR-0059](0059-application-icon-references.md), [ADR-0110](0110-application-launch-lifetime-and-cancellation.md)
 - **Specification:** §9, §17
 
 ## Context

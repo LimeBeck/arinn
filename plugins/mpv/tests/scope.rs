@@ -92,6 +92,9 @@ impl Manager {
         let (executable, args, flags) = &command[0];
         assert_eq!(executable, "/usr/bin/mpv");
         assert_eq!(args[0], "/usr/bin/mpv");
+        // The first native window must request fullscreen before the later
+        // platform Present handoff, so no windowed video frame flashes.
+        assert!(args.iter().any(|arg| arg == "--fullscreen"));
         assert!(args.iter().any(|arg| arg == "--input-default-bindings=no"));
         assert!(args.iter().any(|arg| arg == "--osc=no"));
         assert!(args.iter().any(|arg| arg == "--osd-level=0"));

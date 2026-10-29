@@ -3,3 +3,4 @@
 pub mod discovery;
 pub mod instances;
 pub mod launcher;
+pub mod launches;

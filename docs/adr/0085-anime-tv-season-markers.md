@@ -4,7 +4,7 @@
 - **Date:** 2026-10-04
 - **Deciders:** owner request ([#311](https://github.com/LimeBeck/arinn/issues/311)); delegated technical choice ([ADR-0037](0037-agent-autonomy-and-owner-gated-decisions.md)) for the exact patterns
 - **Amends / Supersedes:** [ADR-0056](0056-local-library-scan-metadata-and-resume.md) (*Names*)
-- **Amended by / Superseded by:** —
+- **Amended by / Superseded by:** Amended by [ADR-0109](0109-season-only-snn-markers.md) (season-only `Snn` markers)
 - **Specification:** [§7.4](../specifications/arinn-specification.md#74-local-library-and-mpv)
 
 ## Context

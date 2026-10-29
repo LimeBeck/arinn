@@ -44,6 +44,13 @@ informed opt-in consent, a refusal path, review/withdrawal controls, immediate
 revocation behavior and a privacy/retention notice before release. A development
 flag is not evidence that those requirements are implemented.
 
+For publication checklist #74, the owner confirmed a 90-day retention period on
+2026-10-27. The public privacy notice must state this period, along with the
+recipient, purpose, data categories and consent withdrawal controls. The
+maintainer must ensure that the receiving Sentry project uses this retention
+period. This documents the publication requirement; it does not implement the
+consent UI or verify the remote project settings.
+
 ## Captured diagnostics
 
 - `arinnd`:

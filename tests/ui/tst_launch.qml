@@ -65,6 +65,26 @@ TestCase {
         compare(overlay.revealed, false);
     }
 
+    function test_progress_identity_and_translucent_backdrop() {
+        overlay.revealDelay = 600000;
+        overlay.active = true;
+        overlay.revealed = true;
+        const monogram = child("launchMonogram");
+        verify(monogram.visible);
+        compare(monogram.text, "E");
+        compare(child("launchChip").width, 180);
+        compare(child("launchChip").height, 180);
+        compare(child("launchGlow").visible, true);
+        compare(child("launchBackdrop").opacity, 0.92);
+        overlay.serviceTitle = "  Game";
+        compare(monogram.text, "G");
+        overlay.kind = "application";
+        overlay.slow = true;
+        compare(monogram.visible, true);
+        overlay.failure = "Unavailable";
+        compare(monogram.visible, false);
+    }
+
     function test_slow_message_and_cancel() {
         noTimeout();
         overlay.active = true;

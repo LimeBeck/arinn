@@ -28,10 +28,45 @@ struct Unit {
     restarts: u32,
     /// When an inactive transient unit is garbage-collected (unloaded).
     collect_at: Option<Instant>,
+    /// Process group of an application unit. Like `ExitType=cgroup`, the
+    /// unit stays active after GIO exits while anything it started runs.
+    group: Option<i32>,
 }
 /// Like systemd's CollectMode=inactive: an inactive transient unit is
 /// unloaded shortly after it stops, not at once (#234).
 const COLLECT_DELAY: Duration = Duration::from_millis(300);
+/// Whether a process of `group` is alive: the stand-in for a non-empty
+/// cgroup. Reads /proc, so orphans that nobody reaps yet (zombies) and
+/// processes reparented away from this manager are judged correctly.
+fn group_alive(group: i32) -> bool {
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return false;
+    };
+    entries.flatten().any(|entry| {
+        let Ok(stat) = std::fs::read_to_string(entry.path().join("stat")) else {
+            return false;
+        };
+        // pid (comm) state ppid pgrp ...; comm may contain spaces.
+        let Some(rest) = stat.rsplit_once(')').map(|(_, rest)| rest) else {
+            return false;
+        };
+        let mut fields = rest.split_whitespace();
+        let state = fields.next();
+        let pgrp = fields.nth(1).and_then(|value| value.parse::<i32>().ok());
+        pgrp == Some(group) && state != Some("Z") && state != Some("X")
+    })
+}
+/// Stop every process of an application unit, as StopUnit does for a cgroup.
+fn stop_group(unit: &mut Unit) {
+    if let Some(group) = unit.group.take() {
+        unsafe { libc::kill(-group, libc::SIGTERM) };
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while group_alive(group) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        unsafe { libc::kill(-group, libc::SIGKILL) };
+    }
+}
 type Shared = Arc<Mutex<HashMap<String, Unit>>>;
 fn path(name: &str) -> OwnedObjectPath {
     format!(
@@ -63,7 +98,15 @@ fn spawn(unit: &mut Unit) -> std::io::Result<()> {
     command
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
-    unit.child = Some(command.spawn()?);
+    if unit.application {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
+    let child = command.spawn()?;
+    if unit.application {
+        unit.group = Some(child.id() as i32);
+    }
+    unit.child = Some(child);
     unit.state = "active".into();
     unit.starts.push_back(Instant::now());
     unit.retry_at = None;
@@ -166,6 +209,7 @@ impl Manager {
             retry_at: None,
             restarts: 0,
             collect_at: None,
+            group: None,
         };
         spawn(&mut unit).map_err(|_| zbus::fdo::Error::Failed("spawn".into()))?;
         if let Some(mut old) = self.units.lock().await.insert(name.into(), unit)
@@ -199,6 +243,7 @@ impl Manager {
     fn unref_unit(&self, _name: &str) {}
     async fn stop_unit(&self, name: &str, _mode: &str) -> zbus::fdo::Result<OwnedObjectPath> {
         if let Some(unit) = self.units.lock().await.get_mut(name) {
+            stop_group(unit);
             if let Some(child) = unit.child.as_mut() {
                 let _ = child.kill();
                 let _ = child.wait();
@@ -348,20 +393,33 @@ async fn main() -> anyhow::Result<()> {
                     };
                     unit.exit_status = status.code().unwrap_or(1);
                     unit.exited = 1;
+                    if unit.application && !status.success() {
+                        // A failed main process fails the unit and stops the
+                        // rest of its cgroup.
+                        stop_group(unit);
+                    }
                     unit.state = if unit.application {
-                        "inactive"
+                        if status.success() { "active" } else { "failed" }
                     } else {
                         "activating"
                     }
                     .into();
-                    if unit.application {
-                        unit.collect_at = Some(Instant::now() + COLLECT_DELAY);
-                    }
                     unit.retry_at = if unit.application {
                         None
                     } else {
                         Some(Instant::now() + Duration::from_secs(2))
                     };
+                }
+                if unit.application
+                    && unit.child.is_none()
+                    && unit.collect_at.is_none()
+                    && unit.group.is_none_or(|group| !group_alive(group))
+                {
+                    unit.group = None;
+                    if unit.state == "active" {
+                        unit.state = "inactive".into();
+                    }
+                    unit.collect_at = Some(Instant::now() + COLLECT_DELAY);
                 }
                 if unit.retry_at.is_some_and(|time| Instant::now() >= time) {
                     while unit

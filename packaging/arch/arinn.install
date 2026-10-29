@@ -8,12 +8,17 @@ post_install() {
   echo '   and log in again. Disable with: systemctl --user disable arinn-session.target'
   echo '   For XFCE/X11, copy /usr/share/arinn/autostart/org.arinn.XfceSession.desktop'
   echo '   to ${XDG_CONFIG_HOME:-$HOME/.config}/autostart/ and log in again.'
+  echo '   Or choose the "Arinn" (Plasma) or "Arinn (XFCE)" session at login; do not'
+  echo '   enable the autostart above for a user of the Arinn session.'
 }
 
 post_upgrade() {
   if [ "$(vercmp "$2" 0.1.0)" -le 0 ]; then
     post_install
   fi
+  # The libalpm hook arinn-restart-user-services.hook runs after the
+  # transaction (#355).
+  echo ':: Running Arinn sessions are restarted at the end of this transaction.'
 }
 
 pre_remove() {

@@ -7,11 +7,18 @@ PartOf=graphical-session.target arinn-session.target arinn-ewmh-session.target
 After=graphical-session.target
 StartLimitIntervalSec=60s
 StartLimitBurst=5
+# The handler may run on every failure (systemd 254 and newer); it tells the
+# user only once the unit stays failed at its start limit (#437).
+OnFailure=arinn-session-failed@%n.service
 
 [Service]
 # Ready once it owns its bus name; a second instance cannot take the name.
 Type=dbus
 BusName=org.arinn.Daemon1
 ExecStart=/usr/bin/arinnd
+# The desktop handles the remote's power key again once the daemon stops,
+# for any reason (ADR-0111), and applications get the remote's Menu key back
+# (#507). Without KGlobalAccel this does nothing.
+ExecStopPost=-/usr/bin/arinnd --release-power-key
 Restart=on-failure
 RestartSec=2s

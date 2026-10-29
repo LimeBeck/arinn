@@ -99,8 +99,9 @@ Surface {
                 width: parent.width
                 role: "control"; font.pixelSize: 28
                 text: root.busy ? qsTr("Loading…") : root.text
-                maximumLineCount: root.subtitle.length ? 1 : 2
+                maximumLineCount: 1
                 elide: Text.ElideRight
+                wrapMode: Text.NoWrap
                 color: root.unavailable ? Theme.textHint : Theme.textPrimary
             }
             UiText {

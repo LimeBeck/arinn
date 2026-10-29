@@ -1,0 +1,1 @@
+- On X11, `arinn-platform-x11 --release-power-key` (run when the adapter stops) no longer restarts xfce4-power-manager without logind's power-key inhibitor. As in the running adapter, no inhibitor means no restart: the XFCE setting still goes back, and the grab marker stays, so the next adapter start within the same login repairs xfce4-power-manager's grab.

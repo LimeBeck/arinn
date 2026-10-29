@@ -10,6 +10,7 @@ use arinnd::{
     storage::Paths,
 };
 use std::path::PathBuf;
+use zbus::fdo::{RequestNameFlags, RequestNameReply};
 
 async fn run(started: std::time::Instant) -> Result<(), ErrorCode> {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
@@ -39,8 +40,21 @@ async fn run(started: std::time::Instant) -> Result<(), ErrorCode> {
             Err(ErrorCode::InvalidArgument)
         };
     }
+    if args == ["--release-power-key"] {
+        // ExecStopPost of arinnd.service and `arinn-kwin-adapter stop`: the
+        // desktop handles the power key again once Arinn stops (ADR-0111),
+        // and the remote's Menu key reaches applications again once the
+        // daemon's name is gone (#507).
+        // A session without a bus or KGlobalAccel has nothing to give back.
+        if let Ok(connection) = zbus::Connection::session().await {
+            let system = zbus::Connection::system().await.ok();
+            arinnd::power_key::release_after_daemon(&connection, system.as_ref()).await;
+            arinnd::global_home::release_menu_keys(&connection).await;
+        }
+        return Ok(());
+    }
     if !args.is_empty() {
-        eprintln!("usage: arinnd [--check-plugins]");
+        eprintln!("usage: arinnd [--check-plugins | --release-power-key]");
         std::process::exit(2);
     }
     let paths = Paths::from_env()?;
@@ -52,8 +66,6 @@ async fn run(started: std::time::Instant) -> Result<(), ErrorCode> {
     let connection = zbus::connection::Builder::session()
         .map_err(|_| ErrorCode::Unavailable)?
         .max_queued(32)
-        .name(SERVICE)
-        .map_err(|_| ErrorCode::Unavailable)?
         .build()
         .await
         .map_err(|_| ErrorCode::Unavailable)?;
@@ -64,12 +76,19 @@ async fn run(started: std::time::Instant) -> Result<(), ErrorCode> {
     .await
     .map_err(|_| ErrorCode::Internal)?;
     let core = Core::new(&connection, paths, runtime).with_search_engines(engines);
+    // Before Daemon1 is reachable, so no explicit Home request can arrive
+    // while the background handoff is missing. Without a system bus, sleep is
+    // seen only through the lock taken first.
+    let system = zbus::Connection::system().await.ok();
+    core.export_background(arinnd::session_lock::watch(connection.clone(), system))
+        .await?;
     connection
         .object_server()
         .at(PATH, Daemon { core: core.clone() })
         .await
         .map_err(|_| ErrorCode::Internal)?;
     core.export_platform().await?;
+    core.export_keyboard().await?;
     core.export_settings().await?;
     core.export_folders().await?;
     core.export_browse().await?;
@@ -83,32 +102,50 @@ async fn run(started: std::time::Instant) -> Result<(), ErrorCode> {
         .map_err(|_| ErrorCode::Internal)?;
     let shortcuts = arinnd::shortcuts::WebShortcuts::new(&paths_state, core.operations.clone())
         .with_browser(core.clone());
-    let migrations = tokio::task::spawn_blocking(|| {
-        arinnd::shortcuts::load_migrations(&arinnd::shortcuts::data_roots())
-    })
-    .await
-    .map_err(|_| ErrorCode::Internal)?;
-    shortcuts.migrate_presets(migrations).await?;
-    let defaults = tokio::task::spawn_blocking(|| {
-        arinnd::shortcuts::load_defaults(&arinnd::shortcuts::data_roots())
-    })
-    .await
-    .map_err(|_| ErrorCode::Internal)?;
-    if shortcuts.seed(defaults).await.is_err() {
-        eprintln!(
-            "{}",
-            serde_json::json!({"level":"warn","component":"arinnd","provider_id":null,"request_id":null,"operation":"seed-web-shortcuts","error":"Internal","duration_ms":0})
-        );
-    }
+    // Shortcut store access through WebShortcuts1 and WebShortcutIcons1
+    // waits until the migrations and the seed below are done.
+    let startup = shortcuts.startup().await;
     core.export_web_icons(shortcuts.clone()).await?;
     core.export_media_association().await?;
     core.export_system_status(arinnd::status_sources::Sources::system())
+        .await?;
+    core.export_system_control(arinnd::system_control::Control::system())
         .await?;
     connection
         .object_server()
         .at(PATH, shortcuts)
         .await
         .map_err(|_| ErrorCode::Internal)?;
+    // The name comes after every export, so a client that sees it always
+    // reaches served objects; until then only the unique name, which no
+    // client looks for, leads here. It comes before the state changes below,
+    // so a second instance fails here without touching them: it neither
+    // queues for the name nor replaces the owner (#463).
+    let reply = connection
+        .request_name_with_flags(SERVICE, RequestNameFlags::DoNotQueue.into())
+        .await
+        .map_err(|_| ErrorCode::Unavailable)?;
+    if reply != RequestNameReply::PrimaryOwner {
+        return Err(ErrorCode::Unavailable);
+    }
+    let migrations = tokio::task::spawn_blocking(|| {
+        arinnd::shortcuts::load_migrations(&arinnd::shortcuts::data_roots())
+    })
+    .await
+    .map_err(|_| ErrorCode::Internal)?;
+    startup.migrate_presets(migrations).await?;
+    let defaults = tokio::task::spawn_blocking(|| {
+        arinnd::shortcuts::load_defaults(&arinnd::shortcuts::data_roots())
+    })
+    .await
+    .map_err(|_| ErrorCode::Internal)?;
+    if startup.seed(defaults).await.is_err() {
+        eprintln!(
+            "{}",
+            serde_json::json!({"level":"warn","component":"arinnd","provider_id":null,"request_id":null,"operation":"seed-web-shortcuts","error":"Internal","duration_ms":0})
+        );
+    }
+    drop(startup);
     core.start().await;
     arinnd::telemetry::record("ready", None, started.elapsed().as_millis() as u64);
     eprintln!(

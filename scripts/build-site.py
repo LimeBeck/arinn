@@ -9,8 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SCREENS = (
-    "home", "library", "applications", "open-services", "keyboard",
-    "now-playing", "navigation", "settings",
+    "home", "open-services", "settings", "library-folders",
 )
 PUBLISHED_FILES = frozenset({
     "index.html", "assets/site.css", "assets/site.js", "assets/guide.css",
@@ -42,8 +41,8 @@ def build(output: Path) -> None:
         "guide/assets/site.css": ROOT / "docs/user/assets/site.css",
         "guide/assets/arinn-mark.svg": ROOT / "docs/user/assets/arinn-mark.svg",
         "guide/assets/arinn-icon.svg": ROOT / "docs/user/assets/arinn-icon.svg",
-        "guide/assets/home.png": ROOT / "docs/design/current-ui/home.png",
-        **{f"assets/screenshots/{name}.png": ROOT / f"docs/design/current-ui/{name}.png"
+        "guide/assets/home.png": ROOT / "docs/design/showcase/home.png",
+        **{f"assets/screenshots/{name}.png": ROOT / f"docs/design/showcase/{name}.png"
            for name in SCREENS},
     }
     # Validate all inputs before writing. The handbook is the #335 dependency.

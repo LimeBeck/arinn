@@ -1,0 +1,1 @@
+- Favorites (and other AppTile) names stay on one line and elide with an ellipsis instead of wrapping to two lines, matching the Home handoff.

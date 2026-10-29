@@ -825,6 +825,15 @@ QString LibraryCatalog::entryIdFor(const QString &providerId,
   }
   return {};
 }
+QString LibraryCatalog::posterFor(const QString &providerId,
+                                 const QString &localId) const {
+  const auto *entry = findId(entryIdFor(providerId, localId));
+  if (!entry)
+    return {};
+  // The same URL as the entry's `artwork`: the library card's poster.
+  return AssetImages::imageUrl(entry->providerId, entry->path,
+                               entry->generation, entry->poster);
+}
 QString LibraryCatalog::artworkFor(const QString &providerId,
                                   const QString &localId) const {
   auto local = localId;

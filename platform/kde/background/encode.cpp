@@ -27,4 +27,17 @@ Pixels encodeGrab(const QImage &grab) {
     std::memcpy(packed.data() + y * rowBytes, image.constScanLine(y), rowBytes);
   return Pixels::create(image.width(), image.height(), packed);
 }
+QImage boundGrab(const QImage &grab) {
+  constexpr qsizetype maxInputBytes = 64 * 1024 * 1024;
+  if (grab.isNull() || grab.width() <= 0 || grab.height() <= 0 || grab.sizeInBytes() <= 0 ||
+      grab.sizeInBytes() > maxInputBytes)
+    return {};
+  if (std::uint32_t(grab.width()) <= maxWidth && std::uint32_t(grab.height()) <= maxHeight)
+    return grab;
+  QImage scaled = grab.scaled(int(maxWidth), int(maxHeight), Qt::KeepAspectRatio,
+                              Qt::SmoothTransformation);
+  // Physical pixels: DPR metadata never enlarges admission.
+  scaled.setDevicePixelRatio(1.0);
+  return scaled;
+}
 } // namespace arinn::background

@@ -4,7 +4,7 @@
 //! Catalogue scans on temporary folders: names, NFO, availability, rename,
 //! resume and import. No network mounts.
 
-use arinn_plugin_library::{Settings, Store, scan_shared, to_file_uri};
+use arinn_plugin_library::{MountTables, Settings, Store, scan_shared, to_file_uri};
 use arinn_protocol::{library::ImportCandidate, production::EntityRef, validation::ErrorCode};
 use std::{
     fs,
@@ -47,8 +47,25 @@ fn settings(root: &Path, probe: bool, ffprobe: PathBuf) -> Settings {
     }
 }
 
+/// A store that does not read the host's fstab and mountinfo (ADR-0115).
 fn open(scratch: &Scratch) -> Store {
-    Store::open(&scratch.path().join("library.sqlite3")).unwrap()
+    let mut store = Store::open(&scratch.path().join("library.sqlite3")).unwrap();
+    store.use_mount_tables(MountTables::default());
+    store
+}
+
+/// One shared scan with the given mount tables.
+fn scan_with(
+    store: &Mutex<Store>,
+    settings: &Settings,
+    tables: &MountTables,
+) -> Vec<(PathBuf, bool)> {
+    store.lock().unwrap().use_mount_tables(tables.clone());
+    scan_shared(store, settings).unwrap()
+}
+
+fn mount_line(point: &Path) -> String {
+    format!("1 0 0:1 / {} rw - ext4 /dev/x rw\n", point.display())
 }
 
 fn file_uri(path: &Path) -> String {
@@ -197,6 +214,46 @@ fn tv_season_folders_form_one_series() {
     assert!(items.iter().all(|item| item.kind != "film"));
 }
 
+// ADR-0109 (#361): release folders `<Title> [...] S01` and `<Title> S02`
+// form one series; their files' ` - NN` numbers are the episodes.
+#[test]
+fn season_only_folders_form_one_series() {
+    let scratch = Scratch::new();
+    let root = scratch.path().join("root");
+    let first = root.join("Show Name [WEB-DL 1080p] S01");
+    let second = root.join("Show Name S02");
+    fs::create_dir_all(&first).unwrap();
+    fs::create_dir_all(&second).unwrap();
+    for number in 1..=2 {
+        fs::write(
+            first.join(format!("Short - {number:02} [1080p AVC] [ENG SUB].mkv")),
+            b"episode",
+        )
+        .unwrap();
+    }
+    fs::write(second.join("Short - 01 [1080p].mkv"), b"episode").unwrap();
+
+    let mut store = open(&scratch);
+    store
+        .scan(&settings(&root, false, PathBuf::from("ffprobe")))
+        .unwrap();
+    let (_, items) = store.snapshot().unwrap();
+    let series: Vec<_> = items.iter().filter(|item| item.kind == "series").collect();
+    assert_eq!(series.len(), 1);
+    assert_eq!(series[0].title, "Show Name");
+    let mut episodes: Vec<(u32, u32)> = items
+        .iter()
+        .filter(|item| item.kind == "episode")
+        .map(|item| {
+            assert_eq!(item.parent_id, series[0].id);
+            (item.season, item.episode)
+        })
+        .collect();
+    episodes.sort();
+    assert_eq!(episodes, vec![(1, 1), (1, 2), (2, 1)]);
+    assert!(items.iter().all(|item| item.kind != "film"));
+}
+
 #[test]
 fn in_root_symlink_is_one_catalogue_item() {
     let scratch = Scratch::new();
@@ -218,6 +275,153 @@ fn in_root_symlink_is_one_catalogue_item() {
         .collect();
     assert_eq!(films.len(), 1);
     assert!(films[0].available);
+}
+
+#[test]
+fn an_unmounted_share_is_unavailable_not_empty() {
+    // #556 (ADR-0115, AC-15): a share listed in fstab with `nofail` leaves an
+    // empty mount point behind. The mount tables are given to the scan, so
+    // no real mount is needed.
+    let scratch = Scratch::new();
+    let root = scratch.path().join("share");
+    fs::create_dir(&root).unwrap();
+    fs::write(root.join("Kept (2004).mkv"), b"a").unwrap();
+    fs::write(root.join("Other (2005).mkv"), b"b").unwrap();
+    let fstab = format!("//nas/films {} cifs nofail 0 0\n", root.display());
+    let mounted = MountTables::from_text(
+        &fstab,
+        Some(&format!(
+            "{}{}",
+            mount_line(Path::new("/")),
+            mount_line(&root)
+        )),
+    );
+    let away = MountTables::from_text(&fstab, Some(&mount_line(Path::new("/"))));
+    let store = Mutex::new(open(&scratch));
+    let configured = settings(&root, false, PathBuf::from("ffprobe"));
+    assert_eq!(
+        scan_with(&store, &configured, &mounted),
+        vec![(root.clone(), true)]
+    );
+    let before = store.lock().unwrap().snapshot().unwrap().1;
+    assert_eq!(before.len(), 2);
+    assert!(before.iter().all(|item| item.available));
+
+    // The share goes away: its mount point is an empty folder.
+    fs::remove_file(root.join("Kept (2004).mkv")).unwrap();
+    fs::remove_file(root.join("Other (2005).mkv")).unwrap();
+    assert_eq!(
+        scan_with(&store, &configured, &away),
+        vec![(root.clone(), false)]
+    );
+    let after = store.lock().unwrap().snapshot().unwrap().1;
+    assert_eq!(after.len(), 2);
+    assert!(after.iter().all(|item| !item.available));
+    for item in &before {
+        assert!(after.iter().any(|kept| kept.id == item.id));
+    }
+
+    // The share is back with its files: the same items are available again.
+    fs::write(root.join("Kept (2004).mkv"), b"a").unwrap();
+    fs::write(root.join("Other (2005).mkv"), b"b").unwrap();
+    scan_with(&store, &configured, &mounted);
+    let back = store.lock().unwrap().snapshot().unwrap().1;
+    assert_eq!(back.len(), 2);
+    assert!(back.iter().all(|item| item.available));
+    for item in &before {
+        assert!(back.iter().any(|kept| kept.id == item.id));
+    }
+}
+
+#[test]
+fn a_really_empty_folder_stays_available() {
+    // No fstab entry covers it: emptied by the user, it stays available and
+    // its items are missing one by one, as before (ADR-0056).
+    let scratch = Scratch::new();
+    let root = scratch.path().join("plain");
+    fs::create_dir(&root).unwrap();
+    fs::write(root.join("Kept (2004).mkv"), b"a").unwrap();
+    let store = Mutex::new(open(&scratch));
+    let configured = settings(&root, false, PathBuf::from("ffprobe"));
+    let tables = MountTables::from_text(
+        "UUID=1 / ext4 defaults 0 1\n//nas/films /mnt/elsewhere cifs nofail 0 0\n",
+        Some("1 0 0:1 / / rw - ext4 /dev/x rw\n"),
+    );
+    scan_with(&store, &configured, &tables);
+    fs::remove_file(root.join("Kept (2004).mkv")).unwrap();
+    assert_eq!(
+        scan_with(&store, &configured, &tables),
+        vec![(root.clone(), true)]
+    );
+    let items = store.lock().unwrap().snapshot().unwrap().1;
+    assert_eq!(items.len(), 1);
+    assert!(!items[0].available);
+}
+
+#[test]
+fn a_folder_with_files_under_an_away_fstab_entry_stays_available() {
+    // Review of #557: a stale `nofail` entry whose mount point now holds real
+    // files on the parent filesystem, or any share fstab does not list,
+    // mounted there, is never the empty mount point of an away share.
+    let scratch = Scratch::new();
+    let root = scratch.path().join("stale");
+    fs::create_dir(&root).unwrap();
+    fs::write(root.join("Local (2006).mkv"), b"a").unwrap();
+    let store = Mutex::new(open(&scratch));
+    let configured = settings(&root, false, PathBuf::from("ffprobe"));
+    let away = MountTables::from_text(
+        &format!("/dev/old {} ext4 nofail 0 0\n", root.display()),
+        Some(&mount_line(Path::new("/"))),
+    );
+    assert_eq!(
+        scan_with(&store, &configured, &away),
+        vec![(root.clone(), true)]
+    );
+    let items = store.lock().unwrap().snapshot().unwrap().1;
+    assert_eq!(items.len(), 1);
+    assert!(items[0].available);
+}
+
+#[test]
+fn import_under_an_unavailable_nested_root_is_refused() {
+    // Codex review of #557: an unavailable inner root never falls back to
+    // the outer root, whose walk skips the inner one.
+    if !run_without_root("import_under_an_unavailable_nested_root_is_refused") {
+        return;
+    }
+    let scratch = Scratch::new();
+    let outer = scratch.path().join("outer");
+    let inner = outer.join("inner");
+    fs::create_dir_all(&inner).unwrap();
+    let mut store = open(&scratch);
+    let mut configured = settings(&outer, false, PathBuf::from("ffprobe"));
+    configured.roots.push(inner.clone());
+    store.scan(&configured).unwrap();
+    // A finished download lands in the inner root, which then cannot be
+    // listed; the file is still reachable.
+    let video = inner.join("Fresh (2012).mkv");
+    fs::write(&video, b"film").unwrap();
+    let _restore = ModeGuard(inner.clone());
+    fs::set_permissions(&inner, fs::Permissions::from_mode(0o300)).unwrap();
+    assert!(video.is_file());
+    let candidate = ImportCandidate {
+        source: EntityRef {
+            provider_id: "downloads".into(),
+            capability: "download".into(),
+            local_id: "job-nested".into(),
+        },
+        file_uri: file_uri(&video),
+        completion_id: "done-nested".into(),
+    };
+    assert_eq!(store.import(&[candidate]), Err(ErrorCode::Unavailable));
+    assert!(
+        store
+            .snapshot()
+            .unwrap()
+            .1
+            .iter()
+            .all(|item| item.title != "Fresh")
+    );
 }
 
 #[test]

@@ -210,6 +210,8 @@ Owner decisions of 2026-09-30:
 
 Removing a folder removes its items from the library and never deletes files. Arinn never mounts or browses network shares; mounted folders appear as start points in the picker.
 
+A typed path that begins with `~/`, or is only `~`, means the user's home folder: the shell expands it before it proposes the value, so the stored setting and the contract stay absolute paths. `~user/` is not supported. Owner decision of 2026-10-26 ([#479](https://github.com/LimeBeck/arinn/issues/479)).
+
 ### 5.7. System UI, power and ambient
 
 Arinn provides one system overlay for Home, Back, Play/Pause, volume, mute, the power menu and Settings. Each action is executed by the platform layer or the matching provider. CEC is not part of the architecture; TV control (for example webOS) is added later through the same plugin mechanism, never in the core.
@@ -644,7 +646,7 @@ The dedicated Arinn login session entries and the unprivileged switch between Ar
 
 ### 12.5. On-screen keyboard delivery
 
-The platform layer registers the keyboard key ([§6.2](#62-keys)), binds the panel to the application window that has focus when the key is pressed, routes the panel's keys to the shell while the panel is open and delivers the typed text into that window. On KDE Plasma 6/Wayland Arinn works as KWin's input method: text is committed through the Wayland text-input protocol, or as key events to an application without it. On X11/EWMH the platform adapter injects key events with XTest. The shell draws the panel and sends each typed key to the daemon, which passes it to the platform adapter; the shell never sends input to an application itself (R-03). The microphone button of the owner's remote sends a key that Qt and X11 cannot name, so the platform layer maps it to a key they can name. The mechanism is decided in the ADR of [#434](https://github.com/LimeBeck/arinn/issues/434).
+The platform layer registers the keyboard key ([§6.2](#62-keys)), binds the panel to the application window that had focus when the panel opened, routes the panel's keys to the shell while the panel is open and delivers the typed text only into that window. On KDE Plasma 6/Wayland Arinn works as KWin's input method: text is committed through the Wayland text-input protocol, or as key events to an application without it. On X11/EWMH the platform adapter injects key events with XTest and checks before each character and each editing key that the window still has focus and the session is unlocked. The shell draws the panel and sends each typed key to the daemon, which passes it to the platform adapter; the shell never sends input to an application itself (R-03). The microphone button of the owner's remote sends a key that Qt and X11 cannot name, so the platform layer maps it to a key they can name. The mechanism is decided in the ADR of [#434](https://github.com/LimeBeck/arinn/issues/434).
 
 ---
 
@@ -704,6 +706,10 @@ including refusal or withdrawal, Sentry MUST remain disabled and MUST NOT send
 cached reports. The current development flag is not the public consent UI;
 these pending requirements are tracked in the
 [publication checklist #74](https://github.com/LimeBeck/arinn/issues/74).
+The owner confirmed a **90-day retention period** for diagnostic data on
+2026-10-27. The public privacy notice MUST state this period, and the receiving
+service MUST be configured accordingly. This decision does not replace the
+required consent, refusal or withdrawal controls.
 
 ---
 
@@ -761,9 +767,10 @@ Its availability does not imply that production runtime discovery or Plugin API 
 is complete. The [Phase 1 implementation record](../architecture/phase-1-progress.md)
 distinguishes implemented primitives from the remaining runtime work.
 
-The standalone UI gallery also provides a Home/navigation development preview
-(`arinn-ui-gallery --home`) with explicit populated, empty, loading, error and
-unavailable presentation fixtures. It emits observable action intentions only;
+The fixture render in `tests/ui/visual` provides the Home/navigation development
+preview with explicit populated, empty, loading, error and unavailable
+presentation fixtures; the standalone UI gallery shows components only. The
+preview emits observable action intentions only;
 it does not launch applications, retry a provider or perform system actions.
 This preview does not replace the production shell or implement web shortcuts.
 Its scope and verification are recorded in the [component contract](../architecture/ui-components.md).
@@ -793,6 +800,7 @@ records the shared components.
 - The same pipeline runs nightly against the latest Arch Linux, Qt and Rust; the nightly upgrades the Arch images before building. A red nightly blocks releases.
 - `master` is protected: changes land only through pull requests with green CI and a signed CLA.
 - Every successful push to `master` publishes an automatic pre-release tagged `snapshot-<full SHA>` after the full pipeline and package installation tests pass. Each master commit has its own concurrency group and its run is not cancelled by a push of another commit; a second run of the same commit replaces the first ([ADR-0092](../adr/0092-less-repeated-ci-work.md)). Assets and checksums come from that exact commit; no workspace version bump is made. The snapshot package version is `<version>.r<commit count>.g<12 hex>`, so pacman upgrades each snapshot to the next and a release to a snapshot of the following version ([ADR-0099](../adr/0099-snapshot-package-version.md)). Published snapshot tags and retained assets are immutable and never replace the latest ordinary release ([ADR-0086](../adr/0086-automatic-master-prereleases.md), owner-gated process change). The master channel retains only the newest verified automatic snapshot release, ordered by commit ancestry rather than publication time; older snapshot release objects/assets may be deleted while Git tags and version releases remain. A late older build does not replace a newer published snapshot. Retention is defined by [ADR-0088](../adr/0088-single-master-snapshot-retention.md), requested by the owner on 2026-10-06 and subject to owner-only workflow merge.
+- Native symbolication uses debug files collected from the exact staged `arinnd` and `arinn-shell` package binaries, verified against the finished Arch and Debian packages. Trusted master/version-tag builds upload them to Sentry after CI and package checks; PR, nightly and manual runs do not upload. Runtime telemetry consent and payload rules are unchanged ([ADR-0116](../adr/0116-package-matched-sentry-debug-symbols.md), proposed; owner review/merge required).
 - Ordinary releases are cut from `master` by a `vX.Y.Z` tag that matches the workspace version and a `CHANGELOG.md` section. The release pipeline reruns the full CI on the tagged commit and publishes only if it passes, including for `0.x`.
 - Pull requests must be up to date with `master` before merging, so CI runs on the merged result; parallel work follows [ADR-0036](../adr/0036-parallel-development.md).
 - Every bug fix includes a regression test. Changes to the platform layer, input or session behaviour also need operator tests on a real KDE session before a version-tag release, because hosted CI cannot run a compositor. Automatic master snapshots do not claim this qualification or close operator gates.

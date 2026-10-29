@@ -466,7 +466,13 @@ TestCase {
         // D-pad cooldown: the move onto the row cannot enter pointer mode.
         Ui.InputMode.keyPressed();
         mouseMove(child("job-waiting"), 40, 40);
-        wait(50);
+        // Hover delivery follows Qt's event/render loop. Establish the
+        // precondition before switching modes instead of assuming 50 ms
+        // was enough on a loaded offscreen CI runner.
+        tryCompare(child("job-waiting"), "pointerHovered", true);
+        // Let the row's deferred hover check run in D-pad mode first;
+        // changing modes below must trigger a fresh focus check (#396).
+        wait(0);
         compare(view.pointerMode, false);
         focused("job-active");
         // Pointer mode turns on while the pointer rests on the row.

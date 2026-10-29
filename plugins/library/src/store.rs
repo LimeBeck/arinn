@@ -5,6 +5,7 @@
 //! Paths and titles stay in this file's rows and are not written to logs.
 
 use crate::{
+    mounts::MountTables,
     parse::{self, Kind, Parsed},
     progress::{self, Progress},
     uri,
@@ -28,7 +29,7 @@ use std::{
 };
 use uuid::Uuid;
 
-const MAX_ROOTS: usize = 64;
+pub(crate) const MAX_ROOTS: usize = 64;
 const MAX_FILES: usize = 50_000;
 const MAX_DEPTH: usize = 64;
 const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
@@ -111,11 +112,34 @@ impl Settings {
     }
 }
 
+/// The roots exactly as written in the settings JSON, each with the
+/// normalized path the scan uses, for `LibraryRoots1` (ADR-0071). A text that
+/// is not a valid settings path (ADR-0065), or that repeats one already
+/// listed, is left out: `GetRoots` lists each written path once.
+pub fn written_roots(text: &str) -> Vec<(String, PathBuf)> {
+    let Ok(file) = serde_json::from_str::<SettingsJson>(text) else {
+        return Vec::new();
+    };
+    let mut roots: Vec<(String, PathBuf)> = Vec::new();
+    for root in file.roots.into_iter().take(MAX_ROOTS) {
+        if !arinn_protocol::settings::path(&root) || roots.iter().any(|(text, _)| *text == root) {
+            continue;
+        }
+        if let Ok(path) = normalize_root(Path::new(&root)) {
+            roots.push((root, path));
+        }
+    }
+    roots
+}
+
 pub struct Store {
     conn: Connection,
     /// Roots from the latest settings. Import uses this list, not every
     /// historical row in `roots`.
     configured_roots: Vec<PathBuf>,
+    /// Mount tables for tests; `None` reads the system's at each scan and
+    /// import (ADR-0115).
+    mounts: Option<MountTables>,
 }
 
 #[derive(Clone)]
@@ -230,6 +254,7 @@ impl Store {
         Ok(Self {
             conn,
             configured_roots: Vec::new(),
+            mounts: None,
         })
     }
 
@@ -237,9 +262,19 @@ impl Store {
         self.configured_roots = roots.to_vec();
     }
 
+    /// Use these mount tables instead of the system's, so a test does not
+    /// depend on the host's fstab and mountinfo (ADR-0115).
+    pub fn use_mount_tables(&mut self, tables: MountTables) {
+        self.mounts = Some(tables);
+    }
+
+    fn mount_tables(&self) -> MountTables {
+        self.mounts.clone().unwrap_or_else(MountTables::system)
+    }
+
     pub fn scan(&mut self, settings: &Settings) -> Result<(), ErrorCode> {
         let baseline = self.item_ids()?;
-        let mut discovered = discover(settings);
+        let mut discovered = discover(settings, &self.mount_tables());
         attach_probes(self, settings, &mut discovered)?;
         self.commit_discovered(settings, discovered, &baseline)
     }
@@ -646,30 +681,25 @@ impl Store {
         Ok(())
     }
 
+    /// The root an imported file belongs to: the most specific configured
+    /// root that contains it, as a scan would assign it (the walk of an
+    /// outer root skips a nested configured root). An unavailable root never
+    /// falls back to an outer one, so an import cannot catalogue a file a
+    /// scan would not (review of #557).
     fn available_root_for(&self, path: &Path) -> Result<PathBuf, ErrorCode> {
-        let mut best: Option<PathBuf> = None;
-        let mut saw_unavailable = false;
-        for root in &self.configured_roots {
-            if !path.starts_with(root) {
-                continue;
-            }
-            if !root_readable(root) {
-                saw_unavailable = true;
-                continue;
-            }
-            if contained(root, path)
-                && best
-                    .as_ref()
-                    .is_none_or(|current| root.as_os_str().len() > current.as_os_str().len())
-            {
-                best = Some(root.clone());
-            }
+        let root = self
+            .configured_roots
+            .iter()
+            .filter(|root| path.starts_with(root))
+            .max_by_key(|root| root.components().count())
+            .ok_or(ErrorCode::InvalidArgument)?;
+        if !root_available(root, &self.mount_tables()) {
+            return Err(ErrorCode::Unavailable);
         }
-        best.ok_or(if saw_unavailable {
-            ErrorCode::Unavailable
-        } else {
-            ErrorCode::InvalidArgument
-        })
+        if !contained(root, path) {
+            return Err(ErrorCode::InvalidArgument);
+        }
+        Ok(root.clone())
     }
 
     fn completion(&self, id: &str) -> Result<Option<String>, ErrorCode> {
@@ -964,7 +994,7 @@ fn now_us() -> u64 {
     .unwrap_or(u64::MAX)
 }
 
-fn normalize_root(path: &Path) -> Result<PathBuf, ErrorCode> {
+pub(crate) fn normalize_root(path: &Path) -> Result<PathBuf, ErrorCode> {
     if !path.is_absolute() {
         return Err(ErrorCode::InvalidArgument);
     }
@@ -988,8 +1018,14 @@ fn normalize_root(path: &Path) -> Result<PathBuf, ErrorCode> {
     Ok(out)
 }
 
-fn root_readable(path: &Path) -> bool {
-    fs::read_dir(path).is_ok()
+/// A root is available when it can be read and is not the empty mount point
+/// of a share that is away (ADR-0056, ADR-0115). A folder with any entry is
+/// never the empty mount point, whatever the tables say.
+fn root_available(path: &Path, mounts: &MountTables) -> bool {
+    let Ok(mut entries) = fs::read_dir(path) else {
+        return false;
+    };
+    entries.next().is_some() || !mounts.away(path)
 }
 
 fn contained(root: &Path, path: &Path) -> bool {
@@ -1009,12 +1045,12 @@ struct RootScan {
     files: Vec<DiskFile>,
 }
 
-fn discover(settings: &Settings) -> Vec<RootScan> {
+fn discover(settings: &Settings, mounts: &MountTables) -> Vec<RootScan> {
     settings
         .roots
         .iter()
         .map(|path| {
-            if !root_readable(path) {
+            if !root_available(path, mounts) {
                 return RootScan {
                     path: path.clone(),
                     readable: false,
@@ -1112,13 +1148,19 @@ fn attach_probes(
 
 /// Walks and probes without holding `store`, then locks only to write the catalogue.
 /// Item ids recorded before the walk are the baseline: a row created while the
-/// lock is released, such as an import during ffprobe, is kept.
-pub fn scan_shared(store: &std::sync::Mutex<Store>, settings: &Settings) -> Result<(), ErrorCode> {
-    let baseline = {
+/// lock is released, such as an import during ffprobe, is kept. Returns each
+/// configured root with whether it could be read: an unreadable root, such as
+/// an unmounted share, keeps its items as unavailable.
+pub fn scan_shared(
+    store: &std::sync::Mutex<Store>,
+    settings: &Settings,
+) -> Result<Vec<(PathBuf, bool)>, ErrorCode> {
+    let (baseline, mounts) = {
         let guard = store.lock().map_err(|_| ErrorCode::Internal)?;
-        guard.item_ids()?
+        (guard.item_ids()?, guard.mounts.clone())
     };
-    let mut discovered = discover(settings);
+    let mounts = mounts.unwrap_or_else(MountTables::system);
+    let mut discovered = discover(settings, &mounts);
     let probed = {
         let guard = store.lock().map_err(|_| ErrorCode::Internal)?;
         let mut jobs = Vec::new();
@@ -1151,8 +1193,13 @@ pub fn scan_shared(store: &std::sync::Mutex<Store>, settings: &Settings) -> Resu
             discovered[root_index].files[file_index].fresh_probe = result;
         }
     }
+    let readable = discovered
+        .iter()
+        .map(|root| (root.path.clone(), root.readable))
+        .collect();
     let mut guard = store.lock().map_err(|_| ErrorCode::Internal)?;
-    guard.commit_discovered(settings, discovered, &baseline)
+    guard.commit_discovered(settings, discovered, &baseline)?;
+    Ok(readable)
 }
 
 fn walk(
@@ -1618,6 +1665,23 @@ mod tests {
     }
 
     #[test]
+    fn written_roots_keep_the_text_of_each_valid_root() {
+        let written = written_roots(
+            r#"{"roots":["/srv/films/","/srv/films","/srv/films/","films","/srv/./x"],"probe":false}"#,
+        );
+        assert_eq!(
+            written,
+            vec![
+                ("/srv/films/".to_string(), PathBuf::from("/srv/films")),
+                ("/srv/films".to_string(), PathBuf::from("/srv/films")),
+            ]
+        );
+        assert!(written_roots("{}").is_empty());
+        assert!(written_roots("not json").is_empty());
+        assert!(written_roots(r#"{"roots":["/"]}"#).is_empty());
+    }
+
+    #[test]
     fn settings_json_reads_roots_and_rejects_the_filesystem_root() {
         let settings = Settings::parse(r#"{"roots":["/srv/films"]}"#).unwrap();
         assert_eq!(settings.roots, vec![PathBuf::from("/srv/films")]);
@@ -1664,6 +1728,7 @@ mod tests {
         fs::write(root.join("One (2001).mkv"), b"a").unwrap();
         fs::write(root.join("Two (2002).mkv"), b"b").unwrap();
         let mut store = Store::open(&dir.join("library.sqlite3")).unwrap();
+        store.use_mount_tables(crate::mounts::MountTables::default());
         store
             .scan(&Settings {
                 autoscan: false,

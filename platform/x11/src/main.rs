@@ -3,6 +3,7 @@
 
 // Qt key codes in this shared module serve the KDE adapter only.
 mod background;
+mod focus_watch;
 #[allow(dead_code)]
 #[path = "../../key_sequence.rs"]
 mod key_sequence;
@@ -820,6 +821,19 @@ async fn run(actor: &Arc<Mutex<Actor>>, power: &mut power_owner::PowerOwner) -> 
     )
     .await?;
     let mut shell_ready = shell_ready::ShellReady::default();
+    // A focus change wakes the loop at once, so the Menu grabs follow the
+    // shell's focus without waiting for the tick (#507, ADR-0106). Without
+    // the watch the tick alone follows focus, as before.
+    let focus = Arc::new(tokio::sync::Notify::new());
+    let changed = focus.clone();
+    let _focus_watch = tokio::task::spawn_blocking(move || focus_watch::start(None, changed))
+        .await?
+        .inspect_err(|_| {
+            eprintln!(
+                "arinn-platform-x11: focus watch unavailable; Menu keys follow focus on the tick"
+            )
+        })
+        .ok();
     let mut tick = tokio::time::interval(Duration::from_millis(500));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut revision = 0;
@@ -828,6 +842,7 @@ async fn run(actor: &Arc<Mutex<Actor>>, power: &mut power_owner::PowerOwner) -> 
     loop {
         let (update, completion) = tokio::select! {
             _ = tick.tick() => (refresh(actor, unlocked(&c).await).await?, None),
+            _ = focus.notified() => (refresh(actor, unlocked(&c).await).await?, None),
             pending = rx.recv() => {
                 let pending = pending.ok_or_else(|| anyhow::anyhow!("control streams ended"))?;
                 // Refresh native objects before every control: queued opaque tokens
@@ -879,7 +894,34 @@ async fn run(actor: &Arc<Mutex<Actor>>, power: &mut power_owner::PowerOwner) -> 
         }
     }
 }
-/// The shell's bus name; its owner is the live shell.
+/// Waits until the daemon (`org.arinn.Daemon1`) has an owner, watching the
+/// bus for it (#507). A session's X connection grabs the global keys; while
+/// the daemon is gone they would do nothing, and the remote's Menu keys would
+/// swallow the context-menu key in every application. A session ends as soon
+/// as the daemon goes (its long polls fail), so with this wait no key is
+/// grabbed while the daemon is absent, and the grabs come back as soon as it
+/// returns. A live daemon is never fought: this only delays a session.
+/// Returns at once with an error when the session bus is unusable; the
+/// caller's retry delay then applies.
+async fn wait_for_daemon() -> Result<()> {
+    use futures_util::StreamExt as _;
+    let c = Connection::session().await?;
+    let bus = zbus::fdo::DBusProxy::new(&c).await?;
+    // Subscribe first, then check, so an owner that appears in between is
+    // not missed.
+    let mut changes = bus
+        .receive_name_owner_changed_with_args(&[(0, production::SERVICE)])
+        .await?;
+    if bus.name_has_owner(production::SERVICE.try_into()?).await? {
+        return Ok(());
+    }
+    while let Some(change) = changes.next().await {
+        if change.args()?.new_owner().is_some() {
+            return Ok(());
+        }
+    }
+    anyhow::bail!("session bus closed")
+}
 /// Aborts a task when the session ends.
 struct Abort<T>(tokio::task::JoinHandle<T>);
 impl<T> Drop for Abort<T> {
@@ -980,9 +1022,10 @@ async fn main() -> Result<()> {
     if argument.as_deref() == Some(std::ffi::OsStr::new("--restore-power-button")) {
         // The system XDG autostart entry at every XFCE login: a copy an
         // unclean end of the dedicated session left goes back, unless the
-        // adapter runs and holds the key (ADR-0111).
+        // adapter runs and holds the key (ADR-0111), under a temporary
+        // logind inhibitor (#519).
         if let Some((bus, files)) = power_button().await {
-            xfce_power::restore_at_login(&bus, &files).await;
+            power_owner::restore_at_login(&bus, &files, None).await;
         }
         return Ok(());
     }
@@ -994,10 +1037,21 @@ async fn main() -> Result<()> {
     let mut power = power_owner::PowerOwner::from_env().await;
     // No native payloads in logs. Reconnect creates fresh tokens and bridge generation.
     loop {
-        if session(&mut power).await.is_ok() {
+        // No X connection, and so no global key grab, before the daemon is
+        // there (#507). Without a usable session bus there is no daemon
+        // either: no session starts, and the wait is tried again after the
+        // retry delay (Codex on #560).
+        let waited = tokio::select! {
+            waited = wait_for_daemon() => waited,
+            _ = shutdown() => return Ok(()),
+        };
+        if waited.is_err() {
+            eprintln!("arinn-platform-x11: session bus unavailable; retrying");
+        } else if session(&mut power).await.is_ok() {
             return Ok(());
+        } else {
+            eprintln!("arinn-platform-x11: backend unavailable; retrying");
         }
-        eprintln!("arinn-platform-x11: backend unavailable; retrying");
         tokio::select! {
             _ = tokio::time::sleep(Duration::from_secs(3)) => (),
             _ = shutdown() => return Ok(()),

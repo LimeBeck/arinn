@@ -33,5 +33,7 @@ pub mod supervisor;
 pub mod system_control;
 
 pub mod telemetry;
+#[cfg(test)]
+pub(crate) mod test_support;
 #[path = "../../../platform/kde/windows.rs"]
 pub mod windows;

@@ -4,7 +4,11 @@
 //! Private-bus lifecycle tests of the Activity background handoff
 //! (ADR-0087). Synthetic pixels and fake windows only.
 use super::*;
-use crate::{runtime::Daemon, storage::Paths};
+use crate::{
+    runtime::Daemon,
+    storage::Paths,
+    test_support::{Bounded, served},
+};
 use arinn_protocol::{
     background::{BackgroundCaptureProxy, BackgroundProxy},
     kwin::KWinBridgeProxy,
@@ -86,10 +90,13 @@ impl Fixture {
         core.export_platform().await.unwrap();
         let (blocked, receiver) = watch::channel(false);
         core.export_background(receiver).await.unwrap();
+        // The first call follows the first export with no round trip (#528).
+        served(&kwin, &server).await;
         let generation = KWinBridgeProxy::new(&kwin)
             .await
             .unwrap()
             .connect(&Uuid::new_v4().to_string())
+            .bounded()
             .await
             .unwrap();
         let mut f = Self {
@@ -745,6 +752,143 @@ async fn a_new_shell_owner_never_reads_the_previous_frame() {
     drop(held);
     // The frame is bound to the shell that owned the name at publication.
     error(read.await.unwrap(), "PermissionDenied");
+}
+
+#[tokio::test]
+async fn a_shell_that_loses_its_name_while_reading_gets_no_frame() {
+    let f = Fixture::new().await;
+    let context = f.pending().await;
+    f.producer(&f.kwin)
+        .await
+        .publish(&frame(&context, 2, 2, memfd(&pixels(), SEALED)))
+        .await
+        .unwrap();
+    // Keep the reconciler busy behind the held state, so the owner change is
+    // not processed before the read takes the state.
+    let background = f.core.background.get().unwrap().clone();
+    let held = background.inner.lock().await;
+    f.associate("activity", &f.tokens[0]).await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    // The frame's own reader starts reading while it still owns the name.
+    let shell = f.shell.clone();
+    let request = context.request_id.clone();
+    let read = tokio::spawn(async move {
+        BackgroundProxy::new(&shell)
+            .await
+            .unwrap()
+            .read_frame(&request)
+            .await
+    });
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    // It loses the name while its read waits for the state.
+    f.shell.release_name(SHELL_SERVICE).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    drop(held);
+    error(read.await.unwrap(), "PermissionDenied");
+}
+
+#[tokio::test]
+async fn a_release_and_reacquire_ends_the_previous_owner_lifetime() {
+    let f = Fixture::new().await;
+    let context = f.pending().await;
+    f.producer(&f.kwin)
+        .await
+        .publish(&frame(&context, 2, 2, memfd(&pixels(), SEALED)))
+        .await
+        .unwrap();
+    // Keep the reconciler busy behind the held state, so the queued
+    // owner-change invalidation runs only after the read below.
+    let background = f.core.background.get().unwrap().clone();
+    let held = background.inner.lock().await;
+    f.associate("activity", &f.tokens[0]).await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    // The reader's connection releases the name and takes it again: the same
+    // unique name owns Shell1, but in a new owner lifetime. Every task has
+    // had its turn before the read starts, so a counter would already
+    // include both changes when the read samples it.
+    f.shell.release_name(SHELL_SERVICE).await.unwrap();
+    f.shell.request_name(SHELL_SERVICE).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let shell = f.shell.clone();
+    let request = context.request_id.clone();
+    let read = tokio::spawn(async move {
+        BackgroundProxy::new(&shell)
+            .await
+            .unwrap()
+            .read_frame(&request)
+            .await
+    });
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    drop(held);
+    error(read.await.unwrap(), "PermissionDenied");
+}
+
+#[tokio::test]
+async fn a_frame_without_owner_events_is_never_read() {
+    let f = Fixture::new().await;
+    let context = f.pending().await;
+    // The Shell1 owner subscription cannot be opened for this publication.
+    let background = f.core.background.get().unwrap().clone();
+    background
+        .owner_events_unavailable
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    f.producer(&f.kwin)
+        .await
+        .publish(&frame(&context, 2, 2, memfd(&pixels(), SEALED)))
+        .await
+        .unwrap();
+    assert_eq!(f.wait_state("ready", true).await.state, "ready");
+    // Owner changes cannot be verified: the frame is withheld, even from its
+    // own reader that never lost the name.
+    let reader = f.reader(&f.shell).await;
+    error(
+        reader.read_frame(&context.request_id).await,
+        "PermissionDenied",
+    );
+}
+
+#[tokio::test]
+async fn a_frame_refused_after_an_owner_change_stays_refused() {
+    let f = Fixture::new().await;
+    let context = f.pending().await;
+    f.producer(&f.kwin)
+        .await
+        .publish(&frame(&context, 2, 2, memfd(&pixels(), SEALED)))
+        .await
+        .unwrap();
+    // Hold the state so the queued owner-change invalidation runs only after
+    // both reads.
+    let background = f.core.background.get().unwrap().clone();
+    let held = background.inner.lock().await;
+    f.associate("activity", &f.tokens[0]).await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    f.shell.release_name(SHELL_SERVICE).await.unwrap();
+    f.shell.request_name(SHELL_SERVICE).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let read = || {
+        let shell = f.shell.clone();
+        let request = context.request_id.clone();
+        tokio::spawn(async move {
+            BackgroundProxy::new(&shell)
+                .await
+                .unwrap()
+                .read_frame(&request)
+                .await
+        })
+    };
+    // Three reads queue behind the held state, in order. The receiver holds
+    // two events (release, reacquire); each refused read takes at most one.
+    let mut reads = Vec::new();
+    for _ in 0..3 {
+        reads.push(read());
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    drop(held);
+    // Every read is refused: once an owner change is seen the frame stays
+    // refused, also after the receiver has no events left.
+    for read in reads {
+        error(read.await.unwrap(), "PermissionDenied");
+    }
 }
 
 #[tokio::test]

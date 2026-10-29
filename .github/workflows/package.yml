@@ -76,6 +76,7 @@ jobs:
       - name: Create source tarball
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          echo "ARINN_BUILD_ID=$(python scripts/build_id.py)" >> "$GITHUB_ENV"
           # A tag builds the release version; every other build is a snapshot
           # whose pkgver pacman orders by commit (#357, ADR-0097).
           if [ "${{ github.ref_type }}" = tag ]; then
@@ -113,7 +114,7 @@ jobs:
           chown -R builder "$cache/home" "$target"
           # The shell builds against the minimum supported Qt (#416, ADR-0104).
           test -f "$ARINN_QT_FLOOR_PREFIX/lib/cmake/Qt6/Qt6Config.cmake"
-          su builder -c "cd pkg && CARGO_HOME='$cache/home' CARGO_TARGET_DIR='$target' ARINN_QT_FLOOR_PREFIX='$ARINN_QT_FLOOR_PREFIX' makepkg --noconfirm --cleanbuild $NOCHECK"
+          su builder -c "cd pkg && CARGO_HOME='$cache/home' CARGO_TARGET_DIR='$target' ARINN_SYMBOLS_DIR='$GITHUB_WORKSPACE/pkg/sentry-symbols' ARINN_QT_FLOOR_PREFIX='$ARINN_QT_FLOOR_PREFIX' makepkg --noconfirm --cleanbuild $NOCHECK"
           cp "$target/release/examples/private-systemd" pkg/private-systemd
       - name: Qt floor check
         # No packaged binary imports a Qt version tag above the floor, a
@@ -122,6 +123,7 @@ jobs:
           mkdir pkgroot
           bsdtar -xf pkg/arinn-[0-9]*.pkg.tar.zst -C pkgroot
           python tests/package/qt_floor.py --qt-lib-dir "$ARINN_QT_FLOOR_PREFIX/lib" pkgroot
+          python scripts/debug-symbols.py verify pkgroot pkg/sentry-symbols --flavor arch --build-id "$(python scripts/build_id.py)"
       - name: Shell on the minimum supported Qt
         # Installs the package into this throwaway container and runs the
         # smoke test with the shell loading the floor Qt libraries instead of
@@ -142,6 +144,12 @@ jobs:
             pkg/*.pkg.tar.zst
             pkg/*.tar.gz
             pkg/private-systemd
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        with:
+          name: arinn-arch-symbols
+          retention-days: 7
+          path: pkg/sentry-symbols/
           if-no-files-found: error
 
   smoke:
@@ -202,8 +210,11 @@ jobs:
       - name: Record Rust version
         id: deps
         run: echo "rustc=$(rustc -V | tr -c 'A-Za-z0-9.\n' '-')" >> "$GITHUB_OUTPUT"
-      - name: Trust workspace for git archive
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Trust workspace and record symbol release
+        # Freeze before chmod changes tracked executable bits in Build .deb.
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          echo "ARINN_BUILD_ID=$(python scripts/build_id.py)" >> "$GITHUB_ENV"
       - name: Restore Cargo cache
         if: ${{ github.ref_type != 'tag' && !vars.ARINN_RUNNER }}
         uses: actions/cache@v4
@@ -214,6 +225,7 @@ jobs:
       - name: Build .deb
         env:
           # Same check() policy as the Arch package (ADR-0092).
+          ARINN_SYMBOLS_DIR: ${{ github.workspace }}/sentry-symbols-debian
           DEB_BUILD_OPTIONS: ${{ (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref_type != 'tag')) && 'nocheck' || '' }}
           # One target directory per self-hosted runner instance, as in the
           # Arch package job (ADR-0114).
@@ -230,6 +242,9 @@ jobs:
           if [ "$(du -s --block-size=1G "$CARGO_TARGET_DIR" | cut -f1)" -gt 12 ]; then rm -rf "$CARGO_TARGET_DIR"; mkdir "$CARGO_TARGET_DIR"; fi
           chmod +x packaging/debian/build-deb.sh packaging/debian/debian/rules packaging/debian/debian/postinst
           ./packaging/debian/build-deb.sh
+          mkdir deb-symbol-check
+          dpkg-deb -x packaging/debian/arinn_*.deb deb-symbol-check
+          python scripts/debug-symbols.py verify deb-symbol-check "$ARINN_SYMBOLS_DIR" --flavor debian --build-id "$(python scripts/build_id.py)"
       - uses: actions/upload-artifact@v7
         with:
           name: arinn-deb-package
@@ -239,6 +254,12 @@ jobs:
           path: |
             packaging/debian/*.deb
             packaging/debian/private-systemd
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        with:
+          name: arinn-deb-symbols
+          retention-days: 7
+          path: sentry-symbols-debian/
           if-no-files-found: error
 
   smoke-deb:

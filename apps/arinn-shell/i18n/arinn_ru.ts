@@ -310,8 +310,8 @@
         <translation>Перейти</translation>
     </message>
     <message>
-        <source>Save</source>
-        <translation>Сохранить</translation>
+        <source>Close</source>
+        <translation>Закрыть</translation>
     </message>
     <message>
         <source>Back</source>
@@ -1788,6 +1788,26 @@
         <translation>Сохранено</translation>
     </message>
     <message>
+        <source>The path must start with /</source>
+        <translation>Путь должен начинаться с /</translation>
+    </message>
+    <message>
+        <source>The path cannot contain control characters</source>
+        <translation>Путь не может содержать управляющие символы</translation>
+    </message>
+    <message>
+        <source>The path cannot contain //</source>
+        <translation>Путь не может содержать //</translation>
+    </message>
+    <message>
+        <source>The path cannot contain . or .. folders</source>
+        <translation>Путь не может содержать папки . и ..</translation>
+    </message>
+    <message>
+        <source>The path is too long</source>
+        <translation>Путь слишком длинный</translation>
+    </message>
+    <message>
         <source>This is the maximum</source>
         <translation>Это максимум</translation>
     </message>
@@ -1844,8 +1864,12 @@
         <translation>Вкл.</translation>
     </message>
     <message>
+        <source>Unavailable. Its titles stay in the library as unavailable.</source>
+        <translation>Недоступна. Фильмы из неё остаются в библиотеке как недоступные.</translation>
+    </message>
+    <message>
         <source>Remove</source>
-        <translation>Удалить</translation>
+        <translation>Убрать</translation>
     </message>
     <message>
         <source>Add path</source>

@@ -46,12 +46,19 @@ build() {
   export RUSTUP_TOOLCHAIN=stable
   # CI may point this at a cached directory outside $srcdir (ADR-0047).
   export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-target}"
+  local symbol_cmake=()
+  if [ -n "${ARINN_SYMBOLS_DIR:-}" ]; then
+    export CARGO_PROFILE_RELEASE_DEBUG=line-tables-only
+    export CARGO_PROFILE_RELEASE_STRIP=none
+    symbol_cmake=("-DCMAKE_C_FLAGS=${CFLAGS:-} -g1 -ffile-prefix-map=${PWD}=/usr/src/arinn"
+                  "-DCMAKE_CXX_FLAGS=${CXXFLAGS:-} -g1 -ffile-prefix-map=${PWD}=/usr/src/arinn")
+  fi
   cargo build --frozen --release
   cargo build --frozen --release --example private-systemd
   # No build RPATH: the binary is installed from the build tree and must not
   # point at the SDK prefix.
   cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_SKIP_BUILD_RPATH=ON \
-    ${ARINN_QT_FLOOR_PREFIX:+"-DCMAKE_PREFIX_PATH=$ARINN_QT_FLOOR_PREFIX"}
+    ${ARINN_QT_FLOOR_PREFIX:+"-DCMAKE_PREFIX_PATH=$ARINN_QT_FLOOR_PREFIX"} "${symbol_cmake[@]}"
   # Only the installed shell and KWin QML module; the Qt test executables,
   # gallery and perf harness are built and run by the CI integration job
   # (ADR-0092).
@@ -151,4 +158,9 @@ package() {
   install -Dm644 README.md CHANGELOG.md -t "${pkgdir}/usr/share/doc/${pkgname}/"
   install -Dm644 build/observability/native/licenses/*-LICENSE -t "${pkgdir}/usr/share/licenses/${pkgname}/"
   install -Dm644 LICENSES/*.txt -t "${pkgdir}/usr/share/licenses/${pkgname}/"
+  # Exact staged ELF files, before makepkg strips the installed package.
+  if [ -n "${ARINN_SYMBOLS_DIR:-}" ]; then
+    python scripts/debug-symbols.py collect "$pkgdir" "$ARINN_SYMBOLS_DIR" \
+      --flavor arch --build-id "$(python scripts/build_id.py)"
+  fi
 }

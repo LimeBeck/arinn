@@ -162,12 +162,28 @@ protection. Repeated menu close/reopen cycles therefore remain available.
 
 Both run `/usr/lib/arinn/arinn-session <plasma|xfce>`. The wrapper reads
 `$XDG_STATE_HOME/arinn/session-mode`. When the file holds exactly `desktop`
-(at most one trailing newline), the wrapper replaces itself with the plain desktop. Otherwise it starts the
+(at most one trailing newline), the wrapper replaces itself with the plain
+desktop. A NUL byte anywhere makes the content something else, so `desk\0top`
+starts Arinn; `arinn-session-switch` reads the file by the same rule. Otherwise it starts the
 desktop as a child, waits up to 120 s for readiness, exports
 `ARINN_SESSION_ENTRY` and `ARINN_SESSION_MODE` (the mode file it read) to the
 user manager and starts Arinn. Readiness means
 `graphical-session.target` is active on Plasma, or `org.xfce.SessionManager`
-is owned on XFCE. If Arinn cannot start, the desktop keeps running. When the
+is owned on XFCE. On XFCE, Arinn counts as started once the helper the
+wrapper started confirms a started EWMH target: it owns
+`org.arinn.XfceSession.Running` (`busctl --user status` reports its PID).
+The helper takes that name only after the target has started. After a fast
+re-login, the previous login's helper may still own `org.arinn.XfceSession`
+while it stops the target. The new helper waits up to 65 s for that name
+([x11-ewmh](x11-ewmh.md), #483), which covers the previous helper's normal
+cleanup. A hung user manager can hold the name for longer; Arinn cannot
+start then anyway, and the line below is logged. The wrapper watches for up
+to 120 s, which covers the wait and a start. If Arinn cannot start, the wrapper writes the
+fixed line `arinn-session: Arinn did not start; the desktop continues without
+it` to the session log, and the desktop keeps running. That covers no
+readiness, a failed target start on Plasma, an XFCE helper that exits before
+it confirms a start (it gave up waiting, or a check, environment update or
+the target start failed), and no confirmation within the watch. When the
 desktop exits, the wrapper stops the Plasma target, removes the marker and
 exits with the desktop's status. In both modes the desktop starts with
 SIGINT and SIGQUIT at their defaults, as with the stock entries. The desktop

@@ -65,7 +65,28 @@ TestCase {
         compare(overlay.revealed, false);
     }
 
+    function test_progress_identity_and_translucent_backdrop() {
+        overlay.revealDelay = 600000;
+        overlay.active = true;
+        overlay.revealed = true;
+        const monogram = child("launchMonogram");
+        verify(monogram.visible);
+        compare(monogram.text, "E");
+        compare(child("launchChip").width, 180);
+        compare(child("launchChip").height, 180);
+        compare(child("launchGlow").visible, true);
+        compare(child("launchBackdrop").opacity, 0.92);
+        overlay.serviceTitle = "  Game";
+        compare(monogram.text, "G");
+        overlay.kind = "application";
+        overlay.slow = true;
+        compare(monogram.visible, true);
+        overlay.failure = "Unavailable";
+        compare(monogram.visible, false);
+    }
+
     function test_slow_message_and_cancel() {
+        noTimeout();
         overlay.active = true;
         tryCompare(overlay, "revealed", true);
         compare(overlay.visible, true);
@@ -74,6 +95,9 @@ TestCase {
         focused("launchCancel");
         keyClick(Qt.Key_Return);
         compare(cancels.count, 1);
+        // The cancel ends that open; a new one is slow again, and Back
+        // cancels it too.
+        overlay.active = false;
         overlay.active = true;
         tryCompare(overlay, "slow", true);
         focused("launchCancel");
@@ -83,6 +107,7 @@ TestCase {
 
     function test_home_hides_slow_open_without_cancel() {
         // Main.qml maps cancelRequested to browserCatalog.cancelOpen().
+        noTimeout();
         overlay.active = true;
         tryCompare(overlay, "slow", true);
         compare(overlay.visible, true);
@@ -132,6 +157,25 @@ TestCase {
         focused("launchRetry");
     }
 
+    // The browser's timeout follows the slow stage 60 ms later here; a key
+    // sent after it would meet the timeout dialog instead of Cancel under
+    // load (#552). test_timeout_dialog covers the timeout; the cases that
+    // press keys on the slow stage wait for it with none.
+    function noTimeout() {
+        overlay.timeoutDelay = 0;
+    }
+    // The title at the moment the overlay is revealed. The slow stage
+    // follows 40 ms later, so a loaded test can miss "Opening…" between two
+    // polls (#552); recording it on the change does not depend on timing.
+    property string titleAtReveal: ""
+    function recordTitleAtReveal() {
+        titleAtReveal = "";
+        overlay.revealedChanged.connect(() => {
+            if (overlay.revealed && !titleAtReveal.length)
+                titleAtReveal = findChild(overlay, "launchTitle").text;
+        });
+    }
+
     function application() {
         overlay = createTemporaryObject(applicationFactory, suite);
         verify(overlay);
@@ -145,9 +189,10 @@ TestCase {
     // Cancel. Cancel asks first and Keep starting has the focus.
     function test_application_starting_and_confirmed_cancel() {
         application();
+        recordTitleAtReveal();
         overlay.active = true;
         tryCompare(overlay, "revealed", true);
-        compare(child("launchTitle").text, "Opening Game…");
+        compare(titleAtReveal, "Opening Game…");
         tryCompare(overlay, "slow", true);
         compare(child("launchTitle").text, "Starting Game…");
         compare(child("launchSlow").visible, false);
@@ -187,6 +232,8 @@ TestCase {
         compare(cancels.count, 0);
         compare(overlay.visible, true);
         // Home hides the confirmation and the launch, cancelling nothing.
+        // Keep starting gives the focus back to Cancel on the next turn.
+        focused("launchCancel");
         keyClick(Qt.Key_Escape);
         focused("launchKeepStarting");
         keyClick(Qt.Key_Home);
@@ -207,6 +254,9 @@ TestCase {
         application();
         overlay.active = true;
         tryCompare(overlay, "slow", true);
+        // Cancel takes the focus on the turn after the slow stage; Home is
+        // handled by the overlay only from then on (#552).
+        focused("launchCancel");
         keyClick(Qt.Key_Home);
         compare(overlay.visible, false);
         overlay.serviceTitle = "Other";

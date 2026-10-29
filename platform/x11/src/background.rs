@@ -15,10 +15,10 @@
 //! or logged except normalized outcomes.
 use anyhow::{Context as _, Result, bail, ensure};
 use arinn_protocol::background::{
-    BackgroundCaptureProxy, BackgroundContext, BackgroundFrame, BackgroundProxy, MAX_HEIGHT,
-    MAX_WIDTH,
+    BackgroundCaptureProxy, BackgroundContext, BackgroundFrame, BackgroundProxy,
+    BackgroundSnapshot, Changed, MAX_HEIGHT, MAX_WIDTH,
 };
-use futures_util::StreamExt;
+use futures_util::{FutureExt as _, StreamExt};
 use std::{
     io::Write,
     os::fd::{FromRawFd, OwnedFd},
@@ -83,8 +83,27 @@ pub async fn run(
     // At most one capture worker: a timed-out one may finish, but no other
     // starts until it has (ADR-0087).
     let worker = Busy::default();
+    // The highest notified revision of this owner, per epoch.
+    let mut floor = Floor::default();
     loop {
-        match reader.get().await {
+        let reply = reader.get().await;
+        // Every Changed that arrived while Get was in flight raises the floor
+        // before the reply is used; any of them asks for a fresh Get.
+        let mut dirty = false;
+        loop {
+            match changes.next().now_or_never() {
+                Some(Some(signal)) => {
+                    floor.raise(&signal);
+                    dirty = true;
+                }
+                Some(None) => return Ok(()),
+                None => break,
+            }
+        }
+        match reply {
+            // Older than a notification already received: it starts no
+            // capture, and the fresh Get decides.
+            Ok((snapshot,)) if floor.stale(&snapshot) => {}
             Ok((snapshot,)) => {
                 if snapshot.validate().is_ok()
                     && snapshot.state == "pending"
@@ -99,9 +118,40 @@ pub async fn run(
             // waits for the next Changed; nothing is retried in a loop.
             Err(_) => log("unreadable", Instant::now()),
         }
-        if changes.next().await.is_none() {
-            return Ok(());
+        if !dirty {
+            match changes.next().await {
+                Some(signal) => floor.raise(&signal),
+                None => return Ok(()),
+            }
         }
+    }
+}
+
+/// The highest `Changed` revision seen from the daemon owner and its epoch.
+/// A snapshot of another epoch or a lower revision is stale; invalid
+/// notifications never lower or replace the floor.
+#[derive(Default)]
+struct Floor(Option<(String, u64)>);
+impl Floor {
+    fn raise(&mut self, signal: &Changed) {
+        let Ok(args) = signal.args() else {
+            return;
+        };
+        let (epoch, revision): (&str, u64) = (args.epoch(), *args.revision());
+        if arinn_protocol::platform::generation(epoch).is_err() || revision == 0 {
+            return;
+        }
+        match &mut self.0 {
+            Some((current, highest)) if current == epoch => {
+                *highest = (*highest).max(revision);
+            }
+            _ => self.0 = Some((epoch.to_owned(), revision)),
+        }
+    }
+    fn stale(&self, snapshot: &BackgroundSnapshot) -> bool {
+        self.0.as_ref().is_some_and(|(epoch, revision)| {
+            snapshot.epoch != *epoch || snapshot.revision < *revision
+        })
     }
 }
 
@@ -126,32 +176,45 @@ async fn produce(
         // A previous capture is still running (a stalled or grabbed server).
         Some(_) if worker.load(Ordering::SeqCst) => Err("busy"),
         Some(_) if !crate::unlocked(c).await => Err("session"),
-        Some(xid) => {
-            worker.store(true, Ordering::SeqCst);
-            let slot = Release(worker.clone());
-            let (sender, receiver) = tokio::sync::oneshot::channel();
-            tokio::task::spawn_blocking(move || {
-                // Frees the slot when the worker ends, also by a panic.
-                let _slot = slot;
-                let result = (|| -> Result<Option<(u32, u32, OwnedFd)>> {
-                    let Some((width, height, rgba)) = capture(display.as_deref(), xid)? else {
-                        return Ok(None);
-                    };
-                    Ok(Some((width, height, sealed(&rgba)?)))
-                })();
-                drop(_slot);
-                // After the deadline nobody waits: the frame and its sealed
-                // descriptor are dropped here, as soon as the worker ends.
-                let _ = sender.send(result);
-            });
-            match tokio::time::timeout(DEADLINE, receiver).await {
-                Ok(Ok(Ok(Some(frame)))) => Ok(frame),
-                Ok(Ok(Ok(None))) => Err("unsupported"),
-                Ok(_) => Err("capture"),
-                // The worker keeps the slot until it finishes.
-                Err(_) => Err("deadline"),
+        // The session probe (up to 1 s) counts against the same deadline:
+        // the worker gets only what is left of it.
+        Some(xid) => match DEADLINE
+            .checked_sub(started.elapsed())
+            .filter(|left| !left.is_zero())
+        {
+            None => Err("deadline"),
+            Some(left) => {
+                #[cfg(test)]
+                tests::TIMEOUTS
+                    .lock()
+                    .unwrap()
+                    .push((context.request_id.clone(), left));
+                worker.store(true, Ordering::SeqCst);
+                let slot = Release(worker.clone());
+                let (sender, receiver) = tokio::sync::oneshot::channel();
+                tokio::task::spawn_blocking(move || {
+                    // Frees the slot when the worker ends, also by a panic.
+                    let _slot = slot;
+                    let result = (|| -> Result<Option<(u32, u32, OwnedFd)>> {
+                        let Some((width, height, rgba)) = capture(display.as_deref(), xid)? else {
+                            return Ok(None);
+                        };
+                        Ok(Some((width, height, sealed(&rgba)?)))
+                    })();
+                    drop(_slot);
+                    // After the deadline nobody waits: the frame and its sealed
+                    // descriptor are dropped here, as soon as the worker ends.
+                    let _ = sender.send(result);
+                });
+                match tokio::time::timeout(left, receiver).await {
+                    Ok(Ok(Ok(Some(frame)))) => Ok(frame),
+                    Ok(Ok(Ok(None))) => Err("unsupported"),
+                    Ok(_) => Err("capture"),
+                    // The worker keeps the slot until it finishes.
+                    Err(_) => Err("deadline"),
+                }
             }
-        }
+        },
     };
     match outcome {
         Ok((width, height, pixels)) => {
@@ -517,19 +580,45 @@ mod tests {
     #[derive(Clone, Default)]
     struct Daemon {
         context: Arc<Mutex<Option<BackgroundContext>>>,
+        /// Committed revisions after the first, which is 2.
+        commits: Arc<std::sync::atomic::AtomicU64>,
         published: Arc<Mutex<Vec<Received>>>,
         cancelled: Arc<Mutex<Vec<String>>>,
+        /// When set, the next Get takes its snapshot, reports its arrival
+        /// and replies only once this is released.
+        hold: Arc<Mutex<Option<tokio::sync::oneshot::Receiver<()>>>>,
+        arrived: Arc<tokio::sync::Notify>,
+    }
+    impl Daemon {
+        fn revision(&self) -> u64 {
+            2 + self.commits.load(std::sync::atomic::Ordering::SeqCst)
+        }
+        /// Commits a new attempt (or none) under the next revision.
+        fn set(&self, context: Option<BackgroundContext>) {
+            let mut current = self.context.lock().unwrap();
+            *current = context;
+            self.commits
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
     }
     #[zbus::interface(name = "org.arinn.Background1")]
     impl Daemon {
-        fn get(&self) -> (arinn_protocol::background::BackgroundSnapshot,) {
-            let context = self.context.lock().unwrap().clone();
-            (arinn_protocol::background::BackgroundSnapshot {
-                epoch: context.as_ref().map_or(EPOCH.into(), |c| c.epoch.clone()),
-                revision: 2,
-                state: if context.is_some() { "pending" } else { "idle" }.into(),
-                context: context.into_iter().collect(),
-            },)
+        async fn get(&self) -> (BackgroundSnapshot,) {
+            let snapshot = {
+                let context = self.context.lock().unwrap().clone();
+                BackgroundSnapshot {
+                    epoch: context.as_ref().map_or(EPOCH.into(), |c| c.epoch.clone()),
+                    revision: self.revision(),
+                    state: if context.is_some() { "pending" } else { "idle" }.into(),
+                    context: context.into_iter().collect(),
+                }
+            };
+            let hold = self.hold.lock().unwrap().take();
+            if let Some(release) = hold {
+                self.arrived.notify_one();
+                let _ = release.await;
+            }
+            (snapshot,)
         }
     }
     struct Capture(Daemon);
@@ -565,6 +654,142 @@ mod tests {
     }
     const EPOCH: &str = "11111111-1111-4111-8111-111111111111";
     use std::sync::{Arc, Mutex};
+    /// Capture timeouts the producer used, by request ID.
+    pub(super) static TIMEOUTS: Mutex<Vec<(String, Duration)>> = Mutex::new(Vec::new());
+    fn attempt(request: &str, token: &str) -> BackgroundContext {
+        BackgroundContext {
+            epoch: EPOCH.into(),
+            request_id: request.into(),
+            target: token.into(),
+            output: OUTPUT.into(),
+            window: arinn_protocol::return_association::WindowRef {
+                generation: "33333333-3333-4333-8333-333333333333".into(),
+                token: token.into(),
+            },
+        }
+    }
+    async fn serve(bus: &crate::lock_tests::Bus, daemon: &Daemon) -> Result<()> {
+        bus.server
+            .object_server()
+            .at("/org/arinn/Daemon1", daemon.clone())
+            .await?;
+        bus.server
+            .object_server()
+            .at("/org/arinn/Daemon1", Capture(daemon.clone()))
+            .await?;
+        Ok(())
+    }
+    async fn changed(bus: &crate::lock_tests::Bus, daemon: &Daemon) -> Result<()> {
+        bus.server
+            .emit_signal(
+                None::<&str>,
+                "/org/arinn/Daemon1",
+                "org.arinn.Background1",
+                "Changed",
+                &(EPOCH, daemon.revision()),
+            )
+            .await?;
+        Ok(())
+    }
+    async fn cancelled(daemon: &Daemon, request: &str) -> Result<()> {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !daemon
+                .cancelled
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|r| r == request)
+            {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await?;
+        Ok(())
+    }
+    #[tokio::test]
+    async fn a_stale_get_reply_starts_no_capture() -> Result<()> {
+        let bus = crate::lock_tests::Bus::new().await;
+        let daemon = Daemon::default();
+        serve(&bus, &daemon).await?;
+        let first = "22222222-2222-4222-8222-222222222222";
+        let second = "44444444-4444-4444-8444-444444444444";
+        daemon.set(Some(attempt(first, "token-a")));
+        // The first Get is answered slowly: it carries the first attempt, but
+        // the second is committed and notified before the reply is sent.
+        let (release, held) = tokio::sync::oneshot::channel();
+        *daemon.hold.lock().unwrap() = Some(held);
+        // No current window: an attempt that starts is cancelled at once, so
+        // every started attempt shows up as a cancellation.
+        let (_windows, current) = watch::channel(Windows::new());
+        let task = tokio::spawn(run(
+            bus.client.clone(),
+            bus.server.unique_name().unwrap().to_string(),
+            current,
+            None,
+        ));
+        tokio::time::timeout(Duration::from_secs(5), daemon.arrived.notified()).await?;
+        daemon.set(Some(attempt(second, "token-a")));
+        changed(&bus, &daemon).await?;
+        release.send(()).unwrap();
+        cancelled(&daemon, second).await?;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(
+            *daemon.cancelled.lock().unwrap(),
+            vec![second.to_string()],
+            "the stale first attempt never started"
+        );
+        task.abort();
+        Ok(())
+    }
+    #[derive(Clone)]
+    struct SlowLock(Duration);
+    #[zbus::interface(name = "org.freedesktop.ScreenSaver")]
+    impl SlowLock {
+        async fn get_active(&self) -> bool {
+            tokio::time::sleep(self.0).await;
+            false
+        }
+    }
+    #[tokio::test]
+    async fn the_session_probe_counts_against_the_deadline() -> Result<()> {
+        let bus = crate::lock_tests::Bus::new().await;
+        let daemon = Daemon::default();
+        serve(&bus, &daemon).await?;
+        let probe = Duration::from_millis(300);
+        bus.server
+            .object_server()
+            .at("/ScreenSaver", SlowLock(probe))
+            .await?;
+        bus.server
+            .request_name("org.freedesktop.ScreenSaver")
+            .await?;
+        let request = "66666666-6666-4666-8666-666666666666";
+        daemon.set(Some(attempt(request, "token-a")));
+        // A current window on a display that cannot be opened: the worker
+        // fails at once, after its timeout was chosen.
+        let (_windows, current) = watch::channel(vec![("token-a".to_string(), 0x0040_0001)]);
+        let task = tokio::spawn(run(
+            bus.client.clone(),
+            bus.server.unique_name().unwrap().to_string(),
+            current,
+            Some("not-a-display".into()),
+        ));
+        cancelled(&daemon, request).await?;
+        task.abort();
+        let left = TIMEOUTS
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|(r, _)| r == request)
+            .map(|(_, left)| *left)
+            .expect("a worker started");
+        assert!(
+            left <= DEADLINE - probe,
+            "the capture timeout shrinks by the probe: {left:?}"
+        );
+        assert!(!left.is_zero());
+        Ok(())
+    }
     #[tokio::test]
     #[ignore = "requires Xvfb; private bus and isolated composited window"]
     async fn publishes_the_exact_window_from_the_adapter_connection() -> Result<()> {
@@ -613,7 +838,7 @@ mod tests {
             },
         };
         let first = "22222222-2222-4222-8222-222222222222";
-        *daemon.context.lock().unwrap() = Some(context(first, "token-a"));
+        daemon.set(Some(context(first, "token-a")));
         let (windows, current) = watch::channel(vec![("token-a".to_string(), window)]);
         let owner = bus.server.unique_name().unwrap().to_string();
         let task = tokio::spawn(run(
@@ -636,6 +861,7 @@ mod tests {
         // Locked, or a target that is not a current window: cancelled, no frame.
         let emit = |request: &'static str| {
             let server = bus.server.clone();
+            let revision = daemon.revision();
             async move {
                 server
                     .emit_signal(
@@ -643,7 +869,7 @@ mod tests {
                         "/org/arinn/Daemon1",
                         "org.arinn.Background1",
                         "Changed",
-                        &(EPOCH, 3u64),
+                        &(EPOCH, revision),
                     )
                     .await
                     .unwrap();
@@ -652,7 +878,7 @@ mod tests {
         };
         lock.0.store(true, std::sync::atomic::Ordering::SeqCst);
         let locked = "44444444-4444-4444-8444-444444444444";
-        *daemon.context.lock().unwrap() = Some(context(locked, "token-a"));
+        daemon.set(Some(context(locked, "token-a")));
         emit(locked).await;
         let unknown = "55555555-5555-4555-8555-555555555555";
         tokio::time::timeout(Duration::from_secs(5), async {
@@ -668,7 +894,7 @@ mod tests {
         .await?;
         lock.0.store(false, std::sync::atomic::Ordering::SeqCst);
         windows.send_replace(vec![("token-b".to_string(), window)]);
-        *daemon.context.lock().unwrap() = Some(context(unknown, "token-a"));
+        daemon.set(Some(context(unknown, "token-a")));
         emit(unknown).await;
         tokio::time::timeout(Duration::from_secs(5), async {
             while !daemon
@@ -731,7 +957,7 @@ mod tests {
                     "/org/arinn/Daemon1",
                     "org.arinn.Background1",
                     "Changed",
-                    &(EPOCH, 3u64),
+                    &(EPOCH, daemon.revision()),
                 )
                 .await
                 .unwrap();
@@ -767,7 +993,7 @@ mod tests {
         // Another client holds the server: the first capture stalls.
         desktop.c.grab_server()?.check()?;
         let first = "22222222-2222-4222-8222-222222222222";
-        *daemon.context.lock().unwrap() = Some(context(first));
+        daemon.set(Some(context(first)));
         let (_windows, current) = watch::channel(vec![("token-a".to_string(), window)]);
         let task = tokio::spawn(run(
             bus.client.clone(),
@@ -782,7 +1008,7 @@ mod tests {
         assert_eq!(captures(), 1);
         // The next request is refused at once while that worker still runs.
         let second = "44444444-4444-4444-8444-444444444444";
-        *daemon.context.lock().unwrap() = Some(context(second));
+        daemon.set(Some(context(second)));
         let asked = Instant::now();
         changed().await;
         assert!(cancelled(second).await);
@@ -798,7 +1024,7 @@ mod tests {
             while daemon.published.lock().unwrap().is_empty() {
                 n += 1;
                 let request = format!("55555555-5555-4555-8555-{n:012}");
-                *daemon.context.lock().unwrap() = Some(context(&request));
+                daemon.set(Some(context(&request)));
                 changed().await;
                 tokio::time::sleep(Duration::from_millis(200)).await;
             }

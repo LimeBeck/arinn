@@ -6,6 +6,8 @@
 
 #pragma once
 #include "flow_trace.h"
+#include "../../platform/qt-shell/native_focus.h"
+#include <QElapsedTimer>
 #include <QDBusMessage>
 #include <QHash>
 #include <QObject>
@@ -51,7 +53,15 @@ class Backend : public QObject {
   // Cancel is confirmed but the processes are still exiting (ADR-0110).
   Q_PROPERTY(bool launchStopping READ launchStopping NOTIFY changed)
 public:
-  explicit Backend(QObject *parent = nullptr);
+  explicit Backend(QObject *parent = nullptr, NativeShellFocusIdentity identity = {});
+  Q_PROPERTY(bool nativeFocusSupported READ nativeFocusSupported CONSTANT)
+  Q_PROPERTY(QString nativeShellFocus READ nativeShellFocus NOTIFY nativeFocusChanged)
+  Q_PROPERTY(qulonglong nativeFocusRevision READ nativeFocusRevision NOTIFY nativeFocusChanged)
+  bool nativeFocusSupported() const { return m_focusIdentity.supported(); }
+  QString nativeShellFocus() const;
+  qulonglong nativeFocusRevision() const { return m_focusApplied; }
+  Q_INVOKABLE qulonglong requestNativeFocus();
+  Q_INVOKABLE void stopNativeFocusObservation();
   bool connected() const { return m_connected; }
   bool available() const { return m_available; }
   bool homeVisible() const { return m_home; }
@@ -131,6 +141,7 @@ private slots:
   void reloadShortcuts();
   void reloadFavorites();
 signals:
+  void nativeFocusChanged();
   void changed();
   void itemsChanged();
   void applicationsChanged();
@@ -148,11 +159,21 @@ signals:
   // The global Home key or a queued Home, for the current daemon epoch.
   void homeRequested();
   // The quick-menu key, for the current daemon epoch (ADR-0106).
-  void quickMenuRequested();
+  // The Return target the request committed (ADR-0106); Status reports it
+  // only after its next refresh (#507).
+  void quickMenuRequested(const QString &target);
   // The remote's power key, for the current daemon epoch (ADR-0111).
   void powerMenuRequested();
 
 private:
+  const NativeShellFocusIdentity m_focusIdentity;
+  QString m_nativeFocus = QStringLiteral("unknown");
+  quint64 m_focusRequest = 0, m_focusApplied = 0, m_focusObservation = 0;
+  QTimer m_focusPoll, m_focusExpiry;
+  QElapsedTimer m_focusReceived;
+  bool m_focusWatching = false;
+  int m_focusPending = 0;
+  void clearNativeFocus();
   void readFavorites();
   QVariantMap favoriteTarget(const QString &id) const;
   bool isFavorite(const QVariantMap &target) const;

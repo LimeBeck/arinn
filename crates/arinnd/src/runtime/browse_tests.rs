@@ -3,6 +3,7 @@
 
 //! `org.arinn.Browse1` (ADR-0066) on a private bus.
 use super::*;
+use crate::test_support::served;
 use arinn_protocol::{
     browse::{BrowseApiProxy, KIND_ADDRESS, KIND_SEARCH},
     production::ProductionOperationProxy,
@@ -71,6 +72,8 @@ impl Fixture {
         .with_search_engines(engines);
         core.export_settings().await.unwrap();
         core.export_browse().await.unwrap();
+        // The tests call the daemon right away (#528).
+        served(&client, &server).await;
         Self {
             bus,
             folder,

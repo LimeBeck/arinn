@@ -61,6 +61,13 @@ FocusScope {
         pathKeyboard.finish();
         pathTyping = false;
     }
+    // The user's home folder (the shell's $HOME), for `~` in a path: owner
+    // decision of 2026-10-26 (#479, spec §5.6). Empty when unknown; `~` then
+    // stays relative and is rejected, as by the contract.
+    property string homeFolder: ""
+    // Why the open path editor's draft cannot be saved, empty when it can or
+    // when nothing is typed yet (§6.2: a format error blocks the main key).
+    readonly property string pathHint: pathEditing ? pathProblem(expandHome(editingDraft)) : ""
     property string enumClosingKey: ""
     signal valueChangeRequested(string providerId, string settingId, var value)
     signal errorDismissRequested(string providerId, string settingId)
@@ -153,6 +160,15 @@ FocusScope {
         if (!row || row.currentValue === undefined || row.currentValue === null) return [];
         return row.currentValue.length !== undefined && row.type === "path" && isMultiple(row)
                ? row.currentValue : [];
+    }
+    // A folder of a multiple path row that the library provider reports
+    // unavailable (Library1.GetRoots, ADR-0071). Only the provider's report
+    // counts (spec §5.6); the shell never checks the path itself.
+    function pathUnavailable(row, index) {
+        const list = row && row.unavailablePaths;
+        if (!list || !list.length) return false;
+        const entry = pathList(row)[index];
+        return entry !== undefined && list.indexOf(String(entry)) >= 0;
     }
     function hasBound(row, name) {
         return !!(row && row.constraints && row.constraints[name] !== undefined && row.constraints[name] !== null
@@ -324,7 +340,7 @@ FocusScope {
         if (!editingKey) return;
         const row = rowByKey(editingKey);
         const part = editingPart;
-        const draft = editingDraft;
+        let draft = editingDraft;
         const key = editingKey;
         if (!commit || !row || !canEdit(row)) {
             editingKey = "";
@@ -338,6 +354,11 @@ FocusScope {
             if (/[\u0000-\u001F\u007F]/.test(draft)) return;
             beginSave(row, draft, draft);
             return;
+        }
+        if (row.type === "path") {
+            // The proposed value is always absolute (#479).
+            draft = expandHome(draft);
+            if (!pathSavable(draft)) return;
         }
         if (row.type === "path" && !isMultiple(row)) {
             editingKey = "";
@@ -361,6 +382,67 @@ FocusScope {
             emitChange(row, list);
             refocusKey(key);
         }
+    }
+    // `~` and a leading `~/` name the home folder (#479); the contract and the
+    // stored value stay absolute. `~user/` is not supported and stays
+    // relative. Without a known home folder nothing changes.
+    function expandHome(text) {
+        const value = String(text || "");
+        if (value !== "~" && !value.startsWith("~/")) return value;
+        const home = String(homeFolder || "");
+        if (!home.length || pathProblem(home).length) return value;
+        const base = home.replace(/\/+$/, "");
+        return value === "~" ? (base.length ? base : "/") : base + value.slice(1);
+    }
+    // A leading `~/` is replaced in the field as soon as it is typed, so the
+    // user sees the path that will be saved. A bare `~` waits: it may still
+    // become `~user/`, and it is expanded when proposed. Returns whether the
+    // text changed (the field then reports the new text itself).
+    function expandTyped(input) {
+        if (!input.text.startsWith("~/")) return false;
+        const before = input.text;
+        const after = expandHome(before);
+        if (after === before) return false;
+        const cursor = input.cursorPosition;
+        input.text = after;
+        input.cursorPosition = Math.min(after.length, Math.max(0, cursor + after.length - before.length));
+        return true;
+    }
+    // The structural rules of `arinn_protocol::settings::path`, which the
+    // daemon checks on Save: an absolute local path (one leading `/`), no
+    // empty, `.` or `..` segment, no control character, at most 4096 bytes
+    // of UTF-8. Returns the translated reason, "" for a valid or empty path.
+    function pathProblem(text) {
+        const value = String(text || "");
+        if (!value.length) return "";
+        if (value[0] !== "/") return qsTr("The path must start with /");
+        // char::is_control: the C0 and C1 controls and DEL.
+        if (/[\u0000-\u001F\u007F-\u009F]/.test(value))
+            return qsTr("The path cannot contain control characters");
+        if (value.startsWith("//")) return qsTr("The path cannot contain //");
+        if (value !== "/") {
+            const segments = value.slice(1).replace(/\/+$/, "").split("/");
+            for (let i = 0; i < segments.length; ++i) {
+                if (!segments[i].length) return qsTr("The path cannot contain //");
+                if (segments[i] === "." || segments[i] === "..")
+                    return qsTr("The path cannot contain . or .. folders");
+            }
+        }
+        if (utf8Length(value) > 4096) return qsTr("The path is too long");
+        return "";
+    }
+    function utf8Length(text) {
+        let bytes = 0;
+        for (const character of text) {
+            const code = character.codePointAt(0);
+            bytes += code < 0x80 ? 1 : code < 0x800 ? 2 : code < 0x10000 ? 3 : 4;
+        }
+        return bytes;
+    }
+    // A path the contract accepts: anything else keeps Save from doing
+    // anything until it is fixed.
+    function pathSavable(text) {
+        return String(text || "").length > 0 && !pathProblem(text).length;
     }
     function removePath(row, index) {
         if (!canEdit(row)) return;
@@ -627,6 +709,11 @@ FocusScope {
         optionIndex = index;
         Ui.Focus.take(item);
         if (choosingOptions.length > 6 && optionFlick) {
+            // On the first focus after the sheet opens, the Repeater has
+            // just built the options and the Column has not positioned them
+            // yet: every y is still 0 (#537). Lay them out first so the
+            // current option is scrolled into view and centred.
+            optionColumn.forceLayout();
             const y = Math.max(0, item.y + item.height / 2 - optionFlick.height / 2);
             optionFlick.contentY = Math.min(y, Math.max(0, optionFlick.contentHeight - optionFlick.height));
         }
@@ -1072,7 +1159,9 @@ FocusScope {
                                 return item ? item.pathButton : null;
                             }
                             if (name.indexOf("remove:") === 0) {
-                                const item = pathRepeater.itemAt(Number(name.slice(5)));
+                                // "remove:" is seven characters: slice(5)
+                                // read NaN, which is item 0 (#540).
+                                const item = pathRepeater.itemAt(Number(name.slice(7)));
                                 return item ? item.removeButton : null;
                             }
                             return null;
@@ -1173,6 +1262,15 @@ FocusScope {
                                             color: Ui.Theme.textSecondary
                                             visible: text.length > 0
                                         }
+                                        Ui.UiText {
+                                            // The open path editor's format error (#479).
+                                            objectName: rowScope.simpleRow && row.type === "path" ? "pathHint-" + rowScope.key : ""
+                                            width: parent.width
+                                            text: root.editingKey === rowScope.key ? root.pathHint : ""
+                                            role: "meta"
+                                            color: Ui.Theme.error
+                                            visible: text.length > 0
+                                        }
                                     }
                                     Item {
                                         id: toggle
@@ -1228,7 +1326,7 @@ FocusScope {
                                             font.pixelSize: 26
                                             clip: true
                                             onVisibleChanged: if (visible) root.pathEditorOpened(simpleEditor, simpleKeyboard)
-                                            onTextChanged: if (visible && activeFocus) root.editingDraft = text
+                                            onTextChanged: if (visible && activeFocus && !root.expandTyped(simpleEditor)) root.editingDraft = text
                                             Keys.onPressed: event => root.editorKeys(event)
                                         }
                                         Ui.KeyboardButton {
@@ -1331,6 +1429,15 @@ FocusScope {
                                             color: Ui.Theme.textSecondary
                                             visible: text.length > 0
                                         }
+                                        Ui.UiText {
+                                            // The open path editor's format error (#479).
+                                            objectName: rowScope.multiple ? "pathHint-" + rowScope.key : ""
+                                            width: parent.width
+                                            text: root.editingKey === rowScope.key ? root.pathHint : ""
+                                            role: "meta"
+                                            color: Ui.Theme.error
+                                            visible: text.length > 0
+                                        }
                                     }
                                 }
                                 Repeater {
@@ -1339,6 +1446,10 @@ FocusScope {
                                     delegate: Row {
                                         id: pathRow
                                         required property int index
+                                        // Stays in place, can be edited and
+                                        // removed; it returns to normal once
+                                        // the provider reports it again.
+                                        readonly property bool unavailable: root.pathUnavailable(row, index)
                                         property alias pathButton: pathButton
                                         property alias removeButton: removeButton
                                         property alias editor: pathEditor
@@ -1349,7 +1460,7 @@ FocusScope {
                                             id: pathButton
                                             objectName: "path-" + rowScope.key + "-" + index
                                             width: parent.width - 160
-                                            height: 72
+                                            height: pathRow.unavailable ? 112 : 72
                                             padding: 0
                                             focusPolicy: Qt.StrongFocus
                                             focus: rowScope.wants("path:" + index)
@@ -1362,14 +1473,32 @@ FocusScope {
                                             contentItem: Item {
                                                 Keys.onPressed: event => root.pathFieldKeys(event, pathEditor, pathItemKeyboard)
                                                 Ui.UiText {
+                                                    id: pathText
                                                     anchors.fill: parent
                                                     anchors.leftMargin: 20
                                                     anchors.rightMargin: 20
+                                                    anchors.bottomMargin: pathRow.unavailable ? 40 : 0
                                                     visible: !(root.editingKey === rowScope.key && root.editingPart === "path:" + index)
                                                     text: String(root.pathList(row)[index] || "")
                                                     verticalAlignment: Text.AlignVCenter
                                                     elide: Text.ElideRight
                                                     role: "meta"
+                                                    color: pathRow.unavailable ? Ui.Theme.textSecondary : Ui.Theme.textPrimary
+                                                }
+                                                Ui.UiText {
+                                                    objectName: "pathNote-" + rowScope.key + "-" + index
+                                                    anchors.left: parent.left
+                                                    anchors.right: parent.right
+                                                    anchors.bottom: parent.bottom
+                                                    anchors.leftMargin: 20
+                                                    anchors.rightMargin: 20
+                                                    anchors.bottomMargin: 18
+                                                    visible: pathRow.unavailable && pathText.visible
+                                                    text: qsTr("Unavailable. Its titles stay in the library as unavailable.")
+                                                    elide: Text.ElideRight
+                                                    maximumLineCount: 1
+                                                    role: "meta"
+                                                    color: Ui.Theme.error
                                                 }
                                                 TextInput {
                                                     id: pathEditor
@@ -1384,7 +1513,7 @@ FocusScope {
                                                     clip: true
                                                     verticalAlignment: Text.AlignVCenter
                                                     onVisibleChanged: if (visible) root.pathEditorOpened(pathEditor, pathItemKeyboard)
-                                                    onTextChanged: if (visible && activeFocus) root.editingDraft = text
+                                                    onTextChanged: if (visible && activeFocus && !root.expandTyped(pathEditor)) root.editingDraft = text
                                                     Keys.onPressed: event => root.editorKeys(event)
                                                 }
                                                 Ui.KeyboardButton {
@@ -1403,7 +1532,7 @@ FocusScope {
                                             id: removeButton
                                             objectName: "remove-" + rowScope.key + "-" + index
                                             width: 152
-                                            height: 72
+                                            height: pathButton.height
                                             padding: 0
                                             focusPolicy: Qt.StrongFocus
                                             focus: rowScope.wants("remove:" + index)
@@ -1463,7 +1592,7 @@ FocusScope {
                                             font.pixelSize: 26
                                             clip: true
                                             onVisibleChanged: if (visible) root.pathEditorOpened(addEditor, addKeyboard)
-                                            onTextChanged: if (visible && activeFocus) root.editingDraft = text
+                                            onTextChanged: if (visible && activeFocus && !root.expandTyped(addEditor)) root.editingDraft = text
                                             Keys.onPressed: event => root.editorKeys(event)
                                         }
                                         Ui.KeyboardButton {
@@ -2083,6 +2212,7 @@ FocusScope {
                 font.family: Ui.Theme.fontFamily
                 font.pixelSize: 48
                 font.weight: 500
+                Ui.FontWeightAxis {}
                 color: Ui.Theme.textPrimary
                 verticalAlignment: TextInput.AlignVCenter
                 clip: true
@@ -2220,12 +2350,13 @@ FocusScope {
                 font.family: Ui.Theme.fontFamily
                 font.pixelSize: 48
                 font.weight: 500
+                Ui.FontWeightAxis {}
                 color: Ui.Theme.textPrimary
                 verticalAlignment: TextInput.AlignVCenter
                 clip: true
                 cursorVisible: pathTypingLayer.visible
                 cursorDelegate: Rectangle { width: 4; color: Ui.Theme.ember; visible: pathTypingInput.cursorVisible }
-                onTextChanged: if (pathTypingLayer.visible) {
+                onTextChanged: if (pathTypingLayer.visible && !root.expandTyped(pathTypingInput)) {
                     root.editingDraft = text;
                     const editor = root.pathControl("editor");
                     if (editor) editor.text = text;
@@ -2240,6 +2371,18 @@ FocusScope {
                 onActivated: root.finishPathTyping(false)
             }
         }
+        Ui.UiText {
+            // The draft's format error: Save does nothing until it is fixed
+            // (§6.2, #479).
+            objectName: "pathTypingError"
+            x: 152
+            y: 320
+            width: 1600
+            role: "body"
+            color: Ui.Theme.error
+            visible: text.length > 0
+            text: root.pathHint
+        }
         Ui.OnScreenKeyboard {
             id: pathKeyboard
             objectName: "pathOnScreenKeyboard"
@@ -2248,8 +2391,8 @@ FocusScope {
             context: "path"
             memoryKey: "path-" + root.editingKey
             // `arinn_protocol::settings::path` allows at most 4096 bytes. This
-            // bound counts characters, so a longer non-ASCII path still
-            // reaches the daemon, which checks the exact rule on Save.
+            // bound counts characters; a longer non-ASCII path shows the
+            // pathHint and is not saved (#479).
             maxCharacters: 4096
             submitLabel: qsTr("Save")
             onSubmitted: root.finishPathTyping(true)

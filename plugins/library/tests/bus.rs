@@ -6,8 +6,12 @@
 
 use arinn_plugin_library::serve;
 use arinn_protocol::{
-    library::{ImportCandidate, LibraryImportProxy, LibraryProviderProxy, LibraryResumeProxy},
+    library::{
+        ImportCandidate, LibraryImportProxy, LibraryProviderProxy, LibraryResumeProxy,
+        LibraryRootsProxy, RootState,
+    },
     production::{self, EntityRef, Registration, RegistrationReply},
+    settings::ProviderSettingsProxy,
 };
 use std::{
     fs,
@@ -124,7 +128,11 @@ async fn scenario() {
     let (page,) = wait_item(&proxy, "QuietTitle").await;
     assert_eq!(
         proxy.features().await.unwrap(),
-        vec!["LibraryResume1".to_string(), "LibraryImport1".into()]
+        vec![
+            "LibraryResume1".to_string(),
+            "LibraryImport1".into(),
+            "LibraryRoots1".into()
+        ]
     );
     let film = page
         .items
@@ -223,6 +231,168 @@ async fn scenario() {
     let _ = fs::remove_dir_all(&scratch);
 }
 
+const GENERATION: &str = "00000000-0000-4000-8000-000000000002";
+
+/// The provider on the bus, with the fake daemon owning the daemon name.
+async fn start_provider(bus: &Bus) -> (Connection, zbus::names::OwnedUniqueName) {
+    let server = bus.connection().await;
+    server
+        .object_server()
+        .at(production::PATH, Daemon)
+        .await
+        .unwrap();
+    server.request_name(production::SERVICE).await.unwrap();
+    let provider = bus.connection().await;
+    let destination = provider.unique_name().unwrap().clone();
+    tokio::spawn(async move { serve(provider).await });
+    (server, destination)
+}
+
+fn method_error(result: zbus::Result<()>) -> String {
+    match result {
+        Err(zbus::Error::MethodError(name, _, _)) => name.to_string(),
+        other => panic!("expected a method error, got {other:?}"),
+    }
+}
+
+/// #540 / #551 (spec §5.6, ADR-0071): the folders are a Settings path list
+/// applied at the next start, and `GetRoots` reports each configured root as
+/// written, with its availability from the scan.
+async fn settings_and_roots() {
+    let scratch = scratch();
+    let films = scratch.join("films-root");
+    let share = scratch.join("share-root");
+    fs::create_dir(&films).unwrap();
+    fs::write(films.join("QuietTitle (1999).mkv"), b"film").unwrap();
+    let home = scratch.join("home");
+    fs::create_dir_all(&home).unwrap();
+    // The films root is written with a trailing slash: GetRoots keeps it.
+    let films_text = format!("{}/", films.display());
+    let share_text = share.display().to_string();
+    let settings = format!(
+        "{{\"roots\":[\"{films_text}\",\"{share_text}\"],\"probe\":false,\"ffprobe\":\"ffprobe\"}}"
+    );
+    // SAFETY: the re-exec child is the only thread setting these variables.
+    unsafe {
+        std::env::set_var("HOME", &home);
+        std::env::set_var("XDG_CONFIG_HOME", scratch.join("config"));
+        std::env::set_var("XDG_STATE_HOME", scratch.join("state"));
+        std::env::set_var("ARINN_LIBRARY_INTERVAL_MS", "200");
+        std::env::set_var("ARINN_PROVIDER_SETTINGS", &settings);
+    }
+    let bus = Bus::start();
+    let (server, destination) = start_provider(&bus).await;
+    let library = LibraryProviderProxy::builder(&server)
+        .destination(destination.clone())
+        .unwrap()
+        .build()
+        .await
+        .unwrap();
+    wait_item(&library, "QuietTitle").await;
+
+    // The schema: the folder list and the two scan switches, all media.
+    let settings = ProviderSettingsProxy::builder(&server)
+        .destination(destination.clone())
+        .unwrap()
+        .build()
+        .await
+        .unwrap();
+    let schema = settings.get_schema(GENERATION).await.unwrap();
+    let ids: Vec<&str> = schema.iter().map(|s| s.id.as_str()).collect();
+    assert_eq!(ids, ["roots", "autoscan", "probe"]);
+    arinn_protocol::settings::validate_schema(&schema).unwrap();
+    let roots = &schema[0];
+    assert_eq!(
+        (roots.kind.as_str(), roots.category.as_str()),
+        ("path", "media")
+    );
+    assert_eq!(roots.value, "[]");
+    let constraints: serde_json::Value = serde_json::from_str(&roots.constraints).unwrap();
+    assert_eq!(
+        constraints,
+        serde_json::json!({"directory": true, "multiple": true, "max_items": 64})
+    );
+    assert!(
+        schema[1..]
+            .iter()
+            .all(|s| s.kind == "boolean" && s.value == "true")
+    );
+    // A change applies at the next start; `/` and a relative folder are not
+    // accepted. Nothing changes in the running provider.
+    let change = format!("{{\"roots\":[\"{share_text}\"]}}");
+    assert!(method_error(settings.apply(GENERATION, &change).await).ends_with(".Unsupported"));
+    assert!(
+        method_error(settings.apply(GENERATION, r#"{"roots":["/"]}"#).await)
+            .ends_with(".InvalidArgument")
+    );
+    assert!(
+        method_error(settings.apply(GENERATION, r#"{"roots":["films"]}"#).await)
+            .ends_with(".InvalidArgument")
+    );
+    assert!(
+        method_error(
+            settings
+                .apply("00000000-0000-4000-8000-000000000009", &change)
+                .await
+        )
+        .ends_with(".Conflict")
+    );
+
+    // The share is missing: reported unavailable; the films root is not.
+    let roots = LibraryRootsProxy::builder(&server)
+        .destination(destination.clone())
+        .unwrap()
+        .build()
+        .await
+        .unwrap();
+    let missing = vec![
+        RootState {
+            path: films_text.clone(),
+            available: true,
+        },
+        RootState {
+            path: share_text.clone(),
+            available: false,
+        },
+    ];
+    let before = wait_roots(&roots, &missing).await;
+    // Rescans with nothing changed announce nothing.
+    tokio::time::sleep(Duration::from_millis(700)).await;
+    let (same,) = roots.get_roots(GENERATION).await.unwrap();
+    assert_eq!(same.revision, before);
+    // The share comes back: a new revision, which the SDK announces with
+    // StateChanged.
+    fs::create_dir(&share).unwrap();
+    let back = vec![
+        RootState {
+            path: films_text.clone(),
+            available: true,
+        },
+        RootState {
+            path: share_text.clone(),
+            available: true,
+        },
+    ];
+    let after = wait_roots(&roots, &back).await;
+    assert_eq!(after, before + 1);
+    let _ = fs::remove_dir_all(&scratch);
+}
+
+async fn wait_roots(proxy: &LibraryRootsProxy<'_>, expected: &[RootState]) -> u64 {
+    let deadline = Instant::now() + Duration::from_secs(8);
+    loop {
+        if let Ok((roots,)) = proxy.get_roots(GENERATION).await
+            && roots.roots == expected
+        {
+            return roots.revision;
+        }
+        if Instant::now() > deadline {
+            panic!("roots did not reach the expected state");
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
 async fn wait_item(
     proxy: &LibraryProviderProxy<'_>,
     title: &str,
@@ -264,7 +434,10 @@ fn enter(test: &str) -> bool {
     let _ = fs::remove_file(&token);
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        !stderr.contains("QuietTitle") && !stderr.contains("media-root"),
+        !stderr.contains("QuietTitle")
+            && !stderr.contains("media-root")
+            && !stderr.contains("films-root")
+            && !stderr.contains("share-root"),
         "stderr leaked a private name"
     );
     assert!(
@@ -284,4 +457,17 @@ fn library_provider_on_a_private_bus() {
     runtime
         .block_on(async { tokio::time::timeout(Duration::from_secs(20), scenario()).await })
         .expect("private-bus scenario timed out");
+}
+
+#[test]
+fn library_settings_and_roots_on_a_private_bus() {
+    if !enter("library_settings_and_roots_on_a_private_bus") {
+        return;
+    }
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    runtime
+        .block_on(async {
+            tokio::time::timeout(Duration::from_secs(30), settings_and_roots()).await
+        })
+        .expect("private-bus settings scenario timed out");
 }

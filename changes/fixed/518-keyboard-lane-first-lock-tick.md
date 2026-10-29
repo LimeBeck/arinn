@@ -1,0 +1,1 @@
+- The X11 keyboard lane's periodic lock check now starts one period after the lane starts, not at once. The Xvfb test `each_character_waits_for_its_own_lock_check` no longer fails intermittently: that first tick could land after the session opened and spend the lock check meant for the first character.

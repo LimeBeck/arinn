@@ -353,6 +353,14 @@ RU = {
     "Nothing to show": "Нечего показать",
     "No settings are registered for this category.": "В этой категории нет настроек.",
     "Add path": "Добавить путь",
+    # Path format while typing (#479)
+    "The path must start with /": "Путь должен начинаться с /",
+    "The path cannot contain control characters": "Путь не может содержать управляющие символы",
+    "The path cannot contain //": "Путь не может содержать //",
+    "The path cannot contain . or .. folders": "Путь не может содержать папки . и ..",
+    "The path is too long": "Путь слишком длинный",
+    # Handoff LF-4, with the catalogue's "библиотека" for Library (#540).
+    "Unavailable. Its titles stay in the library as unavailable.": "Недоступна. Фильмы из неё остаются в библиотеке как недоступные.",
     "min. %1 · was %2 · max. %3": "мин. %1 · было %2 · макс. %3",
     "%1 of %2 characters": "%1 из %2 символов",
     # On-screen keyboard (ADR-0103, handoff KB-1…8)
@@ -426,6 +434,9 @@ CONTEXT = {
     ("PowerMenu", "Power"): "Питание",
     # Stops a starting application (spec §6.5).
     ("LaunchOverlay", "Stop"): "Прервать",
+    # A folder or path only leaves the list; nothing is deleted (§5.6,
+    # handoff LF-6: «Убрать», never «Удалить»; #558).
+    ("SettingsView", "Remove"): "Убрать",
 }
 
 

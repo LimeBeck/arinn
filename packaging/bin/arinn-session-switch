@@ -78,7 +78,9 @@ esac
 # file is missing. arinn-session and arinn-session-switch share this rule.
 recorded_mode() {
     [ -f "$1" ] || return 0
-    content=$(head -c 16 "$1" && printf x) || content=
+    # Command substitution drops NUL bytes; keep them as "?" so "desk\0top"
+    # is not read as "desktop".
+    content=$(head -c 16 "$1" | tr '\000' '?' && printf x) || content=
     case "$content" in
     "desktop
 x" | desktopx) echo desktop ;;

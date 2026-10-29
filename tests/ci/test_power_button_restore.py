@@ -32,6 +32,19 @@ class PowerButtonRestoreTest(unittest.TestCase):
         main = (ROOT / "platform/x11/src/main.rs").read_text()
         self.assertIn('"--restore-power-button"', main)
 
+    def test_adapter_process_survives_its_session_bus_name(self):
+        # The binary releases org.arinn.X11 at each native session's end.
+        # Type=dbus would make systemd stop it before it could wait for the
+        # daemon and reconnect. Keep readiness separate from process lifetime.
+        parser = configparser.ConfigParser(interpolation=None)
+        parser.optionxform = str
+        parser.read(ROOT / "packaging/systemd/arinn-ewmh.service")
+        service = parser["Service"]
+        self.assertEqual(service["Type"], "exec")
+        self.assertNotIn("BusName", service)
+        self.assertEqual(service["Restart"], "on-failure")
+        self.assertIn("--release-power-key", service["ExecStopPost"])
+
     def test_both_packages_enable_it_system_wide(self):
         for path in ("packaging/arch/PKGBUILD", "packaging/debian/debian/rules"):
             text = (ROOT / path).read_text()

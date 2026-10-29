@@ -18,6 +18,313 @@ use std::{
 };
 use tokio::process::{Child as TokioChild, ChildStdin, ChildStdout, Command};
 
+#[derive(Clone)]
+struct FakeWindows {
+    page: std::sync::Arc<std::sync::Mutex<arinn_protocol::platform::WindowPage>>,
+    raised: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+    delay: std::sync::Arc<std::sync::Mutex<Duration>>,
+}
+#[zbus::interface(name = "org.arinn.PlatformWindows1")]
+impl FakeWindows {
+    async fn get_windows(&self, _token: &str) -> (arinn_protocol::platform::WindowPage,) {
+        let delay = *self.delay.lock().unwrap();
+        tokio::time::sleep(delay).await;
+        (self.page.lock().unwrap().clone(),)
+    }
+    fn activate(
+        &self,
+        generation: &str,
+        token: &str,
+        request_id: &str,
+    ) -> production::Result<zbus::zvariant::OwnedObjectPath> {
+        arinn_protocol::platform::validate_command(generation, token, request_id)?;
+        let page = self.page.lock().unwrap();
+        if page.generation != generation {
+            return Err(ErrorCode::Conflict.into());
+        }
+        if !page.windows.iter().any(|w| w.token == token) {
+            return Err(ErrorCode::NotFound.into());
+        }
+        self.raised.lock().unwrap().push(token.into());
+        Ok("/org/arinn/Daemon1/operations/open".try_into().unwrap())
+    }
+}
+struct OpenDone(std::sync::Arc<std::sync::Mutex<Duration>>);
+#[zbus::interface(name = "org.arinn.Operation1")]
+impl OpenDone {
+    async fn get(&self) -> (production::OperationInfo,) {
+        let delay = *self.0.lock().unwrap();
+        tokio::time::sleep(delay).await;
+        (production::OperationInfo {
+            state: "succeeded".into(),
+            error: String::new(),
+            retryable: false,
+            started_at: 1,
+            ended_at: 2,
+            results: Vec::new(),
+            cancellable: false,
+        },)
+    }
+}
+
+struct SelectedHost {
+    started: std::sync::Arc<tokio::sync::Notify>,
+    answer: std::sync::Arc<tokio::sync::Notify>,
+}
+#[zbus::interface(name = "org.arinn.ChromeHost1")]
+impl SelectedHost {
+    async fn command(&self, _action: &str, _tab: i64, _url: &str) -> (String, i64, bool) {
+        self.started.notify_one();
+        self.answer.notified().await;
+        (String::new(), 7, false)
+    }
+}
+
+#[tokio::test]
+async fn open_result_keeps_the_exact_connection_across_repeated_host_attach() {
+    use arinn_plugin_chrome::{HOST_PATH, bridge::BridgeClientProxy};
+    use std::sync::Arc;
+    let bus = Bus::start();
+    let provider = bus.connection().await;
+    let bridge = Bridge::default();
+    provider
+        .object_server()
+        .at(BRIDGE_PATH, bridge.clone())
+        .await
+        .unwrap();
+    provider.request_name(BRIDGE_NAME).await.unwrap();
+    let host = bus.connection().await;
+    let started = Arc::new(tokio::sync::Notify::new());
+    let answer = Arc::new(tokio::sync::Notify::new());
+    host.object_server()
+        .at(
+            HOST_PATH,
+            SelectedHost {
+                started: started.clone(),
+                answer: answer.clone(),
+            },
+        )
+        .await
+        .unwrap();
+    let client = BridgeClientProxy::new(&host).await.unwrap();
+    let first = client.attach().await.unwrap();
+    let selected = client.attach().await.unwrap();
+    assert_ne!(first, selected);
+    client
+        .publish(&selected, vec![(7, true)], vec![])
+        .await
+        .unwrap();
+    for vanished in [false, true] {
+        let request = {
+            let (bridge, provider) = (bridge.clone(), provider.clone());
+            tokio::spawn(async move { bridge.open(&provider, "https://service.example/").await })
+        };
+        started.notified().await;
+        if vanished {
+            bridge.drop_host(host.unique_name().unwrap().as_str());
+        }
+        client.attach().await.unwrap();
+        answer.notify_one();
+        let result = request.await.unwrap();
+        if vanished {
+            assert_eq!(result, Err(ErrorCode::Unavailable));
+        } else {
+            assert_eq!(result, Ok((format!("{selected}:w7"), false)));
+        }
+    }
+}
+
+#[tokio::test]
+async fn shortcut_results_raise_the_selected_window_with_stale_browser_focus() {
+    use arinn_plugin_chrome::opening::OpenWindows;
+    use arinn_protocol::{
+        browser::BrowserWindow,
+        platform::{Window, WindowPage},
+    };
+    use std::sync::{Arc, Mutex};
+    let bus = Bus::start();
+    let provider = bus.connection().await;
+    let bridge = Bridge::default();
+    provider
+        .object_server()
+        .at(BRIDGE_PATH, bridge.clone())
+        .await
+        .unwrap();
+    provider.request_name(BRIDGE_NAME).await.unwrap();
+    let daemon = bus.connection().await;
+    daemon.request_name(production::SERVICE).await.unwrap();
+    let generation = uuid::Uuid::new_v4().to_string();
+    let platform = FakeWindows {
+        page: Arc::new(Mutex::new(WindowPage {
+            generation: generation.clone(),
+            revision: 1,
+            windows: ["screen-a", "screen-b"]
+                .into_iter()
+                .map(|token| Window {
+                    token: token.into(),
+                    desktop_id: String::new(),
+                    output: String::new(),
+                    active: false,
+                    fullscreen: true,
+                    can_activate: true,
+                    can_close: true,
+                })
+                .collect(),
+            next_token: String::new(),
+        })),
+        raised: Arc::default(),
+        delay: Arc::default(),
+    };
+    daemon
+        .object_server()
+        .at(production::PATH, platform.clone())
+        .await
+        .unwrap();
+    let completion_delay = Arc::new(Mutex::new(Duration::ZERO));
+    daemon
+        .object_server()
+        .at(
+            "/org/arinn/Daemon1/operations/open",
+            OpenDone(completion_delay.clone()),
+        )
+        .await
+        .unwrap();
+    let context = RegistrationContext {
+        connection: provider.clone(),
+        daemon_owner: daemon.unique_name().unwrap().to_string(),
+        daemon_epoch: uuid::Uuid::new_v4().to_string(),
+        generation: uuid::Uuid::new_v4().to_string(),
+    };
+    let (registrations, current) = tokio::sync::watch::channel(Some(context.clone()));
+    let opening = Arc::new(OpenWindows::default());
+    opening.bind(current);
+    opening.publish(
+        Some(&context),
+        &generation,
+        &[
+            BrowserWindow {
+                id: "c1:w1".into(),
+                window_token: "screen-a".into(),
+                focused: false,
+            },
+            BrowserWindow {
+                id: "c1:w2".into(),
+                window_token: "screen-b".into(),
+                focused: true,
+            },
+        ],
+    );
+    let mut child = host(&bus, &origin());
+    let mut stdin = child.stdin.take().unwrap();
+    let mut stdout = child.stdout.take().unwrap();
+    until(|| bridge.snapshot().2).await;
+    send(&mut stdin, r#"{"type":"snapshot","windows":[{"id":1,"focused":false},{"id":2,"focused":true}],"tabs":[]}"#).await;
+    until(|| bridge.snapshot().0.len() == 2).await;
+
+    // Native Messaging result -> host -> provider -> PlatformWindows1. Focus
+    // stays on B throughout; a newly created C has no guessed platform target.
+    for (id, created) in [
+        (1, false),
+        (2, false),
+        (1, false),
+        (3, true),
+        (1, false),
+        (2, false),
+    ] {
+        let request = {
+            let (opening, provider, bridge) = (opening.clone(), provider.clone(), bridge.clone());
+            tokio::spawn(async move {
+                opening
+                    .open(&provider, &bridge, "https://service.example/")
+                    .await
+            })
+        };
+        let message = receive(&mut stdout).await;
+        let serial = message["serial"].as_u64().unwrap();
+        send(&mut stdin, &format!(r#"{{"type":"result","serial":{serial},"error":"","windowId":{id},"created":{created}}}"#)).await;
+        assert_eq!(request.await.unwrap(), Ok(()));
+    }
+    assert_eq!(
+        *platform.raised.lock().unwrap(),
+        ["screen-a", "screen-b", "screen-a", "screen-a", "screen-b"]
+    );
+
+    // Every individual stage fits its cap, but their sum exceeds the complete
+    // provider budget: native result 4s + snapshot 2s + operation result 3s.
+    // The activation already dispatched at ~6s is uncertain, never replayed.
+    *platform.delay.lock().unwrap() = Duration::from_secs(2);
+    *completion_delay.lock().unwrap() = Duration::from_secs(3);
+    let request = {
+        let (opening, provider, bridge) = (opening.clone(), provider.clone(), bridge.clone());
+        tokio::spawn(async move {
+            opening
+                .open(&provider, &bridge, "https://service.example/")
+                .await
+        })
+    };
+    let message = receive(&mut stdout).await;
+    let serial = message["serial"].as_u64().unwrap();
+    tokio::time::sleep(Duration::from_secs(4)).await;
+    send(
+        &mut stdin,
+        &format!(
+            r#"{{"type":"result","serial":{serial},"error":"","windowId":1,"created":false}}"#
+        ),
+    )
+    .await;
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(6), request)
+            .await
+            .unwrap()
+            .unwrap(),
+        Err(ErrorCode::Timeout)
+    );
+    assert_eq!(platform.raised.lock().unwrap().len(), 6);
+    *platform.delay.lock().unwrap() = Duration::ZERO;
+    *completion_delay.lock().unwrap() = Duration::ZERO;
+
+    // Reused windows without a settled link fail instead of raising B.
+    for case in [
+        "unlinked",
+        "platform-restarted",
+        "registration-changed",
+        "old-extension",
+        "snapshot-timeout",
+        "gone-host",
+    ] {
+        let request = {
+            let (opening, provider, bridge) = (opening.clone(), provider.clone(), bridge.clone());
+            tokio::spawn(async move {
+                opening
+                    .open(&provider, &bridge, "https://service.example/")
+                    .await
+            })
+        };
+        let message = receive(&mut stdout).await;
+        let serial = message["serial"].as_u64().unwrap();
+        let mut id = 1;
+        match case {
+            "unlinked" => id = 4,
+            "platform-restarted" => {
+                platform.page.lock().unwrap().generation = uuid::Uuid::new_v4().to_string()
+            }
+            "registration-changed" => {
+                registrations.send_replace(None);
+            }
+            "old-extension" => id = -1,
+            "snapshot-timeout" => *platform.delay.lock().unwrap() = Duration::from_secs(9),
+            "gone-host" => bridge.drop_host(&bridge.default_host().unwrap()),
+            _ => unreachable!(),
+        }
+        send(&mut stdin, &format!(r#"{{"type":"result","serial":{serial},"error":"","windowId":{id},"created":false}}"#)).await;
+        assert!(request.await.unwrap().is_err(), "{case}");
+        platform.page.lock().unwrap().generation = generation.clone();
+        *platform.delay.lock().unwrap() = Duration::ZERO;
+        registrations.send_replace(Some(context.clone()));
+    }
+    assert_eq!(platform.raised.lock().unwrap().len(), 6);
+}
+
 struct Bus(Child, String);
 impl Bus {
     fn start() -> Self {

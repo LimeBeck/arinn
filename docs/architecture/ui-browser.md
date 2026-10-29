@@ -17,6 +17,15 @@ state. `browserOpen` on the shell window shows the screen; Back emits
 
 ## Daemon binding
 
+Opening a shortcut or resolved address uses the window selected by that exact
+extension command ([ADR-0119](../adr/0119-explicit-browser-open-window.md)). The
+private result carries its window ID and whether it was created. For an existing
+window the browser provider activates its validated platform token through the
+daemon and waits for completion. The daemon then only dismisses Home; a stale
+focused-window snapshot cannot send the user back to the last service. An
+existing window without a settled link reports Unavailable. The extension, host
+and provider must be updated together; a result without a target is rejected.
+
 The catalog follows the application catalog's read loop. It calls
 `Daemon1.Status` and `Daemon1.Providers`, keeps ready `browser` providers whose
 backend is not `unavailable`, and pages `Browser1.GetTabs`. The snapshot

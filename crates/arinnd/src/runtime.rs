@@ -30,9 +30,6 @@ use zbus::{Connection, message::Header, object_server::SignalEmitter, zvariant::
 /// Opening a URL with the browser closed: launch, connection and open share
 /// the launch timeout of spec §9.5 (ADR-0055).
 const BROWSER_LAUNCH_DEADLINE: Duration = Duration::from_secs(30);
-/// How long opening a URL waits for the browser's next snapshot before it
-/// only hides Home (ADR-0052).
-const OPEN_FOCUS_WAIT: Duration = Duration::from_secs(2);
 /// How long the provider may take to stop a cancelled launch (ADR-0110).
 /// How long `Cancel` waits for the provider to stop a launch (ADR-0110).
 /// Short in tests, which check what happens after it.
@@ -1062,7 +1059,7 @@ impl Core {
             )
             .await?;
         }
-        let (id, owner, generation, before, known) = {
+        let (id, owner, generation) = {
             let state = self.state.lock().await;
             let (id, p) = state
                 .providers
@@ -1075,16 +1072,7 @@ impl Core {
                 })
                 .ok_or(ErrorCode::Unavailable)?;
             op.provider(id, p.capability(), &p.info.plugin_id);
-            (
-                id.clone(),
-                p.owner.clone(),
-                p.info.generation.clone(),
-                p.info.revision,
-                p.windows
-                    .iter()
-                    .map(|w| w.id.clone())
-                    .collect::<HashSet<_>>(),
-            )
+            (id.clone(), p.owner.clone(), p.info.generation.clone())
         };
         let proxy = BrowserProviderProxy::builder(&self.connection)
             .destination(owner.as_str())
@@ -1099,15 +1087,21 @@ impl Core {
                 .map_err(normalize_error)
         })
         .await?;
-        // The URL opens in a new window or focuses the window that already
-        // shows its origin (ADR-0050). The window focused before the call is
-        // not necessarily the one to show, so decide on the first newer
-        // snapshot (ADR-0052).
-        let window_token = self
-            .focused_token_after(&id, &generation, before, &known)
-            .await;
-        self.show_browser_window(op, &id, &owner, &generation, &window_token)
+        // The provider knows which window OpenUrl selected and performs any
+        // required PlatformWindows1 activation (ADR-0119). A focused snapshot
+        // may still name the previous service while Home owns desktop focus.
+        let valid = self
+            .state
+            .lock()
             .await
+            .providers
+            .get(&id)
+            .is_some_and(|p| p.owner == owner && p.info.generation == generation);
+        if !valid {
+            return Err(ErrorCode::Unavailable);
+        }
+        let _ = self.platform.queue("dismiss").await;
+        Ok(())
     }
 
     /// Whether a ready `browser` provider has a connected browser.
@@ -1228,46 +1222,6 @@ impl Core {
             }
             if tokio::time::Instant::now() >= deadline {
                 return Err(ErrorCode::Timeout);
-            }
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        }
-    }
-
-    /// The token of the focused browser window in the first snapshot newer
-    /// than `revision`. Empty when that snapshot has a window that is not in
-    /// `known` (a new window has no link yet; the browser raises it itself),
-    /// or when no newer snapshot arrives within the wait.
-    async fn focused_token_after(
-        &self,
-        id: &str,
-        generation: &str,
-        revision: u64,
-        known: &HashSet<String>,
-    ) -> String {
-        let deadline = tokio::time::Instant::now() + OPEN_FOCUS_WAIT;
-        loop {
-            {
-                let state = self.state.lock().await;
-                let Some(p) = state.providers.get(id) else {
-                    return String::new();
-                };
-                if p.info.generation != generation {
-                    return String::new();
-                }
-                if p.info.revision > revision {
-                    if p.windows.iter().any(|w| !known.contains(&w.id)) {
-                        return String::new();
-                    }
-                    return p
-                        .windows
-                        .iter()
-                        .find(|w| w.focused)
-                        .map(|w| w.window_token.clone())
-                        .unwrap_or_default();
-                }
-            }
-            if tokio::time::Instant::now() >= deadline {
-                return String::new();
             }
             tokio::time::sleep(Duration::from_millis(100)).await;
         }

@@ -7,6 +7,7 @@
 use arinn_plugin_mpv::serve;
 use arinn_protocol::{
     media::MediaProviderProxy,
+    media_association::MediaProcessProxy,
     production::{self, Registration, RegistrationReply},
 };
 use serde_json::{Value, json};
@@ -178,6 +179,44 @@ async fn scenario() {
     assert!(xml.contains("org.arinn.MediaTimeline1"));
     assert!(xml.contains("org.arinn.MediaWindowProvider1"));
     assert!(xml.contains("org.arinn.AssetProvider1"));
+    assert!(xml.contains("org.arinn.MediaProcess1"));
+    let processes = MediaProcessProxy::builder(&daemon)
+        .destination(&first.destination)
+        .unwrap()
+        .build()
+        .await
+        .unwrap();
+    assert_eq!(
+        processes
+            .get_process_id(&page.generation, SESSION_ID)
+            .await
+            .unwrap(),
+        std::process::id()
+    );
+    for (generation, id, expected) in [
+        (
+            "00000000-0000-4000-8000-000000000009",
+            SESSION_ID,
+            "Conflict",
+        ),
+        (page.generation.as_str(), "missing", "NotFound"),
+    ] {
+        let error = processes.get_process_id(generation, id).await.unwrap_err();
+        assert!(
+            matches!(error, zbus::Error::MethodError(ref name, _, _) if name.as_str() == format!("org.arinn.Error1.{expected}"))
+        );
+    }
+    let stranger = bus.connection().await;
+    let snoop = MediaProcessProxy::builder(&stranger)
+        .destination(&first.destination)
+        .unwrap()
+        .build()
+        .await
+        .unwrap();
+    let error = snoop.get_process_id("", "").await.unwrap_err();
+    assert!(
+        matches!(error, zbus::Error::MethodError(ref name, _, _) if name.as_str() == "org.arinn.Error1.PermissionDenied")
+    );
     assert_mpris_controls_the_session(&daemon, &commands).await;
     assert_launch(&daemon, &first.destination).await;
     assert!(!names(&commands).iter().any(|name| name == "loadfile"));
@@ -203,8 +242,43 @@ async fn scenario() {
     assert!(!names(&commands).iter().any(|name| name == "loadfile"));
     assert_eq!(std::fs::read_to_string(&state).unwrap(), before);
 
-    second.runner.abort();
+    // Retain the session after its actual IPC peer exits. A provider started
+    // with only a persisted identity has no media snapshot until observation.
+    std::fs::remove_file(&socket).unwrap();
     peer.abort();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let (page,) = tokio::time::timeout(Duration::from_secs(2), proxy.get_sessions(""))
+            .await
+            .unwrap()
+            .unwrap();
+        if page
+            .sessions
+            .first()
+            .is_some_and(|s| s.id == SESSION_ID && s.state == "stopped")
+        {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "disconnected session did not become stopped"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let processes = MediaProcessProxy::builder(&daemon)
+        .destination(&second.destination)
+        .unwrap()
+        .build()
+        .await
+        .unwrap();
+    assert_eq!(
+        processes
+            .get_process_id(&restored.generation, SESSION_ID)
+            .await
+            .unwrap(),
+        0
+    );
+    second.runner.abort();
     drop(bus);
 }
 
@@ -316,12 +390,13 @@ fn names(commands: &Arc<Mutex<Vec<Value>>>) -> Vec<String> {
 }
 
 async fn peer(listener: UnixListener, commands: Arc<Mutex<Vec<Value>>>) {
+    let mut clients = tokio::task::JoinSet::new();
     loop {
         let Ok((stream, _)) = listener.accept().await else {
             return;
         };
         let commands = Arc::clone(&commands);
-        tokio::spawn(async move {
+        clients.spawn(async move {
             let _ = speak(stream, commands).await;
         });
     }

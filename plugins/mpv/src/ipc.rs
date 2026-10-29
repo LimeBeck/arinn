@@ -52,6 +52,7 @@ struct Inner {
     pending: Mutex<HashMap<i64, oneshot::Sender<Reply>>>,
     alive: AtomicBool,
     next_id: AtomicI64,
+    peer_pid: u32,
 }
 
 pub(crate) struct Client {
@@ -93,18 +94,29 @@ impl Client {
         incoming: UnboundedSender<Incoming>,
         generation: u64,
     ) -> Self {
+        let peer_pid = stream
+            .peer_cred()
+            .ok()
+            .and_then(|cred| cred.pid())
+            .and_then(|pid| u32::try_from(pid).ok())
+            .unwrap_or(0);
         let (read, write) = stream.into_split();
         let inner = Arc::new(Inner {
             writer: Mutex::new(write),
             pending: Mutex::new(HashMap::new()),
             alive: AtomicBool::new(true),
             next_id: AtomicI64::new(1),
+            peer_pid,
         });
         let reader = tokio::spawn(read_loop(read, Arc::clone(&inner), incoming, generation));
         Self {
             inner,
             reader: Some(reader),
         }
+    }
+
+    pub(crate) fn process_id(&self) -> u32 {
+        if self.alive() { self.inner.peer_pid } else { 0 }
     }
 
     pub(crate) fn alive(&self) -> bool {

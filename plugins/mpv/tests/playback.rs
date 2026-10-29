@@ -977,6 +977,11 @@ async fn stop_closes_ipc_keeps_resume_and_open_uses_a_fresh_peer() {
     first.managed.store(true, Ordering::SeqCst);
     let player = player(&dir, first.socket());
     let id = player.open(source(&dir)).await.unwrap();
+    assert_eq!(
+        player.process_id(id.clone()).await.unwrap(),
+        std::process::id()
+    );
+    let before_stop = player.view().await.unwrap().touch;
     player
         .control(MediaAction::Seek, id.clone(), 7_000_000)
         .await
@@ -995,6 +1000,11 @@ async fn stop_closes_ipc_keeps_resume_and_open_uses_a_fresh_peer() {
     assert_eq!(view.sessions[0].content.local_id, "film-1");
     assert_eq!(view.sessions[0].state, "stopped");
     assert_eq!(player.launch_id(id.clone()).await.unwrap(), "");
+    assert_eq!(player.process_id(id.clone()).await.unwrap(), 0);
+    assert!(
+        view.touch > before_stop,
+        "disconnect invalidates process evidence"
+    );
     assert!(names(&first.commands().await).contains(&"quit".into()));
     drop(first);
     let second = Peer::spawn(dir.clone(), true, false).await;
@@ -1008,6 +1018,14 @@ async fn stop_closes_ipc_keeps_resume_and_open_uses_a_fresh_peer() {
     resumed.start_position_us = 7_000_000;
     let new_id = player.open(resumed).await.unwrap();
     assert_ne!(new_id, id);
+    assert_eq!(
+        player.process_id(new_id.clone()).await.unwrap(),
+        std::process::id()
+    );
+    assert_eq!(
+        player.process_id(id).await.unwrap_err(),
+        ErrorCode::NotFound
+    );
     assert_eq!(
         player.view().await.unwrap().sessions[0].position_us,
         7_000_000

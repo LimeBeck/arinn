@@ -108,6 +108,7 @@ enum Ask {
     Timeline(String, oneshot::Sender<Result<Timeline, ErrorCode>>),
     View(oneshot::Sender<View>),
     LaunchId(String, oneshot::Sender<Result<String, ErrorCode>>),
+    ProcessId(String, oneshot::Sender<Result<u32, ErrorCode>>),
     Thumb(String, oneshot::Sender<Result<ThumbTarget, ErrorCode>>),
     Poster(oneshot::Sender<Option<PosterTarget>>),
     SetArtwork(String, String),
@@ -285,6 +286,10 @@ impl Player {
         self.call(|tx| Ask::Disable(id, tx)).await?
     }
 
+    pub async fn process_id(&self, id: String) -> Result<u32, ErrorCode> {
+        self.call(|tx| Ask::ProcessId(id, tx)).await?
+    }
+
     pub async fn launch_id(&self, id: String) -> Result<String, ErrorCode> {
         self.call(|tx| Ask::LaunchId(id, tx)).await?
     }
@@ -448,6 +453,14 @@ impl Core {
             }
             Ask::Timeline(id, reply) => {
                 let _ = reply.send(self.timeline(&id));
+            }
+            Ask::ProcessId(id, reply) => {
+                let result = if self.live.as_ref().is_none_or(|live| live.id != id) {
+                    Err(ErrorCode::NotFound)
+                } else {
+                    Ok(self.client.as_ref().map_or(0, Client::process_id))
+                };
+                let _ = reply.send(result);
             }
             Ask::LaunchId(id, reply) => {
                 let result = if self.live.as_ref().is_none_or(|live| live.id != id) {
@@ -663,6 +676,8 @@ impl Core {
             Ok(client) => {
                 self.client = Some(client);
                 self.observed = false;
+                self.touch = self.touch.wrapping_add(1);
+                self.emit();
                 Ok(())
             }
             Err(error) => {
@@ -1143,10 +1158,12 @@ impl Core {
     }
 
     fn drop_client(&mut self) {
+        self.touch = self.touch.wrapping_add(1);
         self.launch_id.clear();
         self.client = None;
         self.observed = false;
         self.generation = self.generation.wrapping_add(1);
+        self.emit();
     }
 
     fn available_actions(&self, state: &str) -> Vec<String> {

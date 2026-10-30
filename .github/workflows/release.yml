@@ -47,11 +47,13 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           name: arinn-arch-package
-          path: dist
+          path: incoming
       - uses: actions/download-artifact@v8
         with:
           name: arinn-deb-package
-          path: dist
+          path: incoming
+      - name: Stage distributable assets
+        run: python scripts/stage-release-assets.py incoming dist --require-debian
       - name: Checksums and release notes
         run: |
           version="${GITHUB_REF_NAME#v}"

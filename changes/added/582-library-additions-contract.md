@@ -1,0 +1,1 @@
+- Add an optional, snapshot-guarded library additions API and SDK publication method for provider-owned discovery times, with validated daemon routing; existing library providers remain compatible.

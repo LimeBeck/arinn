@@ -19,7 +19,18 @@ pub enum FromExtension {
         tabs: Vec<Tab>,
     },
     /// The outcome of command `serial`: empty on success, else an error code.
-    Result { serial: u64, error: String },
+    Result {
+        serial: u64,
+        error: String,
+        #[serde(rename = "windowId", default = "no_window")]
+        window_id: i64,
+        #[serde(default)]
+        created: bool,
+    },
+}
+
+fn no_window() -> i64 {
+    -1
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
@@ -95,7 +106,9 @@ mod tests {
             parse(br#"{"type":"result","serial":3,"error":""}"#).unwrap(),
             FromExtension::Result {
                 serial: 3,
-                error: String::new()
+                error: String::new(),
+                window_id: -1,
+                created: false,
             }
         );
         for bad in [

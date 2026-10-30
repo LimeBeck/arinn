@@ -4,7 +4,7 @@
 - **Date:** 2026-09-29
 - **Deciders:** delegated technical choice ([ADR-0037](0037-agent-autonomy-and-owner-gated-decisions.md)) within [ADR-0038](0038-browser-launch-ownership.md), [ADR-0048](0048-browser-wire-contract.md) and [ADR-0050](0050-window-per-browser-activity.md)
 - **Amends / Supersedes:** —
-- **Amended by / Superseded by:** —
+- **Amended by / Superseded by:** [ADR-0119](0119-explicit-browser-open-window.md) — explicit OpenUrl target activation in the provider
 - **Specification:** [§7.1](../specifications/arinn-specification.md#71-browser-chromechromium), [§12](../specifications/arinn-specification.md#12-platform-integration-kde-plasma-6--wayland)
 
 ## Context

@@ -12,8 +12,8 @@ use arinn_plugin_sdk::runtime::{
 use arinn_protocol::{
     assets::{Asset, AssetProviderProxy},
     library::{
-        Collection, ImportCandidate, Item, LibraryImportProxy, LibraryProviderProxy,
-        LibraryResumeProxy, LibraryRootsProxy, RootState,
+        Addition, Collection, ImportCandidate, Item, LibraryAdditionsProxy, LibraryImportProxy,
+        LibraryProviderProxy, LibraryResumeProxy, LibraryRootsProxy, RootState,
     },
     media::PlaybackSource,
     production::{self, EntityRef, Registration, RegistrationReply},
@@ -194,7 +194,8 @@ async fn scenario() {
         .resume(resume.clone())
         .import(import.clone())
         .assets(Posters)
-        .roots();
+        .roots()
+        .additions();
     let service = LibraryService::with_extensions(
         handler.clone(),
         vec![collection()],
@@ -243,8 +244,89 @@ async fn scenario() {
             "LibraryResume1".to_string(),
             "LibraryImport1".to_string(),
             "AssetProvider1".to_string(),
+            "LibraryAdditions1".to_string(),
             "LibraryRoots1".to_string()
         ]
+    );
+
+    let additions = LibraryAdditionsProxy::builder(&server)
+        .destination(destination.clone())
+        .unwrap()
+        .path(production::PROVIDER_PATH)
+        .unwrap()
+        .build()
+        .await
+        .unwrap();
+    let (empty,) = additions
+        .get_additions(&context.generation, page.revision)
+        .await
+        .unwrap();
+    assert!(empty.entries.is_empty());
+    let catalog_items = page.items.clone();
+    service
+        .replace_with_additions(
+            page.collections.clone(),
+            catalog_items.clone(),
+            "available",
+            vec![Addition {
+                id: film(true).id,
+                added_at_us: 100,
+            }],
+        )
+        .await
+        .unwrap();
+    let (updated,) = proxy.get_library("").await.unwrap();
+    assert!(updated.revision > page.revision);
+    let (added,) = additions
+        .get_additions(&context.generation, updated.revision)
+        .await
+        .unwrap();
+    assert_eq!(added.entries[0].added_at_us, 100);
+    assert!(
+        additions
+            .get_additions(&context.generation, page.revision)
+            .await
+            .is_err()
+    );
+    assert!(
+        additions
+            .get_additions(&uuid::Uuid::new_v4().to_string(), updated.revision)
+            .await
+            .is_err()
+    );
+    let outsider = bus.connection().await;
+    let denied = LibraryAdditionsProxy::builder(&outsider)
+        .destination(destination.clone())
+        .unwrap()
+        .path(production::PROVIDER_PATH)
+        .unwrap()
+        .build()
+        .await
+        .unwrap();
+    assert!(
+        denied
+            .get_additions(&context.generation, updated.revision)
+            .await
+            .is_err()
+    );
+    assert!(
+        service
+            .replace_with_additions(
+                updated.collections.clone(),
+                catalog_items,
+                "available",
+                vec![Addition {
+                    id: "gone".into(),
+                    added_at_us: 1
+                }]
+            )
+            .await
+            .is_err()
+    );
+    // The additions-only update is atomic and a rejected update leaves it intact.
+    assert_eq!(
+        proxy.get_library("").await.unwrap().0.revision,
+        updated.revision
     );
 
     // ADR-0071: configured roots and whether each can be read now.
@@ -429,6 +511,7 @@ async fn scenario() {
         ("org.arinn.LibraryResume1", "library-resume1.xml"),
         ("org.arinn.LibraryImport1", "library-import1.xml"),
         ("org.arinn.LibraryRoots1", "library-roots1.xml"),
+        ("org.arinn.LibraryAdditions1", "library-additions1.xml"),
     ] {
         let xml = std::fs::read_to_string(format!(
             "{}/../../docs/plugin-api/{file}",

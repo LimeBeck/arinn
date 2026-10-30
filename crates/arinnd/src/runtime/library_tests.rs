@@ -5,7 +5,9 @@
 //! `MediaOpen1` (ADR-0058) on a private bus.
 use super::*;
 use arinn_protocol::{
-    library::{FEATURE_ROOTS, LibraryApiProxy, RootState, Roots},
+    library::{
+        Addition, Additions, FEATURE_ADDITIONS, FEATURE_ROOTS, LibraryApiProxy, RootState, Roots,
+    },
     media::{PlaybackSource, Session, SessionPage},
     production::{EntityRef, ProductionDaemonProxy, ProductionOperationProxy},
 };
@@ -47,10 +49,15 @@ struct FakeLibrary {
     calls: Arc<StdMutex<Vec<String>>>,
     /// `Some` serves `LibraryRoots1` with these roots (ADR-0071).
     roots: SharedRoots,
+    additions: Arc<StdMutex<Option<Additions>>>,
+    library_delay: Arc<StdMutex<Duration>>,
+    additions_delay: Arc<StdMutex<Duration>>,
 }
 #[zbus::interface(name = "org.arinn.LibraryProvider1")]
 impl FakeLibrary {
-    fn get_library(&self, _token: &str) -> production::Result<(LibraryPage,)> {
+    async fn get_library(&self, _token: &str) -> production::Result<(LibraryPage,)> {
+        let delay = *self.library_delay.lock().unwrap();
+        tokio::time::sleep(delay).await;
         Ok((LibraryPage {
             generation: self.generation.clone(),
             revision: 1,
@@ -68,6 +75,9 @@ impl FakeLibrary {
     }
     fn features(&self) -> Vec<String> {
         let mut features = Vec::new();
+        if self.additions.lock().unwrap().is_some() {
+            features.push(FEATURE_ADDITIONS.into());
+        }
         if self.resume {
             features.push(FEATURE_RESUME.into());
         }
@@ -92,6 +102,26 @@ impl FakeLibrary {
         generation: &str,
         revision: u64,
     ) -> zbus::Result<()>;
+}
+#[derive(Clone)]
+struct FakeAdditions(FakeLibrary);
+#[zbus::interface(name = "org.arinn.LibraryAdditions1")]
+impl FakeAdditions {
+    async fn get_additions(
+        &self,
+        _generation: &str,
+        _revision: u64,
+    ) -> production::Result<(Additions,)> {
+        let delay = *self.0.additions_delay.lock().unwrap();
+        tokio::time::sleep(delay).await;
+        Ok((self
+            .0
+            .additions
+            .lock()
+            .unwrap()
+            .clone()
+            .ok_or(ErrorCode::Unsupported)?,))
+    }
 }
 #[derive(Clone)]
 struct FakeRoots(FakeLibrary);
@@ -203,6 +233,9 @@ struct Fixture {
     generation: String,
     path: OwnedObjectPath,
     roots: SharedRoots,
+    additions: Arc<StdMutex<Option<Additions>>>,
+    library_delay: Arc<StdMutex<Duration>>,
+    additions_delay: Arc<StdMutex<Duration>>,
 }
 impl Drop for Fixture {
     fn drop(&mut self) {
@@ -275,6 +308,9 @@ impl Fixture {
     }
     async fn build(resume: bool, player_can_open: bool, roots: Option<Vec<RootState>>) -> Self {
         let roots = Arc::new(StdMutex::new(roots.map(|r| (1, r))));
+        let additions = Arc::new(StdMutex::new(None));
+        let library_delay = Arc::new(StdMutex::new(Duration::ZERO));
+        let additions_delay = Arc::new(StdMutex::new(Duration::ZERO));
         let mut bus = Command::new("dbus-daemon")
             .args(["--session", "--nofork", "--print-address=1"])
             .stdout(Stdio::piped())
@@ -310,13 +346,20 @@ impl Fixture {
             resume,
             calls: calls.clone(),
             roots: roots.clone(),
+            additions: additions.clone(),
+            library_delay: library_delay.clone(),
+            additions_delay: additions_delay.clone(),
         };
         objects
             .at(production::PROVIDER_PATH, fake.clone())
             .await
             .unwrap();
         objects
-            .at(production::PROVIDER_PATH, FakeRoots(fake))
+            .at(production::PROVIDER_PATH, FakeRoots(fake.clone()))
+            .await
+            .unwrap();
+        objects
+            .at(production::PROVIDER_PATH, FakeAdditions(fake))
             .await
             .unwrap();
         objects
@@ -412,6 +455,9 @@ impl Fixture {
             generation,
             path,
             roots,
+            additions,
+            library_delay,
+            additions_delay,
         };
         for _ in 0..150 {
             {
@@ -652,4 +698,126 @@ async fn roots_are_unsupported_without_the_flag() {
         error_name(f.api().await.get_roots().await),
         "org.arinn.Error1.Unsupported"
     );
+}
+
+#[tokio::test]
+async fn additions_are_optional_fenced_and_cannot_poison_the_library() {
+    let f = Fixture::new(false, false).await;
+    let api = f.api().await;
+    assert!(error_name(api.get_additions(&f.generation, 1).await).ends_with("Unsupported"));
+    let valid = Additions {
+        generation: f.generation.clone(),
+        revision: 1,
+        entries: vec![Addition {
+            id: "film-1".into(),
+            added_at_us: 100,
+        }],
+    };
+    *f.additions.lock().unwrap() = Some(valid.clone());
+    let mut read = None;
+    for _ in 0..150 {
+        if let Ok((value,)) = api.get_additions(&f.generation, 1).await {
+            read = Some(value);
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(read, Some(valid.clone()));
+    assert!(error_name(api.get_additions(&f.generation, 2).await).ends_with("Conflict"));
+    assert!(error_name(api.get_additions("stale", 1).await).ends_with("Conflict"));
+    for broken in [
+        Additions {
+            revision: 2,
+            ..valid.clone()
+        },
+        Additions {
+            generation: Uuid::new_v4().to_string(),
+            ..valid.clone()
+        },
+        Additions {
+            entries: vec![Addition {
+                id: "film-2".into(),
+                added_at_us: 100,
+            }],
+            ..valid.clone()
+        },
+    ] {
+        *f.additions.lock().unwrap() = Some(valid.clone());
+        let mut restored = false;
+        for _ in 0..150 {
+            if api.get_additions(&f.generation, 1).await.is_ok() {
+                restored = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert!(restored);
+        *f.additions.lock().unwrap() = Some(broken);
+        let mut dropped = false;
+        for _ in 0..150 {
+            if api.get_additions(&f.generation, 1).await.is_err() {
+                dropped = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert!(dropped);
+        assert_eq!(api.get_library("").await.unwrap().0.items.len(), 2);
+    }
+    *f.additions.lock().unwrap() = Some(valid.clone());
+    for _ in 0..150 {
+        if api.get_additions(&f.generation, 1).await.is_ok() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    // An invalid response must not erase the revision's immutability guard.
+    let mut invalid = valid.clone();
+    invalid.entries[0].id = "film-2".into();
+    *f.additions.lock().unwrap() = Some(invalid);
+    for _ in 0..150 {
+        if api.get_additions(&f.generation, 1).await.is_err() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let mut changed = valid.clone();
+    changed.entries[0].added_at_us = 200;
+    *f.additions.lock().unwrap() = Some(changed);
+    tokio::time::sleep(Duration::from_millis(1200)).await;
+    assert!(api.get_additions(&f.generation, 1).await.is_err());
+    *f.additions.lock().unwrap() = Some(valid.clone());
+    let mut restored = false;
+    for _ in 0..150 {
+        if api.get_additions(&f.generation, 1).await.is_ok() {
+            restored = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(restored);
+    // The base read fits its 3 s deadline. A hanging optional extension
+    // must not consume the last 250 ms and fail that valid base read.
+    *f.library_delay.lock().unwrap() = Duration::from_millis(2750);
+    *f.additions_delay.lock().unwrap() = Duration::from_secs(1);
+    let mut optional_dropped = false;
+    for _ in 0..300 {
+        if api.get_additions(&f.generation, 1).await.is_err() {
+            optional_dropped = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(optional_dropped);
+    assert!(
+        f.core.state.lock().await.providers["library"]
+            .info
+            .last_error
+            .is_empty()
+    );
+    assert_eq!(api.get_library("").await.unwrap().0.items.len(), 2);
+    f.core
+        .unavailable("library", f._providers[0].unique_name().unwrap().as_str())
+        .await;
+    assert!(api.get_additions(&f.generation, 1).await.is_err());
 }

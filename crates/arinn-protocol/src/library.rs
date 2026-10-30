@@ -20,6 +20,9 @@ pub const RESUME_INTERFACE: &str = "org.arinn.LibraryResume1";
 pub const IMPORT_INTERFACE: &str = "org.arinn.LibraryImport1";
 pub const ROOTS_INTERFACE: &str = "org.arinn.LibraryRoots1";
 
+pub const FEATURE_ADDITIONS: &str = "LibraryAdditions1";
+pub const MAX_ADDITIONS: usize = 64;
+
 pub const FEATURE_RESUME: &str = "LibraryResume1";
 pub const FEATURE_IMPORT: &str = "LibraryImport1";
 pub const FEATURE_ROOTS: &str = "LibraryRoots1";
@@ -134,6 +137,88 @@ pub struct LibraryPage {
     pub items: Vec<Item>,
     pub next_token: String,
 }
+
+/// A provider-owned top-level discovery time, in Unix microseconds. For a
+/// series this is the latest discovery of an episode, not a metadata edit.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct Addition {
+    pub id: String,
+    pub added_at_us: u64,
+}
+
+/// Bounded latest additions for exactly one catalogue snapshot. Older or
+/// unknown discovery times may be omitted; this is not the complete library.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct Additions {
+    pub generation: String,
+    pub revision: u64,
+    pub entries: Vec<Addition>,
+}
+
+impl Additions {
+    pub fn validate(&self) -> Result<(), ErrorCode> {
+        uuid::Uuid::parse_str(&self.generation).map_err(|_| ErrorCode::InvalidArgument)?;
+        if self.revision == 0 {
+            return Err(ErrorCode::InvalidArgument);
+        }
+        validate_additions(&self.entries)?;
+        if to_bytes(Context::new_dbus(LE, 0), &(self,))
+            .map_err(|_| ErrorCode::InvalidArgument)?
+            .len()
+            > MAX_BODY_BYTES
+        {
+            return Err(ErrorCode::InvalidArgument);
+        }
+        Ok(())
+    }
+}
+
+pub fn validate_additions(entries: &[Addition]) -> Result<(), ErrorCode> {
+    if entries.len() > MAX_ADDITIONS {
+        return Err(ErrorCode::InvalidArgument);
+    }
+    if entries.windows(2).any(|pair| {
+        pair[0].added_at_us < pair[1].added_at_us
+            || (pair[0].added_at_us == pair[1].added_at_us && pair[0].id >= pair[1].id)
+    }) {
+        return Err(ErrorCode::InvalidArgument);
+    }
+    let mut ids = HashSet::new();
+    for entry in entries {
+        validation::id(&entry.id)?;
+        if entry.added_at_us == 0 || entry.added_at_us > i64::MAX as u64 || !ids.insert(&entry.id) {
+            return Err(ErrorCode::InvalidArgument);
+        }
+    }
+    Ok(())
+}
+
+/// Additions refer only to available top-level films or series in this snapshot.
+pub fn validate_addition_items(entries: &[Addition], items: &[Item]) -> Result<(), ErrorCode> {
+    validate_additions(entries)?;
+    for entry in entries {
+        if !items.iter().any(|item| {
+            item.id == entry.id
+                && item.parent_id.is_empty()
+                && item.available
+                && matches!(item.kind.as_str(), "film" | "series")
+        }) {
+            return Err(ErrorCode::InvalidArgument);
+        }
+    }
+    Ok(())
+}
+
+/// Optional, read-only provider metadata. The daemon exposes its validated
+/// snapshot on Library1. Uses the catalogue revision and its existing StateChanged.
+pub mod additions {
+    use super::Additions;
+    #[zbus::proxy(interface = "org.arinn.LibraryAdditions1")]
+    pub trait LibraryAdditions {
+        fn get_additions(&self, generation: &str, revision: u64) -> zbus::Result<(Additions,)>;
+    }
+}
+pub use additions::LibraryAdditionsProxy;
 
 /// Resume owned by the library. `observed_at_us` is Unix time in microseconds,
 /// not the monotonic media anchor.
@@ -498,6 +583,8 @@ pub trait LibraryApi {
     /// daemon has read them. A change is announced with the daemon's
     /// `StateChanged` for the provider's `library` capability.
     fn get_roots(&self) -> zbus::Result<(Roots,)>;
+    /// Optional discovery metadata, matching the requested catalogue snapshot.
+    fn get_additions(&self, generation: &str, revision: u64) -> zbus::Result<(Additions,)>;
 }
 
 #[cfg(test)]
@@ -559,6 +646,67 @@ mod tests {
         assert_eq!(decoded, page);
         assert_eq!(display_collection_kind("nope"), "other");
         assert_eq!(display_item_kind("episode"), "episode");
+    }
+
+    #[test]
+    fn additions_require_descending_times_and_ascending_tie_ids() {
+        let first = Addition {
+            id: "a".into(),
+            added_at_us: 2,
+        };
+        let tied = Addition {
+            id: "b".into(),
+            added_at_us: 2,
+        };
+        let older = Addition {
+            id: "c".into(),
+            added_at_us: 1,
+        };
+        validate_additions(&[first.clone(), tied.clone(), older.clone()]).unwrap();
+        assert!(validate_additions(&[older, first.clone()]).is_err());
+        assert!(validate_additions(&[tied, first]).is_err());
+    }
+
+    #[test]
+    fn additions_are_bounded_unique_and_linked_to_available_top_level_items() {
+        let generation = uuid::Uuid::new_v4().to_string();
+        let addition = Addition {
+            id: "film-1".into(),
+            added_at_us: 1,
+        };
+        let mut snapshot = Additions {
+            generation,
+            revision: 1,
+            entries: vec![addition.clone()],
+        };
+        assert_eq!(Addition::SIGNATURE.to_string(), "(st)");
+        assert_eq!(Additions::SIGNATURE.to_string(), "(sta(st))");
+        snapshot.validate().unwrap();
+        let bytes = to_bytes(Context::new_dbus(LE, 0), &(&snapshot,)).unwrap();
+        let (decoded,): (Additions,) = bytes.deserialize().unwrap().0;
+        assert_eq!(decoded, snapshot);
+        validate_addition_items(&snapshot.entries, &[film()]).unwrap();
+        let mut missing = film();
+        missing.available = false;
+        assert!(validate_addition_items(&snapshot.entries, &[missing]).is_err());
+        assert!(validate_addition_items(&snapshot.entries, &[]).is_err());
+        snapshot.entries.push(addition.clone());
+        assert!(snapshot.validate().is_err());
+        snapshot.entries = vec![Addition {
+            added_at_us: 0,
+            ..addition.clone()
+        }];
+        assert!(snapshot.validate().is_err());
+        snapshot.entries = (0..=MAX_ADDITIONS)
+            .map(|i| Addition {
+                id: format!("film-{i}"),
+                added_at_us: 1,
+            })
+            .collect();
+        assert!(snapshot.validate().is_err());
+        snapshot.entries.clear();
+        snapshot.revision = 0;
+        assert!(snapshot.validate().is_err());
     }
 
     #[test]

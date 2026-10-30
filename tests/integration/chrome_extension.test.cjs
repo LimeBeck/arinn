@@ -193,6 +193,21 @@ test("open of an already open origin focuses its window instead of creating one"
         ["windows.update", 3, { focused: true, state: "fullscreen" }]);
 });
 
+test("open reports the selected window even while desktop focus stays on the last service", async () => {
+    const x = load({ windows: [
+        { id: 3, type: "popup", focused: false, tabs: [{ id: 10, url: "https://video.example/", active: true }] },
+        { id: 5, type: "popup", focused: true, tabs: [{ id: 12, url: "https://mail.example/", active: true }] },
+    ] });
+    await x.flush();
+    // The mock deliberately leaves focused unchanged, as when Home owns focus.
+    for (const [url, expected] of [["https://video.example/", 3], ["https://mail.example/", 5],
+        ["https://new.example/", 99], ["https://video.example/", 3]]) {
+        assert.equal(await open(x, url), "");
+        assert.equal(x.posted.filter(m => m.type === "result").at(-1).windowId, expected);
+        assert.equal(x.posted.filter(m => m.type === "result").at(-1).created, expected === 99);
+    }
+});
+
 test("open matches the origin, not the host or the path", async () => {
     const x = load({ windows: managed });
     await x.flush();

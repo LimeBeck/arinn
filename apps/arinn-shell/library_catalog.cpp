@@ -94,6 +94,8 @@ struct LibraryCatalog::Catalog {
   QString pageGeneration;
   quint64 pageRevision = 0;
   bool resumeFeature = false;
+  quint64 libraryRevision = 0;
+  int additionsIndex = -1;
 };
 
 LibraryCatalog::LibraryCatalog(QObject *parent) : QObject(parent) {
@@ -257,10 +259,34 @@ void LibraryCatalog::publish() {
   }
   // A reload follows every ProvidersChanged. Announcing an unchanged catalog
   // makes every view bound to it rebuild its cards (#441).
-  const auto changed = tabs != m_tabs || entries != m_entries ||
+  QList<const ItemRow *> recent;
+  for (const auto &item : std::as_const(m_items))
+    if (item.addedAtUs > 0 && item.available && item.parentLocal.isEmpty() &&
+        (item.kind == QLatin1String("film") || item.kind == QLatin1String("series")))
+      recent.append(&item);
+  std::sort(recent.begin(), recent.end(), [](const auto *a, const auto *b) {
+    if (a->addedAtUs != b->addedAtUs) return a->addedAtUs > b->addedAtUs;
+    if (a->providerId != b->providerId) return a->providerId.toUtf8() < b->providerId.toUtf8();
+    return a->localId.toUtf8() < b->localId.toUtf8();
+  });
+  QVariantList newEntries;
+  for (const auto *item : std::as_const(recent)) {
+    if (newEntries.size() == 12) break;
+    for (const auto &entry : std::as_const(entries)) {
+      if (entry.toMap().value(QStringLiteral("id")).toString() == item->id) {
+        auto card = entry.toMap();
+        if (item->hasYear)
+          card.insert(QStringLiteral("subtitle"), QString::number(item->year));
+        newEntries.append(card);
+        break;
+      }
+    }
+  }
+  const auto changed = tabs != m_tabs || entries != m_entries || newEntries != m_newEntries ||
                        m_items != m_publishedItems;
   m_tabs = tabs;
   m_entries = entries;
+  m_newEntries = newEntries;
   if (!changed && libraryState() == m_publishedState)
     return;
   // A deep copy: sharing would let the next non-const pass over m_items
@@ -395,6 +421,11 @@ void LibraryCatalog::dropResumes(const std::shared_ptr<Catalog> &catalog,
 }
 void LibraryCatalog::nextProvider(const std::shared_ptr<Catalog> &catalog,
                                   int index) {
+  if (catalog->additionsIndex == index) {
+    catalog->additionsIndex = -1;
+    readAdditions(catalog, index);
+    return;
+  }
   catalog->tokens.clear();
   catalog->pageGeneration.clear();
   catalog->pageRevision = 0;
@@ -585,12 +616,87 @@ void LibraryCatalog::readLibrary(const std::shared_ptr<Catalog> &catalog,
         else if (!acceptProvider(catalog, index))
           failProvider(catalog, index);
         else {
+          catalog->libraryRevision = catalog->pageRevision;
           catalog->tokens.clear();
           catalog->pageGeneration.clear();
           catalog->pageRevision = 0;
           readFeatures(catalog, index);
         }
       });
+}
+void LibraryCatalog::readAdditions(const std::shared_ptr<Catalog> &catalog,
+                                   int index) {
+  if (catalog->epoch != m_epoch) {
+    finishCatalog(catalog, false);
+    return;
+  }
+  const auto provider = catalog->providers.at(index).toMap();
+  const auto generation = provider.value(QStringLiteral("generation")).toString();
+  const auto revision = catalog->libraryRevision;
+  auto msg = QDBusMessage::createMethodCall(
+      service, provider.value(QStringLiteral("path")).toString(),
+      "org.arinn.Library1", "GetAdditions");
+  msg << generation << qulonglong(revision);
+  auto pending = new QDBusPendingCallWatcher(
+      QDBusConnection::sessionBus().asyncCall(msg, 500), this);
+  connect(pending, &QDBusPendingCallWatcher::finished, this,
+          [this, catalog, index, generation, revision](auto *call) {
+    const auto reply = call->reply();
+    call->deleteLater();
+    if (catalog->epoch != m_epoch) {
+      finishCatalog(catalog, false);
+      return;
+    }
+    // Optional metadata is all-or-nothing and cannot invalidate the library.
+    if (reply.type() == QDBusMessage::ErrorMessage ||
+        reply.signature() != "(sta(st))" || reply.arguments().isEmpty()) {
+      nextProvider(catalog, index);
+      return;
+    }
+    const auto arg = qvariant_cast<QDBusArgument>(reply.arguments().at(0));
+    QString receivedGeneration;
+    qulonglong receivedRevision = 0;
+    arg.beginStructure();
+    arg >> receivedGeneration >> receivedRevision;
+    bool valid = receivedGeneration == generation && receivedRevision == revision;
+    QHash<QString, quint64> times;
+    QString previousId;
+    quint64 previousTime = std::numeric_limits<quint64>::max();
+    arg.beginArray();
+    while (!arg.atEnd()) {
+      QString id;
+      qulonglong time = 0;
+      arg.beginStructure();
+      arg >> id >> time;
+      arg.endStructure();
+      if (times.size() >= 64 || time == 0 ||
+          time > quint64(std::numeric_limits<qint64>::max()) ||
+          times.contains(id) || time > previousTime ||
+          (time == previousTime && id.toUtf8() <= previousId.toUtf8())) {
+        valid = false;
+        break;
+      }
+      bool known = false;
+      for (qsizetype i = catalog->providerStartItems; i < catalog->items.size(); ++i) {
+        const auto &item = catalog->items.at(i);
+        if (item.localId == id && item.parentLocal.isEmpty() && item.available &&
+            (item.kind == QLatin1String("film") || item.kind == QLatin1String("series"))) {
+          known = true;
+          break;
+        }
+      }
+      if (!known) valid = false;
+      times.insert(id, time);
+      previousId = id;
+      previousTime = time;
+    }
+    arg.endArray();
+    arg.endStructure();
+    if (valid)
+      for (qsizetype i = catalog->providerStartItems; i < catalog->items.size(); ++i)
+        catalog->items[i].addedAtUs = times.value(catalog->items.at(i).localId);
+    nextProvider(catalog, index);
+  });
 }
 void LibraryCatalog::readFeatures(const std::shared_ptr<Catalog> &catalog,
                                   int index) {
@@ -615,6 +721,9 @@ void LibraryCatalog::readFeatures(const std::shared_ptr<Catalog> &catalog,
             catalog->resumeFeature = false;
             if (reply.type() != QDBusMessage::ErrorMessage &&
                 reply.signature() == "as" && !reply.arguments().isEmpty()) {
+              if (reply.arguments().at(0).toStringList().contains(
+                      QLatin1String("LibraryAdditions1")))
+                catalog->additionsIndex = index;
               catalog->resumeFeature =
                   reply.arguments().at(0).toStringList().contains(
                       QLatin1String("LibraryResume1"));

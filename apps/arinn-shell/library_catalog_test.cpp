@@ -13,6 +13,8 @@
 #include <QTest>
 #include <QUuid>
 #include <QtDBus>
+#include <algorithm>
+#include <limits>
 namespace {
 // DownloadCatalog's presentation id: the provider id is length-prefixed.
 QString downloadId(const QString &local) {
@@ -45,6 +47,14 @@ struct ItemWire {
   QString fanart;
   bool available = true;
 };
+struct AdditionWire {
+  QString id;
+  qulonglong time = 1;
+};
+QDBusArgument &operator<<(QDBusArgument &arg, const AdditionWire &row) {
+  arg.beginStructure(); arg << row.id << row.time; arg.endStructure(); return arg;
+}
+const QDBusArgument &operator>>(const QDBusArgument &arg, AdditionWire &) { return arg; }
 struct ResumeWire {
   QString contentId;
   qlonglong position = 0;
@@ -215,6 +225,14 @@ public:
   QList<CollectionWire> collections;
   QList<ItemWire> page1;
   QList<ItemWire> page2;
+  QHash<QString, QList<ItemWire>> extraPages;
+  QHash<QString, QList<AdditionWire>> extraAdditions;
+  QList<AdditionWire> additions;
+  QString additionGeneration = QStringLiteral("g-library");
+  qulonglong additionRevision = 1;
+  int additionReads = 0;
+  qulonglong requestedAdditionRevision = 0;
+  bool rejectAdditions = false;
   QString page2Token = QStringLiteral("p2");
   QString pageGeneration = QStringLiteral("g-library");
   qulonglong page1Revision = 1;
@@ -274,7 +292,7 @@ public:
       body.endStructure();
     } else if (message.member() == QLatin1String("GetLibrary")) {
       ++libraryReads;
-      if (message.path() != libraryPath || rejectLibrary) {
+      if ((message.path() != libraryPath && !extraPages.contains(message.path())) || rejectLibrary) {
         bus.send(message.createErrorReply(
             QStringLiteral("org.arinn.Error1.Unavailable"),
             QStringLiteral("Unavailable")));
@@ -284,7 +302,7 @@ public:
       QList<ItemWire> rows;
       QString next;
       if (token.isEmpty()) {
-        rows = page1;
+        rows = extraPages.value(message.path(), page1);
         if (!page2.isEmpty() || loopSecond)
           next = page2Token;
       } else if (token == page2Token) {
@@ -331,6 +349,18 @@ public:
       ++featureReads;
       bus.send(message.createReply(QVariant::fromValue(features)));
       return true;
+    } else if (message.member() == QLatin1String("GetAdditions")) {
+      ++additionReads;
+      requestedAdditionRevision = message.arguments().value(1).toULongLong();
+      if (rejectAdditions) {
+        bus.send(message.createErrorReply(QStringLiteral("org.arinn.Error1.Unavailable"), QStringLiteral("Unavailable")));
+        return true;
+      }
+      body.beginStructure();
+      body << additionGeneration << additionRevision;
+      body.beginArray(QMetaType::fromType<AdditionWire>());
+      for (const auto &row : extraAdditions.value(message.path(), additions)) body << row;
+      body.endArray(); body.endStructure();
     } else if (message.member() == QLatin1String("GetResumes")) {
       ++resumeReads;
       if (rejectResume) {
@@ -501,6 +531,7 @@ private slots:
     qDBusRegisterMetaType<CollectionWire>();
     qDBusRegisterMetaType<ItemWire>();
     qDBusRegisterMetaType<ResumeWire>();
+    qDBusRegisterMetaType<AdditionWire>();
     qDBusRegisterMetaType<ProviderWire>();
     qDBusRegisterMetaType<ShortcutWire>();
     qDBusRegisterMetaType<EntityWire>();
@@ -514,6 +545,108 @@ private slots:
     bus.unregisterObject(QStringLiteral("/org/arinn"),
                          QDBusConnection::UnregisterTree);
     bus.unregisterService(QStringLiteral("org.arinn.Daemon1"));
+  }
+  void newEntriesMergeProvidersAndKeepTheLatestTwelve() {
+    LibraryDaemon daemon;
+    daemon.features.append(QStringLiteral("LibraryAdditions1"));
+    daemon.collections = {{QStringLiteral("films"), QStringLiteral("Films"), QStringLiteral("film")}};
+    ProviderWire second;
+    second.id = QStringLiteral("second");
+    second.path = QDBusObjectPath(QStringLiteral("/org/arinn/Daemon1/providers/p_second"));
+    daemon.providers.append(second);
+    QList<ItemWire> other;
+    QList<AdditionWire> otherAdditions;
+    for (int i = 9; i >= 0; --i) {
+      const auto id = QStringLiteral("film%1").arg(i);
+      daemon.page1.append(film(id, id)); other.append(film(id, id));
+      daemon.additions.append({id, qulonglong(100 + i * 2)});
+      otherAdditions.append({id, qulonglong(101 + i * 2)});
+    }
+    daemon.extraPages.insert(second.path.path(), other);
+    daemon.extraAdditions.insert(second.path.path(), otherAdditions);
+    QVERIFY(registerBus(daemon));
+    LibraryCatalog catalog;
+    QTRY_COMPARE(catalog.newEntries().size(), 12);
+    QCOMPARE(catalog.entries().size(), 20);
+    QCOMPARE(daemon.additionReads, 2);
+    QCOMPARE(daemon.requestedAdditionRevision, qulonglong(1)); // not resume revision 7
+    QCOMPARE(catalog.newEntries().at(0).toMap().value(QStringLiteral("id")).toString(), presentationId(second.id, QStringLiteral("film9")));
+    QCOMPARE(catalog.newEntries().at(1).toMap().value(QStringLiteral("id")).toString(), presentationId(QStringLiteral("library-provider"), QStringLiteral("film9")));
+    QSignalSpy changed(&catalog, &LibraryCatalog::catalogChanged);
+    const auto reads = daemon.additionReads;
+    catalog.refresh();
+    QTRY_COMPARE(daemon.additionReads, reads + 2);
+    QTest::qWait(100);
+    QCOMPARE(changed.count(), 0);
+    QVERIFY(QDBusConnection::sessionBus().unregisterService(QStringLiteral("org.arinn.Daemon1")));
+    QTRY_VERIFY(catalog.newEntries().isEmpty());
+  }
+  void additionTiesUseUtf8OpaqueIdOrdering() {
+    LibraryDaemon daemon;
+    daemon.features = {QStringLiteral("LibraryAdditions1")};
+    daemon.collections = {{QStringLiteral("films"), QStringLiteral("Films"), QStringLiteral("film")}};
+    // UTF-16 code-unit ordering differs from the protocol's UTF-8 ordering.
+    const auto bmp = QString::fromUtf8("\xee\x80\x80");
+    const auto supplementary = QString::fromUtf8("\xf0\x90\x80\x80");
+    daemon.page1 = {film(bmp, QStringLiteral("BMP")), film(supplementary, QStringLiteral("Supplementary"))};
+    daemon.additions = {{bmp, 1}, {supplementary, 1}};
+    QVERIFY(registerBus(daemon));
+    LibraryCatalog catalog;
+    QTRY_COMPARE(catalog.newEntries().size(), 2);
+    QCOMPARE(catalog.newEntries().at(0).toMap().value(QStringLiteral("id")).toString(), presentationId(QStringLiteral("library-provider"), bmp));
+    std::reverse(daemon.additions.begin(), daemon.additions.end());
+    daemon.page1Revision = 2; daemon.additionRevision = 2;
+    catalog.refresh();
+    QTRY_VERIFY(catalog.newEntries().isEmpty());
+    QCOMPARE(catalog.libraryState(), QStringLiteral("ready"));
+  }
+  void invalidAdditionsLeaveTheBaseLibraryUsable_data() {
+    QTest::addColumn<int>("variant");
+    for (int i = 0; i < 10; ++i) QTest::newRow(qPrintable(QString::number(i))) << i;
+  }
+  void invalidAdditionsLeaveTheBaseLibraryUsable() {
+    QFETCH(int, variant);
+    LibraryDaemon daemon;
+    daemon.features.append(QStringLiteral("LibraryAdditions1"));
+    daemon.collections = {{QStringLiteral("films"), QStringLiteral("Films"), QStringLiteral("film")}};
+    daemon.page1 = {film(QStringLiteral("a"), QStringLiteral("A")), film(QStringLiteral("b"), QStringLiteral("B"))};
+    daemon.additions = {{QStringLiteral("a"), 2}, {QStringLiteral("b"), 1}};
+    switch (variant) {
+    case 0: daemon.additionGeneration = QStringLiteral("stale"); break;
+    case 1: daemon.additionRevision = 2; break;
+    case 2: daemon.additions[1].id = QStringLiteral("a"); break;
+    case 3: daemon.additions[1].id = QStringLiteral("unknown"); break;
+    case 4: daemon.additions[0].time = 0; break;
+    case 5: daemon.additions[0].time = std::numeric_limits<qulonglong>::max(); break;
+    case 6: daemon.page1[0].available = false; break;
+    case 7: std::reverse(daemon.additions.begin(), daemon.additions.end()); break;
+    case 8: daemon.additions = {{QStringLiteral("b"), 1}, {QStringLiteral("a"), 1}}; break;
+    case 9: daemon.rejectAdditions = true; break;
+    }
+    QVERIFY(registerBus(daemon));
+    LibraryCatalog catalog;
+    QTRY_COMPARE(catalog.libraryState(), QStringLiteral("ready"));
+    QCOMPARE(catalog.entries().size(), 2);
+    QVERIFY(catalog.newEntries().isEmpty());
+  }
+  void additionsAreOptionalAndBounded() {
+    LibraryDaemon daemon;
+    daemon.collections = {{QStringLiteral("films"), QStringLiteral("Films"), QStringLiteral("film")}};
+    for (int i = 0; i < 65; ++i) {
+      const auto id = QStringLiteral("film%1").arg(i, 3, 10, QLatin1Char('0'));
+      daemon.page1.append(film(id, id)); daemon.additions.append({id, 1});
+    }
+    QVERIFY(registerBus(daemon));
+    LibraryCatalog catalog;
+    QTRY_COMPARE(catalog.libraryState(), QStringLiteral("ready"));
+    QCOMPARE(daemon.additionReads, 0);
+    QVERIFY(catalog.newEntries().isEmpty());
+    daemon.features.append(QStringLiteral("LibraryAdditions1"));
+    catalog.refresh();
+    QTRY_COMPARE(daemon.additionReads, 1);
+    QTest::qWait(100);
+    QCOMPARE(catalog.libraryState(), QStringLiteral("ready"));
+    QVERIFY(catalog.newEntries().isEmpty());
   }
   void collectionTabsUseTheShellsNames() {
     // #431: a provider's collection title is not translated; the shell
@@ -875,6 +1008,67 @@ private slots:
     QVERIFY(reads < 400);
     QTest::qWait(400);
     QCOMPARE(daemon.operationReads, reads);
+  }
+  void homeNewOpensLibraryDetailAndBackRestoresItsCard_data() {
+    QTest::addColumn<bool>("keepNeighbor");
+    QTest::newRow("same-row-neighbor") << true;
+    QTest::newRow("previous-row-fallback") << false;
+  }
+  void homeNewOpensLibraryDetailAndBackRestoresItsCard() {
+    QFETCH(bool, keepNeighbor);
+    LibraryDaemon daemon;
+    daemon.features.append(QStringLiteral("LibraryAdditions1"));
+    daemon.collections = {{QStringLiteral("films"), QStringLiteral("Films"), QStringLiteral("film")}};
+    daemon.page1 = {film(QStringLiteral("north"), QStringLiteral("North")), film(QStringLiteral("south"), QStringLiteral("South"))};
+    daemon.additions = {{QStringLiteral("north"), 10}, {QStringLiteral("south"), 9}};
+    QVERIFY(registerBus(daemon));
+    ShellStandIn backend;
+    backend.m_continue = {QVariantMap{{QStringLiteral("id"), QStringLiteral("continue")}, {QStringLiteral("title"), QStringLiteral("Activity")}}};
+    SessionGuardStandIn guard;
+    QQmlApplicationEngine engine;
+    installAssetImageProvider(&engine);
+    engine.rootContext()->setContextProperty(QStringLiteral("backend"), &backend);
+    engine.rootContext()->setContextProperty(QStringLiteral("sessionGuard"), &guard);
+    engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
+    auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().value(0));
+    QVERIFY(window);
+    window->show(); window->requestActivate();
+    auto home = window->findChild<QQuickItem *>(QStringLiteral("productionHome"));
+    auto library = window->findChild<QQuickItem *>(QStringLiteral("productionLibrary"));
+    auto catalog = window->findChild<LibraryCatalog *>(QStringLiteral("libraryCatalog"));
+    QVERIFY(home); QVERIFY(library); QVERIFY(catalog);
+    QTRY_COMPARE(catalog->newEntries().size(), 2);
+    const auto id = catalog->newEntries().at(0).toMap().value(QStringLiteral("id")).toString();
+    QQuickItem *card = nullptr;
+    QTRY_VERIFY((card = findItem(home, QStringLiteral("entry-") + id)));
+    card->forceActiveFocus();
+    QTRY_VERIFY(card->hasActiveFocus());
+    QTest::keyClick(window, Qt::Key_Return);
+    QTRY_COMPARE(home->property("screen").toString(), QStringLiteral("library"));
+    QCOMPARE(library->property("detailEntryId").toString(), id);
+    QVERIFY(daemon.commands.isEmpty()); // Opening details never starts playback.
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_COMPARE(home->property("screen").toString(), QStringLiteral("home"));
+    QTRY_VERIFY(card->hasActiveFocus());
+    // Normal library navigation retains its own Back behaviour.
+    home->setProperty("screen", QStringLiteral("library"));
+    QVERIFY(QMetaObject::invokeMethod(library, "openEntry", Q_ARG(QVariant, QVariant(id))));
+    QVERIFY(QMetaObject::invokeMethod(library, "back"));
+    QCOMPARE(home->property("screen").toString(), QStringLiteral("library"));
+    home->setProperty("screen", QStringLiteral("home"));
+    card->forceActiveFocus();
+    QTest::keyClick(window, Qt::Key_Return);
+    QTRY_VERIFY(library->property("detailOpen").toBool());
+    daemon.additions = keepNeighbor ? QList<AdditionWire>{{QStringLiteral("south"), 9}} : QList<AdditionWire>{};
+    catalog->refresh();
+    QTRY_COMPARE(catalog->newEntries().size(), keepNeighbor ? 1 : 0);
+    QCOMPARE(catalog->libraryState(), QStringLiteral("ready"));
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_COMPARE(home->property("screen").toString(), QStringLiteral("home"));
+    const auto fallback = keepNeighbor ? presentationId(QStringLiteral("library-provider"), QStringLiteral("south")) : QStringLiteral("arinn-browse");
+    QQuickItem *next = nullptr;
+    QTRY_VERIFY((next = findItem(home, QStringLiteral("entry-") + fallback)));
+    QTRY_VERIFY(next->hasActiveFocus());
   }
   void screenShowsResumeEmptyAndUnavailable() {
     LibraryDaemon daemon;

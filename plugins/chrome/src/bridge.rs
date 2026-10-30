@@ -196,6 +196,18 @@ impl Bridge {
         tab: i64,
         url: &str,
     ) -> Result<(), ErrorCode> {
+        Self::command_result(connection, host, action, tab, url)
+            .await
+            .map(|_| ())
+    }
+
+    async fn command_result(
+        connection: &zbus::Connection,
+        host: &str,
+        action: &str,
+        tab: i64,
+        url: &str,
+    ) -> Result<(i64, bool), ErrorCode> {
         let proxy = HostProxy::builder(connection)
             .destination(host.to_owned())
             .map_err(|_| ErrorCode::Unavailable)?
@@ -206,14 +218,43 @@ impl Bridge {
             .await
             .map_err(|_| ErrorCode::Timeout)?
             .map_err(|_| ErrorCode::Unavailable)?;
-        match reply.as_str() {
-            "" => Ok(()),
+        match reply.0.as_str() {
+            "" => Ok((reply.1, reply.2)),
             "NotFound" => Err(ErrorCode::NotFound),
             "InvalidArgument" => Err(ErrorCode::InvalidArgument),
             "Timeout" => Err(ErrorCode::Timeout),
             "PermissionDenied" => Err(ErrorCode::PermissionDenied),
             _ => Err(ErrorCode::Unavailable),
         }
+    }
+
+    /// Open through one host and qualify its selected window ID with that
+    /// exact connection. Numeric IDs from different profiles may collide.
+    pub async fn open(
+        &self,
+        connection: &zbus::Connection,
+        url: &str,
+    ) -> Result<(String, bool), ErrorCode> {
+        let (id, host) = {
+            let state = self.state.lock().unwrap();
+            state
+                .connections
+                .iter()
+                .max_by_key(|(_, c)| (c.focused_at, c.attached_at))
+                .map(|(id, c)| (id.clone(), c.owner.clone()))
+                .ok_or(ErrorCode::Unavailable)?
+        };
+        let (window, created) = Self::command_result(connection, &host, "open", 0, url).await?;
+        if window < 0 {
+            return Err(ErrorCode::Unavailable);
+        }
+        let state = self.state.lock().unwrap();
+        state
+            .connections
+            .get(&id)
+            .filter(|c| c.owner == host)
+            .ok_or(ErrorCode::Unavailable)?;
+        Ok((format!("{id}:w{window}"), created))
     }
 
     /// Drop a host's connections as soon as its unique name disappears.
@@ -357,7 +398,12 @@ impl Bridge {
 )]
 pub trait Host {
     /// `action` is `activate`, `close` or `open`; returns "" or an error code.
-    fn command(&self, action: &str, tab: i64, url: &str) -> zbus::Result<String>;
+    fn command(
+        &self,
+        action: &str,
+        tab: i64,
+        url: &str,
+    ) -> zbus::Result<crate::host::CommandResult>;
 }
 
 /// `org.arinn.ChromeBridge1` client used by the host.

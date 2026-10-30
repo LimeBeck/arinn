@@ -7,6 +7,7 @@ use arinn_plugin_chrome::{
     BRIDGE_NAME, BRIDGE_PATH,
     association::{Association, SETTLE},
     bridge::Bridge,
+    opening::OpenWindows,
 };
 use arinn_plugin_sdk::{
     platform::WindowClient,
@@ -14,11 +15,12 @@ use arinn_plugin_sdk::{
 };
 use arinn_protocol::validation::ErrorCode;
 use futures_util::StreamExt;
-use std::{future::Future, pin::Pin, time::Duration};
+use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
 
 struct Handler {
     bridge: Bridge,
     connection: zbus::Connection,
+    opening: Arc<OpenWindows>,
 }
 impl BrowserHandler for Handler {
     fn tab(
@@ -40,8 +42,9 @@ impl BrowserHandler for Handler {
         url: String,
     ) -> Pin<Box<dyn Future<Output = Result<(), ErrorCode>> + Send + '_>> {
         Box::pin(async move {
-            let host = self.bridge.default_host()?;
-            Bridge::command(&self.connection, &host, "open", 0, &url).await
+            self.opening
+                .open(&self.connection, &self.bridge, &url)
+                .await
         })
     }
 }
@@ -58,15 +61,18 @@ async fn main() -> anyhow::Result<()> {
     connection
         .request_name_with_flags(BRIDGE_NAME, zbus::fdo::RequestNameFlags::DoNotQueue.into())
         .await?;
+    let opening = Arc::new(OpenWindows::default());
     let service = BrowserService::new(
         Handler {
             bridge: bridge.clone(),
             connection: connection.clone(),
+            opening: opening.clone(),
         },
         Vec::new(),
         Vec::new(),
         "unavailable",
     )?;
+    opening.bind(service.registrations());
     connection
         .object_server()
         .at(
@@ -81,7 +87,7 @@ async fn main() -> anyhow::Result<()> {
             arinn_plugin_chrome::processes::Processes::new(bridge.clone(), service.registrations()),
         )
         .await?;
-    let publisher = tokio::spawn(publish(service.clone(), bridge.clone()));
+    let publisher = tokio::spawn(publish(service.clone(), bridge.clone(), opening));
     let result = runtime::run_browser_on(connection, service).await;
     publisher.abort();
     result.map_err(|e| anyhow::anyhow!(e))
@@ -89,7 +95,7 @@ async fn main() -> anyhow::Result<()> {
 
 /// Publish the merged browser snapshot, with window tokens linked through the
 /// platform window inventory while the provider is registered (ADR-0052).
-async fn publish(service: BrowserService, bridge: Bridge) {
+async fn publish(service: BrowserService, bridge: Bridge, opening: Arc<OpenWindows>) {
     let mut changes = bridge.changes();
     let mut registrations = service.registrations();
     let mut association = Association::default();
@@ -98,7 +104,7 @@ async fn publish(service: BrowserService, bridge: Bridge) {
     loop {
         let context = registrations.borrow_and_update().clone();
         if platform.is_none()
-            && let Some(context) = context
+            && let Some(context) = &context
             && let Ok(client) = WindowClient::new(&context.connection).await
             && let Ok(stream) = client.proxy().receive_windows_changed().await
         {
@@ -124,6 +130,11 @@ async fn publish(service: BrowserService, bridge: Bridge) {
             }
         }
         association.apply(&mut windows);
+        opening.publish(
+            context.as_ref(),
+            if platform.is_some() { &generation } else { "" },
+            &windows,
+        );
         let backend = if connected {
             "available"
         } else {
@@ -153,6 +164,7 @@ async fn publish(service: BrowserService, bridge: Bridge) {
                 if changed.is_err() { break }
                 platform = None;
                 association.clear();
+                opening.publish(None, "", &[]);
             }
             alive = platform_event => if !alive { platform = None },
             _ = tokio::time::sleep(wait) => {}

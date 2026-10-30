@@ -2,6 +2,17 @@
 
 Part of [ADR-0024](../adr/0024-local-library-mpv.md). The scenario was chosen by the project owner (P-02); components and technical defaults are a delegated choice.
 
+Discovery dates belong to the same provider SQLite database. `item_additions`
+stores each film/episode UUID's first successful discovery in Unix microseconds,
+inside the catalogue update transaction. Scan/import producers finish their disk work before acquiring a shared publication permit; under that permit they read the latest database snapshot and publish it, so a delayed producer cannot overwrite a newer publication. Rescans, renames, metadata/progress edits,
+imports retried with the same completion id and restarts retain it. Existing
+pre-additions rows migrate to zero (unknown); opening an old database does not
+make its entire library new. Unavailable content retains its date but is omitted
+while its top-level film/series is unavailable. A series uses the latest episode
+discovery. The provider publishes its latest 64 top-level dates together with
+the catalogue through the SDK's atomic additions replacement (ADR-0118,
+[ADR-0120](../adr/0120-home-recent-library-additions.md)).
+
 ## Providers
 
 `arinn-plugin-library` implements LibraryProvider and scans configured roots on the local filesystem, including already mounted network folders. No own SMB/NFS client, mount management or Jellyfin server is needed for the MVP. Roots come from `ARINN_PROVIDER_SETTINGS` at provider start ([ADR-0056](../adr/0056-local-library-scan-metadata-and-resume.md), [ADR-0064](../adr/0064-provider-settings-in-config.md)). Scanning is asynchronous: initial scan, explicit rescan (`SIGHUP`), filesystem hints and a periodic check every 10 minutes when autoscan is on. The snapshot already published keeps being served while a scan runs. ffprobe runs two at a time with a 5 second deadline. Parsing and artwork ids are ADR-0056. Anime `TVn` season markers are [ADR-0085](../adr/0085-anime-tv-season-markers.md); a standalone `Snn` season marker (`Show Name [WEB-DL 1080p] S01/`, `S02/`, `Show S01 - 05.mkv`) follows the same rules ([ADR-0109](../adr/0109-season-only-snn-markers.md)).

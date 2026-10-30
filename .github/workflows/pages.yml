@@ -51,7 +51,7 @@ jobs:
         run: |
           python scripts/build-site.py --output /tmp/arinn-product-site
           python scripts/check-site.py /tmp/arinn-product-site
-      - uses: actions/upload-pages-artifact@v4
+      - uses: actions/upload-pages-artifact@v5
         if: ${{ github.ref == 'refs/heads/master' && github.event_name != 'pull_request' }}
         with:
           path: /tmp/arinn-product-site
@@ -69,7 +69,7 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/configure-pages@v5
+      - uses: actions/configure-pages@v6
       - name: Deploy reviewed website
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

@@ -14,6 +14,7 @@ pub mod framing;
 pub mod host;
 pub mod icons;
 pub mod messages;
+pub mod opening;
 pub mod processes;
 
 /// Well-known bus name and path the provider exports for hosts.

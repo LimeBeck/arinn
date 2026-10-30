@@ -1,2 +1,0 @@
-- Record the owner-confirmed design publication rights and 90-day diagnostic retention requirement for publication checklist #74; clarify that pre-releases and development snapshots already exist.
-- Correct the claim that historical service-logo payloads were removed; the publication audit found them still reachable.

@@ -1,1 +1,0 @@
-- Opening a web shortcut no longer asks the platform to raise the browser window that had the focus before; it raises the window that shows the URL, or only hides Home for a new window.

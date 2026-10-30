@@ -1,1 +1,0 @@
-- `org.arinn.Daemon1.BuildInfo()` reports the daemon's version and build id, `<version>+g<12 hex>` with `-dirty` for a modified checkout. Every build computes the id with `scripts/build_id.py`, and source archives carry their commit ([#357](https://github.com/LimeBeck/arinn/issues/357), [ADR-0097](docs/adr/0097-build-identity.md)).

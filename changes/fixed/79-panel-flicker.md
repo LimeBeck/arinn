@@ -1,1 +1,0 @@
-- Returning to an Activity, or activating an open window, focuses that window before the shell stops covering the screen, so the panel does not flicker through during the transition.

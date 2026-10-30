@@ -1,1 +1,0 @@
-- Opening an already open web shortcut raises that service's exact window instead of the most recently focused browser window; incomplete window associations report an error instead of selecting another service.

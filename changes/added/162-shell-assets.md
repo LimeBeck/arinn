@@ -1,1 +1,0 @@
-- The shell loads artwork, posters and fanart through `Assets1`, and keeps the generic plate when an image is missing ([ADR-0062](docs/adr/0062-asset-contract.md)). The player timeline thumbnail stays with the player binding.

@@ -1,1 +1,0 @@
-- The package job in CI is faster: pull requests reuse a Cargo cache and skip the release-mode `check()`; release builds stay clean.

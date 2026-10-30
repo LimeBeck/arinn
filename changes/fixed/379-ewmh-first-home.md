@@ -1,1 +1,0 @@
-- X11/EWMH: the adapter connects when xfwm4 reports no focused window as a two-word zero `_NET_ACTIVE_WINDOW`, and the first Home reaches a shell that has never been shown, because the shell now creates its hidden native window at startup ([#379](https://github.com/LimeBeck/arinn/issues/379)).

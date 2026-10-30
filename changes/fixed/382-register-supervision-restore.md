@@ -1,1 +1,0 @@
-- Without a systemd user manager, providers can register again: every `arinnd` handle now shares one supervisor, so `Register` finds the provider process the daemon started instead of failing with `NotFound`.

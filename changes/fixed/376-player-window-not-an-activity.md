@@ -1,1 +1,0 @@
-- Never list Arinn's managed player window as a running application or a Continue Activity on Home ([#376](https://github.com/LimeBeck/arinn/issues/376)). The KWin adapter keeps the window for presentation but gives it no desktop ID.

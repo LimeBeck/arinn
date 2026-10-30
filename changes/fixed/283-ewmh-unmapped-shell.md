@@ -1,1 +1,0 @@
-- X11/EWMH: global Home works on xfwm4 while the shell is hidden. The shell is also found among root-window children when the window manager leaves it out of `_NET_CLIENT_LIST`; managed playback still requires a listed shell ([#283](https://github.com/LimeBeck/arinn/issues/283)).

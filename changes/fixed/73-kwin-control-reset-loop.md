@@ -1,1 +1,0 @@
-- Switching to an open window from Arinn failed on real KDE sessions: the KWin adapter treated an idle control poll as a protocol error and reconnected every second or two, invalidating every window token. It now accepts the list types KWin delivers.

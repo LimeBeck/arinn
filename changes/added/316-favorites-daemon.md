@@ -1,1 +1,0 @@
-- Export persistent Favorites1 from the daemon with ordered stable targets, transactional revision conflicts, current-catalog admission and post-commit notifications.

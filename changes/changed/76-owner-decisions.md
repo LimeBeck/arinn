@@ -1,1 +1,0 @@
-- Recorded owner decisions: the shell is the input layer during managed playback (ADR-0046), Plasma handles media and volume keys outside the shell, the New section is not part of the MVP, and web shortcut text entry uses a hardware keyboard in the MVP.

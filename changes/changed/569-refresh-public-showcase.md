@@ -1,1 +1,0 @@
-- Refresh the public EN/RU README, website and handbook for the connected source features and current installation flow, with four fictional showcase captures from tests/ui/visual and updated capture provenance.

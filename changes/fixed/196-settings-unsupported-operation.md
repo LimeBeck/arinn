@@ -1,1 +1,0 @@
-- Settings `SetValue` operations now finish as failed with `Unsupported` when the provider cannot apply live, while still persisting the value for the next start (ADR-0065, specification section 5.6).

@@ -1,1 +1,0 @@
-- Correct the Open services Right-key hint to say Close instead of Save, matching the design handoff.

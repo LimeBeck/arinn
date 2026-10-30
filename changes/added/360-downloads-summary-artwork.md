@@ -1,1 +1,0 @@
-- Downloads: the summary line says "N downloading" while something downloads and "N done" when every download is finished, and is hidden otherwise. An imported download shows its library item's poster; other rows show a neutral striped plate instead of a coloured chip ([#360](https://github.com/LimeBeck/arinn/issues/360)).

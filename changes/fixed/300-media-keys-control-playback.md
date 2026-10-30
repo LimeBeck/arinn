@@ -1,1 +1,0 @@
-- Make the remote's play/pause and other media keys control Arinn playback. Plasma sends media keys to the current MPRIS player, so the mpv provider now exposes its session as an MPRIS player while playback runs; the MPRIS provider ignores Arinn's own players so a session is not listed twice ([ADR-0081](docs/adr/0081-mpris-export-of-managed-playback.md)).

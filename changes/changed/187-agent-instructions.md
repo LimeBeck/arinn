@@ -1,2 +1,0 @@
-- Clarify agent scope for reviews, directed changes and authorized roadmap work; keep CI fixes within coordinated task zones and preserve owner review for process and product requirements.
-- Consolidate verification commands in CONTRIBUTING.md, align SPDX instructions with existing REUSE coverage, and document ADR reservation collision handling.

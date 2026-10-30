@@ -1,1 +1,0 @@
-- Master snapshot packages are versioned `<version>.r<commits>.g<hash>` (for example `0.1.0.r394.g1bd20d647afe`), so pacman upgrades from one snapshot to the next and `pacman -Q arinn` names the commit; version tags still build the plain version ([#357](https://github.com/LimeBeck/arinn/issues/357), [ADR-0099](docs/adr/0099-snapshot-package-version.md)).

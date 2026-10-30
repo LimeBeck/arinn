@@ -1,1 +1,0 @@
-- The daemon forwards playback progress of sessions opened from the library to the library provider, so resume positions are saved ([ADR-0061](docs/adr/0061-playback-progress-forwarding.md)).

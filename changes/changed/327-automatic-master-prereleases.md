@@ -1,1 +1,0 @@
-- Publish an immutable pre-release after every successful master CI/package run; keep master builds independent and publish ordinary releases on version tags.

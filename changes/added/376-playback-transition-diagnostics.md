@@ -1,1 +1,0 @@
-- Record shell player route changes and fixed reasons for abandoning managed playback, so Stop/relaunch failures can be distinguished from focus and window-association failures ([#376](https://github.com/LimeBeck/arinn/issues/376)).

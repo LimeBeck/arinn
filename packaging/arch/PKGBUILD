@@ -15,7 +15,7 @@
 # local build uses the system Qt and needs that Qt at run time.
 
 pkgname=arinn
-pkgver=0.1.0
+pkgver=0.2.0
 pkgrel=1
 pkgdesc='TV-first shell for a Linux HTPC (pre-alpha prototype)'
 arch=('x86_64')

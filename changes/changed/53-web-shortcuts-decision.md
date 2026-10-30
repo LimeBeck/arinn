@@ -1,1 +1,0 @@
-- Online-service tiles such as YouTube or Kinopoisk will be Arinn-owned web shortcuts that open in the browser, resolving OQ-02 ([ADR-0043](docs/adr/0043-web-shortcuts.md)). This is a specification decision; web shortcuts are not implemented yet.

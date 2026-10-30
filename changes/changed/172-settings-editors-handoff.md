@@ -1,1 +1,0 @@
-- The design handoff adds the Settings value editors, *Library folders* and the folder picker (#172). The owner decisions on its open questions are recorded in specification §5.6.

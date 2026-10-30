@@ -1,1 +1,0 @@
-- Launching an application from Home now closes Home, so the new window is no longer opened underneath the Arinn shell.

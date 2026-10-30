@@ -1,1 +1,0 @@
-- D-Bus activatable applications no longer sometimes fail to start from their tile: the desktop provider sends the activation itself instead of relying on `gio launch`, which could exit before the request was sent ([#59](https://github.com/LimeBeck/arinn/issues/59)).

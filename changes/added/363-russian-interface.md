@@ -1,1 +1,0 @@
-- Show the shell in Russian when the system locale is Russian: every screen, status and error message is translated through Qt translations, with English kept for other locales ([shell translations](docs/architecture/ui-translations.md)).

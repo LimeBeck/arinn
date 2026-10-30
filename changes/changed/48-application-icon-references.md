@@ -1,1 +1,0 @@
-- Application records carry an optional icon reference: empty, a theme icon name, or an absolute local file path. The pre-stable `Application1` and `Provider1` entry signature changes from `(ssbs)` to `(ssbss)`. An empty or unusable reference keeps the neutral placeholder. No icon is fetched, and no third-party logo is bundled.

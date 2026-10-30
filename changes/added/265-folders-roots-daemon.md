@@ -1,1 +1,0 @@
-- The daemon exports `org.arinn.Folders1` for the folder picker (folders only, hidden entries skipped, mounts as start points) and serves library root availability as `Library1.GetRoots`, announcing changes with its `StateChanged` (ADR-0071).

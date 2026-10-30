@@ -1,1 +1,0 @@
-- Home's status area shows a mute icon while the sound is muted and a Wi-Fi icon with its signal level while connected over Wi-Fi, between the download chip and the clock. Unknown state shows nothing ([ADR-0100](docs/adr/0100-system-status.md), [#387](https://github.com/LimeBeck/arinn/issues/387)).

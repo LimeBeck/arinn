@@ -1,1 +1,0 @@
-- Define optional authenticated Activity background metadata and sealed-frame transport, with bounded physical pixels, capture deadline and exact Home/window lifetime validation; production capture and device qualification remain separate.

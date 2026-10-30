@@ -1,1 +1,0 @@
-- The desktop provider lists `.desktop` files that repeat a key, keeping the last value as GLib does. Google Chrome's packaged entry is no longer missing, so the packaged browser fallback works.

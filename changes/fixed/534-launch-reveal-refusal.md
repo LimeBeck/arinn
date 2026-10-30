@@ -1,1 +1,0 @@
-- A late power refusal that arrives while a web service or an application is starting, before its launch screen appears, now waits for that screen to go instead of opening underneath it with focus.

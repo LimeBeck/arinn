@@ -1,1 +1,0 @@
-- Add optional Sentry diagnostics, startup/operation traces and numeric metrics to the shell and daemon, disabled by default through a shared telemetry configuration flag, with filtered technical events and breadcrumbs; track public-release consent requirements separately.

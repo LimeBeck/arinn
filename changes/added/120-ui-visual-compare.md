@@ -1,1 +1,0 @@
-- Add a local comparison of fixture-driven QML screens with the design handoff at 1920×1080 and at 4K scale ([scripts/ui-compare.py](scripts/ui-compare.py)). The report is layout evidence for the UI increment. It does not pass G-5.1.

@@ -1,1 +1,0 @@
-- Return to Arinn after leaving playback with Back on KDE: closing the player window no longer leaves the desktop on screen with Arinn hidden behind it.

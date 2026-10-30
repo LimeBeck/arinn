@@ -1,1 +1,0 @@
-- Add the keyboard-driven Site or search screen from Home and Open services, with daemon-resolved input, shortcut suggestions, an already-open hint, clearable recent entries and operation feedback.

@@ -1,2 +1,0 @@
-- CI spends fewer minutes: pull requests build the package only when they change packaging inputs, superseded master runs are cancelled, and jobs can run on a self-hosted runner.
-- CI jobs run in containers and can be switched to a self-hosted runner that needs only Docker and git.

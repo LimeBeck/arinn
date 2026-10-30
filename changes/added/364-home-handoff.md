@@ -1,5 +1,0 @@
-- Home's hero describes the focused item and what OK does: Now running · Return for an activity, the time played and left for media, the group and Opens full screen or Running · Return for a favorite ([#364](https://github.com/LimeBeck/arinn/issues/364)).
-- Continue media cards show a backdrop (session artwork, else the library item's fanart or poster), the time left and an ember progress bar ([#365](https://github.com/LimeBeck/arinn/issues/365)).
-- The open-services card reads "N more open" or "Open: N" with "All open services" and stacked chips of up to three services ([#366](https://github.com/LimeBeck/arinn/issues/366)).
-- Home's status area shows a download chip with the aggregate progress while something downloads ([#367](https://github.com/LimeBeck/arinn/issues/367)).
-- Home has a warm ambient light field tinted by the focused item's artwork or identity colour, cross-fading in 900 ms ([#368](https://github.com/LimeBeck/arinn/issues/368)).

@@ -1,1 +1,0 @@
-- Keep the focused row of *Site or search* in view when its rows change in the same moment as a key press; focus moves no longer scroll by positions from before the list was laid out ([#275](https://github.com/LimeBeck/arinn/issues/275)).

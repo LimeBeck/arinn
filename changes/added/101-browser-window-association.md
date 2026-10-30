@@ -1,1 +1,0 @@
-- The Chrome provider links its windows to compositor windows, so switching to an open service raises exactly its window ([ADR-0052](docs/adr/0052-browser-window-association.md)).

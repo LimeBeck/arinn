@@ -1,2 +1,0 @@
-- Home closes an open player track sheet and the launch dialog without confirming them, then shows Home. Playback is not paused or stopped.
-- From an external application, Back stays with that application. Home opens the shell on the activity that was in front.

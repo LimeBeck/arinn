@@ -1,1 +1,0 @@
-- Daemon: `SystemStatus1` now reports mute state from the sound server (`pactl`) and network connectivity, link kind and Wi-Fi level from NetworkManager. Either field stays `unknown` when its source is missing ([ADR-0100](docs/adr/0100-system-status.md), [#387](https://github.com/LimeBeck/arinn/issues/387)).

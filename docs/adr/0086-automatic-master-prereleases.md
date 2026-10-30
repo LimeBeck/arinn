@@ -28,7 +28,10 @@ master commit, as requested, without a second build for publication.
 
 The immutable tag is `snapshot-<full SHA>`, pointing to the exact checked-out and
 tested commit. Snapshot tags do not match the version-release trigger. Assets
-come from that same run: package, source archive, test helper and checksums.
+come from that same run: distributable packages, source archive and checksums.
+Internal smoke-test helpers stay in CI artifacts and are excluded from public
+assets, as requested by the owner in [#596](https://github.com/LimeBeck/arinn/issues/596)
+and approved for merge in [#597](https://github.com/LimeBeck/arinn/pull/597).
 Notes record the SHA and unreleased fragments; workspace/package versions and
 changelog fragments are not changed. Tags are created only in the gated publish
 job. The job uses the owner-configured `SNAPSHOT_RELEASE_TOKEN` repository

@@ -1,0 +1,1 @@
+- Keep internal CI smoke helpers such as `private-systemd` out of version releases and master snapshots. Stage only distributable Arinn packages and source archives before generating checksums and uploading release assets.

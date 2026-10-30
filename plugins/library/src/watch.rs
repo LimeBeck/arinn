@@ -11,7 +11,7 @@ use arinn_plugin_sdk::runtime::{
     SettingsHandler, run_library_on, serve_settings,
 };
 use arinn_protocol::{
-    library::{ImportCandidate, RootState},
+    library::{Addition, Collection, ImportCandidate, Item, Resume, RootState},
     media::PlaybackSource,
     settings::Setting,
     validation::ErrorCode,
@@ -35,9 +35,20 @@ use tokio::{
 struct Bridge {
     store: Arc<std::sync::Mutex<Store>>,
     service: Arc<Mutex<Option<LibraryService>>>,
+    publication: Arc<Mutex<()>>,
     settings: Arc<std::sync::Mutex<Settings>>,
     /// The configured roots as written, with the path the scan uses.
     written: Arc<Vec<(String, PathBuf)>>,
+}
+
+// A snapshot and its publication permit travel together, so no producer can
+// publish an older snapshot after a newer one. Slow discovery stays outside.
+struct Publication {
+    _permit: tokio::sync::OwnedMutexGuard<()>,
+    collections: Vec<Collection>,
+    items: Vec<Item>,
+    resumes: Vec<Resume>,
+    additions: Vec<Addition>,
 }
 
 pub async fn serve(connection: zbus::Connection) -> Result<(), ErrorCode> {
@@ -63,6 +74,7 @@ pub async fn serve(connection: zbus::Connection) -> Result<(), ErrorCode> {
     let bridge = Bridge {
         store: Arc::new(std::sync::Mutex::new(store)),
         service: Arc::new(Mutex::new(None)),
+        publication: Arc::new(Mutex::new(())),
         settings: Arc::new(std::sync::Mutex::new(settings)),
         written: Arc::new(written),
     };
@@ -124,31 +136,33 @@ impl Bridge {
             .unwrap_or_default()
     }
 
-    async fn scan_and_publish(&self) -> Result<(), ErrorCode> {
+    async fn read_publication(&self) -> Result<Publication, ErrorCode> {
+        let permit = self.publication.clone().lock_owned().await;
         let store = self.store.clone();
-        let settings = self.settings.clone();
-        let published = tokio::task::spawn_blocking(move || {
-            let settings = settings.lock().map_err(|_| ErrorCode::Internal)?.clone();
-            let readable = crate::store::scan_shared(&store, &settings)?;
+        let (collections, items, resumes, additions) = tokio::task::spawn_blocking(move || {
             let store = store.lock().map_err(|_| ErrorCode::Internal)?;
             let (collections, items) = store.snapshot()?;
-            Ok::<_, ErrorCode>((
-                collections,
-                items,
-                store.resumes()?,
-                store.additions()?,
-                readable,
-            ))
+            Ok::<_, ErrorCode>((collections, items, store.resumes()?, store.additions()?))
         })
         .await
-        .map_err(|_| ErrorCode::Internal)?;
-        let (collections, items, resumes, additions, readable) = match published {
-            Ok(published) => published,
-            Err(error) => {
-                log_error("scan", error);
-                return Ok(());
-            }
-        };
+        .map_err(|_| ErrorCode::Internal)??;
+        Ok(Publication {
+            _permit: permit,
+            collections,
+            items,
+            resumes,
+            additions,
+        })
+    }
+
+    async fn publish_current(&self) -> Result<LibraryService, ErrorCode> {
+        let Publication {
+            _permit,
+            collections,
+            items,
+            resumes,
+            additions,
+        } = self.read_publication().await?;
         let service = self
             .service
             .lock()
@@ -159,8 +173,27 @@ impl Bridge {
             .replace_with_additions(collections, items, "available", additions)
             .await?;
         service.replace_resumes(resumes).await?;
-        // Every configured root as written, with what this scan found. The
-        // SDK announces only a changed list (ADR-0071).
+        Ok(service)
+    }
+
+    async fn scan_and_publish(&self) -> Result<(), ErrorCode> {
+        let store = self.store.clone();
+        let settings = self.settings.clone();
+        let scanned = tokio::task::spawn_blocking(move || {
+            let settings = settings.lock().map_err(|_| ErrorCode::Internal)?.clone();
+            crate::store::scan_shared(&store, &settings)
+        })
+        .await
+        .map_err(|_| ErrorCode::Internal)?;
+        let readable = match scanned {
+            Ok(readable) => readable,
+            Err(error) => {
+                log_error("scan", error);
+                return Ok(());
+            }
+        };
+        let service = self.publish_current().await?;
+        // Every configured root as written, with what this scan found (ADR-0071).
         if let Err(error) = service.replace_roots(self.root_states(&readable)).await {
             log_error("roots", error);
         }
@@ -310,35 +343,21 @@ impl LibraryImportHandler for Bridge {
         candidates: Vec<ImportCandidate>,
     ) -> Pin<Box<dyn Future<Output = Result<Vec<String>, ErrorCode>> + Send + '_>> {
         let store = self.store.clone();
-        let service = self.service.clone();
         let settings = self.settings.clone();
         Box::pin(async move {
-            let (ids, collections, items, resumes, additions) =
-                tokio::task::spawn_blocking(move || {
-                    let roots = settings
-                        .lock()
-                        .map_err(|_| ErrorCode::Internal)?
-                        .roots
-                        .clone();
-                    let mut store = store.lock().map_err(|_| ErrorCode::Internal)?;
-                    store.set_configured_roots(&roots);
-                    let ids = store.import(&candidates)?;
-                    let (collections, items) = store.snapshot()?;
-                    Ok::<_, ErrorCode>((
-                        ids,
-                        collections,
-                        items,
-                        store.resumes()?,
-                        store.additions()?,
-                    ))
-                })
-                .await
-                .map_err(|_| ErrorCode::Internal)??;
-            let service = service.lock().await.clone().ok_or(ErrorCode::Unavailable)?;
-            service
-                .replace_with_additions(collections, items, "available", additions)
-                .await?;
-            service.replace_resumes(resumes).await?;
+            let ids = tokio::task::spawn_blocking(move || {
+                let roots = settings
+                    .lock()
+                    .map_err(|_| ErrorCode::Internal)?
+                    .roots
+                    .clone();
+                let mut store = store.lock().map_err(|_| ErrorCode::Internal)?;
+                store.set_configured_roots(&roots);
+                store.import(&candidates)
+            })
+            .await
+            .map_err(|_| ErrorCode::Internal)??;
+            self.publish_current().await?;
             Ok(ids)
         })
     }
@@ -517,6 +536,50 @@ mod tests {
     use super::*;
     use std::sync::atomic::{AtomicBool, Ordering};
 
+    #[tokio::test]
+    async fn queued_publication_reads_commits_made_while_waiting() {
+        let scratch =
+            std::env::temp_dir().join(format!("arinn-publication-{}", uuid::Uuid::new_v4()));
+        let root = scratch.join("root");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("First.mkv"), b"first").unwrap();
+        let settings = Settings {
+            roots: vec![root.clone()],
+            probe: false,
+            ..Settings::default()
+        };
+        let mut store = Store::open(&scratch.join("library.sqlite3")).unwrap();
+        store.use_mount_tables(crate::mounts::MountTables::default());
+        store.scan(&settings).unwrap();
+        let bridge = Bridge {
+            store: Arc::new(std::sync::Mutex::new(store)),
+            service: Arc::new(Mutex::new(None)),
+            publication: Arc::new(Mutex::new(())),
+            settings: Arc::new(std::sync::Mutex::new(settings.clone())),
+            written: Arc::new(Vec::new()),
+        };
+        let held = bridge.publication.lock().await;
+        let queued = bridge.read_publication();
+        tokio::pin!(queued);
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), &mut queued)
+                .await
+                .is_err()
+        );
+        // An import/scan can commit while publication is blocked. Its new item
+        // must be in the queued publisher's catalogue AND additions snapshot.
+        std::fs::write(root.join("Second.mkv"), b"second").unwrap();
+        bridge.store.lock().unwrap().scan(&settings).unwrap();
+        drop(held);
+        let publication = queued.await.unwrap();
+        assert_eq!(publication.items.len(), 2);
+        assert_eq!(publication.additions.len(), 2);
+        assert!(bridge.publication.try_lock().is_err());
+        drop(publication);
+        assert!(bridge.publication.try_lock().is_ok());
+        let _ = std::fs::remove_dir_all(scratch);
+    }
+
     #[test]
     fn library_methods_do_not_block_the_async_runtime() {
         let scratch = std::env::temp_dir().join(format!(
@@ -533,6 +596,7 @@ mod tests {
         let bridge = Bridge {
             store: Arc::new(std::sync::Mutex::new(store)),
             service: Arc::new(Mutex::new(None)),
+            publication: Arc::new(Mutex::new(())),
             settings: Arc::new(std::sync::Mutex::new(Settings::default())),
             written: Arc::new(Vec::new()),
         };

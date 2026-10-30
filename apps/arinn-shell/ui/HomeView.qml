@@ -462,6 +462,11 @@ FocusScope {
         }
         restoreHome();
     }
+    function returnFromLibraryDetail() {
+        screen = "home";
+        if (newRow.visible && newRow.restore()) return;
+        focusAfterRemoval(newRow);
+    }
     function back() {
         if (tileActionsOpen) closeTileActions();
         else if (navOpen) closeNavigation();

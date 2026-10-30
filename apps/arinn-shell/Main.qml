@@ -1044,7 +1044,7 @@ Window {
             onDetailOpenChanged: {
                 if (!detailOpen && root.libraryDetailFromHome) {
                     root.libraryDetailFromHome = false;
-                    if (home.screen === "library") home.back();
+                    if (home.screen === "library") home.returnFromLibraryDetail();
                 }
             }
             onPlayRequested: entryId => libraryCatalog.launch(entryId)

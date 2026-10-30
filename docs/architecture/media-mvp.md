@@ -4,7 +4,7 @@ Part of [ADR-0024](../adr/0024-local-library-mpv.md). The scenario was chosen by
 
 Discovery dates belong to the same provider SQLite database. `item_additions`
 stores each film/episode UUID's first successful discovery in Unix microseconds,
-inside the catalogue update transaction. Rescans, renames, metadata/progress edits,
+inside the catalogue update transaction. Scan/import producers finish their disk work before acquiring a shared publication permit; under that permit they read the latest database snapshot and publish it, so a delayed producer cannot overwrite a newer publication. Rescans, renames, metadata/progress edits,
 imports retried with the same completion id and restarts retain it. Existing
 pre-additions rows migrate to zero (unknown); opening an old database does not
 make its entire library new. Unavailable content retains its date but is omitted

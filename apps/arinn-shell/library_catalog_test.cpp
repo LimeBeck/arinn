@@ -990,14 +990,21 @@ private slots:
     QTest::qWait(400);
     QCOMPARE(daemon.operationReads, reads);
   }
+  void homeNewOpensLibraryDetailAndBackRestoresItsCard_data() {
+    QTest::addColumn<bool>("keepNeighbor");
+    QTest::newRow("same-row-neighbor") << true;
+    QTest::newRow("previous-row-fallback") << false;
+  }
   void homeNewOpensLibraryDetailAndBackRestoresItsCard() {
+    QFETCH(bool, keepNeighbor);
     LibraryDaemon daemon;
     daemon.features.append(QStringLiteral("LibraryAdditions1"));
     daemon.collections = {{QStringLiteral("films"), QStringLiteral("Films"), QStringLiteral("film")}};
-    daemon.page1 = {film(QStringLiteral("north"), QStringLiteral("North"))};
-    daemon.additions = {{QStringLiteral("north"), 10}};
+    daemon.page1 = {film(QStringLiteral("north"), QStringLiteral("North")), film(QStringLiteral("south"), QStringLiteral("South"))};
+    daemon.additions = {{QStringLiteral("north"), 10}, {QStringLiteral("south"), 9}};
     QVERIFY(registerBus(daemon));
     ShellStandIn backend;
+    backend.m_continue = {QVariantMap{{QStringLiteral("id"), QStringLiteral("continue")}, {QStringLiteral("title"), QStringLiteral("Activity")}}};
     SessionGuardStandIn guard;
     QQmlApplicationEngine engine;
     installAssetImageProvider(&engine);
@@ -1011,7 +1018,7 @@ private slots:
     auto library = window->findChild<QQuickItem *>(QStringLiteral("productionLibrary"));
     auto catalog = window->findChild<LibraryCatalog *>(QStringLiteral("libraryCatalog"));
     QVERIFY(home); QVERIFY(library); QVERIFY(catalog);
-    QTRY_COMPARE(catalog->newEntries().size(), 1);
+    QTRY_COMPARE(catalog->newEntries().size(), 2);
     const auto id = catalog->newEntries().at(0).toMap().value(QStringLiteral("id")).toString();
     QQuickItem *card = nullptr;
     QTRY_VERIFY((card = findItem(home, QStringLiteral("entry-") + id)));
@@ -1029,6 +1036,20 @@ private slots:
     QVERIFY(QMetaObject::invokeMethod(library, "openEntry", Q_ARG(QVariant, QVariant(id))));
     QVERIFY(QMetaObject::invokeMethod(library, "back"));
     QCOMPARE(home->property("screen").toString(), QStringLiteral("library"));
+    home->setProperty("screen", QStringLiteral("home"));
+    card->forceActiveFocus();
+    QTest::keyClick(window, Qt::Key_Return);
+    QTRY_VERIFY(library->property("detailOpen").toBool());
+    daemon.additions = keepNeighbor ? QList<AdditionWire>{{QStringLiteral("south"), 9}} : QList<AdditionWire>{};
+    catalog->refresh();
+    QTRY_COMPARE(catalog->newEntries().size(), keepNeighbor ? 1 : 0);
+    QCOMPARE(catalog->libraryState(), QStringLiteral("ready"));
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_COMPARE(home->property("screen").toString(), QStringLiteral("home"));
+    const auto fallback = keepNeighbor ? presentationId(QStringLiteral("library-provider"), QStringLiteral("south")) : QStringLiteral("arinn-browse");
+    QQuickItem *next = nullptr;
+    QTRY_VERIFY((next = findItem(home, QStringLiteral("entry-") + fallback)));
+    QTRY_VERIFY(next->hasActiveFocus());
   }
   void screenShowsResumeEmptyAndUnavailable() {
     LibraryDaemon daemon;

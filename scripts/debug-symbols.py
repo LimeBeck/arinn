@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -56,9 +57,11 @@ def regular(path, root):
     return path
 
 
-def collect(root, output, flavor, build_id):
+def collect(root, output, flavor, build_id, debug_root=None):
     if not BUILD.fullmatch(build_id):
         raise ValueError("symbols require a clean commit-qualified build ID")
+    if debug_root is not None and flavor != "debian":
+        raise ValueError("a packaged debug root is only supported for Debian")
     # A new directory rules out stale symbols from an earlier cached build.
     output.mkdir(parents=True, exist_ok=False)
     rows = []
@@ -66,7 +69,14 @@ def collect(root, output, flavor, build_id):
         binary = regular(root / "usr/bin" / component, root)
         identity = elf_id(binary)
         debug = output / f"{component}.debug"
-        run("objcopy", "--only-keep-debug", str(binary), str(debug))
+        if debug_root is None:
+            run("objcopy", "--only-keep-debug", str(binary), str(debug))
+        else:
+            # dh_strip/debugedit may replace the build ID. Read the file
+            # selected by the final staged binary, never a pre-strip copy.
+            source = regular(debug_root / "usr/lib/debug/.build-id" / identity[:2]
+                             / (identity[2:] + ".debug"), debug_root)
+            shutil.copyfile(source, debug)
         if elf_id(debug) != identity or not has_lines(debug):
             raise ValueError("debug file lacks matching build ID or line tables")
         rows.append({"component": component, "elf_build_id": identity,
@@ -175,6 +185,8 @@ def main():
         command.add_argument("artifact", type=Path)
         command.add_argument("--flavor", required=True, choices=FLAVORS)
         command.add_argument("--build-id", required=True)
+        if name == "collect":
+            command.add_argument("--debug-root", type=Path)
     command = commands.add_parser("upload")
     command.add_argument("artifacts", type=Path)
     command.add_argument("--build-id", required=True)
@@ -183,7 +195,8 @@ def main():
         if args.command == "upload":
             upload(args.artifacts, args.build_id, os.environ)
         else:
-            globals()[args.command](args.root, args.artifact, args.flavor, args.build_id)
+            globals()[args.command](args.root, args.artifact, args.flavor, args.build_id,
+                                   **({"debug_root": args.debug_root} if args.command == "collect" else {}))
     except (ValueError, OSError, subprocess.SubprocessError):
         # Deliberately omit payloads, paths and token-bearing diagnostics.
         print("Sentry symbols: validation, tool or upload failure", file=sys.stderr)

@@ -105,6 +105,8 @@ struct State {
     /// Configured roots and their availability of `library` providers that
     /// list `LibraryRoots1` (ADR-0071), by provider id.
     library_roots: BTreeMap<String, arinn_protocol::library::Roots>,
+    library_additions: BTreeMap<String, arinn_protocol::library::Additions>,
+    library_additions_seen: BTreeMap<String, arinn_protocol::library::Additions>,
 }
 #[derive(Clone)]
 pub struct Core {
@@ -161,6 +163,8 @@ impl Core {
                 error: String::new(),
                 listings: crate::listings::Listings::default(),
                 library_roots: BTreeMap::new(),
+                library_additions: BTreeMap::new(),
+                library_additions_seen: BTreeMap::new(),
             })),
             reload_lock: Arc::new(Mutex::new(())),
             maintenance: Arc::new(Mutex::new(())),
@@ -679,6 +683,8 @@ impl Core {
             let mut state = self.state.lock().await;
             if state.providers.get(id).is_some_and(|p| p.owner == owner) {
                 state.library_roots.remove(id);
+                state.library_additions.remove(id);
+                state.library_additions_seen.remove(id);
             }
             if let Some(p) = state.providers.get_mut(id) {
                 if p.owner != owner {

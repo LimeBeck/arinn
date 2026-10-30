@@ -11,13 +11,15 @@ use super::*;
 use arinn_plugin_sdk::snapshots::{LibrarySnapshots, ResumeSnapshots};
 use arinn_protocol::{
     library::{
-        self, Collection, FEATURE_IMPORT, FEATURE_RESUME, FEATURE_ROOTS, Item, LibraryPage,
-        LibraryProviderProxy, LibraryResumeProxy, LibraryRootsProxy, Resume, ResumePage, Roots,
+        self, Additions, Collection, FEATURE_ADDITIONS, FEATURE_IMPORT, FEATURE_RESUME,
+        FEATURE_ROOTS, Item, LibraryAdditionsProxy, LibraryPage, LibraryProviderProxy,
+        LibraryResumeProxy, LibraryRootsProxy, Resume, ResumePage, Roots,
     },
     media::{FEATURE_OPEN, MediaOpenProxy, MediaSource},
 };
 
 const KNOWN_FEATURES: &[&str] = &[
+    FEATURE_ADDITIONS,
     FEATURE_RESUME,
     FEATURE_IMPORT,
     FEATURE_ROOTS,
@@ -193,10 +195,46 @@ impl Core {
             })
             .await
             .unwrap_or(Err(ErrorCode::Timeout));
+            let result = match result {
+                Ok((snapshot, resumes, roots)) => {
+                    // Optional metadata has its own deadline, outside the base
+                    // catalogue budget, including proxy construction.
+                    let additions = if snapshot.4.iter().any(|f| f == FEATURE_ADDITIONS) {
+                        tokio::time::timeout(Duration::from_millis(500), async {
+                            let proxy = LibraryAdditionsProxy::builder(&self.connection)
+                                .destination(owner.as_str())
+                                .and_then(|b| b.path(production::PROVIDER_PATH))
+                                .unwrap()
+                                .build()
+                                .await
+                                .map_err(normalize_error)?;
+                            let (added,) = proxy
+                                .get_additions(&generation, snapshot.0)
+                                .await
+                                .map_err(normalize_error)?;
+                            added.validate()?;
+                            library::validate_addition_items(&added.entries, &snapshot.2)?;
+                            if added.generation != generation || added.revision != snapshot.0 {
+                                return Err(ErrorCode::Conflict);
+                            }
+                            Ok::<_, ErrorCode>(added)
+                        })
+                        .await
+                        .ok()
+                        .and_then(Result::ok)
+                    } else {
+                        None
+                    };
+                    Ok((snapshot, resumes, roots, additions))
+                }
+                Err(error) => Err(error),
+            };
             let mut state = self.state.lock().await;
             let State {
                 providers,
                 library_roots,
+                library_additions,
+                library_additions_seen,
                 ..
             } = &mut *state;
             let Some(p) = providers.get_mut(&id) else {
@@ -207,7 +245,12 @@ impl Core {
             }
             let mut signal = None;
             match result {
-                Ok(((revision, collections, items, backend, features), resumes, roots)) => {
+                Ok((
+                    (revision, collections, items, backend, features),
+                    resumes,
+                    roots,
+                    additions,
+                )) => {
                     let cache = p
                         .library_cache
                         .get_or_insert_with(|| LibrarySnapshots::new(&generation).unwrap());
@@ -232,7 +275,25 @@ impl Core {
                             // change is announced with the library's StateChanged.
                             let roots_changed = roots.as_ref().map(|r| &r.roots)
                                 != library_roots.get(&id).map(|r| &r.roots);
-                            if revision != p.info.revision || resumes_changed || roots_changed {
+                            // Metadata belongs to the catalogue revision. A
+                            // provider must not rewrite an already published pair.
+                            let additions = additions.filter(|added| {
+                                library_additions_seen.get(&id).is_none_or(|previous| {
+                                    previous.generation != added.generation
+                                        || previous.revision != added.revision
+                                        || previous == added
+                                })
+                            });
+                            if let Some(added) = &additions {
+                                library_additions_seen.insert(id.clone(), added.clone());
+                            }
+                            let additions_changed =
+                                additions.as_ref() != library_additions.get(&id);
+                            if revision != p.info.revision
+                                || resumes_changed
+                                || roots_changed
+                                || additions_changed
+                            {
                                 signal = Some(revision);
                             }
                             match roots {
@@ -241,6 +302,14 @@ impl Core {
                                 }
                                 None => {
                                     library_roots.remove(&id);
+                                }
+                            }
+                            match additions {
+                                Some(additions) => {
+                                    library_additions.insert(id.clone(), additions);
+                                }
+                                None => {
+                                    library_additions.remove(&id);
                                 }
                             }
                             p.collections = collections;
@@ -553,6 +622,28 @@ impl LibraryEndpoint {
     /// Configured roots and their availability (ADR-0071). `Unsupported`
     /// unless `Features` lists `LibraryRoots1`; `Unavailable` until the
     /// first read.
+    async fn get_additions(
+        &self,
+        generation: &str,
+        revision: u64,
+    ) -> production::Result<(Additions,)> {
+        let state = self.core.state.lock().await;
+        let p = state.providers.get(&self.id).ok_or(ErrorCode::NotFound)?;
+        if !p.features.iter().any(|f| f == FEATURE_ADDITIONS) {
+            return Err(ErrorCode::Unsupported.into());
+        }
+        if p.info.generation != generation || p.info.revision != revision {
+            return Err(ErrorCode::Conflict.into());
+        }
+        let additions = state
+            .library_additions
+            .get(&self.id)
+            .ok_or(ErrorCode::Unavailable)?;
+        if additions.generation != generation || additions.revision != revision {
+            return Err(ErrorCode::Unavailable.into());
+        }
+        Ok((additions.clone(),))
+    }
     async fn get_roots(&self) -> production::Result<(Roots,)> {
         let state = self.core.state.lock().await;
         let p = state.providers.get(&self.id).ok_or(ErrorCode::NotFound)?;

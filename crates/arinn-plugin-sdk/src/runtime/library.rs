@@ -8,8 +8,8 @@ use super::{Endpoint, RegistrationContext, backend_state, run_endpoint};
 use crate::snapshots::{LibrarySnapshots, ResumeSnapshots};
 use arinn_protocol::{
     library::{
-        self, Collection, FEATURE_IMPORT, FEATURE_RESUME, FEATURE_ROOTS, ImportCandidate, Item,
-        LibraryPage, Resume, ResumePage, RootState, Roots,
+        self, Addition, Additions, Collection, FEATURE_ADDITIONS, FEATURE_IMPORT, FEATURE_RESUME,
+        FEATURE_ROOTS, ImportCandidate, Item, LibraryPage, Resume, ResumePage, RootState, Roots,
     },
     media::{self, PlaybackSource},
     production::{self, PROVIDER_PATH},
@@ -59,8 +59,15 @@ pub struct LibraryExtensions {
     resume: Option<Arc<dyn LibraryResumeHandler>>,
     import: Option<Arc<dyn LibraryImportHandler>>,
     roots: bool,
+    additions: bool,
 }
 impl LibraryExtensions {
+    /// Serve bounded, provider-owned discovery times (`LibraryAdditions1`).
+    /// Publish them atomically with the catalogue using `replace_with_additions`.
+    pub fn additions(mut self) -> Self {
+        self.additions = true;
+        self
+    }
     /// Serve asset bytes for the provider's asset ids (ADR-0062).
     pub fn assets(mut self, handler: impl super::assets::AssetHandler) -> Self {
         self.assets = Some(Arc::new(handler));
@@ -94,6 +101,7 @@ struct Data {
     resume_snapshots: Option<ResumeSnapshots>,
     resume_revision: u64,
     roots: Vec<RootState>,
+    additions: Vec<Addition>,
     roots_revision: u64,
 }
 
@@ -147,6 +155,7 @@ impl LibraryService {
                 resume_snapshots: None,
                 resume_revision: 0,
                 roots: Vec::new(),
+                additions: Vec::new(),
                 roots_revision: 0,
             })),
             handler: Arc::new(handler),
@@ -169,11 +178,39 @@ impl LibraryService {
         items: Vec<Item>,
         backend: &str,
     ) -> Result<(), ErrorCode> {
+        self.replace_snapshot(collections, items, backend, Vec::new())
+            .await
+    }
+
+    /// Atomically publish discovery metadata and its matching catalogue.
+    /// A metadata-only change also advances the catalogue revision.
+    pub async fn replace_with_additions(
+        &self,
+        collections: Vec<Collection>,
+        items: Vec<Item>,
+        backend: &str,
+        additions: Vec<Addition>,
+    ) -> Result<(), ErrorCode> {
+        if !self.extensions.additions {
+            return Err(ErrorCode::Unsupported);
+        }
+        self.replace_snapshot(collections, items, backend, additions)
+            .await
+    }
+
+    async fn replace_snapshot(
+        &self,
+        collections: Vec<Collection>,
+        items: Vec<Item>,
+        backend: &str,
+        additions: Vec<Addition>,
+    ) -> Result<(), ErrorCode> {
+        library::validate_addition_items(&additions, &items)?;
         library::validate_entries(&collections, &items)?;
         backend_state(backend)?;
         let update = {
             let mut data = self.data.lock().await;
-            let backend_changed = data.backend != backend;
+            let backend_changed = data.backend != backend || data.additions != additions;
             let before = data.revision;
             let revision = if let Some(snapshots) = data.snapshots.as_mut() {
                 let mut revision = snapshots.publish(collections.clone(), items.clone())?;
@@ -187,6 +224,7 @@ impl LibraryService {
             if revision > 0 {
                 data.revision = revision;
             }
+            data.additions = additions;
             data.collections = collections;
             data.items = items;
             data.backend = backend.into();
@@ -265,6 +303,9 @@ impl LibraryService {
         }
         if self.extensions.assets.is_some() {
             names.push(arinn_protocol::assets::FEATURE_ASSETS.into());
+        }
+        if self.extensions.additions {
+            names.push(FEATURE_ADDITIONS.into());
         }
         if self.extensions.roots {
             names.push(FEATURE_ROOTS.into());
@@ -381,6 +422,32 @@ impl LibraryService {
         generation: &str,
         revision: u64,
     ) -> zbus::Result<()>;
+}
+
+#[derive(Clone)]
+struct AdditionsIface(LibraryService);
+#[zbus::interface(name = "org.arinn.LibraryAdditions1")]
+impl AdditionsIface {
+    async fn get_additions(
+        &self,
+        generation: &str,
+        revision: u64,
+        #[zbus(header)] header: Header<'_>,
+    ) -> production::Result<(Additions,)> {
+        self.0.authorized(&header).await?;
+        let data = self.0.data.lock().await;
+        if data.snapshots.is_none() {
+            return Err(ErrorCode::Unavailable.into());
+        }
+        if data.generation != generation || data.revision != revision {
+            return Err(ErrorCode::Conflict.into());
+        }
+        Ok((Additions {
+            generation: data.generation.clone(),
+            revision: data.revision,
+            entries: data.additions.clone(),
+        },))
+    }
 }
 
 #[derive(Clone)]
@@ -607,6 +674,12 @@ impl Endpoint for LibraryService {
             .await?
         {
             return Err("provider endpoint already exported".into());
+        }
+        if self.extensions.additions {
+            connection
+                .object_server()
+                .at(PROVIDER_PATH, AdditionsIface(self.clone()))
+                .await?;
         }
         if self.extensions.assets.is_some() {
             connection

@@ -66,15 +66,15 @@ pub async fn serve(connection: zbus::Connection) -> Result<(), ErrorCode> {
         settings: Arc::new(std::sync::Mutex::new(settings)),
         written: Arc::new(written),
     };
-    let (collections, items, resumes) = {
+    let (collections, items, resumes, additions) = {
         let store = bridge.store.lock().map_err(|_| ErrorCode::Internal)?;
         let (collections, items) = store.snapshot()?;
-        (collections, items, store.resumes()?)
+        (collections, items, store.resumes()?, store.additions()?)
     };
     let service = LibraryService::with_extensions(
         bridge.clone(),
-        collections,
-        items,
+        collections.clone(),
+        items.clone(),
         if backend_ok {
             "available"
         } else {
@@ -83,8 +83,21 @@ pub async fn serve(connection: zbus::Connection) -> Result<(), ErrorCode> {
         LibraryExtensions::default()
             .resume(bridge.clone())
             .import(bridge.clone())
-            .roots(),
+            .roots()
+            .additions(),
     )?;
+    service
+        .replace_with_additions(
+            collections,
+            items,
+            if backend_ok {
+                "available"
+            } else {
+                "unavailable"
+            },
+            additions,
+        )
+        .await?;
     *bridge.service.lock().await = Some(service.clone());
     service.replace_resumes(resumes).await?;
     serve_settings(&connection, bridge.clone(), service.registrations())
@@ -119,11 +132,17 @@ impl Bridge {
             let readable = crate::store::scan_shared(&store, &settings)?;
             let store = store.lock().map_err(|_| ErrorCode::Internal)?;
             let (collections, items) = store.snapshot()?;
-            Ok::<_, ErrorCode>((collections, items, store.resumes()?, readable))
+            Ok::<_, ErrorCode>((
+                collections,
+                items,
+                store.resumes()?,
+                store.additions()?,
+                readable,
+            ))
         })
         .await
         .map_err(|_| ErrorCode::Internal)?;
-        let (collections, items, resumes, readable) = match published {
+        let (collections, items, resumes, additions, readable) = match published {
             Ok(published) => published,
             Err(error) => {
                 log_error("scan", error);
@@ -136,7 +155,9 @@ impl Bridge {
             .await
             .clone()
             .ok_or(ErrorCode::Unavailable)?;
-        service.replace(collections, items, "available").await?;
+        service
+            .replace_with_additions(collections, items, "available", additions)
+            .await?;
         service.replace_resumes(resumes).await?;
         // Every configured root as written, with what this scan found. The
         // SDK announces only a changed list (ADR-0071).
@@ -292,22 +313,31 @@ impl LibraryImportHandler for Bridge {
         let service = self.service.clone();
         let settings = self.settings.clone();
         Box::pin(async move {
-            let (ids, collections, items, resumes) = tokio::task::spawn_blocking(move || {
-                let roots = settings
-                    .lock()
-                    .map_err(|_| ErrorCode::Internal)?
-                    .roots
-                    .clone();
-                let mut store = store.lock().map_err(|_| ErrorCode::Internal)?;
-                store.set_configured_roots(&roots);
-                let ids = store.import(&candidates)?;
-                let (collections, items) = store.snapshot()?;
-                Ok::<_, ErrorCode>((ids, collections, items, store.resumes()?))
-            })
-            .await
-            .map_err(|_| ErrorCode::Internal)??;
+            let (ids, collections, items, resumes, additions) =
+                tokio::task::spawn_blocking(move || {
+                    let roots = settings
+                        .lock()
+                        .map_err(|_| ErrorCode::Internal)?
+                        .roots
+                        .clone();
+                    let mut store = store.lock().map_err(|_| ErrorCode::Internal)?;
+                    store.set_configured_roots(&roots);
+                    let ids = store.import(&candidates)?;
+                    let (collections, items) = store.snapshot()?;
+                    Ok::<_, ErrorCode>((
+                        ids,
+                        collections,
+                        items,
+                        store.resumes()?,
+                        store.additions()?,
+                    ))
+                })
+                .await
+                .map_err(|_| ErrorCode::Internal)??;
             let service = service.lock().await.clone().ok_or(ErrorCode::Unavailable)?;
-            service.replace(collections, items, "available").await?;
+            service
+                .replace_with_additions(collections, items, "available", additions)
+                .await?;
             service.replace_resumes(resumes).await?;
             Ok(ids)
         })

@@ -11,7 +11,7 @@ use crate::{
     uri,
 };
 use arinn_protocol::{
-    library::{self, Collection, ImportCandidate, Item, Resume},
+    library::{self, Addition, Collection, ImportCandidate, Item, Resume},
     media::{self, PlaybackSource},
     validation::ErrorCode,
 };
@@ -237,6 +237,12 @@ impl Store {
                mtime_nsec INTEGER,
                probed INTEGER NOT NULL DEFAULT 0
              );
+             CREATE TABLE IF NOT EXISTS item_additions (
+               item_id TEXT PRIMARY KEY,
+               added_at_us INTEGER NOT NULL CHECK (added_at_us >= 0)
+             );
+             INSERT OR IGNORE INTO item_additions (item_id, added_at_us)
+               SELECT id, 0 FROM items WHERE kind IN ('film', 'episode');
              CREATE TABLE IF NOT EXISTS resumes (
                content_id TEXT PRIMARY KEY,
                position_us INTEGER NOT NULL,
@@ -294,6 +300,32 @@ impl Store {
         }
         library::validate_entries(&collections, &items)?;
         Ok((collections, items))
+    }
+
+    /// Latest known discovery times; zero denotes legacy rows with unknown dates.
+    pub fn additions(&self) -> Result<Vec<Addition>, ErrorCode> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT top.id, MAX(d.added_at_us) AS added
+             FROM items child JOIN item_additions d ON d.item_id = child.id
+             JOIN items top ON top.id = CASE WHEN child.kind = 'episode'
+               THEN child.parent_id ELSE child.id END
+             WHERE child.kind IN ('film', 'episode') AND d.added_at_us > 0
+               AND top.parent_id = '' AND top.kind IN ('film', 'series')
+               AND top.available = 1
+             GROUP BY top.id ORDER BY added DESC, top.id ASC LIMIT ?1",
+            )
+            .map_err(|_| ErrorCode::Internal)?;
+        stmt.query_map([library::MAX_ADDITIONS as i64], |row| {
+            Ok(Addition {
+                id: row.get(0)?,
+                added_at_us: row.get::<_, i64>(1)? as u64,
+            })
+        })
+        .map_err(|_| ErrorCode::Internal)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| ErrorCode::Internal)
     }
 
     pub fn resumes(&self) -> Result<Vec<Resume>, ErrorCode> {
@@ -641,7 +673,18 @@ impl Store {
         self.conn
             .execute("DELETE FROM items WHERE root_id = ?1", [root_id])
             .map_err(|_| ErrorCode::Internal)?;
+        let discovered_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_micros()
+            .clamp(1, i64::MAX as u128) as i64;
         for row in rows {
+            if row.available && matches!(row.kind.as_str(), "film" | "episode") {
+                self.conn.execute(
+                    "INSERT OR IGNORE INTO item_additions (item_id, added_at_us) VALUES (?1, ?2)",
+                    params![row.id, discovered_at],
+                ).map_err(|_| ErrorCode::Internal)?;
+            }
             self.conn.execute(
                 "INSERT INTO items (
                     id, root_id, rel_path, kind, series_key, parent_id, title,
@@ -1662,6 +1705,53 @@ mod tests {
         if let rusqlite::trace::TraceEvent::Stmt(_, sql) = event {
             PROGRESS_SQL.lock().unwrap().push(sql.to_string());
         }
+    }
+
+    #[test]
+    fn legacy_dates_stay_unknown_and_recent_results_are_bounded_and_tie_sorted() {
+        let dir = std::env::temp_dir().join(format!("arinn-additions-{}", Uuid::new_v4()));
+        let root = dir.join("root");
+        fs::create_dir_all(&root).unwrap();
+        let database = dir.join("library.sqlite3");
+        fs::write(root.join("Legacy.mkv"), b"old").unwrap();
+        let settings = Settings {
+            roots: vec![root.clone()],
+            probe: false,
+            ..Settings::default()
+        };
+        let mut store = Store::open(&database).unwrap();
+        store.use_mount_tables(MountTables::default());
+        store.scan(&settings).unwrap();
+        let legacy = store.additions().unwrap()[0].id.clone();
+        // Simulate upgrading a pre-additions database.
+        store
+            .conn
+            .execute_batch("DROP TABLE item_additions")
+            .unwrap();
+        drop(store);
+        let mut store = Store::open(&database).unwrap();
+        store.use_mount_tables(MountTables::default());
+        store.scan(&settings).unwrap();
+        assert!(store.additions().unwrap().is_empty());
+        for i in 0..70 {
+            fs::write(root.join(format!("New{i:02}.mkv")), b"new").unwrap();
+        }
+        store.scan(&settings).unwrap();
+        store
+            .conn
+            .execute(
+                "UPDATE item_additions SET added_at_us = 42 WHERE item_id != ?1",
+                [&legacy],
+            )
+            .unwrap();
+        let recent = store.additions().unwrap();
+        assert_eq!(recent.len(), library::MAX_ADDITIONS);
+        assert!(!recent.iter().any(|entry| entry.id == legacy));
+        assert!(recent.windows(2).all(|pair| pair[0].id < pair[1].id));
+        assert!(recent.iter().all(|entry| entry.added_at_us == 42));
+        library::validate_addition_items(&recent, &store.snapshot().unwrap().1).unwrap();
+        drop(store);
+        let _ = fs::remove_dir_all(dir);
     }
 
     #[test]

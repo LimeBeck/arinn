@@ -158,7 +158,7 @@ Home answers "What do I want to do right now?", not "Which application do I need
 
 **Favorites / Online.** Quick entry points such as *Site or search* ([§7.1](#71-browser-chromechromium)), Kinopoisk, IVI, YouTube, Steam and EmulationStation. Streaming services may technically open in Chrome, but for the user they MUST exist as separate tiles; the user never goes Browser → Bookmark → Kinopoisk. The user pins and unpins favorites. Online-service tiles are Arinn-owned **web shortcuts** (title, URL, optional icon) that open in the default BrowserProvider. URLs are `https`, or plain `http` for a local-network host such as a media server or NAS ([ADR-0045](../adr/0045-local-http-web-shortcuts.md)); a default set ships as packaging data, and the user adds, edits and removes shortcuts from the TV. Text is entered with a hardware keyboard (for example the keyboard of a keyboard-compatible remote) or with the shell's on-screen keyboard ([§6.2](#62-keys)); the CLI (§14.3) stays a fallback. Owner decisions on 2026-09-28 ([#68](https://github.com/LimeBeck/arinn/issues/68)) and 2026-10-09 ([ADR-0103](../adr/0103-on-screen-keyboard.md)). This resolves OQ-02 by owner decision on 2026-09-28 ([ADR-0043](../adr/0043-web-shortcuts.md)).
 
-**New.** Home has no New section in version 1; this was the OQ-05 owner decision of 2026-09-28. Providers may now expose optional discovery timestamps through `LibraryAdditions1` ([ADR-0118](../adr/0118-library-additions-contract.md)); that technical prerequisite does not enable a Home projection. The owner requested recently added films and series on Home on 2026-10-29; its implementation and updated product behaviour are tracked in [#587](https://github.com/LimeBeck/arinn/issues/587). Arinn has no recommendation engine.
+**New.** Home shows up to 12 most recently added available films and series across library providers that support `LibraryAdditions1` ([ADR-0118](../adr/0118-library-additions-contract.md), [ADR-0120](../adr/0120-home-recent-library-additions.md)). A film uses its persisted first-discovery time; a series uses its newest episode's first-discovery time and occupies one card. Rescans, metadata edits, playback and temporary unavailability do not reset discovery dates. Unknown dates are omitted, including legacy catalogue entries whose date was never stored. Hide the row when there are no dated entries. Selecting a card opens its existing library detail; Back restores the Home card or the usual neighbouring-row fallback if it disappeared. Playback remains an explicit action in library detail. The owner requested this projection on 2026-10-29, superseding the 2026-09-28 OQ-05 exclusion. Arinn has no recommendation engine.
 
 ### 5.2. Global Home overlay
 
@@ -899,7 +899,7 @@ Owner decisions on 2026-10-09 (no version change): the on-screen keyboard is par
 
 Owner decision on 2026-10-03 (no version change): the MVP is accepted on KDE Plasma 6/Wayland and on an X11/EWMH desktop, XFCE first (P-09, ADR-0080).
 
-Owner decisions after the `v0.1.0` pre-release (2026-09-28, no version change): OQ-01 (the shell is the input layer during managed playback, ADR-0046), OQ-04 (Plasma handles media and volume keys outside the shell) and OQ-05 (New is not part of the MVP) are resolved; web shortcut text entry uses a hardware keyboard in the MVP.
+Owner decisions after the `v0.1.0` pre-release (2026-09-28, no version change): OQ-01 (the shell is the input layer during managed playback, ADR-0046), OQ-04 (Plasma handles media and volume keys outside the shell) and OQ-05 (New was excluded at that time) are resolved; web shortcut text entry uses a hardware keyboard in the MVP.
 
 Version 0.6 accompanies the first `v0.1.0` pre-release. It includes the production
 application API (ADR-0035), browser launch ownership (ADR-0038), platform window
@@ -956,3 +956,5 @@ Phase 1 adds the concrete application wire contract and live introspection check
 | OSD | On-screen display of the player (timeline, tracks) |
 | Ambient | Arinn's screensaver, separate from OS suspend |
 | Ember | The brand accent colour `#FF8A3D` |
+
+Owner request on 2026-10-29: Home includes recently added library films and series (§5.1, ADR-0120), superseding the earlier OQ-05 exclusion.

@@ -1088,3 +1088,76 @@ fn collections_exist_before_a_scan() {
     );
     assert!(store.snapshot().unwrap().1.is_empty());
 }
+
+#[test]
+fn discovery_dates_survive_rescans_rename_progress_restart_and_import_retry() {
+    let scratch = Scratch::new();
+    let root = scratch.path().join("root");
+    fs::create_dir_all(&root).unwrap();
+    let original = root.join("First (2001).mkv");
+    fs::write(&original, b"film").unwrap();
+    let settings = settings(&root, false, PathBuf::from("ffprobe"));
+    let mut store = open(&scratch);
+    store.scan(&settings).unwrap();
+    let first = store.additions().unwrap();
+    assert_eq!(first.len(), 1);
+    assert!(first[0].added_at_us > 0);
+    fs::rename(&original, root.join("Renamed (2001).mkv")).unwrap();
+    fs::write(
+        root.join("Renamed (2001).nfo"),
+        b"<movie><title>Edited</title></movie>",
+    )
+    .unwrap();
+    store.scan(&settings).unwrap();
+    store.set_progress(&first[0].id, 1000, -1, false).unwrap();
+    assert_eq!(store.additions().unwrap(), first);
+    drop(store);
+    let mut store = open(&scratch);
+    store.scan(&settings).unwrap();
+    assert_eq!(store.additions().unwrap(), first);
+    fs::write(root.join("Second (2002).mkv"), b"second").unwrap();
+    store.scan(&settings).unwrap();
+    let recent = store.additions().unwrap();
+    assert_eq!(recent.len(), 2);
+    assert_ne!(recent[0].id, first[0].id);
+    assert!(recent[0].added_at_us > first[0].added_at_us);
+    // A missing root hides dates without erasing them.
+    fs::rename(&root, scratch.path().join("offline")).unwrap();
+    store.scan(&settings).unwrap();
+    assert!(store.additions().unwrap().is_empty());
+    fs::rename(scratch.path().join("offline"), &root).unwrap();
+    store.scan(&settings).unwrap();
+    assert_eq!(store.additions().unwrap(), recent);
+}
+
+#[test]
+fn a_new_episode_promotes_one_series_and_imports_keep_their_first_date() {
+    let scratch = Scratch::new();
+    let root = scratch.path().join("root");
+    fs::create_dir_all(&root).unwrap();
+    fs::write(root.join("Show - S01E01.mkv"), b"one").unwrap();
+    let settings = settings(&root, false, PathBuf::from("ffprobe"));
+    let mut store = open(&scratch);
+    store.scan(&settings).unwrap();
+    let first = store.additions().unwrap();
+    assert_eq!(first.len(), 1);
+    let imported = root.join("Show - S01E02.mkv");
+    fs::write(&imported, b"two").unwrap();
+    let candidate = ImportCandidate {
+        source: EntityRef {
+            provider_id: "downloads".into(),
+            capability: "download".into(),
+            local_id: "job".into(),
+        },
+        file_uri: to_file_uri(&imported).unwrap(),
+        completion_id: "done-new".into(),
+    };
+    let ids = store.import(std::slice::from_ref(&candidate)).unwrap();
+    let recent = store.additions().unwrap();
+    assert_eq!(recent.len(), 1);
+    assert_eq!(recent[0].id, first[0].id);
+    assert!(recent[0].added_at_us > first[0].added_at_us);
+    assert_eq!(store.import(&[candidate]).unwrap(), ids);
+    store.scan(&settings).unwrap();
+    assert_eq!(store.additions().unwrap(), recent);
+}

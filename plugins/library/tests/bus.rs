@@ -7,8 +7,8 @@
 use arinn_plugin_library::serve;
 use arinn_protocol::{
     library::{
-        ImportCandidate, LibraryImportProxy, LibraryProviderProxy, LibraryResumeProxy,
-        LibraryRootsProxy, RootState,
+        ImportCandidate, LibraryAdditionsProxy, LibraryImportProxy, LibraryProviderProxy,
+        LibraryResumeProxy, LibraryRootsProxy, RootState,
     },
     production::{self, EntityRef, Registration, RegistrationReply},
     settings::ProviderSettingsProxy,
@@ -131,6 +131,7 @@ async fn scenario() {
         vec![
             "LibraryResume1".to_string(),
             "LibraryImport1".into(),
+            "LibraryAdditions1".into(),
             "LibraryRoots1".into()
         ]
     );
@@ -140,6 +141,25 @@ async fn scenario() {
         .find(|item| item.title == "QuietTitle")
         .unwrap();
     let id = film.id.clone();
+    let additions = LibraryAdditionsProxy::builder(&server)
+        .path("/org/arinn/Provider1")
+        .unwrap()
+        .destination(destination.clone())
+        .unwrap()
+        .build()
+        .await
+        .unwrap();
+    let (initial_additions,) = additions
+        .get_additions(&page.generation, page.revision)
+        .await
+        .unwrap();
+    initial_additions.validate().unwrap();
+    assert!(
+        initial_additions
+            .entries
+            .iter()
+            .any(|row| row.id == id && row.added_at_us > 0)
+    );
     let (source,) = proxy.launch(&page.generation, &id).await.unwrap();
     source.validate().unwrap();
     assert_eq!(source.local_id, id);
@@ -148,7 +168,22 @@ async fn scenario() {
     assert_eq!(source.start_position_us, 0);
 
     fs::write(root.join("Added (2002).mkv"), b"later").unwrap();
-    wait_item(&proxy, "Added").await;
+    let (new_page,) = wait_item(&proxy, "Added").await;
+    let (new_additions,) = additions
+        .get_additions(&new_page.generation, new_page.revision)
+        .await
+        .unwrap();
+    assert!(new_additions.entries.len() > initial_additions.entries.len());
+    assert!(
+        additions
+            .get_additions(&page.generation, page.revision)
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        new_additions.entries.iter().find(|row| row.id == id),
+        initial_additions.entries.iter().find(|row| row.id == id)
+    );
 
     let resume = LibraryResumeProxy::builder(&server)
         .destination(destination.clone())

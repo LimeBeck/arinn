@@ -18,6 +18,7 @@ class LibraryCatalog : public QObject {
   Q_PROPERTY(QString libraryState READ libraryState NOTIFY catalogChanged)
   Q_PROPERTY(QVariantList tabs READ tabs NOTIFY catalogChanged)
   Q_PROPERTY(QVariantList entries READ entries NOTIFY catalogChanged)
+  Q_PROPERTY(QVariantList newEntries READ newEntries NOTIFY catalogChanged)
   Q_PROPERTY(QString operationState READ operationState NOTIFY operationChanged)
   Q_PROPERTY(QString launchingId READ launchingId NOTIFY operationChanged)
 public:
@@ -25,6 +26,7 @@ public:
   QString libraryState() const;
   QVariantList tabs() const { return m_tabs; }
   QVariantList entries() const { return m_entries; }
+  QVariantList newEntries() const { return m_newEntries; }
   QString operationState() const { return m_operation; }
   QString launchingId() const { return m_launchingId; }
   Q_INVOKABLE void launch(const QString &id);
@@ -76,6 +78,7 @@ private:
     qint64 resumeDuration = -1;
     bool resumeCompleted = false;
     quint64 resumeObserved = 0;
+    quint64 addedAtUs = 0;
     QString backend;
     bool operator==(const ItemRow &) const = default;
   };
@@ -98,6 +101,7 @@ private:
                      const QString &token = {});
   void readLibrary(const std::shared_ptr<Catalog> &catalog, int index,
                    const QString &token = {});
+  void readAdditions(const std::shared_ptr<Catalog> &catalog, int index);
   void readFeatures(const std::shared_ptr<Catalog> &catalog, int index);
   void readResumes(const std::shared_ptr<Catalog> &catalog, int index,
                    const QString &token = {});
@@ -115,6 +119,7 @@ private:
   const ItemRow *launchTarget(const ItemRow &row) const;
   QVariantList m_tabs;
   QVariantList m_entries;
+  QVariantList m_newEntries;
   QList<ItemRow> m_items;
   // What the last catalogChanged announced, so that an unchanged reload
   // stays silent (#441).

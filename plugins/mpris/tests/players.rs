@@ -789,3 +789,146 @@ fn mpris_owner_change_takes_a_new_revision() {
     let runtime = tokio::runtime::Runtime::new().unwrap();
     runtime.block_on(moved_scenario());
 }
+
+// A real child process gives the proxy a different D-Bus owner PID while its
+// verified OS parent is the native endpoint's process. All metadata is synthetic.
+#[test]
+fn browser_proxy_fixture_child() {
+    let Ok(address) = std::env::var("ARINN_PROXY_FIXTURE_BUS") else {
+        return;
+    };
+    tokio::runtime::Runtime::new().unwrap().block_on(async {
+        let connection = zbus::connection::Builder::address(address.as_str())
+            .unwrap()
+            .build()
+            .await
+            .unwrap();
+        let fixture = player("Different proxy title", true);
+        fixture.0.metadata.lock().unwrap().insert(
+            "kde:pid".into(),
+            OwnedValue::from(
+                std::env::var("ARINN_PROXY_ORIGIN")
+                    .unwrap()
+                    .parse::<u32>()
+                    .unwrap(),
+            ),
+        );
+        connection
+            .object_server()
+            .at("/org/mpris/MediaPlayer2", fixture)
+            .await
+            .unwrap();
+        connection
+            .request_name("org.mpris.MediaPlayer2.plasma-browser-integration")
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_secs(60)).await;
+    });
+}
+
+struct ProxyChild(Child);
+impl Drop for ProxyChild {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+#[test]
+fn native_browser_source_precedes_verified_proxy_and_restores_fallback() {
+    if !enter("native_browser_source_precedes_verified_proxy_and_restores_fallback") {
+        return;
+    }
+    tokio::runtime::Runtime::new().unwrap().block_on(async {
+        let bus = Bus::start();
+        let daemon = bus.connection().await;
+        daemon
+            .object_server()
+            .at(production::PATH, Daemon)
+            .await
+            .unwrap();
+        daemon.request_name(production::SERVICE).await.unwrap();
+        let child = ProxyChild(
+            Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "browser_proxy_fixture_child", "--nocapture"])
+                .env("ARINN_PROXY_FIXTURE_BUS", &bus.1)
+                .env("ARINN_PROXY_ORIGIN", std::process::id().to_string())
+                .stdout(Stdio::null())
+                .spawn()
+                .unwrap(),
+        );
+        let provider = bus.connection().await;
+        let destination = provider.unique_name().unwrap().clone();
+        let runner = tokio::spawn(async move {
+            let _ = serve(provider).await;
+        });
+        let proxy = MediaProviderProxy::builder(&daemon)
+            .destination(&destination)
+            .unwrap()
+            .build()
+            .await
+            .unwrap();
+        wait_page(&proxy, |p| {
+            p.sessions.len() == 1 && p.sessions[0].id == "plasma-browser-integration"
+        })
+        .await;
+        let native = bus.connection().await;
+        native
+            .object_server()
+            .at("/org/mpris/MediaPlayer2", player("Native title", true))
+            .await
+            .unwrap();
+        native
+            .request_name("org.mpris.MediaPlayer2.native_fixture")
+            .await
+            .unwrap();
+        wait_page(&proxy, |p| {
+            p.sessions.len() == 1 && p.sessions[0].id == "native_fixture"
+        })
+        .await;
+        native
+            .release_name("org.mpris.MediaPlayer2.native_fixture")
+            .await
+            .unwrap();
+        wait_page(&proxy, |p| {
+            p.sessions.len() == 1 && p.sessions[0].id == "plasma-browser-integration"
+        })
+        .await;
+        native
+            .request_name("org.mpris.MediaPlayer2.native_fixture")
+            .await
+            .unwrap();
+        wait_page(&proxy, |p| {
+            p.sessions.len() == 1 && p.sessions[0].id == "native_fixture"
+        })
+        .await;
+        // A second native candidate is ambiguous, even in the same process.
+        native
+            .request_name("org.mpris.MediaPlayer2.second_fixture")
+            .await
+            .unwrap();
+        wait_page(&proxy, |p| p.sessions.len() == 3).await;
+        native
+            .release_name("org.mpris.MediaPlayer2.second_fixture")
+            .await
+            .unwrap();
+        wait_page(&proxy, |p| {
+            p.sessions.len() == 1 && p.sessions[0].id == "native_fixture"
+        })
+        .await;
+        drop(child);
+        // A claimed origin alone is not proof: a false kde:pid cannot hide
+        // the proxy, even when its real parent owns the native endpoint.
+        let _unverified = ProxyChild(
+            Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "browser_proxy_fixture_child", "--nocapture"])
+                .env("ARINN_PROXY_FIXTURE_BUS", &bus.1)
+                .env("ARINN_PROXY_ORIGIN", "1")
+                .stdout(Stdio::null())
+                .spawn()
+                .unwrap(),
+        );
+        wait_page(&proxy, |p| p.sessions.len() == 2).await;
+        runner.abort();
+    });
+}

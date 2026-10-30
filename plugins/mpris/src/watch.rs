@@ -55,10 +55,17 @@ impl Drop for AbortOnDrop {
 }
 
 #[derive(Clone)]
+struct ObservedPlayer {
+    raw: RawPlayer,
+    process: u32,
+    proxy_for: u32,
+}
+
+#[derive(Clone)]
 enum PlayerRead {
     Pending,
     Failed,
-    Ready(RawPlayer),
+    Ready(ObservedPlayer),
 }
 
 struct Snapshot {
@@ -230,6 +237,29 @@ impl Bridge {
         }
         if args.old_owner.is_some() {
             self.moved.store(true, Ordering::SeqCst);
+            if let Some(id) = map::session_id(args.name.as_str()) {
+                let mut players = self.players.lock().await;
+                if let Some(tracked) = players.get_mut(id) {
+                    tracked.reader.abort();
+                    if let Some(listener) = tracked.listener.take() {
+                        listener.abort();
+                    }
+                    // Keep the transport sample/anchor across an identical
+                    // owner replacement, but discard all process evidence.
+                    tracked.latest = Arc::new(Mutex::new(PlayerRead::Pending));
+                    tracked.reader = spawn_reader(
+                        self.connection.clone(),
+                        tracked.bus_name.clone(),
+                        tracked.latest.clone(),
+                        self.wake.clone(),
+                    );
+                    tracked.listener = Some(listen(
+                        self.connection.clone(),
+                        tracked.bus_name.clone(),
+                        self.wake.clone(),
+                    ));
+                }
+            }
         }
         self.rescan(bus).await;
     }
@@ -305,20 +335,40 @@ impl Bridge {
             let mut force = self.force.lock().await;
             std::mem::take(&mut *force)
         };
+        // Freeze one set of completed reads for this publish. Only a fresh,
+        // valid native candidate can suppress a verified proxy (ADR-0117).
+        let mut observed = BTreeMap::new();
+        for player in &names {
+            if let PlayerRead::Ready(read) = player.latest.lock().await.clone() {
+                observed.insert(player.id.clone(), read);
+            }
+        }
         let mut sessions = Vec::new();
         let mut samples = BTreeMap::new();
         let mut tracks = BTreeMap::new();
         let mut published = BTreeMap::new();
         for player in names {
-            let PlayerRead::Ready(raw) = player.latest.lock().await.clone() else {
+            let Some(read) = observed.get(&player.id) else {
                 if let Some(last) = player.published {
                     sessions.push(last);
                 }
                 continue;
             };
+            if read.proxy_for != 0
+                && observed
+                    .iter()
+                    .filter(|(id, candidate)| {
+                        !plasma_proxy(&format!("{}{}", map::NAME_PREFIX, id))
+                            && candidate.process == read.proxy_for
+                    })
+                    .count()
+                    == 1
+            {
+                continue;
+            }
             let (session, sample) = map::project(
                 &player.id,
-                &raw,
+                &read.raw,
                 player.previous.as_ref(),
                 force.contains(&player.id),
                 Instant::now(),
@@ -330,7 +380,7 @@ impl Bridge {
                 }
                 continue;
             }
-            tracks.insert(player.id.clone(), raw.track_id);
+            tracks.insert(player.id.clone(), read.raw.track_id.clone());
             samples.insert(player.id.clone(), sample);
             published.insert(player.id, session.clone());
             sessions.push(session);
@@ -451,7 +501,7 @@ fn spawn_reader(
         // is still published (AC-09).
         loop {
             let next =
-                match tokio::time::timeout(READ_TIMEOUT, read_player_once(&connection, &bus_name))
+                match tokio::time::timeout(READ_TIMEOUT, read_observed(&connection, &bus_name))
                     .await
                 {
                     Ok(Ok(raw)) => PlayerRead::Ready(raw),
@@ -506,6 +556,13 @@ async fn read_player(connection: &Connection, bus_name: &str) -> Result<RawPlaye
 }
 
 async fn read_player_once(connection: &Connection, bus_name: &str) -> Result<RawPlayer, ErrorCode> {
+    Ok(decode(&read_values(connection, bus_name).await?))
+}
+
+async fn read_values(
+    connection: &Connection,
+    bus_name: &str,
+) -> Result<HashMap<String, OwnedValue>, ErrorCode> {
     let reply = connection
         .call_method(
             Some(bus_name),
@@ -520,7 +577,69 @@ async fn read_player_once(connection: &Connection, bus_name: &str) -> Result<Raw
         .body()
         .deserialize()
         .map_err(|_| ErrorCode::Unavailable)?;
-    Ok(decode(&values))
+    Ok(values)
+}
+
+// Provider-specific proxy recognition stays here, never in core routing/QML.
+fn plasma_proxy(name: &str) -> bool {
+    let Some(suffix) = name.strip_prefix("org.mpris.MediaPlayer2.plasma-browser-integration")
+    else {
+        return false;
+    };
+    suffix.is_empty() || suffix.starts_with('-')
+}
+
+async fn parent_process(process: u32) -> Option<u32> {
+    if process == 0 {
+        return None;
+    }
+    let stat = tokio::fs::read_to_string(format!("/proc/{process}/stat"))
+        .await
+        .ok()?;
+    stat.rsplit_once(')')?
+        .1
+        .split_whitespace()
+        .nth(1)?
+        .parse()
+        .ok()
+}
+
+async fn read_observed(connection: &Connection, name: &str) -> Result<ObservedPlayer, ErrorCode> {
+    let bus = zbus::fdo::DBusProxy::new(connection)
+        .await
+        .map_err(|_| ErrorCode::Unavailable)?;
+    let well_known = zbus::names::BusName::try_from(name).map_err(|_| ErrorCode::Unavailable)?;
+    let owner = bus
+        .get_name_owner(well_known.clone())
+        .await
+        .map_err(|_| ErrorCode::Unavailable)?;
+    let process = bus
+        .get_connection_unix_process_id(owner.as_ref().into())
+        .await
+        .unwrap_or(0);
+    let values = read_values(connection, owner.as_str()).await?;
+    let reported = values
+        .get("Metadata")
+        .map(dictionary)
+        .and_then(|metadata| metadata.get("kde:pid").and_then(integer))
+        .and_then(|pid| u32::try_from(pid).ok())
+        .unwrap_or(0);
+    let proxy_for =
+        if plasma_proxy(name) && reported > 1 && parent_process(process).await == Some(reported) {
+            reported
+        } else {
+            0
+        };
+    if bus.get_name_owner(well_known).await.ok().as_ref() != Some(&owner) {
+        return Err(ErrorCode::Unavailable);
+    }
+    Ok(ObservedPlayer {
+        raw: decode(&values),
+        process,
+        // Unverified proxies remain independent; they must not become native
+        // candidates merely because their parent could not be established.
+        proxy_for,
+    })
 }
 
 fn decode(values: &HashMap<String, OwnedValue>) -> RawPlayer {

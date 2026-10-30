@@ -1,0 +1,1 @@
+- Prefer a browser's native MPRIS source over its verified Plasma proxy, restoring the proxy when the native source disappears. Let retained mpv sessions report process identity through the existing optional interface so they no longer block browser media association merely because that interface was absent. A new tab association still requires unambiguous audible evidence.

@@ -9,6 +9,7 @@ mod mpris;
 mod parse;
 mod paths;
 mod player;
+mod processes;
 mod scope;
 mod thumbnail;
 
@@ -72,6 +73,7 @@ pub async fn serve(connection: Connection) -> Result<(), ErrorCode> {
         extensions = extensions.assets(assets);
     }
     let service = MediaService::with_extensions(bridge, Vec::new(), backend, extensions)?;
+    processes::export(&connection, player.clone(), service.registrations()).await?;
     // Session card frames (#292): check every few seconds; ffmpeg runs at
     // most once per 30 s of playback, or once when paused or stopped at a
     // new position.

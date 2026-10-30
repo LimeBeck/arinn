@@ -113,7 +113,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0093](0093-structured-sentry-diagnostics.md) | Structured, allowlisted Sentry diagnostics | Proposed | 0116 |
 | [0094](0094-configurable-global-home-keys.md) | Configurable global Home keys | Accepted | — |
 | [0095](0095-shell-input-mode-ownership.md) | Shell input mode ownership | Accepted | — |
-| [0096](0096-browser-media-session-association.md) | Associate a browser's media session with its audible tab | Accepted | — |
+| [0096](0096-browser-media-session-association.md) | Associate a browser's media session with its audible tab | Accepted | 0117 |
 | [0097](0097-build-identity.md) | Build identity with the commit hash | Accepted | — |
 | [0098](0098-restart-after-an-update.md) | Restart Arinn after an update | Accepted | — |
 | [0099](0099-snapshot-package-version.md) | Snapshot package version with the commit | Accepted | — |
@@ -134,6 +134,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0114](0114-per-runner-package-target-directories.md) | One package target directory per self-hosted runner instance | Accepted | — |
 | [0115](0115-unmounted-share-root-is-unavailable.md) | An unmounted share is an unavailable library root | Accepted | — |
 | [0116](0116-package-matched-sentry-debug-symbols.md) | Package-matched Sentry debug symbols | Proposed | — |
+| [0117](0117-native-browser-media-precedence.md) | Prefer native browser media over a verified Plasma proxy | Accepted | — |
 | [0118](0118-library-additions-contract.md) | Optional provider-owned library discovery times | Accepted | — |
 | [0119](0119-explicit-browser-open-window.md) | Activate the browser window selected by the open command | Accepted | — |
 | [0120](0120-home-recent-library-additions.md) | Recently added library films and series on Home | Proposed | — |

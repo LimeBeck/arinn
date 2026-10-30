@@ -165,11 +165,22 @@ and a new or moved link waits; ties go by the link's sort order.
   no process ID already read gives that process to another session or
   browser provider. Introspection of unanswered registrations runs
   concurrently.
+- **Source precedence (ADR-0117).** Before publishing sessions, the MPRIS
+  provider prefers exactly one native endpoint over a Plasma proxy only when
+  D-Bus ownership, the proxy's direct OS parent and its `kde:pid` claim agree.
+  It pins reads to unique owners and rejects a moved name. An unverified or
+  ambiguous proxy stays independent; a missing native source restores the
+  proxy. This is owner-approved source precedence, not a content match.
+- **mpv process evidence.** The mpv provider exports `MediaProcess1`, restricted
+  to its registered daemon owner. It reports the kernel identity of the live
+  Unix IPC peer, or 0 without a peer. A reconnect/disconnect advances snapshot
+  evidence even if session fields stay unchanged. Retained stopped sessions
+  therefore do not create an unsupported-provider veto.
 - **Providers without the interface.** A ready media provider with sessions,
   or a browser provider with windows, that does not export its process
   interface could hold the same process, so the daemon publishes no link at
-  all while it has entries. Today this applies to the mpv provider: while
-  it plays, browser media keeps both cards.
+  all while it has entries. Implementing the existing optional interface
+  removes this veto; unknown identity is still represented as 0.
 - **Shell.** `MediaCatalog` reads `Get` and sets the linked tab's
   presentation ID as `serviceId` on a session's Continue entry. A `Changed`
   with a newer revision clears its links until a reply at that revision. `HomeView`
@@ -187,4 +198,6 @@ Tests:
 - the Home QML cases;
 - the `phase1.py` wire check.
 
-Real Chrome/KDE confirmation is still not run.
+Read-only inspection for #581 confirmed the Plasma proxy parent/native owner
+relationship and matching `kde:pid`, without recording process IDs or media
+metadata. End-to-end real Chrome/KDE qualification of this change is not run.

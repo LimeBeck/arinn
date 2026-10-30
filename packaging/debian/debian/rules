@@ -104,10 +104,16 @@ override_dh_auto_install:
 	install -Dm644 README.md CHANGELOG.md -t debian/arinn/usr/share/doc/arinn/
 	install -Dm644 build/observability/native/licenses/*-LICENSE -t debian/arinn/usr/share/licenses/arinn/
 	install -Dm644 LICENSES/*.txt -t debian/arinn/usr/share/licenses/arinn/
-	# Exact installed files, before dh_strip processes the package.
+
+# Debian's dh_strip may rewrite ELF build IDs with debugedit. Collect the
+# matching split files only after that transform and keep normal dbgsym output.
+override_dh_strip:
+	dh_strip
+	# Exact final installed files and their dh_strip-generated debug files.
 	if [ -n "$(ARINN_SYMBOLS_DIR)" ]; then \
 	  python3 scripts/debug-symbols.py collect debian/arinn "$(ARINN_SYMBOLS_DIR)" \
-	    --flavor debian --build-id "$$(python3 scripts/build_id.py)"; \
+	    --flavor debian --build-id "$$(python3 scripts/build_id.py)" \
+	    --debug-root debian/.debhelper/arinn/dbgsym-root; \
 	fi
 
 override_dh_dwz:

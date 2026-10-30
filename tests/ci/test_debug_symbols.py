@@ -109,6 +109,46 @@ class SymbolsTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "line tables"):
             symbols.collect(self.root, self.base / "stripped", "arch", BUILD)
 
+    @unittest.skipUnless(shutil.which("debugedit"), "Debian build-ID regression requires debugedit")
+    def test_debian_symbols_follow_the_final_build_id_after_debugedit(self):
+        debug_root = self.base / "dbgsym-root"
+        old = {c: symbols.elf_id(self.root / "usr/bin" / c) for c in symbols.COMPONENTS}
+        for component in symbols.COMPONENTS:
+            binary = self.root / "usr/bin" / component
+            symbols.run("debugedit", "--build-id", "--build-id-seed=arinn/0.1.0-1", str(binary))
+            identity = symbols.elf_id(binary)
+            self.assertNotEqual(identity, old[component])
+            debug = debug_root / "usr/lib/debug/.build-id" / identity[:2] / (identity[2:] + ".debug")
+            debug.parent.mkdir(parents=True, exist_ok=True)
+            symbols.run("objcopy", "--only-keep-debug", "--compress-debug-sections", str(binary), str(debug))
+            symbols.run("objcopy", "--strip-debug", str(binary))
+        # The previous pre-strip collection genuinely fails against Debian's
+        # rewritten package, even though its manifest is internally valid.
+        with self.assertRaisesRegex(ValueError, "packaged binary"):
+            symbols.verify(self.root, self.artifacts / "debian", "debian", BUILD)
+        output = self.base / "final-debian"
+        symbols.collect(self.root, output, "debian", BUILD, debug_root=debug_root)
+        symbols.verify(self.root, output, "debian", BUILD)
+        for component in symbols.COMPONENTS:
+            self.assertTrue(symbols.has_lines(output / (component + ".debug")))
+        cli_output = self.base / "cli-debian"
+        subprocess.run(["python3", str(ROOT / "scripts/debug-symbols.py"), "collect",
+                        str(self.root), str(cli_output), "--flavor", "debian",
+                        "--build-id", BUILD, "--debug-root", str(debug_root)],
+                       check=True, capture_output=True)
+        symbols.verify(self.root, cli_output, "debian", BUILD)
+        # The final debug file must belong to this exact binary, not merely
+        # have a valid filename under the build-ID directory.
+        identity = symbols.elf_id(self.root / "usr/bin/arinnd")
+        debug = debug_root / "usr/lib/debug/.build-id" / identity[:2] / (identity[2:] + ".debug")
+        shutil.copyfile(self.source / "native", debug)
+        with self.assertRaisesRegex(ValueError, "matching build ID"):
+            symbols.collect(self.root, self.base / "wrong-debian", "debian", BUILD, debug_root=debug_root)
+        debug.unlink()
+        debug.symlink_to(self.source / "native")
+        with self.assertRaisesRegex(ValueError, "regular file"):
+            symbols.collect(self.root, self.base / "symlink-debian", "debian", BUILD, debug_root=debug_root)
+
     def test_rejects_wrong_release_tampering_extra_files_and_symlinks(self):
         artifact = self.artifacts / "arch"
         with self.assertRaisesRegex(ValueError, "this build"):

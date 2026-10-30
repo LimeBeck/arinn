@@ -14,6 +14,7 @@ PATTERNS = {
     "debug": re.compile(r"arinn-debug-[0-9][A-Za-z0-9.+_-]*\.pkg\.tar\.zst"),
     "source": re.compile(r"arinn-[0-9][A-Za-z0-9.+_-]*\.tar\.gz"),
     "debian": re.compile(r"arinn_[0-9][A-Za-z0-9.+_~-]*\.deb"),
+    "debian-debug": re.compile(r"arinn-dbgsym_[0-9][A-Za-z0-9.+_~-]*\.deb"),
 }
 
 

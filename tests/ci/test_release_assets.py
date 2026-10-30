@@ -25,6 +25,7 @@ class ReleaseAssetsTest(unittest.TestCase):
             "arinn-debug-0.2.0-1-x86_64.pkg.tar.zst",
             "arinn-0.2.0.tar.gz",
             "arinn_0.2.0-1_amd64.deb",
+            "arinn-dbgsym_0.2.0-1_amd64.deb",
         }
         for name in self.products:
             (self.source / name).write_bytes(name.encode())

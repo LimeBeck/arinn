@@ -8,6 +8,7 @@ Package CI artifacts contain both distributable files and internal smoke-test
 helpers, including `private-systemd`. Publication jobs download these mixed
 artifacts into `incoming/`. `scripts/stage-release-assets.py` copies only Arinn
 Arch packages, optional Arch debug packages, source archives and Debian packages
+(including optional `arinn-dbgsym` packages)
 into a new `dist/` directory. Selected files must be regular files, never symlinks.
 An existing output directory is rejected to prevent stale files from being published.
 

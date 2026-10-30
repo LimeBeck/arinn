@@ -1,1 +1,0 @@
-- The daemon routes `media` providers: it exports `org.arinn.Media1` with sessions, playback commands, tracks and timeline ([ADR-0058](docs/adr/0058-media-routing.md)).

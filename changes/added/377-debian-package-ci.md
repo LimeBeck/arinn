@@ -1,1 +1,0 @@
-- CI builds a Debian `.deb` from `packaging/debian/**`, smoke-tests it on Ubuntu 25.04, and attaches it to version releases alongside the Arch package. Arch remains the nightly and release package blocker ([#377](https://github.com/LimeBeck/arinn/issues/377), [ADR-0091](docs/adr/0091-debian-package-ci-artifact.md)).

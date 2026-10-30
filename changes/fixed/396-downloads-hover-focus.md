@@ -1,1 +1,0 @@
-- Downloads: a row under the pointer takes focus when pointer mode turns on after the row's hover was checked, as other Home and Library cards already do. This also removes a flaky `Downloads` UI test ([#396](https://github.com/LimeBeck/arinn/issues/396)).

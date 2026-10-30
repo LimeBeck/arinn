@@ -1,1 +1,0 @@
-- Home favorites show daemon web shortcuts first, then application entries, until pinned favorites exist. Shortcuts open with `WebShortcuts1.Open`, including an Unavailable result when no browser provider is connected. A failed application catalog is a separate error from an empty shortcut list ([ui-web-shortcuts.md](docs/architecture/ui-web-shortcuts.md)).

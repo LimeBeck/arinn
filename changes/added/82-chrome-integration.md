@@ -1,1 +1,0 @@
-- Chrome and Chromium integration: an MV3 extension (tabs and nativeMessaging only), the `arinn-chrome-host` native host and the `arinn-plugin-chrome` browser provider. The extension is loaded unpacked from `/usr/share/arinn/chrome-extension`.

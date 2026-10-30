@@ -1,1 +1,0 @@
-- Add independently testable Activity-background foundations: sealed bounded RGBA descriptors, Qt grab colour/alpha conversion and shell frame lifetime admission. Production capture, daemon transport, Home integration and target-device qualification remain pending (#149).

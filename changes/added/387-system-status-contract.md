@@ -1,1 +1,0 @@
-- Plugin API: a read-only daemon-root `SystemStatus1` interface publishes mute state and network connectivity for Home's status area, with `unknown` for anything a platform cannot report ([ADR-0100](docs/adr/0100-system-status.md), [#387](https://github.com/LimeBeck/arinn/issues/387)). Contract only; the producer and the shell icons follow.

@@ -1,1 +1,0 @@
-- The daemon serves provider settings through `org.arinn.Settings1`: it lists providers with settings, returns current values, stores changes in `config.toml` and applies them to the running provider; the daemon's own `browser_application` is available as provider `arinn` ([ADR-0065](docs/adr/0065-provider-settings-contract.md)).

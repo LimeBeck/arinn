@@ -1,1 +1,0 @@
-- The player screen shows a fixture OSD on a 1920×1080 surface in the handoff layout: title, clock, timeline, and subtitle, audio and more pills. A track pill opens a sheet. Hidden and visible keys follow the player section of the specification; play, pause, seek, track choice, stop and leave are signals only.

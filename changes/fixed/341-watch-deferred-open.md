@@ -1,1 +1,0 @@
-- Leaving the library right after pressing Watch on a download no longer opens that film's Detail behind your back when you come back.

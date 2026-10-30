@@ -1,1 +1,0 @@
-- Recognise a standalone season marker `S01` in library folder and file names, by the same rules as `TV1`: a release folder such as `Show Name [WEB-DL 1080p] S01/`, a bare `S02/` folder and `Show S01 - 05.mkv` now give seasons and episodes of one series instead of films. `S01E02` and `1x02` keep precedence ([ADR-0109](docs/adr/0109-season-only-snn-markers.md)).

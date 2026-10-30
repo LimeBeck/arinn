@@ -1,5 +1,0 @@
-- Fix managed playback that sometimes stayed a decorated window after a five-second Present timeout ([#369](https://github.com/LimeBeck/arinn/issues/369)). The KWin adapter now counts command freshness from receipt, not from the start of its long poll, and always answers a command it received.
-- Log why managed playback was not presented, with fixed reason names:
-  - the KWin adapter's media channel attachment and presentation failures (rate-limited);
-  - the daemon's Present/Release rejection and failure reasons, such as a stale media channel or a missing window;
-  - the shell's choice of the session card over the player.

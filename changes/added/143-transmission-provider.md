@@ -1,1 +1,0 @@
-- `arinn-plugin-transmission` adapts a Transmission RPC service to the download provider: queue, pause, resume, start now and retry, with folder mapping and credentials in the system secret storage ([ADR-0025](docs/adr/0025-downloads-mvp.md), [ADR-0067](docs/adr/0067-download-wire-contract.md)).

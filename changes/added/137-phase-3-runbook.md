@@ -1,1 +1,0 @@
-- Add the [Phase 3 operator runbook](docs/architecture/phase-3-runbook.md) and its [evidence template](docs/architecture/evidence/phase-3-template.md) for AC-03–AC-06 with AC-10 and G-3.1 spot checks, on KDE Plasma 6/Wayland and XFCE/X11.

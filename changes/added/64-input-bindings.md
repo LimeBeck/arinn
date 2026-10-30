@@ -1,1 +1,0 @@
-- Extra keys for shell actions can be set in `config.toml` under `[input.bindings]`, for example `menu = ["evdev:582"]` makes a remote's voice button open the menu. Keys Qt cannot name are bound by their evdev code (ADR-0079).

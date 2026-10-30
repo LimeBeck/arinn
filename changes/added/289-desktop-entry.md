@@ -1,1 +1,0 @@
-- Arinn has an application menu entry with its icon: it starts the session when none runs, otherwise it brings up Home, and the shell window shows the Arinn icon in the taskbar.

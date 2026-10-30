@@ -1,1 +1,0 @@
-- Collect Debian Sentry debug files after `dh_strip`/`debugedit` finalizes the packaged ELF build IDs. Keep normal Debian debug-package generation and require each collected file to match the final binary, so package verification no longer rejects a correctly built Debian package after its build ID is rewritten.

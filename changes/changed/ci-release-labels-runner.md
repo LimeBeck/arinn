@@ -1,1 +1,0 @@
-- The release and label workflows run on the switchable runner (`ARINN_RUNNER`) in containers, like the other jobs ([ADR-0053](docs/adr/0053-release-and-label-workflows-on-the-runner.md)).

@@ -1,1 +1,0 @@
-- Open Downloads from the Home menu. The screen shows the live download queue from the daemon with progress, size, speed and time left, and offers Pause, Resume, Start now and Retry. A completed download says when it was added to the library; Watch opens it there, and a toast announces each completed import once per session ([downloads screen](docs/architecture/ui-downloads.md)).

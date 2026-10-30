@@ -1,1 +1,0 @@
-- Restore the launch overlay's glowing identity monogram and dark translucent backdrop over Home, including slow application starts.

@@ -1,1 +1,0 @@
-- Fix the nightly Debian package build, whose tests could not start a private D-Bus daemon, `gio` or `python` ([#405](https://github.com/LimeBeck/arinn/issues/405)).

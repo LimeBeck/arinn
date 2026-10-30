@@ -1,1 +1,0 @@
-- The design handoff of 2026-09-29 adds the Open services screen for browser activities; global navigation gains an Open services item and Continue an "N more open" summary entry ([design](docs/design/README.md), [specification §5.1](docs/specifications/arinn-specification.md#51-home)).

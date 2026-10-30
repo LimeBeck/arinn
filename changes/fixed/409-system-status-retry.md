@@ -1,1 +1,0 @@
-- Home's mute and Wi-Fi icons come back after a failed status read: the shell reads `SystemStatus1` again after 1 s, 5 s and 30 s instead of waiting for the next change ([#409](https://github.com/LimeBeck/arinn/issues/409)).

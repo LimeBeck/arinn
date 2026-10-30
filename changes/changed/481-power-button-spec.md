@@ -1,1 +1,0 @@
-- Specification: while Arinn runs, the remote's power button opens Arinn's power menu instead of the desktop's power dialog. The desktop's own power handling is held off only while Arinn runs, never by a permanent settings change ([#481](https://github.com/LimeBeck/arinn/issues/481)).

@@ -1,1 +1,0 @@
-- The on-screen keyboard is part of the MVP: every text field can be filled with the remote alone. On the address and search screen, the keyboard's suggestion row (recent entries and open services) replaces the web shortcut suggestions ([ADR-0103](docs/adr/0103-on-screen-keyboard.md), [#420](https://github.com/LimeBeck/arinn/issues/420)).

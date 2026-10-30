@@ -1,1 +1,0 @@
-- The mpv provider test no longer leaves files in `plugins/mpv/target/tmp`, which made the REUSE check fail on CI runners, and its socket path fits in a long checkout path.

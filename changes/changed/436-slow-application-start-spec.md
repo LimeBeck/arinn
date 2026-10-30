@@ -1,1 +1,0 @@
-- Specification: an application launch now succeeds when the application shows a window. While its application scope still runs with no window, the launch stays pending with no time limit and shows "Starting <app>…" with a confirmed Cancel; a scope that ends with no window fails the launch at once (spec §6.5, §7.2, §9.5, [#436](https://github.com/LimeBeck/arinn/issues/436)).

@@ -1,1 +1,0 @@
-- Show recently added library films and series on Home, with persisted discovery dates, newest-episode series promotion and a return to the selected card after closing library detail.

@@ -1,1 +1,0 @@
-- Define the daemon-owned Favorites1 contract for persistent, ordered Home favorites and revision-guarded pin/unpin clients; daemon and shell implementation follow separately.

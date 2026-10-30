@@ -1,1 +1,0 @@
-- Specification: Arinn can run as a dedicated **Arinn** login session on KDE Plasma/Wayland and XFCE/X11, with **Switch to desktop** in the power menu and a **Return to Arinn** desktop launcher (§4.2, §5.7, §18; Phase 5 gate G-5.8). Owner decision on 2026-10-10 ([#438](https://github.com/LimeBeck/arinn/issues/438)).

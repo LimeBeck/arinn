@@ -1,1 +1,0 @@
-- The Downloads screen shows a fixture queue with progress, pause, resume, start now, retry and watch intents, and empty, loading, error and unavailable states, including a completion toast after import. It is not connected to Home or a download service.

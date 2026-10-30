@@ -1,1 +1,0 @@
-- Add an opt-in XFCE/X11 autostart template and session helper that imports the graphical environment, selects the EWMH backend before startup and stops Arinn when the XFCE session ends. See [XFCE startup setup](docs/architecture/x11-ewmh.md#persistent-xfcex11-startup); package installation enables nothing and real-desktop qualification remains pending.

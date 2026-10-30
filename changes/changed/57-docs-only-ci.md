@@ -1,1 +1,0 @@
-- Pull requests that change only documentation skip the Rust, Qt and package build jobs in CI; pushes to `master`, nightly and release runs still run the full pipeline ([ADR-0044](docs/adr/0044-docs-only-ci-scope.md)).

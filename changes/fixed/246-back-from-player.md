@@ -1,1 +1,0 @@
-- Leaving the player with Back returns to where playback started: the shell stays on screen until Home is shown again, and the repeats of a held Back key no longer step on into the navigation menu.

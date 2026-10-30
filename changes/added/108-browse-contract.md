@@ -1,1 +1,0 @@
-- The plugin API defines the address and search contract `Browse1`: the input rules, recent entries and packaged search engines ([ADR-0066](docs/adr/0066-address-and-search-contract.md)).

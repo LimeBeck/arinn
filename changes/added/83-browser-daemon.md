@@ -1,1 +1,0 @@
-- The daemon routes `browser` providers: `Browser1` tab lists, tab activation that brings the browser window forward, and web shortcuts that open in the connected browser.

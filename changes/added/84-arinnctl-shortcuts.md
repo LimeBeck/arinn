@@ -1,1 +1,0 @@
-- `arinnctl shortcuts` manages web shortcuts (list, add, edit, remove, open) and `arinnctl browser` lists, activates and closes browser tabs.

@@ -1,1 +1,0 @@
-- Opening a web shortcut with the browser closed launches the browser first ([ADR-0055](docs/adr/0055-launching-a-closed-browser.md)); `browser_application` in `config.toml` chooses the application.

@@ -1,1 +1,0 @@
-- Removing a media or library provider now also removes its `Media1`, `Library1` and `Assets1` objects from the daemon; before, they stayed exported at the old path.

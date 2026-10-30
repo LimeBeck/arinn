@@ -1,1 +1,0 @@
-- The plugin API defines provider settings: providers declare a typed schema through `ProviderSettings1`, and the daemon will serve and change them through `Settings1` ([ADR-0065](docs/adr/0065-provider-settings-contract.md)).

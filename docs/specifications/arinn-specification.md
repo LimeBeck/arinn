@@ -2,9 +2,9 @@
 
 | | |
 | --- | --- |
-| **Version** | 0.6 |
+| **Version** | 0.7 |
 | **Status** | Current — the single source of current requirements ([ADR-0028](../adr/0028-documentation-governance.md)) |
-| **Date** | 2026-09-28 |
+| **Date** | 2026-10-30 |
 | **Supersedes** | [Developer Specification v0.3](developer-specification-v0.3.md) (Russian, kept unchanged as history) |
 | **Target platform** | Linux HTPC: KDE Plasma 6 on Wayland and X11 desktops with an EWMH window manager (XFCE first) |
 | **Primary UX** | TV-first, D-pad-first, air mouse supported |
@@ -894,6 +894,16 @@ Each question needs a decision by the project owner. The recommendation is the p
 ---
 
 ## 22. Changes from v0.3
+
+Version 0.7 is the specification revision for Arinn 0.2.0. It consolidates the
+owner-approved requirements added since version 0.6: the shell input layer and
+OSD for managed playback, exact browser/activity association and merged Continue
+cards, KDE/Wayland and X11/EWMH targets (XFCE first), the global on-screen
+keyboard, dedicated-session lifecycle, and recently added library content on
+Home. The existing sections and accepted ADRs define these behaviours; this
+release revision introduces no additional product decision. The Plugin API
+remains pre-stable, and release preparation does not close roadmap phases or
+replace outstanding real-desktop/TV qualification.
 
 Owner decisions on 2026-10-09 (no version change): the on-screen keyboard is part of the MVP; its suggestion row replaces the shortcut suggestions of the address and search screen; library search is not part of the MVP (ADR-0103).
 

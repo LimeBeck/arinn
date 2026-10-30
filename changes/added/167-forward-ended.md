@@ -1,1 +1,0 @@
-- Resume positions record a confirmed end of file: the daemon forwards `ended` when a media session reaches the `ended` state ([ADR-0063](docs/adr/0063-ended-session-state.md)).

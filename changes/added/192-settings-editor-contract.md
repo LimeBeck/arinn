@@ -1,1 +1,0 @@
-- Plugin API: integer settings may declare a short display `unit`, a new daemon interface `org.arinn.Folders1` lists folders for the folder picker, and library providers may report which configured roots are available through the optional `org.arinn.LibraryRoots1` (ADR-0071). The daemon export of `Folders1` and `Library1.GetRoots` follow separately.

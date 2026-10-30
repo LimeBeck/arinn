@@ -1,1 +1,0 @@
-- A daemon restart or provider reload replaces a provider that is still running a binary removed by a package upgrade, instead of leaving that process in place (#243).

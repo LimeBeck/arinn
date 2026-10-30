@@ -1,1 +1,0 @@
-- Shell: text in the bundled Onest font renders at its weight again. Qt matched every `font.weight` of the variable font to the 400 instance, so headings, labels and buttons looked lighter than the design; the shell now applies each weight to the font's `wght` axis ([#546](https://github.com/LimeBeck/arinn/issues/546)).

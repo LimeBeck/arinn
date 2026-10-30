@@ -1,2 +1,0 @@
-- A stalled shell still shows "The browser is taking longer than usual" before the launch timeout dialog, instead of skipping that message.
-- Arrow keys stay in D-pad mode when a hover event repeats the same pointer position.

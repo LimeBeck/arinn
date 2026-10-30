@@ -1,1 +1,0 @@
-- Seek thumbnails in the player show the actual frame: the mpv provider now serves its extracted frames through `AssetProvider1` instead of leaving the placeholder.

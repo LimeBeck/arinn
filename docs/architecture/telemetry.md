@@ -156,9 +156,13 @@ is initialized when the flag is false, even with a valid DSN. The daemon's offli
 
 [ADR-0116](../adr/0116-package-matched-sentry-debug-symbols.md) prepares the remaining
 CI upload part of #370. It is proposed and owner-merged. CI collects split ELF
-debug files for `arinnd` and `arinn-shell` from their staged package binaries,
-before stripping, with release optimization and line-level debug information.
-After extraction, each finished package's build IDs must match those files.
+debug files for `arinnd` and `arinn-shell` with release optimization and
+line-level debug information. Arch splits the staged binaries before stripping.
+Debian collects the matching files from `dh_strip`'s debug root after stripping:
+`debugedit` may rewrite the build IDs during that step. Collection selects each
+file by the final staged binary's build ID and rejects missing, symlinked or
+mismatched files. After extraction, each finished package's build IDs must match
+those files.
 Arch and Debian have separate manifests and seven-day symbol artifacts. The
 product packages and GitHub release assets do not gain debug/source archives.
 

@@ -190,6 +190,7 @@ FocusScope {
     readonly property bool hoverFocusEnabled: !hoverDelay.running
     readonly property var sections: [qsTr("Home"), qsTr("Library"), qsTr("Downloads"), qsTr("Applications"), qsTr("Settings")]
     readonly property var routes: ["home", "library", "downloads", "applications", "settings"]
+    signal libraryEntryRequested(string entryId)
     signal entryRequested(string entryId)
     signal runningRequested(string entryId)
     signal returnRequested(string activityId)
@@ -461,6 +462,11 @@ FocusScope {
         }
         restoreHome();
     }
+    function returnFromLibraryDetail() {
+        screen = "home";
+        if (newRow.visible && newRow.restore()) return;
+        focusAfterRemoval(newRow);
+    }
     function back() {
         if (tileActionsOpen) closeTileActions();
         else if (navOpen) closeNavigation();
@@ -505,6 +511,7 @@ FocusScope {
     }
     function activate(entryId) {
         const entry = entryById(entryId);
+        if (newEntries.some(item => item.id === entryId)) { libraryEntryRequested(entryId); return; }
         if (entry && entry.launchable === false) { openTileActions(entryId); return; }
         if (entry && entry.kind === "more") { openServicesRequested(); return; }
         if (entry && entry.kind === "service") { serviceRequested(entry.serviceId || ""); return; }

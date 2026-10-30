@@ -179,6 +179,7 @@ Window {
     }
     property bool leavingStopPending: false
     property string leaveError: ""
+    property bool libraryDetailFromHome: false
     property bool sessionFromLibrary: false
     property bool sessionFromLaunch: false
     // Watch on a download whose library item the library catalog has not
@@ -193,9 +194,22 @@ Window {
         target: home
         function onScreenChanged() {
             if (home.screen === "library") return;
+            root.libraryDetailFromHome = false;
             root.pendingWatch = null;
             ++root.watchTicket;
         }
+    }
+    function openHomeLibraryEntry(entryId) {
+        if (libraryCatalog.libraryState !== "ready") return;
+        const entry = libraryCatalog.newEntries.find(item => item.id === entryId);
+        if (!entry || entry.missing || entry.enabled === false) return;
+        root.libraryDetailFromHome = false;
+        libraryView.currentTabId = entry.tabId;
+        libraryView.openEntry(entryId);
+        if (!libraryView.detailOpen) return;
+        home.navOpen = false;
+        home.screen = "library";
+        root.libraryDetailFromHome = true;
     }
     function openWatchTarget() {
         if (!pendingWatch || home.screen !== "library") {
@@ -836,6 +850,8 @@ Window {
                 .concat(root.continueMedia(mediaCatalog.continueEntries, libraryCatalog.entries))
             favoriteEntries: [{id: "arinn-browse", title: qsTr("Site or search"), hint: qsTr("Type an address or a search"),
                                monogram: "⌕", enabled: true}].concat(backend.favorites)
+            newEntries: libraryCatalog.newEntries
+            onLibraryEntryRequested: entryId => root.openHomeLibraryEntry(entryId)
             applicationEntries: backend.applications
             runningEntries: backend.items
             favoritesTitle: qsTr("Favorites")
@@ -1025,6 +1041,12 @@ Window {
             entries: libraryCatalog.entries
             operationState: libraryCatalog.operationState
             launchingId: libraryCatalog.launchingId
+            onDetailOpenChanged: {
+                if (!detailOpen && root.libraryDetailFromHome) {
+                    root.libraryDetailFromHome = false;
+                    if (home.screen === "library") home.returnFromLibraryDetail();
+                }
+            }
             onPlayRequested: entryId => libraryCatalog.launch(entryId)
             onEpisodeRequested: (entryId, episodeId) => libraryCatalog.launch(episodeId)
             onRetryRequested: libraryCatalog.refresh()

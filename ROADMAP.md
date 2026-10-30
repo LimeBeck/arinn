@@ -72,7 +72,7 @@ Before parallel implementation, agree on presentation-model fields and actions,
 and assign ownership of shared QML components, focus code, C++ models and build
 files so separate changes do not compete for the same files.
 
-Hidden-player input (OQ-01), global media/volume keys (OQ-04) and the New projection (OQ-05) were decided by the owner on 2026-09-28; New is not part of the MVP. These dependencies
+Hidden-player input (OQ-01), global media/volume keys (OQ-04) and the New projection (OQ-05) were decided by the owner on 2026-09-28; the later owner request of 2026-10-29 enables New under [#587](https://github.com/LimeBeck/arinn/issues/587). These dependencies
 do not block the first UI increment's generic components and fixture-based views.
 Production Activity background capture, session actions and their performance
 checks retain their existing phase gates. Real-desktop operator tests still
@@ -181,7 +181,7 @@ Goal: the main daily scenario — Arinn becomes usable every day.
 
 ## Phase 4 — Media
 
-**Status:** Planned. OQ-01 and OQ-05 were resolved by the owner on 2026-09-28 ([ADR-0046](docs/adr/0046-shell-input-layer-during-playback.md); New is not part of the MVP).
+**Status:** Planned. OQ-01 and OQ-05 were resolved by the owner on 2026-09-28 ([ADR-0046](docs/adr/0046-shell-input-layer-during-playback.md); the later New request is tracked in [#587](https://github.com/LimeBeck/arinn/issues/587)).
 
 Goal: MPRIS media control, the local library and playback in external mpv with Arinn's OSD.
 

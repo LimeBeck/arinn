@@ -148,7 +148,7 @@ Power emits an intent only; it never opens a destructive confirmation or perform
 a session action.
 
 `HomeView` accepts immutable `continueEntries`, `favoriteEntries` and `newEntries`
-arrays. Each entry has a unique opaque `id`, `title`, and optional `subtitle`,
+arrays. Activating a New card emits `libraryEntryRequested(id)` for the existing library detail; other rows retain their established intents. The caller supplies the bounded, sorted recent-library projection (ADR-0120). Each entry has a unique opaque `id`, `title`, and optional `subtitle`,
 `artwork`, `monogram`, `running`, `progress`, `enabled`, `busy` and
 `webShortcut`. Media entries (`kind: "media"`) may carry the provider's reported
 `positionUs` and `durationUs`; Home derives the time left and the card progress

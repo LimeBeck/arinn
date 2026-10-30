@@ -25,6 +25,7 @@ TestCase {
         }
     }
     SignalSpy { id: returns; signalName: "returnRequested" }
+    SignalSpy { id: libraryEntries; signalName: "libraryEntryRequested" }
     SignalSpy { id: entries; signalName: "entryRequested" }
     SignalSpy { id: retry; signalName: "retryRequested" }
     SignalSpy { id: closes; signalName: "closeShellRequested" }
@@ -452,6 +453,15 @@ TestCase {
         keyClick(Qt.Key_Menu); focused("nav-0");
         keyClick(Qt.Key_Escape); focused("statusAction");
         restarts.target = null;
+    }
+    function test_new_opens_library_instead_of_launching_an_application() {
+        libraryEntries.target = home; libraryEntries.clear();
+        keyClick(Qt.Key_Down); keyClick(Qt.Key_Down); focused("entry-n");
+        keyClick(Qt.Key_Return);
+        compare(libraryEntries.count, 1);
+        compare(libraryEntries.signalArguments[0][0], "n");
+        compare(entries.count, 0);
+        libraryEntries.target = null;
     }
     function test_last_row_removed() {
         keyClick(Qt.Key_Down); keyClick(Qt.Key_Down); focused("entry-n");

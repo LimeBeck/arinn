@@ -14,6 +14,25 @@ Poster and fanart ids are loaded through `Assets1`
 close AC-15: scanning a folder and playing a file on a real session are not
 part of it.
 
+## Home New
+
+`LibraryCatalog.newEntries` merges optional `LibraryAdditions1` metadata across
+ready library providers. `GetAdditions` is guarded by the exact catalogue
+generation/revision (not the resume revision) and a 500 ms deadline. Invalid,
+unsupported or missing metadata leaves the base library usable without dates.
+At most 64 canonical, unique, available top-level film/series references per
+provider are accepted. Home receives the newest 12 across providers, descending
+by discovery time with provider/local id ties, using existing poster/title/year
+and progress presentation. Undated legacy items are omitted. Owner loss clears
+the projection; an unchanged reload emits no presentation change.
+
+Selecting New emits a library-detail intent. Main checks the current projection,
+opens the existing detail and records Home as its opener. Back closes detail and
+restores the selected Home card or Home's normal fallback. Ordinary Library
+navigation keeps its existing Back behaviour. Detail Play and episode selection
+use the existing library launch route. See
+[ADR-0120](../adr/0120-home-recent-library-additions.md).
+
 ## Model
 
 Reads are asynchronous. `GetLibrary` is paged. A repeated page token, a page

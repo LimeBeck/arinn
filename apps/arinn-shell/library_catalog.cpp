@@ -266,8 +266,8 @@ void LibraryCatalog::publish() {
       recent.append(&item);
   std::sort(recent.begin(), recent.end(), [](const auto *a, const auto *b) {
     if (a->addedAtUs != b->addedAtUs) return a->addedAtUs > b->addedAtUs;
-    if (a->providerId != b->providerId) return a->providerId < b->providerId;
-    return a->localId < b->localId;
+    if (a->providerId != b->providerId) return a->providerId.toUtf8() < b->providerId.toUtf8();
+    return a->localId.toUtf8() < b->localId.toUtf8();
   });
   QVariantList newEntries;
   for (const auto *item : std::as_const(recent)) {
@@ -672,7 +672,7 @@ void LibraryCatalog::readAdditions(const std::shared_ptr<Catalog> &catalog,
       if (times.size() >= 64 || time == 0 ||
           time > quint64(std::numeric_limits<qint64>::max()) ||
           times.contains(id) || time > previousTime ||
-          (time == previousTime && id <= previousId)) {
+          (time == previousTime && id.toUtf8() <= previousId.toUtf8())) {
         valid = false;
         break;
       }

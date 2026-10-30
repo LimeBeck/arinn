@@ -581,6 +581,25 @@ private slots:
     QVERIFY(QDBusConnection::sessionBus().unregisterService(QStringLiteral("org.arinn.Daemon1")));
     QTRY_VERIFY(catalog.newEntries().isEmpty());
   }
+  void additionTiesUseUtf8OpaqueIdOrdering() {
+    LibraryDaemon daemon;
+    daemon.features = {QStringLiteral("LibraryAdditions1")};
+    daemon.collections = {{QStringLiteral("films"), QStringLiteral("Films"), QStringLiteral("film")}};
+    // UTF-16 code-unit ordering differs from the protocol's UTF-8 ordering.
+    const auto bmp = QString::fromUtf8("\xee\x80\x80");
+    const auto supplementary = QString::fromUtf8("\xf0\x90\x80\x80");
+    daemon.page1 = {film(bmp, QStringLiteral("BMP")), film(supplementary, QStringLiteral("Supplementary"))};
+    daemon.additions = {{bmp, 1}, {supplementary, 1}};
+    QVERIFY(registerBus(daemon));
+    LibraryCatalog catalog;
+    QTRY_COMPARE(catalog.newEntries().size(), 2);
+    QCOMPARE(catalog.newEntries().at(0).toMap().value(QStringLiteral("id")).toString(), presentationId(QStringLiteral("library-provider"), bmp));
+    std::reverse(daemon.additions.begin(), daemon.additions.end());
+    daemon.page1Revision = 2; daemon.additionRevision = 2;
+    catalog.refresh();
+    QTRY_VERIFY(catalog.newEntries().isEmpty());
+    QCOMPARE(catalog.libraryState(), QStringLiteral("ready"));
+  }
   void invalidAdditionsLeaveTheBaseLibraryUsable_data() {
     QTest::addColumn<int>("variant");
     for (int i = 0; i < 10; ++i) QTest::newRow(qPrintable(QString::number(i))) << i;

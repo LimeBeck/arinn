@@ -45,7 +45,11 @@ beneath secondary screens, but Main disables it whenever another screen owns
 focus, so catalog refresh callbacks and hover cannot steal that screen's input.
 The production browser regression covers Home state changes while Open services
 is displayed: Escape and Backspace return locally to Home without activating
-the external Return target. The `focus-ownership`
+the external Return target. Library and Downloads stay visible and enabled under
+Home's navigation menu, so `Focus.take` alone cannot protect the menu: Main binds
+their `ownsFocus` to `focusedScreen`, and their data-change handlers move focus
+only while it is true. When it turns true again they restore the selected row or
+the initial item (#608, `dataUpdatesUnderTheMenuKeepItsFocus`). The `focus-ownership`
 test rejects any other `forceActiveFocus()` call.
 
 Screens own focus scopes, explicit neighbours and restoration. The input mode is

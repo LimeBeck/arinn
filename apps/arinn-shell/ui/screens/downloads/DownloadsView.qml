@@ -29,6 +29,10 @@ FocusScope {
     // The shell announces completions itself (once per download per
     // session) and sets this to false; fixtures keep the view's own toast.
     property bool autoToast: true
+    // False while another screen or overlay holds focus above this one. The
+    // view stays visible and enabled under Home's navigation menu, so data
+    // updates must not take focus then (#608). Main.qml binds it.
+    property bool ownsFocus: true
     readonly property bool hoverFocusEnabled: !hoverDelay.running
     readonly property bool queueVisible: viewState === "populated" && jobCount > 0
     readonly property bool loadingVisible: viewState === "loading"
@@ -229,7 +233,8 @@ FocusScope {
         if (!item) {
             if (!refocusPending) {
                 refocusPending = true;
-                Qt.callLater(() => { refocusPending = false; focusJob(clamped); });
+                // An overlay may have taken focus before the retry runs.
+                Qt.callLater(() => { refocusPending = false; if (ownsFocus) focusJob(clamped); });
             }
             return false;
         }
@@ -331,9 +336,15 @@ FocusScope {
         acceptDirection(event);
     }
 
-    Component.onCompleted: Qt.callLater(() => { syncImports(); restore(); })
-    onViewStateChanged: Qt.callLater(restore)
-    onJobsChanged: Qt.callLater(() => { syncImports(); restore(); })
+    function restoreOwned() {
+        if (ownsFocus) restore();
+    }
+    Component.onCompleted: Qt.callLater(() => { syncImports(); restoreOwned(); })
+    onViewStateChanged: Qt.callLater(restoreOwned)
+    onJobsChanged: Qt.callLater(() => { syncImports(); restoreOwned(); })
+    // Rows recreated while an overlay was open are not the scope's focused
+    // child any more; focus the selected row once the view owns focus again.
+    onOwnsFocusChanged: if (ownsFocus) Qt.callLater(restoreOwned)
     // A queue read while the screen was hidden could not focus a row. When
     // the scope itself receives focus, hand it to the selected row.
     onActiveFocusChanged: if (activeFocus && Window.activeFocusItem === root) Qt.callLater(() => {

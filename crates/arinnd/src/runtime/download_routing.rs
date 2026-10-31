@@ -23,6 +23,14 @@ pub(super) struct DownloadState {
     imports: BTreeMap<String, DownloadImport>,
     next_import: Option<Instant>,
 }
+impl DownloadState {
+    pub(super) fn disconnect(&mut self, owner: &str) {
+        if let Some(cache) = self.cache.as_mut() {
+            cache.disconnect(owner);
+        }
+    }
+}
+
 struct DownloadRows;
 impl Row for DownloadRows {
     type Entry = Download;

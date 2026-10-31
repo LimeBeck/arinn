@@ -179,7 +179,13 @@ jobs:
           ARINN_TEST_MANAGER: ${{ github.workspace }}/pkg/private-systemd
         run: chmod +x "$ARINN_TEST_MANAGER" && dbus-run-session -- python tests/package/smoke.py
       - name: Session units and KWin adapter loader
-        run: python tests/package/session.py
+        # The validator comes after the package install, so it cannot supply
+        # a dependency the package forgot to declare (#614).
+        env:
+          ARINN_REQUIRE_DESKTOP_VALIDATE: "1"
+        run: |
+          pacman -S --noconfirm --needed desktop-file-utils
+          python tests/package/session.py
       - name: Uninstall cleanly
         run: |
           python tests/package/uninstall.py --self-check
@@ -287,7 +293,13 @@ jobs:
           ARINN_TEST_MANAGER: ${{ github.workspace }}/pkg/private-systemd
         run: chmod +x "$ARINN_TEST_MANAGER" && dbus-run-session -- python3 tests/package/smoke.py
       - name: Session units and KWin adapter loader
-        run: python3 tests/package/session.py
+        # The validator comes after the package install, so it cannot supply
+        # a dependency the package forgot to declare (#614).
+        env:
+          ARINN_REQUIRE_DESKTOP_VALIDATE: "1"
+        run: |
+          apt-get install -y --no-install-recommends desktop-file-utils
+          python3 tests/package/session.py
       - name: Uninstall cleanly
         run: |
           python3 tests/package/uninstall.py --self-check

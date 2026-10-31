@@ -1,0 +1,1 @@
+- Reconcile the roadmap with the v0.2.0 implementation: phases 3–5 in progress, explicit remaining acceptance, current evidence links and future-feature dependencies. No phase or gate is newly declared complete.

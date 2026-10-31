@@ -1032,6 +1032,7 @@ Window {
         Library.LibraryView {
             id: libraryView
             focus: root.focusedScreen === "library"
+            ownsFocus: root.focusedScreen === "library"
             objectName: "productionLibrary"
             visible: home.screen === "library" && !root.playerOpen
             enabled: visible
@@ -1059,6 +1060,7 @@ Window {
         Downloads.DownloadsView {
             id: downloadsView
             focus: root.focusedScreen === "downloads"
+            ownsFocus: root.focusedScreen === "downloads"
             objectName: "productionDownloads"
             visible: home.screen === "downloads" && !root.playerOpen
             enabled: visible

@@ -1710,6 +1710,95 @@ private slots:
     QTRY_VERIFY(focusInside(window->activeFocusItem(), home));
     QVERIFY(window->activeFocusItem() != window->contentItem());
   }
+  // #608: Library and Downloads stay visible and enabled under Home's
+  // navigation menu, so a data update must not pull focus out of the menu.
+  void dataUpdatesUnderTheMenuKeepItsFocus() {
+    LibraryDaemon daemon;
+    daemon.collections = {{QStringLiteral("films"), QStringLiteral("Films"),
+                           QStringLiteral("film")}};
+    daemon.page1 = {film(QStringLiteral("north"), QStringLiteral("North"))};
+    QVERIFY(registerBus(daemon));
+    ShellStandIn backend;
+    SessionGuardStandIn guard;
+    QQmlApplicationEngine engine;
+    installAssetImageProvider(&engine);
+    engine.rootContext()->setContextProperty(QStringLiteral("backend"), &backend);
+    engine.rootContext()->setContextProperty(QStringLiteral("sessionGuard"),
+                                             &guard);
+    engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
+    auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().value(0));
+    QVERIFY(window);
+    window->show();
+    window->requestActivate();
+    auto home = window->findChild<QQuickItem *>(QStringLiteral("productionHome"));
+    auto library =
+        window->findChild<QQuickItem *>(QStringLiteral("productionLibrary"));
+    auto downloads =
+        window->findChild<QQuickItem *>(QStringLiteral("productionDownloads"));
+    QVERIFY(home);
+    QVERIFY(library);
+    QVERIFY(downloads);
+    QTRY_COMPARE(library->property("libraryState").toString(),
+                 QStringLiteral("ready"));
+
+    // Library: a catalogue change under the open menu.
+    home->setProperty("screen", QStringLiteral("library"));
+    QTRY_VERIFY(focusInside(window->activeFocusItem(), library));
+    QTest::keyClick(window, Qt::Key_Menu);
+    QTRY_COMPARE(home->property("navOpen").toBool(), true);
+    auto libraryEntry = findItem(home, QStringLiteral("nav-1"));
+    QVERIFY(libraryEntry);
+    QTRY_VERIFY(libraryEntry->hasActiveFocus());
+    QVERIFY(library->isVisible());
+    daemon.page1.clear();
+    auto signal = QDBusMessage::createSignal(
+        QStringLiteral("/org/arinn/Daemon1"), QStringLiteral("org.arinn.Daemon1"),
+        QStringLiteral("StateChanged"));
+    signal << QStringLiteral("library-provider") << QStringLiteral("library")
+           << QStringLiteral("g-library") << qulonglong(2);
+    QVERIFY(QDBusConnection::sessionBus().send(signal));
+    QTRY_COMPARE(library->property("libraryState").toString(),
+                 QStringLiteral("empty"));
+    QTest::qWait(100);
+    QVERIFY(libraryEntry->hasActiveFocus());
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_COMPARE(home->property("navOpen").toBool(), false);
+    QTRY_VERIFY(focusInside(window->activeFocusItem(), library));
+
+    // Downloads: a queue update under the open menu.
+    home->setProperty("screen", QStringLiteral("downloads"));
+    QTRY_VERIFY(focusInside(window->activeFocusItem(), downloads));
+    QTest::keyClick(window, Qt::Key_Menu);
+    QTRY_COMPARE(home->property("navOpen").toBool(), true);
+    auto navigation = findItem(home, QStringLiteral("navigation"));
+    QVERIFY(navigation);
+    QTRY_VERIFY(focusInside(window->activeFocusItem(), navigation));
+    auto downloadsEntry = window->activeFocusItem();
+    QVERIFY(downloadsEntry);
+    QVERIFY(downloads->isVisible());
+    const QVariantMap job{{QStringLiteral("id"), QStringLiteral("job-1")},
+                          {QStringLiteral("title"), QStringLiteral("Feature")},
+                          {QStringLiteral("state"), QStringLiteral("downloading")},
+                          {QStringLiteral("progress"), 0.5},
+                          {QStringLiteral("importState"), QStringLiteral("pending")}};
+    downloads->setProperty("viewState", QStringLiteral("populated"));
+    downloads->setProperty("jobs", QVariantList{job});
+    QTest::qWait(100);
+    QVERIFY(downloadsEntry->hasActiveFocus());
+    QVariantMap progressed = job;
+    progressed.insert(QStringLiteral("progress"), 0.6);
+    downloads->setProperty("jobs", QVariantList{progressed});
+    QTest::qWait(100);
+    QVERIFY(downloadsEntry->hasActiveFocus());
+
+    // Closing the menu hands focus back to the queue row.
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_COMPARE(home->property("navOpen").toBool(), false);
+    auto row = findItem(downloads, QStringLiteral("job-job-1"));
+    QVERIFY(row);
+    QTRY_VERIFY(row->hasActiveFocus());
+  }
+
   void navigationMenuFocusesTheLibrary() {
     LibraryDaemon daemon;
     daemon.collections = {{QStringLiteral("films"), QStringLiteral("Films"),

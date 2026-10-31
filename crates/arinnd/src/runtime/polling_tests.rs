@@ -15,6 +15,7 @@ struct SnapshotFixture {
     revision: Arc<AtomicU64>,
     mixed: Arc<AtomicBool>,
     backend: Arc<StdMutex<String>>,
+    features: Arc<StdMutex<Vec<String>>>,
 }
 impl SnapshotFixture {
     fn new() -> Self {
@@ -24,6 +25,7 @@ impl SnapshotFixture {
             revision: Arc::new(AtomicU64::new(1)),
             mixed: Arc::default(),
             backend: Arc::new(StdMutex::new("available".into())),
+            features: Arc::default(),
         }
     }
     fn page(&self, token: &str) -> (u64, String) {
@@ -70,7 +72,7 @@ macro_rules! snapshot_test {
                 (Page { generation: self.0.generation.clone(), revision, $($field: fixture_entries!($field, token),)+ next_token },)
             }
             fn backend_state(&self) -> String { self.0.backend.lock().unwrap().clone() }
-            fn features(&self) -> Vec<String> { vec![] }
+            fn features(&self) -> Vec<String> { self.0.features.lock().unwrap().clone() }
         }
         #[tokio::test]
         async fn $test() {
@@ -317,4 +319,177 @@ fn test_provider(owner: &str, generation: &str) -> Provider {
         started: Instant::now(),
         enabled: true,
     }
+}
+
+#[tokio::test]
+async fn library_root_signal_does_not_mask_resume_import_failure() {
+    library_resume_failure_requires_full_reconciliation(1).await;
+}
+
+#[tokio::test]
+async fn library_root_signal_does_not_mask_resume_read_failure() {
+    library_resume_failure_requires_full_reconciliation(0).await;
+}
+
+async fn library_resume_failure_requires_full_reconciliation(bad_revision: u64) {
+    let bus = PrivateBus::new();
+    let client = bus.connect().await;
+    let server = bus.connect().await;
+    let catalogue = SnapshotFixture::new();
+    catalogue
+        .features
+        .lock()
+        .unwrap()
+        .push(arinn_protocol::library::FEATURE_RESUME.into());
+    let mut resumes = SnapshotFixture::new();
+    resumes.generation = catalogue.generation.clone();
+    resumes.revision.store(2, Ordering::SeqCst);
+    server
+        .object_server()
+        .at(production::PROVIDER_PATH, Library(catalogue.clone()))
+        .await
+        .unwrap();
+    server
+        .object_server()
+        .at(production::PROVIDER_PATH, Resumes(resumes.clone()))
+        .await
+        .unwrap();
+    served(&client, &server).await;
+    let directory = std::env::temp_dir().join(format!("arinn-poll-library-{}", Uuid::new_v4()));
+    let core = Core::new(
+        &client,
+        Paths {
+            config: directory.join("config"),
+            state: directory.join("state"),
+            data: directory.join("data"),
+        },
+        directory.join("runtime"),
+    );
+    let owner = server.unique_name().unwrap().to_string();
+    let mut provider = test_provider(&owner, &catalogue.generation);
+    provider.info.capabilities = vec!["library".into()];
+    core.state
+        .lock()
+        .await
+        .providers
+        .insert("fixture".into(), provider);
+    let watcher = {
+        let core = core.clone();
+        let generation = catalogue.generation.clone();
+        // Explicit signals drive this regression. A long fallback period keeps
+        // the error/root ordering deterministic on a loaded CI machine.
+        tokio::spawn(async move {
+            core.watch_library_with_period(
+                "fixture".into(),
+                owner,
+                generation,
+                Duration::from_secs(3600),
+            )
+            .await
+        })
+    };
+    async {
+        while core.state.lock().await.providers["fixture"].info.revision != 1 {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    }
+    .bounded()
+    .await;
+    catalogue.revision.store(2, Ordering::SeqCst);
+    resumes.revision.store(bad_revision, Ordering::SeqCst);
+    // The provider announces a new resume revision but serves a stale or
+    // invalid page. Both the cache-import and reader-error paths must fail.
+    server
+        .emit_signal(
+            None::<&str>,
+            production::PROVIDER_PATH,
+            "org.arinn.LibraryResume1",
+            "StateChanged",
+            &(&catalogue.generation, 3u64),
+        )
+        .await
+        .unwrap();
+    async {
+        while core.state.lock().await.providers["fixture"]
+            .info
+            .last_error
+            .is_empty()
+        {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    }
+    .bounded()
+    .await;
+    let before = resumes.take_calls();
+    assert!(before > 0);
+    catalogue.take_calls();
+    server
+        .emit_signal(
+            None::<&str>,
+            production::PROVIDER_PATH,
+            "org.arinn.LibraryRoots1",
+            "StateChanged",
+            &(&catalogue.generation, 1u64),
+        )
+        .await
+        .unwrap();
+    async {
+        loop {
+            let recovered = core.state.lock().await.providers["fixture"]
+                .info
+                .recovered_at
+                > 0;
+            if recovered || resumes.calls.load(Ordering::SeqCst) > 0 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    }
+    .bounded()
+    .await;
+    assert!(
+        resumes.calls.load(Ordering::SeqCst) > 0,
+        "a root-only wakeup must retry the failed resume stream"
+    );
+    assert!(
+        catalogue.calls.load(Ordering::SeqCst) > 0,
+        "recovery must reconcile the complete catalogue"
+    );
+    assert_eq!(
+        core.state.lock().await.providers["fixture"]
+            .info
+            .recovered_at,
+        0
+    );
+    // Repair the provider, then require a complete successful refresh before
+    // it is reported recovered. The last installed data survives until then.
+    resumes.revision.store(3, Ordering::SeqCst);
+    server
+        .emit_signal(
+            None::<&str>,
+            production::PROVIDER_PATH,
+            "org.arinn.LibraryResume1",
+            "StateChanged",
+            &(&catalogue.generation, 3u64),
+        )
+        .await
+        .unwrap();
+    async {
+        while core.state.lock().await.providers["fixture"]
+            .info
+            .recovered_at
+            == 0
+        {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    }
+    .bounded()
+    .await;
+    assert_eq!(
+        core.state.lock().await.providers["fixture"].info.revision,
+        2
+    );
+    watcher.abort();
+    let _ = watcher.await;
+    let _ = std::fs::remove_dir_all(directory);
 }

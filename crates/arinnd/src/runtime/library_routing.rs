@@ -155,6 +155,17 @@ pub(super) async fn read_roots(
 
 impl Core {
     pub(super) async fn watch_library(&self, id: String, owner: String, generation: String) {
+        self.watch_library_with_period(id, owner, generation, Duration::from_secs(1))
+            .await;
+    }
+
+    pub(super) async fn watch_library_with_period(
+        &self,
+        id: String,
+        owner: String,
+        generation: String,
+        period: Duration,
+    ) {
         let build = |path| {
             LibraryProviderProxy::builder(&self.connection)
                 .destination(owner.clone())
@@ -195,7 +206,7 @@ impl Core {
         };
         let mut known_revision = None;
         let mut resume_revision = None;
-        let mut tick = tokio::time::interval(Duration::from_secs(1));
+        let mut tick = tokio::time::interval(period);
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             let (poll_catalogue, poll_resumes) = tokio::select! {
@@ -402,10 +413,22 @@ impl Core {
                                 p.info.recovered_at = now();
                             }
                         }
-                        Err(error) => failed(&mut p.info, error),
+                        Err(error) => {
+                            // A failure in either substream requires a full
+                            // reconciliation, even on a metadata-only wakeup.
+                            known_revision = None;
+                            resume_revision = None;
+                            failed(&mut p.info, error);
+                        }
                     }
                 }
-                Err(error) => failed(&mut p.info, error),
+                Err(error) => {
+                    // A failure in either substream requires a full
+                    // reconciliation, even on a metadata-only wakeup.
+                    known_revision = None;
+                    resume_revision = None;
+                    failed(&mut p.info, error);
+                }
             }
             drop(state);
             if let Some(revision) = signal {

@@ -121,7 +121,9 @@ abandoned first-page leases under the SDK's existing 30-second expiry.
 
 Library catalogue and resume polling track separate revisions. A resume/root
 signal does not reread the unchanged catalogue, and a catalogue signal does not
-reread unchanged resumes; the timer reconciles both. Roots and additions retain
+reread unchanged resumes; the timer reconciles both. A reader or cache-import
+failure clears both revision hints, so metadata-only wakeups cannot report
+recovery until a complete reconciliation succeeds. Roots and additions retain
 their independent reads and validation. Media progress and download import retries
 continue with cached catalogue data. Unchanged downloads skip import refresh and
 row publication until the existing import-retry deadline.

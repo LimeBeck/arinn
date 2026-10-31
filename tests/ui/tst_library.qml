@@ -33,6 +33,21 @@ TestCase {
         verify(item !== null, name);
         return item;
     }
+    // The handoff prototype labels its stand-in art "poster", "backdrop" and
+    // "still"; those labels are not part of the UI (#610).
+    function wireframeLabels(item) {
+        let found = [];
+        if (!item || !item.visible)
+            return found;
+        if (item.text !== undefined && /^(poster|still|backdrop\b)/i.test(String(item.text)))
+            found.push(String(item.text));
+        for (let i = 0; i < item.children.length; ++i)
+            found = found.concat(wireframeLabels(item.children[i]));
+        return found;
+    }
+    function noWireframeLabels() {
+        compare(wireframeLabels(library), []);
+    }
     function focused(name) {
         tryCompare(child(name), "activeFocus", true, 5000, name);
     }
@@ -153,7 +168,8 @@ TestCase {
         compare(child("detailMissing").visible, false);
         compare(child("detailTitle").font.pixelSize, 112);
         compare(child("detailTitle").role, "display");
-        compare(child("detailBackdropMark").text, "backdrop · Bravo");
+        compare(child("detailFanart").visible, false);
+        noWireframeLabels();
         compare(child("detailEyebrow").text, "Film");
         keyClick(Qt.Key_Return);
         compare(plays.count, 1);
@@ -230,7 +246,9 @@ TestCase {
         compare(child("episode-e1").width, 420);
         compare(child("episode-e1").height, 236);
         compare(child("episode-e1").cornerRadius, 22);
-        compare(child("episodeMark-e1").text, "still");
+        compare(child("episodePlate-e1").visible, true);
+        compare(child("episodeGlyph-e1").width, 44);
+        noWireframeLabels();
         compare(findChild(library, "season-s1"), null);
         compare(child("episode-missing-e1").visible, false);
         keyClick(Qt.Key_Right);
@@ -379,9 +397,11 @@ TestCase {
         const below = child("poster-e").mapToItem(library, 0, 0);
         compare(below.x, 120);
         compare(below.y, 310 + 427 + 48);
-        compare(child("posterMark-a").text, "poster");
-        compare(child("posterMark-a").visible, true);
-        compare(child("posterPlate-a").visible, false);
+        // No artwork URL: the generic plate with the glyph and the title.
+        compare(findChild(library, "posterMark-a"), null);
+        compare(child("posterPlate-a").visible, true);
+        compare(child("posterArtTitle-a").text, "Alpha");
+        noWireframeLabels();
         compare(child("posterYear-a").text, "2001");
         compare(child("posterYear-a").font.pixelSize, 24);
         compare(child("posterLabel-a").font.pixelSize, 26);
@@ -409,7 +429,7 @@ TestCase {
             tabs: [{id: "films", title: "Films"}],
             entries: [{id: "n", tabId: "films", title: "Noir", year: "1999", noArt: true, kind: "film"}]
         });
-        compare(child("posterMark-n").visible, false);
+        compare(findChild(library, "posterMark-n"), null);
         compare(child("posterPlate-n").visible, true);
         compare(child("posterArtTitle-n").text, "Noir");
         compare(child("posterGlyph-n").width, 44);
@@ -442,7 +462,7 @@ TestCase {
         focused("detailPlay");
         compare(child("detailTitle").font.pixelSize, 112);
         compare(child("detailTitle").text, "Serial");
-        compare(child("detailBackdropMark").text, "backdrop · Serial");
+        compare(child("detailFanart").visible, false);
         compare(child("detailEyebrow").text, "Series");
         compare(child("detailMeta").text, "2011");
         compare(child("detailMeta").font.pixelSize, 30);
@@ -452,7 +472,8 @@ TestCase {
         compare(child("seasonUnderline-s2").visible, false);
         compare(child("episode-p1").width, 420);
         compare(child("episode-p1").height, 236);
-        compare(child("episodeMark-p1").text, "still");
+        compare(child("episodePlate-p1").visible, true);
+        noWireframeLabels();
         compare(child("episodeDuration-p1").text, "40 min");
         compare(findChild(library, "episode-p2"), null);
         keyClick(Qt.Key_Down);

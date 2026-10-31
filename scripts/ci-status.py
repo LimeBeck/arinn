@@ -44,7 +44,8 @@ class GitHub:
         self.base = "https://api.github.com/repos/" + repo
         self.token = token
 
-    def request(self, method, path, body=None, missing_ok=False):
+    def request(self, method, path, body=None, tolerate=()):
+        """The reply as JSON; None for 204 and for the HTTP codes in `tolerate`."""
         data = None if body is None else json.dumps(body).encode()
         request = urllib.request.Request(self.base + path, data=data, method=method, headers={
             "Authorization": "Bearer " + self.token,
@@ -56,7 +57,7 @@ class GitHub:
             with urllib.request.urlopen(request, timeout=60) as reply:
                 return None if reply.status == 204 else json.load(reply)
         except urllib.error.HTTPError as error:
-            if missing_ok and error.code == 404:
+            if error.code in tolerate:
                 return None
             raise RuntimeError(f"GitHub {method} {path} failed ({error.code})") from None
 
@@ -134,8 +135,9 @@ def alert(api, run):
             return "updated"
         # The first failure after this lands can finish before labels.yml
         # has synced the label; GitHub would reject the issue without it.
-        if api.request("GET", f"/labels/{LABEL}", missing_ok=True) is None:
-            api.request("POST", "/labels", LABEL_SPEC)
+        # 422: the sync created it in between.
+        if api.request("GET", f"/labels/{LABEL}", tolerate=(404,)) is None:
+            api.request("POST", "/labels", LABEL_SPEC, tolerate=(422,))
         api.request("POST", "/issues", {"title": title, "labels": [LABEL], "body": BODY + line})
         return "opened"
     if issue is None:

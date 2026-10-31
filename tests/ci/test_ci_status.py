@@ -24,22 +24,31 @@ LABELS = (ROOT / ".github" / "labels.yml").read_text()
 
 
 class FakeGitHub:
-    def __init__(self, runs=None, issues=None, labels=("ci-red",)):
+    def __init__(self, runs=None, issues=None, labels=("ci-red",), synced_meanwhile=False):
         self.runs = runs or []
         self.issues = issues or []
         self.labels = set(labels)
+        # The label sync creates the label right after the alert looked for it.
+        self.synced_meanwhile = synced_meanwhile
         self.calls = []
 
-    def request(self, method, path, body=None, missing_ok=False):
+    def request(self, method, path, body=None, tolerate=()):
         self.calls.append((method, path, body))
         if method == "GET" and path.startswith("/labels/"):
             name = path.rsplit("/", 1)[1]
-            if name in self.labels:
+            found = name in self.labels
+            if self.synced_meanwhile:
+                self.labels.add(name)
+            if found:
                 return {"name": name}
-            if missing_ok:
+            if 404 in tolerate:
                 return None
             raise RuntimeError("404")
         if method == "POST" and path == "/labels":
+            if body["name"] in self.labels:
+                if 422 in tolerate:
+                    return None
+                raise RuntimeError("422")
             self.labels.add(body["name"])
             return body
         if method == "POST" and path == "/issues":
@@ -113,6 +122,11 @@ class AlertTest(unittest.TestCase):
         self.assertEqual(label["name"], "ci-red")
         self.assertIn('- name: ci-red\n  color: "%s"\n' % label["color"], LABELS)
         self.assertEqual(issue_call[1], "/issues")
+
+    def test_a_label_the_sync_creates_meanwhile_does_not_lose_the_report(self):
+        api = FakeGitHub(labels=(), synced_meanwhile=True)
+        self.assertEqual(ci_status.alert(api, run("push")), "opened")
+        self.assertEqual(api.writes()[-1][1], "/issues")
 
     def test_later_failures_comment_on_the_open_issue(self):
         api = FakeGitHub(issues=[issue(7, "CI is red on master")])

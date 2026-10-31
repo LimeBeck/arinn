@@ -138,5 +138,6 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0118](0118-library-additions-contract.md) | Optional provider-owned library discovery times | Accepted | — |
 | [0119](0119-explicit-browser-open-window.md) | Activate the browser window selected by the open command | Accepted | — |
 | [0120](0120-home-recent-library-additions.md) | Recently added library films and series on Home | Proposed | — |
+| [0121](0121-red-master-and-nightly-alerts.md) | A red master or nightly opens an issue and blocks merges and releases | Proposed | — |
 | [0122](0122-revision-aware-provider-polling.md) | Revision-aware provider polling | Accepted | — |
 <!-- register:end -->

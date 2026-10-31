@@ -1,7 +1,8 @@
 name: Release
 
-# Publishes a GitHub release for a tag vX.Y.Z only after the full CI suite,
-# including the package build and install smoke test, passes on that commit.
+# Publishes a GitHub release for a tag vX.Y.Z only after the latest nightly
+# on master passed and the full CI suite, including the package build and
+# install smoke test, passes on that commit.
 # Jobs run in containers like CI, so a self-hosted runner (ARINN_RUNNER,
 # ADR-0049) needs only Docker and git.
 
@@ -17,12 +18,21 @@ jobs:
     name: Version and changelog
     runs-on: ${{ vars.ARINN_RUNNER || 'ubuntu-latest' }}
     container: python:3.12
+    permissions:
+      contents: read
+      # Reads the nightly's state.
+      actions: read
     steps:
       - uses: actions/checkout@v7
       # The checkout belongs to the runner user, not to root in the container.
       - run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           python scripts/release.py check "${GITHUB_REF_NAME}"
+      - name: Latest nightly is green
+        # A red nightly blocks releases (ADR-0121, #614).
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/ci-status.py nightly
 
   ci:
     name: Full CI

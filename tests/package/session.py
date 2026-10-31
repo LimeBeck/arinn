@@ -101,6 +101,9 @@ if VALIDATE:
         errors = [line for line in output
                   if "error:" in line and not (path in SESSIONS and "DesktopNames" in line)]
         assert not errors, output
+elif os.environ.get("ARINN_REQUIRE_DESKTOP_VALIDATE") == "1":
+    # CI installs the validator; a missing one must not pass as a skip (#614).
+    raise SystemExit("desktop-file-validate is required but not installed")
 else:
     print("SKIP: desktop-file-validate is not installed; session entry keys were checked above")
 subprocess.run([sys.executable, str(Path(__file__).with_name("test_session_entry.py"))],

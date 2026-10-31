@@ -66,7 +66,7 @@ To test packaging locally on Arch: `git archive --prefix=arinn-$(python scripts/
 
 ## Continuous integration
 
-Every pull request runs the pipeline described in [ADR-0033](docs/adr/0033-ci-cd-and-releases.md): Rust, the Qt build and integration suite on Arch Linux, licensing and documentation. The Arch and Debian packages are built, installed into a clean system and smoke-tested only for `master`, the nightly, releases and manual runs; run CI manually on your branch to check a packaging change ([ADR-0102](docs/adr/0102-packages-built-for-master-only.md)). A pull request that changes only Markdown files and changelog fragments skips the build jobs and runs only licensing and documentation; pushes to `master` always run everything ([ADR-0044](docs/adr/0044-docs-only-ci-scope.md)). The same pipeline runs nightly on `master` against the latest Arch packages. A pull request is merged only when every check is green; a failing nightly is fixed before anything else is released.
+Every pull request runs the pipeline described in [ADR-0033](docs/adr/0033-ci-cd-and-releases.md): Rust, the Qt build and integration suite on Arch Linux, licensing and documentation. The Arch and Debian packages are built, installed into a clean system and smoke-tested only for `master`, the nightly, releases and manual runs; run CI manually on your branch to check a packaging change ([ADR-0102](docs/adr/0102-packages-built-for-master-only.md)). A pull request that changes only Markdown files and changelog fragments skips the build jobs and runs only licensing and documentation; pushes to `master` always run everything ([ADR-0044](docs/adr/0044-docs-only-ci-scope.md)). The same pipeline runs nightly on `master` against the latest Arch packages. A pull request is merged only when every check is green; a failing nightly is fixed before anything else is released. A failed push or nightly run on `master` opens an issue labelled `ci-red` that the next green run of the same kind closes; while one is open, merge only pull requests that fix it or change only documentation and changelog fragments ([ADR-0121](docs/adr/0121-red-master-and-nightly-alerts.md)).
 
 ## Releases
 
@@ -86,8 +86,8 @@ Only the maintainer cuts version tags. To release version `X.Y.Z`:
 
 1. In a pull request, set `version` in the root `Cargo.toml` and `pkgver` in `packaging/arch/PKGBUILD` to `X.Y.Z`; run `python scripts/release.py collect X.Y.Z` to move the changelog fragments into a `## [X.Y.Z]` section; bump the specification version and update its §22 if requirements changed since the last version. Run `python scripts/release.py check vX.Y.Z`.
 2. If the release touches the platform layer, input or session behaviour, run the relevant operator tests on a real KDE session and attach the evidence to that pull request.
-3. Merge, make sure the latest nightly is green, then tag the merge commit: `git tag -s vX.Y.Z -m "Arinn X.Y.Z" && git push origin vX.Y.Z`.
-4. The release workflow reruns the full CI on the tag and publishes the GitHub Release with the Arch package, source tarball and checksums. Version tags publish ordinary releases, including `0.x`.
+3. Merge, make sure the latest nightly is green and no `ci-red` issue is open, then tag the merge commit: `git tag -s vX.Y.Z -m "Arinn X.Y.Z" && git push origin vX.Y.Z`.
+4. The release workflow fails unless the latest nightly on `master` passed, reruns the full CI on the tag and publishes the GitHub Release with the Arch package, source tarball and checksums. Version tags publish ordinary releases, including `0.x`.
 
 ## Parallel work
 

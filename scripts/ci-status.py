@@ -27,6 +27,9 @@ import urllib.parse
 import urllib.request
 
 LABEL = "ci-red"
+# Same as .github/labels.yml, for a report that runs before the label sync.
+LABEL_SPEC = {"name": LABEL, "color": "b60205",
+              "description": "CI failed on master or the nightly; opened and closed by ci-alert.yml (ADR-0121)"}
 TITLES = {"push": "CI is red on master", "schedule": "Nightly CI is red"}
 FAILED = {"failure", "timed_out", "startup_failure"}
 BODY = (
@@ -41,7 +44,7 @@ class GitHub:
         self.base = "https://api.github.com/repos/" + repo
         self.token = token
 
-    def request(self, method, path, body=None):
+    def request(self, method, path, body=None, missing_ok=False):
         data = None if body is None else json.dumps(body).encode()
         request = urllib.request.Request(self.base + path, data=data, method=method, headers={
             "Authorization": "Bearer " + self.token,
@@ -53,6 +56,8 @@ class GitHub:
             with urllib.request.urlopen(request, timeout=60) as reply:
                 return None if reply.status == 204 else json.load(reply)
         except urllib.error.HTTPError as error:
+            if missing_ok and error.code == 404:
+                return None
             raise RuntimeError(f"GitHub {method} {path} failed ({error.code})") from None
 
 
@@ -127,6 +132,10 @@ def alert(api, run):
         if issue:
             api.request("POST", f"/issues/{issue['number']}/comments", {"body": "Still red: " + line})
             return "updated"
+        # The first failure after this lands can finish before labels.yml
+        # has synced the label; GitHub would reject the issue without it.
+        if api.request("GET", f"/labels/{LABEL}", missing_ok=True) is None:
+            api.request("POST", "/labels", LABEL_SPEC)
         api.request("POST", "/issues", {"title": title, "labels": [LABEL], "body": BODY + line})
         return "opened"
     if issue is None:

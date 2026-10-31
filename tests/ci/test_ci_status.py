@@ -24,13 +24,26 @@ LABELS = (ROOT / ".github" / "labels.yml").read_text()
 
 
 class FakeGitHub:
-    def __init__(self, runs=None, issues=None):
+    def __init__(self, runs=None, issues=None, labels=("ci-red",)):
         self.runs = runs or []
         self.issues = issues or []
+        self.labels = set(labels)
         self.calls = []
 
-    def request(self, method, path, body=None):
+    def request(self, method, path, body=None, missing_ok=False):
         self.calls.append((method, path, body))
+        if method == "GET" and path.startswith("/labels/"):
+            name = path.rsplit("/", 1)[1]
+            if name in self.labels:
+                return {"name": name}
+            if missing_ok:
+                return None
+            raise RuntimeError("404")
+        if method == "POST" and path == "/labels":
+            self.labels.add(body["name"])
+            return body
+        if method == "POST" and path == "/issues":
+            assert set(body["labels"]) <= self.labels, "GitHub rejects an unknown label"
         if method == "GET" and path.startswith("/actions/workflows/ci.yml/runs?"):
             # Like the REST API: newest first, `created=>=` filter, paged.
             query = urllib.parse.parse_qs(path.split("?", 1)[1])
@@ -90,6 +103,16 @@ class AlertTest(unittest.TestCase):
         self.assertEqual(body["title"], "CI is red on master")
         self.assertEqual(body["labels"], ["ci-red"])
         self.assertIn("merge only pull requests that fix it", body["body"])
+
+    def test_first_failure_before_the_label_sync_creates_the_label(self):
+        # The first failure can finish before labels.yml has run (#621 review).
+        api = FakeGitHub(labels=())
+        self.assertEqual(ci_status.alert(api, run("push")), "opened")
+        (label_method, label_path, label), issue_call = api.writes()
+        self.assertEqual((label_method, label_path), ("POST", "/labels"))
+        self.assertEqual(label["name"], "ci-red")
+        self.assertIn('- name: ci-red\n  color: "%s"\n' % label["color"], LABELS)
+        self.assertEqual(issue_call[1], "/issues")
 
     def test_later_failures_comment_on_the_open_issue(self):
         api = FakeGitHub(issues=[issue(7, "CI is red on master")])

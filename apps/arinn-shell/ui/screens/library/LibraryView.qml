@@ -447,7 +447,9 @@ FocusScope {
     }
     onShowStatusChanged: Qt.callLater(refocusAfterState)
     onShowGridChanged: Qt.callLater(refocusAfterState)
-    onOwnsFocusChanged: if (ownsFocus) Qt.callLater(() => { refocusAfterState(); reconcilePoster(); })
+    // The remembered poster first: the fallback would focus a tab and
+    // forget the grid position.
+    onOwnsFocusChanged: if (ownsFocus) Qt.callLater(() => { reconcilePoster(); refocusAfterState(); })
     onEntriesChanged: Qt.callLater(reconcilePoster)
     onVisibleEntriesChanged: Qt.callLater(reconcilePoster)
     onTabsChanged: adoptTab()

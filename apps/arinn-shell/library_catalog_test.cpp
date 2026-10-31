@@ -1799,6 +1799,77 @@ private slots:
     QTRY_VERIFY(row->hasActiveFocus());
   }
 
+  void catalogueChangesUnderTheMenuKeepThePosterPosition() {
+    LibraryDaemon daemon;
+    daemon.collections = {{QStringLiteral("films"), QStringLiteral("Films"),
+                           QStringLiteral("film")}};
+    daemon.page1 = {film(QStringLiteral("north"), QStringLiteral("North")),
+                    film(QStringLiteral("middle"), QStringLiteral("Middle")),
+                    film(QStringLiteral("south"), QStringLiteral("South"))};
+    QVERIFY(registerBus(daemon));
+    ShellStandIn backend;
+    SessionGuardStandIn guard;
+    QQmlApplicationEngine engine;
+    installAssetImageProvider(&engine);
+    engine.rootContext()->setContextProperty(QStringLiteral("backend"), &backend);
+    engine.rootContext()->setContextProperty(QStringLiteral("sessionGuard"),
+                                             &guard);
+    engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
+    auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().value(0));
+    QVERIFY(window);
+    window->show();
+    window->requestActivate();
+    auto home = window->findChild<QQuickItem *>(QStringLiteral("productionHome"));
+    auto library =
+        window->findChild<QQuickItem *>(QStringLiteral("productionLibrary"));
+    QVERIFY(home);
+    QVERIFY(library);
+    QTRY_COMPARE(library->property("visibleEntries").toList().size(), 3);
+    home->setProperty("screen", QStringLiteral("library"));
+    QTRY_VERIFY(focusInside(window->activeFocusItem(), library));
+    // Let the screen's deferred initial focus run first.
+    QTest::qWait(100);
+
+    // Focus the last poster, then remove it while the menu is open.
+    const auto before = library->property("visibleEntries").toList();
+    const auto lastId = before.at(2).toMap().value(QStringLiteral("id")).toString();
+    auto last = findItem(library, QStringLiteral("poster-") + lastId);
+    QVERIFY(last);
+    last->forceActiveFocus();
+    QTRY_VERIFY(last->hasActiveFocus());
+    QTest::keyClick(window, Qt::Key_Menu);
+    QTRY_COMPARE(home->property("navOpen").toBool(), true);
+    const auto lastTitle =
+        before.at(2).toMap().value(QStringLiteral("title")).toString();
+    QList<ItemWire> kept;
+    for (const auto &entry : std::as_const(daemon.page1)) {
+      if (entry.title != lastTitle)
+        kept.append(entry);
+    }
+    QCOMPARE(kept.size(), 2);
+    daemon.page1 = kept;
+    auto signal = QDBusMessage::createSignal(
+        QStringLiteral("/org/arinn/Daemon1"), QStringLiteral("org.arinn.Daemon1"),
+        QStringLiteral("StateChanged"));
+    signal << QStringLiteral("library-provider") << QStringLiteral("library")
+           << QStringLiteral("g-library") << qulonglong(2);
+    QVERIFY(QDBusConnection::sessionBus().send(signal));
+    QTRY_COMPARE(library->property("visibleEntries").toList().size(), 2);
+    QTest::qWait(100);
+
+    // Closing the menu returns to the nearest surviving poster, not a tab.
+    const auto after = library->property("visibleEntries").toList();
+    const auto nearest =
+        QStringLiteral("poster-") +
+        after.at(1).toMap().value(QStringLiteral("id")).toString();
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_COMPARE(home->property("navOpen").toBool(), false);
+    QTRY_COMPARE(window->activeFocusItem()
+                     ? window->activeFocusItem()->objectName()
+                     : QString(),
+                 nearest);
+  }
+
   void navigationMenuFocusesTheLibrary() {
     LibraryDaemon daemon;
     daemon.collections = {{QStringLiteral("films"), QStringLiteral("Films"),

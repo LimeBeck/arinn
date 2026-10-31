@@ -696,6 +696,56 @@ fn import_is_idempotent_per_completion_id() {
 }
 
 #[test]
+fn import_skips_non_media_outputs_of_a_completed_download() {
+    let scratch = Scratch::new();
+    let root = scratch.path().join("root");
+    fs::create_dir(&root).unwrap();
+    let mut store = open(&scratch);
+    store
+        .scan(&settings(&root, false, PathBuf::from("ffprobe")))
+        .unwrap();
+    let pack = root.join("Show");
+    fs::create_dir(&pack).unwrap();
+    let video = pack.join("Show S01E01.mkv");
+    let subtitles = pack.join("Show S01E01.srt");
+    let info = pack.join("tvshow.nfo");
+    fs::write(&video, b"episode").unwrap();
+    fs::write(&subtitles, b"1\n00:00:01,000 --> 00:00:02,000\nHi\n").unwrap();
+    fs::write(&info, b"<tvshow><title>Show</title></tvshow>").unwrap();
+    let candidate = |path: &Path, completion_id: &str| ImportCandidate {
+        source: EntityRef {
+            provider_id: "downloads".into(),
+            capability: "download".into(),
+            local_id: "job-pack".into(),
+        },
+        file_uri: file_uri(path),
+        completion_id: completion_id.into(),
+    };
+    let batch = [
+        candidate(&subtitles, "out-srt"),
+        candidate(&video, "out-mkv"),
+        candidate(&info, "out-nfo"),
+    ];
+    let ids = store.import(&batch).unwrap();
+    assert_eq!(ids.len(), 1);
+    let episodes: Vec<_> = store
+        .snapshot()
+        .unwrap()
+        .1
+        .into_iter()
+        .filter(|item| item.kind == "episode")
+        .collect();
+    assert_eq!(episodes.len(), 1);
+    assert_eq!(episodes[0].id, ids[0]);
+    assert_eq!(store.import(&batch).unwrap(), ids);
+    let only_extras = [
+        candidate(&subtitles, "out-srt"),
+        candidate(&info, "out-nfo"),
+    ];
+    assert_eq!(store.import(&only_extras).unwrap(), Vec::<String>::new());
+}
+
+#[test]
 fn import_rejects_a_root_removed_from_settings() {
     let scratch = Scratch::new();
     let root = scratch.path().join("root");

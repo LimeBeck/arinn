@@ -1,0 +1,1 @@
+- A completed download with subtitles, NFO files or other extras next to its videos is now added to the library. The library skips files it would not catalogue instead of refusing the whole import, so the row no longer stays "import pending" forever ([#598](https://github.com/LimeBeck/arinn/issues/598)).

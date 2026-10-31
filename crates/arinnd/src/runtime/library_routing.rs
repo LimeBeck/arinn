@@ -29,11 +29,17 @@ const KNOWN_FEATURES: &[&str] = &[
 const LIBRARY_LAUNCH_TIMEOUT: Duration = Duration::from_secs(30);
 const RESUME_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
 
-type LibrarySnapshot = (u64, Vec<Collection>, Vec<Item>, String, Vec<String>);
+type LibrarySnapshot = (
+    u64,
+    Option<(Vec<Collection>, Vec<Item>)>,
+    String,
+    Vec<String>,
+);
 
 pub(super) async fn read_library(
     proxy: &LibraryProviderProxy<'_>,
     generation: &str,
+    known_revision: Option<u64>,
 ) -> Result<LibrarySnapshot, ErrorCode> {
     let mut token = String::new();
     let mut tokens = HashSet::new();
@@ -52,6 +58,10 @@ pub(super) async fn read_library(
         if page.generation != generation || (revision != 0 && page.revision != revision) {
             return Err(ErrorCode::Conflict);
         }
+        if token.is_empty() && known_revision == Some(page.revision) {
+            revision = page.revision;
+            break;
+        }
         revision = page.revision;
         collections.extend(page.collections);
         items.extend(page.items);
@@ -63,7 +73,19 @@ pub(super) async fn read_library(
             return Err(ErrorCode::Conflict);
         }
     }
-    library::validate_entries(&collections, &items)?;
+    let data = if known_revision == Some(revision) {
+        None
+    } else {
+        library::validate_entries(&collections, &items)?;
+        Some((collections, items))
+    };
+    let (backend, features) = read_library_metadata(proxy).await?;
+    Ok((revision, data, backend, features))
+}
+
+async fn read_library_metadata(
+    proxy: &LibraryProviderProxy<'_>,
+) -> Result<(String, Vec<String>), ErrorCode> {
     let backend = proxy.backend_state().await.map_err(normalize_error)?;
     if !["available", "unavailable", "degraded"].contains(&backend.as_str()) {
         return Err(ErrorCode::Unsupported);
@@ -75,13 +97,14 @@ pub(super) async fn read_library(
         .into_iter()
         .filter(|f| KNOWN_FEATURES.contains(&f.as_str()))
         .collect();
-    Ok((revision, collections, items, backend, features))
+    Ok((backend, features))
 }
 
 pub(super) async fn read_resumes(
     proxy: &LibraryResumeProxy<'_>,
     generation: &str,
-) -> Result<(u64, Vec<Resume>), ErrorCode> {
+    known_revision: Option<u64>,
+) -> Result<(u64, Option<Vec<Resume>>), ErrorCode> {
     let mut token = String::new();
     let mut tokens = HashSet::new();
     let mut revision = 0;
@@ -95,6 +118,10 @@ pub(super) async fn read_resumes(
         if page.generation != generation || (revision != 0 && page.revision != revision) {
             return Err(ErrorCode::Conflict);
         }
+        if token.is_empty() && known_revision == Some(page.revision) {
+            revision = page.revision;
+            break;
+        }
         revision = page.revision;
         resumes.extend(page.resumes);
         token = page.next_token;
@@ -105,8 +132,13 @@ pub(super) async fn read_resumes(
             return Err(ErrorCode::Conflict);
         }
     }
-    library::validate_resumes(&resumes)?;
-    Ok((revision, resumes))
+    let data = if known_revision == Some(revision) {
+        None
+    } else {
+        library::validate_resumes(&resumes)?;
+        Some(resumes)
+    };
+    Ok((revision, data))
 }
 
 pub(super) async fn read_roots(
@@ -161,14 +193,27 @@ impl Core {
         let Ok(mut root_changes) = roots.receive_roots_state_changed().await else {
             return;
         };
+        let mut known_revision = None;
+        let mut resume_revision = None;
         let mut tick = tokio::time::interval(Duration::from_secs(1));
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
-            tokio::select! {
-                _=tick.tick()=>{},
-                event=changes.next()=>{if event.is_none(){return;}},
-                event=resume_changes.next()=>{if event.is_none(){return;}},
-                event=root_changes.next()=>{if event.is_none(){return;}},
-            }
+            let (poll_catalogue, poll_resumes) = tokio::select! {
+                _=tick.tick() => (true, true),
+                event=changes.next()=>{
+                    let Some(event) = event else { return; };
+                    let Ok(args) = event.args() else { continue; };
+                    if !new_revision_hint(&generation, known_revision, args.generation, args.revision) { continue; }
+                    (true, false)
+                },
+                event=resume_changes.next()=>{
+                    let Some(event) = event else { return; };
+                    let Ok(args) = event.args() else { continue; };
+                    if !new_revision_hint(&generation, resume_revision, args.generation, args.revision) { continue; }
+                    (false, true)
+                },
+                event=root_changes.next()=>{if event.is_none(){return;} (false, false)},
+            };
             if !self
                 .state
                 .lock()
@@ -180,13 +225,22 @@ impl Core {
                 return;
             }
             let result = tokio::time::timeout(Duration::from_secs(3), async {
-                let snapshot = read_library(&proxy, &generation).await?;
-                let resumes = if snapshot.4.iter().any(|f| f == FEATURE_RESUME) {
-                    Some(read_resumes(&resume, &generation).await?)
+                let snapshot = match (poll_catalogue, known_revision) {
+                    (false, Some(revision)) => {
+                        let (backend, features) = read_library_metadata(&proxy).await?;
+                        (revision, None, backend, features)
+                    }
+                    _ => read_library(&proxy, &generation, known_revision).await?,
+                };
+                let resumes = if snapshot.3.iter().any(|f| f == FEATURE_RESUME) {
+                    Some(match (poll_resumes, resume_revision) {
+                        (false, Some(revision)) => (revision, None),
+                        _ => read_resumes(&resume, &generation, resume_revision).await?,
+                    })
                 } else {
                     None
                 };
-                let roots = if snapshot.4.iter().any(|f| f == FEATURE_ROOTS) {
+                let roots = if snapshot.3.iter().any(|f| f == FEATURE_ROOTS) {
                     Some(read_roots(&roots, &generation).await?)
                 } else {
                     None
@@ -199,7 +253,7 @@ impl Core {
                 Ok((snapshot, resumes, roots)) => {
                     // Optional metadata has its own deadline, outside the base
                     // catalogue budget, including proxy construction.
-                    let additions = if snapshot.4.iter().any(|f| f == FEATURE_ADDITIONS) {
+                    let additions = if snapshot.3.iter().any(|f| f == FEATURE_ADDITIONS) {
                         tokio::time::timeout(Duration::from_millis(500), async {
                             let proxy = LibraryAdditionsProxy::builder(&self.connection)
                                 .destination(owner.as_str())
@@ -213,7 +267,17 @@ impl Core {
                                 .await
                                 .map_err(normalize_error)?;
                             added.validate()?;
-                            library::validate_addition_items(&added.entries, &snapshot.2)?;
+                            if let Some((_, items)) = &snapshot.1 {
+                                library::validate_addition_items(&added.entries, items)?;
+                            } else {
+                                let state = self.state.lock().await;
+                                let p = state
+                                    .providers
+                                    .get(&id)
+                                    .filter(|p| p.owner == owner && p.info.generation == generation)
+                                    .ok_or(ErrorCode::Unavailable)?;
+                                library::validate_addition_items(&added.entries, &p.items)?;
+                            }
                             if added.generation != generation || added.revision != snapshot.0 {
                                 return Err(ErrorCode::Conflict);
                             }
@@ -245,22 +309,21 @@ impl Core {
             }
             let mut signal = None;
             match result {
-                Ok((
-                    (revision, collections, items, backend, features),
-                    resumes,
-                    roots,
-                    additions,
-                )) => {
+                Ok(((revision, data, backend, features), resumes, roots, additions)) => {
                     let cache = p
                         .library_cache
                         .get_or_insert_with(|| LibrarySnapshots::new(&generation).unwrap());
-                    let imported = cache
-                        .import(revision, collections.clone(), items.clone())
+                    let imported = data
+                        .as_ref()
+                        .map_or(Ok(()), |(collections, items)| {
+                            cache.import(revision, collections.clone(), items.clone())
+                        })
                         .and_then(|()| match &resumes {
-                            Some((resume_revision, list)) => p
+                            Some((revision, Some(list))) => p
                                 .resume_cache
                                 .get_or_insert_with(|| ResumeSnapshots::new(&generation).unwrap())
-                                .import(*resume_revision, list.clone()),
+                                .import(*revision, list.clone()),
+                            Some((_, None)) => Ok(()),
                             None => {
                                 p.resume_cache = None;
                                 Ok(())
@@ -268,9 +331,11 @@ impl Core {
                         });
                     match imported {
                         Ok(()) => {
-                            let resumes_changed = resumes.as_ref().map(|(_, r)| r)
-                                != Some(&p.resumes)
-                                && !(resumes.is_none() && p.resumes.is_empty());
+                            let resumes_changed = match &resumes {
+                                Some((_, Some(list))) => list != &p.resumes,
+                                Some((_, None)) => false,
+                                None => !p.resumes.is_empty(),
+                            };
                             // The shell reads roots with Library1.GetRoots; a
                             // change is announced with the library's StateChanged.
                             let roots_changed = roots.as_ref().map(|r| &r.roots)
@@ -312,9 +377,23 @@ impl Core {
                                     library_additions.remove(&id);
                                 }
                             }
-                            p.collections = collections;
-                            p.items = items;
-                            p.resumes = resumes.map(|(_, r)| r).unwrap_or_default();
+                            if let Some((collections, items)) = data {
+                                p.collections = collections;
+                                p.items = items;
+                            }
+                            known_revision = Some(revision);
+                            match resumes {
+                                Some((revision, list)) => {
+                                    resume_revision = Some(revision);
+                                    if let Some(list) = list {
+                                        p.resumes = list;
+                                    }
+                                }
+                                None => {
+                                    resume_revision = None;
+                                    p.resumes.clear();
+                                }
+                            }
                             p.features = features;
                             p.info.revision = revision;
                             p.info.backend_state = backend;

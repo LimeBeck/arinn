@@ -122,10 +122,11 @@ fn observed(info: &ProviderInfo) -> (String, String, u64, String, u64) {
     )
 }
 
-async fn read_jobs(
+pub(super) async fn read_jobs(
     proxy: &DownloadProviderProxy<'_>,
     generation: &str,
-) -> Result<(u64, Vec<Job>, String), ErrorCode> {
+    known_revision: Option<u64>,
+) -> Result<(u64, Option<Vec<Job>>, String), ErrorCode> {
     let mut token = String::new();
     let mut tokens = HashSet::new();
     let mut revision = 0;
@@ -141,6 +142,10 @@ async fn read_jobs(
         if page.generation != generation || (revision != 0 && revision != page.revision) {
             return Err(ErrorCode::Conflict);
         }
+        if token.is_empty() && known_revision == Some(page.revision) {
+            revision = page.revision;
+            break;
+        }
         revision = page.revision;
         jobs.extend(page.jobs);
         token = page.next_token;
@@ -151,12 +156,17 @@ async fn read_jobs(
             return Err(ErrorCode::Conflict);
         }
     }
-    download::validate_jobs(&jobs)?;
+    let data = if known_revision == Some(revision) {
+        None
+    } else {
+        download::validate_jobs(&jobs)?;
+        Some(jobs)
+    };
     let backend = proxy.backend_state().await.map_err(normalize_error)?;
     if !["available", "degraded", "unavailable"].contains(&backend.as_str()) {
         return Err(ErrorCode::Unsupported);
     }
-    Ok((revision, jobs, backend))
+    Ok((revision, data, backend))
 }
 
 /// Keep both the contract count and the encoded D-Bus body within their limits.
@@ -199,16 +209,27 @@ impl Core {
         let Ok(mut changes) = proxy.receive_provider_state_changed().await else {
             return;
         };
+        let mut known_revision = None;
         let mut tick = tokio::time::interval(Duration::from_secs(1));
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
-            tokio::select! { _=tick.tick()=>{}, event=changes.next()=>{ if event.is_none() { return; } } }
+            tokio::select! {
+                _=tick.tick()=>{},
+                event=changes.next()=>{
+                    let Some(event) = event else { return; };
+                    let Ok(args) = event.args() else { continue; };
+                    if !new_revision_hint(&generation, known_revision, args.generation, args.revision) { continue; }
+                }
+            }
             if !self.download_current(&id, &owner, &generation).await {
                 return;
             }
-            let result =
-                tokio::time::timeout(Duration::from_secs(3), read_jobs(&proxy, &generation))
-                    .await
-                    .unwrap_or(Err(ErrorCode::Timeout));
+            let result = tokio::time::timeout(
+                Duration::from_secs(3),
+                read_jobs(&proxy, &generation, known_revision),
+            )
+            .await
+            .unwrap_or(Err(ErrorCode::Timeout));
             let mut state = self.state.lock().await;
             let Some(p) = state.providers.get_mut(&id) else {
                 return;
@@ -225,15 +246,23 @@ impl Core {
                     let cache = d
                         .source
                         .get_or_insert_with(|| JobSnapshots::new(&generation).unwrap());
-                    match cache.import(revision, jobs.clone()) {
+                    match jobs
+                        .as_ref()
+                        .map_or(Ok(()), |jobs| cache.import(revision, jobs.clone()))
+                    {
                         Ok(()) => {
-                            d.jobs = jobs;
+                            let refresh = jobs.is_some()
+                                || d.next_import.is_none_or(|next| Instant::now() >= next);
+                            if let Some(jobs) = jobs {
+                                d.jobs = jobs;
+                            }
+                            known_revision = Some(revision);
                             p.info.backend_state = backend;
                             p.info.runtime_state = "ready".into();
                             if !p.info.last_error.is_empty() && p.info.recovered_at == 0 {
                                 p.info.recovered_at = now();
                             }
-                            ready = true;
+                            ready = refresh;
                         }
                         Err(error) => failed(&mut p.info, error),
                     }

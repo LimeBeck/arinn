@@ -104,7 +104,8 @@ impl MediaAction {
 pub(super) async fn read_sessions(
     proxy: &MediaProviderProxy<'_>,
     generation: &str,
-) -> Result<(u64, Vec<Session>, String, Vec<String>), ErrorCode> {
+    known_revision: Option<u64>,
+) -> Result<(u64, Option<Vec<Session>>, String, Vec<String>), ErrorCode> {
     let mut token = String::new();
     let mut tokens = HashSet::new();
     let mut revision = 0;
@@ -120,6 +121,10 @@ pub(super) async fn read_sessions(
         if page.generation != generation || (revision != 0 && page.revision != revision) {
             return Err(ErrorCode::Conflict);
         }
+        if token.is_empty() && known_revision == Some(page.revision) {
+            revision = page.revision;
+            break;
+        }
         revision = page.revision;
         sessions.extend(page.sessions);
         token = page.next_token;
@@ -130,7 +135,12 @@ pub(super) async fn read_sessions(
             return Err(ErrorCode::Conflict);
         }
     }
-    media::validate_sessions(&sessions)?;
+    let data = if known_revision == Some(revision) {
+        None
+    } else {
+        media::validate_sessions(&sessions)?;
+        Some(sessions)
+    };
     let backend = proxy.backend_state().await.map_err(normalize_error)?;
     if !["available", "unavailable", "degraded"].contains(&backend.as_str()) {
         return Err(ErrorCode::Unsupported);
@@ -141,7 +151,7 @@ pub(super) async fn read_sessions(
         .into_iter()
         .filter(|f| KNOWN_FEATURES.contains(&f.as_str()))
         .collect();
-    Ok((revision, sessions, backend, features))
+    Ok((revision, data, backend, features))
 }
 
 // Shared by asynchronous discovery and the final locked admission fence.
@@ -180,9 +190,18 @@ impl Core {
         let Ok(mut changes) = proxy.receive_provider_state_changed().await else {
             return;
         };
+        let mut known_revision = None;
         let mut tick = tokio::time::interval(Duration::from_secs(1));
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
-            tokio::select! {_=tick.tick()=>{},event=changes.next()=>{if event.is_none(){return;}}}
+            tokio::select! {
+                _=tick.tick()=>{},
+                event=changes.next()=>{
+                    let Some(event) = event else { return; };
+                    let Ok(args) = event.args() else { continue; };
+                    if !new_revision_hint(&generation, known_revision, args.generation, args.revision) { continue; }
+                }
+            }
             if !self
                 .state
                 .lock()
@@ -193,10 +212,12 @@ impl Core {
             {
                 return;
             }
-            let result =
-                tokio::time::timeout(Duration::from_secs(3), read_sessions(&proxy, &generation))
-                    .await
-                    .unwrap_or(Err(ErrorCode::Timeout));
+            let result = tokio::time::timeout(
+                Duration::from_secs(3),
+                read_sessions(&proxy, &generation, known_revision),
+            )
+            .await
+            .unwrap_or(Err(ErrorCode::Timeout));
             let mut state = self.state.lock().await;
             let Some(p) = state.providers.get_mut(&id) else {
                 return;
@@ -211,7 +232,10 @@ impl Core {
                     let cache = p
                         .session_cache
                         .get_or_insert_with(|| SessionSnapshots::new(&generation).unwrap());
-                    match cache.import(revision, sessions.clone()) {
+                    match sessions
+                        .as_ref()
+                        .map_or(Ok(()), |sessions| cache.import(revision, sessions.clone()))
+                    {
                         Ok(()) => {
                             if revision != p.info.revision {
                                 signal = Some(revision);
@@ -227,7 +251,7 @@ impl Core {
                             {
                                 &[][..]
                             } else {
-                                sessions.as_slice()
+                                sessions.as_deref().unwrap_or(&p.sessions)
                             };
                             if window_changed {
                                 self.windows
@@ -241,7 +265,10 @@ impl Core {
                                     )
                                     .await;
                             }
-                            p.sessions = sessions;
+                            if let Some(sessions) = sessions {
+                                p.sessions = sessions;
+                            }
+                            known_revision = Some(revision);
                             p.features = features;
                             p.info.revision = revision;
                             p.info.backend_state = backend;
@@ -265,9 +292,18 @@ impl Core {
                 }
                 self.changed().await;
             }
-            if window_changed
-                && let Some(p) = self.state.lock().await.providers.get(&id)
-                && let Ok(emitter) = SignalEmitter::new(&self.connection, p.info.path.clone())
+            let window_path = if window_changed {
+                self.state
+                    .lock()
+                    .await
+                    .providers
+                    .get(&id)
+                    .map(|p| p.info.path.clone())
+            } else {
+                None
+            };
+            if let Some(path) = window_path
+                && let Ok(emitter) = SignalEmitter::new(&self.connection, path)
             {
                 let _ = MediaWindowEndpoint::changed(&emitter, &generation).await;
             }

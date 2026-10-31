@@ -592,6 +592,9 @@ impl Store {
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .map_err(|_| ErrorCode::NotFound)?;
+        if observed == previous {
+            return Ok((total as u64, 0));
+        }
         let delta = if observed >= previous {
             observed - previous
         } else {
@@ -1061,4 +1064,31 @@ fn read_favorite_list(connection: &Connection) -> Result<FavoriteList, ErrorCode
     let list = FavoriteList { revision, entries };
     list.validate().map_err(|_| ErrorCode::Internal)?;
     Ok(list)
+}
+
+#[cfg(test)]
+mod polling_tests {
+    use super::*;
+
+    #[test]
+    fn unchanged_restart_observations_do_not_write() {
+        let path = std::env::temp_dir().join(format!("arinn-restart-poll-{}", Uuid::new_v4()));
+        let mut store = Store::open(&path).unwrap();
+        store.provider_uuid("fixture").unwrap();
+        assert_eq!(store.observe_restarts("fixture", 2), Ok((2, 2)));
+        let changes = store.connection.total_changes();
+        for _ in 0..5 {
+            assert_eq!(store.observe_restarts("fixture", 2), Ok((2, 0)));
+        }
+        assert_eq!(store.connection.total_changes(), changes);
+        // A supervisor counter reset is still persisted, without adding restarts.
+        assert_eq!(store.observe_restarts("fixture", 0), Ok((2, 0)));
+        assert_eq!(store.observe_restarts("fixture", 1), Ok((3, 1)));
+        assert_eq!(
+            store.observe_restarts("missing", 0),
+            Err(ErrorCode::NotFound)
+        );
+        drop(store);
+        fs::remove_dir_all(path).unwrap();
+    }
 }

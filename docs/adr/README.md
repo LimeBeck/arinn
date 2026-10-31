@@ -76,7 +76,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0055](0055-launching-a-closed-browser.md) | Launching a closed browser before opening a URL | Accepted | — |
 | [0056](0056-local-library-scan-metadata-and-resume.md) | Local library scan, metadata and resume | Accepted | 0085, 0090, 0115 |
 | [0057](0057-mpv-ipc-and-process-scope.md) | mpv IPC, process scope and thumbnails | Accepted | 0083 |
-| [0058](0058-media-routing.md) | Daemon routing for media providers | Accepted | 0060 |
+| [0058](0058-media-routing.md) | Daemon routing for media providers | Accepted | 0060, 0122 |
 | [0059](0059-application-icon-references.md) | Application icon references | Accepted | — |
 | [0060](0060-library-routing.md) | Daemon routing for library providers and library launch | Accepted | 0061 |
 | [0061](0061-playback-progress-forwarding.md) | Forwarding playback progress to the library | Accepted | 0063 |
@@ -138,4 +138,5 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0118](0118-library-additions-contract.md) | Optional provider-owned library discovery times | Accepted | — |
 | [0119](0119-explicit-browser-open-window.md) | Activate the browser window selected by the open command | Accepted | — |
 | [0120](0120-home-recent-library-additions.md) | Recently added library films and series on Home | Proposed | — |
+| [0122](0122-revision-aware-provider-polling.md) | Revision-aware provider polling | Accepted | — |
 <!-- register:end -->

@@ -42,6 +42,9 @@ class FakeGitHub:
             size = int(query.get("per_page", ["30"])[0])
             page = int(query.get("page", ["1"])[0])
             return {"workflow_runs": runs[(page - 1) * size:page * size]}
+        if method == "GET" and path.startswith("/actions/runs/"):
+            run_id = int(path.rsplit("/", 1)[1])
+            return next((item for item in self.runs if item["id"] == run_id), {})
         if method == "GET" and path.startswith("/issues?"):
             return self.issues
         return {}
@@ -154,6 +157,15 @@ class OrderTest(unittest.TestCase):
         pages = [path for method, path, _ in api.calls if "/actions/workflows/" in path]
         self.assertEqual(len(pages), 2)
         self.assertIn("created=%3E%3D2026-10-30T10%3A00%3A00Z", pages[0])
+
+    def test_a_delayed_earlier_attempt_does_not_override_its_re_run(self):
+        # A failed run re-run green keeps its ID; the failure report arrives late.
+        first = {**run("push", "failure", run_id=5), "run_attempt": 1}
+        rerun = {**run("push", "success", run_id=5), "run_attempt": 2}
+        api = FakeGitHub(runs=[rerun])
+        self.assertEqual(ci_status.alert(api, rerun), "green")
+        self.assertEqual(ci_status.alert(api, first), "stale")
+        self.assertEqual(api.writes(), [])
 
     def test_newer_cancelled_runs_and_other_kinds_do_not_make_a_run_stale(self):
         current = run("push", "failure", run_id=1, created="2026-10-30T10:00:00Z")

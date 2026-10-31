@@ -113,6 +113,11 @@ def alert(api, run):
     # after a newer run of the same kind has reported.
     if newer_decisive(api, run) is not None:
         return "stale"
+    # A re-run keeps the run ID and counts attempts: a delayed report of an
+    # earlier attempt must not override the attempt that replaced it.
+    current = api.request("GET", f"/actions/runs/{run['id']}") or {}
+    if current.get("run_attempt", 1) > run.get("run_attempt", 1):
+        return "stale"
     kind, title = action
     issues = api.request("GET", f"/issues?state=open&labels={LABEL}&per_page=100") or []
     issue = next((item for item in issues

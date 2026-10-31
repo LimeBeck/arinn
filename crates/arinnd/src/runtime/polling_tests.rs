@@ -71,10 +71,6 @@ macro_rules! snapshot_test {
             }
             fn backend_state(&self) -> String { self.0.backend.lock().unwrap().clone() }
             fn features(&self) -> Vec<String> { vec![] }
-            // The watcher test emits the application fixture's signal only.
-            #[allow(dead_code)]
-            #[zbus(signal)]
-            async fn state_changed(emitter: &SignalEmitter<'_>, generation: &str, revision: u64) -> zbus::Result<()>;
         }
         #[tokio::test]
         async fn $test() {
@@ -233,9 +229,15 @@ async fn application_watcher_coalesces_hints_and_keeps_backend_refreshes() {
     .bounded()
     .await;
     assert!(fixture.take_calls() >= 2);
-    let emitter = SignalEmitter::new(&server, production::PROVIDER_PATH).unwrap();
     for _ in 0..40 {
-        Applications::state_changed(&emitter, &fixture.generation, 1)
+        server
+            .emit_signal(
+                None::<&str>,
+                production::PROVIDER_PATH,
+                "org.arinn.Provider1",
+                "StateChanged",
+                &(&fixture.generation, 1u64),
+            )
             .await
             .unwrap();
     }

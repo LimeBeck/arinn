@@ -106,6 +106,34 @@ the replacement daemon returns its registration reply (G-1.2, G-1.3).
 
 Token replay and a second active owner of one provider give `PermissionDenied` or `Conflict`. API v1 supports only major version 1; minor additions never change existing required fields or signatures. Unknown optional metadata keys are ignored; unknown enum values are shown as unsupported, never as success. Wire XML is fixed per capability; a major incompatibility is reported before a working provider starts.
 
+## Revision-aware refresh and restart maintenance
+
+The daemon subscribes before its first read and retains the one-second fallback
+poll. After a complete snapshot is imported, an unchanged first-page revision
+for that watcher's owner and generation skips subsequent pages, entry-list clones
+and cache import ([ADR-0122](../adr/0122-revision-aware-provider-polling.md),
+[#605](https://github.com/LimeBeck/arinn/issues/605)). A new revision is still read
+and validated completely before publication; failures do not advance the accepted
+revision. Backend state and known feature flags are refreshed even when entries
+do not change. Repeated or stale revision signals are coalesced; missed fallback
+ticks are skipped rather than replayed in a burst. These bounds also limit
+abandoned first-page leases under the SDK's existing 30-second expiry.
+
+Library catalogue and resume polling track separate revisions. A resume/root
+signal does not reread the unchanged catalogue, and a catalogue signal does not
+reread unchanged resumes; the timer reconciles both. A reader or cache-import
+failure clears both revision hints, so metadata-only wakeups cannot report
+recovery until a complete reconciliation succeeds. Roots and additions retain
+their independent reads and validation. Media progress and download import retries
+continue with cached catalogue data. Unchanged downloads skip import refresh and
+row publication until the existing import-retry deadline.
+
+Restart maintenance keeps a lazy SQLite connection shared by blocking workers.
+Repeated observations of the same supervisor counter perform no UPDATE. Counter
+resets, cumulative counts and manual restart semantics remain unchanged. SQLite's
+journal mode and schema are unchanged. These are isolated-work savings, not a
+G-5.4 measurement on the target device.
+
 ## Chrome: two processes instead of two supervisors of one process
 
 `Chrome MV3 extension ↔ Native Messaging bridge ↔ arinn-plugin-chrome ↔ arinnd`

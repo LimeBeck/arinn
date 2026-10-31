@@ -326,8 +326,9 @@ impl Fixture {
             .build()
             .await
             .unwrap();
-        let (revision, jobs, backend) = read_jobs(&proxy, &self.generation).await.unwrap();
+        let (revision, jobs, backend) = read_jobs(&proxy, &self.generation, None).await.unwrap();
         {
+            let jobs = jobs.unwrap();
             let mut state = self.core.state.lock().await;
             let p = state.providers.get_mut("downloads").unwrap();
             let mut downloads = self.core.downloads.lock().await;
@@ -773,17 +774,17 @@ async fn malformed_or_stale_snapshot_is_rejected_before_publication() {
         .await
         .unwrap();
     assert_eq!(
-        read_jobs(&proxy, &f.generation).await.unwrap_err(),
+        read_jobs(&proxy, &f.generation, None).await.unwrap_err(),
         ErrorCode::InvalidArgument
     );
     f.fake.jobs.lock().unwrap().pop();
     assert_eq!(
-        read_jobs(&proxy, &rid()).await.unwrap_err(),
+        read_jobs(&proxy, &rid(), None).await.unwrap_err(),
         ErrorCode::Conflict
     );
     *f.fake.backend.lock().unwrap() = "unknown".into();
     assert_eq!(
-        read_jobs(&proxy, &f.generation).await.unwrap_err(),
+        read_jobs(&proxy, &f.generation, None).await.unwrap_err(),
         ErrorCode::Unsupported
     );
 }

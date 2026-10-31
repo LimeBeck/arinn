@@ -28,6 +28,8 @@ A revision is scoped to `(provider_id, capability)`. `generation` is a UUID issu
 
 `StateChanged` carries `provider_id`, `capability`, `generation` and `revision`. A snapshot atomically carries the same generation/revision pair and typed entries. A consumer installs the signal match before reading the first snapshot, buffers notifications, accepts the snapshot and requests the next one if it has already seen a higher revision. Events may be coalesced; stale replies are dropped. A new owner or generation invalidates the whole old snapshot and pending operations, then a full reload follows.
 
+The daemon may retain a complete imported snapshot when a validated first page has the same generation/revision. Backend metadata still refreshes; the optimization and signal coalescing are defined in [ADR-0122](../adr/0122-revision-aware-provider-polling.md).
+
 Large lists are read in pages of at most 200 entries or 256 KiB of encoded body, whichever comes first. A page token is bound to an immutable generation/revision and expires after 30 s; `Conflict` means start over. The previous complete snapshot stays visible until the new one is complete; pages of different revisions are never mixed. Signal dispatch and snapshot publication are atomic with respect to the internal state commit.
 
 D-Bus unique names and `NameOwnerChanged` track connection lifetime; generation and revisions are Arinn's own ([D-Bus specification](https://dbus.freedesktop.org/doc/dbus-specification.html)).

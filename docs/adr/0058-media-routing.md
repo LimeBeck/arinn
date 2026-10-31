@@ -4,7 +4,7 @@
 - **Date:** 2026-09-29
 - **Deciders:** delegated technical choice ([ADR-0037](0037-agent-autonomy-and-owner-gated-decisions.md)) within [ADR-0054](0054-media-and-library-wire-contract.md)
 - **Amends / Supersedes:** —
-- **Amended by / Superseded by:** [ADR-0060](0060-library-routing.md) — library routing and library launch (step 2)
+- **Amended by / Superseded by:** [ADR-0060](0060-library-routing.md) — library routing and library launch (step 2); [ADR-0122](0122-revision-aware-provider-polling.md) — revision-aware snapshot refresh
 - **Specification:** [§7.3](../specifications/arinn-specification.md#73-media-sessions-mpris), [§9.5](../specifications/arinn-specification.md#95-operations), [§9.7](../specifications/arinn-specification.md#97-limits-and-validation)
 
 ## Context

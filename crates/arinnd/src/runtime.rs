@@ -113,6 +113,7 @@ pub struct Core {
     state: Arc<Mutex<State>>,
     reload_lock: Arc<Mutex<()>>,
     maintenance: Arc<Mutex<()>>,
+    restart_store: Arc<std::sync::Mutex<Option<Store>>>,
     // Serializes token rotation so the token file and the registry agree
     // (#66): a vanished owner's `unavailable` can race `launch` in a reload.
     rotation: Arc<Mutex<()>>,
@@ -168,6 +169,7 @@ impl Core {
             })),
             reload_lock: Arc::new(Mutex::new(())),
             maintenance: Arc::new(Mutex::new(())),
+            restart_store: Arc::default(),
             rotation: Arc::new(Mutex::new(())),
             browser_launch: Arc::new(Mutex::new(())),
             progress: Arc::default(),
@@ -735,6 +737,7 @@ impl Core {
         };
         let _ = ready.send(());
         let mut tick = tokio::time::interval(Duration::from_secs(1));
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             tokio::select! {
                 event=owners.next()=> {
@@ -774,8 +777,16 @@ impl Core {
             if let Ok(observed) = self.supervisor().await.restarts(&unit).await {
                 let state_dir = self.paths.state.clone();
                 let provider_id = id.clone();
+                let store = self.restart_store.clone();
                 let result = tokio::task::spawn_blocking(move || {
-                    Store::open(&state_dir)?.observe_restarts(&provider_id, u64::from(observed))
+                    let mut store = store.lock().map_err(|_| ErrorCode::Internal)?;
+                    if store.is_none() {
+                        *store = Some(Store::open(&state_dir)?);
+                    }
+                    store
+                        .as_mut()
+                        .unwrap()
+                        .observe_restarts(&provider_id, u64::from(observed))
                 })
                 .await;
                 if let Ok(Ok((total, delta))) = result
@@ -847,8 +858,17 @@ impl Core {
             return;
         };
         let mut tick = tokio::time::interval(Duration::from_secs(1));
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let mut known_revision = None;
         loop {
-            tokio::select! {_=tick.tick()=>{},event=changes.next()=>{if event.is_none(){return;}}}
+            tokio::select! {
+                _=tick.tick()=>{},
+                event=changes.next()=>{
+                    let Some(event) = event else { return; };
+                    let Ok(args) = event.args() else { continue; };
+                    if !new_revision_hint(&generation, known_revision, args.generation, args.revision) { continue; }
+                }
+            }
             if !self
                 .state
                 .lock()
@@ -859,10 +879,12 @@ impl Core {
             {
                 return;
             }
-            let result =
-                tokio::time::timeout(Duration::from_secs(3), read_tabs(&proxy, &generation))
-                    .await
-                    .unwrap_or(Err(ErrorCode::Timeout));
+            let result = tokio::time::timeout(
+                Duration::from_secs(3),
+                read_tabs(&proxy, &generation, known_revision),
+            )
+            .await
+            .unwrap_or(Err(ErrorCode::Timeout));
             let mut state = self.state.lock().await;
             let Some(p) = state.providers.get_mut(&id) else {
                 return;
@@ -872,17 +894,26 @@ impl Core {
             }
             let mut signal = None;
             match result {
-                Ok((revision, windows, tabs, backend)) => {
+                Ok((revision, data, backend)) => {
                     let cache = p
                         .tab_cache
                         .get_or_insert_with(|| TabSnapshots::new(&generation).unwrap());
-                    match cache.import(revision, windows.clone(), tabs.clone()) {
+                    let imported = match &data {
+                        Some((windows, tabs)) => {
+                            cache.import(revision, windows.clone(), tabs.clone())
+                        }
+                        None => Ok(()),
+                    };
+                    match imported {
                         Ok(()) => {
                             if revision != p.info.revision {
                                 signal = Some(revision);
                             }
-                            p.windows = windows;
-                            p.tabs = tabs;
+                            if let Some((windows, tabs)) = data {
+                                p.windows = windows;
+                                p.tabs = tabs;
+                            }
+                            known_revision = Some(revision);
                             p.info.revision = revision;
                             p.info.backend_state = backend;
                             p.info.runtime_state = "ready".into();
@@ -919,8 +950,17 @@ impl Core {
             return;
         };
         let mut tick = tokio::time::interval(Duration::from_secs(1));
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let mut known_revision = None;
         loop {
-            tokio::select! {_=tick.tick()=>{},event=changes.next()=>{if event.is_none(){return;}}}
+            tokio::select! {
+                _=tick.tick()=>{},
+                event=changes.next()=>{
+                    let Some(event) = event else { return; };
+                    let Ok(args) = event.args() else { continue; };
+                    if !new_revision_hint(&generation, known_revision, args.generation, args.revision) { continue; }
+                }
+            }
             if !self
                 .state
                 .lock()
@@ -931,10 +971,12 @@ impl Core {
             {
                 return;
             }
-            let result =
-                tokio::time::timeout(Duration::from_secs(3), read_snapshot(&proxy, &generation))
-                    .await
-                    .unwrap_or(Err(ErrorCode::Timeout));
+            let result = tokio::time::timeout(
+                Duration::from_secs(3),
+                read_snapshot(&proxy, &generation, known_revision),
+            )
+            .await
+            .unwrap_or(Err(ErrorCode::Timeout));
             let mut state = self.state.lock().await;
             let Some(p) = state.providers.get_mut(&id) else {
                 return;
@@ -944,17 +986,26 @@ impl Core {
             }
             let mut signal = None;
             match result {
-                Ok((revision, apps, running, backend)) => {
+                Ok((revision, data, backend)) => {
                     let cache = p
                         .cache
                         .get_or_insert_with(|| Snapshots::new(&generation).unwrap());
-                    match cache.import(revision, apps.clone(), running.clone()) {
+                    let imported = match &data {
+                        Some((apps, running)) => {
+                            cache.import(revision, apps.clone(), running.clone())
+                        }
+                        None => Ok(()),
+                    };
+                    match imported {
                         Ok(()) => {
                             if revision != p.info.revision {
                                 signal = Some(revision);
                             }
-                            p.applications = apps;
-                            p.running = running;
+                            if let Some((apps, running)) = data {
+                                p.applications = apps;
+                                p.running = running;
+                            }
+                            known_revision = Some(revision);
                             p.info.revision = revision;
                             p.info.backend_state = backend;
                             p.info.runtime_state = "ready".into();
@@ -1565,10 +1616,29 @@ fn normalize_error(error: zbus::Error) -> ErrorCode {
         ErrorCode::Unavailable
     }
 }
+/// Ignore redundant/stale signals; the fallback timer still refreshes backend metadata.
+/// This also bounds first-page leases for unchanged snapshots to one per second.
+fn new_revision_hint(
+    generation: &str,
+    known: Option<u64>,
+    hinted_generation: &str,
+    hinted: u64,
+) -> bool {
+    generation == hinted_generation && known.is_none_or(|revision| hinted > revision)
+}
+
 async fn read_snapshot(
     proxy: &ApplicationProviderProxy<'_>,
     generation: &str,
-) -> Result<(u64, Vec<Application>, Vec<RunningApplication>, String), ErrorCode> {
+    known_revision: Option<u64>,
+) -> Result<
+    (
+        u64,
+        Option<(Vec<Application>, Vec<RunningApplication>)>,
+        String,
+    ),
+    ErrorCode,
+> {
     let mut token = String::new();
     let mut tokens = HashSet::new();
     let mut revision = 0;
@@ -1590,6 +1660,10 @@ async fn read_snapshot(
         if page.generation != generation || (revision != 0 && page.revision != revision) {
             return Err(ErrorCode::Conflict);
         }
+        if token.is_empty() && known_revision == Some(page.revision) {
+            revision = page.revision;
+            break;
+        }
         revision = page.revision;
         apps.extend(page.applications);
         running.extend(page.running);
@@ -1601,18 +1675,24 @@ async fn read_snapshot(
             return Err(ErrorCode::Conflict);
         }
     }
-    validate_entries(&apps, &running)?;
+    let data = if known_revision == Some(revision) {
+        None
+    } else {
+        validate_entries(&apps, &running)?;
+        Some((apps, running))
+    };
     let backend = proxy.backend_state().await.map_err(normalize_error)?;
     if !["available", "unavailable", "degraded"].contains(&backend.as_str()) {
         return Err(ErrorCode::Unsupported);
     }
-    Ok((revision, apps, running, backend))
+    Ok((revision, data, backend))
 }
 
 async fn read_tabs(
     proxy: &BrowserProviderProxy<'_>,
     generation: &str,
-) -> Result<(u64, Vec<BrowserWindow>, Vec<Tab>, String), ErrorCode> {
+    known_revision: Option<u64>,
+) -> Result<(u64, Option<(Vec<BrowserWindow>, Vec<Tab>)>, String), ErrorCode> {
     let mut token = String::new();
     let mut tokens = HashSet::new();
     let mut revision = 0;
@@ -1631,6 +1711,10 @@ async fn read_tabs(
         if page.generation != generation || (revision != 0 && page.revision != revision) {
             return Err(ErrorCode::Conflict);
         }
+        if token.is_empty() && known_revision == Some(page.revision) {
+            revision = page.revision;
+            break;
+        }
         revision = page.revision;
         windows.extend(page.windows);
         tabs.extend(page.tabs);
@@ -1642,12 +1726,17 @@ async fn read_tabs(
             return Err(ErrorCode::Conflict);
         }
     }
-    browser::validate_entries(&windows, &tabs)?;
+    let data = if known_revision == Some(revision) {
+        None
+    } else {
+        browser::validate_entries(&windows, &tabs)?;
+        Some((windows, tabs))
+    };
     let backend = proxy.backend_state().await.map_err(normalize_error)?;
     if !["available", "unavailable", "degraded"].contains(&backend.as_str()) {
         return Err(ErrorCode::Unsupported);
     }
-    Ok((revision, windows, tabs, backend))
+    Ok((revision, data, backend))
 }
 
 pub struct Daemon {
@@ -3002,3 +3091,6 @@ mod supervision_sharing_tests {
         assert!(Arc::ptr_eq(&first, &second));
     }
 }
+
+#[cfg(test)]
+mod polling_tests;

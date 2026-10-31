@@ -1,0 +1,1 @@
+- Avoid rereading and rebuilding unchanged provider catalogues on every daemon poll; keep backend metadata, playback progress and download import retries current. Reuse the restart-maintenance database connection and stop updating unchanged restart counters.

@@ -1,0 +1,1 @@
+- With Home's navigation menu open over Library or Downloads, a catalogue or download progress update no longer moves focus to the screen underneath, so the remote keeps working in the menu and OK can no longer pause a download behind it. Closing the menu returns focus to the selected row ([#608](https://github.com/LimeBeck/arinn/issues/608)).

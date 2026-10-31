@@ -207,7 +207,7 @@ closed browser first is not implemented yet.
 with an empty token and follow `next_token`; tokens are caller-bound and expire
 in 30 seconds. Serving the last page ends the read: its lease is released at
 once, so a token cannot be replayed after the last page and periodic re-reads
-do not exhaust the provider's lease budget ([#616](https://github.com/LimeBeck/arinn/issues/616)).
+do not exhaust the daemon's or provider's lease budget ([#616](https://github.com/LimeBeck/arinn/issues/616)).
 The same rule applies to every paged snapshot in the SDK. Each provider record identifies its capability endpoint, generation,
 revision, runtime/backend status, source manifest and safe diagnostic timestamps.
 Clients derive available capabilities from ready provider records.

@@ -86,12 +86,64 @@ impl Listings {
         } else {
             String::new()
         };
-        if index == 0 && page.next_token.is_empty() {
+        // Serving the last page ends the read, whichever page it is (#616).
+        if page.next_token.is_empty() {
             self.leases.remove(&key);
         }
         Ok(page)
     }
     pub fn disconnect(&mut self, owner: &str) {
         self.leases.retain(|_, l| l.owner != owner);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use zbus::zvariant::OwnedObjectPath;
+
+    fn providers(count: usize) -> Vec<ProviderInfo> {
+        (0..count)
+            .map(|index| ProviderInfo {
+                id: format!("p{index}"),
+                plugin_id: format!("p{index}"),
+                source_path: String::new(),
+                name: "Fixture".into(),
+                version: "0.0.1".into(),
+                path: OwnedObjectPath::try_from("/org/arinn/Fixture").unwrap(),
+                capabilities: vec!["demo".into()],
+                runtime_state: "ready".into(),
+                backend_state: "available".into(),
+                generation: "g".into(),
+                revision: 0,
+                last_error: String::new(),
+                error_at: 0,
+                recovered_at: 0,
+                restarts_since_daemon_start: 0,
+                cumulative_restart_count: 0,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_completed_multi_page_read_releases_its_lease() {
+        // More periodic complete reads than MAX leases must keep working
+        // when the registry spans several pages (#616).
+        let mut listings = Listings::default();
+        for _ in 0..33 {
+            let first = listings.page(":1.7", "", || providers(201)).unwrap();
+            assert!(!first.next_token.is_empty());
+            let last = listings
+                .page(":1.7", &first.next_token, || unreachable!())
+                .unwrap();
+            assert_eq!(first.providers.len() + last.providers.len(), 201);
+            assert!(last.next_token.is_empty());
+            assert_eq!(
+                listings
+                    .page(":1.7", &first.next_token, || unreachable!())
+                    .unwrap_err(),
+                ErrorCode::Conflict
+            );
+        }
     }
 }

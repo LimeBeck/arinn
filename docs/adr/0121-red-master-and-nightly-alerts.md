@@ -31,7 +31,7 @@ No master CI run passed from 2026-10-08 to 2026-10-30, and the nightly failed on
 - **Branch protection requiring a green master:** a repository setting the owner controls; a required check would also block the pull request that fixes master.
 - **Installing the validator in the smoke images:** would preinstall GLib, a declared dependency of both packages, and hide its loss from the install test.
 - **One issue for both kinds:** a green push would close it while the nightly is still red.
-- **Requiring the green nightly to include the tagged commit:** stricter, since every release would wait for a nightly after its last merge; it goes beyond option 3 of #614 (check the latest nightly status) and is left for the owner to decide.
+- **Requiring the green nightly to include the tagged commit:** stricter, since every release would wait for a nightly after its last merge; it goes beyond option 3 of #614 (check the latest nightly status). The owner rejected it in chat on 2026-10-31: a green latest nightly is enough.
 
 ## Verification
 

@@ -174,6 +174,47 @@ FocusScope {
             hash = (hash * 33 + text.charCodeAt(i)) >>> 0;
         return Qt.hsla((hash % 360) / 360, 0.42, 0.34, 1);
     }
+    // The handoff's `movie` icon on a missing-artwork plate (§05 Library).
+    component FilmGlyph: Item {
+        width: 44
+        height: 44
+        Rectangle {
+            anchors.fill: parent
+            radius: 6
+            color: "transparent"
+            border.width: 2
+            border.color: Ui.Theme.textHint
+        }
+        Column {
+            anchors.left: parent.left
+            anchors.leftMargin: 2
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: 5
+            Repeater {
+                model: 3
+                Rectangle { width: 3; height: 6; color: Ui.Theme.textHint }
+            }
+        }
+        Column {
+            anchors.right: parent.right
+            anchors.rightMargin: 2
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: 5
+            Repeater {
+                model: 3
+                Rectangle { width: 3; height: 6; color: Ui.Theme.textHint }
+            }
+        }
+        Rectangle {
+            anchors.centerIn: parent
+            width: 14
+            height: 14
+            radius: 7
+            color: "transparent"
+            border.width: 2
+            border.color: Ui.Theme.textHint
+        }
+    }
     function entryById(id) {
         const source = entries || [];
         for (let i = 0; i < source.length; ++i)
@@ -691,7 +732,9 @@ FocusScope {
                         id: cell
                         required property var modelData
                         required property int index
-                        readonly property bool posterHasSource: !!(modelData.artwork && String(modelData.artwork).length)
+                        // `noArt` wins over an artwork URL: the plate stays.
+                        readonly property bool posterHasSource: !modelData.noArt
+                            && !!(modelData.artwork && String(modelData.artwork).length)
                         width: root.posterWidth
                         height: 427
                         z: poster.activeFocus ? 2 : 0
@@ -708,7 +751,7 @@ FocusScope {
                             text: modelData.title || ""
                             enabled: modelData.enabled !== false
                             busy: !!modelData.busy || (root.operationPending && root.launchingId === modelData.id)
-                            restingColor: modelData.noArt ? Qt.rgba(0.21, 0.21, 0.23, 1) : root.standInColor(modelData.id)
+                            restingColor: !cell.posterHasSource ? Qt.rgba(0.21, 0.21, 0.23, 1) : root.standInColor(modelData.id)
                             focusedColor: restingColor
                             pointerMode: root.pointerMode
                             hoverFocusEnabled: root.hoverFocusEnabled
@@ -725,7 +768,7 @@ FocusScope {
                                 Rectangle {
                                     anchors.fill: parent
                                     radius: 20
-                                    visible: !!modelData.noArt || (cell.posterHasSource && posterImage.status !== Image.Ready)
+                                    visible: posterImage.status !== Image.Ready
                                     gradient: Gradient {
                                         GradientStop { position: 0.0; color: Qt.rgba(0.29, 0.29, 0.31, 1) }
                                         GradientStop { position: 1.0; color: Qt.rgba(0.21, 0.21, 0.23, 1) }
@@ -741,16 +784,6 @@ FocusScope {
                                     source: cell.posterHasSource ? modelData.artwork : ""
                                     visible: status === Image.Ready
                                 }
-                                Text {
-                                    objectName: "posterMark-" + modelData.id
-                                    visible: !modelData.noArt && !cell.posterHasSource
-                                    x: 14
-                                    y: 12
-                                    text: "poster"
-                                    font.family: Ui.Theme.fontFamily
-                                    font.pixelSize: 14
-                                    color: Qt.rgba(1, 1, 1, 0.45)
-                                }
                                 Item {
                                     objectName: "posterPlate-" + modelData.id
                                     anchors.fill: parent
@@ -758,48 +791,9 @@ FocusScope {
                                     anchors.rightMargin: 20
                                     anchors.topMargin: 22
                                     anchors.bottomMargin: 22
-                                    visible: !!modelData.noArt || (cell.posterHasSource && posterImage.status !== Image.Ready)
-                                    Item {
-                                        id: filmGlyph
+                                    visible: posterImage.status !== Image.Ready
+                                    FilmGlyph {
                                         objectName: "posterGlyph-" + modelData.id
-                                        width: 44
-                                        height: 44
-                                        Rectangle {
-                                            anchors.fill: parent
-                                            radius: 6
-                                            color: "transparent"
-                                            border.width: 2
-                                            border.color: Ui.Theme.textHint
-                                        }
-                                        Column {
-                                            anchors.left: parent.left
-                                            anchors.leftMargin: 2
-                                            anchors.verticalCenter: parent.verticalCenter
-                                            spacing: 5
-                                            Repeater {
-                                                model: 3
-                                                Rectangle { width: 3; height: 6; color: Ui.Theme.textHint }
-                                            }
-                                        }
-                                        Column {
-                                            anchors.right: parent.right
-                                            anchors.rightMargin: 2
-                                            anchors.verticalCenter: parent.verticalCenter
-                                            spacing: 5
-                                            Repeater {
-                                                model: 3
-                                                Rectangle { width: 3; height: 6; color: Ui.Theme.textHint }
-                                            }
-                                        }
-                                        Rectangle {
-                                            anchors.centerIn: parent
-                                            width: 14
-                                            height: 14
-                                            radius: 7
-                                            color: "transparent"
-                                            border.width: 2
-                                            border.color: Ui.Theme.textHint
-                                        }
                                     }
                                     Ui.UiText {
                                         objectName: "posterArtTitle-" + modelData.id
@@ -931,18 +925,6 @@ FocusScope {
             cache: false
             source: root.detailEntry && root.detailEntry.fanart ? root.detailEntry.fanart : ""
             visible: status === Image.Ready
-        }
-        Text {
-            objectName: "detailBackdropMark"
-            visible: detailFanart.status !== Image.Ready
-            z: 1
-            anchors.right: parent.right
-            anchors.rightMargin: 96
-            y: 140
-            text: "backdrop · " + (root.detailEntry ? (root.detailEntry.title || "") : "")
-            font.family: Ui.Theme.fontFamily
-            font.pixelSize: 18
-            color: Qt.rgba(1, 1, 1, 0.42)
         }
         Rectangle {
             z: 2
@@ -1217,6 +1199,20 @@ FocusScope {
                                     }
                                     onActivated: root.episodeRequested(root.detailEntryId, modelData.id)
                                     contentItem: Item {
+                                        Rectangle {
+                                            objectName: "episodePlate-" + modelData.id
+                                            anchors.fill: parent
+                                            radius: 22
+                                            visible: stillImage.status !== Image.Ready
+                                            gradient: Gradient {
+                                                GradientStop { position: 0.0; color: Qt.rgba(0.29, 0.29, 0.31, 1) }
+                                                GradientStop { position: 1.0; color: Qt.rgba(0.21, 0.21, 0.23, 1) }
+                                            }
+                                            FilmGlyph {
+                                                objectName: "episodeGlyph-" + modelData.id
+                                                anchors.centerIn: parent
+                                            }
+                                        }
                                         Image {
                                             id: stillImage
                                             objectName: "episodeImage-" + modelData.id
@@ -1226,16 +1222,6 @@ FocusScope {
                                             cache: false
                                             source: modelData.artwork ? modelData.artwork : ""
                                             visible: status === Image.Ready
-                                        }
-                                        Text {
-                                            objectName: "episodeMark-" + modelData.id
-                                            visible: stillImage.status !== Image.Ready
-                                            x: 18
-                                            y: 14
-                                            text: "still"
-                                            font.family: Ui.Theme.fontFamily
-                                            font.pixelSize: 14
-                                            color: Qt.rgba(1, 1, 1, 0.45)
                                         }
                                         Rectangle {
                                             visible: modelData.progress > 0

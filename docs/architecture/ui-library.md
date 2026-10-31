@@ -123,11 +123,14 @@ from titles. `kind` may be `film` or `series` for the detail eyebrow only.
 | `launchingId` | Presentation id of the item whose launch is in progress |
 | `columns` | Poster columns. `0` uses the seven-column frame; a positive value overrides it |
 
-`noArt` draws a plate with a film glyph and the title. The bound catalogue
-sets it when the poster id is empty. A poster URL still shows that plate
+`noArt` draws a plate with a film glyph and the title (handoff §05, *Missing
+artwork*). The bound catalogue sets it when the poster id is empty. An entry
+without an `artwork` URL shows the same plate, and a poster URL shows it
 until the image is ready, and leaves it there when the image does not arrive.
-`fanart` is the detail backdrop URL. Without one, the coloured stand-in and
-the backdrop label stay.
+An episode still without a ready image is the same neutral plate with the
+glyph centred; its number, title and duration stay under it. `fanart` is the
+detail backdrop URL. Without one, the coloured stand-in stays. The view never
+paints the prototype's `poster`, `backdrop` or `still` labels (#610).
 
 ## Frame
 
@@ -139,7 +142,7 @@ in seven columns unless `columns` is set, with a 40px column gap and a 48px
 row gap. Focus scales the poster and lifts its label. Detail replaces the grid:
 a full-bleed stand-in backdrop, a left scrim, an uppercase eyebrow, a 112px
 title, meta, description, and pill actions. A series with `seasons` adds season
-pills and episode stills at 420×236, labeled `still`.
+pills and episode stills at 420×236.
 
 Signals are intents only: `tabRequested`, `entryRequested`, `playRequested`,
 `episodeRequested`, `removeRequested`, `retryRequested`, `backRequested` and

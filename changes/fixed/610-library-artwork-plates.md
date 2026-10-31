@@ -1,0 +1,1 @@
+- The Library no longer shows the design prototype's "poster", "backdrop" and "still" labels when artwork is missing. Posters and episode stills without an image show the neutral plate with the film icon from the design handoff, and a film detail without a backdrop keeps its colour without a label ([#610](https://github.com/LimeBeck/arinn/issues/610)).

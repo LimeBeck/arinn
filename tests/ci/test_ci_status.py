@@ -148,6 +148,8 @@ class WorkflowTest(unittest.TestCase):
         self.assertIn("github.event.workflow_run.event == 'push'", alert)
         self.assertIn("github.event.workflow_run.event == 'schedule'", alert)
         self.assertIn("issues: write", alert)
+        # alert() lists CI runs to skip stale completions.
+        self.assertIn("actions: read", alert)
         self.assertNotIn("contents: write", ALERT)
         # The master copy of the script runs, never code from the finished run.
         self.assertIn("ref: master", alert)

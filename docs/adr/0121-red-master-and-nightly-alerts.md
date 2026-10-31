@@ -15,14 +15,14 @@ No master CI run passed from 2026-10-08 to 2026-10-30, and the nightly failed on
 
 - **Alert.** `.github/workflows/ci-alert.yml` runs after every finished CI run on `master` and calls `scripts/ci-status.py alert`. A failed (`failure`, `timed_out`, `startup_failure`) push run opens the issue "CI is red on master" labelled `ci-red`; a failed nightly opens "Nightly CI is red". Later failures of the same kind comment on the open issue. The next green run of the same kind comments and closes it. A green push never closes the nightly issue, because only the nightly upgrades the rolling dependencies. Cancelled and skipped runs, pull requests and manual runs change nothing. Each master commit has its own CI concurrency group, so runs finish out of order; a run older than the newest passed or failed run of its kind, or an earlier attempt of a re-run, changes nothing. Reports run one at a time, in order, with only `issues: write`, from the master copy of the script.
 - **Merges.** While a `ci-red` issue is open, only pull requests that fix it or change only documentation and changelog fragments are merged. This is a merge rule for agents and contributors, not branch protection; the owner may add a required check later.
-- **Releases.** The release workflow's first job runs `scripts/ci-status.py nightly` and fails unless the latest finished scheduled CI run on `master` succeeded. A missing, failed or cancelled latest nightly blocks the release; a fix waits for the next nightly before a tag.
+- **Releases.** The release workflow's first job runs `scripts/ci-status.py nightly` and fails unless the latest finished scheduled CI run on `master` succeeded. A missing, failed or cancelled latest nightly blocks the release; after a red nightly, the tag waits for the next green one. The check does not require that nightly to include the tagged commit: the release reruns the full CI on the tag itself.
 - **Desktop entries.** The Arch and Debian install test jobs install `desktop-file-utils` after the package and before `tests/package/session.py`, which then requires the validator (`ARINN_REQUIRE_DESKTOP_VALIDATE=1`) instead of skipping. The clean smoke images still hold only Python and D-Bus, so the validator cannot supply a dependency the package forgot to declare.
 
 ## Consequences
 
 - A red master or nightly is visible as an open issue within one CI run, with a link per failure.
 - Contributors must check for an open `ci-red` issue before merging; merges of unrelated work wait until it closes.
-- A release needs a green nightly after its last fix; the earliest tag after a fix is the next scheduled nightly.
+- A release is blocked while the latest nightly is red; once a nightly has gone red, the earliest tag is after the next green nightly.
 - Each install test downloads one small package; desktop entry errors now fail CI.
 
 ## Alternatives considered
@@ -31,6 +31,7 @@ No master CI run passed from 2026-10-08 to 2026-10-30, and the nightly failed on
 - **Branch protection requiring a green master:** a repository setting the owner controls; a required check would also block the pull request that fixes master.
 - **Installing the validator in the smoke images:** would preinstall GLib, a declared dependency of both packages, and hide its loss from the install test.
 - **One issue for both kinds:** a green push would close it while the nightly is still red.
+- **Requiring the green nightly to include the tagged commit:** stricter, since every release would wait for a nightly after its last merge; it goes beyond option 3 of #614 (check the latest nightly status) and is left for the owner to decide.
 
 ## Verification
 

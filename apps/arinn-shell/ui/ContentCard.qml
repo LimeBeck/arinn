@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import QtQuick
+import "artwork.js" as Artwork
 
 Surface {
     id: root
@@ -33,31 +34,49 @@ Surface {
             fillMode: Image.PreserveAspectCrop
             source: root.artwork
             visible: false
-            onStatusChanged: {
-                if (status === Image.Ready)
-                    frame.loadImage(source);
-                frame.requestPaint();
-            }
+            onStatusChanged: frame.syncSource()
+            // A cached image can stay Ready across a URL change without a
+            // status change. Sync once the new source has started loading.
+            onSourceChanged: Qt.callLater(frame.syncSource)
         }
         Canvas {
             id: frame
+            objectName: "cardArtworkCanvas"
             anchors.fill: parent
+            // The URL the canvas holds decoded. A card lives across row
+            // updates (#441), so the previous artwork is released when the
+            // card shows another one.
+            property string loadedSource: ""
+            // Whether the last paint drew the artwork.
+            property bool showsArtwork: false
+            function syncSource() {
+                const next = picture.status === Image.Ready ? picture.source.toString() : "";
+                if (loadedSource !== next) {
+                    if (loadedSource.length)
+                        unloadImage(loadedSource);
+                    loadedSource = next;
+                }
+                if (available && next.length && !isImageLoaded(next)
+                        && !isImageLoading(next) && !isImageError(next))
+                    loadImage(next);
+                requestPaint();
+            }
+            onAvailableChanged: syncSource()
             onImageLoaded: requestPaint()
+            onWidthChanged: requestPaint()
+            onHeightChanged: requestPaint()
             onPaint: {
                 const ctx = getContext("2d");
                 ctx.reset();
-                if (picture.status !== Image.Ready || !isImageLoaded(picture.source))
+                const image = loadedSource;
+                if (!image.length || picture.status !== Image.Ready || !isImageLoaded(image)) {
+                    showsArtwork = false;
                     return;
-                const w = width, h = height, r = root.cornerRadius;
-                ctx.beginPath();
-                ctx.moveTo(r, 0);
-                ctx.lineTo(w - r, 0); ctx.quadraticCurveTo(w, 0, w, r);
-                ctx.lineTo(w, h - r); ctx.quadraticCurveTo(w, h, w - r, h);
-                ctx.lineTo(r, h); ctx.quadraticCurveTo(0, h, 0, h - r);
-                ctx.lineTo(0, r); ctx.quadraticCurveTo(0, 0, r, 0);
-                ctx.closePath();
-                ctx.clip();
-                ctx.drawImage(picture.source, 0, 0, w, h);
+                }
+                Artwork.clipRounded(ctx, width, height, root.cornerRadius);
+                // Centre crop, as Image.PreserveAspectCrop draws it (#609).
+                showsArtwork = Artwork.drawCover(ctx, image, picture.implicitWidth,
+                                                 picture.implicitHeight, width, height);
             }
         }
         // Handoff 02: rgba(10,11,13) from .9 at the bottom to 0 at 70% height.

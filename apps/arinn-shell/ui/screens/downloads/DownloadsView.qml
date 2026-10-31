@@ -4,6 +4,7 @@
 import QtQuick
 import QtQuick.Window
 import "../.." as Ui
+import "../../artwork.js" as Artwork
 
 // Download queue. Callers pass job snapshots and listen for intents; the
 // shell binds it to DownloadCatalog. This screen does not open a service,
@@ -121,22 +122,12 @@ FocusScope {
             onPaint: {
                 const ctx = getContext("2d");
                 ctx.reset();
-                const w = width, h = height, r = slot.radius;
-                ctx.beginPath();
-                ctx.moveTo(r, 0);
-                ctx.lineTo(w - r, 0); ctx.quadraticCurveTo(w, 0, w, r);
-                ctx.lineTo(w, h - r); ctx.quadraticCurveTo(w, h, w - r, h);
-                ctx.lineTo(r, h); ctx.quadraticCurveTo(0, h, 0, h - r);
-                ctx.lineTo(0, r); ctx.quadraticCurveTo(0, 0, r, 0);
-                ctx.closePath();
-                ctx.clip();
+                const w = width, h = height;
+                Artwork.clipRounded(ctx, w, h, slot.radius);
                 const image = picture.source;
-                const iw = picture.implicitWidth, ih = picture.implicitHeight;
-                if (slot.artworkReady && isImageLoaded(image) && iw > 0 && ih > 0) {
-                    // Centre crop, as Image.PreserveAspectCrop draws it.
-                    const scale = Math.max(w / iw, h / ih);
-                    const sw = w / scale, sh = h / scale;
-                    ctx.drawImage(image, (iw - sw) / 2, (ih - sh) / 2, sw, sh, 0, 0, w, h);
+                // Centre crop, as Image.PreserveAspectCrop draws it.
+                if (slot.artworkReady && isImageLoaded(image)
+                        && Artwork.drawCover(ctx, image, picture.implicitWidth, picture.implicitHeight, w, h)) {
                     showsArtwork = true;
                     return;
                 }

@@ -24,7 +24,7 @@ models into these properties and routing emitted actions to the daemon.
 | `LogicalCanvas` | Centred 1920×1080 stage, uniform `min(width/1920, height/1080)` scale |
 | `Surface` | Focus, press, disabled and busy treatment; focus ring above all artwork; `activated()` intent |
 | `ActionButton` | Content-sized pill, `text`, optional `destructive` tint |
-| `ContentCard` | `text`, `subtitle`, `artwork` URL supplied by trusted shell models (a file or `image://arinn-assets/`), `running`, optional `showProgress` and normalized `progress`, optional `stack` of up to three `{letter, icon}` chips drawn overlapping instead of the monogram. The plate stays until the image is ready; artwork gets the handoff scrim (`rgba(10,11,13)` from .9 to 0 at 70% height). Bytes from Assets1 are decoded in C++ |
+| `ContentCard` | `text`, `subtitle`, `artwork` URL supplied by trusted shell models (a file or `image://arinn-assets/`), `running`, optional `showProgress` and normalized `progress`, optional `stack` of up to three `{letter, icon}` chips drawn overlapping instead of the monogram. The plate stays until the image is ready; the artwork is centre-cropped to the card like `Image.PreserveAspectCrop` (the canvas helper `ui/artwork.js`, shared with the Downloads poster), the previous image is released when the URL changes, and the artwork gets the handoff scrim (`rgba(10,11,13)` from .9 to 0 at 70% height). Bytes from Assets1 are decoded in C++ |
 | `AppTile` | `text`, neutral `monogram`, `running` |
 | `ProgressTrack` | Clamped finite `value` from 0 to 1; Ember represents progress only |
 | `Skeleton` | Fixed-size pulsing placeholder; same default geometry as a content card |

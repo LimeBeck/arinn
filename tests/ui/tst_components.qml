@@ -107,6 +107,46 @@ TestCase {
         card.artwork = "";
         tryCompare(card, "artworkReady", false);
     }
+    // A 20×30 portrait: blue top and bottom thirds, a red middle (#360).
+    readonly property string portraitFixture: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABQAAAAeCAIAAACjcKk8AAAAJUlEQVR42mPQ0LhDNmIY1TwyNN+hQPeo5lHNg1nzaGEwqpkQAgBlZb8/WLTFKQAAAABJRU5ErkJggg=="
+    function test_artwork_is_centre_cropped_and_released() {
+        const card = createTemporaryObject(cardFactory, suite, {artwork: portraitFixture});
+        compare(card.width, 400);
+        compare(card.height, 225);
+        const canvas = findChild(card, "cardArtworkCanvas");
+        verify(canvas);
+        tryCompare(canvas, "showsArtwork", true);
+        // Centre crop (#609): a stretched portrait shows its blue top third
+        // at y 60 of the card; the crop shows the red middle there.
+        tryVerify(() => {
+            const pixels = grabImage(card);
+            return pixels.red(200, 60) > 150 && pixels.blue(200, 60) < 100
+                && pixels.red(200, 112) > 150 && pixels.blue(200, 112) < 100;
+        });
+        // Another artwork releases the previous one from the canvas.
+        const portrait = canvas.loadedSource;
+        verify(portrait.length > 0);
+        card.artwork = Qt.resolvedUrl("../../apps/arinn-shell/gallery/fixture-artwork.svg");
+        tryVerify(() => canvas.loadedSource.length > 0 && canvas.loadedSource !== portrait);
+        const landscape = canvas.loadedSource;
+        tryVerify(() => canvas.isImageLoaded(landscape));
+        verify(!canvas.isImageLoaded(portrait));
+        tryCompare(canvas, "showsArtwork", true);
+        // Back to an image Qt still has cached: the picture may stay Ready
+        // without a status change, and the canvas must still follow it.
+        card.artwork = portraitFixture;
+        tryCompare(canvas, "loadedSource", portrait);
+        tryVerify(() => canvas.isImageLoaded(portrait));
+        verify(!canvas.isImageLoaded(landscape));
+        tryVerify(() => {
+            const pixels = grabImage(card);
+            return pixels.red(200, 60) > 150 && pixels.blue(200, 60) < 100;
+        });
+        card.artwork = "";
+        tryCompare(canvas, "showsArtwork", false);
+        compare(canvas.loadedSource, "");
+        verify(!canvas.isImageLoaded(portrait));
+    }
     function test_hover_suppression() {
         const first = createTemporaryObject(buttonFactory, suite);
         const second = createTemporaryObject(buttonFactory, suite, { y: 400, pointerMode: true, hoverFocusEnabled: false });

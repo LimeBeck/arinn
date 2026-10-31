@@ -1,0 +1,1 @@
+- Home cards centre-crop their artwork instead of stretching it, so square album art and portrait posters keep their proportions. A card whose artwork changes, such as Continue during music playback, releases the previous image ([#609](https://github.com/LimeBeck/arinn/issues/609)).

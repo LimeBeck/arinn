@@ -26,6 +26,10 @@ FocusScope {
     property string launchingId: ""
     // The shell's input mode (ADR-0095); tests may assign it directly.
     property bool pointerMode: Ui.InputMode.pointerActive
+    // False while another screen or overlay holds focus above this one. The
+    // view stays visible and enabled under Home's navigation menu, so data
+    // updates must not take focus then (#608). Main.qml binds it.
+    property bool ownsFocus: true
     readonly property bool operationPending: operationState === "pending" || operationState === "queued" || operationState === "running"
     readonly property bool operationFailed: operationState !== "" && operationState !== "succeeded" && !operationPending
     readonly property string operationMessage: {
@@ -446,7 +450,7 @@ FocusScope {
         backRequested();
     }
     function reconcilePoster() {
-        if (!visible || !enabled || detailOpen || !showGrid || focusPlace !== "poster")
+        if (!ownsFocus || !visible || !enabled || detailOpen || !showGrid || focusPlace !== "poster")
             return;
         if (!visibleEntries.length) {
             focusPlace = "tab";
@@ -469,10 +473,12 @@ FocusScope {
     }
     // A hidden library must not take focus from the screen on display.
     function refocusAfterState() {
-        if (!visible || !enabled)
+        if (!ownsFocus || !visible || !enabled)
             return;
         const focused = Window.activeFocusItem;
-        if (!root.activeFocus || !focusTargetVisible(focused))
+        // The scope itself holds focus when its focused child was destroyed
+        // while an overlay was open.
+        if (!root.activeFocus || focused === root || !focusTargetVisible(focused))
             focusInitial();
     }
     onLibraryStateChanged: {
@@ -482,6 +488,9 @@ FocusScope {
     }
     onShowStatusChanged: Qt.callLater(refocusAfterState)
     onShowGridChanged: Qt.callLater(refocusAfterState)
+    // The remembered poster first: the fallback would focus a tab and
+    // forget the grid position.
+    onOwnsFocusChanged: if (ownsFocus) Qt.callLater(() => { reconcilePoster(); refocusAfterState(); })
     onEntriesChanged: Qt.callLater(reconcilePoster)
     onVisibleEntriesChanged: Qt.callLater(reconcilePoster)
     onTabsChanged: adoptTab()

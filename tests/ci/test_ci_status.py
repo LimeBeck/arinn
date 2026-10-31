@@ -31,7 +31,8 @@ class FakeGitHub:
     def request(self, method, path, body=None):
         self.calls.append((method, path, body))
         if method == "GET" and path.startswith("/actions/workflows/ci.yml/runs?"):
-            return {"workflow_runs": self.runs}
+            event = path.split("event=")[1].split("&")[0]
+            return {"workflow_runs": [item for item in self.runs if item["event"] == event]}
         if method == "GET" and path.startswith("/issues?"):
             return self.issues
         return {}
@@ -40,11 +41,11 @@ class FakeGitHub:
         return [(method, path, body) for method, path, body in self.calls if method != "GET"]
 
 
-def run(event="push", conclusion="failure", branch="master"):
-    return {"event": event, "conclusion": conclusion, "head_branch": branch,
+def run(event="push", conclusion="failure", branch="master", run_id=1, created="2026-10-30T03:17:00Z"):
+    return {"id": run_id, "event": event, "conclusion": conclusion, "head_branch": branch,
             "html_url": "https://github.com/example/arinn/actions/runs/1",
             "head_sha": "0123456789abcdef0123456789abcdef01234567",
-            "created_at": "2026-10-30T03:17:00Z"}
+            "created_at": created}
 
 
 def issue(number, title, label="ci-red"):
@@ -113,6 +114,30 @@ class AlertTest(unittest.TestCase):
         pull = {**issue(9, "CI is red on master"), "pull_request": {}}
         api = FakeGitHub(issues=[pull])
         self.assertEqual(ci_status.alert(api, run("push")), "opened")
+
+
+class OrderTest(unittest.TestCase):
+    def test_an_older_green_run_does_not_close_a_newer_failure(self):
+        # Master commits finish out of order (one CI group per commit).
+        older = run("push", "success", run_id=1, created="2026-10-30T10:00:00Z")
+        newer = run("push", "failure", run_id=2, created="2026-10-30T11:00:00Z")
+        api = FakeGitHub(runs=[newer, older], issues=[issue(7, "CI is red on master")])
+        self.assertEqual(ci_status.alert(api, older), "stale")
+        self.assertEqual(api.writes(), [])
+
+    def test_an_older_failure_does_not_reopen_after_a_newer_green_run(self):
+        older = run("push", "failure", run_id=1, created="2026-10-30T10:00:00Z")
+        newer = run("push", "success", run_id=2, created="2026-10-30T11:00:00Z")
+        api = FakeGitHub(runs=[newer, older])
+        self.assertEqual(ci_status.alert(api, older), "stale")
+        self.assertEqual(api.writes(), [])
+
+    def test_newer_cancelled_runs_and_other_kinds_do_not_make_a_run_stale(self):
+        current = run("push", "failure", run_id=1, created="2026-10-30T10:00:00Z")
+        cancelled = run("push", "cancelled", run_id=3, created="2026-10-30T12:00:00Z")
+        nightly = run("schedule", "success", run_id=2, created="2026-10-30T11:00:00Z")
+        api = FakeGitHub(runs=[cancelled, nightly, current])
+        self.assertEqual(ci_status.alert(api, current), "opened")
 
 
 class WorkflowTest(unittest.TestCase):

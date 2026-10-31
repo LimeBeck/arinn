@@ -15,7 +15,8 @@ Both read GITHUB_REPOSITORY and GH_TOKEN. `alert` reads the finished run from
 the workflow_run event in GITHUB_EVENT_PATH. A failed master push or nightly
 opens one issue per kind, later failures comment on it, and the next green
 run of the same kind closes it: a green push says nothing about the rolling
-dependencies only the nightly upgrades.
+dependencies only the nightly upgrades. A run older than the newest finished
+run of its kind changes nothing.
 """
 
 import json
@@ -81,10 +82,25 @@ def alert_action(run):
     return None
 
 
+def newest_decisive(api, event):
+    """The latest finished run of this kind on master that passed or failed."""
+    reply = api.request("GET", "/actions/workflows/ci.yml/runs"
+                               f"?branch=master&event={event}&status=completed&per_page=20")
+    runs = (reply or {}).get("workflow_runs", [])
+    decisive = [item for item in runs if item.get("conclusion") in FAILED | {"success"}]
+    return max(decisive, key=lambda item: (item.get("created_at", ""), item.get("id", 0)), default=None)
+
+
 def alert(api, run):
     action = alert_action(run)
     if action is None:
         return "ignored"
+    # Each master commit has its own CI concurrency group, so runs finish out
+    # of order: an older commit's result must not open or close the issue
+    # after a newer run of the same kind has reported.
+    newest = newest_decisive(api, run["event"])
+    if newest is not None and newest.get("id") != run.get("id"):
+        return "stale"
     kind, title = action
     issues = api.request("GET", f"/issues?state=open&labels={LABEL}&per_page=100") or []
     issue = next((item for item in issues

@@ -19,19 +19,50 @@ The single source of phase status ([ADR-0028](docs/adr/0028-documentation-govern
 | [0](#phase-0--architecture-spike) | Architecture spike on KDE/Wayland | **Done** (2026-09-27) |
 | [1](#phase-1--core-skeleton) | Production core skeleton, protocol and SDK | **Done** (2026-09-28) |
 | [2](#phase-2--applications) | Desktop applications, Steam, ES-DE | **Done** (2026-09-28) |
-| [3](#phase-3--browser) | Chrome integration — first daily-usable build | Planned |
-| [4](#phase-4--media) | MPRIS, local library and mpv | Planned |
-| [5](#phase-5--product-mvp) | Downloads, full UI, persistence, packaging — MVP | Planned |
+| [3](#phase-3--browser) | Chrome integration — first daily-usable build | In progress |
+| [4](#phase-4--media) | MPRIS, local library and mpv | In progress |
+| [5](#phase-5--product-mvp) | Downloads, full UI, persistence, packaging — MVP | In progress |
 | [6](#phase-6--rich-integrations-post-mvp) | Rich integrations after the MVP | Planned |
+
+## Current delivery snapshot — 2026-10-31
+
+[v0.2.0](https://github.com/LimeBeck/arinn/releases/tag/v0.2.0) is released.
+Phases 3–5 are **In progress**: implemented functionality does not imply complete
+operator acceptance. The gate rows below retain the limits of the recorded evidence.
+This refresh records existing work; it does not rerun tests or accept Proposed ADRs.
+
+| Delivery | Implemented baseline | Remaining work |
+| --- | --- | --- |
+| Browser | Service shortcuts, tab catalogue and activation, Home/return integration | Complete real-desktop qualification on both MVP platforms |
+| Media | MPRIS controls, local library, mpv playback/OSD/resume | Playback/focus qualification; Continue deduplication ([#581](https://github.com/LimeBeck/arinn/issues/581), [#448](https://github.com/LimeBeck/arinn/issues/448)) |
+| Home New row | Recently discovered films/series, including a series promoted by a new episode; implemented in [#591](https://github.com/LimeBeck/arinn/pull/591), [task #587](https://github.com/LimeBeck/arinn/issues/587) | Full Home design/device acceptance remains under Phase 5 |
+| Product shell | Downloads, settings, keyboard, quick menu, dedicated session and desktop switching | Design reconciliation, remote/device acceptance, lock/suspend and performance qualification (Phase 5 gates) |
+
+### Remaining MVP acceptance and stabilization
+
+- UI/design: [Home #564](https://github.com/LimeBeck/arinn/issues/564),
+  [Open services #565](https://github.com/LimeBeck/arinn/issues/565),
+  [Settings #566](https://github.com/LimeBeck/arinn/issues/566); G-5.1 and G-5.6–G-5.9 remain open.
+- Device/platform: [playback #141](https://github.com/LimeBeck/arinn/issues/141),
+  [power lifecycle #148](https://github.com/LimeBeck/arinn/issues/148),
+  [background capture/budget #149](https://github.com/LimeBeck/arinn/issues/149),
+  [XFCE/X11 qualification #186](https://github.com/LimeBeck/arinn/issues/186), and G-5.4 measurements.
+- Release stabilization includes [daemon polling/write load #605](https://github.com/LimeBeck/arinn/issues/605),
+  [library probe deadlock #600](https://github.com/LimeBeck/arinn/issues/600), and
+  [CI/release qualification #614](https://github.com/LimeBeck/arinn/issues/614).
+  These are open tasks, not newly passed gates. The broader documentation cleanup
+  remains tracked in [#615](https://github.com/LimeBeck/arinn/issues/615).
 
 ## Parallel UI work alongside Phase 1
 
 **Scheduling decision:** approved by the project owner on 2026-09-28.
-**UI increment status:** In progress (2026-09-28). The reusable component subset
-and isolated fixture gallery are implemented ([component contract](docs/architecture/ui-components.md),
-[issue #10](https://github.com/LimeBeck/arinn/issues/10)). Fixture-driven Home and
-global navigation extend that foundation ([issue #15](https://github.com/LimeBeck/arinn/issues/15));
-production binding and complete design verification remain pending. No Phase 5 gate is closed.
+**UI increment status:** In progress (updated 2026-10-31). Production models and
+screen bindings are implemented; this is no longer a fixture-only increment.
+See [Home and Applications](docs/architecture/ui-components.md#production-home-and-applications),
+[Browser](docs/architecture/ui-browser.md#verification),
+[Library](docs/architecture/ui-library.md), and the Phase 5 keyboard, quick-menu
+and session rows. Full visual acceptance and target-device checks remain open;
+this update closes no Phase 5 gate.
 
 Phase 0 is complete, so presentation and local navigation work may start while
 Phase 1 core/API work continues. Full UI acceptance remains in Phase 5; phases
@@ -164,7 +195,7 @@ Goal: launch and return to ordinary applications, Steam and ES-DE through `arinn
 
 ## Phase 3 — Browser
 
-**Status:** Planned. Browser launch ownership (OQ-03) was resolved by
+**Status:** In progress (2026-10-31). Browser launch ownership (OQ-03) was resolved by
 [ADR-0038](docs/adr/0038-browser-launch-ownership.md); online-service tiles (OQ-02)
 were resolved on 2026-09-28 as Arinn-owned web shortcuts ([ADR-0043](docs/adr/0043-web-shortcuts.md)).
 
@@ -173,7 +204,7 @@ Goal: the main daily scenario — Arinn becomes usable every day.
 | Exit criterion | Evidence |
 | --- | --- |
 | AC-03 Chrome or an online service opens from Home | Operator test |
-| AC-04 Existing tabs are shown and switchable | Integration + operator test |
+| AC-04 Existing tabs are shown and switchable | Partial (evidence indexed 2026-10-31): [native-host/provider chain tests](plugins/chrome/tests/chain.rs), [browser model/UI verification](docs/architecture/ui-browser.md#verification). Full operator acceptance remains open |
 | AC-05 Global Home over Chrome | Operator test |
 | AC-06 Return to the same browser activity (tab level) | Operator test |
 | AC-10 Chrome provider crash does not crash shell or daemon | Pass (integration, CI): `plugins/chrome/tests/isolation.rs` `chrome_provider_crash_does_not_crash_the_daemon` kills the provider with SIGKILL; the daemon stays up and the browser becomes unavailable. The shell shows the unavailable state without failing (`browser_catalog_test`, [#296](https://github.com/LimeBeck/arinn/pull/296)). Recorded 2026-10-06 ([#353](https://github.com/LimeBeck/arinn/issues/353)) |
@@ -181,20 +212,20 @@ Goal: the main daily scenario — Arinn becomes usable every day.
 
 ## Phase 4 — Media
 
-**Status:** Planned. OQ-01 and OQ-05 were resolved by the owner on 2026-09-28 ([ADR-0046](docs/adr/0046-shell-input-layer-during-playback.md); the later New request is tracked in [#587](https://github.com/LimeBeck/arinn/issues/587)).
+**Status:** In progress (2026-10-31). OQ-01 and OQ-05 were resolved by the owner on 2026-09-28 ([ADR-0046](docs/adr/0046-shell-input-layer-during-playback.md); the later New request is tracked in [#587](https://github.com/LimeBeck/arinn/issues/587)).
 
 Goal: MPRIS media control, the local library and playback in external mpv with Arinn's OSD.
 
 | Exit criterion | Evidence |
 | --- | --- |
-| AC-09 MPRIS session shown and controlled | Integration + operator test |
+| AC-09 MPRIS session shown and controlled | Partial (evidence indexed 2026-10-31): [synthetic-player integration suite](plugins/mpris/tests/players.rs), [MPRIS contract](docs/architecture/media-mvp.md#mpris). Real-player/operator qualification remains open |
 | AC-15 Library scan of local and mounted folders, fallback metadata, unavailable mount, film and episode start | Pass (integration, CI). Scan, names, NFO and artwork: `plugins/library/tests/catalogue.rs` (`scans_films_series_artwork_and_hostile_nfo`, `tv_season_folders_form_one_series`). Fallback metadata: `missing_ffprobe_keeps_the_catalogue_and_unknown_duration`. Unavailable root keeps entries: `missing_file_and_unavailable_root_keep_the_uuid`. Film and episode start through the daemon: `crates/arinnd/src/runtime/library_tests.rs` `a_launch_opens_the_item_in_the_media_provider`; in the shell, `library_catalog_test` `seriesLaunchResolvesToAnEpisode`. A mounted folder is an ordinary configured root; no network mount was exercised. Recorded 2026-10-06 ([#353](https://github.com/LimeBeck/arinn/issues/353)) |
-| AC-16 Play/pause/seek, audio/subtitle selection, resume after restart, Continue | Integration + operator test |
-| G-4.1 Media integration gate: OSD over video without losing playback, shell input layer per ADR-0046, Home/Return | #141: managed input layer implemented with synthetic adapter/private-bus coverage; #309 adds confirmed Stop, fresh-process Continue and retained final-frame artwork (ADR-0083 proposed); owner-run KDE Wayland/TV operator test pending |
+| AC-16 Play/pause/seek, audio/subtitle selection, resume after restart, Continue | Partial (evidence indexed 2026-10-31): [mpv playback tests](plugins/mpv/tests/playback.rs), [bus integration](plugins/mpv/tests/bus.rs), [media contract](docs/architecture/media-mvp.md). Target-device acceptance and Continue fixes remain open; see #581 and #448 above |
+| G-4.1 Media integration gate: OSD over video without losing playback, shell input layer per ADR-0046, Home/Return | #141: managed input layer implemented with synthetic adapter/private-bus coverage; #309 adds confirmed Stop, fresh-process Continue and retained final-frame artwork (behaviour implemented; ADR-0083 still Proposed, not accepted by this refresh); owner-run KDE Wayland/TV operator test pending. [Nested-compositor spike #433](https://github.com/LimeBeck/arinn/issues/433) has measurements but awaits the production architecture decision |
 
 ## Phase 5 — Product MVP
 
-**Status:** Planned. OQ-04 was resolved by the owner on 2026-09-28 (Plasma handles media/volume keys outside the shell). OQ-06 was resolved by [ADR-0034](docs/adr/0034-provider-data-directory-identity.md).
+**Status:** In progress (2026-10-31). OQ-04 was resolved by the owner on 2026-09-28 (Plasma handles media/volume keys outside the shell). OQ-06 was resolved by [ADR-0034](docs/adr/0034-provider-data-directory-identity.md).
 
 Goal: everything needed to use Arinn as the HTPC shell — the full design, Downloads, persistence, diagnostics, error UX, power and packaging.
 
@@ -208,12 +239,12 @@ and accepts the full UI; early component work does not close its criteria.
 | AC-02 Full D-pad navigation | UI tests + operator test |
 | AC-13 No profile selection or login | Pass (review, 2026-10-06, [#353](https://github.com/LimeBeck/arinn/issues/353)): the shell starts at Home. The QML and C++ sources of `apps/arinn-shell` contain no profile, account, login or password flow |
 | AC-14 Focus and primary actions readable from 3 m | Operator test on a TV |
-| AC-17 Downloads with Transmission, import into Library exactly once | Integration + operator test. Shell binding of the Downloads screen to `Downloads1` with catalog and `Main.qml` tests ([#233](https://github.com/LimeBeck/arinn/issues/233)). Partial, owner's manual check on the KDE HTPC (snapshot `1bd20d6`, 2026-10-06). The screen shows the real Transmission queue. A completed series download shows "Done · Added to the library", and Watch opens it for playback. The library on the device holds that series exactly once: one series row, 8 episodes, 8 distinct files (agent read-only count over SSH). Not yet confirmed on the device: pause/resume/start now/retry, and the error and service-unavailable states |
-| AC-18 Home/Back table with standard keyboard input, Esc/Backspace exception | Pass (UI tests, CI) for the rows inside the shell. `tests/ui/tst_home_back.qml` (`HomeBackTable`) covers modal/sheet/navigation, nested screen, Home with and without a return Activity, and Backspace in a field. Home and Menu on every screen, including from a focused text field and an open Settings editor, are covered by `library_catalog_test` `menuOpensNavigationOverSectionScreens` and `SettingsView::test_home_from_editors_and_sheets` ([#334](https://github.com/LimeBeck/arinn/pull/334)). The external-application row is platform behaviour, covered by AC-05/G-0.3–G-0.4. Recorded 2026-10-06 ([#353](https://github.com/LimeBeck/arinn/issues/353)) |
+| AC-17 Downloads with Transmission, import into Library exactly once | Partial (evidence indexed 2026-10-31): [Transmission fake-RPC/provider suite](plugins/transmission/tests/provider.rs) and [download routing/import tests](crates/arinnd/src/runtime/download_tests.rs). Shell binding of the Downloads screen to `Downloads1` with catalog and `Main.qml` tests ([#233](https://github.com/LimeBeck/arinn/issues/233)). Partial, owner's manual check on the KDE HTPC (snapshot `1bd20d6`, 2026-10-06). The screen shows the real Transmission queue. A completed series download shows "Done · Added to the library", and Watch opens it for playback. The library on the device holds that series exactly once: one series row, 8 episodes, 8 distinct files (agent read-only count over SSH). Not yet confirmed on the device: pause/resume/start now/retry, and the error and service-unavailable states |
+| AC-18 Home/Back table with standard keyboard input, Esc/Backspace exception | Partial overall (updated 2026-10-31): the 2026-10-06 evidence below covers the original shell rows only. The later external-keyboard scope remains subject to G-5.9 operator acceptance. Pass (UI tests, CI) for the original rows inside the shell. `tests/ui/tst_home_back.qml` (`HomeBackTable`) covers modal/sheet/navigation, nested screen, Home with and without a return Activity, and Backspace in a field. Home and Menu on every screen, including from a focused text field and an open Settings editor, are covered by `library_catalog_test` `menuOpensNavigationOverSectionScreens` and `SettingsView::test_home_from_editors_and_sheets` ([#334](https://github.com/LimeBeck/arinn/pull/334)). The external-application row is platform behaviour, covered by AC-05/G-0.3–G-0.4. Recorded 2026-10-06 ([#353](https://github.com/LimeBeck/arinn/issues/353)) |
 | AC-19 Suspend, wake, lock screen and ambient (carried over G-0.8) | Operator test |
 | G-5.1 UI matches the design handoff states and the 22 screenshots | Design review |
-| G-5.2 Activity background capture lifecycle and budget (carried over G-0.7) | Measurement report |
-| G-5.3 Arch/EndeavourOS package installs, starts and uninstalls cleanly | Packaging test |
+| G-5.2 Activity background capture lifecycle and budget (carried over G-0.7) | Partial (updated 2026-10-31): KDE/X11 producer/runtime implementation merged (#490–#493); [#149](https://github.com/LimeBeck/arinn/issues/149) remains open for device measurements. Per-card capture is separate (#362) |
+| G-5.3 Arch/EndeavourOS package installs, starts and uninstalls cleanly | Partial (evidence indexed 2026-10-31): [package smoke](tests/package/smoke.py), [session checks](tests/package/session.py), [uninstall checks](tests/package/uninstall.py), wired in [package CI](.github/workflows/package.yml). Test coverage is not a new qualification run; release/CI evidence gap tracked by #614 remains open |
 | G-5.4 Performance budgets of spec §6.5 measured on the target device | [Measurement harness](docs/architecture/performance-harness.md) with offscreen/private-bus smoke checks; target-device measurement report remains pending |
 | G-5.5 Operator acceptance of AC-01–AC-19 repeated on an X11/EWMH desktop (XFCE) in addition to KDE Plasma 6/Wayland (P-09, [ADR-0080](docs/adr/0080-mvp-platforms.md)) | Operator test on each platform |
 | G-5.6 On-screen keyboard: every text field can be filled with the remote alone (spec §6.2, [ADR-0103](docs/adr/0103-on-screen-keyboard.md), [#418](https://github.com/LimeBeck/arinn/issues/418)) | Partial (UI and C++ tests, 2026-10-09 and 2026-10-21, [ui-keyboard.md](docs/architecture/ui-keyboard.md)): Site or search, both shortcut editor fields, string settings and, since 2026-10-21, the Settings path editors (KB-5 context row without subfolder suggestions, which wait for DR-27; [#426](https://github.com/LimeBeck/arinn/issues/426)) type with the panel. Open: the pixel comparison with `kb-*.png` at 1080p and 4K, and the operator test with the remote |
@@ -232,3 +263,21 @@ Candidates: Steam provider (library, artwork, recent games), ES-DE provider, Jel
 - Multi-monitor edge cases: hot unplug, mirrored outputs, moving the Activity while Home is open.
 - KWin compositor restart while Arinn runs.
 - Live compositor texture instead of the last frame.
+
+### Feature backlog and decision dependencies
+
+These are existing requests, not a newly committed delivery order or release date.
+
+| Feature | Current state / dependency |
+| --- | --- |
+| Library metadata enrichment, folder and season navigation ([#242](https://github.com/LimeBeck/arinn/issues/242)) | Planning; source precedence and navigation decisions pending. Online enrichment is not selected |
+| Web-service screenshots on Continue cards ([#362](https://github.com/LimeBeck/arinn/issues/362)) | Per-window cache/transport increment still required; Home background capture alone does not deliver it |
+| Embedded playback via nested Wayland compositor ([#433](https://github.com/LimeBeck/arinn/issues/433)) | Spike measured synthetic 4K30/60; owner review and production architecture decision pending. [libmpv #244](https://github.com/LimeBeck/arinn/issues/244) is a separate conditional fallback |
+| Input assignment UI, per-device bindings and gamepads ([#64](https://github.com/LimeBeck/arinn/issues/64)) | Basic shell bindings already delivered; remaining scope unscheduled, gamepads a Phase 6 candidate |
+| Steam game library, artwork and game-level Activities ([#435](https://github.com/LimeBeck/arinn/issues/435)) | Post-MVP; waits for stable Plugin API / Phase 6 |
+| Notifications over external applications ([#440](https://github.com/LimeBeck/arinn/issues/440)) | Post-MVP proposal; event policy and design pending |
+| Android TV home screen / launcher ([#198](https://github.com/LimeBeck/arinn/issues/198)) | Post-MVP feasibility and staged prototypes; Linux MVP first |
+| Voice control ([#85](https://github.com/LimeBeck/arinn/issues/85)) | Unscheduled post-MVP request; recognition, microphone and activation choices pending |
+
+The other Phase 6 candidates above (ES-DE, Jellyfin, TV/webOS and torrent addition)
+remain candidates, not started implementations.

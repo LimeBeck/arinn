@@ -35,6 +35,9 @@ Surface {
             source: root.artwork
             visible: false
             onStatusChanged: frame.syncSource()
+            // A cached image can stay Ready across a URL change without a
+            // status change. Sync once the new source has started loading.
+            onSourceChanged: Qt.callLater(frame.syncSource)
         }
         Canvas {
             id: frame

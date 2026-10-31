@@ -132,10 +132,20 @@ TestCase {
         tryVerify(() => canvas.isImageLoaded(landscape));
         verify(!canvas.isImageLoaded(portrait));
         tryCompare(canvas, "showsArtwork", true);
+        // Back to an image Qt still has cached: the picture may stay Ready
+        // without a status change, and the canvas must still follow it.
+        card.artwork = portraitFixture;
+        tryCompare(canvas, "loadedSource", portrait);
+        tryVerify(() => canvas.isImageLoaded(portrait));
+        verify(!canvas.isImageLoaded(landscape));
+        tryVerify(() => {
+            const pixels = grabImage(card);
+            return pixels.red(200, 60) > 150 && pixels.blue(200, 60) < 100;
+        });
         card.artwork = "";
         tryCompare(canvas, "showsArtwork", false);
         compare(canvas.loadedSource, "");
-        verify(!canvas.isImageLoaded(landscape));
+        verify(!canvas.isImageLoaded(portrait));
     }
     function test_hover_suppression() {
         const first = createTemporaryObject(buttonFactory, suite);

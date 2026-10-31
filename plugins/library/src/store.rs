@@ -465,8 +465,6 @@ impl Store {
                 },
             )?
             else {
-                // Subtitles, NFO files and other extras of a download are not
-                // catalogue items; the scan skips them too (#598).
                 continue;
             };
             if ids.iter().any(|seen| seen == &id) {
@@ -612,8 +610,15 @@ impl Store {
         path: &Path,
         settings: &Settings,
     ) -> Result<Option<String>, ErrorCode> {
-        let Some(file) = disk_file(root, path)? else {
+        if relative(root, path).is_none() || parse::parse_video(root, path).is_none() {
+            // Subtitles, NFO files and other extras of a download are not
+            // catalogue items; the scan skips them too (#598).
             return Ok(None);
+        }
+        // A video that vanished or became unreadable after the caller's
+        // checks stays retryable instead of passing for an extra.
+        let Some(file) = disk_file(root, path)? else {
+            return Err(ErrorCode::Unavailable);
         };
         let existing = self.load_root(root_id)?;
         let old = existing
@@ -1807,6 +1812,41 @@ mod tests {
         fs::write(&gone, b"gone").unwrap();
         fs::remove_file(&gone).unwrap();
         assert!(disk_file(&root, &gone).unwrap().is_none());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_import_video_that_vanishes_before_stat_stays_retryable() {
+        let dir = std::env::temp_dir().join(format!(
+            "arinn-library-import-vanish-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        fs::create_dir_all(dir.join("root")).unwrap();
+        let root = dir.join("root");
+        let mut store = Store::open(&dir.join("library.sqlite3")).unwrap();
+        let root_id = store.root_id(&root).unwrap();
+        let settings = Settings {
+            autoscan: false,
+            roots: vec![root.clone()],
+            probe: false,
+            ffprobe: PathBuf::from("ffprobe"),
+        };
+        // The import checked the path, then the video disappeared: it must
+        // not be skipped like an extra (#598).
+        let video = root.join("Gone (2001).mkv");
+        assert_eq!(
+            store.upsert_file(&root_id, &root, &video, &settings),
+            Err(ErrorCode::Unavailable)
+        );
+        let subtitles = root.join("Gone (2001).srt");
+        assert_eq!(
+            store.upsert_file(&root_id, &root, &subtitles, &settings),
+            Ok(None)
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 

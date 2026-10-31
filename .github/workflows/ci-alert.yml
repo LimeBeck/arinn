@@ -1,0 +1,39 @@
+name: CI alert
+
+# Opens an issue labelled ci-red when CI fails on a master push or the
+# nightly, comments on it while that kind stays red and closes it with the
+# next green run of the same kind (ADR-0121, #614). A workflow_run job runs
+# the master copy of this file and of the script, never code from the run.
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  alert:
+    name: Report master CI state
+    if: ${{ github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'schedule' }}
+    # One report at a time, in order, so two failures never open two issues.
+    concurrency:
+      group: ci-alert
+      queue: max
+      cancel-in-progress: false
+    runs-on: ${{ vars.ARINN_RUNNER || 'ubuntu-latest' }}
+    container: python:3.12
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: master
+          sparse-checkout: scripts
+      - name: Open, update or close the ci-red issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/ci-status.py alert

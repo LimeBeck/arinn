@@ -436,6 +436,16 @@ TestCase {
         compare(child("posterLabel-n").text, "Noir");
         compare(child("posterYear-n").text, "1999");
         compare(child("missing-n").visible, false);
+        noWireframeLabels();
+        // An artwork URL next to noArt does not replace the plate.
+        createLibrary({
+            tabs: [{id: "films", title: "Films"}],
+            entries: [{id: "n", tabId: "films", title: "Noir", year: "1999", noArt: true, kind: "film",
+                       artwork: Qt.resolvedUrl("../../apps/arinn-shell/gallery/fixture-artwork.svg")}]
+        });
+        compare(child("posterImage-n").source.toString(), "");
+        compare(child("posterPlate-n").visible, true);
+        compare(child("posterArtTitle-n").text, "Noir");
     }
 
     function test_series_detail_has_seasons_and_stills() {

@@ -723,7 +723,9 @@ FocusScope {
                         id: cell
                         required property var modelData
                         required property int index
-                        readonly property bool posterHasSource: !!(modelData.artwork && String(modelData.artwork).length)
+                        // `noArt` wins over an artwork URL: the plate stays.
+                        readonly property bool posterHasSource: !modelData.noArt
+                            && !!(modelData.artwork && String(modelData.artwork).length)
                         width: root.posterWidth
                         height: 427
                         z: poster.activeFocus ? 2 : 0
@@ -740,7 +742,7 @@ FocusScope {
                             text: modelData.title || ""
                             enabled: modelData.enabled !== false
                             busy: !!modelData.busy || (root.operationPending && root.launchingId === modelData.id)
-                            restingColor: modelData.noArt || !cell.posterHasSource ? Qt.rgba(0.21, 0.21, 0.23, 1) : root.standInColor(modelData.id)
+                            restingColor: !cell.posterHasSource ? Qt.rgba(0.21, 0.21, 0.23, 1) : root.standInColor(modelData.id)
                             focusedColor: restingColor
                             pointerMode: root.pointerMode
                             hoverFocusEnabled: root.hoverFocusEnabled

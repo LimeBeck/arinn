@@ -78,6 +78,8 @@ class ImageWorkflowTest(unittest.TestCase):
             with self.subTest(workflow=name):
                 self.assertNotIn("archlinux:latest", text)
                 self.assertNotIn("ubuntu:25.04", text)
+                # The install test adds only the validator, after the package (#614).
+                text = text.replace("apt-get install -y --no-install-recommends desktop-file-utils\n", "")
                 self.assertNotIn("apt-get install -y --no-install-recommends", text)
                 self.assertNotIn("useradd", text)
         # Every ghcr.io image is pulled with the job's token, so the images
@@ -111,6 +113,22 @@ class ImageWorkflowTest(unittest.TestCase):
         self.assertRegex(stage(ARCH, "smoke"), r"pacman -Syu --noconfirm --needed python dbus \\\n")
         self.assertRegex(stage(UBUNTU, "smoke"), r"apt-get install -y --no-install-recommends python3 dbus \\\n")
         self.assertIn("pacman -Syu --noconfirm\n          pacman -U --noconfirm pkg/*.pkg.tar.zst", package["smoke"])
+
+    def test_install_tests_validate_desktop_entries(self):
+        # The validator is required, not skipped, and installed only after
+        # the package, so it cannot hide a missing dependency (#614).
+        package = jobs(PACKAGE)
+        for job, install, package_install in (
+                ("smoke", "pacman -S --noconfirm --needed desktop-file-utils", "pacman -U --noconfirm"),
+                ("smoke-deb", "apt-get install -y --no-install-recommends desktop-file-utils",
+                 "apt-get install -y ./pkg/*.deb")):
+            with self.subTest(job=job):
+                text = package[job]
+                self.assertLess(text.index(package_install), text.index(install))
+                self.assertLess(text.index(install), text.index("tests/package/session.py"))
+                self.assertIn('ARINN_REQUIRE_DESKTOP_VALIDATE: "1"', text)
+        for dockerfile in (ARCH, UBUNTU):
+            self.assertNotIn("desktop-file-utils", stage(dockerfile, "smoke"))
 
 
 class ImageContentTest(unittest.TestCase):

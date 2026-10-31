@@ -21,6 +21,9 @@
 - name: blocked
   color: "b60205"
   description: Waiting for another issue or pull request
+- name: ci-red
+  color: "b60205"
+  description: CI failed on master or the nightly; opened and closed by ci-alert.yml (ADR-0121)
 - name: contract-change
   color: "5319e7"
   description: Changes arinn-protocol, the plugin SDK or interface XML

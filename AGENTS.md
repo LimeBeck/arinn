@@ -73,7 +73,7 @@ You are expected to work on your own ([ADR-0037](docs/adr/0037-agent-autonomy-an
     - Markdown-only and changelog-only pull requests need none.
     - Review other agents' pull requests when you are free.
     - Answer every bot finding. Bots are advisory, and their approval does not count.
-- **Merge it yourself** (squash, then delete the branch and close the issue) when every CI, changelog and CLA check is green on a branch up to date with `master`, the required review approves the current head, no review thread is unresolved, there is no `needs-owner` label, and the pull request touches no owner-gated area.
+- **Merge it yourself** (squash, then delete the branch and close the issue) when every CI, changelog and CLA check is green on a branch up to date with `master`, the required review approves the current head, no review thread is unresolved, there is no `needs-owner` label, no `ci-red` issue is open unless the pull request fixes it or changes only documentation ([ADR-0121](docs/adr/0121-red-master-and-nightly-alerts.md)), and the pull request touches no owner-gated area.
 
 **Owner-gated — label `needs-owner`, explain, recommend, move on:** open questions and product scope (acceptance criteria, MVP, product behaviour in the specification); marking a phase Done; non-technical ADRs (product, licensing, security posture, process); licensing files and policy (`LICENSE*`, `REUSE.toml`, `CLA.md`, `deny.toml` license policy); releases, version bumps and tags; operator tests on a real desktop, HTPC or TV; repository settings, branch protection, secrets and history rewrites on `master`; the rules for agents themselves (`AGENTS.md`, `CONTRIBUTING.md`, `CODEOWNERS`, merge/release/CLA workflows). The owner merges those pull requests.
 

@@ -1799,6 +1799,63 @@ private slots:
     QTRY_VERIFY(row->hasActiveFocus());
   }
 
+  void deferredRowRetryUnderTheMenuKeepsItsFocus() {
+    LibraryDaemon daemon;
+    QVERIFY(registerBus(daemon));
+    ShellStandIn backend;
+    SessionGuardStandIn guard;
+    QQmlApplicationEngine engine;
+    installAssetImageProvider(&engine);
+    engine.rootContext()->setContextProperty(QStringLiteral("backend"), &backend);
+    engine.rootContext()->setContextProperty(QStringLiteral("sessionGuard"),
+                                             &guard);
+    engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
+    auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().value(0));
+    QVERIFY(window);
+    window->show();
+    window->requestActivate();
+    auto home = window->findChild<QQuickItem *>(QStringLiteral("productionHome"));
+    auto downloads =
+        window->findChild<QQuickItem *>(QStringLiteral("productionDownloads"));
+    QVERIFY(home);
+    QVERIFY(downloads);
+    const QVariantMap job{{QStringLiteral("id"), QStringLiteral("job-1")},
+                          {QStringLiteral("title"), QStringLiteral("Feature")},
+                          {QStringLiteral("state"), QStringLiteral("downloading")},
+                          {QStringLiteral("progress"), 0.5},
+                          {QStringLiteral("importState"), QStringLiteral("pending")}};
+    home->setProperty("screen", QStringLiteral("downloads"));
+    // Let the start-up catalogue load settle before replacing its jobs.
+    QTest::qWait(200);
+    downloads->setProperty("viewState", QStringLiteral("populated"));
+    downloads->setProperty("jobs", QVariantList{job});
+    auto row = findItem(downloads, QStringLiteral("job-job-1"));
+    QVERIFY(row);
+    QTRY_VERIFY(row->hasActiveFocus());
+    QTest::qWait(100);
+    QCOMPARE(downloads->property("viewState").toString(), QStringLiteral("populated"));
+
+    // The row is gone when Downloads restores focus, so focusJob() defers a
+    // retry. The menu opens before the retry finds the rebuilt row.
+    row = findItem(downloads, QStringLiteral("job-job-1"));
+    QVERIFY(row);
+    delete row;
+    QVariant restored;
+    QVERIFY(QMetaObject::invokeMethod(downloads, "focusJob",
+                                      Q_RETURN_ARG(QVariant, restored),
+                                      Q_ARG(QVariant, QVariant(0))));
+    QCOMPARE(restored.toBool(), false);
+    QTest::keyClick(window, Qt::Key_Menu);
+    QTRY_COMPARE(home->property("navOpen").toBool(), true);
+    auto navigation = findItem(home, QStringLiteral("navigation"));
+    QVERIFY(navigation);
+    QVariantMap progressed = job;
+    progressed.insert(QStringLiteral("progress"), 0.6);
+    downloads->setProperty("jobs", QVariantList{progressed});
+    QTest::qWait(100);
+    QVERIFY(focusInside(window->activeFocusItem(), navigation));
+  }
+
   void catalogueChangesUnderTheMenuKeepThePosterPosition() {
     LibraryDaemon daemon;
     daemon.collections = {{QStringLiteral("films"), QStringLiteral("Films"),

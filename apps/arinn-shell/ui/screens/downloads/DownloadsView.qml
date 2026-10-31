@@ -242,7 +242,8 @@ FocusScope {
         if (!item) {
             if (!refocusPending) {
                 refocusPending = true;
-                Qt.callLater(() => { refocusPending = false; focusJob(clamped); });
+                // An overlay may have taken focus before the retry runs.
+                Qt.callLater(() => { refocusPending = false; if (ownsFocus) focusJob(clamped); });
             }
             return false;
         }

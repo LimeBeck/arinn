@@ -519,7 +519,13 @@ impl<C: Catalog> Store<C> {
         if lease.owner != owner {
             return Err(ErrorCode::PermissionDenied);
         }
-        leased_page::<C>(key, lease, index)
+        let page = leased_page::<C>(key, lease, index)?;
+        // A served last page ends the read; keeping the lease until its TTL
+        // lets periodic re-reads exhaust MAX_LEASES (#616).
+        if index + 1 == lease.pages.len() {
+            self.leases.remove(key);
+        }
+        Ok(page)
     }
 
     /// Drop all old generations and leases immediately on re-registration.
@@ -676,7 +682,17 @@ impl<R: Row> RowStore<R> {
         if lease.owner != owner {
             return Err(ErrorCode::PermissionDenied);
         }
-        leased_row::<R>(key, lease, index)
+        let page = leased_row::<R>(key, lease, index)?;
+        // A served last page ends the read; keeping the lease until its TTL
+        // lets periodic re-reads exhaust MAX_LEASES (#616).
+        if index + 1 == lease.pages.len() {
+            self.leases.remove(key);
+        }
+        Ok(page)
+    }
+
+    pub fn disconnect(&mut self, owner: &str) {
+        self.leases.retain(|_, lease| lease.owner != owner);
     }
 }
 
@@ -763,17 +779,19 @@ mod tests {
         store.publish(apps(201, 10), vec![]).unwrap();
         let first = store.page(":1.1", "", now).unwrap();
         store.publish(apps(1, 20), vec![]).unwrap();
-        let last = store.page(":1.1", &first.next_token, now).unwrap();
-        assert_eq!((last.revision, last.applications.len()), (1, 1));
         assert_eq!(
             store.page(":1.2", &first.next_token, now),
             Err(ErrorCode::PermissionDenied)
         );
+        let last = store.page(":1.1", &first.next_token, now).unwrap();
+        assert_eq!((last.revision, last.applications.len()), (1, 1));
+        store.publish(apps(201, 10), vec![]).unwrap();
+        let first = store.page(":1.1", "", now).unwrap();
         assert_eq!(
             store.page(":1.1", &first.next_token, now + TOKEN_TTL),
             Err(ErrorCode::Conflict)
         );
-        assert_eq!(store.page(":1.1", "", now + TOKEN_TTL).unwrap().revision, 2);
+        assert_eq!(store.page(":1.1", "", now + TOKEN_TTL).unwrap().revision, 3);
         store.reset(&Uuid::new_v4().to_string()).unwrap();
         assert_eq!(store.page(":1.1", "", now), Err(ErrorCode::Unavailable));
     }
@@ -808,6 +826,37 @@ mod tests {
         assert_eq!(store.page(":1.1", "", now), Err(ErrorCode::Unavailable));
         store.disconnect(":1.1");
         assert!(store.page(":1.2", "", now).is_ok());
+    }
+
+    fn read_all(store: &mut Snapshots, owner: &str, now: Instant) -> usize {
+        let mut page = store.page(owner, "", now).unwrap();
+        let mut count = page.applications.len();
+        while !page.next_token.is_empty() {
+            page = store.page(owner, &page.next_token, now).unwrap();
+            count += page.applications.len();
+        }
+        count
+    }
+
+    #[test]
+    fn a_completed_read_releases_its_lease() {
+        // #616: the daemon re-reads multi-page snapshots every second, so a
+        // lease that lives until its TTL exhausts the budget within 30 s.
+        let mut store = store();
+        store.publish(apps(401, 1), vec![]).unwrap();
+        let now = Instant::now();
+        for _ in 0..MAX_LEASES * 2 {
+            assert_eq!(read_all(&mut store, ":1.1", now), 401);
+        }
+        assert!(store.leases.is_empty());
+        let first = store.page(":1.1", "", now).unwrap();
+        let second = store.page(":1.1", &first.next_token, now).unwrap();
+        let last = store.page(":1.1", &second.next_token, now).unwrap();
+        assert!(last.next_token.is_empty());
+        assert_eq!(
+            store.page(":1.1", &second.next_token, now),
+            Err(ErrorCode::Conflict)
+        );
     }
 
     #[test]
@@ -954,6 +1003,16 @@ mod tests {
         let last = sessions.page(":1.1", &first.next_token, now).unwrap();
         let all: Vec<_> = first.sessions.into_iter().chain(last.sessions).collect();
         assert_eq!(all.len(), many.len());
+        assert!(sessions.leases.is_empty());
+        for _ in 0..MAX_LEASES * 2 {
+            let first = sessions.page(":1.1", "", now).unwrap();
+            let last = sessions.page(":1.1", &first.next_token, now).unwrap();
+            assert!(last.next_token.is_empty());
+        }
+        sessions.page(":1.2", "", now).unwrap();
+        assert_eq!(sessions.leases.len(), 1);
+        sessions.disconnect(":1.2");
+        assert!(sessions.leases.is_empty());
 
         let mut library = LibrarySnapshots::new(&Uuid::new_v4().to_string()).unwrap();
         let collection = Collection {

@@ -23,6 +23,7 @@ import json
 import os
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 
 LABEL = "ci-red"
@@ -82,13 +83,25 @@ def alert_action(run):
     return None
 
 
-def newest_decisive(api, event):
-    """The latest finished run of this kind on master that passed or failed."""
-    reply = api.request("GET", "/actions/workflows/ci.yml/runs"
-                               f"?branch=master&event={event}&status=completed&per_page=20")
-    runs = (reply or {}).get("workflow_runs", [])
-    decisive = [item for item in runs if item.get("conclusion") in FAILED | {"success"}]
-    return max(decisive, key=lambda item: (item.get("created_at", ""), item.get("id", 0)), default=None)
+def newer_decisive(api, run):
+    """A finished run of the same kind on master, newer than `run`, that passed
+    or failed. Pages through every run created since `run`, so any number of
+    newer cancelled runs cannot hide it."""
+    order = (run.get("created_at", ""), run.get("id", 0))
+    created = urllib.parse.quote(">=" + run.get("created_at", ""), safe="")
+    page = 1
+    while True:
+        reply = api.request("GET", "/actions/workflows/ci.yml/runs"
+                                   f"?branch=master&event={run['event']}&status=completed"
+                                   f"&created={created}&per_page=100&page={page}")
+        runs = (reply or {}).get("workflow_runs", [])
+        for item in runs:
+            if (item.get("conclusion") in FAILED | {"success"}
+                    and (item.get("created_at", ""), item.get("id", 0)) > order):
+                return item
+        if len(runs) < 100:
+            return None
+        page += 1
 
 
 def alert(api, run):
@@ -98,8 +111,7 @@ def alert(api, run):
     # Each master commit has its own CI concurrency group, so runs finish out
     # of order: an older commit's result must not open or close the issue
     # after a newer run of the same kind has reported.
-    newest = newest_decisive(api, run["event"])
-    if newest is not None and newest.get("id") != run.get("id"):
+    if newer_decisive(api, run) is not None:
         return "stale"
     kind, title = action
     issues = api.request("GET", f"/issues?state=open&labels={LABEL}&per_page=100") or []

@@ -8,6 +8,7 @@ import importlib.util
 import pathlib
 import re
 import unittest
+import urllib.parse
 
 from test_ci_build_scope import jobs
 
@@ -31,8 +32,16 @@ class FakeGitHub:
     def request(self, method, path, body=None):
         self.calls.append((method, path, body))
         if method == "GET" and path.startswith("/actions/workflows/ci.yml/runs?"):
-            event = path.split("event=")[1].split("&")[0]
-            return {"workflow_runs": [item for item in self.runs if item["event"] == event]}
+            # Like the REST API: newest first, `created=>=` filter, paged.
+            query = urllib.parse.parse_qs(path.split("?", 1)[1])
+            runs = [item for item in self.runs if item["event"] == query["event"][0]]
+            if "created" in query:
+                since = query["created"][0].removeprefix(">=")
+                runs = [item for item in runs if item["created_at"] >= since]
+            runs.sort(key=lambda item: (item["created_at"], item["id"]), reverse=True)
+            size = int(query.get("per_page", ["30"])[0])
+            page = int(query.get("page", ["1"])[0])
+            return {"workflow_runs": runs[(page - 1) * size:page * size]}
         if method == "GET" and path.startswith("/issues?"):
             return self.issues
         return {}
@@ -131,6 +140,20 @@ class OrderTest(unittest.TestCase):
         api = FakeGitHub(runs=[newer, older])
         self.assertEqual(ci_status.alert(api, older), "stale")
         self.assertEqual(api.writes(), [])
+
+    def test_many_newer_cancelled_runs_do_not_hide_a_newer_failure(self):
+        # A newer failure behind more than a page of cancelled runs (#621 review).
+        older = run("push", "success", run_id=1, created="2026-10-30T10:00:00Z")
+        newer = run("push", "failure", run_id=2, created="2026-10-30T11:00:00Z")
+        cancelled = [run("push", "cancelled", run_id=100 + index,
+                         created=f"2026-10-30T12:{index // 60:02d}:{index % 60:02d}Z")
+                     for index in range(150)]
+        api = FakeGitHub(runs=[*cancelled, newer, older], issues=[issue(7, "CI is red on master")])
+        self.assertEqual(ci_status.alert(api, older), "stale")
+        self.assertEqual(api.writes(), [])
+        pages = [path for method, path, _ in api.calls if "/actions/workflows/" in path]
+        self.assertEqual(len(pages), 2)
+        self.assertIn("created=%3E%3D2026-10-30T10%3A00%3A00Z", pages[0])
 
     def test_newer_cancelled_runs_and_other_kinds_do_not_make_a_run_stale(self):
         current = run("push", "failure", run_id=1, created="2026-10-30T10:00:00Z")

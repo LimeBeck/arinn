@@ -455,7 +455,7 @@ impl Store {
                 return Err(ErrorCode::InvalidArgument);
             }
             let root_id = self.root_id(&root)?;
-            let id = self.upsert_file(
+            let Some(id) = self.upsert_file(
                 &root_id,
                 &root,
                 &path,
@@ -463,7 +463,12 @@ impl Store {
                     probe: false,
                     ..Settings::default()
                 },
-            )?;
+            )?
+            else {
+                // Subtitles, NFO files and other extras of a download are not
+                // catalogue items; the scan skips them too (#598).
+                continue;
+            };
             if ids.iter().any(|seen| seen == &id) {
                 return Err(ErrorCode::InvalidArgument);
             }
@@ -606,8 +611,10 @@ impl Store {
         root: &Path,
         path: &Path,
         settings: &Settings,
-    ) -> Result<String, ErrorCode> {
-        let file = disk_file(root, path)?.ok_or(ErrorCode::InvalidArgument)?;
+    ) -> Result<Option<String>, ErrorCode> {
+        let Some(file) = disk_file(root, path)? else {
+            return Ok(None);
+        };
         let existing = self.load_root(root_id)?;
         let old = existing
             .iter()
@@ -646,7 +653,7 @@ impl Store {
         rows.push(row);
         link_series(root, &mut rows, series_existing, &metas);
         self.replace_root(root_id, &rows)?;
-        Ok(id)
+        Ok(Some(id))
     }
 
     fn replace_root(&mut self, root_id: &str, rows: &[Row]) -> Result<(), ErrorCode> {

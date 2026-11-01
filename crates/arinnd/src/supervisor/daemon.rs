@@ -95,13 +95,12 @@ impl Pool {
             }
             if unit.retry_at.is_some_and(|time| Instant::now() >= time) {
                 unit.retry_at = None;
-                record_failed_start(unit);
-                if unit.state == "failed" {
+                if !start_permitted(unit) {
                     continue;
                 }
                 unit.restarts += 1;
                 if spawn_unit(unit).is_err() {
-                    record_failed_start(unit);
+                    schedule_retry(unit);
                 }
             }
         }
@@ -179,7 +178,7 @@ impl Pool {
             collect_at: None,
         };
         if spawn_unit(&mut unit).is_err() {
-            record_failed_start(&mut unit);
+            schedule_retry(&mut unit);
         }
         units.insert(name.to_string(), unit);
         Ok(())
@@ -279,7 +278,11 @@ impl Pool {
     }
 }
 
-fn record_failed_start(unit: &mut Unit) {
+/// Whether another start fits the systemd budget (`StartLimitBurst=5` per
+/// `StartLimitIntervalSec=60`, ADR-0089). Past it, the unit is `failed`
+/// until `reset_failed`. Each attempt is recorded once, by `spawn_unit`
+/// (#602).
+fn start_permitted(unit: &mut Unit) -> bool {
     while unit
         .starts
         .front()
@@ -287,15 +290,18 @@ fn record_failed_start(unit: &mut Unit) {
     {
         unit.starts.pop_front();
     }
-    unit.starts.push_back(Instant::now());
     if unit.starts.len() >= START_LIMIT {
         unit.state = "failed".into();
         unit.retry_at = None;
         unit.child = None;
-    } else {
-        unit.state = "activating".into();
-        unit.retry_at = Some(Instant::now() + RESTART_DELAY);
+        return false;
     }
+    true
+}
+
+fn schedule_retry(unit: &mut Unit) {
+    unit.state = "activating".into();
+    unit.retry_at = Some(Instant::now() + RESTART_DELAY);
 }
 
 fn stop_child_group(unit: &mut Unit) {
@@ -308,6 +314,9 @@ fn stop_child_group(unit: &mut Unit) {
 }
 
 fn spawn_unit(unit: &mut Unit) -> Result<(), ErrorCode> {
+    // An attempt counts against the budget even when the executable
+    // cannot be started, as under systemd.
+    unit.starts.push_back(Instant::now());
     record_test_artifacts(unit);
     let executable = unit.executable.to_str().ok_or(ErrorCode::InvalidArgument)?;
     let mut command = Command::new(executable);
@@ -329,7 +338,6 @@ fn spawn_unit(unit: &mut Unit) -> Result<(), ErrorCode> {
     }
     unit.child = Some(command.spawn().map_err(|_| ErrorCode::Unavailable)?);
     unit.state = "active".into();
-    unit.starts.push_back(Instant::now());
     unit.retry_at = None;
     Ok(())
 }

@@ -806,57 +806,14 @@ fn service_release_tag(token: &str) -> bool {
     )
 }
 
-/// Tags that may follow a strong tag but could be words on their own
-/// (`Web`, `Max`, `DV`), audio, and the halves of split tokens (`ddp5 1`).
-fn weak_release_tag(token: &str) -> bool {
-    let base = tag_base(token);
-    service_release_tag(token)
-        || base.chars().all(|ch| ch.is_ascii_digit())
-        || matches!(
-            base.as_str(),
-            "web"
-                | "max"
-                | "hulu"
-                | "multi"
-                | "4k"
-                | "8k"
-                | "uhd"
-                | "remux"
-                | "avc"
-                | "av1"
-                | "hdr"
-                | "hdr10"
-                | "hdr10+"
-                | "dv"
-                | "dovi"
-                | "10bit"
-                | "8bit"
-                | "ddp"
-                | "ddp2"
-                | "ddp5"
-                | "ddp7"
-                | "dd"
-                | "dd5"
-                | "dd+"
-                | "eac3"
-                | "ac3"
-                | "aac"
-                | "aac2"
-                | "dts"
-                | "dts-hd"
-                | "truehd"
-                | "atmos"
-                | "flac"
-                | "opus"
-        )
-}
-
 /// Drops a scene-style release suffix (`2160p NF WEB-DL DDP5 1 DV HEVC-GROUP`)
 /// from cleaned text. The suffix starts at the first strong tag, or at the
-/// service codes right before it, and runs to the end of the text only if
-/// every token in it is a tag. Otherwise the text is unchanged, so a title
-/// that merely contains a tag-like word (`Charlotte's Web`) is never cut
-/// (#660).
+/// service codes right before it, and runs to the end of the text; only years
+/// in it are kept. A strong tag is never a title word, so whatever follows it
+/// is release metadata however it is spelled (`DTS-HD MA`, `TrueHD 7 1`,
+/// `IMAX`), and no list of trailing tags has to be complete. Text without a
+/// strong tag is unchanged, so `Charlotte's Web` or `Show S02 Directors Cut`
+/// are never cut (#660).
 fn strip_release_tags(text: &str) -> String {
     // `H.264` arrives as `h 264`: one token for the codec.
     let mut tokens: Vec<String> = Vec::new();
@@ -873,12 +830,6 @@ fn strip_release_tags(text: &str) -> String {
     let Some(first) = tokens.iter().position(|token| strong_release_tag(token)) else {
         return text.to_string();
     };
-    if !tokens[first..]
-        .iter()
-        .all(|token| strong_release_tag(token) || weak_release_tag(token))
-    {
-        return text.to_string();
-    }
     let mut start = first;
     while start > 0 && service_release_tag(&tokens[start - 1]) {
         start -= 1;
@@ -1087,8 +1038,8 @@ mod tests {
         assert_eq!(episode.title, "Pilot");
     }
 
-    // #660: a scene-style release suffix is dropped only when every token in
-    // it is a tag, and it must contain a tag that is never a title word.
+    // #660: a scene-style release suffix starts at a tag that is never a title
+    // word; without one the text is unchanged.
     #[test]
     fn strips_only_a_whole_release_suffix() {
         for (text, expected) in [
@@ -1103,7 +1054,10 @@ mod tests {
             ("Mad Max", "Mad Max"),
             ("Dark Web DV", "Dark Web DV"),
             ("Director's Cut", "Director's Cut"),
-            ("Pilot 1080p Extended", "Pilot 1080p Extended"),
+            // Anything after a strong tag is release metadata.
+            ("Pilot 1080p Extended", "Pilot"),
+            ("Movie 2020 1080p BluRay DTS-HD MA x264-GROUP", "Movie 2020"),
+            ("Movie 2160p UHD BluRay TrueHD 7 1 Atmos IMAX ESub", "Movie"),
             ("Movie 1080p 2020", "Movie 2020"),
             ("Movie 1080p 2020-GROUP", "Movie 2020-GROUP"),
             ("Show S02 WEB-DLRip-GROUP", "Show S02"),

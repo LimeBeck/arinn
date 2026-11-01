@@ -270,7 +270,7 @@ These are existing requests, not a newly committed delivery order or release dat
 
 | Feature | Current state / dependency |
 | --- | --- |
-| Library metadata enrichment, folder and season navigation ([#242](https://github.com/LimeBeck/arinn/issues/242)) | Planning; source precedence and navigation decisions pending. Online enrichment is not selected |
+| Library metadata enrichment, folder and season navigation ([#242](https://github.com/LimeBeck/arinn/issues/242)) | Offline folder/season navigation approved on 2026-11-01; implementation [#629](https://github.com/LimeBeck/arinn/issues/629) follows merged hierarchy contract [#627](https://github.com/LimeBeck/arinn/pull/627). Online enrichment/source precedence remain planning work |
 | Web-service screenshots on Continue cards ([#362](https://github.com/LimeBeck/arinn/issues/362)) | Per-window cache/transport increment still required; Home background capture alone does not deliver it |
 | Embedded playback via nested Wayland compositor ([#433](https://github.com/LimeBeck/arinn/issues/433)) | Spike measured synthetic 4K30/60; owner review and production architecture decision pending. [libmpv #244](https://github.com/LimeBeck/arinn/issues/244) is a separate conditional fallback |
 | Input assignment UI, per-device bindings and gamepads ([#64](https://github.com/LimeBeck/arinn/issues/64)) | Basic shell bindings already delivered; remaining scope unscheduled, gamepads a Phase 6 candidate |

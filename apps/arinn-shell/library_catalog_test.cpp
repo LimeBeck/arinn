@@ -47,6 +47,12 @@ struct ItemWire {
   QString fanart;
   bool available = true;
 };
+struct FolderWire { QString id, parentId, title; bool available = true; };
+struct FolderMemberWire { QString folderId, itemId; };
+QDBusArgument &operator<<(QDBusArgument &arg, const FolderWire &f) { arg.beginStructure(); arg << f.id << f.parentId << f.title << f.available; arg.endStructure(); return arg; }
+const QDBusArgument &operator>>(const QDBusArgument &arg, FolderWire &) { return arg; }
+QDBusArgument &operator<<(QDBusArgument &arg, const FolderMemberWire &m) { arg.beginStructure(); arg << m.folderId << m.itemId; arg.endStructure(); return arg; }
+const QDBusArgument &operator>>(const QDBusArgument &arg, FolderMemberWire &) { return arg; }
 struct AdditionWire {
   QString id;
   qulonglong time = 1;
@@ -228,6 +234,11 @@ public:
   QHash<QString, QList<ItemWire>> extraPages;
   QHash<QString, QList<AdditionWire>> extraAdditions;
   QList<AdditionWire> additions;
+  QList<FolderWire> folders;
+  QList<FolderMemberWire> folderMembers;
+  bool pagedHierarchy = false, staleHierarchy = false, rejectHierarchy = false;
+  int hierarchyReads = 0;
+  qulonglong hierarchyRequestRevision = 0;
   QString additionGeneration = QStringLiteral("g-library");
   qulonglong additionRevision = 1;
   int additionReads = 0;
@@ -349,6 +360,17 @@ public:
       ++featureReads;
       bus.send(message.createReply(QVariant::fromValue(features)));
       return true;
+    } else if (message.member() == QLatin1String("GetHierarchy")) {
+      ++hierarchyReads;
+      hierarchyRequestRevision = message.arguments().value(1).toULongLong();
+      if (rejectHierarchy) { bus.send(message.createErrorReply(QStringLiteral("org.arinn.Error1.Unavailable"), QStringLiteral("Unavailable"))); return true; }
+      const bool second = !message.arguments().value(2).toString().isEmpty();
+      body.beginStructure(); body << pageGeneration << qulonglong(staleHierarchy ? 999 : page1Revision);
+      body.beginArray(QMetaType::fromType<FolderWire>());
+      if (!second) for (const auto &row : folders) body << row;
+      body.endArray(); body.beginArray(QMetaType::fromType<FolderMemberWire>());
+      if (!pagedHierarchy || second) for (const auto &row : folderMembers) body << row;
+      body.endArray(); body << (pagedHierarchy && !second ? QStringLiteral("hierarchy2") : QString()); body.endStructure();
     } else if (message.member() == QLatin1String("GetAdditions")) {
       ++additionReads;
       requestedAdditionRevision = message.arguments().value(1).toULongLong();
@@ -528,6 +550,8 @@ class LibraryCatalogTest : public QObject {
   Q_OBJECT
 private slots:
   void initTestCase() {
+    qDBusRegisterMetaType<FolderWire>();
+    qDBusRegisterMetaType<FolderMemberWire>();
     qDBusRegisterMetaType<CollectionWire>();
     qDBusRegisterMetaType<ItemWire>();
     qDBusRegisterMetaType<ResumeWire>();
@@ -545,6 +569,68 @@ private slots:
     bus.unregisterObject(QStringLiteral("/org/arinn"),
                          QDBusConnection::UnregisterTree);
     bus.unregisterService(QStringLiteral("org.arinn.Daemon1"));
+  }
+  void folderHierarchyIsPagedOptionalAndReusesContentIdentity() {
+    LibraryDaemon daemon;
+    daemon.features = {QStringLiteral("LibraryHierarchy1")};
+    daemon.collections = {{QStringLiteral("films"), QStringLiteral("Films"), QStringLiteral("film")}};
+    const auto contentLocal = QStringLiteral("folder\nr"); // Valid opaque ID must never collide with a folder.
+    daemon.page1 = {film(contentLocal, QStringLiteral("North"))};
+    daemon.folders = {{QStringLiteral("r"), QString(), QStringLiteral("Media"), true}, {QStringLiteral("d"), QStringLiteral("r"), QStringLiteral("Nested"), false}};
+    daemon.folderMembers = {{QStringLiteral("d"), contentLocal}};
+    daemon.pagedHierarchy = true;
+    QVERIFY(registerBus(daemon));
+    LibraryCatalog catalog;
+    QTRY_COMPARE(catalog.folderEntries().size(), 3);
+    QCOMPARE(catalog.entries().size(), 1);
+    QCOMPARE(daemon.hierarchyReads, 2);
+    QCOMPARE(daemon.hierarchyRequestRevision, qulonglong(1));
+    const auto id = catalog.entries().at(0).toMap().value(QStringLiteral("id")).toString();
+    for (const auto &v : catalog.folderEntries()) if (v.toMap().value(QStringLiteral("kind")) == QStringLiteral("folder")) QVERIFY(v.toMap().value(QStringLiteral("id")).toString() != id);
+    QVariantMap content;
+    for (const auto &v : catalog.folderEntries()) if (v.toMap().value(QStringLiteral("kind")) != QStringLiteral("folder")) content = v.toMap();
+    QCOMPARE(content.value(QStringLiteral("id")).toString(), id);
+    catalog.launch(id);
+    QTRY_COMPARE(daemon.lastLocal, contentLocal);
+    QSignalSpy changed(&catalog, &LibraryCatalog::catalogChanged);
+    catalog.refresh(); QTRY_COMPARE(daemon.hierarchyReads, 4); QTest::qWait(100);
+    QCOMPARE(changed.count(), 0);
+    for (int invalid = 0; invalid < 3; ++invalid) {
+      daemon.staleHierarchy = invalid == 0;
+      daemon.rejectHierarchy = invalid == 1;
+      daemon.folderMembers[0].itemId = invalid == 2 ? QStringLiteral("unknown") : contentLocal;
+      const auto before = daemon.hierarchyReads;
+      catalog.refresh(); QTRY_VERIFY(daemon.hierarchyReads > before); QTest::qWait(30); QTRY_VERIFY(catalog.folderEntries().isEmpty());
+      QCOMPARE(catalog.entries().size(), 1);
+    }
+    daemon.staleHierarchy = false; daemon.rejectHierarchy = false;
+    daemon.folderMembers[0].itemId = contentLocal;
+    catalog.refresh(); QTRY_COMPARE(catalog.folderEntries().size(), 3);
+    daemon.features.clear(); catalog.refresh(); QTRY_VERIFY(catalog.folderEntries().isEmpty());
+    QCOMPARE(catalog.entries().size(), 1);
+  }
+  void seasonGroupsAreNumericAndUnknownEpisodesStaySeparate() {
+    LibraryDaemon daemon;
+    daemon.features.clear();
+    daemon.collections = {{QStringLiteral("series"), QStringLiteral("Series"), QStringLiteral("series")}};
+    auto series = film(QStringLiteral("show"), QStringLiteral("Show")); series.kind = QStringLiteral("series"); series.collectionId = QStringLiteral("series");
+    auto episode = [series](const QString &id, int season, int number, const QString &title) {
+      auto row = film(id, title); row.kind = QStringLiteral("episode"); row.parentId = series.id; row.collectionId = series.collectionId;
+      row.hasSeason = season > 0; row.season = season; row.hasEpisode = number > 0; row.episode = number; return row;
+    };
+    daemon.page1 = {series, episode(QStringLiteral("e10"), 2, 10, QStringLiteral("A")), episode(QStringLiteral("e2"), 2, 2, QStringLiteral("Z")), episode(QStringLiteral("e1"), 1, 1, QStringLiteral("One")), episode(QStringLiteral("unknown"), 0, 0, QStringLiteral("Extra"))};
+    QVERIFY(registerBus(daemon)); LibraryCatalog catalog;
+    QTRY_COMPARE(catalog.entries().size(), 1);
+    const auto entry = catalog.entries().at(0).toMap();
+    const auto seasons = entry.value(QStringLiteral("seasons")).toList();
+    QCOMPARE(seasons.size(), 3);
+    QCOMPARE(seasons.at(0).toMap().value(QStringLiteral("id")).toString(), QStringLiteral("s1"));
+    QCOMPARE(seasons.at(1).toMap().value(QStringLiteral("id")).toString(), QStringLiteral("s2"));
+    QCOMPARE(seasons.at(2).toMap().value(QStringLiteral("id")).toString(), QStringLiteral("unknown"));
+    const auto episodes = entry.value(QStringLiteral("episodes")).toList();
+    QCOMPARE(episodes.at(1).toMap().value(QStringLiteral("id")).toString(), presentationId(QStringLiteral("library-provider"), QStringLiteral("e2")));
+    QCOMPARE(episodes.at(2).toMap().value(QStringLiteral("id")).toString(), presentationId(QStringLiteral("library-provider"), QStringLiteral("e10")));
+    QCOMPARE(episodes.last().toMap().value(QStringLiteral("seasonId")).toString(), QStringLiteral("unknown"));
   }
   void newEntriesMergeProvidersAndKeepTheLatestTwelve() {
     LibraryDaemon daemon;

@@ -174,6 +174,21 @@ Opening Home MUST NOT terminate the application, MUST NOT pause it unless the pr
 
 A catalogue of films and series from LibraryProviders, with tabs, a poster grid, detail screens, missing-file badges, loading skeletons and an empty state ([§7.4](#74-local-library-and-mpv)).
 
+The owner-approved offline navigation uses a **Catalogue / Folders** view switch
+([ADR-0124](../adr/0124-offline-folder-and-season-navigation.md)). Catalogue keeps
+Films/Series categories; Folders follows configured roots and nested directories,
+including known unavailable entries. Both views use the same content identities,
+progress and launch actions. From the season/episode rail, Back first restores
+the detail's primary action; another Back leaves detail, then one folder level, restoring
+the opener and scroll position; Back at the root follows the existing Library rule.
+Series use numeric season/episode order. When known and unknown seasons coexist,
+a separate **Without season** group keeps the latter reachable without repeating
+them in known seasons; an entirely unknown-season series keeps its direct list.
+Focusing seasons or episodes raises their rail so episode captions stay visible.
+A physical episode opens its existing series at that episode when its parent
+series is present, and returning from detail restores the physical file card.
+No online metadata source is selected by this increment.
+
 ### 5.4. Downloads
 
 A working MVP section backed by DownloadProvider ([§7.5](#75-downloads-and-transmission)): queue, progress, pause/resume/start now/retry, error and service-unavailable states, completion toast, and a "Watch" action once the media is imported into the library.
@@ -397,8 +412,8 @@ Steam and EmulationStation MUST be available in the MVP as dedicated Home tiles,
 Optional provider-owned folder topology uses the additive
 [LibraryHierarchy1 contract](../adr/0123-library-folder-hierarchy.md), scoped to
 the catalogue generation/revision. It preserves content/series identity and
-keeps filesystem traversal inside the provider; this contract alone does not
-implement folder navigation.
+keeps filesystem traversal inside the provider. Offline provider persistence and
+view navigation follow [ADR-0124](../adr/0124-offline-folder-and-season-navigation.md).
 
 ### 7.5. Downloads and Transmission
 

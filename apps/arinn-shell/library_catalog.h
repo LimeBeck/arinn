@@ -18,6 +18,7 @@ class LibraryCatalog : public QObject {
   Q_PROPERTY(QString libraryState READ libraryState NOTIFY catalogChanged)
   Q_PROPERTY(QVariantList tabs READ tabs NOTIFY catalogChanged)
   Q_PROPERTY(QVariantList entries READ entries NOTIFY catalogChanged)
+  Q_PROPERTY(QVariantList folderEntries READ folderEntries NOTIFY catalogChanged)
   Q_PROPERTY(QVariantList newEntries READ newEntries NOTIFY catalogChanged)
   Q_PROPERTY(QString operationState READ operationState NOTIFY operationChanged)
   Q_PROPERTY(QString launchingId READ launchingId NOTIFY operationChanged)
@@ -26,6 +27,7 @@ public:
   QString libraryState() const;
   QVariantList tabs() const { return m_tabs; }
   QVariantList entries() const { return m_entries; }
+  QVariantList folderEntries() const { return m_folderEntries; }
   QVariantList newEntries() const { return m_newEntries; }
   QString operationState() const { return m_operation; }
   QString launchingId() const { return m_launchingId; }
@@ -101,6 +103,7 @@ private:
                      const QString &token = {});
   void readLibrary(const std::shared_ptr<Catalog> &catalog, int index,
                    const QString &token = {});
+  void readHierarchy(const std::shared_ptr<Catalog> &catalog, int index, const QString &token = {});
   void readAdditions(const std::shared_ptr<Catalog> &catalog, int index);
   void readFeatures(const std::shared_ptr<Catalog> &catalog, int index);
   void readResumes(const std::shared_ptr<Catalog> &catalog, int index,
@@ -118,6 +121,7 @@ private:
   const ItemRow *seriesTarget(const ItemRow &series) const;
   const ItemRow *launchTarget(const ItemRow &row) const;
   QVariantList m_tabs;
+  QVariantList m_folderEntries, m_hierarchies;
   QVariantList m_entries;
   QVariantList m_newEntries;
   QList<ItemRow> m_items;

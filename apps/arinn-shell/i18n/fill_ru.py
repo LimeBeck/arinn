@@ -12,6 +12,16 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 RU = {
+    # Offline library navigation (#629)
+    'Folder': 'Папка',
+    'Up one level': 'На уровень выше',
+    'There are no videos in this folder yet': 'В этой папке пока нет видео',
+    'Folder unavailable · check the connection': 'Папка недоступна · проверьте подключение',
+    "Catalogue": "Каталог",
+    "Folders": "Папки",
+    "Without season": "Без сезона",
+    "This folder is empty": "Папка пуста",
+    "Go back to choose another folder.": "Вернитесь назад, чтобы выбрать другую папку.",
     # Shared controls and states
     "Loading…": "Загрузка…",
     "Loading": "Загрузка",

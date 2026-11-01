@@ -238,6 +238,8 @@ Back from that rail restores the primary action before leaving detail. Physical
 episodes resolve their already-present parent series from the presentation model;
 `detailOpenerId` retains the original file card independently of the series detail
 ID, so Back and Home return to the physical location.
+An external detail route discards an opener that belongs to a different title;
+opening a new Home card cannot reuse the previous detail's return target.
 
 Validation fixtures are in `library_catalog_test.cpp` and `tst_library.qml`;
 provider persistence is described in [media-mvp.md](media-mvp.md). This change

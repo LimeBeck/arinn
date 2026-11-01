@@ -43,6 +43,16 @@ FocusScope {
     property string detailOpenerId: ""
     property bool detailRailActive: false
     onDetailRailActiveChanged: hoverDelay.restart()
+    onDetailEntryIdChanged: {
+        detailRailActive = false;
+        if (!detailEntryId.length) {
+            detailOpenerId = "";
+        } else if (detailOpenerId.length && detailOpenerId !== detailEntryId) {
+            const target = entryById(detailEntryId);
+            if (!target || !(target.episodes || []).some(episode => episode.id === detailOpenerId))
+                detailOpenerId = "";
+        }
+    }
     property string operationState: ""
     property string launchingId: ""
     // The shell's input mode (ADR-0095); tests may assign it directly.

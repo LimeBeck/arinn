@@ -706,6 +706,13 @@ TestCase {
         wait(50); verify(other.activeFocus);
         library.ownsFocus = true;
     }
+    function test_external_detail_route_does_not_reuse_an_old_opener() {
+        createLibrary(catalogue()); focused("tab-films");
+        library.openEntry("a"); focused("detailPlay");
+        // Home may replace the detail ID through its presentation binding.
+        library.detailEntryId = "b";
+        keyClick(Qt.Key_Escape); focused("poster-b");
+    }
     function test_home_return_restores_card_without_stealing_overlay_focus() {
         createLibrary(foldersFixture()); focused("libraryMode-folders");
         library.openEntry("root"); focused("poster-nested");

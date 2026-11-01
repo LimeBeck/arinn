@@ -121,6 +121,9 @@ impl SettingsHandler for Bridge {
     fn schema(&self) -> Vec<arinn_protocol::settings::Setting> {
         settings::schema()
     }
+    fn translations(&self) -> arinn_protocol::settings::Translations {
+        settings::translations()
+    }
 
     fn apply(
         &self,

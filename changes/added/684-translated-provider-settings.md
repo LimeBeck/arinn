@@ -1,0 +1,1 @@
+- Settings shows the library, player and download-service settings in Russian on a Russian system; any provider can ship translations of its setting texts ([#684](https://github.com/LimeBeck/arinn/issues/684)).

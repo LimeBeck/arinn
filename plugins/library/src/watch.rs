@@ -339,6 +339,9 @@ impl SettingsHandler for Bridge {
     fn schema(&self) -> Vec<Setting> {
         crate::settings::schema()
     }
+    fn translations(&self) -> arinn_protocol::settings::Translations {
+        crate::settings::translations()
+    }
 
     fn apply(
         &self,

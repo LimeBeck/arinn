@@ -31,7 +31,15 @@ rows on this screen. `SettingsCatalog` also exposes them as `lightField` and
 to `lightField`. An invalid hand-edited value of either key in `config.toml`
 reads as its default, with one warning line and no value in the log. The
 titles, descriptions and option titles of the `arinn`
-source are shown translated; provider texts are shown as sent.
+source are shown translated from the shell's catalogue. For every other
+provider `SettingsCatalog` reads `Settings1.GetTranslations` after
+`GetSettings` and shows each title, description, option title and integer
+unit from the provider's table for `QLocale().name()` (`ru_RU`), then for its
+language (`ru`), else the provider's English source text
+([ADR-0129](../adr/0129-provider-setting-translations.md)). A daemon without
+the method, an error or a table from another generation leaves the source
+texts. The library, managed player and Transmission providers ship Russian
+texts.
 
 ## What the view receives
 

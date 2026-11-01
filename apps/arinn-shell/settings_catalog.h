@@ -6,6 +6,7 @@
 
 #pragma once
 #include <QHash>
+#include <QJsonObject>
 #include <QObject>
 #include <QSet>
 #include <QTimer>
@@ -83,10 +84,13 @@ private:
     QString name;
     QString generation;
     QList<SettingRecord> settings;
+    // Translations of the setting texts (ADR-0129), from GetTranslations.
+    QJsonObject translations;
     bool ok = false;
   };
   struct Load;
   struct RootScan;
+  void readTranslations(const std::shared_ptr<Load> &load, int index);
   void readLibraryProviders(const std::shared_ptr<RootScan> &scan,
                             const QString &token);
   void readRoots(const QString &providerId);

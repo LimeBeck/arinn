@@ -16,12 +16,15 @@ Only the four states selected in [#569](https://github.com/LimeBeck/arinn/issues
 are published. The owner accepted Qt 6.8 or later; a Qt 6.10-only environment is
 not required. The frames include the #564 focus-only Home menu plate, the #565
 drawn on-screen and sound marks and Site or search button, the #566 focus-only
-Settings source line and the #641 centred Settings titles.
+Settings source line and the #641 centred Settings titles. `home.png` and
+`open-services.png` were recaptured the same way with the combined visual
+follow-ups (#639 first-row position, #640 speaker icon, #656 two-line favorite
+names); `settings.png` and `library-folders.png` render unchanged.
 
 | File | Manifest state | Contents |
 | --- | --- | --- |
-| `home.png` | `home-populated` | Continue cards, fictional favorite tiles and the focused Home menu button with its plate |
-| `open-services.png` | `browser-list` | Fictional .example services with on-screen and sound marks, bookmark and close controls and the Site or search button |
+| `home.png` | `home-populated` | Continue cards, fictional favorite tiles with two-line names and the focused Home menu button with its plate |
+| `open-services.png` | `browser-list` | Fictional .example services with the on-screen mark and the speaker-icon sound mark, bookmark and close controls and the Site or search button |
 | `settings.png` | `settings-rows` | Appearance: light field, ambient timeout and text size; only the focused row shows its source line |
 | `library-folders.png` | `library-folders-list` | Inline fictional folder paths with Add path / Remove controls |
 

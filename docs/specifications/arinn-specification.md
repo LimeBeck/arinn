@@ -223,7 +223,9 @@ Owner decisions of 2026-09-30:
 - A value that applies at the next start shows a toast and a row note until the provider restarts. There is no *Restart now* action.
 - A library folder that is unavailable is shown as unavailable only when the library provider reports it.
 
-Removing a folder removes its items from the library and never deletes files. Arinn never mounts or browses network shares; mounted folders appear as start points in the picker.
+Owner decision of 2026-11-01 ([#566](https://github.com/LimeBeck/arinn/issues/566)): for the MVP, a `path` setting with several folders is edited as an inline list of text fields with Add and Remove in its settings category. The handoff's separate Library folders screen and the folder picker (LF, PK) are not part of the MVP.
+
+Removing a folder removes its items from the library and never deletes files. Arinn never mounts or browses network shares; when the folder picker is built, mounted folders appear as its start points.
 
 A typed path that begins with `~/`, or is only `~`, means the user's home folder: the shell expands it before it proposes the value, so the stored setting and the contract stay absolute paths. `~user/` is not supported. Owner decision of 2026-10-26 ([#479](https://github.com/LimeBeck/arinn/issues/479)).
 

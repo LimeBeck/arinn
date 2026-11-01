@@ -447,6 +447,8 @@ CONTEXT = {
     # A folder or path only leaves the list; nothing is deleted (§5.6,
     # handoff LF-6: «Убрать», never «Удалить»; #558).
     ("SettingsView", "Remove"): "Убрать",
+    ("SettingsView", "Edit"): "Изменить",
+    ("SettingsView", "To sections"): "К разделам",
 }
 
 

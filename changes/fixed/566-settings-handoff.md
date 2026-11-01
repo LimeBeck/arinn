@@ -1,0 +1,1 @@
+- Settings matches the design handoff more closely. Category icons are filled 38 px icons. A setting's source provider shows only on the focused row, so rows at rest are title and description. A hint bar "OK Edit · Back To sections" shows while a setting has focus, and a long list fades at its edges instead of being cut ([#566](https://github.com/LimeBeck/arinn/issues/566)).
